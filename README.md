@@ -8,8 +8,8 @@ We introduce a novel open-source framework that turns browser tabs into collabor
 
 ## 🗂 Repository Contents
 
-- `paper/optimando-research-pager-v1.pdf` – Final published version of the paper  
-- `timestamps/optimand-research-paper-v1.pdf.ots` – OpenTimestamps hash proof of authorship  
+- `optimando-research-pager-v1.pdf` – Final published version of the paper  
+- `optimand-research-paper-v1.pdf.ots` – OpenTimestamps hash proof of authorship  
 - `readme.txt` – License and usage terms
 
 ## 🧠 About Optimando.ai
