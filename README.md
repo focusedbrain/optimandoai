@@ -6,14 +6,13 @@ This repository contains the original scientific paper published by [Optimando.a
 
 We introduce a novel open-source framework that turns browser tabs into collaborative AI agents using a master–slave orchestration pattern. The system enables seamless optimization of digital workspaces by integrating multiple language models across browser tabs, controlled by a central orchestrator.
 
-## 🗂 Repository Contents
+## 🗂 Repository Contents (Prior Versions extist in the repo as well)
 
-- `optimandoai-research-pager-v3.pdf` – Final published version of the paper  
-- `optimandoai-research-paper-v3.pdf.ots` – OpenTimestamps hash proof of authorship
+- `optimandoai-research-pager-v4.pdf` – Final published version of the paper  
+- `optimandoai-research-paper-v4.pdf.ots` – OpenTimestamps hash proof of authorship
+- readme.md
+- license.txt
 
-- 
-- 
-- `readme.txt` – License and usage terms
 
 ## 🧠 About Optimando.ai
 
