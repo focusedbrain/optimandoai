@@ -1,4 +1,4 @@
-License: Creative Commons Attribution 4.0 International (CC BY 4.0)
+License: Creative Commons Attribution 4.0 International (CC BY 4.0) https://creativecommons.org/licenses/by/4.0/
 This work is licensed under the Creative Commons Attribution 4.0 International License.
 
 This framework introduces the first open-source, browser-based, tab-level multi-agent orchestration model for contextual real-time optimization and optimization suggestion workflows.
