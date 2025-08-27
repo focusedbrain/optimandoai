@@ -1,6 +1,10 @@
 name: CI
 
-on: [push, pull_request]
+on:
+  push:
+    branches: [ main, chore/*, feat/* ]
+  pull_request:
+    branches: [ main ]
 
 jobs:
   test:
@@ -8,15 +12,35 @@ jobs:
     defaults:
       run:
         working-directory: code
+
     steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v3
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v3
         with:
           version: 9
-      - uses: actions/setup-node@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
         with:
-          node-version: 20
-          cache: 'pnpm'
-          cache-dependency-path: 'code/pnpm-lock.yaml'
-      - run: pnpm install
-      - run: pnpm test
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: code/pnpm-lock.yaml
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Prettier check
+        run: pnpm run format:check
+
+      - name: Unit tests (root)
+        run: pnpm test -- --run
+
+      - name: Unit tests (desktop app)
+        run: pnpm -C apps/desktop test
+
