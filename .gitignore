@@ -1,0 +1,11 @@
+# dependencies
+node_modules/
+.pnpm/
+
+# builds
+dist/
+build/
+
+# misc
+.DS_Store
+*.log
