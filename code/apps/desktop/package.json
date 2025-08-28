@@ -4,9 +4,10 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "vitest",
-    "test:ci": "vitest run --reporter=dot"
-  },
+  "test": "vitest",
+  "test:ci": "vitest run --reporter=dot"
+},
+
   "devDependencies": {
     "@testing-library/jest-dom": "^6.8.0",
     "@testing-library/react": "^16.3.0",
