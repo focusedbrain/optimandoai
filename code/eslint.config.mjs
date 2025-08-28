@@ -8,12 +8,7 @@ export default [
 
   // Globales Ignorieren von Build-/Dependency-Verzeichnissen
   {
-    ignores: [
-      '**/node_modules/**',
-      '**/dist/**',
-      '**/dist-electron/**',
-      '**/coverage/**'
-    ],
+    ignores: ['**/node_modules/**', '**/dist/**', '**/dist-electron/**', '**/coverage/**'],
   },
 
   // Prettier zuletzt, um Konflikte zu neutralisieren
