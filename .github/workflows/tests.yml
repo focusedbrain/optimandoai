@@ -7,16 +7,10 @@ on:
   pull_request:
     branches:
       - '**'
-  workflow_dispatch:
-
-concurrency:
-  group: "tests-${{ github.ref }}"
-  cancel-in-progress: true
 
 jobs:
   test_all:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
     defaults:
       run:
         working-directory: code
@@ -30,8 +24,6 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: pnpm
-          cache-dependency-path: code/pnpm-lock.yaml
       - name: Ensure no frozen lockfile
         run: pnpm config set frozen-lockfile false
       - name: Install dependencies (no scripts)
@@ -43,7 +35,6 @@ jobs:
 
   osv_scan:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - name: Install OSV-Scanner
