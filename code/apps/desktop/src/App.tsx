@@ -6,7 +6,9 @@ export default function App() {
   return (
     <div style={{ padding: 24, fontFamily: 'sans-serif' }}>
       <h1>OpenGiraffe Orchestrator</h1>
-      <p>Counter: <b>{count}</b></p>
+      <p>
+        Counter: <b>{count}</b>
+      </p>
       <div style={{ display: 'flex', gap: 12 }}>
         <button onClick={inc}>+1</button>
         <button onClick={reset}>Reset</button>
@@ -17,4 +19,3 @@ export default function App() {
     </div>
   );
 }
-
