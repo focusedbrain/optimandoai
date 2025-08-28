@@ -2,9 +2,9 @@ name: CI - Workspace Tests
 
 on:
   push:
-    branches: [ "**" ]
+    branches: ["**"]
   pull_request:
-    branches: [ "**" ]
+    branches: ["**"]
 
 jobs:
   test-all:
@@ -26,12 +26,15 @@ jobs:
         with:
           node-version: 22
 
-      - name: Install dependencies (no scripts, no frozen lockfile)
+      # Hard-override, damit pnpm NICHT frozen-lockfile erzwingt
+      - name: Ensure no frozen lockfile
+        run: pnpm config set frozen-lockfile false
+
+      - name: Install dependencies (no scripts)
         run: pnpm install --ignore-scripts --no-frozen-lockfile
 
       - name: Show workspace packages
         run: pnpm -r list --depth -1
 
       - name: Run tests in all packages (if present)
-  run: pnpm -r --workspace-concurrency=1 --if-present run test:ci
-
+        run: pnpm -r --workspace-concurrency=1 --if-present run test:ci
