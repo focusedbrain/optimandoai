@@ -30,6 +30,8 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 22
+          cache: pnpm
+          cache-dependency-path: code/pnpm-lock.yaml
       - name: Ensure no frozen lockfile
         run: pnpm config set frozen-lockfile false
       - name: Install dependencies (no scripts)
