@@ -1,0 +1,29 @@
+﻿# Node / pnpm
+node_modules/
+.pnpm-debug.log
+pnpm-debug.log*
+
+# Vite / Build Artefakte
+dist/
+.vite/
+*.local
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+*.log
+
+# Test coverage
+coverage/
+
+# Editor
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Environment files
+.env
+.env.*
+!.env.example
