@@ -61,6 +61,7 @@ jobs:
         run: pnpm install --ignore-scripts --no-frozen-lockfile
 
       - name: OSV scan
-        uses: google/osv-scanner-action@v1
+        uses: google/osv-scanner-action@v2
+
         with:
           scan-args: ". --lockfile=pnpm-lock.yaml"
