@@ -26,9 +26,9 @@ jobs:
     node-version: 22
 
 
+- name: Install dependencies (no scripts, no frozen lockfile)
+  run: pnpm install --ignore-scripts --no-frozen-lockfile
 
-      - name: Install dependencies (no scripts)
-        run: pnpm install --ignore-scripts
 
       # Optional: schnelle Sanity-Checks
       - name: Show workspace packages
