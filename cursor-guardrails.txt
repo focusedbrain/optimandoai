@@ -1,0 +1,9 @@
+﻿WORK RULES (strict):
+- Repo: C:\Users\oscar\Documents\dev\optimandoai
+- Only modify/create the files explicitly listed in the task.
+- Do NOT touch: package.json, pnpm-lock.yaml, .github/**, tsconfig*, vitest.config.ts, build/CI configs.
+- Do NOT add new dependencies.
+- Minimal diff only. Do not rename public APIs/props/exports.
+- No format-only changes; only what’s required for the task.
+- Test env: Vitest + React Testing Library + jsdom + jest-dom are available.
+- At the end, list the files you changed/created.
