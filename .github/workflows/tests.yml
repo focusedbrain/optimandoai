@@ -2,16 +2,17 @@ name: CI - Workspace Tests
 
 on:
   push:
-    branches: [ main ]
+    branches: [ "**" ]
   pull_request:
-    branches: [ main ]
+    branches: [ "**" ]
 
 jobs:
   test-all:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: code   # unser Workspace liegt in /code
+        working-directory: code
+
     steps:
       - uses: actions/checkout@v4
 
@@ -20,21 +21,16 @@ jobs:
         with:
           version: 9
 
-     - name: Use Node.js
-  uses: actions/setup-node@v4
-  with:
-    node-version: 22
+      - name: Use Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
 
+      - name: Install dependencies (no scripts, no frozen lockfile)
+        run: pnpm install --ignore-scripts --no-frozen-lockfile
 
-- name: Install dependencies (no scripts, no frozen lockfile)
-  run: pnpm install --ignore-scripts --no-frozen-lockfile
-
-
-      # Optional: schnelle Sanity-Checks
       - name: Show workspace packages
         run: pnpm -r list --depth -1
 
-      # Tests in allen Paketen ausführen, die ein "test:ci"-Script besitzen
       - name: Run tests in all packages (if present)
         run: pnpm -r --workspace-concurrency=1 run test:ci --if-present
-        # --workspace-concurrency=1 = stabilere Logs; auf 2-4 erhöhen wenn schneller gewünscht
