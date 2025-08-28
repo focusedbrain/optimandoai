@@ -1,4 +1,4 @@
-name: CI - Workspace Tests
+﻿name: CI - Workspace Tests
 
 on:
   push:
@@ -16,40 +16,30 @@ jobs:
         working-directory: code
     steps:
       - uses: actions/checkout@v4
-
       - name: Install pnpm
         uses: pnpm/action-setup@v4
         with:
           version: 9
-
       - name: Use Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 22
-
       - name: Ensure no frozen lockfile
         run: pnpm config set frozen-lockfile false
-
       - name: Install dependencies (no scripts)
         run: pnpm install --ignore-scripts --no-frozen-lockfile
-
       - name: Show workspace packages
         run: pnpm -r list --depth -1
-
       - name: Run tests in all packages (if present)
         run: pnpm -r --workspace-concurrency=1 --if-present run test:ci
 
-      osv_scan:
+  osv_scan:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      # OSV-Scanner CLI downloaden und installieren
       - name: Install OSV-Scanner
         run: |
           curl -sSfL https://raw.githubusercontent.com/google/osv-scanner/main/scripts/install.sh | sh -s -- -b /usr/local/bin
-
-      # Lockfile im Monorepo scannen (grün bleiben, nur Bericht)
       - name: Run OSV scan (lockfile only)
         run: |
           osv-scanner --lockfile=./code/pnpm-lock.yaml || true
