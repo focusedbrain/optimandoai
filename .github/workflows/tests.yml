@@ -20,11 +20,12 @@ jobs:
         with:
           version: 9
 
-      - name: Use Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: "pnpm"
+     - name: Use Node.js
+  uses: actions/setup-node@v4
+  with:
+    node-version: 22
+
+
 
       - name: Install dependencies (no scripts)
         run: pnpm install --ignore-scripts
