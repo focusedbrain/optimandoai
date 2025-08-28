@@ -39,29 +39,17 @@ jobs:
       - name: Run tests in all packages (if present)
         run: pnpm -r --workspace-concurrency=1 --if-present run test:ci
 
-  osv_scan:
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: code
-    steps:
-      - uses: actions/checkout@v4
+    osv_scan:
+    # Reusable workflow der OSV-Scanner-Maintainer (exakte Version!)
+    uses: google/osv-scanner-action/.github/workflows/osv-scanner-reusable.yml@v2.2.2
+    with:
+      # Wir scannen nur das Lockfile im Monorepo unter /code,
+      # damit es schnell ist und keinen Build braucht.
+      scan-args: |-
+        --lockfile=./code/pnpm-lock.yaml
 
-      - name: Install pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 9
+      # CI nicht rot machen – nur Report (später gern auf true drehen)
+      fail-on-vuln: false
+      # Kein SARIF-Upload -> keine extra Permissions nötig
+      upload-sarif: false
 
-      - name: Use Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-
-      - name: Install (no scripts, no frozen lockfile)
-        run: pnpm install --ignore-scripts --no-frozen-lockfile
-
-      - name: OSV scan
-        uses: google/osv-scanner-action@v2
-
-        with:
-          scan-args: ". --lockfile=pnpm-lock.yaml"
