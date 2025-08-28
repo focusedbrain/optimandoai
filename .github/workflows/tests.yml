@@ -1,16 +1,16 @@
 ﻿name: CI - Workspace Tests
 
 on:
-  concurrency:
-    group: tests-${{ github.ref }}
-    cancel-in-progress: true
-
   push:
     branches:
       - '**'
   pull_request:
     branches:
       - '**'
+
+concurrency:
+  group: "tests-${{ github.ref }}"
+  cancel-in-progress: true
 
 jobs:
   test_all:
