@@ -30,8 +30,9 @@ jobs:
       - name: Ensure no frozen lockfile
         run: pnpm config set frozen-lockfile false
 
-      - name: Install dependencies (no scripts)
-        run: pnpm install --ignore-scripts --no-frozen-lockfile
+     - name: Install dependencies (no scripts, frozen lockfile)
+  run: pnpm install --ignore-scripts --frozen-lockfile
+
 
       - name: Show workspace packages
         run: pnpm -r list --depth -1
