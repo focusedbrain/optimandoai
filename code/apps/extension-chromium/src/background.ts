@@ -1,6 +1,7 @@
 let ws: WebSocket | null = null;
 let isConnecting = false;
 let autoConnectInterval: NodeJS.Timeout | null = null;
+let heartbeatInterval: NodeJS.Timeout | null = null;
 let sidebarsVisible = false;
 
 // Connect to external WebSocket server (not the desktop app)
@@ -25,6 +26,9 @@ function connectToWebSocketServer() {
       // Send initial message
       ws?.send(JSON.stringify({ type: 'ping', from: 'extension' }));
 
+      // Start heartbeat to keep connection alive
+      startHeartbeat();
+
       // Update extension badge
       chrome.action.setBadgeText({ text: 'ON' });
       chrome.action.setBadgeBackgroundColor({ color: '#00FF00' });
@@ -32,6 +36,16 @@ function connectToWebSocketServer() {
 
     ws.addEventListener('message', (e) => {
       console.log(`📨 Nachricht erhalten: ${String(e.data)}`);
+      
+      // Handle pong responses
+      try {
+        const data = JSON.parse(String(e.data));
+        if (data.type === 'pong') {
+          console.log('🏓 Pong erhalten - Verbindung ist aktiv');
+        }
+      } catch (error) {
+        // Ignore parsing errors
+      }
     });
 
     ws.addEventListener('error', (error) => {
@@ -43,14 +57,25 @@ function connectToWebSocketServer() {
       chrome.action.setBadgeBackgroundColor({ color: '#FF0000' });
     });
 
-    ws.addEventListener('close', () => {
-      console.log('🔌 WebSocket-Verbindung geschlossen');
+    ws.addEventListener('close', (event) => {
+      console.log(`🔌 WebSocket-Verbindung geschlossen (Code: ${event.code}, Reason: ${event.reason})`);
       ws = null;
       isConnecting = false;
+      
+      // Stop heartbeat
+      stopHeartbeat();
 
       // Update extension badge
       chrome.action.setBadgeText({ text: 'OFF' });
       chrome.action.setBadgeBackgroundColor({ color: '#FF0000' });
+      
+      // Try to reconnect after a short delay
+      setTimeout(() => {
+        if (!ws || ws.readyState !== WebSocket.OPEN) {
+          console.log('🔄 Versuche automatische Wiederverbindung...');
+          connectToWebSocketServer();
+        }
+      }, 2000);
     });
 
   } catch (error) {
@@ -59,6 +84,29 @@ function connectToWebSocketServer() {
 
     // Update extension badge
     chrome.action.setBadgeBackgroundColor({ color: '#FF0000' });
+  }
+}
+
+// Start heartbeat to keep connection alive
+function startHeartbeat() {
+  stopHeartbeat(); // Clear any existing heartbeat
+  
+  heartbeatInterval = setInterval(() => {
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      console.log('🏓 Sende Ping...');
+      ws.send(JSON.stringify({ type: 'ping', from: 'extension', timestamp: Date.now() }));
+    } else {
+      console.log('🔌 WebSocket nicht verbunden - stoppe Heartbeat');
+      stopHeartbeat();
+    }
+  }, 30000); // Send ping every 30 seconds
+}
+
+// Stop heartbeat
+function stopHeartbeat() {
+  if (heartbeatInterval) {
+    clearInterval(heartbeatInterval);
+    heartbeatInterval = null;
   }
 }
 
@@ -98,11 +146,11 @@ function toggleSidebars() {
       }
     });
   });
-  
+
   // Update badge to show status
   chrome.action.setBadgeText({ text: sidebarsVisible ? 'ON' : 'OFF' });
-  chrome.action.setBadgeBackgroundColor({ 
-    color: sidebarsVisible ? '#00FF00' : '#FF0000' 
+  chrome.action.setBadgeBackgroundColor({
+    color: sidebarsVisible ? '#00FF00' : '#FF0000'
   });
 }
 
