@@ -1,10 +1,29 @@
-const manifest = {
+import { defineManifest } from '@crxjs/vite-plugin'
+
+export default defineManifest({
+  name: 'Optimando AI Orchestrator',
+  description: 'Multi-AI-Agenten Workflow Orchestrator mit echten Sidebars',
+  version: '0.0.1',
   manifest_version: 3,
-  name: "Optimando Helper (Chromium)",
-  version: "0.0.1",
-  action: { default_popup: "popup.html" },
-  background: { service_worker: "background.js", type: "module" },
-  permissions: ["storage","tabs"],
-  host_permissions: ["http://127.0.0.1/*","http://localhost/*"]
-}
-export default manifest
+  permissions: [
+    'activeTab',
+    'storage'
+  ],
+  host_permissions: [
+    '<all_urls>'
+  ],
+  content_scripts: [
+    {
+      matches: ['<all_urls>'],
+      js: ['src/content-script.tsx'],
+      css: [],
+      run_at: 'document_end'
+    }
+  ],
+  background: {
+    service_worker: 'src/background.ts'
+  },
+  action: {
+    default_title: 'Optimando AI Orchestrator - Sidebars ein-/ausblenden'
+  }
+})
