@@ -1,21 +1,16 @@
-import './App.css';
-import { useCounter } from './store';
+import { useState } from 'react'
+import { APP_NAME } from '@shared/core'
 
-export default function App() {
-  const { count, inc, reset } = useCounter();
+function App() {
+  const [count, setCount] = useState(0)
+
   return (
-    <div style={{ padding: 24, fontFamily: 'sans-serif' }}>
-      <h1>OpenGiraffe Desktop App</h1>
-      <p>
-        Counter: <b>{count}</b>
-      </p>
-      <div style={{ display: 'flex', gap: 12 }}>
-        <button onClick={inc}>+1</button>
-        <button onClick={reset}>Reset</button>
-      </div>
-      <p style={{ marginTop: 16, color: '#666' }}>
-        Läuft in Electron (Chromium + Node). Änderungen werden live neu geladen.
-      </p>
+    <div style={{ padding: 24 }}>
+      <h1>{APP_NAME}</h1>
+      <p>Electron + React + Vite + pnpm workspaces</p>
+      <button onClick={() => setCount((c) => c + 1)}>count: {count}</button>
     </div>
-  );
+  )
 }
+
+export default App
