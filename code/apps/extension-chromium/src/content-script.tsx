@@ -211,9 +211,14 @@ function initializeExtension() {
   }
 
   leftSidebar.innerHTML = `
-    <h2 style="margin: 0 0 20px 0; font-size: 18px; border-bottom: 1px solid rgba(255,255,255,0.3); padding-bottom: 10px;">
-      🤖 AI Agent Outputs
-    </h2>
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; border-bottom: 1px solid rgba(255,255,255,0.3); padding-bottom: 10px;">
+      <h2 style="margin: 0; font-size: 18px;">
+        🤖 AI Agent Outputs
+      </h2>
+      <button id="quick-expand-btn" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 24px; height: 24px; border-radius: 4px; cursor: pointer; font-size: 12px; transition: all 0.2s ease;" title="Quick expand to maximum width">
+        ⇄
+      </button>
+    </div>
     
     <!-- Display Port #1: Summarize Agent -->
     <div style="background: rgba(255,255,255,0.95); color: black; border-radius: 8px; padding: 15px; margin-bottom: 15px; min-height: 80px; border: 1px solid rgba(0,0,0,0.1); box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
@@ -287,14 +292,15 @@ function initializeExtension() {
   document.addEventListener('mousemove', (e) => {
     if (!isResizingLeft) return
     
-    const newWidth = Math.max(200, Math.min(500, startWidth + (e.clientX - startX)))
+    const newWidth = Math.max(200, Math.min(800, startWidth + (e.clientX - startX)))
     currentTabData.uiConfig.leftSidebarWidth = newWidth
     
     // Update left sidebar width
     leftSidebar.style.width = newWidth + 'px'
     
-    // Update body margin
+    // Update body margin and prevent horizontal scroll
     document.body.style.marginLeft = newWidth + 'px'
+    document.body.style.overflowX = 'hidden'
     
     // Update bottom panel position
     bottomSidebar.style.left = newWidth + 'px'
@@ -330,67 +336,86 @@ function initializeExtension() {
   rightSidebar.innerHTML = `
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
       <h2 style="margin: 0; font-size: 18px;">⚙️ AI Control Center</h2>
-      <button id="wr-login-btn" style="padding: 6px 12px; background: #FF9800; border: none; color: white; border-radius: 4px; cursor: pointer; font-size: 11px;">
-        🔐 WR Code Login
+    </div>
+
+    <!-- WR Code Connection -->
+    <div style="background: rgba(255,255,255,0.1); padding: 20px; border-radius: 8px; margin-bottom: 20px; text-align: center;">
+      <h3 style="margin: 0 0 15px 0; font-size: 14px;">📱 WR Code</h3>
+      
+      <!-- QR Code Placeholder -->
+      <div style="width: 120px; height: 120px; background: white; border-radius: 8px; margin: 0 auto 15px auto; display: flex; align-items: center; justify-content: center; border: 2px dashed #ccc;">
+        <div style="text-align: center; color: #666;">
+          <div style="font-size: 24px;">📱</div>
+          <div style="font-size: 10px; margin-top: 5px;">QR Code</div>
+        </div>
+      </div>
+      
+      <div style="font-size: 11px; color: rgba(255,255,255,0.8); margin-bottom: 15px;">
+        Scan to connect your WR account
+      </div>
+      
+      <button id="wr-connect-btn" style="width: 100%; padding: 10px; background: #4CAF50; border: none; color: white; border-radius: 4px; cursor: pointer; font-size: 12px; margin-bottom: 10px;">
+        🔗 Connect WR Account
       </button>
+      
+      <div id="wr-status" style="font-size: 10px; color: #FF9800;">
+        ● Not Connected
+      </div>
+    </div>
+
+    <!-- Session History -->
+    <div style="background: rgba(255,255,255,0.1); padding: 15px; border-radius: 8px; margin-bottom: 20px;">
+      <div style="display: flex; justify-content: between; align-items: center; margin-bottom: 15px;">
+        <h3 style="margin: 0; font-size: 14px;">📚 Sessions History</h3>
+      </div>
+      
+      <button id="sessions-history-btn" style="width: 100%; padding: 12px; background: #2196F3; border: none; color: white; border-radius: 4px; cursor: pointer; font-size: 12px; margin-bottom: 10px;">
+        📋 View All Sessions
+      </button>
+      
+      <!-- Recent Sessions Preview -->
+      <div style="font-size: 10px; color: rgba(255,255,255,0.7);">
+        <div style="margin-bottom: 5px;">Recent:</div>
+        <div class="session-item" data-session="session-1" style="padding: 5px 8px; background: rgba(255,255,255,0.05); border-radius: 3px; margin-bottom: 3px; cursor: pointer;">
+          🚀 Dev Session - 2024-01-15
+        </div>
+        <div class="session-item" data-session="session-2" style="padding: 5px 8px; background: rgba(255,255,255,0.05); border-radius: 3px; margin-bottom: 3px; cursor: pointer;">
+          📊 Analysis Work - 2024-01-14
+        </div>
+        <div class="session-item" data-session="session-3" style="padding: 5px 8px; background: rgba(255,255,255,0.05); border-radius: 3px; cursor: pointer;">
+          🎯 Project Planning - 2024-01-13
+        </div>
+      </div>
     </div>
 
     <!-- Quick Actions -->
     <div style="background: rgba(255,255,255,0.1); padding: 15px; border-radius: 8px; margin-bottom: 20px;">
-      <h3 style="margin: 0 0 15px 0; font-size: 14px;">Quick Actions</h3>
+      <h3 style="margin: 0 0 15px 0; font-size: 14px;">⚡ Quick Actions</h3>
       <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
-        <button id="hot-reload-btn" style="padding: 8px; background: #FF5722; border: none; color: white; border-radius: 4px; cursor: pointer; font-size: 10px;">🔥 Hot Reload</button>
-        <button id="emergency-btn" style="padding: 8px; background: #F44336; border: none; color: white; border-radius: 4px; cursor: pointer; font-size: 10px;">🚨 Emergency</button>
-        <button id="theme-btn" style="padding: 8px; background: #9C27B0; border: none; color: white; border-radius: 4px; cursor: pointer; font-size: 10px;">🎨 Theme</button>
+        <button id="save-session-btn" style="padding: 8px; background: #4CAF50; border: none; color: white; border-radius: 4px; cursor: pointer; font-size: 10px;">💾 Save</button>
         <button id="sync-btn" style="padding: 8px; background: #2196F3; border: none; color: white; border-radius: 4px; cursor: pointer; font-size: 10px;">🔄 Sync</button>
+        <button id="export-btn" style="padding: 8px; background: #FF9800; border: none; color: white; border-radius: 4px; cursor: pointer; font-size: 10px;">📤 Export</button>
+        <button id="import-btn" style="padding: 8px; background: #9C27B0; border: none; color: white; border-radius: 4px; cursor: pointer; font-size: 10px;">📥 Import</button>
       </div>
     </div>
 
-    <!-- WR Code Scanner -->
-    <div style="background: rgba(255,255,255,0.1); padding: 15px; border-radius: 8px; margin-bottom: 20px;">
-      <h3 style="margin: 0 0 15px 0; font-size: 14px;">📱 WR Code Scanner</h3>
-      <button id="qr-code-scanner-btn" style="width: 100%; padding: 10px; background: #4CAF50; border: none; color: white; border-radius: 4px; cursor: pointer; font-size: 12px;">
-        📱 QR Code Scanner
-      </button>
-    </div>
-
-    <!-- AI Agenten -->
-    <div style="background: rgba(255,255,255,0.1); padding: 15px; border-radius: 8px; margin-bottom: 20px;">
-      <h3 style="margin: 0 0 15px 0; font-size: 14px;">🤖 AI Agenten</h3>
-      <div style="font-size: 11px; margin-bottom: 10px;">
-        <div style="display: flex; justify-content: space-between; margin-bottom: 5px;">
-          <span>📝 Summarize:</span>
-          <button class="agent-toggle" data-agent="summarize" style="padding: 2px 6px; background: #f44336; border: none; color: white; border-radius: 2px; cursor: pointer; font-size: 9px;">OFF</button>
-        </div>
-        <div style="display: flex; justify-content: space-between; margin-bottom: 5px;">
-          <span>🔍 Research:</span>
-          <button class="agent-toggle" data-agent="research" style="padding: 2px 6px; background: #f44336; border: none; color: white; border-radius: 2px; cursor: pointer; font-size: 9px;">OFF</button>
-        </div>
-        <div style="display: flex; justify-content: space-between; margin-bottom: 5px;">
-          <span>🎯 Goals:</span>
-          <button class="agent-toggle" data-agent="goals" style="padding: 2px 6px; background: #f44336; border: none; color: white; border-radius: 2px; cursor: pointer; font-size: 9px;">OFF</button>
-        </div>
-      </div>
-      <button id="save-session-btn" style="width: 100%; padding: 8px; background: #4CAF50; border: none; color: white; border-radius: 4px; cursor: pointer; font-size: 11px;">
-        💾 Save Session
-      </button>
-    </div>
-
-    <!-- Display Config -->
+    <!-- Connection Status -->
     <div style="background: rgba(255,255,255,0.1); padding: 15px; border-radius: 8px;">
-      <h3 style="margin: 0 0 15px 0; font-size: 14px;">📺 Display Config</h3>
-      <div style="font-size: 11px; margin-bottom: 10px;">
-        <div style="margin-bottom: 8px;">
-          <label style="display: block; margin-bottom: 3px;">Output Mode:</label>
-          <select style="width: 100%; padding: 4px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; border-radius: 3px; font-size: 10px;">
-            <option value="electron">Electron App</option>
-            <option value="browser">Browser Window</option>
-          </select>
+      <h3 style="margin: 0 0 15px 0; font-size: 14px;">🔗 Connection Status</h3>
+      <div style="font-size: 11px;">
+        <div style="display: flex; justify-content: space-between; margin-bottom: 5px;">
+          <span>WR Account:</span>
+          <span id="wr-account-status" style="color: #FF9800;">Disconnected</span>
+        </div>
+        <div style="display: flex; justify-content: space-between; margin-bottom: 5px;">
+          <span>Sync Status:</span>
+          <span style="color: #4CAF50;">● Local</span>
+        </div>
+        <div style="display: flex; justify-content: space-between;">
+          <span>Sessions:</span>
+          <span id="session-count">3 Saved</span>
         </div>
       </div>
-      <button style="width: 100%; padding: 8px; background: #2196F3; border: none; color: white; border-radius: 4px; cursor: pointer; font-size: 11px;">
-        ⚙️ Einstellungen
-      </button>
     </div>
   `
 
@@ -734,10 +759,154 @@ function initializeExtension() {
   sidebarsDiv.appendChild(bottomSidebar)
   document.body.appendChild(sidebarsDiv)
 
-  // Set initial body margins
+  // Set initial body margins and safe scrollbar prevention
   document.body.style.marginLeft = currentTabData.uiConfig.leftSidebarWidth + 'px'
   document.body.style.marginRight = currentTabData.uiConfig.rightSidebarWidth + 'px'
   document.body.style.marginBottom = '45px'
+  document.body.style.overflowX = 'hidden'
+
+  // SESSION HISTORY LIGHTBOX FUNCTION
+  window.openSessionsHistoryLightbox = function() {
+    // Remove existing lightbox if any
+    const existing = document.getElementById('temp-lightbox')
+    if (existing) existing.remove()
+    
+    // Create sessions history lightbox
+    const overlay = document.createElement('div')
+    overlay.id = 'temp-lightbox'
+    overlay.style.cssText = `
+      position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+      background: rgba(0,0,0,0.8); z-index: 2147483649;
+      display: flex; align-items: center; justify-content: center;
+      backdrop-filter: blur(5px);
+    `
+    
+    overlay.innerHTML = `
+      <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 12px; width: 90vw; height: 85vh; max-width: 1000px; color: white; overflow: hidden; box-shadow: 0 20px 40px rgba(0,0,0,0.3); display: flex; flex-direction: column;">
+        <div style="padding: 20px; border-bottom: 1px solid rgba(255,255,255,0.2); display: flex; justify-content: space-between; align-items: center;">
+          <h2 style="margin: 0; font-size: 18px;">📚 Sessions History</h2>
+          <button id="close-lightbox-btn" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 32px; height: 32px; border-radius: 50%; cursor: pointer; font-size: 20px; font-weight: bold;">×</button>
+        </div>
+        <div style="flex: 1; padding: 20px; overflow-y: auto;">
+          
+          <!-- Search & Filter -->
+          <div style="margin-bottom: 20px; display: flex; gap: 10px;">
+            <input type="text" placeholder="Search sessions..." style="flex: 1; padding: 10px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; border-radius: 6px;">
+            <select style="padding: 10px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; border-radius: 6px;">
+              <option>All Sessions</option>
+              <option>Development</option>
+              <option>Analysis</option>
+              <option>Planning</option>
+            </select>
+          </div>
+          
+          <!-- Sessions Grid -->
+          <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 15px;">
+            
+            <!-- Session 1 -->
+            <div class="session-card" data-session="session-1" style="background: rgba(255,255,255,0.1); padding: 20px; border-radius: 8px; cursor: pointer; transition: all 0.2s ease; border: 2px solid transparent;">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                <h4 style="margin: 0; color: #FFD700;">🚀 Dev Session</h4>
+                <span style="font-size: 10px; color: rgba(255,255,255,0.6);">2024-01-15</span>
+              </div>
+              <p style="margin: 0 0 10px 0; font-size: 12px; color: rgba(255,255,255,0.8);">
+                Full-stack development session with 5 AI agents. React frontend, Node.js backend orchestration.
+              </p>
+              <div style="font-size: 10px; color: rgba(255,255,255,0.6);">
+                <div>• 5 AI Agents configured</div>
+                <div>• Template: Web Development</div>
+                <div>• Display Ports: #1-#5</div>
+              </div>
+            </div>
+            
+            <!-- Session 2 -->
+            <div class="session-card" data-session="session-2" style="background: rgba(255,255,255,0.1); padding: 20px; border-radius: 8px; cursor: pointer; transition: all 0.2s ease; border: 2px solid transparent;">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                <h4 style="margin: 0; color: #4CAF50;">📊 Analysis Work</h4>
+                <span style="font-size: 10px; color: rgba(255,255,255,0.6);">2024-01-14</span>
+              </div>
+              <p style="margin: 0 0 10px 0; font-size: 12px; color: rgba(255,255,255,0.8);">
+                Data analysis and research session. Market research with competitive analysis agents.
+              </p>
+              <div style="font-size: 10px; color: rgba(255,255,255,0.6);">
+                <div>• 3 AI Agents configured</div>
+                <div>• Template: Research & Analysis</div>
+                <div>• Display Ports: #1-#3</div>
+              </div>
+            </div>
+            
+            <!-- Session 3 -->
+            <div class="session-card" data-session="session-3" style="background: rgba(255,255,255,0.1); padding: 20px; border-radius: 8px; cursor: pointer; transition: all 0.2s ease; border: 2px solid transparent;">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                <h4 style="margin: 0; color: #2196F3;">🎯 Project Planning</h4>
+                <span style="font-size: 10px; color: rgba(255,255,255,0.6);">2024-01-13</span>
+              </div>
+              <p style="margin: 0 0 10px 0; font-size: 12px; color: rgba(255,255,255,0.8);">
+                Strategic planning session with goal tracking and timeline management agents.
+              </p>
+              <div style="font-size: 10px; color: rgba(255,255,255,0.6);">
+                <div>• 4 AI Agents configured</div>
+                <div>• Template: Project Management</div>
+                <div>• Display Ports: #1-#4</div>
+              </div>
+            </div>
+            
+            <!-- Add New Session -->
+            <div style="background: rgba(255,255,255,0.05); padding: 20px; border-radius: 8px; cursor: pointer; border: 2px dashed rgba(255,255,255,0.3); display: flex; align-items: center; justify-content: center; min-height: 140px;">
+              <div style="text-align: center; color: rgba(255,255,255,0.6);">
+                <div style="font-size: 24px; margin-bottom: 10px;">➕</div>
+                <div style="font-size: 12px;">Create New Session</div>
+              </div>
+            </div>
+            
+          </div>
+          
+        </div>
+      </div>
+    `
+    
+    // Close on overlay click
+    overlay.onclick = function(e) {
+      if (e.target === overlay) overlay.remove()
+    }
+    
+    document.body.appendChild(overlay)
+    
+    // Set close button listener
+    const closeBtn = document.getElementById('close-lightbox-btn')
+    if (closeBtn) {
+      closeBtn.onclick = function() {
+        overlay.remove()
+      }
+    }
+    
+    // Session card click handlers
+    const sessionCards = overlay.querySelectorAll('.session-card')
+    sessionCards.forEach(card => {
+      card.onclick = function() {
+        const sessionId = this.getAttribute('data-session')
+        window.loadSession(sessionId)
+        overlay.remove()
+      }
+      
+      // Hover effect
+      card.onmouseenter = function() {
+        this.style.border = '2px solid rgba(255,215,0,0.5)'
+        this.style.transform = 'scale(1.02)'
+      }
+      card.onmouseleave = function() {
+        this.style.border = '2px solid transparent'
+        this.style.transform = 'scale(1)'
+      }
+    })
+  }
+  
+  // LOAD SESSION FUNCTION
+  window.loadSession = function(sessionId) {
+    console.log('Loading session:', sessionId)
+    // TODO: Implement session loading logic
+    alert(`Loading session: ${sessionId}`)
+  }
 
   // LIGHTBOX FUNCTIONS - ULTRA SIMPLE VERSION
   window.openAgentLightbox = function(agentName, type) {
@@ -943,14 +1112,81 @@ function initializeExtension() {
       }
     })
 
+    // Quick expand button for left sidebar
+    document.getElementById('quick-expand-btn')?.addEventListener('click', () => {
+      const currentWidth = currentTabData.uiConfig.leftSidebarWidth
+      const isExpanded = currentWidth >= 700
+      const newWidth = isExpanded ? 300 : 800 // Toggle between normal and max expanded
+      
+      currentTabData.uiConfig.leftSidebarWidth = newWidth
+      leftSidebar.style.width = newWidth + 'px'
+      document.body.style.marginLeft = newWidth + 'px'
+      document.body.style.overflowX = 'hidden'
+      
+      // Update bottom panel position
+      const bottomSidebar = document.getElementById('bottom-sidebar')
+      if (bottomSidebar) {
+        bottomSidebar.style.left = newWidth + 'px'
+      }
+      
+      // Update button icon and tooltip
+      const expandBtn = document.getElementById('quick-expand-btn')
+      if (expandBtn) {
+        expandBtn.innerHTML = isExpanded ? '⇄' : '⇆'
+        expandBtn.title = isExpanded ? 'Quick expand to maximum width' : 'Collapse to normal width'
+        expandBtn.style.background = 'rgba(255,215,0,0.6)'
+        setTimeout(() => {
+          expandBtn.style.background = 'rgba(255,255,255,0.2)'
+        }, 200)
+      }
+      
+      // Save the change
+      saveTabDataToStorage()
+    })
+
+    // Add hover effect for quick expand button
+    document.getElementById('quick-expand-btn')?.addEventListener('mouseover', function() {
+      this.style.background = 'rgba(255,215,0,0.6)'
+    })
+    
+    document.getElementById('quick-expand-btn')?.addEventListener('mouseout', function() {
+      this.style.background = 'rgba(255,255,255,0.2)'
+    })
+
+    // Sessions History Button
+    document.getElementById('sessions-history-btn')?.addEventListener('click', () => {
+      window.openSessionsHistoryLightbox()
+    })
+
+    // Session item clicks (in right sidebar)
+    document.querySelectorAll('.session-item').forEach(item => {
+      item.onclick = () => {
+        const sessionId = item.getAttribute('data-session')
+        window.loadSession(sessionId)
+      }
+    })
+
+    // WR Connect Button
+    document.getElementById('wr-connect-btn')?.addEventListener('click', () => {
+      // TODO: Implement WR Code generation and scanning
+      alert('WR Code connection will be implemented - scanning QR codes from wrcode.org')
+    })
+
+    // Export/Import Buttons
+    document.getElementById('export-btn')?.addEventListener('click', () => {
+      // TODO: Export current session configuration
+      alert('Export session functionality')
+    })
+
+    document.getElementById('import-btn')?.addEventListener('click', () => {
+      // TODO: Import session configuration
+      alert('Import session functionality')
+    })
+
     // Other buttons
     document.getElementById('save-session-btn')?.addEventListener('click', () => {
       saveTabDataToStorage()
       alert('Session saved!')
-    })
-
-    document.getElementById('wr-login-btn')?.addEventListener('click', () => {
-      alert('WR Code Login activated!')
     })
 
     document.getElementById('qr-code-scanner-btn')?.addEventListener('click', () => {
