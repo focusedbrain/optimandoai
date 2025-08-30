@@ -2,7 +2,8 @@ let ws: WebSocket | null = null;
 let isConnecting = false;
 let autoConnectInterval: NodeJS.Timeout | null = null;
 let heartbeatInterval: NodeJS.Timeout | null = null;
-let sidebarsVisible = false;
+// Track sidebar visibility per tab
+const tabSidebarStatus = new Map<number, boolean>();
 
 // Connect to external WebSocket server (not the desktop app)
 function connectToWebSocketServer() {
@@ -130,27 +131,32 @@ function startAutoConnect() {
   }, 10000); // 10 seconds
 }
 
-// Toggle sidebars visibility
+// Toggle sidebars visibility for current tab
 function toggleSidebars() {
-  sidebarsVisible = !sidebarsVisible;
-  console.log(`🔄 Sidebars ${sidebarsVisible ? 'einblenden' : 'ausblenden'}`);
-  
-  // Send message to all tabs to toggle sidebars
+  // Get current active tab
   chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-    tabs.forEach(tab => {
-      if (tab.id) {
-        chrome.tabs.sendMessage(tab.id, { 
-          type: 'TOGGLE_SIDEBARS', 
-          visible: sidebarsVisible 
-        });
-      }
+    if (tabs.length === 0 || !tabs[0].id) return;
+    
+    const tabId = tabs[0].id;
+    const currentStatus = tabSidebarStatus.get(tabId) || false;
+    const newStatus = !currentStatus;
+    
+    // Update status for this tab
+    tabSidebarStatus.set(tabId, newStatus);
+    
+    console.log(`🔄 Tab ${tabId}: Sidebars ${newStatus ? 'einblenden' : 'ausblenden'}`);
+    
+    // Send message to this specific tab
+    chrome.tabs.sendMessage(tabId, { 
+      type: 'TOGGLE_SIDEBARS', 
+      visible: newStatus 
     });
-  });
 
-  // Update badge to show status
-  chrome.action.setBadgeText({ text: sidebarsVisible ? 'ON' : 'OFF' });
-  chrome.action.setBadgeBackgroundColor({
-    color: sidebarsVisible ? '#00FF00' : '#FF0000'
+    // Update badge to show status for current tab
+    chrome.action.setBadgeText({ text: newStatus ? 'ON' : 'OFF' });
+    chrome.action.setBadgeBackgroundColor({
+      color: newStatus ? '#00FF00' : '#FF0000'
+    });
   });
 }
 
@@ -169,6 +175,17 @@ chrome.runtime.onInstalled.addListener(() => {
 chrome.action.onClicked.addListener((tab) => {
   console.log('🖱️ Extension-Icon geklickt - Toggle Sidebars');
   toggleSidebars();
+});
+
+// Update badge when switching tabs
+chrome.tabs.onActivated.addListener((activeInfo) => {
+  const tabId = activeInfo.tabId;
+  const isActive = tabSidebarStatus.get(tabId) || false;
+  
+  chrome.action.setBadgeText({ text: isActive ? 'ON' : 'OFF' });
+  chrome.action.setBadgeBackgroundColor({
+    color: isActive ? '#00FF00' : '#FF0000'
+  });
 });
 
 // Handle messages from content script

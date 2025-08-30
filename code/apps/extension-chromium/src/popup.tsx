@@ -7,11 +7,16 @@ interface ConnectionStatus {
   readyState?: number
 }
 
+interface TabActivationStatus {
+  isActive: boolean
+  currentTab?: chrome.tabs.Tab
+}
+
 function Popup() {
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>({ isConnected: false })
   const [isLoading, setIsLoading] = useState(true)
   const [logs, setLogs] = useState<string[]>([])
-  const [activeTab, setActiveTab] = useState('helper')
+  const [activeTab, setActiveTab] = useState('activation') // Start with activation tab
   const [bottomTab, setBottomTab] = useState('logs')
   const [mode, setMode] = useState('master')
   const [agents, setAgents] = useState({
@@ -19,8 +24,24 @@ function Popup() {
     refactor: true,
     entityExtract: false
   })
+  const [tabActivation, setTabActivation] = useState<TabActivationStatus>({ isActive: false })
 
   useEffect(() => {
+    // Get current tab and check activation status
+    chrome.tabs.query({ active: true, currentWindow: true }).then(tabs => {
+      const currentTab = tabs[0]
+      if (currentTab && currentTab.id) {
+        setTabActivation(prev => ({ ...prev, currentTab }))
+        
+        // Check if extension is active for this tab
+        chrome.tabs.sendMessage(currentTab.id, { action: 'getStatus' }).then(response => {
+          setTabActivation(prev => ({ ...prev, isActive: response?.active || false }))
+        }).catch(() => {
+          setTabActivation(prev => ({ ...prev, isActive: false }))
+        })
+      }
+    })
+
     chrome.runtime.sendMessage({ type: 'GET_STATUS' })
 
     const handleMessage = (message: any) => {
@@ -58,6 +79,25 @@ function Popup() {
 
   const clearLogs = () => {
     setLogs([])
+  }
+
+  const toggleExtensionForTab = async () => {
+    if (!tabActivation.currentTab || !tabActivation.currentTab.id) return
+
+    try {
+      const response = await chrome.tabs.sendMessage(tabActivation.currentTab.id, { action: 'toggleExtension' })
+      
+      if (response?.status === 'activated') {
+        setTabActivation(prev => ({ ...prev, isActive: true }))
+        setLogs(prev => [...prev, `✅ Extension aktiviert für Tab: ${tabActivation.currentTab?.title}`])
+      } else if (response?.status === 'deactivated') {
+        setTabActivation(prev => ({ ...prev, isActive: false }))
+        setLogs(prev => [...prev, `🔴 Extension deaktiviert für Tab: ${tabActivation.currentTab?.title}`])
+      }
+    } catch (error) {
+      console.error('Error toggling extension:', error)
+      setLogs(prev => [...prev, `❌ Fehler beim Aktivieren der Extension`])
+    }
   }
 
   const getStatusText = () => {
@@ -185,15 +225,31 @@ function Popup() {
           {/* Top Tabs */}
           <div style={{ display: 'flex', marginBottom: '20px' }}>
             <button
+              onClick={() => setActiveTab('activation')}
+              style={{
+                padding: '10px 15px',
+                backgroundColor: activeTab === 'activation' ? 'rgba(255,255,255,0.3)' : 'rgba(255,255,255,0.1)',
+                color: 'white',
+                border: 'none',
+                borderRadius: '8px 8px 0 0',
+                cursor: 'pointer',
+                marginRight: '5px',
+                fontSize: '12px'
+              }}
+            >
+              🚀 Activation
+            </button>
+            <button
               onClick={() => setActiveTab('helper')}
               style={{
-                padding: '10px 20px',
+                padding: '10px 15px',
                 backgroundColor: activeTab === 'helper' ? 'rgba(255,255,255,0.3)' : 'rgba(255,255,255,0.1)',
                 color: 'white',
                 border: 'none',
                 borderRadius: '8px 8px 0 0',
                 cursor: 'pointer',
-                marginRight: '5px'
+                marginRight: '5px',
+                fontSize: '12px'
               }}
             >
               Helper Tab
@@ -201,12 +257,13 @@ function Popup() {
             <button
               onClick={() => setActiveTab('master')}
               style={{
-                padding: '10px 20px',
+                padding: '10px 15px',
                 backgroundColor: activeTab === 'master' ? 'rgba(255,255,255,0.3)' : 'rgba(255,255,255,0.1)',
                 color: 'white',
                 border: 'none',
                 borderRadius: '8px 8px 0 0',
-                cursor: 'pointer'
+                cursor: 'pointer',
+                fontSize: '12px'
               }}
             >
               Master
@@ -219,8 +276,96 @@ function Popup() {
             backgroundColor: 'rgba(255,255,255,0.05)',
             borderRadius: '8px',
             marginBottom: '20px',
-            border: '1px solid rgba(255,255,255,0.1)'
-          }}></div>
+            border: '1px solid rgba(255,255,255,0.1)',
+            padding: '20px',
+            display: 'flex',
+            flexDirection: 'column',
+            justifyContent: 'center',
+            alignItems: 'center'
+          }}>
+            {activeTab === 'activation' && (
+              <div style={{ textAlign: 'center', width: '100%' }}>
+                <h3 style={{ marginTop: 0, marginBottom: '20px', fontSize: '16px' }}>
+                  Tab Activation
+                </h3>
+                
+                {tabActivation.currentTab && (
+                  <div style={{ marginBottom: '20px', fontSize: '12px' }}>
+                    <div style={{ marginBottom: '10px', opacity: 0.8 }}>
+                      Current Tab:
+                    </div>
+                    <div style={{ 
+                      background: 'rgba(255,255,255,0.1)', 
+                      padding: '8px', 
+                      borderRadius: '4px',
+                      wordBreak: 'break-all' 
+                    }}>
+                      {tabActivation.currentTab.title}
+                    </div>
+                    <div style={{ fontSize: '10px', opacity: 0.6, marginTop: '5px' }}>
+                      {new URL(tabActivation.currentTab.url || '').hostname}
+                    </div>
+                  </div>
+                )}
+
+                <div style={{ marginBottom: '20px' }}>
+                  <div style={{
+                    width: '20px',
+                    height: '20px',
+                    borderRadius: '50%',
+                    backgroundColor: tabActivation.isActive ? '#4CAF50' : '#f44336',
+                    margin: '0 auto 10px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    fontSize: '10px'
+                  }}>
+                    {tabActivation.isActive ? '✓' : '✗'}
+                  </div>
+                  <div style={{ fontSize: '14px', marginBottom: '5px' }}>
+                    Status: {tabActivation.isActive ? 'Aktiv' : 'Inaktiv'}
+                  </div>
+                  <div style={{ fontSize: '11px', opacity: 0.7 }}>
+                    {tabActivation.isActive 
+                      ? 'Extension läuft auf diesem Tab' 
+                      : 'Extension ist für diesen Tab deaktiviert'
+                    }
+                  </div>
+                </div>
+
+                <button
+                  onClick={toggleExtensionForTab}
+                  style={{
+                    padding: '12px 24px',
+                    backgroundColor: tabActivation.isActive ? '#f44336' : '#4CAF50',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '6px',
+                    cursor: 'pointer',
+                    fontSize: '14px',
+                    fontWeight: 'bold',
+                    transition: 'all 0.3s ease'
+                  }}
+                >
+                  {tabActivation.isActive ? '🔴 Deaktivieren' : '🚀 Aktivieren'}
+                </button>
+              </div>
+            )}
+            
+            {activeTab !== 'activation' && (
+              <div style={{ 
+                display: 'flex', 
+                alignItems: 'center', 
+                justifyContent: 'center',
+                height: '100%',
+                opacity: 0.5,
+                fontSize: '14px'
+              }}>
+                {activeTab === 'helper' && 'Helper Tab Content'}
+                {activeTab === 'master' && 'Master Tab Content'}
+              </div>
+            )}
+          </div>
 
           {/* Bottom Tabs */}
           <div style={{ display: 'flex' }}>
