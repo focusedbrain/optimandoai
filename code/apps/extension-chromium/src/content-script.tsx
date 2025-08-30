@@ -114,6 +114,47 @@ function initializeExtension() {
           opacity: 0;
         }
       }
+      
+      .lightbox-overlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100vw;
+        height: 100vh;
+        background: rgba(0, 0, 0, 0.8);
+        z-index: 2147483649;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        backdrop-filter: blur(5px);
+      }
+      
+      .lightbox-content {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        border-radius: 12px;
+        width: 90vw;
+        height: 85vh;
+        max-width: 1200px;
+        color: white;
+        overflow: hidden;
+        box-shadow: 0 20px 40px rgba(0,0,0,0.3);
+        display: flex;
+        flex-direction: column;
+      }
+      
+      .lightbox-header {
+        padding: 20px;
+        border-bottom: 1px solid rgba(255,255,255,0.2);
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+      }
+      
+      .lightbox-body {
+        flex: 1;
+        padding: 20px;
+        overflow-y: auto;
+      }
     `
     document.head.appendChild(style)
   }
@@ -174,27 +215,43 @@ function initializeExtension() {
       🤖 AI Agent Outputs
     </h2>
     
-    <!-- Display Port 1: Summarize Agent -->
+    <!-- Display Port #1: Summarize Agent -->
     <div style="background: rgba(255,255,255,0.95); color: black; border-radius: 8px; padding: 15px; margin-bottom: 15px; min-height: 80px; border: 1px solid rgba(0,0,0,0.1); box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
-      <h4 style="margin: 0 0 10px 0; font-size: 14px; color: #4CAF50; font-weight: bold;">📝 Summarize Agent</h4>
+      <h4 style="margin: 0 0 10px 0; font-size: 14px; color: #4CAF50; font-weight: bold;">#1 📝 Summarize Agent</h4>
       <div style="font-size: 12px; color: #333; line-height: 1.4;">
         <div id="summarize-output">Bereit für Zusammenfassungen...</div>
       </div>
     </div>
 
-    <!-- Display Port 2: Research Agent -->
+    <!-- Display Port #2: Research Agent -->
     <div style="background: rgba(255,255,255,0.95); color: black; border-radius: 8px; padding: 15px; margin-bottom: 15px; min-height: 80px; border: 1px solid rgba(0,0,0,0.1); box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
-      <h4 style="margin: 0 0 10px 0; font-size: 14px; color: #2196F3; font-weight: bold;">🔍 Research Agent</h4>
+      <h4 style="margin: 0 0 10px 0; font-size: 14px; color: #2196F3; font-weight: bold;">#2 🔍 Research Agent</h4>
       <div style="font-size: 12px; color: #333; line-height: 1.4;">
         <div id="research-output">Bereit für Analysen...</div>
       </div>
     </div>
 
-    <!-- Display Port 3: Goal Tracker -->
+    <!-- Display Port #3: Goal Tracker -->
     <div style="background: rgba(255,255,255,0.95); color: black; border-radius: 8px; padding: 15px; margin-bottom: 15px; min-height: 80px; border: 1px solid rgba(0,0,0,0.1); box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
-      <h4 style="margin: 0 0 10px 0; font-size: 14px; color: #FF9800; font-weight: bold;">🎯 Goal Tracker</h4>
+      <h4 style="margin: 0 0 10px 0; font-size: 14px; color: #FF9800; font-weight: bold;">#3 🎯 Goal Tracker</h4>
       <div style="font-size: 12px; color: #333; line-height: 1.4;">
         <div id="goals-output">Bereit für Ziel-Tracking...</div>
+      </div>
+    </div>
+
+    <!-- Display Port #4: Analysis Agent -->
+    <div style="background: rgba(255,255,255,0.95); color: black; border-radius: 8px; padding: 15px; margin-bottom: 15px; min-height: 80px; border: 1px solid rgba(0,0,0,0.1); box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+      <h4 style="margin: 0 0 10px 0; font-size: 14px; color: #9C27B0; font-weight: bold;">#4 🧮 Analysis Agent</h4>
+      <div style="font-size: 12px; color: #333; line-height: 1.4;">
+        <div id="analysis-output">Bereit für Datenanalyse...</div>
+      </div>
+    </div>
+
+    <!-- Display Port #5: Assistant Agent -->
+    <div style="background: rgba(255,255,255,0.95); color: black; border-radius: 8px; padding: 15px; margin-bottom: 15px; min-height: 80px; border: 1px solid rgba(0,0,0,0.1); box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+      <h4 style="margin: 0 0 10px 0; font-size: 14px; color: #607D8B; font-weight: bold;">#5 🤖 Assistant Agent</h4>
+      <div style="font-size: 12px; color: #333; line-height: 1.4;">
+        <div id="assistant-output">Bereit für Unterstützung...</div>
       </div>
     </div>
 
@@ -438,85 +495,126 @@ function initializeExtension() {
 
         <!-- Agents Content -->
         <div id="agents-content" class="tab-content" style="display: none;">
-          <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px;">
+          <div style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; margin-bottom: 20px;">
             
-            <!-- Agent 1 -->
-            <div style="background: rgba(255,255,255,0.1); padding: 12px; border-radius: 6px;">
-              <div style="text-align: center; margin-bottom: 10px;">
-                <div style="font-size: 20px; margin-bottom: 5px;">📝</div>
-                <h4 style="margin: 0; font-size: 11px; color: #4CAF50;">Summarize</h4>
-                <button class="agent-toggle" data-agent="summarize" style="margin-top: 5px; padding: 2px 6px; background: #f44336; border: none; color: white; border-radius: 2px; cursor: pointer; font-size: 8px;">OFF</button>
+            <!-- Agent 1: Summarize -->
+            <div style="background: rgba(255,255,255,0.1); padding: 15px; border-radius: 8px; text-align: center; position: relative;">
+              <div style="font-size: 32px; margin-bottom: 8px;">📝</div>
+              <h4 style="margin: 0 0 8px 0; font-size: 12px; color: #4CAF50; font-weight: bold;">Summarize</h4>
+              <button class="agent-toggle" data-agent="summarize" style="padding: 4px 8px; background: #f44336; border: none; color: white; border-radius: 3px; cursor: pointer; font-size: 9px; margin-bottom: 8px;">OFF</button>
+              
+              <!-- Compact Controls -->
+              <div style="display: flex; justify-content: center; gap: 6px; margin-top: 10px;">
+                <button class="lightbox-btn" data-agent="summarize" data-type="instructions" style="background: rgba(255,255,255,0.2); border: none; color: white; padding: 4px; border-radius: 3px; cursor: pointer; font-size: 8px;" title="AI Instructions">📋</button>
+                <button class="lightbox-btn" data-agent="summarize" data-type="context" style="background: rgba(255,255,255,0.2); border: none; color: white; padding: 4px; border-radius: 3px; cursor: pointer; font-size: 8px;" title="Context">📄</button>
+                <button class="lightbox-btn" data-agent="summarize" data-type="settings" style="background: rgba(255,255,255,0.2); border: none; color: white; padding: 4px; border-radius: 3px; cursor: pointer; font-size: 8px;" title="Settings">⚙️</button>
               </div>
-              <div style="font-size: 9px;">
-                <div style="margin-bottom: 8px;">
-                  <strong>Instructions:</strong><br>
-                  <textarea style="width: 100%; height: 40px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 3px; border-radius: 2px; font-size: 8px; resize: none;">Du bist ein Experte im Zusammenfassen von Inhalten.</textarea>
-                </div>
-                <div style="margin-bottom: 8px;">
-                  <strong>Context:</strong><br>
-                  <textarea style="width: 100%; height: 30px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 3px; border-radius: 2px; font-size: 8px; resize: none;">Webseiten-Inhalt</textarea>
-                </div>
-                <div>
-                  <strong>Output:</strong><br>
-                  <select style="width: 100%; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 2px; border-radius: 2px; font-size: 8px;">
-                    <option>Left Display Port</option>
-                    <option>Monitor Output</option>
-                  </select>
-                </div>
-              </div>
+              
+              <!-- Output Selection -->
+              <select style="width: 100%; margin-top: 8px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 2px; border-radius: 3px; font-size: 8px;">
+                <option value="1" selected>#1 Display Port</option>
+                <option value="2">#2 Display Port</option>
+                <option value="3">#3 Display Port</option>
+                <option value="4">#4 Display Port</option>
+                <option value="5">#5 Display Port</option>
+                <option value="monitor">Monitor Output</option>
+              </select>
             </div>
 
-            <!-- Agent 2 -->
-            <div style="background: rgba(255,255,255,0.1); padding: 12px; border-radius: 6px;">
-              <div style="text-align: center; margin-bottom: 10px;">
-                <div style="font-size: 20px; margin-bottom: 5px;">🔍</div>
-                <h4 style="margin: 0; font-size: 11px; color: #2196F3;">Research</h4>
-                <button class="agent-toggle" data-agent="research" style="margin-top: 5px; padding: 2px 6px; background: #f44336; border: none; color: white; border-radius: 2px; cursor: pointer; font-size: 8px;">OFF</button>
+            <!-- Agent 2: Research -->
+            <div style="background: rgba(255,255,255,0.1); padding: 15px; border-radius: 8px; text-align: center; position: relative;">
+              <div style="font-size: 32px; margin-bottom: 8px;">🔍</div>
+              <h4 style="margin: 0 0 8px 0; font-size: 12px; color: #2196F3; font-weight: bold;">Research</h4>
+              <button class="agent-toggle" data-agent="research" style="padding: 4px 8px; background: #f44336; border: none; color: white; border-radius: 3px; cursor: pointer; font-size: 9px; margin-bottom: 8px;">OFF</button>
+              
+              <div style="display: flex; justify-content: center; gap: 6px; margin-top: 10px;">
+                <button class="lightbox-btn" data-agent="research" data-type="instructions" style="background: rgba(255,255,255,0.2); border: none; color: white; padding: 4px; border-radius: 3px; cursor: pointer; font-size: 8px;" title="AI Instructions">📋</button>
+                <button class="lightbox-btn" data-agent="research" data-type="context" style="background: rgba(255,255,255,0.2); border: none; color: white; padding: 4px; border-radius: 3px; cursor: pointer; font-size: 8px;" title="Context">📄</button>
+                <button class="lightbox-btn" data-agent="research" data-type="settings" style="background: rgba(255,255,255,0.2); border: none; color: white; padding: 4px; border-radius: 3px; cursor: pointer; font-size: 8px;" title="Settings">⚙️</button>
               </div>
-              <div style="font-size: 9px;">
-                <div style="margin-bottom: 8px;">
-                  <strong>Instructions:</strong><br>
-                  <textarea style="width: 100%; height: 40px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 3px; border-radius: 2px; font-size: 8px; resize: none;">Du bist ein Research-Spezialist.</textarea>
-                </div>
-                <div style="margin-bottom: 8px;">
-                  <strong>Context:</strong><br>
-                  <textarea style="width: 100%; height: 30px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 3px; border-radius: 2px; font-size: 8px; resize: none;">Aktuelle Webseite</textarea>
-                </div>
-                <div>
-                  <strong>Output:</strong><br>
-                  <select style="width: 100%; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 2px; border-radius: 2px; font-size: 8px;">
-                    <option>Left Display Port</option>
-                    <option selected>Monitor Output</option>
-                  </select>
-                </div>
-              </div>
+              
+              <select style="width: 100%; margin-top: 8px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 2px; border-radius: 3px; font-size: 8px;">
+                <option value="1">#1 Display Port</option>
+                <option value="2" selected>#2 Display Port</option>
+                <option value="3">#3 Display Port</option>
+                <option value="4">#4 Display Port</option>
+                <option value="5">#5 Display Port</option>
+                <option value="monitor">Monitor Output</option>
+              </select>
             </div>
 
-            <!-- Agent 3 -->
-            <div style="background: rgba(255,255,255,0.1); padding: 12px; border-radius: 6px;">
-              <div style="text-align: center; margin-bottom: 10px;">
-                <div style="font-size: 20px; margin-bottom: 5px;">🎯</div>
-                <h4 style="margin: 0; font-size: 11px; color: #FF9800;">Goal Tracker</h4>
-                <button class="agent-toggle" data-agent="goals" style="margin-top: 5px; padding: 2px 6px; background: #f44336; border: none; color: white; border-radius: 2px; cursor: pointer; font-size: 8px;">OFF</button>
+            <!-- Agent 3: Goal Tracker -->
+            <div style="background: rgba(255,255,255,0.1); padding: 15px; border-radius: 8px; text-align: center; position: relative;">
+              <div style="font-size: 32px; margin-bottom: 8px;">🎯</div>
+              <h4 style="margin: 0 0 8px 0; font-size: 12px; color: #FF9800; font-weight: bold;">Goal Tracker</h4>
+              <button class="agent-toggle" data-agent="goals" style="padding: 4px 8px; background: #f44336; border: none; color: white; border-radius: 3px; cursor: pointer; font-size: 9px; margin-bottom: 8px;">OFF</button>
+              
+              <div style="display: flex; justify-content: center; gap: 6px; margin-top: 10px;">
+                <button class="lightbox-btn" data-agent="goals" data-type="instructions" style="background: rgba(255,255,255,0.2); border: none; color: white; padding: 4px; border-radius: 3px; cursor: pointer; font-size: 8px;" title="AI Instructions">📋</button>
+                <button class="lightbox-btn" data-agent="goals" data-type="context" style="background: rgba(255,255,255,0.2); border: none; color: white; padding: 4px; border-radius: 3px; cursor: pointer; font-size: 8px;" title="Context">📄</button>
+                <button class="lightbox-btn" data-agent="goals" data-type="settings" style="background: rgba(255,255,255,0.2); border: none; color: white; padding: 4px; border-radius: 3px; cursor: pointer; font-size: 8px;" title="Settings">⚙️</button>
               </div>
-              <div style="font-size: 9px;">
-                <div style="margin-bottom: 8px;">
-                  <strong>Instructions:</strong><br>
-                  <textarea style="width: 100%; height: 40px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 3px; border-radius: 2px; font-size: 8px; resize: none;">Du trackst Benutzerziele.</textarea>
-                </div>
-                <div style="margin-bottom: 8px;">
-                  <strong>Context:</strong><br>
-                  <textarea style="width: 100%; height: 30px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 3px; border-radius: 2px; font-size: 8px; resize: none;">Benutzer-Aktivitäten</textarea>
-                </div>
-                <div>
-                  <strong>Output:</strong><br>
-                  <select style="width: 100%; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 2px; border-radius: 2px; font-size: 8px;">
-                    <option selected>Left Display Port</option>
-                    <option>Monitor Output</option>
-                  </select>
-                </div>
-              </div>
+              
+              <select style="width: 100%; margin-top: 8px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 2px; border-radius: 3px; font-size: 8px;">
+                <option value="1">#1 Display Port</option>
+                <option value="2">#2 Display Port</option>
+                <option value="3" selected>#3 Display Port</option>
+                <option value="4">#4 Display Port</option>
+                <option value="5">#5 Display Port</option>
+                <option value="monitor">Monitor Output</option>
+              </select>
             </div>
+
+            <!-- Agent 4: Analysis -->
+            <div style="background: rgba(255,255,255,0.1); padding: 15px; border-radius: 8px; text-align: center; position: relative;">
+              <div style="font-size: 32px; margin-bottom: 8px;">🧮</div>
+              <h4 style="margin: 0 0 8px 0; font-size: 12px; color: #9C27B0; font-weight: bold;">Analysis</h4>
+              <button class="agent-toggle" data-agent="analysis" style="padding: 4px 8px; background: #f44336; border: none; color: white; border-radius: 3px; cursor: pointer; font-size: 9px; margin-bottom: 8px;">OFF</button>
+              
+              <div style="display: flex; justify-content: center; gap: 6px; margin-top: 10px;">
+                <button class="lightbox-btn" data-agent="analysis" data-type="instructions" style="background: rgba(255,255,255,0.2); border: none; color: white; padding: 4px; border-radius: 3px; cursor: pointer; font-size: 8px;" title="AI Instructions">📋</button>
+                <button class="lightbox-btn" data-agent="analysis" data-type="context" style="background: rgba(255,255,255,0.2); border: none; color: white; padding: 4px; border-radius: 3px; cursor: pointer; font-size: 8px;" title="Context">📄</button>
+                <button class="lightbox-btn" data-agent="analysis" data-type="settings" style="background: rgba(255,255,255,0.2); border: none; color: white; padding: 4px; border-radius: 3px; cursor: pointer; font-size: 8px;" title="Settings">⚙️</button>
+              </div>
+              
+              <select style="width: 100%; margin-top: 8px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 2px; border-radius: 3px; font-size: 8px;">
+                <option value="1">#1 Display Port</option>
+                <option value="2">#2 Display Port</option>
+                <option value="3">#3 Display Port</option>
+                <option value="4" selected>#4 Display Port</option>
+                <option value="5">#5 Display Port</option>
+                <option value="monitor">Monitor Output</option>
+              </select>
+            </div>
+
+            <!-- Agent 5: Assistant -->
+            <div style="background: rgba(255,255,255,0.1); padding: 15px; border-radius: 8px; text-align: center; position: relative;">
+              <div style="font-size: 32px; margin-bottom: 8px;">🤖</div>
+              <h4 style="margin: 0 0 8px 0; font-size: 12px; color: #607D8B; font-weight: bold;">Assistant</h4>
+              <button class="agent-toggle" data-agent="assistant" style="padding: 4px 8px; background: #f44336; border: none; color: white; border-radius: 3px; cursor: pointer; font-size: 9px; margin-bottom: 8px;">OFF</button>
+              
+              <div style="display: flex; justify-content: center; gap: 6px; margin-top: 10px;">
+                <button class="lightbox-btn" data-agent="assistant" data-type="instructions" style="background: rgba(255,255,255,0.2); border: none; color: white; padding: 4px; border-radius: 3px; cursor: pointer; font-size: 8px;" title="AI Instructions">📋</button>
+                <button class="lightbox-btn" data-agent="assistant" data-type="context" style="background: rgba(255,255,255,0.2); border: none; color: white; padding: 4px; border-radius: 3px; cursor: pointer; font-size: 8px;" title="Context">📄</button>
+                <button class="lightbox-btn" data-agent="assistant" data-type="settings" style="background: rgba(255,255,255,0.2); border: none; color: white; padding: 4px; border-radius: 3px; cursor: pointer; font-size: 8px;" title="Settings">⚙️</button>
+              </div>
+              
+              <select style="width: 100%; margin-top: 8px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 2px; border-radius: 3px; font-size: 8px;">
+                <option value="1">#1 Display Port</option>
+                <option value="2">#2 Display Port</option>
+                <option value="3">#3 Display Port</option>
+                <option value="4">#4 Display Port</option>
+                <option value="5" selected>#5 Display Port</option>
+                <option value="monitor">Monitor Output</option>
+              </select>
+            </div>
+          </div>
+
+          <!-- Add New Agent Button -->
+          <div style="text-align: center; margin-top: 15px;">
+            <button style="padding: 8px 16px; background: #4CAF50; border: none; color: white; border-radius: 4px; cursor: pointer; font-size: 10px;">
+              ➕ Add New Agent
+            </button>
           </div>
         </div>
 
@@ -641,6 +739,109 @@ function initializeExtension() {
   document.body.style.marginRight = currentTabData.uiConfig.rightSidebarWidth + 'px'
   document.body.style.marginBottom = '45px'
 
+  // LIGHTBOX FUNCTIONS - ULTRA SIMPLE VERSION
+  window.openAgentLightbox = function(agentName, type) {
+    // Remove existing lightbox if any
+    const existing = document.getElementById('temp-lightbox')
+    if (existing) existing.remove()
+    
+    // Create completely new lightbox
+    const overlay = document.createElement('div')
+    overlay.id = 'temp-lightbox'
+    overlay.style.cssText = `
+      position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+      background: rgba(0,0,0,0.8); z-index: 2147483649;
+      display: flex; align-items: center; justify-content: center;
+      backdrop-filter: blur(5px);
+    `
+    
+    const agentEmojis = { summarize: '📝', research: '🔍', goals: '🎯', analysis: '🧮', assistant: '🤖' }
+    const typeNames = { instructions: 'AI Instructions', context: 'Context', settings: 'Settings' }
+    
+    let content = `
+      <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 12px; width: 90vw; height: 85vh; max-width: 1200px; color: white; overflow: hidden; box-shadow: 0 20px 40px rgba(0,0,0,0.3); display: flex; flex-direction: column;">
+        <div style="padding: 20px; border-bottom: 1px solid rgba(255,255,255,0.2); display: flex; justify-content: space-between; align-items: center;">
+          <h2 style="margin: 0; font-size: 18px;">${agentEmojis[agentName] || '🤖'} ${agentName.charAt(0).toUpperCase() + agentName.slice(1)} - ${typeNames[type] || type}</h2>
+          <button id="close-lightbox-btn" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 32px; height: 32px; border-radius: 50%; cursor: pointer; font-size: 20px; font-weight: bold;">×</button>
+        </div>
+        <div style="flex: 1; padding: 20px; overflow-y: auto;">
+    `
+    
+    if (type === 'instructions') {
+      content += `
+        <h3 style="color: #FFD700; margin-bottom: 20px;">📋 AI Instructions</h3>
+        <textarea style="width: 100%; height: 400px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 15px; border-radius: 6px; font-family: monospace; font-size: 13px;" placeholder="Gib hier die AI-Anweisungen ein...">Du bist ein Experte für ${agentName}...</textarea>
+        <div style="margin-top: 20px;">
+          <button style="padding: 10px 20px; background: #4CAF50; border: none; color: white; border-radius: 4px; cursor: pointer; margin-right: 10px;">💾 Save</button>
+          <button style="padding: 10px 20px; background: #2196F3; border: none; color: white; border-radius: 4px; cursor: pointer;">🧪 Test</button>
+        </div>
+      `
+    } else if (type === 'context') {
+      content += `
+        <h3 style="color: #FFD700; margin-bottom: 20px;">📄 Context Information</h3>
+        <textarea style="width: 100%; height: 350px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 15px; border-radius: 6px; font-family: monospace; font-size: 13px;" placeholder="Gib hier den Kontext ein...">Aktueller Webseiten-Inhalt wird hier automatisch eingefügt...</textarea>
+        <div style="margin-top: 20px;">
+          <button style="padding: 10px 20px; background: #4CAF50; border: none; color: white; border-radius: 4px; cursor: pointer; margin-right: 10px;">💾 Save</button>
+          <button style="padding: 10px 20px; background: #2196F3; border: none; color: white; border-radius: 4px; cursor: pointer;">🌐 Load Page</button>
+        </div>
+      `
+    } else if (type === 'settings') {
+      content += `
+        <h3 style="color: #FFD700; margin-bottom: 20px;">⚙️ Settings</h3>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 30px; text-align: left;">
+          <div>
+            <label style="display: block; margin-bottom: 8px;">LLM Provider:</label>
+            <select style="width: 100%; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 8px; border-radius: 4px; margin-bottom: 15px;">
+              <option>Local LLM</option>
+              <option>GPT-4</option>
+              <option>GPT-5</option>
+              <option>Claude Sonnet</option>
+              <option>Gemini Pro</option>
+            </select>
+            <label style="display: block; margin-bottom: 8px;">Temperature: 0.7</label>
+            <input type="range" min="0" max="1" step="0.1" value="0.7" style="width: 100%; margin-bottom: 15px;">
+          </div>
+          <div>
+            <label style="display: block; margin-bottom: 8px;">Output Mode:</label>
+            <select style="width: 100%; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 8px; border-radius: 4px; margin-bottom: 15px;">
+              <option>Direct Output</option>
+              <option>Feedback Loop</option>
+              <option>Iterative Refinement</option>
+            </select>
+            <label style="display: flex; align-items: center; margin-bottom: 10px;">
+              <input type="checkbox" style="margin-right: 8px;"> Auto-processing
+            </label>
+          </div>
+        </div>
+        <div style="margin-top: 30px; text-align: center;">
+          <button style="padding: 10px 20px; background: #4CAF50; border: none; color: white; border-radius: 4px; cursor: pointer;">💾 Save Settings</button>
+        </div>
+      `
+    }
+    
+    content += `
+        </div>
+      </div>
+    `
+    
+    overlay.innerHTML = content
+    
+    // Close on overlay click
+    overlay.onclick = function(e) {
+      if (e.target === overlay) overlay.remove()
+    }
+    
+    document.body.appendChild(overlay)
+    
+    // DIRECT X-Button listener - set AFTER DOM append
+    const closeBtn = document.getElementById('close-lightbox-btn')
+    if (closeBtn) {
+      closeBtn.onclick = function() {
+        overlay.remove()
+      }
+    }
+  }
+
   // Event Listeners
   setTimeout(() => {
     // Expand button
@@ -730,6 +931,15 @@ function initializeExtension() {
       btn.onclick = () => {
         const agentName = btn.getAttribute('data-agent')
         toggleAgent(agentName)
+      }
+    })
+
+    // Lightbox buttons - NEW SYSTEM
+    document.querySelectorAll('.lightbox-btn').forEach(btn => {
+      btn.onclick = () => {
+        const agentName = btn.getAttribute('data-agent')
+        const type = btn.getAttribute('data-type')
+        window.openAgentLightbox(agentName, type)
       }
     })
 
