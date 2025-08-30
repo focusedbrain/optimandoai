@@ -24,6 +24,6 @@ export default defineManifest({
     service_worker: 'src/background.ts'
   },
   action: {
-    default_title: 'Optimando AI Orchestrator - Sidebars ein-/ausblenden'
+    default_title: 'Optimando AI Orchestrator - Toggle Sidebars'
   }
 })
