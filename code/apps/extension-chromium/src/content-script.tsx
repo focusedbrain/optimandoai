@@ -72,7 +72,15 @@ function initializeExtension() {
   
   let currentTabData = {
     tabId: tabId,
-    tabName: 'Development Tab',
+    tabName: `WR Session ${new Date().toLocaleString('en-GB', { 
+      day: '2-digit', 
+      month: '2-digit', 
+      year: 'numeric', 
+      hour: '2-digit', 
+      minute: '2-digit', 
+      second: '2-digit',
+      hour12: false 
+    }).replace(/[\/,]/g, '-').replace(/ /g, '_')}`,
     isLocked: false,
     goals: {
       shortTerm: '',
@@ -88,7 +96,8 @@ function initializeExtension() {
       leftSidebarWidth: 250,
       rightSidebarWidth: 250,
       bottomSidebarHeight: 45
-    }
+    },
+    helperTabs: null as any
   }
 
   // Save/Load functions
@@ -232,23 +241,35 @@ function initializeExtension() {
       <h2 style="margin: 0; font-size: 18px; display: flex; align-items: center; gap: 10px;">
         <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style="flex-shrink: 0;">
           <!-- Giraffe Body -->
-          <path d="M12 16C12 16 10 16 10 18C10 20 12 20 12 20C12 20 14 20 14 18C14 16 12 16 12 16Z" fill="currentColor" opacity="0.8"/>
+          <ellipse cx="12" cy="17" rx="3" ry="2.5" fill="currentColor" opacity="0.9"/>
           <!-- Giraffe Neck -->
-          <path d="M12 8C12 8 11 8 11 12C11 16 12 16 12 16C12 16 13 16 13 12C13 8 12 8 12 8Z" fill="currentColor" opacity="0.9"/>
+          <rect x="11" y="7" width="2" height="10" rx="1" fill="currentColor"/>
           <!-- Giraffe Head -->
-          <ellipse cx="12" cy="6" rx="2.5" ry="2" fill="currentColor"/>
+          <ellipse cx="12" cy="5.5" rx="2.2" ry="1.8" fill="currentColor"/>
+          <!-- Giraffe Muzzle -->
+          <ellipse cx="12" cy="6.8" rx="1" ry="0.6" fill="currentColor" opacity="0.8"/>
+          <!-- Giraffe Eyes -->
+          <circle cx="11.2" cy="5" r="0.25" fill="currentColor" opacity="0.6"/>
+          <circle cx="12.8" cy="5" r="0.25" fill="currentColor" opacity="0.6"/>
+          <!-- Giraffe Horns -->
+          <circle cx="11.2" cy="3.8" r="0.3" fill="currentColor" opacity="0.8"/>
+          <circle cx="12.8" cy="3.8" r="0.3" fill="currentColor" opacity="0.8"/>
+          <line x1="11.2" y1="4.1" x2="11.2" y2="3.5" stroke="currentColor" stroke-width="0.4" opacity="0.8"/>
+          <line x1="12.8" y1="4.1" x2="12.8" y2="3.5" stroke="currentColor" stroke-width="0.4" opacity="0.8"/>
           <!-- Giraffe Spots -->
-          <circle cx="11" cy="5.5" r="0.3" fill="currentColor" opacity="0.4"/>
-          <circle cx="13" cy="6.5" r="0.3" fill="currentColor" opacity="0.4"/>
-          <circle cx="11.5" cy="10" r="0.4" fill="currentColor" opacity="0.4"/>
-          <circle cx="12.5" cy="12" r="0.4" fill="currentColor" opacity="0.4"/>
-          <circle cx="11.5" cy="14" r="0.4" fill="currentColor" opacity="0.4"/>
-          <!-- Giraffe Ears -->
-          <circle cx="10.5" cy="4.5" r="0.5" fill="currentColor" opacity="0.7"/>
-          <circle cx="13.5" cy="4.5" r="0.5" fill="currentColor" opacity="0.7"/>
+          <circle cx="10.5" cy="5.5" r="0.3" fill="currentColor" opacity="0.4"/>
+          <circle cx="13.5" cy="5.2" r="0.25" fill="currentColor" opacity="0.4"/>
+          <circle cx="11.2" cy="9" r="0.4" fill="currentColor" opacity="0.4"/>
+          <circle cx="12.8" cy="11" r="0.35" fill="currentColor" opacity="0.4"/>
+          <circle cx="11.5" cy="13.5" r="0.3" fill="currentColor" opacity="0.4"/>
+          <circle cx="12.2" cy="15.5" r="0.4" fill="currentColor" opacity="0.4"/>
+          <circle cx="10.8" cy="16.5" r="0.3" fill="currentColor" opacity="0.4"/>
+          <circle cx="13.2" cy="17.2" r="0.35" fill="currentColor" opacity="0.4"/>
           <!-- Giraffe Legs -->
-          <rect x="10.5" y="18" width="0.8" height="3" fill="currentColor" opacity="0.8"/>
-          <rect x="12.7" y="18" width="0.8" height="3" fill="currentColor" opacity="0.8"/>
+          <rect x="10.2" y="19" width="0.8" height="2.5" rx="0.4" fill="currentColor" opacity="0.8"/>
+          <rect x="11.6" y="19" width="0.8" height="2.5" rx="0.4" fill="currentColor" opacity="0.8"/>
+          <rect x="12.6" y="19" width="0.8" height="2.5" rx="0.4" fill="currentColor" opacity="0.8"/>
+          <rect x="13.4" y="19" width="0.8" height="2.5" rx="0.4" fill="currentColor" opacity="0.8"/>
         </svg>
         OpenGiraffe
       </h2>
@@ -1294,7 +1315,7 @@ function initializeExtension() {
                     <option selected>Electron App</option>
                     <option>Browser Window</option>
                     <option>Popup Window</option>
-            </select>
+                  </select>
                 </div>
                 <div style="margin-bottom: 8px;">
                   <label style="display: block; margin-bottom: 3px;">API Endpoint:</label>
@@ -1305,8 +1326,8 @@ function initializeExtension() {
                   <button id="configure-display-ports" style="width: 100%; padding: 6px; background: #2196F3; border: none; color: white; border-radius: 3px; cursor: pointer; font-size: 9px;">🖥️ Configure Display Ports</button>
                 </div>
               </div>
-          </div>
-          
+            </div>
+
             <!-- System Settings -->
             <div style="background: rgba(255,255,255,0.1); padding: 12px; border-radius: 6px;">
               <h4 style="margin: 0 0 10px 0; font-size: 12px; color: #FFD700;">⚙️ System</h4>
@@ -1334,7 +1355,7 @@ function initializeExtension() {
                     <option selected>Balanced</option>
                     <option>Aggressive</option>
                   </select>
-              </div>
+          </div>
                 <div style="margin-bottom: 8px;">
                   <label style="display: block; margin-bottom: 3px;">Auto-save Interval:</label>
                   <select style="width: 100%; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 3px; border-radius: 2px; font-size: 9px;">
@@ -1343,8 +1364,8 @@ function initializeExtension() {
                     <option>2 minutes</option>
                     <option>5 minutes</option>
                   </select>
-                </div>
-              </div>
+        </div>
+      </div>
             </div>
             
             <!-- Privacy & Security -->
@@ -1714,6 +1735,717 @@ function initializeExtension() {
     configOverlay.onclick = (e) => { if (e.target === configOverlay) configOverlay.remove() }
   }
 
+  function openHelperGridLightbox() {
+    // Create helper grid lightbox
+    const overlay = document.createElement('div')
+    overlay.id = 'helpergrid-lightbox'
+    overlay.style.cssText = `
+      position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+      background: rgba(0,0,0,0.8); z-index: 2147483649;
+      display: flex; align-items: center; justify-content: center;
+      backdrop-filter: blur(5px);
+    `
+    
+    overlay.innerHTML = `
+      <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 16px; width: 90vw; max-width: 1000px; height: 85vh; color: white; overflow: hidden; box-shadow: 0 20px 40px rgba(0,0,0,0.3); display: flex; flex-direction: column;">
+        <div style="padding: 20px; border-bottom: 1px solid rgba(255,255,255,0.3); display: flex; justify-content: space-between; align-items: center;">
+          <h2 style="margin: 0; font-size: 20px;">🚀 Helper Grid Configuration</h2>
+          <button id="close-helpergrid-lightbox" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 30px; height: 30px; border-radius: 50%; cursor: pointer; font-size: 16px;">×</button>
+        </div>
+        <div style="flex: 1; padding: 30px; overflow-y: auto;">
+          <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px;">
+            
+            <!-- Display Helper Grids -->
+            <div style="background: rgba(255,255,255,0.1); padding: 20px; border-radius: 12px; text-align: center;">
+              <h3 style="margin: 0 0 15px 0; font-size: 16px; color: #FFD700;">Display Helper Grids</h3>
+              <div id="helper-tabs-config" style="background: rgba(0,0,0,0.2); border-radius: 8px; padding: 15px; cursor: pointer; transition: all 0.3s ease; border: 2px solid transparent;" onmouseover="this.style.borderColor='rgba(255,255,255,0.3)'" onmouseout="this.style.borderColor='transparent'">
+                <div style="font-size: 48px; margin-bottom: 10px;">🌐</div>
+                <h4 style="margin: 0 0 8px 0; font-size: 14px;">Helper Tabs</h4>
+                <p style="margin: 0; font-size: 11px; opacity: 0.7;">Configure multiple website tabs</p>
+              </div>
+          </div>
+          
+            <!-- Display Grid Screen -->
+            <div style="background: rgba(255,255,255,0.1); padding: 20px; border-radius: 12px; text-align: center;">
+              <h3 style="margin: 0 0 15px 0; font-size: 16px; color: #FFD700;">Display Grid Screen</h3>
+              <div style="background: rgba(0,0,0,0.2); border-radius: 8px; padding: 15px; cursor: pointer; transition: all 0.3s ease; border: 2px solid transparent;" onmouseover="this.style.borderColor='rgba(255,255,255,0.3)'" onmouseout="this.style.borderColor='transparent'">
+                <div style="font-size: 48px; margin-bottom: 10px;">🖥️</div>
+                <h4 style="margin: 0 0 8px 0; font-size: 14px;">Grid Display</h4>
+                <p style="margin: 0; font-size: 11px; opacity: 0.7;">Layout display configurations</p>
+              </div>
+            </div>
+            
+            <!-- Helper Grid LLMs -->
+            <div style="background: rgba(255,255,255,0.1); padding: 20px; border-radius: 12px; text-align: center;">
+              <h3 style="margin: 0 0 15px 0; font-size: 16px; color: #FFD700;">Helper Grid LLMs</h3>
+              <div style="background: rgba(0,0,0,0.2); border-radius: 8px; padding: 15px; cursor: pointer; transition: all 0.3s ease; border: 2px solid transparent;" onmouseover="this.style.borderColor='rgba(255,255,255,0.3)'" onmouseout="this.style.borderColor='transparent'">
+                <div style="font-size: 48px; margin-bottom: 10px;">🤖</div>
+                <h4 style="margin: 0 0 8px 0; font-size: 14px;">4 Helper LLMs</h4>
+                <p style="margin: 0; font-size: 11px; opacity: 0.7;">AI assistant grid layout</p>
+              </div>
+            </div>
+            
+              </div>
+              </div>
+        <div style="padding: 20px; border-top: 1px solid rgba(255,255,255,0.3); display: flex; justify-content: center; background: rgba(255,255,255,0.05);">
+          <button id="helpergrid-close" style="padding: 12px 30px; background: #4CAF50; border: none; color: white; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: bold;">
+            ✅ Close Configuration
+          </button>
+            </div>
+      </div>
+    `
+    
+    document.body.appendChild(overlay)
+    
+    // Close handlers
+    document.getElementById('close-helpergrid-lightbox').onclick = () => overlay.remove()
+    document.getElementById('helpergrid-close').onclick = () => overlay.remove()
+    overlay.onclick = (e) => { if (e.target === overlay) overlay.remove() }
+    
+    // Helper tabs configuration
+    document.getElementById('helper-tabs-config').onclick = () => {
+      overlay.remove()
+      openHelperTabsConfig()
+    }
+  }
+
+  function openHelperTabsConfig() {
+    // Get existing URLs from localStorage
+    const existingUrls = JSON.parse(localStorage.getItem('helper_tabs_urls') || '["https://chatgpt.com"]')
+    
+    // Generate URL fields HTML
+    const generateUrlFieldsHTML = () => {
+      return existingUrls.map((url, index) => `
+        <div class="url-field-row" data-index="${index}" style="display: flex; align-items: center; gap: 10px; margin-bottom: 12px;">
+          <input type="url" class="helper-url" value="${url}" style="flex: 1; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white !important; -webkit-text-fill-color: white !important; padding: 10px; border-radius: 6px; font-size: 12px;" placeholder="https://example.com">
+          <button class="add-url-btn" style="background: #4CAF50; border: none; color: white; width: 32px; height: 32px; border-radius: 6px; cursor: pointer; font-size: 16px; display: flex; align-items: center; justify-content: center;" title="Add new URL field">+</button>
+          <button class="remove-url-btn" style="background: #f44336; border: none; color: white; width: 32px; height: 32px; border-radius: 6px; cursor: pointer; font-size: 16px; display: flex; align-items: center; justify-content: center; ${existingUrls.length <= 1 ? 'opacity: 0.5; pointer-events: none;' : ''}" title="Remove this URL field">×</button>
+              </div>
+      `).join('')
+    }
+    
+    const overlay = document.createElement('div')
+    overlay.style.cssText = `
+      position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+      background: rgba(0,0,0,0.8); z-index: 2147483649;
+      display: flex; align-items: center; justify-content: center;
+      backdrop-filter: blur(5px);
+    `
+    
+    overlay.innerHTML = `
+      <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 16px; width: 85vw; max-width: 800px; height: 85vh; color: white; overflow: hidden; box-shadow: 0 20px 40px rgba(0,0,0,0.3); display: flex; flex-direction: column;">
+        <div style="padding: 20px; border-bottom: 1px solid rgba(255,255,255,0.3); display: flex; justify-content: space-between; align-items: center;">
+          <h2 style="margin: 0; font-size: 20px;">🌐 Helper Tabs Configuration</h2>
+          <button id="close-helper-tabs" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 30px; height: 30px; border-radius: 50%; cursor: pointer; font-size: 16px;">×</button>
+          </div>
+        <div style="flex: 1; padding: 30px; overflow-y: auto;">
+          <div style="background: rgba(255,255,255,0.1); padding: 20px; border-radius: 8px;">
+            <h3 style="margin: 0 0 15px 0; font-size: 16px; color: #FFD700;">URLs Configuration</h3>
+            <p style="margin: 0 0 20px 0; font-size: 12px; opacity: 0.8;">Add up to 10 URLs that will open in separate tabs when activated.</p>
+            
+            <div id="helper-url-fields-container">
+              ${generateUrlFieldsHTML()}
+            </div>
+          </div>
+        </div>
+        <div style="padding: 20px; border-top: 1px solid rgba(255,255,255,0.3); display: flex; justify-content: center; background: rgba(255,255,255,0.05);">
+          <button id="save-helper-tabs" style="padding: 12px 30px; background: #4CAF50; border: none; color: white; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: bold;">
+            🚀 Save & Open Helper Tabs
+          </button>
+        </div>
+      </div>
+    `
+    
+    document.body.appendChild(overlay)
+    
+    // Close handlers
+    document.getElementById('close-helper-tabs').onclick = () => overlay.remove()
+    overlay.onclick = (e) => { if (e.target === overlay) overlay.remove() }
+    
+    // URL field management
+    const container = document.getElementById('helper-url-fields-container')
+    
+    const updateUrlFields = () => {
+      container.innerHTML = generateUrlFieldsHTML()
+      attachUrlFieldHandlers()
+    }
+    
+    const attachUrlFieldHandlers = () => {
+      container.querySelectorAll('.add-url-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          if (existingUrls.length < 10) {
+            existingUrls.push('')
+            updateUrlFields()
+          }
+        })
+      })
+      
+      container.querySelectorAll('.remove-url-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          const index = parseInt(e.target.closest('.url-field-row').dataset.index)
+          existingUrls.splice(index, 1)
+          if (existingUrls.length === 0) existingUrls.push('')
+          updateUrlFields()
+        })
+      })
+    }
+    
+    attachUrlFieldHandlers()
+    
+    
+    // Save configuration
+    document.getElementById('save-helper-tabs').onclick = () => {
+      const urls = Array.from(container.querySelectorAll('.helper-url'))
+        .map(input => input.value.trim())
+        .filter(url => url && url.length > 0)
+      
+      if (urls.length > 0) {
+        // Save configuration to localStorage
+        localStorage.setItem('helper_tabs_urls', JSON.stringify(urls))
+        
+        // IMMEDIATELY open the helper tabs
+        urls.forEach((url, index) => {
+          const agentId = index + 1
+          const sessionId = Date.now()
+          const urlWithParams = url + (url.includes('?') ? '&' : '?') + 
+            `optimando_extension=disabled&session_id=${sessionId}&agent_id=${agentId}`
+          
+          setTimeout(() => {
+            // Open in background without changing focus
+            window.open(urlWithParams, `helper-tab-${index}`)
+          }, index * 500)
+        })
+        
+        // Store helper tabs data in current session
+        currentTabData.helperTabs = {
+          urls: urls,
+          masterUrl: window.location.href,
+          timestamp: new Date().toISOString()
+        }
+        
+        // Save to localStorage
+        saveTabDataToStorage()
+        
+        // AUTOMATICALLY save the session to chrome.storage.local (Sessions History)
+        const sessionKey = `session_${Date.now()}`
+        
+        // If session name is still default, update it with current date-time
+        if (!currentTabData.tabName || currentTabData.tabName.startsWith('WR Session')) {
+          currentTabData.tabName = `WR Session ${new Date().toLocaleString('en-GB', { 
+            day: '2-digit', 
+            month: '2-digit', 
+            year: 'numeric', 
+            hour: '2-digit', 
+            minute: '2-digit', 
+            second: '2-digit',
+            hour12: false 
+          }).replace(/[\/,]/g, '-').replace(/ /g, '_')}`
+        }
+        
+        const sessionData = {
+          ...currentTabData,
+          timestamp: new Date().toISOString(),
+          url: window.location.href
+        }
+        
+        chrome.storage.local.set({ [sessionKey]: sessionData }, () => {
+          console.log('✅ Session automatically saved with helper tabs:', sessionData.tabName, urls.length, 'tabs')
+        })
+        
+        // Show notification
+        const notification = document.createElement('div')
+        notification.style.cssText = `
+          position: fixed;
+          top: 60px;
+          right: 20px;
+          background: rgba(76, 175, 80, 0.9);
+          color: white;
+          padding: 10px 15px;
+          border-radius: 5px;
+          font-size: 12px;
+          z-index: 2147483651;
+        `
+        notification.innerHTML = `🚀 ${urls.length} Helper tabs opened! Session auto-saved to history.`
+        document.body.appendChild(notification)
+        
+        setTimeout(() => {
+          notification.remove()
+        }, 3000)
+        
+        overlay.remove()
+        console.log('🚀 Helper tabs opened and saved to session:', urls)
+      } else {
+        // Just save empty configuration
+        localStorage.setItem('helper_tabs_urls', JSON.stringify(['https://chatgpt.com']))
+        overlay.remove()
+      }
+    }
+  }
+
+  function openSessionsLightbox() {
+    // Create sessions lightbox
+    const overlay = document.createElement('div')
+    overlay.style.cssText = `
+      position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+      background: rgba(0,0,0,0.8); z-index: 2147483649;
+      display: flex; align-items: center; justify-content: center;
+      backdrop-filter: blur(5px);
+    `
+    
+    // Get saved sessions from chrome.storage.local
+    chrome.storage.local.get(null, (allData) => {
+      const sessions = Object.entries(allData)
+        .filter(([key]) => key.startsWith('session_'))
+        .map(([key, data]) => ({ id: key, ...data }))
+        .sort((a, b) => new Date(b.timestamp || 0) - new Date(a.timestamp || 0))
+      
+      const generateSessionsHTML = () => {
+        if (sessions.length === 0) {
+          return '<div style="text-align: center; padding: 40px; opacity: 0.7;"><p>No saved sessions found</p></div>'
+        }
+        
+                return sessions.map(session => `
+          <div style="margin-bottom: 16px;">
+            <!-- Session title outside the box -->
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; padding: 0 4px;">
+              <h4 style="margin: 0; font-size: 16px; font-weight: bold; color: #FFEF94; text-shadow: 0 1px 2px rgba(0,0,0,0.5);">${session.tabName || 'Unnamed Session'}</h4>
+              <div style="display: flex; gap: 6px;">
+                <button class="rename-session-btn" data-session-id="${session.id}" style="background: linear-gradient(135deg, #2196F3, #1976D2); border: none; color: white; padding: 6px 8px; border-radius: 4px; cursor: pointer; font-size: 10px; transition: all 0.2s ease;" title="Rename session" onmouseover="this.style.transform='scale(1.05)'" onmouseout="this.style.transform='scale(1)'">✏️</button>
+                <button class="delete-session-btn" data-session-id="${session.id}" style="background: linear-gradient(135deg, #f44336, #d32f2f); border: none; color: white; padding: 6px 8px; border-radius: 4px; cursor: pointer; font-size: 10px; transition: all 0.2s ease;" title="Delete session" onmouseover="this.style.transform='scale(1.05)'" onmouseout="this.style.transform='scale(1)'">🗑️</button>
+              </div>
+            </div>
+            <!-- Session box with content -->
+            <div class="session-item" data-session-id="${session.id}" style="background: linear-gradient(135deg, rgba(255,255,255,0.15) 0%, rgba(255,255,255,0.05) 100%); border-radius: 12px; padding: 14px; cursor: pointer; transition: all 0.3s ease; border: 2px solid transparent; box-shadow: 0 4px 8px rgba(0,0,0,0.1);" onmouseover="this.style.borderColor='rgba(255,255,255,0.4)'; this.style.transform='translateY(-2px)'; this.style.boxShadow='0 6px 12px rgba(0,0,0,0.2)'" onmouseout="this.style.borderColor='transparent'; this.style.transform='translateY(0)'; this.style.boxShadow='0 4px 8px rgba(0,0,0,0.1)'">
+              <div class="session-content" style="cursor: pointer;">
+                <p style="margin: 0 0 8px 0; font-size: 12px; color: #F0F0F0; opacity: 0.9;">${session.url || 'No URL'}</p>
+                
+                ${session.helperTabs && session.helperTabs.urls && session.helperTabs.urls.length > 0 ? `
+                  <div style="background: rgba(255,255,255,0.25); border: 1px solid rgba(255,255,255,0.3); border-radius: 8px; padding: 12px; margin: 10px 0;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                      <span style="font-size: 12px; font-weight: bold; color: #66FF66;">🌐 Helper Tabs (${session.helperTabs.urls.length})</span>
+                      <button class="edit-helper-tabs-btn" data-session-id="${session.id}" style="background: #FF6B35; border: none; color: white; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 10px; font-weight: bold;" title="Edit helper tabs">✏️ Edit</button>
+                    </div>
+                    <div style="display: flex; flex-wrap: wrap; gap: 6px;">
+                      ${session.helperTabs.urls.map((url, index) => `
+                        <span style="background: rgba(102,255,102,0.25); color: white; border: 1px solid rgba(102,255,102,0.5); padding: 3px 8px; border-radius: 4px; font-size: 11px; font-weight: 500; max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${url}">${url.replace('https://', '').replace('http://', '').split('/')[0]}</span>
+                      `).join('')}
+                    </div>
+                  </div>
+                ` : ''}
+              </div>
+            </div>
+            <!-- Date outside the box at the bottom -->
+            <div style="padding: 4px 4px 0 4px;">
+              <span style="font-size: 10px; color: #D0D0D0; opacity: 0.7;">📅 ${session.timestamp ? new Date(session.timestamp).toLocaleString() : 'No date'}</span>
+            </div>
+          </div>
+        `).join('')
+      }
+      
+      overlay.innerHTML = `
+        <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 16px; width: 90vw; max-width: 900px; height: 85vh; color: white; overflow: hidden; box-shadow: 0 20px 40px rgba(0,0,0,0.3); display: flex; flex-direction: column;">
+          <div style="padding: 20px; border-bottom: 1px solid rgba(255,255,255,0.3); display: flex; justify-content: space-between; align-items: center;">
+            <h2 style="margin: 0; font-size: 20px;">📚 Sessions History</h2>
+            <button id="close-sessions-lightbox" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 30px; height: 30px; border-radius: 50%; cursor: pointer; font-size: 16px;">×</button>
+          </div>
+          <div style="flex: 1; padding: 30px; overflow-y: auto;">
+            <div id="sessions-list">
+              ${generateSessionsHTML()}
+            </div>
+          </div>
+          <div style="padding: 20px; border-top: 1px solid rgba(255,255,255,0.3); display: flex; justify-content: center; background: rgba(255,255,255,0.05);">
+            <button id="clear-all-sessions" style="padding: 12px 30px; background: #f44336; border: none; color: white; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: bold;">
+              🗑️ Clear All Sessions
+            </button>
+        </div>
+      </div>
+    `
+    
+      document.body.appendChild(overlay)
+      
+      // Close handlers
+      document.getElementById('close-sessions-lightbox').onclick = () => overlay.remove()
+      overlay.onclick = (e) => { if (e.target === overlay) overlay.remove() }
+      
+      // Session click handlers - make entire session clickable
+      overlay.querySelectorAll('.session-item').forEach(sessionEl => {
+        sessionEl.addEventListener('click', (e) => {
+          // Don't trigger if clicking on action buttons
+          if (e.target.classList.contains('rename-session-btn') || 
+              e.target.classList.contains('delete-session-btn')) {
+            return
+          }
+          
+          const sessionId = sessionEl.dataset.sessionId
+          const sessionData = sessions.find(s => s.id === sessionId)
+          
+          if (sessionData) {
+            console.log('🔧 DEBUG: Session data:', sessionData)
+            console.log('🔧 DEBUG: Helper tabs data:', sessionData.helperTabs)
+            
+            // Don't navigate immediately - this breaks the helper tabs opening
+            // Instead, store the target URL and navigate after opening helper tabs
+            const targetUrl = sessionData.url
+            
+            // Restore helper tabs FIRST if they exist
+            if (sessionData.helperTabs && sessionData.helperTabs.urls && sessionData.helperTabs.urls.length > 0) {
+              console.log('🔧 DEBUG: Opening', sessionData.helperTabs.urls.length, 'helper tabs:', sessionData.helperTabs.urls)
+              
+              // Open helper tabs immediately
+              sessionData.helperTabs.urls.forEach((url, index) => {
+                const agentId = index + 1
+                const sessionId = Date.now()
+                const urlWithParams = url + (url.includes('?') ? '&' : '?') + 
+                  `optimando_extension=disabled&session_id=${sessionId}&agent_id=${agentId}`
+                
+                console.log(`🔧 DEBUG: Opening helper tab ${index + 1}:`, urlWithParams)
+                
+                setTimeout(() => {
+                  window.open(urlWithParams, `helper-tab-${index}`)
+                }, index * 500)
+              })
+              
+              // Navigate to master URL after helper tabs are opened (2 second delay)
+              setTimeout(() => {
+                console.log('🔧 DEBUG: Navigating to master URL:', targetUrl)
+                window.location.href = targetUrl
+              }, 2000)
+            } else {
+              console.log('🔧 DEBUG: No helper tabs found, navigating directly')
+              // No helper tabs, navigate directly
+              window.location.href = targetUrl
+            }
+            
+            overlay.remove()
+            console.log('🔄 Session restore initiated with', sessionData.helperTabs?.urls?.length || 0, 'helper tabs:', sessionData.tabName)
+          }
+        })
+      })
+      
+            overlay.querySelectorAll('.rename-session-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation()
+          const sessionId = btn.dataset.sessionId
+          const sessionData = sessions.find(s => s.id === sessionId)
+          
+          if (sessionData) {
+            let newName = prompt('Enter new session name:', sessionData.tabName || 'Unnamed Session')
+            if (newName && newName.trim()) {
+              sessionData.tabName = newName.trim()
+              chrome.storage.local.set({ [sessionId]: sessionData }, () => {
+                // Refresh the sessions list
+                overlay.remove()
+                openSessionsLightbox()
+              })
+            }
+          }
+        })
+      })
+      
+      overlay.querySelectorAll('.edit-helper-tabs-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation()
+          const sessionId = btn.dataset.sessionId
+          const sessionData = sessions.find(s => s.id === sessionId)
+          
+          if (sessionData && sessionData.helperTabs && sessionData.helperTabs.urls) {
+            openEditHelperTabsDialog(sessionData, sessionId, overlay)
+          }
+        })
+      })
+      
+      overlay.querySelectorAll('.delete-session-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation()
+          const sessionId = btn.dataset.sessionId
+          
+          if (confirm('Are you sure you want to delete this session?')) {
+            chrome.storage.local.remove(sessionId, () => {
+              // Refresh the sessions list
+              overlay.remove()
+              openSessionsLightbox()
+            })
+          }
+        })
+      })
+      
+      // Clear all sessions
+      document.getElementById('clear-all-sessions').onclick = () => {
+        if (confirm('Are you sure you want to delete ALL sessions? This cannot be undone.')) {
+          const sessionKeys = sessions.map(s => s.id)
+          chrome.storage.local.remove(sessionKeys, () => {
+            overlay.remove()
+            openSessionsLightbox()
+          })
+        }
+      }
+    })
+  }
+
+  function openEditHelperTabsDialog(sessionData, sessionId, parentOverlay) {
+    // Create helper tabs edit dialog
+    const editOverlay = document.createElement('div')
+    editOverlay.style.cssText = `
+      position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+      background: rgba(0,0,0,0.9); z-index: 2147483650;
+      display: flex; align-items: center; justify-content: center;
+      backdrop-filter: blur(8px);
+    `
+    
+    const currentUrls = [...sessionData.helperTabs.urls]
+    
+    const generateEditUrlFieldsHTML = () => {
+      return currentUrls.map((url, index) => `
+        <div class="edit-url-field-row" data-index="${index}" style="display: flex; align-items: center; gap: 10px; margin-bottom: 12px;">
+          <input type="url" class="edit-helper-url" value="${url}" style="flex: 1; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white !important; -webkit-text-fill-color: white !important; padding: 10px; border-radius: 6px; font-size: 12px;" placeholder="https://example.com">
+          <button class="add-edit-url-btn" style="background: #4CAF50; border: none; color: white; width: 32px; height: 32px; border-radius: 6px; cursor: pointer; font-size: 16px; display: flex; align-items: center; justify-content: center;" title="Add new URL field">+</button>
+          <button class="remove-edit-url-btn" style="background: #f44336; border: none; color: white; width: 32px; height: 32px; border-radius: 6px; cursor: pointer; font-size: 16px; display: flex; align-items: center; justify-content: center; ${currentUrls.length <= 1 ? 'opacity: 0.5; pointer-events: none;' : ''}" title="Remove this URL field">×</button>
+        </div>
+      `).join('')
+    }
+    
+    editOverlay.innerHTML = `
+      <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 16px; width: 85vw; max-width: 800px; height: 85vh; color: white; overflow: hidden; box-shadow: 0 20px 40px rgba(0,0,0,0.3); display: flex; flex-direction: column;">
+        <div style="padding: 20px; border-bottom: 1px solid rgba(255,255,255,0.3); display: flex; justify-content: space-between; align-items: center;">
+          <h2 style="margin: 0; font-size: 20px;">✏️ Edit Helper Tabs - ${sessionData.tabName}</h2>
+          <button id="close-edit-helper-tabs" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 30px; height: 30px; border-radius: 50%; cursor: pointer; font-size: 16px;">×</button>
+        </div>
+        <div style="flex: 1; padding: 30px; overflow-y: auto;">
+          <div style="background: rgba(255,255,255,0.1); padding: 20px; border-radius: 8px;">
+            <h3 style="margin: 0 0 15px 0; font-size: 16px; color: #FFD700;">Helper Tabs URLs</h3>
+            <p style="margin: 0 0 20px 0; font-size: 12px; opacity: 0.8;">Edit the URLs that will open when this session is restored.</p>
+            
+            <div id="edit-helper-url-fields-container">
+              ${generateEditUrlFieldsHTML()}
+            </div>
+          </div>
+        </div>
+        <div style="padding: 20px; border-top: 1px solid rgba(255,255,255,0.3); display: flex; justify-content: space-between; background: rgba(255,255,255,0.05);">
+          <button id="cancel-edit-helper-tabs" style="padding: 12px 30px; background: #6c757d; border: none; color: white; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: bold;">Cancel</button>
+          <button id="save-edit-helper-tabs" style="padding: 12px 30px; background: #4CAF50; border: none; color: white; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: bold;">💾 Save Changes</button>
+        </div>
+      </div>
+    `
+    
+    document.body.appendChild(editOverlay)
+    
+    // Close handlers
+    document.getElementById('close-edit-helper-tabs').onclick = () => editOverlay.remove()
+    document.getElementById('cancel-edit-helper-tabs').onclick = () => editOverlay.remove()
+    editOverlay.onclick = (e) => { if (e.target === editOverlay) editOverlay.remove() }
+    
+    // URL field management
+    const container = document.getElementById('edit-helper-url-fields-container')
+    
+    const updateEditUrlFields = () => {
+      container.innerHTML = generateEditUrlFieldsHTML()
+      attachEditUrlFieldHandlers()
+    }
+    
+    const attachEditUrlFieldHandlers = () => {
+      container.querySelectorAll('.add-edit-url-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          if (currentUrls.length < 10) {
+            currentUrls.push('')
+            updateEditUrlFields()
+          }
+        })
+      })
+      
+      container.querySelectorAll('.remove-edit-url-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          const index = parseInt(e.target.closest('.edit-url-field-row').dataset.index)
+          currentUrls.splice(index, 1)
+          if (currentUrls.length === 0) currentUrls.push('')
+          updateEditUrlFields()
+        })
+      })
+    }
+    
+    attachEditUrlFieldHandlers()
+    
+    // Save handler
+    document.getElementById('save-edit-helper-tabs').onclick = () => {
+      const updatedUrls = Array.from(container.querySelectorAll('.edit-helper-url'))
+        .map(input => input.value.trim())
+        .filter(url => url && url.length > 0)
+      
+      // Update session data
+      sessionData.helperTabs.urls = updatedUrls
+      sessionData.timestamp = new Date().toISOString()
+      
+      chrome.storage.local.set({ [sessionId]: sessionData }, () => {
+        console.log('✅ Helper tabs updated for session:', sessionData.tabName)
+        
+        // Show notification
+        const notification = document.createElement('div')
+        notification.style.cssText = `
+          position: fixed;
+          top: 60px;
+          right: 20px;
+          background: rgba(76, 175, 80, 0.9);
+          color: white;
+          padding: 10px 15px;
+          border-radius: 5px;
+          font-size: 12px;
+          z-index: 2147483651;
+        `
+        notification.innerHTML = `✅ Helper tabs updated! (${updatedUrls.length} URLs)`
+        document.body.appendChild(notification)
+        
+        setTimeout(() => {
+          notification.remove()
+        }, 3000)
+        
+        editOverlay.remove()
+        parentOverlay.remove()
+        openSessionsLightbox()
+      })
+    }
+  }
+
+  // Helper function to update current session in storage
+  function updateCurrentSessionInStorage() {
+    // Only update if session is locked and has helper tabs
+    if (!currentTabData.isLocked || !currentTabData.helperTabs) {
+      return
+    }
+    
+    // Use the helper tabs session ID to find the correct session
+    const sessionKey = `session_${currentTabData.helperTabs.sessionId}`
+    
+    chrome.storage.local.get([sessionKey], (result) => {
+      if (result[sessionKey]) {
+        // Update the existing session with current data
+        const updatedSessionData = {
+          ...result[sessionKey],
+          ...currentTabData,
+          timestamp: new Date().toISOString(),
+          url: window.location.href
+        }
+        
+        chrome.storage.local.set({ [sessionKey]: updatedSessionData }, () => {
+          console.log('📝 Updated existing session with current data:', currentTabData.tabName)
+        })
+      }
+    })
+  }
+
+  // Quick action functions
+  function saveCurrentSession() {
+        if (currentTabData.isLocked) {
+      console.log('💾 Session already saved (locked):', currentTabData.tabName)
+      return
+    }
+    
+    // Save current session to chrome.storage.local
+    const sessionKey = `session_${Date.now()}`
+    const sessionData = {
+      ...currentTabData,
+      timestamp: new Date().toISOString(),
+      url: window.location.href
+    }
+    
+    chrome.storage.local.set({ [sessionKey]: sessionData }, () => {
+          // Show notification
+          const notification = document.createElement('div')
+          notification.style.cssText = `
+            position: fixed;
+        top: 60px;
+            right: 20px;
+            background: rgba(76, 175, 80, 0.9);
+            color: white;
+            padding: 10px 15px;
+            border-radius: 5px;
+            font-size: 12px;
+            z-index: 2147483648;
+          `
+      notification.innerHTML = `💾 Session "${currentTabData.tabName}" saved!`
+          document.body.appendChild(notification)
+          
+          setTimeout(() => {
+            notification.remove()
+          }, 3000)
+          
+      console.log('💾 Session saved:', sessionData)
+    })
+  }
+
+  function syncSession() {
+    console.log('🔄 Sync functionality - placeholder')
+    // Placeholder for sync functionality
+  }
+
+  function exportSession() {
+    const sessionData = {
+      ...currentTabData,
+      timestamp: new Date().toISOString(),
+      url: window.location.href
+    }
+    
+    const dataStr = JSON.stringify(sessionData, null, 2)
+    const dataBlob = new Blob([dataStr], {type: 'application/json'})
+    const url = URL.createObjectURL(dataBlob)
+    
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `session_${currentTabData.tabName || 'unnamed'}_${Date.now()}.json`
+    link.click()
+    
+    URL.revokeObjectURL(url)
+    console.log('📤 Session exported:', currentTabData.tabName)
+  }
+
+  function importSession() {
+    const input = document.createElement('input')
+    input.type = 'file'
+    input.accept = '.json'
+    
+    input.onchange = (e) => {
+      const file = e.target.files[0]
+      if (file) {
+        const reader = new FileReader()
+        reader.onload = (e) => {
+          try {
+            const sessionData = JSON.parse(e.target.result)
+            
+            // Save imported session
+            const sessionKey = `session_${Date.now()}`
+            chrome.storage.local.set({ [sessionKey]: sessionData }, () => {
+              console.log('📥 Session imported:', sessionData.tabName)
+              
+              // Show notification
+              const notification = document.createElement('div')
+              notification.style.cssText = `
+                position: fixed;
+                top: 60px;
+                right: 20px;
+                background: rgba(76, 175, 80, 0.9);
+                color: white;
+                padding: 10px 15px;
+                border-radius: 5px;
+                font-size: 12px;
+                z-index: 2147483648;
+              `
+              notification.innerHTML = `📥 Session "${sessionData.tabName || 'unnamed'}" imported!`
+              document.body.appendChild(notification)
+              
+              setTimeout(() => {
+                notification.remove()
+              }, 3000)
+            })
+          } catch (error) {
+            console.error('❌ Failed to import session:', error)
+            alert('Failed to import session. Please check the file format.')
+          }
+        }
+        reader.readAsText(file)
+      }
+    }
+    
+    input.click()
+  }
+
   // Add all sidebars to page
   sidebarsDiv.appendChild(leftSidebar)
   sidebarsDiv.appendChild(rightSidebar)
@@ -1736,6 +2468,14 @@ function initializeExtension() {
     document.getElementById('whitelist-lightbox-btn')?.addEventListener('click', openWhitelistLightbox)
     document.getElementById('settings-lightbox-btn')?.addEventListener('click', openSettingsLightbox)
     
+    // Right sidebar buttons
+    document.getElementById('add-helpergrid-btn')?.addEventListener('click', openHelperGridLightbox)
+    document.getElementById('sessions-history-btn')?.addEventListener('click', openSessionsLightbox)
+    document.getElementById('save-session-btn')?.addEventListener('click', saveCurrentSession)
+    document.getElementById('sync-btn')?.addEventListener('click', syncSession)
+    document.getElementById('export-btn')?.addEventListener('click', exportSession)
+    document.getElementById('import-btn')?.addEventListener('click', importSession)
+    
     // Left sidebar quick expand button
     document.getElementById('quick-expand-btn')?.addEventListener('click', () => {
       const currentWidth = currentTabData.uiConfig.leftSidebarWidth
@@ -1745,7 +2485,7 @@ function initializeExtension() {
       currentTabData.uiConfig.leftSidebarWidth = newWidth
       leftSidebar.style.width = newWidth + 'px'
       document.body.style.marginLeft = newWidth + 'px'
-      bottomSidebar.style.left = newWidth + 'px'
+        bottomSidebar.style.left = newWidth + 'px'
       
       saveTabDataToStorage()
       console.log('🔄 Left sidebar toggled to width:', newWidth)
@@ -1788,9 +2528,34 @@ function initializeExtension() {
         }
         
         // Save session when locking
-        saveTabDataToStorage()
+      saveTabDataToStorage()
         
         if (currentTabData.isLocked) {
+          // Save to chrome.storage.local for sessions history
+          const sessionKey = `session_${Date.now()}`
+          
+          // If session name is still default, update it with current date-time
+          if (!currentTabData.tabName || currentTabData.tabName.startsWith('WR Session')) {
+            currentTabData.tabName = `WR Session ${new Date().toLocaleString('en-GB', { 
+              day: '2-digit', 
+              month: '2-digit', 
+              year: 'numeric', 
+              hour: '2-digit', 
+              minute: '2-digit', 
+              second: '2-digit',
+              hour12: false 
+            }).replace(/[\/,]/g, '-').replace(/ /g, '_')}`
+          }
+          
+          const sessionData = {
+            ...currentTabData,
+            timestamp: new Date().toISOString(),
+            url: window.location.href
+          }
+          
+          chrome.storage.local.set({ [sessionKey]: sessionData }, () => {
+            console.log('🔒 Session saved:', sessionData.tabName, 'with', sessionData.helperTabs?.urls?.length || 0, 'helper tabs')
+          })
           // Show notification
           const notification = document.createElement('div')
           notification.style.cssText = `
