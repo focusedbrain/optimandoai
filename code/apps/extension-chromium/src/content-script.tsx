@@ -93,7 +93,7 @@ function initializeExtension() {
       lastUpdate: new Date().toLocaleTimeString()
     },
     uiConfig: {
-      leftSidebarWidth: 250,
+      leftSidebarWidth: 350,
       rightSidebarWidth: 250,
       bottomSidebarHeight: 45
     },
@@ -319,17 +319,7 @@ function initializeExtension() {
       </div>
     </div>
 
-    <!-- Monitor Output Info -->
-    <div style="margin-top: 20px; padding: 15px; background: rgba(255,255,255,0.95); color: black; border-radius: 8px; border: 2px solid #FFD700; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
-      <h4 style="margin: 0 0 10px 0; font-size: 14px; color: #E65100; font-weight: bold;">🖥️ Monitor Output</h4>
-      <div style="font-size: 11px; color: #555; line-height: 1.4;">
-        Größere AI-Ausgaben werden direkt auf Monitor per Electron App angezeigt.
-        <br><br>
-        <strong>Status:</strong> <span style="color: #4CAF50;">● Verbunden</span><br>
-        <strong>Endpoint:</strong> localhost:51247<br>
-        <strong>Active Streams:</strong> 0
-      </div>
-    </div>
+
   `
 
   // Add resize handle after content
@@ -351,7 +341,7 @@ function initializeExtension() {
   document.addEventListener('mousemove', (e) => {
     if (!isResizingLeft) return
     
-    const newWidth = Math.max(200, Math.min(800, startWidth + (e.clientX - startX)))
+    const newWidth = Math.max(150, Math.min(1000, startWidth + (e.clientX - startX)))
     currentTabData.uiConfig.leftSidebarWidth = newWidth
     
     // Update left sidebar width
@@ -1954,7 +1944,7 @@ function initializeExtension() {
               timestamp: new Date().toISOString()
             }
             console.log('🌐 Updating existing session with helper tabs:', urls.length, 'tabs')
-          } else {
+      } else {
             // Create new session
             sessionKey = `session_${Date.now()}`
             
@@ -2019,6 +2009,19 @@ function initializeExtension() {
   }
 
   function openDisplayGridBrowserConfig() {
+    // Get current active grids from session
+    const activeGridLayouts = new Set()
+    if (currentTabData.displayGrids && Array.isArray(currentTabData.displayGrids)) {
+      currentTabData.displayGrids.forEach(grid => {
+        if (grid.layout) {
+          activeGridLayouts.add(grid.layout)
+        }
+      })
+    }
+    
+    console.log('🗂️ Current active grids:', Array.from(activeGridLayouts))
+    console.log('🗂️ currentTabData.displayGrids:', currentTabData.displayGrids)
+    
     const overlay = document.createElement('div')
     overlay.style.cssText = `
       position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
@@ -2034,10 +2037,13 @@ function initializeExtension() {
         </div>
                   <div style="flex: 1; padding: 20px;">
           <p style="margin: 0 0 20px 0; text-align: center; opacity: 0.8; font-size: 14px;">Select grid layouts to save and open. Multiple selections allowed.</p>
-          <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; height: calc(100% - 120px);">
+          <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; height: calc(100% - 120px); overflow-y: auto;">
             
+            <!-- ROW 1: 2-slot, 3-slot, 4-slot -->
             <div id="btn-2-slot" style="background: rgba(255,255,255,0.1); border-radius: 12px; padding: 15px; cursor: pointer; text-align: center; border: 2px solid transparent; position: relative;">
-              <input type="checkbox" id="check-2-slot" style="position: absolute; top: 10px; right: 10px; width: 18px; height: 18px; cursor: pointer;">
+              <label style="position: absolute; top: 8px; right: 8px; width: 30px; height: 30px; background: #FFD700; border: 3px solid #000; border-radius: 6px; display: flex; align-items: center; justify-content: center; cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,0.5); z-index: 1000;">
+                <input type="checkbox" id="check-2-slot" style="width: 16px; height: 16px; cursor: pointer; margin: 0;">
+              </label>
               <h3 style="margin: 0 0 10px 0; font-size: 16px; color: #FFD700;">2-Slot Layout</h3>
               <div style="background: rgba(0,0,0,0.3); border-radius: 8px; padding: 10px; margin-bottom: 10px; height: 80px;">
                 <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 3px; height: 100%;">
@@ -2049,7 +2055,9 @@ function initializeExtension() {
             </div>
 
             <div id="btn-3-slot" style="background: rgba(255,255,255,0.1); border-radius: 12px; padding: 15px; cursor: pointer; text-align: center; border: 2px solid transparent; position: relative;">
-              <input type="checkbox" id="check-3-slot" style="position: absolute; top: 10px; right: 10px; width: 18px; height: 18px; cursor: pointer;">
+              <label style="position: absolute; top: 8px; right: 8px; width: 30px; height: 30px; background: #FFD700; border: 3px solid #000; border-radius: 6px; display: flex; align-items: center; justify-content: center; cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,0.5); z-index: 1000;">
+                <input type="checkbox" id="check-3-slot" style="width: 16px; height: 16px; cursor: pointer; margin: 0;">
+              </label>
               <h3 style="margin: 0 0 10px 0; font-size: 16px; color: #FFD700;">3-Slot Layout</h3>
               <div style="background: rgba(0,0,0,0.3); border-radius: 8px; padding: 10px; margin-bottom: 10px; height: 80px;">
                 <div style="display: grid; grid-template-columns: 2fr 1fr 1fr; gap: 3px; height: 100%;">
@@ -2062,7 +2070,9 @@ function initializeExtension() {
             </div>
 
             <div id="btn-4-slot" style="background: rgba(255,255,255,0.1); border-radius: 12px; padding: 15px; cursor: pointer; text-align: center; border: 2px solid transparent; position: relative;">
-              <input type="checkbox" id="check-4-slot" style="position: absolute; top: 10px; right: 10px; width: 18px; height: 18px; cursor: pointer;">
+              <label style="position: absolute; top: 8px; right: 8px; width: 30px; height: 30px; background: #FFD700; border: 3px solid #000; border-radius: 6px; display: flex; align-items: center; justify-content: center; cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,0.5); z-index: 1000;">
+                <input type="checkbox" id="check-4-slot" style="width: 16px; height: 16px; cursor: pointer; margin: 0;">
+              </label>
               <h3 style="margin: 0 0 10px 0; font-size: 16px; color: #FFD700;">4-Slot Grid</h3>
               <div style="background: rgba(0,0,0,0.3); border-radius: 8px; padding: 10px; margin-bottom: 10px; height: 80px;">
                 <div style="display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; gap: 3px; height: 100%;">
@@ -2075,8 +2085,11 @@ function initializeExtension() {
               <p style="margin: 0; font-size: 12px; opacity: 0.7;">2x2 Grid</p>
             </div>
 
+            <!-- ROW 2: 5-slot, 6-slot, 7-slot -->
             <div id="btn-5-slot" style="background: rgba(255,255,255,0.1); border-radius: 12px; padding: 15px; cursor: pointer; text-align: center; border: 2px solid transparent; position: relative;">
-              <input type="checkbox" id="check-5-slot" style="position: absolute; top: 10px; right: 10px; width: 18px; height: 18px; cursor: pointer;">
+              <label style="position: absolute; top: 8px; right: 8px; width: 30px; height: 30px; background: #FFD700; border: 3px solid #000; border-radius: 6px; display: flex; align-items: center; justify-content: center; cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,0.5); z-index: 1000;">
+                <input type="checkbox" id="check-5-slot" style="width: 16px; height: 16px; cursor: pointer; margin: 0;">
+              </label>
               <h3 style="margin: 0 0 10px 0; font-size: 16px; color: #FFD700;">5-Slot Layout</h3>
               <div style="background: rgba(0,0,0,0.3); border-radius: 8px; padding: 10px; margin-bottom: 10px; height: 80px;">
                 <div style="display: grid; grid-template-columns: 2fr 1fr 1fr; grid-template-rows: 1fr 1fr; gap: 3px; height: 100%;">
@@ -2087,11 +2100,13 @@ function initializeExtension() {
                   <div style="background: rgba(244,67,54,0.8); border-radius: 3px; display: flex; align-items: center; justify-content: center; font-size: 9px; font-weight: bold;">#10</div>
                 </div>
               </div>
-              <p style="margin: 0; font-size: 12px; opacity: 0.7;">Tower + Quad</p>
+              <p style="margin: 0; font-size: 12px; opacity: 0.7;">Main + Side</p>
             </div>
 
             <div id="btn-6-slot" style="background: rgba(255,255,255,0.1); border-radius: 12px; padding: 15px; cursor: pointer; text-align: center; border: 2px solid transparent; position: relative;">
-              <input type="checkbox" id="check-6-slot" style="position: absolute; top: 10px; right: 10px; width: 18px; height: 18px; cursor: pointer;">
+              <label style="position: absolute; top: 8px; right: 8px; width: 30px; height: 30px; background: #FFD700; border: 3px solid #000; border-radius: 6px; display: flex; align-items: center; justify-content: center; cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,0.5); z-index: 1000;">
+                <input type="checkbox" id="check-6-slot" style="width: 16px; height: 16px; cursor: pointer; margin: 0;">
+              </label>
               <h3 style="margin: 0 0 10px 0; font-size: 16px; color: #FFD700;">6-Slot Grid</h3>
               <div style="background: rgba(0,0,0,0.3); border-radius: 8px; padding: 10px; margin-bottom: 10px; height: 80px;">
                 <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; grid-template-rows: 1fr 1fr; gap: 3px; height: 100%;">
@@ -2106,20 +2121,92 @@ function initializeExtension() {
               <p style="margin: 0; font-size: 12px; opacity: 0.7;">3x2 Grid</p>
             </div>
 
-            <div id="btn-dashboard" style="background: rgba(255,255,255,0.1); border-radius: 12px; padding: 15px; cursor: pointer; text-align: center; border: 2px solid transparent; position: relative;">
-              <input type="checkbox" id="check-dashboard" style="position: absolute; top: 10px; right: 10px; width: 18px; height: 18px; cursor: pointer;">
-              <h3 style="margin: 0 0 10px 0; font-size: 16px; color: #FFD700;">Dashboard View</h3>
+            <div id="btn-7-slot" style="background: rgba(255,255,255,0.1); border-radius: 12px; padding: 15px; cursor: pointer; text-align: center; border: 2px solid transparent; position: relative;">
+              <label style="position: absolute; top: 8px; right: 8px; width: 30px; height: 30px; background: #FFD700; border: 3px solid #000; border-radius: 6px; display: flex; align-items: center; justify-content: center; cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,0.5); z-index: 1000;">
+                <input type="checkbox" id="check-7-slot" style="width: 16px; height: 16px; cursor: pointer; margin: 0;">
+              </label>
+              <h3 style="margin: 0 0 10px 0; font-size: 16px; color: #FFD700;">7-Slot Grid</h3>
               <div style="background: rgba(0,0,0,0.3); border-radius: 8px; padding: 10px; margin-bottom: 10px; height: 80px;">
-                <div style="display: grid; grid-template-columns: 3fr 1fr; grid-template-rows: 1fr 1fr 1fr; gap: 3px; height: 100%;">
-                  <div style="background: rgba(76,175,80,0.8); border-radius: 3px; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: bold; grid-row: span 3;">#6</div>
+                <div style="display: grid; grid-template-columns: 2fr 1fr 1fr; grid-template-rows: 1fr 1fr; gap: 3px; height: 100%;">
+                  <div style="background: rgba(76,175,80,0.8); border-radius: 3px; display: flex; align-items: center; justify-content: center; font-size: 9px; font-weight: bold; grid-row: span 2;">#6</div>
                   <div style="background: rgba(33,150,243,0.8); border-radius: 3px; display: flex; align-items: center; justify-content: center; font-size: 9px; font-weight: bold;">#7</div>
                   <div style="background: rgba(255,152,0,0.8); border-radius: 3px; display: flex; align-items: center; justify-content: center; font-size: 9px; font-weight: bold;">#8</div>
                   <div style="background: rgba(156,39,176,0.8); border-radius: 3px; display: flex; align-items: center; justify-content: center; font-size: 9px; font-weight: bold;">#9</div>
+                  <div style="background: rgba(244,67,54,0.8); border-radius: 3px; display: flex; align-items: center; justify-content: center; font-size: 9px; font-weight: bold;">#10</div>
+                  <div style="background: rgba(0,150,136,0.8); border-radius: 3px; display: flex; align-items: center; justify-content: center; font-size: 8px; font-weight: bold;">#11</div>
+                  <div style="background: rgba(121,85,72,0.8); border-radius: 3px; display: flex; align-items: center; justify-content: center; font-size: 8px; font-weight: bold;">#12</div>
                 </div>
               </div>
-              <p style="margin: 0; font-size: 12px; opacity: 0.7;">Main + Side</p>
+              <p style="margin: 0; font-size: 12px; opacity: 0.7;">Main + Grid</p>
+            </div>
+          
+                        <!-- ROW 3: 8-slot, 9-slot, 10-slot -->
+            <div id="btn-8-slot" style="background: rgba(255,255,255,0.1); border-radius: 12px; padding: 15px; cursor: pointer; text-align: center; border: 2px solid transparent; position: relative;">
+              <label style="position: absolute; top: 8px; right: 8px; width: 30px; height: 30px; background: #FFD700; border: 3px solid #000; border-radius: 6px; display: flex; align-items: center; justify-content: center; cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,0.5); z-index: 1000;">
+                <input type="checkbox" id="check-8-slot" style="width: 16px; height: 16px; cursor: pointer; margin: 0;">
+              </label>
+              <h3 style="margin: 0 0 10px 0; font-size: 16px; color: #FFD700;">8-Slot Grid</h3>
+              <div style="background: rgba(0,0,0,0.3); border-radius: 8px; padding: 10px; margin-bottom: 10px; height: 80px;">
+                <div style="display: grid; grid-template-columns: repeat(4, 1fr); grid-template-rows: 1fr 1fr; gap: 3px; height: 100%;">
+                  <div style="background: rgba(76,175,80,0.8); border-radius: 3px; display: flex; align-items: center; justify-content: center; font-size: 8px; font-weight: bold;">#6</div>
+                  <div style="background: rgba(33,150,243,0.8); border-radius: 3px; display: flex; align-items: center; justify-content: center; font-size: 8px; font-weight: bold;">#7</div>
+                  <div style="background: rgba(255,152,0,0.8); border-radius: 3px; display: flex; align-items: center; justify-content: center; font-size: 8px; font-weight: bold;">#8</div>
+                  <div style="background: rgba(156,39,176,0.8); border-radius: 3px; display: flex; align-items: center; justify-content: center; font-size: 8px; font-weight: bold;">#9</div>
+                  <div style="background: rgba(244,67,54,0.8); border-radius: 3px; display: flex; align-items: center; justify-content: center; font-size: 8px; font-weight: bold;">#10</div>
+                  <div style="background: rgba(0,150,136,0.8); border-radius: 3px; display: flex; align-items: center; justify-content: center; font-size: 8px; font-weight: bold;">#11</div>
+                  <div style="background: rgba(121,85,72,0.8); border-radius: 3px; display: flex; align-items: center; justify-content: center; font-size: 8px; font-weight: bold;">#12</div>
+                  <div style="background: rgba(158,158,158,0.8); border-radius: 3px; display: flex; align-items: center; justify-content: center; font-size: 8px; font-weight: bold;">#13</div>
+                </div>
+              </div>
+              <p style="margin: 0; font-size: 12px; opacity: 0.7;">4x2 Grid</p>
             </div>
 
+            <div id="btn-9-slot" style="background: rgba(255,255,255,0.1); border-radius: 12px; padding: 15px; cursor: pointer; text-align: center; border: 2px solid transparent; position: relative;">
+              <label style="position: absolute; top: 8px; right: 8px; width: 30px; height: 30px; background: #FFD700; border: 3px solid #000; border-radius: 6px; display: flex; align-items: center; justify-content: center; cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,0.5); z-index: 1000;">
+                <input type="checkbox" id="check-9-slot" style="width: 16px; height: 16px; cursor: pointer; margin: 0;">
+              </label>
+              <h3 style="margin: 0 0 10px 0; font-size: 16px; color: #FFD700;">9-Slot Grid</h3>
+              <div style="background: rgba(0,0,0,0.3); border-radius: 8px; padding: 10px; margin-bottom: 10px; height: 80px;">
+                <div style="display: grid; grid-template-columns: repeat(3, 1fr); grid-template-rows: repeat(3, 1fr); gap: 3px; height: 100%;">
+                  <div style="background: rgba(76,175,80,0.8); border-radius: 3px; display: flex; align-items: center; justify-content: center; font-size: 8px; font-weight: bold;">#6</div>
+                  <div style="background: rgba(33,150,243,0.8); border-radius: 3px; display: flex; align-items: center; justify-content: center; font-size: 8px; font-weight: bold;">#7</div>
+                  <div style="background: rgba(255,152,0,0.8); border-radius: 3px; display: flex; align-items: center; justify-content: center; font-size: 8px; font-weight: bold;">#8</div>
+                  <div style="background: rgba(156,39,176,0.8); border-radius: 3px; display: flex; align-items: center; justify-content: center; font-size: 8px; font-weight: bold;">#9</div>
+                  <div style="background: rgba(244,67,54,0.8); border-radius: 3px; display: flex; align-items: center; justify-content: center; font-size: 8px; font-weight: bold;">#10</div>
+                  <div style="background: rgba(0,150,136,0.8); border-radius: 3px; display: flex; align-items: center; justify-content: center; font-size: 8px; font-weight: bold;">#11</div>
+                  <div style="background: rgba(121,85,72,0.8); border-radius: 3px; display: flex; align-items: center; justify-content: center; font-size: 8px; font-weight: bold;">#12</div>
+                  <div style="background: rgba(158,158,158,0.8); border-radius: 3px; display: flex; align-items: center; justify-content: center; font-size: 8px; font-weight: bold;">#13</div>
+                  <div style="background: rgba(103,58,183,0.8); border-radius: 3px; display: flex; align-items: center; justify-content: center; font-size: 8px; font-weight: bold;">#14</div>
+                </div>
+              </div>
+              <p style="margin: 0; font-size: 12px; opacity: 0.7;">3x3 Grid</p>
+            </div>
+
+            <div id="btn-10-slot" style="background: rgba(255,255,255,0.1); border-radius: 12px; padding: 15px; cursor: pointer; text-align: center; border: 2px solid transparent; position: relative;">
+              <label style="position: absolute; top: 8px; right: 8px; width: 30px; height: 30px; background: #FFD700; border: 3px solid #000; border-radius: 6px; display: flex; align-items: center; justify-content: center; cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,0.5); z-index: 1000;">
+                <input type="checkbox" id="check-10-slot" style="width: 16px; height: 16px; cursor: pointer; margin: 0;">
+              </label>
+              <h3 style="margin: 0 0 10px 0; font-size: 16px; color: #FFD700;">10-Slot Grid</h3>
+              <div style="background: rgba(0,0,0,0.3); border-radius: 8px; padding: 10px; margin-bottom: 10px; height: 80px;">
+                <div style="display: grid; grid-template-columns: repeat(5, 1fr); grid-template-rows: 1fr 1fr; gap: 3px; height: 100%;">
+                  <div style="background: rgba(76,175,80,0.8); border-radius: 3px; display: flex; align-items: center; justify-content: center; font-size: 7px; font-weight: bold;">#6</div>
+                  <div style="background: rgba(33,150,243,0.8); border-radius: 3px; display: flex; align-items: center; justify-content: center; font-size: 7px; font-weight: bold;">#7</div>
+                  <div style="background: rgba(255,152,0,0.8); border-radius: 3px; display: flex; align-items: center; justify-content: center; font-size: 7px; font-weight: bold;">#8</div>
+                  <div style="background: rgba(156,39,176,0.8); border-radius: 3px; display: flex; align-items: center; justify-content: center; font-size: 7px; font-weight: bold;">#9</div>
+                  <div style="background: rgba(244,67,54,0.8); border-radius: 3px; display: flex; align-items: center; justify-content: center; font-size: 7px; font-weight: bold;">#10</div>
+                  <div style="background: rgba(0,150,136,0.8); border-radius: 3px; display: flex; align-items: center; justify-content: center; font-size: 7px; font-weight: bold;">#11</div>
+                  <div style="background: rgba(121,85,72,0.8); border-radius: 3px; display: flex; align-items: center; justify-content: center; font-size: 7px; font-weight: bold;">#12</div>
+                  <div style="background: rgba(158,158,158,0.8); border-radius: 3px; display: flex; align-items: center; justify-content: center; font-size: 7px; font-weight: bold;">#13</div>
+                  <div style="background: rgba(103,58,183,0.8); border-radius: 3px; display: flex; align-items: center; justify-content: center; font-size: 7px; font-weight: bold;">#14</div>
+                  <div style="background: rgba(255,193,7,0.8); border-radius: 3px; display: flex; align-items: center; justify-content: center; font-size: 7px; font-weight: bold;">#15</div>
+                </div>
+              </div>
+              <p style="margin: 0; font-size: 12px; opacity: 0.7;">5x2 Grid</p>
+            </div>
+            
+
+          
+            
           </div>
           <div style="padding: 20px; text-align: center;">
             <button id="save-open-grids" style="padding: 15px 30px; background: #666; border: none; color: white; border-radius: 8px; cursor: not-allowed; font-size: 14px; font-weight: bold; transition: all 0.3s ease;" disabled>
@@ -2135,8 +2222,34 @@ function initializeExtension() {
     // Close button handler
     document.getElementById('close-btn').onclick = () => overlay.remove()
     
+    // Set initial checked state based on active grids
+    const layoutMapping = {
+      'check-2-slot': '2-slot',
+      'check-3-slot': '3-slot', 
+      'check-4-slot': '4-slot',
+      'check-5-slot': '5-slot',
+      'check-6-slot': '6-slot',
+      'check-7-slot': '7-slot',
+      'check-8-slot': '8-slot',
+      'check-9-slot': '9-slot',
+      'check-10-slot': '10-slot'
+    }
+    
+    // Initialize checkboxes based on current session
+    Object.keys(layoutMapping).forEach(checkboxId => {
+      const checkbox = document.getElementById(checkboxId) as HTMLInputElement
+      const card = document.getElementById(checkboxId.replace('check-', 'btn-'))
+      const layout = layoutMapping[checkboxId]
+      
+      if (activeGridLayouts.has(layout)) {
+        checkbox.checked = true
+        card.style.borderColor = '#4CAF50'
+        card.style.background = 'rgba(76,175,80,0.2)'
+      }
+    })
+    
     // Checkbox change handlers
-    const checkboxes = ['check-2-slot', 'check-3-slot', 'check-4-slot', 'check-5-slot', 'check-6-slot', 'check-dashboard']
+    const checkboxes = ['check-2-slot', 'check-3-slot', 'check-4-slot', 'check-5-slot', 'check-6-slot', 'check-7-slot', 'check-8-slot', 'check-9-slot', 'check-10-slot']
     checkboxes.forEach(id => {
       const checkbox = document.getElementById(id)
       const card = document.getElementById(id.replace('check-', 'btn-'))
@@ -2198,9 +2311,9 @@ function initializeExtension() {
       document.body.appendChild(notification)
       setTimeout(() => notification.remove(), 4000)
       
-      overlay.remove()
-    }
-    
+        overlay.remove()
+      }
+      
     function updateSaveButton() {
       const selectedCount = checkboxes.filter(id => document.getElementById(id).checked).length
       const saveBtn = document.getElementById('save-open-grids')
@@ -2218,7 +2331,7 @@ function initializeExtension() {
       }
     }
     
-    // Initial button state
+    // Initialize save button state
     updateSaveButton()
     
     // Close on background click
@@ -2369,7 +2482,10 @@ function initializeExtension() {
       '4-slot': { slots: 4, columns: '1fr 1fr', rows: '1fr 1fr' },
       '5-slot': { slots: 5, columns: '2fr 1fr 1fr', rows: '1fr 1fr' },
       '6-slot': { slots: 6, columns: '1fr 1fr 1fr', rows: '1fr 1fr' },
-      'dashboard': { slots: 4, columns: '3fr 1fr', rows: '1fr 1fr 1fr' }
+      '7-slot': { slots: 7, columns: '2fr 1fr 1fr', rows: '1fr 1fr' },
+      '8-slot': { slots: 8, columns: 'repeat(4, 1fr)', rows: '1fr 1fr' },
+      '9-slot': { slots: 9, columns: 'repeat(3, 1fr)', rows: 'repeat(3, 1fr)' },
+      '10-slot': { slots: 10, columns: 'repeat(5, 1fr)', rows: '1fr 1fr' }
     }
     
     const config = layouts[layout] || layouts['4-slot']
@@ -2381,7 +2497,7 @@ function initializeExtension() {
       
       let gridRowStyle = ''
       if (layout === '5-slot' && i === 1) gridRowStyle = 'grid-row: span 2;'
-      if (layout === 'dashboard' && i === 1) gridRowStyle = 'grid-row: span 3;'
+      if (layout === '7-slot' && i === 1) gridRowStyle = 'grid-row: span 2;'
       
       slotsHTML += `
         <div style="background: rgba(255,255,255,0.1); border: 2px solid rgba(255,255,255,0.3); border-radius: 8px; display: flex; flex-direction: column; overflow: hidden; ${gridRowStyle}">
@@ -2985,8 +3101,16 @@ function initializeExtension() {
     // Left sidebar quick expand button
     document.getElementById('quick-expand-btn')?.addEventListener('click', () => {
       const currentWidth = currentTabData.uiConfig.leftSidebarWidth
-      const maxWidth = window.innerWidth * 0.35 // 35% of screen width
-      const newWidth = currentWidth === 250 ? maxWidth : 250
+      let newWidth
+      
+      // 3-step expansion: 350px -> 600px -> 800px -> back to 350px
+      if (currentWidth === 350) {
+        newWidth = 600 // Medium expansion
+      } else if (currentWidth === 600) {
+        newWidth = 800 // Large expansion  
+      } else {
+        newWidth = 350 // Back to default
+      }
       
       currentTabData.uiConfig.leftSidebarWidth = newWidth
       leftSidebar.style.width = newWidth + 'px'
@@ -2994,7 +3118,7 @@ function initializeExtension() {
         bottomSidebar.style.left = newWidth + 'px'
       
       saveTabDataToStorage()
-      console.log('🔄 Left sidebar toggled to width:', newWidth)
+      console.log('🔄 Left sidebar expanded to width:', newWidth)
     })
     
     // Session name input and lock button
