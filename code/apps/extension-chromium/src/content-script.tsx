@@ -38,7 +38,7 @@ function deactivateExtension() {
   // Reset body margins
   document.body.style.marginLeft = ''
   document.body.style.marginRight = ''
-  document.body.style.marginBottom = ''
+  document.body.style.marginTop = ''
   
   console.log('🔴 Optimando AI Extension deactivated')
 }
@@ -195,7 +195,7 @@ function initializeExtension() {
     position: absolute;
     left: 0;
     top: 0;
-    bottom: 45px;
+    bottom: 0;
     width: ${currentTabData.uiConfig.leftSidebarWidth}px;
     background: linear-gradient(135deg, rgba(102, 126, 234, 0.95) 0%, rgba(118, 75, 162, 0.95) 100%);
     color: white;
@@ -204,6 +204,8 @@ function initializeExtension() {
     pointer-events: auto;
     overflow-y: auto;
     backdrop-filter: blur(10px);
+    margin: 0;
+    border: none;
   `
 
   // Add resize handle to left sidebar
@@ -227,8 +229,28 @@ function initializeExtension() {
 
   leftSidebar.innerHTML = `
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; border-bottom: 1px solid rgba(255,255,255,0.3); padding-bottom: 10px;">
-      <h2 style="margin: 0; font-size: 18px;">
-        🤖 AI Agent Outputs
+      <h2 style="margin: 0; font-size: 18px; display: flex; align-items: center; gap: 10px;">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style="flex-shrink: 0;">
+          <!-- Giraffe Body -->
+          <path d="M12 16C12 16 10 16 10 18C10 20 12 20 12 20C12 20 14 20 14 18C14 16 12 16 12 16Z" fill="currentColor" opacity="0.8"/>
+          <!-- Giraffe Neck -->
+          <path d="M12 8C12 8 11 8 11 12C11 16 12 16 12 16C12 16 13 16 13 12C13 8 12 8 12 8Z" fill="currentColor" opacity="0.9"/>
+          <!-- Giraffe Head -->
+          <ellipse cx="12" cy="6" rx="2.5" ry="2" fill="currentColor"/>
+          <!-- Giraffe Spots -->
+          <circle cx="11" cy="5.5" r="0.3" fill="currentColor" opacity="0.4"/>
+          <circle cx="13" cy="6.5" r="0.3" fill="currentColor" opacity="0.4"/>
+          <circle cx="11.5" cy="10" r="0.4" fill="currentColor" opacity="0.4"/>
+          <circle cx="12.5" cy="12" r="0.4" fill="currentColor" opacity="0.4"/>
+          <circle cx="11.5" cy="14" r="0.4" fill="currentColor" opacity="0.4"/>
+          <!-- Giraffe Ears -->
+          <circle cx="10.5" cy="4.5" r="0.5" fill="currentColor" opacity="0.7"/>
+          <circle cx="13.5" cy="4.5" r="0.5" fill="currentColor" opacity="0.7"/>
+          <!-- Giraffe Legs -->
+          <rect x="10.5" y="18" width="0.8" height="3" fill="currentColor" opacity="0.8"/>
+          <rect x="12.7" y="18" width="0.8" height="3" fill="currentColor" opacity="0.8"/>
+        </svg>
+        OpenGiraffe
       </h2>
       <button id="quick-expand-btn" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 24px; height: 24px; border-radius: 4px; cursor: pointer; font-size: 12px; transition: all 0.2s ease;" title="Quick expand to maximum width">
         ⇄
@@ -337,7 +359,7 @@ function initializeExtension() {
     position: absolute;
     right: 0;
     top: 0;
-    bottom: 45px;
+    bottom: 0;
     width: ${currentTabData.uiConfig.rightSidebarWidth}px;
     background: linear-gradient(135deg, rgba(102, 126, 234, 0.95) 0%, rgba(118, 75, 162, 0.95) 100%);
     color: white;
@@ -346,11 +368,13 @@ function initializeExtension() {
     pointer-events: auto;
     overflow-y: auto;
     backdrop-filter: blur(10px);
+    margin: 0;
+    border: none;
   `
 
   rightSidebar.innerHTML = `
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
-      <h2 style="margin: 0; font-size: 18px;">⚙️ AI Control Center</h2>
+      <h2 style="margin: 0; font-size: 18px;">⚙️ AI Orchestrator</h2>
     </div>
 
     <!-- WR Code Connection -->
@@ -409,19 +433,22 @@ function initializeExtension() {
   const bottomSidebar = document.createElement('div')
   bottomSidebar.id = 'bottom-sidebar'
   bottomSidebar.style.cssText = `
-    position: absolute;
+    position: fixed;
     left: ${currentTabData.uiConfig.leftSidebarWidth}px;
     right: ${currentTabData.uiConfig.rightSidebarWidth}px;
-    bottom: 0;
+    top: 0;
     height: 45px;
     background: linear-gradient(135deg, rgba(102, 126, 234, 0.95) 0%, rgba(118, 75, 162, 0.95) 100%);
     color: white;
     padding: 8px 15px;
-    box-shadow: 0 -2px 10px rgba(0,0,0,0.3);
+    box-shadow: 0 2px 10px rgba(0,0,0,0.3);
     pointer-events: auto;
     backdrop-filter: blur(10px);
     cursor: pointer;
     transition: height 0.3s ease;
+    z-index: 10000;
+    margin: 0;
+    border: none;
   `
 
   // Bottom Panel Content
@@ -432,34 +459,36 @@ function initializeExtension() {
     return `
       <!-- Compact Header -->
       <div style="display: flex; align-items: center; justify-content: space-between; height: 29px;">
-        <!-- Tabs -->
-        <div style="display: flex; gap: 10px;">
-          <button id="status-tab" class="bottom-tab active" style="padding: 4px 8px; background: rgba(255,255,255,0.2); border: none; color: white; border-radius: 3px; cursor: pointer; font-size: 10px;">🧠 Status</button>
-          <button id="agents-tab" class="bottom-tab" style="padding: 4px 8px; background: transparent; border: none; color: white; border-radius: 3px; cursor: pointer; font-size: 10px;">🤖 Agents</button>
-          <button id="settings-tab" class="bottom-tab" style="padding: 4px 8px; background: transparent; border: none; color: white; border-radius: 3px; cursor: pointer; font-size: 10px;">⚙️ Settings</button>
+        <!-- Reasoning Title with Dropdown Arrow -->
+        <div style="display: flex; align-items: center; gap: 15px;">
+          <div id="reasoning-header" style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+            <span style="font-size: 12px; font-weight: bold; color: white;">🧠 Reasoning</span>
+            <button id="expand-btn" style="background: transparent; border: none; color: white; font-size: 12px; transition: transform 0.3s ease;">⌄</button>
+          </div>
+          <button id="agents-lightbox-btn" style="padding: 4px 8px; background: rgba(255,255,255,0.1); border: none; color: white; border-radius: 3px; cursor: pointer; font-size: 10px;">🤖 Agents</button>
+          <button id="whitelist-lightbox-btn" style="padding: 4px 8px; background: rgba(255,255,255,0.1); border: none; color: white; border-radius: 3px; cursor: pointer; font-size: 10px;">🛡️ Whitelist</button>
+          <button id="settings-lightbox-btn" style="padding: 4px 8px; background: rgba(255,255,255,0.1); border: none; color: white; border-radius: 3px; cursor: pointer; font-size: 10px;">⚙️ Settings</button>
         </div>
         
-        <!-- Tab Info + Expand -->
+        <!-- Session Name + Lock -->
         <div style="display: flex; align-items: center; gap: 10px;">
-          <input id="tab-name-input" type="text" value="${currentTabData.tabName}" 
+          <input id="session-name-input" type="text" value="${currentTabData.tabName}" 
                  style="background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; 
-                        padding: 2px 6px; border-radius: 3px; font-size: 11px; width: 120px; 
+                        padding: 4px 8px; border-radius: 3px; font-size: 11px; width: 140px; 
                         ${currentTabData.isLocked ? 'opacity: 0.6; pointer-events: none;' : ''}"
-                 ${currentTabData.isLocked ? 'disabled' : ''}>
-          <span style="font-size: 9px; opacity: 0.6;">${currentTabData.tabId}</span>
-          <button id="lock-btn" style="background: rgba(255,255,255,0.1); border: none; color: white; width: 20px; height: 20px; border-radius: 3px; cursor: pointer; font-size: 10px; ${currentTabData.isLocked ? 'background: rgba(255,215,0,0.3);' : ''}">${currentTabData.isLocked ? '🔒' : '🔓'}</button>
-          <button id="expand-btn" style="background: rgba(255,255,255,0.1); border: none; color: white; width: 24px; height: 20px; border-radius: 3px; cursor: pointer; font-size: 12px; transition: transform 0.3s ease;">⌄</button>
+                 ${currentTabData.isLocked ? 'disabled' : ''}
+                 placeholder="Session Name">
+          <button id="lock-btn" style="background: rgba(255,255,255,0.1); border: none; color: white; width: 24px; height: 24px; border-radius: 3px; cursor: pointer; font-size: 10px; ${currentTabData.isLocked ? 'background: rgba(255,215,0,0.3);' : ''}">${currentTabData.isLocked ? '🔒' : '🔓'}</button>
         </div>
       </div>
 
-      <!-- Expandable Content -->
+      <!-- Expandable Content - 3 Column Reasoning Display -->
       <div id="expandable-content" style="display: none; margin-top: 15px; height: ${expandedHeight - 60}px; overflow-y: auto;">
         
-        <!-- Status Content -->
-        <div id="status-content" class="tab-content">
+        <!-- 3-Column Layout -->
           <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 15px; height: 100%;">
             
-            <!-- Intent Detection -->
+          <!-- Intent Detection Column -->
             <div style="background: rgba(255,255,255,0.1); padding: 12px; border-radius: 6px;">
               <h4 style="margin: 0 0 10px 0; font-size: 12px; color: #FFD700;">🎯 Intent Detection</h4>
               <div style="font-size: 10px;">
@@ -469,7 +498,7 @@ function initializeExtension() {
               </div>
             </div>
 
-            <!-- Goals -->
+          <!-- Goals Column -->
             <div style="background: rgba(255,255,255,0.1); padding: 12px; border-radius: 6px;">
               <h4 style="margin: 0 0 10px 0; font-size: 12px; color: #FFD700;">📋 Goals</h4>
               <div style="font-size: 10px;">
@@ -488,7 +517,7 @@ function initializeExtension() {
               </div>
             </div>
 
-            <!-- Reasoning -->
+          <!-- Reasoning Column -->
             <div style="background: rgba(255,255,255,0.1); padding: 12px; border-radius: 6px;">
               <h4 style="margin: 0 0 10px 0; font-size: 12px; color: #FFD700;">🤖 Reasoning</h4>
               <div style="font-size: 10px;">
@@ -503,9 +532,56 @@ function initializeExtension() {
             </div>
           </div>
         </div>
+    `
+  }
 
-        <!-- Agents Content -->
-        <div id="agents-content" class="tab-content" style="display: none;">
+
+  bottomSidebar.innerHTML = createBottomContent()
+
+  // Expand/Collapse functionality
+
+  function toggleBottomPanel() {
+    isExpanded = !isExpanded
+    const expandBtn = document.getElementById('expand-btn')
+    const expandableContent = document.getElementById('expandable-content')
+    
+    if (isExpanded) {
+      bottomSidebar.style.height = expandedHeight + 'px'
+      bottomSidebar.style.cursor = 'default'
+      expandBtn.style.transform = 'rotate(180deg)'
+      expandableContent.style.display = 'block'
+      // Update body margin for expanded top panel (seamless)
+      document.body.style.marginTop = expandedHeight + 'px'
+    } else {
+      bottomSidebar.style.height = '45px'
+      bottomSidebar.style.cursor = 'pointer'
+      expandBtn.style.transform = 'rotate(0deg)'
+      expandableContent.style.display = 'none'
+      // Reset body margin for collapsed top panel (seamless)
+      document.body.style.marginTop = '45px'
+    }
+  }
+
+
+  // Lightbox functions
+  function openAgentsLightbox() {
+    // Create agents lightbox
+    const overlay = document.createElement('div')
+    overlay.id = 'agents-lightbox'
+    overlay.style.cssText = `
+      position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+      background: rgba(0,0,0,0.8); z-index: 2147483649;
+      display: flex; align-items: center; justify-content: center;
+      backdrop-filter: blur(5px);
+    `
+    
+    overlay.innerHTML = `
+      <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 16px; width: 90vw; height: 85vh; max-width: 1200px; color: white; overflow: hidden; box-shadow: 0 20px 40px rgba(0,0,0,0.3); display: flex; flex-direction: column;">
+        <div style="padding: 20px; border-bottom: 1px solid rgba(255,255,255,0.3); display: flex; justify-content: space-between; align-items: center;">
+          <h2 style="margin: 0; font-size: 20px;">🤖 AI Agents Configuration</h2>
+          <button id="close-agents-lightbox" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 30px; height: 30px; border-radius: 50%; cursor: pointer; font-size: 16px;">×</button>
+        </div>
+        <div style="flex: 1; padding: 20px; overflow-y: auto;">
           <div style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; margin-bottom: 20px;">
             
             <!-- Agent 1: Summarize -->
@@ -528,6 +604,11 @@ function initializeExtension() {
                 <option value="3">#3 Display Port</option>
                 <option value="4">#4 Display Port</option>
                 <option value="5">#5 Display Port</option>
+                <option value="6">#6 Display Port</option>
+                <option value="7">#7 Display Port</option>
+                <option value="8">#8 Display Port</option>
+                <option value="9">#9 Display Port</option>
+                <option value="10">#10 Display Port</option>
                 <option value="monitor">Monitor Output</option>
               </select>
             </div>
@@ -550,20 +631,25 @@ function initializeExtension() {
                 <option value="3">#3 Display Port</option>
                 <option value="4">#4 Display Port</option>
                 <option value="5">#5 Display Port</option>
+                <option value="6">#6 Display Port</option>
+                <option value="7">#7 Display Port</option>
+                <option value="8">#8 Display Port</option>
+                <option value="9">#9 Display Port</option>
+                <option value="10">#10 Display Port</option>
                 <option value="monitor">Monitor Output</option>
               </select>
             </div>
 
-            <!-- Agent 3: Goal Tracker -->
+            <!-- Agent 3: Analyze -->
             <div style="background: rgba(255,255,255,0.1); padding: 15px; border-radius: 8px; text-align: center; position: relative;">
-              <div style="font-size: 32px; margin-bottom: 8px;">🎯</div>
-              <h4 style="margin: 0 0 8px 0; font-size: 12px; color: #FF9800; font-weight: bold;">Goal Tracker</h4>
-              <button class="agent-toggle" data-agent="goals" style="padding: 4px 8px; background: #f44336; border: none; color: white; border-radius: 3px; cursor: pointer; font-size: 9px; margin-bottom: 8px;">OFF</button>
+              <div style="font-size: 32px; margin-bottom: 8px;">📊</div>
+              <h4 style="margin: 0 0 8px 0; font-size: 12px; color: #FF9800; font-weight: bold;">Analyze</h4>
+              <button class="agent-toggle" data-agent="analyze" style="padding: 4px 8px; background: #f44336; border: none; color: white; border-radius: 3px; cursor: pointer; font-size: 9px; margin-bottom: 8px;">OFF</button>
               
               <div style="display: flex; justify-content: center; gap: 6px; margin-top: 10px;">
-                <button class="lightbox-btn" data-agent="goals" data-type="instructions" style="background: rgba(255,255,255,0.2); border: none; color: white; padding: 4px; border-radius: 3px; cursor: pointer; font-size: 8px;" title="AI Instructions">📋</button>
-                <button class="lightbox-btn" data-agent="goals" data-type="context" style="background: rgba(255,255,255,0.2); border: none; color: white; padding: 4px; border-radius: 3px; cursor: pointer; font-size: 8px;" title="Context">📄</button>
-                <button class="lightbox-btn" data-agent="goals" data-type="settings" style="background: rgba(255,255,255,0.2); border: none; color: white; padding: 4px; border-radius: 3px; cursor: pointer; font-size: 8px;" title="Settings">⚙️</button>
+                <button class="lightbox-btn" data-agent="analyze" data-type="instructions" style="background: rgba(255,255,255,0.2); border: none; color: white; padding: 4px; border-radius: 3px; cursor: pointer; font-size: 8px;" title="AI Instructions">📋</button>
+                <button class="lightbox-btn" data-agent="analyze" data-type="context" style="background: rgba(255,255,255,0.2); border: none; color: white; padding: 4px; border-radius: 3px; cursor: pointer; font-size: 8px;" title="Context">📄</button>
+                <button class="lightbox-btn" data-agent="analyze" data-type="settings" style="background: rgba(255,255,255,0.2); border: none; color: white; padding: 4px; border-radius: 3px; cursor: pointer; font-size: 8px;" title="Settings">⚙️</button>
               </div>
               
               <select style="width: 100%; margin-top: 8px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 2px; border-radius: 3px; font-size: 8px;">
@@ -572,20 +658,25 @@ function initializeExtension() {
                 <option value="3" selected>#3 Display Port</option>
                 <option value="4">#4 Display Port</option>
                 <option value="5">#5 Display Port</option>
+                <option value="6">#6 Display Port</option>
+                <option value="7">#7 Display Port</option>
+                <option value="8">#8 Display Port</option>
+                <option value="9">#9 Display Port</option>
+                <option value="10">#10 Display Port</option>
                 <option value="monitor">Monitor Output</option>
               </select>
             </div>
 
-            <!-- Agent 4: Analysis -->
+            <!-- Agent 4: Generate -->
             <div style="background: rgba(255,255,255,0.1); padding: 15px; border-radius: 8px; text-align: center; position: relative;">
-              <div style="font-size: 32px; margin-bottom: 8px;">🧮</div>
-              <h4 style="margin: 0 0 8px 0; font-size: 12px; color: #9C27B0; font-weight: bold;">Analysis</h4>
-              <button class="agent-toggle" data-agent="analysis" style="padding: 4px 8px; background: #f44336; border: none; color: white; border-radius: 3px; cursor: pointer; font-size: 9px; margin-bottom: 8px;">OFF</button>
+              <div style="font-size: 32px; margin-bottom: 8px;">✨</div>
+              <h4 style="margin: 0 0 8px 0; font-size: 12px; color: #9C27B0; font-weight: bold;">Generate</h4>
+              <button class="agent-toggle" data-agent="generate" style="padding: 4px 8px; background: #f44336; border: none; color: white; border-radius: 3px; cursor: pointer; font-size: 9px; margin-bottom: 8px;">OFF</button>
               
               <div style="display: flex; justify-content: center; gap: 6px; margin-top: 10px;">
-                <button class="lightbox-btn" data-agent="analysis" data-type="instructions" style="background: rgba(255,255,255,0.2); border: none; color: white; padding: 4px; border-radius: 3px; cursor: pointer; font-size: 8px;" title="AI Instructions">📋</button>
-                <button class="lightbox-btn" data-agent="analysis" data-type="context" style="background: rgba(255,255,255,0.2); border: none; color: white; padding: 4px; border-radius: 3px; cursor: pointer; font-size: 8px;" title="Context">📄</button>
-                <button class="lightbox-btn" data-agent="analysis" data-type="settings" style="background: rgba(255,255,255,0.2); border: none; color: white; padding: 4px; border-radius: 3px; cursor: pointer; font-size: 8px;" title="Settings">⚙️</button>
+                <button class="lightbox-btn" data-agent="generate" data-type="instructions" style="background: rgba(255,255,255,0.2); border: none; color: white; padding: 4px; border-radius: 3px; cursor: pointer; font-size: 8px;" title="AI Instructions">📋</button>
+                <button class="lightbox-btn" data-agent="generate" data-type="context" style="background: rgba(255,255,255,0.2); border: none; color: white; padding: 4px; border-radius: 3px; cursor: pointer; font-size: 8px;" title="Context">📄</button>
+                <button class="lightbox-btn" data-agent="generate" data-type="settings" style="background: rgba(255,255,255,0.2); border: none; color: white; padding: 4px; border-radius: 3px; cursor: pointer; font-size: 8px;" title="Settings">⚙️</button>
               </div>
               
               <select style="width: 100%; margin-top: 8px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 2px; border-radius: 3px; font-size: 8px;">
@@ -594,20 +685,25 @@ function initializeExtension() {
                 <option value="3">#3 Display Port</option>
                 <option value="4" selected>#4 Display Port</option>
                 <option value="5">#5 Display Port</option>
+                <option value="6">#6 Display Port</option>
+                <option value="7">#7 Display Port</option>
+                <option value="8">#8 Display Port</option>
+                <option value="9">#9 Display Port</option>
+                <option value="10">#10 Display Port</option>
                 <option value="monitor">Monitor Output</option>
               </select>
             </div>
 
-            <!-- Agent 5: Assistant -->
+            <!-- Agent 5: Coordinate -->
             <div style="background: rgba(255,255,255,0.1); padding: 15px; border-radius: 8px; text-align: center; position: relative;">
-              <div style="font-size: 32px; margin-bottom: 8px;">🤖</div>
-              <h4 style="margin: 0 0 8px 0; font-size: 12px; color: #607D8B; font-weight: bold;">Assistant</h4>
-              <button class="agent-toggle" data-agent="assistant" style="padding: 4px 8px; background: #f44336; border: none; color: white; border-radius: 3px; cursor: pointer; font-size: 9px; margin-bottom: 8px;">OFF</button>
+              <div style="font-size: 32px; margin-bottom: 8px;">🎯</div>
+              <h4 style="margin: 0 0 8px 0; font-size: 12px; color: #607D8B; font-weight: bold;">Coordinate</h4>
+              <button class="agent-toggle" data-agent="coordinate" style="padding: 4px 8px; background: #f44336; border: none; color: white; border-radius: 3px; cursor: pointer; font-size: 9px; margin-bottom: 8px;">OFF</button>
               
               <div style="display: flex; justify-content: center; gap: 6px; margin-top: 10px;">
-                <button class="lightbox-btn" data-agent="assistant" data-type="instructions" style="background: rgba(255,255,255,0.2); border: none; color: white; padding: 4px; border-radius: 3px; cursor: pointer; font-size: 8px;" title="AI Instructions">📋</button>
-                <button class="lightbox-btn" data-agent="assistant" data-type="context" style="background: rgba(255,255,255,0.2); border: none; color: white; padding: 4px; border-radius: 3px; cursor: pointer; font-size: 8px;" title="Context">📄</button>
-                <button class="lightbox-btn" data-agent="assistant" data-type="settings" style="background: rgba(255,255,255,0.2); border: none; color: white; padding: 4px; border-radius: 3px; cursor: pointer; font-size: 8px;" title="Settings">⚙️</button>
+                <button class="lightbox-btn" data-agent="coordinate" data-type="instructions" style="background: rgba(255,255,255,0.2); border: none; color: white; padding: 4px; border-radius: 3px; cursor: pointer; font-size: 8px;" title="AI Instructions">📋</button>
+                <button class="lightbox-btn" data-agent="coordinate" data-type="context" style="background: rgba(255,255,255,0.2); border: none; color: white; padding: 4px; border-radius: 3px; cursor: pointer; font-size: 8px;" title="Context">📄</button>
+                <button class="lightbox-btn" data-agent="coordinate" data-type="settings" style="background: rgba(255,255,255,0.2); border: none; color: white; padding: 4px; border-radius: 3px; cursor: pointer; font-size: 8px;" title="Settings">⚙️</button>
               </div>
               
               <select style="width: 100%; margin-top: 8px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 2px; border-radius: 3px; font-size: 8px;">
@@ -616,6 +712,11 @@ function initializeExtension() {
                 <option value="3">#3 Display Port</option>
                 <option value="4">#4 Display Port</option>
                 <option value="5" selected>#5 Display Port</option>
+                <option value="6">#6 Display Port</option>
+                <option value="7">#7 Display Port</option>
+                <option value="8">#8 Display Port</option>
+                <option value="9">#9 Display Port</option>
+                <option value="10">#10 Display Port</option>
                 <option value="monitor">Monitor Output</option>
               </select>
             </div>
@@ -623,15 +724,565 @@ function initializeExtension() {
 
           <!-- Add New Agent Button -->
           <div style="text-align: center; margin-top: 15px;">
-            <button style="padding: 8px 16px; background: #4CAF50; border: none; color: white; border-radius: 4px; cursor: pointer; font-size: 10px;">
+            <button id="add-new-agent" style="padding: 12px 20px; background: #4CAF50; border: none; color: white; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: bold;">
               ➕ Add New Agent
             </button>
           </div>
         </div>
+      </div>
+    `
+    
+    document.body.appendChild(overlay)
+    
+    document.getElementById('close-agents-lightbox').onclick = () => overlay.remove()
+    overlay.onclick = (e) => { if (e.target === overlay) overlay.remove() }
+    
+    // Add event handlers for agent controls
+    overlay.querySelectorAll('.agent-toggle').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        const agentName = e.target.dataset.agent
+        const isOn = e.target.textContent === 'ON'
+        e.target.textContent = isOn ? 'OFF' : 'ON'
+        e.target.style.background = isOn ? '#f44336' : '#4CAF50'
+        console.log(`Agent ${agentName} ${isOn ? 'deactivated' : 'activated'}`)
+      })
+    })
+    
+    // Add event handlers for lightbox buttons (instructions, context, settings)
+    overlay.querySelectorAll('.lightbox-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        const agentName = e.target.dataset.agent
+        const type = e.target.dataset.type
+        openAgentConfigDialog(agentName, type, overlay)
+      })
+    })
+    
+    // Add event handler for "Add New Agent" button
+    document.getElementById('add-new-agent').addEventListener('click', () => {
+      openAddNewAgentDialog(overlay)
+    })
+  }
 
-        <!-- Settings Content -->
-        <div id="settings-content" class="tab-content" style="display: none;">
-          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
+  function openAgentConfigDialog(agentName, type, parentOverlay) {
+    // Create agent config dialog
+    const configOverlay = document.createElement('div')
+    configOverlay.style.cssText = `
+      position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+      background: rgba(0,0,0,0.9); z-index: 2147483650;
+      display: flex; align-items: center; justify-content: center;
+      backdrop-filter: blur(5px);
+    `
+    
+    const typeLabels = {
+      'instructions': '📋 AI Instructions',
+      'context': '📄 Context & Memory',
+      'settings': '⚙️ Agent Settings'
+    }
+    
+    const agentColors = {
+      'summarize': '#4CAF50',
+      'research': '#2196F3',
+      'analyze': '#FF9800',
+      'generate': '#9C27B0',
+      'coordinate': '#607D8B'
+    }
+    
+    // Get existing data or create default
+    const storageKey = `agent_${agentName}_${type}`
+    const existingData = localStorage.getItem(storageKey) || ''
+    
+    let content = ''
+    if (type === 'instructions') {
+      content = `
+        <div style="display: grid; grid-template-columns: 1fr; gap: 20px;">
+          <div style="background: rgba(255,255,255,0.1); padding: 20px; border-radius: 8px;">
+            <label style="display: block; margin-bottom: 10px; font-size: 14px; color: #FFD700; font-weight: bold;">📝 System Instructions:</label>
+            <textarea id="agent-instructions" style="width: 100%; height: 200px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 12px; border-radius: 6px; font-size: 12px; resize: vertical; font-family: 'Consolas', monospace;" placeholder="Enter detailed AI instructions for this agent...">${existingData}</textarea>
+          </div>
+          
+          <div style="display: grid; grid-template-columns: 1fr; gap: 20px;">
+            <div style="background: rgba(255,255,255,0.1); padding: 20px; border-radius: 8px;">
+              <label style="display: block; margin-bottom: 10px; font-size: 14px; color: #FFD700; font-weight: bold;">🎭 Role Description:</label>
+              <input type="text" id="agent-role" style="width: 100%; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 12px; border-radius: 6px; font-size: 12px;" placeholder="Define the agent's primary role..." value="${localStorage.getItem(storageKey + '_role') || ''}">
+            </div>
+          </div>
+      `
+    } else if (type === 'context') {
+      content = `
+        <div style="display: grid; grid-template-columns: 1fr; gap: 20px;">
+          <div style="background: rgba(255,255,255,0.1); padding: 20px; border-radius: 8px;">
+            <label style="display: block; margin-bottom: 10px; font-size: 14px; color: #FFD700; font-weight: bold;">📄 Context Data:</label>
+            <textarea id="agent-context" style="width: 100%; height: 180px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 12px; border-radius: 6px; font-size: 12px; resize: vertical; font-family: 'Consolas', monospace;" placeholder="Enter context information that will be available to this agent...">${existingData}</textarea>
+            </div>
+
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+            <div style="background: rgba(255,255,255,0.1); padding: 20px; border-radius: 8px;">
+              <label style="display: block; margin-bottom: 10px; font-size: 14px; color: #FFD700; font-weight: bold;">🧠 Memory Allocation:</label>
+              <select id="agent-memory" style="width: 100%; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 12px; border-radius: 6px; font-size: 12px;">
+                <option value="low">Low (2MB)</option>
+                <option value="medium" selected>Medium (8MB)</option>
+                <option value="high">High (32MB)</option>
+                <option value="ultra">Ultra (128MB)</option>
+              </select>
+                </div>
+            
+            <div style="background: rgba(255,255,255,0.1); padding: 20px; border-radius: 8px;">
+              <label style="display: block; margin-bottom: 10px; font-size: 14px; color: #FFD700; font-weight: bold;">📥 Context Source:</label>
+              <select id="agent-context-source" style="width: 100%; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 12px; border-radius: 6px; font-size: 12px;">
+                <option value="manual">Manual Input</option>
+                <option value="template">Template Upload</option>
+                <option value="dom">DOM Extraction</option>
+                <option value="api">API Source</option>
+              </select>
+                </div>
+              </div>
+          
+          <div style="background: rgba(255,255,255,0.1); padding: 20px; border-radius: 8px;">
+            <label style="display: block; margin-bottom: 15px; font-size: 14px; color: #FFD700; font-weight: bold;">💾 Memory Settings:</label>
+            <label style="display: flex; align-items: center; font-size: 12px; cursor: pointer;">
+              <input type="checkbox" id="agent-persist-memory" style="margin-right: 10px; transform: scale(1.2);" checked>
+              <span>Persist memory across sessions</span>
+            </label>
+            </div>
+          </div>
+      `
+    } else if (type === 'settings') {
+      content = `
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+          <div style="background: rgba(255,255,255,0.1); padding: 20px; border-radius: 8px;">
+            <label style="display: block; margin-bottom: 10px; font-size: 14px; color: #FFD700; font-weight: bold;">🖥️ Display Port:</label>
+            <select id="agent-display-port" style="width: 100%; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 12px; border-radius: 6px; font-size: 12px;">
+              <option value="1" ${(localStorage.getItem(storageKey + '_display') || '1') === '1' ? 'selected' : ''}>Display Port #1</option>
+              <option value="2" ${localStorage.getItem(storageKey + '_display') === '2' ? 'selected' : ''}>Display Port #2</option>
+              <option value="3" ${localStorage.getItem(storageKey + '_display') === '3' ? 'selected' : ''}>Display Port #3</option>
+              <option value="4" ${localStorage.getItem(storageKey + '_display') === '4' ? 'selected' : ''}>Display Port #4</option>
+              <option value="5" ${localStorage.getItem(storageKey + '_display') === '5' ? 'selected' : ''}>Display Port #5</option>
+              <option value="6" ${localStorage.getItem(storageKey + '_display') === '6' ? 'selected' : ''}>Display Port #6</option>
+              <option value="7" ${localStorage.getItem(storageKey + '_display') === '7' ? 'selected' : ''}>Display Port #7</option>
+              <option value="8" ${localStorage.getItem(storageKey + '_display') === '8' ? 'selected' : ''}>Display Port #8</option>
+              <option value="9" ${localStorage.getItem(storageKey + '_display') === '9' ? 'selected' : ''}>Display Port #9</option>
+              <option value="10" ${localStorage.getItem(storageKey + '_display') === '10' ? 'selected' : ''}>Display Port #10</option>
+              <option value="monitor" ${localStorage.getItem(storageKey + '_display') === 'monitor' ? 'selected' : ''}>Monitor Output</option>
+              <option value="sidebar" ${localStorage.getItem(storageKey + '_display') === 'sidebar' ? 'selected' : ''}>Right Sidebar</option>
+              <option value="overlay" ${localStorage.getItem(storageKey + '_display') === 'overlay' ? 'selected' : ''}>Overlay Window</option>
+            </select>
+          </div>
+          
+          <div style="background: rgba(255,255,255,0.1); padding: 20px; border-radius: 8px;">
+            <label style="display: block; margin-bottom: 10px; font-size: 14px; color: #FFD700; font-weight: bold;">⚡ Priority Level:</label>
+            <select id="agent-priority" style="width: 100%; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 12px; border-radius: 6px; font-size: 12px;">
+              <option value="low">Low</option>
+              <option value="normal" selected>Normal</option>
+              <option value="high">High</option>
+              <option value="critical">Critical</option>
+            </select>
+          </div>
+          
+          <div style="background: rgba(255,255,255,0.1); padding: 20px; border-radius: 8px;">
+            <label style="display: block; margin-bottom: 15px; font-size: 14px; color: #FFD700; font-weight: bold;">🚀 Auto-Activation:</label>
+            <label style="display: flex; align-items: center; font-size: 12px; margin-bottom: 12px; cursor: pointer;">
+              <input type="checkbox" id="agent-auto-start" style="margin-right: 10px; transform: scale(1.2);">
+              <span>Auto-start on session load</span>
+            </label>
+            <label style="display: flex; align-items: center; font-size: 12px; cursor: pointer;">
+              <input type="checkbox" id="agent-auto-respond" style="margin-right: 10px; transform: scale(1.2);">
+              <span>Auto-respond to triggers</span>
+            </label>
+          </div>
+          
+          <div style="background: rgba(255,255,255,0.1); padding: 20px; border-radius: 8px;">
+            <label style="display: block; margin-bottom: 10px; font-size: 14px; color: #FFD700; font-weight: bold;">⏱️ Response Delay:</label>
+            <input type="number" id="agent-delay" style="width: 100%; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 12px; border-radius: 6px; font-size: 12px;" value="500" min="0" max="5000" step="100" placeholder="Milliseconds">
+            <div style="margin-top: 8px; font-size: 10px; opacity: 0.7;">0-5000 milliseconds</div>
+        </div>
+      </div>
+    `
+  }
+
+    configOverlay.innerHTML = `
+      <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 16px; width: 85vw; max-width: 1000px; height: 85vh; color: white; overflow: hidden; box-shadow: 0 20px 40px rgba(0,0,0,0.4); display: flex; flex-direction: column;">
+        <div style="padding: 20px; border-bottom: 1px solid rgba(255,255,255,0.3); display: flex; justify-content: space-between; align-items: center; background: linear-gradient(135deg, ${agentColors[agentName] || '#667eea'} 0%, rgba(118, 75, 162, 0.8) 100%);">
+          <h2 style="margin: 0; font-size: 20px; text-transform: capitalize;">${typeLabels[type]} - ${agentName}</h2>
+          <button id="close-agent-config" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 30px; height: 30px; border-radius: 50%; cursor: pointer; font-size: 16px;">×</button>
+        </div>
+        <div style="flex: 1; padding: 30px; overflow-y: auto;">
+          ${content}
+        </div>
+        <div style="padding: 20px; border-top: 1px solid rgba(255,255,255,0.3); display: flex; justify-content: flex-end; gap: 15px; background: rgba(255,255,255,0.05);">
+          <button id="agent-config-cancel" style="padding: 12px 24px; background: rgba(255,255,255,0.2); border: none; color: white; border-radius: 6px; cursor: pointer; font-size: 12px;">Cancel</button>
+          <button id="agent-config-save" style="padding: 12px 24px; background: #4CAF50; border: none; color: white; border-radius: 6px; cursor: pointer; font-size: 12px;">💾 Save</button>
+        </div>
+      </div>
+    `
+    
+    document.body.appendChild(configOverlay)
+    
+    // Close handlers
+    document.getElementById('close-agent-config').onclick = () => configOverlay.remove()
+    document.getElementById('agent-config-cancel').onclick = () => configOverlay.remove()
+    
+    // Save handler
+    document.getElementById('agent-config-save').onclick = () => {
+      let dataToSave = ''
+      
+      if (type === 'instructions') {
+        dataToSave = document.getElementById('agent-instructions').value
+        localStorage.setItem(storageKey + '_role', document.getElementById('agent-role').value)
+      } else if (type === 'context') {
+        dataToSave = document.getElementById('agent-context').value
+        localStorage.setItem(storageKey + '_memory', document.getElementById('agent-memory').value)
+        localStorage.setItem(storageKey + '_source', document.getElementById('agent-context-source').value)
+        localStorage.setItem(storageKey + '_persist', document.getElementById('agent-persist-memory').checked)
+      } else if (type === 'settings') {
+        localStorage.setItem(storageKey + '_display', document.getElementById('agent-display-port').value)
+        localStorage.setItem(storageKey + '_priority', document.getElementById('agent-priority').value)
+        localStorage.setItem(storageKey + '_autostart', document.getElementById('agent-auto-start').checked)
+        localStorage.setItem(storageKey + '_autorespond', document.getElementById('agent-auto-respond').checked)
+        localStorage.setItem(storageKey + '_delay', document.getElementById('agent-delay').value)
+      }
+      
+      localStorage.setItem(storageKey, dataToSave)
+      
+      // Show notification
+      const notification = document.createElement('div')
+      notification.style.cssText = `
+        position: fixed;
+        top: 60px;
+        right: 20px;
+        background: rgba(76, 175, 80, 0.9);
+        color: white;
+        padding: 10px 15px;
+        border-radius: 5px;
+        font-size: 12px;
+        z-index: 2147483651;
+      `
+      notification.innerHTML = `💾 ${agentName} ${type} saved!`
+      document.body.appendChild(notification)
+      
+      setTimeout(() => {
+        notification.remove()
+      }, 2000)
+      
+      configOverlay.remove()
+      console.log(`Saved ${type} for agent ${agentName}:`, dataToSave)
+    }
+    
+    configOverlay.onclick = (e) => { if (e.target === configOverlay) configOverlay.remove() }
+  }
+
+  function openAddNewAgentDialog(parentOverlay) {
+    // Create add new agent dialog
+    const configOverlay = document.createElement('div')
+    configOverlay.style.cssText = `
+      position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+      background: rgba(0,0,0,0.9); z-index: 2147483650;
+      display: flex; align-items: center; justify-content: center;
+      backdrop-filter: blur(5px);
+    `
+    
+    configOverlay.innerHTML = `
+      <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 16px; width: 500px; max-height: 80vh; color: white; overflow: hidden; box-shadow: 0 20px 40px rgba(0,0,0,0.4); display: flex; flex-direction: column;">
+        <div style="padding: 20px; border-bottom: 1px solid rgba(255,255,255,0.3); display: flex; justify-content: space-between; align-items: center;">
+          <h2 style="margin: 0; font-size: 20px;">➕ Add New Agent</h2>
+          <button id="close-add-agent" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 30px; height: 30px; border-radius: 50%; cursor: pointer; font-size: 16px;">×</button>
+        </div>
+        <div style="flex: 1; padding: 30px; overflow-y: auto;">
+          <div style="display: grid; gap: 20px;">
+            
+            <div style="background: rgba(255,255,255,0.1); padding: 20px; border-radius: 8px;">
+              <label style="display: block; margin-bottom: 10px; font-size: 14px; color: #FFD700; font-weight: bold;">🤖 Agent Name:</label>
+              <input type="text" id="new-agent-name" style="width: 100%; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 12px; border-radius: 6px; font-size: 12px;" placeholder="Enter agent name (e.g., Editor, Translator)">
+            </div>
+            
+            <div style="background: rgba(255,255,255,0.1); padding: 20px; border-radius: 8px;">
+              <label style="display: block; margin-bottom: 10px; font-size: 14px; color: #FFD700; font-weight: bold;">🎨 Agent Icon:</label>
+              <div style="display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px;">
+                <button class="icon-btn" data-icon="🔧" style="padding: 10px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; border-radius: 4px; cursor: pointer; font-size: 20px;">🔧</button>
+                <button class="icon-btn" data-icon="💡" style="padding: 10px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; border-radius: 4px; cursor: pointer; font-size: 20px;">💡</button>
+                <button class="icon-btn" data-icon="🎨" style="padding: 10px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; border-radius: 4px; cursor: pointer; font-size: 20px;">🎨</button>
+                <button class="icon-btn" data-icon="🔬" style="padding: 10px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; border-radius: 4px; cursor: pointer; font-size: 20px;">🔬</button>
+                <button class="icon-btn" data-icon="📊" style="padding: 10px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; border-radius: 4px; cursor: pointer; font-size: 20px;">📊</button>
+                <button class="icon-btn" data-icon="🎯" style="padding: 10px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; border-radius: 4px; cursor: pointer; font-size: 20px;">🎯</button>
+                <button class="icon-btn" data-icon="⚡" style="padding: 10px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; border-radius: 4px; cursor: pointer; font-size: 20px;">⚡</button>
+                <button class="icon-btn" data-icon="🚀" style="padding: 10px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; border-radius: 4px; cursor: pointer; font-size: 20px;">🚀</button>
+                <button class="icon-btn" data-icon="🎪" style="padding: 10px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; border-radius: 4px; cursor: pointer; font-size: 20px;">🎪</button>
+                <button class="icon-btn" data-icon="🔮" style="padding: 10px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; border-radius: 4px; cursor: pointer; font-size: 20px;">🔮</button>
+                <button class="icon-btn" data-icon="🎵" style="padding: 10px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; border-radius: 4px; cursor: pointer; font-size: 20px;">🎵</button>
+                <button class="icon-btn" data-icon="🌟" style="padding: 10px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; border-radius: 4px; cursor: pointer; font-size: 20px;">🌟</button>
+              </div>
+              <input type="hidden" id="selected-icon" value="🔧">
+            </div>
+            
+            <div style="background: rgba(255,255,255,0.1); padding: 20px; border-radius: 8px;">
+              <label style="display: block; margin-bottom: 10px; font-size: 14px; color: #FFD700; font-weight: bold;">🖥️ Default Display Port:</label>
+              <select id="new-agent-display-port" style="width: 100%; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 12px; border-radius: 6px; font-size: 12px;">
+                <option value="1">#1 Display Port</option>
+                <option value="2">#2 Display Port</option>
+                <option value="3">#3 Display Port</option>
+                <option value="4">#4 Display Port</option>
+                <option value="5">#5 Display Port</option>
+                <option value="6" selected>#6 Display Port</option>
+                <option value="7">#7 Display Port</option>
+                <option value="8">#8 Display Port</option>
+                <option value="9">#9 Display Port</option>
+                <option value="10">#10 Display Port</option>
+                <option value="monitor">Monitor Output</option>
+              </select>
+            </div>
+            
+          </div>
+        </div>
+        <div style="padding: 20px; border-top: 1px solid rgba(255,255,255,0.3); display: flex; justify-content: flex-end; gap: 15px; background: rgba(255,255,255,0.05);">
+          <button id="add-agent-cancel" style="padding: 12px 24px; background: rgba(255,255,255,0.2); border: none; color: white; border-radius: 6px; cursor: pointer; font-size: 12px;">Cancel</button>
+          <button id="add-agent-create" style="padding: 12px 24px; background: #4CAF50; border: none; color: white; border-radius: 6px; cursor: pointer; font-size: 12px;">➕ Create Agent</button>
+        </div>
+      </div>
+    `
+    
+    document.body.appendChild(configOverlay)
+    
+    // Close handlers
+    document.getElementById('close-add-agent').onclick = () => configOverlay.remove()
+    document.getElementById('add-agent-cancel').onclick = () => configOverlay.remove()
+    
+    // Icon selection
+    configOverlay.querySelectorAll('.icon-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        // Remove selection from all buttons
+        configOverlay.querySelectorAll('.icon-btn').forEach(b => b.style.background = 'rgba(255,255,255,0.1)')
+        // Highlight selected button
+        btn.style.background = 'rgba(76, 175, 80, 0.3)'
+        // Store selected icon
+        document.getElementById('selected-icon').value = btn.dataset.icon
+      })
+    })
+    
+    // Create agent handler
+    document.getElementById('add-agent-create').onclick = () => {
+      const agentName = document.getElementById('new-agent-name').value.trim()
+      const agentIcon = document.getElementById('selected-icon').value
+      const displayPort = document.getElementById('new-agent-display-port').value
+      
+      if (!agentName) {
+        alert('Please enter an agent name')
+        return
+      }
+      
+      // Show notification
+      const notification = document.createElement('div')
+      notification.style.cssText = `
+        position: fixed;
+        top: 60px;
+        right: 20px;
+        background: rgba(76, 175, 80, 0.9);
+        color: white;
+        padding: 10px 15px;
+        border-radius: 5px;
+        font-size: 12px;
+        z-index: 2147483651;
+      `
+      notification.innerHTML = `➕ Agent "${agentName}" created!`
+      document.body.appendChild(notification)
+      
+      setTimeout(() => {
+        notification.remove()
+      }, 3000)
+      
+      configOverlay.remove()
+      
+      // Save new agent configuration
+      const agentKey = agentName.toLowerCase().replace(/[^a-z0-9]/g, '')
+      localStorage.setItem(`custom_agent_${agentKey}`, JSON.stringify({
+        name: agentName,
+        icon: agentIcon,
+        displayPort: displayPort,
+        created: new Date().toISOString()
+      }))
+      
+      console.log(`Created new agent: ${agentName} (${agentIcon}) -> Display Port ${displayPort}`)
+      
+      // Close parent overlay and reopen to show new agent
+      parentOverlay.remove()
+      setTimeout(() => {
+        openAgentsLightbox()
+      }, 100)
+    }
+    
+    configOverlay.onclick = (e) => { if (e.target === configOverlay) configOverlay.remove() }
+  }
+
+  function openWhitelistLightbox() {
+    // Create whitelist lightbox
+    const overlay = document.createElement('div')
+    overlay.id = 'whitelist-lightbox'
+    overlay.style.cssText = `
+      position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+      background: rgba(0,0,0,0.8); z-index: 2147483649;
+      display: flex; align-items: center; justify-content: center;
+      backdrop-filter: blur(5px);
+    `
+    
+    // Get existing whitelist from localStorage
+    const existingWhitelist = JSON.parse(localStorage.getItem('url_whitelist') || '["https://example.com"]')
+    
+    // Generate URL fields HTML
+    const generateUrlFieldsHTML = () => {
+      return existingWhitelist.map((url, index) => `
+        <div class="url-field-row" data-index="${index}" style="display: flex; align-items: center; gap: 10px; margin-bottom: 12px;">
+          <input type="url" class="whitelist-url" value="${url}" style="flex: 1; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white !important; -webkit-text-fill-color: white !important; padding: 10px; border-radius: 6px; font-size: 12px;" placeholder="https://example.com">
+          <button class="add-url-btn" style="background: #4CAF50; border: none; color: white; width: 32px; height: 32px; border-radius: 6px; cursor: pointer; font-size: 16px; display: flex; align-items: center; justify-content: center;" title="Add new URL field">+</button>
+          <button class="remove-url-btn" style="background: #f44336; border: none; color: white; width: 32px; height: 32px; border-radius: 6px; cursor: pointer; font-size: 16px; display: flex; align-items: center; justify-content: center; ${existingWhitelist.length <= 1 ? 'opacity: 0.5; pointer-events: none;' : ''}" title="Remove this URL field">×</button>
+        </div>
+      `).join('')
+    }
+    
+    overlay.innerHTML = `
+      <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 16px; width: 85vw; max-width: 800px; height: 85vh; color: white; overflow: hidden; box-shadow: 0 20px 40px rgba(0,0,0,0.3); display: flex; flex-direction: column;">
+        <div style="padding: 20px; border-bottom: 1px solid rgba(255,255,255,0.3); display: flex; justify-content: space-between; align-items: center;">
+          <h2 style="margin: 0; font-size: 20px;">🛡️ URL Whitelist Configuration</h2>
+          <button id="close-whitelist-lightbox" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 30px; height: 30px; border-radius: 50%; cursor: pointer; font-size: 16px;">×</button>
+        </div>
+        <div style="flex: 1; padding: 30px; overflow-y: auto;">
+          <div style="background: rgba(255,255,255,0.1); padding: 20px; border-radius: 8px; margin-bottom: 20px;">
+            <h3 style="margin: 0 0 15px 0; font-size: 16px; color: #FFD700;">Trusted URLs</h3>
+            <p style="margin: 0 0 20px 0; font-size: 12px; opacity: 0.8;">Add URLs that you trust and want to enable OpenGiraffe features on. Use HTTPS URLs for security.</p>
+            
+            <div id="url-fields-container">
+              ${generateUrlFieldsHTML()}
+            </div>
+            
+            <div style="margin-top: 20px; display: flex; gap: 10px;">
+              <button id="clear-all-urls" style="padding: 8px 16px; background: #ff5722; border: none; color: white; border-radius: 6px; cursor: pointer; font-size: 11px;">🗑️ Clear All</button>
+              <button id="load-defaults" style="padding: 8px 16px; background: #2196F3; border: none; color: white; border-radius: 6px; cursor: pointer; font-size: 11px;">🔄 Load Defaults</button>
+            </div>
+          </div>
+          
+          <div style="background: rgba(255,255,255,0.1); padding: 20px; border-radius: 8px;">
+            <h3 style="margin: 0 0 15px 0; font-size: 16px; color: #FFD700;">Security Information</h3>
+            <div style="font-size: 12px; opacity: 0.8; line-height: 1.6;">
+              <p style="margin: 0 0 10px 0;">• Only URLs in this whitelist will have OpenGiraffe features enabled</p>
+              <p style="margin: 0 0 10px 0;">• Wildcard patterns are supported (e.g., https://*.example.com)</p>
+              <p style="margin: 0 0 10px 0;">• Changes take effect immediately across all tabs</p>
+              <p style="margin: 0;">• HTTPS is recommended for security</p>
+            </div>
+          </div>
+        </div>
+        <div style="padding: 20px; border-top: 1px solid rgba(255,255,255,0.3); display: flex; justify-content: center; background: rgba(255,255,255,0.05);">
+          <button id="whitelist-save" style="padding: 12px 30px; background: #4CAF50; border: none; color: white; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: bold;">
+            💾 Save Whitelist
+          </button>
+        </div>
+      </div>
+    `
+    
+    document.body.appendChild(overlay)
+    
+    // Close handlers
+    document.getElementById('close-whitelist-lightbox').onclick = () => overlay.remove()
+    overlay.onclick = (e) => { if (e.target === overlay) overlay.remove() }
+    
+    // Add URL field functionality
+    const container = document.getElementById('url-fields-container')
+    
+    const updateUrlFields = () => {
+      const urls = Array.from(container.querySelectorAll('.whitelist-url')).map(input => input.value.trim()).filter(url => url)
+      container.innerHTML = generateUrlFieldsHTML()
+      attachUrlFieldHandlers()
+    }
+    
+    const attachUrlFieldHandlers = () => {
+      // Add button handlers
+      container.querySelectorAll('.add-url-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          const currentUrls = Array.from(container.querySelectorAll('.whitelist-url')).map(input => input.value.trim()).filter(url => url)
+          if (currentUrls.length < 20) { // Limit to 20 URLs
+            currentUrls.push('')
+            existingWhitelist.length = 0
+            existingWhitelist.push(...currentUrls)
+            updateUrlFields()
+          }
+        })
+      })
+      
+      // Remove button handlers
+      container.querySelectorAll('.remove-url-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          const index = parseInt(e.target.closest('.url-field-row').dataset.index)
+          existingWhitelist.splice(index, 1)
+          if (existingWhitelist.length === 0) existingWhitelist.push('') // Keep at least one field
+          updateUrlFields()
+        })
+      })
+    }
+    
+    attachUrlFieldHandlers()
+    
+    // Clear all button
+    document.getElementById('clear-all-urls').onclick = () => {
+      existingWhitelist.length = 0
+      existingWhitelist.push('')
+      updateUrlFields()
+    }
+    
+    // Load defaults button
+    document.getElementById('load-defaults').onclick = () => {
+      existingWhitelist.length = 0
+      existingWhitelist.push('https://chatgpt.com', 'https://claude.ai', 'https://bard.google.com', 'https://localhost:*')
+      updateUrlFields()
+    }
+    
+    // Save handler
+    document.getElementById('whitelist-save').onclick = () => {
+      const urls = Array.from(container.querySelectorAll('.whitelist-url'))
+        .map(input => input.value.trim())
+        .filter(url => url && url.length > 0)
+      
+      localStorage.setItem('url_whitelist', JSON.stringify(urls.length > 0 ? urls : ['https://example.com']))
+      
+      // Show notification
+      const notification = document.createElement('div')
+      notification.style.cssText = `
+        position: fixed;
+        top: 60px;
+        right: 20px;
+        background: rgba(76, 175, 80, 0.9);
+        color: white;
+        padding: 10px 15px;
+        border-radius: 5px;
+        font-size: 12px;
+        z-index: 2147483651;
+      `
+      notification.innerHTML = `🛡️ URL Whitelist saved! (${urls.length} URLs)`
+      document.body.appendChild(notification)
+      
+      setTimeout(() => {
+        notification.remove()
+      }, 3000)
+      
+      overlay.remove()
+      console.log('URL Whitelist saved:', urls)
+    }
+  }
+
+  function openSettingsLightbox() {
+    // Create settings lightbox
+    const overlay = document.createElement('div')
+    overlay.id = 'settings-lightbox'
+    overlay.style.cssText = `
+      position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+      background: rgba(0,0,0,0.8); z-index: 2147483649;
+      display: flex; align-items: center; justify-content: center;
+      backdrop-filter: blur(5px);
+    `
+    
+    overlay.innerHTML = `
+      <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 16px; width: 90vw; height: 85vh; max-width: 1200px; color: white; overflow: hidden; box-shadow: 0 20px 40px rgba(0,0,0,0.3); display: flex; flex-direction: column;">
+        <div style="padding: 20px; border-bottom: 1px solid rgba(255,255,255,0.3); display: flex; justify-content: space-between; align-items: center;">
+          <h2 style="margin: 0; font-size: 20px;">⚙️ Extension Settings</h2>
+          <button id="close-settings-lightbox" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 30px; height: 30px; border-radius: 50%; cursor: pointer; font-size: 16px;">×</button>
+        </div>
+        <div style="flex: 1; padding: 30px; overflow-y: auto;">
+          <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px;">
             
             <!-- Display Ports -->
             <div style="background: rgba(255,255,255,0.1); padding: 12px; border-radius: 6px;">
@@ -643,15 +1294,19 @@ function initializeExtension() {
                     <option selected>Electron App</option>
                     <option>Browser Window</option>
                     <option>Popup Window</option>
-                  </select>
+            </select>
                 </div>
                 <div style="margin-bottom: 8px;">
                   <label style="display: block; margin-bottom: 3px;">API Endpoint:</label>
-                  <input type="text" value="localhost:51247" style="width: 100%; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 3px; border-radius: 2px; font-size: 9px;">
+                  <input type="text" id="api-endpoint" value="localhost:51247" style="width: 100%; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 3px; border-radius: 2px; font-size: 9px;">
+                </div>
+                <div style="margin-bottom: 8px;">
+                  <label style="display: block; margin-bottom: 3px;">Display Port Configuration:</label>
+                  <button id="configure-display-ports" style="width: 100%; padding: 6px; background: #2196F3; border: none; color: white; border-radius: 3px; cursor: pointer; font-size: 9px;">🖥️ Configure Display Ports</button>
                 </div>
               </div>
-            </div>
-
+          </div>
+          
             <!-- System Settings -->
             <div style="background: rgba(255,255,255,0.1); padding: 12px; border-radius: 6px;">
               <h4 style="margin: 0 0 10px 0; font-size: 12px; color: #FFD700;">⚙️ System</h4>
@@ -667,76 +1322,396 @@ function initializeExtension() {
                 <button style="width: 100%; padding: 6px; background: #4CAF50; border: none; color: white; border-radius: 3px; cursor: pointer; font-size: 9px;">💾 Save Settings</button>
               </div>
             </div>
+
+            <!-- Performance Settings -->
+            <div style="background: rgba(255,255,255,0.1); padding: 12px; border-radius: 6px;">
+              <h4 style="margin: 0 0 10px 0; font-size: 12px; color: #FFD700;">⚡ Performance</h4>
+              <div style="font-size: 10px;">
+                <div style="margin-bottom: 8px;">
+                  <label style="display: block; margin-bottom: 3px;">Reasoning Speed:</label>
+                  <select style="width: 100%; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 3px; border-radius: 2px; font-size: 9px;">
+                    <option>Conservative</option>
+                    <option selected>Balanced</option>
+                    <option>Aggressive</option>
+                  </select>
+              </div>
+                <div style="margin-bottom: 8px;">
+                  <label style="display: block; margin-bottom: 3px;">Auto-save Interval:</label>
+                  <select style="width: 100%; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 3px; border-radius: 2px; font-size: 9px;">
+                    <option>30 seconds</option>
+                    <option selected>60 seconds</option>
+                    <option>2 minutes</option>
+                    <option>5 minutes</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+            
+            <!-- Privacy & Security -->
+            <div style="background: rgba(255,255,255,0.1); padding: 12px; border-radius: 6px;">
+              <h4 style="margin: 0 0 10px 0; font-size: 12px; color: #FFD700;">🔒 Privacy & Security</h4>
+              <div style="font-size: 10px;">
+                <div style="margin-bottom: 8px;">
+                  <label style="display: flex; align-items: center;">
+                    <input type="checkbox" checked style="margin-right: 6px;">
+                    <span>Store sessions locally</span>
+                  </label>
+              </div>
+                <div style="margin-bottom: 8px;">
+                  <label style="display: flex; align-items: center;">
+                    <input type="checkbox" style="margin-right: 6px;">
+                    <span>Share anonymous usage data</span>
+                  </label>
+                </div>
+                <div style="margin-bottom: 8px;">
+                  <label style="display: flex; align-items: center;">
+                    <input type="checkbox" checked style="margin-right: 6px;">
+                    <span>Enable encryption</span>
+                  </label>
+                </div>
+              </div>
+            </div>
+            
+            <!-- Advanced Options -->
+            <div style="background: rgba(255,255,255,0.1); padding: 12px; border-radius: 6px;">
+              <h4 style="margin: 0 0 10px 0; font-size: 12px; color: #FFD700;">🔬 Advanced</h4>
+              <div style="font-size: 10px;">
+                <div style="margin-bottom: 8px;">
+                  <label style="display: block; margin-bottom: 3px;">Debug Level:</label>
+                  <select style="width: 100%; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 3px; border-radius: 2px; font-size: 9px;">
+                    <option selected>None</option>
+                    <option>Basic</option>
+                    <option>Verbose</option>
+                    <option>Full</option>
+                  </select>
+              </div>
+                <div style="margin-bottom: 8px;">
+                  <label style="display: flex; align-items: center;">
+                    <input type="checkbox" style="margin-right: 6px;">
+                    <span>Developer mode</span>
+                  </label>
+                </div>
+              </div>
+            </div>
+            
+            <!-- Export/Import -->
+            <div style="background: rgba(255,255,255,0.1); padding: 12px; border-radius: 6px;">
+              <h4 style="margin: 0 0 10px 0; font-size: 12px; color: #FFD700;">📦 Backup</h4>
+              <div style="font-size: 10px;">
+                <button style="width: 100%; margin-bottom: 6px; padding: 6px; background: #2196F3; border: none; color: white; border-radius: 3px; cursor: pointer; font-size: 9px;">📤 Export Settings</button>
+                <button style="width: 100%; margin-bottom: 6px; padding: 6px; background: #FF9800; border: none; color: white; border-radius: 3px; cursor: pointer; font-size: 9px;">📥 Import Settings</button>
+                <button style="width: 100%; padding: 6px; background: #F44336; border: none; color: white; border-radius: 3px; cursor: pointer; font-size: 9px;">🗑️ Reset All</button>
+              </div>
+            </div>
+            
           </div>
+          
+          </div>
+        </div>
+        <div style="padding: 20px; border-top: 1px solid rgba(255,255,255,0.3); display: flex; justify-content: center; background: rgba(255,255,255,0.05);">
+          <button style="padding: 12px 30px; background: #4CAF50; border: none; color: white; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: bold;">
+            💾 Save All Settings
+          </button>
         </div>
       </div>
     `
-  }
-
-  bottomSidebar.innerHTML = createBottomContent()
-
-  // Expand/Collapse functionality
-  function toggleBottomPanel() {
-    isExpanded = !isExpanded
-    const expandBtn = document.getElementById('expand-btn')
-    const expandableContent = document.getElementById('expandable-content')
     
-    if (isExpanded) {
-      bottomSidebar.style.height = expandedHeight + 'px'
-      bottomSidebar.style.cursor = 'default'
-      expandBtn.style.transform = 'rotate(180deg)'
-      expandableContent.style.display = 'block'
-      
-      // Update body margin
-      document.body.style.marginBottom = expandedHeight + 'px'
-    } else {
-      bottomSidebar.style.height = '45px'
-      bottomSidebar.style.cursor = 'pointer'
-      expandBtn.style.transform = 'rotate(0deg)'
-      expandableContent.style.display = 'none'
-      
-      // Update body margin
-      document.body.style.marginBottom = '45px'
+    document.body.appendChild(overlay)
+    
+    document.getElementById('close-settings-lightbox').onclick = () => overlay.remove()
+    overlay.onclick = (e) => { if (e.target === overlay) overlay.remove() }
+    
+    // Add event handler for display port configuration
+    document.getElementById('configure-display-ports').onclick = () => {
+      openDisplayPortsConfig(overlay)
     }
   }
 
-  // Tab switching
-  function switchTab(tabName) {
-    // Hide all content
-    document.querySelectorAll('.tab-content').forEach(content => {
-      content.style.display = 'none'
-    })
+  function openDisplayPortsConfig(parentOverlay) {
+    // Create display ports configuration dialog
+    const configOverlay = document.createElement('div')
+    configOverlay.style.cssText = `
+      position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+      background: rgba(0,0,0,0.9); z-index: 2147483650;
+      display: flex; align-items: center; justify-content: center;
+      backdrop-filter: blur(5px);
+    `
     
-    // Reset all tab buttons
-    document.querySelectorAll('.bottom-tab').forEach(btn => {
-      btn.style.background = 'transparent'
-      btn.classList.remove('active')
-    })
-    
-    // Show selected content and activate tab
-    const selectedContent = document.getElementById(tabName + '-content')
-    const selectedTab = document.getElementById(tabName + '-tab')
-    
-    if (selectedContent) selectedContent.style.display = 'block'
-    if (selectedTab) {
-      selectedTab.style.background = 'rgba(255,255,255,0.2)'
-      selectedTab.classList.add('active')
-    }
-  }
+    configOverlay.innerHTML = `
+      <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 16px; width: 90vw; max-width: 1200px; height: 85vh; color: white; overflow: hidden; box-shadow: 0 20px 40px rgba(0,0,0,0.4); display: flex; flex-direction: column;">
+        <div style="padding: 20px; border-bottom: 1px solid rgba(255,255,255,0.3); display: flex; justify-content: space-between; align-items: center;">
+          <h2 style="margin: 0; font-size: 20px;">🖥️ Display Ports Configuration</h2>
+          <button id="close-display-config" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 30px; height: 30px; border-radius: 50%; cursor: pointer; font-size: 16px;">×</button>
+        </div>
+        <div style="flex: 1; padding: 30px; overflow-y: auto;">
+          <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px;">
+            
+            <!-- Port 1 -->
+            <div style="background: rgba(255,255,255,0.1); padding: 20px; border-radius: 8px;">
+              <h4 style="margin: 0 0 15px 0; font-size: 14px; color: #FFD700; font-weight: bold;">🖥️ Display Port #1</h4>
+              <div style="font-size: 12px;">
+                                <div style="margin-bottom: 12px;">
+                  <label style="display: block; margin-bottom: 6px; font-size: 11px; font-weight: bold;">Output Type:</label>
+                  <select id="port1-type" style="width: 100%; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 8px; border-radius: 4px; font-size: 11px;">
+                    <option value="electron">Electron App</option>
+                    <option value="browser">Browser Window</option>
+                    <option value="popup">Popup Window</option>
+                    <option value="overlay">Overlay</option>
+                    <option value="disabled">Disabled</option>
+                  </select>
+                </div>
+                <div style="margin-bottom: 12px;">
+                  <label style="display: block; margin-bottom: 6px; font-size: 11px; font-weight: bold;">Resolution:</label>
+                  <select id="port1-resolution" style="width: 100%; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 8px; border-radius: 4px; font-size: 11px;">
+                    <option value="auto">Auto</option>
+                    <option value="1920x1080">1920x1080</option>
+                    <option value="1366x768">1366x768</option>
+                    <option value="800x600">800x600</option>
+                  </select>
+                </div>
+                <div style="margin-bottom: 12px;">
+                  <label style="display: block; margin-bottom: 6px; font-size: 11px; font-weight: bold;">Position:</label>
+                  <select id="port1-position" style="width: 100%; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 8px; border-radius: 4px; font-size: 11px;">
+                    <option value="center">Center</option>
+                    <option value="top-left">Top Left</option>
+                    <option value="top-right">Top Right</option>
+                    <option value="bottom-left">Bottom Left</option>
+                    <option value="bottom-right">Bottom Right</option>
+                  </select>
+                </div>
+              </div>
+            </div>
 
-  // Agent toggle function
-  function toggleAgent(agentName) {
-    const toggleBtns = document.querySelectorAll(`[data-agent="${agentName}"]`)
-    toggleBtns.forEach(btn => {
-      const isActive = btn.textContent.trim() === 'ON'
-      if (isActive) {
-        btn.textContent = 'OFF'
-        btn.style.background = '#f44336'
-      } else {
-        btn.textContent = 'ON'
-        btn.style.background = '#4CAF50'
+            <!-- Port 2 -->
+            <div style="background: rgba(255,255,255,0.1); padding: 12px; border-radius: 6px;">
+              <h4 style="margin: 0 0 10px 0; font-size: 12px; color: #FFD700;">🖥️ Display Port #2</h4>
+              <div style="font-size: 10px;">
+                <div style="margin-bottom: 8px;">
+                  <label style="display: block; margin-bottom: 3px;">Output Type:</label>
+                  <select id="port2-type" style="width: 100%; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 3px; border-radius: 2px; font-size: 9px;">
+                    <option value="electron">Electron App</option>
+                    <option value="browser" selected>Browser Window</option>
+                    <option value="popup">Popup Window</option>
+                    <option value="overlay">Overlay</option>
+                    <option value="disabled">Disabled</option>
+                  </select>
+        </div>
+                <div style="margin-bottom: 8px;">
+                  <label style="display: block; margin-bottom: 3px;">Resolution:</label>
+                  <select id="port2-resolution" style="width: 100%; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 3px; border-radius: 2px; font-size: 9px;">
+                    <option value="auto" selected>Auto</option>
+                    <option value="1920x1080">1920x1080</option>
+                    <option value="1366x768">1366x768</option>
+                    <option value="800x600">800x600</option>
+                  </select>
+        </div>
+                <div style="margin-bottom: 8px;">
+                  <label style="display: block; margin-bottom: 3px;">Position:</label>
+                  <select id="port2-position" style="width: 100%; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 3px; border-radius: 2px; font-size: 9px;">
+                    <option value="center" selected>Center</option>
+                    <option value="top-left">Top Left</option>
+                    <option value="top-right">Top Right</option>
+                    <option value="bottom-left">Bottom Left</option>
+                    <option value="bottom-right">Bottom Right</option>
+            </select>
+          </div>
+              </div>
+            </div>
+
+            <!-- Port 3 -->
+            <div style="background: rgba(255,255,255,0.1); padding: 12px; border-radius: 6px;">
+              <h4 style="margin: 0 0 10px 0; font-size: 12px; color: #FFD700;">🖥️ Display Port #3</h4>
+              <div style="font-size: 10px;">
+                <div style="margin-bottom: 8px;">
+                  <label style="display: block; margin-bottom: 3px;">Output Type:</label>
+                  <select id="port3-type" style="width: 100%; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 3px; border-radius: 2px; font-size: 9px;">
+                    <option value="electron">Electron App</option>
+                    <option value="browser">Browser Window</option>
+                    <option value="popup" selected>Popup Window</option>
+                    <option value="overlay">Overlay</option>
+                    <option value="disabled">Disabled</option>
+            </select>
+                </div>
+                <div style="margin-bottom: 8px;">
+                  <label style="display: block; margin-bottom: 3px;">Resolution:</label>
+                  <select id="port3-resolution" style="width: 100%; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 3px; border-radius: 2px; font-size: 9px;">
+                    <option value="auto">Auto</option>
+                    <option value="1920x1080">1920x1080</option>
+                    <option value="1366x768" selected>1366x768</option>
+                    <option value="800x600">800x600</option>
+                  </select>
+                </div>
+                <div style="margin-bottom: 8px;">
+                  <label style="display: block; margin-bottom: 3px;">Position:</label>
+                  <select id="port3-position" style="width: 100%; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 3px; border-radius: 2px; font-size: 9px;">
+                    <option value="center">Center</option>
+                    <option value="top-left">Top Left</option>
+                    <option value="top-right" selected>Top Right</option>
+                    <option value="bottom-left">Bottom Left</option>
+                    <option value="bottom-right">Bottom Right</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            <!-- Port 4 -->
+            <div style="background: rgba(255,255,255,0.1); padding: 12px; border-radius: 6px;">
+              <h4 style="margin: 0 0 10px 0; font-size: 12px; color: #FFD700;">🖥️ Display Port #4</h4>
+              <div style="font-size: 10px;">
+                <div style="margin-bottom: 8px;">
+                  <label style="display: block; margin-bottom: 3px;">Output Type:</label>
+                  <select id="port4-type" style="width: 100%; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 3px; border-radius: 2px; font-size: 9px;">
+                    <option value="electron">Electron App</option>
+                    <option value="browser">Browser Window</option>
+                    <option value="popup">Popup Window</option>
+                    <option value="overlay" selected>Overlay</option>
+                    <option value="disabled">Disabled</option>
+                  </select>
+                </div>
+                <div style="margin-bottom: 8px;">
+                  <label style="display: block; margin-bottom: 3px;">Resolution:</label>
+                  <select id="port4-resolution" style="width: 100%; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 3px; border-radius: 2px; font-size: 9px;">
+                    <option value="auto">Auto</option>
+                    <option value="1920x1080">1920x1080</option>
+                    <option value="1366x768">1366x768</option>
+                    <option value="800x600" selected>800x600</option>
+                  </select>
+                </div>
+                <div style="margin-bottom: 8px;">
+                  <label style="display: block; margin-bottom: 3px;">Position:</label>
+                  <select id="port4-position" style="width: 100%; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 3px; border-radius: 2px; font-size: 9px;">
+                    <option value="center">Center</option>
+                    <option value="top-left">Top Left</option>
+                    <option value="top-right">Top Right</option>
+                    <option value="bottom-left" selected>Bottom Left</option>
+                    <option value="bottom-right">Bottom Right</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            <!-- Port 5 -->
+            <div style="background: rgba(255,255,255,0.1); padding: 12px; border-radius: 6px;">
+              <h4 style="margin: 0 0 10px 0; font-size: 12px; color: #FFD700;">🖥️ Display Port #5</h4>
+              <div style="font-size: 10px;">
+                <div style="margin-bottom: 8px;">
+                  <label style="display: block; margin-bottom: 3px;">Output Type:</label>
+                  <select id="port5-type" style="width: 100%; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 3px; border-radius: 2px; font-size: 9px;">
+                    <option value="electron">Electron App</option>
+                    <option value="browser">Browser Window</option>
+                    <option value="popup">Popup Window</option>
+                    <option value="overlay">Overlay</option>
+                    <option value="disabled" selected>Disabled</option>
+                  </select>
+                </div>
+                <div style="margin-bottom: 8px;">
+                  <label style="display: block; margin-bottom: 3px;">Resolution:</label>
+                  <select id="port5-resolution" style="width: 100%; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 3px; border-radius: 2px; font-size: 9px;">
+                    <option value="auto" selected>Auto</option>
+                    <option value="1920x1080">1920x1080</option>
+                    <option value="1366x768">1366x768</option>
+                    <option value="800x600">800x600</option>
+                  </select>
+                </div>
+                <div style="margin-bottom: 8px;">
+                  <label style="display: block; margin-bottom: 3px;">Position:</label>
+                  <select id="port5-position" style="width: 100%; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 3px; border-radius: 2px; font-size: 9px;">
+                    <option value="center" selected>Center</option>
+                    <option value="top-left">Top Left</option>
+                    <option value="top-right">Top Right</option>
+                    <option value="bottom-left">Bottom Left</option>
+                    <option value="bottom-right">Bottom Right</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            <!-- Monitor Output -->
+            <div style="background: rgba(255,255,255,0.1); padding: 12px; border-radius: 6px;">
+              <h4 style="margin: 0 0 10px 0; font-size: 12px; color: #FFD700;">📺 Monitor Output</h4>
+              <div style="font-size: 10px;">
+                <div style="margin-bottom: 8px;">
+                  <label style="display: block; margin-bottom: 3px;">Output Type:</label>
+                  <select id="monitor-type" style="width: 100%; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 3px; border-radius: 2px; font-size: 9px;">
+                    <option value="electron" selected>Electron App</option>
+                    <option value="browser">Browser Window</option>
+                    <option value="external">External Monitor</option>
+                  </select>
+                </div>
+                <div style="margin-bottom: 8px;">
+                  <label style="display: block; margin-bottom: 3px;">API Port:</label>
+                  <input type="number" id="monitor-port" value="51247" style="width: 100%; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 3px; border-radius: 2px; font-size: 9px;">
+                </div>
+                <div style="margin-bottom: 8px;">
+                  <label style="display: flex; align-items: center; font-size: 9px;">
+                    <input type="checkbox" id="monitor-autostart" style="margin-right: 6px;" checked>
+                    <span>Auto-start monitor output</span>
+            </label>
+          </div>
+        </div>
+        </div>
+
+          </div>
+        </div>
+        <div style="padding: 20px; border-top: 1px solid rgba(255,255,255,0.3); display: flex; justify-content: flex-end; gap: 15px; background: rgba(255,255,255,0.05);">
+          <button id="display-config-cancel" style="padding: 12px 24px; background: rgba(255,255,255,0.2); border: none; color: white; border-radius: 6px; cursor: pointer; font-size: 12px;">Cancel</button>
+          <button id="display-config-save" style="padding: 12px 24px; background: #4CAF50; border: none; color: white; border-radius: 6px; cursor: pointer; font-size: 12px;">💾 Save Display Ports</button>
+        </div>
+      </div>
+    `
+    
+    document.body.appendChild(configOverlay)
+    
+    // Close handlers
+    document.getElementById('close-display-config').onclick = () => configOverlay.remove()
+    document.getElementById('display-config-cancel').onclick = () => configOverlay.remove()
+    
+    // Save handler
+    document.getElementById('display-config-save').onclick = () => {
+      // Save all display port configurations
+      for (let i = 1; i <= 5; i++) {
+        const type = document.getElementById(`port${i}-type`).value
+        const resolution = document.getElementById(`port${i}-resolution`).value
+        const position = document.getElementById(`port${i}-position`).value
+        
+        localStorage.setItem(`display_port_${i}`, JSON.stringify({
+          type, resolution, position
+        }))
       }
-    })
+      
+      // Save monitor configuration
+      const monitorConfig = {
+        type: document.getElementById('monitor-type').value,
+        port: document.getElementById('monitor-port').value,
+        autostart: document.getElementById('monitor-autostart').checked
+      }
+      localStorage.setItem('monitor_output', JSON.stringify(monitorConfig))
+      
+      // Show notification
+      const notification = document.createElement('div')
+      notification.style.cssText = `
+        position: fixed;
+        top: 60px;
+        right: 20px;
+        background: rgba(76, 175, 80, 0.9);
+        color: white;
+        padding: 10px 15px;
+        border-radius: 5px;
+        font-size: 12px;
+        z-index: 2147483651;
+      `
+      notification.innerHTML = `💾 Display ports configuration saved!`
+      document.body.appendChild(notification)
+      
+  setTimeout(() => {
+        notification.remove()
+      }, 2000)
+      
+      configOverlay.remove()
+      console.log('Display ports configuration saved')
+    }
+    
+    configOverlay.onclick = (e) => { if (e.target === configOverlay) configOverlay.remove() }
   }
 
   // Add all sidebars to page
@@ -744,1324 +1719,60 @@ function initializeExtension() {
   sidebarsDiv.appendChild(rightSidebar)
   sidebarsDiv.appendChild(bottomSidebar)
   document.body.appendChild(sidebarsDiv)
-
+  
   // Set initial body margins and safe scrollbar prevention
   document.body.style.marginLeft = currentTabData.uiConfig.leftSidebarWidth + 'px'
   document.body.style.marginRight = currentTabData.uiConfig.rightSidebarWidth + 'px'
-  document.body.style.marginBottom = '45px'
+  document.body.style.marginTop = '45px'  // Exact sidebar height, no spacing
   document.body.style.overflowX = 'hidden'
 
-  // HELPER GRID LIGHTBOX FUNCTION
-  function openHelperGridLightbox() {
-    // Remove existing lightbox if any
-    const existing = document.getElementById('temp-lightbox')
-    if (existing) existing.remove()
-    
-    // Create helper grid lightbox
-    const overlay = document.createElement('div')
-    overlay.id = 'temp-lightbox'
-    overlay.style.cssText = `
-      position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
-      background: rgba(0,0,0,0.8); z-index: 2147483649;
-      display: flex; align-items: center; justify-content: center;
-      backdrop-filter: blur(5px);
-    `
-    
-    overlay.innerHTML = `
-      <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 16px; width: 90vw; height: 85vh; max-width: 1200px; color: white; overflow: hidden; box-shadow: 0 20px 40px rgba(0,0,0,0.3); display: flex; flex-direction: column;">
-        <div style="padding: 20px; border-bottom: 1px solid rgba(255,255,255,0.2); display: flex; justify-content: space-between; align-items: center;">
-          <h2 style="margin: 0; font-size: 24px; font-weight: bold;">🚀 Helper Grid Options</h2>
-          <button id="close-helpergrid-lightbox" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 40px; height: 40px; border-radius: 50%; cursor: pointer; font-size: 24px; font-weight: bold; display: flex; align-items: center; justify-content: center;">×</button>
-        </div>
-        
-        <div style="flex: 1; padding: 30px; overflow-y: auto; display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 30px;">
-          
-          <!-- Grid Option 1: 4 Helper LLMs -->
-          <div class="grid-option" data-grid="helper-llms" style="background: rgba(255,255,255,0.1); border-radius: 12px; padding: 20px; border: 1px solid rgba(255,255,255,0.2); cursor: pointer; transition: all 0.3s ease;">
-            <div style="width: 100%; height: 150px; background: rgba(255,255,255,0.1); border-radius: 8px; margin-bottom: 15px; display: flex; align-items: center; justify-content: center; border: 2px dashed rgba(255,255,255,0.3);">
-              <div style="text-align: center; color: rgba(255,255,255,0.7);">
-                <div style="font-size: 48px; margin-bottom: 10px;">🤖</div>
-                <div style="font-size: 12px;">4 Helper LLMs Grid</div>
-              </div>
-            </div>
-            <h3 style="margin: 0 0 10px 0; font-size: 18px; color: #4CAF50;">🤖 4 Helper LLMs</h3>
-            <p style="margin: 0; font-size: 14px; opacity: 0.8; line-height: 1.4;">Display a 2x2 grid with 4 specialized AI assistants for different tasks</p>
-          </div>
-          
-          <!-- Grid Option 2: Helper Tabs -->
-          <div class="grid-option" data-grid="helper-tabs" style="background: rgba(255,255,255,0.1); border-radius: 12px; padding: 20px; border: 1px solid rgba(255,255,255,0.2); cursor: pointer; transition: all 0.3s ease;">
-            <div style="width: 100%; height: 150px; background: rgba(255,255,255,0.1); border-radius: 8px; margin-bottom: 15px; display: flex; align-items: center; justify-content: center; border: 2px dashed rgba(255,255,255,0.3);">
-              <div style="text-align: center; color: rgba(255,255,255,0.7);">
-                <div style="font-size: 48px; margin-bottom: 10px;">🔗</div>
-                <div style="font-size: 12px;">Helper Tabs Setup</div>
-              </div>
-            </div>
-            <h3 style="margin: 0 0 10px 0; font-size: 18px; color: #2196F3;">🔗 Helper Tabs</h3>
-            <p style="margin: 0; font-size: 14px; opacity: 0.8; line-height: 1.4;">Configure custom websites (up to 10 URLs) for your helper tabs workflow</p>
-          </div>
-          
-          <!-- Grid Option 3: Custom Grid Slots -->
-          <div class="grid-option" data-grid="custom-slots" style="background: rgba(255,255,255,0.1); border-radius: 12px; padding: 20px; border: 1px solid rgba(255,255,255,0.2); cursor: pointer; transition: all 0.3s ease;">
-            <div style="width: 100%; height: 150px; background: rgba(255,255,255,0.1); border-radius: 8px; margin-bottom: 15px; display: flex; align-items: center; justify-content: center; border: 2px dashed rgba(255,255,255,0.3);">
-              <div style="text-align: center; color: rgba(255,255,255,0.7);">
-                <div style="font-size: 48px; margin-bottom: 10px;">🎯</div>
-                <div style="font-size: 12px;">Custom 4 Slots</div>
-              </div>
-              </div>
-            <h3 style="margin: 0 0 10px 0; font-size: 18px; color: #FF9800;">🎯 Grid with 4 slots</h3>
-            <p style="margin: 0; font-size: 14px; opacity: 0.8; line-height: 1.4;">Create a configurable grid with 4 slots for injecting context and AI instructions</p>
-            </div>
-            
-              </div>
-        
-        <div style="padding: 20px; border-top: 1px solid rgba(255,255,255,0.2); text-align: center;">
-          <p style="margin: 0; font-size: 12px; opacity: 0.6;">Select a grid configuration to set up your AI assistant workspace</p>
-              </div>
-            </div>
-    `
-    
-    document.body.appendChild(overlay)
-    
-    // Add click handler for close button
-    document.getElementById('close-helpergrid-lightbox').onclick = () => {
-      overlay.remove()
-    }
-    
-    // Add click handlers for grid options
-    document.querySelectorAll('.grid-option').forEach(option => {
-      option.onmouseenter = () => {
-        option.style.transform = 'translateY(-5px)'
-        option.style.background = 'rgba(255,255,255,0.15)'
-      }
-      option.onmouseleave = () => {
-        option.style.transform = 'translateY(0)'
-        option.style.background = 'rgba(255,255,255,0.1)'
-      }
-      option.onclick = () => {
-        const gridType = option.getAttribute('data-grid')
-        
-        if (gridType === 'helper-tabs') {
-          // Open Helper Tabs Configuration
-          openHelperTabsConfig()
-          overlay.remove()
-        } else {
-          // Other grid types - placeholder for now
-          alert(`Selected grid: ${gridType}\n\nThis will be implemented in the next iteration with specific functionality for each grid type.`)
-          overlay.remove()
-        }
-      }
-    })
-    
-    // Close on overlay click
-    overlay.onclick = (e) => {
-      if (e.target === overlay) {
-        overlay.remove()
-      }
-    }
-  }
-
-  // OPEN HELPER TABS CONFIGURATION
-  function openHelperTabsConfig() {
-    // Remove any existing lightbox
-    const existing = document.getElementById('temp-lightbox')
-    if (existing) existing.remove()
-    
-    // Create configuration lightbox
-    const overlay = document.createElement('div')
-    overlay.id = 'temp-lightbox'
-    overlay.style.cssText = `
-      position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
-      background: rgba(0,0,0,0.8); z-index: 2147483649;
-      display: flex; align-items: center; justify-content: center;
-      backdrop-filter: blur(5px);
-    `
-    
-    // Load existing URLs from localStorage if any
-    const savedUrls = JSON.parse(localStorage.getItem('optimando-helper-tabs-urls') || '[]')
-    
-    // Default URLs if none saved (start with one field, or load saved URLs)
-    const initialUrls = savedUrls.length > 0 ? savedUrls : ['']
-    
-    function generateUrlFieldsHTML(urls) {
-      let urlInputsHTML = ''
-      
-      urls.forEach((url, i) => {
-        urlInputsHTML += `
-          <div class="url-field-row" data-index="${i}" style="display: flex; gap: 10px; margin-bottom: 12px; align-items: center;">
-            <div style="flex: 1;">
-              <input 
-                type="url" 
-                class="url-input" 
-                data-index="${i}"
-                value="${url}" 
-                placeholder="https://example.com"
-                style="width: 100%; padding: 12px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white !important; border-radius: 6px; font-size: 14px; box-sizing: border-box; -webkit-text-fill-color: white !important;"
-              />
-            </div>
-            <button type="button" class="add-url-btn" data-index="${i}" style="background: #4CAF50; border: none; color: white; width: 40px; height: 40px; border-radius: 6px; cursor: pointer; font-size: 16px; font-weight: bold; transition: all 0.2s ease;" title="Add new URL field">
-              +
-            </button>
-            ${urls.length > 1 ? `
-              <button type="button" class="remove-url-btn" data-index="${i}" style="background: #F44336; border: none; color: white; width: 40px; height: 40px; border-radius: 6px; cursor: pointer; font-size: 16px; font-weight: bold; transition: all 0.2s ease;" title="Remove this field">
-                ×
-              </button>
-            ` : ''}
-          </div>
-        `
-      })
-      
-      return urlInputsHTML
-    }
-    
-    overlay.innerHTML = `
-      <div style="background: linear-gradient(135deg, #2196F3 0%, #1976D2 100%); border-radius: 16px; width: 90vw; height: 85vh; max-width: 600px; color: white; overflow: hidden; box-shadow: 0 20px 40px rgba(0,0,0,0.3); display: flex; flex-direction: column;">
-        <div style="padding: 20px; border-bottom: 1px solid rgba(255,255,255,0.2); display: flex; justify-content: space-between; align-items: center;">
-          <h2 style="margin: 0; font-size: 20px; font-weight: bold;">🔗 Helper Tabs Configuration</h2>
-          <button id="close-config-lightbox" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 40px; height: 40px; border-radius: 50%; cursor: pointer; font-size: 20px; font-weight: bold;">×</button>
-        </div>
-        
-        <div style="flex: 1; padding: 20px; overflow-y: auto;">
-          <div style="margin-bottom: 20px;">
-            <p style="margin: 0 0 15px 0; font-size: 14px; opacity: 0.9; line-height: 1.5;">
-              Configure custom websites that will open as helper tabs. Click + to add more fields.
-            </p>
-            <div style="background: rgba(255,255,255,0.1); padding: 15px; border-radius: 8px; margin-bottom: 20px;">
-              <div style="font-size: 12px; opacity: 0.8;">
-                💡 <strong>Examples:</strong><br/>
-                • https://chatgpt.com - ChatGPT AI Assistant<br/>
-                • https://claude.ai - Claude AI Assistant<br/>
-                • https://www.perplexity.ai - Perplexity AI Search<br/>
-                • https://github.com - Code Repository<br/>
-                • https://stackoverflow.com - Programming Q&A
-              </div>
-            </div>
-          </div>
-          
-          <div id="url-fields-container">
-            ${generateUrlFieldsHTML(initialUrls)}
-          </div>
-          
-          <div style="margin-top: 25px; padding-top: 20px; border-top: 1px solid rgba(255,255,255,0.2); display: flex; gap: 15px; justify-content: space-between;">
-            <div style="display: flex; gap: 10px;">
-              <button type="button" id="clear-all-urls" style="background: rgba(255,255,255,0.2); border: none; color: white; padding: 12px 16px; border-radius: 8px; cursor: pointer; font-size: 14px; transition: all 0.2s ease;">
-                🗑️ Clear All
-              </button>
-              <button type="button" id="load-defaults" style="background: rgba(255,255,255,0.2); border: none; color: white; padding: 12px 16px; border-radius: 8px; cursor: pointer; font-size: 14px; transition: all 0.2s ease;">
-                🔄 Load Defaults
-              </button>
-            </div>
-            <div style="display: flex; gap: 10px;">
-              <button type="button" id="cancel-config" style="background: rgba(255,255,255,0.2); border: none; color: white; padding: 12px 20px; border-radius: 8px; cursor: pointer; font-size: 14px; transition: all 0.2s ease;">
-                Cancel
-              </button>
-              <button type="button" id="save-and-open" style="background: rgba(255,255,255,0.9); border: none; color: #2196F3; padding: 12px 20px; border-radius: 8px; cursor: pointer; font-size: 14px; font-weight: bold; transition: all 0.2s ease;">
-                💾 Save & Open Tabs
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-    `
-    
-    document.body.appendChild(overlay)
-    
-    // Function to re-attach event handlers after DOM changes
-    function attachFieldEventHandlers() {
-      // Add URL field handlers
-      overlay.querySelectorAll('.add-url-btn').forEach(btn => {
-        btn.onclick = function(e) {
-          e.preventDefault()
-          addNewUrlField()
-        }
-        
-        btn.onmouseenter = function() {
-          this.style.background = '#45a049'
-          this.style.transform = 'scale(1.05)'
-        }
-        btn.onmouseleave = function() {
-          this.style.background = '#4CAF50'
-          this.style.transform = 'scale(1)'
-        }
-      })
-      
-      // Remove URL field handlers
-      overlay.querySelectorAll('.remove-url-btn').forEach(btn => {
-        btn.onclick = function(e) {
-          e.preventDefault()
-          const index = parseInt(this.getAttribute('data-index'))
-          removeUrlField(index)
-        }
-        
-        btn.onmouseenter = function() {
-          this.style.background = '#d32f2f'
-          this.style.transform = 'scale(1.05)'
-        }
-        btn.onmouseleave = function() {
-          this.style.background = '#F44336'
-          this.style.transform = 'scale(1)'
-        }
-      })
-    }
-    
-    // Function to add new URL field
-    function addNewUrlField() {
-      const container = overlay.querySelector('#url-fields-container')
-      const currentFields = container.querySelectorAll('.url-field-row')
-      
-      if (currentFields.length >= 10) {
-        alert('❌ Maximum 10 URLs allowed!')
-        return
-      }
-      
-      const currentUrls = Array.from(container.querySelectorAll('.url-input')).map(input => input.value)
-      currentUrls.push('')
-      
-      container.innerHTML = generateUrlFieldsHTML(currentUrls)
-      attachFieldEventHandlers()
-      
-      // Focus the new input field
-      const newInput = container.querySelector('.url-input:last-of-type')
-      if (newInput) {
-        newInput.focus()
-      }
-    }
-    
-    // Function to remove URL field
-    function removeUrlField(indexToRemove) {
-      const container = overlay.querySelector('#url-fields-container')
-      const currentUrls = Array.from(container.querySelectorAll('.url-input')).map(input => input.value)
-      
-      if (currentUrls.length <= 1) {
-        return // Don't remove the last field
-      }
-      
-      currentUrls.splice(indexToRemove, 1)
-      container.innerHTML = generateUrlFieldsHTML(currentUrls)
-      attachFieldEventHandlers()
-    }
-    
-    // Event handlers
-    document.getElementById('close-config-lightbox').onclick = () => overlay.remove()
-    document.getElementById('cancel-config').onclick = () => overlay.remove()
-    
-    // Clear all URLs
-    document.getElementById('clear-all-urls').onclick = () => {
-      const container = overlay.querySelector('#url-fields-container')
-      container.innerHTML = generateUrlFieldsHTML([''])
-      attachFieldEventHandlers()
-    }
-    
-    // Load default URLs
-    document.getElementById('load-defaults').onclick = () => {
-      const defaultUrls = [
-        'https://chatgpt.com',
-        'https://claude.ai', 
-        'https://bard.google.com',
-        'https://www.perplexity.ai',
-        'https://github.com',
-        'https://stackoverflow.com'
-      ]
-      
-      const container = overlay.querySelector('#url-fields-container')
-      container.innerHTML = generateUrlFieldsHTML(defaultUrls)
-      attachFieldEventHandlers()
-    }
-    
-    // Save and open tabs
-    document.getElementById('save-and-open').onclick = () => {
-      const inputs = overlay.querySelectorAll('.url-input')
-      const urls = []
-      
-      inputs.forEach(input => {
-        const url = input.value.trim()
-        if (url) {
-          // Basic URL validation
-          try {
-            new URL(url)
-            urls.push(url)
-          } catch (e) {
-            alert('❌ Invalid URL: ' + url + '\\n\\nPlease enter a valid URL starting with http:// or https://')
-            input.focus()
-            return
-          }
-        }
-      })
-      
-      if (urls.length === 0) {
-        alert('❌ Please enter at least one valid URL!')
-        return
-      }
-      
-      // Save URLs to localStorage
-      localStorage.setItem('optimando-helper-tabs-urls', JSON.stringify(urls))
-      
-      // Open the helper tabs
-      openCustomHelperTabs(urls)
-      overlay.remove()
-    }
-    
-    // Close on overlay click
-    overlay.onclick = (e) => {
-      if (e.target === overlay) {
-        overlay.remove()
-      }
-    }
-    
-    // Attach initial event handlers
-    attachFieldEventHandlers()
-    
-    // Focus first input field
-    setTimeout(() => {
-      const firstInput = overlay.querySelector('.url-input')
-      if (firstInput) {
-        firstInput.focus()
-        if (!firstInput.value) {
-          firstInput.select()
-        }
-      }
-    }, 100)
-  }
-  
-  // OPEN CUSTOM HELPER TABS FUNCTION
-  function openCustomHelperTabs(urls) {
-    const sessionId = 'session-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9)
-    const sessionName = 'Helper Tabs (' + urls.length + ' sites) - ' + new Date().toLocaleDateString()
-    
-    // Check if popups are blocked
-    const testPopup = window.open('', 'test', 'width=1,height=1')
-    if (!testPopup || testPopup.closed || typeof testPopup.closed === 'undefined') {
-      alert('❌ Popup blockiert!\\n\\nBitte erlauben Sie Popups für diese Website um Helper Tabs zu öffnen.')
-      return
-    }
-    testPopup.close()
-    
-    const sessionData = {
-      id: sessionId,
-      name: sessionName,
-      type: 'helper-tabs',
-      createdAt: new Date().toISOString(),
-      savedToBrowser: true,
-      agents: [],
-      tabs: [],
-      urls: urls
-    }
-    
-    const tabs = []
-    
-    urls.forEach((url, index) => {
-      setTimeout(() => {
-        const agentId = 'helper-' + (index + 1)
-        const urlWithParams = url + 
-          (url.includes('?') ? '&' : '?') +
-          'optimando_extension=disabled' +
-          '&session_id=' + sessionId +
-          '&agent_id=' + agentId +
-          '&tab_number=' + (index + 1)
-        
-        const tab = window.open(urlWithParams, 'helper-' + sessionId + '-tab-' + (index + 1))
-        if (tab) {
-          tabs.push(tab)
-          sessionData.agents.push({
-            id: agentId,
-            name: 'Helper ' + (index + 1),
-            emoji: '🔗',
-            number: index + 1,
-            url: urlWithParams,
-            originalUrl: url,
-            tabId: 'helper-' + sessionId + '-tab-' + (index + 1)
-          })
-          sessionData.tabs.push({
-            id: agentId,
-            url: urlWithParams,
-            originalUrl: url,
-            tabId: 'helper-' + sessionId + '-tab-' + (index + 1),
-            opened: new Date().toISOString()
-          })
-          console.log('Helper Tab ' + (index + 1) + ' opened: ' + url)
-        }
-      }, index * 300) // Stagger opening
-    })
-    
-    setTimeout(() => {
-      if (tabs.length > 0) {
-        // Save session
-        const existingSessions = JSON.parse(localStorage.getItem('optimando-sessions') || '[]')
-        existingSessions.push(sessionData)
-        localStorage.setItem('optimando-sessions', JSON.stringify(existingSessions))
-        localStorage.setItem('optimando-current-session', sessionId)
-        saveSessionToBrowser(sessionData)
-        
-        alert('✅ Helper Tabs Session "' + sessionName + '" erstellt!\\n\\n' + 
-              tabs.length + ' Helper Tabs geöffnet:\\n' +
-              urls.map((url, i) => '🔗 Tab ' + (i+1) + ': ' + new URL(url).hostname).join('\\n') + 
-              '\\n\\nSession und alle Tabs werden automatisch gespeichert.')
-        
-        // Update current tab data
-        currentTabData.sessionId = sessionId
-        currentTabData.sessionName = sessionName
-        currentTabData.helperTabs = sessionData.agents
-        saveTabDataToStorage()
-      } else {
-        alert('❌ Keine Tabs konnten geöffnet werden. Bitte überprüfen Sie Ihre Popup-Einstellungen.')
-      }
-    }, urls.length * 300 + 500)
-    
-    console.log('🚀 ' + urls.length + ' Helper Tabs werden geöffnet für Session: ' + sessionName)
-  }
-
-  // 4 WEBSITES GRID FUNCTION (Legacy - kept for backward compatibility)
-  function open4WebsitesGrid() {
-    // Create session with 4 ChatGPT agents
-    const sessionId = 'session-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9)
-    const sessionName = '4 ChatGPT Agents - ' + new Date().toLocaleDateString()
-    const chatGPTUrl = 'https://chatgpt.com'
-    
-    // Check if popups are allowed
-    const testTab = window.open('', '_blank')
-    if (!testTab) {
-      alert('Popup blockiert! Bitte erlauben Sie Popups für diese Seite, um 4 ChatGPT Tabs zu öffnen.')
-      return
-    }
-    testTab.close()
-    
-    // Create session data structure
-    const sessionData = {
-      id: sessionId,
-      name: sessionName,
-      createdAt: new Date().toISOString(),
-      type: 'chatgpt-grid',
-      agents: [],
-      tabs: []
-    }
-    
-    // Open 4 ChatGPT tabs with agent assignments
-    const tabs = []
-    const agentNames = ['Summarizer', 'Researcher', 'Analyst', 'Assistant']
-    const agentEmojis = ['📝', '🔍', '🧮', '🤖']
-    
-    for (let i = 1; i <= 4; i++) {
-      setTimeout(() => {
-        // Create agent-specific URL with session and agent info
-        const agentId = 'agent-' + i
-        const urlWithParams = chatGPTUrl + 
-          '?optimando_extension=disabled' +
-          '&session_id=' + sessionId +
-          '&agent_id=' + agentId +
-          '&agent_name=' + encodeURIComponent(agentNames[i-1]) +
-          '&agent_number=' + i
-        
-        const tab = window.open(urlWithParams, 'chatgpt-' + sessionId + '-agent-' + i)
-        if (tab) {
-          tabs.push(tab)
-          
-          // Add agent to session data
-          sessionData.agents.push({
-            id: agentId,
-            name: agentNames[i-1],
-            emoji: agentEmojis[i-1],
-            number: i,
-            tabId: tab.name || ('chatgpt-' + sessionId + '-agent-' + i),
-            url: urlWithParams,
-            status: 'active'
-          })
-          
-          // Add tab reference to session
-          sessionData.tabs.push({
-            agentId: agentId,
-            url: urlWithParams,
-            tabName: tab.name || ('chatgpt-' + sessionId + '-agent-' + i),
-            opened: new Date().toISOString()
-          })
-          
-          console.log('Agent ' + i + ' (' + agentNames[i-1] + ') Tab geöffnet')
-        }
-      }, i * 300) // 300ms delay between each tab
-    }
-    
-    // Save session to localStorage after all tabs are created
-    setTimeout(() => {
-      if (tabs.length > 0) {
-        // Save session data
-        const existingSessions = JSON.parse(localStorage.getItem('optimando-sessions') || '[]')
-        existingSessions.push(sessionData)
-        localStorage.setItem('optimando-sessions', JSON.stringify(existingSessions))
-        
-        // Also save current active session
-        localStorage.setItem('optimando-current-session', sessionId)
-        
-        // AUTOMATICALLY save session to browser storage (persistent across browser restarts)
-        saveSessionToBrowser(sessionData)
-        
-        alert('✅ Session "' + sessionName + '" erstellt!\\n\\n' + 
-              tabs.length + ' Agenten geöffnet:\\n' +
-              '📝 Agent 1: Summarizer\\n' +
-              '🔍 Agent 2: Researcher\\n' +
-              '🧮 Agent 3: Analyst\\n' +
-              '🤖 Agent 4: Assistant\\n\\n' +
-              'Session und alle Tabs werden automatisch gespeichert.')
-              
-        // Update current tab data to include session reference
-        currentTabData.sessionId = sessionId
-        currentTabData.sessionName = sessionName
-        currentTabData.chatGPTAgents = sessionData.agents
-        saveTabDataToStorage()
-        
-      } else {
-        alert('❌ Keine Tabs konnten geöffnet werden. Bitte überprüfen Sie Ihre Popup-Einstellungen.')
-      }
-    }, 1500)
-    
-    console.log('🚀 4 ChatGPT Agent-Tabs werden geöffnet für Session: ' + sessionName)
-  }
-
-  // BROWSER SESSION MANAGEMENT
-  function saveSessionToBrowser(sessionData) {
-    // Use chrome.storage to persist session data across browser restarts
-    if (typeof chrome !== 'undefined' && chrome.storage) {
-      chrome.storage.local.set({
-        ['optimando-browser-session-' + sessionData.id]: {
-          ...sessionData,
-          savedToBrowser: true,
-          browserSaveTime: new Date().toISOString()
-        }
-      }, () => {
-        console.log('✅ Session saved to browser storage:', sessionData.name)
-      })
-    } else {
-      // Fallback: use localStorage with special key for browser sessions
-      const browserSessions = JSON.parse(localStorage.getItem('optimando-browser-sessions') || '{}')
-      browserSessions[sessionData.id] = {
-        ...sessionData,
-        savedToBrowser: true,
-        browserSaveTime: new Date().toISOString()
-      }
-      localStorage.setItem('optimando-browser-sessions', JSON.stringify(browserSessions))
-      console.log('✅ Session saved to localStorage (browser sessions):', sessionData.name)
-    }
-  }
-
-  function loadSessionFromBrowser(sessionId) {
-    // Try to load from chrome.storage first
-    if (typeof chrome !== 'undefined' && chrome.storage) {
-      chrome.storage.local.get(['optimando-browser-session-' + sessionId], (result) => {
-        const sessionData = result['optimando-browser-session-' + sessionId]
-        if (sessionData) {
-          console.log('📂 Loading session from browser storage:', sessionData.name)
-          restoreChatGPTSession(sessionData)
-        } else {
-          console.log('❌ Session not found in browser storage:', sessionId)
-        }
-      })
-    } else {
-      // Fallback: load from localStorage
-      const browserSessions = JSON.parse(localStorage.getItem('optimando-browser-sessions') || '{}')
-      const sessionData = browserSessions[sessionId]
-      if (sessionData) {
-        console.log('📂 Loading session from localStorage (browser sessions):', sessionData.name)
-        restoreChatGPTSession(sessionData)
-      } else {
-        console.log('❌ Session not found in localStorage (browser sessions):', sessionId)
-      }
-    }
-  }
-
-  // NO AUTO-RESTORE - Sessions are only loaded manually via "View All Sessions"
-
-  // SESSION HISTORY LIGHTBOX FUNCTION
-  window.openSessionsHistoryLightbox = function() {
-    // Remove existing lightbox if any
-    const existing = document.getElementById('temp-lightbox')
-    if (existing) existing.remove()
-    
-    // Create sessions history lightbox
-    const overlay = document.createElement('div')
-    overlay.id = 'temp-lightbox'
-    overlay.style.cssText = `
-      position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
-      background: rgba(0,0,0,0.8); z-index: 2147483649;
-      display: flex; align-items: center; justify-content: center;
-      backdrop-filter: blur(5px);
-    `
-    
-    // Load all saved sessions from localStorage AND browser storage
-    const localSessions = JSON.parse(localStorage.getItem('optimando-sessions') || '[]')
-    const browserSessions = JSON.parse(localStorage.getItem('optimando-browser-sessions') || '{}')
-    
-    // Combine and deduplicate sessions
-    const allSessions = [...localSessions]
-    Object.values(browserSessions).forEach(browserSession => {
-      if (!allSessions.find(s => s.id === browserSession.id)) {
-        allSessions.push(browserSession)
-      }
-    })
-    
-    // Sort by creation date (newest first)
-    allSessions.sort((a, b) => new Date(b.createdAt || b.browserSaveTime || 0) - new Date(a.createdAt || a.browserSaveTime || 0))
-    
-    let sessionsHTML = ''
-    
-    if (allSessions.length === 0) {
-      sessionsHTML = `
-        <div style="text-align: center; padding: 60px 20px; opacity: 0.7;">
-          <div style="font-size: 64px; margin-bottom: 20px;">📭</div>
-          <h3 style="margin: 0 0 15px 0;">Keine Sessions gefunden</h3>
-          <p style="margin: 0 0 20px 0;">Erstellen Sie eine Session mit "Add Helpergrid" um sie hier zu sehen.</p>
-          <div style="font-size: 12px; opacity: 0.6;">
-            Sessions werden automatisch gespeichert wenn Sie ChatGPT Grids erstellen.
-              </div>
-              </div>
-      `
-    } else {
-      sessionsHTML = '<div style="display: grid; gap: 20px;">'
-      
-      allSessions.forEach(session => {
-        const sessionDate = new Date(session.createdAt || session.browserSaveTime || Date.now()).toLocaleDateString('de-DE')
-        const sessionTime = new Date(session.createdAt || session.browserSaveTime || Date.now()).toLocaleTimeString('de-DE', {hour: '2-digit', minute: '2-digit'})
-        
-        let sessionIcon = '📄'
-        let sessionTypeLabel = 'Normal Session'
-        let agentInfo = ''
-        let statusBadge = ''
-        
-                if (session.type === 'chatgpt-grid') {
-          sessionIcon = '🤖'
-          sessionTypeLabel = 'ChatGPT Agent Grid'
-          if (session.agents && session.agents.length > 0) {
-            agentInfo = `
-              <div style="margin: 15px 0; padding: 12px; background: rgba(255,255,255,0.05); border-radius: 6px; border-left: 3px solid #4CAF50;">
-                <div style="font-size: 11px; opacity: 0.8; margin-bottom: 8px;">Configured Agents:</div>
-                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px; font-size: 11px;">
-                  ${session.agents.map(agent => 
-                    '<div style="display: flex; align-items: center; gap: 6px;"><span>' + agent.emoji + '</span><span>' + agent.name + '</span></div>'
-                  ).join('')}
-                </div>
-              </div>
-            `
-          }
-        } else if (session.type === 'helper-tabs') {
-          sessionIcon = '🔗'
-          sessionTypeLabel = 'Helper Tabs'
-          if (session.urls && session.urls.length > 0) {
-            agentInfo = `
-              <div style="margin: 15px 0; padding: 12px; background: rgba(255,255,255,0.05); border-radius: 6px; border-left: 3px solid #2196F3;">
-                <div style="font-size: 11px; opacity: 0.8; margin-bottom: 8px;">Configured Tabs (${session.urls.length}):</div>
-                <div style="display: grid; gap: 4px; font-size: 10px; max-height: 80px; overflow-y: auto;">
-                  ${session.urls.slice(0, 5).map((url, i) => {
-                    try {
-                      const hostname = new URL(url).hostname
-                      return '<div style="display: flex; align-items: center; gap: 6px; opacity: 0.9;"><span>🔗</span><span>' + (i+1) + '. ' + hostname + '</span></div>'
-                    } catch {
-                      return '<div style="display: flex; align-items: center; gap: 6px; opacity: 0.7;"><span>❌</span><span>' + (i+1) + '. Invalid URL</span></div>'
-                    }
-                  }).join('')}
-                  ${session.urls.length > 5 ? '<div style="opacity: 0.6; font-style: italic;">... und ' + (session.urls.length - 5) + ' weitere</div>' : ''}
-                </div>
-              </div>
-            `
-          }
-        }
-        
-        if (session.savedToBrowser) {
-          statusBadge = '<span style="background: #4CAF50; color: white; padding: 2px 6px; border-radius: 10px; font-size: 9px; font-weight: bold;">💾 PERSISTENT</span>'
-        } else {
-          statusBadge = '<span style="background: #FF9800; color: white; padding: 2px 6px; border-radius: 10px; font-size: 9px; font-weight: bold;">⚠️ LOCAL</span>'
-        }
-        
-        sessionsHTML += `
-          <div class="session-card" data-session="${session.id}" style="background: rgba(255,255,255,0.1); border-radius: 12px; padding: 24px; cursor: pointer; transition: all 0.3s ease; border: 2px solid rgba(255,255,255,0.1); position: relative;">
-            <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 15px;">
-              <div style="flex: 1;">
-                <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 8px;">
-                  <h3 class="session-title" style="margin: 0; font-size: 18px; font-weight: bold;">${sessionIcon} ${session.name}</h3>
-                  <button class="rename-session-btn" data-session="${session.id}" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 24px; height: 24px; border-radius: 50%; cursor: pointer; font-size: 12px; opacity: 0.7; transition: all 0.2s ease;" title="Session umbenennen">✏️</button>
-                  ${statusBadge}
-                </div>
-                <div style="font-size: 12px; opacity: 0.8; color: #E3F2FD;">${sessionTypeLabel}</div>
-              </div>
-              <div style="text-align: right; font-size: 11px; opacity: 0.7; min-width: 80px;">
-                <div style="margin-bottom: 2px;">📅 ${sessionDate}</div>
-                <div>🕐 ${sessionTime}</div>
-              </div>
-            </div>
-            
-            ${agentInfo}
-            
-            <div style="margin-top: 16px; padding-top: 16px; border-top: 1px solid rgba(255,255,255,0.1); display: flex; justify-content: space-between; align-items: center;">
-              <div style="font-size: 11px; opacity: 0.6;">
-                ${session.savedToBrowser ? 
-                  '✅ Browser-persistent • Wird automatisch wiederhergestellt' : 
-                  '⚠️ Nur lokal gespeichert • Nicht browser-persistent'
-                }
-          </div>
-              <div style="font-size: 11px; opacity: 0.8; background: rgba(255,255,255,0.1); padding: 4px 8px; border-radius: 12px;">
-                Click to restore
-              </div>
-            </div>
-          </div>
-        `
-      })
-      
-      sessionsHTML += '</div>'
-    }
-
-    overlay.innerHTML = `
-      <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 16px; width: 90vw; height: 85vh; max-width: 1000px; color: white; overflow: hidden; box-shadow: 0 20px 40px rgba(0,0,0,0.3); display: flex; flex-direction: column;">
-        <div style="padding: 20px; border-bottom: 1px solid rgba(255,255,255,0.2); display: flex; justify-content: space-between; align-items: center;">
-          <h2 style="margin: 0; font-size: 20px; font-weight: bold;">📚 Sessions History (${allSessions.length} Sessions)</h2>
-          <button id="close-lightbox-btn" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 40px; height: 40px; border-radius: 50%; cursor: pointer; font-size: 20px; font-weight: bold;">×</button>
-        </div>
-        <div style="flex: 1; padding: 20px; overflow-y: auto;">
-          ${sessionsHTML}
-        </div>
-      </div>
-    `
-    
-    // Close on overlay click
-    overlay.onclick = function(e) {
-      if (e.target === overlay) overlay.remove()
-    }
-    
-    document.body.appendChild(overlay)
-    
-    // Set close button listener
-    const closeBtn = document.getElementById('close-lightbox-btn')
-    if (closeBtn) {
-      closeBtn.onclick = function() {
-        overlay.remove()
-      }
-    }
-    
-    // Session card click handlers
-    const sessionCards = overlay.querySelectorAll('.session-card')
-    sessionCards.forEach(card => {
-      card.onclick = function(e) {
-        // Don't trigger session load if clicking on rename button
-        if (e.target.classList.contains('rename-session-btn')) {
-          return
-        }
-        
-        const sessionId = this.getAttribute('data-session')
-        console.log('🔄 Loading session from history:', sessionId)
-        window.loadSession(sessionId)
-        overlay.remove()
-      }
-      
-      // Hover effect
-      card.onmouseenter = function() {
-        this.style.background = 'rgba(255,255,255,0.2)'
-        this.style.transform = 'translateY(-2px)'
-        this.style.boxShadow = '0 8px 25px rgba(0,0,0,0.2)'
-        
-        // Show rename button more prominently on hover
-        const renameBtn = this.querySelector('.rename-session-btn')
-        if (renameBtn) {
-          renameBtn.style.opacity = '1'
-          renameBtn.style.background = 'rgba(255,255,255,0.3)'
-        }
-      }
-      card.onmouseleave = function() {
-        this.style.background = 'rgba(255,255,255,0.1)'
-        this.style.transform = 'translateY(0)'
-        this.style.boxShadow = 'none'
-        
-        // Hide rename button again
-        const renameBtn = this.querySelector('.rename-session-btn')
-        if (renameBtn) {
-          renameBtn.style.opacity = '0.7'
-          renameBtn.style.background = 'rgba(255,255,255,0.2)'
-        }
-      }
-    })
-    
-    // Add rename button handlers
-    const renameButtons = overlay.querySelectorAll('.rename-session-btn')
-    renameButtons.forEach(btn => {
-      btn.onclick = function(e) {
-        e.stopPropagation() // Prevent session card click
-        const sessionId = this.getAttribute('data-session')
-        renameSession(sessionId, overlay)
-      }
-      
-      btn.onmouseenter = function() {
-        this.style.opacity = '1'
-        this.style.background = 'rgba(255,255,255,0.4)'
-        this.style.transform = 'scale(1.1)'
-      }
-      btn.onmouseleave = function() {
-        this.style.opacity = '0.7'
-        this.style.background = 'rgba(255,255,255,0.2)'
-        this.style.transform = 'scale(1)'
-      }
-    })
-  }
-  
-  // Restore Helper Tabs Session
-  function restoreHelperTabsSession(session) {
-    console.log('Restoring Helper Tabs session:', session.name)
-    
-    // Check if popups are blocked
-    const testPopup = window.open('', 'test', 'width=1,height=1')
-    if (!testPopup || testPopup.closed || typeof testPopup.closed === 'undefined') {
-      alert('❌ Popup blockiert!\\n\\nBitte erlauben Sie Popups für diese Website um Helper Tabs zu wiederherzustellen.')
-      return
-    }
-    testPopup.close()
-    
-    const urls = session.urls || []
-    
-    if (urls.length === 0) {
-      alert('❌ Keine URLs in dieser Session gefunden!')
-      return
-    }
-    
-    const tabs = []
-    
-    console.log('🔄 Restoring ' + urls.length + ' Helper Tabs...')
-    
-    urls.forEach((url, index) => {
-      setTimeout(() => {
-        const agentId = 'helper-' + (index + 1)
-        const urlWithParams = url + 
-          (url.includes('?') ? '&' : '?') +
-          'optimando_extension=disabled' +
-          '&session_id=' + session.id +
-          '&agent_id=' + agentId +
-          '&tab_number=' + (index + 1) +
-          '&restored=true'
-        
-        const tab = window.open(urlWithParams, 'helper-' + session.id + '-tab-' + (index + 1))
-        if (tab) {
-          tabs.push(tab)
-          console.log('Helper Tab ' + (index + 1) + ' restored: ' + url)
-        }
-      }, index * 400) // Slightly slower for restoration
-    })
-    
-    setTimeout(() => {
-      // Update session's last opened time
-      session.lastOpened = new Date().toISOString()
-      
-      // Save updated session
-      const existingSessions = JSON.parse(localStorage.getItem('optimando-sessions') || '[]')
-      const sessionIndex = existingSessions.findIndex(s => s.id === session.id)
-      if (sessionIndex !== -1) {
-        existingSessions[sessionIndex] = session
-        localStorage.setItem('optimando-sessions', JSON.stringify(existingSessions))
-      }
-      
-      // Update current tab data
-      currentTabData.sessionId = session.id
-      currentTabData.sessionName = session.name
-      currentTabData.helperTabs = session.agents || []
-      saveTabDataToStorage()
-      
-      // Set as current session
-      localStorage.setItem('optimando-current-session', session.id)
-      
-      // Show confirmation
-      alert('✅ Helper Tabs Session wiederhergestellt!\\n\\n' +
-            'Session: "' + session.name + '"\\n' +
-            tabs.length + ' Helper Tabs wurden geöffnet:\\n' +
-            urls.map((url, i) => '🔗 Tab ' + (i+1) + ': ' + new URL(url).hostname).join('\\n'))
-      
-      console.log('✅ Helper Tabs session restored successfully:', session.name)
-    }, urls.length * 400 + 500)
-  }
-  
-  // RENAME SESSION FUNCTION
-  function renameSession(sessionId, parentOverlay) {
-    // Get current session data
-    const localSessions = JSON.parse(localStorage.getItem('optimando-sessions') || '[]')
-    const browserSessions = JSON.parse(localStorage.getItem('optimando-browser-sessions') || '{}')
-    
-    let session = localSessions.find(s => s.id === sessionId)
-    let isInBrowserStorage = false
-    
-    if (!session) {
-      session = Object.values(browserSessions).find(s => s.id === sessionId)
-      isInBrowserStorage = true
-    }
-    
-    if (!session) {
-      alert('❌ Session nicht gefunden!')
-      return
-    }
-    
-    // Create rename dialog
-    const renameOverlay = document.createElement('div')
-    renameOverlay.id = 'rename-session-overlay'
-    renameOverlay.style.cssText = `
-      position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
-      background: rgba(0,0,0,0.9); z-index: 2147483650;
-      display: flex; align-items: center; justify-content: center;
-      backdrop-filter: blur(8px);
-    `
-    
-    renameOverlay.innerHTML = `
-      <div style="background: linear-gradient(135deg, #4CAF50 0%, #45a049 100%); border-radius: 16px; width: 90vw; max-width: 500px; color: white; overflow: hidden; box-shadow: 0 20px 40px rgba(0,0,0,0.5); display: flex; flex-direction: column;">
-        <div style="padding: 24px; border-bottom: 1px solid rgba(255,255,255,0.2); display: flex; justify-content: space-between; align-items: center;">
-          <h2 style="margin: 0; font-size: 18px; font-weight: bold;">✏️ Session umbenennen</h2>
-          <button id="close-rename-dialog" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 32px; height: 32px; border-radius: 50%; cursor: pointer; font-size: 16px; font-weight: bold;">×</button>
-        </div>
-        
-        <div style="padding: 24px;">
-          <div style="margin-bottom: 20px;">
-            <label style="display: block; margin-bottom: 8px; font-size: 14px; opacity: 0.9;">Aktueller Name:</label>
-            <div style="background: rgba(255,255,255,0.1); padding: 12px; border-radius: 8px; font-size: 14px; border: 1px solid rgba(255,255,255,0.2);">
-              ${session.name}
-            </div>
-          </div>
-          
-          <div style="margin-bottom: 24px;">
-            <label style="display: block; margin-bottom: 8px; font-size: 14px; opacity: 0.9;">Neuer Name:</label>
-            <input 
-              type="text" 
-              id="new-session-name" 
-              value="${session.name}" 
-              style="width: 100%; padding: 12px; background: rgba(255,255,255,0.15); border: 2px solid rgba(255,255,255,0.3); color: white; border-radius: 8px; font-size: 14px; box-sizing: border-box;"
-              placeholder="Geben Sie einen neuen Namen ein..."
-              autocomplete="off"
-            />
-          </div>
-          
-          <div style="display: flex; gap: 12px; justify-content: flex-end;">
-            <button id="cancel-rename" style="background: rgba(255,255,255,0.2); border: none; color: white; padding: 12px 20px; border-radius: 8px; cursor: pointer; font-size: 14px; transition: all 0.2s ease;">
-              Abbrechen
-            </button>
-            <button id="confirm-rename" style="background: rgba(255,255,255,0.9); border: none; color: #4CAF50; padding: 12px 20px; border-radius: 8px; cursor: pointer; font-size: 14px; font-weight: bold; transition: all 0.2s ease;">
-              💾 Speichern
-            </button>
-          </div>
-        </div>
-      </div>
-    `
-    
-    document.body.appendChild(renameOverlay)
-    
-    // Focus input and select all text
-    const nameInput = document.getElementById('new-session-name')
-    nameInput.focus()
-    nameInput.select()
-    
-    // Event handlers
-    document.getElementById('close-rename-dialog').onclick = () => renameOverlay.remove()
-    document.getElementById('cancel-rename').onclick = () => renameOverlay.remove()
-    
-    document.getElementById('confirm-rename').onclick = function() {
-      const newName = nameInput.value.trim()
-      
-      if (!newName) {
-        alert('❌ Bitte geben Sie einen Namen ein!')
-        nameInput.focus()
-        return
-      }
-      
-      if (newName === session.name) {
-        renameOverlay.remove()
-        return
-      }
-      
-      // Update session name
-      session.name = newName
-      session.lastModified = new Date().toISOString()
-      
-      // Save to appropriate storage
-      if (isInBrowserStorage) {
-        // Update in browser storage
-        browserSessions[sessionId] = session
-        localStorage.setItem('optimando-browser-sessions', JSON.stringify(browserSessions))
-        
-        // Also save to chrome.storage.local if available
-        if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
-          chrome.storage.local.set({
-            ['optimando-session-' + sessionId]: session
-          }).catch(err => console.warn('Could not save to chrome.storage.local:', err))
-        }
-      } else {
-        // Update in local sessions
-        const sessionIndex = localSessions.findIndex(s => s.id === sessionId)
-        if (sessionIndex !== -1) {
-          localSessions[sessionIndex] = session
-          localStorage.setItem('optimando-sessions', JSON.stringify(localSessions))
-        }
-      }
-      
-      // If this is the current session, update current tab data too
-      const currentSessionId = localStorage.getItem('optimando-current-session')
-      if (currentSessionId === sessionId) {
-        currentTabData.sessionName = newName
-        saveTabDataToStorage()
-      }
-      
-      console.log('✅ Session renamed from "' + session.name + '" to "' + newName + '"')
-      
-      // Close rename dialog
-      renameOverlay.remove()
-      
-      // Refresh the sessions history to show updated name
-      parentOverlay.remove()
-      setTimeout(() => {
-        window.openSessionsHistoryLightbox()
-      }, 100)
-      
-      // Show success message
-      setTimeout(() => {
-        alert('✅ Session erfolgreich umbenannt!')
-      }, 200)
-    }
-    
-    // Enter key to confirm
-    nameInput.onkeydown = function(e) {
-      if (e.key === 'Enter') {
-        document.getElementById('confirm-rename').click()
-      } else if (e.key === 'Escape') {
-        renameOverlay.remove()
-      }
-    }
-    
-    // Close on overlay click
-    renameOverlay.onclick = (e) => {
-      if (e.target === renameOverlay) {
-        renameOverlay.remove()
-      }
-    }
-  }
-  
-  // LOAD SESSION FUNCTION
-  window.loadSession = function(sessionId) {
-    console.log('Loading session:', sessionId)
-    
-    // Get session data from localStorage
-    const sessions = JSON.parse(localStorage.getItem('optimando-sessions') || '[]')
-    const session = sessions.find(s => s.id === sessionId)
-    
-    if (!session) {
-      alert('❌ Session nicht gefunden: ' + sessionId)
-      return
-    }
-    
-    if (session.type === 'chatgpt-grid' && session.agents && session.agents.length > 0) {
-      // Restore ChatGPT agent session - this restores the helper grids
-      restoreChatGPTSession(session)
-    } else if (session.type === 'helper-tabs' && session.urls && session.urls.length > 0) {
-      // Restore Helper Tabs session
-      restoreHelperTabsSession(session)
-    } else {
-      // Regular session loading
-      alert('Session wird geladen: ' + session.name)
-      
-      // Update current tab data for the MASTER tab
-      currentTabData.sessionId = sessionId
-      currentTabData.sessionName = session.name
-      saveTabDataToStorage()
-      
-      // Set as active session
-      localStorage.setItem('optimando-current-session', sessionId)
-    }
-    
-    // IMPORTANT: Update the current (master) tab to show it's part of this session
-    // This makes the current tab the "master tab" for the session
-    currentTabData.sessionId = sessionId
-    currentTabData.sessionName = session.name
-    if (session.type === 'chatgpt-grid') {
-      currentTabData.chatGPTAgents = session.agents
-    }
-    saveTabDataToStorage()
-    
-    console.log('✅ Session loaded. Current tab is now the master tab for session:', session.name)
-  }
-  
-  // Restore ChatGPT Agent Session
-  function restoreChatGPTSession(session) {
-    console.log('Restoring ChatGPT session:', session.name)
-    
-    // Check if popups are allowed
-    const testTab = window.open('', '_blank')
-    if (!testTab) {
-      alert('Popup blockiert! Bitte erlauben Sie Popups um die Session-Tabs zu öffnen.')
-      return
-    }
-    testTab.close()
-    
-    // Reopen all agent tabs
-    const reopenedTabs = []
-    session.agents.forEach((agent, index) => {
-      setTimeout(() => {
-        const tab = window.open(agent.url, agent.tabId)
-        if (tab) {
-          reopenedTabs.push(tab)
-          console.log('Agent ' + agent.number + ' (' + agent.name + ') Tab wiederhergestellt')
-        }
-      }, (index + 1) * 300) // 300ms delay between each tab
-    })
-    
-    // Show confirmation and update session
-    setTimeout(() => {
-      if (reopenedTabs.length > 0) {
-        // Update session with reopened timestamp
-        session.lastOpened = new Date().toISOString()
-        const sessions = JSON.parse(localStorage.getItem('optimando-sessions') || '[]')
-        const sessionIndex = sessions.findIndex(s => s.id === session.id)
-        if (sessionIndex !== -1) {
-          sessions[sessionIndex] = session
-          localStorage.setItem('optimando-sessions', JSON.stringify(sessions))
-        }
-        
-        // Set as active session
-        localStorage.setItem('optimando-current-session', session.id)
-        
-        // Update current tab data
-        currentTabData.sessionId = session.id
-        currentTabData.sessionName = session.name
-        currentTabData.chatGPTAgents = session.agents
-        saveTabDataToStorage()
-        
-        alert('✅ Session "' + session.name + '" wiederhergestellt!\\n\\n' + 
-              reopenedTabs.length + ' Agent-Tabs geöffnet:\\n' +
-              session.agents.map(a => a.emoji + ' Agent ' + a.number + ': ' + a.name).join('\\n'))
-              
-      } else {
-        alert('❌ Keine Tabs konnten wiederhergestellt werden.')
-      }
-    }, session.agents.length * 300 + 500)
-  }
-
-  // LIGHTBOX FUNCTIONS - ULTRA SIMPLE VERSION
-  window.openAgentLightbox = function(agentName, type) {
-    // Remove existing lightbox if any
-    const existing = document.getElementById('temp-lightbox')
-    if (existing) existing.remove()
-    
-    // Create completely new lightbox
-    const overlay = document.createElement('div')
-    overlay.id = 'temp-lightbox'
-    overlay.style.cssText = `
-      position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
-      background: rgba(0,0,0,0.8); z-index: 2147483649;
-      display: flex; align-items: center; justify-content: center;
-      backdrop-filter: blur(5px);
-    `
-    
-    const agentEmojis = { summarize: '📝', research: '🔍', goals: '🎯', analysis: '🧮', assistant: '🤖' }
-    const typeNames = { instructions: 'AI Instructions', context: 'Context', settings: 'Settings' }
-    
-    let content = `
-      <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 12px; width: 90vw; height: 85vh; max-width: 1200px; color: white; overflow: hidden; box-shadow: 0 20px 40px rgba(0,0,0,0.3); display: flex; flex-direction: column;">
-        <div style="padding: 20px; border-bottom: 1px solid rgba(255,255,255,0.2); display: flex; justify-content: space-between; align-items: center;">
-          <h2 style="margin: 0; font-size: 18px;">${agentEmojis[agentName] || '🤖'} ${agentName.charAt(0).toUpperCase() + agentName.slice(1)} - ${typeNames[type] || type}</h2>
-          <button id="close-lightbox-btn" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 32px; height: 32px; border-radius: 50%; cursor: pointer; font-size: 20px; font-weight: bold;">×</button>
-        </div>
-        <div style="flex: 1; padding: 20px; overflow-y: auto;">
-    `
-    
-    if (type === 'instructions') {
-      content += `
-        <h3 style="color: #FFD700; margin-bottom: 20px;">📋 AI Instructions</h3>
-        <textarea style="width: 100%; height: 400px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 15px; border-radius: 6px; font-family: monospace; font-size: 13px;" placeholder="Gib hier die AI-Anweisungen ein...">Du bist ein Experte für ${agentName}...</textarea>
-        <div style="margin-top: 20px;">
-          <button style="padding: 10px 20px; background: #4CAF50; border: none; color: white; border-radius: 4px; cursor: pointer; margin-right: 10px;">💾 Save</button>
-          <button style="padding: 10px 20px; background: #2196F3; border: none; color: white; border-radius: 4px; cursor: pointer;">🧪 Test</button>
-        </div>
-      `
-    } else if (type === 'context') {
-      content += `
-        <h3 style="color: #FFD700; margin-bottom: 20px;">📄 Context Information</h3>
-        <textarea style="width: 100%; height: 350px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 15px; border-radius: 6px; font-family: monospace; font-size: 13px;" placeholder="Gib hier den Kontext ein...">Aktueller Webseiten-Inhalt wird hier automatisch eingefügt...</textarea>
-        <div style="margin-top: 20px;">
-          <button style="padding: 10px 20px; background: #4CAF50; border: none; color: white; border-radius: 4px; cursor: pointer; margin-right: 10px;">💾 Save</button>
-          <button style="padding: 10px 20px; background: #2196F3; border: none; color: white; border-radius: 4px; cursor: pointer;">🌐 Load Page</button>
-        </div>
-      `
-    } else if (type === 'settings') {
-      content += `
-        <h3 style="color: #FFD700; margin-bottom: 20px;">⚙️ Settings</h3>
-        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 30px; text-align: left;">
-          <div>
-            <label style="display: block; margin-bottom: 8px;">LLM Provider:</label>
-            <select style="width: 100%; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 8px; border-radius: 4px; margin-bottom: 15px;">
-              <option>Local LLM</option>
-              <option>GPT-4</option>
-              <option>GPT-5</option>
-              <option>Claude Sonnet</option>
-              <option>Gemini Pro</option>
-            </select>
-            <label style="display: block; margin-bottom: 8px;">Temperature: 0.7</label>
-            <input type="range" min="0" max="1" step="0.1" value="0.7" style="width: 100%; margin-bottom: 15px;">
-          </div>
-          <div>
-            <label style="display: block; margin-bottom: 8px;">Output Mode:</label>
-            <select style="width: 100%; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 8px; border-radius: 4px; margin-bottom: 15px;">
-              <option>Direct Output</option>
-              <option>Feedback Loop</option>
-              <option>Iterative Refinement</option>
-            </select>
-            <label style="display: flex; align-items: center; margin-bottom: 10px;">
-              <input type="checkbox" style="margin-right: 8px;"> Auto-processing
-            </label>
-          </div>
-        </div>
-        <div style="margin-top: 30px; text-align: center;">
-          <button style="padding: 10px 20px; background: #4CAF50; border: none; color: white; border-radius: 4px; cursor: pointer;">💾 Save Settings</button>
-        </div>
-      `
-    }
-    
-    content += `
-        </div>
-      </div>
-    `
-    
-    overlay.innerHTML = content
-    
-    // Close on overlay click
-    overlay.onclick = function(e) {
-      if (e.target === overlay) overlay.remove()
-    }
-    
-    document.body.appendChild(overlay)
-    
-    // DIRECT X-Button listener - set AFTER DOM append
-    const closeBtn = document.getElementById('close-lightbox-btn')
-    if (closeBtn) {
-      closeBtn.onclick = function() {
-        overlay.remove()
-      }
-    }
-  }
-
-  // Event Listeners
+  // Event handlers - AFTER DOM elements are created and added
   setTimeout(() => {
-    // Expand button
-    const expandBtn = document.getElementById('expand-btn')
-    if (expandBtn) {
-      expandBtn.onclick = (e) => {
-        e.stopPropagation()
-        toggleBottomPanel()
-      }
-    }
-
-    // Tab name input
-    const tabNameInput = document.getElementById('tab-name-input')
-    if (tabNameInput) {
-      tabNameInput.addEventListener('input', () => {
+    // Reasoning header click (entire header area)
+    document.getElementById('reasoning-header')?.addEventListener('click', toggleBottomPanel)
+    
+    // Agents and Settings lightbox buttons
+    document.getElementById('agents-lightbox-btn')?.addEventListener('click', openAgentsLightbox)
+    document.getElementById('whitelist-lightbox-btn')?.addEventListener('click', openWhitelistLightbox)
+    document.getElementById('settings-lightbox-btn')?.addEventListener('click', openSettingsLightbox)
+    
+    // Left sidebar quick expand button
+    document.getElementById('quick-expand-btn')?.addEventListener('click', () => {
+      const currentWidth = currentTabData.uiConfig.leftSidebarWidth
+      const maxWidth = window.innerWidth * 0.35 // 35% of screen width
+      const newWidth = currentWidth === 250 ? maxWidth : 250
+      
+      currentTabData.uiConfig.leftSidebarWidth = newWidth
+      leftSidebar.style.width = newWidth + 'px'
+      document.body.style.marginLeft = newWidth + 'px'
+      bottomSidebar.style.left = newWidth + 'px'
+      
+      saveTabDataToStorage()
+      console.log('🔄 Left sidebar toggled to width:', newWidth)
+    })
+    
+    // Session name input and lock button
+    const sessionNameInput = document.getElementById('session-name-input')
+    const lockBtn = document.getElementById('lock-btn')
+    
+    if (sessionNameInput) {
+      sessionNameInput.addEventListener('input', () => {
         if (!currentTabData.isLocked) {
-          currentTabData.tabName = tabNameInput.value
+          currentTabData.tabName = sessionNameInput.value
           saveTabDataToStorage()
-          console.log('📝 Tab name updated:', currentTabData.tabName)
+          console.log('📝 Session name updated:', currentTabData.tabName)
         }
       })
       
-      tabNameInput.addEventListener('keypress', (e) => {
+      sessionNameInput.addEventListener('keypress', (e) => {
         if (e.key === 'Enter') {
-          tabNameInput.blur()
+          sessionNameInput.blur()
         }
       })
     }
 
-    // Lock button
-    const lockBtn = document.getElementById('lock-btn')
     if (lockBtn) {
-      lockBtn.onclick = (e) => {
+      lockBtn.addEventListener('click', (e) => {
         e.stopPropagation()
         currentTabData.isLocked = !currentTabData.isLocked
         
@@ -2069,11 +1780,11 @@ function initializeExtension() {
         lockBtn.innerHTML = currentTabData.isLocked ? '🔒' : '🔓'
         lockBtn.style.background = currentTabData.isLocked ? 'rgba(255,215,0,0.3)' : 'rgba(255,255,255,0.1)'
         
-        // Update tab name input
-        if (tabNameInput) {
-          tabNameInput.disabled = currentTabData.isLocked
-          tabNameInput.style.opacity = currentTabData.isLocked ? '0.6' : '1'
-          tabNameInput.style.pointerEvents = currentTabData.isLocked ? 'none' : 'auto'
+        // Update session name input
+        if (sessionNameInput) {
+          sessionNameInput.disabled = currentTabData.isLocked
+          sessionNameInput.style.opacity = currentTabData.isLocked ? '0.6' : '1'
+          sessionNameInput.style.pointerEvents = currentTabData.isLocked ? 'none' : 'auto'
         }
         
         // Save session when locking
@@ -2084,7 +1795,7 @@ function initializeExtension() {
           const notification = document.createElement('div')
           notification.style.cssText = `
             position: fixed;
-            top: 20px;
+            top: 60px;
             right: 20px;
             background: rgba(76, 175, 80, 0.9);
             color: white;
@@ -2094,7 +1805,7 @@ function initializeExtension() {
             z-index: 2147483648;
             animation: slideIn 0.3s ease;
           `
-          notification.innerHTML = `🔒 Session "${currentTabData.tabName}" gespeichert!`
+          notification.innerHTML = `🔒 Session "${currentTabData.tabName}" saved!`
           document.body.appendChild(notification)
           
           setTimeout(() => {
@@ -2105,145 +1816,15 @@ function initializeExtension() {
         } else {
           console.log('🔓 Session unlocked:', currentTabData.tabName)
         }
-      }
+      })
     }
-
-    // Tab buttons
-    document.getElementById('status-tab')?.addEventListener('click', () => switchTab('status'))
-    document.getElementById('agents-tab')?.addEventListener('click', () => switchTab('agents'))
-    document.getElementById('settings-tab')?.addEventListener('click', () => switchTab('settings'))
-
-    // Agent toggles
-    document.querySelectorAll('.agent-toggle').forEach(btn => {
-      btn.onclick = () => {
-        const agentName = btn.getAttribute('data-agent')
-        toggleAgent(agentName)
-      }
-    })
-
-    // Lightbox buttons - NEW SYSTEM
-    document.querySelectorAll('.lightbox-btn').forEach(btn => {
-      btn.onclick = () => {
-        const agentName = btn.getAttribute('data-agent')
-        const type = btn.getAttribute('data-type')
-        window.openAgentLightbox(agentName, type)
-      }
-    })
-
-    // Quick expand button for left sidebar
-    document.getElementById('quick-expand-btn')?.addEventListener('click', () => {
-      const currentWidth = currentTabData.uiConfig.leftSidebarWidth
-      const isExpanded = currentWidth >= 700
-      const newWidth = isExpanded ? 300 : 800 // Toggle between normal and max expanded
-      
-      currentTabData.uiConfig.leftSidebarWidth = newWidth
-      leftSidebar.style.width = newWidth + 'px'
-      document.body.style.marginLeft = newWidth + 'px'
-      document.body.style.overflowX = 'hidden'
-      
-      // Update bottom panel position
-      const bottomSidebar = document.getElementById('bottom-sidebar')
-      if (bottomSidebar) {
-        bottomSidebar.style.left = newWidth + 'px'
-      }
-      
-      // Update button icon and tooltip
-      const expandBtn = document.getElementById('quick-expand-btn')
-      if (expandBtn) {
-        expandBtn.innerHTML = isExpanded ? '⇄' : '⇆'
-        expandBtn.title = isExpanded ? 'Quick expand to maximum width' : 'Collapse to normal width'
-        expandBtn.style.background = 'rgba(255,215,0,0.6)'
-        setTimeout(() => {
-          expandBtn.style.background = 'rgba(255,255,255,0.2)'
-        }, 200)
-      }
-      
-      // Save the change
-      saveTabDataToStorage()
-    })
-
-    // Add hover effect for quick expand button
-    document.getElementById('quick-expand-btn')?.addEventListener('mouseover', function() {
-      this.style.background = 'rgba(255,215,0,0.6)'
-    })
     
-    document.getElementById('quick-expand-btn')?.addEventListener('mouseout', function() {
-      this.style.background = 'rgba(255,255,255,0.2)'
-    })
-
-    // Sessions History Button
-    document.getElementById('sessions-history-btn')?.addEventListener('click', () => {
-      window.openSessionsHistoryLightbox()
-    })
-
-    // Session item clicks (in right sidebar)
-    document.querySelectorAll('.session-item').forEach(item => {
-      item.onclick = () => {
-        const sessionId = item.getAttribute('data-session')
-        window.loadSession(sessionId)
-      }
-    })
-
-    // WR Connect Button
-    document.getElementById('wr-connect-btn')?.addEventListener('click', () => {
-      // TODO: Implement WR Code generation and scanning
-      alert('WR Code connection will be implemented - scanning QR codes from wrcode.org')
-    })
-
-    // Export/Import Buttons
-    document.getElementById('export-btn')?.addEventListener('click', () => {
-      // TODO: Export current session configuration
-      alert('Export session functionality')
-    })
-
-    document.getElementById('import-btn')?.addEventListener('click', () => {
-      // TODO: Import session configuration
-      alert('Import session functionality')
-    })
-
-    // Save Session Button - Enhanced to save to browser storage
-    document.getElementById('save-session-btn')?.addEventListener('click', () => {
-      saveTabDataToStorage()
-      
-      // If current session has ChatGPT agents, save to browser storage
-      if (currentTabData.sessionId && currentTabData.chatGPTAgents && currentTabData.chatGPTAgents.length > 0) {
-        const sessionData = {
-          id: currentTabData.sessionId,
-          name: currentTabData.sessionName || ('Session - ' + new Date().toLocaleDateString()),
-          type: 'chatgpt-grid',
-          agents: currentTabData.chatGPTAgents,
-          createdAt: new Date().toISOString(),
-          tabs: currentTabData.chatGPTAgents.map(agent => ({
-            agentId: agent.id,
-            url: agent.url,
-            tabName: agent.tabId,
-            opened: new Date().toISOString()
-          }))
-        }
-        
-        saveSessionToBrowser(sessionData)
-        alert('✅ Session inklusive ChatGPT-Agents in Browser gespeichert!\\n\\nDie Session wird beim nächsten Browser-Start automatisch wiederhergestellt.')
-      } else {
-        alert('✅ Normale Session gespeichert!')
-      }
-    })
-
-    document.getElementById('qr-code-scanner-btn')?.addEventListener('click', () => {
-      alert('QR Code Scanner activated!')
-    })
-
-    // Add Helpergrid Button
-    document.getElementById('add-helpergrid-btn')?.addEventListener('click', () => {
-      openHelperGridLightbox()
-    })
-
-    console.log('✅ All event listeners attached')
+    console.log('✅ Event handlers attached for reasoning section')
   }, 100)
 
-  console.log('✅ Optimando AI Extension loaded successfully')
 }
 
-// Initialize extension if it was previously activated for this URL
+// Initialize extension if active
 if (isExtensionActive) {
   initializeExtension()
 }
