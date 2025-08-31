@@ -97,7 +97,8 @@ function initializeExtension() {
       rightSidebarWidth: 250,
       bottomSidebarHeight: 45
     },
-    helperTabs: null as any
+    helperTabs: null as any,
+    displayGrids: null as any
   }
 
   // Save/Load functions
@@ -1755,9 +1756,9 @@ function initializeExtension() {
         <div style="flex: 1; padding: 30px; overflow-y: auto;">
           <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px;">
             
-            <!-- Display Helper Grids -->
+            <!-- Helper Tabs -->
             <div style="background: rgba(255,255,255,0.1); padding: 20px; border-radius: 12px; text-align: center;">
-              <h3 style="margin: 0 0 15px 0; font-size: 16px; color: #FFD700;">Display Helper Grids</h3>
+              <h3 style="margin: 0 0 15px 0; font-size: 16px; color: #FFD700;">Helper Tabs</h3>
               <div id="helper-tabs-config" style="background: rgba(0,0,0,0.2); border-radius: 8px; padding: 15px; cursor: pointer; transition: all 0.3s ease; border: 2px solid transparent;" onmouseover="this.style.borderColor='rgba(255,255,255,0.3)'" onmouseout="this.style.borderColor='transparent'">
                 <div style="font-size: 48px; margin-bottom: 10px;">🌐</div>
                 <h4 style="margin: 0 0 8px 0; font-size: 14px;">Helper Tabs</h4>
@@ -1775,13 +1776,13 @@ function initializeExtension() {
               </div>
             </div>
             
-            <!-- Helper Grid LLMs -->
+            <!-- Display Grid Browser -->
             <div style="background: rgba(255,255,255,0.1); padding: 20px; border-radius: 12px; text-align: center;">
-              <h3 style="margin: 0 0 15px 0; font-size: 16px; color: #FFD700;">Helper Grid LLMs</h3>
-              <div style="background: rgba(0,0,0,0.2); border-radius: 8px; padding: 15px; cursor: pointer; transition: all 0.3s ease; border: 2px solid transparent;" onmouseover="this.style.borderColor='rgba(255,255,255,0.3)'" onmouseout="this.style.borderColor='transparent'">
-                <div style="font-size: 48px; margin-bottom: 10px;">🤖</div>
-                <h4 style="margin: 0 0 8px 0; font-size: 14px;">4 Helper LLMs</h4>
-                <p style="margin: 0; font-size: 11px; opacity: 0.7;">AI assistant grid layout</p>
+              <h3 style="margin: 0 0 15px 0; font-size: 16px; color: #FFD700;">Display Grid Browser</h3>
+              <div id="display-grid-browser-config" style="background: rgba(0,0,0,0.2); border-radius: 8px; padding: 15px; cursor: pointer; transition: all 0.3s ease; border: 2px solid transparent;" onmouseover="this.style.borderColor='rgba(255,255,255,0.3)'" onmouseout="this.style.borderColor='transparent'">
+                <div style="font-size: 48px; margin-bottom: 10px;">🗂️</div>
+                <h4 style="margin: 0 0 8px 0; font-size: 14px;">AI Output Grids</h4>
+                <p style="margin: 0; font-size: 11px; opacity: 0.7;">AI agent display layouts</p>
               </div>
             </div>
             
@@ -1806,6 +1807,12 @@ function initializeExtension() {
     document.getElementById('helper-tabs-config').onclick = () => {
       overlay.remove()
       openHelperTabsConfig()
+    }
+    
+    // Display Grid Browser configuration
+    document.getElementById('display-grid-browser-config').onclick = () => {
+      overlay.remove()
+      openDisplayGridBrowserConfig()
     }
   }
 
@@ -1927,29 +1934,58 @@ function initializeExtension() {
         saveTabDataToStorage()
         
         // AUTOMATICALLY save the session to chrome.storage.local (Sessions History)
-        const sessionKey = `session_${Date.now()}`
-        
-        // If session name is still default, update it with current date-time
-        if (!currentTabData.tabName || currentTabData.tabName.startsWith('WR Session')) {
-          currentTabData.tabName = `WR Session ${new Date().toLocaleString('en-GB', { 
-            day: '2-digit', 
-            month: '2-digit', 
-            year: 'numeric', 
-            hour: '2-digit', 
-            minute: '2-digit', 
-            second: '2-digit',
-            hour12: false 
-          }).replace(/[\/,]/g, '-').replace(/ /g, '_')}`
-        }
-        
-        const sessionData = {
-          ...currentTabData,
-          timestamp: new Date().toISOString(),
-          url: window.location.href
-        }
-        
-        chrome.storage.local.set({ [sessionKey]: sessionData }, () => {
-          console.log('✅ Session automatically saved with helper tabs:', sessionData.tabName, urls.length, 'tabs')
+        // Check if there's already a session for this tab to update instead of creating new
+        chrome.storage.local.get(null, (allData) => {
+          const existingSessions = Object.entries(allData)
+            .filter(([key]) => key.startsWith('session_'))
+            .map(([key, data]) => ({ id: key, ...data }))
+            .filter(session => session.url === window.location.href)
+            .sort((a, b) => new Date(b.timestamp || 0).getTime() - new Date(a.timestamp || 0).getTime())
+          
+          let sessionKey
+          let sessionData
+          
+          if (existingSessions.length > 0) {
+            // Update existing session, preserving display grids
+            sessionKey = existingSessions[0].id
+            sessionData = {
+              ...existingSessions[0],
+              helperTabs: currentTabData.helperTabs,
+              timestamp: new Date().toISOString()
+            }
+            console.log('🌐 Updating existing session with helper tabs:', urls.length, 'tabs')
+          } else {
+            // Create new session
+            sessionKey = `session_${Date.now()}`
+            
+            // If session name is still default, update it with current date-time
+            if (!currentTabData.tabName || currentTabData.tabName.startsWith('WR Session')) {
+              currentTabData.tabName = `WR Session ${new Date().toLocaleString('en-GB', { 
+                day: '2-digit', 
+                month: '2-digit', 
+                year: 'numeric', 
+                hour: '2-digit', 
+                minute: '2-digit', 
+                second: '2-digit',
+                hour12: false 
+              }).replace(/[\/,]/g, '-').replace(/ /g, '_')}`
+            }
+            
+            sessionData = {
+              ...currentTabData,
+              timestamp: new Date().toISOString(),
+              url: window.location.href
+            }
+            console.log('🌐 Creating new session with helper tabs:', urls.length, 'tabs')
+          }
+          
+          chrome.storage.local.set({ [sessionKey]: sessionData }, () => {
+            console.log('✅ Helper tabs session saved:', sessionData.tabName, 'Session ID:', sessionKey)
+            console.log('🌐 Session contains:', {
+              helperTabs: sessionData.helperTabs ? sessionData.helperTabs.urls?.length || 0 : 0,
+              displayGrids: sessionData.displayGrids ? sessionData.displayGrids.length : 0
+            })
+          })
         })
         
         // Show notification
@@ -1982,6 +2018,427 @@ function initializeExtension() {
     }
   }
 
+  function openDisplayGridBrowserConfig() {
+    const overlay = document.createElement('div')
+    overlay.style.cssText = `
+      position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+      background: rgba(0,0,0,0.8); z-index: 2147483649;
+      display: flex; align-items: center; justify-content: center;
+    `
+    
+    overlay.innerHTML = `
+      <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 16px; width: 98vw; height: 95vh; color: white; overflow: hidden; display: flex; flex-direction: column;">
+        <div style="padding: 20px; border-bottom: 1px solid rgba(255,255,255,0.3); display: flex; justify-content: space-between; align-items: center;">
+          <h2 style="margin: 0; font-size: 22px;">🗂️ Display Grid Browser Layouts</h2>
+          <button id="close-btn" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 30px; height: 30px; border-radius: 50%; cursor: pointer; font-size: 16px;">×</button>
+        </div>
+                  <div style="flex: 1; padding: 20px;">
+          <p style="margin: 0 0 20px 0; text-align: center; opacity: 0.8; font-size: 14px;">Select grid layouts to save and open. Multiple selections allowed.</p>
+          <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; height: calc(100% - 120px);">
+            
+            <div id="btn-2-slot" style="background: rgba(255,255,255,0.1); border-radius: 12px; padding: 15px; cursor: pointer; text-align: center; border: 2px solid transparent; position: relative;">
+              <input type="checkbox" id="check-2-slot" style="position: absolute; top: 10px; right: 10px; width: 18px; height: 18px; cursor: pointer;">
+              <h3 style="margin: 0 0 10px 0; font-size: 16px; color: #FFD700;">2-Slot Layout</h3>
+              <div style="background: rgba(0,0,0,0.3); border-radius: 8px; padding: 10px; margin-bottom: 10px; height: 80px;">
+                <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 3px; height: 100%;">
+                  <div style="background: rgba(76,175,80,0.8); border-radius: 3px; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: bold;">#6</div>
+                  <div style="background: rgba(33,150,243,0.8); border-radius: 3px; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: bold;">#7</div>
+                </div>
+              </div>
+              <p style="margin: 0; font-size: 12px; opacity: 0.7;">Main + Secondary</p>
+            </div>
+
+            <div id="btn-3-slot" style="background: rgba(255,255,255,0.1); border-radius: 12px; padding: 15px; cursor: pointer; text-align: center; border: 2px solid transparent; position: relative;">
+              <input type="checkbox" id="check-3-slot" style="position: absolute; top: 10px; right: 10px; width: 18px; height: 18px; cursor: pointer;">
+              <h3 style="margin: 0 0 10px 0; font-size: 16px; color: #FFD700;">3-Slot Layout</h3>
+              <div style="background: rgba(0,0,0,0.3); border-radius: 8px; padding: 10px; margin-bottom: 10px; height: 80px;">
+                <div style="display: grid; grid-template-columns: 2fr 1fr 1fr; gap: 3px; height: 100%;">
+                  <div style="background: rgba(76,175,80,0.8); border-radius: 3px; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: bold;">#6</div>
+                  <div style="background: rgba(33,150,243,0.8); border-radius: 3px; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: bold;">#7</div>
+                  <div style="background: rgba(255,152,0,0.8); border-radius: 3px; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: bold;">#8</div>
+                </div>
+              </div>
+              <p style="margin: 0; font-size: 12px; opacity: 0.7;">Primary + Dual</p>
+            </div>
+
+            <div id="btn-4-slot" style="background: rgba(255,255,255,0.1); border-radius: 12px; padding: 15px; cursor: pointer; text-align: center; border: 2px solid transparent; position: relative;">
+              <input type="checkbox" id="check-4-slot" style="position: absolute; top: 10px; right: 10px; width: 18px; height: 18px; cursor: pointer;">
+              <h3 style="margin: 0 0 10px 0; font-size: 16px; color: #FFD700;">4-Slot Grid</h3>
+              <div style="background: rgba(0,0,0,0.3); border-radius: 8px; padding: 10px; margin-bottom: 10px; height: 80px;">
+                <div style="display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; gap: 3px; height: 100%;">
+                  <div style="background: rgba(76,175,80,0.8); border-radius: 3px; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: bold;">#6</div>
+                  <div style="background: rgba(33,150,243,0.8); border-radius: 3px; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: bold;">#7</div>
+                  <div style="background: rgba(255,152,0,0.8); border-radius: 3px; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: bold;">#8</div>
+                  <div style="background: rgba(156,39,176,0.8); border-radius: 3px; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: bold;">#9</div>
+                </div>
+              </div>
+              <p style="margin: 0; font-size: 12px; opacity: 0.7;">2x2 Grid</p>
+            </div>
+
+            <div id="btn-5-slot" style="background: rgba(255,255,255,0.1); border-radius: 12px; padding: 15px; cursor: pointer; text-align: center; border: 2px solid transparent; position: relative;">
+              <input type="checkbox" id="check-5-slot" style="position: absolute; top: 10px; right: 10px; width: 18px; height: 18px; cursor: pointer;">
+              <h3 style="margin: 0 0 10px 0; font-size: 16px; color: #FFD700;">5-Slot Layout</h3>
+              <div style="background: rgba(0,0,0,0.3); border-radius: 8px; padding: 10px; margin-bottom: 10px; height: 80px;">
+                <div style="display: grid; grid-template-columns: 2fr 1fr 1fr; grid-template-rows: 1fr 1fr; gap: 3px; height: 100%;">
+                  <div style="background: rgba(76,175,80,0.8); border-radius: 3px; display: flex; align-items: center; justify-content: center; font-size: 9px; font-weight: bold; grid-row: span 2;">#6</div>
+                  <div style="background: rgba(33,150,243,0.8); border-radius: 3px; display: flex; align-items: center; justify-content: center; font-size: 9px; font-weight: bold;">#7</div>
+                  <div style="background: rgba(255,152,0,0.8); border-radius: 3px; display: flex; align-items: center; justify-content: center; font-size: 9px; font-weight: bold;">#8</div>
+                  <div style="background: rgba(156,39,176,0.8); border-radius: 3px; display: flex; align-items: center; justify-content: center; font-size: 9px; font-weight: bold;">#9</div>
+                  <div style="background: rgba(244,67,54,0.8); border-radius: 3px; display: flex; align-items: center; justify-content: center; font-size: 9px; font-weight: bold;">#10</div>
+                </div>
+              </div>
+              <p style="margin: 0; font-size: 12px; opacity: 0.7;">Tower + Quad</p>
+            </div>
+
+            <div id="btn-6-slot" style="background: rgba(255,255,255,0.1); border-radius: 12px; padding: 15px; cursor: pointer; text-align: center; border: 2px solid transparent; position: relative;">
+              <input type="checkbox" id="check-6-slot" style="position: absolute; top: 10px; right: 10px; width: 18px; height: 18px; cursor: pointer;">
+              <h3 style="margin: 0 0 10px 0; font-size: 16px; color: #FFD700;">6-Slot Grid</h3>
+              <div style="background: rgba(0,0,0,0.3); border-radius: 8px; padding: 10px; margin-bottom: 10px; height: 80px;">
+                <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; grid-template-rows: 1fr 1fr; gap: 3px; height: 100%;">
+                  <div style="background: rgba(76,175,80,0.8); border-radius: 3px; display: flex; align-items: center; justify-content: center; font-size: 9px; font-weight: bold;">#6</div>
+                  <div style="background: rgba(33,150,243,0.8); border-radius: 3px; display: flex; align-items: center; justify-content: center; font-size: 9px; font-weight: bold;">#7</div>
+                  <div style="background: rgba(255,152,0,0.8); border-radius: 3px; display: flex; align-items: center; justify-content: center; font-size: 9px; font-weight: bold;">#8</div>
+                  <div style="background: rgba(156,39,176,0.8); border-radius: 3px; display: flex; align-items: center; justify-content: center; font-size: 9px; font-weight: bold;">#9</div>
+                  <div style="background: rgba(244,67,54,0.8); border-radius: 3px; display: flex; align-items: center; justify-content: center; font-size: 9px; font-weight: bold;">#10</div>
+                  <div style="background: rgba(0,150,136,0.8); border-radius: 3px; display: flex; align-items: center; justify-content: center; font-size: 9px; font-weight: bold;">#11</div>
+                </div>
+              </div>
+              <p style="margin: 0; font-size: 12px; opacity: 0.7;">3x2 Grid</p>
+            </div>
+
+            <div id="btn-dashboard" style="background: rgba(255,255,255,0.1); border-radius: 12px; padding: 15px; cursor: pointer; text-align: center; border: 2px solid transparent; position: relative;">
+              <input type="checkbox" id="check-dashboard" style="position: absolute; top: 10px; right: 10px; width: 18px; height: 18px; cursor: pointer;">
+              <h3 style="margin: 0 0 10px 0; font-size: 16px; color: #FFD700;">Dashboard View</h3>
+              <div style="background: rgba(0,0,0,0.3); border-radius: 8px; padding: 10px; margin-bottom: 10px; height: 80px;">
+                <div style="display: grid; grid-template-columns: 3fr 1fr; grid-template-rows: 1fr 1fr 1fr; gap: 3px; height: 100%;">
+                  <div style="background: rgba(76,175,80,0.8); border-radius: 3px; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: bold; grid-row: span 3;">#6</div>
+                  <div style="background: rgba(33,150,243,0.8); border-radius: 3px; display: flex; align-items: center; justify-content: center; font-size: 9px; font-weight: bold;">#7</div>
+                  <div style="background: rgba(255,152,0,0.8); border-radius: 3px; display: flex; align-items: center; justify-content: center; font-size: 9px; font-weight: bold;">#8</div>
+                  <div style="background: rgba(156,39,176,0.8); border-radius: 3px; display: flex; align-items: center; justify-content: center; font-size: 9px; font-weight: bold;">#9</div>
+                </div>
+              </div>
+              <p style="margin: 0; font-size: 12px; opacity: 0.7;">Main + Side</p>
+            </div>
+
+          </div>
+          <div style="padding: 20px; text-align: center;">
+            <button id="save-open-grids" style="padding: 15px 30px; background: #666; border: none; color: white; border-radius: 8px; cursor: not-allowed; font-size: 14px; font-weight: bold; transition: all 0.3s ease;" disabled>
+              🚀 Save & Open Grids
+            </button>
+          </div>
+        </div>
+      </div>
+    `
+    
+    document.body.appendChild(overlay)
+    
+    // Close button handler
+    document.getElementById('close-btn').onclick = () => overlay.remove()
+    
+    // Checkbox change handlers
+    const checkboxes = ['check-2-slot', 'check-3-slot', 'check-4-slot', 'check-5-slot', 'check-6-slot', 'check-dashboard']
+    checkboxes.forEach(id => {
+      const checkbox = document.getElementById(id)
+      const card = document.getElementById(id.replace('check-', 'btn-'))
+      
+      checkbox.onchange = () => {
+        if (checkbox.checked) {
+          card.style.borderColor = '#4CAF50'
+          card.style.background = 'rgba(76,175,80,0.2)'
+        } else {
+          card.style.borderColor = 'transparent'
+          card.style.background = 'rgba(255,255,255,0.1)'
+        }
+        updateSaveButton()
+      }
+      
+      // Click on card toggles checkbox
+      card.onclick = (e) => {
+        if (e.target !== checkbox) {
+          checkbox.checked = !checkbox.checked
+          checkbox.onchange()
+        }
+      }
+    })
+    
+    // Save & Open button handler
+    document.getElementById('save-open-grids').onclick = () => {
+      const selectedLayouts = checkboxes
+        .filter(id => document.getElementById(id).checked)
+        .map(id => id.replace('check-', '').replace('-', '-'))
+      
+      if (selectedLayouts.length === 0) {
+        alert('Please select at least one grid layout.')
+        return
+      }
+      
+      console.log('🗂️ Saving and opening selected grids:', selectedLayouts)
+      
+      // Save all selected grids to session
+      selectedLayouts.forEach(layout => {
+        saveGridToSession(layout)
+      })
+      
+      // Open all selected grids
+      selectedLayouts.forEach((layout, index) => {
+        setTimeout(() => {
+          const gridSessionId = `grid_${Date.now()}_${index}`
+          openGridFromSession(layout, gridSessionId)
+        }, index * 300)
+      })
+      
+      // Show notification
+      const notification = document.createElement('div')
+      notification.innerHTML = '🗂️ ' + selectedLayouts.length + ' display grids saved to session and opened!'
+      notification.style.cssText = `
+        position: fixed; top: 20px; right: 20px; z-index: 2147483650;
+        background: #4CAF50; color: white; padding: 12px 20px;
+        border-radius: 8px; font-size: 14px; box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+      `
+      document.body.appendChild(notification)
+      setTimeout(() => notification.remove(), 4000)
+      
+      overlay.remove()
+    }
+    
+    function updateSaveButton() {
+      const selectedCount = checkboxes.filter(id => document.getElementById(id).checked).length
+      const saveBtn = document.getElementById('save-open-grids')
+      
+      if (selectedCount > 0) {
+        saveBtn.innerHTML = `🚀 Save & Open ${selectedCount} Grid${selectedCount > 1 ? 's' : ''}`
+        saveBtn.style.background = '#4CAF50'
+        saveBtn.style.cursor = 'pointer'
+        saveBtn.disabled = false
+      } else {
+        saveBtn.innerHTML = '🚀 Save & Open Grids'
+        saveBtn.style.background = '#666'
+        saveBtn.style.cursor = 'not-allowed'
+        saveBtn.disabled = true
+      }
+    }
+    
+    // Initial button state
+    updateSaveButton()
+    
+    // Close on background click
+    overlay.onclick = (e) => { if (e.target === overlay) overlay.remove() }
+  }
+
+  function saveGridToSession(layout) {
+    console.log('🗂️ Saving grid to session:', layout)
+    
+    // Generate unique session identifier for this grid
+    const gridSessionId = `grid_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`
+    
+    // Store grid configuration in current session
+    if (!currentTabData.displayGrids) {
+      currentTabData.displayGrids = []
+    }
+    
+    currentTabData.displayGrids.push({
+      layout: layout,
+      sessionId: gridSessionId,
+      url: 'about:blank',
+      timestamp: new Date().toISOString()
+    })
+    
+    // Save to localStorage for persistence
+    saveTabDataToStorage()
+    
+    return gridSessionId
+  }
+
+  function createGridTab(layout) {
+    console.log('🗂️ Selecting grid layout:', layout)
+    
+    // Generate unique session identifier for this grid
+    const gridSessionId = `grid_${Date.now()}`
+    
+    // Store grid configuration in current session (but don't open yet)
+    if (!currentTabData.displayGrids) {
+      currentTabData.displayGrids = []
+    }
+    
+    currentTabData.displayGrids.push({
+      layout: layout,
+      sessionId: gridSessionId,
+      url: 'about:blank',
+      timestamp: new Date().toISOString()
+    })
+    
+    // Save to localStorage for persistence
+    saveTabDataToStorage()
+    
+    // AUTOMATICALLY save the session to chrome.storage.local (Sessions History)
+    // Check if there's already a session for this tab to update instead of creating new
+    chrome.storage.local.get(null, (allData) => {
+      const existingSessions = Object.entries(allData)
+        .filter(([key]) => key.startsWith('session_'))
+        .map(([key, data]) => ({ id: key, ...data }))
+        .filter(session => session.url === window.location.href)
+        .sort((a, b) => new Date(b.timestamp || 0).getTime() - new Date(a.timestamp || 0).getTime())
+      
+      let sessionKey
+      let sessionData
+      
+      if (existingSessions.length > 0) {
+        // Update existing session
+        sessionKey = existingSessions[0].id
+        sessionData = {
+          ...existingSessions[0],
+          displayGrids: currentTabData.displayGrids,
+          timestamp: new Date().toISOString()
+        }
+        console.log('🗂️ Updating existing session with display grid:', layout)
+      } else {
+        // Create new session
+        sessionKey = 'session_' + Date.now()
+        
+        // If session name is still default, update it with current date-time
+        if (!currentTabData.tabName || currentTabData.tabName.startsWith('WR Session')) {
+          currentTabData.tabName = 'WR Session ' + new Date().toLocaleString('en-GB', { 
+            day: '2-digit', 
+            month: '2-digit', 
+            year: 'numeric', 
+            hour: '2-digit', 
+            minute: '2-digit', 
+            second: '2-digit',
+            hour12: false 
+          }).replace(/[\/,]/g, '-').replace(/ /g, '_')
+        }
+        
+        sessionData = {
+          ...currentTabData,
+          timestamp: new Date().toISOString(),
+          url: window.location.href
+        }
+        console.log('🗂️ Creating new session with display grid:', layout)
+      }
+      
+      chrome.storage.local.set({ [sessionKey]: sessionData }, () => {
+        console.log('🗂️ Display grid session saved:', layout, 'Session ID:', sessionKey)
+        console.log('🗂️ Session contains:', {
+          helperTabs: sessionData.helperTabs ? sessionData.helperTabs.urls?.length || 0 : 0,
+          displayGrids: sessionData.displayGrids ? sessionData.displayGrids.length : 0
+        })
+      })
+    })
+    
+    console.log('✅ Grid layout selected and saved:', layout, 'Session:', gridSessionId)
+    
+    // Show notification that grid was saved (not opened)
+    const notification = document.createElement('div')
+    notification.innerHTML = '🗂️ ' + layout.replace('-', ' ').toUpperCase() + ' display grid saved to session! Use "View All Sessions" to open it.'
+    notification.style.cssText = `
+      position: fixed; top: 20px; right: 20px; z-index: 2147483650;
+      background: #4CAF50; color: white; padding: 12px 20px;
+      border-radius: 8px; font-size: 14px; box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+    `
+    document.body.appendChild(notification)
+    setTimeout(() => notification.remove(), 4000)
+  }
+  
+  function openGridFromSession(layout, sessionId) {
+    console.log('🗂️ Opening grid from session:', layout, sessionId)
+    
+    // Create the complete HTML content for the new tab
+    const gridHTML = createGridHTML(layout, sessionId)
+    
+    // Create a new tab with the grid content
+    const newTab = window.open('about:blank', 'grid-' + layout + '-' + sessionId)
+    
+    if (!newTab) {
+      console.error('❌ Failed to open grid tab - popup blocked?')
+      alert('Grid tab was blocked. Please allow popups for this site.')
+      return
+    }
+    
+    // Write the HTML content to the new tab
+    newTab.document.write(gridHTML)
+    newTab.document.close()
+    
+    console.log('✅ Grid tab opened from session:', layout)
+  }
+  
+  function createGridHTML(layout, sessionId) {
+    // Configure grid layout
+    const layouts = {
+      '2-slot': { slots: 2, columns: '2fr 1fr', rows: 'auto' },
+      '3-slot': { slots: 3, columns: '2fr 1fr 1fr', rows: 'auto' },
+      '4-slot': { slots: 4, columns: '1fr 1fr', rows: '1fr 1fr' },
+      '5-slot': { slots: 5, columns: '2fr 1fr 1fr', rows: '1fr 1fr' },
+      '6-slot': { slots: 6, columns: '1fr 1fr 1fr', rows: '1fr 1fr' },
+      'dashboard': { slots: 4, columns: '3fr 1fr', rows: '1fr 1fr 1fr' }
+    }
+    
+    const config = layouts[layout] || layouts['4-slot']
+    
+    // Create slots HTML
+    let slotsHTML = ''
+    for (let i = 1; i <= config.slots; i++) {
+      const slotNum = i + 5 // Start from #6
+      
+      let gridRowStyle = ''
+      if (layout === '5-slot' && i === 1) gridRowStyle = 'grid-row: span 2;'
+      if (layout === 'dashboard' && i === 1) gridRowStyle = 'grid-row: span 3;'
+      
+      slotsHTML += `
+        <div style="background: rgba(255,255,255,0.1); border: 2px solid rgba(255,255,255,0.3); border-radius: 8px; display: flex; flex-direction: column; overflow: hidden; ${gridRowStyle}">
+          <div style="background: rgba(0,0,0,0.3); padding: 8px; font-size: 12px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(255,255,255,0.2);">
+            <input type="text" value="#${slotNum}" style="background: transparent; border: 1px solid rgba(255,255,255,0.3); color: white; padding: 4px 8px; border-radius: 4px; font-size: 11px; width: 60px; font-weight: bold;">
+            <select style="background: rgba(0,0,0,0.3); color: white; border: 1px solid rgba(255,255,255,0.3); padding: 2px; border-radius: 3px; font-size: 10px;">
+              <option value="">Agent</option>
+              <option value="1">Agent 1</option>
+              <option value="2">Agent 2</option>
+              <option value="3">Agent 3</option>
+              <option value="4">Agent 4</option>
+              <option value="5">Agent 5</option>
+            </select>
+          </div>
+          <div style="flex: 1; display: flex; align-items: center; justify-content: center; font-size: 18px; opacity: 0.8; text-align: center; padding: 20px;">
+            <div>Display Port ${slotNum}<br><small>AI Output Area</small></div>
+          </div>
+        </div>
+      `
+    }
+    
+    // Return complete HTML document
+    return `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="UTF-8">
+        <title>AI Grid - ${layout.toUpperCase()}</title>
+        <style>
+          * { margin: 0; padding: 0; box-sizing: border-box; }
+          body { 
+            font-family: Arial, sans-serif;
+            background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+            color: white; height: 100vh; overflow: hidden;
+          }
+          .grid { 
+            width: 100vw; height: 100vh; display: grid; gap: 4px; padding: 4px;
+            grid-template-columns: ${config.columns};
+            ${config.rows !== 'auto' ? 'grid-template-rows: ' + config.rows + ';' : ''}
+          }
+        </style>
+      </head>
+      <body>
+        <div class="grid">
+          ${slotsHTML}
+        </div>
+        <script>
+          console.log('✅ Grid loaded successfully:', '${layout}', 'Session:', '${sessionId}');
+          document.title = 'AI Grid - ${layout.toUpperCase()}';
+        </script>
+      </body>
+      </html>
+    `
+  }
+  
+
+
   function openSessionsLightbox() {
     // Create sessions lightbox
     const overlay = document.createElement('div')
@@ -1997,7 +2454,7 @@ function initializeExtension() {
       const sessions = Object.entries(allData)
         .filter(([key]) => key.startsWith('session_'))
         .map(([key, data]) => ({ id: key, ...data }))
-        .sort((a, b) => new Date(b.timestamp || 0) - new Date(a.timestamp || 0))
+        .sort((a, b) => new Date(b.timestamp || 0).getTime() - new Date(a.timestamp || 0).getTime())
       
       const generateSessionsHTML = () => {
         if (sessions.length === 0) {
@@ -2012,7 +2469,7 @@ function initializeExtension() {
               <div style="display: flex; gap: 6px;">
                 <button class="rename-session-btn" data-session-id="${session.id}" style="background: linear-gradient(135deg, #2196F3, #1976D2); border: none; color: white; padding: 6px 8px; border-radius: 4px; cursor: pointer; font-size: 10px; transition: all 0.2s ease;" title="Rename session" onmouseover="this.style.transform='scale(1.05)'" onmouseout="this.style.transform='scale(1)'">✏️</button>
                 <button class="delete-session-btn" data-session-id="${session.id}" style="background: linear-gradient(135deg, #f44336, #d32f2f); border: none; color: white; padding: 6px 8px; border-radius: 4px; cursor: pointer; font-size: 10px; transition: all 0.2s ease;" title="Delete session" onmouseover="this.style.transform='scale(1.05)'" onmouseout="this.style.transform='scale(1)'">🗑️</button>
-              </div>
+        </div>
             </div>
             <!-- Session box with content -->
             <div class="session-item" data-session-id="${session.id}" style="background: linear-gradient(135deg, rgba(255,255,255,0.15) 0%, rgba(255,255,255,0.05) 100%); border-radius: 12px; padding: 14px; cursor: pointer; transition: all 0.3s ease; border: 2px solid transparent; box-shadow: 0 4px 8px rgba(0,0,0,0.1);" onmouseover="this.style.borderColor='rgba(255,255,255,0.4)'; this.style.transform='translateY(-2px)'; this.style.boxShadow='0 6px 12px rgba(0,0,0,0.2)'" onmouseout="this.style.borderColor='transparent'; this.style.transform='translateY(0)'; this.style.boxShadow='0 4px 8px rgba(0,0,0,0.1)'">
@@ -2024,13 +2481,27 @@ function initializeExtension() {
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
                       <span style="font-size: 12px; font-weight: bold; color: #66FF66;">🌐 Helper Tabs (${session.helperTabs.urls.length})</span>
                       <button class="edit-helper-tabs-btn" data-session-id="${session.id}" style="background: #FF6B35; border: none; color: white; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 10px; font-weight: bold;" title="Edit helper tabs">✏️ Edit</button>
-                    </div>
+        </div>
                     <div style="display: flex; flex-wrap: wrap; gap: 6px;">
                       ${session.helperTabs.urls.map((url, index) => `
                         <span style="background: rgba(102,255,102,0.25); color: white; border: 1px solid rgba(102,255,102,0.5); padding: 3px 8px; border-radius: 4px; font-size: 11px; font-weight: 500; max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${url}">${url.replace('https://', '').replace('http://', '').split('/')[0]}</span>
                       `).join('')}
-                    </div>
-                  </div>
+        </div>
+          </div>
+                ` : ''}
+                
+                ${session.displayGrids && session.displayGrids.length > 0 ? `
+                  <div style="background: rgba(255,255,255,0.25); border: 1px solid rgba(255,255,255,0.3); border-radius: 8px; padding: 12px; margin: 10px 0;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                      <span style="font-size: 12px; font-weight: bold; color: #FFB366;">🗂️ Display Grids (${session.displayGrids.length})</span>
+                      <button class="edit-display-grids-btn" data-session-id="${session.id}" style="background: #FF8C00; border: none; color: white; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 10px; font-weight: bold;" title="Edit display grids">✏️ Edit</button>
+          </div>
+                    <div style="display: flex; flex-wrap: wrap; gap: 6px;">
+                      ${session.displayGrids.map((grid, index) => `
+                        <span style="background: rgba(255,179,102,0.25); color: white; border: 1px solid rgba(255,179,102,0.5); padding: 3px 8px; border-radius: 4px; font-size: 11px; font-weight: 500;" title="${grid.layout} - ${grid.sessionId}">${grid.layout}</span>
+                      `).join('')}
+        </div>
+        </div>
                 ` : ''}
               </div>
             </div>
@@ -2105,18 +2576,53 @@ function initializeExtension() {
                 }, index * 500)
               })
               
-              // Navigate to master URL after helper tabs are opened (2 second delay)
+              // Also restore display grids if they exist
+              if (sessionData.displayGrids && sessionData.displayGrids.length > 0) {
+                console.log('🔧 DEBUG: Opening', sessionData.displayGrids.length, 'display grids:', sessionData.displayGrids)
+                
+                sessionData.displayGrids.forEach((grid, index) => {
+                  console.log('🔧 DEBUG: Opening display grid ' + (index + 1) + ':', grid.layout)
+                  
+                  setTimeout(() => {
+                    openGridFromSession(grid.layout, grid.sessionId)
+                  }, (sessionData.helperTabs.urls.length + index) * 500)
+                })
+              }
+              
+              // Navigate to master URL after all tabs are opened (add extra delay for grids)
+              const totalDelay = 2000 + (sessionData.displayGrids ? sessionData.displayGrids.length * 500 : 0)
               setTimeout(() => {
                 console.log('🔧 DEBUG: Navigating to master URL:', targetUrl)
                 window.location.href = targetUrl
-              }, 2000)
+              }, totalDelay)
             } else {
-              console.log('🔧 DEBUG: No helper tabs found, navigating directly')
-              // No helper tabs, navigate directly
-              window.location.href = targetUrl
+              // No helper tabs, but check for display grids
+              if (sessionData.displayGrids && sessionData.displayGrids.length > 0) {
+                console.log('🔧 DEBUG: Opening', sessionData.displayGrids.length, 'display grids only:', sessionData.displayGrids)
+                
+                sessionData.displayGrids.forEach((grid, index) => {
+                  const gridUrl = `${chrome.runtime.getURL('grid-display.html')}?layout=${grid.layout}&session=${grid.sessionId}&optimando_extension=disabled`
+                  
+                  console.log(`🔧 DEBUG: Opening display grid ${index + 1}:`, gridUrl)
+                  
+                  setTimeout(() => {
+                    window.open(gridUrl, `grid-${grid.layout}-${grid.sessionId}`)
+                  }, index * 500)
+                })
+                
+                // Navigate to master URL after grids are opened
+                setTimeout(() => {
+                  console.log('🔧 DEBUG: Navigating to master URL:', targetUrl)
+                  window.location.href = targetUrl
+                }, sessionData.displayGrids.length * 500 + 1000)
+              } else {
+                console.log('🔧 DEBUG: No helper tabs or grids found, navigating directly')
+                // No helper tabs or grids, navigate directly
+                window.location.href = targetUrl
+              }
             }
             
-            overlay.remove()
+        overlay.remove()
             console.log('🔄 Session restore initiated with', sessionData.helperTabs?.urls?.length || 0, 'helper tabs:', sessionData.tabName)
           }
         })
@@ -2144,7 +2650,7 @@ function initializeExtension() {
       
       overlay.querySelectorAll('.edit-helper-tabs-btn').forEach(btn => {
         btn.addEventListener('click', (e) => {
-          e.stopPropagation()
+        e.stopPropagation()
           const sessionId = btn.dataset.sessionId
           const sessionData = sessions.find(s => s.id === sessionId)
           

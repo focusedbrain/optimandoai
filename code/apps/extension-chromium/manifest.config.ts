@@ -25,5 +25,11 @@ export default defineManifest({
   },
   action: {
     default_title: 'Optimando AI Orchestrator - Toggle Sidebars'
-  }
+  },
+  web_accessible_resources: [
+    {
+      resources: ['grid-display.html'],
+      matches: ['<all_urls>']
+    }
+  ]
 })
