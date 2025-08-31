@@ -2009,9 +2009,15 @@ function initializeExtension() {
   }
 
   function openDisplayGridBrowserConfig() {
-    // Get current active grids from session
-    const activeGridLayouts = new Set()
+    console.log('🚀 LOADING GRIDS FOR CURRENT SESSION')
+    console.log('🚀 Current tabId:', currentTabData.tabId)
+    console.log('🚀 Session locked:', currentTabData.isLocked)
+    
+    let activeGridLayouts = new Set()
+    
+    // Method 1: Load from currentTabData.displayGrids (most accurate)
     if (currentTabData.displayGrids && Array.isArray(currentTabData.displayGrids)) {
+      console.log('💾 Loading from currentTabData.displayGrids:', currentTabData.displayGrids.length)
       currentTabData.displayGrids.forEach(grid => {
         if (grid.layout) {
           activeGridLayouts.add(grid.layout)
@@ -2019,8 +2025,7 @@ function initializeExtension() {
       })
     }
     
-    console.log('🗂️ Current active grids:', Array.from(activeGridLayouts))
-    console.log('🗂️ currentTabData.displayGrids:', currentTabData.displayGrids)
+    console.log('💾 Active grids from currentTabData:', Array.from(activeGridLayouts))
     
     const overlay = document.createElement('div')
     overlay.style.cssText = `
@@ -2235,18 +2240,27 @@ function initializeExtension() {
       'check-10-slot': '10-slot'
     }
     
-    // Initialize checkboxes based on current session
-    Object.keys(layoutMapping).forEach(checkboxId => {
-      const checkbox = document.getElementById(checkboxId) as HTMLInputElement
-      const card = document.getElementById(checkboxId.replace('check-', 'btn-'))
-      const layout = layoutMapping[checkboxId]
+    // SIMPLE: Apply selections immediately after DOM creation
+    setTimeout(() => {
+      console.log('🔧 APPLYING SELECTIONS:', Array.from(activeGridLayouts))
       
-      if (activeGridLayouts.has(layout)) {
-        checkbox.checked = true
-        card.style.borderColor = '#4CAF50'
-        card.style.background = 'rgba(76,175,80,0.2)'
-      }
-    })
+      Object.keys(layoutMapping).forEach(checkboxId => {
+        const checkbox = document.getElementById(checkboxId) as HTMLInputElement
+        const card = document.getElementById(checkboxId.replace('check-', 'btn-'))
+        const layout = layoutMapping[checkboxId as keyof typeof layoutMapping]
+        
+        if (checkbox && activeGridLayouts.has(layout)) {
+          console.log(`✅ CHECKING ${checkboxId} for ${layout}`)
+          checkbox.checked = true
+          if (card) {
+            card.style.borderColor = '#4CAF50'
+            card.style.background = 'rgba(76,175,80,0.2)'
+          }
+        }
+      })
+      
+      updateSaveButton()
+    }, 100)
     
     // Checkbox change handlers
     const checkboxes = ['check-2-slot', 'check-3-slot', 'check-4-slot', 'check-5-slot', 'check-6-slot', 'check-7-slot', 'check-8-slot', 'check-9-slot', 'check-10-slot']
@@ -2263,6 +2277,16 @@ function initializeExtension() {
           card.style.background = 'rgba(255,255,255,0.1)'
         }
         updateSaveButton()
+        
+        // IMMEDIATE SAVE: Save current selection to localStorage on every change
+        const currentlySelected = checkboxes
+          .filter(id => document.getElementById(id)?.checked)
+          .map(id => layoutMapping[id as keyof typeof layoutMapping])
+        
+        const currentUrl = window.location.href.split('?')[0]
+        const activeGridsKey = `active-grids-${btoa(currentUrl).substring(0, 20)}`
+        localStorage.setItem(activeGridsKey, JSON.stringify(currentlySelected))
+        console.log('💾 IMMEDIATE SAVE:', currentlySelected)
       }
       
       // Click on card toggles checkbox
@@ -2278,7 +2302,7 @@ function initializeExtension() {
     document.getElementById('save-open-grids').onclick = () => {
       const selectedLayouts = checkboxes
         .filter(id => document.getElementById(id).checked)
-        .map(id => id.replace('check-', '').replace('-', '-'))
+        .map(id => layoutMapping[id as keyof typeof layoutMapping])
       
       if (selectedLayouts.length === 0) {
         alert('Please select at least one grid layout.')
@@ -2287,10 +2311,121 @@ function initializeExtension() {
       
       console.log('🗂️ Saving and opening selected grids:', selectedLayouts)
       
-      // Save all selected grids to session
+      // Save all selected grids to currentTabData
+      currentTabData.displayGrids = []
       selectedLayouts.forEach(layout => {
-        saveGridToSession(layout)
+        const gridSessionId = `grid_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`
+        currentTabData.displayGrids.push({
+          layout: layout,
+          sessionId: gridSessionId,
+          url: 'about:blank',
+          timestamp: new Date().toISOString()
+        })
       })
+      
+      // Save to localStorage for immediate persistence
+      saveTabDataToStorage()
+      
+      // FORCE UPDATE SESSION HISTORY - ALWAYS WORKS
+      console.log('🔄 FORCE UPDATING SESSION HISTORY...')
+      chrome.storage.local.get(null, (allData) => {
+        console.log('📋 All stored data keys:', Object.keys(allData))
+        
+        // Get all sessions
+        const allSessions = Object.entries(allData).filter(([key, value]) => 
+          key.startsWith('session_')
+        )
+        console.log('📋 Found sessions:', allSessions.length)
+        
+        allSessions.forEach(([key, session]) => {
+          console.log(`📋 Session ${key}:`, {
+            tabName: session.tabName,
+            tabId: session.tabId,
+            url: session.url?.substring(0, 50),
+            timestamp: session.timestamp
+          })
+        })
+        
+        // Try multiple methods to find the correct session
+        let targetSessionKey = null
+        let targetSessionData = null
+        
+        // Method 1: By tabId
+        const sessionByTabId = allSessions.find(([key, value]) => 
+          value.tabId === currentTabData.tabId
+        )
+        if (sessionByTabId) {
+          [targetSessionKey, targetSessionData] = sessionByTabId
+          console.log('✅ FOUND SESSION BY TABID:', targetSessionKey)
+        }
+        
+        // Method 2: By URL (if tabId failed)
+        if (!targetSessionKey) {
+          const currentUrl = window.location.href.split('?')[0]
+          const sessionByUrl = allSessions.find(([key, value]) => 
+            value.url && value.url.split('?')[0] === currentUrl
+          )
+          if (sessionByUrl) {
+            [targetSessionKey, targetSessionData] = sessionByUrl
+            console.log('✅ FOUND SESSION BY URL:', targetSessionKey)
+          }
+        }
+        
+        // Method 3: Most recent session (last resort)
+        if (!targetSessionKey && allSessions.length > 0) {
+          const mostRecent = allSessions.sort((a, b) => 
+            new Date(b[1].timestamp || 0).getTime() - new Date(a[1].timestamp || 0).getTime()
+          )[0]
+          [targetSessionKey, targetSessionData] = mostRecent
+          console.log('✅ USING MOST RECENT SESSION:', targetSessionKey)
+        }
+        
+        // Update the found session
+        if (targetSessionKey && targetSessionData) {
+          const updatedSessionData = {
+            ...targetSessionData,
+            displayGrids: currentTabData.displayGrids,
+            timestamp: new Date().toISOString()
+          }
+          
+          chrome.storage.local.set({ [targetSessionKey]: updatedSessionData }, () => {
+            console.log('🎯 SUCCESS: Updated session in history!')
+            console.log('🎯 Session key:', targetSessionKey)
+            console.log('🎯 Grid count:', updatedSessionData.displayGrids.length)
+            console.log('🎯 Grid layouts:', selectedLayouts)
+            
+            // Show success notification
+            const notification = document.createElement('div')
+            notification.innerHTML = `✅ Session updated with ${selectedLayouts.length} grids!`
+            notification.style.cssText = `
+              position: fixed; top: 20px; right: 20px; z-index: 2147483650;
+              background: #4CAF50; color: white; padding: 12px 20px;
+              border-radius: 8px; font-size: 14px; box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+            `
+            document.body.appendChild(notification)
+            setTimeout(() => notification.remove(), 3000)
+          })
+        } else {
+          console.log('❌ NO SESSION FOUND TO UPDATE!')
+          
+          // Show error notification
+          const notification = document.createElement('div')
+          notification.innerHTML = `❌ No session found to update. Please lock the session first!`
+          notification.style.cssText = `
+            position: fixed; top: 20px; right: 20px; z-index: 2147483650;
+            background: #f44336; color: white; padding: 12px 20px;
+            border-radius: 8px; font-size: 14px; box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+          `
+          document.body.appendChild(notification)
+          setTimeout(() => notification.remove(), 5000)
+        }
+      })
+      
+      // BACKUP: Also save active grids to localStorage for reliable retrieval
+      const currentUrl = window.location.href.split('?')[0]
+      const activeGridsKey = `active-grids-${btoa(currentUrl).substring(0, 20)}`
+      localStorage.setItem(activeGridsKey, JSON.stringify(selectedLayouts))
+      console.log('💾 BACKUP: Saved active grids to localStorage:', selectedLayouts)
       
       // Open all selected grids
       selectedLayouts.forEach((layout, index) => {
@@ -2358,6 +2493,29 @@ function initializeExtension() {
     
     // Save to localStorage for persistence
     saveTabDataToStorage()
+    
+    // If session is locked, also update chrome.storage.local
+    if (currentTabData.isLocked) {
+      // Find and update existing session in chrome.storage.local
+      chrome.storage.local.get(null, (allSessions) => {
+        const sessionEntries = Object.entries(allSessions).filter(([key, value]) => 
+          key.startsWith('session_') && value.tabId === currentTabData.tabId
+        )
+        
+        if (sessionEntries.length > 0) {
+          const [sessionKey, sessionData] = sessionEntries[0]
+          const updatedSessionData = {
+            ...sessionData,
+            displayGrids: currentTabData.displayGrids,
+            timestamp: new Date().toISOString()
+          }
+          
+          chrome.storage.local.set({ [sessionKey]: updatedSessionData }, () => {
+            console.log('🔒 Updated session with new grid:', layout)
+          })
+        }
+      })
+    }
     
     return gridSessionId
   }
@@ -2692,9 +2850,17 @@ function initializeExtension() {
                 }, index * 500)
               })
               
+              // Restore current session data with helper tabs
+              currentTabData = {
+                ...currentTabData,
+                ...sessionData,
+                tabId: currentTabData.tabId  // Keep current tab ID
+              }
+              
               // Also restore display grids if they exist
               if (sessionData.displayGrids && sessionData.displayGrids.length > 0) {
                 console.log('🔧 DEBUG: Opening', sessionData.displayGrids.length, 'display grids:', sessionData.displayGrids)
+                console.log('🔧 DEBUG: Updated currentTabData.displayGrids:', currentTabData.displayGrids)
                 
                 sessionData.displayGrids.forEach((grid, index) => {
                   console.log('🔧 DEBUG: Opening display grid ' + (index + 1) + ':', grid.layout)
@@ -2712,17 +2878,23 @@ function initializeExtension() {
                 window.location.href = targetUrl
               }, totalDelay)
             } else {
+              // Restore current session data even without helper tabs
+              currentTabData = {
+                ...currentTabData,
+                ...sessionData,
+                tabId: currentTabData.tabId  // Keep current tab ID
+              }
+              
               // No helper tabs, but check for display grids
               if (sessionData.displayGrids && sessionData.displayGrids.length > 0) {
                 console.log('🔧 DEBUG: Opening', sessionData.displayGrids.length, 'display grids only:', sessionData.displayGrids)
+                console.log('🔧 DEBUG: Updated currentTabData.displayGrids:', currentTabData.displayGrids)
                 
                 sessionData.displayGrids.forEach((grid, index) => {
-                  const gridUrl = `${chrome.runtime.getURL('grid-display.html')}?layout=${grid.layout}&session=${grid.sessionId}&optimando_extension=disabled`
-                  
-                  console.log(`🔧 DEBUG: Opening display grid ${index + 1}:`, gridUrl)
+                  console.log(`🔧 DEBUG: Opening display grid ${index + 1}:`, grid.layout)
                   
                   setTimeout(() => {
-                    window.open(gridUrl, `grid-${grid.layout}-${grid.sessionId}`)
+                    openGridFromSession(grid.layout, grid.sessionId)
                   }, index * 500)
                 })
                 
