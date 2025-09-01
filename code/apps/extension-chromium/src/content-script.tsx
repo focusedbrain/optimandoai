@@ -124,6 +124,66 @@ function initializeExtension() {
   }
 
   function loadTabDataFromStorage() {
+    // Check if this is a fresh browser session (sessionStorage gets cleared on browser close)
+    const browserSessionMarker = sessionStorage.getItem('optimando-browser-session')
+    const isFreshBrowserSession = !browserSessionMarker
+    
+    if (isFreshBrowserSession) {
+      console.log('🆕 Fresh browser session detected - starting new session')
+      
+      // Set browser session marker for future checks
+      sessionStorage.setItem('optimando-browser-session', 'active')
+      
+      // Before clearing data, preserve UI preferences from any existing tab data
+      let preservedUIConfig = { ...currentTabData.uiConfig } // default values
+      
+      // Try to load UI preferences from the most recent tab data
+      const existingTabKeys = Object.keys(localStorage).filter(key => key.startsWith('optimando-tab-'))
+      if (existingTabKeys.length > 0) {
+        try {
+          // Get the most recent tab data to preserve UI settings
+          const recentTabData = localStorage.getItem(existingTabKeys[existingTabKeys.length - 1])
+          if (recentTabData) {
+            const parsed = JSON.parse(recentTabData)
+            if (parsed.uiConfig) {
+              preservedUIConfig = parsed.uiConfig
+              console.log('🔧 DEBUG: Preserved UI config from previous session')
+            }
+          }
+        } catch (e) {
+          console.log('🔧 DEBUG: Could not preserve UI config:', e)
+        }
+      }
+      
+      // Clear all old tab-specific data to ensure fresh start
+      Object.keys(localStorage).forEach(key => {
+        if (key.startsWith('optimando-tab-')) {
+          localStorage.removeItem(key)
+        }
+      })
+      
+      // Generate new session name for fresh start
+      currentTabData.tabName = `WR Session ${new Date().toLocaleString('en-GB', { 
+        day: '2-digit', 
+        month: '2-digit', 
+        year: 'numeric', 
+        hour: '2-digit', 
+        minute: '2-digit', 
+        second: '2-digit',
+        hour12: false 
+      }).replace(/[\/,]/g, '-').replace(/ /g, '_')}`
+      
+      // Apply preserved UI configuration
+      currentTabData.uiConfig = preservedUIConfig
+      
+      console.log('🔧 DEBUG: Starting fresh session:', currentTabData.tabName)
+      return // Skip loading old data for fresh session
+    }
+    
+    // Not a fresh browser session, try to load existing data
+    console.log('🔧 DEBUG: Continuing existing browser session')
+    sessionStorage.setItem('optimando-browser-session', 'active') // Refresh marker
+    
     const saved = localStorage.getItem(`optimando-tab-${tabId}`)
     if (saved) {
       const savedData = JSON.parse(saved)
@@ -777,7 +837,7 @@ function initializeExtension() {
           <button id="settings-lightbox-btn" style="padding: 4px 8px; background: rgba(255,255,255,0.1); border: none; color: white; border-radius: 3px; cursor: pointer; font-size: 10px;">⚙️ Settings</button>
         </div>
         
-        <!-- Session Name + Lock -->
+        <!-- Session Name + Controls -->
         <div style="display: flex; align-items: center; gap: 10px;">
           <input id="session-name-input" type="text" value="${currentTabData.tabName}" 
                  style="background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; 
@@ -785,6 +845,7 @@ function initializeExtension() {
                         ${currentTabData.isLocked ? 'opacity: 0.6; pointer-events: none;' : ''}"
                  ${currentTabData.isLocked ? 'disabled' : ''}
                  placeholder="Session Name">
+          <button id="new-session-btn" style="background: rgba(76, 175, 80, 0.8); border: none; color: white; width: 24px; height: 24px; border-radius: 3px; cursor: pointer; font-size: 12px; font-weight: bold; transition: all 0.2s ease;" title="Start a new session">+</button>
           <button id="lock-btn" style="background: rgba(255,255,255,0.1); border: none; color: white; width: 24px; height: 24px; border-radius: 3px; cursor: pointer; font-size: 10px; ${currentTabData.isLocked ? 'background: rgba(255,215,0,0.3);' : ''}">${currentTabData.isLocked ? '🔒' : '🔓'}</button>
         </div>
       </div>
@@ -3500,6 +3561,106 @@ function initializeExtension() {
     // Placeholder for sync functionality
   }
 
+  function startNewSession() {
+    // Generate new session name with timestamp
+    const newSessionName = `WR Session ${new Date().toLocaleString('en-GB', { 
+      day: '2-digit', 
+      month: '2-digit', 
+      year: 'numeric', 
+      hour: '2-digit', 
+      minute: '2-digit', 
+      second: '2-digit',
+      hour12: false 
+    }).replace(/[\/,]/g, '-').replace(/ /g, '_')}`
+
+    // Reset current tab data to default state
+    const newTabId = `tab-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+    
+    // Preserve UI configuration but reset everything else
+    const preservedUIConfig = { ...currentTabData.uiConfig }
+    
+    currentTabData = {
+      tabId: newTabId,
+      tabName: newSessionName,
+      isLocked: false,
+      goals: {
+        shortTerm: '',
+        midTerm: '',
+        longTerm: ''
+      },
+      userIntentDetection: {
+        detected: 'Web development',
+        confidence: 75,
+        lastUpdate: new Date().toLocaleTimeString()
+      },
+      uiConfig: preservedUIConfig,
+      helperTabs: null as any,
+      displayGrids: null as any,
+      agentBoxHeights: {} as any,
+      agentBoxes: [
+        { id: 'summarize', number: 1, title: '📝 Summarize Agent', color: '#4CAF50', outputId: 'summarize-output' },
+        { id: 'research', number: 2, title: '🔍 Research Agent', color: '#2196F3', outputId: 'research-output' },
+        { id: 'goals', number: 3, title: '🎯 Goal Tracker', color: '#FF9800', outputId: 'goals-output' },
+        { id: 'analysis', number: 4, title: '🧮 Analysis Agent', color: '#9C27B0', outputId: 'analysis-output' }
+      ] as any
+    }
+
+    // Save the new session data
+    saveTabDataToStorage()
+
+    // Clear agent box outputs
+    const summarizeOutput = document.getElementById('summarize-output')
+    if (summarizeOutput) summarizeOutput.innerText = 'Ready for new summaries...'
+    
+    const researchOutput = document.getElementById('research-output')
+    if (researchOutput) researchOutput.innerText = 'Ready for new analysis...'
+    
+    const goalsOutput = document.getElementById('goals-output')
+    if (goalsOutput) goalsOutput.innerText = 'Ready for new goal tracking...'
+    
+    const analysisOutput = document.getElementById('analysis-output')
+    if (analysisOutput) analysisOutput.innerText = 'Ready for new data analysis...'
+
+    // Update the session name input in the UI
+    const sessionNameInput = document.getElementById('session-name-input') as HTMLInputElement
+    if (sessionNameInput) {
+      sessionNameInput.value = newSessionName
+    }
+
+    // Update lock button to unlocked state
+    const lockBtn = document.getElementById('lock-btn')
+    if (lockBtn) {
+      lockBtn.innerHTML = '🔓'
+      lockBtn.style.background = 'rgba(255,255,255,0.1)'
+    }
+
+    // Re-render agent boxes with default configuration
+    renderAgentBoxes()
+
+    // Show success notification
+    const notification = document.createElement('div')
+    notification.style.cssText = `
+      position: fixed;
+      top: 60px;
+      right: 20px;
+      background: rgba(76, 175, 80, 0.9);
+      color: white;
+      padding: 10px 15px;
+      border-radius: 5px;
+      font-size: 12px;
+      z-index: 2147483648;
+      animation: slideIn 0.3s ease;
+    `
+    notification.innerHTML = `🆕 New session "${newSessionName}" started!`
+    document.body.appendChild(notification)
+    
+    setTimeout(() => {
+      notification.remove()
+    }, 3000)
+
+    console.log('🆕 New session started:', newSessionName)
+  }
+
   function exportSession() {
     const sessionData = {
       ...currentTabData,
@@ -3579,6 +3740,40 @@ function initializeExtension() {
   // Render dynamic agent boxes after DOM is ready
   setTimeout(() => {
     renderAgentBoxes()
+    
+    // Show new session notification if this was a fresh browser session
+    const browserSessionMarker = sessionStorage.getItem('optimando-browser-session')
+    const sessionStartTime = sessionStorage.getItem('optimando-session-start-time')
+    
+    if (browserSessionMarker && !sessionStartTime) {
+      // Mark that we've shown the notification for this browser session
+      sessionStorage.setItem('optimando-session-start-time', Date.now().toString())
+      
+      // Show fresh session notification
+      setTimeout(() => {
+        const notification = document.createElement('div')
+        notification.style.cssText = `
+          position: fixed;
+          top: 60px;
+          right: 20px;
+          background: rgba(33, 150, 243, 0.9);
+          color: white;
+          padding: 10px 15px;
+          border-radius: 5px;
+          font-size: 12px;
+          z-index: 2147483648;
+          animation: slideIn 0.3s ease;
+        `
+        notification.innerHTML = `🆕 Fresh browser session - New session started: "${currentTabData.tabName}"`
+        document.body.appendChild(notification)
+        
+        setTimeout(() => {
+          notification.remove()
+        }, 4000)
+        
+        console.log('🆕 Fresh browser session notification shown')
+      }, 1000) // Delay to ensure UI is ready
+    }
   }, 100)
   
   // Set initial body margins and safe scrollbar prevention
@@ -3726,6 +3921,25 @@ function initializeExtension() {
       })
     }
 
+    // New session button
+    const newSessionBtn = document.getElementById('new-session-btn')
+    if (newSessionBtn) {
+      newSessionBtn.addEventListener('click', (e) => {
+        e.stopPropagation()
+        startNewSession()
+      })
+      
+      // Hover effects for new session button
+      newSessionBtn.addEventListener('mouseenter', () => {
+        newSessionBtn.style.background = 'rgba(76, 175, 80, 1)'
+        newSessionBtn.style.transform = 'scale(1.1)'
+      })
+      
+      newSessionBtn.addEventListener('mouseleave', () => {
+        newSessionBtn.style.background = 'rgba(76, 175, 80, 0.8)'
+        newSessionBtn.style.transform = 'scale(1)'
+      })
+    }
 
     
     console.log('✅ Event handlers attached for reasoning section')
