@@ -101,10 +101,10 @@ function initializeExtension() {
     displayGrids: null as any,
     agentBoxHeights: {} as any,
     agentBoxes: [
-      { id: 'summarize', number: 1, title: '📝 Summarize Agent', color: '#4CAF50', outputId: 'summarize-output' },
-      { id: 'research', number: 2, title: '🔍 Research Agent', color: '#2196F3', outputId: 'research-output' },
-      { id: 'goals', number: 3, title: '🎯 Goal Tracker', color: '#FF9800', outputId: 'goals-output' },
-      { id: 'analysis', number: 4, title: '🧮 Analysis Agent', color: '#9C27B0', outputId: 'analysis-output' }
+      { id: 'brainstorm', number: 1, title: '#1 🧠 Brainstorm Support Ideas', color: '#4CAF50', outputId: 'brainstorm-output' },
+      { id: 'knowledge', number: 2, title: '#2 🔍 Knowledge Gap Detection', color: '#2196F3', outputId: 'knowledge-output' },
+      { id: 'risks', number: 3, title: '#3 ⚖️ Risks & Chances', color: '#FF9800', outputId: 'risks-output' },
+      { id: 'explainer', number: 4, title: '#4 🎬 Explainer Video Suggestions', color: '#9C27B0', outputId: 'explainer-output' }
     ] as any
   }
 
@@ -229,10 +229,10 @@ function initializeExtension() {
       console.log('🔧 DEBUG: No agent boxes found, using default configuration')
       // Initialize with default boxes if none exist
       currentTabData.agentBoxes = [
-        { id: 'summarize', number: 1, title: '📝 Summarize Agent', color: '#4CAF50', outputId: 'summarize-output' },
-        { id: 'research', number: 2, title: '🔍 Research Agent', color: '#2196F3', outputId: 'research-output' },
-        { id: 'goals', number: 3, title: '🎯 Goal Tracker', color: '#FF9800', outputId: 'goals-output' },
-        { id: 'analysis', number: 4, title: '🧮 Analysis Agent', color: '#9C27B0', outputId: 'analysis-output' }
+        { id: 'brainstorm', number: 1, title: '#1 🧠 Brainstorm Support Ideas', color: '#4CAF50', outputId: 'brainstorm-output' },
+        { id: 'knowledge', number: 2, title: '#2 🔍 Knowledge Gap Detection', color: '#2196F3', outputId: 'knowledge-output' },
+        { id: 'risks', number: 3, title: '#3 ⚖️ Risks & Chances', color: '#FF9800', outputId: 'risks-output' },
+        { id: 'explainer', number: 4, title: '#4 🎬 Explainer Video Suggestions', color: '#9C27B0', outputId: 'explainer-output' }
       ]
       saveTabDataToStorage()
     }
@@ -2668,16 +2668,33 @@ function initializeExtension() {
       
       console.log('🗂️ Saving and opening selected grids:', selectedLayouts)
       
-      // Save all selected grids to currentTabData
-      currentTabData.displayGrids = []
+      // Initialize displayGrids if not exists
+      if (!currentTabData.displayGrids) {
+        currentTabData.displayGrids = []
+      }
+      
+      // Track which grids are actually new and need to be opened
+      const newGridsToOpen = []
+      
+      // Only add new grids for selected layouts that don't already exist
       selectedLayouts.forEach(layout => {
-        const gridSessionId = `grid_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`
-        currentTabData.displayGrids.push({
-          layout: layout,
-          sessionId: gridSessionId,
-          url: 'about:blank',
-          timestamp: new Date().toISOString()
-        })
+        // Check if this layout already exists
+        const existingGrid = currentTabData.displayGrids.find(grid => grid.layout === layout)
+        
+        if (!existingGrid) {
+          const gridSessionId = `grid_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`
+          const newGrid = {
+            layout: layout,
+            sessionId: gridSessionId,
+            url: 'about:blank',
+            timestamp: new Date().toISOString()
+          }
+          currentTabData.displayGrids.push(newGrid)
+          newGridsToOpen.push(newGrid)
+          console.log('✅ Added new grid:', layout, 'with sessionId:', gridSessionId)
+        } else {
+          console.log('⚠️ Grid already exists for layout:', layout, '- skipping')
+        }
       })
       
       // Save to localStorage for immediate persistence
@@ -2784,17 +2801,16 @@ function initializeExtension() {
       localStorage.setItem(activeGridsKey, JSON.stringify(selectedLayouts))
       console.log('💾 BACKUP: Saved active grids to localStorage:', selectedLayouts)
       
-      // Open all selected grids
-      selectedLayouts.forEach((layout, index) => {
+      // Open only the new grids that were actually added
+      newGridsToOpen.forEach((grid, index) => {
         setTimeout(() => {
-          const gridSessionId = `grid_${Date.now()}_${index}`
-          openGridFromSession(layout, gridSessionId)
+          openGridFromSession(grid.layout, grid.sessionId)
         }, index * 300)
       })
       
       // Show notification
       const notification = document.createElement('div')
-      notification.innerHTML = '🗂️ ' + selectedLayouts.length + ' display grids saved to session and opened!'
+      notification.innerHTML = '🗂️ ' + newGridsToOpen.length + ' new display grids opened! (' + currentTabData.displayGrids.length + ' total grids in session)'
       notification.style.cssText = `
         position: fixed; top: 20px; right: 20px; z-index: 2147483650;
         background: #4CAF50; color: white; padding: 12px 20px;
@@ -2969,10 +2985,15 @@ function initializeExtension() {
   }
   
   function openGridFromSession(layout, sessionId) {
-    console.log('🗂️ Opening grid from session:', layout, sessionId)
+    console.log('🔍 DEBUG: Opening grid from session:', layout, sessionId)
     
     // Create the complete HTML content for the new tab
     const gridHTML = createGridHTML(layout, sessionId)
+    
+    console.log('🔍 DEBUG: Generated HTML length:', gridHTML.length)
+    console.log('🔍 DEBUG: HTML contains save button:', gridHTML.includes('save-grid-btn'))
+    console.log('🔍 DEBUG: HTML contains slot-title:', gridHTML.includes('slot-title'))
+    console.log('🔍 DEBUG: HTML contains Agent options:', gridHTML.includes('Agent 1'))
     
     // Create a new tab with the grid content
     const newTab = window.open('about:blank', 'grid-' + layout + '-' + sessionId)
@@ -2983,12 +3004,170 @@ function initializeExtension() {
       return
     }
     
+    console.log('🔍 DEBUG: Writing HTML to new tab...')
+    
     // Write the HTML content to the new tab
     newTab.document.write(gridHTML)
     newTab.document.close()
     
     console.log('✅ Grid tab opened from session:', layout)
+    
+    // Add a delay to check what actually got written
+    setTimeout(() => {
+      console.log('🔍 DEBUG: Checking tab content after write...')
+      console.log('🔍 DEBUG: Tab title:', newTab.document.title)
+      console.log('🔍 DEBUG: Save button exists:', !!newTab.document.getElementById('save-grid-btn'))
+      console.log('🔍 DEBUG: Slot elements count:', newTab.document.querySelectorAll('[data-slot-id]').length)
+    }, 1000)
+
+    // Attach save handler from the opener (avoids CSP issues with inline scripts)
+    attachGridSaveHandler(newTab, layout, sessionId)
   }
+
+  function attachGridSaveHandler(gridWindow: Window, layout: string, sessionId: string) {
+    const tryAttach = () => {
+      try {
+        const doc = gridWindow.document
+        const btn = doc && doc.getElementById('save-grid-btn')
+        if (!btn) {
+          setTimeout(tryAttach, 150)
+          return
+        }
+
+        console.log('🔧 Attaching save handler to grid tab:', layout, sessionId)
+        btn.addEventListener('click', () => {
+          try {
+            const slotDivs = Array.from(doc.querySelectorAll('[data-slot-id]')) as HTMLElement[]
+            const slots: any = {}
+            slotDivs.forEach(div => {
+              const id = div.getAttribute('data-slot-id') || ''
+              const title = (div.querySelector('.slot-title') as HTMLInputElement)?.value || ''
+              const agent = (div.querySelector('.slot-agent') as HTMLSelectElement)?.value || ''
+              slots[id] = { title, agent }
+            })
+
+            const config = { layout, sessionId, slots }
+            console.log('💾 Saving grid config from opener:', config)
+
+            // Persist into in-memory session and localStorage
+            persistGridConfig(config)
+
+            // Show success in the child tab
+            const note = doc.getElementById('success-notification')
+            if (note) {
+              note.style.display = 'block'
+              note.style.opacity = '1'
+              setTimeout(() => {
+                note.style.opacity = '0'
+                setTimeout(() => { note.style.display = 'none' }, 300)
+              }, 1500)
+            }
+          } catch (err) {
+            console.error('❌ Failed to save grid config from opener:', err)
+          }
+        })
+      } catch (e) {
+        setTimeout(tryAttach, 150)
+      }
+    }
+    tryAttach()
+  }
+
+  function persistGridConfig(config: { layout: string, sessionId: string, slots: any }) {
+    if (!currentTabData.displayGrids) currentTabData.displayGrids = []
+    let entry: any = currentTabData.displayGrids.find(g => g.sessionId === config.sessionId && g.layout === config.layout)
+    if (!entry) {
+      entry = { layout: config.layout, sessionId: config.sessionId, url: '', timestamp: new Date().toISOString() }
+      currentTabData.displayGrids.push(entry)
+    }
+    entry.config = { layout: config.layout, sessionId: config.sessionId, slots: config.slots }
+
+    // Persist local tab data
+    saveTabDataToStorage()
+
+    // Also mirror into chrome.storage.local by updating the most relevant session
+    chrome.storage.local.get(null, (allData) => {
+      const allSessions = Object.entries(allData).filter(([key, value]: any) => key.startsWith('session_')) as any[]
+      // Prefer by tabId match
+      let target: any = allSessions.find(([key, value]: any) => value.tabId === currentTabData.tabId)
+      // Fallback by URL match
+      if (!target) {
+        const currentUrl = window.location.href.split('?')[0]
+        target = allSessions.find(([key, value]: any) => (value.url && value.url.split('?')[0] === currentUrl))
+      }
+      if (target) {
+        const [sessionKey, sessionData] = target
+        const existing = Array.isArray(sessionData.displayGrids) ? sessionData.displayGrids : []
+        let found = existing.find((g: any) => g.sessionId === config.sessionId && g.layout === config.layout)
+        if (!found) {
+          found = { layout: config.layout, sessionId: config.sessionId, url: '', timestamp: new Date().toISOString() }
+          existing.push(found)
+        }
+        found.config = { layout: config.layout, sessionId: config.sessionId, slots: config.slots }
+        const updatedSession = { ...sessionData, displayGrids: existing, timestamp: new Date().toISOString() }
+        chrome.storage.local.set({ [sessionKey]: updatedSession }, () => {
+          console.log('✅ Mirrored grid config into session history:', sessionKey)
+        })
+      }
+    })
+  }
+
+  // Listen for save messages from grid tabs (about:blank child windows)
+  window.addEventListener('message', (event) => {
+    const data = (event && event.data) || null
+    if (!data || data.type !== 'OPTIMANDO_SAVE_GRID' || !data.payload) return
+
+    try {
+      const payload = data.payload
+      const sessionId = payload.sessionId
+      const layout = payload.layout
+      const slots = payload.slots || {}
+
+      if (!currentTabData.displayGrids) currentTabData.displayGrids = []
+      let entry = currentTabData.displayGrids.find(g => g.sessionId === sessionId && g.layout === layout)
+      if (!entry) {
+        entry = { layout, sessionId, url: '', timestamp: new Date().toISOString() } as any
+        currentTabData.displayGrids.push(entry)
+      }
+      ;(entry as any).config = { layout, sessionId, slots }
+
+      // Persist locally
+      saveTabDataToStorage()
+
+      // If locked, mirror to chrome.storage.local (update session for this tabId)
+      if (currentTabData.isLocked) {
+        chrome.storage.local.get(null, (allSessions) => {
+          const sessionEntries = Object.entries(allSessions).filter(([key, value]: any) => 
+            key.startsWith('session_') && value.tabId === currentTabData.tabId
+          )
+          if (sessionEntries.length > 0) {
+            const [sessionKey, sessionData]: any = sessionEntries[0]
+            const updatedSessionData = {
+              ...sessionData,
+              displayGrids: currentTabData.displayGrids,
+              timestamp: new Date().toISOString()
+            }
+            chrome.storage.local.set({ [sessionKey]: updatedSessionData }, () => {
+              // no-op
+            })
+          }
+        })
+      }
+
+      // Visual feedback
+      const note = document.createElement('div')
+      note.textContent = '✅ Saved grid to session'
+      note.style.cssText = `position:fixed;top:20px;right:20px;z-index:2147483650;background:#4CAF50;color:#fff;padding:10px 14px;border-radius:8px;font-size:12px;box-shadow:0 4px 12px rgba(0,0,0,0.3)`
+      document.body.appendChild(note)
+      setTimeout(() => note.remove(), 2500)
+    } catch (err) {
+      const note = document.createElement('div')
+      note.textContent = '❌ Failed saving grid to session'
+      note.style.cssText = `position:fixed;top:20px;right:20px;z-index:2147483650;background:#f44336;color:#fff;padding:10px 14px;border-radius:8px;font-size:12px;box-shadow:0 4px 12px rgba(0,0,0,0.3)`
+      document.body.appendChild(note)
+      setTimeout(() => note.remove(), 3000)
+    }
+  })
   
   function createGridHTML(layout, sessionId) {
     // Configure grid layout
@@ -3005,6 +3184,12 @@ function initializeExtension() {
     }
     
     const config = layouts[layout] || layouts['4-slot']
+
+    // Prefill from currentTabData if a config exists
+    const entry = (currentTabData && currentTabData.displayGrids)
+      ? currentTabData.displayGrids.find(g => g.sessionId === sessionId && g.layout === layout)
+      : null
+    const savedSlots: any = (entry && (entry as any).config && (entry as any).config.slots) ? (entry as any).config.slots : {}
     
     // Create slots HTML
     let slotsHTML = ''
@@ -3015,17 +3200,26 @@ function initializeExtension() {
       if (layout === '5-slot' && i === 1) gridRowStyle = 'grid-row: span 2;'
       if (layout === '7-slot' && i === 1) gridRowStyle = 'grid-row: span 2;'
       
+      const savedTitle = (savedSlots[String(slotNum)] && savedSlots[String(slotNum)].title) ? savedSlots[String(slotNum)].title : `Display Port ${slotNum}`
+      const savedAgent = (savedSlots[String(slotNum)] && savedSlots[String(slotNum)].agent) ? savedSlots[String(slotNum)].agent : ''
+      const sel = (val: string) => (savedAgent === val ? ' selected' : '')
+
       slotsHTML += `
-        <div style="background: rgba(255,255,255,0.1); border: 2px solid rgba(255,255,255,0.3); border-radius: 8px; display: flex; flex-direction: column; overflow: hidden; ${gridRowStyle}">
+        <div data-slot-id="${slotNum}" style="background: rgba(255,255,255,0.1); border: 2px solid rgba(255,255,255,0.3); border-radius: 8px; display: flex; flex-direction: column; overflow: hidden; ${gridRowStyle}">
           <div style="background: rgba(0,0,0,0.3); padding: 8px; font-size: 12px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(255,255,255,0.2);">
-            <input type="text" value="#${slotNum}" style="background: transparent; border: 1px solid rgba(255,255,255,0.3); color: white; padding: 4px 8px; border-radius: 4px; font-size: 11px; width: 60px; font-weight: bold;">
-            <select style="background: rgba(0,0,0,0.3); color: white; border: 1px solid rgba(255,255,255,0.3); padding: 2px; border-radius: 3px; font-size: 10px;">
-              <option value="">Agent</option>
-              <option value="1">Agent 1</option>
-              <option value="2">Agent 2</option>
-              <option value="3">Agent 3</option>
-              <option value="4">Agent 4</option>
-              <option value="5">Agent 5</option>
+            <input type="text" class="slot-title" value="${savedTitle.replace(/"/g, '&quot;')}" placeholder="Enter title..." style="background: transparent; border: 1px solid rgba(255,255,255,0.3); color: white; padding: 4px 8px; border-radius: 4px; font-size: 11px; width: 180px; font-weight: bold;">
+            <select class="slot-agent" style="background: rgba(0,0,0,0.3); color: white; border: 1px solid rgba(255,255,255,0.3); padding: 2px; border-radius: 3px; font-size: 10px;">
+              <option value="">Select Agent</option>
+              <option value="agent1"${sel('agent1')}>Agent 1</option>
+              <option value="agent2"${sel('agent2')}>Agent 2</option>
+              <option value="agent3"${sel('agent3')}>Agent 3</option>
+              <option value="agent4"${sel('agent4')}>Agent 4</option>
+              <option value="agent5"${sel('agent5')}>Agent 5</option>
+              <option value="agent6"${sel('agent6')}>Agent 6</option>
+              <option value="agent7"${sel('agent7')}>Agent 7</option>
+              <option value="agent8"${sel('agent8')}>Agent 8</option>
+              <option value="agent9"${sel('agent9')}>Agent 9</option>
+              <option value="agent10"${sel('agent10')}>Agent 10</option>
             </select>
           </div>
           <div style="flex: 1; display: flex; align-items: center; justify-content: center; font-size: 18px; opacity: 0.8; text-align: center; padding: 20px;">
@@ -3060,9 +3254,151 @@ function initializeExtension() {
         <div class="grid">
           ${slotsHTML}
         </div>
+        
+        <!-- Save Grid Button -->
+        <button id="save-grid-btn" style="
+          position: fixed;
+          bottom: 20px;
+          right: 20px;
+          padding: 12px 20px;
+          background: #4CAF50;
+          border: none;
+          color: white;
+          border-radius: 8px;
+          cursor: pointer;
+          font-size: 14px;
+          font-weight: bold;
+          box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+          z-index: 1000;
+          transition: all 0.3s ease;
+        " onmouseover="this.style.background='#45a049'" onmouseout="this.style.background='#4CAF50'">
+          💾 Save Grid
+        </button>
+        
+        <!-- Success Notification -->
+        <div id="success-notification" style="
+          position: fixed;
+          top: 20px;
+          right: 20px;
+          padding: 12px 20px;
+          background: #4CAF50;
+          color: white;
+          border-radius: 8px;
+          font-size: 14px;
+          font-weight: bold;
+          box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+          z-index: 1001;
+          display: none;
+          opacity: 0;
+          transition: all 0.3s ease;
+        ">
+          ✅ Grid saved to session!
+        </div>
+        
         <script>
           console.log('✅ Grid loaded successfully:', '${layout}', 'Session:', '${sessionId}');
           document.title = 'AI Grid - ${layout.toUpperCase()}';
+          
+          const sessionId = '${sessionId}';
+          const layout = '${layout}';
+          
+          // SIMPLE SAVE FUNCTION
+          function saveGridConfig() {
+            console.log('💾 SAVING GRID CONFIG...');
+            
+            const config = {
+              layout: layout,
+              sessionId: sessionId,
+              timestamp: new Date().toISOString(),
+              slots: {}
+            };
+            
+            // Collect slot data
+            document.querySelectorAll('[data-slot-id]').forEach(slot => {
+              const slotId = slot.getAttribute('data-slot-id');
+              const titleInput = slot.querySelector('.slot-title');
+              const agentSelect = slot.querySelector('.slot-agent');
+              
+              config.slots[slotId] = {
+                title: titleInput ? titleInput.value : '',
+                agent: agentSelect ? agentSelect.value : ''
+              };
+            });
+            
+            // Save to localStorage with simple key
+            const saveKey = 'grid_' + sessionId + '_' + layout;
+            localStorage.setItem(saveKey, JSON.stringify(config));
+            
+            console.log('✅ SAVED TO LOCALSTORAGE:', saveKey, config);
+            
+            // Show success notification
+            const notification = document.getElementById('success-notification');
+            if (notification) {
+              notification.style.display = 'block';
+              notification.style.opacity = '1';
+              setTimeout(() => {
+                notification.style.opacity = '0';
+                setTimeout(() => notification.style.display = 'none', 300);
+              }, 2000);
+            }
+          }
+          
+          // SIMPLE LOAD FUNCTION
+          function loadGridConfig() {
+            console.log('📂 LOADING GRID CONFIG...');
+            
+            const saveKey = 'grid_' + sessionId + '_' + layout;
+            const saved = localStorage.getItem(saveKey);
+            
+            if (saved) {
+              try {
+                const config = JSON.parse(saved);
+                console.log('📂 LOADED CONFIG:', config);
+                
+                // Apply config to slots
+                Object.keys(config.slots || {}).forEach(slotId => {
+                  const slot = document.querySelector('[data-slot-id="' + slotId + '"]');
+                  if (slot) {
+                    const titleInput = slot.querySelector('.slot-title');
+                    const agentSelect = slot.querySelector('.slot-agent');
+                    
+                    if (titleInput && config.slots[slotId].title) {
+                      titleInput.value = config.slots[slotId].title;
+                    }
+                    if (agentSelect && config.slots[slotId].agent) {
+                      agentSelect.value = config.slots[slotId].agent;
+                    }
+                  }
+                });
+              } catch (e) {
+                console.error('❌ Error loading config:', e);
+              }
+            } else {
+              console.log('📂 No saved config found for:', saveKey);
+            }
+          }
+          
+          // Attach save button
+          document.addEventListener('DOMContentLoaded', () => {
+            const saveBtn = document.getElementById('save-grid-btn');
+            if (saveBtn) {
+              saveBtn.addEventListener('click', saveGridConfig);
+              console.log('✅ Save button listener attached');
+            }
+            
+            // Load existing config
+            loadGridConfig();
+          });
+          
+          // Also attach immediately if DOM already loaded
+          if (document.readyState !== 'loading') {
+            const saveBtn = document.getElementById('save-grid-btn');
+            if (saveBtn) {
+              saveBtn.addEventListener('click', saveGridConfig);
+              console.log('✅ Save button listener attached (immediate)');
+            }
+            loadGridConfig();
+          }
         </script>
       </body>
       </html>
@@ -3598,10 +3934,10 @@ function initializeExtension() {
       displayGrids: null as any,
       agentBoxHeights: {} as any,
       agentBoxes: [
-        { id: 'summarize', number: 1, title: '📝 Summarize Agent', color: '#4CAF50', outputId: 'summarize-output' },
-        { id: 'research', number: 2, title: '🔍 Research Agent', color: '#2196F3', outputId: 'research-output' },
-        { id: 'goals', number: 3, title: '🎯 Goal Tracker', color: '#FF9800', outputId: 'goals-output' },
-        { id: 'analysis', number: 4, title: '🧮 Analysis Agent', color: '#9C27B0', outputId: 'analysis-output' }
+        { id: 'brainstorm', number: 1, title: '#1 🧠 Brainstorm Support Ideas', color: '#4CAF50', outputId: 'brainstorm-output' },
+        { id: 'knowledge', number: 2, title: '#2 🔍 Knowledge Gap Detection', color: '#2196F3', outputId: 'knowledge-output' },
+        { id: 'risks', number: 3, title: '#3 ⚖️ Risks & Chances', color: '#FF9800', outputId: 'risks-output' },
+        { id: 'explainer', number: 4, title: '#4 🎬 Explainer Video Suggestions', color: '#9C27B0', outputId: 'explainer-output' }
       ] as any
     }
 

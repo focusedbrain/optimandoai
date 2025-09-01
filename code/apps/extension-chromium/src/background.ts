@@ -222,6 +222,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       sendResponse({ success: true, data: status });
       chrome.runtime.sendMessage({ type: 'STATUS_UPDATE', data: status });
       break;
+
+    case 'SAVE_GRID_CONFIG':
+      console.log('📥 SAVE_GRID_CONFIG received');
+      sendResponse({ success: true, message: 'Config received' });
+      break;
   }
   return true;
 });
