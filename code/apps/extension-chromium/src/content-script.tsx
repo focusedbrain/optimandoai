@@ -101,10 +101,10 @@ function initializeExtension() {
     displayGrids: null as any,
     agentBoxHeights: {} as any,
     agentBoxes: [
-      { id: 'summarize', number: 1, title: '📝 Summarize Agent', color: '#4CAF50', outputId: 'summarize-output' },
-      { id: 'research', number: 2, title: '🔍 Research Agent', color: '#2196F3', outputId: 'research-output' },
-      { id: 'goals', number: 3, title: '🎯 Goal Tracker', color: '#FF9800', outputId: 'goals-output' },
-      { id: 'analysis', number: 4, title: '🧮 Analysis Agent', color: '#9C27B0', outputId: 'analysis-output' }
+      { id: 'summarize', number: 1, title: '#1 🧠 Brainstorm Support Ideas', color: '#4CAF50', outputId: 'summarize-output' },
+      { id: 'research', number: 2, title: '#2 🔍 Knowledge Gap Detection', color: '#2196F3', outputId: 'research-output' },
+      { id: 'goals', number: 3, title: '#3 ⚖️ Risks & Chances', color: '#FF9800', outputId: 'goals-output' },
+      { id: 'analysis', number: 4, title: '#4 🎬 Explainer Video Suggestions', color: '#9C27B0', outputId: 'analysis-output' }
     ] as any
   }
 
@@ -229,10 +229,10 @@ function initializeExtension() {
       console.log('🔧 DEBUG: No agent boxes found, using default configuration')
       // Initialize with default boxes if none exist
       currentTabData.agentBoxes = [
-        { id: 'summarize', number: 1, title: '📝 Summarize Agent', color: '#4CAF50', outputId: 'summarize-output' },
-        { id: 'research', number: 2, title: '🔍 Research Agent', color: '#2196F3', outputId: 'research-output' },
-        { id: 'goals', number: 3, title: '🎯 Goal Tracker', color: '#FF9800', outputId: 'goals-output' },
-        { id: 'analysis', number: 4, title: '🧮 Analysis Agent', color: '#9C27B0', outputId: 'analysis-output' }
+        { id: 'summarize', number: 1, title: '#1 🧠 Brainstorm Support Ideas', color: '#4CAF50', outputId: 'summarize-output' },
+        { id: 'research', number: 2, title: '#2 🔍 Knowledge Gap Detection', color: '#2196F3', outputId: 'research-output' },
+        { id: 'goals', number: 3, title: '#3 ⚖️ Risks & Chances', color: '#FF9800', outputId: 'goals-output' },
+        { id: 'analysis', number: 4, title: '#4 🎬 Explainer Video Suggestions', color: '#9C27B0', outputId: 'analysis-output' }
       ]
       saveTabDataToStorage()
     }
@@ -256,7 +256,7 @@ function initializeExtension() {
         </div>
         <div class="resizable-agent-box" data-agent="${box.id}" style="background: rgba(255,255,255,0.95); color: black; border-radius: 0 0 8px 8px; padding: 12px; min-height: ${savedHeight}px; height: ${savedHeight}px; border: 1px solid rgba(0,0,0,0.1); box-shadow: 0 2px 4px rgba(0,0,0,0.1); position: relative; resize: vertical; overflow: auto;">
           <div style="font-size: 12px; color: #333; line-height: 1.4;">
-            <div id="${box.outputId}">Ready for ${box.title.replace(/[📝🔍🎯🧮]/g, '').trim()}...</div>
+            <div id="${box.outputId}">Ready for ${box.title.replace(/[📝🔍🎯🧮🧠⚖️🎬]/g, '').replace(/#\d+\s*/, '').trim()}...</div>
           </div>
           <div class="resize-handle-horizontal" style="position: absolute; bottom: 0; left: 0; right: 0; height: 8px; cursor: ns-resize; background: rgba(0,0,0,0.1); border-radius: 0 0 8px 8px; opacity: 0; transition: opacity 0.2s;"></div>
         </div>
@@ -3598,10 +3598,10 @@ function initializeExtension() {
       displayGrids: null as any,
       agentBoxHeights: {} as any,
       agentBoxes: [
-        { id: 'summarize', number: 1, title: '📝 Summarize Agent', color: '#4CAF50', outputId: 'summarize-output' },
-        { id: 'research', number: 2, title: '🔍 Research Agent', color: '#2196F3', outputId: 'research-output' },
-        { id: 'goals', number: 3, title: '🎯 Goal Tracker', color: '#FF9800', outputId: 'goals-output' },
-        { id: 'analysis', number: 4, title: '🧮 Analysis Agent', color: '#9C27B0', outputId: 'analysis-output' }
+        { id: 'summarize', number: 1, title: '#1 🧠 Brainstorm Support Ideas', color: '#4CAF50', outputId: 'summarize-output' },
+        { id: 'research', number: 2, title: '#2 🔍 Knowledge Gap Detection', color: '#2196F3', outputId: 'research-output' },
+        { id: 'goals', number: 3, title: '#3 ⚖️ Risks & Chances', color: '#FF9800', outputId: 'goals-output' },
+        { id: 'analysis', number: 4, title: '#4 🎬 Explainer Video Suggestions', color: '#9C27B0', outputId: 'analysis-output' }
       ] as any
     }
 
@@ -3610,16 +3610,16 @@ function initializeExtension() {
 
     // Clear agent box outputs
     const summarizeOutput = document.getElementById('summarize-output')
-    if (summarizeOutput) summarizeOutput.innerText = 'Ready for new summaries...'
+    if (summarizeOutput) summarizeOutput.innerText = 'Ready for brainstorming support ideas...'
     
     const researchOutput = document.getElementById('research-output')
-    if (researchOutput) researchOutput.innerText = 'Ready for new analysis...'
+    if (researchOutput) researchOutput.innerText = 'Ready for knowledge gap detection...'
     
     const goalsOutput = document.getElementById('goals-output')
-    if (goalsOutput) goalsOutput.innerText = 'Ready for new goal tracking...'
+    if (goalsOutput) goalsOutput.innerText = 'Ready for risks & chances analysis...'
     
     const analysisOutput = document.getElementById('analysis-output')
-    if (analysisOutput) analysisOutput.innerText = 'Ready for new data analysis...'
+    if (analysisOutput) analysisOutput.innerText = 'Ready for explainer video suggestions...'
 
     // Update the session name input in the UI
     const sessionNameInput = document.getElementById('session-name-input') as HTMLInputElement
