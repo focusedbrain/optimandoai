@@ -3251,13 +3251,19 @@ function initializeExtension() {
                 })
               }
               
-              // Navigate to master URL after all tabs are opened (add extra delay for grids)
+              // NO PAGE REFRESH: Restore session data directly
               const totalDelay = 2000 + (sessionData.displayGrids ? sessionData.displayGrids.length * 500 : 0)
               setTimeout(() => {
-                console.log('🔧 DEBUG: Navigating to master URL:', targetUrl)
-                window.location.href = targetUrl
+                console.log('✅ NO REFRESH: Session restored directly without page refresh')
+                console.log('✅ NO REFRESH: Calling renderAgentBoxes with session data')
+                renderAgentBoxes()
               }, totalDelay)
             } else {
+              // ISSUE 1 DEBUG: Check what's in sessionData
+              console.log('🔍 ISSUE 1: sessionData received:', sessionData)
+              console.log('🔍 ISSUE 1: sessionData.agentBoxes:', sessionData.agentBoxes)
+              console.log('🔍 ISSUE 1: currentTabData before restore:', currentTabData.agentBoxes)
+              
               // Restore current session data even without helper tabs
               currentTabData = {
                 ...currentTabData,
@@ -3268,7 +3274,7 @@ function initializeExtension() {
               // Save restored data to localStorage to persist it
               saveTabDataToStorage()
               
-              console.log('🔧 DEBUG: Session restored (no helper tabs) - currentTabData.agentBoxes:', currentTabData.agentBoxes)
+              console.log('🔍 ISSUE 1: currentTabData after restore:', currentTabData.agentBoxes)
               
                             // Re-render agent boxes with restored configuration
               setTimeout(() => {
@@ -3289,15 +3295,17 @@ function initializeExtension() {
                   }, index * 500)
                 })
                 
-                // Navigate to master URL after grids are opened
+                // NO REFRESH: Session already restored, just render agent boxes
                 setTimeout(() => {
-                  console.log('🔧 DEBUG: Navigating to master URL:', targetUrl)
-                  window.location.href = targetUrl
+                  console.log('✅ NO REFRESH: Grids opened, calling renderAgentBoxes')
+                  renderAgentBoxes()
                 }, sessionData.displayGrids.length * 500 + 1000)
               } else {
-                console.log('🔧 DEBUG: No helper tabs or grids found, navigating directly')
-                // No helper tabs or grids, navigate directly
-                window.location.href = targetUrl
+                console.log('✅ NO REFRESH: No helper tabs or grids, session restored')
+                // Session already restored, just render agent boxes
+                setTimeout(() => {
+                  renderAgentBoxes()
+                }, 500)
               }
             }
             
