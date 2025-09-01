@@ -99,22 +99,344 @@ function initializeExtension() {
     },
     helperTabs: null as any,
     displayGrids: null as any,
-    agentBoxHeights: {} as any
+    agentBoxHeights: {} as any,
+    agentBoxes: [
+      { id: 'summarize', number: 1, title: '📝 Summarize Agent', color: '#4CAF50', outputId: 'summarize-output' },
+      { id: 'research', number: 2, title: '🔍 Research Agent', color: '#2196F3', outputId: 'research-output' },
+      { id: 'goals', number: 3, title: '🎯 Goal Tracker', color: '#FF9800', outputId: 'goals-output' },
+      { id: 'analysis', number: 4, title: '🧮 Analysis Agent', color: '#9C27B0', outputId: 'analysis-output' }
+    ] as any
   }
 
   // Save/Load functions
   function saveTabDataToStorage() {
     localStorage.setItem(`optimando-tab-${tabId}`, JSON.stringify(currentTabData))
+    
+    // Also save agent boxes configuration with URL-based key for persistence across page reloads
+    const currentUrl = window.location.href.split('?')[0]
+    const urlKey = `optimando-agentboxes-${btoa(currentUrl).substring(0, 20)}`
+    localStorage.setItem(urlKey, JSON.stringify({
+      agentBoxes: currentTabData.agentBoxes,
+      agentBoxHeights: currentTabData.agentBoxHeights,
+      timestamp: new Date().toISOString()
+    }))
+    console.log('🔧 DEBUG: Saved agent boxes to URL-based storage:', urlKey)
   }
 
   function loadTabDataFromStorage() {
     const saved = localStorage.getItem(`optimando-tab-${tabId}`)
     if (saved) {
-      currentTabData = { ...currentTabData, ...JSON.parse(saved) }
+      const savedData = JSON.parse(saved)
+      currentTabData = { ...currentTabData, ...savedData }
+      console.log('🔧 DEBUG: Loaded tab data from storage, agentBoxes:', currentTabData.agentBoxes?.length || 0)
+    } else {
+      console.log('🔧 DEBUG: No saved tab data found')
+    }
+    
+    // Also try to load agent boxes from URL-based storage (for persistence across page reloads)
+    const currentUrl = window.location.href.split('?')[0]
+    const urlKey = `optimando-agentboxes-${btoa(currentUrl).substring(0, 20)}`
+    const urlSaved = localStorage.getItem(urlKey)
+    if (urlSaved) {
+      try {
+        const urlData = JSON.parse(urlSaved)
+        if (urlData.agentBoxes && urlData.agentBoxes.length > 0) {
+          currentTabData.agentBoxes = urlData.agentBoxes
+          currentTabData.agentBoxHeights = urlData.agentBoxHeights || {}
+          console.log('🔧 DEBUG: Restored agent boxes from URL-based storage:', urlData.agentBoxes.length, 'boxes')
+        }
+      } catch (e) {
+        console.log('🔧 DEBUG: Error parsing URL-based agent box data:', e)
+      }
     }
   }
 
   loadTabDataFromStorage()
+
+  // Dynamic Agent Box Functions
+  function renderAgentBoxes() {
+    console.log('🔧 DEBUG: renderAgentBoxes called with currentTabData.agentBoxes:', currentTabData.agentBoxes)
+    
+    const container = document.getElementById('agent-boxes-container')
+    if (!container) {
+      console.log('🔧 DEBUG: agent-boxes-container not found!')
+      return
+    }
+
+    container.innerHTML = ''
+    
+    if (!currentTabData.agentBoxes || currentTabData.agentBoxes.length === 0) {
+      console.log('🔧 DEBUG: No agent boxes found, using default configuration')
+      // Initialize with default boxes if none exist
+      currentTabData.agentBoxes = [
+        { id: 'summarize', number: 1, title: '📝 Summarize Agent', color: '#4CAF50', outputId: 'summarize-output' },
+        { id: 'research', number: 2, title: '🔍 Research Agent', color: '#2196F3', outputId: 'research-output' },
+        { id: 'goals', number: 3, title: '🎯 Goal Tracker', color: '#FF9800', outputId: 'goals-output' },
+        { id: 'analysis', number: 4, title: '🧮 Analysis Agent', color: '#9C27B0', outputId: 'analysis-output' }
+      ]
+      saveTabDataToStorage()
+    }
+    
+    console.log('🔧 DEBUG: Rendering', currentTabData.agentBoxes.length, 'agent boxes')
+    
+    currentTabData.agentBoxes.forEach((box: any) => {
+      const agentDiv = document.createElement('div')
+      agentDiv.className = 'agent-box-wrapper'
+      agentDiv.setAttribute('data-agent-id', box.id)
+      agentDiv.style.marginBottom = '20px'
+      
+      const savedHeight = currentTabData.agentBoxHeights?.[box.id] || 120
+      
+      agentDiv.innerHTML = `
+        <div style="background: ${box.color}; color: white; text-shadow: 1px 1px 2px rgba(0,0,0,0.5); padding: 8px 12px; border-radius: 6px 6px 0 0; font-size: 13px; font-weight: bold; margin-bottom: 0; position: relative; display: flex; justify-content: space-between; align-items: center;">
+          <span>#${box.number} ${box.title}</span>
+          <button class="delete-agent-box" data-agent-id="${box.id}" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 20px; height: 20px; border-radius: 50%; cursor: pointer; font-size: 12px; font-weight: bold; display: flex; align-items: center; justify-content: center; transition: all 0.2s ease; opacity: 0.7;" title="Delete this agent box">
+            ✕
+          </button>
+        </div>
+        <div class="resizable-agent-box" data-agent="${box.id}" style="background: rgba(255,255,255,0.95); color: black; border-radius: 0 0 8px 8px; padding: 12px; min-height: ${savedHeight}px; height: ${savedHeight}px; border: 1px solid rgba(0,0,0,0.1); box-shadow: 0 2px 4px rgba(0,0,0,0.1); position: relative; resize: vertical; overflow: auto;">
+          <div style="font-size: 12px; color: #333; line-height: 1.4;">
+            <div id="${box.outputId}">Ready for ${box.title.replace(/[📝🔍🎯🧮]/g, '').trim()}...</div>
+          </div>
+          <div class="resize-handle-horizontal" style="position: absolute; bottom: 0; left: 0; right: 0; height: 8px; cursor: ns-resize; background: rgba(0,0,0,0.1); border-radius: 0 0 8px 8px; opacity: 0; transition: opacity 0.2s;"></div>
+        </div>
+      `
+      
+      container.appendChild(agentDiv)
+    })
+    
+    // Re-attach resize event listeners
+    attachAgentBoxResizeListeners()
+    attachDeleteButtonListeners()
+  }
+
+  function deleteAgentBox(agentId: string) {
+    currentTabData.agentBoxes = currentTabData.agentBoxes.filter((box: any) => box.id !== agentId)
+    
+    // Also remove saved height
+    if (currentTabData.agentBoxHeights?.[agentId]) {
+      delete currentTabData.agentBoxHeights[agentId]
+    }
+    
+    saveTabDataToStorage()
+    renderAgentBoxes()
+  }
+
+  function openAddAgentBoxDialog() {
+    const colors = ['#4CAF50', '#2196F3', '#FF9800', '#9C27B0', '#F44336', '#E91E63', '#9E9E9E', '#795548', '#607D8B', '#FF5722']
+    const existingNumbers = currentTabData.agentBoxes.map((box: any) => box.number)
+    const nextNumber = Math.max(...existingNumbers, 0) + 1
+    
+    const overlay = document.createElement('div')
+    overlay.style.cssText = `
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0, 0, 0, 0.8);
+      z-index: 2147483647;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    `
+    
+    overlay.innerHTML = `
+      <div style="background: white; padding: 30px; border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.3); max-width: 500px; width: 90%;">
+        <h3 style="margin: 0 0 20px 0; color: #333; font-size: 18px; text-align: center;">Add New Agent Box</h3>
+        
+        <div style="margin-bottom: 20px;">
+          <label style="display: block; margin-bottom: 8px; color: #555; font-weight: bold;">Agent Number:</label>
+          <input id="agent-number" type="number" value="${nextNumber}" min="1" max="99" style="width: 100%; padding: 10px; border: 2px solid #ddd; border-radius: 6px; font-size: 14px;">
+        </div>
+        
+        <div style="margin-bottom: 20px;">
+          <label style="display: block; margin-bottom: 8px; color: #555; font-weight: bold;">Agent Title:</label>
+          <input id="agent-title" type="text" placeholder="e.g., 🤖 Custom Agent" style="width: 100%; padding: 10px; border: 2px solid #ddd; border-radius: 6px; font-size: 14px;">
+        </div>
+        
+        <div style="margin-bottom: 25px;">
+          <label style="display: block; margin-bottom: 8px; color: #555; font-weight: bold;">Color:</label>
+          <div style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px;">
+            ${colors.map((color, index) => `
+              <button class="color-select" data-color="${color}" style="width: 40px; height: 40px; background: ${color}; border: 3px solid ${index === 0 ? '#333' : 'transparent'}; border-radius: 8px; cursor: pointer; transition: all 0.2s ease;"></button>
+            `).join('')}
+          </div>
+        </div>
+        
+        <div style="display: flex; gap: 10px; justify-content: flex-end;">
+          <button id="cancel-add-agent" style="padding: 10px 20px; background: #ccc; border: none; color: #333; border-radius: 6px; cursor: pointer; font-size: 14px;">Cancel</button>
+          <button id="confirm-add-agent" style="padding: 10px 20px; background: #4CAF50; border: none; color: white; border-radius: 6px; cursor: pointer; font-size: 14px; font-weight: bold;">Add Agent Box</button>
+        </div>
+      </div>
+    `
+    
+    document.body.appendChild(overlay)
+    
+    let selectedColor = colors[0]
+    
+    // Color selection
+    overlay.querySelectorAll('.color-select').forEach(btn => {
+      btn.addEventListener('click', () => {
+        overlay.querySelectorAll('.color-select').forEach(b => b.style.border = '3px solid transparent')
+        btn.style.border = '3px solid #333'
+        selectedColor = btn.getAttribute('data-color') || colors[0]
+      })
+    })
+    
+    // Cancel button
+    overlay.querySelector('#cancel-add-agent')?.addEventListener('click', () => {
+      overlay.remove()
+    })
+    
+    // Confirm button
+    overlay.querySelector('#confirm-add-agent')?.addEventListener('click', () => {
+      const numberInput = overlay.querySelector('#agent-number') as HTMLInputElement
+      const titleInput = overlay.querySelector('#agent-title') as HTMLInputElement
+      
+      const number = parseInt(numberInput.value) || nextNumber
+      const title = titleInput.value.trim() || `Agent ${number}`
+      
+      // Create unique ID
+      const id = `custom-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+      const outputId = `${id}-output`
+      
+      const newBox = {
+        id: id,
+        number: number,
+        title: title,
+        color: selectedColor,
+        outputId: outputId
+      }
+      
+      currentTabData.agentBoxes.push(newBox)
+      saveTabDataToStorage()
+      renderAgentBoxes()
+      
+      overlay.remove()
+      
+      // Show success notification
+      const notification = document.createElement('div')
+      notification.style.cssText = `
+        position: fixed;
+        top: 60px;
+        right: 20px;
+        background: rgba(76, 175, 80, 0.9);
+        color: white;
+        padding: 10px 15px;
+        border-radius: 5px;
+        font-size: 12px;
+        z-index: 2147483648;
+        animation: slideIn 0.3s ease;
+      `
+      notification.innerHTML = `➕ Agent box "${title}" added!`
+      document.body.appendChild(notification)
+      
+      setTimeout(() => {
+        notification.remove()
+      }, 3000)
+    })
+    
+    // Close on background click
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay) {
+        overlay.remove()
+      }
+    })
+  }
+
+  // Helper functions for event listeners
+  function attachAgentBoxResizeListeners() {
+    document.querySelectorAll('.resizable-agent-box').forEach(box => {
+      const resizeHandle = box.querySelector('.resize-handle-horizontal') as HTMLElement
+      
+      // Show/hide resize handle on hover
+      box.addEventListener('mouseenter', () => {
+        if (resizeHandle) resizeHandle.style.opacity = '0.6'
+      })
+      
+      box.addEventListener('mouseleave', () => {
+        if (!box.getAttribute('data-resizing') && resizeHandle) {
+          resizeHandle.style.opacity = '0'
+        }
+      })
+      
+      // Resize functionality
+      let isResizing = false
+      let startY = 0
+      let startHeight = 0
+      
+      if (resizeHandle) {
+        resizeHandle.addEventListener('mousedown', (e: MouseEvent) => {
+          isResizing = true
+          box.setAttribute('data-resizing', 'true')
+          startY = e.clientY
+          startHeight = parseInt(window.getComputedStyle(box as Element).height, 10)
+          resizeHandle.style.opacity = '1'
+          
+          const handleMouseMove = (e: MouseEvent) => {
+            if (!isResizing) return
+            
+            const deltaY = e.clientY - startY
+            const newHeight = Math.max(80, startHeight + deltaY)
+            ;(box as HTMLElement).style.height = newHeight + 'px'
+            ;(box as HTMLElement).style.minHeight = newHeight + 'px'
+          }
+          
+          const handleMouseUp = () => {
+            isResizing = false
+            box.removeAttribute('data-resizing')
+            resizeHandle.style.opacity = '0'
+            
+            document.removeEventListener('mousemove', handleMouseMove)
+            document.removeEventListener('mouseup', handleMouseUp)
+            
+            // Save the new height to storage
+            const agentId = box.getAttribute('data-agent')
+            if (agentId) {
+              if (!currentTabData.agentBoxHeights) {
+                currentTabData.agentBoxHeights = {}
+              }
+              currentTabData.agentBoxHeights[agentId] = parseInt((box as HTMLElement).style.height, 10)
+              saveTabDataToStorage()
+            }
+          }
+          
+          document.addEventListener('mousemove', handleMouseMove)
+          document.addEventListener('mouseup', handleMouseUp)
+          
+          e.preventDefault()
+        })
+      }
+    })
+  }
+
+  function attachDeleteButtonListeners() {
+    document.querySelectorAll('.delete-agent-box').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation()
+        const agentId = btn.getAttribute('data-agent-id')
+        if (agentId) {
+          // Show confirmation dialog
+          const confirmDelete = confirm(`Are you sure you want to delete this agent box?`)
+          if (confirmDelete) {
+            deleteAgentBox(agentId)
+          }
+        }
+      })
+      
+      // Hover effects for delete button
+      btn.addEventListener('mouseenter', () => {
+        (btn as HTMLElement).style.opacity = '1'
+        ;(btn as HTMLElement).style.background = 'rgba(244, 67, 54, 0.8)'
+      })
+      
+      btn.addEventListener('mouseleave', () => {
+        (btn as HTMLElement).style.opacity = '0.7'
+        ;(btn as HTMLElement).style.background = 'rgba(255,255,255,0.2)'
+      })
+    })
+  }
 
   // Add CSS animations
   if (!document.querySelector('#optimando-styles')) {
@@ -281,58 +603,15 @@ function initializeExtension() {
     </div>
     
     <!-- Agent Output Section -->
+    <div id="agent-boxes-container" style="margin-bottom: 20px;">
+      <!-- Dynamic agent boxes will be inserted here -->
+    </div>
+
+    <!-- Add New Agent Box Button -->
     <div style="margin-bottom: 20px;">
-      <!-- Agent #1: Summarize Agent -->
-      <div style="margin-bottom: 20px;">
-        <div style="background: #4CAF50; color: white; text-shadow: 1px 1px 2px rgba(0,0,0,0.5); padding: 8px 12px; border-radius: 6px 6px 0 0; font-size: 13px; font-weight: bold; margin-bottom: 0;">
-          #1 📝 Summarize Agent
-        </div>
-        <div class="resizable-agent-box" data-agent="summarize" style="background: rgba(255,255,255,0.95); color: black; border-radius: 0 0 8px 8px; padding: 12px; min-height: 120px; border: 1px solid rgba(0,0,0,0.1); box-shadow: 0 2px 4px rgba(0,0,0,0.1); position: relative; resize: vertical; overflow: auto;">
-          <div style="font-size: 12px; color: #333; line-height: 1.4;">
-            <div id="summarize-output">Bereit für Zusammenfassungen...</div>
-          </div>
-          <div class="resize-handle-horizontal" style="position: absolute; bottom: 0; left: 0; right: 0; height: 8px; cursor: ns-resize; background: rgba(0,0,0,0.1); border-radius: 0 0 8px 8px; opacity: 0; transition: opacity 0.2s;"></div>
-        </div>
-      </div>
-
-      <!-- Agent #2: Research Agent -->
-      <div style="margin-bottom: 20px;">
-        <div style="background: #2196F3; color: white; text-shadow: 1px 1px 2px rgba(0,0,0,0.5); padding: 8px 12px; border-radius: 6px 6px 0 0; font-size: 13px; font-weight: bold; margin-bottom: 0;">
-          #2 🔍 Research Agent
-        </div>
-        <div class="resizable-agent-box" data-agent="research" style="background: rgba(255,255,255,0.95); color: black; border-radius: 0 0 8px 8px; padding: 12px; min-height: 120px; border: 1px solid rgba(0,0,0,0.1); box-shadow: 0 2px 4px rgba(0,0,0,0.1); position: relative; resize: vertical; overflow: auto;">
-          <div style="font-size: 12px; color: #333; line-height: 1.4;">
-            <div id="research-output">Bereit für Analysen...</div>
-          </div>
-          <div class="resize-handle-horizontal" style="position: absolute; bottom: 0; left: 0; right: 0; height: 8px; cursor: ns-resize; background: rgba(0,0,0,0.1); border-radius: 0 0 8px 8px; opacity: 0; transition: opacity 0.2s;"></div>
-        </div>
-      </div>
-
-      <!-- Agent #3: Goal Tracker -->
-      <div style="margin-bottom: 20px;">
-        <div style="background: #FF9800; color: white; text-shadow: 1px 1px 2px rgba(0,0,0,0.5); padding: 8px 12px; border-radius: 6px 6px 0 0; font-size: 13px; font-weight: bold; margin-bottom: 0;">
-          #3 🎯 Goal Tracker
-        </div>
-        <div class="resizable-agent-box" data-agent="goals" style="background: rgba(255,255,255,0.95); color: black; border-radius: 0 0 8px 8px; padding: 12px; min-height: 120px; border: 1px solid rgba(0,0,0,0.1); box-shadow: 0 2px 4px rgba(0,0,0,0.1); position: relative; resize: vertical; overflow: auto;">
-          <div style="font-size: 12px; color: #333; line-height: 1.4;">
-            <div id="goals-output">Bereit für Ziel-Tracking...</div>
-          </div>
-          <div class="resize-handle-horizontal" style="position: absolute; bottom: 0; left: 0; right: 0; height: 8px; cursor: ns-resize; background: rgba(0,0,0,0.1); border-radius: 0 0 8px 8px; opacity: 0; transition: opacity 0.2s;"></div>
-        </div>
-      </div>
-
-      <!-- Agent #4: Analysis Agent -->
-      <div style="margin-bottom: 20px;">
-        <div style="background: #9C27B0; color: white; text-shadow: 1px 1px 2px rgba(0,0,0,0.5); padding: 8px 12px; border-radius: 6px 6px 0 0; font-size: 13px; font-weight: bold; margin-bottom: 0;">
-          #4 🧮 Analysis Agent
-        </div>
-        <div class="resizable-agent-box" data-agent="analysis" style="background: rgba(255,255,255,0.95); color: black; border-radius: 0 0 8px 8px; padding: 12px; min-height: 120px; border: 1px solid rgba(0,0,0,0.1); box-shadow: 0 2px 4px rgba(0,0,0,0.1); position: relative; resize: vertical; overflow: auto;">
-          <div style="font-size: 12px; color: #333; line-height: 1.4;">
-            <div id="analysis-output">Bereit für Datenanalyse...</div>
-          </div>
-          <div class="resize-handle-horizontal" style="position: absolute; bottom: 0; left: 0; right: 0; height: 8px; cursor: ns-resize; background: rgba(0,0,0,0.1); border-radius: 0 0 8px 8px; opacity: 0; transition: opacity 0.2s;"></div>
-        </div>
-      </div>
+      <button id="add-agent-box-btn" style="width: 100%; padding: 15px; background: rgba(76, 175, 80, 0.8); border: 2px dashed rgba(76, 175, 80, 1); color: white; border-radius: 8px; cursor: pointer; font-size: 14px; font-weight: bold; transition: all 0.3s ease; text-shadow: 1px 1px 2px rgba(0,0,0,0.5);">
+        ➕ Add New Agent Box
+      </button>
     </div>
 
 
@@ -1989,7 +2268,8 @@ function initializeExtension() {
             console.log('✅ Helper tabs session saved:', sessionData.tabName, 'Session ID:', sessionKey)
             console.log('🌐 Session contains:', {
               helperTabs: sessionData.helperTabs ? sessionData.helperTabs.urls?.length || 0 : 0,
-              displayGrids: sessionData.displayGrids ? sessionData.displayGrids.length : 0
+              displayGrids: sessionData.displayGrids ? sessionData.displayGrids.length : 0,
+              agentBoxes: sessionData.agentBoxes ? sessionData.agentBoxes.length : 0
             })
           })
         })
@@ -2073,8 +2353,8 @@ function initializeExtension() {
                 </div>
               </div>
               <p style="margin: 0; font-size: 12px; opacity: 0.7;">Main + Secondary</p>
-            </div>
-
+          </div>
+          
             <div id="btn-3-slot" style="background: rgba(255,255,255,0.1); border-radius: 12px; padding: 15px; cursor: pointer; text-align: center; border: 2px solid transparent; position: relative;">
               <label style="position: absolute; top: 8px; right: 8px; width: 30px; height: 30px; background: #FFD700; border: 3px solid #000; border-radius: 6px; display: flex; align-items: center; justify-content: center; cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,0.5); z-index: 1000;">
                 <input type="checkbox" id="check-3-slot" style="width: 16px; height: 16px; cursor: pointer; margin: 0;">
@@ -2101,11 +2381,11 @@ function initializeExtension() {
                   <div style="background: rgba(33,150,243,0.8); border-radius: 3px; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: bold;">#7</div>
                   <div style="background: rgba(255,152,0,0.8); border-radius: 3px; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: bold;">#8</div>
                   <div style="background: rgba(156,39,176,0.8); border-radius: 3px; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: bold;">#9</div>
-                </div>
+              </div>
               </div>
               <p style="margin: 0; font-size: 12px; opacity: 0.7;">2x2 Grid</p>
             </div>
-
+            
             <!-- ROW 2: 5-slot, 6-slot, 7-slot -->
             <div id="btn-5-slot" style="background: rgba(255,255,255,0.1); border-radius: 12px; padding: 15px; cursor: pointer; text-align: center; border: 2px solid transparent; position: relative;">
               <label style="position: absolute; top: 8px; right: 8px; width: 30px; height: 30px; background: #FFD700; border: 3px solid #000; border-radius: 6px; display: flex; align-items: center; justify-content: center; cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,0.5); z-index: 1000;">
@@ -2119,11 +2399,11 @@ function initializeExtension() {
                   <div style="background: rgba(255,152,0,0.8); border-radius: 3px; display: flex; align-items: center; justify-content: center; font-size: 9px; font-weight: bold;">#8</div>
                   <div style="background: rgba(156,39,176,0.8); border-radius: 3px; display: flex; align-items: center; justify-content: center; font-size: 9px; font-weight: bold;">#9</div>
                   <div style="background: rgba(244,67,54,0.8); border-radius: 3px; display: flex; align-items: center; justify-content: center; font-size: 9px; font-weight: bold;">#10</div>
-                </div>
+              </div>
               </div>
               <p style="margin: 0; font-size: 12px; opacity: 0.7;">Main + Side</p>
             </div>
-
+            
             <div id="btn-6-slot" style="background: rgba(255,255,255,0.1); border-radius: 12px; padding: 15px; cursor: pointer; text-align: center; border: 2px solid transparent; position: relative;">
               <label style="position: absolute; top: 8px; right: 8px; width: 30px; height: 30px; background: #FFD700; border: 3px solid #000; border-radius: 6px; display: flex; align-items: center; justify-content: center; cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,0.5); z-index: 1000;">
                 <input type="checkbox" id="check-6-slot" style="width: 16px; height: 16px; cursor: pointer; margin: 0;">
@@ -2137,11 +2417,11 @@ function initializeExtension() {
                   <div style="background: rgba(156,39,176,0.8); border-radius: 3px; display: flex; align-items: center; justify-content: center; font-size: 9px; font-weight: bold;">#9</div>
                   <div style="background: rgba(244,67,54,0.8); border-radius: 3px; display: flex; align-items: center; justify-content: center; font-size: 9px; font-weight: bold;">#10</div>
                   <div style="background: rgba(0,150,136,0.8); border-radius: 3px; display: flex; align-items: center; justify-content: center; font-size: 9px; font-weight: bold;">#11</div>
-                </div>
+              </div>
               </div>
               <p style="margin: 0; font-size: 12px; opacity: 0.7;">3x2 Grid</p>
             </div>
-
+            
             <div id="btn-7-slot" style="background: rgba(255,255,255,0.1); border-radius: 12px; padding: 15px; cursor: pointer; text-align: center; border: 2px solid transparent; position: relative;">
               <label style="position: absolute; top: 8px; right: 8px; width: 30px; height: 30px; background: #FFD700; border: 3px solid #000; border-radius: 6px; display: flex; align-items: center; justify-content: center; cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,0.5); z-index: 1000;">
                 <input type="checkbox" id="check-7-slot" style="width: 16px; height: 16px; cursor: pointer; margin: 0;">
@@ -2156,11 +2436,11 @@ function initializeExtension() {
                   <div style="background: rgba(244,67,54,0.8); border-radius: 3px; display: flex; align-items: center; justify-content: center; font-size: 9px; font-weight: bold;">#10</div>
                   <div style="background: rgba(0,150,136,0.8); border-radius: 3px; display: flex; align-items: center; justify-content: center; font-size: 8px; font-weight: bold;">#11</div>
                   <div style="background: rgba(121,85,72,0.8); border-radius: 3px; display: flex; align-items: center; justify-content: center; font-size: 8px; font-weight: bold;">#12</div>
-                </div>
+              </div>
               </div>
               <p style="margin: 0; font-size: 12px; opacity: 0.7;">Main + Grid</p>
             </div>
-          
+            
                         <!-- ROW 3: 8-slot, 9-slot, 10-slot -->
             <div id="btn-8-slot" style="background: rgba(255,255,255,0.1); border-radius: 12px; padding: 15px; cursor: pointer; text-align: center; border: 2px solid transparent; position: relative;">
               <label style="position: absolute; top: 8px; right: 8px; width: 30px; height: 30px; background: #FFD700; border: 3px solid #000; border-radius: 6px; display: flex; align-items: center; justify-content: center; cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,0.5); z-index: 1000;">
@@ -2180,8 +2460,8 @@ function initializeExtension() {
                 </div>
               </div>
               <p style="margin: 0; font-size: 12px; opacity: 0.7;">4x2 Grid</p>
-            </div>
-
+          </div>
+          
             <div id="btn-9-slot" style="background: rgba(255,255,255,0.1); border-radius: 12px; padding: 15px; cursor: pointer; text-align: center; border: 2px solid transparent; position: relative;">
               <label style="position: absolute; top: 8px; right: 8px; width: 30px; height: 30px; background: #FFD700; border: 3px solid #000; border-radius: 6px; display: flex; align-items: center; justify-content: center; cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,0.5); z-index: 1000;">
                 <input type="checkbox" id="check-9-slot" style="width: 16px; height: 16px; cursor: pointer; margin: 0;">
@@ -2607,7 +2887,8 @@ function initializeExtension() {
         console.log('🗂️ Display grid session saved:', layout, 'Session ID:', sessionKey)
         console.log('🗂️ Session contains:', {
           helperTabs: sessionData.helperTabs ? sessionData.helperTabs.urls?.length || 0 : 0,
-          displayGrids: sessionData.displayGrids ? sessionData.displayGrids.length : 0
+          displayGrids: sessionData.displayGrids ? sessionData.displayGrids.length : 0,
+          agentBoxes: sessionData.agentBoxes ? sessionData.agentBoxes.length : 0
         })
       })
     })
@@ -2766,18 +3047,29 @@ function initializeExtension() {
               <div class="session-content" style="cursor: pointer;">
                 <p style="margin: 0 0 8px 0; font-size: 12px; color: #F0F0F0; opacity: 0.9;">${session.url || 'No URL'}</p>
                 
+                ${session.agentBoxes && session.agentBoxes.length > 0 ? `
+                  <div style="background: rgba(255,255,255,0.2); border: 1px solid rgba(255,255,255,0.25); border-radius: 8px; padding: 10px; margin: 8px 0;">
+                    <span style="font-size: 11px; font-weight: bold; color: #FFB366;">📦 Agent Boxes (${session.agentBoxes.length}): </span>
+                    <div style="display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px;">
+                      ${session.agentBoxes.map((box, index) => `
+                        <span style="background: ${box.color}; color: white; padding: 2px 6px; border-radius: 3px; font-size: 9px; font-weight: 500;" title="${box.title}">#${box.number}</span>
+                      `).join('')}
+        </div>
+        </div>
+                ` : ''}
+                
                 ${session.helperTabs && session.helperTabs.urls && session.helperTabs.urls.length > 0 ? `
                   <div style="background: rgba(255,255,255,0.25); border: 1px solid rgba(255,255,255,0.3); border-radius: 8px; padding: 12px; margin: 10px 0;">
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
                       <span style="font-size: 12px; font-weight: bold; color: #66FF66;">🌐 Helper Tabs (${session.helperTabs.urls.length})</span>
                       <button class="edit-helper-tabs-btn" data-session-id="${session.id}" style="background: #FF6B35; border: none; color: white; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 10px; font-weight: bold;" title="Edit helper tabs">✏️ Edit</button>
-        </div>
+          </div>
                     <div style="display: flex; flex-wrap: wrap; gap: 6px;">
                       ${session.helperTabs.urls.map((url, index) => `
                         <span style="background: rgba(102,255,102,0.25); color: white; border: 1px solid rgba(102,255,102,0.5); padding: 3px 8px; border-radius: 4px; font-size: 11px; font-weight: 500; max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${url}">${url.replace('https://', '').replace('http://', '').split('/')[0]}</span>
                       `).join('')}
-        </div>
           </div>
+        </div>
                 ` : ''}
                 
                 ${session.displayGrids && session.displayGrids.length > 0 ? `
@@ -2785,7 +3077,7 @@ function initializeExtension() {
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
                       <span style="font-size: 12px; font-weight: bold; color: #FFB366;">🗂️ Display Grids (${session.displayGrids.length})</span>
                       <button class="edit-display-grids-btn" data-session-id="${session.id}" style="background: #FF8C00; border: none; color: white; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 10px; font-weight: bold;" title="Edit display grids">✏️ Edit</button>
-          </div>
+        </div>
                     <div style="display: flex; flex-wrap: wrap; gap: 6px;">
                       ${session.displayGrids.map((grid, index) => `
                         <span style="background: rgba(255,179,102,0.25); color: white; border: 1px solid rgba(255,179,102,0.5); padding: 3px 8px; border-radius: 4px; font-size: 11px; font-weight: 500;" title="${grid.layout} - ${grid.sessionId}">${grid.layout}</span>
@@ -2873,6 +3165,17 @@ function initializeExtension() {
                 tabId: currentTabData.tabId  // Keep current tab ID
               }
               
+              // Save restored data to localStorage to persist it
+              saveTabDataToStorage()
+              
+              console.log('🔧 DEBUG: Session restored - currentTabData.agentBoxes:', currentTabData.agentBoxes)
+              
+              // Re-render agent boxes with restored configuration
+              setTimeout(() => {
+                console.log('🔧 DEBUG: About to re-render agent boxes with:', currentTabData.agentBoxes?.length || 0, 'boxes')
+                renderAgentBoxes()
+              }, 200)
+              
               // Also restore display grids if they exist
               if (sessionData.displayGrids && sessionData.displayGrids.length > 0) {
                 console.log('🔧 DEBUG: Opening', sessionData.displayGrids.length, 'display grids:', sessionData.displayGrids)
@@ -2900,6 +3203,17 @@ function initializeExtension() {
                 ...sessionData,
                 tabId: currentTabData.tabId  // Keep current tab ID
               }
+              
+              // Save restored data to localStorage to persist it
+              saveTabDataToStorage()
+              
+              console.log('🔧 DEBUG: Session restored (no helper tabs) - currentTabData.agentBoxes:', currentTabData.agentBoxes)
+              
+                            // Re-render agent boxes with restored configuration
+              setTimeout(() => {
+                console.log('🔧 DEBUG: About to re-render agent boxes with:', currentTabData.agentBoxes?.length || 0, 'boxes')
+                renderAgentBoxes()
+              }, 200)
               
               // No helper tabs, but check for display grids
               if (sessionData.displayGrids && sessionData.displayGrids.length > 0) {
@@ -2966,7 +3280,7 @@ function initializeExtension() {
       
       overlay.querySelectorAll('.delete-session-btn').forEach(btn => {
         btn.addEventListener('click', (e) => {
-          e.stopPropagation()
+        e.stopPropagation()
           const sessionId = btn.dataset.sessionId
           
           if (confirm('Are you sure you want to delete this session?')) {
@@ -3177,7 +3491,7 @@ function initializeExtension() {
             notification.remove()
           }, 3000)
           
-      console.log('💾 Session saved:', sessionData)
+      console.log('💾 Session saved manually:', sessionData.tabName, 'with', sessionData.agentBoxes?.length || 0, 'agent boxes')
     })
   }
 
@@ -3262,6 +3576,11 @@ function initializeExtension() {
   sidebarsDiv.appendChild(bottomSidebar)
   document.body.appendChild(sidebarsDiv)
   
+  // Render dynamic agent boxes after DOM is ready
+  setTimeout(() => {
+    renderAgentBoxes()
+  }, 100)
+  
   // Set initial body margins and safe scrollbar prevention
   document.body.style.marginLeft = currentTabData.uiConfig.leftSidebarWidth + 'px'
   document.body.style.marginRight = currentTabData.uiConfig.rightSidebarWidth + 'px'
@@ -3307,6 +3626,11 @@ function initializeExtension() {
       
       saveTabDataToStorage()
       console.log('🔄 Left sidebar expanded to width:', newWidth)
+    })
+    
+    // Add New Agent Box button
+    document.getElementById('add-agent-box-btn')?.addEventListener('click', () => {
+      openAddAgentBoxDialog()
     })
     
     // Session name input and lock button
@@ -3372,7 +3696,7 @@ function initializeExtension() {
           }
           
           chrome.storage.local.set({ [sessionKey]: sessionData }, () => {
-            console.log('🔒 Session saved:', sessionData.tabName, 'with', sessionData.helperTabs?.urls?.length || 0, 'helper tabs')
+            console.log('🔒 Session saved:', sessionData.tabName, 'with', sessionData.helperTabs?.urls?.length || 0, 'helper tabs,', sessionData.agentBoxes?.length || 0, 'agent boxes')
           })
           // Show notification
           const notification = document.createElement('div')
@@ -3402,73 +3726,7 @@ function initializeExtension() {
       })
     }
 
-    // Agent box resize functionality
-    document.querySelectorAll('.resizable-agent-box').forEach(box => {
-      const resizeHandle = box.querySelector('.resize-handle-horizontal')
-      
-      // Show/hide resize handle on hover
-      box.addEventListener('mouseenter', () => {
-        resizeHandle.style.opacity = '0.6'
-      })
-      
-      box.addEventListener('mouseleave', () => {
-        if (!box.dataset.resizing) {
-          resizeHandle.style.opacity = '0'
-        }
-      })
-      
-      // Resize functionality
-      let isResizing = false
-      let startY = 0
-      let startHeight = 0
-      
-      resizeHandle.addEventListener('mousedown', (e) => {
-        isResizing = true
-        box.dataset.resizing = 'true'
-        startY = e.clientY
-        startHeight = parseInt(window.getComputedStyle(box).height, 10)
-        resizeHandle.style.opacity = '1'
-        
-        document.addEventListener('mousemove', handleMouseMove)
-        document.addEventListener('mouseup', handleMouseUp)
-        
-        e.preventDefault()
-      })
-      
-      const handleMouseMove = (e) => {
-        if (!isResizing) return
-        
-        const deltaY = e.clientY - startY
-        const newHeight = Math.max(80, startHeight + deltaY) // Minimum height of 80px
-        box.style.height = newHeight + 'px'
-        box.style.minHeight = newHeight + 'px'
-      }
-      
-      const handleMouseUp = () => {
-        isResizing = false
-        delete box.dataset.resizing
-        resizeHandle.style.opacity = '0'
-        
-        document.removeEventListener('mousemove', handleMouseMove)
-        document.removeEventListener('mouseup', handleMouseUp)
-        
-        // Save the new height to storage
-        const agentName = box.dataset.agent
-        if (!currentTabData.agentBoxHeights) {
-          currentTabData.agentBoxHeights = {}
-        }
-        currentTabData.agentBoxHeights[agentName] = parseInt(box.style.height, 10)
-        saveTabDataToStorage()
-      }
-      
-      // Restore saved heights on load
-      const agentName = box.dataset.agent
-      if (currentTabData.agentBoxHeights && currentTabData.agentBoxHeights[agentName]) {
-        const savedHeight = currentTabData.agentBoxHeights[agentName]
-        box.style.height = savedHeight + 'px'
-        box.style.minHeight = savedHeight + 'px'
-      }
-    })
+
     
     console.log('✅ Event handlers attached for reasoning section')
   }, 100)
