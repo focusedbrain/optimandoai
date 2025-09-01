@@ -98,7 +98,8 @@ function initializeExtension() {
       bottomSidebarHeight: 45
     },
     helperTabs: null as any,
-    displayGrids: null as any
+    displayGrids: null as any,
+    agentBoxHeights: {} as any
   }
 
   // Save/Load functions
@@ -279,43 +280,58 @@ function initializeExtension() {
       </button>
     </div>
     
-    <!-- Display Port #1: Summarize Agent -->
-    <div style="background: rgba(255,255,255,0.95); color: black; border-radius: 8px; padding: 15px; margin-bottom: 15px; min-height: 80px; border: 1px solid rgba(0,0,0,0.1); box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
-      <h4 style="margin: 0 0 10px 0; font-size: 14px; color: #4CAF50; font-weight: bold;">#1 📝 Summarize Agent</h4>
-      <div style="font-size: 12px; color: #333; line-height: 1.4;">
-        <div id="summarize-output">Bereit für Zusammenfassungen...</div>
+    <!-- Agent Output Section -->
+    <div style="margin-bottom: 20px;">
+      <!-- Agent #1: Summarize Agent -->
+      <div style="margin-bottom: 20px;">
+        <div style="background: #4CAF50; color: white; text-shadow: 1px 1px 2px rgba(0,0,0,0.5); padding: 8px 12px; border-radius: 6px 6px 0 0; font-size: 13px; font-weight: bold; margin-bottom: 0;">
+          #1 📝 Summarize Agent
+        </div>
+        <div class="resizable-agent-box" data-agent="summarize" style="background: rgba(255,255,255,0.95); color: black; border-radius: 0 0 8px 8px; padding: 12px; min-height: 120px; border: 1px solid rgba(0,0,0,0.1); box-shadow: 0 2px 4px rgba(0,0,0,0.1); position: relative; resize: vertical; overflow: auto;">
+          <div style="font-size: 12px; color: #333; line-height: 1.4;">
+            <div id="summarize-output">Bereit für Zusammenfassungen...</div>
+          </div>
+          <div class="resize-handle-horizontal" style="position: absolute; bottom: 0; left: 0; right: 0; height: 8px; cursor: ns-resize; background: rgba(0,0,0,0.1); border-radius: 0 0 8px 8px; opacity: 0; transition: opacity 0.2s;"></div>
+        </div>
       </div>
-    </div>
 
-    <!-- Display Port #2: Research Agent -->
-    <div style="background: rgba(255,255,255,0.95); color: black; border-radius: 8px; padding: 15px; margin-bottom: 15px; min-height: 80px; border: 1px solid rgba(0,0,0,0.1); box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
-      <h4 style="margin: 0 0 10px 0; font-size: 14px; color: #2196F3; font-weight: bold;">#2 🔍 Research Agent</h4>
-      <div style="font-size: 12px; color: #333; line-height: 1.4;">
-        <div id="research-output">Bereit für Analysen...</div>
+      <!-- Agent #2: Research Agent -->
+      <div style="margin-bottom: 20px;">
+        <div style="background: #2196F3; color: white; text-shadow: 1px 1px 2px rgba(0,0,0,0.5); padding: 8px 12px; border-radius: 6px 6px 0 0; font-size: 13px; font-weight: bold; margin-bottom: 0;">
+          #2 🔍 Research Agent
+        </div>
+        <div class="resizable-agent-box" data-agent="research" style="background: rgba(255,255,255,0.95); color: black; border-radius: 0 0 8px 8px; padding: 12px; min-height: 120px; border: 1px solid rgba(0,0,0,0.1); box-shadow: 0 2px 4px rgba(0,0,0,0.1); position: relative; resize: vertical; overflow: auto;">
+          <div style="font-size: 12px; color: #333; line-height: 1.4;">
+            <div id="research-output">Bereit für Analysen...</div>
+          </div>
+          <div class="resize-handle-horizontal" style="position: absolute; bottom: 0; left: 0; right: 0; height: 8px; cursor: ns-resize; background: rgba(0,0,0,0.1); border-radius: 0 0 8px 8px; opacity: 0; transition: opacity 0.2s;"></div>
+        </div>
       </div>
-    </div>
 
-    <!-- Display Port #3: Goal Tracker -->
-    <div style="background: rgba(255,255,255,0.95); color: black; border-radius: 8px; padding: 15px; margin-bottom: 15px; min-height: 80px; border: 1px solid rgba(0,0,0,0.1); box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
-      <h4 style="margin: 0 0 10px 0; font-size: 14px; color: #FF9800; font-weight: bold;">#3 🎯 Goal Tracker</h4>
-      <div style="font-size: 12px; color: #333; line-height: 1.4;">
-        <div id="goals-output">Bereit für Ziel-Tracking...</div>
+      <!-- Agent #3: Goal Tracker -->
+      <div style="margin-bottom: 20px;">
+        <div style="background: #FF9800; color: white; text-shadow: 1px 1px 2px rgba(0,0,0,0.5); padding: 8px 12px; border-radius: 6px 6px 0 0; font-size: 13px; font-weight: bold; margin-bottom: 0;">
+          #3 🎯 Goal Tracker
+        </div>
+        <div class="resizable-agent-box" data-agent="goals" style="background: rgba(255,255,255,0.95); color: black; border-radius: 0 0 8px 8px; padding: 12px; min-height: 120px; border: 1px solid rgba(0,0,0,0.1); box-shadow: 0 2px 4px rgba(0,0,0,0.1); position: relative; resize: vertical; overflow: auto;">
+          <div style="font-size: 12px; color: #333; line-height: 1.4;">
+            <div id="goals-output">Bereit für Ziel-Tracking...</div>
+          </div>
+          <div class="resize-handle-horizontal" style="position: absolute; bottom: 0; left: 0; right: 0; height: 8px; cursor: ns-resize; background: rgba(0,0,0,0.1); border-radius: 0 0 8px 8px; opacity: 0; transition: opacity 0.2s;"></div>
+        </div>
       </div>
-    </div>
 
-    <!-- Display Port #4: Analysis Agent -->
-    <div style="background: rgba(255,255,255,0.95); color: black; border-radius: 8px; padding: 15px; margin-bottom: 15px; min-height: 80px; border: 1px solid rgba(0,0,0,0.1); box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
-      <h4 style="margin: 0 0 10px 0; font-size: 14px; color: #9C27B0; font-weight: bold;">#4 🧮 Analysis Agent</h4>
-      <div style="font-size: 12px; color: #333; line-height: 1.4;">
-        <div id="analysis-output">Bereit für Datenanalyse...</div>
-      </div>
-    </div>
-
-    <!-- Display Port #5: Assistant Agent -->
-    <div style="background: rgba(255,255,255,0.95); color: black; border-radius: 8px; padding: 15px; margin-bottom: 15px; min-height: 80px; border: 1px solid rgba(0,0,0,0.1); box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
-      <h4 style="margin: 0 0 10px 0; font-size: 14px; color: #607D8B; font-weight: bold;">#5 🤖 Assistant Agent</h4>
-      <div style="font-size: 12px; color: #333; line-height: 1.4;">
-        <div id="assistant-output">Bereit für Unterstützung...</div>
+      <!-- Agent #4: Analysis Agent -->
+      <div style="margin-bottom: 20px;">
+        <div style="background: #9C27B0; color: white; text-shadow: 1px 1px 2px rgba(0,0,0,0.5); padding: 8px 12px; border-radius: 6px 6px 0 0; font-size: 13px; font-weight: bold; margin-bottom: 0;">
+          #4 🧮 Analysis Agent
+        </div>
+        <div class="resizable-agent-box" data-agent="analysis" style="background: rgba(255,255,255,0.95); color: black; border-radius: 0 0 8px 8px; padding: 12px; min-height: 120px; border: 1px solid rgba(0,0,0,0.1); box-shadow: 0 2px 4px rgba(0,0,0,0.1); position: relative; resize: vertical; overflow: auto;">
+          <div style="font-size: 12px; color: #333; line-height: 1.4;">
+            <div id="analysis-output">Bereit für Datenanalyse...</div>
+          </div>
+          <div class="resize-handle-horizontal" style="position: absolute; bottom: 0; left: 0; right: 0; height: 8px; cursor: ns-resize; background: rgba(0,0,0,0.1); border-radius: 0 0 8px 8px; opacity: 0; transition: opacity 0.2s;"></div>
+        </div>
       </div>
     </div>
 
@@ -3385,6 +3401,74 @@ function initializeExtension() {
         }
       })
     }
+
+    // Agent box resize functionality
+    document.querySelectorAll('.resizable-agent-box').forEach(box => {
+      const resizeHandle = box.querySelector('.resize-handle-horizontal')
+      
+      // Show/hide resize handle on hover
+      box.addEventListener('mouseenter', () => {
+        resizeHandle.style.opacity = '0.6'
+      })
+      
+      box.addEventListener('mouseleave', () => {
+        if (!box.dataset.resizing) {
+          resizeHandle.style.opacity = '0'
+        }
+      })
+      
+      // Resize functionality
+      let isResizing = false
+      let startY = 0
+      let startHeight = 0
+      
+      resizeHandle.addEventListener('mousedown', (e) => {
+        isResizing = true
+        box.dataset.resizing = 'true'
+        startY = e.clientY
+        startHeight = parseInt(window.getComputedStyle(box).height, 10)
+        resizeHandle.style.opacity = '1'
+        
+        document.addEventListener('mousemove', handleMouseMove)
+        document.addEventListener('mouseup', handleMouseUp)
+        
+        e.preventDefault()
+      })
+      
+      const handleMouseMove = (e) => {
+        if (!isResizing) return
+        
+        const deltaY = e.clientY - startY
+        const newHeight = Math.max(80, startHeight + deltaY) // Minimum height of 80px
+        box.style.height = newHeight + 'px'
+        box.style.minHeight = newHeight + 'px'
+      }
+      
+      const handleMouseUp = () => {
+        isResizing = false
+        delete box.dataset.resizing
+        resizeHandle.style.opacity = '0'
+        
+        document.removeEventListener('mousemove', handleMouseMove)
+        document.removeEventListener('mouseup', handleMouseUp)
+        
+        // Save the new height to storage
+        const agentName = box.dataset.agent
+        if (!currentTabData.agentBoxHeights) {
+          currentTabData.agentBoxHeights = {}
+        }
+        currentTabData.agentBoxHeights[agentName] = parseInt(box.style.height, 10)
+        saveTabDataToStorage()
+      }
+      
+      // Restore saved heights on load
+      const agentName = box.dataset.agent
+      if (currentTabData.agentBoxHeights && currentTabData.agentBoxHeights[agentName]) {
+        const savedHeight = currentTabData.agentBoxHeights[agentName]
+        box.style.height = savedHeight + 'px'
+        box.style.minHeight = savedHeight + 'px'
+      }
+    })
     
     console.log('✅ Event handlers attached for reasoning section')
   }, 100)
