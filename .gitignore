@@ -1,0 +1,9 @@
+﻿*.exe
+*.dll
+*.pak
+*.asar
+*.blockmap
+dist/
+release/
+win-unpacked/
+node_modules/
