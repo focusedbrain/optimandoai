@@ -1,0 +1,10 @@
+﻿.env
+.env.*
+secrets/**
+dumps/**
+uploads/**
+**/*.log
+node_modules/**
+dist/**
+.vite/**
+coverage/**
