@@ -3370,8 +3370,11 @@ function initializeExtension() {
   function openGridFromSession(layout, sessionId) {
     console.log('🔍 DEBUG: Opening grid from session:', layout, sessionId)
     
+    // Get current theme
+    const currentTheme = localStorage.getItem('optimando-ui-theme') || 'default'
+    
     // Create the complete HTML content for the new tab
-    const gridHTML = createGridHTML(layout, sessionId)
+    const gridHTML = createGridHTML(layout, sessionId, currentTheme)
     
     console.log('🔍 DEBUG: Generated HTML length:', gridHTML.length)
     console.log('🔍 DEBUG: HTML contains save button:', gridHTML.includes('save-grid-btn'))
@@ -3552,7 +3555,7 @@ function initializeExtension() {
     }
   })
   
-  function createGridHTML(layout, sessionId) {
+  function createGridHTML(layout, sessionId, theme = 'default') {
     // Configure grid layout
     const layouts = {
       '2-slot': { slots: 2, columns: '2fr 1fr', rows: 'auto' },
@@ -3587,19 +3590,43 @@ function initializeExtension() {
       const savedAgent = (savedSlots[String(slotNum)] && savedSlots[String(slotNum)].agent) ? savedSlots[String(slotNum)].agent : ''
       const sel = (val: string) => (savedAgent === val ? ' selected' : '')
 
-      // Use calm color for all title bars
-      const headerColor = '#e5e4e2'
+      // Use theme-specific colors for title bars
+      let headerColor = '#e5e4e2' // default calm color
+      let textColor = '#333' // default text color
+      let inputBg = 'rgba(255,255,255,0.8)' // default input background
+      let inputBorder = 'rgba(0,0,0,0.2)' // default input border
+      let slotBg = 'white' // default slot background
+      
+      if (theme === 'default') {
+        headerColor = '#667eea' // solid purple color matching the screenshot
+        textColor = 'white'
+        inputBg = 'rgba(255,255,255,0.2)'
+        inputBorder = 'rgba(255,255,255,0.3)'
+        slotBg = 'white'
+      } else if (theme === 'dark') {
+        headerColor = 'linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%)' // dark gradient
+        textColor = 'white'
+        inputBg = 'rgba(255,255,255,0.2)'
+        inputBorder = 'rgba(255,255,255,0.3)'
+        slotBg = 'black'
+      } else if (theme === 'professional') {
+        headerColor = 'linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%)' // professional light gradient
+        textColor = '#1e293b'
+        inputBg = 'rgba(255,255,255,0.8)'
+        inputBorder = 'rgba(0,0,0,0.2)'
+        slotBg = 'white'
+      }
       
       slotsHTML += `
-        <div data-slot-id="${slotNum}" style="background: white; border: none; border-radius: 8px; display: flex; flex-direction: column; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.1); ${gridRowStyle}">
+        <div data-slot-id="${slotNum}" style="background: ${slotBg} !important; border: 2px solid #666; border-radius: 8px; display: flex; flex-direction: column; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.1); ${gridRowStyle}">
           <div style="background: ${headerColor}; padding: 6px 8px; font-size: 11px; display: flex; justify-content: space-between; align-items: center; border-radius: 8px 8px 0 0; min-height: 32px; flex-shrink: 0;">
-            <div style="display: flex; align-items: center; color: #333; font-weight: bold; min-width: 0; flex: 1;">
+            <div style="display: flex; align-items: center; color: ${textColor}; font-weight: bold; min-width: 0; flex: 1;">
               <span style="margin-right: 4px; white-space: nowrap;">#${slotNum}</span>
               <span style="margin-right: 4px;">🖥️</span>
-              <input type="text" class="slot-title" value="${savedTitle.replace(/"/g, '&quot;')}" placeholder="Title..." style="background: rgba(255,255,255,0.8); border: 1px solid rgba(0,0,0,0.2); color: #333; padding: 2px 6px; border-radius: 4px; font-size: 10px; width: 120px; font-weight: bold; margin-right: 6px; min-width: 60px; max-width: 150px;">
+              <input type="text" class="slot-title" value="${savedTitle.replace(/"/g, '&quot;')}" placeholder="Title..." style="background: ${inputBg}; border: 1px solid ${inputBorder}; color: ${textColor}; padding: 2px 6px; border-radius: 4px; font-size: 10px; width: 120px; font-weight: bold; margin-right: 6px; min-width: 60px; max-width: 150px;">
             </div>
             <div style="display: flex; align-items: center; flex-shrink: 0;">
-              <select class="slot-agent" style="background: rgba(255,255,255,0.8); color: #333; border: 1px solid rgba(0,0,0,0.2); padding: 2px 4px; border-radius: 4px; font-size: 9px; margin-right: 4px; min-width: 80px; max-width: 100px;">
+              <select class="slot-agent" style="background: ${inputBg}; color: ${textColor}; border: 1px solid ${inputBorder}; padding: 2px 4px; border-radius: 4px; font-size: 9px; margin-right: 4px; min-width: 80px; max-width: 100px;">
                 <option value="">Agent</option>
                 <option value="agent1"${sel('agent1')}>Agent 1</option>
                 <option value="agent2"${sel('agent2')}>Agent 2</option>
@@ -3612,10 +3639,10 @@ function initializeExtension() {
                 <option value="agent9"${sel('agent9')}>Agent 9</option>
                 <option value="agent10"${sel('agent10')}>Agent 10</option>
               </select>
-              <button class="close-slot" style="background: rgba(0,0,0,0.1); border: none; color: #333; width: 18px; height: 18px; border-radius: 50%; cursor: pointer; font-size: 10px; font-weight: bold; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">×</button>
+              <button class="close-slot" style="background: ${theme === 'professional' ? 'rgba(0,0,0,0.1)' : 'rgba(255,255,255,0.2)'}; border: none; color: ${textColor}; width: 18px; height: 18px; border-radius: 50%; cursor: pointer; font-size: 10px; font-weight: bold; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">×</button>
             </div>
           </div>
-          <div style="flex: 1; display: flex; align-items: center; justify-content: center; font-size: 14px; color: #333; text-align: center; padding: 16px; background: white; min-height: 0;">
+          <div style="flex: 1; display: flex; align-items: center; justify-content: center; font-size: 14px; color: ${theme === 'dark' ? 'white' : '#333'}; text-align: center; padding: 16px; background: ${slotBg} !important; min-height: 0;">
           </div>
         </div>
       `

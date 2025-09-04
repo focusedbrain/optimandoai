@@ -1,0 +1,3 @@
+﻿apps/extension-chromium/public/**
+apps/desktop/*.js
+apps/desktop/**/*.js
