@@ -621,6 +621,23 @@ function initializeExtension() {
   }
 
   leftSidebar.innerHTML = `
+    <style>
+      /* Theme-specific CSS classes to prevent caching conflicts */
+      .theme-default .title-text { color: white !important; }
+      .theme-default .section-title { color: white !important; }
+      .theme-default .dropdown-title { color: white !important; }
+      .theme-default .menu-link { color: white !important; }
+      
+      .theme-professional .title-text { color: #0f172a !important; }
+      .theme-professional .section-title { color: #0f172a !important; }
+      .theme-professional .dropdown-title { color: #0f172a !important; }
+      .theme-professional .menu-link { color: #0f172a !important; font-weight: 700 !important; }
+      
+      .theme-dark .title-text { color: white !important; }
+      .theme-dark .section-title { color: white !important; }
+      .theme-dark .dropdown-title { color: white !important; }
+      .theme-dark .menu-link { color: white !important; }
+    </style>
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; border-bottom: 1px solid rgba(255,255,255,0.3); padding-bottom: 10px;">
       <h2 style="margin: 0; font-size: 18px; display: flex; align-items: center; gap: 10px;">
         <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style="flex-shrink: 0;">
@@ -655,7 +672,7 @@ function initializeExtension() {
           <rect x="12.6" y="19" width="0.8" height="2.5" rx="0.4" fill="currentColor" opacity="0.8"/>
           <rect x="13.4" y="19" width="0.8" height="2.5" rx="0.4" fill="currentColor" opacity="0.8"/>
         </svg>
-        OpenGiraffe
+        <span class="title-text">OpenGiraffe</span>
       </h2>
       <button id="quick-expand-btn" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 24px; height: 24px; border-radius: 4px; cursor: pointer; font-size: 12px; transition: all 0.2s ease;" title="Quick expand to maximum width">
         ⇄
@@ -741,12 +758,12 @@ function initializeExtension() {
 
   rightSidebar.innerHTML = `
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
-      <h2 style="margin: 0; font-size: 18px;">⚙️ AI Orchestrator</h2>
+      <h2 style="margin: 0; font-size: 18px;" class="section-title">⚙️ AI Orchestrator</h2>
     </div>
 
     <!-- WR Code Connection -->
     <div id="wr-card" style="background: rgba(255,255,255,0.1); padding: 20px; border-radius: 8px; margin-bottom: 20px; text-align: center;">
-      <h3 style="margin: 0 0 15px 0; font-size: 14px;">📱 WR Code</h3>
+      <h3 style="margin: 0 0 15px 0; font-size: 14px;" class="section-title">📱 WR Code</h3>
       
       <!-- QR Code -->
       <div style="width: 120px; height: 120px; background: white; border-radius: 8px; margin: 0 auto 15px auto; display: flex; align-items: center; justify-content: center; overflow: hidden;">
@@ -774,7 +791,7 @@ function initializeExtension() {
     <!-- Session History -->
     <div id="sessions-card" style="background: rgba(255,255,255,0.1); padding: 15px; border-radius: 8px; margin-bottom: 20px;">
       <div style="display: flex; justify-content: between; align-items: center; margin-bottom: 15px;">
-        <h3 style="margin: 0; font-size: 14px;">📚 Sessions History</h3>
+        <h3 style="margin: 0; font-size: 14px;" class="section-title">📚 Sessions History</h3>
       </div>
       
       <button id="sessions-history-btn" style="width: 100%; padding: 12px 16px; background: #2196F3; border: none; color: white; border-radius: 4px; cursor: pointer; font-size: 14px; font-weight: 600; min-height: 44px;">
@@ -784,7 +801,7 @@ function initializeExtension() {
 
     <!-- Quick Actions -->
     <div id="quick-actions-card" style="background: rgba(255,255,255,0.1); padding: 15px; border-radius: 8px; margin-bottom: 20px;">
-      <h3 style="margin: 0 0 15px 0; font-size: 14px;">⚡ Quick Actions</h3>
+      <h3 style="margin: 0 0 15px 0; font-size: 14px;" class="section-title">⚡ Quick Actions</h3>
       <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
         <button id="save-session-btn" style="padding: 8px; background: #4CAF50; border: none; color: white; border-radius: 4px; cursor: pointer; font-size: 10px;">💾 Save</button>
         <button id="sync-btn" style="padding: 8px; background: #2196F3; border: none; color: white; border-radius: 4px; cursor: pointer; font-size: 10px;">🔄 Sync</button>
@@ -839,31 +856,18 @@ function initializeExtension() {
     const fg = textColors[theme]
     const titleFg = titleColors[theme]
     
-    // First reset all title colors to prevent caching issues
+    // Add theme class to main containers for CSS-based styling
     if (leftSidebar) {
-      const allLeftElements = leftSidebar.querySelectorAll('*')
-      allLeftElements.forEach(element => {
-        if (element.textContent && (element.textContent.includes('Reasoning') || element.textContent.includes('Agents') || element.textContent.includes('Whitelist') || element.textContent.includes('Settings'))) {
-          element.style.color = ''
-        }
-      })
+      leftSidebar.className = `theme-${theme}`
     }
     if (rightSidebar) {
-      const allRightElements = rightSidebar.querySelectorAll('*')
-      allRightElements.forEach(element => {
-        if (element.textContent && (element.textContent.includes('Reasoning') || element.textContent.includes('Agents') || element.textContent.includes('Whitelist') || element.textContent.includes('Settings'))) {
-          element.style.color = ''
-        }
-      })
+      rightSidebar.className = `theme-${theme}`
     }
     if (bottomSidebar) {
-      const allBottomElements = bottomSidebar.querySelectorAll('*')
-      allBottomElements.forEach(element => {
-        if (element.textContent && (element.textContent.includes('Reasoning') || element.textContent.includes('Agents') || element.textContent.includes('Whitelist') || element.textContent.includes('Settings'))) {
-          element.style.color = ''
-        }
-      })
+      bottomSidebar.className = `theme-${theme}`
     }
+    
+    // CSS classes handle the styling now, no need for complex dynamic styling
     if (leftSidebar) { 
       leftSidebar.style.background = bg; 
       leftSidebar.style.color = fg;
@@ -874,11 +878,6 @@ function initializeExtension() {
         leftSidebar.style.fontSize = '14px'
         leftSidebar.style.lineHeight = '1.5'
       }
-      // Fix titles contrast
-      const titles = leftSidebar.querySelectorAll('h2, h3, h4, .section-title')
-      titles.forEach(title => {
-        title.style.color = titleFg
-      })
       // Button color rules
       const addAgentBtn = leftSidebar.querySelector('#add-agent-box-btn')
       if (addAgentBtn) {
@@ -908,11 +907,6 @@ function initializeExtension() {
         rightSidebar.style.fontSize = '14px'
         rightSidebar.style.lineHeight = '1.5'
       }
-      // Fix titles contrast
-      const titles = rightSidebar.querySelectorAll('h2, h3, h4, .section-title')
-      titles.forEach(title => {
-        title.style.color = titleFg
-      })
       // Fix QR code instruction text
       const qrText = rightSidebar.querySelector('div[style*="font-size: 11px"]')
       if (qrText) {
@@ -1070,7 +1064,9 @@ function initializeExtension() {
   }
 
   function resetToDefaultTheme() {
+    // Set theme class to default
     if (leftSidebar) {
+      leftSidebar.className = 'theme-default'
       leftSidebar.style.background = ORIGINAL_BG
       leftSidebar.style.color = 'white'
       const addAgentBtn = leftSidebar.querySelector('#add-agent-box-btn')
@@ -1081,6 +1077,7 @@ function initializeExtension() {
       }
     }
     if (rightSidebar) {
+      rightSidebar.className = 'theme-default'
       rightSidebar.style.background = ORIGINAL_BG
       rightSidebar.style.color = 'white'
       const wrBtn = rightSidebar.querySelector('#wr-connect-btn')
@@ -1103,6 +1100,7 @@ function initializeExtension() {
       if (helperBtn) helperBtn.style.background = '#FF6B6B'
     }
     if (bottomSidebar) { 
+      bottomSidebar.className = 'theme-default'
       bottomSidebar.style.background = ORIGINAL_BG; 
       bottomSidebar.style.color = 'white';
       // Reset header titles to original styling
@@ -1170,12 +1168,12 @@ function initializeExtension() {
         <!-- Reasoning Title with Dropdown Arrow -->
         <div style="display: flex; align-items: center; gap: 15px;">
           <div id="reasoning-header" style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
-            <span style="font-size: 12px; font-weight: bold; color: white;">🧠 Reasoning</span>
+            <span style="font-size: 12px; font-weight: bold;" class="menu-link">🧠 Reasoning</span>
             <button id="expand-btn" style="background: transparent; border: none; color: white; font-size: 12px; transition: transform 0.3s ease;">⌄</button>
           </div>
-          <button id="agents-lightbox-btn" style="padding: 4px 8px; background: rgba(255,255,255,0.1); border: none; color: white; border-radius: 3px; cursor: pointer; font-size: 10px;">🤖 Agents</button>
-          <button id="whitelist-lightbox-btn" style="padding: 4px 8px; background: rgba(255,255,255,0.1); border: none; color: white; border-radius: 3px; cursor: pointer; font-size: 10px;">🛡️ Whitelist</button>
-          <button id="settings-lightbox-btn" style="padding: 4px 8px; background: rgba(255,255,255,0.1); border: none; color: white; border-radius: 3px; cursor: pointer; font-size: 10px;">⚙️ Settings</button>
+          <button id="agents-lightbox-btn" style="padding: 4px 8px; background: rgba(255,255,255,0.1); border: none; border-radius: 3px; cursor: pointer; font-size: 10px;" class="menu-link">🤖 Agents</button>
+          <button id="whitelist-lightbox-btn" style="padding: 4px 8px; background: rgba(255,255,255,0.1); border: none; border-radius: 3px; cursor: pointer; font-size: 10px;" class="menu-link">🛡️ Whitelist</button>
+          <button id="settings-lightbox-btn" style="padding: 4px 8px; background: rgba(255,255,255,0.1); border: none; border-radius: 3px; cursor: pointer; font-size: 10px;" class="menu-link">⚙️ Settings</button>
         </div>
         
         <!-- Session Name + Controls -->
@@ -1228,7 +1226,7 @@ function initializeExtension() {
 
           <!-- Reasoning Column -->
             <div style="background: rgba(255,255,255,0.1); padding: 12px; border-radius: 6px;">
-              <h4 style="margin: 0 0 10px 0; font-size: 12px; color: #1e293b;">🤖 Reasoning</h4>
+              <h4 class="dropdown-title" style="margin: 0 0 10px 0; font-size: 12px;">🤖 Reasoning</h4>
               <div style="font-size: 10px;">
                 <div style="margin-bottom: 8px;"><strong>Active Agents:</strong> 0/5</div>
                 <div style="margin-bottom: 8px;"><strong>Status:</strong> Standby</div>
