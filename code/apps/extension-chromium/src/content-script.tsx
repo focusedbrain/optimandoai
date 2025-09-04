@@ -669,7 +669,7 @@ function initializeExtension() {
 
     <!-- Add New Agent Box Button -->
     <div style="margin-bottom: 20px;">
-      <button id="add-agent-box-btn" style="width: 100%; padding: 15px; background: rgba(76, 175, 80, 0.8); border: 2px dashed rgba(76, 175, 80, 1); color: white; border-radius: 8px; cursor: pointer; font-size: 14px; font-weight: bold; transition: all 0.3s ease; text-shadow: 1px 1px 2px rgba(0,0,0,0.5);">
+      <button id="add-agent-box-btn" style="width: 100%; padding: 12px 16px; background: rgba(76, 175, 80, 0.8); border: 2px dashed rgba(76, 175, 80, 1); color: white; border-radius: 8px; cursor: pointer; font-size: 14px; font-weight: bold; min-height: 44px; transition: all 0.3s ease; text-shadow: 1px 1px 2px rgba(0,0,0,0.5);">
         ➕ Add New Agent Box
       </button>
     </div>
@@ -745,7 +745,7 @@ function initializeExtension() {
     </div>
 
     <!-- WR Code Connection -->
-    <div style="background: rgba(255,255,255,0.1); padding: 20px; border-radius: 8px; margin-bottom: 20px; text-align: center;">
+    <div id="wr-card" style="background: rgba(255,255,255,0.1); padding: 20px; border-radius: 8px; margin-bottom: 20px; text-align: center;">
       <h3 style="margin: 0 0 15px 0; font-size: 14px;">📱 WR Code</h3>
       
       <!-- QR Code -->
@@ -757,33 +757,33 @@ function initializeExtension() {
         Scan to connect your WR account
       </div>
       
-      <button id="wr-connect-btn" style="width: 100%; padding: 10px; background: #4CAF50; border: none; color: white; border-radius: 4px; cursor: pointer; font-size: 12px; margin-bottom: 10px;">
-        🔗 Connect WR Account
+      <button id="wr-connect-btn" style="width: 100%; padding: 12px 16px; background: #4CAF50; border: none; color: white; border-radius: 4px; cursor: pointer; font-size: 14px; font-weight: 600; min-height: 44px; margin-bottom: 10px;">
+        🔗 WR Login
       </button>
       
 
       </div>
 
     <!-- Add Helpergrid Button -->
-    <div style="background: rgba(255,255,255,0.1); padding: 15px; border-radius: 8px; margin-bottom: 20px;">
-      <button id="add-helpergrid-btn" style="width: 100%; padding: 15px; background: #FF6B6B; border: none; color: white; border-radius: 8px; cursor: pointer; font-size: 14px; font-weight: bold; transition: all 0.3s ease;">
-        🚀 Add Helpergrid
+    <div id="helpergrid-card" style="background: rgba(255,255,255,0.1); padding: 15px; border-radius: 8px; margin-bottom: 20px;">
+      <button id="add-helpergrid-btn" style="width: 100%; padding: 12px 16px; background: #FF6B6B; border: none; color: white; border-radius: 8px; cursor: pointer; font-size: 14px; font-weight: 600; min-height: 44px; transition: all 0.3s ease;">
+        🚀 Add View
       </button>
     </div>
 
     <!-- Session History -->
-    <div style="background: rgba(255,255,255,0.1); padding: 15px; border-radius: 8px; margin-bottom: 20px;">
+    <div id="sessions-card" style="background: rgba(255,255,255,0.1); padding: 15px; border-radius: 8px; margin-bottom: 20px;">
       <div style="display: flex; justify-content: between; align-items: center; margin-bottom: 15px;">
         <h3 style="margin: 0; font-size: 14px;">📚 Sessions History</h3>
       </div>
       
-      <button id="sessions-history-btn" style="width: 100%; padding: 12px; background: #2196F3; border: none; color: white; border-radius: 4px; cursor: pointer; font-size: 12px;">
+      <button id="sessions-history-btn" style="width: 100%; padding: 12px 16px; background: #2196F3; border: none; color: white; border-radius: 4px; cursor: pointer; font-size: 14px; font-weight: 600; min-height: 44px;">
         📋 View All Sessions
       </button>
     </div>
 
     <!-- Quick Actions -->
-    <div style="background: rgba(255,255,255,0.1); padding: 15px; border-radius: 8px; margin-bottom: 20px;">
+    <div id="quick-actions-card" style="background: rgba(255,255,255,0.1); padding: 15px; border-radius: 8px; margin-bottom: 20px;">
       <h3 style="margin: 0 0 15px 0; font-size: 14px;">⚡ Quick Actions</h3>
       <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
         <button id="save-session-btn" style="padding: 8px; background: #4CAF50; border: none; color: white; border-radius: 4px; cursor: pointer; font-size: 10px;">💾 Save</button>
@@ -817,6 +817,297 @@ function initializeExtension() {
     margin: 0;
     border: none;
   `
+
+  // Theme application limited to Optimando elements (topbar + sidebars only)
+  const ORIGINAL_BG = 'linear-gradient(135deg, rgba(102, 126, 234, 0.95) 0%, rgba(118, 75, 162, 0.95) 100%)'
+
+  function applyTheme(theme) {
+    const gradients = {
+      professional: 'linear-gradient(135deg, #FFFAFA 0%, #f8fafc 100%)',
+      dark: 'linear-gradient(135deg, #0f172a 0%, #1e293b 100%)'
+    }
+    const textColors = {
+      professional: '#334155',
+      dark: '#f1f5f9'
+    }
+    const titleColors = {
+      professional: '#1e293b',
+      dark: '#f1f5f9'
+    }
+    const bg = gradients[theme]
+    if (!bg) return
+    const fg = textColors[theme]
+    const titleFg = titleColors[theme]
+    
+    // First reset all title colors to prevent caching issues
+    if (leftSidebar) {
+      const allLeftElements = leftSidebar.querySelectorAll('*')
+      allLeftElements.forEach(element => {
+        if (element.textContent && (element.textContent.includes('Reasoning') || element.textContent.includes('Agents') || element.textContent.includes('Whitelist') || element.textContent.includes('Settings'))) {
+          element.style.color = ''
+        }
+      })
+    }
+    if (rightSidebar) {
+      const allRightElements = rightSidebar.querySelectorAll('*')
+      allRightElements.forEach(element => {
+        if (element.textContent && (element.textContent.includes('Reasoning') || element.textContent.includes('Agents') || element.textContent.includes('Whitelist') || element.textContent.includes('Settings'))) {
+          element.style.color = ''
+        }
+      })
+    }
+    if (bottomSidebar) {
+      const allBottomElements = bottomSidebar.querySelectorAll('*')
+      allBottomElements.forEach(element => {
+        if (element.textContent && (element.textContent.includes('Reasoning') || element.textContent.includes('Agents') || element.textContent.includes('Whitelist') || element.textContent.includes('Settings'))) {
+          element.style.color = ''
+        }
+      })
+    }
+    if (leftSidebar) { 
+      leftSidebar.style.background = bg; 
+      leftSidebar.style.color = fg;
+      // Fix titles contrast
+      const titles = leftSidebar.querySelectorAll('h2, h3, h4, .section-title')
+      titles.forEach(title => {
+        title.style.color = titleFg
+      })
+      // Button color rules
+      const addAgentBtn = leftSidebar.querySelector('#add-agent-box-btn')
+      if (addAgentBtn) {
+        if (theme === 'professional') {
+          addAgentBtn.style.background = 'linear-gradient(135deg, #f1f5f9 0%, #e2e8f0 100%)'
+          addAgentBtn.style.border = '1px solid #cbd5e1'
+          addAgentBtn.style.color = '#334155'
+          addAgentBtn.style.fontWeight = '500'
+          addAgentBtn.style.boxShadow = '0 1px 2px rgba(0, 0, 0, 0.05)'
+        } else if (theme === 'dark') {
+          addAgentBtn.style.background = 'linear-gradient(135deg, #334155 0%, #1e293b 100%)'
+          addAgentBtn.style.border = '2px dashed #475569'
+          addAgentBtn.style.color = '#f1f5f9'
+          addAgentBtn.style.fontWeight = '600'
+        }
+      }
+    }
+    if (rightSidebar) { 
+      rightSidebar.style.background = bg; 
+      rightSidebar.style.color = fg;
+      // Fix titles contrast
+      const titles = rightSidebar.querySelectorAll('h2, h3, h4, .section-title')
+      titles.forEach(title => {
+        title.style.color = titleFg
+      })
+      // Fix QR code instruction text
+      const qrText = rightSidebar.querySelector('div[style*="font-size: 11px"]')
+      if (qrText) {
+        qrText.style.color = theme === 'professional' ? '#475569' : '#cbd5e1'
+      }
+      // Right sidebar buttons
+      const wrBtn = rightSidebar.querySelector('#wr-connect-btn')
+      const helperBtn = rightSidebar.querySelector('#add-helpergrid-btn')
+      const sessionsBtn = rightSidebar.querySelector('#sessions-history-btn')
+      const cards = rightSidebar.querySelectorAll('#wr-card, #helpergrid-card, #sessions-card, #quick-actions-card')
+      
+      // Style right sidebar cards
+      cards.forEach(card => {
+        if (theme === 'professional') {
+          card.style.background = 'rgba(255, 255, 255, 0.7)'
+          card.style.border = '1px solid rgba(148, 163, 184, 0.3)'
+          card.style.boxShadow = '0 1px 3px rgba(0, 0, 0, 0.1)'
+        } else if (theme === 'dark') {
+          card.style.background = 'rgba(241, 245, 249, 0.08)'
+          card.style.border = '1px solid rgba(241, 245, 249, 0.15)'
+        }
+      })
+      const setBtn = (btn) => {
+        if (!btn) return
+        if (theme === 'professional') {
+          btn.style.background = 'linear-gradient(135deg, #f1f5f9 0%, #e2e8f0 100%)'
+          btn.style.color = '#334155'
+          btn.style.border = '1px solid #cbd5e1'
+          btn.style.fontWeight = '500'
+          btn.style.padding = '12px 16px'
+          btn.style.fontSize = '14px'
+          btn.style.minHeight = '44px'
+          btn.style.boxShadow = '0 1px 2px rgba(0, 0, 0, 0.05)'
+        } else if (theme === 'dark') {
+          btn.style.background = 'linear-gradient(135deg, #334155 0%, #1e293b 100%)'
+          btn.style.color = '#f1f5f9'
+          btn.style.border = 'none'
+          btn.style.fontWeight = '600'
+          btn.style.padding = '12px 16px'
+          btn.style.fontSize = '14px'
+          btn.style.minHeight = '44px'
+        }
+      }
+      setBtn(wrBtn)
+      setBtn(helperBtn)
+      setBtn(sessionsBtn)
+      
+      // Fix dropdown area titles for better readability
+      const dropdownTitles = rightSidebar.querySelectorAll('.bottom-panel h4')
+      dropdownTitles.forEach(title => {
+        // Force reset to prevent caching - clear all possible color styles
+        title.style.color = ''
+        title.style.setProperty('color', '', 'important')
+        
+        if (theme === 'professional') {
+          title.style.setProperty('color', '#1e293b', 'important')  // Black for light background
+        } else if (theme === 'dark') {
+          title.style.setProperty('color', 'white', 'important')    // White for dark background
+        }
+        // Default theme will be handled by resetToDefaultTheme function
+      })
+      
+      // Fix all h4 titles in the right sidebar (including Intent Detection, Goals, Reasoning)
+      const allH4Titles = rightSidebar.querySelectorAll('h4')
+      allH4Titles.forEach(title => {
+        // Force reset to prevent caching - clear all possible color styles
+        title.style.color = ''
+        title.style.setProperty('color', '', 'important')
+        
+        if (theme === 'professional') {
+          title.style.setProperty('color', '#1e293b', 'important')  // Black for light background
+        } else if (theme === 'dark') {
+          title.style.setProperty('color', 'white', 'important')    // White for dark background
+        }
+        // Default theme will be handled by resetToDefaultTheme function
+      })
+    }
+    if (bottomSidebar) { 
+      // Apply theme-specific backgrounds
+      if (theme === 'dark') {
+        bottomSidebar.style.background = bg; 
+        bottomSidebar.style.color = fg;
+      } else if (theme === 'professional') {
+        // Professional theme top bar - clean corporate look
+        bottomSidebar.style.background = 'linear-gradient(135deg, #FFFAFA 0%, #f8fafc 100%)';
+        bottomSidebar.style.color = '#334155';
+      }
+      
+      // Fix session name input contrast
+      const sessionInput = bottomSidebar.querySelector('#session-name-input')
+      if (sessionInput) {
+        sessionInput.style.color = theme === 'professional' ? '#1e293b' : '#f1f5f9'
+        sessionInput.style.background = theme === 'professional' ? 'rgba(30, 41, 59, 0.08)' : 'rgba(241, 245, 249, 0.08)'
+      }
+      // Fix header titles readability for professional and dark themes only
+      if (theme === 'professional' || theme === 'dark') {
+        const headerTitles = bottomSidebar.querySelectorAll('h1, h2, h3, .header-title, .session-id')
+        headerTitles.forEach(title => {
+          title.style.color = theme === 'professional' ? '#1e293b' : titleFg
+          title.style.fontWeight = '600'
+        })
+        const sessionId = bottomSidebar.querySelector('#session-id')
+        if (sessionId) {
+          sessionId.style.color = theme === 'professional' ? '#1e293b' : titleFg
+          sessionId.style.fontWeight = '600'
+        }
+        
+        // Fix top menu links for all themes
+        const allElements = bottomSidebar.querySelectorAll('*')
+        allElements.forEach(element => {
+          if (element.textContent) {
+            const text = element.textContent.trim()
+            if (text === 'Reasoning' || text === 'Agents' || text === 'Whitelist' || text === 'Settings' || 
+                text.includes('Reasoning') || text.includes('Agents') || text.includes('Whitelist') || text.includes('Settings')) {
+              // Force reset to prevent caching
+              element.style.color = ''
+              element.style.setProperty('color', '', 'important')
+              
+              if (theme === 'professional') {
+                element.style.setProperty('color', '#1e293b', 'important')  // Black for light background
+                element.style.fontWeight = '600'
+              } else if (theme === 'dark') {
+                element.style.setProperty('color', 'white', 'important')    // White for dark background
+              }
+            }
+          }
+        })
+      }
+    }
+  }
+
+  function resetToDefaultTheme() {
+    if (leftSidebar) {
+      leftSidebar.style.background = ORIGINAL_BG
+      leftSidebar.style.color = 'white'
+      const addAgentBtn = leftSidebar.querySelector('#add-agent-box-btn')
+      if (addAgentBtn) {
+        addAgentBtn.style.background = 'rgba(76, 175, 80, 0.8)'
+        addAgentBtn.style.border = '2px dashed rgba(76, 175, 80, 1)'
+        addAgentBtn.style.color = 'white'
+      }
+    }
+    if (rightSidebar) {
+      rightSidebar.style.background = ORIGINAL_BG
+      rightSidebar.style.color = 'white'
+      const wrBtn = rightSidebar.querySelector('#wr-connect-btn')
+      const helperBtn = rightSidebar.querySelector('#add-helpergrid-btn')
+      const sessionsBtn = rightSidebar.querySelector('#sessions-history-btn')
+      const cards = rightSidebar.querySelectorAll('#wr-card, #helpergrid-card, #sessions-card, #quick-actions-card')
+      
+      cards.forEach(card => {
+        card.style.background = 'rgba(255,255,255,0.1)'
+        card.style.border = 'none'
+        card.style.boxShadow = ''
+      })
+      ;[wrBtn, helperBtn, sessionsBtn].forEach(btn => {
+        if (!btn) return
+        btn.style.border = 'none'
+        btn.style.color = 'white'
+      })
+      if (wrBtn) wrBtn.style.background = '#4CAF50'
+      if (sessionsBtn) sessionsBtn.style.background = '#2196F3'
+      if (helperBtn) helperBtn.style.background = '#FF6B6B'
+    }
+    if (bottomSidebar) { 
+      bottomSidebar.style.background = ORIGINAL_BG; 
+      bottomSidebar.style.color = 'white';
+      // Reset header titles to original styling
+      const headerTitles = bottomSidebar.querySelectorAll('h1, h2, h3, .header-title, .session-id')
+      headerTitles.forEach(title => {
+        title.style.color = 'white'
+        title.style.fontWeight = ''
+      })
+      const sessionId = bottomSidebar.querySelector('#session-id')
+      if (sessionId) {
+        sessionId.style.color = 'white'
+        sessionId.style.fontWeight = ''
+      }
+      
+      // Fix dropdown area titles for default theme
+      const dropdownTitles = rightSidebar.querySelectorAll('.bottom-panel h4')
+      dropdownTitles.forEach(title => {
+        title.style.color = 'white'
+      })
+      
+      // Fix all h4 titles in the right sidebar for default theme
+      const allH4Titles = rightSidebar.querySelectorAll('h4')
+      allH4Titles.forEach(title => {
+        // Force reset to prevent caching
+        title.style.color = ''
+        title.style.setProperty('color', '', 'important')
+        title.style.setProperty('color', 'white', 'important')  // White for purple background
+      })
+      
+      // Fix top menu links for default theme
+      const menuLinks = bottomSidebar.querySelectorAll('a, button, span, div')
+      menuLinks.forEach(link => {
+        if (link.textContent && (link.textContent.includes('Reasoning') || link.textContent.includes('Agents') || link.textContent.includes('Whitelist') || link.textContent.includes('Settings'))) {
+          link.style.color = 'white'
+        }
+      })
+    }
+  }
+
+  // Apply saved theme on init ONLY if present; otherwise keep original defaults
+  try {
+    const savedTheme = localStorage.getItem('optimando-ui-theme')
+    if (savedTheme === 'dark' || savedTheme === 'professional') {
+      applyTheme(savedTheme)
+    }
+  } catch {}
 
   // Bottom Panel Content
   let isExpanded = false
@@ -858,7 +1149,7 @@ function initializeExtension() {
             
           <!-- Intent Detection Column -->
             <div style="background: rgba(255,255,255,0.1); padding: 12px; border-radius: 6px;">
-              <h4 style="margin: 0 0 10px 0; font-size: 12px; color: #FFD700;">🎯 Intent Detection</h4>
+              <h4 style="margin: 0 0 10px 0; font-size: 12px; color: #1e293b;">🎯 Intent Detection</h4>
               <div style="font-size: 10px;">
                 <div style="margin-bottom: 8px;"><strong>Current:</strong> ${currentTabData.userIntentDetection.detected}</div>
                 <div style="margin-bottom: 8px;"><strong>Confidence:</strong> ${currentTabData.userIntentDetection.confidence}%</div>
@@ -868,26 +1159,26 @@ function initializeExtension() {
 
           <!-- Goals Column -->
             <div style="background: rgba(255,255,255,0.1); padding: 12px; border-radius: 6px;">
-              <h4 style="margin: 0 0 10px 0; font-size: 12px; color: #FFD700;">📋 Goals</h4>
-              <div style="font-size: 10px;">
+              <h4 style="margin: 0 0 10px 0; font-size: 12px; color: #1e293b;">📋 Goals</h4>
+              <div style="font-size: 10px; color: white;">
                 <div style="margin-bottom: 6px;">
-                  <strong>Short:</strong><br>
-                  <textarea id="short-goal" style="width: 100%; height: 30px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 3px; border-radius: 2px; font-size: 9px; resize: none;">${currentTabData.goals.shortTerm}</textarea>
+                  <strong style="color: white;">Short:</strong><br>
+                  <textarea id="short-goal" style="width: 100%; height: 30px; background: rgba(0,0,0,0.25); border: 1px solid rgba(255,255,255,0.35); color: white; padding: 3px; border-radius: 2px; font-size: 9px; resize: none;">${currentTabData.goals.shortTerm}</textarea>
                 </div>
                 <div style="margin-bottom: 6px;">
-                  <strong>Mid:</strong><br>
-                  <textarea id="mid-goal" style="width: 100%; height: 30px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 3px; border-radius: 2px; font-size: 9px; resize: none;">${currentTabData.goals.midTerm}</textarea>
+                  <strong style="color: white;">Mid:</strong><br>
+                  <textarea id="mid-goal" style="width: 100%; height: 30px; background: rgba(0,0,0,0.25); border: 1px solid rgba(255,255,255,0.35); color: white; padding: 3px; border-radius: 2px; font-size: 9px; resize: none;">${currentTabData.goals.midTerm}</textarea>
                 </div>
                 <div>
-                  <strong>Long:</strong><br>
-                  <textarea id="long-goal" style="width: 100%; height: 30px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 3px; border-radius: 2px; font-size: 9px; resize: none;">${currentTabData.goals.longTerm}</textarea>
+                  <strong style="color: white;">Long:</strong><br>
+                  <textarea id="long-goal" style="width: 100%; height: 30px; background: rgba(0,0,0,0.25); border: 1px solid rgba(255,255,255,0.35); color: white; padding: 3px; border-radius: 2px; font-size: 9px; resize: none;">${currentTabData.goals.longTerm}</textarea>
                 </div>
               </div>
             </div>
 
           <!-- Reasoning Column -->
             <div style="background: rgba(255,255,255,0.1); padding: 12px; border-radius: 6px;">
-              <h4 style="margin: 0 0 10px 0; font-size: 12px; color: #FFD700;">🤖 Reasoning</h4>
+              <h4 style="margin: 0 0 10px 0; font-size: 12px; color: #1e293b;">🤖 Reasoning</h4>
               <div style="font-size: 10px;">
                 <div style="margin-bottom: 8px;"><strong>Active Agents:</strong> 0/5</div>
                 <div style="margin-bottom: 8px;"><strong>Status:</strong> Standby</div>
@@ -1740,6 +2031,20 @@ function initializeExtension() {
               </div>
             </div>
             
+            <!-- Appearance -->
+            <div style="background: rgba(255,255,255,0.1); padding: 12px; border-radius: 6px;">
+              <h4 style="margin: 0 0 10px 0; font-size: 12px; color: #FFD700;">🎨 Appearance</h4>
+              <div style="font-size: 10px; display: grid; grid-template-columns: auto 1fr; gap: 8px; align-items: center;">
+                <label style="display:block;">Theme:</label>
+                <select id="optimando-theme-select" style="width: 100%; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 3px; border-radius: 2px; font-size: 9px;">
+                  <option value="default" selected>Default (Original)</option>
+                  <option value="dark">Dark</option>
+                  <option value="professional">Professional</option>
+                </select>
+                <div style="grid-column: 1 / span 2; font-size: 9px; opacity: 0.85;">Only sidebars and the top header bar are themed. Main page stays unchanged.</div>
+              </div>
+            </div>
+
             <!-- Advanced Options -->
             <div style="background: rgba(255,255,255,0.1); padding: 12px; border-radius: 6px;">
               <h4 style="margin: 0 0 10px 0; font-size: 12px; color: #FFD700;">🔬 Advanced</h4>
@@ -1792,6 +2097,31 @@ function initializeExtension() {
     // Add event handler for display port configuration
     document.getElementById('configure-display-ports').onclick = () => {
       openDisplayPortsConfig(overlay)
+    }
+
+    // Theme select wiring
+    const themeSelect = document.getElementById('optimando-theme-select') as HTMLSelectElement | null
+    if (themeSelect) {
+      // initialize from saved (keep default if none)
+      try {
+        const savedTheme = localStorage.getItem('optimando-ui-theme')
+        if (savedTheme === 'dark' || savedTheme === 'professional') {
+          themeSelect.value = savedTheme
+        } else {
+          themeSelect.value = 'default'
+        }
+      } catch {}
+
+      themeSelect.addEventListener('change', () => {
+        const theme = themeSelect.value
+        try { localStorage.setItem('optimando-ui-theme', theme) } catch {}
+        // apply only to extension UIs
+        if (theme === 'default') {
+          try { resetToDefaultTheme() } catch {}
+        } else {
+          try { applyTheme(theme) } catch {}
+        }
+      })
     }
   }
 
