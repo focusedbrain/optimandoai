@@ -823,15 +823,15 @@ function initializeExtension() {
 
   function applyTheme(theme) {
     const gradients = {
-      professional: 'linear-gradient(135deg, #FFFAFA 0%, #f8fafc 100%)',
+      professional: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)',
       dark: 'linear-gradient(135deg, #0f172a 0%, #1e293b 100%)'
     }
     const textColors = {
-      professional: '#334155',
+      professional: '#1e293b',
       dark: '#f1f5f9'
     }
     const titleColors = {
-      professional: '#1e293b',
+      professional: '#0f172a',
       dark: '#f1f5f9'
     }
     const bg = gradients[theme]
@@ -867,6 +867,13 @@ function initializeExtension() {
     if (leftSidebar) { 
       leftSidebar.style.background = bg; 
       leftSidebar.style.color = fg;
+      
+      // Professional theme typography improvements
+      if (theme === 'professional') {
+        leftSidebar.style.fontFamily = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif'
+        leftSidebar.style.fontSize = '14px'
+        leftSidebar.style.lineHeight = '1.5'
+      }
       // Fix titles contrast
       const titles = leftSidebar.querySelectorAll('h2, h3, h4, .section-title')
       titles.forEach(title => {
@@ -876,11 +883,13 @@ function initializeExtension() {
       const addAgentBtn = leftSidebar.querySelector('#add-agent-box-btn')
       if (addAgentBtn) {
         if (theme === 'professional') {
-          addAgentBtn.style.background = 'linear-gradient(135deg, #f1f5f9 0%, #e2e8f0 100%)'
+          addAgentBtn.style.background = 'linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%)'
           addAgentBtn.style.border = '1px solid #cbd5e1'
-          addAgentBtn.style.color = '#334155'
-          addAgentBtn.style.fontWeight = '500'
-          addAgentBtn.style.boxShadow = '0 1px 2px rgba(0, 0, 0, 0.05)'
+          addAgentBtn.style.color = '#1e293b'
+          addAgentBtn.style.fontWeight = '600'
+          addAgentBtn.style.boxShadow = '0 2px 4px rgba(0, 0, 0, 0.08)'
+          addAgentBtn.style.fontSize = '14px'
+          addAgentBtn.style.letterSpacing = '0.025em'
         } else if (theme === 'dark') {
           addAgentBtn.style.background = 'linear-gradient(135deg, #334155 0%, #1e293b 100%)'
           addAgentBtn.style.border = '2px dashed #475569'
@@ -892,6 +901,13 @@ function initializeExtension() {
     if (rightSidebar) { 
       rightSidebar.style.background = bg; 
       rightSidebar.style.color = fg;
+      
+      // Professional theme typography improvements
+      if (theme === 'professional') {
+        rightSidebar.style.fontFamily = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif'
+        rightSidebar.style.fontSize = '14px'
+        rightSidebar.style.lineHeight = '1.5'
+      }
       // Fix titles contrast
       const titles = rightSidebar.querySelectorAll('h2, h3, h4, .section-title')
       titles.forEach(title => {
@@ -911,9 +927,11 @@ function initializeExtension() {
       // Style right sidebar cards
       cards.forEach(card => {
         if (theme === 'professional') {
-          card.style.background = 'rgba(255, 255, 255, 0.7)'
-          card.style.border = '1px solid rgba(148, 163, 184, 0.3)'
-          card.style.boxShadow = '0 1px 3px rgba(0, 0, 0, 0.1)'
+          card.style.background = 'rgba(255, 255, 255, 0.95)'
+          card.style.border = '1px solid rgba(148, 163, 184, 0.2)'
+          card.style.boxShadow = '0 4px 6px rgba(0, 0, 0, 0.05), 0 1px 3px rgba(0, 0, 0, 0.1)'
+          card.style.borderRadius = '12px'
+          card.style.backdropFilter = 'blur(10px)'
         } else if (theme === 'dark') {
           card.style.background = 'rgba(241, 245, 249, 0.08)'
           card.style.border = '1px solid rgba(241, 245, 249, 0.15)'
@@ -922,14 +940,17 @@ function initializeExtension() {
       const setBtn = (btn) => {
         if (!btn) return
         if (theme === 'professional') {
-          btn.style.background = 'linear-gradient(135deg, #f1f5f9 0%, #e2e8f0 100%)'
-          btn.style.color = '#334155'
+          btn.style.background = 'linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%)'
+          btn.style.color = '#1e293b'
           btn.style.border = '1px solid #cbd5e1'
-          btn.style.fontWeight = '500'
-          btn.style.padding = '12px 16px'
+          btn.style.fontWeight = '600'
+          btn.style.padding = '14px 18px'
           btn.style.fontSize = '14px'
-          btn.style.minHeight = '44px'
-          btn.style.boxShadow = '0 1px 2px rgba(0, 0, 0, 0.05)'
+          btn.style.minHeight = '48px'
+          btn.style.boxShadow = '0 2px 4px rgba(0, 0, 0, 0.08)'
+          btn.style.letterSpacing = '0.025em'
+          btn.style.borderRadius = '8px'
+          btn.style.transition = 'all 0.2s ease'
         } else if (theme === 'dark') {
           btn.style.background = 'linear-gradient(135deg, #334155 0%, #1e293b 100%)'
           btn.style.color = '#f1f5f9'
@@ -952,7 +973,7 @@ function initializeExtension() {
         title.style.setProperty('color', '', 'important')
         
         if (theme === 'professional') {
-          title.style.setProperty('color', '#1e293b', 'important')  // Black for light background
+          title.style.setProperty('color', '#0f172a', 'important')  // Dark navy for light background
         } else if (theme === 'dark') {
           title.style.setProperty('color', 'white', 'important')    // White for dark background
         }
@@ -967,7 +988,22 @@ function initializeExtension() {
         title.style.setProperty('color', '', 'important')
         
         if (theme === 'professional') {
-          title.style.setProperty('color', '#1e293b', 'important')  // Black for light background
+          title.style.setProperty('color', '#0f172a', 'important')  // Dark navy for light background
+        } else if (theme === 'dark') {
+          title.style.setProperty('color', 'white', 'important')    // White for dark background
+        }
+        // Default theme will be handled by resetToDefaultTheme function
+      })
+      
+      // Fix dropdown titles specifically (Intent Detection, Goals)
+      const dropdownTitlesInRightSidebar = rightSidebar.querySelectorAll('.dropdown-title')
+      dropdownTitlesInRightSidebar.forEach(title => {
+        // Force reset to prevent caching - clear all possible color styles
+        title.style.color = ''
+        title.style.setProperty('color', '', 'important')
+        
+        if (theme === 'professional') {
+          title.style.setProperty('color', '#0f172a', 'important')  // Dark navy for light background
         } else if (theme === 'dark') {
           title.style.setProperty('color', 'white', 'important')    // White for dark background
         }
@@ -980,9 +1016,14 @@ function initializeExtension() {
         bottomSidebar.style.background = bg; 
         bottomSidebar.style.color = fg;
       } else if (theme === 'professional') {
-        // Professional theme top bar - clean corporate look
-        bottomSidebar.style.background = 'linear-gradient(135deg, #FFFAFA 0%, #f8fafc 100%)';
-        bottomSidebar.style.color = '#334155';
+        // Professional theme top bar - Fortune 500 enterprise design
+        bottomSidebar.style.background = 'linear-gradient(135deg, #ffffff 0%, #f1f5f9 100%)';
+        bottomSidebar.style.color = '#1e293b';
+        bottomSidebar.style.borderBottom = '1px solid #e2e8f0';
+        bottomSidebar.style.boxShadow = '0 1px 3px rgba(0, 0, 0, 0.05)';
+        bottomSidebar.style.fontFamily = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif';
+        bottomSidebar.style.fontSize = '14px';
+        bottomSidebar.style.fontWeight = '500';
       }
       
       // Fix session name input contrast
@@ -1016,8 +1057,8 @@ function initializeExtension() {
               element.style.setProperty('color', '', 'important')
               
               if (theme === 'professional') {
-                element.style.setProperty('color', '#1e293b', 'important')  // Black for light background
-                element.style.fontWeight = '600'
+                element.style.setProperty('color', '#0f172a', 'important')  // Dark navy for light background
+                element.style.fontWeight = '700'
               } else if (theme === 'dark') {
                 element.style.setProperty('color', 'white', 'important')    // White for dark background
               }
@@ -1091,6 +1132,15 @@ function initializeExtension() {
         title.style.setProperty('color', 'white', 'important')  // White for purple background
       })
       
+      // Fix dropdown titles specifically for default theme
+      const dropdownTitlesForDefault = rightSidebar.querySelectorAll('.dropdown-title')
+      dropdownTitlesForDefault.forEach(title => {
+        // Force reset to prevent caching
+        title.style.color = ''
+        title.style.setProperty('color', '', 'important')
+        title.style.setProperty('color', 'white', 'important')  // White for purple background
+      })
+      
       // Fix top menu links for default theme
       const menuLinks = bottomSidebar.querySelectorAll('a, button, span, div')
       menuLinks.forEach(link => {
@@ -1149,7 +1199,7 @@ function initializeExtension() {
             
           <!-- Intent Detection Column -->
             <div style="background: rgba(255,255,255,0.1); padding: 12px; border-radius: 6px;">
-              <h4 style="margin: 0 0 10px 0; font-size: 12px; color: #1e293b;">🎯 Intent Detection</h4>
+              <h4 class="dropdown-title" style="margin: 0 0 10px 0; font-size: 12px;">🎯 Intent Detection</h4>
               <div style="font-size: 10px;">
                 <div style="margin-bottom: 8px;"><strong>Current:</strong> ${currentTabData.userIntentDetection.detected}</div>
                 <div style="margin-bottom: 8px;"><strong>Confidence:</strong> ${currentTabData.userIntentDetection.confidence}%</div>
@@ -1159,7 +1209,7 @@ function initializeExtension() {
 
           <!-- Goals Column -->
             <div style="background: rgba(255,255,255,0.1); padding: 12px; border-radius: 6px;">
-              <h4 style="margin: 0 0 10px 0; font-size: 12px; color: #1e293b;">📋 Goals</h4>
+              <h4 class="dropdown-title" style="margin: 0 0 10px 0; font-size: 12px;">📋 Goals</h4>
               <div style="font-size: 10px; color: white;">
                 <div style="margin-bottom: 6px;">
                   <strong style="color: white;">Short:</strong><br>
@@ -3534,26 +3584,35 @@ function initializeExtension() {
       const savedAgent = (savedSlots[String(slotNum)] && savedSlots[String(slotNum)].agent) ? savedSlots[String(slotNum)].agent : ''
       const sel = (val: string) => (savedAgent === val ? ' selected' : '')
 
+      // Use calm color for all title bars
+      const headerColor = '#e5e4e2'
+      
       slotsHTML += `
-        <div data-slot-id="${slotNum}" style="background: rgba(255,255,255,0.1); border: 2px solid rgba(255,255,255,0.3); border-radius: 8px; display: flex; flex-direction: column; overflow: hidden; ${gridRowStyle}">
-          <div style="background: rgba(0,0,0,0.3); padding: 8px; font-size: 12px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(255,255,255,0.2);">
-            <input type="text" class="slot-title" value="${savedTitle.replace(/"/g, '&quot;')}" placeholder="Enter title..." style="background: transparent; border: 1px solid rgba(255,255,255,0.3); color: white; padding: 4px 8px; border-radius: 4px; font-size: 11px; width: 180px; font-weight: bold;">
-            <select class="slot-agent" style="background: rgba(0,0,0,0.3); color: white; border: 1px solid rgba(255,255,255,0.3); padding: 2px; border-radius: 3px; font-size: 10px;">
-              <option value="">Select Agent</option>
-              <option value="agent1"${sel('agent1')}>Agent 1</option>
-              <option value="agent2"${sel('agent2')}>Agent 2</option>
-              <option value="agent3"${sel('agent3')}>Agent 3</option>
-              <option value="agent4"${sel('agent4')}>Agent 4</option>
-              <option value="agent5"${sel('agent5')}>Agent 5</option>
-              <option value="agent6"${sel('agent6')}>Agent 6</option>
-              <option value="agent7"${sel('agent7')}>Agent 7</option>
-              <option value="agent8"${sel('agent8')}>Agent 8</option>
-              <option value="agent9"${sel('agent9')}>Agent 9</option>
-              <option value="agent10"${sel('agent10')}>Agent 10</option>
-            </select>
+        <div data-slot-id="${slotNum}" style="background: white; border: none; border-radius: 8px; display: flex; flex-direction: column; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.1); ${gridRowStyle}">
+          <div style="background: ${headerColor}; padding: 6px 8px; font-size: 11px; display: flex; justify-content: space-between; align-items: center; border-radius: 8px 8px 0 0; min-height: 32px; flex-shrink: 0;">
+            <div style="display: flex; align-items: center; color: #333; font-weight: bold; min-width: 0; flex: 1;">
+              <span style="margin-right: 4px; white-space: nowrap;">#${slotNum}</span>
+              <span style="margin-right: 4px;">🖥️</span>
+              <input type="text" class="slot-title" value="${savedTitle.replace(/"/g, '&quot;')}" placeholder="Title..." style="background: rgba(255,255,255,0.8); border: 1px solid rgba(0,0,0,0.2); color: #333; padding: 2px 6px; border-radius: 4px; font-size: 10px; width: 120px; font-weight: bold; margin-right: 6px; min-width: 60px; max-width: 150px;">
+            </div>
+            <div style="display: flex; align-items: center; flex-shrink: 0;">
+              <select class="slot-agent" style="background: rgba(255,255,255,0.8); color: #333; border: 1px solid rgba(0,0,0,0.2); padding: 2px 4px; border-radius: 4px; font-size: 9px; margin-right: 4px; min-width: 80px; max-width: 100px;">
+                <option value="">Agent</option>
+                <option value="agent1"${sel('agent1')}>Agent 1</option>
+                <option value="agent2"${sel('agent2')}>Agent 2</option>
+                <option value="agent3"${sel('agent3')}>Agent 3</option>
+                <option value="agent4"${sel('agent4')}>Agent 4</option>
+                <option value="agent5"${sel('agent5')}>Agent 5</option>
+                <option value="agent6"${sel('agent6')}>Agent 6</option>
+                <option value="agent7"${sel('agent7')}>Agent 7</option>
+                <option value="agent8"${sel('agent8')}>Agent 8</option>
+                <option value="agent9"${sel('agent9')}>Agent 9</option>
+                <option value="agent10"${sel('agent10')}>Agent 10</option>
+              </select>
+              <button class="close-slot" style="background: rgba(0,0,0,0.1); border: none; color: #333; width: 18px; height: 18px; border-radius: 50%; cursor: pointer; font-size: 10px; font-weight: bold; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">×</button>
+            </div>
           </div>
-          <div style="flex: 1; display: flex; align-items: center; justify-content: center; font-size: 18px; opacity: 0.8; text-align: center; padding: 20px;">
-            <div>Display Port ${slotNum}<br><small>AI Output Area</small></div>
+          <div style="flex: 1; display: flex; align-items: center; justify-content: center; font-size: 14px; color: #333; text-align: center; padding: 16px; background: white; min-height: 0;">
           </div>
         </div>
       `
@@ -3569,12 +3628,12 @@ function initializeExtension() {
         <style>
           * { margin: 0; padding: 0; box-sizing: border-box; }
           body { 
-            font-family: Arial, sans-serif;
-            background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
-            color: white; height: 100vh; overflow: hidden;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
+            color: #333; height: 100vh; overflow: hidden;
           }
           .grid { 
-            width: 100vw; height: 100vh; display: grid; gap: 4px; padding: 4px;
+            width: 100vw; height: 100vh; display: grid; gap: 0px; padding: 0px;
             grid-template-columns: ${config.columns};
             ${config.rows !== 'auto' ? 'grid-template-rows: ' + config.rows + ';' : ''}
           }
@@ -3591,17 +3650,18 @@ function initializeExtension() {
           bottom: 20px;
           right: 20px;
           padding: 12px 20px;
-          background: #4CAF50;
+          background: linear-gradient(135deg, #4CAF50 0%, #45a049 100%);
           border: none;
           color: white;
-          border-radius: 8px;
+          border-radius: 12px;
           cursor: pointer;
           font-size: 14px;
-          font-weight: bold;
-          box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+          font-weight: 600;
+          box-shadow: 0 4px 12px rgba(76, 175, 80, 0.3);
           z-index: 1000;
           transition: all 0.3s ease;
-        " onmouseover="this.style.background='#45a049'" onmouseout="this.style.background='#4CAF50'">
+          font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        " onmouseover="this.style.background='linear-gradient(135deg, #45a049 0%, #3d8b40 100%)'; this.style.transform='translateY(-2px)'; this.style.boxShadow='0 6px 16px rgba(76, 175, 80, 0.4)'" onmouseout="this.style.background='linear-gradient(135deg, #4CAF50 0%, #45a049 100%)'; this.style.transform='translateY(0)'; this.style.boxShadow='0 4px 12px rgba(76, 175, 80, 0.3)'">
           💾 Save Grid
         </button>
         
@@ -3611,16 +3671,17 @@ function initializeExtension() {
           top: 20px;
           right: 20px;
           padding: 12px 20px;
-          background: #4CAF50;
+          background: linear-gradient(135deg, #4CAF50 0%, #45a049 100%);
           color: white;
-          border-radius: 8px;
+          border-radius: 12px;
           font-size: 14px;
-          font-weight: bold;
-          box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+          font-weight: 600;
+          box-shadow: 0 4px 12px rgba(76, 175, 80, 0.3);
           z-index: 1001;
           display: none;
           opacity: 0;
           transition: all 0.3s ease;
+          font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
         ">
           ✅ Grid saved to session!
         </div>
