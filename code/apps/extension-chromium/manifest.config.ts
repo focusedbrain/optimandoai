@@ -28,7 +28,7 @@ export default defineManifest({
   },
   web_accessible_resources: [
     {
-      resources: ['grid-display.html'],
+      resources: ['grid-display.html', 'grid-script.js'],
       matches: ['<all_urls>']
     }
   ]
