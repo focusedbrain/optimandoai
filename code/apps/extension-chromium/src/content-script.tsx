@@ -1177,6 +1177,7 @@ function initializeExtension() {
             <button id="expand-btn" style="background: transparent; border: none; color: white; font-size: 12px; transition: transform 0.3s ease;">⌄</button>
           </div>
           <button id="agents-lightbox-btn" style="padding: 4px 8px; background: rgba(255,255,255,0.1); border: none; border-radius: 3px; cursor: pointer; font-size: 10px;" class="menu-link">🤖 Agents</button>
+          <button id="context-lightbox-btn" style="padding: 4px 8px; background: rgba(255,255,255,0.1); border: none; border-radius: 3px; cursor: pointer; font-size: 10px;" class="menu-link">📄 Context</button>
           <button id="whitelist-lightbox-btn" style="padding: 4px 8px; background: rgba(255,255,255,0.1); border: none; border-radius: 3px; cursor: pointer; font-size: 10px;" class="menu-link">🛡️ Whitelist</button>
           <button id="settings-lightbox-btn" style="padding: 4px 8px; background: rgba(255,255,255,0.1); border: none; border-radius: 3px; cursor: pointer; font-size: 10px;" class="menu-link">⚙️ Settings</button>
         </div>
@@ -1975,6 +1976,583 @@ function initializeExtension() {
       console.log('URL Whitelist saved:', urls)
     }
   }
+
+  function openContextLightbox() {
+    // Create context lightbox
+    const overlay = document.createElement('div')
+    overlay.id = 'context-lightbox'
+    overlay.style.cssText = `
+      position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+      background: rgba(0,0,0,0.8); z-index: 2147483649;
+      display: flex; align-items: center; justify-content: center;
+      backdrop-filter: blur(5px);
+    `
+    
+    overlay.innerHTML = `
+      <div style="
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
+        border-radius: 16px; width: 90vw; height: 85vh; max-width: 1200px; 
+        color: white; overflow: hidden; box-shadow: 0 20px 40px rgba(0,0,0,0.3); 
+        display: flex; flex-direction: column;
+      ">
+        <div style="padding: 20px; border-bottom: 1px solid rgba(255,255,255,0.3); display: flex; justify-content: space-between; align-items: center;">
+          <h2 style="margin: 0; font-size: 20px;">📄 Context Management</h2>
+          <button id="close-context-lightbox" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 30px; height: 30px; border-radius: 50%; cursor: pointer; font-size: 16px;">×</button>
+        </div>
+        
+        <div style="flex: 1; padding: 20px; overflow-y: auto;">
+          <!-- Tab Navigation -->
+          <div style="display: flex; gap: 10px; margin-bottom: 20px; border-bottom: 1px solid rgba(255,255,255,0.3);">
+            <button id="user-context-tab" style="
+              padding: 10px 20px; background: rgba(255,255,255,0.2); border: none; 
+              color: white; border-radius: 8px 8px 0 0; cursor: pointer; font-size: 14px;
+              transition: all 0.3s ease;
+            ">👤 User Context</button>
+            <button id="publisher-context-tab" style="
+              padding: 10px 20px; background: rgba(255,255,255,0.1); border: none; 
+              color: white; border-radius: 8px 8px 0 0; cursor: pointer; font-size: 14px;
+              transition: all 0.3s ease;
+            ">🌐 Publisher Context</button>
+          </div>
+          
+          <!-- User Context Tab Content -->
+          <div id="user-context-content" style="display: block;">
+            <div style="background: rgba(255,255,255,0.1); padding: 20px; border-radius: 8px; margin-bottom: 20px;">
+              <h3 style="margin: 0 0 15px 0; font-size: 16px; color: #66FF66;">Auto-scrape Website Context</h3>
+              <button id="scrape-context-btn" style="
+                background: linear-gradient(135deg, #4CAF50, #45a049);
+                border: none; color: white; padding: 12px 24px; border-radius: 8px;
+                cursor: pointer; font-size: 14px; font-weight: bold;
+                transition: all 0.3s ease; box-shadow: 0 4px 8px rgba(0,0,0,0.3);
+                margin-bottom: 15px;
+              ">🔍 Scrape Current Page</button>
+              
+              <textarea id="user-context-text" style="
+                width: 100%; height: 200px; background: rgba(255,255,255,0.1);
+                border: 1px solid rgba(255,255,255,0.3); color: white; padding: 15px;
+                border-radius: 8px; font-size: 14px; resize: vertical;
+                font-family: 'Consolas', monospace; line-height: 1.5;
+              " placeholder="Enter your context information here or use the scrape button above..."></textarea>
+            </div>
+            
+            <div style="background: rgba(255,255,255,0.1); padding: 20px; border-radius: 8px; margin-bottom: 20px;">
+              <h3 style="margin: 0 0 15px 0; font-size: 16px; color: #66FF66;">📎 Upload PDF Files</h3>
+              <input type="file" id="context-pdf-upload" multiple accept=".pdf" style="
+                width: 100%; padding: 10px; background: rgba(255,255,255,0.1);
+                border: 1px solid rgba(255,255,255,0.3); color: white;
+                border-radius: 6px; font-size: 12px; margin-bottom: 10px;
+              ">
+              <div id="pdf-files-list" style="font-size: 12px; color: #CCCCCC;"></div>
+            </div>
+          </div>
+          
+          <!-- Publisher Context Tab Content -->
+          <div id="publisher-context-content" style="display: none;">
+            <div style="background: rgba(255,255,255,0.1); padding: 20px; border-radius: 8px; margin-bottom: 20px;">
+              <h3 style="margin: 0 0 15px 0; font-size: 16px; color: #66FF66;">Publisher Context from wrcode.org</h3>
+              <div style="display: flex; gap: 10px; margin-bottom: 15px;">
+                <button id="load-wrcode-context" style="
+                  background: linear-gradient(135deg, #2196F3, #1976D2);
+                  border: none; color: white; padding: 10px 20px; border-radius: 6px;
+                  cursor: pointer; font-size: 12px; font-weight: bold;
+                ">Load from wrcode.org</button>
+              </div>
+              
+              <textarea id="publisher-context-text" style="
+                width: 100%; height: 200px; background: rgba(255,255,255,0.1);
+                border: 1px solid rgba(255,255,255,0.3); color: white; padding: 15px;
+                border-radius: 8px; font-size: 14px; resize: vertical;
+                font-family: 'Consolas', monospace; line-height: 1.5;
+              " placeholder="Publisher context will be loaded from wrcode.org or injected via template..."></textarea>
+            </div>
+          </div>
+          
+          <!-- Action Buttons -->
+          <div style="display: flex; justify-content: center; gap: 15px; margin-top: 20px;">
+            <button id="inject-context-btn" style="
+              background: linear-gradient(135deg, #4CAF50, #45a049);
+              border: none; color: white; padding: 15px 30px; border-radius: 10px;
+              cursor: pointer; font-size: 16px; font-weight: bold;
+              transition: all 0.3s ease; box-shadow: 0 6px 12px rgba(0,0,0,0.3);
+            ">💉 Inject Context to LLMs</button>
+            <button id="save-context-btn" style="
+              background: linear-gradient(135deg, #2196F3, #1976D2);
+              border: none; color: white; padding: 15px 30px; border-radius: 10px;
+              cursor: pointer; font-size: 16px; font-weight: bold;
+              transition: all 0.3s ease; box-shadow: 0 6px 12px rgba(0,0,0,0.3);
+            ">💾 Save Context</button>
+            <button id="clear-context-btn" style="
+              background: linear-gradient(135deg, #f44336, #d32f2f);
+              border: none; color: white; padding: 15px 30px; border-radius: 10px;
+              cursor: pointer; font-size: 16px; font-weight: bold;
+              transition: all 0.3s ease; box-shadow: 0 6px 12px rgba(0,0,0,0.3);
+            ">🗑️ Clear All</button>
+          </div>
+        </div>
+      </div>
+    `
+    
+    document.body.appendChild(overlay)
+    
+    // Load existing context data
+    const userText = document.getElementById('user-context-text') as HTMLTextAreaElement
+    const publisherText = document.getElementById('publisher-context-text') as HTMLTextAreaElement
+    
+    if (currentTabData.context?.userContext?.text) {
+      userText.value = currentTabData.context.userContext.text
+    }
+    if (currentTabData.context?.publisherContext?.text) {
+      publisherText.value = currentTabData.context.publisherContext.text
+    }
+    
+    // Update PDF files list
+    updatePdfFilesList()
+    
+    // Auto-save on text changes
+    const autoSaveContext = () => {
+      if (!currentTabData.context) {
+        currentTabData.context = { userContext: { text: '', pdfFiles: [] }, publisherContext: { text: '' } }
+      }
+      currentTabData.context.userContext.text = userText.value
+      currentTabData.context.publisherContext.text = publisherText.value
+      saveTabDataToStorage()
+      
+      if (currentTabData.isLocked) {
+        sendContextToElectron()
+      }
+    }
+    
+    // Add auto-save listeners
+    userText.addEventListener('input', autoSaveContext)
+    publisherText.addEventListener('input', autoSaveContext)
+    
+    // Tab switching functionality
+    const userTab = document.getElementById('user-context-tab')
+    const publisherTab = document.getElementById('publisher-context-tab')
+    const userContent = document.getElementById('user-context-content')
+    const publisherContent = document.getElementById('publisher-context-content')
+    
+    userTab?.addEventListener('click', () => {
+      userTab.style.background = 'rgba(255,255,255,0.2)'
+      publisherTab.style.background = 'rgba(255,255,255,0.1)'
+      userContent.style.display = 'block'
+      publisherContent.style.display = 'none'
+    })
+    
+    publisherTab?.addEventListener('click', () => {
+      publisherTab.style.background = 'rgba(255,255,255,0.2)'
+      userTab.style.background = 'rgba(255,255,255,0.1)'
+      publisherContent.style.display = 'block'
+      userContent.style.display = 'none'
+    })
+    
+    // Close button
+    document.getElementById('close-context-lightbox')?.addEventListener('click', () => {
+      overlay.remove()
+    })
+    
+    overlay.onclick = (e) => { if (e.target === overlay) overlay.remove() }
+    
+    // Scrape context functionality
+    document.getElementById('scrape-context-btn')?.addEventListener('click', () => {
+      const pageTitle = document.title
+      const pageUrl = window.location.href
+      const pageText = document.body.innerText.substring(0, 3000)
+      
+      const scrapedContext = `Page Title: ${pageTitle}
+URL: ${pageUrl}
+
+Content:
+${pageText}
+
+[Scraped on ${new Date().toLocaleString()}]`
+      
+      const textarea = document.getElementById('user-context-text') as HTMLTextAreaElement
+      textarea.value = scrapedContext
+    })
+    
+    // PDF upload functionality
+    document.getElementById('context-pdf-upload')?.addEventListener('change', (e) => {
+      const files = (e.target as HTMLInputElement).files
+      if (files && files.length > 0) {
+        // Initialize context data structure if not exists
+        if (!currentTabData.context) {
+          currentTabData.context = { userContext: { text: '', pdfFiles: [] }, publisherContext: { text: '' } }
+        }
+        if (!currentTabData.context.userContext) {
+          currentTabData.context.userContext = { text: '', pdfFiles: [] }
+        }
+        if (!currentTabData.context.userContext.pdfFiles) {
+          currentTabData.context.userContext.pdfFiles = []
+        }
+        
+        // Add new files to existing list
+        Array.from(files).forEach(file => {
+          if (file.type === 'application/pdf') {
+            currentTabData.context.userContext.pdfFiles.push({
+              name: file.name,
+              size: file.size,
+              lastModified: file.lastModified,
+              id: Date.now() + Math.random() // Unique ID for removal
+            })
+          }
+        })
+        
+        updatePdfFilesList()
+        saveTabDataToStorage()
+        
+        // Auto-save context to session if locked
+        if (currentTabData.isLocked) {
+          sendContextToElectron()
+        }
+      }
+    })
+    
+    // Helper function to update PDF files list
+    function updatePdfFilesList() {
+      const pdfList = document.getElementById('pdf-files-list')
+      if (pdfList) {
+        const pdfFiles = currentTabData.context?.userContext?.pdfFiles || []
+        if (pdfFiles.length > 0) {
+          pdfList.innerHTML = `
+            <div style="color: #66FF66; font-weight: bold; margin-bottom: 5px;">📎 Uploaded Files (${pdfFiles.length}):</div>
+            ${pdfFiles.map((file, index) => `
+              <div style="display: flex; justify-content: space-between; align-items: center; background: rgba(255,255,255,0.1); padding: 5px 10px; border-radius: 4px; margin: 2px 0; font-size: 11px;">
+                <span>📄 ${file.name} (${Math.round(file.size / 1024)}KB)</span>
+                <button onclick="removePdfFile(${index})" style="background: #f44336; border: none; color: white; padding: 2px 6px; border-radius: 3px; cursor: pointer; font-size: 10px;">✕</button>
+              </div>
+            `).join('')}
+          `
+        } else {
+          pdfList.innerHTML = '<div style="color: #888; font-size: 11px;">No PDF files uploaded</div>'
+        }
+      }
+    }
+    
+    // Global function for removing PDF files
+    (window as any).removePdfFile = (index: number) => {
+      if (currentTabData.context?.userContext?.pdfFiles) {
+        currentTabData.context.userContext.pdfFiles.splice(index, 1)
+        updatePdfFilesList()
+        saveTabDataToStorage()
+      }
+    }
+    
+    // Load wrcode context
+    document.getElementById('load-wrcode-context')?.addEventListener('click', () => {
+      const textarea = document.getElementById('publisher-context-text') as HTMLTextAreaElement
+      textarea.value = 'Loading context from wrcode.org...\n[This would connect to wrcode.org API]'
+    })
+    
+    // Inject context to LLMs
+    document.getElementById('inject-context-btn')?.addEventListener('click', () => {
+      alert('Context injection to LLMs functionality would be implemented here')
+    })
+    
+    // Export context
+    document.getElementById('export-context-btn')?.addEventListener('click', () => {
+      const userText = document.getElementById('user-context-text') as HTMLTextAreaElement
+      const publisherText = document.getElementById('publisher-context-text') as HTMLTextAreaElement
+      const pdfFiles = currentTabData.context?.userContext?.pdfFiles || []
+      
+      const exportData = {
+        userContext: {
+          text: userText.value,
+          pdfFiles: pdfFiles.map(file => ({
+            name: file.name,
+            size: file.size,
+            lastModified: file.lastModified
+          }))
+        },
+        publisherContext: {
+          text: publisherText.value
+        },
+        exportedAt: new Date().toISOString(),
+        sessionId: currentTabData.tabId
+      }
+      
+      // Create and download JSON file
+      const dataStr = JSON.stringify(exportData, null, 2)
+      const dataBlob = new Blob([dataStr], { type: 'application/json' })
+      const url = URL.createObjectURL(dataBlob)
+      
+      const link = document.createElement('a')
+      link.href = url
+      link.download = `context-export-${new Date().toISOString().split('T')[0]}.json`
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+      URL.revokeObjectURL(url)
+      
+      // Show success notification
+      const notification = document.createElement('div')
+      notification.style.cssText = `
+        position: fixed; top: 20px; right: 20px; z-index: 2147483650;
+        background: linear-gradient(135deg, #FF9800, #F57C00); color: white;
+        padding: 15px 20px; border-radius: 8px; font-size: 14px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.3); font-weight: bold;
+      `
+      notification.innerHTML = '📤 Context exported successfully!'
+      document.body.appendChild(notification)
+      
+      setTimeout(() => {
+        notification.remove()
+      }, 3000)
+    })
+    
+    // Save context
+    document.getElementById('save-context-btn')?.addEventListener('click', () => {
+      // Initialize context data structure if not exists
+      if (!currentTabData.context) {
+        currentTabData.context = { userContext: { text: '', pdfFiles: [] }, publisherContext: { text: '' } }
+      }
+      
+      // Update context data
+      const userText = document.getElementById('user-context-text') as HTMLTextAreaElement
+      const publisherText = document.getElementById('publisher-context-text') as HTMLTextAreaElement
+      
+      currentTabData.context.userContext.text = userText.value
+      currentTabData.context.publisherContext.text = publisherText.value
+      
+      // Save to local storage
+      saveTabDataToStorage()
+      
+      // Send to Electron app
+      sendContextToElectron()
+      
+      // Also save to chrome.storage.local for session persistence
+      if (currentTabData.isLocked) {
+        const sessionKey = `session_${currentTabData.tabId}`
+        chrome.storage.local.get([sessionKey], (result) => {
+          if (result[sessionKey]) {
+            const updatedSession = {
+              ...result[sessionKey],
+              context: currentTabData.context
+            }
+            chrome.storage.local.set({ [sessionKey]: updatedSession }, () => {
+              console.log('✅ Context saved to session storage:', sessionKey)
+            })
+          }
+        })
+      }
+      
+      // Show success notification
+      const notification = document.createElement('div')
+      notification.style.cssText = `
+        position: fixed; top: 20px; right: 20px; z-index: 2147483650;
+        background: linear-gradient(135deg, #4CAF50, #45a049); color: white;
+        padding: 15px 20px; border-radius: 8px; font-size: 14px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.3); font-weight: bold;
+      `
+      notification.innerHTML = '✅ Context saved to active session!'
+      document.body.appendChild(notification)
+      
+      setTimeout(() => {
+        notification.remove()
+      }, 3000)
+      
+      overlay.remove()
+    })
+    
+    // Clear context
+    document.getElementById('clear-context-btn')?.addEventListener('click', () => {
+      if (confirm('Clear all context data?')) {
+        const userText = document.getElementById('user-context-text') as HTMLTextAreaElement
+        const publisherText = document.getElementById('publisher-context-text') as HTMLTextAreaElement
+        userText.value = ''
+        publisherText.value = ''
+        document.getElementById('pdf-files-list').innerHTML = ''
+      }
+    })
+  }
+
+  function sendContextToElectron() {
+    console.log('💾 Saving context to Electron app...')
+    console.log('💾 currentTabData.context:', currentTabData.context)
+    
+    // Send context data to Electron app via WebSocket
+    if (window.gridWebSocket && window.gridWebSocket.readyState === WebSocket.OPEN) {
+      const contextData = {
+        type: 'SAVE_CONTEXT',
+        context: currentTabData.context,
+        sessionId: currentTabData.tabId,
+        timestamp: new Date().toISOString()
+      }
+      window.gridWebSocket.send(JSON.stringify(contextData))
+      console.log('📄 Context sent to Electron app:', contextData)
+    } else {
+      console.log('❌ WebSocket not connected, cannot save context to Electron app')
+    }
+  }
+
+  // Load session data from Electron app
+  function loadSessionFromElectron(sessionId) {
+    console.log('📂 Loading session from Electron app:', sessionId)
+    
+    if (window.gridWebSocket && window.gridWebSocket.readyState === WebSocket.OPEN) {
+      window.gridWebSocket.send(JSON.stringify({
+        type: 'LOAD_SESSION',
+        sessionId: sessionId,
+        timestamp: new Date().toISOString()
+      }))
+      console.log('✅ Load session request sent to Electron app')
+    } else {
+      console.log('❌ WebSocket not connected, trying to connect...')
+      const ws = new WebSocket('ws://localhost:51247')
+      
+      ws.onopen = () => {
+        console.log('🔗 Connected to Electron app WebSocket')
+        ws.send(JSON.stringify({
+          type: 'LOAD_SESSION',
+          sessionId: sessionId,
+          timestamp: new Date().toISOString()
+        }))
+        console.log('✅ Load session request sent to Electron app')
+        window.gridWebSocket = ws
+      }
+      
+      ws.onerror = (error) => {
+        console.log('❌ WebSocket connection failed:', error)
+      }
+    }
+  }
+
+  // Save full session data to Electron app
+  function saveSessionToElectron(sessionId, sessionData) {
+    console.log('💾 Saving full session to Electron app:', sessionId)
+    
+    if (window.gridWebSocket && window.gridWebSocket.readyState === WebSocket.OPEN) {
+      window.gridWebSocket.send(JSON.stringify({
+        type: 'SAVE_SESSION_DATA',
+        sessionId: sessionId,
+        sessionData: sessionData,
+        timestamp: new Date().toISOString()
+      }))
+      console.log('✅ Session data sent to Electron app')
+    } else {
+      console.log('❌ WebSocket not connected, trying to connect...')
+      const ws = new WebSocket('ws://localhost:51247')
+      
+      ws.onopen = () => {
+        console.log('🔗 Connected to Electron app WebSocket')
+        ws.send(JSON.stringify({
+          type: 'SAVE_SESSION_DATA',
+          sessionId: sessionId,
+          sessionData: sessionData,
+          timestamp: new Date().toISOString()
+        }))
+        console.log('✅ Session data sent to Electron app')
+        window.gridWebSocket = ws
+      }
+      
+      ws.onerror = (error) => {
+        console.log('❌ WebSocket connection failed:', error)
+      }
+    }
+  }
+
+  // Initialize WebSocket connection to Electron app
+  function initializeWebSocket() {
+    if (window.gridWebSocket && window.gridWebSocket.readyState === WebSocket.OPEN) {
+      return // Already connected
+    }
+
+    console.log('🔗 Initializing WebSocket connection to Electron app...')
+    const ws = new WebSocket('ws://localhost:51247')
+    
+    ws.onopen = () => {
+      console.log('✅ Connected to Electron app WebSocket')
+      window.gridWebSocket = ws
+    }
+    
+    ws.onmessage = (event) => {
+      try {
+        const response = JSON.parse(event.data)
+        console.log('📨 Received from Electron app:', response)
+        
+        switch (response.type) {
+          case 'SESSION_LOADED':
+            console.log('📂 Session loaded from Electron app:', response.sessionId)
+            if (response.data) {
+              // Update currentTabData with loaded session data
+              if (response.data.context) {
+                currentTabData.context = response.data.context
+              }
+              if (response.data.grid_config) {
+                // Update display grids
+                if (!currentTabData.displayGrids) {
+                  currentTabData.displayGrids = []
+                }
+                const existingIndex = currentTabData.displayGrids.findIndex(g => 
+                  g.sessionId === response.sessionId && g.layout === response.data.grid_config.layout
+                )
+                if (existingIndex >= 0) {
+                  currentTabData.displayGrids[existingIndex].config = response.data.grid_config
+                } else {
+                  currentTabData.displayGrids.push({
+                    sessionId: response.sessionId,
+                    layout: response.data.grid_config.layout,
+                    config: response.data.grid_config
+                  })
+                }
+              }
+              if (response.data.agents) {
+                currentTabData.agents = response.data.agents
+              }
+              if (response.data.whitelist) {
+                currentTabData.whitelist = response.data.whitelist
+              }
+              
+              // Save to local storage
+              saveTabDataToStorage()
+              console.log('✅ Session data restored from Electron app')
+            }
+            break
+            
+          case 'CONTEXT_SAVED':
+            console.log('✅ Context saved to Electron app')
+            break
+            
+          case 'GRID_CONFIG_SAVED':
+            console.log('✅ Grid config saved to Electron app')
+            break
+            
+          case 'SESSION_DATA_SAVED':
+            console.log('✅ Session data saved to Electron app')
+            break
+            
+          case 'SESSIONS_LISTED':
+            console.log('📋 Sessions listed from Electron app:', response.sessions)
+            break
+            
+          default:
+            console.log('ℹ️ Unknown message type from Electron app:', response.type)
+        }
+      } catch (error) {
+        console.log('❌ Error parsing WebSocket message:', error)
+      }
+    }
+    
+    ws.onclose = (event) => {
+      console.log('🔌 WebSocket connection closed:', event.code, event.reason)
+      window.gridWebSocket = null
+      
+      // Retry connection after 5 seconds
+      setTimeout(() => {
+        if (!window.gridWebSocket || window.gridWebSocket.readyState !== WebSocket.OPEN) {
+          initializeWebSocket()
+        }
+      }, 5000)
+    }
+    
+    ws.onerror = (error) => {
+      console.log('❌ WebSocket connection error:', error)
+      window.gridWebSocket = null
+    }
+  }
+
+  // Initialize WebSocket connection on page load
+  initializeWebSocket()
 
   function openSettingsLightbox() {
     // Create settings lightbox
@@ -3402,7 +3980,7 @@ function initializeExtension() {
     
     console.log('✅ Grid tab opened from session:', layout)
     console.log('🔧 Set global variables:', { layout, sessionId })
-    
+
     // Attach save handler from the opener (avoids CSP issues with inline scripts)
     attachGridSaveHandler(newTab, layout, sessionId)
   }
@@ -3476,9 +4054,9 @@ function initializeExtension() {
 
     // If session is locked, find and update the correct session
     if (currentTabData.isLocked) {
-      chrome.storage.local.get(null, (allData) => {
+    chrome.storage.local.get(null, (allData) => {
         console.log('🔍 All stored data keys:', Object.keys(allData))
-        const allSessions = Object.entries(allData).filter(([key, value]: any) => key.startsWith('session_')) as any[]
+      const allSessions = Object.entries(allData).filter(([key, value]: any) => key.startsWith('session_')) as any[]
         console.log('🔍 Found sessions:', allSessions.map(([key, value]: any) => ({ 
           key, 
           tabId: value.tabId, 
@@ -3488,12 +4066,12 @@ function initializeExtension() {
         })))
         
         // Strategy 1: Find by exact tabId match
-        let target: any = allSessions.find(([key, value]: any) => value.tabId === currentTabData.tabId)
+      let target: any = allSessions.find(([key, value]: any) => value.tabId === currentTabData.tabId)
         console.log('🔍 Target by exact tabId:', target)
         
         // Strategy 2: Find by URL match (most recent)
-        if (!target) {
-          const currentUrl = window.location.href.split('?')[0]
+      if (!target) {
+        const currentUrl = window.location.href.split('?')[0]
           const urlMatches = allSessions.filter(([key, value]: any) => 
             value.url && value.url.split('?')[0] === currentUrl
           )
@@ -3518,24 +4096,24 @@ function initializeExtension() {
           }
         }
         
-        if (target) {
-          const [sessionKey, sessionData] = target
+      if (target) {
+        const [sessionKey, sessionData] = target
           console.log('✅ Found target session:', sessionKey)
           
-          const existing = Array.isArray(sessionData.displayGrids) ? sessionData.displayGrids : []
-          let found = existing.find((g: any) => g.sessionId === config.sessionId && g.layout === config.layout)
-          if (!found) {
-            found = { layout: config.layout, sessionId: config.sessionId, url: '', timestamp: new Date().toISOString() }
-            existing.push(found)
-          }
-          found.config = { layout: config.layout, sessionId: config.sessionId, slots: config.slots }
-          const updatedSession = { ...sessionData, displayGrids: existing, timestamp: new Date().toISOString() }
+        const existing = Array.isArray(sessionData.displayGrids) ? sessionData.displayGrids : []
+        let found = existing.find((g: any) => g.sessionId === config.sessionId && g.layout === config.layout)
+        if (!found) {
+          found = { layout: config.layout, sessionId: config.sessionId, url: '', timestamp: new Date().toISOString() }
+          existing.push(found)
+        }
+        found.config = { layout: config.layout, sessionId: config.sessionId, slots: config.slots }
+        const updatedSession = { ...sessionData, displayGrids: existing, timestamp: new Date().toISOString() }
           
           console.log('💾 Updating session with displayGrids:', updatedSession.displayGrids)
           
-          chrome.storage.local.set({ [sessionKey]: updatedSession }, () => {
-            console.log('✅ Mirrored grid config into session history:', sessionKey)
-          })
+        chrome.storage.local.set({ [sessionKey]: updatedSession }, () => {
+          console.log('✅ Mirrored grid config into session history:', sessionKey)
+        })
         } else {
           console.log('❌ No target session found. Creating new session...')
           
@@ -3784,20 +4362,20 @@ function initializeExtension() {
         ">
           <!-- Save Grid Button -->
           <button id="save-grid-btn" style="
-            padding: 12px 20px;
-            background: linear-gradient(135deg, #4CAF50 0%, #45a049 100%);
-            border: none;
-            color: white;
-            border-radius: 12px;
-            cursor: pointer;
-            font-size: 14px;
-            font-weight: 600;
-            box-shadow: 0 4px 12px rgba(76, 175, 80, 0.3);
-            transition: all 0.3s ease;
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-          " onmouseover="this.style.background='linear-gradient(135deg, #45a049 0%, #3d8b40 100%)'; this.style.transform='translateY(-2px)'; this.style.boxShadow='0 6px 16px rgba(76, 175, 80, 0.4)'" onmouseout="this.style.background='linear-gradient(135deg, #4CAF50 0%, #45a049 100%)'; this.style.transform='translateY(0)'; this.style.boxShadow='0 4px 12px rgba(76, 175, 80, 0.3)'">
-            💾 Save Grid
-          </button>
+          padding: 12px 20px;
+          background: linear-gradient(135deg, #4CAF50 0%, #45a049 100%);
+          border: none;
+          color: white;
+          border-radius: 12px;
+          cursor: pointer;
+          font-size: 14px;
+          font-weight: 600;
+          box-shadow: 0 4px 12px rgba(76, 175, 80, 0.3);
+          transition: all 0.3s ease;
+          font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        " onmouseover="this.style.background='linear-gradient(135deg, #45a049 0%, #3d8b40 100%)'; this.style.transform='translateY(-2px)'; this.style.boxShadow='0 6px 16px rgba(76, 175, 80, 0.4)'" onmouseout="this.style.background='linear-gradient(135deg, #4CAF50 0%, #45a049 100%)'; this.style.transform='translateY(0)'; this.style.boxShadow='0 4px 12px rgba(76, 175, 80, 0.3)'">
+          💾 Save Grid
+        </button>
           
           <!-- Fullscreen Button -->
           <button id="fullscreen-btn" style="
@@ -3842,6 +4420,7 @@ function initializeExtension() {
           ✅ Grid saved to session!
         </div>
         
+        <script src="${chrome.runtime.getURL('grid-script.js')}"></script>
         <script>
           console.log('✅ Grid loaded successfully:', '${layout}', 'Session:', '${sessionId}');
           document.title = 'AI Grid - ${layout.toUpperCase()}';
@@ -4675,6 +5254,7 @@ function initializeExtension() {
     
     // Agents and Settings lightbox buttons
     document.getElementById('agents-lightbox-btn')?.addEventListener('click', openAgentsLightbox)
+    document.getElementById('context-lightbox-btn')?.addEventListener('click', openContextLightbox)
     document.getElementById('whitelist-lightbox-btn')?.addEventListener('click', openWhitelistLightbox)
     document.getElementById('settings-lightbox-btn')?.addEventListener('click', openSettingsLightbox)
     

@@ -1,11 +1,25 @@
 // Grid functionality for display grids
+// Prevent script from running multiple times
+if (window.gridScriptLoaded) {
+  console.log('⚠️ Grid script already loaded, skipping...');
+  return;
+}
+window.gridScriptLoaded = true;
 console.log('✅ Grid script loaded');
 
-// Global variables
-let isFullscreen = false;
-let currentSlideIndex = 0;
-let isSlideMode = false;
-let totalSlots = 0;
+// Global variables - check if already declared to prevent redeclaration errors
+if (typeof isFullscreen === 'undefined') {
+  var isFullscreen = false;
+}
+if (typeof currentSlideIndex === 'undefined') {
+  var currentSlideIndex = 0;
+}
+if (typeof isSlideMode === 'undefined') {
+  var isSlideMode = false;
+}
+if (typeof totalSlots === 'undefined') {
+  var totalSlots = 0;
+}
 
 // Save grid configuration
 function saveGridConfig() {
