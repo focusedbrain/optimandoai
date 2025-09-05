@@ -1,22 +1,42 @@
 {
-  "name": "desktop-app",
+  "name": "optimando-desktop",
   "version": "1.0.0",
-  "description": "Simple Electron Desktop App",
+  "description": "Optimando Desktop App - WebSocket Server",
   "main": "main.js",
   "scripts": {
-    "start": "electron .",
-    "dev": "electron . --dev",
+    "start": "electron main.js",
+    "start-headless": "electron main.js --headless",
+    "dev": "electron main.js --dev",
     "build": "electron-builder",
-    "websocket": "node websocket-server.js"
+    "dist": "electron-builder --publish=never"
   },
-  "keywords": ["electron", "desktop"],
-  "author": "Your Name",
-  "license": "MIT",
+  "build": {
+    "appId": "com.optimando.desktop",
+    "productName": "Optimando Desktop",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "main.js",
+      "index.html",
+      "package.json"
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "icon.ico"
+    },
+    "mac": {
+      "target": "dmg"
+    },
+    "linux": {
+      "target": "AppImage"
+    }
+  },
   "dependencies": {
-    "ws": "^8.18.3"
+    "electron": "^28.0.0",
+    "ws": "^8.14.0"
   },
   "devDependencies": {
-    "electron": "^28.0.0",
-    "electron-builder": "^24.6.4"
+    "electron-builder": "^24.0.0"
   }
 }

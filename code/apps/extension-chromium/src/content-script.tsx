@@ -3396,16 +3396,13 @@ function initializeExtension() {
     newTab.document.write(gridHTML)
     newTab.document.close()
     
-    console.log('✅ Grid tab opened from session:', layout)
+    // Set global variables in the new tab
+    newTab.window.gridLayout = layout
+    newTab.window.gridSessionId = sessionId
     
-    // Add a delay to check what actually got written
-    setTimeout(() => {
-      console.log('🔍 DEBUG: Checking tab content after write...')
-      console.log('🔍 DEBUG: Tab title:', newTab.document.title)
-      console.log('🔍 DEBUG: Save button exists:', !!newTab.document.getElementById('save-grid-btn'))
-      console.log('🔍 DEBUG: Slot elements count:', newTab.document.querySelectorAll('[data-slot-id]').length)
-    }, 1000)
-
+    console.log('✅ Grid tab opened from session:', layout)
+    console.log('🔧 Set global variables:', { layout, sessionId })
+    
     // Attach save handler from the opener (avoids CSP issues with inline scripts)
     attachGridSaveHandler(newTab, layout, sessionId)
   }
@@ -3460,6 +3457,10 @@ function initializeExtension() {
   }
 
   function persistGridConfig(config: { layout: string, sessionId: string, slots: any }) {
+    console.log('💾 persistGridConfig called with:', config)
+    console.log('💾 currentTabData.tabId:', currentTabData.tabId)
+    console.log('💾 currentTabData.isLocked:', currentTabData.isLocked)
+    
     if (!currentTabData.displayGrids) currentTabData.displayGrids = []
     let entry: any = currentTabData.displayGrids.find(g => g.sessionId === config.sessionId && g.layout === config.layout)
     if (!entry) {
@@ -3468,34 +3469,93 @@ function initializeExtension() {
     }
     entry.config = { layout: config.layout, sessionId: config.sessionId, slots: config.slots }
 
+    console.log('📊 Updated currentTabData.displayGrids:', currentTabData.displayGrids)
+
     // Persist local tab data
     saveTabDataToStorage()
 
-    // Also mirror into chrome.storage.local by updating the most relevant session
-    chrome.storage.local.get(null, (allData) => {
-      const allSessions = Object.entries(allData).filter(([key, value]: any) => key.startsWith('session_')) as any[]
-      // Prefer by tabId match
-      let target: any = allSessions.find(([key, value]: any) => value.tabId === currentTabData.tabId)
-      // Fallback by URL match
-      if (!target) {
-        const currentUrl = window.location.href.split('?')[0]
-        target = allSessions.find(([key, value]: any) => (value.url && value.url.split('?')[0] === currentUrl))
-      }
-      if (target) {
-        const [sessionKey, sessionData] = target
-        const existing = Array.isArray(sessionData.displayGrids) ? sessionData.displayGrids : []
-        let found = existing.find((g: any) => g.sessionId === config.sessionId && g.layout === config.layout)
-        if (!found) {
-          found = { layout: config.layout, sessionId: config.sessionId, url: '', timestamp: new Date().toISOString() }
-          existing.push(found)
+    // If session is locked, find and update the correct session
+    if (currentTabData.isLocked) {
+      chrome.storage.local.get(null, (allData) => {
+        console.log('🔍 All stored data keys:', Object.keys(allData))
+        const allSessions = Object.entries(allData).filter(([key, value]: any) => key.startsWith('session_')) as any[]
+        console.log('🔍 Found sessions:', allSessions.map(([key, value]: any) => ({ 
+          key, 
+          tabId: value.tabId, 
+          url: value.url, 
+          tabName: value.tabName,
+          isLocked: value.isLocked 
+        })))
+        
+        // Strategy 1: Find by exact tabId match
+        let target: any = allSessions.find(([key, value]: any) => value.tabId === currentTabData.tabId)
+        console.log('🔍 Target by exact tabId:', target)
+        
+        // Strategy 2: Find by URL match (most recent)
+        if (!target) {
+          const currentUrl = window.location.href.split('?')[0]
+          const urlMatches = allSessions.filter(([key, value]: any) => 
+            value.url && value.url.split('?')[0] === currentUrl
+          )
+          if (urlMatches.length > 0) {
+            // Sort by timestamp and take the most recent
+            urlMatches.sort((a, b) => new Date(b[1].timestamp).getTime() - new Date(a[1].timestamp).getTime())
+            target = urlMatches[0]
+            console.log('🔍 Target by URL (most recent):', target)
+          }
         }
-        found.config = { layout: config.layout, sessionId: config.sessionId, slots: config.slots }
-        const updatedSession = { ...sessionData, displayGrids: existing, timestamp: new Date().toISOString() }
-        chrome.storage.local.set({ [sessionKey]: updatedSession }, () => {
-          console.log('✅ Mirrored grid config into session history:', sessionKey)
-        })
-      }
-    })
+        
+        // Strategy 3: Find by locked session with same tabName
+        if (!target && currentTabData.tabName) {
+          const nameMatches = allSessions.filter(([key, value]: any) => 
+            value.tabName === currentTabData.tabName && value.isLocked
+          )
+          if (nameMatches.length > 0) {
+            // Sort by timestamp and take the most recent
+            nameMatches.sort((a, b) => new Date(b[1].timestamp).getTime() - new Date(a[1].timestamp).getTime())
+            target = nameMatches[0]
+            console.log('🔍 Target by tabName (most recent locked):', target)
+          }
+        }
+        
+        if (target) {
+          const [sessionKey, sessionData] = target
+          console.log('✅ Found target session:', sessionKey)
+          
+          const existing = Array.isArray(sessionData.displayGrids) ? sessionData.displayGrids : []
+          let found = existing.find((g: any) => g.sessionId === config.sessionId && g.layout === config.layout)
+          if (!found) {
+            found = { layout: config.layout, sessionId: config.sessionId, url: '', timestamp: new Date().toISOString() }
+            existing.push(found)
+          }
+          found.config = { layout: config.layout, sessionId: config.sessionId, slots: config.slots }
+          const updatedSession = { ...sessionData, displayGrids: existing, timestamp: new Date().toISOString() }
+          
+          console.log('💾 Updating session with displayGrids:', updatedSession.displayGrids)
+          
+          chrome.storage.local.set({ [sessionKey]: updatedSession }, () => {
+            console.log('✅ Mirrored grid config into session history:', sessionKey)
+          })
+        } else {
+          console.log('❌ No target session found. Creating new session...')
+          
+          // Create a new session for this grid
+          const sessionKey = `session_${Date.now()}`
+          const sessionData = {
+            ...currentTabData,
+            displayGrids: currentTabData.displayGrids,
+            timestamp: new Date().toISOString(),
+            url: window.location.href
+          }
+          
+          chrome.storage.local.set({ [sessionKey]: sessionData }, () => {
+            console.log('✅ Created new session for grid config:', sessionKey)
+          })
+        }
+      })
+    } else {
+      console.log('ℹ️ Session not locked, grid config only saved locally')
+    }
   }
 
   // Listen for save messages from grid tabs (about:blank child windows)
@@ -3572,10 +3632,16 @@ function initializeExtension() {
     const config = layouts[layout] || layouts['4-slot']
 
     // Prefill from currentTabData if a config exists
+    console.log('🔍 DEBUG: createGridHTML - currentTabData.displayGrids:', currentTabData.displayGrids)
+    console.log('🔍 DEBUG: createGridHTML - looking for sessionId:', sessionId, 'layout:', layout)
+    
     const entry = (currentTabData && currentTabData.displayGrids)
       ? currentTabData.displayGrids.find(g => g.sessionId === sessionId && g.layout === layout)
       : null
+    console.log('🔍 DEBUG: createGridHTML - found entry:', entry)
+    
     const savedSlots: any = (entry && (entry as any).config && (entry as any).config.slots) ? (entry as any).config.slots : {}
+    console.log('🔍 DEBUG: createGridHTML - savedSlots:', savedSlots)
     
     // Create slots HTML
     let slotsHTML = ''
@@ -3672,6 +3738,39 @@ function initializeExtension() {
       <body>
         <div class="grid">
           ${slotsHTML}
+        </div>
+        
+        <!-- Navigation Arrows for Slide Mode -->
+        <div id="nav-arrows" style="
+          position: absolute;
+          top: 50%;
+          left: 0;
+          right: 0;
+          display: none;
+          justify-content: space-between;
+          pointer-events: none;
+          z-index: 1000;
+        ">
+          <button id="prev-slide" style="
+            background: rgba(0,0,0,0.7);
+            border: none;
+            color: white;
+            font-size: 24px;
+            padding: 10px 15px;
+            cursor: pointer;
+            pointer-events: auto;
+            border-radius: 0 5px 5px 0;
+          ">‹</button>
+          <button id="next-slide" style="
+            background: rgba(0,0,0,0.7);
+            border: none;
+            color: white;
+            font-size: 24px;
+            padding: 10px 15px;
+            cursor: pointer;
+            pointer-events: auto;
+            border-radius: 5px 0 0 5px;
+          ">›</button>
         </div>
         
         <!-- Control Buttons Container -->
@@ -4065,6 +4164,8 @@ function initializeExtension() {
               if (sessionData.displayGrids && sessionData.displayGrids.length > 0) {
                 console.log('🔧 DEBUG: Opening', sessionData.displayGrids.length, 'display grids only:', sessionData.displayGrids)
                 console.log('🔧 DEBUG: Updated currentTabData.displayGrids:', currentTabData.displayGrids)
+                console.log('🔧 DEBUG: Session data displayGrids:', sessionData.displayGrids)
+                console.log('🔧 DEBUG: Each grid config:', sessionData.displayGrids.map(g => ({ layout: g.layout, sessionId: g.sessionId, hasConfig: !!g.config })))
                 
                 sessionData.displayGrids.forEach((grid, index) => {
                   console.log(`🔧 DEBUG: Opening display grid ${index + 1}:`, grid.layout)
@@ -4731,6 +4832,123 @@ function initializeExtension() {
   }, 100)
 
 }
+
+// Check for grid config from Electron app via file system bridge
+function checkForElectronGridConfig() {
+  try {
+    // Check if we have access to file system (this won't work in browser context)
+    // Instead, we'll use a different approach - check for a special localStorage key
+    // that gets set by a background script that monitors the file system
+    
+    const electronConfig = localStorage.getItem('optimando-electron-grid-config')
+    if (electronConfig) {
+      const config = JSON.parse(electronConfig)
+      console.log('📨 Received grid config from Electron app:', config)
+      
+      // Update currentTabData
+      if (!currentTabData.displayGrids) currentTabData.displayGrids = [];
+      let entry = currentTabData.displayGrids.find((g: any) => g.sessionId === config.sessionId && g.layout === config.layout);
+      if (!entry) {
+        entry = { layout: config.layout, sessionId: config.sessionId, url: '', timestamp: new Date().toISOString() };
+        currentTabData.displayGrids.push(entry);
+      }
+      entry.config = { layout: config.layout, sessionId: config.sessionId, slots: config.slots };
+      
+      // Save to localStorage
+      saveTabDataToStorage();
+      
+      // Save to chrome.storage.local
+      chrome.storage.local.get(null, (allData) => {
+        const allSessions = Object.entries(allData).filter(([key, value]: any) => key.startsWith('session_')) as any[];
+        let target: any = allSessions.find(([key, value]: any) => value.tabId === currentTabData.tabId);
+        if (!target) {
+          const currentUrl = window.location.href.split('?')[0];
+          target = allSessions.find(([key, value]: any) => (value.url && value.url.split('?')[0] === currentUrl));
+        }
+        if (target) {
+          const [sessionKey, sessionData] = target;
+          const existing = Array.isArray(sessionData.displayGrids) ? sessionData.displayGrids : [];
+          let found = existing.find((g: any) => g.sessionId === config.sessionId && g.layout === config.layout);
+          if (!found) {
+            found = { layout: config.layout, sessionId: config.sessionId, url: '', timestamp: new Date().toISOString() };
+            existing.push(found);
+          }
+          found.config = { layout: config.layout, sessionId: config.sessionId, slots: config.slots };
+          sessionData.displayGrids = existing;
+          sessionData.timestamp = new Date().toISOString();
+          chrome.storage.local.set({ [sessionKey]: sessionData }, () => {
+            console.log('✅ Grid config saved to session via Electron app:', sessionKey);
+          });
+        }
+      });
+      
+      // Clear the Electron app data
+      localStorage.removeItem('optimando-electron-grid-config');
+      
+      // Visual feedback
+      const note = document.createElement('div')
+      note.textContent = '✅ Saved grid to session via Electron app'
+      note.style.cssText = `position:fixed;top:20px;right:20px;z-index:2147483650;background:#4CAF50;color:#fff;padding:10px 14px;border-radius:8px;font-size:12px;box-shadow:0 4px 12px rgba(0,0,0,0.3)`
+      document.body.appendChild(note)
+      setTimeout(() => note.remove(), 2500)
+    }
+  } catch (error) {
+    console.log('ℹ️ Could not check for Electron app config:', error.message);
+  }
+}
+
+// Alternative approach: Use a simpler method by directly calling the save function
+// when we receive a message from the grid window
+function handleElectronGridSave(config: any) {
+  console.log('📨 Handling Electron grid save:', config)
+  
+  // Update currentTabData
+  if (!currentTabData.displayGrids) currentTabData.displayGrids = [];
+  let entry = currentTabData.displayGrids.find((g: any) => g.sessionId === config.sessionId && g.layout === config.layout);
+  if (!entry) {
+    entry = { layout: config.layout, sessionId: config.sessionId, url: '', timestamp: new Date().toISOString() };
+    currentTabData.displayGrids.push(entry);
+  }
+  entry.config = { layout: config.layout, sessionId: config.sessionId, slots: config.slots };
+  
+  // Save to localStorage
+  saveTabDataToStorage();
+  
+  // Save to chrome.storage.local
+  chrome.storage.local.get(null, (allData) => {
+    const allSessions = Object.entries(allData).filter(([key, value]: any) => key.startsWith('session_')) as any[];
+    let target: any = allSessions.find(([key, value]: any) => value.tabId === currentTabData.tabId);
+    if (!target) {
+      const currentUrl = window.location.href.split('?')[0];
+      target = allSessions.find(([key, value]: any) => (value.url && value.url.split('?')[0] === currentUrl));
+    }
+    if (target) {
+      const [sessionKey, sessionData] = target;
+      const existing = Array.isArray(sessionData.displayGrids) ? sessionData.displayGrids : [];
+      let found = existing.find((g: any) => g.sessionId === config.sessionId && g.layout === config.layout);
+      if (!found) {
+        found = { layout: config.layout, sessionId: config.sessionId, url: '', timestamp: new Date().toISOString() };
+        existing.push(found);
+      }
+      found.config = { layout: config.layout, sessionId: config.sessionId, slots: config.slots };
+      sessionData.displayGrids = existing;
+      sessionData.timestamp = new Date().toISOString();
+      chrome.storage.local.set({ [sessionKey]: sessionData }, () => {
+        console.log('✅ Grid config saved to session via Electron app:', sessionKey);
+      });
+    }
+  });
+  
+  // Visual feedback
+  const note = document.createElement('div')
+  note.textContent = '✅ Saved grid to session via Electron app'
+  note.style.cssText = `position:fixed;top:20px;right:20px;z-index:2147483650;background:#4CAF50;color:#fff;padding:10px 14px;border-radius:8px;font-size:12px;box-shadow:0 4px 12px rgba(0,0,0,0.3)`
+  document.body.appendChild(note)
+  setTimeout(() => note.remove(), 2500)
+}
+
+// Check for Electron app data every 2 seconds
+setInterval(checkForElectronGridConfig, 2000)
 
 // Initialize extension if active
 if (isExtensionActive) {

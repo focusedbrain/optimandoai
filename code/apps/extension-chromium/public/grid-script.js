@@ -25,12 +25,110 @@ function saveGridConfig() {
     slots: slots
   }
   
-  // Send to parent window
-  if (window.opener) {
-    window.opener.postMessage({
-      type: 'SAVE_GRID_CONFIG',
-      config: config
-    }, '*');
+  // Try to send to Electron app via WebSocket first
+  let messageSent = false;
+  
+  // Method 1: Try to send to Electron app via WebSocket
+  try {
+    if (window.gridWebSocket && window.gridWebSocket.readyState === WebSocket.OPEN) {
+      window.gridWebSocket.send(JSON.stringify({
+        type: 'SAVE_GRID_CONFIG',
+        config: config,
+        from: 'grid-window'
+      }));
+      console.log('✅ Message sent to Electron app via WebSocket');
+      messageSent = true;
+    } else {
+      console.log('ℹ️ WebSocket not connected, trying to connect...');
+      // Try to connect to Electron app
+      const ws = new WebSocket('ws://localhost:51247');
+      
+      ws.onopen = () => {
+        console.log('🔗 Connected to Electron app WebSocket');
+        ws.send(JSON.stringify({
+          type: 'SAVE_GRID_CONFIG',
+          config: config,
+          from: 'grid-window'
+        }));
+        console.log('✅ Message sent to Electron app via WebSocket');
+        messageSent = true;
+        window.gridWebSocket = ws; // Store for future use
+        
+        // Set up reconnection on close
+        ws.onclose = () => {
+          console.log('🔌 WebSocket connection closed, will reconnect on next save');
+          window.gridWebSocket = null;
+        };
+      };
+      
+      ws.onerror = (error) => {
+        console.log('❌ WebSocket connection failed:', error);
+        window.gridWebSocket = null;
+        // Try next port if current one fails
+        if (port < 51250) {
+          console.log(`🔄 Trying next port ${port + 1}...`);
+          setTimeout(() => initializeWebSocket(port + 1), 2000);
+        }
+      };
+      
+      ws.onmessage = (event) => {
+        try {
+          const response = JSON.parse(event.data);
+          if (response.type === 'GRID_CONFIG_SAVED') {
+            console.log('✅ Grid config saved successfully via Electron app');
+            // Also try to send directly to parent window as backup
+            if (window.opener) {
+              window.opener.postMessage({
+                type: 'OPTIMANDO_SAVE_GRID',
+                payload: config
+              }, '*');
+              console.log('✅ Backup message sent to parent window');
+            }
+          }
+        } catch (error) {
+          console.log('ℹ️ Received non-JSON message from WebSocket');
+        }
+      };
+    }
+  } catch (error) {
+    console.log('ℹ️ Electron app WebSocket not available:', error.message);
+  }
+  
+  // Method 2: Try to send to parent window
+  if (!messageSent && window.opener) {
+    try {
+      window.opener.postMessage({
+        type: 'SAVE_GRID_CONFIG',
+        config: config
+      }, '*');
+      console.log('✅ Message sent to parent window');
+      messageSent = true;
+    } catch (error) {
+      console.error('❌ Error sending to parent window:', error);
+    }
+  }
+  
+  // Method 3: Try to send to Chrome extension directly
+  if (!messageSent && typeof chrome !== 'undefined' && chrome.runtime) {
+    try {
+      chrome.runtime.sendMessage({
+        type: 'SAVE_GRID_CONFIG',
+        config: config
+      }, (response) => {
+        if (chrome.runtime.lastError) {
+          console.error('❌ Chrome extension error:', chrome.runtime.lastError);
+        } else {
+          console.log('✅ Message sent to Chrome extension');
+        }
+      });
+      messageSent = true;
+    } catch (error) {
+      console.error('❌ Error sending to Chrome extension:', error);
+    }
+  }
+  
+  if (!messageSent) {
+    console.warn('⚠️ No communication method available');
   }
   
   // Show success notification
@@ -159,6 +257,17 @@ function toggleSlideMode() {
   const grid = document.querySelector('.grid');
   const navArrows = document.getElementById('nav-arrows');
   const slots = document.querySelectorAll('[data-slot-id]');
+  
+  // Check if required elements exist
+  if (!grid) {
+    console.log('❌ Grid element not found');
+    return;
+  }
+  
+  if (!navArrows) {
+    console.log('❌ Navigation arrows element not found');
+    return;
+  }
   
   isSlideMode = !isSlideMode;
   totalSlots = slots.length;
@@ -319,6 +428,87 @@ function tryInit() {
     setTimeout(tryInit, 100);
   }
 }
+
+// Initialize WebSocket connection to Electron app
+function initializeWebSocket(port = 51247) {
+  try {
+    console.log(`🔗 Attempting to connect to Electron app WebSocket on port ${port}...`);
+    const ws = new WebSocket(`ws://localhost:${port}`);
+    
+    ws.onopen = () => {
+      console.log('✅ Connected to Electron app WebSocket');
+      window.gridWebSocket = ws;
+      
+      // Send ping to test connection
+      ws.send(JSON.stringify({
+        type: 'ping',
+        from: 'grid-window',
+        timestamp: new Date().toISOString()
+      }));
+      
+      // Set up heartbeat to keep connection alive
+      window.gridHeartbeat = setInterval(() => {
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({
+            type: 'ping',
+            from: 'grid-window',
+            timestamp: new Date().toISOString()
+          }));
+        }
+      }, 30000); // Send ping every 30 seconds
+    };
+    
+    ws.onclose = (event) => {
+      console.log('🔌 WebSocket connection closed:', event.code, event.reason);
+      window.gridWebSocket = null;
+      
+      // Clear heartbeat
+      if (window.gridHeartbeat) {
+        clearInterval(window.gridHeartbeat);
+        window.gridHeartbeat = null;
+      }
+      
+      // Only retry if it wasn't a normal closure
+      if (event.code !== 1000) {
+        console.log('🔄 Will retry connection in 10 seconds...');
+        setTimeout(initializeWebSocket, 10000);
+      }
+    };
+    
+    ws.onerror = (error) => {
+      console.log('❌ WebSocket connection failed:', error);
+      window.gridWebSocket = null;
+      // Try next port if current one fails
+      if (port < 51250) {
+        console.log(`🔄 Trying next port ${port + 1}...`);
+        setTimeout(() => initializeWebSocket(port + 1), 2000);
+      } else {
+        console.log('❌ All ports failed, retrying from 51247 in 10 seconds...');
+        setTimeout(() => initializeWebSocket(51247), 10000);
+      }
+    };
+    
+    ws.onmessage = (event) => {
+      try {
+        const response = JSON.parse(event.data);
+        if (response.type === 'pong') {
+          console.log('🏓 Received pong from Electron app');
+        } else if (response.type === 'GRID_CONFIG_SAVED') {
+          console.log('✅ Grid config saved successfully via Electron app');
+        }
+      } catch (error) {
+        console.log('ℹ️ Received non-JSON message from WebSocket');
+      }
+    };
+  } catch (error) {
+    console.log('ℹ️ WebSocket not available:', error.message);
+    // Retry after 5 seconds
+    setTimeout(() => initializeWebSocket(51247), 5000);
+  }
+}
+
+// Initialize WebSocket connection
+initializeWebSocket(51247);
 
 // Start trying to initialize
 tryInit();
