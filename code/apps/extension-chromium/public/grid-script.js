@@ -2,10 +2,9 @@
 // Prevent script from running multiple times
 if (window.gridScriptLoaded) {
   console.log('⚠️ Grid script already loaded, skipping...');
-  return;
-}
-window.gridScriptLoaded = true;
-console.log('✅ Grid script loaded');
+} else {
+  window.gridScriptLoaded = true;
+  console.log('✅ Grid script loaded');
 
 // Global variables - check if already declared to prevent redeclaration errors
 if (typeof isFullscreen === 'undefined') {
@@ -191,63 +190,123 @@ function loadGridConfig() {
 
 // Fullscreen functionality
 function toggleFullscreen() {
+  console.log('🔍 toggleFullscreen called, current state:', isFullscreen);
+  
   try {
     if (!isFullscreen) {
+      console.log('🔍 Attempting to enter fullscreen...');
+      
       if (document.documentElement.requestFullscreen) {
-        document.documentElement.requestFullscreen({ navigationUI: "hide" });
+        console.log('🔍 Using standard requestFullscreen');
+        document.documentElement.requestFullscreen({ navigationUI: "hide" })
+          .then(() => {
+            console.log('✅ Fullscreen request successful');
+          })
+          .catch(error => {
+            console.error('❌ Fullscreen request failed:', error);
+            fallbackFullscreen();
+          });
       } else if (document.documentElement.webkitRequestFullscreen) {
+        console.log('🔍 Using webkit requestFullscreen');
         document.documentElement.webkitRequestFullscreen();
       } else if (document.documentElement.mozRequestFullScreen) {
+        console.log('🔍 Using moz requestFullScreen');
         document.documentElement.mozRequestFullScreen();
       } else if (document.documentElement.msRequestFullscreen) {
+        console.log('🔍 Using ms requestFullscreen');
         document.documentElement.msRequestFullscreen();
       } else {
-        console.log('Fullscreen not supported, using fallback');
-        // Fallback: make the grid take full viewport
-        document.body.style.margin = '0';
-        document.body.style.padding = '0';
-        document.querySelector('.grid').style.width = '100vw';
-        document.querySelector('.grid').style.height = '100vh';
-        isFullscreen = true;
-        updateFullscreenButton();
+        console.log('⚠️ Fullscreen API not supported, using fallback');
+        fallbackFullscreen();
       }
     } else {
+      console.log('🔍 Attempting to exit fullscreen...');
+      
       if (document.exitFullscreen) {
-        document.exitFullscreen();
+        console.log('🔍 Using standard exitFullscreen');
+        document.exitFullscreen()
+          .then(() => {
+            console.log('✅ Exit fullscreen successful');
+          })
+          .catch(error => {
+            console.error('❌ Exit fullscreen failed:', error);
+            fallbackExitFullscreen();
+          });
       } else if (document.webkitExitFullscreen) {
+        console.log('🔍 Using webkit exitFullscreen');
         document.webkitExitFullscreen();
       } else if (document.mozCancelFullScreen) {
+        console.log('🔍 Using moz cancelFullScreen');
         document.mozCancelFullScreen();
       } else if (document.msExitFullscreen) {
+        console.log('🔍 Using ms exitFullscreen');
         document.msExitFullscreen();
       } else {
-        // Fallback: restore normal view
-        document.body.style.margin = '';
-        document.body.style.padding = '';
-        document.querySelector('.grid').style.width = '';
-        document.querySelector('.grid').style.height = '';
-        isFullscreen = false;
-        updateFullscreenButton();
+        console.log('⚠️ Exit fullscreen API not supported, using fallback');
+        fallbackExitFullscreen();
       }
     }
   } catch (error) {
-    console.log('Fullscreen error:', error);
-    // Fallback: toggle manual fullscreen
+    console.error('❌ Fullscreen error:', error);
     if (!isFullscreen) {
-      document.body.style.margin = '0';
-      document.body.style.padding = '0';
-      document.querySelector('.grid').style.width = '100vw';
-      document.querySelector('.grid').style.height = '100vh';
-      isFullscreen = true;
+      fallbackFullscreen();
     } else {
-      document.body.style.margin = '';
-      document.body.style.padding = '';
-      document.querySelector('.grid').style.width = '';
-      document.querySelector('.grid').style.height = '';
-      isFullscreen = false;
+      fallbackExitFullscreen();
     }
-    updateFullscreenButton();
   }
+}
+
+// Fallback fullscreen functions
+function fallbackFullscreen() {
+  console.log('🔧 Using fallback fullscreen mode');
+  document.body.style.margin = '0';
+  document.body.style.padding = '0';
+  document.body.style.overflow = 'hidden';
+  document.body.classList.add('is-fullscreen');
+  
+  const grid = document.querySelector('.grid');
+  if (grid) {
+    grid.style.width = '100vw';
+    grid.style.height = '100vh';
+    grid.style.position = 'fixed';
+    grid.style.top = '0';
+    grid.style.left = '0';
+    grid.style.zIndex = '9999';
+    grid.style.background = '#000';
+  }
+  
+  // Show fullscreen notification
+  showFullscreenNotification('Fullscreen mode activated (fallback)');
+  
+  isFullscreen = true;
+  updateFullscreenButton();
+  console.log('✅ Fallback fullscreen activated');
+}
+
+function fallbackExitFullscreen() {
+  console.log('🔧 Exiting fallback fullscreen mode');
+  document.body.style.margin = '';
+  document.body.style.padding = '';
+  document.body.style.overflow = '';
+  document.body.classList.remove('is-fullscreen');
+  
+  const grid = document.querySelector('.grid');
+  if (grid) {
+    grid.style.width = '';
+    grid.style.height = '';
+    grid.style.position = '';
+    grid.style.top = '';
+    grid.style.left = '';
+    grid.style.zIndex = '';
+    grid.style.background = '';
+  }
+  
+  // Show exit fullscreen notification
+  showFullscreenNotification('Exited fullscreen mode');
+  
+  isFullscreen = false;
+  updateFullscreenButton();
+  console.log('✅ Fallback fullscreen deactivated');
 }
 
 function updateFullscreenButton() {
@@ -264,6 +323,57 @@ function updateFullscreenButton() {
     fullscreenBtn.title = 'Fullscreen';
     svg.innerHTML = '<path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/>';
   }
+}
+
+// Show fullscreen notification
+function showFullscreenNotification(message) {
+  // Remove existing notification
+  const existingNotification = document.getElementById('fullscreen-notification');
+  if (existingNotification) {
+    existingNotification.remove();
+  }
+  
+  // Create new notification
+  const notification = document.createElement('div');
+  notification.id = 'fullscreen-notification';
+  notification.style.cssText = `
+    position: fixed;
+    top: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(0, 0, 0, 0.8);
+    color: white;
+    padding: 10px 20px;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: bold;
+    z-index: 10000;
+    animation: slideDown 0.3s ease;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  `;
+  notification.textContent = message;
+  
+  // Add animation keyframes
+  if (!document.getElementById('fullscreen-animation-styles')) {
+    const style = document.createElement('style');
+    style.id = 'fullscreen-animation-styles';
+    style.textContent = `
+      @keyframes slideDown {
+        from { opacity: 0; transform: translateX(-50%) translateY(-20px); }
+        to { opacity: 1; transform: translateX(-50%) translateY(0); }
+      }
+    `;
+    document.head.appendChild(style);
+  }
+  
+  document.body.appendChild(notification);
+  
+  // Auto-remove after 3 seconds
+  setTimeout(() => {
+    if (notification.parentNode) {
+      notification.remove();
+    }
+  }, 3000);
 }
 
 // Slide mode functionality
@@ -353,6 +463,13 @@ document.addEventListener('fullscreenchange', () => {
   isFullscreen = !!document.fullscreenElement;
   document.body.classList.toggle('is-fullscreen', isFullscreen);
   updateFullscreenButton();
+  
+  // Show notification for native fullscreen
+  if (isFullscreen) {
+    showFullscreenNotification('Fullscreen mode activated');
+  } else {
+    showFullscreenNotification('Exited fullscreen mode');
+  }
 });
 
 document.addEventListener('webkitfullscreenchange', () => {
@@ -395,14 +512,21 @@ function init() {
   }
   
   if (fullscreenBtn) {
-    fullscreenBtn.addEventListener('click', (e) => {
-      e.preventDefault();
-      console.log('Fullscreen button clicked, current state:', isFullscreen);
-      toggleFullscreen();
+    // Remove any existing listeners to prevent duplicates
+    fullscreenBtn.removeEventListener('click', handleFullscreenClick);
+    
+    // Add the click handler
+    fullscreenBtn.addEventListener('click', handleFullscreenClick);
+    console.log('✅ Fullscreen button listener attached to:', fullscreenBtn);
+    
+    // Test the button is clickable
+    console.log('🔍 Button properties:', {
+      disabled: fullscreenBtn.disabled,
+      style: fullscreenBtn.style.display,
+      offsetParent: !!fullscreenBtn.offsetParent
     });
-    console.log('✅ Fullscreen button listener attached');
   } else {
-    console.log('❌ Fullscreen button not found');
+    console.log('❌ Fullscreen button not found in DOM');
   }
   
   if (prevBtn) {
@@ -432,13 +556,46 @@ function init() {
   console.log('✅ Grid config loaded');
 }
 
+// Separate fullscreen click handler function
+function handleFullscreenClick(e) {
+  e.preventDefault();
+  e.stopPropagation();
+  console.log('🔘 Fullscreen button clicked!');
+  console.log('🔍 Current fullscreen state:', isFullscreen);
+  console.log('🔍 Document fullscreen element:', document.fullscreenElement);
+  console.log('🔍 Event target:', e.target);
+  
+  // Check if we have user gesture
+  console.log('🔍 User activation:', navigator.userActivation ? {
+    hasBeenActive: navigator.userActivation.hasBeenActive,
+    isActive: navigator.userActivation.isActive
+  } : 'Not supported');
+  
+  // Verify toggleFullscreen function exists
+  if (typeof toggleFullscreen === 'function') {
+    console.log('🔍 Calling toggleFullscreen...');
+    toggleFullscreen();
+  } else {
+    console.error('❌ toggleFullscreen function not found!');
+  }
+}
+
 // Try to initialize immediately and with retries
 function tryInit() {
   const fullscreenBtn = document.getElementById('fullscreen-btn');
-  if (fullscreenBtn) {
+  const saveBtn = document.getElementById('save-grid-btn');
+  
+  console.log('🔍 tryInit - Elements found:', {
+    fullscreenBtn: !!fullscreenBtn,
+    saveBtn: !!saveBtn,
+    gridElement: !!document.querySelector('.grid')
+  });
+  
+  if (fullscreenBtn && saveBtn) {
+    console.log('✅ All required elements found, initializing...');
     init();
   } else {
-    console.log('Elements not ready, retrying in 100ms...');
+    console.log('⏳ Elements not ready, retrying in 100ms...');
     setTimeout(tryInit, 100);
   }
 }
@@ -526,3 +683,5 @@ initializeWebSocket(51247);
 
 // Start trying to initialize
 tryInit();
+
+} // End of else block for gridScriptLoaded check
