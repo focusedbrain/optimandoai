@@ -4613,6 +4613,25 @@ ${pageText}
         </div>
         </div>
                 ` : ''}
+                
+                ${session.context && (session.context.userContext?.text || session.context.publisherContext?.text || (session.context.userContext?.pdfFiles && session.context.userContext.pdfFiles.length > 0)) ? `
+                  <div style="background: rgba(255,255,255,0.25); border: 1px solid rgba(255,255,255,0.3); border-radius: 8px; padding: 12px; margin: 10px 0;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                      <span style="font-size: 12px; font-weight: bold; color: #E6E6FA;">📄 Attached Context</span>
+                    </div>
+                    <div style="display: flex; flex-wrap: wrap; gap: 6px;">
+                      ${session.context.userContext?.text ? `
+                        <span style="background: rgba(230,230,250,0.25); color: white; border: 1px solid rgba(230,230,250,0.5); padding: 3px 8px; border-radius: 4px; font-size: 11px; font-weight: 500;" title="User Context: ${session.context.userContext.text.substring(0, 100)}${session.context.userContext.text.length > 100 ? '...' : ''}">👤 User Context (${session.context.userContext.text.length} chars)</span>
+                      ` : ''}
+                      ${session.context.publisherContext?.text ? `
+                        <span style="background: rgba(230,230,250,0.25); color: white; border: 1px solid rgba(230,230,250,0.5); padding: 3px 8px; border-radius: 4px; font-size: 11px; font-weight: 500;" title="Publisher Context: ${session.context.publisherContext.text.substring(0, 100)}${session.context.publisherContext.text.length > 100 ? '...' : ''}">🌐 Publisher Context (${session.context.publisherContext.text.length} chars)</span>
+                      ` : ''}
+                      ${session.context.userContext?.pdfFiles && session.context.userContext.pdfFiles.length > 0 ? `
+                        <span style="background: rgba(230,230,250,0.25); color: white; border: 1px solid rgba(230,230,250,0.5); padding: 3px 8px; border-radius: 4px; font-size: 11px; font-weight: 500;" title="PDF Files: ${session.context.userContext.pdfFiles.map(f => f.name).join(', ')}">📎 PDF Files (${session.context.userContext.pdfFiles.length})</span>
+                      ` : ''}
+        </div>
+        </div>
+                ` : ''}
               </div>
             </div>
             <!-- Date outside the box at the bottom -->
@@ -4704,6 +4723,7 @@ ${pageText}
               saveTabDataToStorage()
               
               console.log('🔧 DEBUG: Session restored - currentTabData.agentBoxes:', currentTabData.agentBoxes)
+              console.log('🔧 DEBUG: Session restored - currentTabData.context:', currentTabData.context)
               
               // Re-render agent boxes with restored configuration
               setTimeout(() => {
@@ -4750,6 +4770,7 @@ ${pageText}
               saveTabDataToStorage()
               
               console.log('🔧 DEBUG: Session restored (no helper tabs) - currentTabData.agentBoxes:', currentTabData.agentBoxes)
+              console.log('🔧 DEBUG: Session restored (no helper tabs) - currentTabData.context:', currentTabData.context)
               
                             // Re-render agent boxes with restored configuration
               setTimeout(() => {
@@ -4792,8 +4813,37 @@ ${pageText}
               }
             }
             
-        overlay.remove()
             console.log('🔄 Session restore initiated with', sessionData.helperTabs?.urls?.length || 0, 'helper tabs:', sessionData.tabName)
+            
+            // Show context restoration notification if context exists
+            if (sessionData.context && (sessionData.context.userContext?.text || sessionData.context.publisherContext?.text || (sessionData.context.userContext?.pdfFiles && sessionData.context.userContext.pdfFiles.length > 0))) {
+              const contextNotification = document.createElement('div')
+              contextNotification.style.cssText = `
+                position: fixed;
+                top: 120px;
+                right: 20px;
+                background: rgba(230, 230, 250, 0.9);
+                color: #333;
+                padding: 10px 15px;
+                border-radius: 5px;
+                font-size: 12px;
+                z-index: 2147483648;
+                animation: slideIn 0.3s ease;
+                border-left: 4px solid #9370DB;
+              `
+              
+              const contextItems = []
+              if (sessionData.context.userContext?.text) contextItems.push('User Context')
+              if (sessionData.context.publisherContext?.text) contextItems.push('Publisher Context')
+              if (sessionData.context.userContext?.pdfFiles && sessionData.context.userContext.pdfFiles.length > 0) contextItems.push(`${sessionData.context.userContext.pdfFiles.length} PDF Files`)
+              
+              contextNotification.innerHTML = `📄 Context restored: ${contextItems.join(', ')}`
+              document.body.appendChild(contextNotification)
+              
+              setTimeout(() => {
+                contextNotification.remove()
+              }, 4000)
+            }
           }
         })
       })
