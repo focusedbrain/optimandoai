@@ -348,7 +348,6 @@ function initializeExtension() {
     overlay.querySelector('#cancel-add-agent')?.addEventListener('click', () => {
       overlay.remove()
     })
-    
     // Confirm button
     overlay.querySelector('#confirm-add-agent')?.addEventListener('click', () => {
       const numberInput = overlay.querySelector('#agent-number') as HTMLInputElement
@@ -693,7 +692,6 @@ function initializeExtension() {
     <div id="agent-boxes-container" style="margin-bottom: 20px;">
       <!-- Dynamic agent boxes will be inserted here -->
     </div>
-
     <!-- Add New Agent Box Button -->
     <div style="margin-bottom: 20px;">
       <button id="add-agent-box-btn" style="width: 100%; padding: 12px 16px; background: rgba(76, 175, 80, 0.8); border: 2px dashed rgba(76, 175, 80, 1); color: white; border-radius: 8px; cursor: pointer; font-size: 14px; font-weight: bold; min-height: 44px; transition: all 0.3s ease; text-shadow: 1px 1px 2px rgba(0,0,0,0.5);">
@@ -1352,7 +1350,6 @@ function initializeExtension() {
                 <option value="monitor">Monitor Output</option>
               </select>
             </div>
-
             <!-- Agent 3: Analyze -->
             <div style="background: rgba(255,255,255,0.1); padding: 15px; border-radius: 8px; text-align: center; position: relative;">
               <div style="font-size: 32px; margin-bottom: 8px;">📊</div>
@@ -1682,7 +1679,6 @@ function initializeExtension() {
     
     configOverlay.onclick = (e) => { if (e.target === configOverlay) configOverlay.remove() }
   }
-
   function openAddNewAgentDialog(parentOverlay) {
     // Create add new agent dialog
     const configOverlay = document.createElement('div')
@@ -1987,7 +1983,6 @@ function initializeExtension() {
       display: flex; align-items: center; justify-content: center;
       backdrop-filter: blur(5px);
     `
-    
     overlay.innerHTML = `
       <div style="
         background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
@@ -2299,7 +2294,6 @@ ${pageText}
         notification.remove()
       }, 3000)
     })
-    
     // Save context
     document.getElementById('save-context-btn')?.addEventListener('click', () => {
       // Initialize context data structure if not exists
@@ -3063,22 +3057,22 @@ ${pageText}
         <div style="flex: 1; padding: 30px; overflow-y: auto;">
           <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px;">
             
-            <!-- Helper Tabs -->
+            <!-- Web Sources (renamed from Helper Tabs) -->
             <div style="background: rgba(255,255,255,0.1); padding: 20px; border-radius: 12px; text-align: center;">
-              <h3 style="margin: 0 0 15px 0; font-size: 16px; color: #FFD700;">Helper Tabs</h3>
+              <h3 style="margin: 0 0 15px 0; font-size: 16px; color: #FFD700;">Web Sources</h3>
               <div id="helper-tabs-config" style="background: rgba(0,0,0,0.2); border-radius: 8px; padding: 15px; cursor: pointer; transition: all 0.3s ease; border: 2px solid transparent;" onmouseover="this.style.borderColor='rgba(255,255,255,0.3)'" onmouseout="this.style.borderColor='transparent'">
                 <div style="font-size: 48px; margin-bottom: 10px;">🌐</div>
-                <h4 style="margin: 0 0 8px 0; font-size: 14px;">Helper Tabs</h4>
+                <h4 style="margin: 0 0 8px 0; font-size: 14px;">Web Sources</h4>
                 <p style="margin: 0; font-size: 11px; opacity: 0.7;">Configure multiple website tabs</p>
               </div>
           </div>
           
-            <!-- Display Grid Screen -->
+            <!-- Add Master View (renamed from Display Grid Screen) -->
             <div style="background: rgba(255,255,255,0.1); padding: 20px; border-radius: 12px; text-align: center;">
-              <h3 style="margin: 0 0 15px 0; font-size: 16px; color: #FFD700;">Display Grid Screen</h3>
+              <h3 style="margin: 0 0 15px 0; font-size: 16px; color: #FFD700;">Add Master View</h3>
               <div style="background: rgba(0,0,0,0.2); border-radius: 8px; padding: 15px; cursor: pointer; transition: all 0.3s ease; border: 2px solid transparent;" onmouseover="this.style.borderColor='rgba(255,255,255,0.3)'" onmouseout="this.style.borderColor='transparent'">
                 <div style="font-size: 48px; margin-bottom: 10px;">🖥️</div>
-                <h4 style="margin: 0 0 8px 0; font-size: 14px;">Grid Display</h4>
+                <h4 style="margin: 0 0 8px 0; font-size: 14px;">Add Hybrid Grid</h4>
                 <p style="margin: 0; font-size: 11px; opacity: 0.7;">Layout display configurations</p>
               </div>
             </div>
@@ -3149,7 +3143,7 @@ ${pageText}
     overlay.innerHTML = `
       <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 16px; width: 85vw; max-width: 800px; height: 85vh; color: white; overflow: hidden; box-shadow: 0 20px 40px rgba(0,0,0,0.3); display: flex; flex-direction: column;">
         <div style="padding: 20px; border-bottom: 1px solid rgba(255,255,255,0.3); display: flex; justify-content: space-between; align-items: center;">
-          <h2 style="margin: 0; font-size: 20px;">🌐 Helper Tabs Configuration</h2>
+          <h2 style="margin: 0; font-size: 20px;">🌐 Web Sources Configuration</h2>
           <button id="close-helper-tabs" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 30px; height: 30px; border-radius: 50%; cursor: pointer; font-size: 16px;">×</button>
           </div>
         <div style="flex: 1; padding: 30px; overflow-y: auto;">
@@ -3164,7 +3158,7 @@ ${pageText}
         </div>
         <div style="padding: 20px; border-top: 1px solid rgba(255,255,255,0.3); display: flex; justify-content: center; background: rgba(255,255,255,0.05);">
           <button id="save-helper-tabs" style="padding: 12px 30px; background: #4CAF50; border: none; color: white; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: bold;">
-            🚀 Save & Open Helper Tabs
+            🚀 Save & Open Web Sources
           </button>
         </div>
       </div>
@@ -3325,7 +3319,6 @@ ${pageText}
       }
     }
   }
-
   function openDisplayGridBrowserConfig() {
     console.log('🚀 LOADING GRIDS FOR CURRENT SESSION')
     console.log('🚀 Current tabId:', currentTabData.tabId)
@@ -3660,7 +3653,6 @@ ${pageText}
       
       // Save to localStorage for immediate persistence
       saveTabDataToStorage()
-      
       // FORCE UPDATE SESSION HISTORY - ALWAYS WORKS
       console.log('🔄 FORCE UPDATING SESSION HISTORY...')
       chrome.storage.local.get(null, (allData) => {
@@ -3984,7 +3976,6 @@ ${pageText}
     // Attach save handler from the opener (avoids CSP issues with inline scripts)
     attachGridSaveHandler(newTab, layout, sessionId)
   }
-
   function attachGridSaveHandler(gridWindow: Window, layout: string, sessionId: string) {
     const tryAttach = () => {
       try {
@@ -4292,6 +4283,19 @@ ${pageText}
       `
     }
     
+    // Theme background/text for page
+    let bodyBg = 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)'
+    let bodyText = '#ffffff'
+    if (theme === 'dark') {
+      bodyBg = 'linear-gradient(135deg, #0f0f0f 0%, #1a1a1a 100%)'
+      bodyText = '#ffffff'
+    } else if (theme === 'professional') {
+      bodyBg = 'linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%)'
+      bodyText = '#333333'
+    } else if (theme === 'default') {
+      bodyBg = 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)'
+      bodyText = '#ffffff'
+    }
     // Return complete HTML document
     return `
       <!DOCTYPE html>
@@ -4303,8 +4307,8 @@ ${pageText}
           * { margin: 0; padding: 0; box-sizing: border-box; }
           body { 
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
-            color: #333; height: 100vh; overflow: hidden;
+            background: ${bodyBg};
+            color: ${bodyText}; height: 100vh; overflow: hidden;
           }
           .grid { 
             width: 100vw; height: 100vh; display: grid; gap: 0px; padding: 0px;
@@ -4585,7 +4589,7 @@ ${pageText}
                 ${session.helperTabs && session.helperTabs.urls && session.helperTabs.urls.length > 0 ? `
                   <div style="background: rgba(255,255,255,0.25); border: 1px solid rgba(255,255,255,0.3); border-radius: 8px; padding: 12px; margin: 10px 0;">
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-                      <span style="font-size: 12px; font-weight: bold; color: #66FF66;">🌐 Helper Tabs (${session.helperTabs.urls.length})</span>
+                      <span style="font-size: 12px; font-weight: bold; color: #66FF66;">🌐 Web Sources (${session.helperTabs.urls.length})</span>
                       <button class="edit-helper-tabs-btn" data-session-id="${session.id}" style="background: #FF6B35; border: none; color: white; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 10px; font-weight: bold;" title="Edit helper tabs">✏️ Edit</button>
           </div>
                     <div style="display: flex; flex-wrap: wrap; gap: 6px;">
@@ -4660,6 +4664,9 @@ ${pageText}
             console.log('🔧 DEBUG: Session data:', sessionData)
             console.log('🔧 DEBUG: Helper tabs data:', sessionData.helperTabs)
             
+            // Close overlay immediately to preserve user gesture for window.open
+            try { overlay.remove() } catch {}
+            
             // Don't navigate immediately - this breaks the helper tabs opening
             // Instead, store the target URL and navigate after opening helper tabs
             const targetUrl = sessionData.url
@@ -4668,7 +4675,7 @@ ${pageText}
             if (sessionData.helperTabs && sessionData.helperTabs.urls && sessionData.helperTabs.urls.length > 0) {
               console.log('🔧 DEBUG: Opening', sessionData.helperTabs.urls.length, 'helper tabs:', sessionData.helperTabs.urls)
               
-              // Open helper tabs immediately
+              // Open helper tabs immediately (no setTimeout to avoid popup blockers)
               sessionData.helperTabs.urls.forEach((url, index) => {
                 const agentId = index + 1
                 const sessionId = Date.now()
@@ -4677,9 +4684,13 @@ ${pageText}
                 
                 console.log(`🔧 DEBUG: Opening helper tab ${index + 1}:`, urlWithParams)
                 
-                setTimeout(() => {
-                  window.open(urlWithParams, `helper-tab-${index}`)
-                }, index * 500)
+                // Open immediately to preserve user gesture for popup blocker
+                const newTab = window.open(urlWithParams, `helper-tab-${index}`)
+                if (!newTab) {
+                  console.error(`❌ Failed to open helper tab ${index + 1} - popup blocked:`, url)
+                } else {
+                  console.log(`✅ Successfully opened helper tab ${index + 1}:`, url)
+                }
               })
               
               // Restore current session data with helper tabs
@@ -4708,18 +4719,25 @@ ${pageText}
                 sessionData.displayGrids.forEach((grid, index) => {
                   console.log('🔧 DEBUG: Opening display grid ' + (index + 1) + ':', grid.layout)
                   
-                  setTimeout(() => {
+                  // Open immediately to preserve user gesture for popup blocker
+                  try {
                     openGridFromSession(grid.layout, grid.sessionId)
-                  }, (sessionData.helperTabs.urls.length + index) * 500)
+                    console.log(`✅ Successfully opened display grid ${index + 1}:`, grid.layout)
+                  } catch (error) {
+                    console.error(`❌ Failed to open display grid ${index + 1}:`, error)
+                  }
                 })
               }
               
-              // Navigate to master URL after all tabs are opened (add extra delay for grids)
-              const totalDelay = 2000 + (sessionData.displayGrids ? sessionData.displayGrids.length * 500 : 0)
-              setTimeout(() => {
-                console.log('🔧 DEBUG: Navigating to master URL:', targetUrl)
-                window.location.href = targetUrl
-              }, totalDelay)
+              // Navigate to master URL after a short delay to let tabs load
+              if (shouldNavigate) {
+                setTimeout(() => {
+                  console.log('🔧 DEBUG: Navigating to master URL:', targetUrl)
+                  window.location.href = targetUrl
+                }, 1000) // Reduced delay since tabs open immediately
+              } else {
+                console.log('🔧 DEBUG: Already on target URL, skipping navigation')
+              }
             } else {
               // Restore current session data even without helper tabs
               currentTabData = {
@@ -4749,16 +4767,24 @@ ${pageText}
                 sessionData.displayGrids.forEach((grid, index) => {
                   console.log(`🔧 DEBUG: Opening display grid ${index + 1}:`, grid.layout)
                   
-                  setTimeout(() => {
+                  // Open immediately to preserve user gesture for popup blocker
+                  try {
                     openGridFromSession(grid.layout, grid.sessionId)
-                  }, index * 500)
+                    console.log(`✅ Successfully opened display grid ${index + 1}:`, grid.layout)
+                  } catch (error) {
+                    console.error(`❌ Failed to open display grid ${index + 1}:`, error)
+                  }
                 })
                 
-                // Navigate to master URL after grids are opened
-                setTimeout(() => {
-                  console.log('🔧 DEBUG: Navigating to master URL:', targetUrl)
-                  window.location.href = targetUrl
-                }, sessionData.displayGrids.length * 500 + 1000)
+                // Navigate to master URL after a short delay
+                if (shouldNavigate) {
+                  setTimeout(() => {
+                    console.log('🔧 DEBUG: Navigating to master URL:', targetUrl)
+                    window.location.href = targetUrl
+                  }, 1000) // Reduced delay since grids open immediately
+                } else {
+                  console.log('🔧 DEBUG: Already on target URL, skipping navigation')
+                }
               } else {
                 console.log('🔧 DEBUG: No helper tabs or grids found, navigating directly')
                 // No helper tabs or grids, navigate directly
@@ -4857,12 +4883,12 @@ ${pageText}
     editOverlay.innerHTML = `
       <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 16px; width: 85vw; max-width: 800px; height: 85vh; color: white; overflow: hidden; box-shadow: 0 20px 40px rgba(0,0,0,0.3); display: flex; flex-direction: column;">
         <div style="padding: 20px; border-bottom: 1px solid rgba(255,255,255,0.3); display: flex; justify-content: space-between; align-items: center;">
-          <h2 style="margin: 0; font-size: 20px;">✏️ Edit Helper Tabs - ${sessionData.tabName}</h2>
+          <h2 style="margin: 0; font-size: 20px;">✏️ Edit Web Sources - ${sessionData.tabName}</h2>
           <button id="close-edit-helper-tabs" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 30px; height: 30px; border-radius: 50%; cursor: pointer; font-size: 16px;">×</button>
         </div>
         <div style="flex: 1; padding: 30px; overflow-y: auto;">
           <div style="background: rgba(255,255,255,0.1); padding: 20px; border-radius: 8px;">
-            <h3 style="margin: 0 0 15px 0; font-size: 16px; color: #FFD700;">Helper Tabs URLs</h3>
+            <h3 style="margin: 0 0 15px 0; font-size: 16px; color: #FFD700;">Web Sources URLs</h3>
             <p style="margin: 0 0 20px 0; font-size: 12px; opacity: 0.8;">Edit the URLs that will open when this session is restored.</p>
             
             <div id="edit-helper-url-fields-container">
@@ -4980,7 +5006,6 @@ ${pageText}
       }
     })
   }
-
   // Quick action functions
   function saveCurrentSession() {
         if (currentTabData.isLocked) {
@@ -5313,7 +5338,6 @@ ${pageText}
         }
       })
     }
-
     if (lockBtn) {
       lockBtn.addEventListener('click', (e) => {
         e.stopPropagation()
