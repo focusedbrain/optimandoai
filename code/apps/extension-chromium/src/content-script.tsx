@@ -51,6 +51,10 @@ function initializeExtension() {
     return
   }
   
+  // Detect Hybrid Master mode via URL param, e.g. ?hybrid_master_id=3
+  const isHybridMaster = urlParams.has('hybrid_master_id')
+  const hybridMasterId = urlParams.get('hybrid_master_id') || ''
+  
   // Check if this URL is marked as excluded
   const currentUrl = window.location.href
   const tabKey = 'optimando-excluded-' + btoa(currentUrl.split('?')[0]).substring(0, 20)
@@ -268,6 +272,23 @@ function initializeExtension() {
     // Re-attach resize event listeners
     attachAgentBoxResizeListeners()
     attachDeleteButtonListeners()
+  }
+
+  // Helper to render agent boxes into a specific container (used by Hybrid right panel)
+  function renderAgentBoxesInto(containerId: string) {
+    const container = document.getElementById(containerId)
+    if (!container) return
+    // Temporarily swap the container id expected by renderAgentBoxes
+    const original = document.getElementById('agent-boxes-container')
+    if (original) original.id = 'agent-boxes-container-original'
+    container.id = 'agent-boxes-container'
+    try {
+      renderAgentBoxes()
+    } finally {
+      container.id = containerId
+      const movedBack = document.getElementById('agent-boxes-container-original')
+      if (movedBack) movedBack.id = 'agent-boxes-container'
+    }
   }
 
   function deleteAgentBox(agentId: string) {
@@ -821,6 +842,28 @@ function initializeExtension() {
 
   `
 
+  // If this tab is a Hybrid Master, render a right-side agent panel clone
+  if (isHybridMaster) {
+    rightSidebar.innerHTML = `
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+        <h2 style="margin: 0; font-size: 18px;" class="section-title">🧩 Hybrid Master (${hybridMasterId})</h2>
+      </div>
+
+      <!-- Right-side Agent Output Section -->
+      <div id="agent-boxes-container-right" style="margin-bottom: 20px;"></div>
+      <div style="margin-bottom: 20px;">
+        <button id="add-agent-box-btn-right" style="width: 100%; padding: 12px 16px; background: rgba(76, 175, 80, 0.8); border: 2px dashed rgba(76, 175, 80, 1); color: white; border-radius: 8px; cursor: pointer; font-size: 14px; font-weight: bold; min-height: 44px; transition: all 0.3s ease; text-shadow: 1px 1px 2px rgba(0,0,0,0.5);">
+          ➕ Add New Agent Box
+        </button>
+      </div>
+    `
+
+    // Render agent boxes into the right panel
+    setTimeout(() => {
+      try { renderAgentBoxesInto('agent-boxes-container-right') } catch (e) {}
+    }, 0)
+  }
+
   // BOTTOM PANEL - Minimal with Expand
   const bottomSidebar = document.createElement('div')
   bottomSidebar.id = 'bottom-sidebar'
@@ -888,6 +931,29 @@ function initializeExtension() {
       }
       // Button color rules
       const addAgentBtn = leftSidebar.querySelector('#add-agent-box-btn')
+      const addAgentBtnRight = rightSidebar?.querySelector('#add-agent-box-btn-right') as HTMLElement | null
+      const applyAgentBtnTheme = (btn: HTMLElement | null) => {
+        if (!btn) return
+        if (theme === 'professional') {
+          btn.style.background = 'linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%)'
+          btn.style.border = '1px solid #cbd5e1'
+          btn.style.color = '#1e293b'
+          btn.style.fontWeight = '600'
+          btn.style.boxShadow = '0 2px 4px rgba(0, 0, 0, 0.08)'
+          btn.style.fontSize = '14px'
+          btn.style.letterSpacing = '0.025em'
+        } else if (theme === 'dark') {
+          btn.style.background = 'linear-gradient(135deg, #334155 0%, #1e293b 100%)'
+          btn.style.border = '2px dashed #475569'
+          btn.style.color = '#f1f5f9'
+          btn.style.fontWeight = '600'
+        } else {
+          // default theme
+          btn.style.background = 'rgba(76, 175, 80, 0.8)'
+          btn.style.border = '2px dashed rgba(76, 175, 80, 1)'
+          btn.style.color = 'white'
+        }
+      }
       if (addAgentBtn) {
         if (theme === 'professional') {
           addAgentBtn.style.background = 'linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%)'
@@ -904,6 +970,8 @@ function initializeExtension() {
           addAgentBtn.style.fontWeight = '600'
         }
       }
+      // Apply same theme styling to the right-side Hybrid button if present
+      applyAgentBtnTheme(addAgentBtnRight)
     }
     if (rightSidebar) { 
       rightSidebar.style.background = bg; 
@@ -1086,6 +1154,7 @@ function initializeExtension() {
       const wrBtn = rightSidebar.querySelector('#wr-connect-btn')
       const helperBtn = rightSidebar.querySelector('#add-helpergrid-btn')
       const sessionsBtn = rightSidebar.querySelector('#sessions-history-btn')
+      const addAgentBtnRight = rightSidebar.querySelector('#add-agent-box-btn-right') as HTMLElement | null
       const cards = rightSidebar.querySelectorAll('#wr-card, #helpergrid-card, #sessions-card, #quick-actions-card')
       
       cards.forEach(card => {
@@ -1101,6 +1170,11 @@ function initializeExtension() {
       if (wrBtn) wrBtn.style.background = '#4CAF50'
       if (sessionsBtn) sessionsBtn.style.background = '#2196F3'
       if (helperBtn) helperBtn.style.background = '#FF6B6B'
+      if (addAgentBtnRight) {
+        addAgentBtnRight.style.background = 'rgba(76, 175, 80, 0.8)'
+        addAgentBtnRight.style.border = '2px dashed rgba(76, 175, 80, 1)'
+        addAgentBtnRight.style.color = 'white'
+      }
     }
     if (bottomSidebar) { 
       bottomSidebar.className = 'theme-default'
@@ -3068,7 +3142,7 @@ ${pageText}
           </div>
           
             <!-- Add Master View (renamed from Display Grid Screen) -->
-            <div style="background: rgba(255,255,255,0.1); padding: 20px; border-radius: 12px; text-align: center;">
+            <div id="add-hybrid-grid-config" style="background: rgba(255,255,255,0.1); padding: 20px; border-radius: 12px; text-align: center;">
               <h3 style="margin: 0 0 15px 0; font-size: 16px; color: #FFD700;">Add Master View</h3>
               <div style="background: rgba(0,0,0,0.2); border-radius: 8px; padding: 15px; cursor: pointer; transition: all 0.3s ease; border: 2px solid transparent;" onmouseover="this.style.borderColor='rgba(255,255,255,0.3)'" onmouseout="this.style.borderColor='transparent'">
                 <div style="font-size: 48px; margin-bottom: 10px;">🖥️</div>
@@ -3109,6 +3183,12 @@ ${pageText}
       overlay.remove()
       openHelperTabsConfig()
     }
+    // Add Hybrid Grid configuration -> open select modal
+    document.getElementById('add-hybrid-grid-config').onclick = () => {
+      overlay.remove()
+      openHybridMasterSelectModal()
+    }
+
     
     // Display Grid Browser configuration
     document.getElementById('display-grid-browser-config').onclick = () => {
@@ -3317,6 +3397,67 @@ ${pageText}
         localStorage.setItem('helper_tabs_urls', JSON.stringify(['https://chatgpt.com']))
         overlay.remove()
       }
+    }
+  }
+  
+  // Modal to select number of Hybrid Masters to open
+  function openHybridMasterSelectModal() {
+    const overlay = document.createElement('div')
+    overlay.style.cssText = `
+      position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+      background: rgba(0,0,0,0.8); z-index: 2147483649;
+      display: flex; align-items: center; justify-content: center;
+      backdrop-filter: blur(5px);
+    `
+
+    overlay.innerHTML = `
+      <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 16px; width: 90vw; max-width: 520px; color: white; overflow: hidden; box-shadow: 0 20px 40px rgba(0,0,0,0.3); display: flex; flex-direction: column;">
+        <div style="padding: 20px; border-bottom: 1px solid rgba(255,255,255,0.3); display: flex; justify-content: space-between; align-items: center;">
+          <h2 style="margin: 0; font-size: 18px;">🧩 Add Hybrid Master Views</h2>
+          <button id="close-hybrid-select" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 30px; height: 30px; border-radius: 50%; cursor: pointer; font-size: 16px;">×</button>
+        </div>
+        <div style="padding: 24px;">
+          <label for="hybrid-count" style="display:block; margin-bottom:8px; font-size: 13px;">Number of hybrid master tabs</label>
+          <select id="hybrid-count" style="width: 100%; padding: 10px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.3); background: rgba(0,0,0,0.2); color: white;">
+            ${Array.from({ length: 10 }, (_, i) => `<option value="${i+1}">${i+1}</option>`).join('')}
+          </select>
+        </div>
+        <div style="padding: 20px; border-top: 1px solid rgba(255,255,255,0.3); display: flex; justify-content: center; background: rgba(255,255,255,0.05);">
+          <button id="hybrid-save-open" style="padding: 12px 30px; background: #4CAF50; border: none; color: white; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: bold;">🚀 Save & Open</button>
+        </div>
+      </div>
+    `
+
+    document.body.appendChild(overlay)
+
+    const close = () => overlay.remove()
+    document.getElementById('close-hybrid-select')!.onclick = close
+    overlay.onclick = (e) => { if (e.target === overlay) close() }
+
+    document.getElementById('hybrid-save-open')!.onclick = () => {
+      const countEl = document.getElementById('hybrid-count') as HTMLSelectElement
+      const count = Math.max(1, Math.min(10, parseInt(countEl.value || '1', 10)))
+
+      const counterKey = 'optimando-hybrid-master-counter'
+      let next = parseInt(localStorage.getItem(counterKey) || '0', 10)
+
+      const base = new URL(window.location.href)
+      base.searchParams.delete('optimando_extension')
+
+      for (let i = 0; i < count; i++) {
+        next += 1
+        localStorage.setItem(counterKey, String(next))
+        const url = new URL(base.toString())
+        url.searchParams.set('hybrid_master_id', String(next))
+        window.open(url.toString(), `hybrid-master-${next}`)
+      }
+
+      const note = document.createElement('div')
+      note.textContent = `✅ Opened ${count} hybrid master tab${count > 1 ? 's' : ''}`
+      note.style.cssText = `position:fixed;top:20px;right:20px;z-index:2147483650;background:#4CAF50;color:#fff;padding:10px 14px;border-radius:8px;font-size:12px;box-shadow:0 4px 12px rgba(0,0,0,0.3)`
+      document.body.appendChild(note)
+      setTimeout(() => note.remove(), 2500)
+      close()
     }
   }
   function openDisplayGridBrowserConfig() {
@@ -5276,6 +5417,12 @@ ${pageText}
   sidebarsDiv.appendChild(rightSidebar)
   sidebarsDiv.appendChild(bottomSidebar)
   document.body.appendChild(sidebarsDiv)
+  
+  // Hybrid right panel: wire add button to reuse existing add dialog and re-render right panel
+  document.getElementById('add-agent-box-btn-right')?.addEventListener('click', () => {
+    try { openAddAgentBoxDialog() } catch (e) {}
+    setTimeout(() => { try { renderAgentBoxesInto('agent-boxes-container-right') } catch (e) {} }, 100)
+  })
   
   // Render dynamic agent boxes after DOM is ready
   setTimeout(() => {
