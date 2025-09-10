@@ -274,23 +274,6 @@ function initializeExtension() {
     attachDeleteButtonListeners()
   }
 
-  // Helper to render agent boxes into a specific container (used by Hybrid right panel)
-  function renderAgentBoxesInto(containerId: string) {
-    const container = document.getElementById(containerId)
-    if (!container) return
-    // Temporarily swap the container id expected by renderAgentBoxes
-    const original = document.getElementById('agent-boxes-container')
-    if (original) original.id = 'agent-boxes-container-original'
-    container.id = 'agent-boxes-container'
-    try {
-      renderAgentBoxes()
-    } finally {
-      container.id = containerId
-      const movedBack = document.getElementById('agent-boxes-container-original')
-      if (movedBack) movedBack.id = 'agent-boxes-container'
-    }
-  }
-
   function deleteAgentBox(agentId: string) {
     currentTabData.agentBoxes = currentTabData.agentBoxes.filter((box: any) => box.id !== agentId)
     
@@ -844,9 +827,13 @@ function initializeExtension() {
 
   // If this tab is a Hybrid Master, render a right-side agent panel clone
   if (isHybridMaster) {
+    // Align right panel width with left panel and persist
+    currentTabData.uiConfig.rightSidebarWidth = currentTabData.uiConfig.leftSidebarWidth
+    rightSidebar.style.width = currentTabData.uiConfig.rightSidebarWidth + 'px'
     rightSidebar.innerHTML = `
       <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
         <h2 style="margin: 0; font-size: 18px;" class="section-title">🧩 Hybrid Master (${hybridMasterId})</h2>
+        <button id="quick-expand-right-btn" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 24px; height: 24px; border-radius: 4px; cursor: pointer; font-size: 12px; transition: all 0.2s ease;" title="Quick expand to maximum width">⇄</button>
       </div>
 
       <!-- Right-side Agent Output Section -->
@@ -857,11 +844,6 @@ function initializeExtension() {
         </button>
       </div>
     `
-
-    // Render agent boxes into the right panel
-    setTimeout(() => {
-      try { renderAgentBoxesInto('agent-boxes-container-right') } catch (e) {}
-    }, 0)
   }
 
   // BOTTOM PANEL - Minimal with Expand
@@ -931,29 +913,6 @@ function initializeExtension() {
       }
       // Button color rules
       const addAgentBtn = leftSidebar.querySelector('#add-agent-box-btn')
-      const addAgentBtnRight = rightSidebar?.querySelector('#add-agent-box-btn-right') as HTMLElement | null
-      const applyAgentBtnTheme = (btn: HTMLElement | null) => {
-        if (!btn) return
-        if (theme === 'professional') {
-          btn.style.background = 'linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%)'
-          btn.style.border = '1px solid #cbd5e1'
-          btn.style.color = '#1e293b'
-          btn.style.fontWeight = '600'
-          btn.style.boxShadow = '0 2px 4px rgba(0, 0, 0, 0.08)'
-          btn.style.fontSize = '14px'
-          btn.style.letterSpacing = '0.025em'
-        } else if (theme === 'dark') {
-          btn.style.background = 'linear-gradient(135deg, #334155 0%, #1e293b 100%)'
-          btn.style.border = '2px dashed #475569'
-          btn.style.color = '#f1f5f9'
-          btn.style.fontWeight = '600'
-        } else {
-          // default theme
-          btn.style.background = 'rgba(76, 175, 80, 0.8)'
-          btn.style.border = '2px dashed rgba(76, 175, 80, 1)'
-          btn.style.color = 'white'
-        }
-      }
       if (addAgentBtn) {
         if (theme === 'professional') {
           addAgentBtn.style.background = 'linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%)'
@@ -970,8 +929,6 @@ function initializeExtension() {
           addAgentBtn.style.fontWeight = '600'
         }
       }
-      // Apply same theme styling to the right-side Hybrid button if present
-      applyAgentBtnTheme(addAgentBtnRight)
     }
     if (rightSidebar) { 
       rightSidebar.style.background = bg; 
@@ -1154,7 +1111,6 @@ function initializeExtension() {
       const wrBtn = rightSidebar.querySelector('#wr-connect-btn')
       const helperBtn = rightSidebar.querySelector('#add-helpergrid-btn')
       const sessionsBtn = rightSidebar.querySelector('#sessions-history-btn')
-      const addAgentBtnRight = rightSidebar.querySelector('#add-agent-box-btn-right') as HTMLElement | null
       const cards = rightSidebar.querySelectorAll('#wr-card, #helpergrid-card, #sessions-card, #quick-actions-card')
       
       cards.forEach(card => {
@@ -1170,11 +1126,6 @@ function initializeExtension() {
       if (wrBtn) wrBtn.style.background = '#4CAF50'
       if (sessionsBtn) sessionsBtn.style.background = '#2196F3'
       if (helperBtn) helperBtn.style.background = '#FF6B6B'
-      if (addAgentBtnRight) {
-        addAgentBtnRight.style.background = 'rgba(76, 175, 80, 0.8)'
-        addAgentBtnRight.style.border = '2px dashed rgba(76, 175, 80, 1)'
-        addAgentBtnRight.style.color = 'white'
-      }
     }
     if (bottomSidebar) { 
       bottomSidebar.className = 'theme-default'
@@ -3188,7 +3139,6 @@ ${pageText}
       overlay.remove()
       openHybridMasterSelectModal()
     }
-
     
     // Display Grid Browser configuration
     document.getElementById('display-grid-browser-config').onclick = () => {
@@ -5418,11 +5368,68 @@ ${pageText}
   sidebarsDiv.appendChild(bottomSidebar)
   document.body.appendChild(sidebarsDiv)
   
-  // Hybrid right panel: wire add button to reuse existing add dialog and re-render right panel
-  document.getElementById('add-agent-box-btn-right')?.addEventListener('click', () => {
-    try { openAddAgentBoxDialog() } catch (e) {}
-    setTimeout(() => { try { renderAgentBoxesInto('agent-boxes-container-right') } catch (e) {} }, 100)
-  })
+  // Hybrid right panel behaviors after mount
+  if (isHybridMaster) {
+    // Render agent boxes into the right container
+    const renderInto = (containerId) => {
+      const container = document.getElementById(containerId)
+      if (!container) return
+      const original = document.getElementById('agent-boxes-container')
+      if (original) original.id = 'agent-boxes-container-original'
+      container.id = 'agent-boxes-container'
+      try { renderAgentBoxes() } catch (e) {}
+      container.id = containerId
+      const movedBack = document.getElementById('agent-boxes-container-original')
+      if (movedBack) movedBack.id = 'agent-boxes-container'
+    }
+    setTimeout(() => renderInto('agent-boxes-container-right'), 0)
+    document.getElementById('add-agent-box-btn-right')?.addEventListener('click', () => {
+      try { openAddAgentBoxDialog() } catch (e) {}
+      setTimeout(() => renderInto('agent-boxes-container-right'), 100)
+    })
+
+    // Right-side resize (mirror left) and quick expand
+    const rightResizeHandle = document.createElement('div')
+    rightResizeHandle.style.cssText = `position:absolute;left:0;top:0;bottom:0;width:5px;background:rgba(255,255,255,0.2);cursor:ew-resize;transition:background 0.2s ease;`
+    rightResizeHandle.onmouseover = () => { rightResizeHandle.style.background = 'rgba(255,255,255,0.4)' }
+    rightResizeHandle.onmouseout = () => { rightResizeHandle.style.background = 'rgba(255,255,255,0.2)' }
+    rightSidebar.appendChild(rightResizeHandle)
+
+    let isResizingRight = false
+    let startXRight = 0
+    let startWidthRight = 0
+    rightResizeHandle.addEventListener('mousedown', (e) => {
+      isResizingRight = true
+      startXRight = e.clientX
+      startWidthRight = currentTabData.uiConfig.rightSidebarWidth
+      document.body.style.userSelect = 'none'
+      document.body.style.cursor = 'ew-resize'
+    })
+    document.addEventListener('mousemove', (e) => {
+      if (!isResizingRight) return
+      const delta = startXRight - e.clientX
+      const newWidth = Math.max(150, Math.min(1000, startWidthRight + delta))
+      currentTabData.uiConfig.rightSidebarWidth = newWidth
+      rightSidebar.style.width = newWidth + 'px'
+      bottomSidebar.style.right = newWidth + 'px'
+    })
+    document.addEventListener('mouseup', () => {
+      if (isResizingRight) {
+        isResizingRight = false
+        document.body.style.userSelect = ''
+        document.body.style.cursor = ''
+        saveTabDataToStorage()
+      }
+    })
+    document.getElementById('quick-expand-right-btn')?.addEventListener('click', () => {
+      const currentWidth = currentTabData.uiConfig.rightSidebarWidth
+      const newWidth = currentWidth === 350 ? 600 : currentWidth === 600 ? 800 : 350
+      currentTabData.uiConfig.rightSidebarWidth = newWidth
+      rightSidebar.style.width = newWidth + 'px'
+      bottomSidebar.style.right = newWidth + 'px'
+      saveTabDataToStorage()
+    })
+  }
   
   // Render dynamic agent boxes after DOM is ready
   setTimeout(() => {
