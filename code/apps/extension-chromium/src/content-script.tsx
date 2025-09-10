@@ -949,6 +949,7 @@ function initializeExtension() {
       const wrBtn = rightSidebar.querySelector('#wr-connect-btn')
       const helperBtn = rightSidebar.querySelector('#add-helpergrid-btn')
       const sessionsBtn = rightSidebar.querySelector('#sessions-history-btn')
+      const addAgentBtnRight = rightSidebar.querySelector('#add-agent-box-btn-right') as HTMLElement | null
       const cards = rightSidebar.querySelectorAll('#wr-card, #helpergrid-card, #sessions-card, #quick-actions-card')
       
       // Style right sidebar cards
@@ -991,6 +992,27 @@ function initializeExtension() {
       setBtn(wrBtn)
       setBtn(helperBtn)
       setBtn(sessionsBtn)
+      // Theme the Hybrid right-panel Add Agent button to match left
+      if (addAgentBtnRight) {
+        if (theme === 'professional') {
+          addAgentBtnRight.style.background = 'linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%)'
+          addAgentBtnRight.style.border = '1px solid #cbd5e1'
+          addAgentBtnRight.style.color = '#1e293b'
+          addAgentBtnRight.style.fontWeight = '600'
+          addAgentBtnRight.style.boxShadow = '0 2px 4px rgba(0, 0, 0, 0.08)'
+          addAgentBtnRight.style.fontSize = '14px'
+          addAgentBtnRight.style.letterSpacing = '0.025em'
+        } else if (theme === 'dark') {
+          addAgentBtnRight.style.background = 'linear-gradient(135deg, #334155 0%, #1e293b 100%)'
+          addAgentBtnRight.style.border = '2px dashed #475569'
+          addAgentBtnRight.style.color = '#f1f5f9'
+          addAgentBtnRight.style.fontWeight = '600'
+        } else {
+          addAgentBtnRight.style.background = 'rgba(76, 175, 80, 0.8)'
+          addAgentBtnRight.style.border = '2px dashed rgba(76, 175, 80, 1)'
+          addAgentBtnRight.style.color = 'white'
+        }
+      }
       
       // Fix dropdown area titles for better readability
       const dropdownTitles = rightSidebar.querySelectorAll('.bottom-panel h4')
@@ -1111,6 +1133,7 @@ function initializeExtension() {
       const wrBtn = rightSidebar.querySelector('#wr-connect-btn')
       const helperBtn = rightSidebar.querySelector('#add-helpergrid-btn')
       const sessionsBtn = rightSidebar.querySelector('#sessions-history-btn')
+      const addAgentBtnRight = rightSidebar.querySelector('#add-agent-box-btn-right') as HTMLElement | null
       const cards = rightSidebar.querySelectorAll('#wr-card, #helpergrid-card, #sessions-card, #quick-actions-card')
       
       cards.forEach(card => {
@@ -1126,6 +1149,11 @@ function initializeExtension() {
       if (wrBtn) wrBtn.style.background = '#4CAF50'
       if (sessionsBtn) sessionsBtn.style.background = '#2196F3'
       if (helperBtn) helperBtn.style.background = '#FF6B6B'
+      if (addAgentBtnRight) {
+        addAgentBtnRight.style.background = 'rgba(76, 175, 80, 0.8)'
+        addAgentBtnRight.style.border = '2px dashed rgba(76, 175, 80, 1)'
+        addAgentBtnRight.style.color = 'white'
+      }
     }
     if (bottomSidebar) { 
       bottomSidebar.className = 'theme-default'
