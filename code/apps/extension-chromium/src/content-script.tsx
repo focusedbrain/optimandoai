@@ -3419,7 +3419,7 @@ ${pageText}
         <div style="padding: 24px;">
           <label for="hybrid-count" style="display:block; margin-bottom:8px; font-size: 13px;">Number of hybrid master tabs</label>
           <select id="hybrid-count" style="width: 100%; padding: 10px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.3); background: rgba(0,0,0,0.2); color: white;">
-            ${Array.from({ length: 10 }, (_, i) => `<option value="${i+1}">${i+1}</option>`).join('')}
+            ${Array.from({ length: 5 }, (_, i) => `<option value="${i+1}">${i+1}</option>`).join('')}
           </select>
         </div>
         <div style="padding: 20px; border-top: 1px solid rgba(255,255,255,0.3); display: flex; justify-content: center; background: rgba(255,255,255,0.05);">
@@ -3436,7 +3436,7 @@ ${pageText}
 
     document.getElementById('hybrid-save-open')!.onclick = () => {
       const countEl = document.getElementById('hybrid-count') as HTMLSelectElement
-      const count = Math.max(1, Math.min(10, parseInt(countEl.value || '1', 10)))
+      const count = Math.max(1, Math.min(5, parseInt(countEl.value || '1', 10)))
 
       const counterKey = 'optimando-hybrid-master-counter'
       let next = parseInt(localStorage.getItem(counterKey) || '0', 10)
