@@ -3415,14 +3415,13 @@ ${pageText}
     document.getElementById('hybrid-save-open')!.onclick = () => {
       const countEl = document.getElementById('hybrid-count') as HTMLSelectElement
       const count = Math.max(1, Math.min(5, parseInt(countEl.value || '1', 10)))
+      // Always use sequential IDs 1..count per session
       const base = new URL(window.location.href)
       base.searchParams.delete('optimando_extension')
 
-      // Always number hybrid views 1..count within the active session
       for (let i = 1; i <= count; i++) {
         const url = new URL(base.toString())
         url.searchParams.set('hybrid_master_id', String(i))
-        // Use stable window names so re-opening targets existing hybrid tabs of this session
         window.open(url.toString(), `hybrid-master-${i}`)
       }
 
@@ -4691,14 +4690,21 @@ ${pageText}
                 <p style="margin: 0 0 8px 0; font-size: 12px; color: #F0F0F0; opacity: 0.9;">${session.url || 'No URL'}</p>
                 
                 ${session.agentBoxes && session.agentBoxes.length > 0 ? `
-                  <div style="background: rgba(255,255,255,0.2); border: 1px solid rgba(255,255,255,0.25); border-radius: 8px; padding: 10px; margin: 8px 0;">
-                    <span style="font-size: 11px; font-weight: bold; color: #FFB366;">📦 Agent Boxes (${session.agentBoxes.length}): </span>
-                    <div style="display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px;">
-                      ${session.agentBoxes.map((box, index) => `
-                        <span style="background: ${box.color}; color: white; padding: 2px 6px; border-radius: 3px; font-size: 9px; font-weight: 500;" title="${box.title}">#${box.number}</span>
-                      `).join('')}
-        </div>
-        </div>
+                  <div style=\"background: rgba(255,255,255,0.2); border: 1px solid rgba(255,255,255,0.25); border-radius: 8px; padding: 10px; margin: 8px 0;\">
+                    <span style=\"font-size: 11px; font-weight: bold; color: #FFB366;\">📦 Master Agent Boxes (${session.agentBoxes.length})</span>
+                  </div>
+                ` : ''}
+
+                ${session.hybridAgentBoxes && session.hybridAgentBoxes.length > 0 ? `
+                  <div style=\"background: rgba(255,255,255,0.2); border: 1px solid rgba(255,255,255,0.25); border-radius: 8px; padding: 10px; margin: 8px 0;\">
+                    <span style=\"font-size: 11px; font-weight: bold; color: #B3E5FC;\">🧩 Hybrid Views (${session.hybridAgentBoxes.length})</span>
+                    <div style=\"display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px;\">
+                      ${session.hybridAgentBoxes
+                        .sort((a,b) => parseInt(a.id) - parseInt(b.id))
+                        .map(h => `<span style=\\\"background: rgba(33,150,243,0.9); color: white; padding: 3px 8px; border-radius: 10px; font-size: 10px;\\\">HM-${h.id} (${h.count})</span>`)
+                        .join('')}
+                    </div>
+                  </div>
                 ` : ''}
                 
                 ${session.helperTabs && session.helperTabs.urls && session.helperTabs.urls.length > 0 ? `
@@ -5394,22 +5400,107 @@ ${pageText}
   
   // Hybrid right panel behaviors after mount
   if (isHybridMaster) {
-    // Render agent boxes into the right container
-    const renderInto = (containerId) => {
-      const container = document.getElementById(containerId)
-      if (!container) return
-      const original = document.getElementById('agent-boxes-container')
-      if (original) original.id = 'agent-boxes-container-original'
-      container.id = 'agent-boxes-container'
-      try { renderAgentBoxes() } catch (e) {}
-      container.id = containerId
-      const movedBack = document.getElementById('agent-boxes-container-original')
-      if (movedBack) movedBack.id = 'agent-boxes-container'
+    const baseUrl = window.location.href.split('?')[0]
+    const hmId = hybridMasterId || '1'
+    const rightKey = `optimando-agentboxes-${btoa(baseUrl + '|' + 'hm_' + hmId).substring(0, 20)}`
+
+    function loadRightState(): { agentBoxes: any[]; agentBoxHeights: any } {
+      try {
+        const saved = localStorage.getItem(rightKey)
+        if (saved) return JSON.parse(saved)
+      } catch {}
+      // Initialize with 4 defaults if nothing saved
+      const init = {
+        agentBoxes: [
+          { id: 'brainstorm', number: 1, title: '#1 🧠 Brainstorm Support Ideas', color: '#4CAF50', outputId: 'brainstorm-output' },
+          { id: 'knowledge', number: 2, title: '#2 🔍 Knowledge Gap Detection', color: '#2196F3', outputId: 'knowledge-output' },
+          { id: 'risks', number: 3, title: '#3 ⚖️ Risks & Chances', color: '#FF9800', outputId: 'risks-output' },
+          { id: 'explainer', number: 4, title: '#4 🎬 Explainer Video Suggestions', color: '#9C27B0', outputId: 'explainer-output' }
+        ],
+        agentBoxHeights: {}
+      }
+      localStorage.setItem(rightKey, JSON.stringify(init))
+      return init
     }
-    setTimeout(() => renderInto('agent-boxes-container-right'), 0)
+
+    function saveRightState(state: { agentBoxes: any[]; agentBoxHeights: any }) {
+      localStorage.setItem(rightKey, JSON.stringify({
+        agentBoxes: state.agentBoxes,
+        agentBoxHeights: state.agentBoxHeights || {},
+        timestamp: new Date().toISOString()
+      }))
+      // Mirror count to session for history display
+      try {
+        chrome.storage.local.get(null, (allData) => {
+          const sessions = Object.entries(allData).filter(([k]) => k.startsWith('session_')) as any
+          const target = sessions.find(([k, v]: any) => (v.url && v.url.split('?')[0] === baseUrl))
+          if (!target) return
+          const [sessionKey, sessionData] = target
+          const list = Array.isArray(sessionData.hybridAgentBoxes) ? sessionData.hybridAgentBoxes : []
+          const idx = list.findIndex((h: any) => String(h.id) === String(hmId))
+          const entry = { id: String(hmId), count: state.agentBoxes.length }
+          if (idx >= 0) list[idx] = entry; else list.push(entry)
+          sessionData.hybridAgentBoxes = list
+          sessionData.timestamp = new Date().toISOString()
+          chrome.storage.local.set({ [sessionKey]: sessionData }, () => {})
+        })
+      } catch {}
+    }
+
+    function renderRightAgentBoxes() {
+      const container = document.getElementById('agent-boxes-container-right')
+      if (!container) return
+      const state = loadRightState()
+      container.innerHTML = ''
+      state.agentBoxes.forEach((box: any) => {
+        const wrap = document.createElement('div')
+        wrap.className = 'agent-box-wrapper-right'
+        wrap.setAttribute('data-agent-id', box.id)
+        wrap.style.marginBottom = '20px'
+        const savedHeight = state.agentBoxHeights?.[box.id] || 120
+        wrap.innerHTML = `
+          <div style="background: ${box.color}; color: white; text-shadow: 1px 1px 2px rgba(0,0,0,0.5); padding: 8px 12px; border-radius: 6px 6px 0 0; font-size: 13px; font-weight: bold; display: flex; justify-content: space-between; align-items: center;">
+            <span>${box.title}</span>
+            <button class="delete-right-agent-box" data-agent-id="${box.id}" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 20px; height: 20px; border-radius: 50%; cursor: pointer; font-size: 12px; font-weight: bold; display: flex; align-items: center; justify-content: center; transition: all 0.2s ease; opacity: 0.7;" title="Delete this agent box">✕</button>
+          </div>
+          <div style="background: rgba(255,255,255,0.95); color: black; border-radius: 0 0 8px 8px; padding: 12px; min-height: ${savedHeight}px; height: ${savedHeight}px; border: 1px solid rgba(0,0,0,0.1); box-shadow: 0 2px 4px rgba(0,0,0,0.1);"></div>
+        `
+        container.appendChild(wrap)
+      })
+
+      // Attach delete handlers (right only)
+      container.querySelectorAll('.delete-right-agent-box').forEach((btn) => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation()
+          const id = (btn as HTMLElement).getAttribute('data-agent-id')
+          if (!id) return
+          if (!confirm('Are you sure you want to delete this agent box?')) return
+          const state = loadRightState()
+          state.agentBoxes = state.agentBoxes.filter((b: any) => String(b.id) !== String(id))
+          if (state.agentBoxHeights && state.agentBoxHeights[id]) delete state.agentBoxHeights[id]
+          saveRightState(state)
+          renderRightAgentBoxes()
+        })
+      })
+    }
+
+    // Initial render and add handler
+    setTimeout(renderRightAgentBoxes, 0)
     document.getElementById('add-agent-box-btn-right')?.addEventListener('click', () => {
-      try { openAddAgentBoxDialog() } catch (e) {}
-      setTimeout(() => renderInto('agent-boxes-container-right'), 100)
+      const state = loadRightState()
+      const existingNumbers = state.agentBoxes.map((b: any) => b.number)
+      const nextNumber = Math.max(0, ...existingNumbers) + 1
+      const colors = ['#4CAF50', '#2196F3', '#FF9800', '#9C27B0', '#F44336', '#E91E63', '#9E9E9E', '#795548', '#607D8B', '#FF5722']
+      const newBox = {
+        id: `hm-${hmId}-custom-${Date.now()}`,
+        number: nextNumber,
+        title: `#${nextNumber} Custom Agent`,
+        color: colors[nextNumber % colors.length],
+        outputId: `hm-${hmId}-output-${nextNumber}`
+      }
+      state.agentBoxes.push(newBox)
+      saveRightState(state)
+      renderRightAgentBoxes()
     })
 
     // Right-side resize (mirror left) and quick expand
