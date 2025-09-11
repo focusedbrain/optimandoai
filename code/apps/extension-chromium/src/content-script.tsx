@@ -3415,19 +3415,15 @@ ${pageText}
     document.getElementById('hybrid-save-open')!.onclick = () => {
       const countEl = document.getElementById('hybrid-count') as HTMLSelectElement
       const count = Math.max(1, Math.min(5, parseInt(countEl.value || '1', 10)))
-
-      const counterKey = 'optimando-hybrid-master-counter'
-      let next = parseInt(localStorage.getItem(counterKey) || '0', 10)
-
       const base = new URL(window.location.href)
       base.searchParams.delete('optimando_extension')
 
-      for (let i = 0; i < count; i++) {
-        next += 1
-        localStorage.setItem(counterKey, String(next))
+      // Always number hybrid views 1..count within the active session
+      for (let i = 1; i <= count; i++) {
         const url = new URL(base.toString())
-        url.searchParams.set('hybrid_master_id', String(next))
-        window.open(url.toString(), `hybrid-master-${next}`)
+        url.searchParams.set('hybrid_master_id', String(i))
+        // Use stable window names so re-opening targets existing hybrid tabs of this session
+        window.open(url.toString(), `hybrid-master-${i}`)
       }
 
       const note = document.createElement('div')
