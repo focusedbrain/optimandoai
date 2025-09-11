@@ -104,44 +104,34 @@ function initializeExtension() {
     helperTabs: null as any,
     displayGrids: null as any,
     agentBoxHeights: {} as any,
-    agentBoxHeightsRight: {} as any,
     agentBoxes: [
       { id: 'brainstorm', number: 1, title: '#1 🧠 Brainstorm Support Ideas', color: '#4CAF50', outputId: 'brainstorm-output' },
       { id: 'knowledge', number: 2, title: '#2 🔍 Knowledge Gap Detection', color: '#2196F3', outputId: 'knowledge-output' },
       { id: 'risks', number: 3, title: '#3 ⚖️ Risks & Chances', color: '#FF9800', outputId: 'risks-output' },
       { id: 'explainer', number: 4, title: '#4 🎬 Explainer Video Suggestions', color: '#9C27B0', outputId: 'explainer-output' }
-    ] as any,
-    agentBoxesRight: [
-      { id: 'brainstorm-right', number: 1, title: '#1 🧠 Brainstorm Support Ideas', color: '#4CAF50', outputId: 'brainstorm-output-right' },
-      { id: 'knowledge-right', number: 2, title: '#2 🔍 Knowledge Gap Detection', color: '#2196F3', outputId: 'knowledge-output-right' },
-      { id: 'risks-right', number: 3, title: '#3 ⚖️ Risks & Chances', color: '#FF9800', outputId: 'risks-output-right' },
-      { id: 'explainer-right', number: 4, title: '#4 🎬 Explainer Video Suggestions', color: '#9C27B0', outputId: 'explainer-output-right' }
     ] as any
   }
 
   // Save/Load functions
+  // Session key helpers to guarantee that all writes go to the active session only
+  function getCurrentSessionKey(): string | null {
+    try { return sessionStorage.getItem('optimando-current-session-key') } catch { return null }
+  }
+  function setCurrentSessionKey(key: string) {
+    try { sessionStorage.setItem('optimando-current-session-key', key) } catch {}
+  }
   function saveTabDataToStorage() {
     localStorage.setItem(`optimando-tab-${tabId}`, JSON.stringify(currentTabData))
     
-    // Save agent boxes with scoped keys: base|master and base|hm_<id>
-    const baseUrl = window.location.href.split('?')[0]
-    const hmId = (new URLSearchParams(window.location.search)).get('hybrid_master_id')
-    // Master
-    const masterKey = `optimando-agentboxes-${btoa(baseUrl + '|master').substring(0, 20)}`
-    localStorage.setItem(masterKey, JSON.stringify({
+    // Also save agent boxes configuration with URL-based key for persistence across page reloads
+    const currentUrl = window.location.href.split('?')[0]
+    const urlKey = `optimando-agentboxes-${btoa(currentUrl).substring(0, 20)}`
+    localStorage.setItem(urlKey, JSON.stringify({
       agentBoxes: currentTabData.agentBoxes,
       agentBoxHeights: currentTabData.agentBoxHeights,
       timestamp: new Date().toISOString()
     }))
-    // Hybrid right (if present)
-    if (hmId) {
-      const rightKey = `optimando-agentboxes-${btoa(baseUrl + '|hm_' + hmId).substring(0, 20)}`
-      localStorage.setItem(rightKey, JSON.stringify({
-        agentBoxes: currentTabData.agentBoxesRight || [],
-        agentBoxHeights: currentTabData.agentBoxHeightsRight || {},
-        timestamp: new Date().toISOString()
-      }))
-    }
+    console.log('🔧 DEBUG: Saved agent boxes to URL-based storage:', urlKey)
   }
 
   function loadTabDataFromStorage() {
@@ -197,6 +187,24 @@ function initializeExtension() {
       // Apply preserved UI configuration
       currentTabData.uiConfig = preservedUIConfig
       
+      // Create a brand-new session entry in Sessions History
+      try {
+        const sessionKey = `session_${Date.now()}`
+        const sessionData = {
+          ...currentTabData,
+          timestamp: new Date().toISOString(),
+          url: window.location.href,
+          helperTabs: null,
+          displayGrids: null
+        }
+        chrome.storage.local.set({ [sessionKey]: sessionData }, () => {
+          console.log('🆕 Fresh browser session added to history:', sessionKey)
+          setCurrentSessionKey(sessionKey)
+        })
+      } catch (e) {
+        console.error('❌ Failed to create fresh session entry:', e)
+      }
+      
       console.log('🔧 DEBUG: Starting fresh session:', currentTabData.tabName)
       return // Skip loading old data for fresh session
     }
@@ -214,27 +222,20 @@ function initializeExtension() {
       console.log('🔧 DEBUG: No saved tab data found')
     }
     
-    // Also try to load agent boxes from scoped storage (base|master or base|hm_<id>)
+    // Also try to load agent boxes from URL-based storage (for persistence across page reloads)
     const currentUrl = window.location.href.split('?')[0]
-    const hmIdLoad = (new URLSearchParams(window.location.search)).get('hybrid_master_id')
-    const masterKey = `optimando-agentboxes-${btoa(currentUrl + '|master').substring(0, 20)}`
-    const urlSaved = localStorage.getItem(hmIdLoad ? `optimando-agentboxes-${btoa(currentUrl + '|hm_' + hmIdLoad).substring(0, 20)}` : masterKey)
+    const urlKey = `optimando-agentboxes-${btoa(currentUrl).substring(0, 20)}`
+    const urlSaved = localStorage.getItem(urlKey)
     if (urlSaved) {
       try {
         const urlData = JSON.parse(urlSaved)
         if (urlData.agentBoxes && urlData.agentBoxes.length > 0) {
-          if (hmIdLoad) {
-            currentTabData.agentBoxesRight = urlData.agentBoxes
-            currentTabData.agentBoxHeightsRight = urlData.agentBoxHeights || {}
-            console.log('🔧 DEBUG: Restored RIGHT agent boxes from scoped storage:', urlData.agentBoxes.length, 'boxes')
-          } else {
-            currentTabData.agentBoxes = urlData.agentBoxes
-            currentTabData.agentBoxHeights = urlData.agentBoxHeights || {}
-            console.log('🔧 DEBUG: Restored MASTER agent boxes from scoped storage:', urlData.agentBoxes.length, 'boxes')
-          }
+          currentTabData.agentBoxes = urlData.agentBoxes
+          currentTabData.agentBoxHeights = urlData.agentBoxHeights || {}
+          console.log('🔧 DEBUG: Restored agent boxes from URL-based storage:', urlData.agentBoxes.length, 'boxes')
         }
       } catch (e) {
-        console.log('🔧 DEBUG: Error parsing scoped agent box data:', e)
+        console.log('🔧 DEBUG: Error parsing URL-based agent box data:', e)
       }
     }
   }
@@ -298,61 +299,6 @@ function initializeExtension() {
     attachDeleteButtonListeners()
   }
 
-  function renderAgentBoxesRight() {
-    console.log('🔧 DEBUG: renderAgentBoxesRight called with currentTabData.agentBoxesRight:', currentTabData.agentBoxesRight)
-    
-    const container = document.getElementById('agent-boxes-container-right')
-    if (!container) {
-      console.log('🔧 DEBUG: agent-boxes-container-right not found!')
-      return
-    }
-
-    container.innerHTML = ''
-    
-    if (!currentTabData.agentBoxesRight || currentTabData.agentBoxesRight.length === 0) {
-      console.log('🔧 DEBUG: No right agent boxes found, using default configuration')
-      // Initialize with default boxes if none exist
-      currentTabData.agentBoxesRight = [
-        { id: 'brainstorm-right', number: 1, title: '#1 🧠 Brainstorm Support Ideas', color: '#4CAF50', outputId: 'brainstorm-output-right' },
-        { id: 'knowledge-right', number: 2, title: '#2 🔍 Knowledge Gap Detection', color: '#2196F3', outputId: 'knowledge-output-right' },
-        { id: 'risks-right', number: 3, title: '#3 ⚖️ Risks & Chances', color: '#FF9800', outputId: 'risks-output-right' },
-        { id: 'explainer-right', number: 4, title: '#4 🎬 Explainer Video Suggestions', color: '#9C27B0', outputId: 'explainer-output-right' }
-      ]
-      saveTabDataToStorage()
-    }
-    
-    console.log('🔧 DEBUG: Rendering', currentTabData.agentBoxesRight.length, 'right agent boxes')
-    
-    currentTabData.agentBoxesRight.forEach((box: any) => {
-      const agentDiv = document.createElement('div')
-      agentDiv.className = 'agent-box-wrapper-right'
-      agentDiv.setAttribute('data-agent-id', box.id)
-      agentDiv.style.marginBottom = '20px'
-      
-      const savedHeight = currentTabData.agentBoxHeightsRight?.[box.id] || 120
-      
-      agentDiv.innerHTML = `
-        <div style="background: ${box.color}; color: white; text-shadow: 1px 1px 2px rgba(0,0,0,0.5); padding: 8px 12px; border-radius: 6px 6px 0 0; font-size: 13px; font-weight: bold; margin-bottom: 0; position: relative; display: flex; justify-content: space-between; align-items: center;">
-          <span>${box.title}</span>
-          <button class="delete-agent-box" data-agent-id="${box.id}" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 20px; height: 20px; border-radius: 50%; cursor: pointer; font-size: 12px; font-weight: bold; display: flex; align-items: center; justify-content: center; transition: all 0.2s ease; opacity: 0.7;" title="Delete this agent box">
-            ✕
-          </button>
-        </div>
-        <div class="resizable-agent-box" data-agent="${box.id}" style="background: rgba(255,255,255,0.95); color: black; border-radius: 0 0 8px 8px; padding: 12px; min-height: ${savedHeight}px; height: ${savedHeight}px; border: 1px solid rgba(0,0,0,0.1); box-shadow: 0 2px 4px rgba(0,0,0,0.1); position: relative; resize: vertical; overflow: auto;">
-          <div style="font-size: 12px; color: #333; line-height: 1.4;">
-            <div id="${box.outputId}">Ready for ${box.title.replace(/[📝🔍🎯🧮]/g, '').trim()}...</div>
-          </div>
-          <div class="resize-handle-horizontal" style="position: absolute; bottom: 0; left: 0; right: 0; height: 8px; cursor: ns-resize; background: rgba(0,0,0,0.1); border-radius: 0 0 8px 8px; opacity: 0; transition: opacity 0.2s;"></div>
-        </div>
-      `
-      
-      container.appendChild(agentDiv)
-    })
-    
-    // Re-attach resize event listeners for right panel
-    attachAgentBoxResizeListeners()
-  }
-
   function deleteAgentBox(agentId: string) {
     currentTabData.agentBoxes = currentTabData.agentBoxes.filter((box: any) => box.id !== agentId)
     
@@ -363,130 +309,6 @@ function initializeExtension() {
     
     saveTabDataToStorage()
     renderAgentBoxes()
-  }
-
-  function openAddAgentBoxDialogRight() {
-    const colors = ['#4CAF50', '#2196F3', '#FF9800', '#9C27B0', '#F44336', '#E91E63', '#9E9E9E', '#795548', '#607D8B', '#FF5722']
-    
-    // Initialize right panel agent boxes if not exists
-    if (!currentTabData.agentBoxesRight) {
-      currentTabData.agentBoxesRight = []
-    }
-    
-    const existingNumbers = currentTabData.agentBoxesRight.map((box: any) => box.number)
-    const nextNumber = Math.max(...existingNumbers, 0) + 1
-    
-    const overlay = document.createElement('div')
-    overlay.style.cssText = `
-      position: fixed;
-      top: 0;
-      left: 0;
-      width: 100%;
-      height: 100%;
-      background: rgba(0, 0, 0, 0.8);
-      z-index: 2147483647;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-    `
-    
-    overlay.innerHTML = `
-      <div style="background: white; padding: 30px; border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.3); max-width: 500px; width: 90%;">
-        <h3 style="margin: 0 0 20px 0; color: #333; font-size: 18px; text-align: center;">Add New Agent Box (Right Panel)</h3>
-        
-        <div style="margin-bottom: 20px;">
-          <label style="display: block; margin-bottom: 8px; color: #555; font-weight: bold;">Agent Number:</label>
-          <input id="agent-number-right" type="number" value="${nextNumber}" min="1" style="width: 100%; padding: 12px; border: 2px solid #ddd; border-radius: 6px; font-size: 14px; box-sizing: border-box;">
-        </div>
-        
-        <div style="margin-bottom: 20px;">
-          <label style="display: block; margin-bottom: 8px; color: #555; font-weight: bold;">Agent Title:</label>
-          <input id="agent-title-right" type="text" value="#${nextNumber} Custom Agent" style="width: 100%; padding: 12px; border: 2px solid #ddd; border-radius: 6px; font-size: 14px; box-sizing: border-box;">
-        </div>
-        
-        <div style="margin-bottom: 30px;">
-          <label style="display: block; margin-bottom: 8px; color: #555; font-weight: bold;">Color:</label>
-          <div style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px;">
-            ${colors.map((color, index) => `
-              <div class="color-option" data-color="${color}" style="width: 40px; height: 40px; background: ${color}; border-radius: 6px; cursor: pointer; border: 3px solid ${index === (nextNumber - 1) % colors.length ? '#333' : 'transparent'}; transition: all 0.2s ease;"></div>
-            `).join('')}
-          </div>
-        </div>
-        
-        <div style="display: flex; gap: 12px; justify-content: flex-end;">
-          <button id="cancel-agent-right" style="padding: 12px 24px; background: #f5f5f5; border: 2px solid #ddd; color: #666; border-radius: 6px; cursor: pointer; font-size: 14px; font-weight: bold; transition: all 0.2s ease;">Cancel</button>
-          <button id="add-agent-right" style="padding: 12px 24px; background: #4CAF50; border: 2px solid #4CAF50; color: white; border-radius: 6px; cursor: pointer; font-size: 14px; font-weight: bold; transition: all 0.2s ease;">Add Agent</button>
-        </div>
-      </div>
-    `
-    
-    document.body.appendChild(overlay)
-    
-    let selectedColor = colors[(nextNumber - 1) % colors.length]
-    
-    // Color selection
-    overlay.querySelectorAll('.color-option').forEach(option => {
-      option.addEventListener('click', () => {
-        overlay.querySelectorAll('.color-option').forEach(opt => opt.style.border = '3px solid transparent')
-        option.style.border = '3px solid #333'
-        selectedColor = option.getAttribute('data-color') || selectedColor
-      })
-    })
-    
-    // Cancel button
-    overlay.querySelector('#cancel-agent-right')?.addEventListener('click', () => {
-      overlay.remove()
-    })
-    
-    // Add button
-    overlay.querySelector('#add-agent-right')?.addEventListener('click', () => {
-      const numberInput = overlay.querySelector('#agent-number-right') as HTMLInputElement
-      const titleInput = overlay.querySelector('#agent-title-right') as HTMLInputElement
-      
-      const number = parseInt(numberInput.value) || nextNumber
-      const title = titleInput.value || `#${number} Custom Agent`
-      
-      const newAgent = {
-        id: `agent-right-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-        number: number,
-        title: title,
-        color: selectedColor,
-        outputId: `agent-output-right-${number}`
-      }
-      
-      currentTabData.agentBoxesRight.push(newAgent)
-      saveTabDataToStorage()
-      renderAgentBoxesRight()
-      
-      overlay.remove()
-    })
-    
-    // Close on overlay click
-    overlay.addEventListener('click', (e) => {
-      if (e.target === overlay) {
-        overlay.remove()
-      }
-    })
-  }
-
-  function deleteAgentBoxFromRight(agentId: string) {
-    // Initialize right panel agent boxes if not exists
-    if (!currentTabData.agentBoxesRight) {
-      currentTabData.agentBoxesRight = []
-    }
-    
-    currentTabData.agentBoxesRight = currentTabData.agentBoxesRight.filter((box: any) => box.id !== agentId)
-    
-    // Also remove saved height from right panel heights
-    if (!currentTabData.agentBoxHeightsRight) {
-      currentTabData.agentBoxHeightsRight = {}
-    }
-    if (currentTabData.agentBoxHeightsRight[agentId]) {
-      delete currentTabData.agentBoxHeightsRight[agentId]
-    }
-    
-    saveTabDataToStorage()
-    renderAgentBoxesRight()
   }
 
   function openAddAgentBoxDialog() {
@@ -677,55 +499,31 @@ function initializeExtension() {
     })
   }
 
-  // Guard to avoid attaching delegated delete listeners multiple times
-  let deleteDelegationBound = false
-
   function attachDeleteButtonListeners() {
-    // Use event delegation to handle both left and right panel delete buttons
-    if (deleteDelegationBound) return
-    deleteDelegationBound = true
-    document.addEventListener('click', (e) => {
-      const deleteBtn = (e.target as HTMLElement).closest('.delete-agent-box') as HTMLElement
-      if (!deleteBtn) return
+    document.querySelectorAll('.delete-agent-box').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation()
+        const agentId = btn.getAttribute('data-agent-id')
+        if (agentId) {
+          // Show confirmation dialog
+          const confirmDelete = confirm(`Are you sure you want to delete this agent box?`)
+          if (confirmDelete) {
+            deleteAgentBox(agentId)
+          }
+        }
+      })
       
-      e.preventDefault()
-      e.stopPropagation()
-      const agentId = deleteBtn.getAttribute('data-agent-id')
-      if (!agentId) return
+      // Hover effects for delete button
+      btn.addEventListener('mouseenter', () => {
+        (btn as HTMLElement).style.opacity = '1'
+        ;(btn as HTMLElement).style.background = 'rgba(244, 67, 54, 0.8)'
+      })
       
-      // Show confirmation dialog
-      const confirmDelete = confirm(`Are you sure you want to delete this agent box?`)
-      if (!confirmDelete) return
-      
-      // Determine which panel this delete button belongs to
-      const rightContainer = deleteBtn.closest('#agent-boxes-container-right')
-      const leftContainer = deleteBtn.closest('#agent-boxes-container')
-      
-      if (rightContainer) {
-        // Delete from right panel (hybrid view)
-        deleteAgentBoxFromRight(agentId)
-      } else if (leftContainer) {
-        // Delete from left panel (main view)
-        deleteAgentBox(agentId)
-      }
+      btn.addEventListener('mouseleave', () => {
+        (btn as HTMLElement).style.opacity = '0.7'
+        ;(btn as HTMLElement).style.background = 'rgba(255,255,255,0.2)'
+      })
     })
-    
-    // Add hover effects for delete buttons
-    document.addEventListener('mouseenter', (e) => {
-      const deleteBtn = (e.target as HTMLElement).closest('.delete-agent-box') as HTMLElement
-      if (deleteBtn) {
-        deleteBtn.style.opacity = '1'
-        deleteBtn.style.background = 'rgba(244, 67, 54, 0.8)'
-      }
-    }, true)
-    
-    document.addEventListener('mouseleave', (e) => {
-      const deleteBtn = (e.target as HTMLElement).closest('.delete-agent-box') as HTMLElement
-      if (deleteBtn) {
-        deleteBtn.style.opacity = '0.7'
-        deleteBtn.style.background = 'rgba(255,255,255,0.2)'
-      }
-    }, true)
   }
 
   // Add CSS animations
@@ -3643,7 +3441,7 @@ ${pageText}
       const countEl = document.getElementById('hybrid-count') as HTMLSelectElement
       const count = Math.max(1, Math.min(5, parseInt(countEl.value || '1', 10)))
 
-      // Use sequential IDs 1..count per session
+      // Always use sequential IDs 1..count per session
       const base = new URL(window.location.href)
       base.searchParams.delete('optimando_extension')
 
@@ -3653,17 +3451,17 @@ ${pageText}
         window.open(url.toString(), `hybrid-master-${i}`)
       }
 
-      // Mirror hybrid placeholders into session history so the section appears
+      // Mirror hybrid placeholders into session history
       try {
         chrome.storage.local.get(null, (allData) => {
-          const baseUrl = window.location.href.split('?')[0]
-          const sessions = Object.entries(allData).filter(([k]) => k.startsWith('session_')) as any
-          const target = sessions.find(([k, v]: any) => (v.url && v.url.split('?')[0] === baseUrl))
-          if (!target) return
-          const [sessionKey, sessionData] = target
+          // Use active session key instead of URL matching
+          const activeKey = getCurrentSessionKey()
+          if (!activeKey) return
+          const sessionData = allData[activeKey]
+          if (!sessionData) return
           sessionData.hybridAgentBoxes = Array.from({ length: count }, (_, idx) => ({ id: String(idx + 1), count: 4 }))
           sessionData.timestamp = new Date().toISOString()
-          chrome.storage.local.set({ [sessionKey]: sessionData }, () => {})
+          chrome.storage.local.set({ [activeKey]: sessionData }, () => {})
         })
       } catch {}
 
@@ -5511,6 +5309,24 @@ ${pageText}
     // Save the new session data
     saveTabDataToStorage()
 
+    // Also create a new session in Sessions History
+    try {
+      const sessionKey = `session_${Date.now()}`
+      const sessionData = {
+        ...currentTabData,
+        timestamp: new Date().toISOString(),
+        url: window.location.href,
+        helperTabs: null,
+        displayGrids: null
+      }
+      chrome.storage.local.set({ [sessionKey]: sessionData }, () => {
+        console.log('🆕 New session added to history:', sessionKey)
+        setCurrentSessionKey(sessionKey)
+      })
+    } catch (e) {
+      console.error('❌ Failed to add session to history:', e)
+    }
+
     // Clear agent box outputs
     const summarizeOutput = document.getElementById('summarize-output')
     if (summarizeOutput) summarizeOutput.innerText = 'Ready for new summaries...'
@@ -5643,9 +5459,21 @@ ${pageText}
   // Hybrid right panel behaviors after mount
   if (isHybridMaster) {
     // Render agent boxes into the right container
-    setTimeout(() => renderAgentBoxesRight(), 0)
+    const renderInto = (containerId) => {
+      const container = document.getElementById(containerId)
+      if (!container) return
+      const original = document.getElementById('agent-boxes-container')
+      if (original) original.id = 'agent-boxes-container-original'
+      container.id = 'agent-boxes-container'
+      try { renderAgentBoxes() } catch (e) {}
+      container.id = containerId
+      const movedBack = document.getElementById('agent-boxes-container-original')
+      if (movedBack) movedBack.id = 'agent-boxes-container'
+    }
+    setTimeout(() => renderInto('agent-boxes-container-right'), 0)
     document.getElementById('add-agent-box-btn-right')?.addEventListener('click', () => {
-      try { openAddAgentBoxDialogRight() } catch (e) {}
+      try { openAddAgentBoxDialog() } catch (e) {}
+      setTimeout(() => renderInto('agent-boxes-container-right'), 100)
     })
 
     // Right-side resize (mirror left) and quick expand
