@@ -5095,6 +5095,56 @@ ${pageText}
                 renderAgentBoxes()
               }, 200)
               
+              // Restore hybrid views if they exist
+              if (sessionData.hybridAgentBoxes && sessionData.hybridAgentBoxes.length > 0) {
+                console.log('🔧 DEBUG: Restoring', sessionData.hybridAgentBoxes.length, 'hybrid views')
+                
+                setTimeout(() => {
+                  sessionData.hybridAgentBoxes.forEach((hybridBox, index) => {
+                    const hybridId = hybridBox.id || String(index + 1)
+                    
+                    // Use stored URL if available, otherwise fall back to target URL
+                    let hybridUrl = hybridBox.url || targetUrl
+                    
+                    try {
+                      const url = new URL(hybridUrl)
+                      url.searchParams.delete('optimando_extension')
+                      url.searchParams.set('hybrid_master_id', hybridId)
+                      url.searchParams.set('optimando_session_key', sessionId)
+                      
+                      // Add theme if available
+                      const currentTheme = localStorage.getItem('optimando-ui-theme')
+                      if (currentTheme && currentTheme !== 'default') {
+                        url.searchParams.set('optimando_theme', currentTheme)
+                      }
+                      
+                      console.log(`🔧 DEBUG: Opening hybrid view ${hybridId} with URL:`, url.toString())
+                      const hybridTab = window.open(url.toString(), `hybrid-master-${hybridId}`)
+                      
+                      if (!hybridTab) {
+                        console.error(`❌ Failed to open hybrid view ${hybridId} - popup blocked`)
+                      } else {
+                        console.log(`✅ Successfully opened hybrid view ${hybridId}`)
+                      }
+                    } catch (error) {
+                      console.error(`❌ Invalid URL for hybrid view ${hybridId}:`, hybridUrl, error)
+                      // Fallback to target URL if stored URL is invalid
+                      const base = new URL(targetUrl)
+                      base.searchParams.delete('optimando_extension')
+                      base.searchParams.set('hybrid_master_id', hybridId)
+                      base.searchParams.set('optimando_session_key', sessionId)
+                      
+                      const currentTheme = localStorage.getItem('optimando-ui-theme')
+                      if (currentTheme && currentTheme !== 'default') {
+                        base.searchParams.set('optimando_theme', currentTheme)
+                      }
+                      
+                      window.open(base.toString(), `hybrid-master-${hybridId}`)
+                    }
+                  })
+                }, 300) // Small delay after helper tabs
+              }
+              
               // Also restore display grids if they exist
               if (sessionData.displayGrids && sessionData.displayGrids.length > 0) {
                 console.log('🔧 DEBUG: Opening', sessionData.displayGrids.length, 'display grids:', sessionData.displayGrids)
@@ -5141,6 +5191,56 @@ ${pageText}
                 console.log('🔧 DEBUG: About to re-render agent boxes with:', currentTabData.agentBoxes?.length || 0, 'boxes')
                 renderAgentBoxes()
               }, 200)
+              
+              // Restore hybrid views if they exist (no helper tabs case)
+              if (sessionData.hybridAgentBoxes && sessionData.hybridAgentBoxes.length > 0) {
+                console.log('🔧 DEBUG: Restoring', sessionData.hybridAgentBoxes.length, 'hybrid views (no helper tabs)')
+                
+                setTimeout(() => {
+                  sessionData.hybridAgentBoxes.forEach((hybridBox, index) => {
+                    const hybridId = hybridBox.id || String(index + 1)
+                    
+                    // Use stored URL if available, otherwise fall back to target URL
+                    let hybridUrl = hybridBox.url || targetUrl
+                    
+                    try {
+                      const url = new URL(hybridUrl)
+                      url.searchParams.delete('optimando_extension')
+                      url.searchParams.set('hybrid_master_id', hybridId)
+                      url.searchParams.set('optimando_session_key', sessionId)
+                      
+                      // Add theme if available
+                      const currentTheme = localStorage.getItem('optimando-ui-theme')
+                      if (currentTheme && currentTheme !== 'default') {
+                        url.searchParams.set('optimando_theme', currentTheme)
+                      }
+                      
+                      console.log(`🔧 DEBUG: Opening hybrid view ${hybridId} with URL:`, url.toString())
+                      const hybridTab = window.open(url.toString(), `hybrid-master-${hybridId}`)
+                      
+                      if (!hybridTab) {
+                        console.error(`❌ Failed to open hybrid view ${hybridId} - popup blocked`)
+                      } else {
+                        console.log(`✅ Successfully opened hybrid view ${hybridId}`)
+                      }
+                    } catch (error) {
+                      console.error(`❌ Invalid URL for hybrid view ${hybridId}:`, hybridUrl, error)
+                      // Fallback to target URL if stored URL is invalid
+                      const base = new URL(targetUrl)
+                      base.searchParams.delete('optimando_extension')
+                      base.searchParams.set('hybrid_master_id', hybridId)
+                      base.searchParams.set('optimando_session_key', sessionId)
+                      
+                      const currentTheme = localStorage.getItem('optimando-ui-theme')
+                      if (currentTheme && currentTheme !== 'default') {
+                        base.searchParams.set('optimando_theme', currentTheme)
+                      }
+                      
+                      window.open(base.toString(), `hybrid-master-${hybridId}`)
+                    }
+                  })
+                }, 300) // Small delay after agent boxes
+              }
               
               // No helper tabs, but check for display grids
               if (sessionData.displayGrids && sessionData.displayGrids.length > 0) {
