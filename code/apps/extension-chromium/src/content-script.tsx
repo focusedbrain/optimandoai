@@ -13,12 +13,19 @@ type OptimandoTabState = { role?: DedicatedRole, sessionKey?: string }
 function readOptimandoState(): OptimandoTabState {
   try {
     const name = window.name || ''
+    console.log('🔧 DEBUG: Reading window.name:', name)
     const s = name.indexOf(OPTI_MARKER_START)
     const e = name.indexOf(OPTI_MARKER_END)
     if (s !== -1 && e !== -1 && e > s) {
-      return JSON.parse(name.substring(s + OPTI_MARKER_START.length, e) || '{}')
+      const stateStr = name.substring(s + OPTI_MARKER_START.length, e) || '{}'
+      const state = JSON.parse(stateStr)
+      console.log('🔧 DEBUG: Parsed state from window.name:', state)
+      return state
     }
-  } catch {}
+  } catch (err) {
+    console.log('🔧 DEBUG: Error reading window.name state:', err)
+  }
+  console.log('🔧 DEBUG: No state found in window.name, returning empty')
   return {}
 }
 function writeOptimandoState(partial: OptimandoTabState) {
@@ -34,29 +41,68 @@ function writeOptimandoState(partial: OptimandoTabState) {
     } else {
       window.name = (name || '') + payload
     }
-  } catch {}
+    
+    // FAILSAFE: Also backup dedicated role to sessionStorage
+    if (next.role) {
+      try {
+        sessionStorage.setItem('optimando-dedicated-role-backup', JSON.stringify(next.role))
+        console.log('🔧 DEBUG: Backed up dedicated role to sessionStorage:', next.role)
+      } catch {}
+    }
+    
+    console.log('🔧 DEBUG: Wrote state to window.name:', next, 'window.name now:', window.name)
+  } catch (err) {
+    console.log('🔧 DEBUG: Error writing state to window.name:', err)
+  }
 }
 const bootState = readOptimandoState()
 let dedicatedRole: DedicatedRole | null = bootState.role || null
+
+// FAILSAFE: Also check sessionStorage for dedicated role as backup
+if (!dedicatedRole) {
+  try {
+    const backupRole = sessionStorage.getItem('optimando-dedicated-role-backup')
+    if (backupRole) {
+      dedicatedRole = JSON.parse(backupRole)
+      console.log('🔧 DEBUG: Restored dedicated role from sessionStorage backup:', dedicatedRole)
+      // Re-write to window.name
+      if (dedicatedRole) {
+        writeOptimandoState({ role: dedicatedRole })
+      }
+    }
+  } catch {}
+}
+
+console.log('🔧 DEBUG: Boot state loaded from window.name:', bootState)
+console.log('🔧 DEBUG: Dedicated role at startup:', dedicatedRole)
+console.log('🔧 DEBUG: Current URL:', window.location.href)
+
 if (bootState.sessionKey) {
   try { sessionStorage.setItem('optimando-current-session-key', bootState.sessionKey) } catch {}
 }
 
-// Check if extension was previously activated for this URL
+// Check if extension was previously activated for this URL or if this is a dedicated tab
 const savedState = localStorage.getItem(extensionStateKey)
-if (savedState === 'true') {
+if (savedState === 'true' || dedicatedRole) {
   isExtensionActive = true
+  console.log('🔧 DEBUG: Extension active - savedState:', savedState, 'dedicatedRole:', dedicatedRole)
 }
 
 // Listen for toggle message from background script
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  console.log('🔧 DEBUG: Received message:', message.type, 'visible:', message.visible, 'current dedicatedRole:', dedicatedRole)
   if (message.type === 'TOGGLE_SIDEBARS') {
     if (message.visible && !isExtensionActive) {
       isExtensionActive = true
       localStorage.setItem(extensionStateKey, 'true')
-      // Dedicate this tab as master when toggled on
-      writeOptimandoState({ role: { type: 'master' } })
-      dedicatedRole = { type: 'master' }
+      // Only dedicate as master if not already hybrid
+      if (!dedicatedRole || dedicatedRole.type !== 'hybrid') {
+        console.log('🔧 DEBUG: Setting master role (was not hybrid)')
+        writeOptimandoState({ role: { type: 'master' } })
+        dedicatedRole = { type: 'master' }
+      } else {
+        console.log('🔧 DEBUG: Keeping existing hybrid role:', dedicatedRole)
+      }
       initializeExtension()
       console.log('🚀 Extension activated for tab')
     } else if (!message.visible && isExtensionActive) {
@@ -64,6 +110,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       localStorage.setItem(extensionStateKey, 'false')
       deactivateExtension()
       console.log('🔴 Extension deactivated for tab')
+    } else if (message.visible && isExtensionActive) {
+      console.log('🔧 DEBUG: Extension already active, re-initializing with role:', dedicatedRole)
+      initializeExtension()
     }
     sendResponse({ success: true, active: isExtensionActive })
   }
@@ -101,8 +150,10 @@ function initializeExtension() {
   }
   // If arriving with hybrid param, persist that role for future navigations in this tab
   if (isHybridMaster) {
-    writeOptimandoState({ role: { type: 'hybrid', hybridMasterId } })
-    dedicatedRole = { type: 'hybrid', hybridMasterId }
+    const hybridRole = { type: 'hybrid' as const, hybridMasterId }
+    writeOptimandoState({ role: hybridRole })
+    dedicatedRole = hybridRole
+    console.log('🔧 DEBUG: Set hybrid dedicated role:', hybridRole)
   }
   
   // Check if this URL is marked as excluded
@@ -175,22 +226,46 @@ function initializeExtension() {
   function saveTabDataToStorage() {
     localStorage.setItem(`optimando-tab-${tabId}`, JSON.stringify(currentTabData))
     
-    // Also save agent boxes configuration with URL-based key for persistence across page reloads
-    const currentUrl = window.location.href.split('?')[0]
-    const urlKey = `optimando-agentboxes-${btoa(currentUrl).substring(0, 20)}`
-    localStorage.setItem(urlKey, JSON.stringify({
+    // Save agent boxes configuration - prioritize hybrid-specific storage for hybrid tabs
+    const agentBoxData = {
       agentBoxes: currentTabData.agentBoxes,
       agentBoxHeights: currentTabData.agentBoxHeights,
       timestamp: new Date().toISOString()
-    }))
+    }
+    
+    // If this is a hybrid tab, save to hybrid-specific storage
+    if (dedicatedRole && dedicatedRole.type === 'hybrid') {
+      const hybridId = dedicatedRole.hybridMasterId || ''
+      const hybridKey = `optimando-hybrid-agentboxes-${hybridId}`
+      localStorage.setItem(hybridKey, JSON.stringify(agentBoxData))
+      console.log('🔧 DEBUG: Saved agent boxes to hybrid storage:', hybridKey)
+    }
+    
+    // Also save with URL-based key for general persistence
+    const currentUrl = window.location.href.split('?')[0]
+    const urlKey = `optimando-agentboxes-${btoa(currentUrl).substring(0, 20)}`
+    localStorage.setItem(urlKey, JSON.stringify(agentBoxData))
     console.log('🔧 DEBUG: Saved agent boxes to URL-based storage:', urlKey)
   }
   function loadTabDataFromStorage() {
     // Check if this is a fresh browser session (sessionStorage is origin-scoped). Use window.name to persist across domains.
     const browserSessionMarker = sessionStorage.getItem('optimando-browser-session')
     const persistedKeyFromName = (readOptimandoState() as any)?.sessionKey
-    // If a session key is persisted in window.name, we are NOT fresh even if origin changed
-    const isFreshBrowserSession = !browserSessionMarker && !persistedKeyFromName
+    
+    // Session should only be fresh if:
+    // 1. No browser session marker AND 
+    // 2. No persisted session key AND
+    // 3. No dedicated role AND
+    // 4. No existing session key in sessionStorage
+    const existingSessionKey = getCurrentSessionKey()
+    const isFreshBrowserSession = !browserSessionMarker && !persistedKeyFromName && !dedicatedRole && !existingSessionKey
+    
+    console.log('🔧 DEBUG: Session freshness check:')
+    console.log('  - browserSessionMarker:', browserSessionMarker)
+    console.log('  - persistedKeyFromName:', persistedKeyFromName)
+    console.log('  - dedicatedRole:', dedicatedRole)
+    console.log('  - existingSessionKey:', existingSessionKey)
+    console.log('  - isFreshBrowserSession:', isFreshBrowserSession)
     
     if (isFreshBrowserSession) {
       console.log('🆕 Fresh browser session detected - starting new session')
@@ -240,28 +315,22 @@ function initializeExtension() {
       // Apply preserved UI configuration
       currentTabData.uiConfig = preservedUIConfig
       
-      // If we have a persisted active sessionKey (e.g., from previous navigation in this tab), reuse it
-      if (persistedKeyFromName) {
-        try { sessionStorage.setItem('optimando-current-session-key', persistedKeyFromName) } catch {}
-        console.log('🔧 DEBUG: Reusing persisted session key:', persistedKeyFromName)
-      } else {
-        // Create a brand-new session entry in Sessions History
-        try {
-          const sessionKey = `session_${Date.now()}`
-          const sessionData = {
-            ...currentTabData,
-            timestamp: new Date().toISOString(),
-            url: window.location.href,
-            helperTabs: null,
-            displayGrids: null
-          }
-          chrome.storage.local.set({ [sessionKey]: sessionData }, () => {
-            console.log('🆕 Fresh browser session added to history:', sessionKey)
-            setCurrentSessionKey(sessionKey)
-          })
-        } catch (e) {
-          console.error('❌ Failed to create fresh session entry:', e)
+      // Create a brand-new session entry in Sessions History only if no persisted key exists
+      try {
+        const sessionKey = `session_${Date.now()}`
+        const sessionData = {
+          ...currentTabData,
+          timestamp: new Date().toISOString(),
+          url: window.location.href,
+          helperTabs: null,
+          displayGrids: null
         }
+        chrome.storage.local.set({ [sessionKey]: sessionData }, () => {
+          console.log('🆕 Fresh browser session added to history:', sessionKey)
+          setCurrentSessionKey(sessionKey)
+        })
+      } catch (e) {
+        console.error('❌ Failed to create fresh session entry:', e)
       }
       
       console.log('🔧 DEBUG: Starting fresh session:', currentTabData.tabName)
@@ -271,11 +340,16 @@ function initializeExtension() {
     // Not a fresh browser session, try to load existing data
     console.log('🔧 DEBUG: Continuing existing browser session')
     sessionStorage.setItem('optimando-browser-session', 'active') // Refresh marker
-    // Restore active session key from window.name if present (cross-domain persistence)
+    
+    // Restore active session key - prioritize window.name, fallback to existing sessionStorage
     try {
       if (persistedKeyFromName) {
         sessionStorage.setItem('optimando-current-session-key', persistedKeyFromName)
         console.log('🔧 DEBUG: Restored session key from window.name:', persistedKeyFromName)
+      } else if (existingSessionKey) {
+        // Persist the existing session key to window.name for future navigations
+        writeOptimandoState({ sessionKey: existingSessionKey })
+        console.log('🔧 DEBUG: Persisted existing session key to window.name:', existingSessionKey)
       }
     } catch {}
     
@@ -338,15 +412,49 @@ function initializeExtension() {
 
     container.innerHTML = ''
     
-    if (!currentTabData.agentBoxes || currentTabData.agentBoxes.length === 0) {
-      console.log('🔧 DEBUG: No agent boxes found, using default configuration')
-      // Initialize with default boxes if none exist
+    // FORCE HYBRID INTERFACE: If this is a hybrid tab, ensure it has 8 boxes
+    const urlParams = new URLSearchParams(window.location.search)
+    const isHybridMaster = urlParams.has('hybrid_master_id') || (dedicatedRole && dedicatedRole.type === 'hybrid')
+    
+    if (isHybridMaster && (!currentTabData.agentBoxes || currentTabData.agentBoxes.length !== 8)) {
+      console.log('🔧 DEBUG: FORCING hybrid interface with 8 agent boxes (current:', currentTabData.agentBoxes?.length || 0, ')')
       currentTabData.agentBoxes = [
         { id: 'brainstorm', number: 1, title: '#1 🧠 Brainstorm Support Ideas', color: '#4CAF50', outputId: 'brainstorm-output' },
         { id: 'knowledge', number: 2, title: '#2 🔍 Knowledge Gap Detection', color: '#2196F3', outputId: 'knowledge-output' },
         { id: 'risks', number: 3, title: '#3 ⚖️ Risks & Chances', color: '#FF9800', outputId: 'risks-output' },
-        { id: 'explainer', number: 4, title: '#4 🎬 Explainer Video Suggestions', color: '#9C27B0', outputId: 'explainer-output' }
+        { id: 'explainer', number: 4, title: '#4 🎬 Explainer Video Suggestions', color: '#9C27B0', outputId: 'explainer-output' },
+        { id: 'hybrid5', number: 5, title: '#5 🎯 Strategic Planning', color: '#E91E63', outputId: 'hybrid5-output' },
+        { id: 'hybrid6', number: 6, title: '#6 🔬 Research & Analysis', color: '#00BCD4', outputId: 'hybrid6-output' },
+        { id: 'hybrid7', number: 7, title: '#7 🚀 Implementation Guide', color: '#8BC34A', outputId: 'hybrid7-output' },
+        { id: 'hybrid8', number: 8, title: '#8 📊 Performance Metrics', color: '#FFC107', outputId: 'hybrid8-output' }
       ]
+      saveTabDataToStorage()
+    } else if (!currentTabData.agentBoxes || currentTabData.agentBoxes.length === 0) {
+      console.log('🔧 DEBUG: No agent boxes found, using default configuration')
+      
+      if (isHybridMaster) {
+        // Initialize with 8 hybrid boxes
+        console.log('🔧 DEBUG: Initializing hybrid master with 8 agent boxes')
+        currentTabData.agentBoxes = [
+          { id: 'brainstorm', number: 1, title: '#1 🧠 Brainstorm Support Ideas', color: '#4CAF50', outputId: 'brainstorm-output' },
+          { id: 'knowledge', number: 2, title: '#2 🔍 Knowledge Gap Detection', color: '#2196F3', outputId: 'knowledge-output' },
+          { id: 'risks', number: 3, title: '#3 ⚖️ Risks & Chances', color: '#FF9800', outputId: 'risks-output' },
+          { id: 'explainer', number: 4, title: '#4 🎬 Explainer Video Suggestions', color: '#9C27B0', outputId: 'explainer-output' },
+          { id: 'hybrid5', number: 5, title: '#5 🎯 Strategic Planning', color: '#E91E63', outputId: 'hybrid5-output' },
+          { id: 'hybrid6', number: 6, title: '#6 🔬 Research & Analysis', color: '#00BCD4', outputId: 'hybrid6-output' },
+          { id: 'hybrid7', number: 7, title: '#7 🚀 Implementation Guide', color: '#8BC34A', outputId: 'hybrid7-output' },
+          { id: 'hybrid8', number: 8, title: '#8 📊 Performance Metrics', color: '#FFC107', outputId: 'hybrid8-output' }
+        ]
+      } else {
+        // Initialize with 4 master boxes
+        console.log('🔧 DEBUG: Initializing master with 4 agent boxes')
+        currentTabData.agentBoxes = [
+          { id: 'brainstorm', number: 1, title: '#1 🧠 Brainstorm Support Ideas', color: '#4CAF50', outputId: 'brainstorm-output' },
+          { id: 'knowledge', number: 2, title: '#2 🔍 Knowledge Gap Detection', color: '#2196F3', outputId: 'knowledge-output' },
+          { id: 'risks', number: 3, title: '#3 ⚖️ Risks & Chances', color: '#FF9800', outputId: 'risks-output' },
+          { id: 'explainer', number: 4, title: '#4 🎬 Explainer Video Suggestions', color: '#9C27B0', outputId: 'explainer-output' }
+        ]
+      }
       saveTabDataToStorage()
     }
     
@@ -4917,7 +5025,7 @@ ${pageText}
             // Persist active session key in this tab
             try { sessionStorage.setItem('optimando-current-session-key', sessionId) } catch {}
             writeOptimandoState({ sessionKey: sessionId })
-
+            
             // Don't navigate immediately - this breaks the helper tabs opening
             // Instead, store the target URL and navigate after opening helper tabs
             const targetUrl = sessionData.url || window.location.href
@@ -5899,7 +6007,12 @@ function handleElectronGridSave(config: any) {
 // Check for Electron app data every 2 seconds
 setInterval(checkForElectronGridConfig, 2000)
 
-// Initialize extension if active
-if (isExtensionActive) {
+// Initialize extension if active OR if this tab has a dedicated role
+if (isExtensionActive || dedicatedRole) {
+  // If dedicated but not marked as active, mark it as active
+  if (dedicatedRole && !isExtensionActive) {
+    isExtensionActive = true
+    localStorage.setItem(extensionStateKey, 'true')
+  }
   initializeExtension()
 }
