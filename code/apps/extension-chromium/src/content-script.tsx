@@ -50,13 +50,41 @@ if (savedState === 'true') {
 
 // Listen for toggle message from background script
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message.type === 'APPLY_ROLE') {
+    const role = message.role as DedicatedRole | null
+    const sessionKey = message.sessionKey as string | null
+    if (role) {
+      dedicatedRole = role
+      writeOptimandoState({ role })
+    }
+    if (sessionKey) {
+      try { sessionStorage.setItem('optimando-current-session-key', sessionKey) } catch {}
+      writeOptimandoState({ sessionKey })
+    }
+    // If already active, ensure UI mounted with correct role
+    if (isExtensionActive || role) {
+      if (!isExtensionActive) {
+        isExtensionActive = true
+        localStorage.setItem(extensionStateKey, 'true')
+      }
+      if (!document.getElementById('optimando-sidebars')) {
+        initializeExtension()
+      }
+    }
+    sendResponse && sendResponse({ ok: true })
+    return
+  }
   if (message.type === 'TOGGLE_SIDEBARS') {
     if (message.visible && !isExtensionActive) {
       isExtensionActive = true
       localStorage.setItem(extensionStateKey, 'true')
-      // Dedicate this tab as master when toggled on
-      writeOptimandoState({ role: { type: 'master' } })
-      dedicatedRole = { type: 'master' }
+      // Dedicate as master only if not already hybrid
+      if (!dedicatedRole) {
+        writeOptimandoState({ role: { type: 'master' } })
+        dedicatedRole = { type: 'master' }
+      } else if (dedicatedRole.type === 'hybrid') {
+        // keep hybrid role
+      }
       initializeExtension()
       console.log('🚀 Extension activated for tab')
     } else if (!message.visible && isExtensionActive) {
@@ -92,9 +120,24 @@ function initializeExtension() {
     return
   }
   
-  // Detect Hybrid Master mode via URL param, e.g. ?hybrid_master_id=3 or via dedicated role
-  let isHybridMaster = urlParams.has('hybrid_master_id')
-  let hybridMasterId = urlParams.get('hybrid_master_id') || ''
+  // Detect Hybrid Master mode conservatively
+  // Only treat as hybrid if:
+  // 1) There is an existing dedicated hybrid role OR
+  // 2) The tab name indicates it was opened explicitly as a hybrid helper (window.name contains 'hybrid-master-<n>')
+  // URL parameters alone must NOT flip a fresh tab to hybrid to avoid hijacking the main master
+  const windowName = typeof window !== 'undefined' ? (window.name || '') : ''
+  const openedAsHybridByName = /(^|,)hybrid-master-\d+(,|$)/.test(windowName) || /^hybrid-master-\d+$/.test(windowName)
+  let isHybridMaster = false
+  let hybridMasterId = ''
+  if (dedicatedRole && dedicatedRole.type === 'hybrid') {
+    isHybridMaster = true
+    hybridMasterId = String(dedicatedRole.hybridMasterId || '')
+  } else if (openedAsHybridByName) {
+    isHybridMaster = true
+    // Try to parse id from window.name pattern 'hybrid-master-<n>'
+    const match = windowName.match(/hybrid-master-(\d+)/)
+    hybridMasterId = match ? match[1] : ''
+  }
   if (dedicatedRole && dedicatedRole.type === 'hybrid') {
     isHybridMaster = true
     if (dedicatedRole.hybridMasterId) hybridMasterId = String(dedicatedRole.hybridMasterId)
@@ -327,6 +370,7 @@ function initializeExtension() {
   loadTabDataFromStorage()
 
   // Dynamic Agent Box Functions
+  let currentRenderSide: 'left' | 'right' = 'left'
   function renderAgentBoxes() {
     console.log('🔧 DEBUG: renderAgentBoxes called with currentTabData.agentBoxes:', currentTabData.agentBoxes)
     
@@ -338,21 +382,63 @@ function initializeExtension() {
 
     container.innerHTML = ''
     
+    // Seed default boxes conservatively
     if (!currentTabData.agentBoxes || currentTabData.agentBoxes.length === 0) {
       console.log('🔧 DEBUG: No agent boxes found, using default configuration')
-      // Initialize with default boxes if none exist
-      currentTabData.agentBoxes = [
-        { id: 'brainstorm', number: 1, title: '#1 🧠 Brainstorm Support Ideas', color: '#4CAF50', outputId: 'brainstorm-output' },
-        { id: 'knowledge', number: 2, title: '#2 🔍 Knowledge Gap Detection', color: '#2196F3', outputId: 'knowledge-output' },
-        { id: 'risks', number: 3, title: '#3 ⚖️ Risks & Chances', color: '#FF9800', outputId: 'risks-output' },
-        { id: 'explainer', number: 4, title: '#4 🎬 Explainer Video Suggestions', color: '#9C27B0', outputId: 'explainer-output' }
-      ]
+      if (isHybridMaster) {
+        // Seed 8 boxes (4 per panel)
+        const defaults = [
+          { id: 'brainstorm', number: 1, title: '#1 🧠 Brainstorm Support Ideas', color: '#4CAF50', outputId: 'brainstorm-output' },
+          { id: 'knowledge', number: 2, title: '#2 🔍 Knowledge Gap Detection', color: '#2196F3', outputId: 'knowledge-output' },
+          { id: 'risks', number: 3, title: '#3 ⚖️ Risks & Chances', color: '#FF9800', outputId: 'risks-output' },
+          { id: 'explainer', number: 4, title: '#4 🎬 Explainer Video Suggestions', color: '#9C27B0', outputId: 'explainer-output' },
+          { id: 'strategic', number: 5, title: '#5 🎯 Strategic Planning', color: '#E91E63', outputId: 'strategic-output' },
+          { id: 'research', number: 6, title: '#6 🔬 Research & Analysis', color: '#00BCD4', outputId: 'research-output' },
+          { id: 'implementation', number: 7, title: '#7 🚀 Implementation Guide', color: '#8BC34A', outputId: 'implementation-output' },
+          { id: 'metrics', number: 8, title: '#8 📊 Performance Metrics', color: '#FFC107', outputId: 'metrics-output' }
+        ]
+        currentTabData.agentBoxes = defaults
+        saveTabDataToStorage()
+      } else {
+        // Master: 4 boxes
+        currentTabData.agentBoxes = [
+          { id: 'brainstorm', number: 1, title: '#1 🧠 Brainstorm Support Ideas', color: '#4CAF50', outputId: 'brainstorm-output' },
+          { id: 'knowledge', number: 2, title: '#2 🔍 Knowledge Gap Detection', color: '#2196F3', outputId: 'knowledge-output' },
+          { id: 'risks', number: 3, title: '#3 ⚖️ Risks & Chances', color: '#FF9800', outputId: 'risks-output' },
+          { id: 'explainer', number: 4, title: '#4 🎬 Explainer Video Suggestions', color: '#9C27B0', outputId: 'explainer-output' }
+        ]
+        saveTabDataToStorage()
+      }
+    }
+    // For hybrid tabs, ensure missing boxes 1..8 are present, but do not delete existing
+    if (isHybridMaster && currentTabData.agentBoxes.length < 8) {
+      const existingNums = new Set(currentTabData.agentBoxes.map((b: any) => b.number))
+      const addIfMissing = (num: number, id: string, title: string, color: string, outputId: string) => {
+        if (!existingNums.has(num)) currentTabData.agentBoxes.push({ id, number: num, title, color, outputId })
+      }
+      addIfMissing(1, 'brainstorm', '#1 🧠 Brainstorm Support Ideas', '#4CAF50', 'brainstorm-output')
+      addIfMissing(2, 'knowledge', '#2 🔍 Knowledge Gap Detection', '#2196F3', 'knowledge-output')
+      addIfMissing(3, 'risks', '#3 ⚖️ Risks & Chances', '#FF9800', 'risks-output')
+      addIfMissing(4, 'explainer', '#4 🎬 Explainer Video Suggestions', '#9C27B0', 'explainer-output')
+      addIfMissing(5, 'strategic', '#5 🎯 Strategic Planning', '#E91E63', 'strategic-output')
+      addIfMissing(6, 'research', '#6 🔬 Research & Analysis', '#00BCD4', 'research-output')
+      addIfMissing(7, 'implementation', '#7 🚀 Implementation Guide', '#8BC34A', 'implementation-output')
+      addIfMissing(8, 'metrics', '#8 📊 Performance Metrics', '#FFC107', 'metrics-output')
       saveTabDataToStorage()
     }
     
-    console.log('🔧 DEBUG: Rendering', currentTabData.agentBoxes.length, 'agent boxes')
+    // Select which boxes to render into this container
+    let boxesToRender = currentTabData.agentBoxes
+    if (isHybridMaster) {
+      boxesToRender = currentRenderSide === 'right'
+        ? boxesToRender.filter((b: any) => b.number > 4)
+        : boxesToRender.filter((b: any) => b.number <= 4)
+    } else {
+      boxesToRender = boxesToRender.filter((b: any) => b.number <= 4)
+    }
+    console.log('🔧 DEBUG: Rendering', boxesToRender.length, 'agent boxes for side:', currentRenderSide)
     
-    currentTabData.agentBoxes.forEach((box: any) => {
+    boxesToRender.forEach((box: any) => {
       const agentDiv = document.createElement('div')
       agentDiv.className = 'agent-box-wrapper'
       agentDiv.setAttribute('data-agent-id', box.id)
@@ -5520,7 +5606,10 @@ ${pageText}
       const original = document.getElementById('agent-boxes-container')
       if (original) original.id = 'agent-boxes-container-original'
       container.id = 'agent-boxes-container'
+      const prevSide = currentRenderSide
+      currentRenderSide = containerId.indexOf('right') !== -1 ? 'right' : 'left'
       try { renderAgentBoxes() } catch (e) {}
+      currentRenderSide = prevSide
       container.id = containerId
       const movedBack = document.getElementById('agent-boxes-container-original')
       if (movedBack) movedBack.id = 'agent-boxes-container'
@@ -5899,7 +5988,11 @@ function handleElectronGridSave(config: any) {
 // Check for Electron app data every 2 seconds
 setInterval(checkForElectronGridConfig, 2000)
 
-// Initialize extension if active
-if (isExtensionActive) {
+// Initialize extension if active or dedicated (persisted per tab)
+if (isExtensionActive || dedicatedRole) {
+  if (!isExtensionActive && dedicatedRole) {
+    isExtensionActive = true
+    localStorage.setItem(extensionStateKey, 'true')
+  }
   initializeExtension()
 }

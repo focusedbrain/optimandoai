@@ -1,4 +1,25 @@
 let ws: WebSocket | null = null;
+// Persisted per-tab dedicated roles (master/hybrid)
+const tabRoles = new Map<number, { type: 'master' } | { type: 'hybrid', hybridMasterId?: string }>();
+// Active session key persists for the Browser session only
+const ACTIVE_SESSION_KEY = 'optimando-active-session-key';
+
+async function getActiveSessionKey(): Promise<string | null> {
+  try {
+    const data = await chrome.storage.session.get(ACTIVE_SESSION_KEY);
+    return (data && data[ACTIVE_SESSION_KEY]) || null;
+  } catch {
+    return null;
+  }
+}
+
+async function setActiveSessionKey(sessionKey: string): Promise<void> {
+  try {
+    await chrome.storage.session.set({ [ACTIVE_SESSION_KEY]: sessionKey });
+  } catch {
+    // ignore
+  }
+}
 let isConnecting = false;
 let autoConnectInterval: NodeJS.Timeout | null = null;
 let heartbeatInterval: NodeJS.Timeout | null = null;
@@ -152,6 +173,11 @@ function toggleSidebars() {
       visible: newStatus 
     });
 
+    // When enabling and no role is known yet, dedicate this tab as master by default
+    if (newStatus && !tabRoles.has(tabId)) {
+      tabRoles.set(tabId, { type: 'master' });
+    }
+
     // Update badge to show status for current tab
     chrome.action.setBadgeText({ text: newStatus ? 'ON' : 'OFF' });
     chrome.action.setBadgeBackgroundColor({
@@ -186,6 +212,14 @@ chrome.tabs.onActivated.addListener((activeInfo) => {
   chrome.action.setBadgeBackgroundColor({
     color: isActive ? '#00FF00' : '#FF0000'
   });
+
+  // Re-apply dedicated role and session key to the newly active tab
+  getActiveSessionKey().then((sessionKey) => {
+    const role = tabRoles.get(tabId) || null;
+    try {
+      chrome.tabs.sendMessage(tabId, { type: 'APPLY_ROLE', role, sessionKey });
+    } catch {}
+  });
 });
 
 // Handle messages from content script
@@ -195,6 +229,34 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   console.log(`📨 Nachricht erhalten: ${msg.type}`);
 
   switch (msg.type) {
+    case 'GET_TAB_STATE': {
+      const tabId = sender.tab?.id;
+      if (!tabId) { sendResponse({ role: null, sessionKey: null }); return true; }
+      getActiveSessionKey().then((sessionKey) => {
+        sendResponse({ role: tabRoles.get(tabId) || null, sessionKey: sessionKey || null });
+      });
+      return true;
+    }
+
+    case 'SET_TAB_ROLE': {
+      const tabId = sender.tab?.id || msg.tabId;
+      if (tabId) {
+        const role = msg.role as { type: 'master' } | { type: 'hybrid', hybridMasterId?: string };
+        tabRoles.set(tabId, role);
+        try { chrome.tabs.sendMessage(tabId, { type: 'APPLY_ROLE', role }); } catch {}
+        sendResponse({ success: true });
+      } else {
+        sendResponse({ success: false });
+      }
+      break;
+    }
+
+    case 'SET_ACTIVE_SESSION': {
+      const key = msg.sessionKey as string;
+      setActiveSessionKey(key).then(() => sendResponse({ success: true }));
+      return true;
+    }
+
     case 'TEST_CONNECTION':
       connectToWebSocketServer();
       sendResponse({ success: true, message: 'Verbindung wird getestet' });
@@ -229,4 +291,22 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       break;
   }
   return true;
+});
+
+// Re-apply role after reload/navigation completes
+chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+  if (changeInfo.status === 'complete') {
+    getActiveSessionKey().then((sessionKey) => {
+      const role = tabRoles.get(tabId) || null;
+      try {
+        chrome.tabs.sendMessage(tabId, { type: 'APPLY_ROLE', role, sessionKey });
+      } catch {}
+    });
+  }
+});
+
+// Cleanup when tabs close
+chrome.tabs.onRemoved.addListener((tabId) => {
+  tabSidebarStatus.delete(tabId);
+  tabRoles.delete(tabId);
 });
