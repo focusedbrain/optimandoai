@@ -298,9 +298,8 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
   if (changeInfo.status === 'complete') {
     getActiveSessionKey().then((sessionKey) => {
       const role = tabRoles.get(tabId) || null;
-      try {
-        chrome.tabs.sendMessage(tabId, { type: 'APPLY_ROLE', role, sessionKey });
-      } catch {}
+      // Always re-apply state and request UI to stay mounted
+      try { chrome.tabs.sendMessage(tabId, { type: 'APPLY_ROLE', role, sessionKey }); } catch {}
     });
   }
 });
