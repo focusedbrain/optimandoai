@@ -42,9 +42,9 @@ if (bootState.sessionKey) {
   try { sessionStorage.setItem('optimando-current-session-key', bootState.sessionKey) } catch {}
 }
 
-// Check if extension was previously activated for this URL
+// Check if extension was previously activated for this URL OR if dedicated
 const savedState = localStorage.getItem(extensionStateKey)
-if (savedState === 'true') {
+if (savedState === 'true' || dedicatedRole) {
   isExtensionActive = true
 }
 
@@ -54,16 +54,21 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (message.visible && !isExtensionActive) {
       isExtensionActive = true
       localStorage.setItem(extensionStateKey, 'true')
-      // Dedicate this tab as master when toggled on
-      writeOptimandoState({ role: { type: 'master' } })
-      dedicatedRole = { type: 'master' }
+      // Only dedicate as master if no existing dedicated role
+      if (!dedicatedRole) {
+        writeOptimandoState({ role: { type: 'master' } })
+        dedicatedRole = { type: 'master' }
+      }
       initializeExtension()
       console.log('🚀 Extension activated for tab')
     } else if (!message.visible && isExtensionActive) {
-      isExtensionActive = false
-      localStorage.setItem(extensionStateKey, 'false')
-      deactivateExtension()
-      console.log('🔴 Extension deactivated for tab')
+      // Never deactivate dedicated tabs
+      if (!dedicatedRole) {
+        isExtensionActive = false
+        localStorage.setItem(extensionStateKey, 'false')
+        deactivateExtension()
+        console.log('🔴 Extension deactivated for tab')
+      }
     }
     sendResponse({ success: true, active: isExtensionActive })
   }
@@ -99,8 +104,8 @@ function initializeExtension() {
     isHybridMaster = true
     if (dedicatedRole.hybridMasterId) hybridMasterId = String(dedicatedRole.hybridMasterId)
   }
-  // If arriving with hybrid param, persist that role for future navigations in this tab
-  if (isHybridMaster) {
+  // CRITICAL FIX: Only set hybrid role if no dedicated role exists
+  if (isHybridMaster && !dedicatedRole) {
     writeOptimandoState({ role: { type: 'hybrid', hybridMasterId } })
     dedicatedRole = { type: 'hybrid', hybridMasterId }
   }
@@ -189,12 +194,7 @@ function initializeExtension() {
   function loadTabDataFromStorage() {
     // Check if this is a fresh browser session (sessionStorage gets cleared on browser close)
     const browserSessionMarker = sessionStorage.getItem('optimando-browser-session')
-    const persistedKeyFromName = bootState.sessionKey
-    const existingSessionKey = getCurrentSessionKey()
-    
-    // CRITICAL: Dedicated tabs should NEVER create new sessions, even on fresh browser start
-    // Only create new sessions if: no browser marker AND no persisted session key AND no dedicated role AND no existing session key
-    const isFreshBrowserSession = !browserSessionMarker && !persistedKeyFromName && !dedicatedRole && !existingSessionKey
+    const isFreshBrowserSession = !browserSessionMarker
     
     if (isFreshBrowserSession) {
       console.log('🆕 Fresh browser session detected - starting new session')
@@ -244,23 +244,33 @@ function initializeExtension() {
       // Apply preserved UI configuration
       currentTabData.uiConfig = preservedUIConfig
       
-      // Create a brand-new session entry in Sessions History
-      try {
-        const sessionKey = `session_${Date.now()}`
-        const sessionData = {
-          ...currentTabData,
-          timestamp: new Date().toISOString(),
-          url: window.location.href,
-          helperTabs: null,
-          displayGrids: null
+      // ONLY create session if this is the FIRST tab opening (master tab)
+      // Check if there are any existing sessions first
+      chrome.storage.local.get(null, (allData) => {
+        const existingSessions = Object.keys(allData).filter(key => key.startsWith('session_'))
+        
+        // Only create new session if no sessions exist AND this is a master tab
+        if (existingSessions.length === 0 && (!dedicatedRole || dedicatedRole.type === 'master')) {
+          try {
+            const sessionKey = `session_${Date.now()}`
+            const sessionData = {
+              ...currentTabData,
+              timestamp: new Date().toISOString(),
+              url: window.location.href,
+              helperTabs: null,
+              displayGrids: null
+            }
+            chrome.storage.local.set({ [sessionKey]: sessionData }, () => {
+              console.log('🆕 First browser session created:', sessionKey)
+              setCurrentSessionKey(sessionKey)
+            })
+          } catch (e) {
+            console.error('❌ Failed to create first session:', e)
+          }
+        } else {
+          console.log('⚠️ Existing sessions found or not master tab - no new session created')
         }
-        chrome.storage.local.set({ [sessionKey]: sessionData }, () => {
-          console.log('🆕 Fresh browser session added to history:', sessionKey)
-          setCurrentSessionKey(sessionKey)
-        })
-      } catch (e) {
-        console.error('❌ Failed to create fresh session entry:', e)
-      }
+      })
       
       console.log('🔧 DEBUG: Starting fresh session:', currentTabData.tabName)
       return // Skip loading old data for fresh session
@@ -269,15 +279,6 @@ function initializeExtension() {
     // Not a fresh browser session, try to load existing data
     console.log('🔧 DEBUG: Continuing existing browser session')
     sessionStorage.setItem('optimando-browser-session', 'active') // Refresh marker
-    
-    // For dedicated tabs, ensure session key is restored from window.name if missing
-    if (dedicatedRole && persistedKeyFromName && !existingSessionKey) {
-      console.log('🔧 DEBUG: Restoring session key for dedicated tab:', persistedKeyFromName)
-      setCurrentSessionKey(persistedKeyFromName)
-    } else if (dedicatedRole && existingSessionKey && !persistedKeyFromName) {
-      console.log('🔧 DEBUG: Persisting existing session key to window.name:', existingSessionKey)
-      writeOptimandoState({ sessionKey: existingSessionKey })
-    }
     
     const saved = localStorage.getItem(`optimando-tab-${tabId}`)
     if (saved) {
@@ -332,30 +333,9 @@ function initializeExtension() {
       saveTabDataToStorage()
     }
     
-    // Determine which side this render targets
-    const sideAttr = container.getAttribute('data-side') || 'left'
-    let boxesToRender = currentTabData.agentBoxes || []
-    // Filter: master = first 4; hybrid left = numbers <=4; hybrid right = numbers 5-8
-    try {
-      // Safely detect hybrid from current DOM (hybrid has right sidebar container present)
-      const hasRight = !!document.getElementById('agent-boxes-container-right')
-      const isHybrid = hasRight
-      if (isHybrid) {
-        if (sideAttr === 'right') {
-          boxesToRender = boxesToRender.filter((b: any) => typeof b.number === 'number' && b.number > 4 && b.number <= 8).slice(0, 4)
-        } else {
-          boxesToRender = boxesToRender.filter((b: any) => typeof b.number === 'number' && b.number >= 1 && b.number <= 4).slice(0, 4)
-        }
-      } else {
-        boxesToRender = boxesToRender
-          .filter((b: any) => typeof b.number === 'number' && b.number >= 1 && b.number <= 4)
-          .slice(0, 4)
-      }
-    } catch {}
+    console.log('🔧 DEBUG: Rendering', currentTabData.agentBoxes.length, 'agent boxes')
     
-    console.log('🔧 DEBUG: Rendering', boxesToRender.length, 'agent boxes for side:', sideAttr)
-    
-    boxesToRender.forEach((box: any) => {
+    currentTabData.agentBoxes.forEach((box: any) => {
       const agentDiv = document.createElement('div')
       agentDiv.className = 'agent-box-wrapper'
       agentDiv.setAttribute('data-agent-id', box.id)
@@ -2479,24 +2459,25 @@ ${pageText}
       // Send to Electron app
       sendContextToElectron()
       
-      // Also save to chrome.storage.local for session persistence (active session only)
+      // Update active session only - NEVER create new sessions
       if (currentTabData.isLocked) {
-        const activeKey = getCurrentSessionKey()
-        if (activeKey) {
-          chrome.storage.local.get([activeKey], (result) => {
-            const base = result[activeKey] || {}
+        const activeSessionKey = getCurrentSessionKey()
+        if (activeSessionKey) {
+          chrome.storage.local.get([activeSessionKey], (result) => {
+            const base = result[activeSessionKey] || {}
             const updated = {
               ...base,
+              ...currentTabData,
               context: currentTabData.context,
               timestamp: new Date().toISOString(),
               url: window.location.href
             }
-            chrome.storage.local.set({ [activeKey]: updated }, () => {
-              console.log('✅ Context saved to active session:', activeKey)
+            chrome.storage.local.set({ [activeSessionKey]: updated }, () => {
+              console.log('✅ Context saved to active session:', activeSessionKey)
             })
           })
         } else {
-          console.log('⚠️ No active session key; skipping context persist')
+          console.log('⚠️ No active session - context saved locally only')
         }
       }
       
@@ -3409,11 +3390,11 @@ ${pageText}
         // Save to localStorage
         saveTabDataToStorage()
         
-        // Update ONLY the active session; never create a new one here
-        const activeKey = getCurrentSessionKey()
-        if (activeKey) {
-          chrome.storage.local.get([activeKey], (result) => {
-            const base = result[activeKey] || {}
+        // Update active session only - NEVER create new sessions
+        const activeSessionKey = getCurrentSessionKey()
+        if (activeSessionKey) {
+          chrome.storage.local.get([activeSessionKey], (result) => {
+            const base = result[activeSessionKey] || {}
             const updated = {
               ...base,
               ...currentTabData,
@@ -3421,12 +3402,12 @@ ${pageText}
               timestamp: new Date().toISOString(),
               url: window.location.href
             }
-            chrome.storage.local.set({ [activeKey]: updated }, () => {
-              console.log('✅ Helper tabs saved to active session:', activeKey)
+            chrome.storage.local.set({ [activeSessionKey]: updated }, () => {
+              console.log('✅ Helper tabs saved to active session:', activeSessionKey)
             })
           })
         } else {
-          console.log('⚠️ No active session key; skipping helper tabs persist')
+          console.log('⚠️ No active session - helper tabs saved locally only')
         }
         
         // Show notification
@@ -4077,61 +4058,25 @@ ${pageText}
     // Save to localStorage for persistence
     saveTabDataToStorage()
     
-    // AUTOMATICALLY save the session to chrome.storage.local (Sessions History)
-    // Check if there's already a session for this tab to update instead of creating new
-    chrome.storage.local.get(null, (allData) => {
-      const existingSessions = Object.entries(allData)
-        .filter(([key]) => key.startsWith('session_'))
-        .map(([key, data]) => ({ id: key, ...data }))
-        .filter(session => session.url === window.location.href)
-        .sort((a, b) => new Date(b.timestamp || 0).getTime() - new Date(a.timestamp || 0).getTime())
-      
-      let sessionKey
-      let sessionData
-      
-      if (existingSessions.length > 0) {
-        // Update existing session
-        sessionKey = existingSessions[0].id
-        sessionData = {
-          ...existingSessions[0],
-          displayGrids: currentTabData.displayGrids,
-          timestamp: new Date().toISOString()
-        }
-        console.log('🗂️ Updating existing session with display grid:', layout)
-      } else {
-        // Create new session
-        sessionKey = 'session_' + Date.now()
-        
-        // If session name is still default, update it with current date-time
-        if (!currentTabData.tabName || currentTabData.tabName.startsWith('WR Session')) {
-          currentTabData.tabName = 'WR Session ' + new Date().toLocaleString('en-GB', { 
-            day: '2-digit', 
-            month: '2-digit', 
-            year: 'numeric', 
-            hour: '2-digit', 
-            minute: '2-digit', 
-            second: '2-digit',
-            hour12: false 
-          }).replace(/[\/,]/g, '-').replace(/ /g, '_')
-        }
-        
-        sessionData = {
+    // Update active session only - NEVER create new sessions
+    const activeSessionKey = getCurrentSessionKey()
+    if (activeSessionKey) {
+      chrome.storage.local.get([activeSessionKey], (result) => {
+        const base = result[activeSessionKey] || {}
+        const updated = {
+          ...base,
           ...currentTabData,
+          displayGrids: currentTabData.displayGrids,
           timestamp: new Date().toISOString(),
           url: window.location.href
         }
-        console.log('🗂️ Creating new session with display grid:', layout)
-      }
-      
-      chrome.storage.local.set({ [sessionKey]: sessionData }, () => {
-        console.log('🗂️ Display grid session saved:', layout, 'Session ID:', sessionKey)
-        console.log('🗂️ Session contains:', {
-          helperTabs: sessionData.helperTabs ? sessionData.helperTabs.urls?.length || 0 : 0,
-          displayGrids: sessionData.displayGrids ? sessionData.displayGrids.length : 0,
-          agentBoxes: sessionData.agentBoxes ? sessionData.agentBoxes.length : 0
+        chrome.storage.local.set({ [activeSessionKey]: updated }, () => {
+          console.log('✅ Display grid saved to active session:', activeSessionKey)
         })
       })
-    })
+    } else {
+      console.log('⚠️ No active session - display grid saved locally only')
+    }
     
     console.log('✅ Grid layout selected and saved:', layout, 'Session:', gridSessionId)
     
@@ -5524,11 +5469,9 @@ ${pageText}
       if (!container) return
       const original = document.getElementById('agent-boxes-container')
       if (original) original.id = 'agent-boxes-container-original'
-      container.setAttribute('data-side', containerId.indexOf('right') !== -1 ? 'right' : 'left')
       container.id = 'agent-boxes-container'
       try { renderAgentBoxes() } catch (e) {}
       container.id = containerId
-      container.removeAttribute('data-side')
       const movedBack = document.getElementById('agent-boxes-container-original')
       if (movedBack) movedBack.id = 'agent-boxes-container'
     }
@@ -5815,30 +5758,32 @@ function checkForElectronGridConfig() {
       // Save to localStorage
       saveTabDataToStorage();
       
-      // Save to chrome.storage.local
-      chrome.storage.local.get(null, (allData) => {
-        const allSessions = Object.entries(allData).filter(([key, value]: any) => key.startsWith('session_')) as any[];
-        let target: any = allSessions.find(([key, value]: any) => value.tabId === currentTabData.tabId);
-        if (!target) {
-          const currentUrl = window.location.href.split('?')[0];
-          target = allSessions.find(([key, value]: any) => (value.url && value.url.split('?')[0] === currentUrl));
-        }
-        if (target) {
-          const [sessionKey, sessionData] = target;
-          const existing = Array.isArray(sessionData.displayGrids) ? sessionData.displayGrids : [];
+      // Update active session only - NEVER create new sessions
+      const activeSessionKey = getCurrentSessionKey()
+      if (activeSessionKey) {
+        chrome.storage.local.get([activeSessionKey], (result) => {
+          const base = result[activeSessionKey] || {}
+          const existing = Array.isArray(base.displayGrids) ? base.displayGrids : [];
           let found = existing.find((g: any) => g.sessionId === config.sessionId && g.layout === config.layout);
           if (!found) {
             found = { layout: config.layout, sessionId: config.sessionId, url: '', timestamp: new Date().toISOString() };
             existing.push(found);
           }
           found.config = { layout: config.layout, sessionId: config.sessionId, slots: config.slots };
-          sessionData.displayGrids = existing;
-          sessionData.timestamp = new Date().toISOString();
-          chrome.storage.local.set({ [sessionKey]: sessionData }, () => {
-            console.log('✅ Grid config saved to session via Electron app:', sessionKey);
+          const updated = {
+            ...base,
+            ...currentTabData,
+            displayGrids: existing,
+            timestamp: new Date().toISOString(),
+            url: window.location.href
+          }
+          chrome.storage.local.set({ [activeSessionKey]: updated }, () => {
+            console.log('✅ Grid config saved to active session via Electron app:', activeSessionKey);
           });
-        }
-      });
+        })
+      } else {
+        console.log('⚠️ No active session - grid config saved locally only')
+      }
       
       // Clear the Electron app data
       localStorage.removeItem('optimando-electron-grid-config');
@@ -5872,30 +5817,32 @@ function handleElectronGridSave(config: any) {
   // Save to localStorage
   saveTabDataToStorage();
   
-  // Save to chrome.storage.local
-  chrome.storage.local.get(null, (allData) => {
-    const allSessions = Object.entries(allData).filter(([key, value]: any) => key.startsWith('session_')) as any[];
-    let target: any = allSessions.find(([key, value]: any) => value.tabId === currentTabData.tabId);
-    if (!target) {
-      const currentUrl = window.location.href.split('?')[0];
-      target = allSessions.find(([key, value]: any) => (value.url && value.url.split('?')[0] === currentUrl));
-    }
-    if (target) {
-      const [sessionKey, sessionData] = target;
-      const existing = Array.isArray(sessionData.displayGrids) ? sessionData.displayGrids : [];
+  // Update active session only - NEVER create new sessions
+  const activeSessionKey = getCurrentSessionKey()
+  if (activeSessionKey) {
+    chrome.storage.local.get([activeSessionKey], (result) => {
+      const base = result[activeSessionKey] || {}
+      const existing = Array.isArray(base.displayGrids) ? base.displayGrids : [];
       let found = existing.find((g: any) => g.sessionId === config.sessionId && g.layout === config.layout);
       if (!found) {
         found = { layout: config.layout, sessionId: config.sessionId, url: '', timestamp: new Date().toISOString() };
         existing.push(found);
       }
       found.config = { layout: config.layout, sessionId: config.sessionId, slots: config.slots };
-      sessionData.displayGrids = existing;
-      sessionData.timestamp = new Date().toISOString();
-      chrome.storage.local.set({ [sessionKey]: sessionData }, () => {
-        console.log('✅ Grid config saved to session via Electron app:', sessionKey);
+      const updated = {
+        ...base,
+        ...currentTabData,
+        displayGrids: existing,
+        timestamp: new Date().toISOString(),
+        url: window.location.href
+      }
+      chrome.storage.local.set({ [activeSessionKey]: updated }, () => {
+        console.log('✅ Grid config saved to active session via Electron app:', activeSessionKey);
       });
-    }
-  });
+    })
+  } else {
+    console.log('⚠️ No active session - grid config saved locally only')
+  }
   
   // Visual feedback
   const note = document.createElement('div')
