@@ -206,11 +206,40 @@ function initializeExtension() {
   }
 
   // Save/Load functions
+  // Guard: prevent unintended session key changes except on explicit creation (+) or initial browser open
+  function isNewSessionAllowed(): boolean {
+    try { return sessionStorage.getItem('optimando-allow-new-session') === 'true' } catch { return false }
+  }
+  function setNewSessionAllowed(allowed: boolean) {
+    try {
+      if (allowed) sessionStorage.setItem('optimando-allow-new-session', 'true')
+      else sessionStorage.removeItem('optimando-allow-new-session')
+    } catch {}
+  }
+  // Monkey-patch sessionStorage.setItem to guard the current session key from being replaced unintentionally
+  try {
+    const originalSetItem = sessionStorage.setItem.bind(sessionStorage) as any
+    ;(sessionStorage as any).setItem = (key: string, value: string) => {
+      if (key === 'optimando-current-session-key') {
+        const existing = (() => { try { return sessionStorage.getItem('optimando-current-session-key') } catch { return null } })()
+        if (existing && existing !== value && !isNewSessionAllowed()) {
+          console.log('🔒 DEBUG: Blocked unintended session key change:', existing, '→', value)
+          return
+        }
+      }
+      return originalSetItem(key, value)
+    }
+  } catch {}
   // Session key helpers to guarantee that all writes go to the active session only
   function getCurrentSessionKey(): string | null {
     try { return sessionStorage.getItem('optimando-current-session-key') } catch { return null }
   }
   function setCurrentSessionKey(key: string) {
+    const existing = getCurrentSessionKey()
+    if (existing && existing !== key && !isNewSessionAllowed()) {
+      console.log('🔒 DEBUG: Ignoring attempt to replace active session key without permission')
+      return
+    }
     try { sessionStorage.setItem('optimando-current-session-key', key) } catch {}
     // Persist across navigations
     writeOptimandoState({ sessionKey: key })
@@ -289,6 +318,7 @@ function initializeExtension() {
         console.log('🔧 DEBUG: Reusing persisted session key:', persistedKeyFromName)
       } else {
         // Create a brand-new session entry in Sessions History
+        setNewSessionAllowed(true)
         try {
           const sessionKey = `session_${Date.now()}`
           const sessionData = {
@@ -305,6 +335,7 @@ function initializeExtension() {
         } catch (e) {
           console.error('❌ Failed to create fresh session entry:', e)
         }
+        setNewSessionAllowed(false)
       }
       
       console.log('🔧 DEBUG: Starting fresh session:', currentTabData.tabName)
@@ -317,7 +348,10 @@ function initializeExtension() {
     // Restore active session key from window.name if present (cross-domain persistence)
     try {
       if (persistedKeyFromName) {
+        // restoring existing key is allowed
+        setNewSessionAllowed(true)
         sessionStorage.setItem('optimando-current-session-key', persistedKeyFromName)
+        setNewSessionAllowed(false)
         console.log('🔧 DEBUG: Restored session key from window.name:', persistedKeyFromName)
       }
     } catch {}
