@@ -4897,6 +4897,31 @@ ${pageText}
                 renderAgentBoxes()
               }, 200)
               
+              // Restore hybrid views if they exist
+              if (sessionData.hybridAgentBoxes && sessionData.hybridAgentBoxes.length > 0) {
+                console.log('🔧 DEBUG: Restoring', sessionData.hybridAgentBoxes.length, 'hybrid views')
+                
+                setTimeout(() => {
+                  const base = new URL(targetUrl)
+                  base.searchParams.delete('optimando_extension')
+                  
+                  sessionData.hybridAgentBoxes.forEach((hybridBox, index) => {
+                    const hybridId = hybridBox.id || String(index + 1)
+                    const url = new URL(base.toString())
+                    url.searchParams.set('hybrid_master_id', hybridId)
+                    
+                    console.log(`🔧 DEBUG: Opening hybrid view ${hybridId}:`, url.toString())
+                    const hybridTab = window.open(url.toString(), `hybrid-master-${hybridId}`)
+                    
+                    if (!hybridTab) {
+                      console.error(`❌ Failed to open hybrid view ${hybridId} - popup blocked`)
+                    } else {
+                      console.log(`✅ Successfully opened hybrid view ${hybridId}`)
+                    }
+                  })
+                }, 300) // Small delay after helper tabs
+              }
+              
               // Also restore display grids if they exist
               if (sessionData.displayGrids && sessionData.displayGrids.length > 0) {
                 console.log('🔧 DEBUG: Opening', sessionData.displayGrids.length, 'display grids:', sessionData.displayGrids)
@@ -4943,6 +4968,31 @@ ${pageText}
                 console.log('🔧 DEBUG: About to re-render agent boxes with:', currentTabData.agentBoxes?.length || 0, 'boxes')
                 renderAgentBoxes()
               }, 200)
+              
+              // Restore hybrid views if they exist (no helper tabs case)
+              if (sessionData.hybridAgentBoxes && sessionData.hybridAgentBoxes.length > 0) {
+                console.log('🔧 DEBUG: Restoring', sessionData.hybridAgentBoxes.length, 'hybrid views (no helper tabs)')
+                
+                setTimeout(() => {
+                  const base = new URL(targetUrl)
+                  base.searchParams.delete('optimando_extension')
+                  
+                  sessionData.hybridAgentBoxes.forEach((hybridBox, index) => {
+                    const hybridId = hybridBox.id || String(index + 1)
+                    const url = new URL(base.toString())
+                    url.searchParams.set('hybrid_master_id', hybridId)
+                    
+                    console.log(`🔧 DEBUG: Opening hybrid view ${hybridId}:`, url.toString())
+                    const hybridTab = window.open(url.toString(), `hybrid-master-${hybridId}`)
+                    
+                    if (!hybridTab) {
+                      console.error(`❌ Failed to open hybrid view ${hybridId} - popup blocked`)
+                    } else {
+                      console.log(`✅ Successfully opened hybrid view ${hybridId}`)
+                    }
+                  })
+                }, 300) // Small delay after agent boxes
+              }
               
               // No helper tabs, but check for display grids
               if (sessionData.displayGrids && sessionData.displayGrids.length > 0) {
