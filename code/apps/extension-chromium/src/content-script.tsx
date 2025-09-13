@@ -385,9 +385,14 @@ function initializeExtension() {
       agentDiv.innerHTML = `
         <div style="background: ${box.color}; color: white; text-shadow: 1px 1px 2px rgba(0,0,0,0.5); padding: 8px 12px; border-radius: 6px 6px 0 0; font-size: 13px; font-weight: bold; margin-bottom: 0; position: relative; display: flex; justify-content: space-between; align-items: center;">
           <span>${box.title}</span>
-          <button class="delete-agent-box" data-agent-id="${box.id}" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 20px; height: 20px; border-radius: 50%; cursor: pointer; font-size: 12px; font-weight: bold; display: flex; align-items: center; justify-content: center; transition: all 0.2s ease; opacity: 0.7;" title="Delete this agent box">
-            ✕
-          </button>
+          <div style="display: flex; gap: 5px;">
+            <button class="edit-agent-box" data-agent-id="${box.id}" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 20px; height: 20px; border-radius: 50%; cursor: pointer; font-size: 10px; font-weight: bold; display: flex; align-items: center; justify-content: center; transition: all 0.2s ease; opacity: 0.7;" title="Edit this agent box">
+              ✏️
+            </button>
+            <button class="delete-agent-box" data-agent-id="${box.id}" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 20px; height: 20px; border-radius: 50%; cursor: pointer; font-size: 12px; font-weight: bold; display: flex; align-items: center; justify-content: center; transition: all 0.2s ease; opacity: 0.7;" title="Delete this agent box">
+              ✕
+            </button>
+          </div>
         </div>
         <div class="resizable-agent-box" data-agent="${box.id}" style="background: rgba(255,255,255,0.95); color: black; border-radius: 0 0 8px 8px; padding: 12px; min-height: ${savedHeight}px; height: ${savedHeight}px; border: 1px solid rgba(0,0,0,0.1); box-shadow: 0 2px 4px rgba(0,0,0,0.1); position: relative; resize: vertical; overflow: auto;">
           <div style="font-size: 12px; color: #333; line-height: 1.4;">
@@ -403,6 +408,7 @@ function initializeExtension() {
     // Re-attach resize event listeners
     attachAgentBoxResizeListeners()
     attachDeleteButtonListeners()
+    attachEditButtonListeners()
   }
 
   function deleteAgentBox(agentId: string) {
@@ -539,6 +545,146 @@ function initializeExtension() {
     })
   }
 
+  function openEditAgentBoxDialog(agentId: string) {
+    const colors = ['#4CAF50', '#2196F3', '#FF9800', '#9C27B0', '#F44336', '#E91E63', '#9E9E9E', '#795548', '#607D8B', '#FF5722']
+    
+    // Find the agent box to edit
+    const agentBox = currentTabData.agentBoxes.find((box: any) => box.id === agentId)
+    if (!agentBox) {
+      console.error('Agent box not found:', agentId)
+      return
+    }
+    
+    const overlay = document.createElement('div')
+    overlay.style.cssText = `
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0, 0, 0, 0.8);
+      z-index: 2147483647;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    `
+    
+    overlay.innerHTML = `
+      <div style="background: white; padding: 30px; border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.3); max-width: 500px; width: 90%;">
+        <h3 style="margin: 0 0 20px 0; color: #333; font-size: 18px; text-align: center;">Edit Agent Box</h3>
+        
+        <div style="margin-bottom: 20px;">
+          <label style="display: block; margin-bottom: 8px; color: #555; font-weight: bold;">Agent Number:</label>
+          <input id="edit-agent-number" type="number" value="${agentBox.number}" min="1" max="99" style="width: 100%; padding: 10px; border: 2px solid #ddd; border-radius: 6px; font-size: 14px;">
+        </div>
+        
+        <div style="margin-bottom: 20px;">
+          <label style="display: block; margin-bottom: 8px; color: #555; font-weight: bold;">Agent Title:</label>
+          <input id="edit-agent-title" type="text" value="${agentBox.title}" style="width: 100%; padding: 10px; border: 2px solid #ddd; border-radius: 6px; font-size: 14px;">
+        </div>
+        
+        <div style="margin-bottom: 25px;">
+          <label style="display: block; margin-bottom: 8px; color: #555; font-weight: bold;">Color:</label>
+          <div style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px;">
+            ${colors.map((color, index) => `
+              <button class="color-select" data-color="${color}" style="width: 40px; height: 40px; background: ${color}; border: 3px solid ${color === agentBox.color ? '#333' : 'transparent'}; border-radius: 8px; cursor: pointer; transition: all 0.2s ease;"></button>
+            `).join('')}
+          </div>
+        </div>
+        
+        <div style="display: flex; gap: 10px; justify-content: flex-end;">
+          <button id="cancel-edit-agent" style="padding: 10px 20px; background: #ccc; border: none; color: #333; border-radius: 6px; cursor: pointer; font-size: 14px;">Cancel</button>
+          <button id="confirm-edit-agent" style="padding: 10px 20px; background: #2196F3; border: none; color: white; border-radius: 6px; cursor: pointer; font-size: 14px; font-weight: bold;">Save Changes</button>
+        </div>
+      </div>
+    `
+    
+    document.body.appendChild(overlay)
+    
+    // Handle color selection
+    let selectedColor = agentBox.color
+    overlay.querySelectorAll('.color-select').forEach(btn => {
+      btn.addEventListener('click', () => {
+        // Remove selection from all buttons
+        overlay.querySelectorAll('.color-select').forEach(b => {
+          (b as HTMLElement).style.border = '3px solid transparent'
+        })
+        
+        // Add selection to clicked button
+        ;(btn as HTMLElement).style.border = '3px solid #333'
+        selectedColor = btn.getAttribute('data-color') || agentBox.color
+      })
+    })
+    
+    // Handle cancel
+    overlay.querySelector('#cancel-edit-agent')?.addEventListener('click', () => {
+      overlay.remove()
+    })
+    
+    // Handle confirm
+    overlay.querySelector('#confirm-edit-agent')?.addEventListener('click', () => {
+      const numberInput = overlay.querySelector('#edit-agent-number') as HTMLInputElement
+      const titleInput = overlay.querySelector('#edit-agent-title') as HTMLInputElement
+      
+      const number = parseInt(numberInput.value) || agentBox.number
+      const title = titleInput.value.trim() || agentBox.title
+      
+      updateAgentBox(agentId, {
+        number: number,
+        title: title,
+        color: selectedColor
+      })
+      
+      overlay.remove()
+    })
+    
+    // Close on background click
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay) {
+        overlay.remove()
+      }
+    })
+  }
+
+  function updateAgentBox(agentId: string, updates: { number?: number, title?: string, color?: string }) {
+    const agentBoxIndex = currentTabData.agentBoxes.findIndex((box: any) => box.id === agentId)
+    if (agentBoxIndex === -1) {
+      console.error('Agent box not found for update:', agentId)
+      return
+    }
+    
+    // Update the agent box data
+    const agentBox = currentTabData.agentBoxes[agentBoxIndex]
+    if (updates.number !== undefined) agentBox.number = updates.number
+    if (updates.title !== undefined) agentBox.title = updates.title
+    if (updates.color !== undefined) agentBox.color = updates.color
+    
+    // Save to storage and re-render
+    saveTabDataToStorage()
+    renderAgentBoxes()
+    
+    // Show success notification
+    const notification = document.createElement('div')
+    notification.style.cssText = `
+      position: fixed;
+      top: 60px;
+      right: 20px;
+      background: rgba(33, 150, 243, 0.9);
+      color: white;
+      padding: 10px 15px;
+      border-radius: 5px;
+      font-size: 12px;
+      z-index: 2147483648;
+      animation: slideIn 0.3s ease;
+    `
+    notification.innerHTML = `✏️ Agent box "${agentBox.title}" updated!`
+    document.body.appendChild(notification)
+    
+    setTimeout(() => {
+      notification.remove()
+    }, 3000)
+  }
+
   // Helper functions for event listeners
   function attachAgentBoxResizeListeners() {
     document.querySelectorAll('.resizable-agent-box').forEach(box => {
@@ -623,6 +769,29 @@ function initializeExtension() {
       btn.addEventListener('mouseenter', () => {
         (btn as HTMLElement).style.opacity = '1'
         ;(btn as HTMLElement).style.background = 'rgba(244, 67, 54, 0.8)'
+      })
+      
+      btn.addEventListener('mouseleave', () => {
+        (btn as HTMLElement).style.opacity = '0.7'
+        ;(btn as HTMLElement).style.background = 'rgba(255,255,255,0.2)'
+      })
+    })
+  }
+
+  function attachEditButtonListeners() {
+    document.querySelectorAll('.edit-agent-box').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation()
+        const agentId = btn.getAttribute('data-agent-id')
+        if (agentId) {
+          openEditAgentBoxDialog(agentId)
+        }
+      })
+      
+      // Hover effects for edit button
+      btn.addEventListener('mouseenter', () => {
+        (btn as HTMLElement).style.opacity = '1'
+        ;(btn as HTMLElement).style.background = 'rgba(33, 150, 243, 0.8)'
       })
       
       btn.addEventListener('mouseleave', () => {
