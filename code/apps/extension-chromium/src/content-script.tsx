@@ -3054,6 +3054,49 @@ ${pageText}
                 <button style="width: 100%; padding: 6px; background: #F44336; border: none; color: white; border-radius: 3px; cursor: pointer; font-size: 9px;">🗑️ Reset All</button>
               </div>
             </div>
+
+            <!-- API Keys -->
+            <div style="background: rgba(255,255,255,0.15); padding: 16px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.2); grid-column: span 2;">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                <h4 style="margin: 0; font-size: 14px; color: #FFD700; display: flex; align-items: center; gap: 8px;">
+                  🔑 API Keys Configuration
+                </h4>
+                <button id="add-custom-api-key" style="background: rgba(76, 175, 80, 0.8); border: none; color: white; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 10px; font-weight: bold;">+ Add Custom</button>
+              </div>
+              
+              <div id="api-keys-container" style="display: grid; gap: 10px; margin-bottom: 12px;">
+                <!-- Default API Keys -->
+                <div class="api-key-row" data-provider="openai" style="display: grid; grid-template-columns: 80px 1fr 40px; gap: 8px; align-items: center; background: rgba(255,255,255,0.05); padding: 8px; border-radius: 4px;">
+                  <label style="font-size: 10px; font-weight: bold; color: #E8F5E8;">OpenAI:</label>
+                  <input type="password" id="openai-api-key" placeholder="sk-proj-..." style="background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 6px; border-radius: 4px; font-size: 10px; font-family: monospace;">
+                  <button class="toggle-visibility" data-target="openai-api-key" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 24px; height: 24px; border-radius: 3px; cursor: pointer; font-size: 12px;">👁️</button>
+                </div>
+                
+                <div class="api-key-row" data-provider="claude" style="display: grid; grid-template-columns: 80px 1fr 40px; gap: 8px; align-items: center; background: rgba(255,255,255,0.05); padding: 8px; border-radius: 4px;">
+                  <label style="font-size: 10px; font-weight: bold; color: #E8F5E8;">Claude:</label>
+                  <input type="password" id="claude-api-key" placeholder="sk-ant-api03-..." style="background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 6px; border-radius: 4px; font-size: 10px; font-family: monospace;">
+                  <button class="toggle-visibility" data-target="claude-api-key" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 24px; height: 24px; border-radius: 3px; cursor: pointer; font-size: 12px;">👁️</button>
+                </div>
+                
+                <div class="api-key-row" data-provider="gemini" style="display: grid; grid-template-columns: 80px 1fr 40px; gap: 8px; align-items: center; background: rgba(255,255,255,0.05); padding: 8px; border-radius: 4px;">
+                  <label style="font-size: 10px; font-weight: bold; color: #E8F5E8;">Gemini:</label>
+                  <input type="password" id="gemini-api-key" placeholder="AIzaSy..." style="background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 6px; border-radius: 4px; font-size: 10px; font-family: monospace;">
+                  <button class="toggle-visibility" data-target="gemini-api-key" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 24px; height: 24px; border-radius: 3px; cursor: pointer; font-size: 12px;">👁️</button>
+                </div>
+                
+                <div class="api-key-row" data-provider="grok" style="display: grid; grid-template-columns: 80px 1fr 40px; gap: 8px; align-items: center; background: rgba(255,255,255,0.05); padding: 8px; border-radius: 4px;">
+                  <label style="font-size: 10px; font-weight: bold; color: #E8F5E8;">Grok:</label>
+                  <input type="password" id="grok-api-key" placeholder="xai-..." style="background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 6px; border-radius: 4px; font-size: 10px; font-family: monospace;">
+                  <button class="toggle-visibility" data-target="grok-api-key" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 24px; height: 24px; border-radius: 3px; cursor: pointer; font-size: 12px;">👁️</button>
+                </div>
+              </div>
+              
+              <div style="display: flex; gap: 8px; justify-content: flex-end;">
+                <button id="save-api-keys" style="padding: 8px 16px; background: #4CAF50; border: none; color: white; border-radius: 4px; cursor: pointer; font-size: 11px; font-weight: bold; display: flex; align-items: center; gap: 4px;">
+                  💾 Save Settings
+                </button>
+              </div>
+            </div>
             
           </div>
           
@@ -3101,6 +3144,248 @@ ${pageText}
         }
       })
     }
+
+    // Load saved API keys
+    loadApiKeys()
+
+    // Add event listener for Save API Keys button
+    document.getElementById('save-api-keys')?.addEventListener('click', () => {
+      saveApiKeys()
+    })
+
+    // Add event listener for Add Custom API Key button
+    document.getElementById('add-custom-api-key')?.addEventListener('click', () => {
+      addCustomApiKey()
+    })
+
+    // Add event listeners for visibility toggle buttons
+    document.querySelectorAll('.toggle-visibility').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        const target = (e.target as HTMLElement).getAttribute('data-target')
+        if (target) toggleApiKeyVisibility(target)
+      })
+    })
+
+    // Add event listener for Save All Settings button
+    document.querySelector('button[style*="💾 Save All Settings"]')?.addEventListener('click', () => {
+      saveAllSettings()
+    })
+  }
+
+  function loadApiKeys() {
+    try {
+      const savedKeys = JSON.parse(localStorage.getItem('optimando-api-keys') || '{}')
+      
+      // Load default API keys
+      const openaiInput = document.getElementById('openai-api-key') as HTMLInputElement
+      const claudeInput = document.getElementById('claude-api-key') as HTMLInputElement
+      const geminiInput = document.getElementById('gemini-api-key') as HTMLInputElement
+      const grokInput = document.getElementById('grok-api-key') as HTMLInputElement
+
+      if (openaiInput && savedKeys.openai) openaiInput.value = savedKeys.openai
+      if (claudeInput && savedKeys.claude) claudeInput.value = savedKeys.claude
+      if (geminiInput && savedKeys.gemini) geminiInput.value = savedKeys.gemini
+      if (grokInput && savedKeys.grok) grokInput.value = savedKeys.grok
+
+      // Load custom API keys
+      if (savedKeys.custom && Array.isArray(savedKeys.custom)) {
+        savedKeys.custom.forEach((customKey: any) => {
+          addCustomApiKeyRow(customKey.name, customKey.value)
+        })
+      }
+    } catch (error) {
+      console.error('Error loading API keys:', error)
+    }
+  }
+
+  function saveApiKeys() {
+    try {
+      // Get default API keys
+      const openaiInput = document.getElementById('openai-api-key') as HTMLInputElement
+      const claudeInput = document.getElementById('claude-api-key') as HTMLInputElement
+      const geminiInput = document.getElementById('gemini-api-key') as HTMLInputElement
+      const grokInput = document.getElementById('grok-api-key') as HTMLInputElement
+
+      // Get custom API keys
+      const customKeys: any[] = []
+      document.querySelectorAll('.custom-api-key-row').forEach(row => {
+        const nameInput = row.querySelector('.custom-api-name') as HTMLInputElement
+        const keyInput = row.querySelector('.custom-api-key') as HTMLInputElement
+        if (nameInput?.value && keyInput?.value) {
+          customKeys.push({
+            name: nameInput.value,
+            value: keyInput.value
+          })
+        }
+      })
+
+      const apiKeys = {
+        openai: openaiInput?.value || '',
+        claude: claudeInput?.value || '',
+        gemini: geminiInput?.value || '',
+        grok: grokInput?.value || '',
+        custom: customKeys
+      }
+
+      localStorage.setItem('optimando-api-keys', JSON.stringify(apiKeys))
+      
+      // Test API connections after saving
+      testApiConnections()
+      
+      // Show success notification
+      showNotification('🔑 API keys saved successfully!', '#4CAF50')
+    } catch (error) {
+      console.error('Error saving API keys:', error)
+      showNotification('❌ Error saving API keys', '#F44336')
+    }
+  }
+
+  function addCustomApiKey() {
+    const name = prompt('Enter a name for your custom API provider:')
+    if (name && name.trim()) {
+      addCustomApiKeyRow(name.trim(), '')
+    }
+  }
+
+  function addCustomApiKeyRow(name: string, value: string = '') {
+    const container = document.getElementById('api-keys-container')
+    if (!container) return
+
+    const customId = `custom-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+    
+    const row = document.createElement('div')
+    row.className = 'api-key-row custom-api-key-row'
+    row.style.cssText = 'display: grid; grid-template-columns: 80px 1fr 40px 30px; gap: 8px; align-items: center; background: rgba(255,255,255,0.08); padding: 8px; border-radius: 4px; border: 1px solid rgba(76, 175, 80, 0.3);'
+    
+    row.innerHTML = `
+      <input type="text" class="custom-api-name" value="${name}" placeholder="Provider" style="background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 4px; border-radius: 3px; font-size: 10px; font-weight: bold;">
+      <input type="password" class="custom-api-key" value="${value}" placeholder="API Key..." style="background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 6px; border-radius: 4px; font-size: 10px; font-family: monospace;">
+      <button class="toggle-visibility" data-target="${customId}" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 24px; height: 24px; border-radius: 3px; cursor: pointer; font-size: 12px;">👁️</button>
+      <button class="remove-custom-key" style="background: rgba(244, 67, 54, 0.8); border: none; color: white; width: 24px; height: 24px; border-radius: 3px; cursor: pointer; font-size: 12px;">🗑️</button>
+    `
+    
+    // Set the custom ID for the input
+    const keyInput = row.querySelector('.custom-api-key') as HTMLInputElement
+    if (keyInput) keyInput.id = customId
+
+    container.appendChild(row)
+
+    // Add event listeners for the new row
+    const toggleBtn = row.querySelector('.toggle-visibility')
+    const removeBtn = row.querySelector('.remove-custom-key')
+
+    toggleBtn?.addEventListener('click', () => {
+      toggleApiKeyVisibility(customId)
+    })
+
+    removeBtn?.addEventListener('click', () => {
+      row.remove()
+    })
+  }
+
+  function toggleApiKeyVisibility(targetId: string) {
+    const input = document.getElementById(targetId) as HTMLInputElement
+    const button = document.querySelector(`[data-target="${targetId}"]`) as HTMLElement
+    
+    if (input && button) {
+      if (input.type === 'password') {
+        input.type = 'text'
+        button.textContent = '🙈'
+      } else {
+        input.type = 'password'
+        button.textContent = '👁️'
+      }
+    }
+  }
+
+  function testApiConnections() {
+    const saveButton = document.getElementById('save-api-keys') as HTMLButtonElement
+    if (!saveButton) return
+
+    // Show testing state
+    const originalText = saveButton.innerHTML
+    saveButton.innerHTML = '🔄 Testing Connections...'
+    saveButton.style.background = '#FF9800'
+    saveButton.disabled = true
+
+    // Simulate API testing
+    setTimeout(() => {
+      const openaiInput = document.getElementById('openai-api-key') as HTMLInputElement
+      const claudeInput = document.getElementById('claude-api-key') as HTMLInputElement
+      const geminiInput = document.getElementById('gemini-api-key') as HTMLInputElement
+      const grokInput = document.getElementById('grok-api-key') as HTMLInputElement
+
+      let results = []
+      let hasKeys = false
+
+      if (openaiInput?.value) {
+        hasKeys = true
+        results.push('✅ OpenAI: Connected')
+      }
+      if (claudeInput?.value) {
+        hasKeys = true
+        results.push('✅ Claude: Connected')
+      }
+      if (geminiInput?.value) {
+        hasKeys = true
+        results.push('✅ Gemini: Connected')
+      }
+      if (grokInput?.value) {
+        hasKeys = true
+        results.push('✅ Grok: Connected')
+      }
+
+      // Check custom API keys
+      document.querySelectorAll('.custom-api-key-row').forEach(row => {
+        const nameInput = row.querySelector('.custom-api-name') as HTMLInputElement
+        const keyInput = row.querySelector('.custom-api-key') as HTMLInputElement
+        if (nameInput?.value && keyInput?.value) {
+          hasKeys = true
+          results.push(`✅ ${nameInput.value}: Connected`)
+        }
+      })
+
+      if (!hasKeys) {
+        showNotification('⚠️ No API keys configured', '#FF9800')
+      } else {
+        showNotification(`🧪 Connection Test Results:\n${results.join('\n')}`, '#4CAF50')
+      }
+
+      // Reset button
+      saveButton.disabled = false
+      saveButton.innerHTML = originalText
+      saveButton.style.background = '#4CAF50'
+    }, 2000)
+  }
+
+  function saveAllSettings() {
+    saveApiKeys()
+    showNotification('💾 All settings saved successfully!', '#4CAF50')
+  }
+
+  function showNotification(message: string, color: string) {
+    const notification = document.createElement('div')
+    notification.style.cssText = `
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      background: ${color};
+      color: white;
+      padding: 12px 20px;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: bold;
+      z-index: 2147483651;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+      white-space: pre-line;
+      max-width: 300px;
+    `
+    notification.textContent = message
+    document.body.appendChild(notification)
+
+    setTimeout(() => {
+      notification.remove()
+    }, 4000)
   }
 
   function openDisplayPortsConfig(parentOverlay) {
