@@ -212,10 +212,32 @@ function initializeExtension() {
   // Save/Load functions
   // Session key helpers to guarantee that all writes go to the active session only
   function getCurrentSessionKey(): string | null {
-    try { return sessionStorage.getItem('optimando-current-session-key') } catch { return null }
+    // First check sessionStorage for this tab's session
+    try { 
+      const tabSession = sessionStorage.getItem('optimando-current-session-key')
+      if (tabSession) return tabSession
+    } catch {}
+    
+    // Fall back to global active session from localStorage
+    try {
+      const globalSession = localStorage.getItem('optimando-global-active-session')
+      if (globalSession) {
+        // Sync to this tab's sessionStorage
+        try { sessionStorage.setItem('optimando-current-session-key', globalSession) } catch {}
+        return globalSession
+      }
+    } catch {}
+    
+    return null
   }
+  
   function setCurrentSessionKey(key: string) {
-    try { sessionStorage.setItem('optimando-current-session-key', key) } catch {}
+    // Set in both sessionStorage (for this tab) and localStorage (global)
+    try { 
+      sessionStorage.setItem('optimando-current-session-key', key) 
+      localStorage.setItem('optimando-global-active-session', key)
+      localStorage.setItem('optimando-global-active-session-time', Date.now().toString())
+    } catch {}
     // Persist across navigations
     writeOptimandoState({ sessionKey: key })
   }
@@ -4379,99 +4401,47 @@ ${pageText}
       
       // Save to localStorage for immediate persistence
       saveTabDataToStorage()
-      // FORCE UPDATE SESSION HISTORY - ALWAYS WORKS
-      console.log('🔄 FORCE UPDATING SESSION HISTORY...')
-      chrome.storage.local.get(null, (allData) => {
-        console.log('📋 All stored data keys:', Object.keys(allData))
-        
-        // Get all sessions
-        const allSessions = Object.entries(allData).filter(([key, value]) => 
-          key.startsWith('session_')
-        )
-        console.log('📋 Found sessions:', allSessions.length)
-        
-        allSessions.forEach(([key, session]) => {
-          console.log(`📋 Session ${key}:`, {
-            tabName: session.tabName,
-            tabId: session.tabId,
-            url: session.url?.substring(0, 50),
-            timestamp: session.timestamp
-          })
-        })
-        
-        // Try multiple methods to find the correct session
-        let targetSessionKey = null
-        let targetSessionData = null
-        
-        // Method 1: By tabId
-        const sessionByTabId = allSessions.find(([key, value]) => 
-          value.tabId === currentTabData.tabId
-        )
-        if (sessionByTabId) {
-          [targetSessionKey, targetSessionData] = sessionByTabId
-          console.log('✅ FOUND SESSION BY TABID:', targetSessionKey)
+      
+      // SIMPLIFIED SESSION UPDATE - Use active session key directly
+      console.log('🔄 UPDATING SESSION WITH DISPLAY GRIDS...')
+      let activeSessionKey = getCurrentSessionKey()
+      
+      if (!activeSessionKey) {
+        // Create new session if none exists
+        activeSessionKey = `session_${Date.now()}`
+        setCurrentSessionKey(activeSessionKey)
+        console.log('🆕 Created new session for display grids:', activeSessionKey)
+      }
+      
+      // Load the active session and update it
+      chrome.storage.local.get([activeSessionKey], (result) => {
+        let sessionData = result[activeSessionKey] || {
+          ...currentTabData,
+          timestamp: new Date().toISOString(),
+          url: window.location.href,
+          isLocked: true
         }
         
-        // Method 2: By URL (if tabId failed)
-        if (!targetSessionKey) {
-          const currentUrl = window.location.href.split('?')[0]
-          const sessionByUrl = allSessions.find(([key, value]) => 
-            value.url && value.url.split('?')[0] === currentUrl
-          )
-          if (sessionByUrl) {
-            [targetSessionKey, targetSessionData] = sessionByUrl
-            console.log('✅ FOUND SESSION BY URL:', targetSessionKey)
-          }
-        }
+        // Update session with new displayGrids
+        sessionData.displayGrids = currentTabData.displayGrids
+        sessionData.timestamp = new Date().toISOString()
         
-        // Method 3: Most recent session (last resort)
-        if (!targetSessionKey && allSessions.length > 0) {
-          const mostRecent = allSessions.sort((a, b) => 
-            new Date(b[1].timestamp || 0).getTime() - new Date(a[1].timestamp || 0).getTime()
-          )[0]
-          [targetSessionKey, targetSessionData] = mostRecent
-          console.log('✅ USING MOST RECENT SESSION:', targetSessionKey)
-        }
+        console.log('💾 Saving session with', sessionData.displayGrids.length, 'display grids')
         
-        // Update the found session
-        if (targetSessionKey && targetSessionData) {
-          const updatedSessionData = {
-            ...targetSessionData,
-            displayGrids: currentTabData.displayGrids,
-            timestamp: new Date().toISOString()
-          }
-          
-          chrome.storage.local.set({ [targetSessionKey]: updatedSessionData }, () => {
-            console.log('🎯 SUCCESS: Updated session in history!')
-            console.log('🎯 Session key:', targetSessionKey)
-            console.log('🎯 Grid count:', updatedSessionData.displayGrids.length)
-            console.log('🎯 Grid layouts:', selectedLayouts)
+        chrome.storage.local.set({ [activeSessionKey]: sessionData }, () => {
+          if (chrome.runtime.lastError) {
+            console.error('❌ Failed to save session:', chrome.runtime.lastError)
+          } else {
+            console.log('✅ Session updated with display grids:', activeSessionKey)
             
-            // Show success notification
-            const notification = document.createElement('div')
-            notification.innerHTML = `✅ Session updated with ${selectedLayouts.length} grids!`
-            notification.style.cssText = `
-              position: fixed; top: 20px; right: 20px; z-index: 2147483650;
-              background: #4CAF50; color: white; padding: 12px 20px;
-              border-radius: 8px; font-size: 14px; box-shadow: 0 4px 12px rgba(0,0,0,0.3);
-            `
-            document.body.appendChild(notification)
-            setTimeout(() => notification.remove(), 3000)
-          })
-        } else {
-          console.log('❌ NO SESSION FOUND TO UPDATE!')
-          
-          // Show error notification
-          const notification = document.createElement('div')
-          notification.innerHTML = `❌ No session found to update. Please lock the session first!`
-          notification.style.cssText = `
-            position: fixed; top: 20px; right: 20px; z-index: 2147483650;
-            background: #f44336; color: white; padding: 12px 20px;
-            border-radius: 8px; font-size: 14px; box-shadow: 0 4px 12px rgba(0,0,0,0.3);
-          `
-          document.body.appendChild(notification)
-          setTimeout(() => notification.remove(), 5000)
-        }
+            // Show success feedback
+            const note = document.createElement('div')
+            note.textContent = '✅ Display grids added to session'
+            note.style.cssText = `position:fixed;top:20px;right:20px;z-index:2147483650;background:#4CAF50;color:#fff;padding:10px 14px;border-radius:8px;font-size:12px;box-shadow:0 4px 12px rgba(0,0,0,0.3)`
+            document.body.appendChild(note)
+            setTimeout(() => note.remove(), 3000)
+          }
+        })
       })
       
       // BACKUP: Also save active grids to localStorage for reliable retrieval
@@ -4498,8 +4468,8 @@ ${pageText}
       document.body.appendChild(notification)
       setTimeout(() => notification.remove(), 4000)
       
-        overlay.remove()
-      }
+      overlay.remove()
+    }
       
     function updateSaveButton() {
       const selectedCount = checkboxes.filter(id => document.getElementById(id).checked).length
@@ -4665,11 +4635,27 @@ ${pageText}
   
   function openGridFromSession(layout, sessionId) {
     console.log('🔍 DEBUG: Opening grid from session:', layout, sessionId)
+    console.log('🔍 DEBUG: currentTabData.displayGrids at grid open:', currentTabData.displayGrids)
     
     // Get current theme
     const currentTheme = localStorage.getItem('optimando-ui-theme') || 'default'
+    console.log('🎨 DEBUG: Current theme for grid:', currentTheme)
+    
+    // CRITICAL: Ensure we have displayGrids data before creating HTML
+    if (currentTabData.displayGrids) {
+      const gridEntry = currentTabData.displayGrids.find(g => g.layout === layout)
+      if (gridEntry && (gridEntry as any).config) {
+        console.log('✅ Found grid config for', layout, ':', (gridEntry as any).config)
+        console.log('✅ Grid has', Object.keys((gridEntry as any).config.slots || {}).length, 'configured slots')
+      } else {
+        console.log('❌ No grid config found for', layout)
+      }
+    } else {
+      console.log('❌ No displayGrids in currentTabData')
+    }
     
     // Create the complete HTML content for the new tab
+    console.log('🎨 DEBUG: Creating grid HTML with theme:', currentTheme)
     const gridHTML = createGridHTML(layout, sessionId, currentTheme)
     
     console.log('🔍 DEBUG: Generated HTML length:', gridHTML.length)
@@ -4752,163 +4738,175 @@ ${pageText}
   }
 
   function persistGridConfig(config: { layout: string, sessionId: string, slots: any }) {
-    console.log('💾 persistGridConfig called with:', config)
-    console.log('💾 currentTabData.tabId:', currentTabData.tabId)
-    console.log('💾 currentTabData.isLocked:', currentTabData.isLocked)
+    console.log('💾 GLOBAL SESSION PERSIST: Grid config save started')
+    console.log('💾 Config:', config)
     
-    if (!currentTabData.displayGrids) currentTabData.displayGrids = []
-    let entry: any = currentTabData.displayGrids.find(g => g.sessionId === config.sessionId && g.layout === config.layout)
-    if (!entry) {
-      entry = { layout: config.layout, sessionId: config.sessionId, url: '', timestamp: new Date().toISOString() }
-      currentTabData.displayGrids.push(entry)
+    // STEP 1: Get or create active session
+    let activeSessionKey = getCurrentSessionKey()
+    if (!activeSessionKey) {
+      activeSessionKey = `session_${Date.now()}`
+      setCurrentSessionKey(activeSessionKey)
+      console.log('🔧 Created new session for grid persistence:', activeSessionKey)
+    } else {
+      console.log('🔧 Using existing session:', activeSessionKey)
     }
-    entry.config = { layout: config.layout, sessionId: config.sessionId, slots: config.slots }
-
-    console.log('📊 Updated currentTabData.displayGrids:', currentTabData.displayGrids)
-
-    // Persist local tab data
-    saveTabDataToStorage()
-
-    // If session is locked, find and update the correct session
-    if (currentTabData.isLocked) {
+    
+    // STEP 2: Load ALL sessions to find and update the correct one
     chrome.storage.local.get(null, (allData) => {
-        console.log('🔍 All stored data keys:', Object.keys(allData))
-      const allSessions = Object.entries(allData).filter(([key, value]: any) => key.startsWith('session_')) as any[]
-        console.log('🔍 Found sessions:', allSessions.map(([key, value]: any) => ({ 
-          key, 
-          tabId: value.tabId, 
-          url: value.url, 
-          tabName: value.tabName,
-          isLocked: value.isLocked 
-        })))
-        
-        // Strategy 1: Find by exact tabId match
-      let target: any = allSessions.find(([key, value]: any) => value.tabId === currentTabData.tabId)
-        console.log('🔍 Target by exact tabId:', target)
-        
-        // Strategy 2: Find by URL match (most recent)
-      if (!target) {
-        const currentUrl = window.location.href.split('?')[0]
-          const urlMatches = allSessions.filter(([key, value]: any) => 
-            value.url && value.url.split('?')[0] === currentUrl
-          )
-          if (urlMatches.length > 0) {
-            // Sort by timestamp and take the most recent
-            urlMatches.sort((a, b) => new Date(b[1].timestamp).getTime() - new Date(a[1].timestamp).getTime())
-            target = urlMatches[0]
-            console.log('🔍 Target by URL (most recent):', target)
-          }
+      console.log('📊 LOADING ALL SESSIONS FOR UPDATE')
+      
+      // Find the target session
+      let sessionData = allData[activeSessionKey]
+      if (!sessionData) {
+        // Create new session if it doesn't exist
+        sessionData = {
+          ...currentTabData,
+          timestamp: new Date().toISOString(),
+          url: window.location.href,
+          isLocked: true,
+          displayGrids: []
         }
-        
-        // Strategy 3: Find by locked session with same tabName
-        if (!target && currentTabData.tabName) {
-          const nameMatches = allSessions.filter(([key, value]: any) => 
-            value.tabName === currentTabData.tabName && value.isLocked
-          )
-          if (nameMatches.length > 0) {
-            // Sort by timestamp and take the most recent
-            nameMatches.sort((a, b) => new Date(b[1].timestamp).getTime() - new Date(a[1].timestamp).getTime())
-            target = nameMatches[0]
-            console.log('🔍 Target by tabName (most recent locked):', target)
-          }
+        console.log('🆕 Created new session data')
+      }
+      
+      // STEP 3: Initialize displayGrids array if needed
+      if (!sessionData.displayGrids) {
+        sessionData.displayGrids = []
+        console.log('🔧 Initialized displayGrids array')
+      }
+      
+      // STEP 4: Find or create the grid entry
+      let gridEntry = sessionData.displayGrids.find(g => g.layout === config.layout)
+      if (!gridEntry) {
+        gridEntry = {
+          layout: config.layout,
+          sessionId: config.sessionId,
+          url: 'about:blank',
+          timestamp: new Date().toISOString()
         }
-        
-      if (target) {
-        const [sessionKey, sessionData] = target
-          console.log('✅ Found target session:', sessionKey)
-          
-        const existing = Array.isArray(sessionData.displayGrids) ? sessionData.displayGrids : []
-        let found = existing.find((g: any) => g.sessionId === config.sessionId && g.layout === config.layout)
-        if (!found) {
-          found = { layout: config.layout, sessionId: config.sessionId, url: '', timestamp: new Date().toISOString() }
-          existing.push(found)
-        }
-        found.config = { layout: config.layout, sessionId: config.sessionId, slots: config.slots }
-        const updatedSession = { ...sessionData, displayGrids: existing, timestamp: new Date().toISOString() }
-          
-          console.log('💾 Updating session with displayGrids:', updatedSession.displayGrids)
-          
-        chrome.storage.local.set({ [sessionKey]: updatedSession }, () => {
-          console.log('✅ Mirrored grid config into session history:', sessionKey)
-        })
+        sessionData.displayGrids.push(gridEntry)
+        console.log('✅ Added new grid entry:', config.layout)
+      } else {
+        console.log('✅ Found existing grid entry:', config.layout)
+      }
+      
+      // STEP 5: Update the grid configuration
+      gridEntry.config = {
+        layout: config.layout,
+        sessionId: config.sessionId,
+        slots: config.slots
+      }
+      gridEntry.timestamp = new Date().toISOString()
+      
+      console.log('📊 FINAL SESSION DISPLAYGRIDS:', sessionData.displayGrids)
+      console.log('📊 GRID CONFIG SLOTS:', Object.keys(config.slots).length)
+      
+      // STEP 6: Save the complete session back to storage
+      const finalSessionData = {
+        ...sessionData,
+        displayGrids: sessionData.displayGrids,
+        timestamp: new Date().toISOString(),
+        isLocked: true
+      }
+      
+      chrome.storage.local.set({ [activeSessionKey]: finalSessionData }, () => {
+        if (chrome.runtime.lastError) {
+          console.error('❌ FAILED TO SAVE SESSION:', chrome.runtime.lastError)
         } else {
-          console.log('❌ No target session found. Creating new session...')
+          console.log('🎯 SUCCESS: Grid config saved to GLOBAL session:', activeSessionKey)
+          console.log('🎯 Session now contains', finalSessionData.displayGrids.length, 'display grids')
           
-          // Create a new session for this grid
-          const sessionKey = `session_${Date.now()}`
-          const sessionData = {
-            ...currentTabData,
-            displayGrids: currentTabData.displayGrids,
-            timestamp: new Date().toISOString(),
-            url: window.location.href
-          }
+          // Update local currentTabData to stay in sync
+          currentTabData.displayGrids = sessionData.displayGrids
+          saveTabDataToStorage()
           
-          chrome.storage.local.set({ [sessionKey]: sessionData }, () => {
-            console.log('✅ Created new session for grid config:', sessionKey)
-          })
+          // Show success feedback
+          const note = document.createElement('div')
+          note.textContent = '✅ Grid config saved to session history'
+          note.style.cssText = `position:fixed;top:20px;right:20px;z-index:2147483650;background:#4CAF50;color:#fff;padding:10px 14px;border-radius:8px;font-size:12px;box-shadow:0 4px 12px rgba(0,0,0,0.3)`
+          document.body.appendChild(note)
+          setTimeout(() => note.remove(), 3000)
         }
       })
-    } else {
-      console.log('ℹ️ Session not locked, grid config only saved locally')
-    }
+    })
   }
 
-  // Listen for save messages from grid tabs (about:blank child windows)
-  window.addEventListener('message', (event) => {
-    const data = (event && event.data) || null
-    if (!data || data.type !== 'OPTIMANDO_SAVE_GRID' || !data.payload) return
-
+  // Check chrome.storage.local for grid saves
+  let lastGridSaveCheck = 0
+  setInterval(() => {
     try {
-      const payload = data.payload
-      const sessionId = payload.sessionId
-      const layout = payload.layout
-      const slots = payload.slots || {}
-
-      if (!currentTabData.displayGrids) currentTabData.displayGrids = []
-      let entry = currentTabData.displayGrids.find(g => g.sessionId === sessionId && g.layout === layout)
-      if (!entry) {
-        entry = { layout, sessionId, url: '', timestamp: new Date().toISOString() } as any
-        currentTabData.displayGrids.push(entry)
-      }
-      ;(entry as any).config = { layout, sessionId, slots }
-
-      // Persist locally
-      saveTabDataToStorage()
-
-      // If locked, mirror to chrome.storage.local (update session for this tabId)
-      if (currentTabData.isLocked) {
-        chrome.storage.local.get(null, (allSessions) => {
-          const sessionEntries = Object.entries(allSessions).filter(([key, value]: any) => 
-            key.startsWith('session_') && value.tabId === currentTabData.tabId
-          )
-          if (sessionEntries.length > 0) {
-            const [sessionKey, sessionData]: any = sessionEntries[0]
-            const updatedSessionData = {
-              ...sessionData,
-              displayGrids: currentTabData.displayGrids,
-              timestamp: new Date().toISOString()
-            }
-            chrome.storage.local.set({ [sessionKey]: updatedSessionData }, () => {
-              // no-op
-            })
+      chrome.storage.local.get(['optimando_last_grid_save'], (result) => {
+        const saveInfo = result.optimando_last_grid_save
+        if (!saveInfo || saveInfo.timestamp <= lastGridSaveCheck) return
+        
+        lastGridSaveCheck = saveInfo.timestamp
+        console.log('📥 Detected grid save:', saveInfo.key)
+        
+        // Get the actual grid data
+        chrome.storage.local.get([saveInfo.key], (gridResult) => {
+          const payload = gridResult[saveInfo.key]
+          if (!payload) return
+          console.log('💾 Grid config received:', payload)
+          
+          // Store in currentTabData
+          if (!currentTabData.displayGrids) currentTabData.displayGrids = []
+          let entry = currentTabData.displayGrids.find(g => g.layout === payload.layout)
+          if (!entry) {
+            entry = { 
+              layout: payload.layout, 
+              sessionId: payload.sessionId || Date.now().toString(), 
+              url: '', 
+              timestamp: new Date().toISOString() 
+            } as any
+            currentTabData.displayGrids.push(entry)
           }
+          ;(entry as any).config = payload
+          
+          // Save to current session
+          saveTabDataToStorage()
+          
+          // Create session if needed and save
+          let sessionKey = getCurrentSessionKey()
+          if (!sessionKey) {
+            sessionKey = `session_${Date.now()}`
+            currentTabData.isLocked = true
+            setCurrentSessionKey(sessionKey)
+            console.log('🔧 Created session for grid save:', sessionKey)
+          }
+          
+          // First get the existing session data to merge with
+          chrome.storage.local.get([sessionKey], (result) => {
+            const existingSession = result[sessionKey] || {}
+            
+            // Merge displayGrids into the session
+            const sessionData = {
+              ...existingSession,
+              ...currentTabData,
+              displayGrids: currentTabData.displayGrids,
+              timestamp: new Date().toISOString(),
+              url: existingSession.url || window.location.href, // Keep original URL
+              isLocked: true
+            }
+            
+            chrome.storage.local.set({ [sessionKey]: sessionData }, () => {
+              console.log('✅ Grid config saved to session:', sessionKey)
+              console.log('✅ Session now contains displayGrids:', sessionData.displayGrids)
+            
+              // Show success feedback
+              const note = document.createElement('div')
+              note.textContent = '✅ Grid config saved to session'
+              note.style.cssText = `position:fixed;top:20px;right:20px;z-index:2147483650;background:#4CAF50;color:#fff;padding:10px 14px;border-radius:8px;font-size:12px;box-shadow:0 4px 12px rgba(0,0,0,0.3)`
+              document.body.appendChild(note)
+              setTimeout(() => note.remove(), 2500)
+            })
+          })
         })
-      }
-
-      // Visual feedback
-      const note = document.createElement('div')
-      note.textContent = '✅ Saved grid to session'
-      note.style.cssText = `position:fixed;top:20px;right:20px;z-index:2147483650;background:#4CAF50;color:#fff;padding:10px 14px;border-radius:8px;font-size:12px;box-shadow:0 4px 12px rgba(0,0,0,0.3)`
-      document.body.appendChild(note)
-      setTimeout(() => note.remove(), 2500)
-    } catch (err) {
-      const note = document.createElement('div')
-      note.textContent = '❌ Failed saving grid to session'
-      note.style.cssText = `position:fixed;top:20px;right:20px;z-index:2147483650;background:#f44336;color:#fff;padding:10px 14px;border-radius:8px;font-size:12px;box-shadow:0 4px 12px rgba(0,0,0,0.3)`
-      document.body.appendChild(note)
-      setTimeout(() => note.remove(), 3000)
+      })
+      
+    } catch (e) {
+      console.log('Error checking grid saves:', e)
     }
-  })
+  }, 1000)
   
   function createGridHTML(layout, sessionId, theme = 'default') {
     // Configure grid layout
@@ -4925,13 +4923,15 @@ ${pageText}
     }
     
     const config = layouts[layout] || layouts['4-slot']
+    const activeSessionKeyForGrid = (typeof getCurrentSessionKey === 'function' ? (getCurrentSessionKey() || '') : '')
 
     // Prefill from currentTabData if a config exists
     console.log('🔍 DEBUG: createGridHTML - currentTabData.displayGrids:', currentTabData.displayGrids)
     console.log('🔍 DEBUG: createGridHTML - looking for sessionId:', sessionId, 'layout:', layout)
     
+    // Look for entry by layout only, since sessionId might be different when loading from history
     const entry = (currentTabData && currentTabData.displayGrids)
-      ? currentTabData.displayGrids.find(g => g.sessionId === sessionId && g.layout === layout)
+      ? currentTabData.displayGrids.find(g => g.layout === layout)
       : null
     console.log('🔍 DEBUG: createGridHTML - found entry:', entry)
     
@@ -4947,10 +4947,25 @@ ${pageText}
       if (layout === '5-slot' && i === 1) gridRowStyle = 'grid-row: span 2;'
       if (layout === '7-slot' && i === 1) gridRowStyle = 'grid-row: span 2;'
       
+      // Log what we're loading for this slot
+      if (savedSlots[String(slotNum)]) {
+        console.log(`🔍 DEBUG: Slot ${slotNum} saved config:`, savedSlots[String(slotNum)])
+      }
+      
       const savedTitle = (savedSlots[String(slotNum)] && savedSlots[String(slotNum)].title) ? savedSlots[String(slotNum)].title : `Display Port ${slotNum}`
       const savedAgent = (savedSlots[String(slotNum)] && savedSlots[String(slotNum)].agent) ? savedSlots[String(slotNum)].agent : ''
-      const sel = (val: string) => (savedAgent === val ? ' selected' : '')
-
+      const savedProvider = (savedSlots[String(slotNum)] && savedSlots[String(slotNum)].provider) ? savedSlots[String(slotNum)].provider : ''
+      const savedModel = (savedSlots[String(slotNum)] && savedSlots[String(slotNum)].model) ? savedSlots[String(slotNum)].model : ''
+      const agentNumForAB = savedAgent ? savedAgent.replace('agent', '').padStart(2, '0') : ''
+      const abCode = `AB${String(slotNum).padStart(2, '0')}${agentNumForAB}`
+      let displayParts = [savedTitle]
+      if (savedModel && savedModel !== 'auto') {
+        displayParts.push(savedModel)
+      } else if (savedProvider) {
+        displayParts.push(savedProvider)
+      }
+      const displayText = displayParts.join(' · ')
+      
       // Use theme-specific colors for title bars
       let headerColor = '#e5e4e2' // default calm color
       let textColor = '#333' // default text color
@@ -4969,7 +4984,7 @@ ${pageText}
         textColor = 'white'
         inputBg = 'rgba(255,255,255,0.2)'
         inputBorder = 'rgba(255,255,255,0.3)'
-        slotBg = 'black'
+        slotBg = '#2d2d2d'
       } else if (theme === 'professional') {
         headerColor = 'linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%)' // professional light gradient
         textColor = '#1e293b'
@@ -4978,32 +4993,23 @@ ${pageText}
         slotBg = 'white'
       }
       
+      console.log(`🔍 DEBUG: Slot ${slotNum} display:`, { abCode, displayText, savedAgent, savedProvider, savedModel })
+      console.log(`🎨 DEBUG: Slot ${slotNum} theme colors:`, { headerColor, textColor, slotBg, theme })
+      
       slotsHTML += `
-        <div data-slot-id="${slotNum}" style="background: ${slotBg} !important; border: 2px solid #666; border-radius: 8px; display: flex; flex-direction: column; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.1); ${gridRowStyle}">
+        <div data-slot-id="${slotNum}" data-slot-config='${JSON.stringify({ title: savedTitle, agent: savedAgent, provider: savedProvider, model: savedModel })}' style="background: ${slotBg} !important; border: 2px solid #666; border-radius: 8px; display: flex; flex-direction: column; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.1); ${gridRowStyle}">
           <div style="background: ${headerColor}; padding: 6px 8px; font-size: 11px; display: flex; justify-content: space-between; align-items: center; border-radius: 8px 8px 0 0; min-height: 32px; flex-shrink: 0;">
             <div style="display: flex; align-items: center; color: ${textColor}; font-weight: bold; min-width: 0; flex: 1;">
-              <span style="margin-right: 4px; white-space: nowrap;">#${slotNum}</span>
+              <span style="margin-right: 4px; white-space: nowrap; font-family: monospace; font-size: 10px;">${abCode}</span>
               <span style="margin-right: 4px;">🖥️</span>
-              <input type="text" class="slot-title" value="${savedTitle.replace(/"/g, '&quot;')}" placeholder="Title..." style="background: ${inputBg}; border: 1px solid ${inputBorder}; color: ${textColor}; padding: 2px 6px; border-radius: 4px; font-size: 10px; width: 120px; font-weight: bold; margin-right: 6px; min-width: 60px; max-width: 150px;">
+              <span class="slot-display-text" style="flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 2px 6px;">${displayText}</span>
             </div>
-            <div style="display: flex; align-items: center; flex-shrink: 0;">
-              <select class="slot-agent" style="background: ${inputBg}; color: ${textColor}; border: 1px solid ${inputBorder}; padding: 2px 4px; border-radius: 4px; font-size: 9px; margin-right: 4px; min-width: 80px; max-width: 100px;">
-                <option value="">Agent</option>
-                <option value="agent1"${sel('agent1')}>Agent 1</option>
-                <option value="agent2"${sel('agent2')}>Agent 2</option>
-                <option value="agent3"${sel('agent3')}>Agent 3</option>
-                <option value="agent4"${sel('agent4')}>Agent 4</option>
-                <option value="agent5"${sel('agent5')}>Agent 5</option>
-                <option value="agent6"${sel('agent6')}>Agent 6</option>
-                <option value="agent7"${sel('agent7')}>Agent 7</option>
-                <option value="agent8"${sel('agent8')}>Agent 8</option>
-                <option value="agent9"${sel('agent9')}>Agent 9</option>
-                <option value="agent10"${sel('agent10')}>Agent 10</option>
-              </select>
+            <div style="display: flex; align-items: center; flex-shrink: 0; gap: 4px;">
+              <button class="edit-slot" data-slot-id="${slotNum}" title="Setup Agent Box" onclick="if(window.openGridSlotEditor) window.openGridSlotEditor('${slotNum}'); else console.log('❌ openGridSlotEditor not found');" style="background: ${theme === 'professional' ? 'rgba(0,0,0,0.1)' : 'rgba(255,255,255,0.2)'}; border: none; color: ${textColor}; width: 20px; height: 20px; border-radius: 50%; cursor: pointer; font-size: 11px; display: flex; align-items: center; justify-content: center; transition: all 0.2s ease;">✏️</button>
               <button class="close-slot" style="background: ${theme === 'professional' ? 'rgba(0,0,0,0.1)' : 'rgba(255,255,255,0.2)'}; border: none; color: ${textColor}; width: 18px; height: 18px; border-radius: 50%; cursor: pointer; font-size: 10px; font-weight: bold; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">×</button>
             </div>
           </div>
-          <div style="flex: 1; display: flex; align-items: center; justify-content: center; font-size: 14px; color: ${theme === 'dark' ? 'white' : '#333'}; text-align: center; padding: 16px; background: ${slotBg} !important; min-height: 0;">
+          <div style="flex: 1; display: flex; align-items: center; justify-content: center; font-size: 14px; color: ${theme === 'dark' ? 'white' : (theme === 'professional' ? '#1e293b' : '#333')}; text-align: center; padding: 16px; background: ${slotBg} !important; min-height: 0;">
           </div>
         </div>
       `
@@ -5012,15 +5018,21 @@ ${pageText}
     // Theme background/text for page
     let bodyBg = 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)'
     let bodyText = '#ffffff'
+    
+    console.log('🎨 DEBUG: Applying theme:', theme)
+    
     if (theme === 'dark') {
       bodyBg = 'linear-gradient(135deg, #0f0f0f 0%, #1a1a1a 100%)'
       bodyText = '#ffffff'
+      console.log('🎨 Applied dark theme')
     } else if (theme === 'professional') {
       bodyBg = 'linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%)'
       bodyText = '#333333'
+      console.log('🎨 Applied professional theme')
     } else if (theme === 'default') {
       bodyBg = 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)'
       bodyText = '#ffffff'
+      console.log('🎨 Applied default theme')
     }
     // Return complete HTML document
     return `
@@ -5081,7 +5093,7 @@ ${pageText}
           ">›</button>
         </div>
         
-        <!-- Control Buttons Container -->
+        <!-- Control Buttons Container (no Save Grid per spec) -->
         <div style="
           position: fixed;
           bottom: 20px;
@@ -5090,23 +5102,6 @@ ${pageText}
           gap: 10px;
           z-index: 1000;
         ">
-          <!-- Save Grid Button -->
-          <button id="save-grid-btn" style="
-          padding: 12px 20px;
-          background: linear-gradient(135deg, #4CAF50 0%, #45a049 100%);
-          border: none;
-          color: white;
-          border-radius: 12px;
-          cursor: pointer;
-          font-size: 14px;
-          font-weight: 600;
-          box-shadow: 0 4px 12px rgba(76, 175, 80, 0.3);
-          transition: all 0.3s ease;
-          font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-        " onmouseover="this.style.background='linear-gradient(135deg, #45a049 0%, #3d8b40 100%)'; this.style.transform='translateY(-2px)'; this.style.boxShadow='0 6px 16px rgba(76, 175, 80, 0.4)'" onmouseout="this.style.background='linear-gradient(135deg, #4CAF50 0%, #45a049 100%)'; this.style.transform='translateY(0)'; this.style.boxShadow='0 4px 12px rgba(76, 175, 80, 0.3)'">
-          💾 Save Grid
-        </button>
-          
           <!-- Fullscreen Button -->
           <button id="fullscreen-btn" style="
             width: 48px;
@@ -5122,7 +5117,7 @@ ${pageText}
             box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
             transition: all 0.3s ease;
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-          " title="Fullscreen" onmouseover="this.style.background='linear-gradient(135deg, #5a6fd8 0%, #6a4190 100%)'; this.style.transform='translateY(-2px)'; this.style.boxShadow='0 6px 16px rgba(102, 126, 234, 0.4)'" onmouseout="this.style.background='linear-gradient(135deg, #667eea 0%, #764ba2 100%)'; this.style.transform='translateY(0)'; this.style.boxShadow='0 4px 12px rgba(102, 126, 234, 0.3)'">
+          " title="Fullscreen" onclick="toggleFullscreen()" onmouseover="this.style.background='linear-gradient(135deg, #5a6fd8 0%, #6a4190 100%)'; this.style.transform='translateY(-2px)'; this.style.boxShadow='0 6px 16px rgba(102, 126, 234, 0.4)'" onmouseout="this.style.background='linear-gradient(135deg, #667eea 0%, #764ba2 100%)'; this.style.transform='translateY(0)'; this.style.boxShadow='0 4px 12px rgba(102, 126, 234, 0.3)'">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
               <path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/>
             </svg>
@@ -5150,113 +5145,8 @@ ${pageText}
           ✅ Grid saved to session!
         </div>
         
-        <script src="${chrome.runtime.getURL('grid-script.js')}"></script>
-        <script>
-          console.log('✅ Grid loaded successfully:', '${layout}', 'Session:', '${sessionId}');
-          document.title = 'AI Grid - ${layout.toUpperCase()}';
-          
-          const sessionId = '${sessionId}';
-          const layout = '${layout}';
-          
-          // SIMPLE SAVE FUNCTION
-          function saveGridConfig() {
-            console.log('💾 SAVING GRID CONFIG...');
-            
-            const config = {
-              layout: layout,
-              sessionId: sessionId,
-              timestamp: new Date().toISOString(),
-              slots: {}
-            };
-            
-            // Collect slot data
-            document.querySelectorAll('[data-slot-id]').forEach(slot => {
-              const slotId = slot.getAttribute('data-slot-id');
-              const titleInput = slot.querySelector('.slot-title');
-              const agentSelect = slot.querySelector('.slot-agent');
-              
-              config.slots[slotId] = {
-                title: titleInput ? titleInput.value : '',
-                agent: agentSelect ? agentSelect.value : ''
-              };
-            });
-            
-            // Save to localStorage with simple key
-            const saveKey = 'grid_' + sessionId + '_' + layout;
-            localStorage.setItem(saveKey, JSON.stringify(config));
-            
-            console.log('✅ SAVED TO LOCALSTORAGE:', saveKey, config);
-            
-            // Show success notification
-            const notification = document.getElementById('success-notification');
-            if (notification) {
-              notification.style.display = 'block';
-              notification.style.opacity = '1';
-              setTimeout(() => {
-                notification.style.opacity = '0';
-                setTimeout(() => notification.style.display = 'none', 300);
-              }, 2000);
-            }
-          }
-          
-          // SIMPLE LOAD FUNCTION
-          function loadGridConfig() {
-            console.log('📂 LOADING GRID CONFIG...');
-            
-            const saveKey = 'grid_' + sessionId + '_' + layout;
-            const saved = localStorage.getItem(saveKey);
-            
-            if (saved) {
-              try {
-                const config = JSON.parse(saved);
-                console.log('📂 LOADED CONFIG:', config);
-                
-                // Apply config to slots
-                Object.keys(config.slots || {}).forEach(slotId => {
-                  const slot = document.querySelector('[data-slot-id="' + slotId + '"]');
-                  if (slot) {
-                    const titleInput = slot.querySelector('.slot-title');
-                    const agentSelect = slot.querySelector('.slot-agent');
-                    
-                    if (titleInput && config.slots[slotId].title) {
-                      titleInput.value = config.slots[slotId].title;
-                    }
-                    if (agentSelect && config.slots[slotId].agent) {
-                      agentSelect.value = config.slots[slotId].agent;
-                    }
-                  }
-                });
-              } catch (e) {
-                console.error('❌ Error loading config:', e);
-              }
-            } else {
-              console.log('📂 No saved config found for:', saveKey);
-            }
-          }
-          
-          // Attach save button
-          document.addEventListener('DOMContentLoaded', () => {
-            const saveBtn = document.getElementById('save-grid-btn');
-            if (saveBtn) {
-              saveBtn.addEventListener('click', saveGridConfig);
-              console.log('✅ Save button listener attached');
-            }
-            
-            // Load existing config
-            loadGridConfig();
-          });
-          
-          // Also attach immediately if DOM already loaded
-          if (document.readyState !== 'loading') {
-            const saveBtn = document.getElementById('save-grid-btn');
-            if (saveBtn) {
-              saveBtn.addEventListener('click', saveGridConfig);
-              console.log('✅ Save button listener attached (immediate)');
-            }
-            loadGridConfig();
-          }
-        </script>
-        <script src="chrome-extension://${chrome.runtime.id}/grid-script.js"></script>
+        <!-- Pass data to grid-script.js via data attributes on script -->
+        <script src="${chrome.runtime.getURL('grid-script.js')}" data-session-id="${sessionId}" data-layout="${layout}" data-session-key="${activeSessionKeyForGrid}" id="grid-script"></script>
       </body>
       </html>
     `
@@ -5274,12 +5164,40 @@ ${pageText}
       backdrop-filter: blur(5px);
     `
     
+    // Show loading state immediately
+    overlay.innerHTML = `
+      <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 16px; width: 90vw; max-width: 900px; height: 85vh; color: white; overflow: hidden; box-shadow: 0 20px 40px rgba(0,0,0,0.3); display: flex; align-items: center; justify-content: center;">
+        <div style="text-align: center;">
+          <div style="font-size: 24px; margin-bottom: 10px;">⏳</div>
+          <div style="font-size: 16px;">Loading sessions...</div>
+        </div>
+      </div>
+    `
+    document.body.appendChild(overlay)
+    
     // Get saved sessions from chrome.storage.local
     chrome.storage.local.get(null, (allData) => {
+      console.log('📋 Loading sessions from storage, total keys:', Object.keys(allData).length)
+      
+      const activeSessionKey = getCurrentSessionKey()
       const sessions = Object.entries(allData)
         .filter(([key]) => key.startsWith('session_'))
-        .map(([key, data]) => ({ id: key, ...data }))
-        .sort((a, b) => new Date(b.timestamp || 0).getTime() - new Date(a.timestamp || 0).getTime())
+        .map(([key, data]) => ({ id: key, ...data, isActive: key === activeSessionKey }))
+        .sort((a, b) => {
+          // Active session always first
+          if (a.isActive) return -1
+          if (b.isActive) return 1
+          // Then sort by timestamp
+          return new Date(b.timestamp || 0).getTime() - new Date(a.timestamp || 0).getTime()
+        })
+      
+      console.log('📋 Found sessions:', sessions.map(s => ({
+        id: s.id,
+        tabName: s.tabName,
+        timestamp: s.timestamp,
+        isLocked: s.isLocked,
+        hasDisplayGrids: !!s.displayGrids?.length
+      })))
       
       const generateSessionsHTML = () => {
         if (sessions.length === 0) {
@@ -5290,14 +5208,14 @@ ${pageText}
           <div style="margin-bottom: 16px;">
             <!-- Session title outside the box -->
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; padding: 0 4px;">
-              <h4 style="margin: 0; font-size: 16px; font-weight: bold; color: #FFEF94; text-shadow: 0 1px 2px rgba(0,0,0,0.5);">${session.tabName || 'Unnamed Session'}</h4>
+              <h4 style="margin: 0; font-size: 16px; font-weight: bold; color: #FFEF94; text-shadow: 0 1px 2px rgba(0,0,0,0.5);">${session.tabName || 'Unnamed Session'}${session.isActive ? ' <span style="background: #4CAF50; color: white; padding: 2px 8px; border-radius: 4px; font-size: 10px; margin-left: 8px;">ACTIVE</span>' : ''}</h4>
               <div style="display: flex; gap: 6px;">
                 <button class="rename-session-btn" data-session-id="${session.id}" style="background: linear-gradient(135deg, #2196F3, #1976D2); border: none; color: white; padding: 6px 8px; border-radius: 4px; cursor: pointer; font-size: 10px; transition: all 0.2s ease;" title="Rename session" onmouseover="this.style.transform='scale(1.05)'" onmouseout="this.style.transform='scale(1)'">✏️</button>
                 <button class="delete-session-btn" data-session-id="${session.id}" style="background: linear-gradient(135deg, #f44336, #d32f2f); border: none; color: white; padding: 6px 8px; border-radius: 4px; cursor: pointer; font-size: 10px; transition: all 0.2s ease;" title="Delete session" onmouseover="this.style.transform='scale(1.05)'" onmouseout="this.style.transform='scale(1)'">🗑️</button>
         </div>
             </div>
             <!-- Session box with content -->
-            <div class="session-item" data-session-id="${session.id}" style="background: linear-gradient(135deg, rgba(255,255,255,0.15) 0%, rgba(255,255,255,0.05) 100%); border-radius: 12px; padding: 14px; cursor: pointer; transition: all 0.3s ease; border: 2px solid transparent; box-shadow: 0 4px 8px rgba(0,0,0,0.1);" onmouseover="this.style.borderColor='rgba(255,255,255,0.4)'; this.style.transform='translateY(-2px)'; this.style.boxShadow='0 6px 12px rgba(0,0,0,0.2)'" onmouseout="this.style.borderColor='transparent'; this.style.transform='translateY(0)'; this.style.boxShadow='0 4px 8px rgba(0,0,0,0.1)'">
+            <div class="session-item" data-session-id="${session.id}" style="background: ${session.isActive ? 'linear-gradient(135deg, rgba(76,175,80,0.25) 0%, rgba(76,175,80,0.15) 100%)' : 'linear-gradient(135deg, rgba(255,255,255,0.15) 0%, rgba(255,255,255,0.05) 100%)'}; border-radius: 12px; padding: 14px; cursor: pointer; transition: all 0.3s ease; border: 2px solid ${session.isActive ? 'rgba(76,175,80,0.5)' : 'transparent'}; box-shadow: 0 4px 8px rgba(0,0,0,0.1);" onmouseover="this.style.borderColor='${session.isActive ? 'rgba(76,175,80,0.8)' : 'rgba(255,255,255,0.4)'}'; this.style.transform='translateY(-2px)'; this.style.boxShadow='0 6px 12px rgba(0,0,0,0.2)'" onmouseout="this.style.borderColor='${session.isActive ? 'rgba(76,175,80,0.5)' : 'transparent'}'; this.style.transform='translateY(0)'; this.style.boxShadow='0 4px 8px rgba(0,0,0,0.1)'">
               <div class="session-content" style="cursor: pointer;">
                 <p style="margin: 0 0 8px 0; font-size: 12px; color: #F0F0F0; opacity: 0.9;">${session.url || 'No URL'}</p>
                 
@@ -5419,9 +5337,22 @@ ${pageText}
             // Close overlay immediately to preserve user gesture for window.open
             try { overlay.remove() } catch {}
             
-            // Persist active session key in this tab
-            try { sessionStorage.setItem('optimando-current-session-key', sessionId) } catch {}
-            writeOptimandoState({ sessionKey: sessionId })
+            // Persist active session key globally and in this tab
+            setCurrentSessionKey(sessionId)
+
+            // CRITICAL: Restore session data to currentTabData IMMEDIATELY before any window.open
+            currentTabData = {
+              ...currentTabData,
+              ...sessionData,
+              tabId: currentTabData.tabId,  // Keep current tab ID
+              isLocked: true  // Ensure session is marked as locked when restored
+            }
+            
+            // Save restored data to localStorage to persist it
+            saveTabDataToStorage()
+            
+            console.log('🔧 DEBUG: Session data restored to currentTabData BEFORE opening windows')
+            console.log('🔧 DEBUG: currentTabData.displayGrids:', currentTabData.displayGrids)
 
             // Don't navigate immediately - this breaks the helper tabs opening
             // Instead, store the target URL and navigate after opening helper tabs
@@ -5449,18 +5380,12 @@ ${pageText}
                 }
               })
               
-              // Restore current session data with helper tabs
-              currentTabData = {
-                ...currentTabData,
-                ...sessionData,
-                tabId: currentTabData.tabId  // Keep current tab ID
-              }
-              
-              // Save restored data to localStorage to persist it
-              saveTabDataToStorage()
+              // Session data already restored above - just log status
               
               console.log('🔧 DEBUG: Session restored - currentTabData.agentBoxes:', currentTabData.agentBoxes)
               console.log('🔧 DEBUG: Session restored - currentTabData.context:', currentTabData.context)
+              console.log('🔧 DEBUG: Session restored - currentTabData.displayGrids:', currentTabData.displayGrids)
+              console.log('🔧 DEBUG: Session restored - currentTabData.isLocked:', currentTabData.isLocked)
               
               // Re-render agent boxes with restored configuration
               setTimeout(() => {
@@ -5521,18 +5446,56 @@ ${pageText}
               // Also restore display grids if they exist
               if (sessionData.displayGrids && sessionData.displayGrids.length > 0) {
                 console.log('🔧 DEBUG: Opening', sessionData.displayGrids.length, 'display grids:', sessionData.displayGrids)
-                console.log('🔧 DEBUG: Updated currentTabData.displayGrids:', currentTabData.displayGrids)
+                console.log('🔧 DEBUG: Session displayGrids have configs:', sessionData.displayGrids.map(g => ({ 
+                  layout: g.layout, 
+                  hasConfig: !!(g as any).config,
+                  slotCount: (g as any).config ? Object.keys((g as any).config.slots || {}).length : 0
+                })))
+                
+                // currentTabData already has displayGrids from the restore above
+                console.log('🔧 DEBUG: Using currentTabData.displayGrids:', currentTabData.displayGrids)
+                console.log('🔧 DEBUG: currentTabData.displayGrids details:', currentTabData.displayGrids.map(g => ({
+                  layout: g.layout,
+                  hasConfig: !!(g as any).config,
+                  configSlots: (g as any).config ? (g as any).config.slots : null
+                })))
                 
                 sessionData.displayGrids.forEach((grid, index) => {
                   console.log('🔧 DEBUG: Opening display grid ' + (index + 1) + ':', grid.layout)
+                  console.log('🔧 DEBUG: Grid config:', (grid as any).config)
                   
-                  // Open immediately to preserve user gesture for popup blocker
-                  try {
-                    openGridFromSession(grid.layout, grid.sessionId)
-                    console.log(`✅ Successfully opened display grid ${index + 1}:`, grid.layout)
-                  } catch (error) {
-                    console.error(`❌ Failed to open display grid ${index + 1}:`, error)
+                  // CRITICAL: Ensure grid config is available in currentTabData BEFORE opening
+                  if (!currentTabData.displayGrids) currentTabData.displayGrids = []
+                  let existingEntry = currentTabData.displayGrids.find(g => g.layout === grid.layout)
+                  
+                  if (!existingEntry) {
+                    // Add the complete grid entry with config
+                    currentTabData.displayGrids.push({
+                      ...grid,
+                      config: (grid as any).config
+                    })
+                    console.log('✅ Added complete grid entry to currentTabData:', grid.layout)
+                  } else if (!(existingEntry as any).config && (grid as any).config) {
+                    // Update existing entry with config
+                    (existingEntry as any).config = (grid as any).config
+                    console.log('✅ Updated existing grid entry with config:', grid.layout)
                   }
+                  
+                  if ((grid as any).config && (grid as any).config.slots) {
+                    console.log('✅ Grid has', Object.keys((grid as any).config.slots).length, 'configured slots')
+                  } else {
+                    console.log('⚠️ Grid has no config or slots:', grid.layout)
+                  }
+                  
+                  // Add delay to ensure data is available
+                  setTimeout(() => {
+                    try {
+                      openGridFromSession(grid.layout, grid.sessionId)
+                      console.log(`✅ Successfully opened display grid ${index + 1}:`, grid.layout)
+                    } catch (error) {
+                      console.error(`❌ Failed to open display grid ${index + 1}:`, error)
+                    }
+                  }, index * 100) // Small delay between grids
                 })
               }
               
@@ -5546,15 +5509,7 @@ ${pageText}
                 console.log('🔧 DEBUG: Already on target URL, skipping navigation')
               }
             } else {
-              // Restore current session data even without helper tabs
-              currentTabData = {
-                ...currentTabData,
-                ...sessionData,
-                tabId: currentTabData.tabId  // Keep current tab ID
-              }
-              
-              // Save restored data to localStorage to persist it
-              saveTabDataToStorage()
+              // Session data already restored above - just log
               
               console.log('🔧 DEBUG: Session restored (no helper tabs) - currentTabData.agentBoxes:', currentTabData.agentBoxes)
               console.log('🔧 DEBUG: Session restored (no helper tabs) - currentTabData.context:', currentTabData.context)
@@ -5734,11 +5689,54 @@ ${pageText}
       
       // Clear all sessions
       document.getElementById('clear-all-sessions').onclick = () => {
-        if (confirm('Are you sure you want to delete ALL sessions? This cannot be undone.')) {
-          const sessionKeys = sessions.map(s => s.id)
-          chrome.storage.local.remove(sessionKeys, () => {
-            overlay.remove()
-            openSessionsLightbox()
+        console.log('🗑️ CLEAR ALL SESSIONS - Starting complete cleanup')
+        if (confirm('⚠️ This will delete ALL session history permanently.\n\nThis includes:\n• All master tab configurations\n• All display grid configurations\n• All web sources\n• All saved contexts\n\nAre you sure?')) {
+          
+          // NUCLEAR OPTION: Clear everything
+          console.log('🚀 NUCLEAR CLEAR: Removing all Optimando data')
+          
+          // Clear ALL chrome.storage.local
+          chrome.storage.local.clear(() => {
+            if (chrome.runtime.lastError) {
+              console.error('❌ Error clearing chrome storage:', chrome.runtime.lastError)
+              alert('Failed to clear sessions: ' + chrome.runtime.lastError.message)
+            } else {
+              console.log('✅ ALL chrome.storage.local cleared')
+              
+              // Clear localStorage
+              const localKeys = Object.keys(localStorage).filter(key => key.toLowerCase().includes('optimando'))
+              localKeys.forEach(key => localStorage.removeItem(key))
+              console.log('✅ Cleared', localKeys.length, 'localStorage items')
+              
+              // Clear sessionStorage
+              const sessionKeys = Object.keys(sessionStorage).filter(key => key.toLowerCase().includes('optimando'))
+              sessionKeys.forEach(key => sessionStorage.removeItem(key))
+              console.log('✅ Cleared', sessionKeys.length, 'sessionStorage items')
+              
+              // Reset currentTabData
+              if (typeof currentTabData !== 'undefined') {
+                currentTabData.displayGrids = []
+                currentTabData.helperTabs = null
+                currentTabData.isLocked = false
+              }
+              
+              overlay.remove()
+              
+              // Show success message
+              const successNote = document.createElement('div')
+              successNote.textContent = '🎯 ALL SESSIONS CLEARED - Complete cleanup done!'
+              successNote.style.cssText = `position:fixed;top:20px;right:20px;z-index:2147483650;background:#4CAF50;color:#fff;padding:12px 16px;border-radius:8px;font-size:13px;font-weight:bold;box-shadow:0 4px 12px rgba(0,0,0,0.3)`
+              document.body.appendChild(successNote)
+              setTimeout(() => {
+                successNote.remove()
+                // Suggest reload
+                const reloadNote = document.createElement('div')
+                reloadNote.textContent = '💡 Reload the page to start fresh'
+                reloadNote.style.cssText = `position:fixed;top:20px;right:20px;z-index:2147483650;background:#2196F3;color:#fff;padding:10px 14px;border-radius:8px;font-size:12px;box-shadow:0 4px 12px rgba(0,0,0,0.3)`
+                document.body.appendChild(reloadNote)
+                setTimeout(() => reloadNote.remove(), 5000)
+              }, 3000)
+            }
           })
         }
       }
@@ -5902,10 +5900,14 @@ ${pageText}
     
     // Save current session to chrome.storage.local
     const sessionKey = `session_${Date.now()}`
+    currentTabData.isLocked = true
+    setCurrentSessionKey(sessionKey)
+    
     const sessionData = {
       ...currentTabData,
       timestamp: new Date().toISOString(),
-      url: window.location.href
+      url: window.location.href,
+      isLocked: true
     }
     
     chrome.storage.local.set({ [sessionKey]: sessionData }, () => {
@@ -6529,8 +6531,75 @@ console.log('🔧 DEBUG: Final initialization check:', {
   url: window.location.href
 })
 
+// Debug function to view all stored sessions
+;(window as any).viewOptimandoSessions = function() {
+  console.log('📋 Viewing all Optimando storage...')
+  chrome.storage.local.get(null, (allData) => {
+    const sessionKeys = Object.keys(allData).filter(key => key.startsWith('session_'))
+    console.log('📊 Found', sessionKeys.length, 'sessions:')
+    sessionKeys.forEach(key => {
+      const session = allData[key]
+      console.log(`\n📁 ${key}:`, {
+        tabName: session.tabName,
+        timestamp: session.timestamp,
+        isLocked: session.isLocked,
+        displayGrids: session.displayGrids?.length || 0,
+        agentBoxes: session.agentBoxes?.length || 0,
+        url: session.url
+      })
+    })
+    
+    // Also check localStorage
+    const localKeys = Object.keys(localStorage).filter(key => key.includes('optimando'))
+    console.log('\n📦 localStorage items:', localKeys.length)
+    localKeys.forEach(key => {
+      console.log(`  - ${key}:`, localStorage.getItem(key)?.substring(0, 100) + '...')
+    })
+  })
+}
+
+// Debug function to manually clear all sessions from console
+;(window as any).clearAllOptimandoSessions = function() {
+  console.log('🗑️ Manual NUCLEAR clear - removing EVERYTHING Optimando related')
+  
+  // Clear chrome.storage.local
+  chrome.storage.local.clear(() => {
+    if (chrome.runtime.lastError) {
+      console.error('❌ Error clearing chrome.storage.local:', chrome.runtime.lastError)
+    } else {
+      console.log('✅ Cleared ALL chrome.storage.local')
+    }
+  })
+  
+  // Clear ALL localStorage items with optimando
+  const localKeys = Object.keys(localStorage).filter(key => key.toLowerCase().includes('optimando'))
+  localKeys.forEach(key => {
+    localStorage.removeItem(key)
+    console.log('  ✅ Removed localStorage:', key)
+  })
+  console.log('✅ Cleared', localKeys.length, 'localStorage items')
+  
+  // Clear sessionStorage
+  const sessionKeys = Object.keys(sessionStorage).filter(key => key.toLowerCase().includes('optimando'))
+  sessionKeys.forEach(key => {
+    sessionStorage.removeItem(key)
+    console.log('  ✅ Removed sessionStorage:', key)
+  })
+  console.log('✅ Cleared', sessionKeys.length, 'sessionStorage items')
+  
+  // Reset currentTabData if it exists
+  if (typeof currentTabData !== 'undefined') {
+    (window as any).currentTabData.displayGrids = []
+    console.log('✅ Reset currentTabData.displayGrids')
+  }
+  
+  console.log('🎯 NUCLEAR CLEAR COMPLETE - All Optimando data removed!')
+  console.log('⚠️ Reload the page to start fresh')
+}
+
 if (isExtensionActive) {
   console.log('🚀 Initializing extension automatically...')
+  console.log('💡 TIP: To manually clear all sessions, run: clearAllOptimandoSessions()')
   initializeExtension()
 } else {
   console.log('❌ Extension not active, skipping initialization')

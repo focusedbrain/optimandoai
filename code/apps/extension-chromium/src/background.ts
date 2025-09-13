@@ -2,11 +2,14 @@ let ws: WebSocket | null = null;
 let isConnecting = false;
 let autoConnectInterval: NodeJS.Timeout | null = null;
 let heartbeatInterval: NodeJS.Timeout | null = null;
+// Feature flag to completely disable WebSocket auto-connection
+const WS_ENABLED = false;
 // Track sidebar visibility per tab
 const tabSidebarStatus = new Map<number, boolean>();
 
 // Connect to external WebSocket server (not the desktop app)
 function connectToWebSocketServer() {
+  if (!WS_ENABLED) return;
   if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) return;
   if (isConnecting) return;
 
@@ -90,6 +93,7 @@ function connectToWebSocketServer() {
 
 // Start heartbeat to keep connection alive
 function startHeartbeat() {
+  if (!WS_ENABLED) return;
   stopHeartbeat(); // Clear any existing heartbeat
   
   heartbeatInterval = setInterval(() => {
@@ -113,6 +117,7 @@ function stopHeartbeat() {
 
 // Start automatic connection
 function startAutoConnect() {
+  if (!WS_ENABLED) return;
   console.log('🚀 Starte automatische WebSocket-Verbindung...');
 
   // Try to connect immediately
@@ -163,12 +168,12 @@ function toggleSidebars() {
 // Start connection when extension loads
 chrome.runtime.onStartup.addListener(() => {
   console.log('🚀 Extension gestartet');
-  startAutoConnect();
+  // WebSocket disabled
 });
 
 chrome.runtime.onInstalled.addListener(() => {
   console.log('📦 Extension installiert');
-  startAutoConnect();
+  // WebSocket disabled
 });
 
 // Handle extension icon click
