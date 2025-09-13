@@ -1132,7 +1132,7 @@ function initializeExtension() {
     rightSidebar.style.width = currentTabData.uiConfig.rightSidebarWidth + 'px'
     rightSidebar.innerHTML = `
       <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
-        <h2 style="margin: 0; font-size: 18px;" class="section-title">🧩 Hybrid Master (${hybridMasterId})</h2>
+        <h2 style="margin: 0; font-size: 18px;" class="section-title">🧩 Master (${parseInt(hybridMasterId) + 1})</h2>
         <button id="quick-expand-right-btn" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 24px; height: 24px; border-radius: 4px; cursor: pointer; font-size: 12px; transition: all 0.2s ease;" title="Quick expand to maximum width">⇄</button>
       </div>
 
@@ -3694,7 +3694,7 @@ ${pageText}
     overlay.innerHTML = `
       <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 16px; width: 90vw; max-width: 520px; color: white; overflow: hidden; box-shadow: 0 20px 40px rgba(0,0,0,0.3); display: flex; flex-direction: column; max-height: 80vh;">
         <div style="padding: 20px; border-bottom: 1px solid rgba(255,255,255,0.3); display: flex; justify-content: space-between; align-items: center;">
-          <h2 style="margin: 0; font-size: 18px;">🧩 Add Hybrid Master Views</h2>
+          <h2 style="margin: 0; font-size: 18px;">🧩 Add Master Views</h2>
           <button id="close-hybrid-select" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 30px; height: 30px; border-radius: 50%; cursor: pointer; font-size: 16px;">×</button>
         </div>
         <div style="padding: 24px; overflow-y: auto; flex: 1;">
