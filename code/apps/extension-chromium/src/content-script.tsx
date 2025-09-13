@@ -455,6 +455,22 @@ function initializeExtension() {
           <label style="display: block; margin-bottom: 8px; color: #555; font-weight: bold;">Agent Title:</label>
           <input id="agent-title" type="text" placeholder="e.g., 🤖 Custom Agent" style="width: 100%; padding: 10px; border: 2px solid #ddd; border-radius: 6px; font-size: 14px;">
         </div>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 20px;">
+          <div>
+            <label style="display: block; margin-bottom: 8px; color: #555; font-weight: bold;">Provider:</label>
+            <select id="agent-provider" style="width: 100%; padding: 10px; border: 2px solid #ddd; border-radius: 6px; font-size: 14px; background: white;">
+              <option value="OpenAI" selected>OpenAI</option>
+              <option value="Claude">Claude</option>
+              <option value="Gemini">Gemini</option>
+              <option value="Grok">Grok</option>
+            </select>
+          </div>
+          <div>
+            <label style="display: block; margin-bottom: 8px; color: #555; font-weight: bold;">Model:</label>
+            <select id="agent-model" style="width: 100%; padding: 10px; border: 2px solid #ddd; border-radius: 6px; font-size: 14px; background: white;"></select>
+          </div>
+        </div>
         
         <div style="margin-bottom: 25px;">
           <label style="display: block; margin-bottom: 8px; color: #555; font-weight: bold;">Color:</label>
@@ -475,6 +491,25 @@ function initializeExtension() {
     document.body.appendChild(overlay)
     
     let selectedColor = colors[0]
+    const getPlaceholderModels = (provider: string) => {
+      switch ((provider || '').toLowerCase()) {
+        case 'openai': return ['auto', 'gpt-4o-mini', 'gpt-4o']
+        case 'claude': return ['auto', 'claude-3-5-sonnet', 'claude-3-opus']
+        case 'gemini': return ['auto', 'gemini-1.5-flash', 'gemini-1.5-pro']
+        case 'grok': return ['auto', 'grok-2-mini', 'grok-2']
+        default: return ['auto']
+      }
+    }
+    const providerSelect = overlay.querySelector('#agent-provider') as HTMLSelectElement | null
+    const modelSelect = overlay.querySelector('#agent-model') as HTMLSelectElement | null
+    const refreshModels = () => {
+      if (!modelSelect) return
+      const models = getPlaceholderModels(providerSelect?.value || 'OpenAI')
+      modelSelect.innerHTML = models.map(m => `<option value="${m}">${m}</option>`).join('')
+      modelSelect.value = models[0]
+    }
+    refreshModels()
+    providerSelect?.addEventListener('change', refreshModels)
     
     // Color selection
     overlay.querySelectorAll('.color-select').forEach(btn => {
@@ -493,9 +528,13 @@ function initializeExtension() {
     overlay.querySelector('#confirm-add-agent')?.addEventListener('click', () => {
       const numberInput = overlay.querySelector('#agent-number') as HTMLInputElement
       const titleInput = overlay.querySelector('#agent-title') as HTMLInputElement
+      const providerInput = overlay.querySelector('#agent-provider') as HTMLSelectElement | null
+      const modelInput = overlay.querySelector('#agent-model') as HTMLSelectElement | null
       
       const number = parseInt(numberInput.value) || nextNumber
       const title = titleInput.value.trim() || `Agent ${number}`
+      const provider = providerInput?.value || 'OpenAI'
+      const model = modelInput?.value || 'auto'
       
       // Create unique ID
       const id = `custom-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
@@ -506,7 +545,9 @@ function initializeExtension() {
         number: number,
         title: title,
         color: selectedColor,
-        outputId: outputId
+        outputId: outputId,
+        provider: provider,
+        model: model
       }
       
       currentTabData.agentBoxes.push(newBox)
@@ -582,6 +623,22 @@ function initializeExtension() {
           <label style="display: block; margin-bottom: 8px; color: #555; font-weight: bold;">Agent Title:</label>
           <input id="edit-agent-title" type="text" value="${agentBox.title}" style="width: 100%; padding: 10px; border: 2px solid #ddd; border-radius: 6px; font-size: 14px;">
         </div>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 20px;">
+          <div>
+            <label style="display: block; margin-bottom: 8px; color: #555; font-weight: bold;">Provider:</label>
+            <select id="edit-agent-provider" style="width: 100%; padding: 10px; border: 2px solid #ddd; border-radius: 6px; font-size: 14px; background: white;">
+              <option value="OpenAI" ${agentBox.provider === 'OpenAI' ? 'selected' : ''}>OpenAI</option>
+              <option value="Claude" ${agentBox.provider === 'Claude' ? 'selected' : ''}>Claude</option>
+              <option value="Gemini" ${agentBox.provider === 'Gemini' ? 'selected' : ''}>Gemini</option>
+              <option value="Grok" ${agentBox.provider === 'Grok' ? 'selected' : ''}>Grok</option>
+            </select>
+          </div>
+          <div>
+            <label style="display: block; margin-bottom: 8px; color: #555; font-weight: bold;">Model:</label>
+            <select id="edit-agent-model" style="width: 100%; padding: 10px; border: 2px solid #ddd; border-radius: 6px; font-size: 14px; background: white;"></select>
+          </div>
+        </div>
         
         <div style="margin-bottom: 25px;">
           <label style="display: block; margin-bottom: 8px; color: #555; font-weight: bold;">Color:</label>
@@ -615,6 +672,26 @@ function initializeExtension() {
         selectedColor = btn.getAttribute('data-color') || agentBox.color
       })
     })
+    // Provider/Model
+    const getPlaceholderModels = (provider: string) => {
+      switch ((provider || '').toLowerCase()) {
+        case 'openai': return ['auto', 'gpt-4o-mini', 'gpt-4o']
+        case 'claude': return ['auto', 'claude-3-5-sonnet', 'claude-3-opus']
+        case 'gemini': return ['auto', 'gemini-1.5-flash', 'gemini-1.5-pro']
+        case 'grok': return ['auto', 'grok-2-mini', 'grok-2']
+        default: return ['auto']
+      }
+    }
+    const providerSelect = overlay.querySelector('#edit-agent-provider') as HTMLSelectElement | null
+    const modelSelect = overlay.querySelector('#edit-agent-model') as HTMLSelectElement | null
+    const refreshModels = () => {
+      if (!modelSelect) return
+      const models = getPlaceholderModels(providerSelect?.value || agentBox.provider || 'OpenAI')
+      modelSelect.innerHTML = models.map(m => `<option value="${m}">${m}</option>`).join('')
+      modelSelect.value = agentBox.model && models.includes(agentBox.model) ? agentBox.model : models[0]
+    }
+    refreshModels()
+    providerSelect?.addEventListener('change', refreshModels)
     
     // Handle cancel
     overlay.querySelector('#cancel-edit-agent')?.addEventListener('click', () => {
@@ -625,14 +702,20 @@ function initializeExtension() {
     overlay.querySelector('#confirm-edit-agent')?.addEventListener('click', () => {
       const numberInput = overlay.querySelector('#edit-agent-number') as HTMLInputElement
       const titleInput = overlay.querySelector('#edit-agent-title') as HTMLInputElement
+      const providerInput = overlay.querySelector('#edit-agent-provider') as HTMLSelectElement | null
+      const modelInput = overlay.querySelector('#edit-agent-model') as HTMLSelectElement | null
       
       const number = parseInt(numberInput.value) || agentBox.number
       const title = titleInput.value.trim() || agentBox.title
+      const provider = providerInput?.value || agentBox.provider || 'OpenAI'
+      const model = modelInput?.value || agentBox.model || 'auto'
       
       updateAgentBox(agentId, {
         number: number,
         title: title,
-        color: selectedColor
+        color: selectedColor,
+        provider: provider,
+        model: model
       })
       
       overlay.remove()
@@ -646,7 +729,7 @@ function initializeExtension() {
     })
   }
 
-  function updateAgentBox(agentId: string, updates: { number?: number, title?: string, color?: string }) {
+  function updateAgentBox(agentId: string, updates: { number?: number, title?: string, color?: string, provider?: string, model?: string }) {
     const agentBoxIndex = currentTabData.agentBoxes.findIndex((box: any) => box.id === agentId)
     if (agentBoxIndex === -1) {
       console.error('Agent box not found for update:', agentId)
@@ -658,6 +741,8 @@ function initializeExtension() {
     if (updates.number !== undefined) agentBox.number = updates.number
     if (updates.title !== undefined) agentBox.title = updates.title
     if (updates.color !== undefined) agentBox.color = updates.color
+    if (updates.provider !== undefined) agentBox.provider = updates.provider
+    if (updates.model !== undefined) agentBox.model = updates.model
     
     // Save to storage and re-render
     saveTabDataToStorage()
@@ -2918,11 +3003,58 @@ ${pageText}
           <h2 style="margin: 0; font-size: 20px;">⚙️ Extension Settings</h2>
           <button id="close-settings-lightbox" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 30px; height: 30px; border-radius: 50%; cursor: pointer; font-size: 16px;">×</button>
         </div>
-        <div style="flex: 1; padding: 30px; overflow-y: auto;">
-          <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px;">
+        <div style="flex: 1; padding: 20px; overflow-y: auto;">
+          <div style="display: grid; grid-template-columns: 1.2fr 1fr 1fr; gap: 16px; align-items: stretch;">
             
+            <!-- API Keys Configuration (moved first) -->
+            <div style="background: rgba(255,255,255,0.10); padding: 12px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.2); grid-column: 1 / 2; height: 100%; display: flex; flex-direction: column;">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                <h4 style="margin: 0; font-size: 12px; color: #FFD700;">🔑 API Keys</h4>
+                <div style="display:flex; gap:6px;">
+                  <button id="add-custom-api-key" style="background: rgba(76,175,80,0.85); border: none; color: white; padding: 4px 8px; border-radius: 6px; cursor: pointer; font-size: 10px; font-weight: 700;">+ Custom</button>
+                  <button id="save-api-keys" style="background: #4CAF50; border: none; color: white; padding: 4px 10px; border-radius: 6px; cursor: pointer; font-size: 10px; font-weight: 700;">Save</button>
+                </div>
+              </div>
+              <div id="api-keys-container" style="display: grid; gap: 6px;">
+                <div class="api-key-row" data-provider="OpenAI" style="display: grid; grid-template-columns: 80px 1fr 24px; gap: 6px; align-items: center; background: rgba(0,0,0,0.12); padding: 6px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.18);">
+                  <label style="font-size:10px; font-weight:700; opacity:0.95;">OpenAI</label>
+                  <input type="password" id="key-OpenAI" placeholder="sk-..." style="background: rgba(255,255,255,0.14); border: 1px solid rgba(255,255,255,0.25); color: white; padding: 6px; border-radius: 4px; font-size: 10px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;">
+                  <button class="toggle-visibility" data-target="key-OpenAI" title="Show/Hide" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 24px; height: 24px; border-radius: 4px; cursor: pointer; font-size: 12px;">👁️</button>
+                </div>
+                <div class="api-key-row" data-provider="Claude" style="display: grid; grid-template-columns: 80px 1fr 24px; gap: 6px; align-items: center; background: rgba(0,0,0,0.12); padding: 6px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.18);">
+                  <label style="font-size:10px; font-weight:700; opacity:0.95;">Claude</label>
+                  <input type="password" id="key-Claude" placeholder="sk-ant-..." style="background: rgba(255,255,255,0.14); border: 1px solid rgba(255,255,255,0.25); color: white; padding: 6px; border-radius: 4px; font-size: 10px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;">
+                  <button class="toggle-visibility" data-target="key-Claude" title="Show/Hide" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 24px; height: 24px; border-radius: 4px; cursor: pointer; font-size: 12px;">👁️</button>
+                </div>
+                <div class="api-key-row" data-provider="Gemini" style="display: grid; grid-template-columns: 80px 1fr 24px; gap: 6px; align-items: center; background: rgba(0,0,0,0.12); padding: 6px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.18);">
+                  <label style="font-size:10px; font-weight:700; opacity:0.95;">Gemini</label>
+                  <input type="password" id="key-Gemini" placeholder="AIza..." style="background: rgba(255,255,255,0.14); border: 1px solid rgba(255,255,255,0.25); color: white; padding: 6px; border-radius: 4px; font-size: 10px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;">
+                  <button class="toggle-visibility" data-target="key-Gemini" title="Show/Hide" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 24px; height: 24px; border-radius: 4px; cursor: pointer; font-size: 12px;">👁️</button>
+                </div>
+                <div class="api-key-row" data-provider="Grok" style="display: grid; grid-template-columns: 80px 1fr 24px; gap: 6px; align-items: center; background: rgba(0,0,0,0.12); padding: 6px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.18);">
+                  <label style="font-size:10px; font-weight:700; opacity:0.95;">Grok</label>
+                  <input type="password" id="key-Grok" placeholder="xai-..." style="background: rgba(255,255,255,0.14); border: 1px solid rgba(255,255,255,0.25); color: white; padding: 6px; border-radius: 4px; font-size: 10px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;">
+                  <button class="toggle-visibility" data-target="key-Grok" title="Show/Hide" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 24px; height: 24px; border-radius: 4px; cursor: pointer; font-size: 12px;">👁️</button>
+                </div>
+              </div>
+            </div>
+
+            <!-- Appearance (moved up) -->
+            <div style="background: rgba(255,255,255,0.1); padding: 12px; border-radius: 6px; grid-column: 2 / 3; height: 100%; display: flex; flex-direction: column;">
+              <h4 style="margin: 0 0 10px 0; font-size: 12px; color: #FFD700;">🎨 Appearance</h4>
+              <div style="font-size: 10px; display: grid; grid-template-columns: auto 1fr; gap: 8px; align-items: center;">
+                <label style="display:block;">Theme:</label>
+                <select id="optimando-theme-select" style="width: 100%; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 3px; border-radius: 2px; font-size: 9px;">
+                  <option value="default" selected>Default (Original)</option>
+                  <option value="dark">Dark</option>
+                  <option value="professional">Professional</option>
+                </select>
+                <div style="grid-column: 1 / span 2; font-size: 9px; opacity: 0.85;">Only sidebars and the top header bar are themed. Main page stays unchanged.</div>
+              </div>
+            </div>
+
             <!-- Display Ports -->
-            <div style="background: rgba(255,255,255,0.1); padding: 12px; border-radius: 6px;">
+            <div style="background: rgba(255,255,255,0.1); padding: 12px; border-radius: 6px; grid-column: 3 / 4; height: 100%; display: flex; flex-direction: column;">
               <h4 style="margin: 0 0 10px 0; font-size: 12px; color: #FFD700;">🖥️ Display Ports</h4>
               <div style="font-size: 10px;">
                 <div style="margin-bottom: 8px;">
@@ -2959,6 +3091,8 @@ ${pageText}
                 <button style="width: 100%; padding: 6px; background: #4CAF50; border: none; color: white; border-radius: 3px; cursor: pointer; font-size: 9px;">💾 Save Settings</button>
               </div>
             </div>
+
+            
 
             <!-- Performance Settings -->
             <div style="background: rgba(255,255,255,0.1); padding: 12px; border-radius: 6px;">
@@ -3009,19 +3143,7 @@ ${pageText}
               </div>
             </div>
             
-            <!-- Appearance -->
-            <div style="background: rgba(255,255,255,0.1); padding: 12px; border-radius: 6px;">
-              <h4 style="margin: 0 0 10px 0; font-size: 12px; color: #FFD700;">🎨 Appearance</h4>
-              <div style="font-size: 10px; display: grid; grid-template-columns: auto 1fr; gap: 8px; align-items: center;">
-                <label style="display:block;">Theme:</label>
-                <select id="optimando-theme-select" style="width: 100%; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 3px; border-radius: 2px; font-size: 9px;">
-                  <option value="default" selected>Default (Original)</option>
-                  <option value="dark">Dark</option>
-                  <option value="professional">Professional</option>
-                </select>
-                <div style="grid-column: 1 / span 2; font-size: 9px; opacity: 0.85;">Only sidebars and the top header bar are themed. Main page stays unchanged.</div>
-              </div>
-            </div>
+            
 
             <!-- Advanced Options -->
             <div style="background: rgba(255,255,255,0.1); padding: 12px; border-radius: 6px;">
@@ -3072,6 +3194,88 @@ ${pageText}
     document.getElementById('close-settings-lightbox').onclick = () => overlay.remove()
     overlay.onclick = (e) => { if (e.target === overlay) overlay.remove() }
     
+    // API Keys helpers
+    function loadApiKeys() {
+      try {
+        const raw = localStorage.getItem('optimando-api-keys')
+        const data = raw ? JSON.parse(raw) : {}
+        const setVal = (id: string, val: string) => {
+          const el = document.getElementById(id) as HTMLInputElement | null
+          if (el && typeof val === 'string') el.value = val
+        }
+        setVal('key-OpenAI', data.OpenAI || '')
+        setVal('key-Claude', data.Claude || '')
+        setVal('key-Gemini', data.Gemini || '')
+        setVal('key-Grok', data.Grok || '')
+      } catch {}
+    }
+    function saveApiKeys() {
+      const getVal = (id: string) => (document.getElementById(id) as HTMLInputElement | null)?.value || ''
+      const data: any = {
+        OpenAI: getVal('key-OpenAI'),
+        Claude: getVal('key-Claude'),
+        Gemini: getVal('key-Gemini'),
+        Grok: getVal('key-Grok')
+      }
+      // Collect custom rows
+      const container = document.getElementById('api-keys-container')
+      if (container) {
+        container.querySelectorAll('.api-key-row.custom').forEach(row => {
+          const nameEl = row.querySelector('.api-name') as HTMLInputElement | null
+          const valEl = row.querySelector('.api-value') as HTMLInputElement | null
+          const key = (nameEl?.value || '').trim()
+          const val = valEl?.value || ''
+          if (key) data[key] = val
+        })
+      }
+      try { localStorage.setItem('optimando-api-keys', JSON.stringify(data)) } catch {}
+    }
+    function wireApiKeyUI() {
+      overlay.querySelectorAll('.toggle-visibility').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const target = (btn as HTMLElement).getAttribute('data-target') || ''
+          const input = document.getElementById(target) as HTMLInputElement | null
+          if (!input) return
+          input.type = input.type === 'password' ? 'text' : 'password'
+        })
+      })
+      const addBtn = document.getElementById('add-custom-api-key')
+      if (addBtn) addBtn.addEventListener('click', () => {
+        const container = document.getElementById('api-keys-container')
+        if (!container) return
+        const idSuffix = Math.random().toString(36).slice(2, 8)
+        const row = document.createElement('div')
+        row.className = 'api-key-row custom'
+        row.style.display = 'grid'
+        row.style.gridTemplateColumns = '80px 1fr 24px 24px'
+        row.style.gap = '6px'
+        row.style.alignItems = 'center'
+        row.style.background = 'rgba(0,0,0,0.12)'
+        row.style.padding = '6px'
+        row.style.borderRadius = '6px'
+        row.style.border = '1px solid rgba(255,255,255,0.18)'
+        row.innerHTML = `
+          <input class="api-name" placeholder="Name" style="background: rgba(255,255,255,0.14); border: 1px solid rgba(255,255,255,0.25); color: white; padding: 6px; border-radius: 4px; font-size: 10px;">
+          <input class="api-value" type="password" id="key-custom-${idSuffix}" placeholder="key..." style="background: rgba(255,255,255,0.14); border: 1px solid rgba(255,255,255,0.25); color: white; padding: 6px; border-radius: 4px; font-size: 10px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;">
+          <button class="toggle-visibility" data-target="key-custom-${idSuffix}" title="Show/Hide" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 24px; height: 24px; border-radius: 4px; cursor: pointer; font-size: 12px;">👁️</button>
+          <button class="remove-custom" title="Remove" style="background: rgba(244,67,54,0.5); border: none; color: white; width: 24px; height: 24px; border-radius: 4px; cursor: pointer; font-size: 12px;">✕</button>
+        `
+        container.appendChild(row)
+        // hook up toggles and remove
+        const vis = row.querySelector('.toggle-visibility') as HTMLElement
+        vis?.addEventListener('click', () => {
+          const input = document.getElementById(`key-custom-${idSuffix}`) as HTMLInputElement | null
+          if (input) input.type = input.type === 'password' ? 'text' : 'password'
+        })
+        const rem = row.querySelector('.remove-custom') as HTMLElement
+        rem?.addEventListener('click', () => row.remove())
+      })
+      const saveBtn = document.getElementById('save-api-keys')
+      if (saveBtn) saveBtn.addEventListener('click', () => { saveApiKeys() })
+      loadApiKeys()
+    }
+    wireApiKeyUI()
+
     // Add event handler for display port configuration
     document.getElementById('configure-display-ports').onclick = () => {
       openDisplayPortsConfig(overlay)
