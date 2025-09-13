@@ -385,14 +385,9 @@ function initializeExtension() {
       agentDiv.innerHTML = `
         <div style="background: ${box.color}; color: white; text-shadow: 1px 1px 2px rgba(0,0,0,0.5); padding: 8px 12px; border-radius: 6px 6px 0 0; font-size: 13px; font-weight: bold; margin-bottom: 0; position: relative; display: flex; justify-content: space-between; align-items: center;">
           <span>${box.title}</span>
-          <div style="display: flex; gap: 5px;">
-            <button class="edit-agent-box" data-agent-id="${box.id}" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 20px; height: 20px; border-radius: 50%; cursor: pointer; font-size: 10px; font-weight: bold; display: flex; align-items: center; justify-content: center; transition: all 0.2s ease; opacity: 0.7;" title="Edit this agent box">
-              ✏️
-            </button>
-            <button class="delete-agent-box" data-agent-id="${box.id}" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 20px; height: 20px; border-radius: 50%; cursor: pointer; font-size: 12px; font-weight: bold; display: flex; align-items: center; justify-content: center; transition: all 0.2s ease; opacity: 0.7;" title="Delete this agent box">
-              ✕
-            </button>
-          </div>
+          <button class="delete-agent-box" data-agent-id="${box.id}" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 20px; height: 20px; border-radius: 50%; cursor: pointer; font-size: 12px; font-weight: bold; display: flex; align-items: center; justify-content: center; transition: all 0.2s ease; opacity: 0.7;" title="Delete this agent box">
+            ✕
+          </button>
         </div>
         <div class="resizable-agent-box" data-agent="${box.id}" style="background: rgba(255,255,255,0.95); color: black; border-radius: 0 0 8px 8px; padding: 12px; min-height: ${savedHeight}px; height: ${savedHeight}px; border: 1px solid rgba(0,0,0,0.1); box-shadow: 0 2px 4px rgba(0,0,0,0.1); position: relative; resize: vertical; overflow: auto;">
           <div style="font-size: 12px; color: #333; line-height: 1.4;">
@@ -408,7 +403,6 @@ function initializeExtension() {
     // Re-attach resize event listeners
     attachAgentBoxResizeListeners()
     attachDeleteButtonListeners()
-    attachEditButtonListeners()
   }
 
   function deleteAgentBox(agentId: string) {
@@ -545,146 +539,6 @@ function initializeExtension() {
     })
   }
 
-  function openEditAgentBoxDialog(agentId: string) {
-    const colors = ['#4CAF50', '#2196F3', '#FF9800', '#9C27B0', '#F44336', '#E91E63', '#9E9E9E', '#795548', '#607D8B', '#FF5722']
-    
-    // Find the agent box to edit
-    const agentBox = currentTabData.agentBoxes.find((box: any) => box.id === agentId)
-    if (!agentBox) {
-      console.error('Agent box not found:', agentId)
-      return
-    }
-    
-    const overlay = document.createElement('div')
-    overlay.style.cssText = `
-      position: fixed;
-      top: 0;
-      left: 0;
-      width: 100%;
-      height: 100%;
-      background: rgba(0, 0, 0, 0.8);
-      z-index: 2147483647;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-    `
-    
-    overlay.innerHTML = `
-      <div style="background: white; padding: 30px; border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.3); max-width: 500px; width: 90%;">
-        <h3 style="margin: 0 0 20px 0; color: #333; font-size: 18px; text-align: center;">Edit Agent Box</h3>
-        
-        <div style="margin-bottom: 20px;">
-          <label style="display: block; margin-bottom: 8px; color: #555; font-weight: bold;">Agent Number:</label>
-          <input id="edit-agent-number" type="number" value="${agentBox.number}" min="1" max="99" style="width: 100%; padding: 10px; border: 2px solid #ddd; border-radius: 6px; font-size: 14px;">
-        </div>
-        
-        <div style="margin-bottom: 20px;">
-          <label style="display: block; margin-bottom: 8px; color: #555; font-weight: bold;">Agent Title:</label>
-          <input id="edit-agent-title" type="text" value="${agentBox.title}" style="width: 100%; padding: 10px; border: 2px solid #ddd; border-radius: 6px; font-size: 14px;">
-        </div>
-        
-        <div style="margin-bottom: 25px;">
-          <label style="display: block; margin-bottom: 8px; color: #555; font-weight: bold;">Color:</label>
-          <div style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px;">
-            ${colors.map((color, index) => `
-              <button class="color-select" data-color="${color}" style="width: 40px; height: 40px; background: ${color}; border: 3px solid ${color === agentBox.color ? '#333' : 'transparent'}; border-radius: 8px; cursor: pointer; transition: all 0.2s ease;"></button>
-            `).join('')}
-          </div>
-        </div>
-        
-        <div style="display: flex; gap: 10px; justify-content: flex-end;">
-          <button id="cancel-edit-agent" style="padding: 10px 20px; background: #ccc; border: none; color: #333; border-radius: 6px; cursor: pointer; font-size: 14px;">Cancel</button>
-          <button id="confirm-edit-agent" style="padding: 10px 20px; background: #2196F3; border: none; color: white; border-radius: 6px; cursor: pointer; font-size: 14px; font-weight: bold;">Save Changes</button>
-        </div>
-      </div>
-    `
-    
-    document.body.appendChild(overlay)
-    
-    // Handle color selection
-    let selectedColor = agentBox.color
-    overlay.querySelectorAll('.color-select').forEach(btn => {
-      btn.addEventListener('click', () => {
-        // Remove selection from all buttons
-        overlay.querySelectorAll('.color-select').forEach(b => {
-          (b as HTMLElement).style.border = '3px solid transparent'
-        })
-        
-        // Add selection to clicked button
-        ;(btn as HTMLElement).style.border = '3px solid #333'
-        selectedColor = btn.getAttribute('data-color') || agentBox.color
-      })
-    })
-    
-    // Handle cancel
-    overlay.querySelector('#cancel-edit-agent')?.addEventListener('click', () => {
-      overlay.remove()
-    })
-    
-    // Handle confirm
-    overlay.querySelector('#confirm-edit-agent')?.addEventListener('click', () => {
-      const numberInput = overlay.querySelector('#edit-agent-number') as HTMLInputElement
-      const titleInput = overlay.querySelector('#edit-agent-title') as HTMLInputElement
-      
-      const number = parseInt(numberInput.value) || agentBox.number
-      const title = titleInput.value.trim() || agentBox.title
-      
-      updateAgentBox(agentId, {
-        number: number,
-        title: title,
-        color: selectedColor
-      })
-      
-      overlay.remove()
-    })
-    
-    // Close on background click
-    overlay.addEventListener('click', (e) => {
-      if (e.target === overlay) {
-        overlay.remove()
-      }
-    })
-  }
-
-  function updateAgentBox(agentId: string, updates: { number?: number, title?: string, color?: string }) {
-    const agentBoxIndex = currentTabData.agentBoxes.findIndex((box: any) => box.id === agentId)
-    if (agentBoxIndex === -1) {
-      console.error('Agent box not found for update:', agentId)
-      return
-    }
-    
-    // Update the agent box data
-    const agentBox = currentTabData.agentBoxes[agentBoxIndex]
-    if (updates.number !== undefined) agentBox.number = updates.number
-    if (updates.title !== undefined) agentBox.title = updates.title
-    if (updates.color !== undefined) agentBox.color = updates.color
-    
-    // Save to storage and re-render
-    saveTabDataToStorage()
-    renderAgentBoxes()
-    
-    // Show success notification
-    const notification = document.createElement('div')
-    notification.style.cssText = `
-      position: fixed;
-      top: 60px;
-      right: 20px;
-      background: rgba(33, 150, 243, 0.9);
-      color: white;
-      padding: 10px 15px;
-      border-radius: 5px;
-      font-size: 12px;
-      z-index: 2147483648;
-      animation: slideIn 0.3s ease;
-    `
-    notification.innerHTML = `✏️ Agent box "${agentBox.title}" updated!`
-    document.body.appendChild(notification)
-    
-    setTimeout(() => {
-      notification.remove()
-    }, 3000)
-  }
-
   // Helper functions for event listeners
   function attachAgentBoxResizeListeners() {
     document.querySelectorAll('.resizable-agent-box').forEach(box => {
@@ -769,29 +623,6 @@ function initializeExtension() {
       btn.addEventListener('mouseenter', () => {
         (btn as HTMLElement).style.opacity = '1'
         ;(btn as HTMLElement).style.background = 'rgba(244, 67, 54, 0.8)'
-      })
-      
-      btn.addEventListener('mouseleave', () => {
-        (btn as HTMLElement).style.opacity = '0.7'
-        ;(btn as HTMLElement).style.background = 'rgba(255,255,255,0.2)'
-      })
-    })
-  }
-
-  function attachEditButtonListeners() {
-    document.querySelectorAll('.edit-agent-box').forEach(btn => {
-      btn.addEventListener('click', (e) => {
-        e.stopPropagation()
-        const agentId = btn.getAttribute('data-agent-id')
-        if (agentId) {
-          openEditAgentBoxDialog(agentId)
-        }
-      })
-      
-      // Hover effects for edit button
-      btn.addEventListener('mouseenter', () => {
-        (btn as HTMLElement).style.opacity = '1'
-        ;(btn as HTMLElement).style.background = 'rgba(33, 150, 243, 0.8)'
       })
       
       btn.addEventListener('mouseleave', () => {
@@ -1541,7 +1372,7 @@ function initializeExtension() {
                         ${currentTabData.isLocked ? 'opacity: 0.6; pointer-events: none;' : ''}"
                  ${currentTabData.isLocked ? 'disabled' : ''}
                  placeholder="Session Name">
-          <button id="new-session-btn" style="background: rgba(76, 175, 80, 0.8); border: none; color: white; width: 24px; height: 24px; border-radius: 3px; cursor: pointer; font-size: 12px; font-weight: bold; transition: all 0.2s ease;" title="Start a new session">+</button>
+          <button id="new-session-btn" style="background: rgba(76, 175, 80, 0.8); border: none; color: white; width: 24px; height: 24px; border-radius: 3px; cursor: pointer; font-size: 12px; font-weight: bold; transition: all 0.2s ease; ${isHybridMaster ? 'display: none;' : ''}" title="Start a new session">+</button>
           <button id="lock-btn" style="background: rgba(255,255,255,0.1); border: none; color: white; width: 24px; height: 24px; border-radius: 3px; cursor: pointer; font-size: 10px; ${currentTabData.isLocked ? 'background: rgba(255,215,0,0.3);' : ''}">${currentTabData.isLocked ? '🔒' : '🔓'}</button>
         </div>
       </div>
@@ -3054,49 +2885,6 @@ ${pageText}
                 <button style="width: 100%; padding: 6px; background: #F44336; border: none; color: white; border-radius: 3px; cursor: pointer; font-size: 9px;">🗑️ Reset All</button>
               </div>
             </div>
-
-            <!-- API Keys -->
-            <div style="background: rgba(255,255,255,0.15); padding: 16px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.2); grid-column: span 2;">
-              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
-                <h4 style="margin: 0; font-size: 14px; color: #FFD700; display: flex; align-items: center; gap: 8px;">
-                  🔑 API Keys Configuration
-                </h4>
-                <button id="add-custom-api-key" style="background: rgba(76, 175, 80, 0.8); border: none; color: white; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 10px; font-weight: bold;">+ Add Custom</button>
-              </div>
-              
-              <div id="api-keys-container" style="display: grid; gap: 10px; margin-bottom: 12px;">
-                <!-- Default API Keys -->
-                <div class="api-key-row" data-provider="openai" style="display: grid; grid-template-columns: 80px 1fr 40px; gap: 8px; align-items: center; background: rgba(255,255,255,0.05); padding: 8px; border-radius: 4px;">
-                  <label style="font-size: 10px; font-weight: bold; color: #E8F5E8;">OpenAI:</label>
-                  <input type="password" id="openai-api-key" placeholder="sk-proj-..." style="background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 6px; border-radius: 4px; font-size: 10px; font-family: monospace;">
-                  <button class="toggle-visibility" data-target="openai-api-key" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 24px; height: 24px; border-radius: 3px; cursor: pointer; font-size: 12px;">👁️</button>
-                </div>
-                
-                <div class="api-key-row" data-provider="claude" style="display: grid; grid-template-columns: 80px 1fr 40px; gap: 8px; align-items: center; background: rgba(255,255,255,0.05); padding: 8px; border-radius: 4px;">
-                  <label style="font-size: 10px; font-weight: bold; color: #E8F5E8;">Claude:</label>
-                  <input type="password" id="claude-api-key" placeholder="sk-ant-api03-..." style="background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 6px; border-radius: 4px; font-size: 10px; font-family: monospace;">
-                  <button class="toggle-visibility" data-target="claude-api-key" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 24px; height: 24px; border-radius: 3px; cursor: pointer; font-size: 12px;">👁️</button>
-                </div>
-                
-                <div class="api-key-row" data-provider="gemini" style="display: grid; grid-template-columns: 80px 1fr 40px; gap: 8px; align-items: center; background: rgba(255,255,255,0.05); padding: 8px; border-radius: 4px;">
-                  <label style="font-size: 10px; font-weight: bold; color: #E8F5E8;">Gemini:</label>
-                  <input type="password" id="gemini-api-key" placeholder="AIzaSy..." style="background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 6px; border-radius: 4px; font-size: 10px; font-family: monospace;">
-                  <button class="toggle-visibility" data-target="gemini-api-key" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 24px; height: 24px; border-radius: 3px; cursor: pointer; font-size: 12px;">👁️</button>
-                </div>
-                
-                <div class="api-key-row" data-provider="grok" style="display: grid; grid-template-columns: 80px 1fr 40px; gap: 8px; align-items: center; background: rgba(255,255,255,0.05); padding: 8px; border-radius: 4px;">
-                  <label style="font-size: 10px; font-weight: bold; color: #E8F5E8;">Grok:</label>
-                  <input type="password" id="grok-api-key" placeholder="xai-..." style="background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 6px; border-radius: 4px; font-size: 10px; font-family: monospace;">
-                  <button class="toggle-visibility" data-target="grok-api-key" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 24px; height: 24px; border-radius: 3px; cursor: pointer; font-size: 12px;">👁️</button>
-                </div>
-              </div>
-              
-              <div style="display: flex; gap: 8px; justify-content: flex-end;">
-                <button id="save-api-keys" style="padding: 8px 16px; background: #4CAF50; border: none; color: white; border-radius: 4px; cursor: pointer; font-size: 11px; font-weight: bold; display: flex; align-items: center; gap: 4px;">
-                  💾 Save Settings
-                </button>
-              </div>
-            </div>
             
           </div>
           
@@ -3144,248 +2932,6 @@ ${pageText}
         }
       })
     }
-
-    // Load saved API keys
-    loadApiKeys()
-
-    // Add event listener for Save API Keys button
-    document.getElementById('save-api-keys')?.addEventListener('click', () => {
-      saveApiKeys()
-    })
-
-    // Add event listener for Add Custom API Key button
-    document.getElementById('add-custom-api-key')?.addEventListener('click', () => {
-      addCustomApiKey()
-    })
-
-    // Add event listeners for visibility toggle buttons
-    document.querySelectorAll('.toggle-visibility').forEach(btn => {
-      btn.addEventListener('click', (e) => {
-        const target = (e.target as HTMLElement).getAttribute('data-target')
-        if (target) toggleApiKeyVisibility(target)
-      })
-    })
-
-    // Add event listener for Save All Settings button
-    document.querySelector('button[style*="💾 Save All Settings"]')?.addEventListener('click', () => {
-      saveAllSettings()
-    })
-  }
-
-  function loadApiKeys() {
-    try {
-      const savedKeys = JSON.parse(localStorage.getItem('optimando-api-keys') || '{}')
-      
-      // Load default API keys
-      const openaiInput = document.getElementById('openai-api-key') as HTMLInputElement
-      const claudeInput = document.getElementById('claude-api-key') as HTMLInputElement
-      const geminiInput = document.getElementById('gemini-api-key') as HTMLInputElement
-      const grokInput = document.getElementById('grok-api-key') as HTMLInputElement
-
-      if (openaiInput && savedKeys.openai) openaiInput.value = savedKeys.openai
-      if (claudeInput && savedKeys.claude) claudeInput.value = savedKeys.claude
-      if (geminiInput && savedKeys.gemini) geminiInput.value = savedKeys.gemini
-      if (grokInput && savedKeys.grok) grokInput.value = savedKeys.grok
-
-      // Load custom API keys
-      if (savedKeys.custom && Array.isArray(savedKeys.custom)) {
-        savedKeys.custom.forEach((customKey: any) => {
-          addCustomApiKeyRow(customKey.name, customKey.value)
-        })
-      }
-    } catch (error) {
-      console.error('Error loading API keys:', error)
-    }
-  }
-
-  function saveApiKeys() {
-    try {
-      // Get default API keys
-      const openaiInput = document.getElementById('openai-api-key') as HTMLInputElement
-      const claudeInput = document.getElementById('claude-api-key') as HTMLInputElement
-      const geminiInput = document.getElementById('gemini-api-key') as HTMLInputElement
-      const grokInput = document.getElementById('grok-api-key') as HTMLInputElement
-
-      // Get custom API keys
-      const customKeys: any[] = []
-      document.querySelectorAll('.custom-api-key-row').forEach(row => {
-        const nameInput = row.querySelector('.custom-api-name') as HTMLInputElement
-        const keyInput = row.querySelector('.custom-api-key') as HTMLInputElement
-        if (nameInput?.value && keyInput?.value) {
-          customKeys.push({
-            name: nameInput.value,
-            value: keyInput.value
-          })
-        }
-      })
-
-      const apiKeys = {
-        openai: openaiInput?.value || '',
-        claude: claudeInput?.value || '',
-        gemini: geminiInput?.value || '',
-        grok: grokInput?.value || '',
-        custom: customKeys
-      }
-
-      localStorage.setItem('optimando-api-keys', JSON.stringify(apiKeys))
-      
-      // Test API connections after saving
-      testApiConnections()
-      
-      // Show success notification
-      showNotification('🔑 API keys saved successfully!', '#4CAF50')
-    } catch (error) {
-      console.error('Error saving API keys:', error)
-      showNotification('❌ Error saving API keys', '#F44336')
-    }
-  }
-
-  function addCustomApiKey() {
-    const name = prompt('Enter a name for your custom API provider:')
-    if (name && name.trim()) {
-      addCustomApiKeyRow(name.trim(), '')
-    }
-  }
-
-  function addCustomApiKeyRow(name: string, value: string = '') {
-    const container = document.getElementById('api-keys-container')
-    if (!container) return
-
-    const customId = `custom-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
-    
-    const row = document.createElement('div')
-    row.className = 'api-key-row custom-api-key-row'
-    row.style.cssText = 'display: grid; grid-template-columns: 80px 1fr 40px 30px; gap: 8px; align-items: center; background: rgba(255,255,255,0.08); padding: 8px; border-radius: 4px; border: 1px solid rgba(76, 175, 80, 0.3);'
-    
-    row.innerHTML = `
-      <input type="text" class="custom-api-name" value="${name}" placeholder="Provider" style="background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 4px; border-radius: 3px; font-size: 10px; font-weight: bold;">
-      <input type="password" class="custom-api-key" value="${value}" placeholder="API Key..." style="background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 6px; border-radius: 4px; font-size: 10px; font-family: monospace;">
-      <button class="toggle-visibility" data-target="${customId}" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 24px; height: 24px; border-radius: 3px; cursor: pointer; font-size: 12px;">👁️</button>
-      <button class="remove-custom-key" style="background: rgba(244, 67, 54, 0.8); border: none; color: white; width: 24px; height: 24px; border-radius: 3px; cursor: pointer; font-size: 12px;">🗑️</button>
-    `
-    
-    // Set the custom ID for the input
-    const keyInput = row.querySelector('.custom-api-key') as HTMLInputElement
-    if (keyInput) keyInput.id = customId
-
-    container.appendChild(row)
-
-    // Add event listeners for the new row
-    const toggleBtn = row.querySelector('.toggle-visibility')
-    const removeBtn = row.querySelector('.remove-custom-key')
-
-    toggleBtn?.addEventListener('click', () => {
-      toggleApiKeyVisibility(customId)
-    })
-
-    removeBtn?.addEventListener('click', () => {
-      row.remove()
-    })
-  }
-
-  function toggleApiKeyVisibility(targetId: string) {
-    const input = document.getElementById(targetId) as HTMLInputElement
-    const button = document.querySelector(`[data-target="${targetId}"]`) as HTMLElement
-    
-    if (input && button) {
-      if (input.type === 'password') {
-        input.type = 'text'
-        button.textContent = '🙈'
-      } else {
-        input.type = 'password'
-        button.textContent = '👁️'
-      }
-    }
-  }
-
-  function testApiConnections() {
-    const saveButton = document.getElementById('save-api-keys') as HTMLButtonElement
-    if (!saveButton) return
-
-    // Show testing state
-    const originalText = saveButton.innerHTML
-    saveButton.innerHTML = '🔄 Testing Connections...'
-    saveButton.style.background = '#FF9800'
-    saveButton.disabled = true
-
-    // Simulate API testing
-    setTimeout(() => {
-      const openaiInput = document.getElementById('openai-api-key') as HTMLInputElement
-      const claudeInput = document.getElementById('claude-api-key') as HTMLInputElement
-      const geminiInput = document.getElementById('gemini-api-key') as HTMLInputElement
-      const grokInput = document.getElementById('grok-api-key') as HTMLInputElement
-
-      let results = []
-      let hasKeys = false
-
-      if (openaiInput?.value) {
-        hasKeys = true
-        results.push('✅ OpenAI: Connected')
-      }
-      if (claudeInput?.value) {
-        hasKeys = true
-        results.push('✅ Claude: Connected')
-      }
-      if (geminiInput?.value) {
-        hasKeys = true
-        results.push('✅ Gemini: Connected')
-      }
-      if (grokInput?.value) {
-        hasKeys = true
-        results.push('✅ Grok: Connected')
-      }
-
-      // Check custom API keys
-      document.querySelectorAll('.custom-api-key-row').forEach(row => {
-        const nameInput = row.querySelector('.custom-api-name') as HTMLInputElement
-        const keyInput = row.querySelector('.custom-api-key') as HTMLInputElement
-        if (nameInput?.value && keyInput?.value) {
-          hasKeys = true
-          results.push(`✅ ${nameInput.value}: Connected`)
-        }
-      })
-
-      if (!hasKeys) {
-        showNotification('⚠️ No API keys configured', '#FF9800')
-      } else {
-        showNotification(`🧪 Connection Test Results:\n${results.join('\n')}`, '#4CAF50')
-      }
-
-      // Reset button
-      saveButton.disabled = false
-      saveButton.innerHTML = originalText
-      saveButton.style.background = '#4CAF50'
-    }, 2000)
-  }
-
-  function saveAllSettings() {
-    saveApiKeys()
-    showNotification('💾 All settings saved successfully!', '#4CAF50')
-  }
-
-  function showNotification(message: string, color: string) {
-    const notification = document.createElement('div')
-    notification.style.cssText = `
-      position: fixed;
-      top: 20px;
-      right: 20px;
-      background: ${color};
-      color: white;
-      padding: 12px 20px;
-      border-radius: 8px;
-      font-size: 14px;
-      font-weight: bold;
-      z-index: 2147483651;
-      box-shadow: 0 4px 12px rgba(0,0,0,0.3);
-      white-space: pre-line;
-      max-width: 300px;
-    `
-    notification.textContent = message
-    document.body.appendChild(notification)
-
-    setTimeout(() => {
-      notification.remove()
-    }, 4000)
   }
 
   function openDisplayPortsConfig(parentOverlay) {
