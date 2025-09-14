@@ -1910,7 +1910,8 @@ function initializeExtension() {
       return 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)'
     }
 
-    const themeGradient = getCurrentGradient()
+    // Force default look for Settings wrapper as well
+    const themeGradient = 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)'
 
     overlay.innerHTML = `
       <div style="background: ${themeGradient}; border-radius: 16px; width: 90vw; height: 85vh; max-width: 1200px; color: white; overflow: hidden; box-shadow: 0 20px 40px rgba(0,0,0,0.3); display: flex; flex-direction: column;">
@@ -3386,11 +3387,7 @@ ${pageText}
           
           </div>
         </div>
-        <div style="padding: 20px; border-top: 1px solid rgba(255,255,255,0.3); display: flex; justify-content: center; background: rgba(255,255,255,0.05);">
-          <button style="padding: 12px 30px; background: #4CAF50; border: none; color: white; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: bold;">
-            💾 Save All Settings
-          </button>
-        </div>
+        
       </div>
     `
     
@@ -3497,9 +3494,7 @@ ${pageText}
     btnSub?.addEventListener('click', () => openBillingModal('subscription'))
 
     function getModalThemeGradient() {
-      const t = (localStorage.getItem('optimando-ui-theme') || 'default') as 'default'|'dark'|'professional'
-      if (t === 'dark') return 'linear-gradient(135deg,#0f172a,#1e293b)'
-      if (t === 'professional') return 'linear-gradient(135deg,#0ea5e9,#6366f1)'
+      // Always use default gradient for a consistent, professional look
       return 'linear-gradient(135deg,#667eea,#764ba2)'
     }
 
@@ -3558,23 +3553,23 @@ ${pageText}
             '</div>' +
             '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px">' +
               // Basic
-              '<div style="background:rgba(0,0,0,.12);padding:12px;border-radius:8px;border:1px solid rgba(255,255,255,.18)">' +
+              '<div style="background:rgba(0,0,0,.12);padding:12px;border-radius:8px;border:1px solid rgba(255,255,255,.18);display:flex;flex-direction:column;height:100%">' +
                 '<div style="font-weight:800;font-size:12px;margin-bottom:6px">Basic</div>' +
                 '<div style="font-size:20px;font-weight:800;margin-bottom:6px">$0</div>' +
-                '<ul style="margin:0 0 8px 16px;padding:0;font-size:11px;line-height:1.6">' +
+                '<ul style="margin:0 0 8px 16px;padding:0;font-size:11px;line-height:1.6;flex:1">' +
                   '<li>Unlimited WR Codes</li>' +
                   '<li>Unlimited local context (offline, private)</li>' +
                   '<li>WR Code account required</li>' +
                   '<li>Runs with local LLMs</li>' +
                   '<li style="color:#66FF66;list-style:\'✓ \';">Pay-as-you-go (Cloud)</li>' +
                 '</ul>' +
-                '<button style="width:100%;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.3);color:white;border-radius:6px;padding:6px 10px;font-size:11px;cursor:pointer">Choose Basic</button>' +
+                '<button style="width:100%;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.3);color:white;border-radius:6px;padding:6px 10px;font-size:11px;cursor:pointer;margin-top:auto">Choose Basic</button>' +
               '</div>' +
               // Private
-              '<div style="background:rgba(0,0,0,.12);padding:12px;border-radius:8px;border:1px solid rgba(255,255,255,.18)">' +
-                '<div style="font-weight:800;font-size:12px;margin-bottom:6px">Private</div>' +
+              '<div style="background:rgba(0,0,0,.12);padding:12px;border-radius:8px;border:1px solid rgba(255,255,255,.18);display:flex;flex-direction:column;height:100%">' +
+                '<div style="font-weight:800;font-size:12px;margin-bottom:6px">Pro (Private)</div>' +
                 '<div style="font-size:20px;font-weight:800;margin-bottom:6px">$19.95<span style="font-size:11px;opacity:.85">/year</span></div>' +
-                '<ul style="margin:0 0 8px 16px;padding:0;font-size:11px;line-height:1.6">' +
+                '<ul style="margin:0 0 8px 16px;padding:0;font-size:11px;line-height:1.6;flex:1">' +
                   '<li>Unlimited WR Codes</li>' +
                   '<li>WR Code generation (non-commercial use)</li>' +
                   '<li>1 GB hosted context</li>' +
@@ -3582,14 +3577,18 @@ ${pageText}
                   '<li>Basic analytics</li>' +
                   '<li style="color:#66FF66;list-style:\'✓ \';">BYOK or Pay-as-you-go</li>' +
                 '</ul>' +
-                '<button style="width:100%;background:#2563eb;border:0;color:white;border-radius:6px;padding:6px 10px;font-size:11px;cursor:pointer">Choose Private</button>' +
+                '<button style="width:100%;background:#2563eb;border:0;color:white;border-radius:6px;padding:6px 10px;font-size:11px;cursor:pointer;margin-top:auto">Choose Private</button>' +
               '</div>' +
               // Publisher
-              '<div style="background:rgba(255,255,255,.10);padding:12px;border-radius:8px;border:1px solid rgba(255,255,255,.22);position:relative">' +
-                '<div style="position:absolute;top:-10px;right:10px;background:#22c55e;color:#0b1e12;border-radius:999px;padding:2px 8px;font-size:10px;font-weight:800">POPULAR</div>' +
+              '<div style="background:rgba(255,255,255,.10);padding:12px;border-radius:8px;border:1px solid rgba(255,255,255,.22);position:relative;display:flex;flex-direction:column;height:100%">' +
+                '<div style="position:absolute;top:-10px;right:10px;background:#22c55e;color:#0b1e12;border-radius:999px;padding:2px 8px;font-size:10px;font-weight:800">Solo Pro</div>' +
                 '<div style="font-weight:800;font-size:12px;margin-bottom:6px">Publisher</div>' +
-                '<div style="font-size:20px;font-weight:800;margin-bottom:6px">$19<span style="font-size:11px;opacity:.85">/month</span></div>' +
-                '<ul style="margin:0 0 8px 16px;padding:0;font-size:11px;line-height:1.6">' +
+                '<div id="publisher-price" style="font-size:20px;font-weight:800;margin-bottom:6px">$9.95<span style="font-size:11px;opacity:.85">/month</span></div>' +
+                '<div style="display:flex;gap:6px;margin-bottom:8px">' +
+                  '<button id="publisher-annual" style="flex:1;background:#22c55e;border:0;color:#0b1e12;border-radius:6px;padding:4px 6px;font-size:10px;font-weight:700;cursor:pointer">Annual</button>' +
+                  '<button id="publisher-monthly" style="flex:1;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.3);color:#fff;border-radius:6px;padding:4px 6px;font-size:10px;cursor:pointer">Monthly</button>' +
+                '</div>' +
+                '<ul style="margin:0 0 8px 16px;padding:0;font-size:11px;line-height:1.6;flex:1">' +
                   '<li>Unlimited WR Codes</li>' +
                   '<li>WR Code generation (commercial use)</li>' +
                   '<li>5 GB hosted context</li>' +
@@ -3599,13 +3598,18 @@ ${pageText}
                   '<li>Priority queue</li>' +
                   '<li style="color:#66FF66;list-style:\'✓ \';">BYOK or Pay-as-you-go</li>' +
                 '</ul>' +
-                '<button style="width:100%;background:#16a34a;border:0;color:white;border-radius:6px;padding:6px 10px;font-size:11px;cursor:pointer;font-weight:700">Choose Publisher</button>' +
+                '<button style="width:100%;background:#16a34a;border:0;color:white;border-radius:6px;padding:6px 10px;font-size:11px;cursor:pointer;font-weight:700;margin-top:auto">Choose Publisher</button>' +
               '</div>' +
               // Business/Enterprise
-              '<div style="background:rgba(255,255,255,.10);padding:12px;border-radius:8px;border:1px solid rgba(255,255,255,.22)">' +
+              '<div style="background:rgba(255,255,255,.10);padding:12px;border-radius:8px;border:1px solid rgba(255,255,255,.22);display:flex;flex-direction:column;height:100%">' +
                 '<div style="font-weight:800;font-size:12px;margin-bottom:6px">Business/Enterprise</div>' +
-                '<div style="font-size:20px;font-weight:800;margin-bottom:6px">$99<span style="font-size:11px;opacity:.85">/month</span></div>' +
-                '<ul style="margin:0 0 8px 16px;padding:0;font-size:11px;line-height:1.6">' +
+                '<div id="enterprise-price" style="font-size:20px;font-weight:800;margin-bottom:6px">$59<span style="font-size:11px;opacity:.85">/month</span></div>' +
+                '<div style="display:flex;gap:6px;margin-bottom:8px">' +
+                  '<button id="enterprise-annual" style="flex:1;background:#22c55e;border:0;color:#0b1e12;border-radius:6px;padding:4px 6px;font-size:10px;font-weight:700;cursor:pointer">Annual</button>' +
+                  '<button id="enterprise-monthly" style="flex:1;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.3);color:#fff;border-radius:6px;padding:4px 6px;font-size:10px;cursor:pointer">Monthly</button>' +
+                '</div>' +
+                '<ul style="margin:0 0 8px 16px;padding:0;font-size:11px;line-height:1.6;flex:1">' +
+                  '<li>&gt;5 employees</li>' +
                   '<li>Unlimited WR Codes</li>' +
                   '<li>WR Code generation (enterprise use)</li>' +
                   '<li>25 GB hosted context</li>' +
@@ -3615,7 +3619,7 @@ ${pageText}
                   '<li>SLA + dedicated support</li>' +
                   '<li style="color:#66FF66;list-style:\'✓ \';">BYOK or Pay-as-you-go</li>' +
                 '</ul>' +
-                '<button style="width:100%;background:#0ea5e9;border:0;color:white;border-radius:6px;padding:6px 10px;font-size:11px;cursor:pointer">Contact Sales</button>' +
+                '<button style="width:100%;background:#0ea5e9;border:0;color:white;border-radius:6px;padding:6px 10px;font-size:11px;cursor:pointer;margin-top:auto">Contact Sales</button>' +
               '</div>' +
             '</div>' +
             '<div style="font-size:11px;opacity:.9">🔑 BYOK Feature: Use your own API keys from OpenAI, Claude, Gemini, Grok, and more.</div>' +
@@ -3627,6 +3631,62 @@ ${pageText}
       const closeBtn = b.querySelector('#billing-close') as HTMLElement | null
       closeBtn?.addEventListener('click', () => m.remove())
       m.addEventListener('click', (e) => { if (e.target === m) m.remove() })
+
+      // Wire Publisher pricing toggle if present
+      const priceEl = b.querySelector('#publisher-price') as HTMLElement | null
+      const annualBtn = b.querySelector('#publisher-annual') as HTMLButtonElement | null
+      const monthlyBtn = b.querySelector('#publisher-monthly') as HTMLButtonElement | null
+      if (priceEl && annualBtn && monthlyBtn) {
+        const setAnnual = () => {
+          priceEl.innerHTML = '$9.95<span style="font-size:11px;opacity:.85">/month</span>'
+          annualBtn.style.background = '#22c55e'
+          annualBtn.style.color = '#0b1e12'
+          annualBtn.style.border = '0'
+          monthlyBtn.style.background = 'rgba(255,255,255,.15)'
+          monthlyBtn.style.color = '#fff'
+          monthlyBtn.style.border = '1px solid rgba(255,255,255,.3)'
+        }
+        const setMonthly = () => {
+          priceEl.innerHTML = '$19.95<span style="font-size:11px;opacity:.85">/month</span>'
+          monthlyBtn.style.background = '#2563eb'
+          monthlyBtn.style.color = '#fff'
+          monthlyBtn.style.border = '0'
+          annualBtn.style.background = 'rgba(255,255,255,.15)'
+          annualBtn.style.color = '#fff'
+          annualBtn.style.border = '1px solid rgba(255,255,255,.3)'
+        }
+        annualBtn.addEventListener('click', setAnnual)
+        monthlyBtn.addEventListener('click', setMonthly)
+        setAnnual()
+      }
+
+      // Wire Enterprise pricing toggle if present
+      const entPrice = b.querySelector('#enterprise-price') as HTMLElement | null
+      const entAnnual = b.querySelector('#enterprise-annual') as HTMLButtonElement | null
+      const entMonthly = b.querySelector('#enterprise-monthly') as HTMLButtonElement | null
+      if (entPrice && entAnnual && entMonthly) {
+        const setEntAnnual = () => {
+          entPrice.innerHTML = '$59<span style="font-size:11px;opacity:.85">/month</span>'
+          entAnnual.style.background = '#22c55e'
+          entAnnual.style.color = '#0b1e12'
+          entAnnual.style.border = '0'
+          entMonthly.style.background = 'rgba(255,255,255,.15)'
+          entMonthly.style.color = '#fff'
+          entMonthly.style.border = '1px solid rgba(255,255,255,.3)'
+        }
+        const setEntMonthly = () => {
+          entPrice.innerHTML = '$99<span style="font-size:11px;opacity:.85">/month</span>'
+          entMonthly.style.background = '#0ea5e9'
+          entMonthly.style.color = '#fff'
+          entMonthly.style.border = '0'
+          entAnnual.style.background = 'rgba(255,255,255,.15)'
+          entAnnual.style.color = '#fff'
+          entAnnual.style.border = '1px solid rgba(255,255,255,.3)'
+        }
+        entAnnual.addEventListener('click', setEntAnnual)
+        entMonthly.addEventListener('click', setEntMonthly)
+        setEntAnnual()
+      }
     }
 
     // Add event handler for display port configuration

@@ -1,0 +1,52 @@
+// vite.config.ts
+import { defineConfig } from "file:///C:/Users/oscar/Documents/dev/optimandoai/code_clean/code/node_modules/.pnpm/vite@5.4.20_@types+node@24.3.0/node_modules/vite/dist/node/index.js";
+import react from "file:///C:/Users/oscar/Documents/dev/optimandoai/code_clean/code/node_modules/.pnpm/@vitejs+plugin-react@4.7.0_vite@5.4.20_@types+node@24.3.0_/node_modules/@vitejs/plugin-react/dist/index.js";
+import { crx } from "file:///C:/Users/oscar/Documents/dev/optimandoai/code_clean/code/node_modules/.pnpm/@crxjs+vite-plugin@2.2.0/node_modules/@crxjs/vite-plugin/dist/index.mjs";
+
+// manifest.config.ts
+import { defineManifest } from "file:///C:/Users/oscar/Documents/dev/optimandoai/code_clean/code/node_modules/.pnpm/@crxjs+vite-plugin@2.2.0/node_modules/@crxjs/vite-plugin/dist/index.mjs";
+var manifest_config_default = defineManifest({
+  name: "Optimando AI Orchestrator",
+  description: "Multi-AI-Agenten Workflow Orchestrator mit echten Sidebars",
+  version: "0.0.1",
+  manifest_version: 3,
+  permissions: [
+    "activeTab",
+    "storage"
+  ],
+  host_permissions: [
+    "<all_urls>"
+  ],
+  content_scripts: [
+    {
+      matches: ["<all_urls>"],
+      js: ["src/content-script.tsx"],
+      css: [],
+      run_at: "document_end"
+    }
+  ],
+  background: {
+    service_worker: "src/background.ts"
+  },
+  action: {
+    default_title: "Optimando AI Orchestrator - Toggle Sidebars"
+  },
+  web_accessible_resources: [
+    {
+      resources: ["grid-display.html", "grid-script.js"],
+      matches: ["<all_urls>"]
+    }
+  ]
+});
+
+// vite.config.ts
+var vite_config_default = defineConfig({
+  plugins: [
+    react(),
+    crx({ manifest: manifest_config_default })
+  ]
+});
+export {
+  vite_config_default as default
+};
+//# sourceMappingURL=data:application/json;base64,ewogICJ2ZXJzaW9uIjogMywKICAic291cmNlcyI6IFsidml0ZS5jb25maWcudHMiLCAibWFuaWZlc3QuY29uZmlnLnRzIl0sCiAgInNvdXJjZXNDb250ZW50IjogWyJjb25zdCBfX3ZpdGVfaW5qZWN0ZWRfb3JpZ2luYWxfZGlybmFtZSA9IFwiQzpcXFxcVXNlcnNcXFxcb3NjYXJcXFxcRG9jdW1lbnRzXFxcXGRldlxcXFxvcHRpbWFuZG9haVxcXFxjb2RlX2NsZWFuXFxcXGNvZGVcXFxcYXBwc1xcXFxleHRlbnNpb24tY2hyb21pdW1cIjtjb25zdCBfX3ZpdGVfaW5qZWN0ZWRfb3JpZ2luYWxfZmlsZW5hbWUgPSBcIkM6XFxcXFVzZXJzXFxcXG9zY2FyXFxcXERvY3VtZW50c1xcXFxkZXZcXFxcb3B0aW1hbmRvYWlcXFxcY29kZV9jbGVhblxcXFxjb2RlXFxcXGFwcHNcXFxcZXh0ZW5zaW9uLWNocm9taXVtXFxcXHZpdGUuY29uZmlnLnRzXCI7Y29uc3QgX192aXRlX2luamVjdGVkX29yaWdpbmFsX2ltcG9ydF9tZXRhX3VybCA9IFwiZmlsZTovLy9DOi9Vc2Vycy9vc2Nhci9Eb2N1bWVudHMvZGV2L29wdGltYW5kb2FpL2NvZGVfY2xlYW4vY29kZS9hcHBzL2V4dGVuc2lvbi1jaHJvbWl1bS92aXRlLmNvbmZpZy50c1wiO2ltcG9ydCB7IGRlZmluZUNvbmZpZyB9IGZyb20gJ3ZpdGUnXHJcbmltcG9ydCByZWFjdCBmcm9tICdAdml0ZWpzL3BsdWdpbi1yZWFjdCdcclxuaW1wb3J0IHsgY3J4IH0gZnJvbSAnQGNyeGpzL3ZpdGUtcGx1Z2luJ1xyXG5pbXBvcnQgbWFuaWZlc3QgZnJvbSAnLi9tYW5pZmVzdC5jb25maWcnXHJcblxyXG5leHBvcnQgZGVmYXVsdCBkZWZpbmVDb25maWcoe1xyXG4gIHBsdWdpbnM6IFtcclxuICAgIHJlYWN0KCksXHJcbiAgICBjcngoeyBtYW5pZmVzdCB9KVxyXG4gIF1cclxufSlcclxuIiwgImNvbnN0IF9fdml0ZV9pbmplY3RlZF9vcmlnaW5hbF9kaXJuYW1lID0gXCJDOlxcXFxVc2Vyc1xcXFxvc2NhclxcXFxEb2N1bWVudHNcXFxcZGV2XFxcXG9wdGltYW5kb2FpXFxcXGNvZGVfY2xlYW5cXFxcY29kZVxcXFxhcHBzXFxcXGV4dGVuc2lvbi1jaHJvbWl1bVwiO2NvbnN0IF9fdml0ZV9pbmplY3RlZF9vcmlnaW5hbF9maWxlbmFtZSA9IFwiQzpcXFxcVXNlcnNcXFxcb3NjYXJcXFxcRG9jdW1lbnRzXFxcXGRldlxcXFxvcHRpbWFuZG9haVxcXFxjb2RlX2NsZWFuXFxcXGNvZGVcXFxcYXBwc1xcXFxleHRlbnNpb24tY2hyb21pdW1cXFxcbWFuaWZlc3QuY29uZmlnLnRzXCI7Y29uc3QgX192aXRlX2luamVjdGVkX29yaWdpbmFsX2ltcG9ydF9tZXRhX3VybCA9IFwiZmlsZTovLy9DOi9Vc2Vycy9vc2Nhci9Eb2N1bWVudHMvZGV2L29wdGltYW5kb2FpL2NvZGVfY2xlYW4vY29kZS9hcHBzL2V4dGVuc2lvbi1jaHJvbWl1bS9tYW5pZmVzdC5jb25maWcudHNcIjtpbXBvcnQgeyBkZWZpbmVNYW5pZmVzdCB9IGZyb20gJ0Bjcnhqcy92aXRlLXBsdWdpbidcclxuXHJcbmV4cG9ydCBkZWZhdWx0IGRlZmluZU1hbmlmZXN0KHtcclxuICBuYW1lOiAnT3B0aW1hbmRvIEFJIE9yY2hlc3RyYXRvcicsXHJcbiAgZGVzY3JpcHRpb246ICdNdWx0aS1BSS1BZ2VudGVuIFdvcmtmbG93IE9yY2hlc3RyYXRvciBtaXQgZWNodGVuIFNpZGViYXJzJyxcclxuICB2ZXJzaW9uOiAnMC4wLjEnLFxyXG4gIG1hbmlmZXN0X3ZlcnNpb246IDMsXHJcbiAgcGVybWlzc2lvbnM6IFtcclxuICAgICdhY3RpdmVUYWInLFxyXG4gICAgJ3N0b3JhZ2UnXHJcbiAgXSxcclxuICBob3N0X3Blcm1pc3Npb25zOiBbXHJcbiAgICAnPGFsbF91cmxzPidcclxuICBdLFxyXG4gIGNvbnRlbnRfc2NyaXB0czogW1xyXG4gICAge1xyXG4gICAgICBtYXRjaGVzOiBbJzxhbGxfdXJscz4nXSxcclxuICAgICAganM6IFsnc3JjL2NvbnRlbnQtc2NyaXB0LnRzeCddLFxyXG4gICAgICBjc3M6IFtdLFxyXG4gICAgICBydW5fYXQ6ICdkb2N1bWVudF9lbmQnXHJcbiAgICB9XHJcbiAgXSxcclxuICBiYWNrZ3JvdW5kOiB7XHJcbiAgICBzZXJ2aWNlX3dvcmtlcjogJ3NyYy9iYWNrZ3JvdW5kLnRzJ1xyXG4gIH0sXHJcbiAgYWN0aW9uOiB7XHJcbiAgICBkZWZhdWx0X3RpdGxlOiAnT3B0aW1hbmRvIEFJIE9yY2hlc3RyYXRvciAtIFRvZ2dsZSBTaWRlYmFycydcclxuICB9LFxyXG4gIHdlYl9hY2Nlc3NpYmxlX3Jlc291cmNlczogW1xyXG4gICAge1xyXG4gICAgICByZXNvdXJjZXM6IFsnZ3JpZC1kaXNwbGF5Lmh0bWwnLCAnZ3JpZC1zY3JpcHQuanMnXSxcclxuICAgICAgbWF0Y2hlczogWyc8YWxsX3VybHM+J11cclxuICAgIH1cclxuICBdXHJcbn0pXHJcbiJdLAogICJtYXBwaW5ncyI6ICI7QUFBc2IsU0FBUyxvQkFBb0I7QUFDbmQsT0FBTyxXQUFXO0FBQ2xCLFNBQVMsV0FBVzs7O0FDRjBhLFNBQVMsc0JBQXNCO0FBRTdkLElBQU8sMEJBQVEsZUFBZTtBQUFBLEVBQzVCLE1BQU07QUFBQSxFQUNOLGFBQWE7QUFBQSxFQUNiLFNBQVM7QUFBQSxFQUNULGtCQUFrQjtBQUFBLEVBQ2xCLGFBQWE7QUFBQSxJQUNYO0FBQUEsSUFDQTtBQUFBLEVBQ0Y7QUFBQSxFQUNBLGtCQUFrQjtBQUFBLElBQ2hCO0FBQUEsRUFDRjtBQUFBLEVBQ0EsaUJBQWlCO0FBQUEsSUFDZjtBQUFBLE1BQ0UsU0FBUyxDQUFDLFlBQVk7QUFBQSxNQUN0QixJQUFJLENBQUMsd0JBQXdCO0FBQUEsTUFDN0IsS0FBSyxDQUFDO0FBQUEsTUFDTixRQUFRO0FBQUEsSUFDVjtBQUFBLEVBQ0Y7QUFBQSxFQUNBLFlBQVk7QUFBQSxJQUNWLGdCQUFnQjtBQUFBLEVBQ2xCO0FBQUEsRUFDQSxRQUFRO0FBQUEsSUFDTixlQUFlO0FBQUEsRUFDakI7QUFBQSxFQUNBLDBCQUEwQjtBQUFBLElBQ3hCO0FBQUEsTUFDRSxXQUFXLENBQUMscUJBQXFCLGdCQUFnQjtBQUFBLE1BQ2pELFNBQVMsQ0FBQyxZQUFZO0FBQUEsSUFDeEI7QUFBQSxFQUNGO0FBQ0YsQ0FBQzs7O0FEN0JELElBQU8sc0JBQVEsYUFBYTtBQUFBLEVBQzFCLFNBQVM7QUFBQSxJQUNQLE1BQU07QUFBQSxJQUNOLElBQUksRUFBRSxrQ0FBUyxDQUFDO0FBQUEsRUFDbEI7QUFDRixDQUFDOyIsCiAgIm5hbWVzIjogW10KfQo=
