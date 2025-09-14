@@ -1889,13 +1889,31 @@ function initializeExtension() {
     overlay.id = 'agents-lightbox'
     overlay.style.cssText = `
       position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
-      background: rgba(0,0,0,0.8); z-index: 2147483649;
+      background: ${themeVars.gradient}; z-index: 2147483649;
       display: flex; align-items: center; justify-content: center;
-      backdrop-filter: blur(5px);
     `
     
+    function getCurrentGradient() {
+      try {
+        const ls = document.getElementById('left-sidebar') as HTMLElement | null
+        if (ls) {
+          const inlineBg = ls.style.background
+          if (inlineBg && inlineBg.includes('linear-gradient')) return inlineBg
+          const cs = getComputedStyle(ls)
+          const ci = (cs.backgroundImage || cs.background || '').toString()
+          if (ci && ci.includes('gradient')) return ci
+        }
+      } catch {}
+      const t = (localStorage.getItem('optimando-ui-theme') || 'default') as 'default'|'dark'|'professional'
+      if (t === 'dark') return 'linear-gradient(135deg, #0f172a 0%, #1e293b 100%)'
+      if (t === 'professional') return 'linear-gradient(135deg, #0ea5e9 0%, #6366f1 100%)'
+      return 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)'
+    }
+
+    const themeGradient = getCurrentGradient()
+
     overlay.innerHTML = `
-      <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 16px; width: 90vw; height: 85vh; max-width: 1200px; color: white; overflow: hidden; box-shadow: 0 20px 40px rgba(0,0,0,0.3); display: flex; flex-direction: column;">
+      <div style="background: ${themeGradient}; border-radius: 16px; width: 90vw; height: 85vh; max-width: 1200px; color: white; overflow: hidden; box-shadow: 0 20px 40px rgba(0,0,0,0.3); display: flex; flex-direction: column;">
         <div style="padding: 20px; border-bottom: 1px solid rgba(255,255,255,0.3); display: flex; justify-content: space-between; align-items: center;">
           <h2 style="margin: 0; font-size: 20px;">🤖 AI Agents Configuration</h2>
           <button id="close-agents-lightbox" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 30px; height: 30px; border-radius: 50%; cursor: pointer; font-size: 16px;">×</button>
@@ -3175,6 +3193,18 @@ ${pageText}
         </div>
         <div style="flex: 1; padding: 20px; overflow-y: auto;">
           <div style="display: grid; grid-template-columns: 1.2fr 1fr 1fr; gap: 16px; align-items: stretch;">
+            <!-- Account & Billing (TOP) -->
+            <div style="background: rgba(255,255,255,0.10); padding: 12px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.2); grid-column: 1 / -1;">
+              <div style="display:flex; justify-content: space-between; align-items:center; margin-bottom: 8px;">
+                <h4 style="margin: 0; font-size: 12px; color: #FFD700;">💳 Account & Billing</h4>
+                <div id="account-balance" style="font-size: 12px; font-weight: 700;">Balance: $0.00</div>
+              </div>
+              <div style="display:flex; gap:10px;">
+                <button id="btn-payg" style="flex:1; background: rgba(255,255,255,0.15); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 8px 10px; border-radius: 6px; cursor: pointer; font-size: 11px;">Pay-as-you-go</button>
+                <button id="btn-subscription" style="flex:1; background: #4CAF50; border: none; color: white; padding: 8px 10px; border-radius: 6px; cursor: pointer; font-size: 11px; font-weight: 700;">Subscription (incl. BYOK)</button>
+              </div>
+              <div style="margin-top: 8px; font-size: 10px; opacity: 0.9;">Free usage available – Subscription unlocks BYOK and advanced features.</div>
+            </div>
             
             <!-- API Keys Configuration (moved first) -->
             <div style="background: rgba(255,255,255,0.10); padding: 12px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.2); grid-column: 1 / 2; height: 100%; display: flex; flex-direction: column;">
@@ -3184,6 +3214,9 @@ ${pageText}
                   <button id="add-custom-api-key" style="background: rgba(76,175,80,0.85); border: none; color: white; padding: 4px 8px; border-radius: 6px; cursor: pointer; font-size: 10px; font-weight: 700;">+ Custom</button>
                   <button id="save-api-keys" style="background: #4CAF50; border: none; color: white; padding: 4px 10px; border-radius: 6px; cursor: pointer; font-size: 10px; font-weight: 700;">Save</button>
                 </div>
+              </div>
+              <div id="byok-requirement" style="display:none; font-size:10px; margin:6px 0; padding:6px; background: rgba(244,67,54,0.20); border:1px solid rgba(244,67,54,0.35); border-radius:6px;">
+                You need an active subscription to bring your own keys.
               </div>
               <div id="api-keys-container" style="display: grid; gap: 6px;">
                 <div class="api-key-row" data-provider="OpenAI" style="display: grid; grid-template-columns: 80px 1fr 24px; gap: 6px; align-items: center; background: rgba(0,0,0,0.12); padding: 6px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.18);">
@@ -3346,6 +3379,8 @@ ${pageText}
                 <button style="width: 100%; padding: 6px; background: #F44336; border: none; color: white; border-radius: 3px; cursor: pointer; font-size: 9px;">🗑️ Reset All</button>
               </div>
             </div>
+
+            
             
           </div>
           
@@ -3441,10 +3476,158 @@ ${pageText}
         rem?.addEventListener('click', () => row.remove())
       })
       const saveBtn = document.getElementById('save-api-keys')
-      if (saveBtn) saveBtn.addEventListener('click', () => { saveApiKeys() })
+      if (saveBtn) saveBtn.addEventListener('click', () => {
+        // Block BYOK without subscription
+        const notice = document.getElementById('byok-requirement') as HTMLElement | null
+        const hasActive = (window as any).optimandoHasActiveSubscription === true
+        if (!hasActive) {
+          if (notice) notice.style.display = 'block'
+          return
+        }
+        saveApiKeys()
+      })
       loadApiKeys()
     }
     wireApiKeyUI()
+
+    // Wire Billing buttons to placeholder modals
+    const btnPAYG = document.getElementById('btn-payg')
+    const btnSub = document.getElementById('btn-subscription')
+    btnPAYG?.addEventListener('click', () => openBillingModal('payg'))
+    btnSub?.addEventListener('click', () => openBillingModal('subscription'))
+
+    function getModalThemeGradient() {
+      const t = (localStorage.getItem('optimando-ui-theme') || 'default') as 'default'|'dark'|'professional'
+      if (t === 'dark') return 'linear-gradient(135deg,#0f172a,#1e293b)'
+      if (t === 'professional') return 'linear-gradient(135deg,#0ea5e9,#6366f1)'
+      return 'linear-gradient(135deg,#667eea,#764ba2)'
+    }
+
+    function openBillingModal(kind: 'payg' | 'subscription') {
+      const m = document.createElement('div')
+      m.style.cssText = 'position:fixed;inset:0;background:'+getModalThemeGradient()+';z-index:2147483650;display:flex;align-items:center;justify-content:center;'
+      const b = document.createElement('div')
+      b.style.cssText = 'background:'+getModalThemeGradient()+';color:#fff;border-radius:12px;max-width:820px;width:92vw;max-height:80vh;overflow:auto;box-shadow:0 20px 40px rgba(0,0,0,.35)'
+      if (kind === 'payg') {
+        b.innerHTML = (
+          '<div style="padding:16px 18px;border-bottom:1px solid rgba(255,255,255,.25);display:flex;justify-content:space-between;align-items:center">' +
+            '<div style="font-weight:800">Pay-as-you-go</div>' +
+            '<button id="billing-close" style="background:rgba(255,255,255,.2);border:0;color:#fff;border-radius:6px;padding:6px 8px;cursor:pointer">×</button>' +
+          '</div>' +
+          '<div style="padding:16px 18px;display:grid;gap:12px">' +
+            '<div style="font-size:12px;line-height:1.6">Simple usage-based billing. Only pay for what you use. Top up balance and consume credits when using cloud AI models. Local LLM usage stays free.</div>' +
+            '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">' +
+              '<div style="background:rgba(0,0,0,.12);border:1px solid rgba(255,255,255,.18);border-radius:8px;padding:12px">' +
+                '<div style="font-weight:700;font-size:12px;margin-bottom:6px">Load Balance</div>' +
+                '<div style="font-size:11px;opacity:.9;margin-bottom:8px">Choose a quick top-up amount to add credits to your account.</div>' +
+                '<div style="display:flex;gap:8px;flex-wrap:wrap">' +
+                  '<button style="flex:1;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.3);color:#fff;border-radius:6px;padding:8px 10px;font-size:11px;cursor:pointer">$5</button>' +
+                  '<button style="flex:1;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.3);color:#fff;border-radius:6px;padding:8px 10px;font-size:11px;cursor:pointer">$10</button>' +
+                  '<button style="flex:1;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.3);color:#fff;border-radius:6px;padding:8px 10px;font-size:11px;cursor:pointer">$25</button>' +
+                  '<button style="flex:1;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.3);color:#fff;border-radius:6px;padding:8px 10px;font-size:11px;cursor:pointer">$50</button>' +
+                '</div>' +
+                '<div style="margin-top:8px;display:flex;gap:8px;align-items:center">' +
+                  '<input id="custom-topup" placeholder="Custom amount" style="flex:1;background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.25);color:#fff;padding:8px;border-radius:6px;font-size:11px" />' +
+                  '<button id="topup-now" style="background:#22c55e;border:0;color:#0b1e12;border-radius:6px;padding:8px 12px;font-size:11px;font-weight:700;cursor:pointer">Top up</button>' +
+                '</div>' +
+              '</div>' +
+              '<div style="background:rgba(0,0,0,.12);border:1px solid rgba(255,255,255,.18);border-radius:8px;padding:12px">' +
+                '<div style="font-weight:700;font-size:12px;margin-bottom:6px">Payment Method</div>' +
+                '<div style="font-size:11px;opacity:.9;margin-bottom:8px">Select a payment method to use when adding balance.</div>' +
+                '<div style="display:grid;gap:8px">' +
+                  '<label style="display:flex;gap:8px;align-items:center;font-size:11px"><input type="radio" name="payg-method" checked> Credit / Debit Card</label>' +
+                  '<label style="display:flex;gap:8px;align-items:center;font-size:11px"><input type="radio" name="payg-method"> PayPal</label>' +
+                  '<label style="display:flex;gap:8px;align-items:center;font-size:11px"><input type="radio" name="payg-method"> Invoice (Business)</label>' +
+                '</div>' +
+                '<button style="margin-top:10px;width:100%;background:#2563eb;border:0;color:white;border-radius:6px;padding:8px 12px;font-size:11px;cursor:pointer">Continue</button>' +
+              '</div>' +
+            '</div>' +
+          '</div>'
+        )
+      } else {
+        b.innerHTML = (
+          '<div style="padding:16px 18px;border-bottom:1px solid rgba(255,255,255,.25);display:flex;justify-content:space-between;align-items:center">' +
+            '<div style="font-weight:800">Subscription Plans</div>' +
+            '<button id="billing-close" style="background:rgba(255,255,255,.2);border:0;color:#fff;border-radius:6px;padding:6px 8px;cursor:pointer">×</button>' +
+          '</div>' +
+          '<div style="padding:16px 18px;display:grid;gap:12px">' +
+            // Informational box about local LLMs and optional balance top-up
+            '<div style="background:rgba(0,0,0,.18);border:1px solid rgba(255,255,255,.22);border-radius:8px;padding:10px;display:flex;gap:10px;align-items:flex-start">' +
+              '<div style="font-size:18px">💡</div>' +
+              '<div style="font-size:12px;line-height:1.55">Using local LLMs is free. You can optionally load balance to use powerful cloud AI on demand.</div>' +
+            '</div>' +
+            '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px">' +
+              // Basic
+              '<div style="background:rgba(0,0,0,.12);padding:12px;border-radius:8px;border:1px solid rgba(255,255,255,.18)">' +
+                '<div style="font-weight:800;font-size:12px;margin-bottom:6px">Basic</div>' +
+                '<div style="font-size:20px;font-weight:800;margin-bottom:6px">$0</div>' +
+                '<ul style="margin:0 0 8px 16px;padding:0;font-size:11px;line-height:1.6">' +
+                  '<li>Unlimited WR Codes</li>' +
+                  '<li>Unlimited local context (offline, private)</li>' +
+                  '<li>WR Code account required</li>' +
+                  '<li>Runs with local LLMs</li>' +
+                  '<li style="color:#66FF66;list-style:\'✓ \';">Pay-as-you-go (Cloud)</li>' +
+                '</ul>' +
+                '<button style="width:100%;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.3);color:white;border-radius:6px;padding:6px 10px;font-size:11px;cursor:pointer">Choose Basic</button>' +
+              '</div>' +
+              // Private
+              '<div style="background:rgba(0,0,0,.12);padding:12px;border-radius:8px;border:1px solid rgba(255,255,255,.18)">' +
+                '<div style="font-weight:800;font-size:12px;margin-bottom:6px">Private</div>' +
+                '<div style="font-size:20px;font-weight:800;margin-bottom:6px">$19.95<span style="font-size:11px;opacity:.85">/year</span></div>' +
+                '<ul style="margin:0 0 8px 16px;padding:0;font-size:11px;line-height:1.6">' +
+                  '<li>Unlimited WR Codes</li>' +
+                  '<li>WR Code generation (non-commercial use)</li>' +
+                  '<li>1 GB hosted context</li>' +
+                  '<li>Hosted verification</li>' +
+                  '<li>Basic analytics</li>' +
+                  '<li style="color:#66FF66;list-style:\'✓ \';">BYOK or Pay-as-you-go</li>' +
+                '</ul>' +
+                '<button style="width:100%;background:#2563eb;border:0;color:white;border-radius:6px;padding:6px 10px;font-size:11px;cursor:pointer">Choose Private</button>' +
+              '</div>' +
+              // Publisher
+              '<div style="background:rgba(255,255,255,.10);padding:12px;border-radius:8px;border:1px solid rgba(255,255,255,.22);position:relative">' +
+                '<div style="position:absolute;top:-10px;right:10px;background:#22c55e;color:#0b1e12;border-radius:999px;padding:2px 8px;font-size:10px;font-weight:800">POPULAR</div>' +
+                '<div style="font-weight:800;font-size:12px;margin-bottom:6px">Publisher</div>' +
+                '<div style="font-size:20px;font-weight:800;margin-bottom:6px">$19<span style="font-size:11px;opacity:.85">/month</span></div>' +
+                '<ul style="margin:0 0 8px 16px;padding:0;font-size:11px;line-height:1.6">' +
+                  '<li>Unlimited WR Codes</li>' +
+                  '<li>WR Code generation (commercial use)</li>' +
+                  '<li>5 GB hosted context</li>' +
+                  '<li>Publisher branding</li>' +
+                  '<li>Custom domain</li>' +
+                  '<li>Advanced analytics</li>' +
+                  '<li>Priority queue</li>' +
+                  '<li style="color:#66FF66;list-style:\'✓ \';">BYOK or Pay-as-you-go</li>' +
+                '</ul>' +
+                '<button style="width:100%;background:#16a34a;border:0;color:white;border-radius:6px;padding:6px 10px;font-size:11px;cursor:pointer;font-weight:700">Choose Publisher</button>' +
+              '</div>' +
+              // Business/Enterprise
+              '<div style="background:rgba(255,255,255,.10);padding:12px;border-radius:8px;border:1px solid rgba(255,255,255,.22)">' +
+                '<div style="font-weight:800;font-size:12px;margin-bottom:6px">Business/Enterprise</div>' +
+                '<div style="font-size:20px;font-weight:800;margin-bottom:6px">$99<span style="font-size:11px;opacity:.85">/month</span></div>' +
+                '<ul style="margin:0 0 8px 16px;padding:0;font-size:11px;line-height:1.6">' +
+                  '<li>Unlimited WR Codes</li>' +
+                  '<li>WR Code generation (enterprise use)</li>' +
+                  '<li>25 GB hosted context</li>' +
+                  '<li>Multiple domains</li>' +
+                  '<li>Team features & roles</li>' +
+                  '<li>SSO/SAML, DPA</li>' +
+                  '<li>SLA + dedicated support</li>' +
+                  '<li style="color:#66FF66;list-style:\'✓ \';">BYOK or Pay-as-you-go</li>' +
+                '</ul>' +
+                '<button style="width:100%;background:#0ea5e9;border:0;color:white;border-radius:6px;padding:6px 10px;font-size:11px;cursor:pointer">Contact Sales</button>' +
+              '</div>' +
+            '</div>' +
+            '<div style="font-size:11px;opacity:.9">🔑 BYOK Feature: Use your own API keys from OpenAI, Claude, Gemini, Grok, and more.</div>' +
+          '</div>'
+        )
+      }
+      m.appendChild(b)
+      document.body.appendChild(m)
+      const closeBtn = b.querySelector('#billing-close') as HTMLElement | null
+      closeBtn?.addEventListener('click', () => m.remove())
+      m.addEventListener('click', (e) => { if (e.target === m) m.remove() })
+    }
 
     // Add event handler for display port configuration
     document.getElementById('configure-display-ports').onclick = () => {
