@@ -202,10 +202,10 @@ function initializeExtension() {
     displayGrids: null as any,
     agentBoxHeights: {} as any,
     agentBoxes: [
-      { id: 'brainstorm', number: 1, title: '#1 🧠 Brainstorm Support Ideas', color: '#4CAF50', outputId: 'brainstorm-output' },
-      { id: 'knowledge', number: 2, title: '#2 🔍 Knowledge Gap Detection', color: '#2196F3', outputId: 'knowledge-output' },
-      { id: 'risks', number: 3, title: '#3 ⚖️ Risks & Chances', color: '#FF9800', outputId: 'risks-output' },
-      { id: 'explainer', number: 4, title: '#4 🎬 Explainer Video Suggestions', color: '#9C27B0', outputId: 'explainer-output' }
+      { id: 'brainstorm', agentId: 'agent1', number: 1, title: '#1 🧠 Brainstorm Support Ideas', color: '#4CAF50', outputId: 'brainstorm-output' },
+      { id: 'knowledge', agentId: 'agent2', number: 2, title: '#2 🔍 Knowledge Gap Detection', color: '#2196F3', outputId: 'knowledge-output' },
+      { id: 'risks', agentId: 'agent3', number: 3, title: '#3 ⚖️ Risks & Chances', color: '#FF9800', outputId: 'risks-output' },
+      { id: 'explainer', agentId: 'agent4', number: 4, title: '#4 🎬 Explainer Video Suggestions', color: '#9C27B0', outputId: 'explainer-output' }
     ] as any
   }
 
@@ -514,12 +514,14 @@ function initializeExtension() {
     
     let selectedColor = colors[0]
     const getPlaceholderModels = (provider: string) => {
+      const agentOptions = ['agent1', 'agent2', 'agent3', 'agent4', 'agent5', 'agent6', 'agent7', 'agent8', 'agent9', 'agent10']
+      
       switch ((provider || '').toLowerCase()) {
-        case 'openai': return ['auto', 'gpt-4o-mini', 'gpt-4o']
-        case 'claude': return ['auto', 'claude-3-5-sonnet', 'claude-3-opus']
-        case 'gemini': return ['auto', 'gemini-1.5-flash', 'gemini-1.5-pro']
-        case 'grok': return ['auto', 'grok-2-mini', 'grok-2']
-        default: return ['auto']
+        case 'openai': return ['auto', ...agentOptions, 'gpt-4o-mini', 'gpt-4o']
+        case 'claude': return ['auto', ...agentOptions, 'claude-3-5-sonnet', 'claude-3-opus']
+        case 'gemini': return ['auto', ...agentOptions, 'gemini-1.5-flash', 'gemini-1.5-pro']
+        case 'grok': return ['auto', ...agentOptions, 'grok-2-mini', 'grok-2']
+        default: return ['auto', ...agentOptions]
       }
     }
     const providerSelect = overlay.querySelector('#agent-provider') as HTMLSelectElement | null
@@ -562,8 +564,18 @@ function initializeExtension() {
       const id = `custom-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
       const outputId = `${id}-output`
       
+      // Extract agent ID from model if it's an agent selection
+      let agentId = `custom-${number}`
+      if (model && model.includes('agent')) {
+        const match = model.match(/agent(\d+)/)
+        if (match) {
+          agentId = `agent${match[1]}`
+        }
+      }
+      
       const newBox = {
         id: id,
+        agentId: agentId,
         number: number,
         title: title,
         color: selectedColor,
@@ -638,7 +650,13 @@ function initializeExtension() {
         
         <div style="margin-bottom: 20px;">
           <label style="display: block; margin-bottom: 8px; color: #555; font-weight: bold;">Agent Number:</label>
-          <input id="edit-agent-number" type="number" value="${agentBox.number}" min="1" max="99" style="width: 100%; padding: 10px; border: 2px solid #ddd; border-radius: 6px; font-size: 14px;">
+          <input id="edit-agent-number" type="number" value="${
+            agentBox.agentId && agentBox.agentId.match(/agent(\d+)/) 
+              ? agentBox.agentId.match(/agent(\d+)/)[1] 
+              : agentBox.model && agentBox.model.match(/agent(\d+)/)
+                ? agentBox.model.match(/agent(\d+)/)[1]
+                : agentBox.number
+          }" min="1" max="99" style="width: 100%; padding: 10px; border: 2px solid #ddd; border-radius: 6px; font-size: 14px;">
         </div>
         
         <div style="margin-bottom: 20px;">
@@ -694,14 +712,16 @@ function initializeExtension() {
         selectedColor = btn.getAttribute('data-color') || agentBox.color
       })
     })
-    // Provider/Model
+    // Provider/Model with agent options
     const getPlaceholderModels = (provider: string) => {
+      const agentOptions = ['agent1', 'agent2', 'agent3', 'agent4', 'agent5', 'agent6', 'agent7', 'agent8', 'agent9', 'agent10']
+      
       switch ((provider || '').toLowerCase()) {
-        case 'openai': return ['auto', 'gpt-4o-mini', 'gpt-4o']
-        case 'claude': return ['auto', 'claude-3-5-sonnet', 'claude-3-opus']
-        case 'gemini': return ['auto', 'gemini-1.5-flash', 'gemini-1.5-pro']
-        case 'grok': return ['auto', 'grok-2-mini', 'grok-2']
-        default: return ['auto']
+        case 'openai': return ['auto', ...agentOptions, 'gpt-4o-mini', 'gpt-4o']
+        case 'claude': return ['auto', ...agentOptions, 'claude-3-5-sonnet', 'claude-3-opus']
+        case 'gemini': return ['auto', ...agentOptions, 'gemini-1.5-flash', 'gemini-1.5-pro']
+        case 'grok': return ['auto', ...agentOptions, 'grok-2-mini', 'grok-2']
+        default: return ['auto', ...agentOptions]
       }
     }
     const providerSelect = overlay.querySelector('#edit-agent-provider') as HTMLSelectElement | null
@@ -710,7 +730,11 @@ function initializeExtension() {
       if (!modelSelect) return
       const models = getPlaceholderModels(providerSelect?.value || agentBox.provider || 'OpenAI')
       modelSelect.innerHTML = models.map(m => `<option value="${m}">${m}</option>`).join('')
-      modelSelect.value = agentBox.model && models.includes(agentBox.model) ? agentBox.model : models[0]
+      // Prefer current agentId if present, else model, else auto
+      const preferred = (agentBox.agentId && models.includes(agentBox.agentId))
+        ? agentBox.agentId
+        : (agentBox.model && models.includes(agentBox.model) ? agentBox.model : models[0])
+      modelSelect.value = preferred
     }
     refreshModels()
     providerSelect?.addEventListener('change', refreshModels)
@@ -732,12 +756,29 @@ function initializeExtension() {
       const provider = providerInput?.value || agentBox.provider || 'OpenAI'
       const model = modelInput?.value || agentBox.model || 'auto'
       
+      // The "Agent Number" field actually represents the allocated agent, not the box number
+      // So we need to set the agentId based on this number
+      const allocatedAgentNumber = parseInt(numberInput.value)
+      let agentIdToSet = agentBox.agentId
+      if (allocatedAgentNumber && allocatedAgentNumber > 0) {
+        agentIdToSet = `agent${allocatedAgentNumber}`
+      }
+      
+      console.log('📝 Edit dialog save:', {
+        boxNumber: agentBox.number,
+        inputValue: numberInput.value,
+        allocatedAgentNumber,
+        oldAgentId: agentBox.agentId,
+        newAgentId: agentIdToSet
+      })
+      
       updateAgentBox(agentId, {
-        number: number,
+        number: agentBox.number, // Keep original box number unchanged
         title: title,
         color: selectedColor,
         provider: provider,
-        model: model
+        model: model,
+        agentId: agentIdToSet // Set the allocated agent
       })
       
       overlay.remove()
@@ -751,7 +792,7 @@ function initializeExtension() {
     })
   }
 
-  function updateAgentBox(agentId: string, updates: { number?: number, title?: string, color?: string, provider?: string, model?: string }) {
+  function updateAgentBox(agentId: string, updates: { number?: number, title?: string, color?: string, provider?: string, model?: string, agentId?: string }) {
     const agentBoxIndex = currentTabData.agentBoxes.findIndex((box: any) => box.id === agentId)
     if (agentBoxIndex === -1) {
       console.error('Agent box not found for update:', agentId)
@@ -766,8 +807,36 @@ function initializeExtension() {
     if (updates.provider !== undefined) agentBox.provider = updates.provider
     if (updates.model !== undefined) agentBox.model = updates.model
     
+    // Update agent allocation if explicitly provided
+    if (updates.agentId !== undefined) {
+      agentBox.agentId = updates.agentId
+      console.log(`🔄 Agent allocation updated: Box ${agentBox.number} → ${updates.agentId}`)
+    }
+    // Also check model for agent info (fallback)
+    else if (updates.model && updates.model.includes('agent')) {
+      const match = updates.model.match(/agent[- ]?(\d+)/i)
+      if (match) {
+        agentBox.agentId = `agent${match[1]}`
+        console.log(`🔄 Agent allocation updated from model: Box ${agentBox.number} → Agent ${match[1]}`)
+      }
+    }
+    
     // Save to storage and re-render
     saveTabDataToStorage()
+    // Also persist to current chrome.storage.local session so overview reflects changes immediately
+    try {
+      const sessionKey = getCurrentSessionKey()
+      if (sessionKey && chrome?.storage?.local) {
+        chrome.storage.local.get([sessionKey], (result) => {
+          const session = result[sessionKey] || {}
+          session.agentBoxes = currentTabData.agentBoxes
+          session.timestamp = new Date().toISOString()
+          chrome.storage.local.set({ [sessionKey]: session }, () => {
+            console.log('✅ Persisted updated agentBoxes to session:', sessionKey)
+          })
+        })
+      }
+    } catch {}
     renderAgentBoxes()
     
     // Show success notification
@@ -4692,9 +4761,38 @@ ${pageText}
     const tryAttach = () => {
       try {
         const doc = gridWindow.document
+        // Always try to bind edit-slot handlers even if there's no save button in this template
+        try {
+          const bindEditHandlers = () => {
+            try {
+              const editButtons = Array.from(doc.querySelectorAll('.edit-slot')) as HTMLElement[]
+              editButtons.forEach((eb: any) => {
+                if (eb._optimandoEditBound) return
+                eb._optimandoEditBound = true
+                eb.addEventListener('click', (ev: any) => {
+                  try { ev.preventDefault(); ev.stopPropagation() } catch {}
+                  const sid = eb.getAttribute('data-slot-id') || ''
+                  const invoke = () => {
+                    const fn = (gridWindow as any).openGridSlotEditor
+                    if (typeof fn === 'function') {
+                      try { fn(sid) } catch (e) { console.error('❌ openGridSlotEditor failed:', e) }
+                    } else {
+                      setTimeout(invoke, 150)
+                    }
+                  }
+                  invoke()
+                })
+              })
+            } catch {}
+          }
+          bindEditHandlers()
+          setTimeout(bindEditHandlers, 500)
+        } catch {}
+
         const btn = doc && doc.getElementById('save-grid-btn')
         if (!btn) {
-          setTimeout(tryAttach, 150)
+          // No save button present; we've still bound edit handlers above. Keep polling for future elements.
+          setTimeout(tryAttach, 400)
           return
         }
 
@@ -4730,6 +4828,34 @@ ${pageText}
             console.error('❌ Failed to save grid config from opener:', err)
           }
         })
+
+        // Bind edit-slot buttons to open the slot editor even if inline onclick fails
+        try {
+          const bindEditHandlers = () => {
+            try {
+              const editButtons = Array.from(doc.querySelectorAll('.edit-slot')) as HTMLElement[]
+              editButtons.forEach((eb: any) => {
+                if (eb._optimandoEditBound) return
+                eb._optimandoEditBound = true
+                eb.addEventListener('click', (ev: any) => {
+                  try { ev.preventDefault(); ev.stopPropagation() } catch {}
+                  const sid = eb.getAttribute('data-slot-id') || ''
+                  const invoke = () => {
+                    const fn = (gridWindow as any).openGridSlotEditor
+                    if (typeof fn === 'function') {
+                      try { fn(sid) } catch (e) { console.error('❌ openGridSlotEditor failed:', e) }
+                    } else {
+                      setTimeout(invoke, 150)
+                    }
+                  }
+                  invoke()
+                })
+              })
+            } catch {}
+          }
+          bindEditHandlers()
+          setTimeout(bindEditHandlers, 500)
+        } catch {}
       } catch (e) {
         setTimeout(tryAttach, 150)
       }
@@ -5217,6 +5343,7 @@ ${pageText}
               <h4 style="margin: 0; font-size: 16px; font-weight: bold; color: #FFEF94; text-shadow: 0 1px 2px rgba(0,0,0,0.5);">${session.tabName || 'Unnamed Session'}${session.isActive ? ' <span style="background: #4CAF50; color: white; padding: 2px 8px; border-radius: 4px; font-size: 10px; margin-left: 8px;">ACTIVE</span>' : ''}</h4>
               <div style="display: flex; gap: 6px;">
                 <button class="rename-session-btn" data-session-id="${session.id}" style="background: linear-gradient(135deg, #2196F3, #1976D2); border: none; color: white; padding: 6px 8px; border-radius: 4px; cursor: pointer; font-size: 10px; transition: all 0.2s ease;" title="Rename session" onmouseover="this.style.transform='scale(1.05)'" onmouseout="this.style.transform='scale(1)'">✏️</button>
+                <button class="agentbox-overview-btn" data-session-id="${session.id}" style="background: linear-gradient(135deg, #10b981, #059669); border: none; color: white; padding: 6px 8px; border-radius: 4px; cursor: pointer; font-size: 10px; transition: all 0.2s ease;" title="Agent Box Overview" onmouseover="this.style.transform='scale(1.05)'" onmouseout="this.style.transform='scale(1)'">📦</button>
                 <button class="delete-session-btn" data-session-id="${session.id}" style="background: linear-gradient(135deg, #f44336, #d32f2f); border: none; color: white; padding: 6px 8px; border-radius: 4px; cursor: pointer; font-size: 10px; transition: all 0.2s ease;" title="Delete session" onmouseover="this.style.transform='scale(1.05)'" onmouseout="this.style.transform='scale(1)'">🗑️</button>
         </div>
             </div>
@@ -5324,12 +5451,38 @@ ${pageText}
       document.getElementById('close-sessions-lightbox').onclick = () => overlay.remove()
       overlay.onclick = (e) => { if (e.target === overlay) overlay.remove() }
       
+      // Add direct event listeners to agent box overview buttons
+      overlay.querySelectorAll('.agentbox-overview-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation()
+          e.preventDefault()
+          const sessionId = btn.getAttribute('data-session-id')
+          console.log('📦 Direct click handler - Agent Box Overview for session:', sessionId)
+          if (sessionId) {
+            overlay.remove()
+            setTimeout(() => openAgentBoxOverview(sessionId), 100)
+          }
+        })
+      })
+      
       // Session click handlers - make entire session clickable
       overlay.querySelectorAll('.session-item').forEach(sessionEl => {
         sessionEl.addEventListener('click', (e) => {
           // Don't trigger if clicking on action buttons
           if (e.target.classList.contains('rename-session-btn') || 
-              e.target.classList.contains('delete-session-btn')) {
+              e.target.classList.contains('delete-session-btn') ||
+              e.target.classList.contains('agentbox-overview-btn')) {
+            
+            // Handle Agent Box Overview button
+            if (e.target.classList.contains('agentbox-overview-btn')) {
+              e.stopPropagation()
+              const sessionId = sessionEl.dataset.sessionId
+              console.log('📦 Agent Box Overview clicked for session:', sessionId)
+              if (sessionId) {
+                overlay.remove() // Close sessions lightbox first
+                setTimeout(() => openAgentBoxOverview(sessionId), 100) // Small delay after overlay removal
+              }
+            }
             return
           }
           
@@ -5749,6 +5902,233 @@ ${pageText}
     })
   }
 
+  function openAgentBoxOverview(sessionKey: string) {
+    console.log('📦 Opening Agent Box Overview for session:', sessionKey)
+    
+    const overlay = document.createElement('div')
+    overlay.style.cssText = `
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0, 0, 0, 0.8);
+      z-index: 2147483650;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      backdrop-filter: blur(5px);
+    `
+    
+    // Show loading state
+    overlay.innerHTML = `
+      <div style="background: linear-gradient(135deg, #1f2937 0%, #111827 100%); border-radius: 16px; padding: 40px; color: white; text-align: center;">
+        <div style="font-size: 24px; margin-bottom: 10px;">⏳</div>
+        <div>Loading agent boxes...</div>
+      </div>
+    `
+    
+    document.body.appendChild(overlay)
+    console.log('📦 Overlay created and added to DOM')
+    
+    // Load session data to get agent boxes
+    chrome.storage.local.get([sessionKey], (result) => {
+      const session = result[sessionKey]
+      if (!session) {
+        overlay.innerHTML = `
+          <div style="background: linear-gradient(135deg, #1f2937 0%, #111827 100%); border-radius: 16px; padding: 40px; color: white; text-align: center;">
+            <div style="font-size: 24px; margin-bottom: 10px;">❌</div>
+            <div>Session not found</div>
+            <button onclick="this.closest('div').parentElement.remove()" style="margin-top: 20px; padding: 10px 20px; background: #2196F3; border: none; color: white; border-radius: 4px; cursor: pointer;">Close</button>
+          </div>
+        `
+        return
+      }
+      
+      // Build registered agent boxes list
+      const registeredBoxes: Array<{
+        number: number;
+        agentId: string;
+        title: string;
+        location: string;
+        provider?: string;
+        model?: string;
+      }> = []
+      
+      // First 4 boxes from master tab (always registered)
+      if (session.agentBoxes && Array.isArray(session.agentBoxes)) {
+        session.agentBoxes.forEach((box: any) => {
+          if (box && box.number && box.number <= 4) {
+            // Extract CURRENT agent allocation from the stored data
+            let agentId = `agent${box.number}` // Default: box 1 = agent1, box 2 = agent2, etc.
+            
+            // First check the agentId field directly
+            if (box.agentId && String(box.agentId).match(/agent(\d+)/)) {
+              const match = String(box.agentId).match(/agent(\d+)/)
+              agentId = `agent${match[1]}`
+            }
+            // Then check if model contains agent info (this overrides agentId)
+            else if (box.model && String(box.model).match(/agent(\d+)/)) {
+              const match = String(box.model).match(/agent(\d+)/)
+              agentId = `agent${match[1]}`
+            }
+            
+            console.log(`📦 Box ${box.number}: agentId="${box.agentId}", model="${box.model}" → resolved agentId="${agentId}"`)
+            
+            registeredBoxes.push({
+              number: box.number,
+              agentId: agentId,
+              title: box.title || `Agent Box ${box.number}`,
+              location: 'Master Tab',
+              provider: box.provider,
+              model: box.model
+            })
+          }
+        })
+      }
+      
+      // Add additional master tab boxes that are set up (number > 4)
+      if (session.agentBoxes && Array.isArray(session.agentBoxes)) {
+        session.agentBoxes.forEach((box: any) => {
+          if (box && box.number && box.number > 4 && (box.title || box.agentId || box.model || box.provider)) {
+            // Extract agent number from agentId or model
+            let agentId = 'agent0'
+            if (box.agentId && String(box.agentId).match(/\d+/)) {
+              const match = String(box.agentId).match(/\d+/)
+              agentId = `agent${match[0]}`
+            } else if (box.model && String(box.model).match(/agent[- ]?(\d+)/i)) {
+              const match = String(box.model).match(/agent[- ]?(\d+)/i)
+              agentId = `agent${match[1]}`
+            }
+            
+            registeredBoxes.push({
+              number: box.number,
+              agentId: agentId,
+              title: box.title || `Agent Box ${box.number}`,
+              location: 'Master Tab',
+              provider: box.provider,
+              model: box.model
+            })
+          }
+        })
+      }
+      
+      // Add display grid slots that are set up
+      if (session.displayGrids && Array.isArray(session.displayGrids)) {
+        session.displayGrids.forEach((grid: any) => {
+          if (grid.config && grid.config.slots) {
+            Object.entries(grid.config.slots).forEach(([slotId, slotData]: [string, any]) => {
+              const slotNum = parseInt(slotId)
+              if (!isNaN(slotNum) && slotData && (slotData.title || slotData.agent || slotData.model || slotData.provider)) {
+                // Extract agent number
+                let agentId = 'agent0'
+                if (slotData.agent && String(slotData.agent).match(/\d+/)) {
+                  const match = String(slotData.agent).match(/\d+/)
+                  agentId = `agent${match[0]}`
+                }
+                
+                registeredBoxes.push({
+                  number: slotNum,
+                  agentId: agentId,
+                  title: slotData.title || `Display Port ${slotNum}`,
+                  location: `Grid: ${grid.layout}`,
+                  provider: slotData.provider,
+                  model: slotData.model
+                })
+              }
+            })
+          }
+        })
+      }
+      
+      // Sort by number for consistent display
+      registeredBoxes.sort((a, b) => a.number - b.number)
+      
+      // Generate HTML for each registered box
+      const boxesHTML = registeredBoxes.map(box => {
+        // Generate AB identifier dynamically: AB[BoxNumber][AgentNumber]
+        const boxNum = String(box.number).padStart(2, '0')
+        
+        // Extract current agent number from agentId or model
+        let agentNum = '00' // Default if no agent
+        
+        // Check agentId first
+        if (box.agentId && box.agentId.match(/agent(\d+)/)) {
+          const match = box.agentId.match(/agent(\d+)/)
+          agentNum = match[1].padStart(2, '0')
+        }
+        // Override with model if it contains agent info
+        else if (box.model && box.model.match(/agent(\d+)/)) {
+          const match = box.model.match(/agent(\d+)/)
+          agentNum = match[1].padStart(2, '0')
+        }
+        // Fallback: use box number as agent number for first 4 boxes
+        else if (box.number <= 4) {
+          agentNum = String(box.number).padStart(2, '0')
+        }
+        
+        const identifier = `AB${boxNum}${agentNum}`
+        
+        console.log(`📦 Box ${box.number}: agentId="${box.agentId}", model="${box.model}" → identifier="${identifier}"`)
+        
+        
+        // Get LLM info
+        const llmInfo = box.provider && box.model 
+          ? `${box.provider} - ${box.model}`
+          : box.provider || box.model || 'Not configured'
+        
+        return `
+          <div style="background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.2); border-radius: 10px; padding: 12px; margin: 8px 0; display: grid; grid-template-columns: 110px 1fr 1fr 140px; gap: 12px; align-items: center;">
+            <div style="font-family: monospace; font-weight: 700; color: #fbbf24; font-size: 16px;">${identifier}</div>
+            <div style="font-size: 14px;">${box.title}</div>
+            <div style="font-size: 13px; opacity: 0.9;">${llmInfo}</div>
+            <div style="font-size: 12px; opacity: 0.8;">${box.location}</div>
+          </div>
+        `
+      }).join('')
+      
+      overlay.innerHTML = `
+        <div style="background: linear-gradient(135deg, #1f2937 0%, #111827 100%); border-radius: 16px; width: 90vw; max-width: 900px; max-height: 85vh; overflow: hidden; color: white; box-shadow: 0 20px 40px rgba(0,0,0,0.4); display: flex; flex-direction: column;">
+          <div style="padding: 20px; border-bottom: 1px solid rgba(255,255,255,0.2); display: flex; justify-content: space-between; align-items: center;">
+            <div>
+              <h3 style="margin: 0; font-size: 18px; font-weight: 600;">📦 Agent Box Overview</h3>
+              <div style="font-size: 12px; color: rgba(255,255,255,0.6); margin-top: 4px;">
+                Session: ${sessionKey.split('_')[1]} | Registered Boxes: ${registeredBoxes.length}
+              </div>
+            </div>
+            <button id="close-agentbox-overview" style="background: rgba(255,255,255,0.15); border: none; color: white; width: 30px; height: 30px; border-radius: 50%; cursor: pointer; font-size: 16px;">×</button>
+          </div>
+          
+          <div style="flex: 1; padding: 20px; overflow-y: auto;">
+            <div style="background: rgba(255,255,255,0.05); padding: 15px; border-radius: 8px; margin-bottom: 20px;">
+              <div style="font-size: 12px; color: rgba(255,255,255,0.7); line-height: 1.6;">
+                <strong>Identifier System:</strong><br>
+                • AB[BoxNumber][AgentNumber] format (e.g., AB0101 = Box 01 with Agent 01)<br>
+                • First 4 boxes (AB01-AB04) are registered by default<br>
+                • Additional boxes register when set up with agent/title/model
+              </div>
+            </div>
+            
+            <div style="background: rgba(255,255,255,0.05); padding: 10px; border-radius: 8px; margin-bottom: 15px;">
+              <div style="display: grid; grid-template-columns: 110px 1fr 1fr 140px; gap: 12px; font-size: 11px; font-weight: 600; color: rgba(255,255,255,0.6); text-transform: uppercase;">
+                <div>Identifier</div>
+                <div>Title</div>
+                <div>Selected LLM</div>
+                <div>Location</div>
+              </div>
+            </div>
+            
+            ${boxesHTML || '<div style="text-align: center; padding: 20px; color: rgba(255,255,255,0.6);">No registered agent boxes</div>'}
+          </div>
+        </div>
+      `
+      
+      // Event handlers
+      document.getElementById('close-agentbox-overview')?.addEventListener('click', () => overlay.remove())
+      overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove() })
+    })
+  }
+
   function openEditHelperTabsDialog(sessionData, sessionId, parentOverlay) {
     // Create helper tabs edit dialog
     const editOverlay = document.createElement('div')
@@ -5983,10 +6363,10 @@ ${pageText}
       displayGrids: null as any,
       agentBoxHeights: {} as any,
       agentBoxes: [
-        { id: 'brainstorm', number: 1, title: '#1 🧠 Brainstorm Support Ideas', color: '#4CAF50', outputId: 'brainstorm-output' },
-        { id: 'knowledge', number: 2, title: '#2 🔍 Knowledge Gap Detection', color: '#2196F3', outputId: 'knowledge-output' },
-        { id: 'risks', number: 3, title: '#3 ⚖️ Risks & Chances', color: '#FF9800', outputId: 'risks-output' },
-        { id: 'explainer', number: 4, title: '#4 🎬 Explainer Video Suggestions', color: '#9C27B0', outputId: 'explainer-output' }
+        { id: 'brainstorm', agentId: 'agent1', number: 1, title: '#1 🧠 Brainstorm Support Ideas', color: '#4CAF50', outputId: 'brainstorm-output' },
+        { id: 'knowledge', agentId: 'agent2', number: 2, title: '#2 🔍 Knowledge Gap Detection', color: '#2196F3', outputId: 'knowledge-output' },
+        { id: 'risks', agentId: 'agent3', number: 3, title: '#3 ⚖️ Risks & Chances', color: '#FF9800', outputId: 'risks-output' },
+        { id: 'explainer', agentId: 'agent4', number: 4, title: '#4 🎬 Explainer Video Suggestions', color: '#9C27B0', outputId: 'explainer-output' }
       ] as any
     }
 
