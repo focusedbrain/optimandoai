@@ -5018,6 +5018,8 @@ ${pageText}
     // Theme background/text for page
     let bodyBg = 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)'
     let bodyText = '#ffffff'
+    let actionBtnBg = 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)'
+    let actionBtnText = '#ffffff'
     
     console.log('🎨 DEBUG: Applying theme:', theme)
     
@@ -5028,10 +5030,14 @@ ${pageText}
     } else if (theme === 'professional') {
       bodyBg = 'linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%)'
       bodyText = '#333333'
+      actionBtnBg = 'linear-gradient(135deg, #94a3b8 0%, #64748b 100%)'
+      actionBtnText = '#ffffff'
       console.log('🎨 Applied professional theme')
     } else if (theme === 'default') {
       bodyBg = 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)'
       bodyText = '#ffffff'
+      actionBtnBg = 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)'
+      actionBtnText = '#ffffff'
       console.log('🎨 Applied default theme')
     }
     // Return complete HTML document
@@ -5106,18 +5112,18 @@ ${pageText}
           <button id="fullscreen-btn" style="
             width: 48px;
             height: 48px;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: ${actionBtnBg};
             border: none;
-            color: white;
+            color: ${actionBtnText};
             border-radius: 12px;
             cursor: pointer;
             display: flex;
             align-items: center;
             justify-content: center;
-            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
             transition: all 0.3s ease;
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-          " title="Fullscreen" onclick="toggleFullscreen()" onmouseover="this.style.background='linear-gradient(135deg, #5a6fd8 0%, #6a4190 100%)'; this.style.transform='translateY(-2px)'; this.style.boxShadow='0 6px 16px rgba(102, 126, 234, 0.4)'" onmouseout="this.style.background='linear-gradient(135deg, #667eea 0%, #764ba2 100%)'; this.style.transform='translateY(0)'; this.style.boxShadow='0 4px 12px rgba(102, 126, 234, 0.3)'">
+          " title="Fullscreen" onclick="toggleFullscreen()">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
               <path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/>
             </svg>
