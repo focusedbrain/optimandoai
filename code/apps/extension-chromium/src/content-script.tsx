@@ -366,6 +366,21 @@ function initializeExtension() {
         console.log('🔧 DEBUG: Error parsing URL-based agent box data:', e)
       }
     }
+    
+    // For hybrid master tabs, clear any loaded agent boxes
+    const urlParams = new URLSearchParams(window.location.search)
+    const bootState = readOptimandoState()
+    const isHybridMaster = urlParams.has('hybrid_master_id') || 
+                          (dedicatedRole && dedicatedRole.type === 'hybrid') ||
+                          (bootState.role && bootState.role.type === 'hybrid')
+    
+    if (isHybridMaster && currentTabData.agentBoxes && currentTabData.agentBoxes.length > 0) {
+      console.log('🔧 DEBUG: Clearing agent boxes for hybrid master tab')
+      currentTabData.agentBoxes = []
+      currentTabData.agentBoxHeights = {}
+      // Save the cleared state
+      saveTabDataToStorage()
+    }
   }
 
   loadTabDataFromStorage()
@@ -382,16 +397,37 @@ function initializeExtension() {
 
     container.innerHTML = ''
     
+    // Check if this is a hybrid master tab
+    const urlParams = new URLSearchParams(window.location.search)
+    const bootState = readOptimandoState()
+    const isHybridMaster = urlParams.has('hybrid_master_id') || 
+                          (dedicatedRole && dedicatedRole.type === 'hybrid') ||
+                          (bootState.role && bootState.role.type === 'hybrid')
+    
+    console.log('🔧 DEBUG: Checking hybrid status:', { 
+      urlHasHybrid: urlParams.has('hybrid_master_id'),
+      dedicatedRole,
+      bootStateRole: bootState.role,
+      isHybridMaster 
+    })
+    
     if (!currentTabData.agentBoxes || currentTabData.agentBoxes.length === 0) {
-      console.log('🔧 DEBUG: No agent boxes found, using default configuration')
-      // Initialize with default boxes if none exist
-      currentTabData.agentBoxes = [
-        { id: 'brainstorm', number: 1, title: '#1 🧠 Brainstorm Support Ideas', color: '#4CAF50', outputId: 'brainstorm-output' },
-        { id: 'knowledge', number: 2, title: '#2 🔍 Knowledge Gap Detection', color: '#2196F3', outputId: 'knowledge-output' },
-        { id: 'risks', number: 3, title: '#3 ⚖️ Risks & Chances', color: '#FF9800', outputId: 'risks-output' },
-        { id: 'explainer', number: 4, title: '#4 🎬 Explainer Video Suggestions', color: '#9C27B0', outputId: 'explainer-output' }
-      ]
-      saveTabDataToStorage()
+      // Only create default boxes for the main master tab, not hybrid masters
+      if (!isHybridMaster) {
+        console.log('🔧 DEBUG: No agent boxes found, using default configuration for main master')
+        // Initialize with default boxes if none exist
+        currentTabData.agentBoxes = [
+          { id: 'brainstorm', number: 1, title: '#1 🧠 Brainstorm Support Ideas', color: '#4CAF50', outputId: 'brainstorm-output', agentId: 'agent1' },
+          { id: 'knowledge', number: 2, title: '#2 🔍 Knowledge Gap Detection', color: '#2196F3', outputId: 'knowledge-output', agentId: 'agent2' },
+          { id: 'risks', number: 3, title: '#3 ⚖️ Risks & Chances', color: '#FF9800', outputId: 'risks-output', agentId: 'agent3' },
+          { id: 'explainer', number: 4, title: '#4 🎬 Explainer Video Suggestions', color: '#9C27B0', outputId: 'explainer-output', agentId: 'agent4' }
+        ]
+        saveTabDataToStorage()
+      } else {
+        console.log('🔧 DEBUG: Hybrid master tab - no default boxes created')
+        currentTabData.agentBoxes = []
+        saveTabDataToStorage()
+      }
     }
     
     console.log('🔧 DEBUG: Rendering', currentTabData.agentBoxes.length, 'agent boxes')
@@ -447,8 +483,52 @@ function initializeExtension() {
 
   function openAddAgentBoxDialog() {
     const colors = ['#4CAF50', '#2196F3', '#FF9800', '#9C27B0', '#F44336', '#E91E63', '#9E9E9E', '#795548', '#607D8B', '#FF5722']
-    const existingNumbers = currentTabData.agentBoxes.map((box: any) => box.number)
-    const nextNumber = Math.max(...existingNumbers, 0) + 1
+    
+    // Get next sequential number across entire session
+    let nextNumber = Math.max(...currentTabData.agentBoxes.map((box: any) => box.number), 0) + 1
+    
+    // Also check session storage for highest number across all tabs/grids
+    const sessionKey = getCurrentSessionKey()
+    if (sessionKey && chrome?.storage?.local) {
+      chrome.storage.local.get([sessionKey], (result) => {
+        if (result[sessionKey]) {
+          const session = result[sessionKey]
+          let maxNumber = nextNumber - 1
+          
+          // Check all agent boxes in session
+          if (session.agentBoxes && Array.isArray(session.agentBoxes)) {
+            session.agentBoxes.forEach((box: any) => {
+              if (box && box.number && box.number > maxNumber) {
+                maxNumber = box.number
+              }
+            })
+          }
+          
+          // Check display grid slots
+          if (session.displayGrids && Array.isArray(session.displayGrids)) {
+            session.displayGrids.forEach((grid: any) => {
+              if (grid.config && grid.config.slots) {
+                Object.entries(grid.config.slots).forEach(([slotId, slotData]: [string, any]) => {
+                  const slotNum = parseInt(slotId)
+                  if (!isNaN(slotNum) && slotNum > maxNumber) {
+                    maxNumber = slotNum
+                  }
+                })
+              }
+            })
+          }
+          
+          nextNumber = maxNumber + 1
+          console.log('📦 Next agent box number calculated:', nextNumber, 'from max:', maxNumber)
+          
+          // Update the input field if dialog is still open
+          const numberInput = document.querySelector('#agent-number') as HTMLInputElement
+          if (numberInput) {
+            numberInput.value = String(nextNumber)
+          }
+        }
+      })
+    }
     
     const overlay = document.createElement('div')
     overlay.style.cssText = `
@@ -1301,7 +1381,7 @@ function initializeExtension() {
 
   `
 
-  // If this tab is a Hybrid Master, render a right-side agent panel clone
+  // If this tab is a Hybrid Master, render a right-side agent panel with only Add button
   if (isHybridMaster) {
     // Align right panel width with left panel and persist
     currentTabData.uiConfig.rightSidebarWidth = currentTabData.uiConfig.leftSidebarWidth
@@ -1312,8 +1392,7 @@ function initializeExtension() {
         <button id="quick-expand-right-btn" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 24px; height: 24px; border-radius: 4px; cursor: pointer; font-size: 12px; transition: all 0.2s ease;" title="Quick expand to maximum width">⇄</button>
       </div>
 
-      <!-- Right-side Agent Output Section -->
-      <div id="agent-boxes-container-right" style="margin-bottom: 20px;"></div>
+      <!-- Right-side Agent Box Add Button Only -->
       <div style="margin-bottom: 20px;">
         <button id="add-agent-box-btn-right" style="width: 100%; padding: 12px 16px; background: rgba(76, 175, 80, 0.8); border: 2px dashed rgba(76, 175, 80, 1); color: white; border-radius: 8px; cursor: pointer; font-size: 14px; font-weight: bold; min-height: 44px; transition: all 0.3s ease; text-shadow: 1px 1px 2px rgba(0,0,0,0.5);">
           ➕ Add New Agent Box
@@ -6522,22 +6601,9 @@ ${pageText}
   
   // Hybrid right panel behaviors after mount
   if (isHybridMaster) {
-    // Render agent boxes into the right container
-    const renderInto = (containerId) => {
-      const container = document.getElementById(containerId)
-      if (!container) return
-      const original = document.getElementById('agent-boxes-container')
-      if (original) original.id = 'agent-boxes-container-original'
-      container.id = 'agent-boxes-container'
-      try { renderAgentBoxes() } catch (e) {}
-      container.id = containerId
-      const movedBack = document.getElementById('agent-boxes-container-original')
-      if (movedBack) movedBack.id = 'agent-boxes-container'
-    }
-    setTimeout(() => renderInto('agent-boxes-container-right'), 0)
+    // Only handle Add button click - no agent boxes to render
     document.getElementById('add-agent-box-btn-right')?.addEventListener('click', () => {
       try { openAddAgentBoxDialog() } catch (e) {}
-      setTimeout(() => renderInto('agent-boxes-container-right'), 100)
     })
 
     // Right-side resize (mirror left) and quick expand
