@@ -1,4 +1,5 @@
 /// <reference types="chrome-types"/>
+import './agent-manager-v2'
 
 // Per-Tab Activation System
 let isExtensionActive = false
@@ -101,6 +102,7 @@ function deactivateExtension() {
 
 function initializeExtension() {
   console.log('🔧 DEBUG: initializeExtension called for:', window.location.href)
+  // agent-manager-v2 is now statically imported at top to guarantee execution
   console.log('🔧 DEBUG: dedicatedRole:', dedicatedRole)
   
   // Check if extension should be disabled for this URL
@@ -215,7 +217,20 @@ function initializeExtension() {
     // First check sessionStorage for this tab's session
     try { 
       const tabSession = sessionStorage.getItem('optimando-current-session-key')
-      if (tabSession) return tabSession
+      if (tabSession) {
+        // Verify the session exists in chrome storage (async check, but return key immediately)
+        chrome.storage.local.get([tabSession], (result) => {
+          if (!result[tabSession]) {
+            console.warn('⚠️ Session key exists but session data missing, clearing invalid key:', tabSession)
+            // Clear invalid session key
+            try { 
+              sessionStorage.removeItem('optimando-current-session-key')
+              localStorage.removeItem('optimando-global-active-session')
+            } catch {}
+          }
+        })
+        return tabSession
+      }
     } catch {}
     
     // Fall back to global active session from localStorage
@@ -240,6 +255,243 @@ function initializeExtension() {
     } catch {}
     // Persist across navigations
     writeOptimandoState({ sessionKey: key })
+  }
+  // Ensure there is an active session; if none, create one and persist immediately
+  function ensureActiveSession(cb: any) {
+    try {
+      const existingKey = getCurrentSessionKey()
+      if (existingKey) {
+        chrome.storage.local.get([existingKey], (all:any) => {
+          const session = (all && all[existingKey]) || {}
+          // Ensure session has all required fields
+          if (!session.tabName) session.tabName = document.title || 'Unnamed Session'
+          if (!session.url) session.url = window.location.href
+          if (!session.displayGrids) session.displayGrids = []
+          if (!session.agentBoxes) session.agentBoxes = []
+          if (!session.customAgents) session.customAgents = []
+          if (!session.hiddenBuiltins) session.hiddenBuiltins = []
+          if (!session.timestamp) session.timestamp = new Date().toISOString()
+          cb(existingKey, session)
+        })
+        return
+      }
+    } catch {}
+    const newKey = `session_${Date.now()}_${Math.floor(Math.random()*1000000)}`
+    try { setCurrentSessionKey(newKey) } catch {}
+    const newSession:any = {
+      tabName: document.title || 'Unnamed Session',
+      url: (window.location && window.location.href) || '',
+      timestamp: new Date().toISOString(),
+      isLocked: false,
+      displayGrids: [],
+      agentBoxes: [],
+      customAgents: [],
+      hiddenBuiltins: []
+    }
+    chrome.storage.local.set({ [newKey]: newSession }, () => {
+      console.log('🆕 New session created and added to history:', newKey)
+      cb(newKey, newSession)
+    })
+  }
+
+  // Helper function to ensure session is properly saved to session history
+  function ensureSessionInHistory(sessionKey: string, sessionData: any, callback?: () => void) {
+    // Ensure the session has all required fields for session history
+    const completeSessionData = {
+      ...sessionData,
+      tabName: sessionData.tabName || document.title || 'Unnamed Session',
+      url: sessionData.url || window.location.href,
+      timestamp: new Date().toISOString(),
+      displayGrids: sessionData.displayGrids || [],
+      agentBoxes: sessionData.agentBoxes || [],
+      customAgents: sessionData.customAgents || [],
+      hiddenBuiltins: sessionData.hiddenBuiltins || []
+    }
+    
+    chrome.storage.local.set({ [sessionKey]: completeSessionData }, () => {
+      if (chrome.runtime.lastError) {
+        console.error('❌ Failed to save session to history:', chrome.runtime.lastError)
+      } else {
+        console.log('✅ Session saved to history:', sessionKey, completeSessionData.tabName)
+      }
+      if (callback) callback()
+    })
+  }
+
+  // Helper: append an agent event into the session for history/audit
+  function appendAgentEvent(session:any, event:{ type:'add'|'delete'|'update', key:string, name?:string, icon?:string }){
+    try {
+      if (!Array.isArray(session.agentEvents)) session.agentEvents = []
+      session.agentEvents.push({ ...event, timestamp: new Date().toISOString() })
+    } catch {}
+  }
+
+  // New: Session Agents Manager (single source of truth)
+  const BUILTIN_AGENTS = [
+    { key: 'summarize', name: 'Summarize', icon: '📝' },
+    { key: 'research', name: 'Research', icon: '🔍' },
+    { key: 'analyze', name: 'Analyze', icon: '📊' },
+    { key: 'generate', name: 'Generate', icon: '✨' },
+    { key: 'coordinate', name: 'Coordinate', icon: '🎯' }
+  ]
+  function pad2(n:number){ return n < 10 ? `0${n}` : String(n) }
+  function normalizeSessionAgents(activeKey:string, session:any, cb:(session:any)=>void){
+    let changed = false
+    if (!Array.isArray(session.agents)) {
+      // Seed with builtins 1..5
+      session.agents = BUILTIN_AGENTS.map((b, i) => ({ ...b, number: i+1, kind: 'builtin' }))
+      session.numberMap = session.agents.reduce((acc:any,a:any)=>{ acc[a.key]=a.number; return acc }, {})
+      session.nextNumber = 6
+      changed = true
+    } else {
+      // Ensure numberMap and nextNumber consistent
+      const numbers = session.agents.map((a:any)=>Number(a.number)||0)
+      const maxNum = numbers.length ? Math.max(...numbers) : 0
+      if (!session.numberMap) {
+        session.numberMap = session.agents.reduce((acc:any,a:any)=>{ acc[a.key]=a.number; return acc }, {})
+        changed = true
+      }
+      if (!session.nextNumber || session.nextNumber <= maxNum) {
+        session.nextNumber = maxNum + 1
+        changed = true
+      }
+      // Ensure builtins exist at least once
+      BUILTIN_AGENTS.forEach((b, idx) => {
+        if (!session.agents.find((a:any)=>a.key===b.key)) {
+          const num = idx+1
+          session.agents.push({ ...b, number: num, kind: 'builtin' })
+          session.numberMap[b.key] = num
+          changed = true
+        }
+      })
+    }
+    if (changed) {
+      session.timestamp = new Date().toISOString()
+      try { localStorage.setItem('optimando-agent-number-map', JSON.stringify(session.numberMap||{})) } catch {}
+      ensureSessionInHistory(activeKey, session, () => cb(session))
+    } else {
+      try { localStorage.setItem('optimando-agent-number-map', JSON.stringify(session.numberMap||{})) } catch {}
+      cb(session)
+    }
+  }
+  function addAgentToSession(name:string, icon:string, done:()=>void){
+    const key = (name||'').toLowerCase().replace(/[^a-z0-9]/g,'')
+    ensureActiveSession((activeKey:string, session:any) => {
+      normalizeSessionAgents(activeKey, session, (s:any)=>{
+        const existing = s.agents.find((a:any)=>a.key===key)
+        if (existing) {
+          existing.name = name
+          existing.icon = icon || existing.icon
+        } else {
+          const num = Number(s.nextNumber)||1
+          s.agents.push({ key, name, icon: icon||'🤖', number: num, kind: 'custom' })
+          s.numberMap[key] = num
+          s.nextNumber = num + 1
+        }
+        s.timestamp = new Date().toISOString()
+        
+        // Ensure session has all required fields for session history
+        if (!s.tabName) s.tabName = document.title || 'Unnamed Session'
+        if (!s.url) s.url = window.location.href
+        if (!s.displayGrids) s.displayGrids = []
+        if (!s.agentBoxes) s.agentBoxes = []
+        if (!s.customAgents) s.customAgents = []
+        if (!s.hiddenBuiltins) s.hiddenBuiltins = []
+        
+        // Append audit event
+        appendAgentEvent(s, { type:'add', key, name, icon })
+
+        try { localStorage.setItem('optimando-agent-number-map', JSON.stringify(s.numberMap||{})) } catch {}
+        
+        // Save to chrome storage and ensure it's in session history
+        ensureSessionInHistory(activeKey, s, () => {
+          console.log('✅ Agent added and session updated in history:', activeKey, name)
+          done()
+        })
+      })
+    })
+  }
+  function deleteAgentFromSession(key:string, done:()=>void){
+    ensureActiveSession((activeKey:string, session:any) => {
+      normalizeSessionAgents(activeKey, session, (s:any)=>{
+        const agentToDelete = s.agents.find((a:any)=>a.key===key)
+        const isBuiltin = Array.isArray(BUILTIN_AGENTS) && BUILTIN_AGENTS.some((b:any)=>b.key===key)
+        if (isBuiltin) {
+          if (!Array.isArray(s.hiddenBuiltins)) s.hiddenBuiltins = []
+          if (!s.hiddenBuiltins.includes(key)) s.hiddenBuiltins.push(key)
+        }
+        s.agents = (s.agents||[]).filter((a:any)=>a.key!==key)
+        // Do not renumber to preserve uniqueness; keep numberMap for existing
+        s.timestamp = new Date().toISOString()
+        
+        // Ensure session has all required fields for session history
+        if (!s.tabName) s.tabName = document.title || 'Unnamed Session'
+        if (!s.url) s.url = window.location.href
+        if (!s.displayGrids) s.displayGrids = []
+        if (!s.agentBoxes) s.agentBoxes = []
+        if (!s.customAgents) s.customAgents = []
+        if (!s.hiddenBuiltins) s.hiddenBuiltins = []
+        
+        // Append audit event
+        appendAgentEvent(s, { type:'delete', key, name: agentToDelete?.name, icon: agentToDelete?.icon })
+
+        // Save to chrome storage and ensure it's in session history
+        ensureSessionInHistory(activeKey, s, () => {
+          console.log('✅ Agent deleted and session updated in history:', activeKey, agentToDelete?.name || key)
+          done()
+        })
+      })
+    })
+  }
+  function renderAgentsGrid(overlay:HTMLElement){
+    const grid = overlay.querySelector('#agents-grid') as HTMLElement | null
+    if (!grid) return
+    grid.innerHTML = ''
+    ensureActiveSession((activeKey:string, session:any) => {
+      normalizeSessionAgents(activeKey, session, (s:any)=>{
+        const hidden = Array.isArray(s.hiddenBuiltins) ? s.hiddenBuiltins : []
+        const agents = (s.agents||[])
+          .filter((a:any)=> !(a?.kind==='builtin' && hidden.includes(a.key)))
+          .slice()
+          .sort((a:any,b:any)=> (a.number||0)-(b.number||0))
+        agents.forEach((a:any) => {
+          const num = pad2(Number(a.number)||1)
+          const card = document.createElement('div')
+          card.style.cssText = 'background: rgba(255,255,255,0.1); padding: 15px; border-radius: 8px; text-align: center; position: relative;'
+          card.innerHTML = `
+            <div style="font-size: 32px; margin-bottom: 8px;">${a.icon || '🤖'}</div>
+            <h4 style="margin: 0 0 8px 0; font-size: 12px; color: #FFFFFF; font-weight: bold;">Agent ${num} — ${a.name || 'Agent'}</h4>
+            <button class="agent-toggle" style="padding: 4px 8px; background: #f44336; border: none; color: white; border-radius: 3px; cursor: pointer; font-size: 9px; margin-bottom: 8px;">OFF</button>
+            <button class="delete-agent" data-key="${a.key}" title="Delete" style="position:absolute;top:6px;right:6px;background:rgba(244,67,54,0.85);border:none;color:#fff;width:20px;height:20px;border-radius:50%;cursor:pointer">×</button>
+            <div style="display: flex; justify-content: center; gap: 6px; margin-top: 10px;">
+              <button class="lightbox-btn" data-agent="${a.key}" data-type="instructions" style="background: rgba(255,255,255,0.2); border: none; color: white; padding: 4px; border-radius: 3px; cursor: pointer; font-size: 8px;" title="AI Instructions">📋</button>
+              <button class="lightbox-btn" data-agent="${a.key}" data-type="context" style="background: rgba(255,255,255,0.2); border: none; color: white; padding: 4px; border-radius: 3px; cursor: pointer; font-size: 8px;" title="Memory">📄</button>
+              <button class="lightbox-btn" data-agent="${a.key}" data-type="settings" style="background: rgba(255,255,255,0.2); border: none; color: white; padding: 4px; border-radius: 3px; cursor: pointer; font-size: 8px;" title="Settings">⚙️</button>
+            </div>
+          `
+          grid.appendChild(card)
+          const toggle = card.querySelector('.agent-toggle') as HTMLElement | null
+          toggle?.addEventListener('click', () => {
+            const isOn = toggle.textContent === 'ON'
+            toggle.textContent = isOn ? 'OFF' : 'ON'
+            toggle.style.background = isOn ? '#f44336' : '#4CAF50'
+          })
+          card.querySelectorAll('.lightbox-btn').forEach((btn:any) => {
+            btn.addEventListener('click', (e:any) => {
+              const agentKey = e.currentTarget.getAttribute('data-agent') || a.key
+              const t = e.currentTarget.getAttribute('data-type') || 'instructions'
+              openAgentConfigDialog(agentKey, t, overlay)
+            })
+          })
+          const del = card.querySelector('.delete-agent') as HTMLElement | null
+          del?.addEventListener('click', () => {
+            if (!confirm('Delete this agent?')) return
+            deleteAgentFromSession(a.key, () => renderAgentsGrid(overlay))
+          })
+        })
+        // Do not hide cards; CSS grid handles wrapping to next rows
+      })
+    })
   }
   function saveTabDataToStorage() {
     localStorage.setItem(`optimando-tab-${tabId}`, JSON.stringify(currentTabData))
@@ -1891,6 +2143,13 @@ function initializeExtension() {
       }
     })()
 
+    // Show default 01–05 for a fresh lightbox; session will override below
+    const nSummarize = '01'
+    const nResearch = '02'
+    const nAnalyze = '03'
+    const nGenerate = '04'
+    const nCoordinate = '05'
+
     overlay.style.cssText = `
       position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
       background: ${safeGradient}; z-index: 2147483649;
@@ -1924,83 +2183,7 @@ function initializeExtension() {
           <button id="close-agents-lightbox" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 30px; height: 30px; border-radius: 50%; cursor: pointer; font-size: 16px;">×</button>
         </div>
         <div style="flex: 1; padding: 20px; overflow-y: auto;">
-          <div style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; margin-bottom: 20px;">
-            
-            <!-- Agent 1: Summarize -->
-            <div style="background: rgba(255,255,255,0.1); padding: 15px; border-radius: 8px; text-align: center; position: relative;">
-              <div style="font-size: 32px; margin-bottom: 8px;">📝</div>
-              <h4 style="margin: 0 0 8px 0; font-size: 12px; color: #4CAF50; font-weight: bold;">Summarize</h4>
-              <button class="agent-toggle" data-agent="summarize" style="padding: 4px 8px; background: #f44336; border: none; color: white; border-radius: 3px; cursor: pointer; font-size: 9px; margin-bottom: 8px;">OFF</button>
-              
-              <!-- Compact Controls -->
-              <div style="display: flex; justify-content: center; gap: 6px; margin-top: 10px;">
-                <button class="lightbox-btn" data-agent="summarize" data-type="instructions" style="background: rgba(255,255,255,0.2); border: none; color: white; padding: 4px; border-radius: 3px; cursor: pointer; font-size: 8px;" title="AI Instructions">📋</button>
-                <button class="lightbox-btn" data-agent="summarize" data-type="context" style="background: rgba(255,255,255,0.2); border: none; color: white; padding: 4px; border-radius: 3px; cursor: pointer; font-size: 8px;" title="Context">📄</button>
-                <button class="lightbox-btn" data-agent="summarize" data-type="settings" style="background: rgba(255,255,255,0.2); border: none; color: white; padding: 4px; border-radius: 3px; cursor: pointer; font-size: 8px;" title="Settings">⚙️</button>
-              </div>
-              
-              
-            </div>
-
-            <!-- Agent 2: Research -->
-            <div style="background: rgba(255,255,255,0.1); padding: 15px; border-radius: 8px; text-align: center; position: relative;">
-              <div style="font-size: 32px; margin-bottom: 8px;">🔍</div>
-              <h4 style="margin: 0 0 8px 0; font-size: 12px; color: #2196F3; font-weight: bold;">Research</h4>
-              <button class="agent-toggle" data-agent="research" style="padding: 4px 8px; background: #f44336; border: none; color: white; border-radius: 3px; cursor: pointer; font-size: 9px; margin-bottom: 8px;">OFF</button>
-              
-              <div style="display: flex; justify-content: center; gap: 6px; margin-top: 10px;">
-                <button class="lightbox-btn" data-agent="research" data-type="instructions" style="background: rgba(255,255,255,0.2); border: none; color: white; padding: 4px; border-radius: 3px; cursor: pointer; font-size: 8px;" title="AI Instructions">📋</button>
-                <button class="lightbox-btn" data-agent="research" data-type="context" style="background: rgba(255,255,255,0.2); border: none; color: white; padding: 4px; border-radius: 3px; cursor: pointer; font-size: 8px;" title="Context">📄</button>
-                <button class="lightbox-btn" data-agent="research" data-type="settings" style="background: rgba(255,255,255,0.2); border: none; color: white; padding: 4px; border-radius: 3px; cursor: pointer; font-size: 8px;" title="Settings">⚙️</button>
-              </div>
-              
-              
-            </div>
-            <!-- Agent 3: Analyze -->
-            <div style="background: rgba(255,255,255,0.1); padding: 15px; border-radius: 8px; text-align: center; position: relative;">
-              <div style="font-size: 32px; margin-bottom: 8px;">📊</div>
-              <h4 style="margin: 0 0 8px 0; font-size: 12px; color: #FF9800; font-weight: bold;">Analyze</h4>
-              <button class="agent-toggle" data-agent="analyze" style="padding: 4px 8px; background: #f44336; border: none; color: white; border-radius: 3px; cursor: pointer; font-size: 9px; margin-bottom: 8px;">OFF</button>
-              
-              <div style="display: flex; justify-content: center; gap: 6px; margin-top: 10px;">
-                <button class="lightbox-btn" data-agent="analyze" data-type="instructions" style="background: rgba(255,255,255,0.2); border: none; color: white; padding: 4px; border-radius: 3px; cursor: pointer; font-size: 8px;" title="AI Instructions">📋</button>
-                <button class="lightbox-btn" data-agent="analyze" data-type="context" style="background: rgba(255,255,255,0.2); border: none; color: white; padding: 4px; border-radius: 3px; cursor: pointer; font-size: 8px;" title="Context">📄</button>
-                <button class="lightbox-btn" data-agent="analyze" data-type="settings" style="background: rgba(255,255,255,0.2); border: none; color: white; padding: 4px; border-radius: 3px; cursor: pointer; font-size: 8px;" title="Settings">⚙️</button>
-              </div>
-              
-              
-            </div>
-
-            <!-- Agent 4: Generate -->
-            <div style="background: rgba(255,255,255,0.1); padding: 15px; border-radius: 8px; text-align: center; position: relative;">
-              <div style="font-size: 32px; margin-bottom: 8px;">✨</div>
-              <h4 style="margin: 0 0 8px 0; font-size: 12px; color: #9C27B0; font-weight: bold;">Generate</h4>
-              <button class="agent-toggle" data-agent="generate" style="padding: 4px 8px; background: #f44336; border: none; color: white; border-radius: 3px; cursor: pointer; font-size: 9px; margin-bottom: 8px;">OFF</button>
-              
-              <div style="display: flex; justify-content: center; gap: 6px; margin-top: 10px;">
-                <button class="lightbox-btn" data-agent="generate" data-type="instructions" style="background: rgba(255,255,255,0.2); border: none; color: white; padding: 4px; border-radius: 3px; cursor: pointer; font-size: 8px;" title="AI Instructions">📋</button>
-                <button class="lightbox-btn" data-agent="generate" data-type="context" style="background: rgba(255,255,255,0.2); border: none; color: white; padding: 4px; border-radius: 3px; cursor: pointer; font-size: 8px;" title="Context">📄</button>
-                <button class="lightbox-btn" data-agent="generate" data-type="settings" style="background: rgba(255,255,255,0.2); border: none; color: white; padding: 4px; border-radius: 3px; cursor: pointer; font-size: 8px;" title="Settings">⚙️</button>
-              </div>
-              
-              
-            </div>
-
-            <!-- Agent 5: Coordinate -->
-            <div style="background: rgba(255,255,255,0.1); padding: 15px; border-radius: 8px; text-align: center; position: relative;">
-              <div style="font-size: 32px; margin-bottom: 8px;">🎯</div>
-              <h4 style="margin: 0 0 8px 0; font-size: 12px; color: #607D8B; font-weight: bold;">Coordinate</h4>
-              <button class="agent-toggle" data-agent="coordinate" style="padding: 4px 8px; background: #f44336; border: none; color: white; border-radius: 3px; cursor: pointer; font-size: 9px; margin-bottom: 8px;">OFF</button>
-              
-              <div style="display: flex; justify-content: center; gap: 6px; margin-top: 10px;">
-                <button class="lightbox-btn" data-agent="coordinate" data-type="instructions" style="background: rgba(255,255,255,0.2); border: none; color: white; padding: 4px; border-radius: 3px; cursor: pointer; font-size: 8px;" title="AI Instructions">📋</button>
-                <button class="lightbox-btn" data-agent="coordinate" data-type="context" style="background: rgba(255,255,255,0.2); border: none; color: white; padding: 4px; border-radius: 3px; cursor: pointer; font-size: 8px;" title="Context">📄</button>
-                <button class="lightbox-btn" data-agent="coordinate" data-type="settings" style="background: rgba(255,255,255,0.2); border: none; color: white; padding: 4px; border-radius: 3px; cursor: pointer; font-size: 8px;" title="Settings">⚙️</button>
-              </div>
-              
-              
-            </div>
-          </div>
+          <div id="agents-grid" style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; margin-bottom: 20px;"></div>
 
           <!-- Add New Agent Button -->
           <div style="text-align: center; margin-top: 15px;">
@@ -2017,32 +2200,129 @@ function initializeExtension() {
     document.getElementById('close-agents-lightbox').onclick = () => overlay.remove()
     overlay.onclick = (e) => { if (e.target === overlay) overlay.remove() }
     
-    // Add event handlers for agent controls
-    overlay.querySelectorAll('.agent-toggle').forEach(btn => {
-      btn.addEventListener('click', (e) => {
-        const agentName = e.target.dataset.agent
-        const isOn = e.target.textContent === 'ON'
-        e.target.textContent = isOn ? 'OFF' : 'ON'
-        e.target.style.background = isOn ? '#f44336' : '#4CAF50'
-        console.log(`Agent ${agentName} ${isOn ? 'deactivated' : 'activated'}`)
-      })
-    })
+    // Render grid from session (single source of truth)
+    renderAgentsGrid(overlay)
+    // Delegated handlers for dynamically rendered buttons
+    overlay.addEventListener('click', (ev:any) => {
+      const t = ev?.target as HTMLElement | null
+      if (!t) return
+      if (t.classList?.contains('delete-agent')) {
+        ev.preventDefault(); ev.stopPropagation()
+        const key = t.getAttribute('data-key') || ''
+        if (!key) return
+        if (!confirm('Delete this agent?')) return
+        deleteAgentFromSession(key, () => renderAgentsGrid(overlay))
+        return
+      }
+      if (t.classList?.contains('lightbox-btn')) {
+        ev.preventDefault(); ev.stopPropagation()
+        const agentKey = t.getAttribute('data-agent') || ''
+        const type = t.getAttribute('data-type') || 'instructions'
+        openAgentConfigDialog(agentKey, type, overlay)
+        return
+      }
+    }, true)
     
-    // Add event handlers for lightbox buttons (instructions, context, settings)
-    overlay.querySelectorAll('.lightbox-btn').forEach(btn => {
-      btn.addEventListener('click', (e) => {
-        const agentName = e.target.dataset.agent
-        const type = e.target.dataset.type
-        openAgentConfigDialog(agentName, type, overlay)
-      })
-    })
+    // Keep all agents visible; grid shows exactly 5 per row using CSS above
+    function enforceVisibleAgentLimit() {}
+
+    // Legacy renderer no-op
+    const renderCustomAgents = (customs?: any[], numberMapOverride?: any) => { return }
+
+    // Helper to apply numbers to builtin headings from a provided map
+    function applyBuiltinNumbers(map:any) {
+      try {
+        const pairs = [
+          ['summarize', 'Summarize'],
+          ['research', 'Research'],
+          ['analyze', 'Analyze'],
+          ['generate', 'Generate'],
+          ['coordinate', 'Coordinate']
+        ]
+        pairs.forEach(([key, label]) => {
+          const card = overlay.querySelector(`#agent-card-${key}`) as HTMLElement | null
+          if (!card) return
+          const h4 = card.querySelector('h4') as HTMLElement | null
+          const num = map && map[key] ? String(map[key]).padStart(2, '0') : '01'
+          if (h4) h4.textContent = `Agent ${num} — ${label}`
+        })
+      } catch {}
+    }
+
+    // Load custom agents and sync session number map, ensuring session exists
+    (function(){
+      try {
+        ensureActiveSession((activeKey:string, session:any) => {
+          // Normalize numbering: seed built-ins 1..5 and assign unique numbers to customs
+          let map:any = (session && session.numberMap) ? session.numberMap : {}
+          const seedIfMissing = (k:string, n:number) => { if (!map[k]) map[k] = n }
+          seedIfMissing('summarize', 1)
+          seedIfMissing('research', 2)
+          seedIfMissing('analyze', 3)
+          seedIfMissing('generate', 4)
+          seedIfMissing('coordinate', 5)
+          let maxNum = Object.values(map)
+            .map((v:any)=>parseInt(String(v),10))
+            .filter((v:number)=>!isNaN(v))
+            .reduce((m:number,v:number)=> Math.max(m,v), 0)
+          const customs = Array.isArray(session?.customAgents) ? session.customAgents : []
+          customs.forEach((a:any) => {
+            const k = a.key || (a.name||'').toLowerCase().replace(/[^a-z0-9]/g,'')
+            if (!map[k]) { maxNum += 1; map[k] = maxNum }
+          })
+          session.numberMap = map
+          session.timestamp = new Date().toISOString()
+          chrome.storage.local.set({ [activeKey]: session }, ()=>{})
+          try { localStorage.setItem('optimando-agent-number-map', JSON.stringify(map)) } catch {}
+          applyBuiltinNumbers(map)
+
+          // Hide builtin cards that were removed previously
+          const hidden = Array.isArray(session?.hiddenBuiltins) ? session.hiddenBuiltins : []
+          if (hidden.length) {
+            hidden.forEach((k:string) => {
+              const el = overlay.querySelector(`#agent-card-${k}`) as HTMLElement | null
+              if (el) el.remove()
+            })
+          }
+          if (session && Array.isArray(session.customAgents) && session.customAgents.length > 0) {
+            // ensure they exist in localStorage for future fast load
+            session.customAgents.forEach((a:any) => {
+              const k = (a.key || (a.name||'').toLowerCase().replace(/[^a-z0-9]/g,''))
+              localStorage.setItem(`custom_agent_${k}`, JSON.stringify(a))
+            })
+            renderCustomAgents(session.customAgents, map)
+          } else {
+            renderCustomAgents(undefined, map)
+          }
+          // Previously limited to 5; now unlimited, grid is responsive
+          enforceVisibleAgentLimit()
+        })
+      } catch { renderCustomAgents() }
+    })()
     
     // Add event handler for "Add New Agent" button
-    document.getElementById('add-new-agent').addEventListener('click', () => {
-      openAddNewAgentDialog(overlay)
+    document.getElementById('add-new-agent')?.addEventListener('click', () => {
+      try { openAddNewAgentDialog(overlay) } catch (e) {
+        console.error('Failed to open Add New Agent dialog', e)
+        alert('Unable to open the Add Agent dialog. Please reload the page and try again.')
+      }
     })
   }
   function openAgentConfigDialog(agentName, type, parentOverlay) {
+    function pad2(n) { try { const num = parseInt(n, 10) || 0; return num < 10 ? `0${num}` : String(num) } catch { return '01' } }
+    function capitalizeName(n) { try { return (n || '').toString().charAt(0).toUpperCase() + (n || '').toString().slice(1) } catch { return n } }
+    function getOrAssignAgentNumber(key) {
+      try {
+        const raw = localStorage.getItem('optimando-agent-number-map')
+        const map = raw ? JSON.parse(raw) : {}
+        if (map && map[key]) return pad2(map[key])
+        const used = Object.values(map || {}).map(v => parseInt(v, 10)).filter(v => !isNaN(v))
+        const next = used.length > 0 ? Math.max(...used) + 1 : 1
+        map[key] = next
+        localStorage.setItem('optimando-agent-number-map', JSON.stringify(map))
+        return pad2(next)
+      } catch { return '01' }
+    }
     // Create agent config dialog
     const configOverlay = document.createElement('div')
     configOverlay.style.cssText = `
@@ -2054,7 +2334,7 @@ function initializeExtension() {
     
     const typeLabels = {
       'instructions': '📋 AI Instructions',
-      'context': '📄 Context & Memory',
+      'context': '🧠 Memory',
       'settings': '⚙️ Agent Settings'
     }
     
@@ -2075,26 +2355,23 @@ function initializeExtension() {
       content = `
         <div style="display: grid; grid-template-columns: 1fr; gap: 20px;">
           <div style="background: rgba(255,255,255,0.1); padding: 20px; border-radius: 8px;">
-            <label style="display: block; margin-bottom: 10px; font-size: 14px; color: #FFD700; font-weight: bold;">📝 System Instructions:</label>
-            <textarea id="agent-instructions" style="width: 100%; height: 200px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 12px; border-radius: 6px; font-size: 12px; resize: vertical; font-family: 'Consolas', monospace;" placeholder="Enter detailed AI instructions for this agent...">${existingData}</textarea>
+            <label style="display: block; margin-bottom: 10px; font-size: 14px; color: #FFD700; font-weight: bold;">🎭 Role Description:</label>
+            <textarea id="agent-role" style="width: 100%; height: 220px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 12px; border-radius: 6px; font-size: 12px; resize: vertical; font-family: 'Consolas', monospace;" placeholder="Describe the agent's role and responsibilities...">${(localStorage.getItem(storageKey + '_role') || '')}</textarea>
           </div>
-          
-          <div style="display: grid; grid-template-columns: 1fr; gap: 20px;">
             <div style="background: rgba(255,255,255,0.1); padding: 20px; border-radius: 8px;">
-              <label style="display: block; margin-bottom: 10px; font-size: 14px; color: #FFD700; font-weight: bold;">🎭 Role Description:</label>
-              <input type="text" id="agent-role" style="width: 100%; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 12px; border-radius: 6px; font-size: 12px;" placeholder="Define the agent's primary role..." value="${localStorage.getItem(storageKey + '_role') || ''}">
-            </div>
+            <label style="display: block; margin-bottom: 10px; font-size: 14px; color: #FFD700; font-weight: bold;">📝 System Instructions:</label>
+            <textarea id="agent-instructions" style="width: 100%; height: 180px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 12px; border-radius: 6px; font-size: 12px; resize: vertical; font-family: 'Consolas', monospace;" placeholder="Enter detailed AI instructions for this agent...">${existingData}</textarea>
           </div>
       `
     } else if (type === 'context') {
       content = `
         <div style="display: grid; grid-template-columns: 1fr; gap: 20px;">
           <div style="background: rgba(255,255,255,0.1); padding: 20px; border-radius: 8px;">
-            <label style="display: block; margin-bottom: 10px; font-size: 14px; color: #FFD700; font-weight: bold;">📄 Context Data:</label>
-            <textarea id="agent-context" style="width: 100%; height: 180px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 12px; border-radius: 6px; font-size: 12px; resize: vertical; font-family: 'Consolas', monospace;" placeholder="Enter context information that will be available to this agent...">${existingData}</textarea>
+            <label style="display: block; margin-bottom: 10px; font-size: 14px; color: #FFD700; font-weight: bold;">🧠 Memory:</label>
+            <textarea id="agent-context" style="width: 100%; height: 180px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 12px; border-radius: 6px; font-size: 12px; resize: vertical; font-family: 'Consolas', monospace;" placeholder="Enter persistent memory for this agent...">${existingData}</textarea>
             </div>
 
-          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+          <div style="display: grid; grid-template-columns: 1fr; gap: 20px;">
             <div style="background: rgba(255,255,255,0.1); padding: 20px; border-radius: 8px;">
               <label style="display: block; margin-bottom: 10px; font-size: 14px; color: #FFD700; font-weight: bold;">🧠 Memory Allocation:</label>
               <select id="agent-memory" style="width: 100%; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 12px; border-radius: 6px; font-size: 12px;">
@@ -2102,16 +2379,6 @@ function initializeExtension() {
                 <option value="medium" selected>Medium (8MB)</option>
                 <option value="high">High (32MB)</option>
                 <option value="ultra">Ultra (128MB)</option>
-              </select>
-                </div>
-            
-            <div style="background: rgba(255,255,255,0.1); padding: 20px; border-radius: 8px;">
-              <label style="display: block; margin-bottom: 10px; font-size: 14px; color: #FFD700; font-weight: bold;">📥 Context Source:</label>
-              <select id="agent-context-source" style="width: 100%; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 12px; border-radius: 6px; font-size: 12px;">
-                <option value="manual">Manual Input</option>
-                <option value="template">Template Upload</option>
-                <option value="dom">DOM Extraction</option>
-                <option value="api">API Source</option>
               </select>
                 </div>
               </div>
@@ -2159,10 +2426,22 @@ function initializeExtension() {
     `
   }
 
+    const headerTitle = (() => {
+      if (type === 'instructions') {
+        const num = getOrAssignAgentNumber(agentName)
+        return `Agent ${num} - ${capitalizeName(agentName)}`
+      }
+      if (type === 'context') {
+        const num = getOrAssignAgentNumber(agentName)
+        return `Memory Agent ${num} - ${capitalizeName(agentName)}`
+      }
+      return `${typeLabels[type]} - ${agentName}`
+    })()
+
     configOverlay.innerHTML = `
       <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 16px; width: 85vw; max-width: 1000px; height: 85vh; color: white; overflow: hidden; box-shadow: 0 20px 40px rgba(0,0,0,0.4); display: flex; flex-direction: column;">
         <div style="padding: 20px; border-bottom: 1px solid rgba(255,255,255,0.3); display: flex; justify-content: space-between; align-items: center; background: linear-gradient(135deg, ${agentColors[agentName] || '#667eea'} 0%, rgba(118, 75, 162, 0.8) 100%);">
-          <h2 style="margin: 0; font-size: 20px; text-transform: capitalize;">${typeLabels[type]} - ${agentName}</h2>
+          <h2 style="margin: 0; font-size: 20px; text-transform: capitalize;">${headerTitle}</h2>
           <button id="close-agent-config" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 30px; height: 30px; border-radius: 50%; cursor: pointer; font-size: 16px;">×</button>
         </div>
         <div style="flex: 1; padding: 30px; overflow-y: auto;">
@@ -2186,8 +2465,8 @@ function initializeExtension() {
       let dataToSave = ''
       
       if (type === 'instructions') {
-        dataToSave = document.getElementById('agent-instructions').value
-        localStorage.setItem(storageKey + '_role', document.getElementById('agent-role').value)
+        dataToSave = (document.getElementById('agent-instructions') as any).value
+        localStorage.setItem(storageKey + '_role', (document.getElementById('agent-role') as any).value)
       } else if (type === 'context') {
         dataToSave = document.getElementById('agent-context').value
         localStorage.setItem(storageKey + '_memory', document.getElementById('agent-memory').value)
@@ -2327,23 +2606,11 @@ function initializeExtension() {
         notification.remove()
       }, 3000)
       
-      configOverlay.remove()
-      
-      // Save new agent configuration
-      const agentKey = agentName.toLowerCase().replace(/[^a-z0-9]/g, '')
-      localStorage.setItem(`custom_agent_${agentKey}`, JSON.stringify({
-        name: agentName,
-        icon: agentIcon,
-        created: new Date().toISOString()
-      }))
-      
-      console.log(`Created new agent: ${agentName} (${agentIcon})`)
-      
-      // Close parent overlay and reopen to show new agent
-      parentOverlay.remove()
-      setTimeout(() => {
-        openAgentsLightbox()
-      }, 100)
+      // Persist via manager then re-render from session
+      addAgentToSession(agentName, agentIcon, () => {
+        renderAgentsGrid(parentOverlay)
+        configOverlay.remove()
+      })
     }
     
     configOverlay.onclick = (e) => { if (e.target === configOverlay) configOverlay.remove() }
@@ -2918,6 +3185,12 @@ ${pageText}
       }))
       console.log('✅ Load session request sent to Electron app')
     } else {
+      // Feature flag: disable auto-connecting to local desktop WebSocket unless explicitly enabled
+      const DESKTOP_WS_ENABLED = false
+      if (!DESKTOP_WS_ENABLED) {
+        console.log('ℹ️ Desktop WebSocket disabled; skipping connect for LOAD_SESSION')
+        return
+      }
       console.log('❌ WebSocket not connected, trying to connect...')
       const ws = new WebSocket('ws://localhost:51247')
       
@@ -2951,6 +3224,11 @@ ${pageText}
       }))
       console.log('✅ Session data sent to Electron app')
     } else {
+      const DESKTOP_WS_ENABLED = false
+      if (!DESKTOP_WS_ENABLED) {
+        console.log('ℹ️ Desktop WebSocket disabled; skipping connect for SAVE_SESSION_DATA')
+        return
+      }
       console.log('❌ WebSocket not connected, trying to connect...')
       const ws = new WebSocket('ws://localhost:51247')
       
@@ -2974,6 +3252,12 @@ ${pageText}
 
   // Initialize WebSocket connection to Electron app
   function initializeWebSocket() {
+    // Feature flag: disable auto-connecting to local desktop WebSocket unless explicitly enabled
+    const DESKTOP_WS_ENABLED = false
+    if (!DESKTOP_WS_ENABLED) {
+      console.log('ℹ️ Desktop WebSocket disabled; not initializing connection')
+      return
+    }
     if (window.gridWebSocket && window.gridWebSocket.readyState === WebSocket.OPEN) {
       return // Already connected
     }
@@ -3073,6 +3357,7 @@ ${pageText}
   }
 
   // Initialize WebSocket connection on page load
+  // Only initialize if feature flag enables it (guard inside function)
   initializeWebSocket()
 
   function openSettingsLightbox() {
@@ -3238,7 +3523,7 @@ ${pageText}
                     <option>Verbose</option>
                     <option>Full</option>
                   </select>
-                </div>
+              </div>
                 <div style="margin-bottom: 8px;">
                   <label style="display: flex; align-items: center;">
                     <input type="checkbox" style="margin-right: 6px;">
@@ -3393,13 +3678,13 @@ ${pageText}
                 '<div style="font-weight:700;font-size:12px;margin-bottom:6px">Load Balance</div>' +
                 '<div style="font-size:11px;opacity:.9;margin-bottom:8px">Choose a quick top-up amount to add credits to your account.</div>' +
                 '<div style="display:flex;gap:8px;flex-wrap:wrap">' +
-                  '<button style="flex:1;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.3);color:#fff;border-radius:6px;padding:8px 10px;font-size:11px;cursor:pointer">$5</button>' +
-                  '<button style="flex:1;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.3);color:#fff;border-radius:6px;padding:8px 10px;font-size:11px;cursor:pointer">$10</button>' +
-                  '<button style="flex:1;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.3);color:#fff;border-radius:6px;padding:8px 10px;font-size:11px;cursor:pointer">$25</button>' +
-                  '<button style="flex:1;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.3);color:#fff;border-radius:6px;padding:8px 10px;font-size:11px;cursor:pointer">$50</button>' +
+                  '<button class="quick-topup" data-amount="10" style="flex:1;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.3);color:#fff;border-radius:6px;padding:8px 10px;font-size:11px;cursor:pointer">$10</button>' +
+                  '<button class="quick-topup" data-amount="25" style="flex:1;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.3);color:#fff;border-radius:6px;padding:8px 10px;font-size:11px;cursor:pointer">$25</button>' +
+                  '<button class="quick-topup" data-amount="50" style="flex:1;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.3);color:#fff;border-radius:6px;padding:8px 10px;font-size:11px;cursor:pointer">$50</button>' +
+                  '<button class="quick-topup" data-amount="100" style="flex:1;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.3);color:#fff;border-radius:6px;padding:8px 10px;font-size:11px;cursor:pointer">$100</button>' +
                 '</div>' +
                 '<div style="margin-top:8px;display:flex;gap:8px;align-items:center">' +
-                  '<input id="custom-topup" placeholder="Custom amount" style="flex:1;background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.25);color:#fff;padding:8px;border-radius:6px;font-size:11px" />' +
+                  '<input id="custom-topup" type="number" min="10" step="1" placeholder="Custom amount (min $10)" style="flex:1;background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.25);color:#fff;padding:8px;border-radius:6px;font-size:11px" />' +
                   '<button id="topup-now" style="background:#22c55e;border:0;color:#0b1e12;border-radius:6px;padding:8px 12px;font-size:11px;font-weight:700;cursor:pointer">Top up</button>' +
                 '</div>' +
               '</div>' +
@@ -3428,7 +3713,7 @@ ${pageText}
               '<div style="font-size:18px">💡</div>' +
               '<div style="font-size:12px;line-height:1.55">Using local LLMs is free. You can optionally load balance to use powerful cloud AI on demand.</div>' +
             '</div>' +
-            '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px">' +
+            '<div id="agents-grid" style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px">' +
               // Basic
               '<div style="background:rgba(0,0,0,.12);padding:12px;border-radius:8px;border:1px solid rgba(255,255,255,.18);display:flex;flex-direction:column;height:100%">' +
                 '<div style="font-weight:800;font-size:12px;margin-bottom:6px">Basic</div>' +
@@ -3445,7 +3730,7 @@ ${pageText}
               // Private
               '<div style="background:rgba(0,0,0,.12);padding:12px;border-radius:8px;border:1px solid rgba(255,255,255,.18);display:flex;flex-direction:column;height:100%">' +
                 '<div style="font-weight:800;font-size:12px;margin-bottom:6px">Pro (Private)</div>' +
-                '<div style="font-size:20px;font-weight:800;margin-bottom:6px">$19.95<span style="font-size:11px;opacity:.85">/year</span></div>' +
+                '<div style="font-size:20px;font-weight:800;margin-bottom:6px">$29.95<span style="font-size:11px;opacity:.85">/year</span></div>' +
                 '<ul style="margin:0 0 8px 16px;padding:0;font-size:11px;line-height:1.6;flex:1">' +
                   '<li>Unlimited WR Codes</li>' +
                   '<li>WR Code generation (non-commercial use)</li>' +
@@ -3508,6 +3793,28 @@ ${pageText}
       const closeBtn = b.querySelector('#billing-close') as HTMLElement | null
       closeBtn?.addEventListener('click', () => m.remove())
       m.addEventListener('click', (e) => { if (e.target === m) m.remove() })
+
+      // Wire Pay-as-you-go quick topups and custom amount validation
+      const quickButtons = b.querySelectorAll('.quick-topup')
+      const customInput = b.querySelector('#custom-topup') as HTMLInputElement | null
+      const topupNow = b.querySelector('#topup-now') as HTMLButtonElement | null
+      quickButtons.forEach(btn => {
+        btn.addEventListener('click', () => {
+          const amt = (btn as HTMLElement).getAttribute('data-amount') || '10'
+          if (customInput) customInput.value = amt
+        })
+      })
+      if (topupNow) {
+        topupNow.addEventListener('click', () => {
+          const value = parseFloat((customInput?.value || '0').replace(/[^0-9.]/g, ''))
+          if (isNaN(value) || value < 10) {
+            alert('Minimum top-up is $10')
+            if (customInput) customInput.focus()
+            return
+          }
+          alert(`✅ Top-up initialized: $${value.toFixed(2)}`)
+        })
+      }
 
       // Wire Publisher pricing toggle if present
       const priceEl = b.querySelector('#publisher-price') as HTMLElement | null
@@ -3596,6 +3903,8 @@ ${pageText}
       })
     }
   }
+
+  // Legacy code continues below
 
   function openDisplayPortsConfig(parentOverlay) {
     // Create display ports configuration dialog
