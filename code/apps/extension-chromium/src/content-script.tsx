@@ -349,7 +349,6 @@ function initializeExtension() {
     } else {
       console.log('🔧 DEBUG: No saved tab data found')
     }
-    
     // Also try to load agent boxes from URL-based storage (for persistence across page reloads)
     const currentUrl = window.location.href.split('?')[0]
     const urlKey = `optimando-agentboxes-${btoa(currentUrl).substring(0, 20)}`
@@ -699,7 +698,6 @@ function initializeExtension() {
       }
     })
   }
-
   function openEditAgentBoxDialog(agentId: string) {
     const colors = ['#4CAF50', '#2196F3', '#FF9800', '#9C27B0', '#F44336', '#E91E63', '#9E9E9E', '#795548', '#607D8B', '#FF5722']
     
@@ -1033,7 +1031,6 @@ function initializeExtension() {
       })
     })
   }
-
   function attachEditButtonListeners() {
     document.querySelectorAll('.edit-agent-box').forEach(btn => {
       btn.addEventListener('click', (e) => {
@@ -1380,7 +1377,6 @@ function initializeExtension() {
 
 
   `
-
   // If this tab is a Hybrid Master, render a right-side agent panel with only Add button
   if (isHybridMaster) {
     // Align right panel width with left panel and persist
@@ -1943,20 +1939,7 @@ function initializeExtension() {
                 <button class="lightbox-btn" data-agent="summarize" data-type="settings" style="background: rgba(255,255,255,0.2); border: none; color: white; padding: 4px; border-radius: 3px; cursor: pointer; font-size: 8px;" title="Settings">⚙️</button>
               </div>
               
-              <!-- Output Selection -->
-              <select style="width: 100%; margin-top: 8px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 2px; border-radius: 3px; font-size: 8px;">
-                <option value="1" selected>#1 Display Port</option>
-                <option value="2">#2 Display Port</option>
-                <option value="3">#3 Display Port</option>
-                <option value="4">#4 Display Port</option>
-                <option value="5">#5 Display Port</option>
-                <option value="6">#6 Display Port</option>
-                <option value="7">#7 Display Port</option>
-                <option value="8">#8 Display Port</option>
-                <option value="9">#9 Display Port</option>
-                <option value="10">#10 Display Port</option>
-                <option value="monitor">Monitor Output</option>
-              </select>
+              
             </div>
 
             <!-- Agent 2: Research -->
@@ -1971,19 +1954,7 @@ function initializeExtension() {
                 <button class="lightbox-btn" data-agent="research" data-type="settings" style="background: rgba(255,255,255,0.2); border: none; color: white; padding: 4px; border-radius: 3px; cursor: pointer; font-size: 8px;" title="Settings">⚙️</button>
               </div>
               
-              <select style="width: 100%; margin-top: 8px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 2px; border-radius: 3px; font-size: 8px;">
-                <option value="1">#1 Display Port</option>
-                <option value="2" selected>#2 Display Port</option>
-                <option value="3">#3 Display Port</option>
-                <option value="4">#4 Display Port</option>
-                <option value="5">#5 Display Port</option>
-                <option value="6">#6 Display Port</option>
-                <option value="7">#7 Display Port</option>
-                <option value="8">#8 Display Port</option>
-                <option value="9">#9 Display Port</option>
-                <option value="10">#10 Display Port</option>
-                <option value="monitor">Monitor Output</option>
-              </select>
+              
             </div>
             <!-- Agent 3: Analyze -->
             <div style="background: rgba(255,255,255,0.1); padding: 15px; border-radius: 8px; text-align: center; position: relative;">
@@ -1997,19 +1968,7 @@ function initializeExtension() {
                 <button class="lightbox-btn" data-agent="analyze" data-type="settings" style="background: rgba(255,255,255,0.2); border: none; color: white; padding: 4px; border-radius: 3px; cursor: pointer; font-size: 8px;" title="Settings">⚙️</button>
               </div>
               
-              <select style="width: 100%; margin-top: 8px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 2px; border-radius: 3px; font-size: 8px;">
-                <option value="1">#1 Display Port</option>
-                <option value="2">#2 Display Port</option>
-                <option value="3" selected>#3 Display Port</option>
-                <option value="4">#4 Display Port</option>
-                <option value="5">#5 Display Port</option>
-                <option value="6">#6 Display Port</option>
-                <option value="7">#7 Display Port</option>
-                <option value="8">#8 Display Port</option>
-                <option value="9">#9 Display Port</option>
-                <option value="10">#10 Display Port</option>
-                <option value="monitor">Monitor Output</option>
-              </select>
+              
             </div>
 
             <!-- Agent 4: Generate -->
@@ -2024,19 +1983,7 @@ function initializeExtension() {
                 <button class="lightbox-btn" data-agent="generate" data-type="settings" style="background: rgba(255,255,255,0.2); border: none; color: white; padding: 4px; border-radius: 3px; cursor: pointer; font-size: 8px;" title="Settings">⚙️</button>
               </div>
               
-              <select style="width: 100%; margin-top: 8px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 2px; border-radius: 3px; font-size: 8px;">
-                <option value="1">#1 Display Port</option>
-                <option value="2">#2 Display Port</option>
-                <option value="3">#3 Display Port</option>
-                <option value="4" selected>#4 Display Port</option>
-                <option value="5">#5 Display Port</option>
-                <option value="6">#6 Display Port</option>
-                <option value="7">#7 Display Port</option>
-                <option value="8">#8 Display Port</option>
-                <option value="9">#9 Display Port</option>
-                <option value="10">#10 Display Port</option>
-                <option value="monitor">Monitor Output</option>
-              </select>
+              
             </div>
 
             <!-- Agent 5: Coordinate -->
@@ -2051,19 +1998,7 @@ function initializeExtension() {
                 <button class="lightbox-btn" data-agent="coordinate" data-type="settings" style="background: rgba(255,255,255,0.2); border: none; color: white; padding: 4px; border-radius: 3px; cursor: pointer; font-size: 8px;" title="Settings">⚙️</button>
               </div>
               
-              <select style="width: 100%; margin-top: 8px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 2px; border-radius: 3px; font-size: 8px;">
-                <option value="1">#1 Display Port</option>
-                <option value="2">#2 Display Port</option>
-                <option value="3">#3 Display Port</option>
-                <option value="4">#4 Display Port</option>
-                <option value="5" selected>#5 Display Port</option>
-                <option value="6">#6 Display Port</option>
-                <option value="7">#7 Display Port</option>
-                <option value="8">#8 Display Port</option>
-                <option value="9">#9 Display Port</option>
-                <option value="10">#10 Display Port</option>
-                <option value="monitor">Monitor Output</option>
-              </select>
+              
             </div>
           </div>
 
@@ -2107,7 +2042,6 @@ function initializeExtension() {
       openAddNewAgentDialog(overlay)
     })
   }
-
   function openAgentConfigDialog(agentName, type, parentOverlay) {
     // Create agent config dialog
     const configOverlay = document.createElement('div')
@@ -2195,25 +2129,6 @@ function initializeExtension() {
       content = `
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
           <div style="background: rgba(255,255,255,0.1); padding: 20px; border-radius: 8px;">
-            <label style="display: block; margin-bottom: 10px; font-size: 14px; color: #FFD700; font-weight: bold;">🖥️ Display Port:</label>
-            <select id="agent-display-port" style="width: 100%; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 12px; border-radius: 6px; font-size: 12px;">
-              <option value="1" ${(localStorage.getItem(storageKey + '_display') || '1') === '1' ? 'selected' : ''}>Display Port #1</option>
-              <option value="2" ${localStorage.getItem(storageKey + '_display') === '2' ? 'selected' : ''}>Display Port #2</option>
-              <option value="3" ${localStorage.getItem(storageKey + '_display') === '3' ? 'selected' : ''}>Display Port #3</option>
-              <option value="4" ${localStorage.getItem(storageKey + '_display') === '4' ? 'selected' : ''}>Display Port #4</option>
-              <option value="5" ${localStorage.getItem(storageKey + '_display') === '5' ? 'selected' : ''}>Display Port #5</option>
-              <option value="6" ${localStorage.getItem(storageKey + '_display') === '6' ? 'selected' : ''}>Display Port #6</option>
-              <option value="7" ${localStorage.getItem(storageKey + '_display') === '7' ? 'selected' : ''}>Display Port #7</option>
-              <option value="8" ${localStorage.getItem(storageKey + '_display') === '8' ? 'selected' : ''}>Display Port #8</option>
-              <option value="9" ${localStorage.getItem(storageKey + '_display') === '9' ? 'selected' : ''}>Display Port #9</option>
-              <option value="10" ${localStorage.getItem(storageKey + '_display') === '10' ? 'selected' : ''}>Display Port #10</option>
-              <option value="monitor" ${localStorage.getItem(storageKey + '_display') === 'monitor' ? 'selected' : ''}>Monitor Output</option>
-              <option value="sidebar" ${localStorage.getItem(storageKey + '_display') === 'sidebar' ? 'selected' : ''}>Right Sidebar</option>
-              <option value="overlay" ${localStorage.getItem(storageKey + '_display') === 'overlay' ? 'selected' : ''}>Overlay Window</option>
-            </select>
-          </div>
-          
-          <div style="background: rgba(255,255,255,0.1); padding: 20px; border-radius: 8px;">
             <label style="display: block; margin-bottom: 10px; font-size: 14px; color: #FFD700; font-weight: bold;">⚡ Priority Level:</label>
             <select id="agent-priority" style="width: 100%; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 12px; border-radius: 6px; font-size: 12px;">
               <option value="low">Low</option>
@@ -2279,7 +2194,6 @@ function initializeExtension() {
         localStorage.setItem(storageKey + '_source', document.getElementById('agent-context-source').value)
         localStorage.setItem(storageKey + '_persist', document.getElementById('agent-persist-memory').checked)
       } else if (type === 'settings') {
-        localStorage.setItem(storageKey + '_display', document.getElementById('agent-display-port').value)
         localStorage.setItem(storageKey + '_priority', document.getElementById('agent-priority').value)
         localStorage.setItem(storageKey + '_autostart', document.getElementById('agent-auto-start').checked)
         localStorage.setItem(storageKey + '_autorespond', document.getElementById('agent-auto-respond').checked)
@@ -2356,24 +2270,6 @@ function initializeExtension() {
               </div>
               <input type="hidden" id="selected-icon" value="🔧">
             </div>
-            
-            <div style="background: rgba(255,255,255,0.1); padding: 20px; border-radius: 8px;">
-              <label style="display: block; margin-bottom: 10px; font-size: 14px; color: #FFD700; font-weight: bold;">🖥️ Default Display Port:</label>
-              <select id="new-agent-display-port" style="width: 100%; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 12px; border-radius: 6px; font-size: 12px;">
-                <option value="1">#1 Display Port</option>
-                <option value="2">#2 Display Port</option>
-                <option value="3">#3 Display Port</option>
-                <option value="4">#4 Display Port</option>
-                <option value="5">#5 Display Port</option>
-                <option value="6" selected>#6 Display Port</option>
-                <option value="7">#7 Display Port</option>
-                <option value="8">#8 Display Port</option>
-                <option value="9">#9 Display Port</option>
-                <option value="10">#10 Display Port</option>
-                <option value="monitor">Monitor Output</option>
-              </select>
-            </div>
-            
           </div>
         </div>
         <div style="padding: 20px; border-top: 1px solid rgba(255,255,255,0.3); display: flex; justify-content: flex-end; gap: 15px; background: rgba(255,255,255,0.05);">
@@ -2405,7 +2301,6 @@ function initializeExtension() {
     document.getElementById('add-agent-create').onclick = () => {
       const agentName = document.getElementById('new-agent-name').value.trim()
       const agentIcon = document.getElementById('selected-icon').value
-      const displayPort = document.getElementById('new-agent-display-port').value
       
       if (!agentName) {
         alert('Please enter an agent name')
@@ -2439,11 +2334,10 @@ function initializeExtension() {
       localStorage.setItem(`custom_agent_${agentKey}`, JSON.stringify({
         name: agentName,
         icon: agentIcon,
-        displayPort: displayPort,
         created: new Date().toISOString()
       }))
       
-      console.log(`Created new agent: ${agentName} (${agentIcon}) -> Display Port ${displayPort}`)
+      console.log(`Created new agent: ${agentName} (${agentIcon})`)
       
       // Close parent overlay and reopen to show new agent
       parentOverlay.remove()
@@ -2454,7 +2348,6 @@ function initializeExtension() {
     
     configOverlay.onclick = (e) => { if (e.target === configOverlay) configOverlay.remove() }
   }
-
   function openWhitelistLightbox() {
     // Create whitelist lightbox
     const overlay = document.createElement('div')
@@ -2794,7 +2687,6 @@ URL: ${pageUrl}
 
 Content:
 ${pageText}
-
 [Scraped on ${new Date().toLocaleString()}]`
       
       const textarea = document.getElementById('user-context-text') as HTMLTextAreaElement
@@ -3265,29 +3157,6 @@ ${pageText}
               </div>
             </div>
 
-            <!-- Display Ports -->
-            <div style="background: rgba(255,255,255,0.1); padding: 12px; border-radius: 6px; grid-column: 3 / 4; height: 100%; display: flex; flex-direction: column;">
-              <h4 style="margin: 0 0 10px 0; font-size: 12px; color: #FFD700;">🖥️ Display Ports</h4>
-              <div style="font-size: 10px;">
-                <div style="margin-bottom: 8px;">
-                  <label style="display: block; margin-bottom: 3px;">Monitor Output:</label>
-                  <select style="width: 100%; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 3px; border-radius: 2px; font-size: 9px;">
-                    <option selected>Electron App</option>
-                    <option>Browser Window</option>
-                    <option>Popup Window</option>
-                  </select>
-                </div>
-                <div style="margin-bottom: 8px;">
-                  <label style="display: block; margin-bottom: 3px;">API Endpoint:</label>
-                  <input type="text" id="api-endpoint" value="localhost:51247" style="width: 100%; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 3px; border-radius: 2px; font-size: 9px;">
-                </div>
-                <div style="margin-bottom: 8px;">
-                  <label style="display: block; margin-bottom: 3px;">Display Port Configuration:</label>
-                  <button id="configure-display-ports" style="width: 100%; padding: 6px; background: #2196F3; border: none; color: white; border-radius: 3px; cursor: pointer; font-size: 9px;">🖥️ Configure Display Ports</button>
-                </div>
-              </div>
-            </div>
-
             <!-- System Settings -->
             <div style="background: rgba(255,255,255,0.1); padding: 12px; border-radius: 6px;">
               <h4 style="margin: 0 0 10px 0; font-size: 12px; color: #FFD700;">⚙️ System</h4>
@@ -3369,7 +3238,7 @@ ${pageText}
                     <option>Verbose</option>
                     <option>Full</option>
                   </select>
-              </div>
+                </div>
                 <div style="margin-bottom: 8px;">
                   <label style="display: flex; align-items: center;">
                     <input type="checkbox" style="margin-right: 6px;">
@@ -4092,7 +3961,6 @@ ${pageText}
       overlay.remove()
       openHybridMasterSelectModal()
     }
-    
     // Display Grid Browser configuration
     document.getElementById('display-grid-browser-config').onclick = () => {
       overlay.remove()
@@ -4439,7 +4307,6 @@ ${pageText}
           window.open(base.toString(), `hybrid-master-${i}`)
         }
       }
-
       // Mirror hybrid placeholders into session history with URLs
       try {
         chrome.storage.local.get(null, (allData) => {
@@ -4755,7 +4622,6 @@ ${pageText}
         }
       }
     })
-    
     // Save & Open button handler
     document.getElementById('save-open-grids').onclick = () => {
       const selectedLayouts = checkboxes
@@ -5393,7 +5259,6 @@ ${pageText}
     
     const savedSlots: any = (entry && (entry as any).config && (entry as any).config.slots) ? (entry as any).config.slots : {}
     console.log('🔍 DEBUG: createGridHTML - savedSlots:', savedSlots)
-    
     // Create slots HTML
     let slotsHTML = ''
     for (let i = 1; i <= config.slots; i++) {
@@ -6093,7 +5958,6 @@ ${pageText}
                 window.location.href = targetUrl
               }
             }
-            
             console.log('🔄 Session restore initiated with', sessionData.helperTabs?.urls?.length || 0, 'helper tabs:', sessionData.tabName)
             
             // Show context restoration notification if context exists
@@ -6416,7 +6280,6 @@ ${pageText}
           </div>
         `
       }).join('')
-      
       overlay.innerHTML = `
         <div style="background: linear-gradient(135deg, #1f2937 0%, #111827 100%); border-radius: 16px; width: 90vw; max-width: 900px; max-height: 85vh; overflow: hidden; color: white; box-shadow: 0 20px 40px rgba(0,0,0,0.4); display: flex; flex-direction: column;">
           <div style="padding: 20px; border-bottom: 1px solid rgba(255,255,255,0.2); display: flex; justify-content: space-between; align-items: center;">
@@ -7109,7 +6972,6 @@ ${pageText}
   }, 100)
 
 }
-
 // Check for grid config from Electron app via file system bridge
 function checkForElectronGridConfig() {
   try {

@@ -3,10 +3,17 @@ node_modules/
 .pnpm-debug.log
 pnpm-debug.log*
 
-# Vite / Build Artefakte
+# Build artifacts
 dist/
+release/
+win-unpacked/
 .vite/
 *.local
+*.exe
+*.dll
+*.pak
+*.asar
+*.blockmap
 
 # Logs
 npm-debug.log*
