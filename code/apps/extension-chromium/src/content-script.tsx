@@ -813,7 +813,8 @@ function initializeExtension() {
           <div>
             <label style="display: block; margin-bottom: 8px; color: #555; font-weight: bold;">Provider:</label>
             <select id="agent-provider" style="width: 100%; padding: 10px; border: 2px solid #ddd; border-radius: 6px; font-size: 14px; background: white;">
-              <option value="OpenAI" selected>OpenAI</option>
+              <option value="" selected disabled>Select LLM</option>
+              <option value="OpenAI">OpenAI</option>
               <option value="Claude">Claude</option>
               <option value="Gemini">Gemini</option>
               <option value="Grok">Grok</option>
@@ -821,7 +822,9 @@ function initializeExtension() {
           </div>
           <div>
             <label style="display: block; margin-bottom: 8px; color: #555; font-weight: bold;">Model:</label>
-            <select id="agent-model" style="width: 100%; padding: 10px; border: 2px solid #ddd; border-radius: 6px; font-size: 14px; background: white;"></select>
+            <select id="agent-model" style="width: 100%; padding: 10px; border: 2px solid #ddd; border-radius: 6px; font-size: 14px; background: white;" disabled>
+              <option value="" selected disabled>Select provider first</option>
+            </select>
           </div>
         </div>
         
@@ -845,25 +848,29 @@ function initializeExtension() {
     
     let selectedColor = colors[0]
     const getPlaceholderModels = (provider: string) => {
-      const agentOptions = ['agent1', 'agent2', 'agent3', 'agent4', 'agent5', 'agent6', 'agent7', 'agent8', 'agent9', 'agent10']
-      
       switch ((provider || '').toLowerCase()) {
-        case 'openai': return ['auto', ...agentOptions, 'gpt-4o-mini', 'gpt-4o']
-        case 'claude': return ['auto', ...agentOptions, 'claude-3-5-sonnet', 'claude-3-opus']
-        case 'gemini': return ['auto', ...agentOptions, 'gemini-1.5-flash', 'gemini-1.5-pro']
-        case 'grok': return ['auto', ...agentOptions, 'grok-2-mini', 'grok-2']
-        default: return ['auto', ...agentOptions]
+        case 'openai': return ['auto', 'gpt-4o-mini', 'gpt-4o']
+        case 'claude': return ['auto', 'claude-3-5-sonnet', 'claude-3-opus']
+        case 'gemini': return ['auto', 'gemini-1.5-flash', 'gemini-1.5-pro']
+        case 'grok': return ['auto', 'grok-2-mini', 'grok-2']
+        default: return ['auto']
       }
     }
     const providerSelect = overlay.querySelector('#agent-provider') as HTMLSelectElement | null
     const modelSelect = overlay.querySelector('#agent-model') as HTMLSelectElement | null
     const refreshModels = () => {
       if (!modelSelect) return
-      const models = getPlaceholderModels(providerSelect?.value || 'OpenAI')
+      const provider = providerSelect?.value || ''
+      if (!provider) {
+        modelSelect.innerHTML = '<option value="" selected disabled>Select provider first</option>'
+        modelSelect.disabled = true
+        return
+      }
+      const models = getPlaceholderModels(provider)
       modelSelect.innerHTML = models.map(m => `<option value="${m}">${m}</option>`).join('')
+      modelSelect.disabled = false
       modelSelect.value = models[0]
     }
-    refreshModels()
     providerSelect?.addEventListener('change', refreshModels)
     
     // Color selection
@@ -888,21 +895,15 @@ function initializeExtension() {
       
       const number = parseInt(numberInput.value) || nextNumber
       const title = titleInput.value.trim() || `Agent ${number}`
-      const provider = providerInput?.value || 'OpenAI'
+      const provider = providerInput?.value || ''
       const model = modelInput?.value || 'auto'
       
       // Create unique ID
       const id = `custom-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
       const outputId = `${id}-output`
       
-      // Extract agent ID from model if it's an agent selection
-      let agentId = `custom-${number}`
-      if (model && model.includes('agent')) {
-        const match = model.match(/agent(\d+)/)
-        if (match) {
-          agentId = `agent${match[1]}`
-        }
-      }
+      // Allocate agent by the chosen Agent Number
+      let agentId = `agent${number}`
       
       const newBox = {
         id: id,
@@ -998,6 +999,7 @@ function initializeExtension() {
           <div>
             <label style="display: block; margin-bottom: 8px; color: #555; font-weight: bold;">Provider:</label>
             <select id="edit-agent-provider" style="width: 100%; padding: 10px; border: 2px solid #ddd; border-radius: 6px; font-size: 14px; background: white;">
+              <option value="" ${!agentBox.provider ? 'selected' : ''} disabled>Select LLM</option>
               <option value="OpenAI" ${agentBox.provider === 'OpenAI' ? 'selected' : ''}>OpenAI</option>
               <option value="Claude" ${agentBox.provider === 'Claude' ? 'selected' : ''}>Claude</option>
               <option value="Gemini" ${agentBox.provider === 'Gemini' ? 'selected' : ''}>Gemini</option>
@@ -1006,7 +1008,9 @@ function initializeExtension() {
           </div>
           <div>
             <label style="display: block; margin-bottom: 8px; color: #555; font-weight: bold;">Model:</label>
-            <select id="edit-agent-model" style="width: 100%; padding: 10px; border: 2px solid #ddd; border-radius: 6px; font-size: 14px; background: white;"></select>
+            <select id="edit-agent-model" style="width: 100%; padding: 10px; border: 2px solid #ddd; border-radius: 6px; font-size: 14px; background: white;" ${!agentBox.provider ? 'disabled' : ''}>
+              ${!agentBox.provider ? '<option value="" selected disabled>Select provider first</option>' : ''}
+            </select>
           </div>
         </div>
         
@@ -1044,26 +1048,28 @@ function initializeExtension() {
     })
     // Provider/Model with agent options
     const getPlaceholderModels = (provider: string) => {
-      const agentOptions = ['agent1', 'agent2', 'agent3', 'agent4', 'agent5', 'agent6', 'agent7', 'agent8', 'agent9', 'agent10']
-      
       switch ((provider || '').toLowerCase()) {
-        case 'openai': return ['auto', ...agentOptions, 'gpt-4o-mini', 'gpt-4o']
-        case 'claude': return ['auto', ...agentOptions, 'claude-3-5-sonnet', 'claude-3-opus']
-        case 'gemini': return ['auto', ...agentOptions, 'gemini-1.5-flash', 'gemini-1.5-pro']
-        case 'grok': return ['auto', ...agentOptions, 'grok-2-mini', 'grok-2']
-        default: return ['auto', ...agentOptions]
+        case 'openai': return ['auto', 'gpt-4o-mini', 'gpt-4o']
+        case 'claude': return ['auto', 'claude-3-5-sonnet', 'claude-3-opus']
+        case 'gemini': return ['auto', 'gemini-1.5-flash', 'gemini-1.5-pro']
+        case 'grok': return ['auto', 'grok-2-mini', 'grok-2']
+        default: return ['auto']
       }
     }
     const providerSelect = overlay.querySelector('#edit-agent-provider') as HTMLSelectElement | null
     const modelSelect = overlay.querySelector('#edit-agent-model') as HTMLSelectElement | null
     const refreshModels = () => {
       if (!modelSelect) return
-      const models = getPlaceholderModels(providerSelect?.value || agentBox.provider || 'OpenAI')
+      const provider = providerSelect?.value || agentBox.provider || ''
+      if (!provider) {
+        modelSelect.innerHTML = '<option value="" selected disabled>Select provider first</option>'
+        modelSelect.disabled = true
+        return
+      }
+      const models = getPlaceholderModels(provider)
       modelSelect.innerHTML = models.map(m => `<option value="${m}">${m}</option>`).join('')
-      // Prefer current agentId if present, else model, else auto
-      const preferred = (agentBox.agentId && models.includes(agentBox.agentId))
-        ? agentBox.agentId
-        : (agentBox.model && models.includes(agentBox.model) ? agentBox.model : models[0])
+      modelSelect.disabled = false
+      const preferred = (agentBox.model && models.includes(agentBox.model)) ? agentBox.model : models[0]
       modelSelect.value = preferred
     }
     refreshModels()
