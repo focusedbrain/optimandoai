@@ -1887,9 +1887,17 @@ function initializeExtension() {
     // Create agents lightbox
     const overlay = document.createElement('div')
     overlay.id = 'agents-lightbox'
+    const safeGradient = (() => {
+      try {
+        return getCurrentGradient()
+      } catch {
+        return 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)'
+      }
+    })()
+
     overlay.style.cssText = `
       position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
-      background: ${themeVars.gradient}; z-index: 2147483649;
+      background: ${safeGradient}; z-index: 2147483649;
       display: flex; align-items: center; justify-content: center;
     `
     
