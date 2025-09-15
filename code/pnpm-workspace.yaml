@@ -1,2 +1,4 @@
-packages:
+﻿packages:
+  - "apps/*"
   - "packages/*"
+  - "!**/node_modules/**"

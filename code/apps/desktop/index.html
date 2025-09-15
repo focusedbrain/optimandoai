@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Optimando Desktop App</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            min-height: 100vh;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            text-align: center;
+        }
+        h1 {
+            font-size: 3em;
+            margin-bottom: 20px;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+        }
+        .card {
+            background: rgba(255,255,255,0.1);
+            backdrop-filter: blur(10px);
+            border-radius: 15px;
+            padding: 30px;
+            margin: 20px 0;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.1);
+        }
+        .status {
+            margin-top: 20px;
+            padding: 15px;
+            background: rgba(0,255,0,0.2);
+            border-radius: 10px;
+            border: 1px solid rgba(0,255,0,0.3);
+        }
+        .info {
+            background: rgba(255,255,255,0.1);
+            border-radius: 10px;
+            padding: 20px;
+            margin: 20px 0;
+        }
+        .code {
+            background: rgba(0,0,0,0.3);
+            padding: 10px;
+            border-radius: 5px;
+            font-family: monospace;
+            margin: 10px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🚀 Optimando Desktop App</h1>
+        
+        <div class="card">
+            <h2>✅ WebSocket-Server läuft!</h2>
+            <p>Der WebSocket-Server läuft automatisch auf Port 51247.</p>
+            <p>Dein Browser-Addon kann sich jetzt verbinden!</p>
+        </div>
+
+        <div class="status">
+            <h3>🟢 Status: Online</h3>
+            <p>WebSocket-Server läuft auf Port 51247</p>
+            <p>Browser-Addon kann sich automatisch verbinden</p>
+        </div>
+
+        <div class="info">
+            <h3>📱 Browser-Addon verwenden:</h3>
+            <p>1. <strong>Addon in Chrome installieren</strong></p>
+            <p>2. <strong>Addon öffnen</strong> - es verbindet sich automatisch</p>
+            <p>3. <strong>Status "Verbunden"</strong> sollte angezeigt werden</p>
+        </div>
+
+        <div class="info">
+            <h3>🔧 Technische Details:</h3>
+            <p><strong>Port:</strong> <span class="code">51247</span></p>
+            <p><strong>Protokoll:</strong> <span class="code">WebSocket</span></p>
+            <p><strong>Status:</strong> <span class="code">Aktiv</span></p>
+        </div>
+
+        <div class="card">
+            <h3>🎯 Was passiert:</h3>
+            <p>• WebSocket-Server startet automatisch mit der App</p>
+            <p>• Browser-Addon verbindet sich automatisch</p>
+            <p>• Schnelle, direkte Kommunikation zwischen Browser und Desktop</p>
+            <p>• Kein Terminal, keine Befehle nötig!</p>
+        </div>
+    </div>
+</body>
+</html>

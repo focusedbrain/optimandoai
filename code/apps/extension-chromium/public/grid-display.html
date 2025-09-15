@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Grid Display</title>
+    <style>
+        * { 
+            margin: 0; 
+            padding: 0; 
+            box-sizing: border-box; 
+        }
+        
+        body { 
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif;
+            background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+            color: white;
+            height: 100vh;
+            overflow: hidden;
+        }
+        
+        .grid { 
+            width: 100vw; 
+            height: 100vh; 
+            display: grid; 
+            gap: 4px; 
+            padding: 4px;
+        }
+        
+        .slot {
+            background: rgba(255,255,255,0.1);
+            border: 2px solid rgba(255,255,255,0.3);
+            border-radius: 8px;
+            display: flex;
+            flex-direction: column;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .slot-header {
+            background: rgba(0,0,0,0.3);
+            padding: 8px;
+            font-size: 12px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid rgba(255,255,255,0.2);
+        }
+        
+        .slot-id {
+            background: transparent;
+            border: 1px solid rgba(255,255,255,0.3);
+            color: white;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            width: 60px;
+            font-weight: bold;
+        }
+        
+        .slot-id:focus {
+            outline: none;
+            border-color: #4CAF50;
+            box-shadow: 0 0 5px rgba(76, 175, 80, 0.5);
+        }
+        
+        .slot-content {
+            flex: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 18px;
+            opacity: 0.8;
+            text-align: center;
+            padding: 20px;
+        }
+        
+        /* Grid Layout Classes */
+        .grid-2 { 
+            grid-template-columns: 2fr 1fr; 
+        }
+        
+        .grid-3 { 
+            grid-template-columns: 2fr 1fr 1fr; 
+        }
+        
+        .grid-4 { 
+            grid-template-columns: 1fr 1fr; 
+            grid-template-rows: 1fr 1fr; 
+        }
+        
+        .grid-5 { 
+            grid-template-columns: 2fr 1fr 1fr; 
+            grid-template-rows: 1fr 1fr; 
+        }
+        
+        .grid-5 .slot:nth-child(1) { 
+            grid-row: span 2; 
+        }
+        
+        .grid-6 { 
+            grid-template-columns: 1fr 1fr 1fr; 
+            grid-template-rows: 1fr 1fr; 
+        }
+        
+        .grid-dashboard { 
+            grid-template-columns: 3fr 1fr; 
+            grid-template-rows: 1fr 1fr 1fr; 
+        }
+        
+        .grid-dashboard .slot:nth-child(1) { 
+            grid-row: span 3; 
+        }
+    </style>
+</head>
+<body>
+    <div id="grid-root"></div>
+    
+    <script>
+        // Get URL parameters
+        const urlParams = new URLSearchParams(window.location.search);
+        const layout = urlParams.get('layout') || '4-slot';
+        const sessionId = urlParams.get('session') || 'default';
+        
+        console.log('🎯 Grid Display starting:', { layout, sessionId });
+        
+        // Layout configurations
+        const layouts = {
+            '2-slot': { slots: 2, class: 'grid-2' },
+            '3-slot': { slots: 3, class: 'grid-3' },
+            '4-slot': { slots: 4, class: 'grid-4' },
+            '5-slot': { slots: 5, class: 'grid-5' },
+            '6-slot': { slots: 6, class: 'grid-6' },
+            'dashboard': { slots: 4, class: 'grid-dashboard' }
+        };
+        
+        const config = layouts[layout] || layouts['4-slot'];
+        
+        // Create grid container
+        const container = document.getElementById('grid-root');
+        const gridDiv = document.createElement('div');
+        gridDiv.className = 'grid ' + config.class;
+        
+        // Create slots
+        for (let i = 1; i <= config.slots; i++) {
+            const slotNum = i + 5; // Start from #6
+            
+            const slot = document.createElement('div');
+            slot.className = 'slot';
+            
+            slot.innerHTML = 
+                '<div class="slot-header">' +
+                    '<input type="text" class="slot-id" value="#' + slotNum + '">' +
+                    '<select style="background: rgba(0,0,0,0.3); color: white; border: 1px solid rgba(255,255,255,0.3); padding: 2px; border-radius: 3px; font-size: 10px;">' +
+                        '<option value="">Agent</option>' +
+                        '<option value="1">Agent 1</option>' +
+                        '<option value="2">Agent 2</option>' +
+                        '<option value="3">Agent 3</option>' +
+                        '<option value="4">Agent 4</option>' +
+                        '<option value="5">Agent 5</option>' +
+                    '</select>' +
+                '</div>' +
+                '<div class="slot-content">' +
+                    '<div>Display Port ' + slotNum + '<br><small>AI Output Area</small></div>' +
+                '</div>';
+            
+            gridDiv.appendChild(slot);
+        }
+        
+        container.appendChild(gridDiv);
+        
+        // Update document title
+        document.title = 'AI Grid - ' + layout.toUpperCase();
+        
+        console.log('✅ Grid created successfully:', layout, 'with', config.slots, 'slots');
+    </script>
+</body>
+</html>

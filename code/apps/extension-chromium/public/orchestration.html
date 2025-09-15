@@ -1,0 +1,663 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Agent Orchestrierung - Optimando AI</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            min-height: 100vh;
+            overflow-x: hidden;
+        }
+
+        .header {
+            background: rgba(0,0,0,0.2);
+            padding: 20px;
+            text-align: center;
+            border-bottom: 1px solid rgba(255,255,255,0.2);
+        }
+
+        .header h1 {
+            font-size: 28px;
+            margin-bottom: 10px;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+        }
+
+        .header p {
+            opacity: 0.8;
+            font-size: 16px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 30px 20px;
+        }
+
+        .tabs {
+            display: flex;
+            background: rgba(0,0,0,0.2);
+            border-radius: 10px;
+            margin-bottom: 30px;
+            overflow: hidden;
+        }
+
+        .tab {
+            flex: 1;
+            padding: 15px 20px;
+            background: transparent;
+            border: none;
+            color: white;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-size: 14px;
+            font-weight: 500;
+        }
+
+        .tab:hover {
+            background: rgba(255,255,255,0.1);
+        }
+
+        .tab.active {
+            background: rgba(255,255,255,0.2);
+            box-shadow: inset 0 2px 4px rgba(0,0,0,0.2);
+        }
+
+        .tab-content {
+            display: none;
+            background: rgba(255,255,255,0.1);
+            border-radius: 10px;
+            padding: 30px;
+            backdrop-filter: blur(10px);
+            box-shadow: 0 8px 32px rgba(0,0,0,0.2);
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        .section {
+            margin-bottom: 30px;
+        }
+
+        .section h3 {
+            font-size: 20px;
+            margin-bottom: 15px;
+            color: #FFD700;
+            border-bottom: 2px solid rgba(255,215,0,0.3);
+            padding-bottom: 10px;
+        }
+
+        .agent-card {
+            background: rgba(255,255,255,0.1);
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 15px;
+            border: 1px solid rgba(255,255,255,0.2);
+            transition: all 0.3s ease;
+        }
+
+        .agent-card:hover {
+            background: rgba(255,255,255,0.15);
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+        }
+
+        .agent-header {
+            display: flex;
+            justify-content: between;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+
+        .agent-name {
+            font-size: 18px;
+            font-weight: bold;
+            color: #4CAF50;
+        }
+
+        .agent-status {
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: bold;
+        }
+
+        .status-active {
+            background: #4CAF50;
+            color: white;
+        }
+
+        .status-inactive {
+            background: #f44336;
+            color: white;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: 500;
+            color: #FFD700;
+        }
+
+        .form-group input,
+        .form-group textarea,
+        .form-group select {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid rgba(255,255,255,0.3);
+            border-radius: 5px;
+            background: rgba(255,255,255,0.1);
+            color: white;
+            font-size: 14px;
+        }
+
+        .form-group input::placeholder,
+        .form-group textarea::placeholder {
+            color: rgba(255,255,255,0.6);
+        }
+
+        .form-group textarea {
+            min-height: 100px;
+            resize: vertical;
+        }
+
+        .btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            transition: all 0.3s ease;
+            margin-right: 10px;
+            margin-bottom: 10px;
+        }
+
+        .btn-primary {
+            background: #4CAF50;
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: #45a049;
+            transform: translateY(-1px);
+        }
+
+        .btn-secondary {
+            background: rgba(255,255,255,0.2);
+            color: white;
+        }
+
+        .btn-secondary:hover {
+            background: rgba(255,255,255,0.3);
+        }
+
+        .btn-danger {
+            background: #f44336;
+            color: white;
+        }
+
+        .btn-danger:hover {
+            background: #da190b;
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+        }
+
+        .workflow-step {
+            background: rgba(255,255,255,0.1);
+            border-radius: 8px;
+            padding: 15px;
+            margin-bottom: 10px;
+            border-left: 4px solid #4CAF50;
+        }
+
+        .template-card {
+            background: rgba(255,255,255,0.1);
+            border-radius: 8px;
+            padding: 20px;
+            text-align: center;
+            transition: all 0.3s ease;
+        }
+
+        .template-card:hover {
+            background: rgba(255,255,255,0.15);
+            transform: translateY(-2px);
+        }
+
+        .template-icon {
+            font-size: 48px;
+            margin-bottom: 15px;
+        }
+
+        .quickstart-section {
+            background: rgba(255,215,0,0.1);
+            border-radius: 10px;
+            padding: 20px;
+            margin-bottom: 30px;
+            border: 1px solid rgba(255,215,0,0.3);
+        }
+
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-bottom: 30px;
+        }
+
+        .metric-card {
+            background: rgba(255,255,255,0.1);
+            border-radius: 8px;
+            padding: 20px;
+            text-align: center;
+        }
+
+        .metric-value {
+            font-size: 24px;
+            font-weight: bold;
+            color: #4CAF50;
+            margin-bottom: 5px;
+        }
+
+        .metric-label {
+            font-size: 14px;
+            opacity: 0.8;
+        }
+
+        .injection-source {
+            background: rgba(255,255,255,0.1);
+            border-radius: 8px;
+            padding: 15px;
+            margin-bottom: 15px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .qr-placeholder {
+            width: 100px;
+            height: 100px;
+            background: rgba(255,255,255,0.2);
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 12px;
+            text-align: center;
+            margin: 20px auto;
+        }
+
+        .success-message {
+            background: rgba(76, 175, 80, 0.2);
+            border: 1px solid #4CAF50;
+            border-radius: 5px;
+            padding: 10px;
+            margin-bottom: 20px;
+            color: #4CAF50;
+        }
+
+        .error-message {
+            background: rgba(244, 67, 54, 0.2);
+            border: 1px solid #f44336;
+            border-radius: 5px;
+            padding: 10px;
+            margin-bottom: 20px;
+            color: #f44336;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>🎼 AI Agent Orchestrierung</h1>
+        <p>Multi-AI-Agenten Workflow Management & Template Designer</p>
+    </div>
+
+    <div class="container">
+        <!-- Quickstart Section -->
+        <div class="quickstart-section">
+            <h3>🚀 Schnellstart</h3>
+            <p style="margin-bottom: 15px;">Beginne sofort mit vorkonfigurierten Templates oder erstelle deine eigenen AI-Agenten.</p>
+            <button id="start-workflow" class="btn btn-primary">🎯 Workflow starten</button>
+            <button id="create-agent" class="btn btn-secondary">🤖 Neuer Agent</button>
+            <button id="scan-qr" class="btn btn-secondary">📱 QR-Code scannen</button>
+        </div>
+
+        <!-- Metrics -->
+        <div class="metrics-grid">
+            <div class="metric-card">
+                <div class="metric-value" id="active-agents">0</div>
+                <div class="metric-label">Aktive Agenten</div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-value" id="total-templates">3</div>
+                <div class="metric-label">Templates</div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-value" id="running-workflows">0</div>
+                <div class="metric-label">Laufende Workflows</div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-value" id="cost-today">$0.00</div>
+                <div class="metric-label">Kosten heute</div>
+            </div>
+        </div>
+
+        <!-- Tab Navigation -->
+        <div class="tabs">
+            <button class="tab active" data-tab="overview">📊 Übersicht</button>
+            <button class="tab" data-tab="agents">🤖 AI Agenten</button>
+            <button class="tab" data-tab="templates">📋 Templates</button>
+            <button class="tab" data-tab="workflows">🔄 Workflows</button>
+            <button class="tab" data-tab="injection">💉 Template Injection</button>
+            <button class="tab" data-tab="settings">⚙️ Einstellungen</button>
+        </div>
+
+        <!-- Tab Contents -->
+        <div id="overview" class="tab-content active">
+            <div class="section">
+                <h3>🎯 Systemstatus</h3>
+                <div class="grid">
+                    <div class="agent-card">
+                        <div class="agent-header">
+                            <span class="agent-name">System Status</span>
+                            <span class="agent-status status-active">Online</span>
+                        </div>
+                        <p>Alle Systeme betriebsbereit. WebSocket-Verbindung aktiv.</p>
+                    </div>
+                    <div class="agent-card">
+                        <div class="agent-header">
+                            <span class="agent-name">Tab Management</span>
+                            <span class="agent-status status-active">Aktiv</span>
+                        </div>
+                        <p>Tab-spezifische Reasoning Panels sind konfiguriert und funktionsfähig.</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="section">
+                <h3>📈 Aktivitäten</h3>
+                <div id="activity-log">
+                    <div class="workflow-step">
+                        <strong>System gestartet</strong> - Alle Komponenten erfolgreich initialisiert
+                    </div>
+                    <div class="workflow-step">
+                        <strong>Tab-Konfiguration geladen</strong> - Reasoning Panel bereit
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="agents" class="tab-content">
+            <div class="section">
+                <h3>🤖 AI Agenten Management</h3>
+                <button id="add-agent" class="btn btn-primary">➕ Neuer Agent</button>
+                
+                <div id="agents-list">
+                    <!-- Agent 1: Summarize Agent -->
+                    <div class="agent-card" data-agent-id="summarize-agent">
+                        <div class="agent-header">
+                            <span class="agent-name">📝 Summarize Agent</span>
+                            <span class="agent-status status-inactive">Inaktiv</span>
+                        </div>
+                        <div class="form-group">
+                            <label>AI Anweisungen:</label>
+                            <textarea id="summarize-instructions" placeholder="Du bist ein Experte im Zusammenfassen von Inhalten. Erstelle präzise, strukturierte Zusammenfassungen...">Du bist ein Experte im Zusammenfassen von Inhalten. Analysiere den gegebenen Text und erstelle eine strukturierte Zusammenfassung mit den wichtigsten Punkten, Schlüsselbegriffen und Hauptaussagen.</textarea>
+                        </div>
+                        <div class="form-group">
+                            <label>Context:</label>
+                            <input type="text" id="summarize-context" value="page-content, user-selection, tab-url" placeholder="Verfügbare Kontextdaten">
+                        </div>
+                        <div class="form-group">
+                            <label>Memory:</label>
+                            <input type="text" id="summarize-memory" value="previous-summaries, user-preferences" placeholder="Gespeicherte Informationen">
+                        </div>
+                        <div class="form-group">
+                            <label>Display Slot:</label>
+                            <select id="summarize-display">
+                                <option value="left-sidebar">Left Sidebar</option>
+                                <option value="right-sidebar">Right Sidebar</option>
+                                <option value="bottom-panel" selected>Bottom Panel</option>
+                                <option value="modal">Modal</option>
+                            </select>
+                        </div>
+                        <button class="btn btn-primary" onclick="toggleAgent('summarize-agent')">🚀 Aktivieren</button>
+                        <button class="btn btn-secondary" onclick="editAgent('summarize-agent')">✏️ Bearbeiten</button>
+                        <button class="btn btn-danger" onclick="deleteAgent('summarize-agent')">🗑️ Löschen</button>
+                    </div>
+
+                    <!-- Agent 2: Research Agent -->
+                    <div class="agent-card" data-agent-id="research-agent">
+                        <div class="agent-header">
+                            <span class="agent-name">🔍 Research Agent</span>
+                            <span class="agent-status status-inactive">Inaktiv</span>
+                        </div>
+                        <div class="form-group">
+                            <label>AI Anweisungen:</label>
+                            <textarea id="research-instructions" placeholder="Du bist ein Research-Spezialist...">Du bist ein Research-Spezialist. Analysiere Webseiten, extrahiere relevante Informationen und erstelle strukturierte Research-Reports mit Quellen, Fakten und Bewertungen.</textarea>
+                        </div>
+                        <div class="form-group">
+                            <label>Context:</label>
+                            <input type="text" id="research-context" value="page-links, page-text, meta-data" placeholder="Verfügbare Kontextdaten">
+                        </div>
+                        <div class="form-group">
+                            <label>Memory:</label>
+                            <input type="text" id="research-memory" value="research-history, bookmarks, notes" placeholder="Gespeicherte Informationen">
+                        </div>
+                        <div class="form-group">
+                            <label>Display Slot:</label>
+                            <select id="research-display">
+                                <option value="left-sidebar">Left Sidebar</option>
+                                <option value="right-sidebar" selected>Right Sidebar</option>
+                                <option value="bottom-panel">Bottom Panel</option>
+                                <option value="modal">Modal</option>
+                            </select>
+                        </div>
+                        <button class="btn btn-primary" onclick="toggleAgent('research-agent')">🚀 Aktivieren</button>
+                        <button class="btn btn-secondary" onclick="editAgent('research-agent')">✏️ Bearbeiten</button>
+                        <button class="btn btn-danger" onclick="deleteAgent('research-agent')">🗑️ Löschen</button>
+                    </div>
+
+                    <!-- Agent 3: Goal Tracker Agent -->
+                    <div class="agent-card" data-agent-id="goal-tracker-agent">
+                        <div class="agent-header">
+                            <span class="agent-name">🎯 Goal Tracker Agent</span>
+                            <span class="agent-status status-inactive">Inaktiv</span>
+                        </div>
+                        <div class="form-group">
+                            <label>AI Anweisungen:</label>
+                            <textarea id="goal-instructions" placeholder="Du bist ein Goal-Tracking Experte...">Du bist ein Goal-Tracking Experte. Überwache User-Ziele, erkenne Fortschritte und gib proaktive Empfehlungen zur Zielerreichung. Analysiere Short/Mid/Long-term Goals.</textarea>
+                        </div>
+                        <div class="form-group">
+                            <label>Context:</label>
+                            <input type="text" id="goal-context" value="user-goals, tab-activity, time-spent" placeholder="Verfügbare Kontextdaten">
+                        </div>
+                        <div class="form-group">
+                            <label>Memory:</label>
+                            <input type="text" id="goal-memory" value="goal-history, achievements, patterns" placeholder="Gespeicherte Informationen">
+                        </div>
+                        <div class="form-group">
+                            <label>Display Slot:</label>
+                            <select id="goal-display">
+                                <option value="left-sidebar">Left Sidebar</option>
+                                <option value="right-sidebar">Right Sidebar</option>
+                                <option value="bottom-panel" selected>Bottom Panel</option>
+                                <option value="modal">Modal</option>
+                            </select>
+                        </div>
+                        <button class="btn btn-primary" onclick="toggleAgent('goal-tracker-agent')">🚀 Aktivieren</button>
+                        <button class="btn btn-secondary" onclick="editAgent('goal-tracker-agent')">✏️ Bearbeiten</button>
+                        <button class="btn btn-danger" onclick="deleteAgent('goal-tracker-agent')">🗑️ Löschen</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="templates" class="tab-content">
+            <div class="section">
+                <h3>📋 Workflow Templates</h3>
+                <button id="create-template" class="btn btn-primary">➕ Neues Template</button>
+                
+                <div class="grid">
+                    <div class="template-card">
+                        <div class="template-icon">📚</div>
+                        <h4>Research Workflow</h4>
+                        <p>Automatisierte Recherche mit Summarize + Research Agent</p>
+                        <button class="btn btn-primary">💾 Laden</button>
+                    </div>
+                    <div class="template-card">
+                        <div class="template-icon">🎯</div>
+                        <h4>Goal Management</h4>
+                        <p>Intelligentes Ziel-Tracking und Progress-Monitoring</p>
+                        <button class="btn btn-primary">💾 Laden</button>
+                    </div>
+                    <div class="template-card">
+                        <div class="template-icon">🤖</div>
+                        <h4>Multi-Agent Pipeline</h4>
+                        <p>Koordinierte Agenten für komplexe Aufgaben</p>
+                        <button class="btn btn-primary">💾 Laden</button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="section">
+                <h3>🔧 Template Editor</h3>
+                <div class="form-group">
+                    <label>Template Name:</label>
+                    <input type="text" id="template-name" placeholder="Mein Custom Template">
+                </div>
+                <div class="form-group">
+                    <label>Beschreibung:</label>
+                    <textarea id="template-description" placeholder="Beschreibung des Templates..."></textarea>
+                </div>
+                <div class="form-group">
+                    <label>Agenten (JSON):</label>
+                    <textarea id="template-agents" placeholder='[{"id": "agent1", "name": "My Agent", ...}]' style="height: 200px;"></textarea>
+                </div>
+                <button class="btn btn-primary">💾 Template speichern</button>
+            </div>
+        </div>
+
+        <div id="workflows" class="tab-content">
+            <div class="section">
+                <h3>🔄 Aktive Workflows</h3>
+                <div id="active-workflows">
+                    <p style="opacity: 0.6; text-align: center; padding: 40px;">Keine aktiven Workflows</p>
+                </div>
+            </div>
+
+            <div class="section">
+                <h3>📈 Workflow History</h3>
+                <div id="workflow-history">
+                    <div class="workflow-step">
+                        <strong>Research Workflow</strong> - Abgeschlossen vor 2 Stunden
+                    </div>
+                    <div class="workflow-step">
+                        <strong>Summarize Task</strong> - Abgeschlossen vor 5 Stunden  
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="injection" class="tab-content">
+            <div class="section">
+                <h3>💉 Runtime Template Injection</h3>
+                <p style="margin-bottom: 20px;">Lade Templates zur Laufzeit von wrcode.org oder per QR-Code.</p>
+                
+                <div class="injection-source">
+                    <div>
+                        <h4>🌐 wrcode.org Templates</h4>
+                        <p>Automatischer Download bei QR-Code Scan</p>
+                    </div>
+                    <button class="btn btn-primary">🔍 Durchsuchen</button>
+                </div>
+
+                <div class="injection-source">
+                    <div>
+                        <h4>📱 QR-Code Scanner</h4>
+                        <p>Scanne QR-Codes für direkte Template-Injection</p>
+                    </div>
+                    <button class="btn btn-primary" id="activate-qr">📷 Scanner aktivieren</button>
+                </div>
+
+                <div class="qr-placeholder">
+                    QR-Code Scanner<br>
+                    (Camera feed wird hier angezeigt)
+                </div>
+
+                <div class="form-group">
+                    <label>Manual Template URL:</label>
+                    <input type="text" id="template-url" placeholder="https://wrcode.org/templates/my-template.json">
+                    <button class="btn btn-secondary" style="margin-top: 10px;">📥 Template laden</button>
+                </div>
+            </div>
+        </div>
+
+        <div id="settings" class="tab-content">
+            <div class="section">
+                <h3>⚙️ Globale Einstellungen</h3>
+                
+                <div class="form-group">
+                    <label>Max. gleichzeitige Agenten:</label>
+                    <input type="number" id="max-agents" value="5" min="1" max="20">
+                </div>
+                
+                <div class="form-group">
+                    <label>Memory Retention (Tage):</label>
+                    <input type="number" id="memory-retention" value="30" min="1" max="365">
+                </div>
+                
+                <div class="form-group">
+                    <label>Debug Mode:</label>
+                    <select id="debug-mode">
+                        <option value="false">Aus</option>
+                        <option value="true">An</option>
+                    </select>
+                </div>
+                
+                <div class="form-group">
+                    <label>Theme:</label>
+                    <select id="theme">
+                        <option value="dark" selected>Dark</option>
+                        <option value="light">Light</option>
+                        <option value="auto">Auto</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label>API Endpoint:</label>
+                    <input type="text" id="api-endpoint" value="localhost:51247" placeholder="API Server Endpoint">
+                </div>
+
+                <button class="btn btn-primary">💾 Einstellungen speichern</button>
+                <button class="btn btn-danger">🔄 Auf Standard zurücksetzen</button>
+            </div>
+
+            <div class="section">
+                <h3>📊 Export/Import</h3>
+                <button class="btn btn-secondary">📤 Konfiguration exportieren</button>
+                <button class="btn btn-secondary">📥 Konfiguration importieren</button>
+                <input type="file" id="import-file" style="display: none;" accept=".json">
+            </div>
+        </div>
+    </div>
+
+    <script src="orchestration.js"></script>
+</body>
+</html>
