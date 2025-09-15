@@ -1,19 +1,23 @@
+﻿<<<<<<< HEAD
+﻿*.exe
+*.dll
+*.pak
+*.asar
+*.blockmap
+dist/
+release/
+win-unpacked/
+node_modules/
+=======
 ﻿# Node / pnpm
 node_modules/
 .pnpm-debug.log
 pnpm-debug.log*
 
-# Build artifacts
+# Vite / Build Artefakte
 dist/
-release/
-win-unpacked/
 .vite/
 *.local
-*.exe
-*.dll
-*.pak
-*.asar
-*.blockmap
 
 # Logs
 npm-debug.log*
@@ -34,3 +38,4 @@ Thumbs.db
 .env
 .env.*
 !.env.example
+>>>>>>> fix/agents-lightbox

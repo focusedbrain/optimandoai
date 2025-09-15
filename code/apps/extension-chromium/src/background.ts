@@ -152,10 +152,14 @@ function toggleSidebars() {
     console.log(`🔄 Tab ${tabId}: Sidebars ${newStatus ? 'einblenden' : 'ausblenden'}`);
     
     // Send message to this specific tab
-    chrome.tabs.sendMessage(tabId, { 
-      type: 'TOGGLE_SIDEBARS', 
-      visible: newStatus 
-    });
+    try {
+      chrome.tabs.sendMessage(tabId, { 
+        type: 'TOGGLE_SIDEBARS', 
+        visible: newStatus 
+      });
+    } catch (err) {
+      console.warn('⚠️ Failed to send message to tab, it may have closed:', err)
+    }
 
     // Update badge to show status for current tab
     chrome.action.setBadgeText({ text: newStatus ? 'ON' : 'OFF' });

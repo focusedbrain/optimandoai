@@ -7,7 +7,8 @@ export default defineManifest({
   manifest_version: 3,
   permissions: [
     'activeTab',
-    'storage'
+    'storage',
+    'scripting'
   ],
   host_permissions: [
     '<all_urls>'
@@ -31,5 +32,8 @@ export default defineManifest({
       resources: ['grid-display.html', 'grid-script.js'],
       matches: ['<all_urls>']
     }
-  ]
+  ],
+  content_security_policy: {
+    extension_pages: "script-src 'self'; object-src 'self'; connect-src 'self' ws://localhost:* wss://localhost:* https://*; img-src 'self' data: https://*;"
+  }
 })

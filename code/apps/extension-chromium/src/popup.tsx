@@ -40,7 +40,7 @@ function Popup() {
           setTabActivation(prev => ({ ...prev, isActive: false }))
         })
       }
-    })
+    }).catch(() => {})
 
     chrome.runtime.sendMessage({ type: 'GET_STATUS' })
 
