@@ -5255,6 +5255,8 @@ ${pageText}
     // Get current theme
     const currentTheme = localStorage.getItem('optimando-ui-theme') || 'default'
     console.log('🎨 DEBUG: Current theme for grid:', currentTheme)
+    console.log('🎨 DEBUG: Theme value from localStorage:', localStorage.getItem('optimando-ui-theme'))
+    console.log('🎨 DEBUG: Theme will be passed to createGridHTML:', currentTheme)
     
     // CRITICAL: Ensure we have displayGrids data before creating HTML
     if (currentTabData.displayGrids) {
@@ -5693,24 +5695,27 @@ ${pageText}
     let actionBtnText = '#ffffff'
     
     console.log('🎨 DEBUG: Applying theme:', theme)
+    console.log('🎨 DEBUG: Theme parameter received:', theme, typeof theme)
     
     if (theme === 'dark') {
       bodyBg = 'linear-gradient(135deg, #0f0f0f 0%, #1a1a1a 100%)'
       bodyText = '#ffffff'
-      console.log('🎨 Applied dark theme')
+      console.log('🎨 Applied dark theme - bodyBg:', bodyBg)
     } else if (theme === 'professional') {
       bodyBg = 'linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%)'
       bodyText = '#333333'
       actionBtnBg = 'linear-gradient(135deg, #94a3b8 0%, #64748b 100%)'
       actionBtnText = '#ffffff'
-      console.log('🎨 Applied professional theme')
+      console.log('🎨 Applied professional theme - bodyBg:', bodyBg)
     } else if (theme === 'default') {
       bodyBg = 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)'
       bodyText = '#ffffff'
       actionBtnBg = 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)'
       actionBtnText = '#ffffff'
-      console.log('🎨 Applied default theme')
+      console.log('🎨 Applied default theme - bodyBg:', bodyBg)
     }
+    
+    console.log('🎨 DEBUG: Final theme colors:', { bodyBg, bodyText, actionBtnBg, actionBtnText })
     // Return complete HTML document
     return `
       <!DOCTYPE html>
