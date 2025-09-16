@@ -1873,6 +1873,7 @@ function initializeExtension() {
       if (theme === 'dark') {
         bottomSidebar.style.background = bg; 
         bottomSidebar.style.color = fg;
+        bottomSidebar.style.borderBottom = '1px solid #374151';  // Anthracite color for dark theme
       } else if (theme === 'professional') {
         // Professional theme top bar - Fortune 500 enterprise design
         bottomSidebar.style.background = 'linear-gradient(135deg, #ffffff 0%, #f1f5f9 100%)';
@@ -1968,6 +1969,7 @@ function initializeExtension() {
       bottomSidebar.className = 'theme-default'
       bottomSidebar.style.background = ORIGINAL_BG; 
       bottomSidebar.style.color = 'white';
+      bottomSidebar.style.borderBottom = 'none';  // Remove any theme-specific borders
       // Reset header titles to original styling
       const headerTitles = bottomSidebar.querySelectorAll('h1, h2, h3, .header-title, .session-id')
       headerTitles.forEach(title => {

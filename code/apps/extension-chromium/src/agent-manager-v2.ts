@@ -118,13 +118,8 @@ function toggleAgent(id: string, cb?: (list: AgentV2[]) => void) {
 }
 
 function ensureUI(){
-  if (document.getElementById('om2-agents-btn')) return
-  const btn = document.createElement('button')
-  btn.id = 'om2-agents-btn'
-  btn.textContent = '🤖 Agents'
-  btn.style.cssText = 'position:fixed;bottom:24px;right:24px;z-index:2147483647;padding:10px 12px;background:#1f2937;color:#fff;border:none;border-radius:18px;font-size:12px;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,0.25)'
-  btn.onclick = openOverlay
-  document.body.appendChild(btn)
+  // Removed floating Agents button - use main agents system in top bar instead
+  return
 }
 
 function openOverlay(){
