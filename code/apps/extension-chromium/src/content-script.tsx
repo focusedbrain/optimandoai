@@ -3375,6 +3375,7 @@ ${pageText}
       background: rgba(0,0,0,0.8); z-index: 2147483649;
       display: flex; align-items: center; justify-content: center;
       backdrop-filter: blur(5px);
+      pointer-events: auto;
     `
     
     overlay.innerHTML = `
@@ -3439,7 +3440,7 @@ ${pageText}
               <h4 style="margin: 0 0 10px 0; font-size: 12px; color: #FFD700;">🎨 Appearance</h4>
               <div style="font-size: 10px; display: grid; grid-template-columns: auto 1fr; gap: 8px; align-items: center;">
                 <label style="display:block;">Theme:</label>
-                <select id="optimando-theme-select" style="width: 100%; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 3px; border-radius: 2px; font-size: 9px;">
+                <select id="optimando-theme-select" style="width: 100%; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 3px; border-radius: 2px; font-size: 9px; pointer-events: auto; cursor: pointer;">
                   <option value="default" selected>Default (Original)</option>
                   <option value="dark">Dark</option>
                   <option value="professional">Professional</option>
@@ -3563,6 +3564,62 @@ ${pageText}
     
     document.getElementById('close-settings-lightbox').onclick = () => overlay.remove()
     overlay.onclick = (e) => { if (e.target === overlay) overlay.remove() }
+    
+    // Theme select wiring - attach immediately after DOM insertion
+    const themeSelect = document.getElementById('optimando-theme-select') as HTMLSelectElement | null
+    console.log('🎨 Theme select element found:', themeSelect)
+    if (themeSelect) {
+      // initialize from saved (keep default if none)
+      try {
+        const savedTheme = localStorage.getItem('optimando-ui-theme')
+        console.log('🎨 Saved theme from localStorage:', savedTheme)
+        if (savedTheme === 'dark' || savedTheme === 'professional') {
+          themeSelect.value = savedTheme
+        } else {
+          themeSelect.value = 'default'
+        }
+        console.log('🎨 Theme select value set to:', themeSelect.value)
+      } catch (error) {
+        console.error('🎨 Error loading saved theme:', error)
+      }
+
+      function handleThemeChange() {
+        const theme = themeSelect.value
+        console.log('🎨 Theme changed to:', theme)
+        try { 
+          localStorage.setItem('optimando-ui-theme', theme) 
+          console.log('🎨 Theme saved to localStorage:', theme)
+        } catch (error) {
+          console.error('🎨 Error saving theme:', error)
+        }
+        
+        // apply only to extension UIs
+        if (theme === 'default') {
+          try { 
+            console.log('🎨 Applying default theme...')
+            resetToDefaultTheme() 
+          } catch (error) {
+            console.error('🎨 Error applying default theme:', error)
+          }
+        } else {
+          try { 
+            console.log('🎨 Applying theme:', theme)
+            applyTheme(theme) 
+          } catch (error) {
+            console.error('🎨 Error applying theme:', error, theme)
+          }
+        }
+      }
+
+      themeSelect.addEventListener('change', handleThemeChange)
+      themeSelect.addEventListener('click', () => {
+        console.log('🎨 Theme select clicked!')
+      })
+      themeSelect.addEventListener('focus', () => {
+        console.log('🎨 Theme select focused!')
+      })
+      console.log('🎨 Theme select event listener attached')
+    }
     
     // API Keys helpers
     function loadApiKeys() {
@@ -3884,30 +3941,6 @@ ${pageText}
       openDisplayPortsConfig(overlay)
     }
 
-    // Theme select wiring
-    const themeSelect = document.getElementById('optimando-theme-select') as HTMLSelectElement | null
-    if (themeSelect) {
-      // initialize from saved (keep default if none)
-      try {
-        const savedTheme = localStorage.getItem('optimando-ui-theme')
-        if (savedTheme === 'dark' || savedTheme === 'professional') {
-          themeSelect.value = savedTheme
-        } else {
-          themeSelect.value = 'default'
-        }
-      } catch {}
-
-      themeSelect.addEventListener('change', () => {
-        const theme = themeSelect.value
-        try { localStorage.setItem('optimando-ui-theme', theme) } catch {}
-        // apply only to extension UIs
-        if (theme === 'default') {
-          try { resetToDefaultTheme() } catch {}
-        } else {
-          try { applyTheme(theme) } catch {}
-        }
-      })
-    }
   }
 
   // Legacy code continues below
