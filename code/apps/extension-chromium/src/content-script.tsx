@@ -2364,11 +2364,11 @@ function initializeExtension() {
         <div style="display: grid; grid-template-columns: 1fr; gap: 20px;">
           <div style="background: rgba(255,255,255,0.1); padding: 20px; border-radius: 8px;">
             <label style="display: block; margin-bottom: 10px; font-size: 14px; color: #FFD700; font-weight: bold;">🎭 Role Description:</label>
-            <textarea id="agent-role" style="width: 100%; height: 220px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 12px; border-radius: 6px; font-size: 12px; resize: vertical; font-family: 'Consolas', monospace;" placeholder="Describe the agent's role and responsibilities...">${(localStorage.getItem(storageKey + '_role') || '')}</textarea>
+            <textarea id="agent-role" style="width: 100%; height: 150px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 12px; border-radius: 6px; font-size: 12px; resize: vertical; font-family: 'Consolas', monospace;" placeholder="Describe the agent's role and responsibilities...">${(localStorage.getItem(storageKey + '_role') || '')}</textarea>
           </div>
             <div style="background: rgba(255,255,255,0.1); padding: 20px; border-radius: 8px;">
             <label style="display: block; margin-bottom: 10px; font-size: 14px; color: #FFD700; font-weight: bold;">📝 System Instructions:</label>
-            <textarea id="agent-instructions" style="width: 100%; height: 180px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 12px; border-radius: 6px; font-size: 12px; resize: vertical; font-family: 'Consolas', monospace;" placeholder="Enter detailed AI instructions for this agent...">${existingData}</textarea>
+            <textarea id="agent-instructions" style="width: 100%; height: 220px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 12px; border-radius: 6px; font-size: 12px; resize: vertical; font-family: 'Consolas', monospace;" placeholder="Enter detailed AI instructions for this agent...">${existingData}</textarea>
           </div>
       `
     } else if (type === 'context') {
@@ -2437,7 +2437,7 @@ function initializeExtension() {
     const headerTitle = (() => {
       if (type === 'instructions') {
         const num = getOrAssignAgentNumber(agentName)
-        return `Agent ${num} - ${capitalizeName(agentName)}`
+        return `AI Instructions - Agent ${num} - ${capitalizeName(agentName)}`
       }
       if (type === 'context') {
         const num = getOrAssignAgentNumber(agentName)
