@@ -92,10 +92,10 @@ function deactivateExtension() {
     existingExtension.remove()
   }
   
-  // Reset body margins
-  document.body.style.marginLeft = ''
-  document.body.style.marginRight = ''
-  document.body.style.marginTop = ''
+  // Reset body styles to original
+  document.body.style.margin = ''
+  document.body.style.padding = ''
+  document.body.style.overflowX = ''
   
   console.log('🔴 Optimando AI Extension deactivated')
 }
@@ -995,6 +995,11 @@ function initializeExtension() {
           <input id="edit-agent-title" type="text" value="${agentBox.title}" style="width: 100%; padding: 10px; border: 2px solid #ddd; border-radius: 6px; font-size: 14px;">
         </div>
 
+        <div style="margin: 10px 0;display:flex;align-items:center;gap:6px;">
+          <button id="agent-tools-open" data-agent-id="${agentId}" style="background:transparent;border:none;color:#3b82f6;text-decoration:underline;cursor:pointer;font-size:12px;padding:0">+ Tool</button>
+          <span style="font-size:12px;color:#64748b">(optional)</span>
+        </div>
+
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 20px;">
           <div>
             <label style="display: block; margin-bottom: 8px; color: #555; font-weight: bold;">Provider:</label>
@@ -1011,6 +1016,10 @@ function initializeExtension() {
             <select id="edit-agent-model" style="width: 100%; padding: 10px; border: 2px solid #ddd; border-radius: 6px; font-size: 14px; background: white;" ${!agentBox.provider ? 'disabled' : ''}>
               ${!agentBox.provider ? '<option value="" selected disabled>Select provider first</option>' : ''}
             </select>
+            <div>
+              <button id="finetune-link" style="margin-top:6px;background:transparent;border:none;color:#3b82f6;text-decoration:underline;cursor:pointer;font-size:12px;padding:0">Finetune Model</button>
+              <div id="finetune-feedback" style="display:none;margin-top:6px;background:#fee2e2;color:#b91c1c;padding:6px 8px;border-radius:6px;font-size:12px">Finetuning is not available for this Model</div>
+            </div>
           </div>
         </div>
         
@@ -1075,9 +1084,64 @@ function initializeExtension() {
     refreshModels()
     providerSelect?.addEventListener('change', refreshModels)
     
+    // Minimal tools catalog (inline) for agent editor
+    const openAgentToolsCatalog = (id: string) => {
+      const tl = document.createElement('div')
+      tl.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.55);backdrop-filter:blur(3px);z-index:2147483647;display:flex;align-items:center;justify-content:center'
+      tl.onclick = (e:any)=>{ if (e.target === tl) tl.remove() }
+      const panel = document.createElement('div')
+      panel.style.cssText = 'width:620px;max-width:92vw;max-height:70vh;overflow:auto;background:#0b1220;color:#e5e7eb;border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,.4)'
+      panel.innerHTML = `
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 14px;border-bottom:1px solid rgba(255,255,255,.08)">
+          <div style="font-weight:700">Tool Catalog</div>
+          <button id="at-close" style="padding:6px 10px;background:#475569;border:none;color:#e2e8f0;border-radius:6px;cursor:pointer">Close</button>
+        </div>
+        <div style="padding:12px 14px;display:flex;gap:10px;align-items:center">
+          <input id="at-search" placeholder="Search tools..." style="flex:1;padding:8px 10px;border-radius:8px;border:1px solid rgba(255,255,255,.12);background:#0f172a;color:#e2e8f0" />
+          <button id="at-add" disabled style="padding:8px 12px;background:#22c55e;border:none;color:#07210f;border-radius:8px;cursor:pointer;font-weight:700">Add</button>
+        </div>
+        <div style="padding:0 14px 14px 14px;opacity:.7;font-size:12px">No tools yet. Type a name and click Add to attach a tool to this agent box.</div>
+      `
+      tl.appendChild(panel)
+      document.body.appendChild(tl)
+      const s = panel.querySelector('#at-search') as HTMLInputElement
+      const addBtn = panel.querySelector('#at-add') as HTMLButtonElement
+      s.oninput = ()=>{ addBtn.disabled = !s.value.trim() }
+      ;(panel.querySelector('#at-close') as HTMLButtonElement).onclick = ()=> tl.remove()
+      addBtn.onclick = ()=>{
+        const name = (s.value || '').trim()
+        if (!name) return
+        try {
+          const key = `agent-tools:${id}`
+          const current = JSON.parse(localStorage.getItem(key) || '[]')
+          if (!current.includes(name)) current.push(name)
+          localStorage.setItem(key, JSON.stringify(current))
+        } catch {}
+        addBtn.textContent = 'Added'
+        addBtn.disabled = true
+        setTimeout(()=> tl.remove(), 400)
+      }
+    }
+
     // Handle cancel
     overlay.querySelector('#cancel-edit-agent')?.addEventListener('click', () => {
       overlay.remove()
+    })
+    // Tools lightbox
+    ;(overlay.querySelector('#agent-tools-open') as HTMLButtonElement | null)?.addEventListener('click', ()=>{
+      try { openAgentToolsCatalog(agentId) } catch (e){ console.error('tools lib open failed', e) }
+    })
+    // Finetune feedback
+    ;(overlay.querySelector('#finetune-link') as HTMLButtonElement | null)?.addEventListener('click', ()=>{
+      const fb = overlay.querySelector('#finetune-feedback') as HTMLElement
+      if (fb) {
+        fb.style.display = 'block'
+        fb.style.opacity = '1'
+        setTimeout(()=>{
+          fb.style.opacity = '0'
+          setTimeout(()=>{ fb.style.display = 'none' }, 300)
+        }, 2000)
+      }
     })
     
     // Handle confirm
@@ -1542,7 +1606,7 @@ function initializeExtension() {
     // Update left sidebar width
     leftSidebar.style.width = newWidth + 'px'
     
-    // Update body margin and prevent horizontal scroll
+    // Update original margins only (wrapper removed)
     document.body.style.marginLeft = newWidth + 'px'
     document.body.style.overflowX = 'hidden'
     
@@ -2125,15 +2189,18 @@ function initializeExtension() {
       bottomSidebar.style.cursor = 'default'
       expandBtn.style.transform = 'rotate(180deg)'
       expandableContent.style.display = 'block'
-      // Update body margin for expanded top panel (seamless)
-      document.body.style.marginTop = expandedHeight + 'px'
+      // Re-apply offsets after transition completes
+      setTimeout(() => {
+        document.body.style.marginTop = expandedHeight + 'px'
+      }, 10)
     } else {
       bottomSidebar.style.height = '45px'
       bottomSidebar.style.cursor = 'pointer'
       expandBtn.style.transform = 'rotate(0deg)'
       expandableContent.style.display = 'none'
-      // Reset body margin for collapsed top panel (seamless)
-      document.body.style.marginTop = '45px'
+      setTimeout(() => {
+        document.body.style.marginTop = '45px'
+      }, 10)
     }
   }
 
@@ -5688,6 +5755,16 @@ ${pageText}
       `
     }
     
+    // Attach tool lightbox handlers after slots are rendered
+    setTimeout(() => {
+      document.querySelectorAll('.slot-add-tool')?.forEach(btn => {
+        btn.addEventListener('click', (e:any) => {
+          const slotId = (e.currentTarget as HTMLElement).getAttribute('data-slot-id') || ''
+          openToolLibraryLightbox(slotId)
+        })
+      })
+    }, 0)
+
     // Theme background/text for page
     let bodyBg = 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)'
     let bodyText = '#ffffff'
@@ -5715,6 +5792,73 @@ ${pageText}
       console.log('🎨 Applied default theme - bodyBg:', bodyBg)
     }
     
+  ;(window as any).openToolLibraryLightbox = function(slotId: string){
+    const overlay = document.createElement('div')
+    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.55);backdrop-filter:blur(3px);z-index:2147483647;display:flex;align-items:center;justify-content:center'
+    overlay.onclick = (e:any)=>{ if (e.target === overlay) overlay.remove() }
+
+    // demo tool data
+    const tools = [
+      { id:'web-search', name:'Web Search', desc:'Search the web with Bing/Google', cat:'Information' },
+      { id:'summarizer', name:'Text Summarizer', desc:'Summarize selected content', cat:'NLP' },
+      { id:'screenshot', name:'Screenshot', desc:'Capture visible area', cat:'Utility' },
+      { id:'translate', name:'Translate', desc:'Translate text to target language', cat:'NLP' },
+    ]
+
+    const panel = document.createElement('div')
+    panel.style.cssText = 'width:720px;max-width:92vw;max-height:82vh;overflow:auto;background:#0b1220;color:#e5e7eb;border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,.4)'
+    panel.innerHTML = `
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:1px solid rgba(255,255,255,.08)">
+        <div style="font-weight:700">Add Tools to Agent Box ${slotId}</div>
+        <div><button id="tl-close" style="padding:6px 10px;background:#475569;border:none;color:#e2e8f0;border-radius:6px;cursor:pointer">Close</button></div>
+      </div>
+      <div style="padding:12px 14px;display:flex;gap:10px;align-items:center">
+        <input id="tl-search" placeholder="Search tools..." style="flex:1;padding:8px 10px;border-radius:8px;border:1px solid rgba(255,255,255,.12);background:#0f172a;color:#e2e8f0" />
+      </div>
+      <div id="tl-list" style="padding:8px 14px;display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px">
+        <div style="grid-column:1/-1;opacity:.7;font-size:12px">No tools yet. Use search to browse the catalog (coming soon).</div>
+      </div>
+    `
+    overlay.appendChild(panel)
+    document.body.appendChild(overlay)
+
+    function render(list:any[]){
+      const el = panel.querySelector('#tl-list') as HTMLElement
+      el.innerHTML = list.map(t => `
+        <div data-id="${t.id}" style="background:#111827;border:1px solid rgba(255,255,255,.08);border-radius:10px;padding:10px;display:flex;flex-direction:column;gap:6px">
+          <div style="font-weight:700">${t.name}</div>
+          <div style="font-size:12px;opacity:.8">${t.desc}</div>
+          <div style="display:flex;justify-content:space-between;align-items:center">
+            <span style="font-size:11px;opacity:.7">${t.cat}</span>
+            <button class="tl-add" data-id="${t.id}" style="padding:6px 10px;background:#22c55e;border:none;color:#07210f;border-radius:6px;cursor:pointer;font-weight:700">Add</button>
+          </div>
+        </div>
+      `).join('')
+      ;(panel.querySelectorAll('.tl-add') as any).forEach((btn:HTMLElement)=>{
+        btn.onclick = ()=>{
+          const id = btn.getAttribute('data-id') || ''
+          try {
+            const key = `agent-tools:${slotId}`
+            const current = JSON.parse(localStorage.getItem(key) || '[]')
+            if (!current.includes(id)) current.push(id)
+            localStorage.setItem(key, JSON.stringify(current))
+          } catch {}
+          btn.textContent = 'Added'
+          btn.setAttribute('disabled','true')
+        }
+      })
+    }
+
+    render(tools)
+    const search = panel.querySelector('#tl-search') as HTMLInputElement
+    search.oninput = ()=>{
+      const q = search.value.toLowerCase()
+      render(tools.filter(t => t.name.toLowerCase().includes(q) || t.desc.toLowerCase().includes(q)))
+    }
+
+    ;(panel.querySelector('#tl-close') as HTMLButtonElement).onclick = ()=> overlay.remove()
+  }
+
     console.log('🎨 DEBUG: Final theme colors:', { bodyBg, bodyText, actionBtnBg, actionBtnText })
     // Return complete HTML document
     return `
@@ -7068,6 +7212,25 @@ ${pageText}
   sidebarsDiv.appendChild(bottomSidebar)
   document.body.appendChild(sidebarsDiv)
   
+  // Dynamic margin applier to avoid top bar overlap on all sites (e.g., YouTube)
+  function applyLayoutOffsets(){
+    try {
+      const topH = Math.max(0, Math.round((bottomSidebar as HTMLElement)?.getBoundingClientRect()?.height || 45))
+      document.body.style.marginLeft = currentTabData.uiConfig.leftSidebarWidth + 'px'
+      document.body.style.marginRight = currentTabData.uiConfig.rightSidebarWidth + 'px'
+      document.body.style.marginTop = topH + 'px'
+      document.body.style.overflowX = 'hidden'
+    } catch {}
+  }
+  
+  // React to top bar height changes (expanded/collapsed) and window resizes
+  try {
+    const ro = new (window as any).ResizeObserver?.(() => applyLayoutOffsets())
+    if (ro) ro.observe(bottomSidebar)
+  } catch {}
+  window.addEventListener('resize', applyLayoutOffsets)
+  applyLayoutOffsets()
+  
   // Hybrid right panel behaviors after mount
   if (isHybridMaster) {
     // Only handle Add button click - no agent boxes to render
@@ -7157,10 +7320,10 @@ ${pageText}
     }
   }, 100)
   
-  // Set initial body margins and safe scrollbar prevention
+  // Restore original approach for now to stop crashes (no DOM reparenting)
   document.body.style.marginLeft = currentTabData.uiConfig.leftSidebarWidth + 'px'
   document.body.style.marginRight = currentTabData.uiConfig.rightSidebarWidth + 'px'
-  document.body.style.marginTop = '45px'  // Exact sidebar height, no spacing
+  document.body.style.marginTop = '45px'  // Exact sidebar height
   document.body.style.overflowX = 'hidden'
 
   // Event handlers - AFTER DOM elements are created and added
@@ -7199,7 +7362,7 @@ ${pageText}
       currentTabData.uiConfig.leftSidebarWidth = newWidth
       leftSidebar.style.width = newWidth + 'px'
       document.body.style.marginLeft = newWidth + 'px'
-        bottomSidebar.style.left = newWidth + 'px'
+      bottomSidebar.style.left = newWidth + 'px'
       
       saveTabDataToStorage()
       console.log('🔄 Left sidebar expanded to width:', newWidth)

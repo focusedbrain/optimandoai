@@ -27,6 +27,14 @@ export default defineManifest({
   action: {
     default_title: 'Optimando AI Orchestrator - Toggle Sidebars'
   },
+  commands: {
+    'toggle-overlay': {
+      suggested_key: {
+        default: 'Alt+O'
+      },
+      description: 'Toggle overlay on/off for this domain'
+    }
+  },
   web_accessible_resources: [
     {
       resources: ['grid-display.html', 'grid-script.js'],
