@@ -186,17 +186,6 @@ chrome.action.onClicked.addListener((tab) => {
   toggleSidebars();
 });
 
-// Handle keyboard command Alt+O to toggle overlay per domain
-chrome.commands?.onCommand.addListener((command) => {
-  if (command === 'toggle-overlay') {
-    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-      const tab = tabs[0]
-      if (!tab?.id) return
-      chrome.tabs.sendMessage(tab.id, { type: 'OG_TOGGLE_OVERLAY' })
-    })
-  }
-})
-
 // Update badge when switching tabs
 chrome.tabs.onActivated.addListener((activeInfo) => {
   const tabId = activeInfo.tabId;
@@ -246,10 +235,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     case 'SAVE_GRID_CONFIG':
       console.log('📥 SAVE_GRID_CONFIG received');
       sendResponse({ success: true, message: 'Config received' });
-      break;
-    case 'OG_TOGGLE_OVERLAY':
-      // Forwarded from UI (gear icon) to broadcast or simply acknowledge
-      sendResponse({ success: true })
       break;
   }
   return true;
