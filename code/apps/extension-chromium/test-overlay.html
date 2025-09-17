@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FrameOverlay Test Page</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            color: white;
+        }
+        .test-content {
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 40px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 12px;
+            backdrop-filter: blur(10px);
+        }
+        .click-target {
+            background: rgba(255, 255, 255, 0.2);
+            border: 2px solid rgba(255, 255, 255, 0.3);
+            border-radius: 8px;
+            padding: 20px;
+            margin: 20px 0;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        .click-target:hover {
+            background: rgba(255, 255, 255, 0.3);
+            border-color: rgba(255, 255, 255, 0.5);
+            transform: translateY(-2px);
+        }
+        .controls {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: rgba(0, 0, 0, 0.8);
+            padding: 15px;
+            border-radius: 8px;
+            backdrop-filter: blur(10px);
+        }
+        .controls button {
+            display: block;
+            width: 100%;
+            margin: 5px 0;
+            padding: 8px 12px;
+            background: #3b82f6;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+        }
+        .controls button:hover {
+            background: #2563eb;
+        }
+        .scroll-content {
+            height: 200vh;
+            background: linear-gradient(to bottom, transparent, rgba(255, 255, 255, 0.1));
+        }
+    </style>
+</head>
+<body>
+    <div class="controls">
+        <h3 style="margin: 0 0 10px 0; font-size: 14px;">Test Controls</h3>
+        <button onclick="testFrameOverlay()">Mount Overlay</button>
+        <button onclick="testUnmount()">Unmount Overlay</button>
+        <button onclick="testSafeMode()">Safe Mode</button>
+        <button onclick="testCompatMode()">Compat Mode B</button>
+        <button onclick="testResize()">Test Resize</button>
+        <button onclick="testFullscreen()">Toggle Fullscreen</button>
+    </div>
+
+    <div class="test-content">
+        <h1>FrameOverlay Test Page</h1>
+        <p>This page tests the new FrameOverlay system. The center area should be fully interactive while the rails provide the UI.</p>
+        
+        <div class="click-target" onclick="handleClick(this, 'Center Content Click')">
+            <h3>Center Content Area</h3>
+            <p>Click this area to test that center interactions pass through correctly. This should work even when the overlay is mounted.</p>
+        </div>
+
+        <div class="click-target" onclick="handleClick(this, 'Scrollable Content')">
+            <h3>Scrollable Test</h3>
+            <p>Test scrolling behavior with the overlay. The page should scroll normally through the center viewport.</p>
+        </div>
+
+        <div class="click-target" onclick="handleClick(this, 'Form Interaction')">
+            <h3>Form Elements</h3>
+            <input type="text" placeholder="Test text input" style="width: 100%; padding: 8px; margin: 10px 0; border: 1px solid rgba(255,255,255,0.3); background: rgba(255,255,255,0.1); color: white; border-radius: 4px;">
+            <textarea placeholder="Test textarea" style="width: 100%; height: 80px; padding: 8px; margin: 10px 0; border: 1px solid rgba(255,255,255,0.3); background: rgba(255,255,255,0.1); color: white; border-radius: 4px; resize: vertical;"></textarea>
+            <button type="button" onclick="handleClick(this, 'Form Button')" style="padding: 8px 16px; background: #22c55e; color: white; border: none; border-radius: 4px; cursor: pointer;">Test Button</button>
+        </div>
+
+        <h2>Acceptance Test Sites</h2>
+        <div class="click-target">
+            <h3>Site-Specific Tests</h3>
+            <p>Test these sites with the extension:</p>
+            <ul>
+                <li><strong>YouTube:</strong> Video controls should work, F for fullscreen</li>
+                <li><strong>ChatGPT:</strong> Typing and selection should work normally</li>
+                <li><strong>X/Twitter:</strong> Smooth scrolling, no event jank</li>
+                <li><strong>Google Docs:</strong> Document editing unaffected</li>
+                <li><strong>Fixed-width sites:</strong> No CSS breakage, center guides helper</li>
+            </ul>
+        </div>
+
+        <div class="scroll-content">
+            <h3>Scroll Test Area</h3>
+            <p>Scroll down to test that the overlay doesn't interfere with page scrolling...</p>
+            <div style="margin-top: 50vh; text-align: center;">
+                <div class="click-target" onclick="handleClick(this, 'Bottom Content')">
+                    <h3>Bottom Content</h3>
+                    <p>You've scrolled to the bottom! The overlay should remain fixed while the content scrolls.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function handleClick(element, message) {
+            element.style.background = 'rgba(34, 197, 94, 0.3)';
+            element.style.borderColor = 'rgba(34, 197, 94, 0.5)';
+            console.log('✅ Click successful:', message);
+            alert(`✅ ${message} - Click registered successfully!`);
+            
+            setTimeout(() => {
+                element.style.background = 'rgba(255, 255, 255, 0.2)';
+                element.style.borderColor = 'rgba(255, 255, 255, 0.3)';
+            }, 1000);
+        }
+
+        function testFrameOverlay() {
+            if (window.__WR_FRAME__) {
+                console.log('✅ FrameOverlay already mounted:', window.__WR_FRAME__);
+                alert('✅ FrameOverlay is already mounted! Check the rails around the page.');
+            } else if (window.__OPTIMANDO_FRAME__) {
+                console.log('✅ Optimando FrameOverlay found:', window.__OPTIMANDO_FRAME__);
+                alert('✅ Optimando FrameOverlay is mounted! Check the rails around the page.');
+            } else {
+                console.log('❌ No FrameOverlay found');
+                alert('❌ No FrameOverlay found. Make sure the extension is loaded and active.');
+            }
+        }
+
+        function testUnmount() {
+            if (window.__WR_FRAME__) {
+                window.__WR_FRAME__.unmount();
+                console.log('✅ FrameOverlay unmounted');
+                alert('✅ FrameOverlay unmounted');
+            } else if (window.__OPTIMANDO_FRAME__) {
+                window.__OPTIMANDO_FRAME__.unmount();
+                console.log('✅ Optimando FrameOverlay unmounted');
+                alert('✅ Optimando FrameOverlay unmounted');
+            } else {
+                alert('❌ No FrameOverlay to unmount');
+            }
+        }
+
+        function testSafeMode() {
+            const frame = window.__WR_FRAME__ || window.__OPTIMANDO_FRAME__;
+            if (frame) {
+                frame.update({ mode: 'safe' });
+                console.log('✅ Switched to Safe Mode');
+                alert('✅ Switched to Safe Mode');
+            } else {
+                alert('❌ No FrameOverlay found');
+            }
+        }
+
+        function testCompatMode() {
+            const frame = window.__WR_FRAME__ || window.__OPTIMANDO_FRAME__;
+            if (frame) {
+                frame.update({ mode: 'compatB' });
+                console.log('✅ Switched to Compatibility Mode B');
+                alert('✅ Switched to Compatibility Mode B');
+            } else {
+                alert('❌ No FrameOverlay found');
+            }
+        }
+
+        function testResize() {
+            const frame = window.__WR_FRAME__ || window.__OPTIMANDO_FRAME__;
+            if (frame) {
+                const newSize = Math.floor(Math.random() * 200) + 100;
+                frame.update({ 
+                    railSize: { 
+                        left: newSize,
+                        right: newSize / 2,
+                        top: 60,
+                        bottom: 20
+                    } 
+                });
+                console.log(`✅ Resized rails: left=${newSize}, right=${newSize/2}`);
+                alert(`✅ Resized rails: left=${newSize}, right=${newSize/2}`);
+            } else {
+                alert('❌ No FrameOverlay found');
+            }
+        }
+
+        function testFullscreen() {
+            if (!document.fullscreenElement) {
+                document.documentElement.requestFullscreen().then(() => {
+                    console.log('✅ Entered fullscreen - overlay should be hidden');
+                }).catch(err => {
+                    console.error('❌ Fullscreen failed:', err);
+                });
+            } else {
+                document.exitFullscreen().then(() => {
+                    console.log('✅ Exited fullscreen - overlay should be visible');
+                }).catch(err => {
+                    console.error('❌ Exit fullscreen failed:', err);
+                });
+            }
+        }
+
+        // Test page load
+        document.addEventListener('DOMContentLoaded', () => {
+            console.log('🔧 Test page loaded');
+            console.log('🔧 Available globals:', {
+                __WR_FRAME__: window.__WR_FRAME__,
+                __OPTIMANDO_FRAME__: window.__OPTIMANDO_FRAME__
+            });
+        });
+
+        // Test keyboard events
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                console.log('✅ Keyboard event (Escape) captured');
+            }
+        });
+    </script>
+</body>
+</html>
+
+
