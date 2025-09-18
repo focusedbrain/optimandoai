@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import React from 'react'
 import './App.css'
 
 type ThemePreference = 'dark' | 'professional' | 'auto'
@@ -73,7 +74,15 @@ function App() {
               <button className="btn" onClick={() => setShowSettings(false)} aria-label="Close">×</button>
             </div>
             <div className="modal-body">
-              <ThemeSwitcher />
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div className="card rounded-lg border border-[var(--divider)] shadow-sm p-3">
+                  <div className="section-title mb-2">🔑 API Keys</div>
+                  <ThemeSwitcher />
+                </div>
+                <div className="card rounded-lg border border-[var(--divider)] shadow-sm p-3">
+                  <LocalLLMsCard />
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -148,6 +157,184 @@ function App() {
           </div>
         </div>
       )}
+    </div>
+  )
+}
+
+// Types
+type LocalModelRole = 'chat' | 'summarize' | 'code'
+interface LocalModel {
+  name: string
+  version: string
+  status: 'installed' | 'update' | 'not_installed'
+  isDefault?: Partial<Record<LocalModelRole, boolean>>
+}
+
+interface LocalLLMsState {
+  installed: LocalModel[]
+  availableOpenWeight: LocalModel[]
+  availableOptimized: LocalModel[]
+  subscriptionActive: boolean
+}
+
+function LocalLLMsCard() {
+  const [state, setState] = React.useState<LocalLLMsState>(() => ({
+    installed: [
+      { name: 'Mistral-7B', version: '0.3', status: 'installed', isDefault: { chat: true } },
+      { name: 'Phi-3', version: '3.1', status: 'update', isDefault: { summarize: true } },
+    ],
+    availableOpenWeight: [
+      { name: 'Qwen2.5-7B', version: '2.5', status: 'not_installed' },
+      { name: 'Llama3.1-8B', version: '3.1', status: 'not_installed' },
+    ],
+    availableOptimized: [
+      { name: 'Opti-Mixtral-8x7B', version: '1.0', status: 'not_installed' },
+    ],
+    subscriptionActive: false,
+  }))
+
+  function setDefault(role: LocalModelRole, name: string) {
+    setState((prev) => ({
+      ...prev,
+      installed: prev.installed.map((m) => ({
+        ...m,
+        isDefault: {
+          chat: role === 'chat' && m.name === name || !!m.isDefault?.chat,
+          summarize: role === 'summarize' && m.name === name || !!m.isDefault?.summarize,
+          code: role === 'code' && m.name === name || !!m.isDefault?.code,
+        },
+      })),
+    }))
+  }
+
+  function installOpenWeight(name: string) {
+    const model = state.availableOpenWeight.find((m) => m.name === name)
+    if (!model) return
+    setState((s) => ({
+      ...s,
+      installed: [...s.installed, { ...model, status: 'installed' }],
+      availableOpenWeight: s.availableOpenWeight.filter((m) => m.name !== name),
+    }))
+  }
+
+  function unlockOptimized(name: string) {
+    if (!state.subscriptionActive) return
+    const model = state.availableOptimized.find((m) => m.name === name)
+    if (!model) return
+    setState((s) => ({
+      ...s,
+      installed: [...s.installed, { ...model, status: 'installed' }],
+      availableOptimized: s.availableOptimized.filter((m) => m.name !== name),
+    }))
+  }
+
+  function testModel(name: string) {
+    console.log('Test model:', name)
+  }
+
+  function updateModel(name: string) {
+    setState((s) => ({
+      ...s,
+      installed: s.installed.map((m) => (m.name === name ? { ...m, status: 'installed', version: m.version + '.1' } : m)),
+    }))
+  }
+
+  function removeModel(name: string) {
+    setState((s) => ({
+      ...s,
+      installed: s.installed.filter((m) => m.name !== name),
+    }))
+  }
+
+  const [toInstall, setToInstall] = React.useState<string>('')
+
+  return (
+    <div>
+      <div className="section-title mb-2">🖥️ Local LLMs</div>
+      <div className="text-sm space-y-2">
+        {state.installed.map((m) => (
+          <div key={m.name} className="flex items-center justify-between rounded-lg border border-[var(--divider)] px-3 py-2">
+            <div className="flex items-center gap-3">
+              <div className="font-medium">{m.name}</div>
+              <div className="text-xs opacity-70">v{m.version}</div>
+              <div className="text-xs">
+                {m.status === 'installed' && <span className="px-2 py-0.5 rounded bg-green-100 text-green-800">✅ Installed</span>}
+                {m.status === 'update' && <span className="px-2 py-0.5 rounded bg-amber-100 text-amber-800">⚠️ Update</span>}
+                {m.status === 'not_installed' && <span className="px-2 py-0.5 rounded bg-red-100 text-red-800">❌ Not installed</span>}
+              </div>
+              <div className="text-xs flex gap-1">
+                {m.isDefault?.chat && <span className="px-1.5 py-0.5 rounded border border-[var(--divider)]">Default Chat</span>}
+                {m.isDefault?.summarize && <span className="px-1.5 py-0.5 rounded border border-[var(--divider)]">Default Summarize</span>}
+                {m.isDefault?.code && <span className="px-1.5 py-0.5 rounded border border-[var(--divider)]">Default Code</span>}
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="relative">
+                <select
+                  className="text-xs border border-[var(--divider)] rounded px-2 py-1 bg-transparent"
+                  onChange={(e) => setDefault(e.target.value as LocalModelRole, m.name)}
+                >
+                  <option value="">Set as Default ▾</option>
+                  <option value="chat">Default Chat</option>
+                  <option value="summarize">Default Summarize</option>
+                  <option value="code">Default Code</option>
+                </select>
+              </div>
+              <button className="text-xs border border-[var(--divider)] rounded px-2 py-1" onClick={() => testModel(m.name)}>Test</button>
+              {m.status === 'update' && (
+                <button className="text-xs border border-[var(--divider)] rounded px-2 py-1" onClick={() => updateModel(m.name)}>Update?</button>
+              )}
+              <button className="text-xs border border-[var(--divider)] rounded px-2 py-1" onClick={() => removeModel(m.name)}>Remove</button>
+            </div>
+          </div>
+        ))}
+
+        <div className="pt-2">
+          <label className="text-xs block mb-1">+ Add Model…</label>
+          <div className="flex items-center gap-2">
+            <select
+              className="text-xs border border-[var(--divider)] rounded px-2 py-1 bg-transparent flex-1"
+              value={toInstall}
+              onChange={(e) => setToInstall(e.target.value)}
+            >
+              <option value="">Select an open-weight model</option>
+              {state.availableOpenWeight.map((m) => (
+                <option key={m.name} value={m.name}>{m.name} v{m.version}</option>
+              ))}
+            </select>
+            <button
+              disabled={!toInstall}
+              className="text-xs border border-[var(--divider)] rounded px-2 py-1 disabled:opacity-50"
+              onClick={() => { if (toInstall) installOpenWeight(toInstall); setToInstall('') }}
+            >Install</button>
+          </div>
+        </div>
+
+        <div className="pt-3">
+          <div className="font-medium text-xs mb-1">Optimized models</div>
+          {state.availableOptimized.map((m) => (
+            <div key={m.name} className="flex items-center justify-between rounded-lg border border-[var(--divider)] px-3 py-2 mb-2">
+              <div className="flex items-center gap-3">
+                <div className="font-medium">{m.name}</div>
+                <div className="text-xs opacity-70">v{m.version}</div>
+                {!state.subscriptionActive && (
+                  <span className="px-2 py-0.5 rounded bg-slate-100 text-slate-700">🔒 Pro</span>
+                )}
+              </div>
+              <div className="flex items-center gap-2">
+                {!state.subscriptionActive ? (
+                  <button className="text-xs border border-[var(--divider)] rounded px-2 py-1">Unlock with Pro</button>
+                ) : (
+                  <>
+                    <button className="text-xs border border-[var(--divider)] rounded px-2 py-1" onClick={() => unlockOptimized(m.name)}>Install</button>
+                    <button className="text-xs border border-[var(--divider)] rounded px-2 py-1">Revert to Free</button>
+                  </>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
     </div>
   )
 }

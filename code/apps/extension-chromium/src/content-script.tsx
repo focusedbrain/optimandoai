@@ -1761,6 +1761,14 @@ function initializeExtension() {
         .theme-default .quick-action { background: rgba(255,255,255,0.18) !important; border: 1px solid rgba(255,255,255,0.3) !important; color: #ffffff !important; }
         .theme-dark .quick-action { background: rgba(255,255,255,0.18) !important; border: 1px solid rgba(255,255,255,0.3) !important; color: #ffffff !important; }
         .theme-professional .quick-action { background: #f8fafc !important; border: 1px solid #cbd5e1 !important; color: #0f172a !important; box-shadow: 0 1px 2px rgba(0,0,0,0.05) !important; }
+
+        /* Professional theme: ensure expand arrows are visible */
+        .theme-professional #expand-btn,
+        .theme-professional #quick-expand-btn,
+        .theme-professional #quick-expand-right-btn { color: #0f172a !important; background: rgba(2,6,23,0.05) !important; border: 1px solid #e2e8f0 !important; }
+
+        /* Session name input in topbar */
+        .theme-professional #session-name-input { background: #ffffff !important; border: 1px solid #cbd5e1 !important; color: #0f172a !important; }
       `
       ;(document.head || document.documentElement).appendChild(style)
     } catch {}
@@ -1971,7 +1979,8 @@ function initializeExtension() {
       if (theme === 'dark') {
         bottomSidebar.style.background = bg; 
         bottomSidebar.style.color = fg;
-        bottomSidebar.style.borderBottom = '1px solid #374151';  // Anthracite color for dark theme
+        // Remove any extra separator or padding look in dark theme
+        bottomSidebar.style.borderBottom = 'none';
       } else if (theme === 'professional') {
         // Professional theme top bar - Fortune 500 enterprise design
         bottomSidebar.style.background = 'linear-gradient(135deg, #ffffff 0%, #f1f5f9 100%)';
@@ -2150,7 +2159,7 @@ function initializeExtension() {
         <div style="display: flex; align-items: center; gap: 10px;">
           <input id="session-name-input" class="session-id-text" type="text" value="${currentTabData.tabName}" 
                  style="background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; 
-                        padding: 4px 8px; border-radius: 3px; font-size: 11px; width: 140px; 
+                        padding: 4px 8px; border-radius: 6px; font-size: 11px; width: 160px; 
                         ${currentTabData.isLocked ? 'opacity: 0.6; pointer-events: none;' : ''}"
                  ${currentTabData.isLocked ? 'disabled' : ''}
                  placeholder="Session Name">
