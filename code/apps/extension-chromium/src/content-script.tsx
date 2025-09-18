@@ -2204,18 +2204,19 @@ function initializeExtension() {
               <h4 class="dropdown-title" style="margin: 0; font-size: 12px;">🎯 Session Goals</h4>
               <span title="Defining goals helps the system detect your intent more accurately and orchestrate better actions." style="font-size:12px; opacity:0.85; cursor:help;">ℹ️</span>
             </div>
-            <div style="display:grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px;">
-              <div>
-                <label for="short-goal" style="display:block; margin-bottom:4px; opacity:0.9; font-size:11px;">Short-Term Goals</label>
-                <textarea id="short-goal" style="width: 100%; height: 100px; background: rgba(0,0,0,0.25); border: 1px solid rgba(255,255,255,0.35); color: white; padding: 6px; border-radius: 6px; font-size: 11px; resize: vertical;">${currentTabData.goals.shortTerm || ''}</textarea>
+            <div style="display:grid; grid-template-columns: 1fr 1fr; gap: 10px; align-items:start; grid-auto-rows: min-content;">
+              <div style="display:flex;flex-direction:column;gap:4px; position:relative; grid-row: 1 / span 2;">
+                <label for="goal-text" style="display:flex; align-items:center; gap:6px; font-size:11px;">Goal</label>
+                <textarea id="goal-text" placeholder="What’s your goal right now?" style="width: 100%; height: 100px; background: rgba(0,0,0,0.25); border: 1px solid rgba(255,255,255,0.45); color: white; padding: 6px 36px 6px 10px; border-radius: 6px; font-size: 11px; resize: vertical;"></textarea>
+                <button id="goal-mic" title="Speak your goal" style="position:absolute; right:8px; bottom:8px; background:rgba(255,255,255,0.15);border:1px solid rgba(255,255,255,0.35);color:#fff;padding:2px 6px;border-radius:6px;cursor:pointer">🎤</button>
               </div>
-              <div>
-                <label for="mid-goal" style="display:block; margin-bottom:4px; opacity:0.9; font-size:11px;">Mid-Term Goals</label>
-                <textarea id="mid-goal" style="width: 100%; height: 100px; background: rgba(0,0,0,0.25); border: 1px solid rgba(255,255,255,0.35); color: white; padding: 6px; border-radius: 6px; font-size: 11px; resize: vertical;">${currentTabData.goals.midTerm || ''}</textarea>
+              <div style="display:flex;flex-direction:column;gap:4px; position:relative;">
+                <label for="role-text" style="display:flex; align-items:center; gap:6px; font-size:11px;">Role</label>
+                <input id="role-text" placeholder="e.g. assistant, validator" style="width:100%; height: 44px; background: rgba(0,0,0,0.25); border: 1px solid rgba(255,255,255,0.45); color: white; padding: 6px 36px 6px 10px; border-radius: 6px; font-size: 11px;"/>
+                <button id="role-mic" title="Speak your role" style="position:absolute; right:8px; bottom:8px; background:rgba(255,255,255,0.15);border:1px solid rgba(255,255,255,0.35);color:#fff;padding:2px 6px;border-radius:6px;cursor:pointer">🎤</button>
               </div>
-              <div>
-                <label for="long-goal" style="display:block; margin-bottom:4px; opacity:0.9; font-size:11px;">Long-Term Goals</label>
-                <textarea id="long-goal" style="width: 100%; height: 100px; background: rgba(0,0,0,0.25); border: 1px solid rgba(255,255,255,0.35); color: white; padding: 6px; border-radius: 6px; font-size: 11px; resize: vertical;">${currentTabData.goals.longTerm || ''}</textarea>
+              <div style="display:flex; justify-content:flex-end; align-items:center;">
+                <button id="save-as-agent" title="You can save your Goals and Role into an Agent. This allows recurring tasks and intent detection to be refined and tailored to you, so the system can automatically trigger workflows and complex reasoning processes more effectively." style="padding:6px 10px; background:#22c55e; border:none; color:#07210f; border-radius:6px; font-size:11px; cursor:pointer; display:flex; align-items:center; gap:6px;">Save as Agent <span style="font-size:12px">ℹ️</span></button>
               </div>
             </div>
           </div>
@@ -2392,22 +2393,50 @@ function initializeExtension() {
         })
       }
     } catch {}
-    // Persist Session Goals inputs
-    const goalInputs: Array<[string, string]> = [
-      ['short-goal', 'optimando-goal-short'],
-      ['mid-goal', 'optimando-goal-mid'],
-      ['long-goal', 'optimando-goal-long'],
-    ]
-    goalInputs.forEach(([id, key]) => {
-      const el = document.getElementById(id) as HTMLInputElement | null
+    // Persist new Goal/Role fields
+    const persistField = (id: string, key: string) => {
+      const el = document.getElementById(id) as HTMLInputElement | HTMLTextAreaElement | null
       if (!el) return
+      try { const saved = localStorage.getItem(key); if (saved !== null) (el as any).value = saved } catch {}
+      el.addEventListener('input', () => { try { localStorage.setItem(key, (el as any).value) } catch {} })
+    }
+    persistField('goal-text', 'optimando-goal')
+    persistField('role-text', 'optimando-role')
+
+    // Wire up Save as Agent (robust: create via session API, then open editor and prefill)
+    const saveAsAgentBtn = document.getElementById('save-as-agent') as HTMLButtonElement | null
+    saveAsAgentBtn?.addEventListener('click', () => {
+      const goal = (document.getElementById('goal-text') as HTMLTextAreaElement)?.value || ''
+      const role = (document.getElementById('role-text') as HTMLInputElement)?.value || ''
       try {
-        const saved = localStorage.getItem(key)
-        if (saved !== null) el.value = saved
-      } catch {}
-      el.addEventListener('input', () => {
-        try { localStorage.setItem(key, el.value) } catch {}
-      })
+        // Derive a stable key from the temporary name
+        const tempName = 'Custom Agent'
+        const agentKey = (tempName || '').toLowerCase().replace(/[^a-z0-9]/g, '')
+        // Create the agent directly in the session, then open the lightbox and config dialog
+        addAgentToSession(tempName, '🎯', () => {
+          try {
+            openAgentsLightbox()
+          } catch {}
+          // Give the lightbox a moment to mount
+          setTimeout(() => {
+            const overlay = document.getElementById('agents-lightbox') as HTMLElement | null
+            try { openAgentConfigDialog(agentKey, 'instructions', overlay as any) } catch {}
+            // After dialog renders, ensure Reasoning is enabled and prefill fields
+            setTimeout(() => {
+              const capR = document.getElementById('cap-reasoning') as HTMLInputElement | null
+              if (capR && !capR.checked) { capR.click() }
+              setTimeout(() => {
+                const goalsEl = document.getElementById('R-goals') as HTMLTextAreaElement | null
+                const roleEl = document.getElementById('R-role') as HTMLInputElement | null
+                if (goalsEl) goalsEl.value = goal
+                if (roleEl) roleEl.value = role
+                const rBox = document.getElementById('box-reasoning') as HTMLElement | null
+                if (rBox) rBox.style.maxHeight = '52px'
+              }, 120)
+            }, 180)
+          }, 160)
+        })
+      } catch (e) { console.warn('Save as Agent failed', e) }
     })
     // Restore active tab
     try {
@@ -2869,7 +2898,21 @@ function initializeExtension() {
         { label: 'Cleanup', value: 'cleanup' }
       ]
 
+      // Persist Reasoning inputs across re-renders
+      let persistedGoals = ''
+      let persistedRole = ''
+      const syncPersistedFromDom = () => {
+        try {
+          const g = configOverlay.querySelector('#R-goals') as HTMLTextAreaElement | null
+          const r = configOverlay.querySelector('#R-role') as HTMLInputElement | null
+          if (g) persistedGoals = g.value
+          if (r) persistedRole = r.value
+        } catch {}
+      }
+
       const render = () => {
+        // Before clearing, capture current Reasoning values if present
+        syncPersistedFromDom()
         container.innerHTML = ''
         if (capL && capL.checked) {
           const wrap = document.createElement('div')
@@ -2940,6 +2983,16 @@ function initializeExtension() {
             <div id="R-custom-list" style="display:flex;flex-direction:column;gap:8px;margin-top:8px"></div>
             <button id="R-add-custom" style="background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.35);color:#fff;padding:6px 10px;border-radius:6px;cursor:pointer">+ Custom field</button>`
           container.appendChild(wrap)
+
+          // Re-apply persisted values and keep them updated
+          try {
+            const g = wrap.querySelector('#R-goals') as HTMLTextAreaElement | null
+            const r = wrap.querySelector('#R-role') as HTMLInputElement | null
+            if (g && persistedGoals) g.value = persistedGoals
+            if (r && persistedRole) r.value = persistedRole
+            g && g.addEventListener('input', () => { persistedGoals = g.value })
+            r && r.addEventListener('input', () => { persistedRole = r.value })
+          } catch {}
         }
         if (capE && capE.checked) {
           const wrap = document.createElement('div')
