@@ -1728,15 +1728,16 @@ function initializeExtension() {
     right: ${currentTabData.uiConfig.rightSidebarWidth}px;
     top: 0;
     height: 45px;
-    background: linear-gradient(135deg, rgba(102, 126, 234, 0.95) 0%, rgba(118, 75, 162, 0.95) 100%);
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
     color: white;
     padding: 8px 15px;
     box-shadow: 0 2px 10px rgba(0,0,0,0.3);
     pointer-events: auto;
-    backdrop-filter: blur(10px);
+    backdrop-filter: none;
+    overflow: visible;
     cursor: pointer;
     transition: height 0.3s ease;
-    z-index: 10000;
+    z-index: 2147483000;
     margin: 0;
     border: none;
   `
@@ -1744,7 +1745,40 @@ function initializeExtension() {
   // Theme application limited to Optimando elements (topbar + sidebars only)
   const ORIGINAL_BG = 'linear-gradient(135deg, rgba(102, 126, 234, 0.95) 0%, rgba(118, 75, 162, 0.95) 100%)'
 
+  // Ensure theme CSS for tabs and quick-action links exists (overrides inline styles)
+  function injectThemeCSSOnce() {
+    try {
+      if (document.getElementById('optimando-theme-css')) return
+      const style = document.createElement('style')
+      style.id = 'optimando-theme-css'
+      style.textContent = `
+        /* Topbar tabs - ensure visibility across themes */
+        .theme-default #topbar-tabs .topbar-tab { color: white !important; }
+        .theme-dark #topbar-tabs .topbar-tab { background: rgba(255,255,255,0.1) !important; border: 1px solid rgba(255,255,255,0.2) !important; color: #ffffff !important; }
+        .theme-professional #topbar-tabs .topbar-tab { background: rgba(2,6,23,0.03) !important; border: 1px solid #e2e8f0 !important; color: #0f172a !important; }
+
+        /* Orchestration quick actions */
+        .theme-default .quick-action { background: rgba(255,255,255,0.18) !important; border: 1px solid rgba(255,255,255,0.3) !important; color: #ffffff !important; }
+        .theme-dark .quick-action { background: rgba(255,255,255,0.18) !important; border: 1px solid rgba(255,255,255,0.3) !important; color: #ffffff !important; }
+        .theme-professional .quick-action { background: #f8fafc !important; border: 1px solid #cbd5e1 !important; color: #0f172a !important; box-shadow: 0 1px 2px rgba(0,0,0,0.05) !important; }
+      `
+      ;(document.head || document.documentElement).appendChild(style)
+    } catch {}
+  }
+
+  // Re-apply dynamic theming for elements created earlier (tabs)
+  function refreshExpandableTheming() {
+    try { injectThemeCSSOnce() } catch {}
+    try {
+      const saved = (localStorage.getItem('optimando-topbar-active-tab') as 'reasoning' | 'session-goals' | 'workflows' | null) || 'reasoning'
+      setActiveTopbarTab(saved)
+    } catch {
+      try { setActiveTopbarTab('reasoning') } catch {}
+    }
+  }
+
   function applyTheme(theme) {
+    injectThemeCSSOnce()
     const gradients = {
       professional: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)',
       dark: 'linear-gradient(135deg, #0f172a 0%, #1e293b 100%)'
@@ -1985,6 +2019,8 @@ function initializeExtension() {
         })
       }
     }
+    // Ensure tabs reflect new theme immediately
+    refreshExpandableTheming()
   }
 
   function resetToDefaultTheme() {
@@ -2078,6 +2114,8 @@ function initializeExtension() {
         }
       })
     }
+    // Ensure tabs reflect theme reset immediately
+    refreshExpandableTheming()
   }
 
   // Apply saved theme on init ONLY if present; otherwise keep original defaults
@@ -2102,10 +2140,10 @@ function initializeExtension() {
             <span style="font-size: 12px; font-weight: bold;" class="menu-link">🧠 Reasoning</span>
             <button id="expand-btn" style="background: transparent; border: none; color: white; font-size: 12px; transition: transform 0.3s ease;">⌄</button>
           </div>
-          <button id="agents-lightbox-btn" style="padding: 4px 8px; background: rgba(255,255,255,0.1); border: none; border-radius: 3px; cursor: pointer; font-size: 10px;" class="menu-link">🤖 Agents</button>
-          <button id="context-lightbox-btn" style="padding: 4px 8px; background: rgba(255,255,255,0.1); border: none; border-radius: 3px; cursor: pointer; font-size: 10px;" class="menu-link">📄 Context</button>
-          <button id="whitelist-lightbox-btn" style="padding: 4px 8px; background: rgba(255,255,255,0.1); border: none; border-radius: 3px; cursor: pointer; font-size: 10px;" class="menu-link">🛡️ Whitelist</button>
-          <button id="settings-lightbox-btn" style="padding: 4px 8px; background: rgba(255,255,255,0.1); border: none; border-radius: 3px; cursor: pointer; font-size: 10px;" class="menu-link">⚙️ Settings</button>
+          <button id="agents-lightbox-btn" style="padding: 4px 8px; background: rgba(255,255,255,0.1); border: none; border-radius: 3px; cursor: pointer; font-size: 10px; color: inherit;" class="menu-link">🤖 Agents</button>
+          <button id="context-lightbox-btn" style="padding: 4px 8px; background: rgba(255,255,255,0.1); border: none; border-radius: 3px; cursor: pointer; font-size: 10px; color: inherit;" class="menu-link">📄 Context</button>
+          <button id="whitelist-lightbox-btn" style="padding: 4px 8px; background: rgba(255,255,255,0.1); border: none; border-radius: 3px; cursor: pointer; font-size: 10px; color: inherit;" class="menu-link">🛡️ Whitelist</button>
+          <button id="settings-lightbox-btn" style="padding: 4px 8px; background: rgba(255,255,255,0.1); border: none; border-radius: 3px; cursor: pointer; font-size: 10px; color: inherit;" class="menu-link">⚙️ Settings</button>
         </div>
         
         <!-- Session Name + Controls -->
@@ -2121,61 +2159,133 @@ function initializeExtension() {
         </div>
       </div>
 
-      <!-- Expandable Content - 3 Column Reasoning Display -->
+      <!-- Expandable Content - Tabbed Reasoning Area -->
       <div id="expandable-content" style="display: none; margin-top: 15px; height: ${expandedHeight - 60}px; overflow-y: auto;">
-        
-        <!-- 3-Column Layout -->
-          <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 15px; height: 100%;">
-            
-          <!-- Intent Detection Column -->
-            <div style="background: rgba(255,255,255,0.1); padding: 12px; border-radius: 6px;">
-              <h4 class="dropdown-title" style="margin: 0 0 10px 0; font-size: 12px;">🎯 Intent Detection</h4>
-              <div style="font-size: 10px;">
-                <div style="margin-bottom: 8px;"><strong>Current:</strong> ${currentTabData.userIntentDetection.detected}</div>
-                <div style="margin-bottom: 8px;"><strong>Confidence:</strong> ${currentTabData.userIntentDetection.confidence}%</div>
-                <div><strong>Updated:</strong> ${currentTabData.userIntentDetection.lastUpdate}</div>
+        <!-- Tabs -->
+        <div id="topbar-tabs" style="display:flex; gap:8px; margin-bottom:10px;">
+          <button data-tab="reasoning" class="topbar-tab" style="padding:6px 10px; background: rgba(255,255,255,0.2); border: 1px solid rgba(255,255,255,0.25); color: white; border-radius: 6px; font-size: 11px; cursor: pointer;">💡 Insights</button>
+          <button data-tab="session-goals" class="topbar-tab" style="padding:6px 10px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); color: white; border-radius: 6px; font-size: 11px; cursor: pointer;">🎯 Session Goals</button>
+          <button data-tab="workflows" class="topbar-tab" style="padding:6px 10px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); color: white; border-radius: 6px; font-size: 11px; cursor: pointer;">🛠️ Workflows</button>
+        </div>
+
+        <!-- Reasoning Panel -->
+        <div id="tab-content-reasoning" style="display:block;">
+          <div style="display:grid; grid-template-columns: 1fr 2fr; gap: 15px; height: 100%;">
+            <!-- Left: User Intent Detection (1/3) -->
+            <div style="background: rgba(255,255,255,0.1); padding: 12px; border-radius: 6px; display:flex; flex-direction:column; gap:10px;">
+              <div style="display:flex; align-items:center; justify-content:space-between; gap:8px;">
+                <h4 class="dropdown-title" style="margin: 0; font-size: 12px;">🧭 User Intent Detection</h4>
+                <div style="display:flex; align-items:center; gap:6px;">
+                  <label for="optimization-mode-select" style="font-size: 10px; opacity: 0.9;">Optimization</label>
+                  <select id="optimization-mode-select" style="background: rgba(17,24,39,0.92); border: 1px solid rgba(255,255,255,0.35); color: #ffffff; padding: 4px 6px; border-radius: 6px; font-size: 10px; max-width: 160px; appearance: auto; color-scheme: dark;">
+                    <option value="off" style="background:#111827;color:#ffffff;">Off (default)</option>
+                    <option value="on" style="background:#111827;color:#ffffff;">On</option>
+                    <option value="optiscan" style="background:#111827;color:#ffffff;">Optiscan</option>
+                    <option value="deepfix" style="background:#111827;color:#ffffff;">Deepfix</option>
+                  </select>
+                </div>
+              </div>
+              <div id="detected-intent-demo" style="font-size: 10px; opacity: 0.9; line-height:1.5; background: rgba(0,0,0,0.25); border: 1px solid rgba(255,255,255,0.18); border-radius:6px; padding:8px;">
+                <div><strong>Detected Intent:</strong> Compare product prices and find best value</div>
+                <div style="opacity:0.8;">Confidence: 72% • Updated: just now</div>
               </div>
             </div>
 
-          <!-- Goals Column -->
-            <div style="background: rgba(255,255,255,0.1); padding: 12px; border-radius: 6px;">
-              <h4 class="dropdown-title" style="margin: 0 0 10px 0; font-size: 12px;">📋 Goals</h4>
-              <div style="font-size: 10px; color: white;">
-                <div style="margin-bottom: 6px;">
-                  <strong style="color: white;">Short:</strong><br>
-                  <textarea id="short-goal" style="width: 100%; height: 30px; background: rgba(0,0,0,0.25); border: 1px solid rgba(255,255,255,0.35); color: white; padding: 3px; border-radius: 2px; font-size: 9px; resize: none;">${currentTabData.goals.shortTerm}</textarea>
-                </div>
-                <div style="margin-bottom: 6px;">
-                  <strong style="color: white;">Mid:</strong><br>
-                  <textarea id="mid-goal" style="width: 100%; height: 30px; background: rgba(0,0,0,0.25); border: 1px solid rgba(255,255,255,0.35); color: white; padding: 3px; border-radius: 2px; font-size: 9px; resize: none;">${currentTabData.goals.midTerm}</textarea>
-                </div>
-                <div>
-                  <strong style="color: white;">Long:</strong><br>
-                  <textarea id="long-goal" style="width: 100%; height: 30px; background: rgba(0,0,0,0.25); border: 1px solid rgba(255,255,255,0.35); color: white; padding: 3px; border-radius: 2px; font-size: 9px; resize: none;">${currentTabData.goals.longTerm}</textarea>
+            <!-- Right: Orchestration Logic (2/3) -->
+            <div style="background: rgba(255,255,255,0.1); padding: 12px; border-radius: 6px; display:flex; flex-direction:column; gap:10px;">
+              <div style="display:flex; align-items:center; justify-content:space-between;">
+                <h4 class="dropdown-title" style="margin: 0; font-size: 12px;">🧠 Orchestration Logic</h4>
+                <div style="display:flex; gap:6px;">
+                  <button id="gen-followups-btn" class="quick-action" title="Re-generate follow-up questions" style="padding:6px 8px; border-radius:6px; font-size:11px; cursor:pointer;">🔄 Re-Generate</button>
+                  <button id="show-paths-btn" class="quick-action" title="Show reasoning paths" style="padding:6px 8px; border-radius:6px; font-size:11px; cursor:pointer;">🧭 Paths</button>
+                  <button id="feedback-loop-btn" class="quick-action" title="Trigger feedback loop" style="padding:6px 8px; border-radius:6px; font-size:11px; cursor:pointer;">♻️ Feedback</button>
                 </div>
               </div>
-            </div>
-
-          <!-- Reasoning Column -->
-            <div style="background: rgba(255,255,255,0.1); padding: 12px; border-radius: 6px;">
-              <h4 class="dropdown-title" style="margin: 0 0 10px 0; font-size: 12px;">🤖 Reasoning</h4>
-              <div style="font-size: 10px;">
-                <div style="margin-bottom: 8px;"><strong>Active Agents:</strong> 0/5</div>
-                <div style="margin-bottom: 8px;"><strong>Status:</strong> Standby</div>
-                <div style="background: rgba(0,0,0,0.3); padding: 5px; border-radius: 3px; font-size: 8px; height: 80px; overflow-y: auto; font-family: monospace;">
-                  [System] Ready for AI orchestration<br>
-                  [System] Waiting for agent activation<br>
-                </div>
-                <button style="width: 100%; margin-top: 5px; padding: 4px; background: #4CAF50; border: none; color: white; border-radius: 2px; cursor: pointer; font-size: 8px;">🚀 Start</button>
+              <div id="orchestration-log" style="background: rgba(0,0,0,0.3); padding: 8px; border-radius: 6px; font-size: 10px; height: 120px; overflow-y: auto; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;">
+                [System] Orchestrator idle. Awaiting actions…
               </div>
             </div>
           </div>
         </div>
+
+        <!-- Session Goals Panel -->
+        <div id="tab-content-session-goals" style="display:none;">
+          <div style="background: rgba(255,255,255,0.1); padding: 12px; border-radius: 6px; display:flex; flex-direction:column; gap:10px;">
+            <div style="display:flex; align-items:center; gap:6px;">
+              <h4 class="dropdown-title" style="margin: 0; font-size: 12px;">🎯 Session Goals</h4>
+              <span title="Defining goals helps the system detect your intent more accurately and orchestrate better actions." style="font-size:12px; opacity:0.85; cursor:help;">ℹ️</span>
+            </div>
+            <div style="display:grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px;">
+              <div>
+                <label for="short-goal" style="display:block; margin-bottom:4px; opacity:0.9; font-size:11px;">Short-Term Goals</label>
+                <textarea id="short-goal" style="width: 100%; height: 100px; background: rgba(0,0,0,0.25); border: 1px solid rgba(255,255,255,0.35); color: white; padding: 6px; border-radius: 6px; font-size: 11px; resize: vertical;">${currentTabData.goals.shortTerm || ''}</textarea>
+              </div>
+              <div>
+                <label for="mid-goal" style="display:block; margin-bottom:4px; opacity:0.9; font-size:11px;">Mid-Term Goals</label>
+                <textarea id="mid-goal" style="width: 100%; height: 100px; background: rgba(0,0,0,0.25); border: 1px solid rgba(255,255,255,0.35); color: white; padding: 6px; border-radius: 6px; font-size: 11px; resize: vertical;">${currentTabData.goals.midTerm || ''}</textarea>
+              </div>
+              <div>
+                <label for="long-goal" style="display:block; margin-bottom:4px; opacity:0.9; font-size:11px;">Long-Term Goals</label>
+                <textarea id="long-goal" style="width: 100%; height: 100px; background: rgba(0,0,0,0.25); border: 1px solid rgba(255,255,255,0.35); color: white; padding: 6px; border-radius: 6px; font-size: 11px; resize: vertical;">${currentTabData.goals.longTerm || ''}</textarea>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Workflows Panel -->
+        <div id="tab-content-workflows" style="display:none;">
+          <div style="display:grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 12px;">
+            <div style="background: rgba(255,255,255,0.1); padding: 12px; border-radius: 6px; display:flex; flex-direction:column; gap:8px;">
+              <div style="font-size:12px; font-weight:600;">📧 Send Email</div>
+              <div style="font-size:10px; opacity:0.9;">Draft and send a concise email.</div>
+              <button data-workflow="email" class="wf-action" style="padding:6px 8px; background:#22c55e; border:none; color:#07210f; border-radius:6px; font-size:11px; cursor:pointer;">Start</button>
+            </div>
+            <div style="background: rgba(255,255,255,0.1); padding: 12px; border-radius: 6px; display:flex; flex-direction:column; gap:8px;">
+              <div style="font-size:12px; font-weight:600;">📅 Manage Calendar</div>
+              <div style="font-size:10px; opacity:0.9;">Create or reschedule meetings.</div>
+              <button data-workflow="calendar" class="wf-action" style="padding:6px 8px; background:#3b82f6; border:none; color:white; border-radius:6px; font-size:11px; cursor:pointer;">Start</button>
+            </div>
+            <div style="background: rgba(255,255,255,0.1); padding: 12px; border-radius: 6px; display:flex; flex-direction:column; gap:8px;">
+              <div style="font-size:12px; font-weight:600;">🧹 Clean Up Draft</div>
+              <div style="font-size:10px; opacity:0.9;">Refine text for clarity and tone.</div>
+              <button data-workflow="cleanup" class="wf-action" style="padding:6px 8px; background:#f59e0b; border:none; color:#1f2937; border-radius:6px; font-size:11px; cursor:pointer;">Start</button>
+            </div>
+          </div>
+        </div>
+      </div>
     `
   }
 
 
   bottomSidebar.innerHTML = createBottomContent()
+  // Start collapsed and ensure no empty content flashes
+  try {
+    const expandableContent = bottomSidebar.querySelector('#expandable-content') as HTMLElement | null
+    if (expandableContent) expandableContent.style.display = 'none'
+  } catch {}
+
+  // Restore expansion state (after innerHTML set, ensure DOM refs are available)
+  try {
+    const saved = localStorage.getItem('optimando-topbar-expanded')
+    const expandBtn = document.getElementById('expand-btn')
+    const expandableContent = document.getElementById('expandable-content')
+    if (saved === 'true') {
+      isExpanded = true
+      bottomSidebar.style.height = expandedHeight + 'px'
+      bottomSidebar.style.cursor = 'default'
+      if (expandBtn) (expandBtn as HTMLElement).style.transform = 'rotate(180deg)'
+      if (expandableContent) (expandableContent as HTMLElement).style.display = 'block'
+      setTimeout(() => { document.body.style.marginTop = expandedHeight + 'px' }, 10)
+    } else {
+      // Ensure compact defaults
+      isExpanded = false
+      bottomSidebar.style.height = '45px'
+      bottomSidebar.style.cursor = 'pointer'
+      if (expandBtn) (expandBtn as HTMLElement).style.transform = 'rotate(0deg)'
+      if (expandableContent) (expandableContent as HTMLElement).style.display = 'none'
+      setTimeout(() => { document.body.style.marginTop = '0px' }, 10)
+    }
+  } catch {}
 
   // Expand/Collapse functionality
 
@@ -2199,10 +2309,126 @@ function initializeExtension() {
       expandBtn.style.transform = 'rotate(0deg)'
       expandableContent.style.display = 'none'
       setTimeout(() => {
-        document.body.style.marginTop = '45px'
+        // Remove any extra offset when collapsed to avoid wasted space
+        document.body.style.marginTop = '0px'
       }, 10)
     }
+
+    // Persist expansion state per tab (best-effort)
+    try {
+      localStorage.setItem('optimando-topbar-expanded', isExpanded ? 'true' : 'false')
+    } catch {}
   }
+
+  // Tabs logic for expandable content
+  function setActiveTopbarTab(tabId: 'reasoning' | 'session-goals' | 'workflows') {
+    try { localStorage.setItem('optimando-topbar-active-tab', tabId) } catch {}
+    const tabs = Array.from(document.querySelectorAll('#topbar-tabs .topbar-tab')) as HTMLElement[]
+    const panels: Record<string, HTMLElement | null> = {
+      reasoning: document.getElementById('tab-content-reasoning') as HTMLElement | null,
+      'session-goals': document.getElementById('tab-content-session-goals') as HTMLElement | null,
+      workflows: document.getElementById('tab-content-workflows') as HTMLElement | null,
+    }
+    const isProfessional = bottomSidebar.classList.contains('theme-professional')
+    const activeBg = isProfessional ? 'rgba(2,6,23,0.08)' : 'rgba(255,255,255,0.2)'
+    const inactiveBg = isProfessional ? 'rgba(2,6,23,0.03)' : 'rgba(255,255,255,0.1)'
+    const activeBorder = isProfessional ? '1px solid #cbd5e1' : '1px solid rgba(255,255,255,0.25)'
+    const inactiveBorder = isProfessional ? '1px solid #e2e8f0' : '1px solid rgba(255,255,255,0.2)'
+    const textColor = isProfessional ? '#0f172a' : 'white'
+    tabs.forEach(btn => {
+      const id = btn.getAttribute('data-tab') || ''
+      if (id === tabId) {
+        btn.style.background = activeBg
+        btn.style.border = activeBorder
+        btn.style.color = textColor
+      } else {
+        btn.style.background = inactiveBg
+        btn.style.border = inactiveBorder
+        btn.style.color = textColor
+      }
+    })
+    Object.entries(panels).forEach(([id, el]) => {
+      if (!el) return
+      el.style.display = id === tabId ? 'block' : 'none'
+    })
+  }
+
+  // Attach tab handlers after DOM paint and guard against initial empty state
+  setTimeout(() => {
+    // If persisted expanded but content hidden (edge cases), force-show
+    try {
+      const saved = localStorage.getItem('optimando-topbar-expanded')
+      const expandBtn = document.getElementById('expand-btn') as HTMLElement | null
+      const expandableContent = document.getElementById('expandable-content') as HTMLElement | null
+      if (saved === 'true' && expandableContent && expandableContent.style.display === 'none') {
+        isExpanded = true
+        bottomSidebar.style.height = expandedHeight + 'px'
+        bottomSidebar.style.cursor = 'default'
+        if (expandBtn) expandBtn.style.transform = 'rotate(180deg)'
+        expandableContent.style.display = 'block'
+        document.body.style.marginTop = expandedHeight + 'px'
+      }
+    } catch {}
+    const tabButtons = Array.from(document.querySelectorAll('#topbar-tabs .topbar-tab')) as HTMLElement[]
+    tabButtons.forEach(btn => btn.addEventListener('click', () => {
+      const id = (btn.getAttribute('data-tab') || 'reasoning') as 'reasoning' | 'session-goals' | 'workflows'
+      setActiveTopbarTab(id)
+    }))
+    // Adjust initial tab styles for professional theme
+    try {
+      const saved = (localStorage.getItem('optimando-topbar-active-tab') as 'reasoning' | 'session-goals' | 'workflows' | null) || 'reasoning'
+      setActiveTopbarTab(saved)
+    } catch { setActiveTopbarTab('reasoning') }
+    // Wire up orchestration quick actions
+    const log = document.getElementById('orchestration-log') as HTMLElement | null
+    const append = (msg: string) => { if (!log) return; log.innerHTML += `\n${msg}`; log.scrollTop = log.scrollHeight }
+    document.getElementById('gen-followups-btn')?.addEventListener('click', () => append('[Action] Generated follow-up questions.'))
+    document.getElementById('show-paths-btn')?.addEventListener('click', () => append('[Action] Displayed current reasoning paths.'))
+    document.getElementById('feedback-loop-btn')?.addEventListener('click', () => append('[Action] Triggered feedback loop.'))
+    // Wire up demo workflow quick actions
+    Array.from(document.querySelectorAll('.wf-action')).forEach(btn => {
+      btn.addEventListener('click', () => {
+        const wf = (btn as HTMLElement).getAttribute('data-workflow') || 'unknown'
+        append(`[Workflow] Started: ${wf}`)
+      })
+    })
+    // Persist optimization mode
+    try {
+      const select = document.getElementById('optimization-mode-select') as HTMLSelectElement | null
+      if (select) {
+        const savedMode = localStorage.getItem('optimando-optimization-mode')
+        if (savedMode) select.value = savedMode
+        select.addEventListener('change', () => {
+          localStorage.setItem('optimando-optimization-mode', select.value)
+          append(`[Mode] Optimization set to: ${select.value}`)
+        })
+      }
+    } catch {}
+    // Persist Session Goals inputs
+    const goalInputs: Array<[string, string]> = [
+      ['short-goal', 'optimando-goal-short'],
+      ['mid-goal', 'optimando-goal-mid'],
+      ['long-goal', 'optimando-goal-long'],
+    ]
+    goalInputs.forEach(([id, key]) => {
+      const el = document.getElementById(id) as HTMLInputElement | null
+      if (!el) return
+      try {
+        const saved = localStorage.getItem(key)
+        if (saved !== null) el.value = saved
+      } catch {}
+      el.addEventListener('input', () => {
+        try { localStorage.setItem(key, el.value) } catch {}
+      })
+    })
+    // Restore active tab
+    try {
+      const saved = (localStorage.getItem('optimando-topbar-active-tab') as 'reasoning' | 'session-goals' | 'workflows' | null) || 'reasoning'
+      setActiveTopbarTab(saved)
+    } catch {
+      setActiveTopbarTab('reasoning')
+    }
+  }, 0)
 
 
   // Lightbox functions
