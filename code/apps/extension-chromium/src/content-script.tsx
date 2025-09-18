@@ -169,7 +169,6 @@ function initializeExtension() {
   }
   
   console.log('🚀 Loading Optimando AI Extension...')
-  
   // Tab-specific data structure
   const tabId = `tab-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
   
@@ -506,7 +505,6 @@ function initializeExtension() {
     }))
     console.log('🔧 DEBUG: Saved agent boxes to URL-based storage:', urlKey)
   }
-
   function loadTabDataFromStorage() {
     // Check if this is a fresh browser session (sessionStorage gets cleared on browser close)
     const browserSessionMarker = sessionStorage.getItem('optimando-browser-session')
@@ -680,7 +678,6 @@ function initializeExtension() {
         saveTabDataToStorage()
       }
     }
-    
     console.log('🔧 DEBUG: Rendering', currentTabData.agentBoxes.length, 'agent boxes')
     
     currentTabData.agentBoxes.forEach((box: any) => {
@@ -881,7 +878,6 @@ function initializeExtension() {
         selectedColor = btn.getAttribute('data-color') || colors[0]
       })
     })
-    
     // Cancel button
     overlay.querySelector('#cancel-add-agent')?.addEventListener('click', () => {
       overlay.remove()
@@ -1260,7 +1256,6 @@ function initializeExtension() {
       notification.remove()
     }, 3000)
   }
-
   // Helper functions for event listeners
   function attachAgentBoxResizeListeners() {
     document.querySelectorAll('.resizable-agent-box').forEach(box => {
@@ -1444,7 +1439,6 @@ function initializeExtension() {
     `
     document.head.appendChild(style)
   }
-
   // Create main container
   const sidebarsDiv = document.createElement('div')
   sidebarsDiv.id = 'optimando-sidebars'
@@ -1458,7 +1452,6 @@ function initializeExtension() {
     z-index: 2147483647;
     font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
   `
-
   // LEFT SIDEBAR - AI Agent Outputs (weiße Display Ports)
   const leftSidebar = document.createElement('div')
   leftSidebar.id = 'left-sidebar'
@@ -1642,7 +1635,6 @@ function initializeExtension() {
     margin: 0;
     border: none;
   `
-
   rightSidebar.innerHTML = `
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
       <h2 style="margin: 0; font-size: 18px;" class="section-title">⚙️ AI Orchestrator</h2>
@@ -1654,7 +1646,7 @@ function initializeExtension() {
       
       <!-- QR Code -->
       <div style="width: 120px; height: 120px; background: white; border-radius: 8px; margin: 0 auto 15px auto; display: flex; align-items: center; justify-content: center; overflow: hidden;">
-        <img src="data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTIwIiBoZWlnaHQ9IjEyMCIgdmlld0JveD0iMCAwIDI1IDI1IiBmaWxsPSJub25lIiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciPgo8cmVjdCB3aWR0aD0iMjUiIGhlaWdodD0iMjUiIGZpbGw9IndoaXRlIi8+CjwhLS0gUVIgQ29kZSBQYXR0ZXJuIC0tPgo8IS0tIFRvcCBMZWZ0IEZpbmRlciAtLT4KPHJlY3QgeD0iMSIgeT0iMSIgd2lkdGg9IjciIGhlaWdodD0iNyIgZmlsbD0iYmxhY2siLz4KPHJlY3QgeD0iMiIgeT0iMiIgd2lkdGg9IjUiIGhlaWdodD0iNSIgZmlsbD0id2hpdGUiLz4KPHJlY3QgeD0iMyIgeT0iMyIgd2lkdGg9IjMiIGhlaWdodD0iMyIgZmlsbD0iYmxhY2siLz4KCjwhLS0gVG9wIFJpZ2h0IEZpbmRlciAtLT4KPHJlY3QgeD0iMTciIHk9IjEiIHdpZHRoPSI3IiBoZWlnaHQ9IjciIGZpbGw9ImJsYWNrIi8+CjxyZWN0IHg9IjE4IiB5PSIyIiB3aWR0aD0iNSIgaGVpZ2h0PSI1IiBmaWxsPSJ3aGl0ZSIvPgo8cmVjdCB4PSIxOSIgeT0iMyIgd2lkdGg9IjMiIGhlaWdodD0iMyIgZmlsbD0iYmxhY2siLz4KCjwhLS0gQm90dG9tIExlZnQgRmluZGVyIC0tPgo8cmVjdCB4PSIxIiB5PSIxNyIgd2lkdGg9IjciIGhlaWdodD0iNyIgZmlsbD0iYmxhY2siLz4KPHJlY3QgeD0iMiIgeT0iMTgiIHdpZHRoPSI1IiBoZWlnaHQ9IjUiIGZpbGw9IndoaXRlIi8+CjxyZWN0IHg9IjMiIHk9IjE5IiB3aWR0aD0iMyIgaGVpZ2h0PSIzIiBmaWxsPSJibGFjayIvPgoKPCEtLSBUaW1pbmcgUGF0dGVybnMgLS0+CjxyZWN0IHg9IjkiIHk9IjEiIHdpZHRoPSIxIiBoZWlnaHQ9IjEiIGZpbGw9ImJsYWNrIi8+CjxyZWN0IHg9IjExIiB5PSIxIiB3aWR0aD0iMSIgaGVpZ2h0PSIxIiBmaWxsPSJibGFjayIvPgo8cmVjdCB4PSIxMyIgeT0iMSIgd2lkdGg9IjEiIGhlaWdodD0iMSIgZmlsbD0iYmxhY2siLz4KPHJlY3QgeD0iMTUiIHk9IjEiIHdpZHRoPSIxIiBoZWlnaHQ9IjEiIGZpbGw9ImJsYWNrIi8+Cgo8cmVjdCB4PSIxIiB5PSI5IiB3aWR0aD0iMSIgaGVpZ2h0PSIxIiBmaWxsPSJibGFjayIvPgo8cmVjdCB4PSIxIiB5PSIxMSIgd2lkdGg9IjEiIGhlaWdodD0iMSIgZmlsbD0iYmxhY2siLz4KPHJlY3QgeD0iMSIgeT0iMTMiIHdpZHRoPSIxIiBoZWlnaHQ9IjEiIGZpbGw9ImJsYWNrIi8+CjxyZWN0IHg9IjEiIHk9IjE1IiB3aWR0aD0iMSIgaGVpZ2h0PSIxIiBmaWxsPSJibGFjayIvPgoKPCEtLSBEYXRhIFBhdHRlcm4gLS0+CjxyZWN0IHg9IjkiIHk9IjMiIHdpZHRoPSIxIiBoZWlnaHQ9IjEiIGZpbGw9ImJsYWNrIi8+CjxyZWN0IHg9IjExIiB5PSIzIiB3aWR0aD0iMSIgaGVpZ2h0PSIxIiBmaWxsPSJibGFjayIvPgo8cmVjdCB4PSIxMyIgeT0iMyIgd2lkdGg9IjEiIGhlaWdodD0iMSIgZmlsbD0iYmxhY2siLz4KPHJlY3QgeD0iMTUiIHk9IjMiIHdpZHRoPSIxIiBoZWlnaHQ9IjEiIGZpbGw9ImJsYWNrIi8+Cgo8cmVjdCB4PSIzIiB5PSI5IiB3aWR0aD0iMSIgaGVpZ2h0PSIxIiBmaWxsPSJibGFjayIvPgo8cmVjdCB4PSI1IiB5PSI5IiB3aWR0aD0iMSIgaGVpZ2h0PSIxIiBmaWxsPSJibGFjayIvPgo8cmVjdCB4PSI3IiB5PSI5IiB3aWR0aD0iMSIgaGVpZ2h0PSIxIiBmaWxsPSJibGFjayIvPgoKPHJlY3QgeD0iOSIgeT0iNSIgd2lkdGg9IjEiIGhlaWdodD0iMSIgZmlsbD0iYmxhY2siLz4KPHJlY3QgeD0iMTEiIHk9IjUiIHdpZHRoPSIxIiBoZWlnaHQ9IjEiIGZpbGw9ImJsYWNrIi8+CjxyZWN0IHg9IjEzIiB5PSI1IiB3aWR0aD0iMSIgaGVpZ2h0PSIxIiBmaWxsPSJibGFjayIvPgo8cmVjdCB4PSIxNSIgeT0iNSIgd2lkdGg9IjEiIGhlaWdodD0iMSIgZmlsbD0iYmxhY2siLz4KCjxyZWN0IHg9IjkiIHk9IjciIHdpZHRoPSIxIiBoZWlnaHQ9IjEiIGZpbGw9ImJsYWNrIi8+CjxyZWN0IHg9IjExIiB5PSI3IiB3aWR0aD0iMSIgaGVpZ2h0PSIxIiBmaWxsPSJibGFjayIvPgo8cmVjdCB4PSIxMyIgeT0iNyIgd2lkdGg9IjEiIGhlaWdodD0iMSIgZmlsbD0iYmxhY2siLz4KPHJlY3QgeD0iMTUiIHk9IjciIHdpZHRoPSIxIiBoZWlnaHQ9IjEiIGZpbGw9ImJsYWNrIi8+Cgo8IS0tIE1vcmUgZGF0YSBwYXR0ZXJucyAtLT4KPHJlY3QgeD0iOSIgeT0iMTEiIHdpZHRoPSIxIiBoZWlnaHQ9IjEiIGZpbGw9ImJsYWNrIi8+CjxyZWN0IHg9IjEwIiB5PSIxMSIgd2lkdGg9IjEiIGhlaWdodD0iMSIgZmlsbD0iYmxhY2siLz4KPHJlY3QgeD0iMTIiIHk9IjExIiB3aWR0aD0iMSIgaGVpZ2h0PSIxIiBmaWxsPSJibGFjayIvPgo8cmVjdCB4PSIxNCIgeT0iMTEiIHdpZHRoPSIxIiBoZWlnaHQ9IjEiIGZpbGw9ImJsYWNrIi8+CjxyZWN0IHg9IjE2IiB5PSIxMSIgd2lkdGg9IjEiIGhlaWdodD0iMSIgZmlsbD0iYmxhY2siLz4KCjxyZWN0IHg9IjkiIHk9IjEzIiB3aWR0aD0iMSIgaGVpZ2h0PSIxIiBmaWxsPSJibGFjayIvPgo8cmVjdCB4PSIxMSIgeT0iMTMiIHdpZHRoPSIxIiBoZWlnaHQ9IjEiIGZpbGw9ImJsYWNrIi8+CjxyZWN0IHg9IjEzIiB5PSIxMyIgd2lkdGg9IjEiIGhlaWdodD0iMSIgZmlsbD0iYmxhY2siLz4KPHJlY3QgeD0iMTUiIHk9IjEzIiB3aWR0aD0iMSIgaGVpZ2h0PSIxIiBmaWxsPSJibGFjayIvPgoKPHJlY3QgeD0iOSIgeT0iMTUiIHdpZHRoPSIxIiBoZWlnaHQ9IjEiIGZpbGw9ImJsYWNrIi8+CjxyZWN0IHg9IjExIiB5PSIxNSIgd2lkdGg9IjEiIGhlaWdodD0iMSIgZmlsbD0iYmxhY2siLz4KPHJlY3QgeD0iMTMiIHk9IjE1IiB3aWR0aD0iMSIgaGVpZ2h0PSIxIiBmaWxsPSJibGFjayIvPgo8cmVjdCB4PSIxNSIgeT0iMTUiIHdpZHRoPSIxIiBoZWlnaHQ9IjEiIGZpbGw9ImJsYWNrIi8+Cgo8cmVjdCB4PSI5IiB5PSIxNyIgd2lkdGg9IjEiIGhlaWdodD0iMSIgZmlsbD0iYmxhY2siLz4KPHJlY3QgeD0iMTEiIHk9IjE3IiB3aWR0aD0iMSIgaGVpZ2h0PSIxIiBmaWxsPSJibGFjayIvPgo8cmVjdCB4PSIxMyIgeT0iMTciIHdpZHRoPSIxIiBoZWlnaHQ9IjEiIGZpbGw9ImJsYWNrIi8+CjxyZWN0IHg9IjE1IiB5PSIxNyIgd2lkdGg9IjEiIGhlaWdodD0iMSIgZmlsbD0iYmxhY2siLz4KCjxyZWN0IHg9IjkiIHk9IjE5IiB3aWR0aD0iMSIgaGVpZ2h0PSIxIiBmaWxsPSJibGFjayIvPgo8cmVjdCB4PSIxMSIgeT0iMTkiIHdpZHRoPSIxIiBoZWlnaHQ9IjEiIGZpbGw9ImJsYWNrIi8+CjxyZWN0IHg9IjEzIiB5PSIxOSIgd2lkdGg9IjEiIGhlaWdodD0iMSIgZmlsbD0iYmxhY2siLz4KPHJlY3QgeD0iMTUiIHk9IjE5IiB3aWR0aD0iMSIgaGVpZ2h0PSIxIiBmaWxsPSJibGFjayIvPgoKPHJlY3QgeD0iOSIgeT0iMjEiIHdpZHRoPSIxIiBoZWlnaHQ9IjEiIGZpbGw9ImJsYWNrIi8+CjxyZWN0IHg9IjExIiB5PSIyMSIgd2lkdGg9IjEiIGhlaWdodD0iMSIgZmlsbD0iYmxhY2siLz4KPHJlY3QgeD0iMTMiIHk9IjIxIiB3aWR0aD0iMSIgaGVpZ2h0PSIxIiBmaWxsPSJibGFjayIvPgo8cmVjdCB4PSIxNSIgeT0iMjEiIHdpZHRoPSIxIiBoZWlnaHQ9IjEiIGZpbGw9ImJsYWNrIi8+Cgo8cmVjdCB4PSI5IiB5PSIyMyIgd2lkdGg9IjEiIGhlaWdodD0iMSIgZmlsbD0iYmxhY2siLz4KPHJlY3QgeD0iMTEiIHk9IjIzIiB3aWR0aD0iMSIgaGVpZ2h0PSIxIiBmaWxsPSJibGFjayIvPgo8cmVjdCB4PSIxMyIgeT0iMjMiIHdpZHRoPSIxIiBoZWlnaHQ9IjEiIGZpbGw9ImJsYWNrIi8+CjxyZWN0IHg9IjE1IiB5PSIyMyIgd2lkdGg9IjEiIGhlaWdodD0iMSIgZmlsbD0iYmxhY2siLz4KCjxyZWN0IHg9IjE3IiB5PSI5IiB3aWR0aD0iMSIgaGVpZ2h0PSIxIiBmaWxsPSJibGFjayIvPgo8cmVjdCB4PSIxOSIgeT0iOSIgd2lkdGg9IjEiIGhlaWdodD0iMSIgZmlsbD0iYmxhY2siLz4KPHJlY3QgeD0iMjEiIHk9IjkiIHdpZHRoPSIxIiBoZWlnaHQ9IjEiIGZpbGw9ImJsYWNrIi8+CjxyZWN0IHg9IjIzIiB5PSI5IiB3aWR0aD0iMSIgaGVpZ2h0PSIxIiBmaWxsPSJibGFjayIvPgoKPHJlY3QgeD0iMTciIHk9IjExIiB3aWR0aD0iMSIgaGVpZ2h0PSIxIiBmaWxsPSJibGFjayIvPgo8cmVjdCB4PSIxOSIgeT0iMTEiIHdpZHRoPSIxIiBoZWlnaHQ9IjEiIGZpbGw9ImJsYWNrIi8+CjxyZWN0IHg9IjIxIiB5PSIxMSIgd2lkdGg9IjEiIGhlaWdodD0iMSIgZmlsbD0iYmxhY2siLz4KPHJlY3QgeD0iMjMiIHk9IjExIiB3aWR0aD0iMSIgaGVpZ2h0PSIxIiBmaWxsPSJibGFjayIvPgoKPHJlY3QgeD0iMTciIHk9IjEzIiB3aWR0aD0iMSIgaGVpZ2h0PSIxIiBmaWxsPSJibGFjayIvPgo8cmVjdCB4PSIxOSIgeT0iMTMiIHdpZHRoPSIxIiBoZWlnaHQ9IjEiIGZpbGw9ImJsYWNrIi8+CjxyZWN0IHg9IjIxIiB5PSIxMyIgd2lkdGg9IjEiIGhlaWdodD0iMSIgZmlsbD0iYmxhY2siLz4KPHJlY3QgeD0iMjMiIHk9IjEzIiB3aWR0aD0iMSIgaGVpZ2h0PSIxIiBmaWxsPSJibGFjayIvPgoKPHJlY3QgeD0iMTciIHk9IjE1IiB3aWR0aD0iMSIgaGVpZ2h0PSIxIiBmaWxsPSJibGFjayIvPgo8cmVjdCB4PSIxOSIgeT0iMTUiIHdpZHRoPSIxIiBoZWlnaHQ9IjEiIGZpbGw9ImJsYWNrIi8+CjxyZWN0IHg9IjIxIiB5PSIxNSIgd2lkdGg9IjEiIGhlaWdodD0iMSIgZmlsbD0iYmxhY2siLz4KPHJlY3QgeD0iMjMiIHk9IjE1IiB3aWR0aD0iMSIgaGVpZ2h0PSIxIiBmaWxsPSJibGFjayIvPgoKPHJlY3QgeD0iMTciIHk9IjE3IiB3aWR0aD0iMSIgaGVpZ2h0PSIxIiBmaWxsPSJibGFjayIvPgo8cmVjdCB4PSIxOSIgeT0iMTciIHdpZHRoPSIxIiBoZWlnaHQ9IjEiIGZpbGw9ImJsYWNrIi8+CjxyZWN0IHg9IjIxIiB5PSIxNyIgd2lkdGg9IjEiIGhlaWdodD0iMSIgZmlsbD0iYmxhY2siLz4KPHJlY3QgeD0iMjMiIHk9IjE3IiB3aWR0aD0iMSIgaGVpZ2h0PSIxIiBmaWxsPSJibGFjayIvPgoKPHJlY3QgeD0iMTciIHk9IjE5IiB3aWR0aD0iMSIgaGVpZ2h0PSIxIiBmaWxsPSJibGFjayIvPgo8cmVjdCB4PSIxOSIgeT0iMTkiIHdpZHRoPSIxIiBoZWlnaHQ9IjEiIGZpbGw9ImJsYWNrIi8+CjxyZWN0IHg9IjIxIiB5PSIxOSIgd2lkdGg9IjEiIGhlaWdodD0iMSIgZmlsbD0iYmxhY2siLz4KPHJlY3QgeD0iMjMiIHk9IjE5IiB3aWR0aD0iMSIgaGVpZ2h0PSIxIiBmaWxsPSJibGFjayIvPgoKPHJlY3QgeD0iMTciIHk9IjIxIiB3aWR0aD0iMSIgaGVpZ2h0PSIxIiBmaWxsPSJibGFjayIvPgo8cmVjdCB4PSIxOSIgeT0iMjEiIHdpZHRoPSIxIiBoZWlnaHQ9IjEiIGZpbGw9ImJsYWNrIi8+CjxyZWN0IHg9IjIxIiB5PSIyMSIgd2lkdGg9IjEiIGhlaWdodD0iMSIgZmlsbD0iYmxhY2siLz4KPHJlY3QgeD0iMjMiIHk9IjIxIiB3aWR0aD0iMSIgaGVpZ2h0PSIxIiBmaWxsPSJibGFjayIvPgoKPHJlY3QgeD0iMTciIHk9IjIzIiB3aWR0aD0iMSIgaGVpZ2h0PSIxIiBmaWxsPSJibGFjayIvPgo8cmVjdCB4PSIxOSIgeT0iMjMiIHdpZHRoPSIxIiBoZWlnaHQ9IjEiIGZpbGw9ImJsYWNrIi8+CjxyZWN0IHg9IjIxIiB5PSIyMyIgd2lkdGg9IjEiIGhlaWdodD0iMSIgZmlsbD0iYmxhY2siLz4KPHJlY3QgeD0iMjMiIHk9IjIzIiB3aWR0aD0iMSIgaGVpZ2h0PSIxIiBmaWxsPSJibGFjayIvPgo8L3N2Zz4=" style="width: 110px; height: 110px;" alt="QR Code" />
+        <img src="data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTIwIiBoZWlnaHQ9IjEyMCIgdmlld0JveD0iMCAwIDI1IDI1IiBmaWxsPSJub25lIiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciPgo8cmVjdCB3aWR0aD0iMjUiIGhlaWdodD0iMjUiIGZpbGw9IndoaXRlIi8+CjwhLS0gUVIgQ29kZSBQYXR0ZXJuIC0tPgo8IS0tIFRvcCBMZWZ0IEZpbmRlciAtLT4KPHJlY3QgeD0iMSIgeT0iMSIgd2lkdGg9IjciIGhlaWdodD0iNyIgZmlsbD0iYmxhY2siLz4KPHJlY3QgeD0iMiIgeT0iMiIgd2lkdGg9IjUiIGhlaWdodD0iNSIgZmlsbD0id2hpdGUiLz4KPHJlY3QgeD0iMyIgeT0iMyIgd2lkdGg9IjMiIGhlaWdodD0iMyIgZmlsbD0iYmxhY2siLz4KCjwhLS0gVG9wIFJpZ2h0IEZpbmRlciAtLT4KPHJlY3QgeD0iMTciIHk9IjEiIHdpZHRoPSI3IiBoZWlnaHQ9IjciIGZpbGw9ImJsYWNrIi8+CjxyZWN0IHg9IjE4IiB5PSIyIiB3aWR0aD0iNSIgaGVpZ2h0PSI1IiBmaWxsPSJ3aGl0ZSIvPgo8cmVjdCB4PSIxOSIgeT0iMyIgd2lkdGg9IjMiIGhlaWdodD0iMyIgZmlsbD0iYmxhY2siLz4KCjwhLS0gQm90dG9tIExlZnQgRmluZGVyIC0tPgo8cmVjdCB4PSIxIiB5PSIxNyIgd2lkdGg9IjciIGhlaWdodD0iNyIgZmlsbD0iYmxhY2siLz4KPHJlY3QgeD0iMiIgeT0iMTgiIHdpZHRoPSI1IiBoZWlnaHQ9IjUiIGZpbGw9IndoaXRlIi8+CjxyZWN0IHg9IjMiIHk9IjE5IiB3aWR0aD0iMyIgaGVpZ2h0PSIzIiBmaWxsPSJibGFjayIvPgoKPCEtLSBUaW1pbmcgUGF0dGVybnMgLS0+CjxyZWN0IHg9IjkiIHk9IjEiIHdpZHRoPSIxIiBoZWlnaHQ9IjEiIGZpbGw9ImJsYWNrIi8+CjxyZWN0IHg9IjExIiB5PSIxIiB3aWR0aD0iMSIgaGVpZ2h0PSIxIiBmaWxsPSJibGFjayIvPgo8cmVjdCB4PSIxMyIgeT0iMSIgd2lkdGg9IjEiIGhlaWdodD0iMSIgZmlsbD0iYmxhY2siLz4KPHJlY3QgeD0iMTUiIHk9IjEiIHdpZHRoPSIxIiBoZWlnaHQ9IjEiIGZpbGw9ImJsYWNrIi8+Cgo8cmVjdCB4PSIxIiB5PSI5IiB3aWR0aD0iMSIgaGVpZ2h0PSIxIiBmaWxsPSJibGFjayIvPgo8cmVjdCB4PSIxIiB5PSIxMSIgd2lkdGg9IjEiIGhlaWdodD0iMSIgZmlsbD0iYmxhY2siLz4KPHJlY3QgeD0iMSIgeT0iMTMiIHdpZHRoPSIxIiBoZWlnaHQ9IjEiIGZpbGw9ImJsYWNrIi8+CjxyZWN0IHg9IjEiIHk9IjE1IiB3aWR0aD0iMSIgaGVpZ2h0PSIxIiBmaWxsPSJibGFjayIvPgoKPCEtLSBEYXRhIFBhdHRlcm4gLS0+CjxyZWN0IHg9IjkiIHk9IjMiIHdpZHRoPSIxIiBoZWlnaHQ9IjEiIGZpbGw9ImJsYWNrIi8+CjxyZWN0IHg9IjExIiB5PSIzIiB3aWR0aD0iMSIgaGVpZ2h0PSIxIiBmaWxsPSJibGFjayIvPgo8cmVjdCB4PSIxMyIgeT0iMyIgd2lkdGg9IjEiIGhlaWdodD0iMSIgZmlsbD0iYmxhY2siLz4KPHJlY3QgeD0iMTUiIHk9IjMiIHdpZHRoPSIxIiBoZWlnaHQ9IjEiIGZpbGw9ImJsYWNrIi8+Cgo8cmVjdCB4PSIzIiB5PSI5IiB3aWR0aD0iMSIgaGVpZ2h0PSIxIiBmaWxsPSJibGFjayIvPgo8cmVjdCB4PSI1IiB5PSI5IiB3aWR0aD0iMSIgaGVpZ2h0PSIxIiBmaWxsPSJibGFjayIvPgo8cmVjdCB4PSI3IiB5PSI5IiB3aWR0aD0iMSIgaGVpZ2h0PSIxIiBmaWxsPSJibGFjayIvPgoKPHJlY3QgeD0iOSIgeT0iNSIgd2lkdGg9IjEiIGhlaWdodD0iMSIgZmlsbD0iYmxhY2siLz4KPHJlY3QgeD0iMTEiIHk9IjUiIHdpZHRoPSIxIiBoZWlnaHQ9IjEiIGZpbGw9ImJsYWNrIi8+CjxyZWN0IHg9IjEzIiB5PSI1IiB3aWR0aD0iMSIgaGVpZ2h0PSIxIiBmaWxsPSJibGFjayIvPgo8cmVjdCB4PSIxNSIgeT0iNSIgd2lkdGg9IjEiIGhlaWdodD0iMSIgZmlsbD0iYmxhY2siLz4KCjxyZWN0IHg9IjkiIHk9IjciIHdpZHRoPSIxIiBoZWlnaHQ9IjEiIGZpbGw9ImJsYWNrIi8+CjxyZWN0IHg9IjExIiB5PSI3IiB3aWR0aD0iMSIgaGVpZ2h0PSIxIiBmaWxsPSJibGFjayIvPgo8cmVjdCB4PSIxMyIgeT0iNyIgd2lkdGg9IjEiIGhlaWdodD0iMSIgZmlsbD0iYmxhY2siLz4KPHJlY3QgeD0iMTUiIHk9IjciIHdpZHRoPSIxIiBoZWlnaHQ9IjEiIGZpbGw9ImJsYWNrIi8+Cgo8IS0tIE1vcmEgZGF0YSBwYXR0ZXJucyAtLT4KPHJlY3QgeD0iOSIgeT0iMTEiIHdpZHRoPSIxIiBoZWlnaHQ9IjEiIGZpbGw9ImJsYWNrIi8+CjxyZWN0IHg9IjEwIiB5PSIxMSIgd2lkdGg9IjEiIGhlaWdodD0iMSIgZmlsbD0iYmxhY2siLz4KPHJlY3QgeD0iMTIiIHk9IjExIiB3aWR0aD0iMSIgaGVpZ2h0PSIxIiBmaWxsPSJibGFjayIvPgo8cmVjdCB4PSIxNCIgeT0iMTEiIHdpZHRoPSIxIiBoZWlnaHQ9IjEiIGZpbGw9ImJsYWNrIi8+CjxyZWN0IHg9IjE2IiB5PSIxMSIgd2lkdGg9IjEiIGhlaWdodD0iMSIgZmlsbD0iYmxhY2siLz4KCjxyZWN0IHg9IjkiIHk9IjEzIiB3aWR0aD0iMSIgaGVpZ2h0PSIxIiBmaWxsPSJibGFjayIvPgo8cmVjdCB4PSIxMSIgeT0iMTMiIHdpZHRoPSIxIiBoZWlnaHQ9IjEiIGZpbGw9ImJsYWNrIi8+CjxyZWN0IHg9IjEzIiB5PSIxMyIgd2lkdGg9IjEiIGhlaWdodD0iMSIgZmlsbD0iYmxhY2siLz4KPHJlY3QgeD0iMTUiIHk9IjEzIiB3aWR0aD0iMSIgaGVpZ2h0PSIxIiBmaWxsPSJibGFjayIvPgoKPHJlY3QgeD0iOSIgeT0iMTUiIHdpZHRoPSIxIiBoZWlnaHQ9IjEiIGZpbGw9ImJsYWNrIi8+CjxyZWN0IHg9IjExIiB5PSIxNSIgd2lkdGg9IjEiIGhlaWdodD0iMSIgZmlsbD0iYmxhY2siLz4KPHJlY3QgeD0iMTMiIHk9IjE1IiB3aWR0aD0iMSIgaGVpZ2h0PSIxIiBmaWxsPSJibGFjayIvPgo8cmVjdCB4PSIxNSIgeT0iMTUiIHdpZHRoPSIxIiBoZWlnaHQ9IjEiIGZpbGw9ImJsYWNrIi8+Cgo8cmVjdCB4PSI5IiB5PSIxNyIgd2lkdGg9IjEiIGhlaWdodD0iMSIgZmlsbD0iYmxhY2siLz4KPHJlY3QgeD0iMTEiIHk9IjE3IiB3aWR0aD0iMSIgaGVpZ2h0PSIxIiBmaWxsPSJibGFjayIvPgo8cmVjdCB4PSIxMyIgeT0iMTciIHdpZHRoPSIxIiBoZWlnaHQ9IjEiIGZpbGw9ImJsYWNrIi8+CjxyZWN0IHg9IjE1IiB5PSIxNyIgd2lkdGg9IjEiIGhlaWdodD0iMSIgZmlsbD0iYmxhY2siLz4KCjxyZWN0IHg9IjkiIHk9IjE5IiB3aWR0aD0iMSIgaGVpZ2h0PSIxIiBmaWxsPSJibGFjayIvPgo8cmVjdCB4PSIxMSIgeT0iMTkiIHdpZHRoPSIxIiBoZWlnaHQ9IjEiIGZpbGw9ImJsYWNrIi8+CjxyZWN0IHg9IjEzIiB5PSIxOSIgd2lkdGg9IjEiIGhlaWdodD0iMSIgZmlsbD0iYmxhY2siLz4KPHJlY3QgeD0iMTUiIHk9IjE5IiB3aWR0aD0iMSIgaGVpZ2h0PSIxIiBmaWxsPSJibGFjayIvPgoKPHJlY3QgeD0iOSIgeT0iMjEiIHdpZHRoPSIxIiBoZWlnaHQ9IjEiIGZpbGw9ImJsYWNrIi8+CjxyZWN0IHg9IjExIiB5PSIyMSIgd2lkdGg9IjEiIGhlaWdodD0iMSIgZmlsbD0iYmxhY2siLz4KPHJlY3QgeD0iMTMiIHk9IjIxIiB3aWR0aD0iMSIgaGVpZ2h0PSIxIiBmaWxsPSJibGFjayIvPgo8cmVjdCB4PSIxNSIgeT0iMjEiIHdpZHRoPSIxIiBoZWlnaHQ9IjEiIGZpbGw9ImJsYWNrIi8+Cgo8cmVjdCB4PSI5IiB5PSIyMyIgd2lkdGg9IjEiIGhlaWdodD0iMSIgZmlsbD0iYmxhY2siLz4KPHJlY3QgeD0iMTEiIHk9IjIzIiB3aWR0aD0iMSIgaGVpZ2h0PSIxIiBmaWxsPSJibGFjayIvPgo8cmVjdCB4PSIxMyIgeT0iMjMiIHdpZHRoPSIxIiBoZWlnaHQ9IjEiIGZpbGw9ImJsYWNrIi8+CjxyZWN0IHg9IjE1IiB5PSIyMyIgd2lkdGg9IjEiIGhlaWdodD0iMSIgZmlsbD0iYmxhY2siLz4KCjxyZWN0IHg9IjE3IiB5PSI5IiB3aWR0aD0iMSIgaGVpZ2h0PSIxIiBmaWxsPSJibGFjayIvPgo8cmVjdCB4PSIxOSIgeT0iOSIgd2lkdGg9IjEiIGhlaWdodD0iMSIgZmlsbD0iYmxhY2siLz4KPHJlY3QgeD0iMjEiIHk9IjkiIHdpZHRoPSIxIiBoZWlnaHQ9IjEiIGZpbGw9ImJsYWNrIi8+CjxyZWN0IHg9IjIzIiB5PSI5IiB3aWR0aD0iMSIgaGVpZ2h0PSIxIiBmaWxsPSJibGFjayIvPgoKPHJlY3QgeD0iMTciIHk9IjExIiB3aWR0aD0iMSIgaGVpZ2h0PSIxIiBmaWxsPSJibGFjayIvPgo8cmVjdCB4PSIxOSIgeT0iMTEiIHdpZHRoPSIxIiBoZWlnaHQ9IjEiIGZpbGw9ImJsYWNrIi8+CjxyZWN0IHg9IjIxIiB5PSIxMSIgd2lkdGg9IjEiIGhlaWdodD0iMSIgZmlsbD0iYmxhY2siLz4KPHJlY3QgeD0iMjMiIHk9IjExIiB3aWR0aD0iMSIgaGVpZ2h0PSIxIiBmaWxsPSJibGFjayIvPgoKPHJlY3QgeD0iMTciIHk9IjEzIiB3aWR0aD0iMSIgaGVpZ2h0PSIxIiBmaWxsPSJibGFjayIvPgo8cmVjdCB4PSIxOSIgeT0iMTMiIHdpZHRoPSIxIiBoZWlnaHQ9IjEiIGZpbGw9ImJsYWNrIi8+CjxyZWN0IHg9IjIxIiB5PSIxMyIgd2lkdGg9IjEiIGhlaWdodD0iMSIgZmlsbD0iYmxhY2siLz4KPHJlY3QgeD0iMjMiIHk9IjEzIiB3aWR0aD0iMSIgaGVpZ2h0PSIxIiBmaWxsPSJibGFjayIvPgoKPHJlY3QgeD0iMTciIHk9IjE1IiB3aWR0aD0iMSIgaGVpZ2h0PSIxIiBmaWxsPSJibGFjayIvPgo8cmVjdCB4PSIxOSIgeT0iMTUiIHdpZHRoPSIxIiBoZWlnaHQ9IjEiIGZpbGw9ImJsYWNrIi8+CjxyZWN0IHg9IjIxIiB5PSIxNSIgd2lkdGg9IjEiIGhlaWdodD0iMSIgZmlsbD0iYmxhY2siLz4KPHJlY3QgeD0iMjMiIHk9IjE1IiB3aWR0aD0iMSIgaGVpZ2h0PSIxIiBmaWxsPSJibGFjayIvPgoKPHJlY3QgeD0iMTciIHk9IjE3IiB3aWR0aD0iMSIgaGVpZ2h0PSIxIiBmaWxsPSJibGFjayIvPgo8cmVjdCB4PSIxOSIgeT0iMTciIHdpZHRoPSIxIiBoZWlnaHQ9IjEiIGZpbGw9ImJsYWNrIi8+CjxyZWN0IHg9IjIxIiB5PSIxNyIgd2lkdGg9IjEiIGhlaWdodD0iMSIgZmlsbD0iYmxhY2siLz4KPHJlY3QgeD0iMjMiIHk9IjE3IiB3aWR0aD0iMSIgaGVpZ2h0PSIxIiBmaWxsPSJibGFjayIvPgoKPHJlY3QgeD0iMTciIHk9IjE5IiB3aWR0aD0iMSIgaGVpZ2h0PSIxIiBmaWxsPSJibGFjayIvPgo8cmVjdCB4PSIxOSIgeT0iMTkiIHdpZHRoPSIxIiBoZWlnaHQ9IjEiIGZpbGw9ImJsYWNrIi8+CjxyZWN0IHg9IjIxIiB5PSIxOSIgd2lkdGg9IjEiIGhlaWdodD0iMSIgZmlsbD0iYmxhY2siLz4KPHJlY3QgeD0iMjMiIHk9IjE5IiB3aWR0aD0iMSIgaGVpZ2h0PSIxIiBmaWxsPSJibGFjayIvPgoKPHJlY3QgeD0iMTciIHk9IjIxIiB3aWR0aD0iMSIgaGVpZ2h0PSIxIiBmaWxsPSJibGFjayIvPgo8cmVjdCB4PSIxOSIgeT0iMjEiIHdpZHRoPSIxIiBoZWlnaHQ9IjEiIGZpbGw9ImJsYWNrIi8+CjxyZWN0IHg9IjIxIiB5PSIyMSIgd2lkdGg9IjEiIGhlaWdodD0iMSIgZmlsbD0iYmxhY2siLz4KPHJlY3QgeD0iMjMiIHk9IjIxIiB3aWR0aD0iMSIgaGVpZ2h0PSIxIiBmaWxsPSJibGFjayIvPgoKPHJlY3QgeD0iMTciIHk9IjIzIiB3aWR0aD0iMSIgaGVpZ2h0PSIxIiBmaWxsPSJibGFjayIvPgo8cmVjdCB4PSIxOSIgeT0iMjMiIHdpZHRoPSIxIiBoZWlnaHQ9IjEiIGZpbGw9ImJsYWNrIi8+CjxyZWN0IHg9IjIxIiB5PSIyMyIgd2lkdGg9IjEiIGhlaWdodD0iMSIgZmlsbD0iYmxhY2siLz4KPHJlY3QgeD0iMjMiIHk9IjIzIiB3aWR0aD0iMSIgaGVpZ2h0PSIxIiBmaWxsPSJibGFjayIvPgo8L3N2Zz4=" style="width: 110px; height: 110px;" alt="QR Code" />
       </div>
       
       <div class="wr-scan-text" style="font-size: 11px; color: rgba(255,255,255,0.8); margin-bottom: 15px;">
@@ -1776,7 +1768,6 @@ function initializeExtension() {
       try { setActiveTopbarTab('reasoning') } catch {}
     }
   }
-
   function applyTheme(theme) {
     injectThemeCSSOnce()
     const gradients = {
@@ -2022,7 +2013,6 @@ function initializeExtension() {
     // Ensure tabs reflect new theme immediately
     refreshExpandableTheming()
   }
-
   function resetToDefaultTheme() {
     // Set theme class to default
     if (leftSidebar) {
@@ -2207,7 +2197,6 @@ function initializeExtension() {
             </div>
           </div>
         </div>
-
         <!-- Session Goals Panel -->
         <div id="tab-content-session-goals" style="display:none;">
           <div style="background: rgba(255,255,255,0.1); padding: 12px; border-radius: 6px; display:flex; flex-direction:column; gap:10px;">
@@ -2263,7 +2252,6 @@ function initializeExtension() {
     const expandableContent = bottomSidebar.querySelector('#expandable-content') as HTMLElement | null
     if (expandableContent) expandableContent.style.display = 'none'
   } catch {}
-
   // Restore expansion state (after innerHTML set, ensure DOM refs are available)
   try {
     const saved = localStorage.getItem('optimando-topbar-expanded')
@@ -2600,7 +2588,6 @@ function initializeExtension() {
         })
       } catch { renderCustomAgents() }
     })()
-    
     // Add event handler for "Add New Agent" button
     document.getElementById('add-new-agent')?.addEventListener('click', () => {
       try { openAddNewAgentDialog(overlay) } catch (e) {
@@ -2653,15 +2640,28 @@ function initializeExtension() {
     
     let content = ''
     if (type === 'instructions') {
+      // Revised unified Agent Editor
       content = `
-        <div style="display: grid; grid-template-columns: 1fr; gap: 20px;">
-          <div style="background: rgba(255,255,255,0.1); padding: 20px; border-radius: 8px;">
-            <label style="display: block; margin-bottom: 10px; font-size: 14px; color: #FFD700; font-weight: bold;">🎭 Role Description:</label>
-            <textarea id="agent-role" style="width: 100%; height: 150px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 12px; border-radius: 6px; font-size: 12px; resize: vertical; font-family: 'Consolas', monospace;" placeholder="Describe the agent's role and responsibilities...">${(localStorage.getItem(storageKey + '_role') || '')}</textarea>
+        <div style="display:grid;gap:14px;">
+          <!-- Name/Identifier -->
+          <div style="background:rgba(255,255,255,0.08);padding:12px;border-radius:8px;display:grid;gap:8px;grid-template-columns:1fr 140px;align-items:center;">
+            <label>Name (Command Identifier)
+              <input id="ag-name" value="${(agentName||'').toString()}" style="width:100%;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.35);color:#fff;padding:8px;border-radius:6px">
+            </label>
+            <label>Icon
+              <input id="ag-icon" value="🤖" style="width:100%;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.35);color:#fff;padding:8px;border-radius:6px">
+            </label>
           </div>
-            <div style="background: rgba(255,255,255,0.1); padding: 20px; border-radius: 8px;">
-            <label style="display: block; margin-bottom: 10px; font-size: 14px; color: #FFD700; font-weight: bold;">📝 System Instructions:</label>
-            <textarea id="agent-instructions" style="width: 100%; height: 220px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 12px; border-radius: 6px; font-size: 12px; resize: vertical; font-family: 'Consolas', monospace;" placeholder="Enter detailed AI instructions for this agent...">${existingData}</textarea>
+
+          <!-- Capability toggles -->
+          <div style="background:rgba(255,255,255,0.08);padding:10px;border-radius:8px;display:flex;gap:14px;align-items:center;">
+            <label style="display:flex;align-items:center;gap:6px"><input id="cap-listening" type="checkbox"> Listener</label>
+            <label style="display:flex;align-items:center;gap:6px"><input id="cap-reasoning" type="checkbox"> Reasoning</label>
+            <label style="display:flex;align-items:center;gap:6px"><input id="cap-execution" type="checkbox"> Execution</label>
+          </div>
+
+          <!-- Dynamic sections container -->
+          <div id="agent-sections" style="display:grid;gap:12px"></div>
           </div>
       `
     } else if (type === 'context') {
@@ -2757,6 +2757,283 @@ function initializeExtension() {
     
     document.body.appendChild(configOverlay)
     
+    // Dynamic section rendering
+    try {
+      const container = configOverlay.querySelector('#agent-sections') as HTMLElement | null
+      const capL = configOverlay.querySelector('#cap-listening') as HTMLInputElement | null
+      const capR = configOverlay.querySelector('#cap-reasoning') as HTMLInputElement | null
+      const capE = configOverlay.querySelector('#cap-execution') as HTMLInputElement | null
+      if (!container) throw new Error('agent-sections container missing')
+
+      const makeSelect = (options: Array<{label:string,value:string}>, cls: string, defValue?: string) => {
+        const sel = document.createElement('select')
+        sel.className = cls
+        sel.style.cssText = 'width:100%;background:#fff;color:#0f172a;border:1px solid #cbd5e1;padding:6px;border-radius:6px'
+        options.forEach(o => { const opt = document.createElement('option'); opt.value = o.value; opt.textContent = o.label; sel.appendChild(opt) })
+        if (defValue) sel.value = defValue
+        return sel
+      }
+      const addRow = (
+        containerId: string,
+        rowClass: string,
+        kindClass: string,
+        specificClass: string,
+        defaults?: { kind?: string; specific?: string }
+      ) => {
+        const cont = configOverlay.querySelector(containerId) as HTMLElement | null
+        if (!cont) return
+        const row = document.createElement('div')
+        row.className = `${rowClass}`
+        row.style.cssText = 'display:grid;grid-template-columns:160px 1fr auto;gap:8px'
+        const kindOptions = [
+          { label: 'Agent', value: 'agent' },
+          { label: 'Workflow', value: 'workflow' },
+          { label: 'Tool', value: 'tool' },
+          { label: 'UI', value: 'ui' },
+          { label: 'Agent Box', value: 'agentBox' }
+        ]
+        const agents = [
+          { label: `Agent ${getOrAssignAgentNumber('summarize')} — Summarizer`, value: 'summarize' },
+          { label: `Agent ${getOrAssignAgentNumber('research')} — Researcher`, value: 'research' },
+          { label: `Agent ${getOrAssignAgentNumber('execute')} — Executor`, value: 'execute' }
+        ]
+        const workflows = [
+          { label: 'Email', value: 'email' },
+          { label: 'Calendar', value: 'calendar' },
+          { label: 'Cleanup', value: 'cleanup' }
+        ]
+        const tools = [
+          { label: 'Browser', value: 'browser' },
+          { label: 'Notion', value: 'notion' },
+          { label: 'Jira', value: 'jira' }
+        ]
+        const kindSel = makeSelect(kindOptions, kindClass, defaults?.kind)
+        const specSel = makeSelect([], specificClass, defaults?.specific)
+        const refreshSpecific = () => {
+          const k = kindSel.value
+          specSel.innerHTML = ''
+          let opts: Array<{label:string,value:string}> = []
+          if (k === 'agent') opts = agents
+          else if (k === 'workflow') opts = workflows
+          else if (k === 'tool') opts = tools
+          else if (k === 'ui') opts = [{ label: 'UI Overlay', value: 'overlay' }]
+          else if (k === 'agentBox') opts = [{ label: 'Agent Box', value: 'agentBox' }]
+          opts.forEach(o => { const opt = document.createElement('option'); opt.value = o.value; opt.textContent = o.label; specSel.appendChild(opt) })
+          if (defaults?.specific) specSel.value = defaults.specific
+        }
+        kindSel.addEventListener('change', refreshSpecific)
+        refreshSpecific()
+        const del = document.createElement('button')
+        del.textContent = '×'
+        del.title = 'Remove'
+        del.style.cssText = 'background:#f44336;color:#fff;border:1px solid rgba(255,255,255,.25);padding:0 10px;border-radius:6px;cursor:pointer'
+        del.addEventListener('click', () => row.remove())
+        row.appendChild(kindSel)
+        row.appendChild(specSel)
+        row.appendChild(del)
+        cont.appendChild(row)
+      }
+
+      // Dedicated workflow-row adder (no kind selector)
+      const addWorkflowRow = (containerId: string) => {
+        const cont = configOverlay.querySelector(containerId) as HTMLElement | null
+        if (!cont) return
+        const row = document.createElement('div')
+        row.className = 'wf-row'
+        row.style.cssText = 'display:grid;grid-template-columns:1fr auto;gap:8px'
+        const workflows = [
+          { label: 'Email', value: 'email' },
+          { label: 'Calendar', value: 'calendar' },
+          { label: 'Cleanup', value: 'cleanup' }
+        ]
+        const sel = makeSelect(workflows, 'wf-target')
+        const del = document.createElement('button')
+        del.textContent = '×'
+        del.title = 'Remove'
+        del.style.cssText = 'background:#f44336;color:#fff;border:1px solid rgba(255,255,255,.25);padding:0 10px;border-radius:6px;cursor:pointer'
+        del.addEventListener('click', () => row.remove())
+        row.appendChild(sel)
+        row.appendChild(del)
+        cont.appendChild(row)
+      }
+      const agentTargets = [
+        { label: 'This Agent', value: 'this' },
+        { label: 'Other Agent', value: 'agent:other' },
+        { label: 'Workflow', value: 'workflow' },
+        { label: 'Tool', value: 'tool' },
+        { label: 'UI', value: 'ui' }
+      ]
+      const workflows = [
+        { label: 'Email', value: 'email' },
+        { label: 'Calendar', value: 'calendar' },
+        { label: 'Cleanup', value: 'cleanup' }
+      ]
+
+      const render = () => {
+        container.innerHTML = ''
+        if (capL && capL.checked) {
+          const wrap = document.createElement('div')
+          wrap.id = 'box-listening'
+          wrap.style.cssText = 'background:rgba(255,255,255,0.08);padding:12px;border-radius:10px;border:1px solid rgba(255,255,255,0.25);color:#fff'
+          wrap.innerHTML = `
+            <div style="font-weight:700;margin-bottom:6px">Listener</div>
+            <label style="display:flex;align-items:center;gap:6px">Expected Context
+              <span title="Describe examples, keywords, or patterns the Listener Agent should detect. These instructions improve the intent detection of the optimization layer and can enhance or overwrite the trained LLM logic of finetuned models, depending on this agent’s settings. It offers a more tailored experience for the users." style="font-size:12px;opacity:0.9;cursor:help;background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.35);padding:0 6px;border-radius:50%">i</span>
+            </label>
+            <textarea id="L-context" placeholder="e.g. business email, product research, visiting specific site" style="width:100%;min-height:90px;background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.45);color:#fff;padding:8px;border-radius:6px"></textarea>
+            <div style="margin:8px 0;display:flex;flex-wrap:wrap;gap:10px">
+              <label><input class="L-tag" type="checkbox" value="patterns" checked> patterns</label>
+              <label><input class="L-tag" type="checkbox" value="code"> code</label>
+              <label><input class="L-tag" type="checkbox" value="debug-error"> debug error</label>
+              <label><input class="L-tag" type="checkbox" value="math"> math</label>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+              <label>Listen on (type)
+                <select id="L-source" style="width:100%;background:#fff;color:#0f172a;border:1px solid #cbd5e1;padding:8px;border-radius:6px">
+                  <option value="website">website</option>
+                  <option value="api">api</option>
+                  <option value="lmgtfy">LmGTFY</option>
+                  <option value="agent">Agent</option>
+                  <option value="workflow">Workflow</option>
+                  <option value="table">Table</option>
+                  <option value="diagram">Diagram</option>
+                  <option value="picture">Picture</option>
+                  <option value="video">Video</option>
+                </select>
+              </label>
+              <label id="L-website-wrap" style="display:none">Website URL
+                <input id="L-website" placeholder="https://example.com" style="width:100%;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.35);color:#fff;padding:8px;border-radius:6px">
+              </label>
+            </div>
+            <div style="margin-top:8px">
+              <label>Example Context (optional)
+                <input id="L-examples" type="file" multiple style="width:100%;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.25);color:#fff;padding:6px;border-radius:6px">
+              </label>
+            </div>
+            <div style="margin-top:10px">
+              <div style="font-weight:600;margin:6px 0">Report to (optional)</div>
+              <div id="L-report-list" style="display:flex;flex-direction:column;gap:8px"></div>
+              <button id="L-add-report" style="margin-top:6px;background:rgba(255,255,255,.2);border:1px solid rgba(255,255,255,.35);color:#fff;padding:6px 10px;border-radius:6px;cursor:pointer">+ Add</button>
+            </div>`
+          container.appendChild(wrap)
+        }
+        if (capR && capR.checked) {
+          const wrap = document.createElement('div')
+          wrap.id = 'box-reasoning'
+          wrap.style.cssText = 'background:rgba(255,255,255,0.06);padding:12px;border-radius:10px;border:1px solid rgba(255,255,255,0.15)'
+          wrap.innerHTML = `
+            <div style="font-weight:700;margin-bottom:6px">Reasoning</div>
+            <div>
+              <div style="display:flex;align-items:center;gap:8px;margin:6px 0"><span>Listen from</span></div>
+              <div id="R-accept-list" style="display:flex;flex-direction:column;gap:8px"></div>
+              <button id="R-add-accept" style="background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.35);color:#fff;padding:6px 10px;border-radius:6px;cursor:pointer">+ Add</button>
+            </div>
+            <label style="margin-top:8px">Goals (System instructions)
+              <textarea id="R-goals" style="width:100%;min-height:90px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.35);color:#fff;padding:8px;border-radius:6px"></textarea>
+            </label>
+            <label>Role (optional)
+              <input id="R-role" style="width:100%;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.35);color:#fff;padding:8px;border-radius:6px">
+            </label>
+            <label>Rules
+              <textarea id="R-rules" style="width:100%;min-height:70px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.35);color:#fff;padding:8px;border-radius:6px"></textarea>
+            </label>
+            <div id="R-custom-list" style="display:flex;flex-direction:column;gap:8px;margin-top:8px"></div>
+            <button id="R-add-custom" style="background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.35);color:#fff;padding:6px 10px;border-radius:6px;cursor:pointer">+ Custom field</button>`
+          container.appendChild(wrap)
+        }
+        if (capE && capE.checked) {
+          const wrap = document.createElement('div')
+          wrap.id = 'box-execution'
+          wrap.style.cssText = 'background:rgba(255,255,255,0.06);padding:12px;border-radius:10px;border:1px solid rgba(255,255,255,0.15)'
+          wrap.innerHTML = `
+            <div style="font-weight:700;margin-bottom:6px">Execution</div>
+            <div>
+              <div style="display:flex;align-items:center;gap:8px;margin:6px 0"><span>Listen from</span></div>
+              <div id="E-accept-list" style="display:flex;flex-direction:column;gap:8px"></div>
+              <button id="E-add-accept" style="background:rgba(255,255,255,.2);border:1px solid rgba(255,255,255,.35);color:#fff;padding:6px 10px;border-radius:6px;cursor:pointer">+ Add</button>
+            </div>
+            <div style="margin-top:8px">
+              <div id="E-workflow-list" style="display:flex;flex-direction:column;gap:8px"></div>
+              <button id="E-add-workflow" style="background:rgba(255,255,255,.2);border:1px solid rgba(255,255,255,.35);color:#fff;padding:6px 10px;border-radius:6px;cursor:pointer">+ Add Workflow</button>
+            </div>
+            <div style="margin-top:8px">
+              <div style="display:flex;align-items:center;gap:8px;margin:6px 0"><span>Report to (optional)</span></div>
+              <div id="E-report-list" style="display:flex;flex-direction:column;gap:8px"></div>
+              <button id="E-add-report" style="background:rgba(255,255,255,.2);border:1px solid rgba(255,255,255,.35);color:#fff;padding:6px 10px;border-radius:6px;cursor:pointer">+ Add</button>
+            </div>`
+          container.appendChild(wrap)
+        }
+
+        // After mount init
+        const srcSel = configOverlay.querySelector('#L-source') as HTMLSelectElement | null
+        const websiteWrap = configOverlay.querySelector('#L-website-wrap') as HTMLElement | null
+        const updateWebsiteVisibility = () => { if (srcSel && websiteWrap) websiteWrap.style.display = srcSel.value === 'website' ? 'block' : 'none' }
+        srcSel && srcSel.addEventListener('change', updateWebsiteVisibility)
+        updateWebsiteVisibility()
+
+        const rAdd = configOverlay.querySelector('#R-add-accept') as HTMLButtonElement | null
+        const eAdd = configOverlay.querySelector('#E-add-accept') as HTMLButtonElement | null
+        const lRep = configOverlay.querySelector('#L-add-report') as HTMLButtonElement | null
+        const eRep = configOverlay.querySelector('#E-add-report') as HTMLButtonElement | null
+        const rRepWrap = document.createElement('div')
+        if (configOverlay.querySelector('#box-reasoning')) {
+          const rBox = configOverlay.querySelector('#box-reasoning') as HTMLElement
+          const title = document.createElement('div')
+          title.textContent = 'Report to (optional)'
+          title.style.cssText = 'margin-top:8px;font-weight:600'
+          const list = document.createElement('div')
+          list.id = 'R-report-list'
+          list.style.cssText = 'display:flex;flex-direction:column;gap:8px'
+          const btn = document.createElement('button')
+          btn.id = 'R-add-report'
+          btn.textContent = '+ Add'
+          btn.style.cssText = 'background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.35);color:#fff;padding:6px 10px;border-radius:6px;cursor:pointer;margin-top:6px'
+          rRepWrap.appendChild(title)
+          rRepWrap.appendChild(list)
+          rRepWrap.appendChild(btn)
+          rBox.appendChild(rRepWrap)
+        }
+        const eWf = configOverlay.querySelector('#E-add-workflow') as HTMLButtonElement | null
+        rAdd && rAdd.addEventListener('click', () => addRow('#R-accept-list', 'acc-row', 'route-kind', 'route-specific'))
+        eAdd && eAdd.addEventListener('click', () => addRow('#E-accept-list', 'acc-row', 'route-kind', 'route-specific'))
+        lRep && lRep.addEventListener('click', () => addRow('#L-report-list', 'rep-row', 'route-kind', 'route-specific'))
+        eRep && eRep.addEventListener('click', () => addRow('#E-report-list', 'rep-row', 'route-kind', 'route-specific'))
+        const rRepBtn = configOverlay.querySelector('#R-add-report') as HTMLButtonElement | null
+        rRepBtn && rRepBtn.addEventListener('click', () => addRow('#R-report-list', 'rep-row', 'route-kind', 'route-specific'))
+        eWf && eWf.addEventListener('click', () => addWorkflowRow('#E-workflow-list'))
+
+        // Default last report target to Agent Box
+        const eReportList = configOverlay.querySelector('#E-report-list') as HTMLElement | null
+        if (eReportList && eReportList.childElementCount === 0) {
+          addRow('#E-report-list', 'rep-row', 'route-kind', 'route-specific', { kind: 'agentBox', specific: 'agentBox' })
+        }
+
+        // Custom field add button
+        const rCustomBtn = configOverlay.querySelector('#R-add-custom') as HTMLButtonElement | null
+        const rCustomList = configOverlay.querySelector('#R-custom-list') as HTMLElement | null
+        rCustomBtn && rCustomList && rCustomBtn.addEventListener('click', () => {
+          const row = document.createElement('div')
+          row.style.cssText = 'display:grid;grid-template-columns:1fr 1fr auto;gap:8px'
+          const key = document.createElement('input')
+          key.placeholder = 'Custom field (name)'
+          key.style.cssText = 'background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.35);color:#fff;padding:8px;border-radius:6px'
+          const val = document.createElement('input')
+          val.placeholder = 'value'
+          val.style.cssText = 'background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.35);color:#fff;padding:8px;border-radius:6px'
+          const del = document.createElement('button')
+          del.textContent = '×'
+          del.title = 'Remove'
+          del.style.cssText = 'background:#f44336;color:#fff;border:1px solid rgba(255,255,255,.25);padding:0 10px;border-radius:6px;cursor:pointer'
+          del.addEventListener('click', () => row.remove())
+          row.appendChild(key); row.appendChild(val); row.appendChild(del)
+          rCustomList.appendChild(row)
+        })
+      }
+      const hook = (el: HTMLInputElement | null) => el && el.addEventListener('change', render)
+      hook(capL); hook(capR); hook(capE)
+      render()
+    } catch {}
+    
     // Close handlers
     document.getElementById('close-agent-config').onclick = () => configOverlay.remove()
     document.getElementById('agent-config-cancel').onclick = () => configOverlay.remove()
@@ -2764,10 +3041,60 @@ function initializeExtension() {
     // Save handler
     document.getElementById('agent-config-save').onclick = () => {
       let dataToSave = ''
-      
       if (type === 'instructions') {
-        dataToSave = (document.getElementById('agent-instructions') as any).value
-        localStorage.setItem(storageKey + '_role', (document.getElementById('agent-role') as any).value)
+        // Collect draft
+        const draft:any = {
+          id: agentName,
+          name: (document.getElementById('ag-name') as HTMLInputElement)?.value || agentName,
+          icon: (document.getElementById('ag-icon') as HTMLInputElement)?.value || '🤖',
+          capabilities: [],
+        }
+        const L = (document.getElementById('cap-listening') as HTMLInputElement).checked
+        const R = (document.getElementById('cap-reasoning') as HTMLInputElement).checked
+        const E = (document.getElementById('cap-execution') as HTMLInputElement).checked
+        if (L) draft.capabilities.push('listening')
+        if (R) draft.capabilities.push('reasoning')
+        if (E) draft.capabilities.push('execution')
+        // Listening
+        if (L) {
+          const tags = Array.from(document.querySelectorAll('.L-tag'))
+            .filter((el:any)=>el.checked).map((el:any)=>el.value)
+          const src = (document.getElementById('L-source') as HTMLSelectElement).value
+          draft.listening = {
+            expectedContext: (document.getElementById('L-context') as HTMLTextAreaElement)?.value || '',
+            tags,
+            source: src,
+            website: src==='website' ? ((document.getElementById('L-website') as HTMLInputElement)?.value || '') : ''
+          }
+        }
+        // Reasoning
+        if (R) {
+          const accepts:string[] = []
+          document.querySelectorAll('#R-accept-list .acc-row .acc-target').forEach((n:any)=> accepts.push(n.value))
+          draft.reasoning = {
+            acceptFrom: accepts,
+            goals: (document.getElementById('R-goals') as HTMLTextAreaElement)?.value || '',
+            role: (document.getElementById('R-role') as HTMLInputElement)?.value || '',
+            rules: (document.getElementById('R-rules') as HTMLTextAreaElement)?.value || '',
+            custom: { key: (document.getElementById('R-free-key') as HTMLInputElement)?.value || '', value: (document.getElementById('R-free-val') as HTMLInputElement)?.value || '' }
+          }
+        }
+        // Execution
+        if (E) {
+          const eAccepts:string[] = []
+          document.querySelectorAll('#E-accept-list .acc-row .acc-target').forEach((n:any)=> eAccepts.push(n.value))
+          const eReports:string[] = []
+          document.querySelectorAll('#E-report-list .rep-row .rep-target').forEach((n:any)=> eReports.push(n.value))
+          const eWfs:string[] = []
+          document.querySelectorAll('#E-workflow-list .wf-row .wf-target').forEach((n:any)=> eWfs.push(n.value))
+          draft.execution = {
+            acceptFrom: eAccepts,
+            workflows: eWfs,
+            reportTo: eReports
+          }
+        }
+        dataToSave = JSON.stringify(draft)
+        localStorage.setItem('agent_model_v2_'+agentName, dataToSave)
       } else if (type === 'context') {
         dataToSave = document.getElementById('agent-context').value
         localStorage.setItem(storageKey + '_memory', document.getElementById('agent-memory').value)
@@ -2807,6 +3134,33 @@ function initializeExtension() {
     }
     
     configOverlay.onclick = (e) => { if (e.target === configOverlay) configOverlay.remove() }
+
+    // Delegated listeners for broader compatibility
+    configOverlay.addEventListener('input', (ev) => {
+      const el = ev.target as HTMLElement | null
+      if (!el) return
+      const id = (el as HTMLInputElement).id || ''
+      if (id === 'cap-listening' || id === 'cap-reasoning' || id === 'cap-execution') {
+        updateBoxes()
+      } else if (id === 'L-source') {
+        updateWebsiteVisibility()
+      }
+    })
+    configOverlay.addEventListener('click', (ev) => {
+      const el = ev.target as HTMLElement | null
+      if (!el) return
+      // If clicking the label, defer until checkbox toggled
+      const input = (el.closest('label') || el).querySelector?.('input#cap-listening, input#cap-reasoning, input#cap-execution') as HTMLInputElement | null
+      if (input) {
+        setTimeout(() => updateBoxes(), 0)
+      }
+      if ((el as HTMLElement).id === 'L-source') {
+        setTimeout(() => updateWebsiteVisibility(), 0)
+      }
+    })
+
+    // Ensure first paint reflects state
+    requestAnimationFrame(() => updateBoxes())
   }
   function openAddNewAgentDialog(parentOverlay) {
     // Create add new agent dialog
@@ -2994,7 +3348,6 @@ function initializeExtension() {
       container.innerHTML = generateUrlFieldsHTML()
       attachUrlFieldHandlers()
     }
-    
     const attachUrlFieldHandlers = () => {
       // Add button handlers
       container.querySelectorAll('.add-url-btn').forEach(btn => {
@@ -3195,7 +3548,6 @@ function initializeExtension() {
     if (currentTabData.context?.publisherContext?.text) {
       publisherText.value = currentTabData.context.publisherContext.text
     }
-    
     // Update PDF files list
     updatePdfFilesList()
     
@@ -3252,7 +3604,6 @@ function initializeExtension() {
       
       const scrapedContext = `Page Title: ${pageTitle}
 URL: ${pageUrl}
-
 Content:
 ${pageText}
 [Scraped on ${new Date().toLocaleString()}]`
@@ -3550,7 +3901,6 @@ ${pageText}
       }
     }
   }
-
   // Initialize WebSocket connection to Electron app
   function initializeWebSocket() {
     // Feature flag: disable auto-connecting to local desktop WebSocket unless explicitly enabled
@@ -3656,7 +4006,6 @@ ${pageText}
       window.gridWebSocket = null
     }
   }
-
   // Initialize WebSocket connection on page load
   // Only initialize if feature flag enables it (guard inside function)
   initializeWebSocket()
@@ -3743,7 +4092,6 @@ ${pageText}
                 <div style="grid-column: 1 / span 2; font-size: 9px; opacity: 0.85;">Only sidebars and the top header bar are themed. Main page stays unchanged.</div>
               </div>
             </div>
-
             <!-- System Settings -->
             <div style="background: rgba(255,255,255,0.1); padding: 12px; border-radius: 6px;">
               <h4 style="margin: 0 0 10px 0; font-size: 12px; color: #FFD700;">⚙️ System</h4>
@@ -4017,7 +4365,6 @@ ${pageText}
       // Always use default gradient for a consistent, professional look
       return 'linear-gradient(135deg,#667eea,#764ba2)'
     }
-
     function openBillingModal(kind: 'payg' | 'subscription') {
       const m = document.createElement('div')
       m.style.cssText = 'position:fixed;inset:0;background:'+getModalThemeGradient()+';z-index:2147483650;display:flex;align-items:center;justify-content:center;'
@@ -4237,7 +4584,6 @@ ${pageText}
     }
 
   }
-
   // Legacy code continues below
 
   function openDisplayPortsConfig(parentOverlay) {
@@ -4515,7 +4861,6 @@ ${pageText}
       `
       notification.innerHTML = `💾 Display ports configuration saved!`
       document.body.appendChild(notification)
-      
   setTimeout(() => {
         notification.remove()
       }, 2000)
@@ -4610,7 +4955,6 @@ ${pageText}
       openDisplayGridBrowserConfig()
     }
   }
-
   function openHelperTabsConfig() {
     // Get existing URLs from localStorage
     const existingUrls = JSON.parse(localStorage.getItem('helper_tabs_urls') || '["https://chatgpt.com"]')
@@ -4693,8 +5037,6 @@ ${pageText}
     }
     
     attachUrlFieldHandlers()
-    
-    
     // Save configuration
     document.getElementById('save-helper-tabs').onclick = () => {
       const urls = Array.from(container.querySelectorAll('.helper-url'))
@@ -4853,7 +5195,7 @@ ${pageText}
     document.body.appendChild(overlay)
 
     const close = () => overlay.remove()
-    document.getElementById('close-hybrid-select')!.onclick = close
+    document.getElementById('close-hybrid-select').onclick = close
     overlay.onclick = (e) => { if (e.target === overlay) close() }
 
     // Function to update URL fields based on selected count
@@ -4889,12 +5231,11 @@ ${pageText}
         urlFieldsDiv.style.display = 'none'
       }
     }
-
     // Initialize URL fields and add change listener
     updateUrlFields()
-    document.getElementById('hybrid-count')!.addEventListener('change', updateUrlFields)
+    document.getElementById('hybrid-count').addEventListener('change', updateUrlFields)
 
-    document.getElementById('hybrid-save-open')!.onclick = () => {
+    document.getElementById('hybrid-save-open').onclick = () => {
       const countEl = document.getElementById('hybrid-count') as HTMLSelectElement
       const count = Math.max(1, Math.min(5, parseInt(countEl.value || '1', 10)))
 
@@ -5075,7 +5416,6 @@ ${pageText}
               </div>
               <p style="margin: 0; font-size: 12px; opacity: 0.7;">Main + Side</p>
             </div>
-            
             <div id="btn-6-slot" style="background: rgba(255,255,255,0.1); border-radius: 12px; padding: 15px; cursor: pointer; text-align: center; border: 2px solid transparent; position: relative;">
               <label style="position: absolute; top: 8px; right: 8px; width: 30px; height: 30px; background: #FFD700; border: 3px solid #000; border-radius: 6px; display: flex; align-items: center; justify-content: center; cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,0.5); z-index: 1000;">
                 <input type="checkbox" id="check-6-slot" style="width: 16px; height: 16px; cursor: pointer; margin: 0;">
@@ -5449,7 +5789,6 @@ ${pageText}
     
     return gridSessionId
   }
-
   function createGridTab(layout) {
     console.log('🗂️ Selecting grid layout:', layout)
     
@@ -5797,7 +6136,6 @@ ${pageText}
       })
     })
   }
-
   // Check chrome.storage.local for grid saves
   let lastGridSaveCheck = 0
   setInterval(() => {
@@ -5996,7 +6334,6 @@ ${pageText}
     let bodyText = '#ffffff'
     let actionBtnBg = 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)'
     let actionBtnText = '#ffffff'
-    
     console.log('🎨 DEBUG: Applying theme:', theme)
     console.log('🎨 DEBUG: Theme parameter received:', theme, typeof theme)
     
@@ -6196,16 +6533,12 @@ ${pageText}
         ">
           ✅ Grid saved to session!
         </div>
-        
         <!-- Pass data to grid-script.js via data attributes on script -->
         <script src="${chrome.runtime.getURL('grid-script.js')}" data-session-id="${sessionId}" data-layout="${layout}" data-session-key="${activeSessionKeyForGrid}" id="grid-script"></script>
       </body>
       </html>
     `
   }
-  
-
-
   function openSessionsLightbox() {
     // Create sessions lightbox
     const overlay = document.createElement('div')
@@ -6521,7 +6854,6 @@ ${pageText}
                   })
                 }, 300) // Small delay after helper tabs
               }
-              
               // Also restore display grids if they exist
               if (sessionData.displayGrids && sessionData.displayGrids.length > 0) {
                 console.log('🔧 DEBUG: Opening', sessionData.displayGrids.length, 'display grids:', sessionData.displayGrids)
@@ -6684,7 +7016,6 @@ ${pageText}
               }
             }
             console.log('🔄 Session restore initiated with', sessionData.helperTabs?.urls?.length || 0, 'helper tabs:', sessionData.tabName)
-            
             // Show context restoration notification if context exists
             if (sessionData.context && (sessionData.context.userContext?.text || sessionData.context.publisherContext?.text || (sessionData.context.userContext?.pdfFiles && sessionData.context.userContext.pdfFiles.length > 0))) {
               const contextNotification = document.createElement('div')
@@ -6717,7 +7048,6 @@ ${pageText}
           }
         })
       })
-      
             overlay.querySelectorAll('.rename-session-btn').forEach(btn => {
         btn.addEventListener('click', (e) => {
           e.stopPropagation()
@@ -6905,7 +7235,6 @@ ${pageText}
           }
         })
       }
-      
       // Add additional master tab boxes that are set up (number > 4)
       if (session.agentBoxes && Array.isArray(session.agentBoxes)) {
         session.agentBoxes.forEach((box: any) => {
@@ -7106,7 +7435,6 @@ ${pageText}
       container.innerHTML = generateEditUrlFieldsHTML()
       attachEditUrlFieldHandlers()
     }
-    
     const attachEditUrlFieldHandlers = () => {
       container.querySelectorAll('.add-edit-url-btn').forEach(btn => {
         btn.addEventListener('click', () => {
@@ -7168,7 +7496,6 @@ ${pageText}
       })
     }
   }
-
   // Helper function to update current session in storage
   function updateCurrentSessionInStorage() {
     // Only update if session is locked and has helper tabs
@@ -7290,7 +7617,6 @@ ${pageText}
 
     // Save the new session data
     saveTabDataToStorage()
-
     // Also create a new session in Sessions History
     try {
       const sessionKey = `session_${Date.now()}`
@@ -7456,7 +7782,6 @@ ${pageText}
   } catch {}
   window.addEventListener('resize', applyLayoutOffsets)
   applyLayoutOffsets()
-  
   // Hybrid right panel behaviors after mount
   if (isHybridMaster) {
     // Only handle Add button click - no agent boxes to render
@@ -7545,13 +7870,11 @@ ${pageText}
       }, 1000) // Delay to ensure UI is ready
     }
   }, 100)
-  
   // Restore original approach for now to stop crashes (no DOM reparenting)
   document.body.style.marginLeft = currentTabData.uiConfig.leftSidebarWidth + 'px'
   document.body.style.marginRight = currentTabData.uiConfig.rightSidebarWidth + 'px'
   document.body.style.marginTop = '45px'  // Exact sidebar height
   document.body.style.overflowX = 'hidden'
-
   // Event handlers - AFTER DOM elements are created and added
   setTimeout(() => {
     // Reasoning header click (entire header area)
@@ -7661,7 +7984,7 @@ ${pageText}
           }
           
           chrome.storage.local.set({ [sessionKey]: sessionData }, () => {
-            console.log('🔒 Session saved:', sessionData.tabName, 'with', sessionData.helperTabs?.urls?.length || 0, 'helper tabs,', sessionData.agentBoxes?.length || 0, 'agent boxes')
+            console.log('🔒 Session saved:', sessionKey, 'with', sessionData.helperTabs?.urls?.length || 0, 'helper tabs,', sessionData.agentBoxes?.length || 0, 'agent boxes')
           })
           // Show notification
           const notification = document.createElement('div')
@@ -7779,7 +8102,6 @@ function checkForElectronGridConfig() {
     console.log('ℹ️ Could not check for Electron app config:', error.message);
   }
 }
-
 // Alternative approach: Use a simpler method by directly calling the save function
 // when we receive a message from the grid window
 function handleElectronGridSave(config: any) {
