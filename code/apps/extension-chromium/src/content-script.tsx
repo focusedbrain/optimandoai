@@ -4133,7 +4133,7 @@ ${pageText}
             </div>
 
             <!-- Local LLMs (next to API Keys) -->
-            <div id="local-llms-panel" style="background: rgba(255,255,255,0.10); padding: 12px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.2); grid-column: 3 / 4; height: 100%; display: flex; flex-direction: column;">
+            <div id="local-llms-panel" style="background: rgba(255,255,255,0.10); padding: 12px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.2); grid-column: 2 / 3; height: 100%; display: flex; flex-direction: column;">
               <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
                 <h4 style="margin: 0; font-size: 12px; color: #FFD700;">💻 Local LLMs</h4>
                 <div style="display:flex; gap:6px;">
@@ -4147,11 +4147,11 @@ ${pageText}
               <div id="finetuned-llms" style="margin-top: 12px; padding-top: 10px; border-top: 1px dashed rgba(255,255,255,0.25);">
                 <div style="display:flex; justify-content: space-between; align-items:center; margin-bottom: 6px;">
                   <div style="display:flex; align-items:center; gap:6px;">
-                    <span style="font-size:12px; color:#FFD700; font-weight:700;">🎛️ Finetuned LLMs</span>
+                    <span style="font-size:12px; color:#FFD700; font-weight:700;">🎛️ Finetuned local LLMs</span>
                     <span id="finetuned-pro-badge" style="display:none; font-size:10px; background: rgba(255,255,255,0.15); border: 1px solid rgba(255,255,255,0.3); color:white; padding:2px 6px; border-radius:999px;">PRO</span>
                   </div>
                 </div>
-                <div id="finetuned-locked" style="display:none; font-size:10px; margin:6px 0; padding:6px; background: rgba(244,67,54,0.20); border:1px solid rgba(244,67,54,0.35); border-radius:6px;">
+              <div id="finetuned-locked" style="display:none; font-size:10px; margin:6px 0; padding:6px; background: rgba(255,255,255,0.12); border:1px solid rgba(255,255,255,0.22); border-radius:6px;">
                   🔒 Finetuned models are available for Pro subscribers.
                   <button id="unlock-finetuned" style="margin-left: 8px; background: #22c55e; border: none; color: #0b1e12; padding: 4px 8px; border-radius: 6px; cursor: pointer; font-size: 10px; font-weight: 700;">Upgrade</button>
                 </div>
@@ -4163,7 +4163,7 @@ ${pageText}
             </div>
 
             <!-- Appearance (moved up) -->
-            <div style="background: rgba(255,255,255,0.1); padding: 12px; border-radius: 6px; grid-column: 2 / 3; height: 100%; display: flex; flex-direction: column;">
+            <div style="background: rgba(255,255,255,0.1); padding: 12px; border-radius: 6px; grid-column: 3 / 4; height: 100%; display: flex; flex-direction: column;">
               <h4 style="margin: 0 0 10px 0; font-size: 12px; color: #FFD700;">🎨 Appearance</h4>
               <div style="font-size: 10px; display: grid; grid-template-columns: auto 1fr; gap: 8px; align-items: center;">
                 <label style="display:block;">Theme:</label>
@@ -4244,30 +4244,10 @@ ${pageText}
             
             
 
-            <!-- Advanced Options -->
-            <div style="background: rgba(255,255,255,0.1); padding: 12px; border-radius: 6px;">
-              <h4 style="margin: 0 0 10px 0; font-size: 12px; color: #FFD700;">🔬 Advanced</h4>
-              <div style="font-size: 10px;">
-                <div style="margin-bottom: 8px;">
-                  <label style="display: block; margin-bottom: 3px;">Debug Level:</label>
-                  <select style="width: 100%; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 3px; border-radius: 2px; font-size: 9px;">
-                    <option selected>None</option>
-                    <option>Basic</option>
-                    <option>Verbose</option>
-                    <option>Full</option>
-                  </select>
-              </div>
-                <div style="margin-bottom: 8px;">
-                  <label style="display: flex; align-items: center;">
-                    <input type="checkbox" style="margin-right: 6px;">
-                    <span>Developer mode</span>
-                  </label>
-                </div>
-              </div>
-            </div>
+            
             
             <!-- Export/Import -->
-            <div style="background: rgba(255,255,255,0.1); padding: 12px; border-radius: 6px;">
+            <div style="background: rgba(255,255,255,0.1); padding: 12px; border-radius: 6px; grid-column: 1 / -1;">
               <h4 style="margin: 0 0 10px 0; font-size: 12px; color: #FFD700;">📦 Backup</h4>
               <div style="font-size: 10px;">
                 <button style="width: 100%; margin-bottom: 6px; padding: 6px; background: #2196F3; border: none; color: white; border-radius: 3px; cursor: pointer; font-size: 9px;">📤 Export Settings</button>
@@ -4448,6 +4428,9 @@ ${pageText}
           '<option value="ollama:phi3">phi3</option>'+
           '<option value="ollama:mistral">mistral</option>'+
           '<option value="ollama:neural-chat">neural-chat</option>'+
+          '<option value="ollama:nemotron-9b">nemotron-9b</option>'+
+          '<option value="ollama:qwen2.5:7b-instruct">qwen2.5-7b-instruct</option>'+
+          '<option value="ollama:gptneox-20b">gpt-neox-20b</option>'+
         '</optgroup>'+
         '<optgroup label="llama.cpp">'+
           '<option value="llamacpp:llama3-8b-instruct">Llama 3 8B Instruct</option>'+
@@ -4478,7 +4461,7 @@ ${pageText}
         row.style.borderRadius = '6px'
         row.style.border = '1px solid rgba(255,255,255,0.18)'
         row.innerHTML = (
-          '<select class="local-llm-select" style="width:100%; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 6px; border-radius: 4px; font-size: 10px;">'+
+          '<select class="local-llm-select" style="width:100%; background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.28); color: #0f172a; padding: 6px; border-radius: 4px; font-size: 10px;">'+
             getLocalLLMOptionsHTML()+
           '</select>'+
           '<button class="install-local-llm" style="background: #2563eb; border: none; color: white; padding: 6px 8px; border-radius: 6px; cursor: pointer; font-size: 10px;">'+(it.installed ? 'Installed ✓' : 'Install')+'</button>'+
@@ -4487,6 +4470,15 @@ ${pageText}
         container.appendChild(row)
         const select = row.querySelector('.local-llm-select') as HTMLSelectElement
         if (select && it.value) select.value = it.value
+        // Show white text for placeholder (no selection), dark text for chosen model
+        if (select) {
+          const applyPlaceholderColor = () => {
+            const isPlaceholder = !select.value || select.value === ''
+            select.style.color = isPlaceholder ? 'white' : '#0f172a'
+          }
+          select.addEventListener('change', applyPlaceholderColor)
+          applyPlaceholderColor()
+        }
         const installBtn = row.querySelector('.install-local-llm') as HTMLButtonElement
         const removeBtn = row.querySelector('.remove-local-llm') as HTMLButtonElement
         installBtn.disabled = !!it.installed
