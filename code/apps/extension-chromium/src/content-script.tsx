@@ -1556,7 +1556,7 @@ function initializeExtension() {
         <span class="title-text">OpenGiraffe</span>
       </h2>
       <div style="display:flex; gap:6px; align-items:center;">
-        <button id="command-center-btn" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 24px; height: 24px; border-radius: 4px; cursor: pointer; font-size: 12px; transition: all 0.2s ease;" title="Command Center">
+        <button id="command-center-btn" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 24px; height: 24px; border-radius: 4px; cursor: pointer; font-size: 12px; transition: all 0.2s ease;" title="Command Chat">
           💬
         </button>
       <button id="quick-expand-btn" style="background: rgba(255,255,255,0.2); border: none; color: inherit; width: 24px; height: 24px; border-radius: 4px; cursor: pointer; font-size: 12px; transition: all 0.2s ease;" title="Quick expand to maximum width">
@@ -6612,11 +6612,11 @@ ${pageText}
         inputBorder = 'rgba(255,255,255,0.3)'
         slotBg = 'white'
       } else if (theme === 'dark') {
-        headerColor = 'linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%)' // dark gradient
-        textColor = 'white'
-        inputBg = 'rgba(255,255,255,0.2)'
-        inputBorder = 'rgba(255,255,255,0.3)'
-        slotBg = '#2d2d2d'
+        headerColor = 'linear-gradient(135deg, #0f172a 0%, #1e293b 100%)' // updated dark gradient
+        textColor = '#e5e7eb'
+        inputBg = 'rgba(255,255,255,0.06)'
+        inputBorder = 'rgba(255,255,255,0.14)'
+        slotBg = 'rgba(255,255,255,0.06)'
       } else if (theme === 'professional') {
         headerColor = 'linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%)' // professional light gradient
         textColor = '#1e293b'
@@ -6629,7 +6629,7 @@ ${pageText}
       console.log(`🎨 DEBUG: Slot ${slotNum} theme colors:`, { headerColor, textColor, slotBg, theme })
       
       slotsHTML += `
-        <div data-slot-id="${slotNum}" data-slot-config='${JSON.stringify({ title: savedTitle, agent: savedAgent, provider: savedProvider, model: savedModel })}' style="background: ${slotBg} !important; border: 2px solid #666; border-radius: 8px; display: flex; flex-direction: column; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.1); ${gridRowStyle}">
+        <div data-slot-id="${slotNum}" data-slot-config='${JSON.stringify({ title: savedTitle, agent: savedAgent, provider: savedProvider, model: savedModel })}' style="background: ${slotBg} !important; border: 1px solid rgba(255,255,255,0.14); border-radius: 8px; display: flex; flex-direction: column; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.1); ${gridRowStyle}">
           <div style="background: ${headerColor}; padding: 6px 8px; font-size: 11px; display: flex; justify-content: space-between; align-items: center; border-radius: 8px 8px 0 0; min-height: 32px; flex-shrink: 0;">
             <div style="display: flex; align-items: center; color: ${textColor}; font-weight: bold; min-width: 0; flex: 1;">
               <span style="margin-right: 4px; white-space: nowrap; font-family: monospace; font-size: 10px;">${abCode}</span>
@@ -6641,7 +6641,7 @@ ${pageText}
               <button class="close-slot" style="background: ${theme === 'professional' ? 'rgba(0,0,0,0.1)' : 'rgba(255,255,255,0.2)'}; border: none; color: ${textColor}; width: 18px; height: 18px; border-radius: 50%; cursor: pointer; font-size: 10px; font-weight: bold; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">×</button>
             </div>
           </div>
-          <div style="flex: 1; display: flex; align-items: center; justify-content: center; font-size: 14px; color: ${theme === 'dark' ? 'white' : (theme === 'professional' ? '#1e293b' : '#333')}; text-align: center; padding: 16px; background: ${slotBg} !important; min-height: 0;">
+          <div style="flex: 1; display: flex; align-items: center; justify-content: center; font-size: 14px; color: ${theme === 'dark' ? '#e5e7eb' : (theme === 'professional' ? '#1e293b' : '#333')}; text-align: center; padding: 16px; background: ${slotBg} !important; min-height: 0;">
           </div>
         </div>
       `
@@ -6666,8 +6666,10 @@ ${pageText}
     console.log('🎨 DEBUG: Theme parameter received:', theme, typeof theme)
     
     if (theme === 'dark') {
-      bodyBg = 'linear-gradient(135deg, #0f0f0f 0%, #1a1a1a 100%)'
-      bodyText = '#ffffff'
+      bodyBg = 'linear-gradient(135deg, #0f172a 0%, #1e293b 100%)'
+      bodyText = '#e5e7eb'
+      actionBtnBg = 'rgba(255,255,255,0.15)'
+      actionBtnText = '#e5e7eb'
       console.log('🎨 Applied dark theme - bodyBg:', bodyBg)
     } else if (theme === 'professional') {
       bodyBg = 'linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%)'
@@ -8392,7 +8394,7 @@ ${pageText}
         } catch {}
         chrome.runtime.sendMessage({ type: 'OPEN_COMMAND_CENTER_POPUP', theme })
       } catch (e) {
-        console.error('Failed to request Command Center popup:', e)
+        console.error('Failed to request Command Chat popup:', e)
       }
     })
     

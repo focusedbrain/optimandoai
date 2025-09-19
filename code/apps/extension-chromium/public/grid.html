@@ -4,11 +4,16 @@
   <meta charset="UTF-8">
   <title>AI Grid Display</title>
   <style>
+    :root{
+      --text:#e5e7eb;
+      --surface: rgba(255,255,255,0.06);
+      --border: rgba(255,255,255,0.14);
+    }
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { 
       font-family: Arial, sans-serif;
-      background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
-      color: white; 
+      background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+      color: var(--text); 
       height: 100vh; 
       overflow: hidden;
     }
@@ -22,8 +27,8 @@
     }
     
     .grid-slot {
-      background: rgba(255,255,255,0.1);
-      border: 2px solid rgba(255,255,255,0.3);
+      background: var(--surface);
+      border: 1px solid var(--border);
       border-radius: 8px;
       display: flex;
       flex-direction: column;
@@ -31,19 +36,19 @@
     }
     
     .slot-header {
-      background: rgba(0,0,0,0.3);
+      background: var(--surface);
       padding: 8px;
       font-size: 12px;
       display: flex;
       justify-content: space-between;
       align-items: center;
-      border-bottom: 1px solid rgba(255,255,255,0.2);
+      border-bottom: 1px solid var(--border);
     }
     
     .slot-title {
       background: transparent;
-      border: 1px solid rgba(255,255,255,0.3);
-      color: white;
+      border: 1px solid var(--border);
+      color: var(--text);
       padding: 4px 8px;
       border-radius: 4px;
       font-size: 11px;
@@ -52,9 +57,9 @@
     }
     
     .slot-agent {
-      background: rgba(0,0,0,0.3);
-      color: white;
-      border: 1px solid rgba(255,255,255,0.3);
+      background: var(--surface);
+      color: var(--text);
+      border: 1px solid var(--border);
       padding: 2px;
       border-radius: 3px;
       font-size: 10px;
