@@ -181,9 +181,36 @@ chrome.runtime.onInstalled.addListener(() => {
 });
 
 // Handle extension icon click
-chrome.action.onClicked.addListener((tab) => {
-  console.log('🖱️ Extension-Icon geklickt - Toggle Sidebars');
-  toggleSidebars();
+chrome.action.onClicked.addListener(async () => {
+  try {
+    const bounds = await new Promise<chrome.system.display.Bounds | null>((resolve) => {
+      if (!chrome.system?.display) return resolve(null)
+      chrome.system.display.getInfo((displays) => {
+        if (chrome.runtime.lastError || !Array.isArray(displays) || displays.length === 0) return resolve(null)
+        const primary = displays.find(d => d.isPrimary)
+        const secondary = displays.find(d => !d.isPrimary)
+        resolve((secondary?.workArea || primary?.workArea) || null)
+      })
+    })
+    // Read last saved theme from chrome.storage as fallback
+    const store = await new Promise<any>((resolve) => chrome.storage?.local?.get('optimando-ui-theme', resolve))
+    const t = (store && store['optimando-ui-theme']) || 'default'
+
+    const url = chrome.runtime.getURL('popup.html?t=' + encodeURIComponent(t))
+    const opts: chrome.windows.CreateData = {
+      url,
+      type: 'popup',
+      width: 520,
+      height: 720
+    }
+    if (bounds) {
+      opts.left = Math.max(0, bounds.left + 40)
+      opts.top = Math.max(0, bounds.top + 40)
+    }
+    await chrome.windows.create(opts)
+  } catch (e) {
+    console.error('Failed to open Command Center popup:', e)
+  }
 });
 
 // Handle keyboard command Alt+O to toggle overlay per domain
@@ -251,6 +278,35 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       // Forwarded from UI (gear icon) to broadcast or simply acknowledge
       sendResponse({ success: true })
       break;
+
+    case 'OPEN_COMMAND_CENTER_POPUP': {
+      const themeHint = typeof msg.theme === 'string' ? msg.theme : null
+      const createPopup = (bounds: chrome.system.display.Bounds | null) => {
+        const url = chrome.runtime.getURL('popup.html' + (themeHint ? ('?t=' + encodeURIComponent(themeHint)) : ''))
+        const opts: chrome.windows.CreateData = {
+          url,
+          type: 'popup',
+          width: 520,
+          height: 720
+        }
+        if (bounds) {
+          opts.left = Math.max(0, bounds.left + 40)
+          opts.top = Math.max(0, bounds.top + 40)
+        }
+        chrome.windows.create(opts, () => sendResponse({ success: true }))
+      }
+
+      if (chrome.system?.display) {
+        chrome.system.display.getInfo((displays) => {
+          const primary = displays.find(d => d.isPrimary)
+          const secondary = displays.find(d => !d.isPrimary)
+          createPopup((secondary?.workArea || primary?.workArea) || null)
+        })
+      } else {
+        createPopup(null)
+      }
+      break
+    }
   }
   return true;
 });
