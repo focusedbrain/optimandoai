@@ -1773,6 +1773,51 @@ function initializeExtension() {
       try { setActiveTopbarTab('reasoning') } catch {}
     }
   }
+
+  // Inject CSS for docked Command Chat once so theme switches apply immediately
+  function injectDockedChatCSSOnce() {
+    try {
+      if (document.getElementById('chat-docked-css')) return
+      const style = document.createElement('style')
+      style.id = 'chat-docked-css'
+      style.textContent = `
+        /* Base layout */
+        .chat-docked { border-radius: 8px; overflow: hidden; border-width: 1px; border-style: solid; }
+        .chat-docked .chat-hdr { display:flex; align-items:center; justify-content:space-between; padding:6px 8px; border-bottom-width:1px; border-bottom-style:solid; font-size:12px; font-weight:700; }
+        .chat-docked .chat-title { display:flex; align-items:center; gap:6px; }
+        .chat-docked .chat-msgs { height:160px; overflow:auto; display:flex; flex-direction:column; gap:6px; padding:8px; }
+        .chat-docked .chat-compose { display:grid; grid-template-columns:1fr 36px 36px 68px; gap:6px; align-items:center; padding:8px; }
+        .chat-docked .chat-ta { box-sizing:border-box; height:36px; resize:vertical; border-radius:6px; padding:8px; font-size:12px; }
+        .chat-docked .chat-btn { height:36px; border-radius:6px; display:flex; align-items:center; justify-content:center; cursor:pointer; font-size:12px; }
+        .chat-docked .chat-send { height:36px; border-radius:6px; font-weight:800; cursor:pointer; }
+
+        /* Default (purple) */
+        .theme-default .chat-docked { background: rgba(255,255,255,0.10); border-color: rgba(255,255,255,0.20); color: white; }
+        .theme-default .chat-docked .chat-hdr { background: linear-gradient(135deg,#667eea,#764ba2); border-bottom-color: rgba(255,255,255,0.20); color: white; }
+        .theme-default .chat-docked .chat-msgs { background: rgba(255,255,255,0.06); border-bottom: 1px solid rgba(255,255,255,0.20); }
+        .theme-default .chat-docked .chat-ta { background: rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.20); color: white; }
+        .theme-default .chat-docked .chat-btn { background: rgba(255,255,255,0.15); border:1px solid rgba(255,255,255,0.20); color: white; }
+        .theme-default .chat-docked .chat-send { background:#22c55e; border:1px solid #16a34a; color:#0b1e12; }
+
+        /* Dark */
+        .theme-dark .chat-docked { background: rgba(255,255,255,0.10); border-color: rgba(255,255,255,0.20); color: #e5e7eb; }
+        .theme-dark .chat-docked .chat-hdr { background: linear-gradient(135deg,#0f172a,#1e293b); border-bottom-color: rgba(255,255,255,0.20); color: #e5e7eb; }
+        .theme-dark .chat-docked .chat-msgs { background: rgba(255,255,255,0.06); border-bottom: 1px solid rgba(255,255,255,0.20); }
+        .theme-dark .chat-docked .chat-ta { background: rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.20); color: #e5e7eb; }
+        .theme-dark .chat-docked .chat-btn { background: rgba(255,255,255,0.15); border:1px solid rgba(255,255,255,0.20); color: #e5e7eb; }
+        .theme-dark .chat-docked .chat-send { background:#22c55e; border:1px solid #16a34a; color:#0b1e12; }
+
+        /* Professional (light) */
+        .theme-professional .chat-docked { background:#ffffff; border-color:#e2e8f0; color:#0f172a; }
+        .theme-professional .chat-docked .chat-hdr { background: linear-gradient(135deg,#ffffff,#f1f5f9); border-bottom-color:#e2e8f0; color:#0f172a; }
+        .theme-professional .chat-docked .chat-msgs { background:#f8fafc; border-bottom: 1px solid #e2e8f0; }
+        .theme-professional .chat-docked .chat-ta { background:#ffffff; border:1px solid #e2e8f0; color:#0f172a; }
+        .theme-professional .chat-docked .chat-btn { background:#e2e8f0; border:1px solid #cbd5e1; color:#0f172a; }
+        .theme-professional .chat-docked .chat-send { background:#22c55e; border:1px solid #16a34a; color:#0b1e12; }
+      `
+      ;(document.head || document.documentElement).appendChild(style)
+    } catch {}
+  }
   function applyTheme(theme) {
     injectThemeCSSOnce()
     const gradients = {
@@ -2114,15 +2159,15 @@ function initializeExtension() {
   }
 
   // Apply saved theme on init ONLY if present; otherwise keep original defaults
-    try {
-      const savedTheme = localStorage.getItem('optimando-ui-theme')
-      if (savedTheme === 'dark' || savedTheme === 'professional') {
+  try {
+    const savedTheme = localStorage.getItem('optimando-ui-theme')
+    if (savedTheme === 'dark' || savedTheme === 'professional') {
         try { chrome.storage?.local?.set({ 'optimando-ui-theme': savedTheme }) } catch {}
-        applyTheme(savedTheme)
+      applyTheme(savedTheme)
       } else {
         try { chrome.storage?.local?.set({ 'optimando-ui-theme': 'default' }) } catch {}
-      }
-    } catch {}
+    }
+  } catch {}
 
   // Bottom Panel Content
   let isExpanded = false
@@ -3482,6 +3527,9 @@ function initializeExtension() {
       overlay.remove()
       console.log('URL Whitelist saved:', urls)
     }
+
+    // Immediately re-theme docked Command Chat if present
+    try { setDockedChatTheme(theme) } catch {}
   }
 
   function openContextLightbox() {
@@ -4325,6 +4373,9 @@ ${pageText}
             console.error('🎨 Error applying theme:', error, theme)
           }
         }
+
+        // Notify other components (e.g., docked Command Chat) to re-style immediately
+        try { window.dispatchEvent(new CustomEvent('optimando-theme-changed', { detail: { theme } })) } catch {}
       }
 
       themeSelect.addEventListener('change', handleThemeChange)
@@ -8210,9 +8261,48 @@ ${pageText}
       file.addEventListener('change', ()=>{ const n=(file.files||[]).length; if(n) addRow('user', `Uploaded ${n} file(s).`) })
       undock.addEventListener('click', ()=>{ undockCommandChat() })
     }
+    function setDockedChatTheme(theme: 'default'|'dark'|'professional') {
+      const container = document.getElementById('command-chat-docked') as HTMLElement | null
+      if (!container) return
+      const bg = theme === 'professional' ? '#ffffff' : 'rgba(255,255,255,0.10)'
+      const br = theme === 'professional' ? '#e2e8f0' : 'rgba(255,255,255,0.20)'
+      const fg = theme === 'professional' ? '#0f172a' : 'white'
+      const hdr = theme === 'professional' ? 'linear-gradient(135deg,#ffffff,#f1f5f9)' : (theme==='dark' ? 'linear-gradient(135deg,#0f172a,#1e293b)' : 'linear-gradient(135deg,#667eea,#764ba2)')
+      container.style.background = bg
+      container.style.color = fg
+      container.style.border = '1px solid ' + br
+      const hdrEl = container.firstElementChild as HTMLElement | null
+      if (hdrEl) {
+        hdrEl.style.background = hdr
+        hdrEl.style.borderBottom = '1px solid ' + br
+        hdrEl.style.color = (theme==='professional'?'#0f172a':'white')
+        // Also update the inner title div which has an inline color set at creation time
+        const titleEl = hdrEl.firstElementChild as HTMLElement | null
+        if (titleEl) titleEl.style.color = (theme==='professional'?'#0f172a':'white')
+        const undockBtn = hdrEl.querySelector('#ccd-undock') as HTMLButtonElement | null
+        if (undockBtn) {
+          undockBtn.style.background = (theme==='professional'?'#e2e8f0':'rgba(255,255,255,0.15)')
+          undockBtn.style.border = '1px solid ' + br
+          undockBtn.style.color = fg
+        }
+      }
+      const msgs = container.querySelector('#ccd-messages') as HTMLElement | null
+      if (msgs) { msgs.style.background = (theme==='professional'?'#f8fafc':'rgba(255,255,255,0.06)'); msgs.style.borderBottom = '1px solid ' + br }
+      const ta = container.querySelector('#ccd-input') as HTMLTextAreaElement | null
+      if (ta) { ta.style.background = (theme==='professional'?'#ffffff':'rgba(255,255,255,0.08)'); ta.style.border = '1px solid ' + br; ta.style.color = fg }
+      ;['ccd-attach','ccd-mic'].forEach(id => {
+        const btn = container.querySelector('#'+id) as HTMLButtonElement | null
+        if (btn) { btn.style.background = (theme==='professional'?'#e2e8f0':'rgba(255,255,255,0.15)'); btn.style.border = '1px solid ' + br; btn.style.color = fg }
+      })
+    }
     function dockCommandChat() { removeDockedChat(); createDockedChat(); try { localStorage.setItem('optimando-chat-docked','true') } catch {}; updateDockButtonUI() }
     function undockCommandChat() { removeDockedChat(); try { localStorage.setItem('optimando-chat-docked','false') } catch {}; updateDockButtonUI() }
     dockBtn?.addEventListener('click', () => { if (isChatDocked()) undockCommandChat(); else dockCommandChat() })
+    // Listen for theme change broadcast and restyle docked chat, without inline CSS rewrite logic
+    window.addEventListener('optimando-theme-changed', (e: any) => {
+      const t = (e?.detail?.theme || localStorage.getItem('optimando-ui-theme') || 'default') as 'default'|'dark'|'professional'
+      try { setDockedChatTheme(t) } catch {}
+    })
     // Apply initial state
     updateDockButtonUI(); if (isChatDocked()) createDockedChat()
     
