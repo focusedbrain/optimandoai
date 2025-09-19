@@ -1,7 +1,7 @@
 {
   "name": "optimando-desktop",
   "version": "1.0.0",
-  "description": "Optimando Desktop App - WebSocket Server",
+  "description": "OpenGiraffe Desktop App - WebSocket Server",
   "main": "main.js",
   "scripts": {
     "start": "electron main.js",

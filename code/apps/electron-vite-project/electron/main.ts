@@ -151,12 +151,12 @@ function createTray() {
       { type: 'separator' },
       { label: 'Quit', role: 'quit' },
     ])
-    tray.setToolTip('Optimando Orchestrator')
+    tray.setToolTip('OpenGiraffe Orchestrator')
     tray.setContextMenu(menu)
     tray.on('click', () => { if (!win) return; if (win.isVisible()) win.focus(); else win.show() })
     // Startup toast
     try {
-      new Notification({ title: 'Optimando Orchestrator', body: 'Running in background. Use Alt+Shift+S or chat icons to capture.' }).show()
+      new Notification({ title: 'OpenGiraffe Orchestrator', body: 'Running in background. Use Alt+Shift+S or chat icons to capture.' }).show()
     } catch {}
   } catch {}
 }

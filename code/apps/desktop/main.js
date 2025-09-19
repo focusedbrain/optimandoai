@@ -44,7 +44,7 @@ function startWebSocketServer() {
       // Send welcome message
       ws.send(JSON.stringify({ 
         type: 'welcome', 
-        message: 'Verbunden mit Optimando Desktop App',
+        message: 'Verbunden mit OpenGiraffe Desktop App',
         timestamp: new Date().toISOString()
       }))
       
@@ -137,7 +137,7 @@ function startWebSocketServer() {
     
     // Update window title to show server status
     if (win) {
-      win.setTitle(`Optimando Desktop App - WebSocket Server läuft auf Port ${port}`)
+      win.setTitle(`OpenGiraffe Desktop App - WebSocket Server läuft auf Port ${port}`)
     }
     
   } catch (error) {

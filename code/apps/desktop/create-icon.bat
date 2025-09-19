@@ -1,5 +1,5 @@
 @echo off
-echo Creating a simple icon for Optimando Desktop App...
+echo Creating a simple icon for OpenGiraffe Desktop App...
 
 REM Create a simple text-based icon using PowerShell
 powershell -Command "

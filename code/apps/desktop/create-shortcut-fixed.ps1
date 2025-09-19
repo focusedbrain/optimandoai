@@ -1,11 +1,11 @@
-# Create Desktop Shortcut with Icon for Optimando Desktop App
+# Create Desktop Shortcut with Icon for OpenGiraffe Desktop App
 Write-Host "🚀 Creating desktop shortcut with icon..." -ForegroundColor Green
 
 # Get current directory as string
 $currentDir = (Get-Location).Path
 
 # Create shortcut path
-$shortcutPath = "$env:USERPROFILE\Desktop\Optimando Desktop.lnk"
+$shortcutPath = "$env:USERPROFILE\Desktop\OpenGiraffe Desktop.lnk"
 
 # Create WScript.Shell object
 $WshShell = New-Object -comObject WScript.Shell
@@ -14,7 +14,7 @@ $WshShell = New-Object -comObject WScript.Shell
 $Shortcut = $WshShell.CreateShortcut($shortcutPath)
 $Shortcut.TargetPath = "$currentDir\start-optimando.bat"
 $Shortcut.WorkingDirectory = $currentDir
-$Shortcut.Description = "Optimando Desktop App - WebSocket Server"
+$Shortcut.Description = "OpenGiraffe Desktop App - WebSocket Server"
 $Shortcut.IconLocation = "shell32.dll,14"  # Use a default Windows icon
 $Shortcut.Save()
 

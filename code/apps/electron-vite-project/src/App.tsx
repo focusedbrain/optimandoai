@@ -70,7 +70,7 @@ function App() {
   return (
     <div className="app-root">
       <div className="topbar">
-        <div className="brand">Optimando</div>
+        <div className="brand">OpenGiraffe</div>
         <div style={{ flex: 1 }} />
         <LETmeGIRAFFETHATFORYOUIcons onCapture={(p) => console.log('capture', p)} />
         <button className="btn" onClick={() => setShowPlans(true)} style={{ marginLeft: 8 }}>Plans</button>

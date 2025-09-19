@@ -1,1 +1,1 @@
-export const APP_NAME = "Optimando Orchestrator";
+export const APP_NAME = "OpenGiraffe Orchestrator";

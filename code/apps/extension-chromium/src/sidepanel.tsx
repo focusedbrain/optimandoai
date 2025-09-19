@@ -65,7 +65,7 @@ function SidepanelOrchestrator() {
         fontWeight: 'bold',
         textShadow: '2px 2px 4px rgba(0,0,0,0.3)'
       }}>
-        🚀 Optimando AI Orchestrator
+        🦒 OpenGiraffe Orchestrator
       </h1>
 
       {/* Tab Status */}

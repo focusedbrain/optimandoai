@@ -11,7 +11,7 @@ wss.on('connection', (ws) => {
   // Send welcome message
   ws.send(JSON.stringify({ 
     type: 'welcome', 
-    message: 'Verbunden mit Optimando WebSocket Server',
+    message: 'Verbunden mit OpenGiraffe WebSocket Server',
     timestamp: new Date().toISOString()
   }));
   
