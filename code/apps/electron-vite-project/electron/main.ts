@@ -1,6 +1,10 @@
-import { app, BrowserWindow } from 'electron'
+import { app, BrowserWindow, globalShortcut } from 'electron'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
+import { registerHandler, LmgtfyChannels, emitCapture } from './lmgtfy/ipc'
+import { selectRegion } from './lmgtfy/overlay'
+import { captureScreenshot, startRegionStream } from './lmgtfy/capture'
+import { loadPresets, upsertRegion } from './lmgtfy/presets'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -43,6 +47,56 @@ function createWindow() {
     // win.loadFile('dist/index.html')
     win.loadFile(path.join(RENDERER_DIST, 'index.html'))
   }
+
+  // LmGTFY IPC wiring
+  let activeStop: null | (() => Promise<string>) = null
+  registerHandler(LmgtfyChannels.GetPresets, () => loadPresets())
+  registerHandler(LmgtfyChannels.SavePreset, async (_e, payload) => upsertRegion(payload))
+  registerHandler(LmgtfyChannels.SelectScreenshot, async () => {
+    const sel = await selectRegion()
+    if (!sel || !win) return null
+    const { filePath, thumbnailPath } = await captureScreenshot(sel)
+    emitCapture(win, {
+      event: LmgtfyChannels.OnCaptureEvent,
+      mode: 'screenshot',
+      filePath,
+      thumbnailPath,
+      meta: { x: sel.x, y: sel.y, w: sel.w, h: sel.h, dpr: sel.dpr, displayId: sel.displayId },
+    })
+    return { filePath, thumbnailPath }
+  })
+  registerHandler(LmgtfyChannels.SelectStream, async () => {
+    const sel = await selectRegion()
+    if (!sel || !win) return null
+    const controller = await startRegionStream(sel)
+    activeStop = controller.stop
+    emitCapture(win, {
+      event: LmgtfyChannels.OnCaptureEvent,
+      mode: 'stream',
+      filePath: '',
+      thumbnailPath: '',
+      meta: { x: sel.x, y: sel.y, w: sel.w, h: sel.h, dpr: sel.dpr, displayId: sel.displayId },
+    })
+    return { ok: true }
+  })
+  registerHandler(LmgtfyChannels.StopStream, async () => {
+    if (!activeStop || !win) return null
+    const out = await activeStop()
+    activeStop = null
+    emitCapture(win, {
+      event: LmgtfyChannels.OnCaptureEvent,
+      mode: 'stream',
+      filePath: out,
+      thumbnailPath: '',
+      meta: { presetName: 'finalized', x: 0, y: 0, w: 0, h: 0, dpr: 1 },
+    })
+    return { filePath: out }
+  })
+
+  // Global hotkeys
+  globalShortcut.register('Alt+Shift+S', () => win?.webContents.send('hotkey', 'screenshot'))
+  globalShortcut.register('Alt+Shift+V', () => win?.webContents.send('hotkey', 'stream'))
+  globalShortcut.register('Alt+0', () => win?.webContents.send('hotkey', 'stop'))
 }
 
 // Quit when all windows are closed, except on macOS. There, it's common
@@ -53,6 +107,10 @@ app.on('window-all-closed', () => {
     app.quit()
     win = null
   }
+})
+
+app.on('will-quit', () => {
+  globalShortcut.unregisterAll()
 })
 
 app.on('activate', () => {

@@ -47,6 +47,25 @@ function ThemeSwitcher() {
 function App() {
   const [showSettings, setShowSettings] = useState(false)
   const [showPlans, setShowPlans] = useState(false)
+  const [captures, setCaptures] = useState<any[]>([])
+
+  useEffect(() => {
+    // @ts-ignore
+    window.lmgtfy?.onCapture((payload: any) => setCaptures((c) => [...c, payload]))
+    // @ts-ignore
+    window.lmgtfy?.onHotkey((k: string) => {
+      if (k === 'screenshot') {
+        // @ts-ignore
+        window.lmgtfy?.selectScreenshot()
+      } else if (k === 'stream') {
+        // @ts-ignore
+        window.lmgtfy?.selectStream()
+      } else if (k === 'stop') {
+        // @ts-ignore
+        window.lmgtfy?.stopStream()
+      }
+    })
+  }, [])
   return (
     <div className="app-root">
       <div className="topbar">
@@ -63,6 +82,23 @@ function App() {
         <main className="content">
           <h1>Main Content</h1>
           <p>This area remains unaffected by the theme background.</p>
+          <div style={{ marginTop: 12 }}>
+            <button className="btn" onClick={() => {
+              // @ts-ignore
+              window.lmgtfy?.selectScreenshot()
+            }}>📸 Screenshot</button>
+            <button className="btn" onClick={() => {
+              // @ts-ignore
+              window.lmgtfy?.selectStream()
+            }} style={{ marginLeft: 8 }}>🎥 Stream</button>
+            <button className="btn" onClick={() => {
+              // @ts-ignore
+              window.lmgtfy?.stopStream()
+            }} style={{ marginLeft: 8 }}>■ Stop</button>
+          </div>
+          <pre style={{ marginTop: 12, background: 'rgba(0,0,0,0.2)', padding: 8, borderRadius: 6 }}>
+            {JSON.stringify(captures, null, 2)}
+          </pre>
         </main>
       </div>
       {showSettings && (
