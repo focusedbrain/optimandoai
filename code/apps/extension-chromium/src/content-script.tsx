@@ -1765,13 +1765,29 @@ function initializeExtension() {
 
   // Re-apply dynamic theming for elements created earlier (tabs)
   function refreshExpandableTheming() {
-    try { injectThemeCSSOnce() } catch {}
+    try { injectThemeCSSOnce(); injectDockedSendCSSOnce() } catch {}
     try {
       const saved = (localStorage.getItem('optimando-topbar-active-tab') as 'reasoning' | 'session-goals' | 'workflows' | null) || 'reasoning'
       setActiveTopbarTab(saved)
     } catch {
       try { setActiveTopbarTab('reasoning') } catch {}
     }
+  }
+
+  // Minimal CSS for theme-aware Send button in docked chat
+  function injectDockedSendCSSOnce() {
+    try {
+      if (document.getElementById('optimando-chat-send-css')) return
+      const s = document.createElement('style')
+      s.id = 'optimando-chat-send-css'
+      s.textContent = `
+        #command-chat-docked .send-btn { font-weight: 800; height: 36px; border-radius: 6px; cursor: pointer; padding: 0 12px; }
+        .theme-default #command-chat-docked .send-btn { background: linear-gradient(135deg,#667eea,#764ba2); border: 1px solid rgba(255,255,255,0.30); color: #ffffff; }
+        .theme-dark #command-chat-docked .send-btn { background: linear-gradient(135deg,#334155,#1e293b); border: 1px solid rgba(255,255,255,0.20); color: #e5e7eb; }
+        .theme-professional #command-chat-docked .send-btn { background: linear-gradient(135deg,#ffffff,#f1f5f9); border: 1px solid #cbd5e1; color: #0f172a; }
+      `
+      ;(document.head || document.documentElement).appendChild(s)
+    } catch {}
   }
 
   // Inject CSS for docked Command Chat once so theme switches apply immediately
@@ -8221,21 +8237,21 @@ ${pageText}
       const br = theme === 'professional' ? '#e2e8f0' : 'rgba(255,255,255,0.20)'
       const fg = theme === 'professional' ? '#0f172a' : 'white'
       const hdr = theme === 'professional' ? 'linear-gradient(135deg,#ffffff,#f1f5f9)' : (theme==='dark' ? 'linear-gradient(135deg,#0f172a,#1e293b)' : 'linear-gradient(135deg,#667eea,#764ba2)')
-      container.style.cssText = `background:${bg}; color:${fg}; border:1px solid ${br}; border-radius:8px; padding:0; margin: 0 0 12px 0; overflow:hidden;`
+      container.style.cssText = `background:${bg}; color:${fg}; border:1px solid ${br}; border-radius:8px; padding:0; margin: 0 0 12px 0; overflow:hidden; position:relative;`
       container.innerHTML = `
-        <div style="display:flex; align-items:center; justify-content:space-between; padding:6px 8px; background:${hdr}; border-bottom:1px solid ${br};">
+        <div id="ccd-header" style="display:flex; align-items:center; justify-content:space-between; padding:6px 8px; background:${hdr}; border-bottom:1px solid ${br};">
           <div style="font-size:12px; font-weight:700; color:${theme==='professional'?'#0f172a':'white'}">💬 Command Chat</div>
           <div style="display:flex; gap:6px;">
             <button id="ccd-undock" title="Undock from sidepanel" style="background:${theme==='professional'?'#e2e8f0':'rgba(255,255,255,0.15)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; padding:4px 6px; font-size:10px; cursor:pointer;">↗</button>
           </div>
         </div>
         <div id="ccd-messages" style="height:160px; overflow:auto; display:flex; flex-direction:column; gap:6px; background:${theme==='professional'?'#f8fafc':'rgba(255,255,255,0.06)'}; border-left:0; border-right:0; border-top:0; border-bottom:1px solid ${br}; padding:8px;"></div>
-        <div style="display:grid; grid-template-columns:1fr 36px 36px 68px; gap:6px; align-items:center; padding:8px;">
+        <div id="ccd-compose" style="display:grid; grid-template-columns:1fr 36px 36px 68px; gap:6px; align-items:center; padding:8px;">
           <textarea id="ccd-input" placeholder="Type..." style="box-sizing:border-box; height:36px; resize:vertical; background:${theme==='professional'?'#ffffff':'rgba(255,255,255,0.08)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; padding:8px; font-size:12px;"></textarea>
           <input id="ccd-file" type="file" multiple style="display:none" />
           <button id="ccd-attach" title="Attach" style="height:36px; background:${theme==='professional'?'#e2e8f0':'rgba(255,255,255,0.15)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; cursor:pointer;">📎</button>
           <button id="ccd-mic" title="Voice" style="height:36px; background:${theme==='professional'?'#e2e8f0':'rgba(255,255,255,0.15)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; cursor:pointer;">🎙️</button>
-          <button id="ccd-send" style="height:36px; background:#22c55e; border:1px solid #16a34a; color:#0b1e12; font-weight:800; border-radius:6px; cursor:pointer;">Send</button>
+          <button id="ccd-send" class="send-btn">Send</button>
         </div>
       `
       // Insert before agent boxes
@@ -8260,6 +8276,36 @@ ${pageText}
       attach.addEventListener('click', ()=> file.click())
       file.addEventListener('change', ()=>{ const n=(file.files||[]).length; if(n) addRow('user', `Uploaded ${n} file(s).`) })
       undock.addEventListener('click', ()=>{ undockCommandChat() })
+
+      // Allow vertical resize by dragging the outer bottom border of the docked box
+      let startY = 0, startBoxH = 0, startMsgsH = 0
+      const minMsgs = 120, maxMsgs = 500
+      const headerEl = container.querySelector('#ccd-header') as HTMLElement
+      const composeEl = container.querySelector('#ccd-compose') as HTMLElement
+      function beginResize(e: MouseEvent) {
+        startY = e.clientY
+        // Lock current heights for smooth drag
+        startBoxH = container.offsetHeight
+        startMsgsH = msgs.offsetHeight
+        container.style.height = startBoxH + 'px'
+        document.body.style.userSelect = 'none'
+        window.addEventListener('mousemove', onDrag)
+        window.addEventListener('mouseup', endResize, { once: true })
+      }
+      function onDrag(e: MouseEvent) {
+        const delta = e.clientY - startY
+        const newMsgs = Math.max(minMsgs, Math.min(maxMsgs, startMsgsH + delta))
+        msgs.style.height = newMsgs + 'px'
+        const total = (headerEl?.offsetHeight || 0) + newMsgs + (composeEl?.offsetHeight || 0)
+        container.style.height = (total + 2) + 'px'
+      }
+      function endResize() { window.removeEventListener('mousemove', onDrag); document.body.style.userSelect = '' }
+      // Invisible handle sitting on the outer bottom border
+      const edgeHandle = document.createElement('div')
+      edgeHandle.style.cssText = 'position:absolute; left:0; right:0; bottom:0; height:8px; cursor: ns-resize; background: transparent;'
+      edgeHandle.title = 'Drag to resize'
+      edgeHandle.addEventListener('mousedown', beginResize)
+      container.appendChild(edgeHandle)
     }
     function setDockedChatTheme(theme: 'default'|'dark'|'professional') {
       const container = document.getElementById('command-chat-docked') as HTMLElement | null

@@ -76,7 +76,11 @@
       .ta { box-sizing: border-box; width: 100%; height: 42px; max-height: 180px; resize: vertical; background: var(--surface); border:1px solid var(--border); color:var(--text); padding:10px; border-radius:8px; font-size:12px; }
       .btn { height: 42px; background: var(--btn-surface); border:1px solid var(--border); color:var(--text); border-radius:8px; padding:0 12px; cursor: pointer; display:flex; align-items:center; justify-content:center; }
       .btn:disabled { opacity: .5; cursor: default; }
-      .send { background:#22c55e; color:#0b1e12; font-weight:800; border-color:#16a34a; }
+      .send { font-weight:800; }
+      /* Theme-specific send button styling */
+      body.theme-default .send { background: linear-gradient(135deg,#667eea,#764ba2); border:1px solid rgba(255,255,255,0.30); color:#ffffff; }
+      body.theme-dark .send { background: linear-gradient(135deg,#334155,#1e293b); border:1px solid rgba(255,255,255,0.20); color:#e5e7eb; }
+      body.theme-professional .send { background: linear-gradient(135deg,#ffffff,#f1f5f9); border:1px solid #cbd5e1; color:#0f172a; }
     </style>
   </head>
   <body>
