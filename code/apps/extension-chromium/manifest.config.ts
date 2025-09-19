@@ -8,7 +8,9 @@ export default defineManifest({
   permissions: [
     'activeTab',
     'storage',
-    'scripting'
+    'scripting',
+    'windows',
+    'system.display'
   ],
   host_permissions: [
     '<all_urls>'
@@ -37,7 +39,7 @@ export default defineManifest({
   },
   web_accessible_resources: [
     {
-      resources: ['grid-display.html', 'grid-script.js'],
+      resources: ['grid-display.html', 'grid-script.js', 'popup.html', 'popup.js'],
       matches: ['<all_urls>']
     }
   ],

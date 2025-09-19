@@ -1555,9 +1555,14 @@ function initializeExtension() {
         </svg>
         <span class="title-text">OpenGiraffe</span>
       </h2>
-      <button id="quick-expand-btn" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 24px; height: 24px; border-radius: 4px; cursor: pointer; font-size: 12px; transition: all 0.2s ease;" title="Quick expand to maximum width">
+      <div style="display:flex; gap:6px; align-items:center;">
+        <button id="command-center-btn" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 24px; height: 24px; border-radius: 4px; cursor: pointer; font-size: 12px; transition: all 0.2s ease;" title="Command Center">
+          💬
+        </button>
+      <button id="quick-expand-btn" style="background: rgba(255,255,255,0.2); border: none; color: inherit; width: 24px; height: 24px; border-radius: 4px; cursor: pointer; font-size: 12px; transition: all 0.2s ease;" title="Quick expand to maximum width">
         ⇄
       </button>
+      </div>
     </div>
     
     <!-- Agent Output Section -->
@@ -2109,12 +2114,15 @@ function initializeExtension() {
   }
 
   // Apply saved theme on init ONLY if present; otherwise keep original defaults
-  try {
-    const savedTheme = localStorage.getItem('optimando-ui-theme')
-    if (savedTheme === 'dark' || savedTheme === 'professional') {
-      applyTheme(savedTheme)
-    }
-  } catch {}
+    try {
+      const savedTheme = localStorage.getItem('optimando-ui-theme')
+      if (savedTheme === 'dark' || savedTheme === 'professional') {
+        try { chrome.storage?.local?.set({ 'optimando-ui-theme': savedTheme }) } catch {}
+        applyTheme(savedTheme)
+      } else {
+        try { chrome.storage?.local?.set({ 'optimando-ui-theme': 'default' }) } catch {}
+      }
+    } catch {}
 
   // Bottom Panel Content
   let isExpanded = false
@@ -2128,7 +2136,7 @@ function initializeExtension() {
         <div style="display: flex; align-items: center; gap: 15px;">
           <div id="reasoning-header" style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
             <span style="font-size: 12px; font-weight: bold;" class="menu-link">🧠 Reasoning</span>
-            <button id="expand-btn" style="background: transparent; border: none; color: white; font-size: 12px; transition: transform 0.3s ease;">⌄</button>
+            <button id="expand-btn" style="background: transparent; border: none; color: currentColor; font-size: 12px; transition: transform 0.3s ease;">⌄</button>
           </div>
           <button id="agents-lightbox-btn" style="padding: 4px 8px; background: rgba(255,255,255,0.1); border: none; border-radius: 3px; cursor: pointer; font-size: 10px; color: inherit;" class="menu-link">🤖 Agents</button>
           <button id="context-lightbox-btn" style="padding: 4px 8px; background: rgba(255,255,255,0.1); border: none; border-radius: 3px; cursor: pointer; font-size: 10px; color: inherit;" class="menu-link">📄 Context</button>
@@ -2139,7 +2147,7 @@ function initializeExtension() {
         <!-- Session Name + Controls -->
         <div style="display: flex; align-items: center; gap: 10px;">
           <input id="session-name-input" class="session-id-text" type="text" value="${currentTabData.tabName}" 
-                 style="background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; 
+                 style="background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: inherit; 
                         padding: 4px 8px; border-radius: 3px; font-size: 11px; width: 140px; 
                         ${currentTabData.isLocked ? 'opacity: 0.6; pointer-events: none;' : ''}"
                  ${currentTabData.isLocked ? 'disabled' : ''}
@@ -4294,6 +4302,7 @@ ${pageText}
         console.log('🎨 Theme changed to:', theme)
         try { 
           localStorage.setItem('optimando-ui-theme', theme) 
+          try { chrome.storage?.local?.set({ 'optimando-ui-theme': theme }) } catch {}
           console.log('🎨 Theme saved to localStorage:', theme)
         } catch (error) {
           console.error('🎨 Error saving theme:', error)
@@ -8166,6 +8175,19 @@ ${pageText}
       
       saveTabDataToStorage()
       console.log('🔄 Left sidebar expanded to width:', newWidth)
+    })
+    // Command Center button -> open standalone popup via background
+    document.getElementById('command-center-btn')?.addEventListener('click', () => {
+      try {
+        let theme = 'default'
+        try {
+          const t = localStorage.getItem('optimando-ui-theme')
+          if (t === 'professional' || t === 'dark') theme = t
+        } catch {}
+        chrome.runtime.sendMessage({ type: 'OPEN_COMMAND_CENTER_POPUP', theme })
+      } catch (e) {
+        console.error('Failed to request Command Center popup:', e)
+      }
     })
     
     // Add New Agent Box button
