@@ -1,4 +1,4 @@
-import { app, BrowserWindow, globalShortcut } from 'electron'
+import { app, BrowserWindow, globalShortcut, Tray, Menu, Notification } from 'electron'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 import { registerHandler, LmgtfyChannels, emitCapture } from './lmgtfy/ipc'
@@ -27,13 +27,41 @@ export const RENDERER_DIST = path.join(process.env.APP_ROOT, 'dist')
 process.env.VITE_PUBLIC = VITE_DEV_SERVER_URL ? path.join(process.env.APP_ROOT, 'public') : RENDERER_DIST
 
 let win: BrowserWindow | null
+let pendingLaunchMode: 'screenshot' | 'stream' | null = null
+let tray: Tray | null = null
+
+function handleDeepLink(raw: string) {
+  try {
+    const url = new URL(raw)
+    if (url.protocol !== 'opengiraffe:') return
+    const action = url.hostname // e.g., lmgtfy
+    const mode = url.searchParams.get('mode') || ''
+    if (action === 'lmgtfy') {
+      if (mode === 'screenshot' || mode === 'stream') pendingLaunchMode = mode as any
+      if (win) {
+        const fire = () => {
+          if (!pendingLaunchMode) return
+          win?.webContents.send('hotkey', pendingLaunchMode === 'screenshot' ? 'screenshot' : 'stream')
+          pendingLaunchMode = null
+        }
+        if (win.webContents.isLoading()) {
+          win.webContents.once('did-finish-load', fire)
+        } else {
+          fire()
+        }
+      }
+    }
+  } catch {}
+}
 
 function createWindow() {
+  const startHidden = process.argv.includes('--hidden')
   win = new BrowserWindow({
     icon: path.join(process.env.VITE_PUBLIC, 'electron-vite.svg'),
     webPreferences: {
       preload: path.join(__dirname, 'preload.mjs'),
     },
+    show: !startHidden,
   })
 
   // Test active push message to Renderer-process.
@@ -46,6 +74,14 @@ function createWindow() {
   } else {
     // win.loadFile('dist/index.html')
     win.loadFile(path.join(RENDERER_DIST, 'index.html'))
+  }
+
+  if (pendingLaunchMode) {
+    win.webContents.once('did-finish-load', () => {
+      if (!pendingLaunchMode) return
+      win?.webContents.send('hotkey', pendingLaunchMode === 'screenshot' ? 'screenshot' : 'stream')
+      pendingLaunchMode = null
+    })
   }
 
   // LmGTFY IPC wiring
@@ -97,11 +133,59 @@ function createWindow() {
   globalShortcut.register('Alt+Shift+S', () => win?.webContents.send('hotkey', 'screenshot'))
   globalShortcut.register('Alt+Shift+V', () => win?.webContents.send('hotkey', 'stream'))
   globalShortcut.register('Alt+0', () => win?.webContents.send('hotkey', 'stop'))
+
+  // Process deep link passed on first launch (Windows passes in argv)
+  const arg = process.argv.find(a => a.startsWith('opengiraffe://'))
+  if (arg) handleDeepLink(arg)
+}
+
+function createTray() {
+  try {
+    tray = new Tray(path.join(process.env.VITE_PUBLIC, 'electron-vite.svg'))
+    const menu = Menu.buildFromTemplate([
+      { label: 'Show', click: () => { if (!win) return; win.show(); win.focus() } },
+      { type: 'separator' },
+      { label: 'Screenshot (Alt+Shift+S)', click: () => win?.webContents.send('hotkey', 'screenshot') },
+      { label: 'Stream (Alt+Shift+V)', click: () => win?.webContents.send('hotkey', 'stream') },
+      { label: 'Stop Stream (Alt+0)', click: () => win?.webContents.send('hotkey', 'stop') },
+      { type: 'separator' },
+      { label: 'Quit', role: 'quit' },
+    ])
+    tray.setToolTip('Optimando Orchestrator')
+    tray.setContextMenu(menu)
+    tray.on('click', () => { if (!win) return; if (win.isVisible()) win.focus(); else win.show() })
+    // Startup toast
+    try {
+      new Notification({ title: 'Optimando Orchestrator', body: 'Running in background. Use Alt+Shift+S or chat icons to capture.' }).show()
+    } catch {}
+  } catch {}
 }
 
 // Quit when all windows are closed, except on macOS. There, it's common
 // for applications and their menu bar to stay active until the user quits
 // explicitly with Cmd + Q.
+// Single instance + protocol
+const gotLock = app.requestSingleInstanceLock()
+if (!gotLock) {
+  app.quit()
+} else {
+  app.on('second-instance', (_e, argv) => {
+    if (win) {
+      if (win.isMinimized()) win.restore()
+      win.focus()
+    }
+    const arg = argv.find(a => a.startsWith('opengiraffe://'))
+    if (arg) handleDeepLink(arg)
+  })
+}
+
+app.setAsDefaultProtocolClient('opengiraffe')
+
+app.on('open-url', (event, url) => {
+  event.preventDefault()
+  handleDeepLink(url)
+})
+
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
     app.quit()
@@ -121,4 +205,16 @@ app.on('activate', () => {
   }
 })
 
-app.whenReady().then(createWindow)
+app.whenReady().then(() => {
+  // Auto-start on login (Windows/macOS). Pass --hidden so it starts in background.
+  try {
+    if (process.platform === 'win32' || process.platform === 'darwin') {
+      app.setLoginItemSettings({ openAtLogin: true, args: ['--hidden'] })
+    }
+    if (process.platform === 'win32') {
+      app.setAppUserModelId('com.opengiraffe.desktop')
+    }
+  } catch {}
+  createWindow()
+  createTray()
+})

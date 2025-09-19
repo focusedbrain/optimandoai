@@ -11,8 +11,8 @@
     "dist": "electron-builder --publish=never"
   },
   "build": {
-    "appId": "com.optimando.desktop",
-    "productName": "Optimando Desktop",
+    "appId": "com.opengiraffe.desktop",
+    "productName": "OpenGiraffe",
     "directories": {
       "output": "dist"
     },
@@ -24,6 +24,13 @@
     "win": {
       "target": "nsis",
       "icon": "icon.ico"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "OpenGiraffe"
     },
     "mac": {
       "target": "dmg"

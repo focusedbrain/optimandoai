@@ -157,6 +157,16 @@ function createTray() {
 }
 
 app.whenReady().then(() => {
+  // Ensure the app starts on login (installed users)
+  try {
+    if (process.platform === 'win32' || process.platform === 'darwin') {
+      app.setLoginItemSettings({ openAtLogin: true, args: ['--headless'] })
+    }
+    if (process.platform === 'win32') {
+      app.setAppUserModelId('com.opengiraffe.desktop')
+    }
+  } catch {}
+
   createWindow()
   
   // Create system tray

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import './App.css'
+import LETmeGIRAFFETHATFORYOUIcons from './components/LETmeGIRAFFETHATFORYOUIcons'
 
 type ThemePreference = 'dark' | 'professional' | 'auto'
 
@@ -71,8 +72,9 @@ function App() {
       <div className="topbar">
         <div className="brand">Optimando</div>
         <div style={{ flex: 1 }} />
-        <button className="btn" onClick={() => setShowPlans(true)}>Plans</button>
-        <button className="btn" onClick={() => setShowSettings(true)}>Settings</button>
+        <LETmeGIRAFFETHATFORYOUIcons onCapture={(p) => console.log('capture', p)} />
+        <button className="btn" onClick={() => setShowPlans(true)} style={{ marginLeft: 8 }}>Plans</button>
+        <button className="btn" onClick={() => setShowSettings(true)} style={{ marginLeft: 8 }}>Settings</button>
       </div>
       <div className="layout">
         <aside className="sidebar">

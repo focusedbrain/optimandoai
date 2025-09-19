@@ -33,3 +33,14 @@ contextBridge.exposeInMainWorld('lmgtfy', {
   onCapture: (cb: (payload: any) => void) => ipcRenderer.on('lmgtfy.capture', (_e, d) => cb(d)),
   onHotkey: (cb: (kind: string) => void) => ipcRenderer.on('hotkey', (_e, k) => cb(k)),
 })
+
+// Alias with requested name
+contextBridge.exposeInMainWorld('LETmeGIRAFFETHATFORYOU', {
+  selectScreenshot: () => ipcRenderer.invoke('lmgtfy/select-screenshot'),
+  selectStream: () => ipcRenderer.invoke('lmgtfy/select-stream'),
+  stopStream: () => ipcRenderer.invoke('lmgtfy/stop-stream'),
+  getPresets: () => ipcRenderer.invoke('lmgtfy/get-presets'),
+  savePreset: (payload: any) => ipcRenderer.invoke('lmgtfy/save-preset', payload),
+  onCapture: (cb: (payload: any) => void) => ipcRenderer.on('lmgtfy.capture', (_e, d) => cb(d)),
+  onHotkey: (cb: (kind: string) => void) => ipcRenderer.on('hotkey', (_e, k) => cb(k)),
+})
