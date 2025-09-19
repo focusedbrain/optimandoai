@@ -4132,6 +4132,36 @@ ${pageText}
               </div>
             </div>
 
+            <!-- Local LLMs (next to API Keys) -->
+            <div id="local-llms-panel" style="background: rgba(255,255,255,0.10); padding: 12px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.2); grid-column: 3 / 4; height: 100%; display: flex; flex-direction: column;">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                <h4 style="margin: 0; font-size: 12px; color: #FFD700;">💻 Local LLMs</h4>
+                <div style="display:flex; gap:6px;">
+                  <button id="add-local-llm-row" style="background: rgba(76,175,80,0.85); border: none; color: white; padding: 4px 8px; border-radius: 6px; cursor: pointer; font-size: 10px; font-weight: 700;">+ Add</button>
+                  <button id="save-local-llms" style="background: #4CAF50; border: none; color: white; padding: 4px 10px; border-radius: 6px; cursor: pointer; font-size: 10px; font-weight: 700;">Save</button>
+                </div>
+              </div>
+              <div id="local-llms-container" style="display: grid; gap: 6px;"></div>
+              <div style="margin-top: 8px; font-size: 10px; opacity: 0.9;">Local models run offline via Ollama/llama.cpp. Installation prompts may appear.</div>
+
+              <div id="finetuned-llms" style="margin-top: 12px; padding-top: 10px; border-top: 1px dashed rgba(255,255,255,0.25);">
+                <div style="display:flex; justify-content: space-between; align-items:center; margin-bottom: 6px;">
+                  <div style="display:flex; align-items:center; gap:6px;">
+                    <span style="font-size:12px; color:#FFD700; font-weight:700;">🎛️ Finetuned LLMs</span>
+                    <span id="finetuned-pro-badge" style="display:none; font-size:10px; background: rgba(255,255,255,0.15); border: 1px solid rgba(255,255,255,0.3); color:white; padding:2px 6px; border-radius:999px;">PRO</span>
+                  </div>
+                </div>
+                <div id="finetuned-locked" style="display:none; font-size:10px; margin:6px 0; padding:6px; background: rgba(244,67,54,0.20); border:1px solid rgba(244,67,54,0.35); border-radius:6px;">
+                  🔒 Finetuned models are available for Pro subscribers.
+                  <button id="unlock-finetuned" style="margin-left: 8px; background: #22c55e; border: none; color: #0b1e12; padding: 4px 8px; border-radius: 6px; cursor: pointer; font-size: 10px; font-weight: 700;">Upgrade</button>
+                </div>
+                <div id="finetuned-list" style="display:none; gap: 6px;">
+                  <div id="finetuned-items" style="display:grid; gap:6px;"></div>
+                  <button id="add-finetuned-row" style="background: rgba(255,255,255,0.15); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 4px 8px; border-radius: 6px; cursor: pointer; font-size: 10px;">+ Add Finetuned</button>
+                </div>
+              </div>
+            </div>
+
             <!-- Appearance (moved up) -->
             <div style="background: rgba(255,255,255,0.1); padding: 12px; border-radius: 6px; grid-column: 2 / 3; height: 100%; display: flex; flex-direction: column;">
               <h4 style="margin: 0 0 10px 0; font-size: 12px; color: #FFD700;">🎨 Appearance</h4>
@@ -4407,6 +4437,182 @@ ${pageText}
       loadApiKeys()
     }
     wireApiKeyUI()
+
+    // Local LLMs + Finetuned (Pro-gated)
+    function getLocalLLMOptionsHTML() {
+      return (
+        '<option value="" disabled selected>Select local model</option>'+
+        '<optgroup label="Ollama">'+
+          '<option value="ollama:llama3.1">llama3.1</option>'+
+          '<option value="ollama:llama3.2">llama3.2</option>'+
+          '<option value="ollama:phi3">phi3</option>'+
+          '<option value="ollama:mistral">mistral</option>'+
+          '<option value="ollama:neural-chat">neural-chat</option>'+
+        '</optgroup>'+
+        '<optgroup label="llama.cpp">'+
+          '<option value="llamacpp:llama3-8b-instruct">Llama 3 8B Instruct</option>'+
+          '<option value="llamacpp:mixtral-8x7b-instruct">Mixtral 8x7B Instruct</option>'+
+        '</optgroup>'
+      )
+    }
+    function loadLocalLLMs() {
+      try { return JSON.parse(localStorage.getItem('optimando-local-llms') || '[]') } catch { return [] }
+    }
+    function saveLocalLLMs(data: any[]) {
+      try { localStorage.setItem('optimando-local-llms', JSON.stringify(data)) } catch {}
+    }
+    function renderLocalLLMs() {
+      const container = document.getElementById('local-llms-container') as HTMLElement | null
+      if (!container) return
+      container.innerHTML = ''
+      const items: any[] = loadLocalLLMs()
+      items.forEach((it, idx) => {
+        const row = document.createElement('div')
+        row.className = 'local-llm-row'
+        row.style.display = 'grid'
+        row.style.gridTemplateColumns = '1fr 90px 24px'
+        row.style.gap = '6px'
+        row.style.alignItems = 'center'
+        row.style.background = 'rgba(0,0,0,0.12)'
+        row.style.padding = '6px'
+        row.style.borderRadius = '6px'
+        row.style.border = '1px solid rgba(255,255,255,0.18)'
+        row.innerHTML = (
+          '<select class="local-llm-select" style="width:100%; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 6px; border-radius: 4px; font-size: 10px;">'+
+            getLocalLLMOptionsHTML()+
+          '</select>'+
+          '<button class="install-local-llm" style="background: #2563eb; border: none; color: white; padding: 6px 8px; border-radius: 6px; cursor: pointer; font-size: 10px;">'+(it.installed ? 'Installed ✓' : 'Install')+'</button>'+
+          '<button class="remove-local-llm" title="Remove" style="background: rgba(244,67,54,0.5); border: none; color: white; width: 24px; height: 24px; border-radius: 4px; cursor: pointer; font-size: 12px;">✕</button>'
+        )
+        container.appendChild(row)
+        const select = row.querySelector('.local-llm-select') as HTMLSelectElement
+        if (select && it.value) select.value = it.value
+        const installBtn = row.querySelector('.install-local-llm') as HTMLButtonElement
+        const removeBtn = row.querySelector('.remove-local-llm') as HTMLButtonElement
+        installBtn.disabled = !!it.installed
+        installBtn.addEventListener('click', () => {
+          const current = loadLocalLLMs()
+          const currentRow = current[idx] || {}
+          const val = (select?.value || '').trim()
+          if (!val) { alert('Please select a local model to install.'); return }
+          // Placeholder installation handler
+          installBtn.textContent = 'Installing…'
+          installBtn.disabled = true
+          setTimeout(() => {
+            currentRow.value = val
+            currentRow.installed = true
+            current[idx] = currentRow
+            saveLocalLLMs(current)
+            installBtn.textContent = 'Installed ✓'
+          }, 500)
+        })
+        removeBtn.addEventListener('click', () => {
+          const current = loadLocalLLMs()
+          current.splice(idx, 1)
+          saveLocalLLMs(current)
+          renderLocalLLMs()
+        })
+        if (!it.value) {
+          // ensure a default placeholder is selected statefully
+          select.selectedIndex = 0
+        }
+      })
+    }
+    function addLocalLLMRow() {
+      const items: any[] = loadLocalLLMs()
+      items.push({ value: '', installed: false })
+      saveLocalLLMs(items)
+      renderLocalLLMs()
+    }
+    function wireLocalLLMsUI() {
+      const addBtn = document.getElementById('add-local-llm-row')
+      const saveBtn = document.getElementById('save-local-llms')
+      addBtn?.addEventListener('click', addLocalLLMRow)
+      saveBtn?.addEventListener('click', () => {
+        // Persist current selections
+        const container = document.getElementById('local-llms-container')
+        if (!container) return
+        const rows = Array.from(container.querySelectorAll('.local-llm-row'))
+        const data = rows.map(row => {
+          const select = row.querySelector('.local-llm-select') as HTMLSelectElement | null
+          const btn = row.querySelector('.install-local-llm') as HTMLButtonElement | null
+          return { value: (select?.value || '').trim(), installed: !!(btn && btn.textContent && btn.textContent.includes('Installed')) }
+        }).filter(x => x.value)
+        saveLocalLLMs(data)
+      })
+      // Initial render
+      if (loadLocalLLMs().length === 0) addLocalLLMRow()
+      else renderLocalLLMs()
+
+      // Finetuned gating
+      const hasActive = (window as any).optimandoHasActiveSubscription === true
+      const badge = document.getElementById('finetuned-pro-badge') as HTMLElement | null
+      const locked = document.getElementById('finetuned-locked') as HTMLElement | null
+      const list = document.getElementById('finetuned-list') as HTMLElement | null
+      if (badge) badge.style.display = hasActive ? 'none' : 'inline-block'
+      if (locked) locked.style.display = hasActive ? 'none' : 'block'
+      if (list) list.style.display = hasActive ? 'grid' : 'none'
+      const unlockBtn = document.getElementById('unlock-finetuned')
+      unlockBtn?.addEventListener('click', () => openBillingModal('subscription'))
+
+      function loadFinetuned() { try { return JSON.parse(localStorage.getItem('optimando-finetuned-llms') || '[]') } catch { return [] } }
+      function saveFinetuned(data: any[]) { try { localStorage.setItem('optimando-finetuned-llms', JSON.stringify(data)) } catch {} }
+      function renderFinetuned() {
+        const itemsRoot = document.getElementById('finetuned-items') as HTMLElement | null
+        if (!itemsRoot) return
+        itemsRoot.innerHTML = ''
+        const items: any[] = loadFinetuned()
+        items.forEach((it, idx) => {
+          const row = document.createElement('div')
+          row.style.display = 'grid'
+          row.style.gridTemplateColumns = '1fr 1fr 24px'
+          row.style.gap = '6px'
+          row.style.alignItems = 'center'
+          row.style.background = 'rgba(0,0,0,0.12)'
+          row.style.padding = '6px'
+          row.style.borderRadius = '6px'
+          row.style.border = '1px solid rgba(255,255,255,0.18)'
+          row.innerHTML = (
+            '<input class="ft-name" placeholder="Name (e.g., support-bot-finetune)" style="background: rgba(255,255,255,0.14); border: 1px solid rgba(255,255,255,0.25); color: white; padding: 6px; border-radius: 4px; font-size: 10px;">'+
+            '<input class="ft-base" placeholder="Base model (e.g., llama3.1)" style="background: rgba(255,255,255,0.14); border: 1px solid rgba(255,255,255,0.25); color: white; padding: 6px; border-radius: 4px; font-size: 10px;">'+
+            '<button class="ft-remove" title="Remove" style="background: rgba(244,67,54,0.5); border: none; color: white; width: 24px; height: 24px; border-radius: 4px; cursor: pointer; font-size: 12px;">✕</button>'
+          )
+          itemsRoot.appendChild(row)
+          const n = row.querySelector('.ft-name') as HTMLInputElement
+          const b = row.querySelector('.ft-base') as HTMLInputElement
+          const r = row.querySelector('.ft-remove') as HTMLButtonElement
+          if (n) n.value = it.name || ''
+          if (b) b.value = it.base || ''
+          r.addEventListener('click', () => {
+            const data = loadFinetuned()
+            data.splice(idx, 1)
+            saveFinetuned(data)
+            renderFinetuned()
+          })
+          function saveDebounced() {
+            const data = loadFinetuned()
+            data[idx] = { name: n?.value || '', base: b?.value || '' }
+            saveFinetuned(data)
+          }
+          n.addEventListener('input', saveDebounced)
+          b.addEventListener('input', saveDebounced)
+        })
+      }
+      const addFt = document.getElementById('add-finetuned-row')
+      addFt?.addEventListener('click', () => {
+        const data = loadFinetuned()
+        data.push({ name: '', base: '' })
+        saveFinetuned(data)
+        renderFinetuned()
+      })
+      if (hasActive) {
+        if ((loadFinetuned() as any[]).length === 0) {
+          const data = [] as any[]; data.push({ name: '', base: '' }); saveFinetuned(data)
+        }
+        renderFinetuned()
+      }
+    }
+    wireLocalLLMsUI()
 
     // Wire Billing buttons to placeholder modals
     const btnPAYG = document.getElementById('btn-payg')
