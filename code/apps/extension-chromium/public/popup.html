@@ -86,6 +86,10 @@
   <body>
     <div class="wrap">
       <div id="msgs" class="messages"></div>
+      <div style="display:flex; gap:8px; align-items:center; padding: 0 12px 6px;">
+        <button id="lm-shot" class="btn" title="LETmeGIRAFFETHATFORYOU Screenshot">📸</button>
+        <button id="lm-stream" class="btn" title="LETmeGIRAFFETHATFORYOU Stream">🎥</button>
+      </div>
       <div class="composer">
         <textarea id="ta" class="ta" placeholder="Type a command for the Orchestrator..."></textarea>
         <input id="file" type="file" multiple style="display:none" />
@@ -94,6 +98,15 @@
         <button id="send" class="btn send">Send</button>
       </div>
     </div>
+    <script>
+      function launch(mode){
+        try{ window.open('opengiraffe://lmgtfy?mode='+encodeURIComponent(mode),'_self') }catch(e){}
+      }
+      const btnShot = document.getElementById('lm-shot');
+      const btnStream = document.getElementById('lm-stream');
+      if (btnShot) btnShot.onclick = ()=>launch('screenshot');
+      if (btnStream) btnStream.onclick = ()=>launch('stream');
+    </script>
     <script src="popup.js"></script>
   </body>
   </html>

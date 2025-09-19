@@ -8242,7 +8242,13 @@ ${pageText}
       container.style.cssText = `background:${bg}; color:${fg}; border:1px solid ${br}; border-radius:8px; padding:0; margin: 0 0 12px 0; overflow:hidden; position:relative;`
       container.innerHTML = `
         <div id="ccd-header" style="display:flex; align-items:center; justify-content:space-between; padding:6px 8px; background:${hdr}; border-bottom:1px solid ${br};">
-          <div style="font-size:12px; font-weight:700; color:${theme==='professional'?'#0f172a':'white'}">💬 Command Chat</div>
+          <div style="display:flex; align-items:center; gap:8px; color:${theme==='professional'?'#0f172a':'white'}">
+            <div style="font-size:12px; font-weight:700;">💬 Command Chat</div>
+            <div style="display:flex; gap:6px; align-items:center;">
+              <button id="ccd-lm-shot" title="LETmeGIRAFFETHATFORYOU Screenshot" style="background:${theme==='professional'?'#e2e8f0':'rgba(255,255,255,0.15)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; padding:2px 6px; font-size:12px; cursor:pointer;">📸</button>
+              <button id="ccd-lm-stream" title="LETmeGIRAFFETHATFORYOU Stream" style="background:${theme==='professional'?'#e2e8f0':'rgba(255,255,255,0.15)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; padding:2px 6px; font-size:12px; cursor:pointer;">🎥</button>
+            </div>
+          </div>
           <div style="display:flex; gap:6px;">
             <button id="ccd-undock" title="Undock from sidepanel" style="background:${theme==='professional'?'#e2e8f0':'rgba(255,255,255,0.15)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; padding:4px 6px; font-size:10px; cursor:pointer;">↗</button>
           </div>
@@ -8278,6 +8284,8 @@ ${pageText}
       attach.addEventListener('click', ()=> file.click())
       file.addEventListener('change', ()=>{ const n=(file.files||[]).length; if(n) addRow('user', `Uploaded ${n} file(s).`) })
       undock.addEventListener('click', ()=>{ undockCommandChat() })
+      ;(container.querySelector('#ccd-lm-shot') as HTMLButtonElement | null)?.addEventListener('click', ()=> startLmgtfy('screenshot'))
+      ;(container.querySelector('#ccd-lm-stream') as HTMLButtonElement | null)?.addEventListener('click', ()=> startLmgtfy('stream'))
 
       // Allow vertical resize by dragging the outer bottom border of the docked box
       let startY = 0, startBoxH = 0, startMsgsH = 0
@@ -8343,8 +8351,59 @@ ${pageText}
         if (btn) { btn.style.background = (theme==='professional'?'#e2e8f0':'rgba(255,255,255,0.15)'); btn.style.border = '1px solid ' + br; btn.style.color = fg }
       })
     }
-    function dockCommandChat() { removeDockedChat(); createDockedChat(); try { localStorage.setItem('optimando-chat-docked','true') } catch {}; updateDockButtonUI() }
-    function undockCommandChat() { removeDockedChat(); try { localStorage.setItem('optimando-chat-docked','false') } catch {}; updateDockButtonUI() }
+    function dockCommandChat() { removeDockedChat(); removeFloatingChat(); createDockedChat(); try { localStorage.setItem('optimando-chat-docked','true') } catch {}; updateDockButtonUI() }
+    function undockCommandChat() { removeDockedChat(); removeFloatingChat(); try { localStorage.setItem('optimando-chat-docked','false') } catch {}; updateDockButtonUI() }
+
+    function removeFloatingChat(){ document.getElementById('command-chat-float')?.remove() }
+    function createFloatingChat(){
+      const existing = document.getElementById('command-chat-float'); if (existing) existing.remove()
+      let theme: 'default'|'dark'|'professional' = 'default'
+      try { const t = localStorage.getItem('optimando-ui-theme'); if (t === 'professional' || t === 'dark') theme = t as any } catch {}
+      const bg = theme === 'professional' ? '#ffffff' : 'rgba(0,0,0,0.75)'
+      const br = theme === 'professional' ? '#e2e8f0' : 'rgba(255,255,255,0.20)'
+      const fg = theme === 'professional' ? '#0f172a' : 'white'
+      const hdr = theme === 'professional' ? 'linear-gradient(135deg,#ffffff,#f1f5f9)' : (theme==='dark' ? 'linear-gradient(135deg,#0f172a,#1e293b)' : 'linear-gradient(135deg,#667eea,#764ba2)')
+      const box = document.createElement('div')
+      box.id = 'command-chat-float'
+      box.style.cssText = 'position:fixed; right:20px; bottom:20px; width:360px; z-index:2147483646; background:'+bg+'; color:'+fg+'; border:1px solid '+br+'; border-radius:10px; overflow:hidden; backdrop-filter: blur(6px); box-shadow: 0 8px 24px rgba(0,0,0,0.35);'
+      box.innerHTML = `
+        <div id="ccf-header" style="display:flex; align-items:center; justify-content:space-between; padding:6px 8px; background:${hdr}; border-bottom:1px solid ${br};">
+          <div style="display:flex; align-items:center; gap:8px; color:${theme==='professional'?'#0f172a':'white'}">
+            <div style="font-size:12px; font-weight:700;">💬 Command Chat</div>
+            <div style="display:flex; gap:6px; align-items:center;">
+              <button id="ccf-lm-shot" title="LETmeGIRAFFETHATFORYOU Screenshot" style="background:${theme==='professional'?'#e2e8f0':'rgba(255,255,255,0.15)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; padding:2px 6px; font-size:12px; cursor:pointer;">📸</button>
+              <button id="ccf-lm-stream" title="LETmeGIRAFFETHATFORYOU Stream" style="background:${theme==='professional'?'#e2e8f0':'rgba(255,255,255,0.15)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; padding:2px 6px; font-size:12px; cursor:pointer;">🎥</button>
+            </div>
+          </div>
+          <div style="display:flex; gap:6px;">
+            <button id="ccf-close" title="Close" style="background:${theme==='professional'?'#e2e8f0':'rgba(255,255,255,0.15)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; padding:4px 6px; font-size:10px; cursor:pointer;">×</button>
+          </div>
+        </div>
+        <div id="ccf-messages" style="height:160px; overflow:auto; display:flex; flex-direction:column; gap:6px; background:${theme==='professional'?'#f8fafc':'rgba(255,255,255,0.06)'}; border-left:0; border-right:0; border-top:0; border-bottom:1px solid ${br}; padding:8px;"></div>
+        <div id="ccf-compose" style="display:grid; grid-template-columns:1fr 68px; gap:6px; align-items:center; padding:8px;">
+          <textarea id="ccf-input" placeholder="Type..." style="box-sizing:border-box; height:36px; resize:vertical; background:${theme==='professional'?'#ffffff':'rgba(255,255,255,0.08)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; padding:8px; font-size:12px;"></textarea>
+          <button id="ccf-send" class="send-btn">Send</button>
+        </div>
+      `
+      document.body.appendChild(box)
+      ;(box.querySelector('#ccf-close') as HTMLButtonElement | null)?.addEventListener('click', ()=> box.remove())
+      ;(box.querySelector('#ccf-lm-shot') as HTMLButtonElement | null)?.addEventListener('click', ()=> startLmgtfy('screenshot'))
+      ;(box.querySelector('#ccf-lm-stream') as HTMLButtonElement | null)?.addEventListener('click', ()=> startLmgtfy('stream'))
+    }
+
+    function startLmgtfy(mode: 'screenshot'|'stream'){
+      try {
+        // Launch desktop via deep-link which also triggers the mode
+        const url = 'opengiraffe://lmgtfy?mode=' + encodeURIComponent(mode)
+        window.open(url, '_self')
+      } catch {}
+      // Show lightweight toast that the feature is starting
+      const note = document.createElement('div')
+      note.textContent = `Starting LETmeGIRAFFETHATFORYOU: ${mode}`
+      note.style.cssText = 'position:fixed;bottom:20px;left:20px;z-index:2147483650;background:#0b1220;color:#e5e7eb;padding:8px 12px;border:1px solid rgba(255,255,255,0.18);border-radius:8px;font-size:12px;box-shadow:0 6px 18px rgba(0,0,0,0.35)'
+      document.body.appendChild(note)
+      setTimeout(()=> note.remove(), 1800)
+    }
     dockBtn?.addEventListener('click', () => { if (isChatDocked()) undockCommandChat(); else dockCommandChat() })
     // Listen for theme change broadcast and restyle docked chat, without inline CSS rewrite logic
     window.addEventListener('optimando-theme-changed', (e: any) => {

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import './App.css'
+import LETmeGIRAFFETHATFORYOUIcons from './components/LETmeGIRAFFETHATFORYOUIcons'
 
 type ThemePreference = 'dark' | 'professional' | 'auto'
 
@@ -47,13 +48,33 @@ function ThemeSwitcher() {
 function App() {
   const [showSettings, setShowSettings] = useState(false)
   const [showPlans, setShowPlans] = useState(false)
+  const [captures, setCaptures] = useState<any[]>([])
+
+  useEffect(() => {
+    // @ts-ignore
+    window.lmgtfy?.onCapture((payload: any) => setCaptures((c) => [...c, payload]))
+    // @ts-ignore
+    window.lmgtfy?.onHotkey((k: string) => {
+      if (k === 'screenshot') {
+        // @ts-ignore
+        window.lmgtfy?.selectScreenshot()
+      } else if (k === 'stream') {
+        // @ts-ignore
+        window.lmgtfy?.selectStream()
+      } else if (k === 'stop') {
+        // @ts-ignore
+        window.lmgtfy?.stopStream()
+      }
+    })
+  }, [])
   return (
     <div className="app-root">
       <div className="topbar">
         <div className="brand">Optimando</div>
         <div style={{ flex: 1 }} />
-        <button className="btn" onClick={() => setShowPlans(true)}>Plans</button>
-        <button className="btn" onClick={() => setShowSettings(true)}>Settings</button>
+        <LETmeGIRAFFETHATFORYOUIcons onCapture={(p) => console.log('capture', p)} />
+        <button className="btn" onClick={() => setShowPlans(true)} style={{ marginLeft: 8 }}>Plans</button>
+        <button className="btn" onClick={() => setShowSettings(true)} style={{ marginLeft: 8 }}>Settings</button>
       </div>
       <div className="layout">
         <aside className="sidebar">
@@ -63,6 +84,23 @@ function App() {
         <main className="content">
           <h1>Main Content</h1>
           <p>This area remains unaffected by the theme background.</p>
+          <div style={{ marginTop: 12 }}>
+            <button className="btn" onClick={() => {
+              // @ts-ignore
+              window.lmgtfy?.selectScreenshot()
+            }}>📸 Screenshot</button>
+            <button className="btn" onClick={() => {
+              // @ts-ignore
+              window.lmgtfy?.selectStream()
+            }} style={{ marginLeft: 8 }}>🎥 Stream</button>
+            <button className="btn" onClick={() => {
+              // @ts-ignore
+              window.lmgtfy?.stopStream()
+            }} style={{ marginLeft: 8 }}>■ Stop</button>
+          </div>
+          <pre style={{ marginTop: 12, background: 'rgba(0,0,0,0.2)', padding: 8, borderRadius: 6 }}>
+            {JSON.stringify(captures, null, 2)}
+          </pre>
         </main>
       </div>
       {showSettings && (
