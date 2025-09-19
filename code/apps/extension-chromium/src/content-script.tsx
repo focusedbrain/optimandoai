@@ -2142,6 +2142,7 @@ function initializeExtension() {
           <button id="context-lightbox-btn" style="padding: 4px 8px; background: rgba(255,255,255,0.1); border: none; border-radius: 3px; cursor: pointer; font-size: 10px; color: inherit;" class="menu-link">📄 Context</button>
           <button id="whitelist-lightbox-btn" style="padding: 4px 8px; background: rgba(255,255,255,0.1); border: none; border-radius: 3px; cursor: pointer; font-size: 10px; color: inherit;" class="menu-link">🛡️ Whitelist</button>
           <button id="settings-lightbox-btn" style="padding: 4px 8px; background: rgba(255,255,255,0.1); border: none; border-radius: 3px; cursor: pointer; font-size: 10px; color: inherit;" class="menu-link">⚙️ Settings</button>
+          <button id="dock-chat-btn" style="padding: 4px 8px; background: transparent; border: none; border-radius: 3px; cursor: pointer; font-size: 12px; color: inherit; font-weight:700;" class="menu-link" title="Dock to sidepanel">📌</button>
         </div>
         
         <!-- Session Name + Controls -->
@@ -8145,6 +8146,75 @@ ${pageText}
     document.getElementById('context-lightbox-btn')?.addEventListener('click', openContextLightbox)
     document.getElementById('whitelist-lightbox-btn')?.addEventListener('click', openWhitelistLightbox)
     document.getElementById('settings-lightbox-btn')?.addEventListener('click', openSettingsLightbox)
+    // Dock/Undock Command Chat
+    const dockBtn = document.getElementById('dock-chat-btn') as HTMLButtonElement | null
+    function isChatDocked(): boolean { try { return localStorage.getItem('optimando-chat-docked') === 'true' } catch { return false } }
+    function updateDockButtonUI() {
+      if (!dockBtn) return
+      const docked = isChatDocked()
+      dockBtn.title = docked ? 'Undock from sidepanel' : 'Dock to sidepanel'
+      dockBtn.textContent = docked ? '📌✓' : '📌'
+    }
+    function removeDockedChat() {
+      const existing = document.getElementById('command-chat-docked')
+      if (existing) existing.remove()
+    }
+    function createDockedChat() {
+      // Insert right below the header and above agent boxes
+      const container = document.createElement('div')
+      container.id = 'command-chat-docked'
+      // Theme-aware styles
+      let theme: 'default'|'dark'|'professional' = 'default'
+      try { const t = localStorage.getItem('optimando-ui-theme'); if (t === 'professional' || t === 'dark') theme = t as any } catch {}
+      const bg = theme === 'professional' ? '#ffffff' : 'rgba(255,255,255,0.10)'
+      const br = theme === 'professional' ? '#e2e8f0' : 'rgba(255,255,255,0.20)'
+      const fg = theme === 'professional' ? '#0f172a' : 'white'
+      const hdr = theme === 'professional' ? 'linear-gradient(135deg,#ffffff,#f1f5f9)' : (theme==='dark' ? 'linear-gradient(135deg,#0f172a,#1e293b)' : 'linear-gradient(135deg,#667eea,#764ba2)')
+      container.style.cssText = `background:${bg}; color:${fg}; border:1px solid ${br}; border-radius:8px; padding:0; margin: 0 0 12px 0; overflow:hidden;`
+      container.innerHTML = `
+        <div style="display:flex; align-items:center; justify-content:space-between; padding:6px 8px; background:${hdr}; border-bottom:1px solid ${br};">
+          <div style="font-size:12px; font-weight:700; color:${theme==='professional'?'#0f172a':'white'}">💬 Command Chat</div>
+          <div style="display:flex; gap:6px;">
+            <button id="ccd-undock" title="Undock from sidepanel" style="background:${theme==='professional'?'#e2e8f0':'rgba(255,255,255,0.15)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; padding:4px 6px; font-size:10px; cursor:pointer;">↗</button>
+          </div>
+        </div>
+        <div id="ccd-messages" style="height:160px; overflow:auto; display:flex; flex-direction:column; gap:6px; background:${theme==='professional'?'#f8fafc':'rgba(255,255,255,0.06)'}; border-left:0; border-right:0; border-top:0; border-bottom:1px solid ${br}; padding:8px;"></div>
+        <div style="display:grid; grid-template-columns:1fr 36px 36px 68px; gap:6px; align-items:center; padding:8px;">
+          <textarea id="ccd-input" placeholder="Type..." style="box-sizing:border-box; height:36px; resize:vertical; background:${theme==='professional'?'#ffffff':'rgba(255,255,255,0.08)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; padding:8px; font-size:12px;"></textarea>
+          <input id="ccd-file" type="file" multiple style="display:none" />
+          <button id="ccd-attach" title="Attach" style="height:36px; background:${theme==='professional'?'#e2e8f0':'rgba(255,255,255,0.15)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; cursor:pointer;">📎</button>
+          <button id="ccd-mic" title="Voice" style="height:36px; background:${theme==='professional'?'#e2e8f0':'rgba(255,255,255,0.15)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; cursor:pointer;">🎙️</button>
+          <button id="ccd-send" style="height:36px; background:#22c55e; border:1px solid #16a34a; color:#0b1e12; font-weight:800; border-radius:6px; cursor:pointer;">Send</button>
+        </div>
+      `
+      // Insert before agent boxes
+      const agentBoxes = leftSidebar?.querySelector('#agent-boxes-container')
+      if (leftSidebar && agentBoxes) leftSidebar.insertBefore(container, agentBoxes)
+      else if (leftSidebar) leftSidebar.appendChild(container)
+      // Wire actions
+      const msgs = container.querySelector('#ccd-messages') as HTMLElement
+      const input = container.querySelector('#ccd-input') as HTMLTextAreaElement
+      const send = container.querySelector('#ccd-send') as HTMLButtonElement
+      const attach = container.querySelector('#ccd-attach') as HTMLButtonElement
+      const file = container.querySelector('#ccd-file') as HTMLInputElement
+      const undock = container.querySelector('#ccd-undock') as HTMLButtonElement
+      function addRow(role: 'user'|'assistant', text: string){
+        const row = document.createElement('div'); row.style.display='flex'; row.style.justifyContent = role==='user'?'flex-end':'flex-start'
+        const bub = document.createElement('div'); bub.style.maxWidth='78%'; bub.style.padding='8px 10px'; bub.style.borderRadius='10px'; bub.style.fontSize='12px'; bub.style.lineHeight='1.45';
+        if (role==='user'){ bub.style.background = 'rgba(34,197,94,0.12)'; bub.style.border='1px solid rgba(34,197,94,0.45)'} else { bub.style.background = theme==='professional'?'#f1f5f9':'rgba(255,255,255,0.10)'; bub.style.border = theme==='professional'?'1px solid #e2e8f0':'1px solid rgba(255,255,255,0.20)'}
+        bub.textContent = text; row.appendChild(bub); msgs.appendChild(row); msgs.scrollTop = msgs.scrollHeight
+      }
+      send.addEventListener('click', () => { const v=(input.value||'').trim(); if(!v) return; addRow('user', v); input.value=''; setTimeout(()=>addRow('assistant','Acknowledged: '+v), 250) })
+      input.addEventListener('keydown', (e)=>{ if (e.key==='Enter' && !e.shiftKey){ e.preventDefault(); send.click() } })
+      attach.addEventListener('click', ()=> file.click())
+      file.addEventListener('change', ()=>{ const n=(file.files||[]).length; if(n) addRow('user', `Uploaded ${n} file(s).`) })
+      undock.addEventListener('click', ()=>{ undockCommandChat() })
+    }
+    function dockCommandChat() { removeDockedChat(); createDockedChat(); try { localStorage.setItem('optimando-chat-docked','true') } catch {}; updateDockButtonUI() }
+    function undockCommandChat() { removeDockedChat(); try { localStorage.setItem('optimando-chat-docked','false') } catch {}; updateDockButtonUI() }
+    dockBtn?.addEventListener('click', () => { if (isChatDocked()) undockCommandChat(); else dockCommandChat() })
+    // Apply initial state
+    updateDockButtonUI(); if (isChatDocked()) createDockedChat()
     
     // Right sidebar buttons
     document.getElementById('add-helpergrid-btn')?.addEventListener('click', openHelperGridLightbox)
