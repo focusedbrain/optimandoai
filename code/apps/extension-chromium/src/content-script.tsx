@@ -2971,12 +2971,30 @@ function initializeExtension() {
       // Persist Reasoning inputs across re-renders
       let persistedGoals = ''
       let persistedRole = ''
+      let persistedPassiveToggle = true
+      let persistedActiveToggle = false
+      let persistedActiveTriggers: Array<{ tag?: string, kind?: string, extra?: string }> = []
       const syncPersistedFromDom = () => {
         try {
           const g = configOverlay.querySelector('#R-goals') as HTMLTextAreaElement | null
           const r = configOverlay.querySelector('#R-role') as HTMLInputElement | null
           if (g) persistedGoals = g.value
           if (r) persistedRole = r.value
+          // Persist Listener toggles
+          const p = configOverlay.querySelector('#L-toggle-passive') as HTMLInputElement | null
+          const a = configOverlay.querySelector('#L-toggle-active') as HTMLInputElement | null
+          if (p) persistedPassiveToggle = !!p.checked
+          if (a) persistedActiveToggle = !!a.checked
+          // Also persist Active Listener triggers (so tags do not get lost)
+          const rows = Array.from(configOverlay.querySelectorAll('#L-active-list .act-row')) as HTMLElement[]
+          persistedActiveTriggers = rows.map((row:any)=> ({
+            tag: (row.querySelector('.act-tag') as HTMLInputElement)?.value || '',
+            kind: (row.querySelector('.act-kind') as HTMLSelectElement)?.value || 'OTHER',
+            extra: (():string=>{
+              const ex = row.querySelector('.act-extra') as HTMLSelectElement | null
+              return ex && ex.style.display !== 'none' ? (ex.value || '') : ''
+            })()
+          }))
         } catch {}
       }
 
@@ -2990,6 +3008,11 @@ function initializeExtension() {
           wrap.style.cssText = 'background:rgba(255,255,255,0.08);padding:12px;border-radius:10px;border:1px solid rgba(255,255,255,0.25);color:#fff'
           wrap.innerHTML = `
             <div style="font-weight:700;margin-bottom:6px">Listener</div>
+            <div style="margin:6px 0 8px 0;display:flex;align-items:center;gap:14px">
+              <label style="display:flex;align-items:center;gap:6px"><input id="L-toggle-passive" type="checkbox" checked> Passive Listener</label>
+              <label style="display:flex;align-items:center;gap:6px"><input id="L-toggle-active" type="checkbox"> Active Listener</label>
+            </div>
+            <div id="L-passive" style="border:1px solid rgba(255,255,255,.25);border-radius:8px;padding:10px;background:rgba(255,255,255,0.04);margin-bottom:10px">
             <label style="display:flex;align-items:center;gap:6px">Expected Context
               <span title="Describe examples, keywords, or patterns the Listener Agent should detect. These instructions improve the intent detection of the optimization layer and can enhance or overwrite the trained LLM logic of finetuned models, depending on this agent’s settings. It offers a more tailored experience for the users." style="font-size:12px;opacity:0.9;cursor:help;background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.35);padding:0 6px;border-radius:50%">i</span>
             </label>
@@ -3023,7 +3046,14 @@ function initializeExtension() {
                 <input id="L-examples" type="file" multiple style="width:100%;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.25);color:#fff;padding:6px;border-radius:6px">
               </label>
             </div>
-            <div style="margin-top:10px">
+            </div>
+            <div id="L-active" style="display:none;border:1px solid rgba(255,255,255,.25);border-radius:8px;padding:10px;background:rgba(255,255,255,0.04);margin-bottom:10px">
+              <div style="font-weight:700;margin-bottom:6px">Tagged Event Triggers</div>
+              <div id="L-active-list" style="display:flex;flex-direction:column;gap:8px"></div>
+              <button id="L-add-active-trigger" style="margin-top:6px;background:rgba(255,255,255,.2);border:1px solid rgba(255,255,255,.35);color:#fff;padding:6px 10px;border-radius:6px;cursor:pointer">+ Add Trigger</button>
+              <div style="margin-top:8px;font-size:12px;opacity:0.9">Add #tags inside media or along uploads to the command chat in order to trigger the automation</div>
+            </div>
+            <div id="L-reports" style="margin-top:10px">
               <div style="font-weight:600;margin:6px 0">Report to (optional)</div>
               <div id="L-report-list" style="display:flex;flex-direction:column;gap:8px"></div>
               <button id="L-add-report" style="margin-top:6px;background:rgba(255,255,255,.2);border:1px solid rgba(255,255,255,.35);color:#fff;padding:6px 10px;border-radius:6px;cursor:pointer">+ Add</button>
@@ -3036,6 +3066,14 @@ function initializeExtension() {
           wrap.style.cssText = 'background:rgba(255,255,255,0.06);padding:12px;border-radius:10px;border:1px solid rgba(255,255,255,0.15)'
           wrap.innerHTML = `
             <div style="font-weight:700;margin-bottom:6px">Reasoning</div>
+            <div style="display:flex;align-items:center;gap:10px;margin:6px 0">
+              <label>Apply for:
+                <select id="R-apply" style="margin-left:6px;background:#fff;color:#0f172a;border:1px solid #cbd5e1;padding:6px;border-radius:6px">
+                  <option value="__any__">Any Tag</option>
+                </select>
+              </label>
+              <button id="R-add-section" style="display:none;background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.35);color:#fff;padding:4px 8px;border-radius:6px;cursor:pointer">+ Add Reasoning Section</button>
+            </div>
             <div>
               <div style="display:flex;align-items:center;gap:8px;margin:6px 0"><span>Listen from</span></div>
               <div id="R-accept-list" style="display:flex;flex-direction:column;gap:8px"></div>
@@ -3051,7 +3089,8 @@ function initializeExtension() {
               <textarea id="R-rules" style="width:100%;min-height:70px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.35);color:#fff;padding:8px;border-radius:6px"></textarea>
             </label>
             <div id="R-custom-list" style="display:flex;flex-direction:column;gap:8px;margin-top:8px"></div>
-            <button id="R-add-custom" style="background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.35);color:#fff;padding:6px 10px;border-radius:6px;cursor:pointer">+ Custom field</button>`
+            <button id="R-add-custom" style="background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.35);color:#fff;padding:6px 10px;border-radius:6px;cursor:pointer">+ Custom field</button>
+            <div id="R-sections-extra" style="display:flex;flex-direction:column;gap:10px;margin-top:10px"></div>`
           container.appendChild(wrap)
 
           // Re-apply persisted values and keep them updated
@@ -3070,6 +3109,14 @@ function initializeExtension() {
           wrap.style.cssText = 'background:rgba(255,255,255,0.06);padding:12px;border-radius:10px;border:1px solid rgba(255,255,255,0.15)'
           wrap.innerHTML = `
             <div style="font-weight:700;margin-bottom:6px">Execution</div>
+            <div style="display:flex;align-items:center;gap:10px;margin:6px 0">
+              <label>Apply for:
+                <select id="E-apply" style="margin-left:6px;background:#fff;color:#0f172a;border:1px solid #cbd5e1;padding:6px;border-radius:6px">
+                  <option value="__any__">Any Tag</option>
+                </select>
+              </label>
+              <button id="E-add-section" style="display:none;background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.35);color:#fff;padding:4px 8px;border-radius:6px;cursor:pointer">+ Add Execution Section</button>
+            </div>
             <div>
               <div style="display:flex;align-items:center;gap:8px;margin:6px 0"><span>Listen from</span></div>
               <div id="E-accept-list" style="display:flex;flex-direction:column;gap:8px"></div>
@@ -3080,10 +3127,12 @@ function initializeExtension() {
               <button id="E-add-workflow" style="background:rgba(255,255,255,.2);border:1px solid rgba(255,255,255,.35);color:#fff;padding:6px 10px;border-radius:6px;cursor:pointer">+ Add Workflow</button>
             </div>
             <div style="margin-top:8px">
-              <div style="display:flex;align-items:center;gap:8px;margin:6px 0"><span>Report to (optional)</span></div>
-              <div id="E-report-list" style="display:flex;flex-direction:column;gap:8px"></div>
-              <button id="E-add-report" style="background:rgba(255,255,255,.2);border:1px solid rgba(255,255,255,.35);color:#fff;padding:6px 10px;border-radius:6px;cursor:pointer">+ Add</button>
-            </div>`
+              <div style="font-weight:600;margin:6px 0">Report to</div>
+              <div id="E-special-list" style="display:flex;flex-direction:column;gap:8px"></div>
+              <button id="E-special-add" style="background:rgba(255,255,255,.2);border:1px solid rgba(255,255,255,.35);color:#fff;padding:6px 10px;border-radius:6px;cursor:pointer;margin-top:6px">+ Add</button>
+            </div>
+            <div id="E-sections-extra" style="display:flex;flex-direction:column;gap:10px;margin-top:10px"></div>
+            <div style="margin-top:8px"></div>`
           container.appendChild(wrap)
         }
 
@@ -3094,10 +3143,80 @@ function initializeExtension() {
         srcSel && srcSel.addEventListener('change', updateWebsiteVisibility)
         updateWebsiteVisibility()
 
+        const passToggle = configOverlay.querySelector('#L-toggle-passive') as HTMLInputElement | null
+        const actToggle = configOverlay.querySelector('#L-toggle-active') as HTMLInputElement | null
+        const passWrap = configOverlay.querySelector('#L-passive') as HTMLElement | null
+        const actWrap = configOverlay.querySelector('#L-active') as HTMLElement | null
+        const syncListenerSubsections = () => {
+          if (passWrap && passToggle) passWrap.style.display = passToggle.checked ? 'block' : 'none'
+          if (actWrap && actToggle) actWrap.style.display = actToggle.checked ? 'block' : 'none'
+        }
+        passToggle && passToggle.addEventListener('change', syncListenerSubsections)
+        actToggle && actToggle.addEventListener('change', syncListenerSubsections)
+        // Restore previous open/closed state
+        if (passToggle) passToggle.checked = !!persistedPassiveToggle
+        if (actToggle) actToggle.checked = !!persistedActiveToggle
+        syncListenerSubsections()
+
+        // Active triggers list (multi-row)
+        const activeList = configOverlay.querySelector('#L-active-list') as HTMLElement | null
+        const activeAddBtn = configOverlay.querySelector('#L-add-active-trigger') as HTMLButtonElement | null
+        const populateExtra = (selectEl: HTMLSelectElement, opts: { value: string, label: string }[]) => {
+          selectEl.innerHTML = ''
+          opts.forEach(o => { const op = document.createElement('option'); op.value = o.value; op.textContent = o.label; selectEl.appendChild(op) })
+        }
+        const loadPinnedInto = (which: 'PIN-SCREENSHOT'|'PIN-STREAM', selectEl: HTMLSelectElement) => {
+          try {
+            const key = getCurrentSessionKey()
+            if (!key || !chrome?.storage?.local) { populateExtra(selectEl, [{ value:'', label:'No pinned items' }]); return }
+            chrome.storage.local.get([key], (all:any) => {
+              const sess = all[key] || {}
+              const arr = which === 'PIN-SCREENSHOT' ? (sess.pinnedScreenshots || []) : (sess.pinnedStreams || [])
+              const items = Array.isArray(arr) ? arr : []
+              const opts = items.map((it:any, idx:number)=>({ value:String(it.id||it.key||idx), label:String(it.name||it.title||it.url||(`Item ${idx+1}`)) }))
+              populateExtra(selectEl, opts.length?opts:[{ value:'', label:'No pinned items' }])
+            })
+          } catch { populateExtra(selectEl, [{ value:'', label:'No pinned items' }]) }
+        }
+        const makeTriggerRow = (init?: { tag?: string, kind?: string, extra?: string }) => {
+          const row = document.createElement('div')
+          row.className = 'act-row'
+          row.style.cssText = 'display:grid;grid-template-columns:auto 1fr 1fr auto;gap:8px;align-items:center'
+          const hash = document.createElement('div'); hash.textContent = '#'; hash.style.cssText = 'background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.35);padding:6px 10px;border-radius:6px;font-weight:700'
+          const tagInput = document.createElement('input'); tagInput.placeholder = 'tag-name'; tagInput.className = 'act-tag'; tagInput.style.cssText = 'background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.35);color:#fff;padding:8px;border-radius:6px'; if (init?.tag) tagInput.value = init.tag
+          const kindSel = document.createElement('select'); kindSel.className = 'act-kind'; kindSel.style.cssText = 'background:#fff;color:#0f172a;border:1px solid #cbd5e1;padding:8px;border-radius:6px'
+          const kinds = ['URL','API','PIN-SCREENSHOT','PIN-STREAM','VIDEO','PICTURE','VOICEMEMO','MIC','COMMAND','PDF','FILE','DOCS','SIGNAL','OTHER']
+          kinds.forEach(k=>{ const op=document.createElement('option'); op.value=k; op.textContent=k; if(!init?.kind && k==='OTHER') op.selected=true; if(init?.kind===k) op.selected=true; kindSel.appendChild(op) })
+          const extraSel = document.createElement('select'); extraSel.className = 'act-extra'; extraSel.style.cssText = 'background:#fff;color:#0f172a;border:1px solid #cbd5e1;padding:8px;border-radius:6px;display:none'
+          const delBtn = document.createElement('button'); delBtn.textContent = '×'; delBtn.title='Remove'; delBtn.style.cssText = 'background:#f44336;color:#fff;border:1px solid rgba(255,255,255,.25);padding:0 10px;border-radius:6px;cursor:pointer'
+          delBtn.addEventListener('click', ()=> row.remove())
+          const syncExtra = () => {
+            const v = kindSel.value
+            if (v==='PIN-SCREENSHOT' || v==='PIN-STREAM') { extraSel.style.display='block'; loadPinnedInto(v as any, extraSel) } else { extraSel.style.display='none'; extraSel.innerHTML='' }
+          }
+          kindSel.addEventListener('change', syncExtra)
+          row.appendChild(hash); row.appendChild(tagInput); row.appendChild(kindSel); row.appendChild(delBtn)
+          // Insert extra select before delete when visible
+          row.insertBefore(extraSel, delBtn)
+          syncExtra()
+          if (init?.extra) { try { extraSel.value = init.extra } catch {} }
+          return row
+        }
+        if (activeList && activeAddBtn) {
+          activeAddBtn.addEventListener('click', ()=>{ activeList.appendChild(makeTriggerRow()) })
+          // Rehydrate previously entered triggers if available
+          if (persistedActiveTriggers && persistedActiveTriggers.length > 0) {
+            activeList.innerHTML = ''
+            persistedActiveTriggers.forEach(t => activeList.appendChild(makeTriggerRow({ tag: t.tag, kind: t.kind, extra: t.extra })))
+          } else if (activeList.childElementCount === 0) {
+            activeList.appendChild(makeTriggerRow())
+          }
+        }
+
         const rAdd = configOverlay.querySelector('#R-add-accept') as HTMLButtonElement | null
         const eAdd = configOverlay.querySelector('#E-add-accept') as HTMLButtonElement | null
         const lRep = configOverlay.querySelector('#L-add-report') as HTMLButtonElement | null
-        const eRep = configOverlay.querySelector('#E-add-report') as HTMLButtonElement | null
+        const eRep = null as unknown as HTMLButtonElement | null
         const rRepWrap = document.createElement('div')
         if (configOverlay.querySelector('#box-reasoning')) {
           const rBox = configOverlay.querySelector('#box-reasoning') as HTMLElement
@@ -3120,16 +3239,82 @@ function initializeExtension() {
         rAdd && rAdd.addEventListener('click', () => addRow('#R-accept-list', 'acc-row', 'route-kind', 'route-specific'))
         eAdd && eAdd.addEventListener('click', () => addRow('#E-accept-list', 'acc-row', 'route-kind', 'route-specific'))
         lRep && lRep.addEventListener('click', () => addRow('#L-report-list', 'rep-row', 'route-kind', 'route-specific'))
-        eRep && eRep.addEventListener('click', () => addRow('#E-report-list', 'rep-row', 'route-kind', 'route-specific'))
         const rRepBtn = configOverlay.querySelector('#R-add-report') as HTMLButtonElement | null
         rRepBtn && rRepBtn.addEventListener('click', () => addRow('#R-report-list', 'rep-row', 'route-kind', 'route-specific'))
+        // Listener add report rows and execution workflows
         eWf && eWf.addEventListener('click', () => addWorkflowRow('#E-workflow-list'))
 
-        // Default last report target to Agent Box
-        const eReportList = configOverlay.querySelector('#E-report-list') as HTMLElement | null
-        if (eReportList && eReportList.childElementCount === 0) {
-          addRow('#E-report-list', 'rep-row', 'route-kind', 'route-specific', { kind: 'agentBox', specific: 'agentBox' })
+        // Execution special destinations (addable rows)
+        const eSpecialList = configOverlay.querySelector('#E-special-list') as HTMLElement | null
+        const eSpecialAdd = configOverlay.querySelector('#E-special-add') as HTMLButtonElement | null
+        const buildAgentChecklist = (host: HTMLElement) => {
+          const wrap = document.createElement('div')
+          wrap.style.cssText = 'display:flex;flex-wrap:wrap;gap:8px;margin-top:6px'
+          try {
+            ensureActiveSession((_key: string, session: any) => {
+              const agents = Array.isArray(session?.agents) ? session.agents : []
+              const builtins = ['summarize','research','execute']
+              const merged = [
+                ...builtins.map(id => ({ id, name: `Agent ${getOrAssignAgentNumber(id)} — ${id}` })),
+                ...agents.map((a:any)=>({ id: a.key || a.id || a.name || 'agent', name: a.name || a.id || a.key }))
+              ]
+              const seen = new Set<string>()
+              merged.forEach(a => {
+                if (seen.has(a.id)) return; seen.add(a.id)
+                const label = document.createElement('label')
+                label.style.cssText = 'display:inline-flex;align-items:center;gap:6px;padding:4px 6px;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.2);border-radius:6px'
+                const cb = document.createElement('input'); cb.type='checkbox'; cb.value=a.id; cb.className='E-agent'
+                const span = document.createElement('span'); span.textContent = a.name
+                label.appendChild(cb); label.appendChild(span)
+                wrap.appendChild(label)
+              })
+            })
+          } catch {}
+          host.appendChild(wrap)
         }
+        const addSpecialRow = (def?: { kind?: string }) => {
+          if (!eSpecialList) return
+          const row = document.createElement('div')
+          row.className = 'esp-row'
+          row.style.cssText = 'display:grid;grid-template-columns:1fr auto;gap:8px'
+          const opts = [
+            { label: 'Agent Boxes (default)', value: 'agentBox' },
+            { label: 'Agent', value: 'agent' },
+            { label: 'Clipboard – Summary', value: 'clip-summary' },
+            { label: 'Clipboard – Screenshot', value: 'clip-screenshot' },
+            { label: 'PDF – Summary', value: 'pdf-summary' },
+            { label: 'PDF – Screenshot', value: 'pdf-screenshot' },
+            { label: 'PDF – Summary + Screenshot', value: 'pdf-both' },
+            { label: 'Image – Screenshot (PNG/WebP)', value: 'image-screenshot' },
+            { label: 'Chat Inline – Summary', value: 'chat-inline-summary' }
+          ]
+          const sel = makeSelect(opts, 'esp-kind', def?.kind || 'agentBox')
+          const del = document.createElement('button')
+          del.textContent = '×'
+          del.title = 'Remove'
+          del.style.cssText = 'background:#f44336;color:#fff;border:1px solid rgba(255,255,255,.25);padding:0 10px;border-radius:6px;cursor:pointer'
+          del.addEventListener('click', () => row.remove())
+          row.appendChild(sel)
+          row.appendChild(del)
+          // Agent checklist container if needed
+          const agentHost = document.createElement('div')
+          agentHost.className = 'esp-agents'
+          agentHost.style.cssText = 'display:none'
+          row.appendChild(agentHost)
+          const sync = () => {
+            const v = sel.value
+            agentHost.style.display = v === 'agent' ? 'block' : 'none'
+            if (v === 'agent' && agentHost.childElementCount === 0) buildAgentChecklist(agentHost)
+          }
+          sel.addEventListener('change', sync)
+          sync()
+          eSpecialList.appendChild(row)
+        }
+        eSpecialAdd && eSpecialAdd.addEventListener('click', () => addSpecialRow())
+        if (eSpecialList && eSpecialList.childElementCount === 0) addSpecialRow()
+
+        // Default last report target to Agent Box
+        // Removed default E-report; reports are configured once at Listener bottom
 
         // Custom field add button
         const rCustomBtn = configOverlay.querySelector('#R-add-custom') as HTMLButtonElement | null
@@ -3150,6 +3335,160 @@ function initializeExtension() {
           del.addEventListener('click', () => row.remove())
           row.appendChild(key); row.appendChild(val); row.appendChild(del)
           rCustomList.appendChild(row)
+        })
+
+        // Apply-for population based on active tags
+        const getActiveTags = (): string[] => Array.from(configOverlay.querySelectorAll('#L-active-list .act-row .act-tag')).map((el:any)=> (el.value||'').trim()).filter((v:string, i:number, a:string[])=> v && a.indexOf(v)===i)
+        const refreshApplyForOptions = () => {
+          const tags = getActiveTags()
+          const updateSelect = (sel: HTMLSelectElement | null) => {
+            if (!sel) return
+            const prev = sel.value
+            sel.innerHTML = ''
+            const any = document.createElement('option'); any.value='__any__'; any.textContent='Any Tag'; sel.appendChild(any)
+            tags.forEach(t=>{ const op=document.createElement('option'); op.value=t; op.textContent=t; sel.appendChild(op) })
+            if (Array.from(sel.options).some(o=>o.value===prev)) sel.value = prev
+          }
+          updateSelect(configOverlay.querySelector('#R-apply') as HTMLSelectElement | null)
+          updateSelect(configOverlay.querySelector('#E-apply') as HTMLSelectElement | null)
+          configOverlay.querySelectorAll('.R-section .R-apply').forEach((el:any)=> updateSelect(el as HTMLSelectElement))
+          configOverlay.querySelectorAll('.E-section .E-apply-sub').forEach((el:any)=> updateSelect(el as HTMLSelectElement))
+          const addBtn = configOverlay.querySelector('#R-add-section') as HTMLButtonElement | null
+          if (addBtn) addBtn.style.display = tags.length >= 1 ? 'inline-block' : 'none'
+          const eAddSec = configOverlay.querySelector('#E-add-section') as HTMLButtonElement | null
+          if (eAddSec) eAddSec.style.display = tags.length >= 1 ? 'inline-block' : 'none'
+        }
+        refreshApplyForOptions()
+        activeList?.addEventListener('input', (e)=>{
+          const tgt = e.target as HTMLElement
+          if (tgt && tgt.classList.contains('act-tag')) refreshApplyForOptions()
+        })
+
+        // Add extra Reasoning sections
+        const rExtra = configOverlay.querySelector('#R-sections-extra') as HTMLElement | null
+        const rAddSection = configOverlay.querySelector('#R-add-section') as HTMLButtonElement | null
+        const createRSection = () => {
+          const sec = document.createElement('div')
+          sec.className = 'R-section'
+          sec.style.cssText = 'border:1px dashed rgba(255,255,255,.35);padding:10px;border-radius:8px'
+          sec.innerHTML = `
+            <div style="display:flex;align-items:center;gap:10px;margin:6px 0">
+              <label>Apply for:
+                <select class="R-apply" style="margin-left:6px;background:#fff;color:#0f172a;border:1px solid #cbd5e1;padding:6px;border-radius:6px">
+                  <option value="__any__">Any Tag</option>
+                </select>
+              </label>
+              <button class="R-del" title="Remove" style="background:#f44336;color:#fff;border:1px solid rgba(255,255,255,.25);padding:2px 8px;border-radius:6px;cursor:pointer">×</button>
+            </div>
+            <label style="margin-top:6px">Goals (System instructions)
+              <textarea class="R-goals" style="width:100%;min-height:70px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.35);color:#fff;padding:8px;border-radius:6px"></textarea>
+            </label>
+            <label>Role (optional)
+              <input class="R-role" style="width:100%;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.35);color:#fff;padding:8px;border-radius:6px">
+            </label>
+            <label>Rules
+              <textarea class="R-rules" style="width:100%;min-height:60px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.35);color:#fff;padding:8px;border-radius:6px"></textarea>
+            </label>
+            <div class="R-custom-list" style="display:flex;flex-direction:column;gap:8px;margin-top:6px"></div>
+            <button class="R-add-custom" style="background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.35);color:#fff;padding:6px 10px;border-radius:6px;cursor:pointer">+ Custom field</button>
+          `
+          ;(sec.querySelector('.R-del') as HTMLButtonElement).addEventListener('click', ()=> sec.remove())
+          ;(sec.querySelector('.R-add-custom') as HTMLButtonElement).addEventListener('click', ()=>{
+            const list = sec.querySelector('.R-custom-list') as HTMLElement
+            const row = document.createElement('div')
+            row.style.cssText = 'display:grid;grid-template-columns:1fr 1fr auto;gap:8px'
+            const key = document.createElement('input'); key.placeholder='Custom field (name)'; key.style.cssText='background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.35);color:#fff;padding:8px;border-radius:6px'
+            const val = document.createElement('input'); val.placeholder='value'; val.style.cssText='background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.35);color:#fff;padding:8px;border-radius:6px'
+            const del = document.createElement('button'); del.textContent='×'; del.title='Remove'; del.style.cssText='background:#f44336;color:#fff;border:1px solid rgba(255,255,255,.25);padding:0 10px;border-radius:6px;cursor:pointer'; del.addEventListener('click', ()=> row.remove())
+            row.appendChild(key); row.appendChild(val); row.appendChild(del)
+            list.appendChild(row)
+          })
+          // Ensure each new Execution section starts with one workflow row by default
+          setTimeout(()=>{
+            try {
+              const addW = sec.querySelector('.E-add-workflow-sub') as HTMLButtonElement
+              addW?.click()
+            } catch {}
+          }, 0)
+          return sec
+        }
+        rAddSection && rExtra && rAddSection.addEventListener('click', ()=>{
+          const sec = createRSection()
+          rExtra.appendChild(sec)
+          refreshApplyForOptions()
+        })
+
+        // Add extra Execution sections (same structure as base Execution block)
+        const eExtra = configOverlay.querySelector('#E-sections-extra') as HTMLElement | null
+        const eAddSection = configOverlay.querySelector('#E-add-section') as HTMLButtonElement | null
+        const createESection = () => {
+          const sec = document.createElement('div')
+          sec.className = 'E-section'
+          sec.style.cssText = 'border:1px dashed rgba(255,255,255,.35);padding:10px;border-radius:8px'
+          const wfId = `E-wf-sub-${Math.random().toString(36).slice(2,8)}`
+          const accId = `E-acc-sub-${Math.random().toString(36).slice(2,8)}`
+          sec.innerHTML = `
+            <div style="display:flex;align-items:center;gap:10px;margin:6px 0">
+              <label>Apply for:
+                <select class="E-apply-sub" style="margin-left:6px;background:#fff;color:#0f172a;border:1px solid #cbd5e1;padding:6px;border-radius:6px">
+                  <option value="__any__">Any Tag</option>
+                </select>
+              </label>
+              <button class="E-del" title="Remove" style="background:#f44336;color:#fff;border:1px solid rgba(255,255,255,.25);padding:2px 8px;border-radius:6px;cursor:pointer">×</button>
+            </div>
+            <div>
+              <div style="display:flex;align-items:center;gap:8px;margin:6px 0"><span>Listen from</span></div>
+              <div id="${accId}" class="E-accept-list-sub" style="display:flex;flex-direction:column;gap:8px"></div>
+              <button class="E-add-accept-sub" style="background:rgba(255,255,255,.2);border:1px solid rgba(255,255,255,.35);color:#fff;padding:6px 10px;border-radius:6px;cursor:pointer">+ Add</button>
+            </div>
+            <div style="margin-top:8px">
+              <div id="${wfId}" class="E-workflow-list-sub" style="display:flex;flex-direction:column;gap:8px"></div>
+              <button class="E-add-workflow-sub" style="background:rgba(255,255,255,.2);border:1px solid rgba(255,255,255,.35);color:#fff;padding:6px 10px;border-radius:6px;cursor:pointer">+ Add Workflow</button>
+            </div>
+            <div style="margin-top:8px">
+              <div style="font-weight:600;margin:6px 0">Report to</div>
+              <div class="E-special-list-sub" style="display:flex;flex-direction:column;gap:8px"></div>
+              <button class="E-special-add-sub" style="background:rgba(255,255,255,.2);border:1px solid rgba(255,255,255,.35);color:#fff;padding:6px 10px;border-radius:6px;cursor:pointer;margin-top:6px">+ Add</button>
+            </div>
+          `
+          ;(sec.querySelector('.E-del') as HTMLButtonElement).addEventListener('click', ()=> sec.remove())
+          // wire add for special destinations within section
+          const list = sec.querySelector('.E-special-list-sub') as HTMLElement
+          const addBtn = sec.querySelector('.E-special-add-sub') as HTMLButtonElement
+          addBtn.addEventListener('click', ()=>{
+            // reuse addSpecialRow logic by temporarily pointing eSpecialList
+            const opts = [
+              { label: 'Agent Boxes (default)', value: 'agentBox' },
+              { label: 'Agent', value: 'agent' },
+              { label: 'Clipboard – Summary', value: 'clip-summary' },
+              { label: 'Clipboard – Screenshot', value: 'clip-screenshot' },
+              { label: 'PDF – Summary', value: 'pdf-summary' },
+              { label: 'PDF – Screenshot', value: 'pdf-screenshot' },
+              { label: 'PDF – Summary + Screenshot', value: 'pdf-both' },
+              { label: 'Image – Screenshot (PNG/WebP)', value: 'image-screenshot' },
+              { label: 'Chat Inline – Summary', value: 'chat-inline-summary' }
+            ]
+            const row = document.createElement('div')
+            row.className = 'esp-row'
+            row.style.cssText = 'display:grid;grid-template-columns:1fr auto;gap:8px'
+            const sel = makeSelect(opts, 'esp-kind', 'agentBox')
+            const del = document.createElement('button'); del.textContent='×'; del.title='Remove'; del.style.cssText='background:#f44336;color:#fff;border:1px solid rgba(255,255,255,.25);padding:0 10px;border-radius:6px;cursor:pointer'; del.addEventListener('click', ()=> row.remove())
+            row.appendChild(sel); row.appendChild(del)
+            const agentHost = document.createElement('div'); agentHost.className='esp-agents'; agentHost.style.cssText='display:none'; row.appendChild(agentHost)
+            const sync = () => { const v = sel.value; agentHost.style.display = v==='agent' ? 'block' : 'none'; if (v==='agent' && agentHost.childElementCount===0) buildAgentChecklist(agentHost) }
+            sel.addEventListener('change', sync); sync()
+            list.appendChild(row)
+          })
+          ;(sec.querySelector('.E-add-workflow-sub') as HTMLButtonElement).addEventListener('click', ()=> addWorkflowRow(`#${wfId}`))
+          ;(sec.querySelector('.E-add-accept-sub') as HTMLButtonElement).addEventListener('click', ()=> addRow(`#${accId}`, 'acc-row', 'route-kind', 'route-specific'))
+          // Default one workflow row
+          setTimeout(()=>{ try { (sec.querySelector('.E-add-workflow-sub') as HTMLButtonElement)?.click() } catch {} }, 0)
+          return sec
+        }
+        eAddSection && eExtra && eAddSection.addEventListener('click', ()=>{
+          const sec = createESection()
+          eExtra.appendChild(sec)
+          refreshApplyForOptions()
         })
       }
       const hook = (el: HTMLInputElement | null) => el && el.addEventListener('change', render)
@@ -3180,40 +3519,100 @@ function initializeExtension() {
         if (E) draft.capabilities.push('execution')
         // Listening
         if (L) {
+          const passiveEnabled = !!(document.getElementById('L-toggle-passive') as HTMLInputElement)?.checked
+          const activeEnabled = !!(document.getElementById('L-toggle-active') as HTMLInputElement)?.checked
           const tags = Array.from(document.querySelectorAll('.L-tag'))
             .filter((el:any)=>el.checked).map((el:any)=>el.value)
-          const src = (document.getElementById('L-source') as HTMLSelectElement).value
-          draft.listening = {
-            expectedContext: (document.getElementById('L-context') as HTMLTextAreaElement)?.value || '',
-            tags,
-            source: src,
-            website: src==='website' ? ((document.getElementById('L-website') as HTMLInputElement)?.value || '') : ''
+          const src = (document.getElementById('L-source') as HTMLSelectElement)?.value || ''
+          const listening:any = {
+            passiveEnabled,
+            activeEnabled
           }
+          if (passiveEnabled) {
+            listening.expectedContext = (document.getElementById('L-context') as HTMLTextAreaElement)?.value || ''
+            listening.tags = tags
+            listening.source = src
+            listening.website = src==='website' ? ((document.getElementById('L-website') as HTMLInputElement)?.value || '') : ''
+          }
+          if (activeEnabled) {
+            const triggers:any[] = []
+            document.querySelectorAll('#L-active-list .act-row').forEach((row:any)=>{
+              const name = (row.querySelector('.act-tag') as HTMLInputElement)?.value || ''
+              const kind = (row.querySelector('.act-kind') as HTMLSelectElement)?.value || 'OTHER'
+              const extraSel = row.querySelector('.act-extra') as HTMLSelectElement | null
+              const extra = extraSel && extraSel.style.display !== 'none' ? (extraSel.value || '') : ''
+              if (name || kind || extra) {
+                triggers.push({ tag: { name, kind, extra } })
+              }
+            })
+            listening.active = { triggers }
+          }
+          draft.listening = listening
         }
         // Reasoning
         if (R) {
           const accepts:string[] = []
           document.querySelectorAll('#R-accept-list .acc-row .acc-target').forEach((n:any)=> accepts.push(n.value))
-          draft.reasoning = {
-            acceptFrom: accepts,
+          const base:any = {
+            applyFor: (document.getElementById('R-apply') as HTMLSelectElement)?.value || '__any__',
             goals: (document.getElementById('R-goals') as HTMLTextAreaElement)?.value || '',
             role: (document.getElementById('R-role') as HTMLInputElement)?.value || '',
             rules: (document.getElementById('R-rules') as HTMLTextAreaElement)?.value || '',
-            custom: { key: (document.getElementById('R-free-key') as HTMLInputElement)?.value || '', value: (document.getElementById('R-free-val') as HTMLInputElement)?.value || '' }
+            custom: [],
+            acceptFrom: accepts
           }
+          document.querySelectorAll('#R-custom-list > div').forEach((row:any)=>{
+            const key = (row.querySelector('input:nth-child(1)') as HTMLInputElement)?.value || ''
+            const value = (row.querySelector('input:nth-child(2)') as HTMLInputElement)?.value || ''
+            if (key || value) base.custom.push({ key, value })
+          })
+          const sections:any[] = [base]
+          document.querySelectorAll('#R-sections-extra .R-section').forEach((sec:any)=>{
+            const s:any = {
+              applyFor: (sec.querySelector('.R-apply') as HTMLSelectElement)?.value || '__any__',
+              goals: (sec.querySelector('.R-goals') as HTMLTextAreaElement)?.value || '',
+              role: (sec.querySelector('.R-role') as HTMLInputElement)?.value || '',
+              rules: (sec.querySelector('.R-rules') as HTMLTextAreaElement)?.value || '',
+              custom: []
+            }
+            sec.querySelectorAll('.R-custom-list > div').forEach((row:any)=>{
+              const key = (row.querySelector('input:nth-child(1)') as HTMLInputElement)?.value || ''
+              const value = (row.querySelector('input:nth-child(2)') as HTMLInputElement)?.value || ''
+              if (key || value) s.custom.push({ key, value })
+            })
+            sections.push(s)
+          })
+          draft.reasoning = { acceptFrom: accepts, goals: base.goals, role: base.role, rules: base.rules, custom: {}, applyFor: base.applyFor }
+          ;(draft as any).reasoningSections = sections
         }
         // Execution
         if (E) {
           const eAccepts:string[] = []
           document.querySelectorAll('#E-accept-list .acc-row .acc-target').forEach((n:any)=> eAccepts.push(n.value))
-          const eReports:string[] = []
-          document.querySelectorAll('#E-report-list .rep-row .rep-target').forEach((n:any)=> eReports.push(n.value))
           const eWfs:string[] = []
           document.querySelectorAll('#E-workflow-list .wf-row .wf-target').forEach((n:any)=> eWfs.push(n.value))
+          const eKindsMain = Array.from(document.querySelectorAll('#E-special-list .esp-row .esp-kind')) as HTMLSelectElement[]
+          const eDestinationsMain = eKindsMain.map(sel => {
+            const agents = Array.from(sel.parentElement?.querySelectorAll('.esp-agents .E-agent') || []).filter((cb:any)=> cb.checked).map((cb:any)=> cb.value)
+            return { kind: sel.value, agents: sel.value==='agent' ? agents : [] }
+          })
+          const eSections:any[] = []
+          document.querySelectorAll('#E-sections-extra .E-section').forEach((sec:any)=>{
+            const applyFor = (sec.querySelector('.E-apply-sub') as HTMLSelectElement)?.value || '__any__'
+            const kinds = Array.from(sec.querySelectorAll('.E-special-list-sub .esp-row .esp-kind')) as HTMLSelectElement[]
+            const dests = kinds.map(sel => {
+              const agents = Array.from(sel.parentElement?.querySelectorAll('.esp-agents .E-agent') || []).filter((cb:any)=> cb.checked).map((cb:any)=> cb.value)
+              return { kind: sel.value, agents: sel.value==='agent' ? agents : [] }
+            })
+            eSections.push({ applyFor, specialDestinations: dests })
+          })
           draft.execution = {
             acceptFrom: eAccepts,
             workflows: eWfs,
-            reportTo: eReports
+            reportTo: Array.from(document.querySelectorAll('#L-report-list .rep-row .rep-target')).map((n:any)=> n.value),
+            applyFor: (document.getElementById('E-apply') as HTMLSelectElement)?.value || '__any__',
+            specialDestinations: eDestinationsMain,
+            executionSections: eSections
           }
         }
         dataToSave = JSON.stringify(draft)
