@@ -8245,7 +8245,7 @@ ${pageText}
             <div style="display:flex; align-items:center; gap:8px; color:${theme==='professional'?'#0f172a':'white'}">
             <div style="font-size:12px; font-weight:700;">💬 Command Chat</div>
             <div style="display:flex; gap:6px; align-items:center;">
-              <button id="ccd-lm-one" title="LmGTFY - Select an area to capture the stream and automatically analyse its content" style="background:${theme==='professional'?'#e2e8f0':'rgba(255,255,255,0.15)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; padding:2px 6px; font-size:12px; cursor:pointer;">✎</button>
+              <button id="ccd-lm-one" title="LmGTFY - Capture a screen area as screenshot or stream and send it to your pre-defined automation tasks." style="background:${theme==='professional'?'#e2e8f0':'rgba(255,255,255,0.15)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; padding:2px 6px; font-size:12px; cursor:pointer;">✎</button>
             </div>
           </div>
           <div style="display:flex; gap:6px;">
@@ -8369,7 +8369,7 @@ ${pageText}
           <div style="display:flex; align-items:center; gap:8px; color:${theme==='professional'?'#0f172a':'white'}">
             <div style="font-size:12px; font-weight:700;">💬 Command Chat</div>
             <div style="display:flex; gap:6px; align-items:center;">
-              <button id="ccf-lm-one" title="LmGTFY - Select an area to capture the stream and automatically analyse its content" style="background:${theme==='professional'?'#e2e8f0':'rgba(255,255,255,0.15)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; padding:2px 6px; font-size:12px; cursor:pointer;">✎</button>
+              <button id="ccf-lm-one" title="LmGTFY - Capture a screen area as screenshot or stream and send it to your pre-defined automation tasks." style="background:${theme==='professional'?'#e2e8f0':'rgba(255,255,255,0.15)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; padding:2px 6px; font-size:12px; cursor:pointer;">✎</button>
             </div>
           </div>
           <div style="display:flex; gap:6px;">
