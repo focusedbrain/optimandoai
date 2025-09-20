@@ -72,7 +72,7 @@
       .bubble { max-width: 78%; padding: 10px 12px; border-radius: 10px; font-size: 12px; line-height: 1.45; }
       .bubble.user { background: var(--bubble-user-bg); border: 1px solid var(--bubble-user-border); }
       .bubble.assistant { background: var(--bubble-assist-bg); border: 1px solid var(--bubble-assist-border); }
-      .composer { display: grid; grid-template-columns: 1fr 40px 40px 80px; gap: 8px; padding: 8px 12px 12px; align-items: center; border-top:1px solid var(--border); }
+      .composer { display: grid; grid-template-columns: 1fr 40px 40px 40px 80px; gap: 8px; padding: 8px 12px 12px; align-items: center; border-top:1px solid var(--border); }
       .ta { box-sizing: border-box; width: 100%; height: 42px; max-height: 180px; resize: vertical; background: var(--surface); border:1px solid var(--border); color:var(--text); padding:10px; border-radius:8px; font-size:12px; }
       .btn { height: 42px; background: var(--btn-surface); border:1px solid var(--border); color:var(--text); border-radius:8px; padding:0 12px; cursor: pointer; display:flex; align-items:center; justify-content:center; }
       .btn:disabled { opacity: .5; cursor: default; }
@@ -84,28 +84,24 @@
     </style>
   </head>
   <body>
-    <div class="wrap">
+      <div class="wrap">
       <div id="msgs" class="messages"></div>
-      <div style="display:flex; gap:8px; align-items:center; padding: 0 12px 6px;">
-        <button id="lm-shot" class="btn" title="LETmeGIRAFFETHATFORYOU Screenshot">📸</button>
-        <button id="lm-stream" class="btn" title="LETmeGIRAFFETHATFORYOU Stream">🎥</button>
-      </div>
       <div class="composer">
         <textarea id="ta" class="ta" placeholder="Type a command for the Orchestrator..."></textarea>
         <input id="file" type="file" multiple style="display:none" />
         <button id="up" class="btn" title="Attach">📎</button>
         <button id="mic" class="btn" title="Voice input">🎙️</button>
+        <button id="lm-pencil" class="btn" title="LmGTFY - Select an area to capture the stream and automatically analyse its content">✎</button>
         <button id="send" class="btn send">Send</button>
       </div>
     </div>
     <script>
       function launch(mode){
         try{ window.open('opengiraffe://lmgtfy?mode='+encodeURIComponent(mode),'_self') }catch(e){}
+        try{ chrome.runtime?.sendMessage({ type: 'LAUNCH_LMGTFY', mode }) }catch(e){}
       }
-      const btnShot = document.getElementById('lm-shot');
-      const btnStream = document.getElementById('lm-stream');
-      if (btnShot) btnShot.onclick = ()=>launch('screenshot');
-      if (btnStream) btnStream.onclick = ()=>launch('stream');
+      const btnPencil = document.getElementById('lm-pencil');
+      if (btnPencil) btnPencil.onclick = ()=>launch('stream');
     </script>
     <script src="popup.js"></script>
   </body>

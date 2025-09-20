@@ -8242,11 +8242,10 @@ ${pageText}
       container.style.cssText = `background:${bg}; color:${fg}; border:1px solid ${br}; border-radius:8px; padding:0; margin: 0 0 12px 0; overflow:hidden; position:relative;`
       container.innerHTML = `
         <div id="ccd-header" style="display:flex; align-items:center; justify-content:space-between; padding:6px 8px; background:${hdr}; border-bottom:1px solid ${br};">
-          <div style="display:flex; align-items:center; gap:8px; color:${theme==='professional'?'#0f172a':'white'}">
+            <div style="display:flex; align-items:center; gap:8px; color:${theme==='professional'?'#0f172a':'white'}">
             <div style="font-size:12px; font-weight:700;">💬 Command Chat</div>
             <div style="display:flex; gap:6px; align-items:center;">
-              <button id="ccd-lm-shot" title="LETmeGIRAFFETHATFORYOU Screenshot" style="background:${theme==='professional'?'#e2e8f0':'rgba(255,255,255,0.15)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; padding:2px 6px; font-size:12px; cursor:pointer;">📸</button>
-              <button id="ccd-lm-stream" title="LETmeGIRAFFETHATFORYOU Stream" style="background:${theme==='professional'?'#e2e8f0':'rgba(255,255,255,0.15)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; padding:2px 6px; font-size:12px; cursor:pointer;">🎥</button>
+              <button id="ccd-lm-one" title="LmGTFY - Select an area to capture the stream and automatically analyse its content" style="background:${theme==='professional'?'#e2e8f0':'rgba(255,255,255,0.15)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; padding:2px 6px; font-size:12px; cursor:pointer;">✎</button>
             </div>
           </div>
           <div style="display:flex; gap:6px;">
@@ -8284,8 +8283,7 @@ ${pageText}
       attach.addEventListener('click', ()=> file.click())
       file.addEventListener('change', ()=>{ const n=(file.files||[]).length; if(n) addRow('user', `Uploaded ${n} file(s).`) })
       undock.addEventListener('click', ()=>{ undockCommandChat() })
-      ;(container.querySelector('#ccd-lm-shot') as HTMLButtonElement | null)?.addEventListener('click', ()=> startLmgtfy('screenshot'))
-      ;(container.querySelector('#ccd-lm-stream') as HTMLButtonElement | null)?.addEventListener('click', ()=> startLmgtfy('stream'))
+      ;(container.querySelector('#ccd-lm-one') as HTMLButtonElement | null)?.addEventListener('click', ()=> startLmgtfy('stream'))
 
       // Allow vertical resize by dragging the outer bottom border of the docked box
       let startY = 0, startBoxH = 0, startMsgsH = 0
@@ -8371,8 +8369,7 @@ ${pageText}
           <div style="display:flex; align-items:center; gap:8px; color:${theme==='professional'?'#0f172a':'white'}">
             <div style="font-size:12px; font-weight:700;">💬 Command Chat</div>
             <div style="display:flex; gap:6px; align-items:center;">
-              <button id="ccf-lm-shot" title="LETmeGIRAFFETHATFORYOU Screenshot" style="background:${theme==='professional'?'#e2e8f0':'rgba(255,255,255,0.15)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; padding:2px 6px; font-size:12px; cursor:pointer;">📸</button>
-              <button id="ccf-lm-stream" title="LETmeGIRAFFETHATFORYOU Stream" style="background:${theme==='professional'?'#e2e8f0':'rgba(255,255,255,0.15)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; padding:2px 6px; font-size:12px; cursor:pointer;">🎥</button>
+              <button id="ccf-lm-one" title="LmGTFY - Select an area to capture the stream and automatically analyse its content" style="background:${theme==='professional'?'#e2e8f0':'rgba(255,255,255,0.15)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; padding:2px 6px; font-size:12px; cursor:pointer;">✎</button>
             </div>
           </div>
           <div style="display:flex; gap:6px;">
@@ -8386,9 +8383,34 @@ ${pageText}
         </div>
       `
       document.body.appendChild(box)
+      // Ensure floating composer has no unused icons. Keep only textarea + Send.
+      try {
+        const compose = box.querySelector('#ccf-compose') as HTMLElement | null
+        if (compose) {
+          compose.querySelectorAll('button').forEach(btn => {
+            const id = (btn as HTMLElement).id || ''
+            if (id !== 'ccf-send') (btn as HTMLElement).remove()
+          })
+          // Normalize layout back to 2 columns
+          ;(compose as HTMLElement).style.gridTemplateColumns = '1fr 68px'
+        }
+        // Extra safety: remove any non-whitelisted buttons anywhere inside floating chat
+        box.querySelectorAll('button').forEach(btn => {
+          const id = (btn as HTMLElement).id || ''
+          const allow = id === 'ccf-send' || id === 'ccf-close' || id === 'ccf-lm-one'
+          const insideCompose = (btn as HTMLElement).closest('#ccf-compose')
+          if (insideCompose && !allow) (btn as HTMLElement).remove()
+        })
+      } catch {}
       ;(box.querySelector('#ccf-close') as HTMLButtonElement | null)?.addEventListener('click', ()=> box.remove())
-      ;(box.querySelector('#ccf-lm-shot') as HTMLButtonElement | null)?.addEventListener('click', ()=> startLmgtfy('screenshot'))
-      ;(box.querySelector('#ccf-lm-stream') as HTMLButtonElement | null)?.addEventListener('click', ()=> startLmgtfy('stream'))
+      ;(box.querySelector('#ccf-lm-one') as HTMLButtonElement | null)?.addEventListener('click', (e)=>{
+        try { e.preventDefault() } catch {}
+        try { e.stopPropagation() } catch {}
+        // Same function as docked
+        try { startLmgtfy('stream') } catch {}
+        // Robust fallback via background
+        try { chrome.runtime.sendMessage({ type: 'LAUNCH_LMGTFY', mode: 'stream' }) } catch {}
+      })
     }
 
     function startLmgtfy(mode: 'screenshot'|'stream'){

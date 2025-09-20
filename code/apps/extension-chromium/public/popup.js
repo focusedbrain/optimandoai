@@ -66,5 +66,16 @@ mic.addEventListener('click', () => {
   if (!recognition || recognizing) return; recognizing = true; mic.disabled = true; try { recognition.start(); } catch {}
 });
 
+// LmGTFY pencil (stream capture)
+try {
+  const pencil = document.getElementById('lm-pencil');
+  if (pencil) {
+    pencil.addEventListener('click', () => {
+      try { window.open('opengiraffe://lmgtfy?mode=' + encodeURIComponent('stream'), '_self') } catch {}
+      try { chrome.runtime?.sendMessage({ type: 'LAUNCH_LMGTFY', mode: 'stream' }) } catch {}
+    });
+  }
+} catch {}
+
 
 

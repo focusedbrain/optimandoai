@@ -180,36 +180,21 @@ chrome.runtime.onInstalled.addListener(() => {
   // WebSocket disabled
 });
 
-// Handle extension icon click
+// Handle extension icon click: launch desktop headlessly via deep-link in a tiny hidden window
 chrome.action.onClicked.addListener(async () => {
   try {
-    const bounds = await new Promise<chrome.system.display.Bounds | null>((resolve) => {
-      if (!chrome.system?.display) return resolve(null)
-      chrome.system.display.getInfo((displays) => {
-        if (chrome.runtime.lastError || !Array.isArray(displays) || displays.length === 0) return resolve(null)
-        const primary = displays.find(d => d.isPrimary)
-        const secondary = displays.find(d => !d.isPrimary)
-        resolve((secondary?.workArea || primary?.workArea) || null)
-      })
-    })
-    // Read last saved theme from chrome.storage as fallback
-    const store = await new Promise<any>((resolve) => chrome.storage?.local?.get('optimando-ui-theme', resolve))
-    const t = (store && store['optimando-ui-theme']) || 'default'
-
-    const url = chrome.runtime.getURL('popup.html?t=' + encodeURIComponent(t))
+    const url = chrome.runtime.getURL('silent-launch.html')
+    // Create the smallest possible popup off-screen; it will immediately close itself.
     const opts: chrome.windows.CreateData = {
       url,
       type: 'popup',
-      width: 520,
-      height: 720
-    }
-    if (bounds) {
-      opts.left = Math.max(0, bounds.left + 40)
-      opts.top = Math.max(0, bounds.top + 40)
+      width: 10,
+      height: 10,
+      focused: false
     }
     await chrome.windows.create(opts)
   } catch (e) {
-    console.error('Failed to open Command Center popup:', e)
+    console.error('Failed to trigger headless launch:', e)
   }
 });
 
@@ -304,6 +289,17 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         })
       } else {
         createPopup(null)
+      }
+      break
+    }
+
+    case 'LAUNCH_LMGTFY': {
+      try {
+        const mode = (typeof msg.mode === 'string' && (msg.mode === 'screenshot' || msg.mode === 'stream')) ? msg.mode : 'stream'
+        const url = chrome.runtime.getURL('silent-launch.html?mode=' + encodeURIComponent(mode))
+        const opts: chrome.windows.CreateData = { url, type: 'popup', width: 300, height: 120, focused: false }
+        chrome.windows.create(opts, () => sendResponse({ success: true }))
+      } catch (e) { try { sendResponse({ success: false, error: String(e) }) } catch {}
       }
       break
     }
