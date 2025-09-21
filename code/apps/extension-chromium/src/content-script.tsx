@@ -4499,6 +4499,97 @@ ${pageText}
     })
   }
 
+  // ---- Sessions data model and local store ----
+  type SessionType = 'DeepFix' | 'OptiScan'
+  type SessionState = 'Detected' | 'Draft' | 'Needs-Review' | 'Verified' | 'Embedded' | 'Rejected'
+  interface EvidenceItem {
+    id: string
+    kind: 'voice' | 'text' | 'image' | 'video' | 'file'
+    mimeType?: string
+    name?: string
+    text?: string
+    dataUrl?: string
+    createdAt: string
+    meta?: Record<string, any>
+  }
+  interface ReviewLogEntry {
+    id: string
+    at: string
+    action: 'created' | 'updated' | 'state-change' | 'note' | 'embedded' | 'rejected'
+    by?: string
+    message?: string
+    from?: SessionState
+    to?: SessionState
+  }
+  interface EmbeddingJob {
+    id: string
+    createdAt: string
+    target: 'Local VDB' | 'Project KB'
+    status: 'queued' | 'running' | 'done' | 'failed'
+    size?: number
+  }
+  interface SessionItem {
+    id: string
+    title: string
+    type: SessionType
+    durationSec: number
+    aiRootCause?: string
+    aiSteps?: string
+    confidencePct?: number
+    tags?: string[]
+    evidenceCount: number
+    status: SessionState
+    createdAt: string
+    updatedAt: string
+    evidence: EvidenceItem[]
+    jobs: EmbeddingJob[]
+    review: ReviewLogEntry[]
+    impact?: string
+  }
+  const SessionsStore = (() => {
+    const KEY = 'optimando-sessions-v1'
+    const loadAll = (): SessionItem[] => {
+      try { return JSON.parse(localStorage.getItem(KEY) || '[]') } catch { return [] }
+    }
+    const saveAll = (items: SessionItem[]) => { try { localStorage.setItem(KEY, JSON.stringify(items)) } catch {} }
+    const upsert = (item: SessionItem) => {
+      const all = loadAll()
+      const idx = all.findIndex(s => s.id === item.id)
+      if (idx >= 0) all[idx] = item; else all.push(item)
+      saveAll(all)
+      return item
+    }
+    const get = (id: string) => loadAll().find(s => s.id === id) || null
+    const addEvidence = (id: string, ev: EvidenceItem) => {
+      const it = get(id); if (!it) return null
+      it.evidence.push(ev); it.evidenceCount = it.evidence.length; it.updatedAt = new Date().toISOString()
+      it.review.push({ id: 'log_'+Math.random().toString(36).slice(2), at: new Date().toISOString(), action: 'updated', message: 'Added evidence: '+(ev.name || ev.kind) })
+      return upsert(it)
+    }
+    const transition = (id: string, to: SessionState) => {
+      const it = get(id); if (!it) return null
+      const from = it.status
+      const allowed: Record<SessionState, SessionState[]> = {
+        'Detected': ['Draft','Rejected'],
+        'Draft': ['Needs-Review','Rejected'],
+        'Needs-Review': ['Verified','Rejected'],
+        'Verified': ['Embedded','Rejected'],
+        'Embedded': [],
+        'Rejected': []
+      }
+      if (!allowed[from].includes(to)) return it
+      it.status = to; it.updatedAt = new Date().toISOString()
+      it.review.push({ id: 'log_'+Math.random().toString(36).slice(2), at: new Date().toISOString(), action: 'state-change', from, to })
+      return upsert(it)
+    }
+    const seedIfEmpty = () => {
+      const all = loadAll(); if (all.length) return
+      saveAll([])
+    }
+    seedIfEmpty()
+    return { loadAll, saveAll, upsert, get, addEvidence, transition }
+  })()
+
   function openMemoryLightbox() {
     const overlay = document.createElement('div')
     overlay.style.cssText = `
@@ -4516,6 +4607,7 @@ ${pageText}
           <div style="display:flex; gap:10px; margin-bottom: 16px; border-bottom:1px solid rgba(255,255,255,0.3)">
             <button id="mem-session-tab" style="padding:10px 16px; background: rgba(255,255,255,0.2); border:0; color:#fff; border-radius:8px 8px 0 0; cursor:pointer">🗂️ Session Memory</button>
             <button id="mem-account-tab" style="padding:10px 16px; background: rgba(255,255,255,0.1); border:0; color:#fff; border-radius:8px 8px 0 0; cursor:pointer">🏢 Account Memory</button>
+            <button id="mem-sessions-tab" style="margin-left:auto;padding:10px 16px; background: rgba(255,255,255,0.1); border:0; color:#fff; border-radius:8px 8px 0 0; cursor:pointer">🧾 Sessions</button>
           </div>
           <div id="mem-session" style="display:block">
             <div style="background: rgba(255,255,255,0.1); padding: 20px; border-radius: 8px; margin-bottom: 20px;">
@@ -4548,6 +4640,37 @@ ${pageText}
               </div>
             </div>
           </div>
+          <div id="mem-sessions" style="display:none">
+            <div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap">
+              <button class="sess-filter" data-k="all" style="padding:6px 10px;background:#334155;border:1px solid rgba(255,255,255,.25);color:#fff;border-radius:6px;cursor:pointer">All</button>
+              <button class="sess-filter" data-k="DeepFix" style="padding:6px 10px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.25);color:#fff;border-radius:6px;cursor:pointer">DeepFix</button>
+              <button class="sess-filter" data-k="OptiScan" style="padding:6px 10px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.25);color:#fff;border-radius:6px;cursor:pointer">OptiScan</button>
+              <button class="sess-filter" data-k="Queue" style="padding:6px 10px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.25);color:#fff;border-radius:6px;cursor:pointer">Queue (to-embed)</button>
+              <button class="sess-filter" data-k="Verified" style="padding:6px 10px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.25);color:#fff;border-radius:6px;cursor:pointer">Verified</button>
+            </div>
+            <div id="sess-empty" style="display:none;padding:18px;background:rgba(255,255,255,.08);border:1px dashed rgba(255,255,255,.25);border-radius:8px;font-size:12px;">
+              No sessions yet. Sessions are detected automatically when a DeepFix/OptiScan run starts.
+            </div>
+            <div id="sess-table-wrap" style="overflow:auto;">
+              <table id="sess-table" style="width:100%;border-collapse:collapse;font-size:12px;">
+                <thead>
+                  <tr>
+                    <th style="text-align:left;padding:6px;border-bottom:1px solid rgba(255,255,255,.2)">Title/ID</th>
+                    <th style="text-align:left;padding:6px;border-bottom:1px solid rgba(255,255,255,.2)">Type</th>
+                    <th style="text-align:left;padding:6px;border-bottom:1px solid rgba(255,255,255,.2)">Duration</th>
+                    <th style="text-align:left;padding:6px;border-bottom:1px solid rgba(255,255,255,.2)">AI Root Cause</th>
+                    <th style="text-align:left;padding:6px;border-bottom:1px solid rgba(255,255,255,.2)">AI Steps</th>
+                    <th style="text-align:left;padding:6px;border-bottom:1px solid rgba(255,255,255,.2)">Confidence %</th>
+                    <th style="text-align:left;padding:6px;border-bottom:1px solid rgba(255,255,255,.2)">Tags</th>
+                    <th style="text-align:left;padding:6px;border-bottom:1px solid rgba(255,255,255,.2)">Evidence</th>
+                    <th style="text-align:left;padding:6px;border-bottom:1px solid rgba(255,255,255,.2)">Status</th>
+                    <th style="text-align:left;padding:6px;border-bottom:1px solid rgba(255,255,255,.2)">Actions</th>
+                  </tr>
+                </thead>
+                <tbody></tbody>
+              </table>
+            </div>
+          </div>
         </div>
         <div style="padding: 16px; border-top:1px solid rgba(255,255,255,0.3); display:flex; justify-content:flex-end; gap:12px; background: rgba(255,255,255,0.05)">
           <button id="memory-cancel" style="padding:10px 20px;background:rgba(255,255,255,0.2);border:0;color:white;border-radius:6px;cursor:pointer;font-size:12px">Cancel</button>
@@ -4559,14 +4682,172 @@ ${pageText}
 
     const sTab = overlay.querySelector('#mem-session-tab') as HTMLButtonElement
     const aTab = overlay.querySelector('#mem-account-tab') as HTMLButtonElement
+    const xTab = overlay.querySelector('#mem-sessions-tab') as HTMLButtonElement
     const sBox = overlay.querySelector('#mem-session') as HTMLElement
     const aBox = overlay.querySelector('#mem-account') as HTMLElement
-    sTab?.addEventListener('click', ()=>{ sBox.style.display='block'; aBox.style.display='none'; sTab.style.background='rgba(255,255,255,0.2)'; aTab.style.background='rgba(255,255,255,0.1)'; })
-    aTab?.addEventListener('click', ()=>{ sBox.style.display='none'; aBox.style.display='block'; aTab.style.background='rgba(255,255,255,0.2)'; sTab.style.background='rgba(255,255,255,0.1)'; })
+    const xBox = overlay.querySelector('#mem-sessions') as HTMLElement
+    const activate = (which: 's'|'a'|'x') => {
+      sBox.style.display = which==='s' ? 'block' : 'none'
+      aBox.style.display = which==='a' ? 'block' : 'none'
+      xBox.style.display = which==='x' ? 'block' : 'none'
+      sTab.style.background = which==='s' ? 'rgba(255,255,255,0.2)' : 'rgba(255,255,255,0.1)'
+      aTab.style.background = which==='a' ? 'rgba(255,255,255,0.2)' : 'rgba(255,255,255,0.1)'
+      xTab.style.background = which==='x' ? 'rgba(255,255,255,0.2)' : 'rgba(255,255,255,0.1)'
+    }
+    sTab?.addEventListener('click', ()=> activate('s'))
+    aTab?.addEventListener('click', ()=> activate('a'))
+    xTab?.addEventListener('click', ()=> { activate('x'); renderSessions() })
 
     overlay.querySelector('#close-memory-lightbox')?.addEventListener('click', ()=> overlay.remove())
     overlay.querySelector('#memory-cancel')?.addEventListener('click', ()=> overlay.remove())
     overlay.addEventListener('click', (e)=>{ if (e.target === overlay) overlay.remove() })
+
+    // --- Sessions UI wiring ---
+    function short(s?: string, n: number = 60) { if (!s) return ''; return s.length>n? s.slice(0,n-1)+'…': s }
+    function fmtDur(sec: number) { const m = Math.floor(sec/60); const s = sec%60; return `${m}m ${s}s` }
+    function renderSessions(filter: string = 'all') {
+      const tbody = overlay.querySelector('#sess-table tbody') as HTMLElement
+      const empty = overlay.querySelector('#sess-empty') as HTMLElement
+      if (!tbody || !empty) return
+      let items = SessionsStore.loadAll()
+      if (filter === 'DeepFix' || filter === 'OptiScan') items = items.filter(i=> i.type===filter)
+      if (filter === 'Verified') items = items.filter(i=> i.status==='Verified')
+      if (filter === 'Queue') items = items.filter(i=> i.status==='Verified' || i.status==='Embedded')
+      tbody.innerHTML = ''
+      if (items.length === 0) {
+        empty.style.display = 'block'
+        return
+      }
+      empty.style.display = 'none'
+      items.forEach(it => {
+        const tr = document.createElement('tr')
+        tr.style.cursor = 'pointer'
+        tr.innerHTML = `
+          <td style="padding:6px;border-bottom:1px solid rgba(255,255,255,.08)">${it.title || '(untitled)'}<div style="opacity:.7;font-size:10px">${it.id}</div></td>
+          <td style="padding:6px;border-bottom:1px solid rgba(255,255,255,.08)">${it.type}</td>
+          <td style="padding:6px;border-bottom:1px solid rgba(255,255,255,.08)">${fmtDur(it.durationSec)}</td>
+          <td style="padding:6px;border-bottom:1px solid rgba(255,255,255,.08)">${short(it.aiRootCause, 36)}</td>
+          <td style="padding:6px;border-bottom:1px solid rgba(255,255,255,.08)">${short(it.aiSteps, 36)}</td>
+          <td style="padding:6px;border-bottom:1px solid rgba(255,255,255,.08)">${it.confidencePct ?? ''}</td>
+          <td style="padding:6px;border-bottom:1px solid rgba(255,255,255,.08)">${(it.tags||[]).join(', ')}</td>
+          <td style="padding:6px;border-bottom:1px solid rgba(255,255,255,.08)">${it.evidenceCount}</td>
+          <td style="padding:6px;border-bottom:1px solid rgba(255,255,255,.08)">${it.status}</td>
+          <td style="padding:6px;border-bottom:1px solid rgba(255,255,255,.08)"><button class="sess-open" data-id="${it.id}" style="padding:4px 8px;border:1px solid rgba(255,255,255,.35);background:rgba(255,255,255,.12);color:#fff;border-radius:6px;cursor:pointer">Open</button></td>
+        `
+        tr.addEventListener('click', (ev) => {
+          const tgt = ev.target as HTMLElement
+          if (tgt && tgt.classList.contains('sess-open')) { openDrawer(it.id); return }
+          openDrawer(it.id)
+        })
+        tbody.appendChild(tr)
+      })
+      overlay.querySelectorAll('.sess-filter').forEach(btn => {
+        btn.addEventListener('click', () => renderSessions((btn as HTMLElement).getAttribute('data-k') || 'all'))
+      })
+    }
+
+    function openDrawer(id: string) {
+      const item = SessionsStore.get(id); if (!item) return
+      const drawer = document.createElement('div')
+      drawer.style.cssText = 'position:fixed;top:0;right:0;height:100vh;width:520px;background:rgba(17,24,39,.98);color:#fff;z-index:2147483650;box-shadow:-4px 0 24px rgba(0,0,0,.4);display:flex;flex-direction:column;'
+      drawer.innerHTML = `
+        <div style="padding:16px;border-bottom:1px solid rgba(255,255,255,.2);display:flex;justify-content:space-between;align-items:center">
+          <div>
+            <div style="font-weight:700">${item.title || '(untitled)'} <span style="opacity:.8;font-weight:400">(${item.type})</span></div>
+            <div style="font-size:12px;opacity:.85">${item.status} • ${fmtDur(item.durationSec)} • Confidence ${item.confidencePct ?? '-'}%</div>
+          </div>
+          <button id="sess-close" style="width:30px;height:30px;border-radius:50%;border:0;background:rgba(255,255,255,.2);color:#fff;cursor:pointer">×</button>
+        </div>
+        <div style="flex:1;overflow:auto;padding:16px;display:grid;gap:12px">
+          <div style="background:rgba(255,255,255,.06);padding:12px;border:1px solid rgba(255,255,255,.15);border-radius:8px">
+            <div style="font-weight:700;margin-bottom:6px">AI Solution Detection</div>
+            <div style="font-size:12px;margin-bottom:6px"><b>Root cause:</b> ${item.aiRootCause || '—'}</div>
+            <div style="font-size:12px;margin-bottom:6px"><b>Steps:</b> ${item.aiSteps || '—'}</div>
+            <div style="font-size:12px;margin-bottom:6px"><b>Impact:</b> ${item.impact || '—'}</div>
+            <button id="sess-rerun" style="padding:6px 10px;background:#2563eb;border:0;color:#fff;border-radius:6px;cursor:pointer">Re-run</button>
+          </div>
+          <div style="background:rgba(255,255,255,.06);padding:12px;border:1px solid rgba(255,255,255,.15);border-radius:8px">
+            <div style="font-weight:700;margin-bottom:6px">Evidence</div>
+            <input id="sess-add-files" type="file" multiple accept="audio/*,image/*,video/*,application/pdf,application/json,.md,.txt,.zip" style="margin-bottom:8px">
+            <div id="sess-ev-list" style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px"></div>
+          </div>
+          <div style="background:rgba(255,255,255,.06);padding:12px;border:1px solid rgba(255,255,255,.15);border-radius:8px">
+            <div style="font-weight:700;margin-bottom:6px">Validation</div>
+            <label style="display:flex;align-items:center;gap:6px;margin-bottom:6px"><input id="val-redact" type="checkbox"> Redact PII</label>
+            <label style="display:flex;align-items:center;gap:6px;margin-bottom:6px"><input id="val-accepted" type="checkbox" checked> Include accepted steps</label>
+            <label style="display:flex;align-items:center;gap:6px;margin-bottom:6px"><input id="val-bind" type="checkbox"> Bind to Account Memory</label>
+            <div style="display:flex;gap:8px;align-items:center;margin-top:6px">
+              <span style="font-size:12px">Target:</span>
+              <select id="embed-target" style="background:#111827;color:#fff;border:1px solid rgba(255,255,255,.25);padding:6px;border-radius:6px">
+                <option>Local VDB</option>
+                <option>Project KB</option>
+              </select>
+              <button id="do-embed" style="margin-left:auto;padding:6px 10px;background:#22c55e;border:0;color:#0b1e12;border-radius:6px;cursor:pointer">Embed</button>
+            </div>
+          </div>
+          <div style="background:rgba(255,255,255,.06);padding:12px;border:1px solid rgba(255,255,255,.15);border-radius:8px">
+            <div style="font-weight:700;margin-bottom:6px">Audit & Export</div>
+            <div id="audit-log" style="font-size:12px;max-height:120px;overflow:auto;margin-bottom:8px"></div>
+            <div style="display:flex;gap:8px">
+              <button id="export-json" style="padding:6px 10px;background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.35);color:#fff;border-radius:6px;cursor:pointer">Export JSON</button>
+              <button id="export-md" style="padding:6px 10px;background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.35);color:#fff;border-radius:6px;cursor:pointer">Export MD</button>
+              <button id="export-pdf" style="padding:6px 10px;background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.35);color:#fff;border-radius:6px;cursor:pointer">Export PDF</button>
+            </div>
+          </div>
+        </div>
+      `
+      document.body.appendChild(drawer)
+      ;(drawer.querySelector('#sess-close') as HTMLButtonElement)?.addEventListener('click', ()=> drawer.remove())
+      // evidence render
+      const evList = drawer.querySelector('#sess-ev-list') as HTMLElement
+      const renderEv = () => {
+        evList.innerHTML = ''
+        item.evidence.forEach(ev => {
+          const cell = document.createElement('div')
+          cell.style.cssText = 'background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.2);border-radius:8px;padding:6px;display:flex;gap:6px;align-items:center'
+          const label = document.createElement('div')
+          label.style.cssText = 'font-size:11px;flex:1'
+          label.textContent = ev.name || ev.kind
+          if (ev.dataUrl && ev.kind==='image') {
+            const img = document.createElement('img'); img.src = ev.dataUrl; img.style.maxWidth = '64px'; img.style.borderRadius = '4px'; cell.appendChild(img)
+          }
+          cell.appendChild(label)
+          evList.appendChild(cell)
+        })
+      }
+      renderEv()
+      const addFiles = drawer.querySelector('#sess-add-files') as HTMLInputElement
+      addFiles?.addEventListener('change', async ()=>{
+        const files = Array.from(addFiles.files||[])
+        for (const f of files) {
+          const kind: EvidenceItem['kind'] = f.type.startsWith('image/') ? 'image' : f.type.startsWith('video/') ? 'video' : f.type.startsWith('audio/') ? 'voice' : (f.type.startsWith('text/') || f.name.endsWith('.md')) ? 'text' : 'file'
+          const dataUrl = (kind==='image' || kind==='video' || kind==='voice') ? await new Promise<string>(res=>{ const r = new FileReader(); r.onload=()=>res(String(r.result||'')); r.readAsDataURL(f) }) : undefined
+          SessionsStore.addEvidence(item.id, { id: 'ev_'+Math.random().toString(36).slice(2), kind, mimeType: f.type, name: f.name, dataUrl, createdAt: new Date().toISOString() })
+        }
+        Object.assign(item, SessionsStore.get(item.id))
+        renderEv(); renderSessions()
+      })
+      // audit log
+      const audit = drawer.querySelector('#audit-log') as HTMLElement
+      audit.innerHTML = item.review.map(l=>`<div>${new Date(l.at).toLocaleString()} – ${l.action}${l.from?` ${l.from} → ${l.to}`:''} ${l.message?('– '+l.message):''}</div>`).join('')
+      // export handlers
+      const download = (name: string, content: string, mime='application/octet-stream') => { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([content], {type:mime})); a.download=name; a.click(); URL.revokeObjectURL(a.href) }
+      ;(drawer.querySelector('#export-json') as HTMLButtonElement)?.addEventListener('click', ()=> download(`session-${item.id}.json`, JSON.stringify(item, null, 2), 'application/json'))
+      ;(drawer.querySelector('#export-md') as HTMLButtonElement)?.addEventListener('click', ()=> {
+        const md = `# ${item.title}\n\n- Type: ${item.type}\n- Status: ${item.status}\n- Duration: ${fmtDur(item.durationSec)}\n- Confidence: ${item.confidencePct ?? '-'}%\n\n## Root Cause\n${item.aiRootCause||''}\n\n## Steps\n${item.aiSteps||''}`
+        download(`session-${item.id}.md`, md, 'text/markdown')
+      })
+      ;(drawer.querySelector('#export-pdf') as HTMLButtonElement)?.addEventListener('click', ()=> {
+        const w = window.open('', '_blank')
+        if (!w) return
+        w.document.write(`<pre style="font-family:ui-monospace, SFMono-Regular, Menlo, monospace; white-space:pre-wrap;">${(item.title||'')+"\n\n"+(item.aiRootCause||'')+"\n\n"+(item.aiSteps||'')}</pre>`)
+        w.document.close(); w.focus(); w.print()
+      })
+      // embed handler
+      ;(drawer.querySelector('#do-embed') as HTMLButtonElement)?.addEventListener('click', ()=>{
+        SessionsStore.transition(item.id, 'Embedded'); renderSessions(); drawer.remove()
+      })
+    }
   }
 
   function sendContextToElectron() {
