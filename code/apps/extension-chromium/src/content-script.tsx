@@ -2201,7 +2201,7 @@ function initializeExtension() {
           </div>
           <button id="agents-lightbox-btn" style="padding: 4px 8px; background: rgba(255,255,255,0.1); border: none; border-radius: 3px; cursor: pointer; font-size: 10px; color: inherit;" class="menu-link">🤖 Agents</button>
           <button id="context-lightbox-btn" style="padding: 4px 8px; background: rgba(255,255,255,0.1); border: none; border-radius: 3px; cursor: pointer; font-size: 10px; color: inherit;" class="menu-link">📄 Context</button>
-          <button id="whitelist-lightbox-btn" style="padding: 4px 8px; background: rgba(255,255,255,0.1); border: none; border-radius: 3px; cursor: pointer; font-size: 10px; color: inherit;" class="menu-link">🛡️ Whitelist</button>
+          <button id="memory-lightbox-btn" style="padding: 4px 8px; background: rgba(255,255,255,0.1); border: none; border-radius: 3px; cursor: pointer; font-size: 10px; color: inherit;" class="menu-link">💽 Memory</button>
           <button id="settings-lightbox-btn" style="padding: 4px 8px; background: rgba(255,255,255,0.1); border: none; border-radius: 3px; cursor: pointer; font-size: 10px; color: inherit;" class="menu-link">⚙️ Settings</button>
           <button id="dock-chat-btn" style="padding: 4px 8px; background: transparent; border: none; border-radius: 3px; cursor: pointer; font-size: 12px; color: inherit; font-weight:700;" class="menu-link" title="Dock to sidepanel">📌</button>
         </div>
@@ -2974,6 +2974,14 @@ function initializeExtension() {
       let persistedPassiveToggle = true
       let persistedActiveToggle = false
       let persistedActiveTriggers: Array<{ tag?: string, kind?: string, extra?: string }> = []
+      // Persist Memory toggles
+      let persistedMemSessionEnabled = true
+      let persistedMemSessionRead = true
+      let persistedMemSessionWrite = false
+      let persistedMemAccountEnabled = true
+      let persistedMemAccountRead = false
+      let persistedMemAccountWrite = false
+      let persistedMemAgentEnabled = true
       const syncPersistedFromDom = () => {
         try {
           const g = configOverlay.querySelector('#R-goals') as HTMLTextAreaElement | null
@@ -2985,6 +2993,21 @@ function initializeExtension() {
           const a = configOverlay.querySelector('#L-toggle-active') as HTMLInputElement | null
           if (p) persistedPassiveToggle = !!p.checked
           if (a) persistedActiveToggle = !!a.checked
+          // Persist Memory UI
+          const ms = configOverlay.querySelector('#MEM-session') as HTMLInputElement | null
+          const msr = configOverlay.querySelector('#MEM-session-read') as HTMLInputElement | null
+          const msw = configOverlay.querySelector('#MEM-session-write') as HTMLInputElement | null
+          const ma = configOverlay.querySelector('#MEM-account') as HTMLInputElement | null
+          const mar = configOverlay.querySelector('#MEM-account-read') as HTMLInputElement | null
+          const maw = configOverlay.querySelector('#MEM-account-write') as HTMLInputElement | null
+          const mAgent = configOverlay.querySelector('#MEM-agent') as HTMLInputElement | null
+          if (ms) persistedMemSessionEnabled = !!ms.checked
+          if (msr) persistedMemSessionRead = !!msr.checked
+          if (msw) persistedMemSessionWrite = !!msw.checked
+          if (ma) persistedMemAccountEnabled = !!ma.checked
+          if (mar) persistedMemAccountRead = !!mar.checked
+          if (maw) persistedMemAccountWrite = !!maw.checked
+          if (mAgent) persistedMemAgentEnabled = !!mAgent.checked
           // Also persist Active Listener triggers (so tags do not get lost)
           const rows = Array.from(configOverlay.querySelectorAll('#L-active-list .act-row')) as HTMLElement[]
           persistedActiveTriggers = rows.map((row:any)=> ({
@@ -3002,12 +3025,12 @@ function initializeExtension() {
         // Before clearing, capture current Reasoning values if present
         syncPersistedFromDom()
         container.innerHTML = ''
-        // Agent Context (optional) uploader
+        // Context uploader
         const agentCtxWrap = document.createElement('div')
         agentCtxWrap.style.cssText = 'background:rgba(255,255,255,0.06);padding:12px;border-radius:10px;border:1px solid rgba(255,255,255,0.15)'
         agentCtxWrap.innerHTML = `
           <div style="display:flex;align-items:center;gap:12px;justify-content:space-between">
-            <div style="font-weight:700">Agent Context (optional)</div>
+            <div style="font-weight:700">Context</div>
             <div style="display:flex;align-items:center;gap:12px;font-size:12px">
               <label style="display:flex;align-items:center;gap:6px"><input id="AC-session" type="checkbox" checked> Session Context</label>
               <label style="display:flex;align-items:center;gap:6px"><input id="AC-account" type="checkbox" checked> Account Context</label>
@@ -3030,6 +3053,83 @@ function initializeExtension() {
           const n = (acFiles.files||[]).length
           acList.textContent = n ? `${n} file(s) selected` : 'No files selected'
         })
+
+        // Memory settings block
+        const memoryWrap = document.createElement('div')
+        memoryWrap.style.cssText = 'background:rgba(255,255,255,0.06);padding:12px;border-radius:10px;border:1px solid rgba(255,255,255,0.15);margin-top:10px'
+        memoryWrap.innerHTML = `
+          <div style="font-weight:700;margin-bottom:6px">Memory</div>
+          <div style="display:flex;flex-direction:column;gap:10px;font-size:12px">
+            <div style="display:flex;align-items:center;gap:12px;justify-content:space-between">
+              <label style="display:flex;align-items:center;gap:6px"><input id="MEM-session" type="checkbox" ${persistedMemSessionEnabled ? 'checked' : ''}> Session Memory</label>
+              <div style="display:flex;align-items:center;gap:10px">
+                <label style="display:flex;align-items:center;gap:6px">
+                  <input id="MEM-session-read" type="checkbox" ${persistedMemSessionRead ? 'checked' : ''}>
+                  <span>Read <span id="MEM-session-read-state" style="padding:2px 6px;border-radius:6px;background:${persistedMemSessionRead ? '#22c55e' : 'rgba(255,255,255,.15)'};border:1px solid rgba(255,255,255,.3)">${persistedMemSessionRead ? 'ON' : 'OFF'}</span></span>
+                </label>
+                <label style="display:flex;align-items:center;gap:6px">
+                  <input id="MEM-session-write" type="checkbox" ${persistedMemSessionWrite ? 'checked' : ''}>
+                  <span>Write <span id="MEM-session-write-state" style="padding:2px 6px;border-radius:6px;background:${persistedMemSessionWrite ? '#22c55e' : 'rgba(255,255,255,.15)'};border:1px solid rgba(255,255,255,.3)">${persistedMemSessionWrite ? 'ON' : 'OFF'}</span></span>
+                </label>
+              </div>
+            </div>
+            <div style="display:flex;align-items:center;gap:12px;justify-content:space-between">
+              <label style="display:flex;align-items:center;gap:6px"><input id="MEM-account" type="checkbox" ${persistedMemAccountEnabled ? 'checked' : ''}> Account Memory</label>
+              <div style="display:flex;align-items:center;gap:10px">
+                <label style="display:flex;align-items:center;gap:6px">
+                  <input id="MEM-account-read" type="checkbox" ${persistedMemAccountRead ? 'checked' : ''}>
+                  <span>Read <span id="MEM-account-read-state" style="padding:2px 6px;border-radius:6px;background:${persistedMemAccountRead ? '#22c55e' : 'rgba(255,255,255,.15)'};border:1px solid rgba(255,255,255,.3)">${persistedMemAccountRead ? 'ON' : 'OFF'}</span></span>
+                </label>
+                <label style="display:flex;align-items:center;gap:6px">
+                  <input id="MEM-account-write" type="checkbox" ${persistedMemAccountWrite ? 'checked' : ''}>
+                  <span>Write <span id="MEM-account-write-state" style="padding:2px 6px;border-radius:6px;background:${persistedMemAccountWrite ? '#22c55e' : 'rgba(255,255,255,.15)'};border:1px solid rgba(255,255,255,.3)">${persistedMemAccountWrite ? 'ON' : 'OFF'}</span></span>
+                </label>
+              </div>
+            </div>
+            <div style="display:flex;align-items:center;gap:12px;opacity:.6">
+              <label style="display:flex;align-items:center;gap:6px"><input id="MEM-agent" type="checkbox" checked disabled> Agent Memory (always on)</label>
+            </div>
+          </div>
+        `
+        container.appendChild(memoryWrap)
+
+        // Wire memory interactions
+        const memSession = memoryWrap.querySelector('#MEM-session') as HTMLInputElement
+        const memSessionRead = memoryWrap.querySelector('#MEM-session-read') as HTMLInputElement
+        const memSessionWrite = memoryWrap.querySelector('#MEM-session-write') as HTMLInputElement
+        const memAccount = memoryWrap.querySelector('#MEM-account') as HTMLInputElement
+        const memAccountRead = memoryWrap.querySelector('#MEM-account-read') as HTMLInputElement
+        const memAccountWrite = memoryWrap.querySelector('#MEM-account-write') as HTMLInputElement
+        const stateEls: Record<string, HTMLElement | null> = {
+          'MEM-session-read': memoryWrap.querySelector('#MEM-session-read-state') as HTMLElement,
+          'MEM-session-write': memoryWrap.querySelector('#MEM-session-write-state') as HTMLElement,
+          'MEM-account-read': memoryWrap.querySelector('#MEM-account-read-state') as HTMLElement,
+          'MEM-account-write': memoryWrap.querySelector('#MEM-account-write-state') as HTMLElement
+        }
+        const syncToggleText = (id: string, checked: boolean) => {
+          const el = stateEls[id]
+          if (el) {
+            el.textContent = checked ? 'ON' : 'OFF'
+            el.style.background = checked ? '#22c55e' : 'rgba(255,255,255,.15)'
+          }
+        }
+        const syncParentEnable = () => {
+          const sesEnabled = !!memSession?.checked
+          const accEnabled = !!memAccount?.checked
+          ;[memSessionRead, memSessionWrite].forEach(el => { if (el) el.disabled = !sesEnabled })
+          ;[memAccountRead, memAccountWrite].forEach(el => { if (el) el.disabled = !accEnabled })
+          if (memSessionRead) syncToggleText('MEM-session-read', memSessionRead.checked)
+          if (memSessionWrite) syncToggleText('MEM-session-write', memSessionWrite.checked)
+          if (memAccountRead) syncToggleText('MEM-account-read', memAccountRead.checked)
+          if (memAccountWrite) syncToggleText('MEM-account-write', memAccountWrite.checked)
+        }
+        memSession?.addEventListener('change', syncParentEnable)
+        memAccount?.addEventListener('change', syncParentEnable)
+        memSessionRead?.addEventListener('change', () => syncToggleText('MEM-session-read', memSessionRead.checked))
+        memSessionWrite?.addEventListener('change', () => syncToggleText('MEM-session-write', memSessionWrite.checked))
+        memAccountRead?.addEventListener('change', () => syncToggleText('MEM-account-read', memAccountRead.checked))
+        memAccountWrite?.addEventListener('change', () => syncToggleText('MEM-account-write', memAccountWrite.checked))
+        syncParentEnable()
         if (capL && capL.checked) {
           const wrap = document.createElement('div')
           wrap.id = 'box-listening'
@@ -4399,6 +4499,76 @@ ${pageText}
     })
   }
 
+  function openMemoryLightbox() {
+    const overlay = document.createElement('div')
+    overlay.style.cssText = `
+      position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+      background: rgba(0,0,0,0.8); z-index: 2147483650; display:flex;align-items:center;justify-content:center;
+      backdrop-filter: blur(6px);
+    `
+    overlay.innerHTML = `
+      <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 16px; width: 85vw; max-width: 900px; height: 80vh; color: white; overflow: hidden; box-shadow: 0 20px 40px rgba(0,0,0,0.4); display: flex; flex-direction: column;">
+        <div style="padding: 20px; border-bottom: 1px solid rgba(255,255,255,0.3); display: flex; justify-content: space-between; align-items: center;">
+          <h2 style="margin: 0; font-size: 20px;">💽 Global Memory Management</h2>
+          <button id="close-memory-lightbox" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 30px; height: 30px; border-radius: 50%; cursor: pointer; font-size: 16px;">×</button>
+        </div>
+        <div style="flex:1; padding: 20px; overflow-y:auto;">
+          <div style="display:flex; gap:10px; margin-bottom: 16px; border-bottom:1px solid rgba(255,255,255,0.3)">
+            <button id="mem-session-tab" style="padding:10px 16px; background: rgba(255,255,255,0.2); border:0; color:#fff; border-radius:8px 8px 0 0; cursor:pointer">🗂️ Session Memory</button>
+            <button id="mem-account-tab" style="padding:10px 16px; background: rgba(255,255,255,0.1); border:0; color:#fff; border-radius:8px 8px 0 0; cursor:pointer">🏢 Account Memory</button>
+          </div>
+          <div id="mem-session" style="display:block">
+            <div style="background: rgba(255,255,255,0.1); padding: 20px; border-radius: 8px; margin-bottom: 20px;">
+              <label style="display:block;margin-bottom:10px;font-size:14px;color:#FFD700;font-weight:bold;">🧠 Memory:</label>
+              <textarea id="mem-session-text" style="width:100%;height:180px;background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.3);color:white;padding:12px;border-radius:6px;font-size:12px;resize:vertical;"></textarea>
+            </div>
+            <div style="background: rgba(255,255,255,0.1); padding: 20px; border-radius: 8px;">
+              <label style="display:block;margin-bottom:10px;font-size:14px;color:#FFD700;font-weight:bold;">📦 Memory Allocation:</label>
+              <div style="display:flex;align-items:center;gap:8px">
+                <input id="mem-session-alloc-mb" type="number" min="1" step="1" value="200" style="flex:0 0 120px;background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.3);color:white;padding:12px;border-radius:6px;font-size:12px;"> <span>MB</span>
+              </div>
+            </div>
+            <div style="background: rgba(255,255,255,0.1); padding: 20px; border-radius: 8px; margin-top: 12px;">
+              <label style="display: block; margin-bottom: 15px; font-size: 14px; color: #FFD700; font-weight: bold;">💾 Memory Settings:</label>
+              <label style="display: flex; align-items: center; font-size: 12px; cursor: pointer;">
+                <input type="checkbox" id="mem-session-persist" style="margin-right: 10px; transform: scale(1.2);" checked>
+                <span>Persist memory across sessions</span>
+              </label>
+            </div>
+          </div>
+          <div id="mem-account" style="display:none">
+            <div style="background: rgba(255,255,255,0.1); padding: 20px; border-radius: 8px; margin-bottom: 20px;">
+              <label style="display:block;margin-bottom:10px;font-size:14px;color:#FFD700;font-weight:bold;">🧠 Memory:</label>
+              <textarea id="mem-account-text" style="width:100%;height:180px;background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.3);color:white;padding:12px;border-radius:6px;font-size:12px;resize:vertical;"></textarea>
+            </div>
+            <div style="background: rgba(255,255,255,0.1); padding: 20px; border-radius: 8px;">
+              <label style="display:block;margin-bottom:10px;font-size:14px;color:#FFD700;font-weight:bold;">📦 Memory Allocation:</label>
+              <div style="display:flex;align-items:center;gap:8px">
+                <input id="mem-account-alloc-mb" type="number" min="1" step="1" value="200" style="flex:0 0 120px;background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.3);color:white;padding:12px;border-radius:6px;font-size:12px;"> <span>MB</span>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div style="padding: 16px; border-top:1px solid rgba(255,255,255,0.3); display:flex; justify-content:flex-end; gap:12px; background: rgba(255,255,255,0.05)">
+          <button id="memory-cancel" style="padding:10px 20px;background:rgba(255,255,255,0.2);border:0;color:white;border-radius:6px;cursor:pointer;font-size:12px">Cancel</button>
+          <button id="memory-save" style="padding:10px 20px;background:#4CAF50;border:0;color:white;border-radius:6px;cursor:pointer;font-size:12px">💾 Save</button>
+        </div>
+      </div>
+    `
+    document.body.appendChild(overlay)
+
+    const sTab = overlay.querySelector('#mem-session-tab') as HTMLButtonElement
+    const aTab = overlay.querySelector('#mem-account-tab') as HTMLButtonElement
+    const sBox = overlay.querySelector('#mem-session') as HTMLElement
+    const aBox = overlay.querySelector('#mem-account') as HTMLElement
+    sTab?.addEventListener('click', ()=>{ sBox.style.display='block'; aBox.style.display='none'; sTab.style.background='rgba(255,255,255,0.2)'; aTab.style.background='rgba(255,255,255,0.1)'; })
+    aTab?.addEventListener('click', ()=>{ sBox.style.display='none'; aBox.style.display='block'; aTab.style.background='rgba(255,255,255,0.2)'; sTab.style.background='rgba(255,255,255,0.1)'; })
+
+    overlay.querySelector('#close-memory-lightbox')?.addEventListener('click', ()=> overlay.remove())
+    overlay.querySelector('#memory-cancel')?.addEventListener('click', ()=> overlay.remove())
+    overlay.addEventListener('click', (e)=>{ if (e.target === overlay) overlay.remove() })
+  }
+
   function sendContextToElectron() {
     console.log('💾 Saving context to Electron app...')
     console.log('💾 currentTabData.context:', currentTabData.context)
@@ -4619,7 +4789,10 @@ ${pageText}
       <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 16px; width: 90vw; height: 85vh; max-width: 1200px; color: white; overflow: hidden; box-shadow: 0 20px 40px rgba(0,0,0,0.3); display: flex; flex-direction: column;">
         <div style="padding: 20px; border-bottom: 1px solid rgba(255,255,255,0.3); display: flex; justify-content: space-between; align-items: center;">
           <h2 style="margin: 0; font-size: 20px;">⚙️ Extension Settings</h2>
-          <button id="close-settings-lightbox" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 30px; height: 30px; border-radius: 50%; cursor: pointer; font-size: 16px;">×</button>
+          <div style="display:flex; gap:10px; align-items:center;">
+            <button id="settings-whitelist-btn" style="background: rgba(255,255,255,0.15); border: 1px solid rgba(255,255,255,0.4); color: white; padding: 6px 10px; border-radius: 999px; cursor: pointer; font-size: 11px; font-weight:700;">🛡️ Whitelist</button>
+            <button id="close-settings-lightbox" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 30px; height: 30px; border-radius: 50%; cursor: pointer; font-size: 16px;">×</button>
+          </div>
         </div>
         <div style="flex: 1; padding: 20px; overflow-y: auto;">
           <div style="display: grid; grid-template-columns: 1.2fr 1fr 1fr; gap: 16px; align-items: stretch;">
@@ -4809,6 +4982,13 @@ ${pageText}
     document.body.appendChild(overlay)
     
     document.getElementById('close-settings-lightbox').onclick = () => overlay.remove()
+    const whitelistBtnInSettings = document.getElementById('settings-whitelist-btn')
+    if (whitelistBtnInSettings) {
+      whitelistBtnInSettings.addEventListener('click', () => {
+        overlay.remove()
+        try { openWhitelistLightbox() } catch (e) { console.error('Failed to open whitelist from settings', e) }
+      })
+    }
     overlay.onclick = (e) => { if (e.target === overlay) overlay.remove() }
     
     // Theme select wiring - attach immediately after DOM insertion
@@ -8680,7 +8860,7 @@ ${pageText}
     // Agents and Settings lightbox buttons
     document.getElementById('agents-lightbox-btn')?.addEventListener('click', openAgentsLightbox)
     document.getElementById('context-lightbox-btn')?.addEventListener('click', openContextLightbox)
-    document.getElementById('whitelist-lightbox-btn')?.addEventListener('click', openWhitelistLightbox)
+    document.getElementById('memory-lightbox-btn')?.addEventListener('click', openMemoryLightbox)
     document.getElementById('settings-lightbox-btn')?.addEventListener('click', openSettingsLightbox)
     // Dock/Undock Command Chat
     const dockBtn = document.getElementById('dock-chat-btn') as HTMLButtonElement | null
