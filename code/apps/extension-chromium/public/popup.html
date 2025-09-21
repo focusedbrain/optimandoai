@@ -72,11 +72,15 @@
       .bubble { max-width: 78%; padding: 10px 12px; border-radius: 10px; font-size: 12px; line-height: 1.45; }
       .bubble.user { background: var(--bubble-user-bg); border: 1px solid var(--bubble-user-border); }
       .bubble.assistant { background: var(--bubble-assist-bg); border: 1px solid var(--bubble-assist-border); }
-      .composer { display: grid; grid-template-columns: 1fr 40px 40px 40px 80px; gap: 8px; padding: 8px 12px 12px; align-items: center; border-top:1px solid var(--border); }
+      .toolkit { display:flex; gap:8px; align-items:center; padding:8px 12px; border-bottom:1px solid var(--border); background: var(--surface); }
+      .tk-btn { height:28px; padding:0 8px; border-radius:6px; border:1px solid var(--border); cursor:pointer; display:flex; align-items:center; justify-content:center; font-size:12px; background: var(--surface); color:var(--text); }
+      .tk-bucket { color:#ef4444; }
+      .composer { display: grid; grid-template-columns: 1fr 40px 40px 80px; gap: 8px; padding: 8px 12px 12px; align-items: center; border-top:1px solid var(--border); }
       .ta { box-sizing: border-box; width: 100%; height: 42px; max-height: 180px; resize: vertical; background: var(--surface); border:1px solid var(--border); color:var(--text); padding:10px; border-radius:8px; font-size:12px; }
       .btn { height: 42px; background: var(--btn-surface); border:1px solid var(--border); color:var(--text); border-radius:8px; padding:0 12px; cursor: pointer; display:flex; align-items:center; justify-content:center; }
       .btn:disabled { opacity: .5; cursor: default; }
       .send { font-weight:800; }
+      .bucket { border-color:#ef4444; color:#ef4444; background: var(--surface); }
       /* Theme-specific send button styling */
       body.theme-default .send { background: linear-gradient(135deg,#667eea,#764ba2); border:1px solid rgba(255,255,255,0.30); color:#ffffff; }
       body.theme-dark .send { background: linear-gradient(135deg,#334155,#1e293b); border:1px solid rgba(255,255,255,0.20); color:#e5e7eb; }
@@ -85,17 +89,73 @@
   </head>
   <body>
       <div class="wrap">
+      <div class="toolkit">
+        <button id="tk-bucket" class="tk-btn tk-bucket" title="Context Bucket: Embed context directly into the session">🪣</button>
+        <button id="tk-pencil" class="tk-btn" title="LmGTFY - Capture a screen area as screenshot or stream and send it to your pre-defined automation tasks.">✎</button>
+      </div>
       <div id="msgs" class="messages"></div>
-      <div class="composer">
+      <div class="composer" id="composer">
         <textarea id="ta" class="ta" placeholder="Type a command for the Orchestrator..."></textarea>
         <input id="file" type="file" multiple style="display:none" />
         <button id="up" class="btn" title="Attach">📎</button>
         <button id="mic" class="btn" title="Voice input">🎙️</button>
-        <button id="lm-pencil" class="btn" title="LmGTFY - Capture a screen area as screenshot or stream and send it to your pre-defined automation tasks.">✎</button>
         <button id="send" class="btn send">Send</button>
       </div>
     </div>
     <script>
+      // Context Bucket (drag & drop + confirm)
+      (function(){
+        const picker = document.getElementById('file')
+        const bucketBtn = document.getElementById('tk-bucket')
+        const pencilBtn = document.getElementById('tk-pencil')
+        const wrap = document.body
+        function showToast(msg){
+          const d=document.createElement('div'); d.textContent=msg; d.style.cssText='position:fixed;bottom:16px;left:16px;z-index:2147483650;background:#0b1220;color:#e5e7eb;padding:8px 12px;border:1px solid rgba(255,255,255,0.2);border-radius:8px;font-size:12px;box-shadow:0 6px 18px rgba(0,0,0,0.35)'; document.body.appendChild(d); setTimeout(()=>d.remove(),1800)
+        }
+        function parseDT(dt){
+          const items=[]
+          try{
+            for(const f of Array.from(dt.files||[])){
+              const t=(f.type||'').toLowerCase(); const kind=t.startsWith('image/')?'image':t.startsWith('audio/')?'audio':t.startsWith('video/')?'video':'file'
+              items.push({kind, name:f.name, mime:f.type, size:f.size})
+            }
+            const url=dt.getData('text/uri-list')||dt.getData('text/url'); if(url) items.push({kind:'url', text:url})
+            const txt=dt.getData('text/plain'); if(txt && !url) items.push({kind:'text', text:txt})
+          }catch{}
+          return items
+        }
+        function confirmTarget(items){
+          const ov=document.createElement('div'); ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;z-index:2147483651;backdrop-filter:blur(4px)'
+          const box=document.createElement('div'); box.style.cssText='width:420px;background:linear-gradient(135deg,#667eea,#764ba2);color:#fff;border:1px solid rgba(255,255,255,.25);border-radius:12px;overflow:hidden;box-shadow:0 12px 30px rgba(0,0,0,.4)'
+          box.innerHTML=`<div style="padding:12px 14px;border-bottom:1px solid rgba(255,255,255,.25);font-weight:700">Wohin einbetten?</div>
+            <div style="padding:12px 14px;font-size:12px">
+              <label style="display:flex;gap:8px;align-items:center;margin-bottom:8px"><input type="radio" name="kb-tgt" value="session"> <span>Session Memory (nur diese Sitzung)</span></label>
+              <label style="display:flex;gap:8px;align-items:center;margin-bottom:8px"><input type="radio" name="kb-tgt" value="account"> <span>Account Memory (kontoweit, langfristig)</span></label>
+              <div style="margin-top:8px;opacity:.9">Die Inhalte werden aufbereitet (OCR/ASR/Parsing), gechunkt und lokal eingebettet.</div>
+            </div>
+            <div style="padding:10px 14px;background:rgba(255,255,255,.08);display:flex;gap:8px;justify-content:flex-end">
+              <button id="kb-cancel" style="padding:6px 10px;border:0;border-radius:6px;background:rgba(255,255,255,.18);color:#fff;cursor:pointer">Abbrechen</button>
+              <button id="kb-run" style="padding:6px 10px;border:0;border-radius:6px;background:#22c55e;color:#0b1e12;cursor:pointer">Einbetten</button>
+            </div>`
+          ov.appendChild(box); document.body.appendChild(ov)
+          box.querySelector('#kb-cancel').onclick=()=>ov.remove()
+          box.querySelector('#kb-run').onclick=()=>{
+            const sel=box.querySelector('input[name="kb-tgt"]:checked'); if(!sel){ showToast('Bitte Ziel auswählen'); return }
+            try{
+              const key=sel.value==='session'?'optimando-context-bucket-session':'optimando-context-bucket-account'
+              const prev=JSON.parse(localStorage.getItem(key)||'[]')
+              prev.push({ at: Date.now(), items })
+              localStorage.setItem(key, JSON.stringify(prev))
+            }catch{}
+            ov.remove(); showToast('Einbettung abgeschlossen')
+          }
+        }
+        wrap.addEventListener('dragover', e=> e.preventDefault())
+        wrap.addEventListener('drop', e=>{ e.preventDefault(); const items=parseDT(e.dataTransfer||new DataTransfer()); if(items.length) confirmTarget(items) })
+        if(pencilBtn){ pencilBtn.onclick=()=>launch('stream') }
+        if(bucketBtn){ bucketBtn.onclick=()=> picker && picker.click() }
+        if(picker){ picker.onchange=()=>{ const dt=new DataTransfer(); Array.from(picker.files||[]).forEach(f=> dt.items.add(f)); const items=parseDT(dt); if(items.length) confirmTarget(items); picker.value='' } }
+      })();
       function launch(mode){
         try{ window.open('opengiraffe://lmgtfy?mode='+encodeURIComponent(mode),'_self') }catch(e){}
         try{ chrome.runtime?.sendMessage({ type: 'LAUNCH_LMGTFY', mode }) }catch(e){}

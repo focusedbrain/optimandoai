@@ -1,5 +1,5 @@
 /// <reference types="chrome-types"/>
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { createRoot } from 'react-dom/client'
 
 interface ConnectionStatus {
@@ -11,6 +11,10 @@ interface TabActivationStatus {
   isActive: boolean
   currentTab?: chrome.tabs.Tab
 }
+
+// Context Bucket minimal contract
+type IngestItem = { kind: 'file'|'image'|'audio'|'video'|'text'|'url'; payload: File|Blob|string; mime?: string; name?: string }
+type IngestTarget = 'session' | 'account'
 
 function Popup() {
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>({ isConnected: false })
@@ -25,6 +29,10 @@ function Popup() {
     entityExtract: false
   })
   const [tabActivation, setTabActivation] = useState<TabActivationStatus>({ isActive: false })
+  // Context Bucket UI state
+  const filePickerRef = useRef<HTMLInputElement|null>(null)
+  const pendingItemsRef = useRef<IngestItem[]|null>(null)
+  const [confirmOpen, setConfirmOpen] = useState(false)
 
   useEffect(() => {
     // Get current tab and check activation status
@@ -110,6 +118,69 @@ function Popup() {
     return connectionStatus.isConnected ? '#00FF00' : '#FF0000'
   }
 
+  // ------- Context Bucket helpers (local only; no backend) -------
+  function showToast(message: string) {
+    const d = document.createElement('div')
+    d.textContent = message
+    d.style.cssText = 'position:fixed;bottom:16px;left:16px;z-index:2147483650;background:#0b1220;color:#e5e7eb;padding:8px 12px;border:1px solid rgba(255,255,255,0.2);border-radius:8px;font-size:12px;box-shadow:0 6px 18px rgba(0,0,0,0.35)'
+    document.body.appendChild(d)
+    setTimeout(()=> d.remove(), 1800)
+  }
+  async function parseDataTransfer(dt: DataTransfer): Promise<IngestItem[]> {
+    const out: IngestItem[] = []
+    try {
+      for (const f of Array.from(dt.files||[])) {
+        const t = (f.type||'').toLowerCase()
+        const kind: IngestItem['kind'] = t.startsWith('image/') ? 'image' : t.startsWith('audio/') ? 'audio' : t.startsWith('video/') ? 'video' : 'file'
+        out.push({ kind, payload: f, mime: f.type, name: f.name })
+      }
+      const url = dt.getData('text/uri-list') || dt.getData('text/url')
+      if (url) out.push({ kind:'url', payload: url })
+      const txt = dt.getData('text/plain')
+      if (txt && !url) out.push({ kind:'text', payload: txt })
+    } catch {}
+    return out
+  }
+  function runEmbed(items: IngestItem[], target: IngestTarget) {
+    showToast('Vorverarbeitung…')
+    setTimeout(()=>{
+      try {
+        const key = target==='session' ? 'optimando-context-bucket-session' : 'optimando-context-bucket-account'
+        const prev = JSON.parse(localStorage.getItem(key) || '[]')
+        const serialized = items.map(it => ({ kind: it.kind, name: (it as any).name || undefined, mime: it.mime || undefined, size: (it.payload as any)?.size || undefined, text: typeof it.payload==='string'? it.payload : undefined }))
+        prev.push({ at: Date.now(), items: serialized })
+        localStorage.setItem(key, JSON.stringify(prev))
+      } catch {}
+      showToast('Einbettung abgeschlossen')
+    }, 900)
+  }
+  async function handleDrop(ev: React.DragEvent) {
+    ev.preventDefault()
+    const dt = ev.dataTransfer
+    if (!dt) return
+    const items = await parseDataTransfer(dt)
+    if (!items.length) { showToast('Keine Inhalte erkannt'); return }
+    pendingItemsRef.current = items
+    setConfirmOpen(true)
+  }
+  function handleEmbed(target: IngestTarget) {
+    const items = pendingItemsRef.current || []
+    setConfirmOpen(false)
+    runEmbed(items, target)
+    pendingItemsRef.current = null
+  }
+  function handlePickFiles() {
+    filePickerRef.current?.click()
+  }
+  function onPickedFiles(e: React.ChangeEvent<HTMLInputElement>) {
+    const dt = new DataTransfer()
+    Array.from(e.target.files || []).forEach(f => dt.items.add(f))
+    const fake = new DragEvent('drop', { dataTransfer: dt })
+    // @ts-ignore - synth drop
+    handleDrop(fake as any)
+    if (filePickerRef.current) filePickerRef.current.value = ''
+  }
+
   return (
     <div style={{ 
       width: '800px', 
@@ -120,7 +191,7 @@ function Popup() {
       borderRadius: '8px',
       display: 'flex',
       flexDirection: 'column'
-    }}>
+    }} onDragOver={(e)=> e.preventDefault()} onDrop={handleDrop}>
       {/* Top Header - Browser Frame */}
       <div style={{
         height: '40px',
@@ -154,6 +225,13 @@ function Popup() {
           <div style={{ width: '20px', height: '20px', backgroundColor: 'rgba(255,255,255,0.2)', borderRadius: '4px' }}>←</div>
           <div style={{ width: '20px', height: '20px', backgroundColor: 'rgba(255,255,255,0.2)', borderRadius: '4px' }}>→</div>
         </div>
+      </div>
+
+      {/* Quick Bar below header with Context Bucket */}
+      <div style={{ display: 'flex', gap: '8px', alignItems: 'center', padding: '8px 12px', borderBottom: '1px solid rgba(255,255,255,0.2)' }}>
+        <button title="Context Bucket: Embed context directly into the session" onClick={handlePickFiles} style={{ background: 'rgba(255,255,255,0.08)', border: '1px solid #ef4444', color: '#ef4444', borderRadius: 6, padding: '2px 8px', cursor: 'pointer', fontSize: 12 }}>🪣</button>
+        <input ref={filePickerRef} type="file" multiple style={{ display: 'none' }} onChange={onPickedFiles} />
+        <div style={{ fontSize: 11, opacity: 0.85 }}>Drag & Drop files, text, or links here</div>
       </div>
 
       {/* Main Content Area */}
@@ -615,6 +693,28 @@ function Popup() {
           </button>
         </div>
       </div>
+
+      {/* Confirm Modal */}
+      {confirmOpen && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2147483651 }}>
+          <div style={{ width: 420, background: 'linear-gradient(135deg,#667eea,#764ba2)', borderRadius: 12, color: 'white', border: '1px solid rgba(255,255,255,0.25)', boxShadow: '0 12px 30px rgba(0,0,0,0.4)', overflow: 'hidden' }}>
+            <div style={{ padding: '12px 14px', borderBottom: '1px solid rgba(255,255,255,0.25)', fontWeight: 700 }}>Wohin einbetten?</div>
+            <div style={{ padding: '12px 14px', fontSize: 12 }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}><input type="radio" name="kb-target" onChange={()=>{}} /> <span>Session Memory (nur diese Sitzung)</span></label>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}><input type="radio" name="kb-target" onChange={()=>{}} data-account /> <span>Account Memory (kontoweit, langfristig)</span></label>
+              <div style={{ marginTop: 8, opacity: 0.9 }}>Die Inhalte werden aufbereitet (OCR/ASR/Parsing), gechunkt und lokal eingebettet.</div>
+            </div>
+            <div style={{ padding: '10px 14px', background: 'rgba(255,255,255,0.08)', display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+              <button onClick={()=> setConfirmOpen(false)} style={{ padding: '6px 10px', border: 0, borderRadius: 6, background: 'rgba(255,255,255,0.18)', color: 'white', cursor: 'pointer' }}>Abbrechen</button>
+              <button onClick={()=>{
+                const selected = document.querySelector<HTMLInputElement>('input[name="kb-target"]:checked')
+                if (!selected) { showToast('Bitte Ziel auswählen'); return }
+                handleEmbed(selected.hasAttribute('data-account') ? 'account' : 'session')
+              }} style={{ padding: '6px 10px', border: 0, borderRadius: 6, background: '#22c55e', color: '#0b1e12', cursor: 'pointer' }}>Einbetten</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

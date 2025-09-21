@@ -4616,7 +4616,7 @@ ${pageText}
           <div style="display:flex; gap:10px; margin-bottom: 16px; border-bottom:1px solid rgba(255,255,255,0.3)">
             <button id="mem-session-tab" style="padding:10px 16px; background: rgba(255,255,255,0.2); border:0; color:#fff; border-radius:8px 8px 0 0; cursor:pointer">🗂️ Session Memory</button>
             <button id="mem-account-tab" style="padding:10px 16px; background: rgba(255,255,255,0.1); border:0; color:#fff; border-radius:8px 8px 0 0; cursor:pointer">🏢 Account Memory</button>
-            <button id="mem-sessions-tab" style="margin-left:auto;padding:10px 16px; background: rgba(255,255,255,0.1); border:0; color:#fff; border-radius:8px 8px 0 0; cursor:pointer">🧾 OptiLedger</button>
+            <button id="mem-sessions-tab" style="margin-left:auto;padding:10px 16px; background: rgba(255,255,255,0.1); border:0; color:#fff; border-radius:8px 8px 0 0; cursor:pointer">🧾 KnowledgeVault</button>
           </div>
           <div id="mem-session" style="display:block">
             <div style="background: rgba(255,255,255,0.1); padding: 20px; border-radius: 8px; margin-bottom: 20px;">
@@ -4656,7 +4656,7 @@ ${pageText}
               <button class="sess-filter" data-k="Verified" style="padding:6px 10px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.25);color:#fff;border-radius:6px;cursor:pointer">Verified</button>
             </div>
             <div style="margin:-2px 0 8px 0; font-size:12px; opacity:0.9; background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.15); padding:10px; border-radius:8px;">
-              OptiLedger – Captures human input and AI findings from DeepFix and OptiScan, with AI speeding up documentation. Solutions are bundled, embedded into the local AI, and easy to reuse later.
+              KnowledgeVault – Captures human input and AI findings from DeepFix and OptiScan, with AI speeding up documentation. Solutions are bundled, embedded into the local AI, and easy to reuse later.
             </div>
             <div id="sess-empty" style="display:none;padding:18px;background:rgba(255,255,255,.08);border:1px dashed rgba(255,255,255,.25);border-radius:8px;font-size:12px;">
               No runs yet. DeepFix/OptiScan runs are detected automatically or can be started manually.
@@ -9177,6 +9177,97 @@ ${pageText}
       dockBtn.title = docked ? 'Undock from sidepanel' : 'Dock to sidepanel'
       dockBtn.textContent = docked ? '📌✓' : '📌'
     }
+    // Context Bucket shared types/hook and helpers
+    type IngestItem = { kind: 'file'|'image'|'audio'|'video'|'text'|'url'; payload: File|Blob|string; mime?: string; name?: string }
+    type IngestTarget = 'session' | 'account'
+    function showToast(message: string, kind: 'info'|'success'|'error' = 'info') {
+      const note = document.createElement('div')
+      note.textContent = message
+      note.style.cssText = 'position:fixed;bottom:18px;left:18px;z-index:2147483650;padding:8px 12px;border-radius:8px;font-size:12px;box-shadow:0 6px 16px rgba(0,0,0,.35)'
+      note.style.background = kind==='success' ? '#14532d' : (kind==='error' ? '#7f1d1d' : '#0b1220')
+      note.style.color = '#e5e7eb'
+      note.style.border = '1px solid rgba(255,255,255,0.18)'
+      document.body.appendChild(note)
+      setTimeout(()=> note.remove(), 1800)
+    }
+    async function parseDataTransfer(dt: DataTransfer): Promise<IngestItem[]> {
+      const items: IngestItem[] = []
+      try {
+        for (const f of Array.from(dt.files || [])) {
+          const t = (f.type||'').toLowerCase()
+          const kind: IngestItem['kind'] = t.startsWith('image/') ? 'image' : t.startsWith('audio/') ? 'audio' : t.startsWith('video/') ? 'video' : 'file'
+          items.push({ kind, payload: f, mime: f.type, name: f.name })
+        }
+        const url = dt.getData('text/uri-list') || dt.getData('text/url')
+        if (url) items.push({ kind:'url', payload: url })
+        const txt = dt.getData('text/plain')
+        if (txt && !url) items.push({ kind:'text', payload: txt })
+      } catch {}
+      return items
+    }
+    function openEmbedConfirm(items: IngestItem[], onPick: (target: IngestTarget)=>void) {
+      const ov = document.createElement('div')
+      ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:2147483651;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(4px)'
+      const box = document.createElement('div')
+      box.style.cssText = 'width:420px;background:linear-gradient(135deg,#667eea,#764ba2);color:white;border-radius:12px;border:1px solid rgba(255,255,255,.25);box-shadow:0 12px 30px rgba(0,0,0,.4);overflow:hidden'
+      box.innerHTML = `
+        <div style="padding:14px 16px;border-bottom:1px solid rgba(255,255,255,.25);font-weight:700">Wohin einbetten?</div>
+        <div style="padding:14px 16px;font-size:12px">
+          <label style="display:flex;gap:8px;align-items:center;margin-bottom:8px"><input type="radio" name="ing-target" value="session"> <span>Session Memory (nur diese Sitzung)</span></label>
+          <label style="display:flex;gap:8px;align-items:center;margin-bottom:8px"><input type="radio" name="ing-target" value="account"> <span>Account Memory (kontoweit, langfristig)</span></label>
+          <div style="margin-top:10px;opacity:.9">Die Inhalte werden aufbereitet (OCR/ASR/Parsing), gechunkt und lokal eingebettet.</div>
+        </div>
+        <div style="padding:12px 16px;background:rgba(255,255,255,.08);display:flex;gap:8px;justify-content:flex-end">
+          <button id="ing-cancel" style="padding:6px 10px;border:0;border-radius:6px;background:rgba(255,255,255,.18);color:white;cursor:pointer">Abbrechen</button>
+          <button id="ing-run" style="padding:6px 10px;border:0;border-radius:6px;background:#22c55e;color:#0b1e12;cursor:pointer">Einbetten</button>
+        </div>`
+      ov.appendChild(box)
+      document.body.appendChild(ov)
+      ;(box.querySelector('#ing-cancel') as HTMLButtonElement)?.addEventListener('click', ()=> ov.remove())
+      ;(box.querySelector('#ing-run') as HTMLButtonElement)?.addEventListener('click', ()=>{
+        const sel = box.querySelector('input[name="ing-target"]:checked') as HTMLInputElement | null
+        if (!sel) { showToast('Bitte Ziel auswählen', 'error'); return }
+        ov.remove(); onPick(sel.value as IngestTarget)
+      })
+    }
+    function useContextBucketIngestion() {
+      async function handleDrop(ev: DragEvent) {
+        ev.preventDefault()
+        const dt = ev.dataTransfer; if (!dt) return
+        const items = await parseDataTransfer(dt)
+        if (!items.length) { showToast('Keine Inhalte erkannt', 'error'); return }
+        openEmbedConfirm(items, (target)=> runEmbed(items, target))
+      }
+      function runEmbed(items: IngestItem[], target: IngestTarget) {
+        showToast('Vorverarbeitung…', 'info')
+        setTimeout(()=>{
+          try {
+            const key = target==='session' ? 'optimando-context-bucket-session' : 'optimando-context-bucket-account'
+            const prev = JSON.parse(localStorage.getItem(key) || '[]')
+            const serialized = items.map(it => ({ kind: it.kind, name: (it as any).name || undefined, mime: it.mime || undefined, size: (it.payload as any)?.size || undefined, text: typeof it.payload==='string'? it.payload : undefined }))
+            prev.push({ at: Date.now(), items: serialized })
+            localStorage.setItem(key, JSON.stringify(prev))
+          } catch {}
+          showToast('Einbettung abgeschlossen', 'success')
+        }, 900)
+      }
+      return { handleDrop }
+    }
+    function mountContextBucket(container: HTMLElement, btnId: string) {
+      const { handleDrop } = useContextBucketIngestion()
+      const file = document.createElement('input'); file.type='file'; (file as any).multiple = true; file.style.display='none'
+      container.appendChild(file)
+      container.addEventListener('dragover', (e)=>{ e.preventDefault() })
+      container.addEventListener('drop', (e)=> handleDrop(e))
+      const btn = container.querySelector('#'+btnId) as HTMLButtonElement | null
+      btn?.addEventListener('click', ()=> file.click())
+      file.addEventListener('change', ()=>{
+        const dt = new DataTransfer(); Array.from(file.files||[]).forEach(f=> dt.items.add(f));
+        const fake = new DragEvent('drop', { dataTransfer: dt })
+        handleDrop(fake)
+        file.value = ''
+      })
+    }
     function removeDockedChat() {
       const existing = document.getElementById('command-chat-docked')
       if (existing) existing.remove()
@@ -9201,8 +9292,9 @@ ${pageText}
               <button id="ccd-lm-one" title="LmGTFY - Capture a screen area as screenshot or stream and send it to your pre-defined automation tasks." style="background:${theme==='professional'?'#e2e8f0':'rgba(255,255,255,0.15)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; padding:2px 6px; font-size:12px; cursor:pointer;">✎</button>
             </div>
           </div>
-          <div style="display:flex; gap:6px;">
+          <div style="display:flex; gap:6px; align-items:center;">
             <button id="ccd-undock" title="Undock from sidepanel" style="background:${theme==='professional'?'#e2e8f0':'rgba(255,255,255,0.15)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; padding:4px 6px; font-size:10px; cursor:pointer;">↗</button>
+            <button id="ccd-bucket" title="Context Bucket: Embed context directly into the session" style="height:28px;background:${theme==='professional'?'#ffffff':'rgba(255,255,255,0.08)'}; border:1px solid ${br}; color:#ef4444; border-radius:6px; padding:0 8px; font-size:12px; cursor:pointer; display:flex;align-items:center;justify-content:center;">🪣</button>
           </div>
         </div>
         <div id="ccd-messages" style="height:160px; overflow:auto; display:flex; flex-direction:column; gap:6px; background:${theme==='professional'?'#f8fafc':'rgba(255,255,255,0.06)'}; border-left:0; border-right:0; border-top:0; border-bottom:1px solid ${br}; padding:8px;"></div>
@@ -9236,6 +9328,8 @@ ${pageText}
       attach.addEventListener('click', ()=> file.click())
       file.addEventListener('change', ()=>{ const n=(file.files||[]).length; if(n) addRow('user', `Uploaded ${n} file(s).`) })
       undock.addEventListener('click', ()=>{ undockCommandChat() })
+      // Mount context bucket (drag & drop + click-to-pick)
+      mountContextBucket(container, 'ccd-bucket')
       ;(container.querySelector('#ccd-lm-one') as HTMLButtonElement | null)?.addEventListener('click', ()=> startLmgtfy('stream'))
 
       // Allow vertical resize by dragging the outer bottom border of the docked box
@@ -9325,10 +9419,11 @@ ${pageText}
               <button id="ccf-lm-one" title="LmGTFY - Capture a screen area as screenshot or stream and send it to your pre-defined automation tasks." style="background:${theme==='professional'?'#e2e8f0':'rgba(255,255,255,0.15)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; padding:2px 6px; font-size:12px; cursor:pointer;">✎</button>
             </div>
           </div>
-          <div style="display:flex; gap:6px;">
+          <div style="display:flex; gap:6px; align-items:center;">
             <button id="ccf-close" title="Close" style="background:${theme==='professional'?'#e2e8f0':'rgba(255,255,255,0.15)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; padding:4px 6px; font-size:10px; cursor:pointer;">×</button>
           </div>
         </div>
+        
         <div id="ccf-messages" style="height:160px; overflow:auto; display:flex; flex-direction:column; gap:6px; background:${theme==='professional'?'#f8fafc':'rgba(255,255,255,0.06)'}; border-left:0; border-right:0; border-top:0; border-bottom:1px solid ${br}; padding:8px;"></div>
         <div id="ccf-compose" style="display:grid; grid-template-columns:1fr 68px; gap:6px; align-items:center; padding:8px;">
           <textarea id="ccf-input" placeholder="Type..." style="box-sizing:border-box; height:36px; resize:vertical; background:${theme==='professional'?'#ffffff':'rgba(255,255,255,0.08)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; padding:8px; font-size:12px;"></textarea>
@@ -9356,6 +9451,21 @@ ${pageText}
         })
       } catch {}
       ;(box.querySelector('#ccf-close') as HTMLButtonElement | null)?.addEventListener('click', ()=> box.remove())
+      const headerTools = box.querySelector('#ccf-header > div:first-child > div:last-child') as HTMLElement | null
+      if (headerTools) {
+        const bucket = document.createElement('button')
+        bucket.id = 'ccf-bucket'
+        bucket.title = 'Context Bucket: Embed context directly into the session'
+        bucket.textContent = '🪣'
+        bucket.style.background = 'transparent'
+        bucket.style.border = '0'
+        bucket.style.color = '#ef4444'
+        bucket.style.borderRadius = '6px'
+        bucket.style.padding = '2px 6px'
+        bucket.style.fontSize = '12px'
+        bucket.style.cursor = 'pointer'
+        headerTools.appendChild(bucket)
+      }
       ;(box.querySelector('#ccf-lm-one') as HTMLButtonElement | null)?.addEventListener('click', (e)=>{
         try { e.preventDefault() } catch {}
         try { e.stopPropagation() } catch {}
@@ -9364,6 +9474,8 @@ ${pageText}
         // Robust fallback via background
         try { chrome.runtime.sendMessage({ type: 'LAUNCH_LMGTFY', mode: 'stream' }) } catch {}
       })
+      // Mount context bucket to popup (drop anywhere in the box)
+      mountContextBucket(box, 'ccf-bucket')
     }
 
     function startLmgtfy(mode: 'screenshot'|'stream'){
