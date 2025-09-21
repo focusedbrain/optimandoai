@@ -4616,7 +4616,7 @@ ${pageText}
           <div style="display:flex; gap:10px; margin-bottom: 16px; border-bottom:1px solid rgba(255,255,255,0.3)">
             <button id="mem-session-tab" style="padding:10px 16px; background: rgba(255,255,255,0.2); border:0; color:#fff; border-radius:8px 8px 0 0; cursor:pointer">🗂️ Session Memory</button>
             <button id="mem-account-tab" style="padding:10px 16px; background: rgba(255,255,255,0.1); border:0; color:#fff; border-radius:8px 8px 0 0; cursor:pointer">🏢 Account Memory</button>
-            <button id="mem-sessions-tab" style="margin-left:auto;padding:10px 16px; background: rgba(255,255,255,0.1); border:0; color:#fff; border-radius:8px 8px 0 0; cursor:pointer">🧾 FixLedger</button>
+            <button id="mem-sessions-tab" style="margin-left:auto;padding:10px 16px; background: rgba(255,255,255,0.1); border:0; color:#fff; border-radius:8px 8px 0 0; cursor:pointer">🧾 OptiLedger</button>
           </div>
           <div id="mem-session" style="display:block">
             <div style="background: rgba(255,255,255,0.1); padding: 20px; border-radius: 8px; margin-bottom: 20px;">
@@ -4652,10 +4652,11 @@ ${pageText}
           <div id="mem-sessions" style="display:none">
             <div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap">
               <button class="sess-filter" data-k="Runs" style="padding:6px 10px;background:#334155;border:1px solid rgba(255,255,255,.25);color:#fff;border-radius:6px;cursor:pointer">Runs</button>
-              <button class="sess-filter" data-k="Playbooks" style="padding:6px 10px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.25);color:#fff;border-radius:6px;cursor:pointer">Playbooks</button>
-              <button class="sess-filter" data-k="Evidence" style="padding:6px 10px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.25);color:#fff;border-radius:6px;cursor:pointer">Evidence</button>
               <button class="sess-filter" data-k="Queue" style="padding:6px 10px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.25);color:#fff;border-radius:6px;cursor:pointer">Queue (to-embed)</button>
               <button class="sess-filter" data-k="Verified" style="padding:6px 10px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.25);color:#fff;border-radius:6px;cursor:pointer">Verified</button>
+            </div>
+            <div style="margin:-2px 0 8px 0; font-size:12px; opacity:0.9; background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.15); padding:10px; border-radius:8px;">
+              OptiLedger – Captures human input and AI findings from DeepFix and OptiScan, with AI speeding up documentation. Solutions are bundled, embedded into the local AI, and easy to reuse later.
             </div>
             <div id="sess-empty" style="display:none;padding:18px;background:rgba(255,255,255,.08);border:1px dashed rgba(255,255,255,.25);border-radius:8px;font-size:12px;">
               No runs yet. DeepFix/OptiScan runs are detected automatically or can be started manually.
@@ -4664,15 +4665,11 @@ ${pageText}
               <table id="sess-table" style="width:100%;border-collapse:collapse;font-size:12px;">
                 <thead>
                   <tr>
-                    <th style="text-align:left;padding:6px;border-bottom:1px solid rgba(255,255,255,.2)">Case/Title</th>
+                    <th style="text-align:left;padding:6px;border-bottom:1px solid rgba(255,255,255,.2)">Title</th>
                     <th style="text-align:left;padding:6px;border-bottom:1px solid rgba(255,255,255,.2)">Type</th>
-                    <th style="text-align:left;padding:6px;border-bottom:1px solid rgba(255,255,255,.2)">Human/Ai Mix %</th>
-                    <th style="text-align:left;padding:6px;border-bottom:1px solid rgba(255,255,255,.2)">Duration</th>
-                    <th style="text-align:left;padding:6px;border-bottom:1px solid rgba(255,255,255,.2)">Downtime Saved (est.)</th>
-                    <th style="text-align:left;padding:6px;border-bottom:1px solid rgba(255,255,255,.2)">AI Root Cause</th>
-                    <th style="text-align:left;padding:6px;border-bottom:1px solid rgba(255,255,255,.2)">AI Steps</th>
-                    <th style="text-align:left;padding:6px;border-bottom:1px solid rgba(255,255,255,.2)">Confidence %</th>
-                    <th style="text-align:left;padding:6px;border-bottom:1px solid rgba(255,255,255,.2)">Evidence (#)</th>
+                    <th style="text-align:left;padding:6px;border-bottom:1px solid rgba(255,255,255,.2)">Evidence</th>
+                    <th style="text-align:left;padding:6px;border-bottom:1px solid rgba(255,255,255,.2)">Root Cause</th>
+                    <th style="text-align:left;padding:6px;border-bottom:1px solid rgba(255,255,255,.2)">Fix</th>
                     <th style="text-align:left;padding:6px;border-bottom:1px solid rgba(255,255,255,.2)">Status</th>
                     <th style="text-align:left;padding:6px;border-bottom:1px solid rgba(255,255,255,.2)">Actions</th>
                   </tr>
@@ -4735,15 +4732,11 @@ ${pageText}
         tr.innerHTML = `
           <td style="padding:6px;border-bottom:1px solid rgba(255,255,255,.08)">${it.title || '(untitled)'}<div style=\"opacity:.7;font-size:10px\">${it.id}</div></td>
           <td style="padding:6px;border-bottom:1px solid rgba(255,255,255,.08)">${it.type}</td>
-          <td style="padding:6px;border-bottom:1px solid rgba(255,255,255,.08)">${it.humanAiMix ?? 0}%</td>
-          <td style="padding:6px;border-bottom:1px solid rgba(255,255,255,.08)">${fmtDur(it.durationSec)}</td>
-          <td style="padding:6px;border-bottom:1px solid rgba(255,255,255,.08)">${it.downtimeSavedMins ?? 0}m</td>
-          <td style="padding:6px;border-bottom:1px solid rgba(255,255,255,.08)">${short(it.aiRootCause, 36)}</td>
-          <td style="padding:6px;border-bottom:1px solid rgba(255,255,255,.08)">${short(it.aiSteps, 36)}</td>
-          <td style="padding:6px;border-bottom:1px solid rgba(255,255,255,.08)">${it.confidencePct ?? ''}</td>
           <td style="padding:6px;border-bottom:1px solid rgba(255,255,255,.08)">${it.evidenceCount}</td>
+          <td style="padding:6px;border-bottom:1px solid rgba(255,255,255,.08)">${short(it.aiRootCause, 48)}</td>
+          <td style=\"padding:6px;border-bottom:1px solid rgba(255,255,255,.08)\"><button class=\"sess-open\" data-id=\"${it.id}\" style=\"padding:4px 8px;border:1px solid rgba(34,197,94,.6);background:rgba(34,197,94,.15);color:#bbf7d0;border-radius:6px;cursor:pointer\">Fix</button></td>
           <td style="padding:6px;border-bottom:1px solid rgba(255,255,255,.08)">${it.status}</td>
-          <td style="padding:6px;border-bottom:1px solid rgba(255,255,255,.08)"><button class="sess-open" data-id="${it.id}" style="padding:4px 8px;border:1px solid rgba(255,255,255,.35);background:rgba(255,255,255,.12);color:#fff;border-radius:6px;cursor:pointer">Open</button></td>
+          <td style="padding:6px;border-bottom:1px solid rgba(255,255,255,.08)"><button class=\"sess-open\" data-id=\"${it.id}\" style=\"padding:4px 8px;border:1px solid rgba(255,255,255,.35);background:rgba(255,255,255,.12);color:#fff;border-radius:6px;cursor:pointer\">Open</button></td>
         `
         tr.addEventListener('click', (ev) => {
           const tgt = ev.target as HTMLElement
