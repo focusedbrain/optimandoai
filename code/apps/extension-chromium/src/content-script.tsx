@@ -4501,7 +4501,8 @@ ${pageText}
 
   // ---- Sessions data model and local store ----
   type SessionType = 'DeepFix' | 'OptiScan'
-  type SessionState = 'Detected' | 'Draft' | 'Needs-Review' | 'Verified' | 'Embedded' | 'Rejected'
+  // Updated FixLedger lifecycle
+  type SessionState = 'Detected' | 'Co-Auth Draft' | 'Needs-Review' | 'Verified' | 'Playbook Extracted' | 'Embedded' | 'Deprecated/Rejected'
   interface EvidenceItem {
     id: string
     kind: 'voice' | 'text' | 'image' | 'video' | 'file'
@@ -4520,6 +4521,7 @@ ${pageText}
     message?: string
     from?: SessionState
     to?: SessionState
+    role?: 'human' | 'ai'
   }
   interface EmbeddingJob {
     id: string
@@ -4545,6 +4547,12 @@ ${pageText}
     jobs: EmbeddingJob[]
     review: ReviewLogEntry[]
     impact?: string
+    // FixLedger extensions
+    humanAiMix?: number // 0..100
+    downtimeSavedMins?: number
+    evidenceHashes?: string[]
+    playbookId?: string
+    wrStamp?: string
   }
   const SessionsStore = (() => {
     const KEY = 'optimando-sessions-v1'
@@ -4563,19 +4571,20 @@ ${pageText}
     const addEvidence = (id: string, ev: EvidenceItem) => {
       const it = get(id); if (!it) return null
       it.evidence.push(ev); it.evidenceCount = it.evidence.length; it.updatedAt = new Date().toISOString()
-      it.review.push({ id: 'log_'+Math.random().toString(36).slice(2), at: new Date().toISOString(), action: 'updated', message: 'Added evidence: '+(ev.name || ev.kind) })
+      it.review.push({ id: 'log_'+Math.random().toString(36).slice(2), at: new Date().toISOString(), action: 'updated', message: 'Added evidence: '+(ev.name || ev.kind), role: 'human' })
       return upsert(it)
     }
     const transition = (id: string, to: SessionState) => {
       const it = get(id); if (!it) return null
       const from = it.status
       const allowed: Record<SessionState, SessionState[]> = {
-        'Detected': ['Draft','Rejected'],
-        'Draft': ['Needs-Review','Rejected'],
-        'Needs-Review': ['Verified','Rejected'],
-        'Verified': ['Embedded','Rejected'],
+        'Detected': ['Co-Auth Draft','Deprecated/Rejected'],
+        'Co-Auth Draft': ['Needs-Review','Deprecated/Rejected'],
+        'Needs-Review': ['Verified','Deprecated/Rejected'],
+        'Verified': ['Playbook Extracted','Embedded','Deprecated/Rejected'],
+        'Playbook Extracted': ['Embedded','Deprecated/Rejected'],
         'Embedded': [],
-        'Rejected': []
+        'Deprecated/Rejected': []
       }
       if (!allowed[from].includes(to)) return it
       it.status = to; it.updatedAt = new Date().toISOString()
@@ -4607,7 +4616,7 @@ ${pageText}
           <div style="display:flex; gap:10px; margin-bottom: 16px; border-bottom:1px solid rgba(255,255,255,0.3)">
             <button id="mem-session-tab" style="padding:10px 16px; background: rgba(255,255,255,0.2); border:0; color:#fff; border-radius:8px 8px 0 0; cursor:pointer">🗂️ Session Memory</button>
             <button id="mem-account-tab" style="padding:10px 16px; background: rgba(255,255,255,0.1); border:0; color:#fff; border-radius:8px 8px 0 0; cursor:pointer">🏢 Account Memory</button>
-            <button id="mem-sessions-tab" style="margin-left:auto;padding:10px 16px; background: rgba(255,255,255,0.1); border:0; color:#fff; border-radius:8px 8px 0 0; cursor:pointer">🧾 Sessions</button>
+            <button id="mem-sessions-tab" style="margin-left:auto;padding:10px 16px; background: rgba(255,255,255,0.1); border:0; color:#fff; border-radius:8px 8px 0 0; cursor:pointer">🧾 FixLedger</button>
           </div>
           <div id="mem-session" style="display:block">
             <div style="background: rgba(255,255,255,0.1); padding: 20px; border-radius: 8px; margin-bottom: 20px;">
@@ -4642,27 +4651,28 @@ ${pageText}
           </div>
           <div id="mem-sessions" style="display:none">
             <div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap">
-              <button class="sess-filter" data-k="all" style="padding:6px 10px;background:#334155;border:1px solid rgba(255,255,255,.25);color:#fff;border-radius:6px;cursor:pointer">All</button>
-              <button class="sess-filter" data-k="DeepFix" style="padding:6px 10px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.25);color:#fff;border-radius:6px;cursor:pointer">DeepFix</button>
-              <button class="sess-filter" data-k="OptiScan" style="padding:6px 10px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.25);color:#fff;border-radius:6px;cursor:pointer">OptiScan</button>
+              <button class="sess-filter" data-k="Runs" style="padding:6px 10px;background:#334155;border:1px solid rgba(255,255,255,.25);color:#fff;border-radius:6px;cursor:pointer">Runs</button>
+              <button class="sess-filter" data-k="Playbooks" style="padding:6px 10px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.25);color:#fff;border-radius:6px;cursor:pointer">Playbooks</button>
+              <button class="sess-filter" data-k="Evidence" style="padding:6px 10px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.25);color:#fff;border-radius:6px;cursor:pointer">Evidence</button>
               <button class="sess-filter" data-k="Queue" style="padding:6px 10px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.25);color:#fff;border-radius:6px;cursor:pointer">Queue (to-embed)</button>
               <button class="sess-filter" data-k="Verified" style="padding:6px 10px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.25);color:#fff;border-radius:6px;cursor:pointer">Verified</button>
             </div>
             <div id="sess-empty" style="display:none;padding:18px;background:rgba(255,255,255,.08);border:1px dashed rgba(255,255,255,.25);border-radius:8px;font-size:12px;">
-              No sessions yet. Sessions are detected automatically when a DeepFix/OptiScan run starts.
+              No runs yet. DeepFix/OptiScan runs are detected automatically or can be started manually.
             </div>
             <div id="sess-table-wrap" style="overflow:auto;">
               <table id="sess-table" style="width:100%;border-collapse:collapse;font-size:12px;">
                 <thead>
                   <tr>
-                    <th style="text-align:left;padding:6px;border-bottom:1px solid rgba(255,255,255,.2)">Title/ID</th>
+                    <th style="text-align:left;padding:6px;border-bottom:1px solid rgba(255,255,255,.2)">Case/Title</th>
                     <th style="text-align:left;padding:6px;border-bottom:1px solid rgba(255,255,255,.2)">Type</th>
+                    <th style="text-align:left;padding:6px;border-bottom:1px solid rgba(255,255,255,.2)">Human/Ai Mix %</th>
                     <th style="text-align:left;padding:6px;border-bottom:1px solid rgba(255,255,255,.2)">Duration</th>
+                    <th style="text-align:left;padding:6px;border-bottom:1px solid rgba(255,255,255,.2)">Downtime Saved (est.)</th>
                     <th style="text-align:left;padding:6px;border-bottom:1px solid rgba(255,255,255,.2)">AI Root Cause</th>
                     <th style="text-align:left;padding:6px;border-bottom:1px solid rgba(255,255,255,.2)">AI Steps</th>
                     <th style="text-align:left;padding:6px;border-bottom:1px solid rgba(255,255,255,.2)">Confidence %</th>
-                    <th style="text-align:left;padding:6px;border-bottom:1px solid rgba(255,255,255,.2)">Tags</th>
-                    <th style="text-align:left;padding:6px;border-bottom:1px solid rgba(255,255,255,.2)">Evidence</th>
+                    <th style="text-align:left;padding:6px;border-bottom:1px solid rgba(255,255,255,.2)">Evidence (#)</th>
                     <th style="text-align:left;padding:6px;border-bottom:1px solid rgba(255,255,255,.2)">Status</th>
                     <th style="text-align:left;padding:6px;border-bottom:1px solid rgba(255,255,255,.2)">Actions</th>
                   </tr>
@@ -4705,14 +4715,14 @@ ${pageText}
     // --- Sessions UI wiring ---
     function short(s?: string, n: number = 60) { if (!s) return ''; return s.length>n? s.slice(0,n-1)+'…': s }
     function fmtDur(sec: number) { const m = Math.floor(sec/60); const s = sec%60; return `${m}m ${s}s` }
-    function renderSessions(filter: string = 'all') {
+    function renderSessions(filter: string = 'Runs') {
       const tbody = overlay.querySelector('#sess-table tbody') as HTMLElement
       const empty = overlay.querySelector('#sess-empty') as HTMLElement
       if (!tbody || !empty) return
       let items = SessionsStore.loadAll()
-      if (filter === 'DeepFix' || filter === 'OptiScan') items = items.filter(i=> i.type===filter)
       if (filter === 'Verified') items = items.filter(i=> i.status==='Verified')
-      if (filter === 'Queue') items = items.filter(i=> i.status==='Verified' || i.status==='Embedded')
+      if (filter === 'Queue') items = items.filter(i=> i.status==='Verified' || i.status==='Playbook Extracted')
+      // Evidence or Playbooks views are placeholders for now
       tbody.innerHTML = ''
       if (items.length === 0) {
         empty.style.display = 'block'
@@ -4723,13 +4733,14 @@ ${pageText}
         const tr = document.createElement('tr')
         tr.style.cursor = 'pointer'
         tr.innerHTML = `
-          <td style="padding:6px;border-bottom:1px solid rgba(255,255,255,.08)">${it.title || '(untitled)'}<div style="opacity:.7;font-size:10px">${it.id}</div></td>
+          <td style="padding:6px;border-bottom:1px solid rgba(255,255,255,.08)">${it.title || '(untitled)'}<div style=\"opacity:.7;font-size:10px\">${it.id}</div></td>
           <td style="padding:6px;border-bottom:1px solid rgba(255,255,255,.08)">${it.type}</td>
+          <td style="padding:6px;border-bottom:1px solid rgba(255,255,255,.08)">${it.humanAiMix ?? 0}%</td>
           <td style="padding:6px;border-bottom:1px solid rgba(255,255,255,.08)">${fmtDur(it.durationSec)}</td>
+          <td style="padding:6px;border-bottom:1px solid rgba(255,255,255,.08)">${it.downtimeSavedMins ?? 0}m</td>
           <td style="padding:6px;border-bottom:1px solid rgba(255,255,255,.08)">${short(it.aiRootCause, 36)}</td>
           <td style="padding:6px;border-bottom:1px solid rgba(255,255,255,.08)">${short(it.aiSteps, 36)}</td>
           <td style="padding:6px;border-bottom:1px solid rgba(255,255,255,.08)">${it.confidencePct ?? ''}</td>
-          <td style="padding:6px;border-bottom:1px solid rgba(255,255,255,.08)">${(it.tags||[]).join(', ')}</td>
           <td style="padding:6px;border-bottom:1px solid rgba(255,255,255,.08)">${it.evidenceCount}</td>
           <td style="padding:6px;border-bottom:1px solid rgba(255,255,255,.08)">${it.status}</td>
           <td style="padding:6px;border-bottom:1px solid rgba(255,255,255,.08)"><button class="sess-open" data-id="${it.id}" style="padding:4px 8px;border:1px solid rgba(255,255,255,.35);background:rgba(255,255,255,.12);color:#fff;border-radius:6px;cursor:pointer">Open</button></td>
@@ -4742,7 +4753,7 @@ ${pageText}
         tbody.appendChild(tr)
       })
       overlay.querySelectorAll('.sess-filter').forEach(btn => {
-        btn.addEventListener('click', () => renderSessions((btn as HTMLElement).getAttribute('data-k') || 'all'))
+        btn.addEventListener('click', () => renderSessions((btn as HTMLElement).getAttribute('data-k') || 'Runs'))
       })
     }
 
@@ -4754,17 +4765,25 @@ ${pageText}
         <div style="padding:16px;border-bottom:1px solid rgba(255,255,255,.2);display:flex;justify-content:space-between;align-items:center">
           <div>
             <div style="font-weight:700">${item.title || '(untitled)'} <span style="opacity:.8;font-weight:400">(${item.type})</span></div>
-            <div style="font-size:12px;opacity:.85">${item.status} • ${fmtDur(item.durationSec)} • Confidence ${item.confidencePct ?? '-'}%</div>
+            <div style="font-size:12px;opacity:.85">${item.status} • ${fmtDur(item.durationSec)} • Confidence ${item.confidencePct ?? '-'}% • Human/Ai ${item.humanAiMix ?? 0}%</div>
           </div>
           <button id="sess-close" style="width:30px;height:30px;border-radius:50%;border:0;background:rgba(255,255,255,.2);color:#fff;cursor:pointer">×</button>
         </div>
         <div style="flex:1;overflow:auto;padding:16px;display:grid;gap:12px">
           <div style="background:rgba(255,255,255,.06);padding:12px;border:1px solid rgba(255,255,255,.15);border-radius:8px">
+            <div style="font-weight:700;margin-bottom:6px">Co-Authoring Timeline</div>
+            <div style="font-size:12px;display:grid;gap:6px">${item.review.map(l=>`<div> ${l.role==='human'?'👤':'🤖'} ${new Date(l.at).toLocaleString()} – ${l.action}${l.from?` ${l.from} → ${l.to}`:''} ${l.message?('– '+l.message):''}</div>`).join('')}</div>
+          </div>
+          <div style="background:rgba(255,255,255,.06);padding:12px;border:1px solid rgba(255,255,255,.15);border-radius:8px">
             <div style="font-weight:700;margin-bottom:6px">AI Solution Detection</div>
             <div style="font-size:12px;margin-bottom:6px"><b>Root cause:</b> ${item.aiRootCause || '—'}</div>
             <div style="font-size:12px;margin-bottom:6px"><b>Steps:</b> ${item.aiSteps || '—'}</div>
             <div style="font-size:12px;margin-bottom:6px"><b>Impact:</b> ${item.impact || '—'}</div>
-            <button id="sess-rerun" style="padding:6px 10px;background:#2563eb;border:0;color:#fff;border-radius:6px;cursor:pointer">Re-run</button>
+            <div style="display:flex;gap:8px">
+              <button id="sess-accept-draft" style="padding:6px 10px;background:#22c55e;border:0;color:#0b1e12;border-radius:6px;cursor:pointer">Accept as Draft</button>
+              <button id="sess-edit" style="padding:6px 10px;background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.35);color:#fff;border-radius:6px;cursor:pointer">Edit</button>
+              <button id="sess-rerun" style="padding:6px 10px;background:#2563eb;border:0;color:#fff;border-radius:6px;cursor:pointer">Re-run</button>
+            </div>
           </div>
           <div style="background:rgba(255,255,255,.06);padding:12px;border:1px solid rgba(255,255,255,.15);border-radius:8px">
             <div style="font-weight:700;margin-bottom:6px">Evidence</div>
@@ -4775,18 +4794,23 @@ ${pageText}
             <div style="font-weight:700;margin-bottom:6px">Validation</div>
             <label style="display:flex;align-items:center;gap:6px;margin-bottom:6px"><input id="val-redact" type="checkbox"> Redact PII</label>
             <label style="display:flex;align-items:center;gap:6px;margin-bottom:6px"><input id="val-accepted" type="checkbox" checked> Include accepted steps</label>
-            <label style="display:flex;align-items:center;gap:6px;margin-bottom:6px"><input id="val-bind" type="checkbox"> Bind to Account Memory</label>
+            <label style="display:flex;align-items:center;gap:6px;margin-bottom:6px"><input id="val-bind" type="checkbox" disabled checked> Bind to Account Memory</label>
             <div style="display:flex;gap:8px;align-items:center;margin-top:6px">
               <span style="font-size:12px">Target:</span>
               <select id="embed-target" style="background:#111827;color:#fff;border:1px solid rgba(255,255,255,.25);padding:6px;border-radius:6px">
                 <option>Local VDB</option>
                 <option>Project KB</option>
               </select>
-              <button id="do-embed" style="margin-left:auto;padding:6px 10px;background:#22c55e;border:0;color:#0b1e12;border-radius:6px;cursor:pointer">Embed</button>
+              <button id="do-embed" style="margin-left:auto;padding:6px 10px;background:#22c55e;border:0;color:#0b1e12;border-radius:6px;cursor:pointer">Embed → Queue</button>
             </div>
           </div>
           <div style="background:rgba(255,255,255,.06);padding:12px;border:1px solid rgba(255,255,255,.15);border-radius:8px">
-            <div style="font-weight:700;margin-bottom:6px">Audit & Export</div>
+            <div style="font-weight:700;margin-bottom:6px">Governance</div>
+            <div style="display:flex;gap:8px;margin-bottom:8px">
+              <input id="gov-reviewer" placeholder="Reviewer" style="flex:1;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.25);color:#fff;padding:6px;border-radius:6px;font-size:12px">
+              <input id="gov-wrstamp" placeholder="WRStamp" style="flex:1;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.25);color:#fff;padding:6px;border-radius:6px;font-size:12px">
+            </div>
+            <div style="font-weight:600;margin:6px 0">Audit Log</div>
             <div id="audit-log" style="font-size:12px;max-height:120px;overflow:auto;margin-bottom:8px"></div>
             <div style="display:flex;gap:8px">
               <button id="export-json" style="padding:6px 10px;background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.35);color:#fff;border-radius:6px;cursor:pointer">Export JSON</button>
@@ -4822,7 +4846,16 @@ ${pageText}
         for (const f of files) {
           const kind: EvidenceItem['kind'] = f.type.startsWith('image/') ? 'image' : f.type.startsWith('video/') ? 'video' : f.type.startsWith('audio/') ? 'voice' : (f.type.startsWith('text/') || f.name.endsWith('.md')) ? 'text' : 'file'
           const dataUrl = (kind==='image' || kind==='video' || kind==='voice') ? await new Promise<string>(res=>{ const r = new FileReader(); r.onload=()=>res(String(r.result||'')); r.readAsDataURL(f) }) : undefined
-          SessionsStore.addEvidence(item.id, { id: 'ev_'+Math.random().toString(36).slice(2), kind, mimeType: f.type, name: f.name, dataUrl, createdAt: new Date().toISOString() })
+          // compute SHA-256
+          const buf = await f.arrayBuffer()
+          const hashBuf = await crypto.subtle.digest('SHA-256', buf)
+          const hashArr = Array.from(new Uint8Array(hashBuf))
+          const hash = hashArr.map(b=>b.toString(16).padStart(2,'0')).join('')
+          const updated = SessionsStore.addEvidence(item.id, { id: 'ev_'+Math.random().toString(36).slice(2), kind, mimeType: f.type, name: f.name, dataUrl, createdAt: new Date().toISOString(), meta: { sha256: hash, size: f.size } })
+          if (updated) {
+            updated.evidenceHashes = Array.from(new Set([...(updated.evidenceHashes||[]), hash]))
+            SessionsStore.upsert(updated)
+          }
         }
         Object.assign(item, SessionsStore.get(item.id))
         renderEv(); renderSessions()
@@ -4843,10 +4876,9 @@ ${pageText}
         w.document.write(`<pre style="font-family:ui-monospace, SFMono-Regular, Menlo, monospace; white-space:pre-wrap;">${(item.title||'')+"\n\n"+(item.aiRootCause||'')+"\n\n"+(item.aiSteps||'')}</pre>`)
         w.document.close(); w.focus(); w.print()
       })
-      // embed handler
-      ;(drawer.querySelector('#do-embed') as HTMLButtonElement)?.addEventListener('click', ()=>{
-        SessionsStore.transition(item.id, 'Embedded'); renderSessions(); drawer.remove()
-      })
+      // actions
+      ;(drawer.querySelector('#sess-accept-draft') as HTMLButtonElement)?.addEventListener('click', ()=>{ SessionsStore.transition(item.id, 'Co-Auth Draft'); renderSessions(); drawer.remove() })
+      ;(drawer.querySelector('#do-embed') as HTMLButtonElement)?.addEventListener('click', ()=>{ SessionsStore.transition(item.id, 'Embedded'); renderSessions(); drawer.remove() })
     }
   }
 
