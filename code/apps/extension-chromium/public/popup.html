@@ -127,20 +127,20 @@
         function confirmTarget(items){
           const ov=document.createElement('div'); ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;z-index:2147483651;backdrop-filter:blur(4px)'
           const box=document.createElement('div'); box.style.cssText='width:420px;background:linear-gradient(135deg,#667eea,#764ba2);color:#fff;border:1px solid rgba(255,255,255,.25);border-radius:12px;overflow:hidden;box-shadow:0 12px 30px rgba(0,0,0,.4)'
-          box.innerHTML=`<div style="padding:12px 14px;border-bottom:1px solid rgba(255,255,255,.25);font-weight:700">Wohin einbetten?</div>
+          box.innerHTML=`<div style="padding:12px 14px;border-bottom:1px solid rgba(255,255,255,.25);font-weight:700">Where to embed?</div>
             <div style="padding:12px 14px;font-size:12px">
-              <label style="display:flex;gap:8px;align-items:center;margin-bottom:8px"><input type="radio" name="kb-tgt" value="session"> <span>Session Memory (nur diese Sitzung)</span></label>
-              <label style="display:flex;gap:8px;align-items:center;margin-bottom:8px"><input type="radio" name="kb-tgt" value="account"> <span>Account Memory (kontoweit, langfristig)</span></label>
-              <div style="margin-top:8px;opacity:.9">Die Inhalte werden aufbereitet (OCR/ASR/Parsing), gechunkt und lokal eingebettet.</div>
+              <label style="display:flex;gap:8px;align-items:center;margin-bottom:8px"><input type="radio" name="kb-tgt" value="session"> <span>Session Memory (this session only)</span></label>
+              <label style="display:flex;gap:8px;align-items:center;margin-bottom:8px"><input type="radio" name="kb-tgt" value="account"> <span>Account Memory (account-wide, long term)</span></label>
+              <div style="margin-top:8px;opacity:.9">Content will be processed (OCR/ASR/Parsing), chunked, and embedded locally.</div>
             </div>
             <div style="padding:10px 14px;background:rgba(255,255,255,.08);display:flex;gap:8px;justify-content:flex-end">
-              <button id="kb-cancel" style="padding:6px 10px;border:0;border-radius:6px;background:rgba(255,255,255,.18);color:#fff;cursor:pointer">Abbrechen</button>
-              <button id="kb-run" style="padding:6px 10px;border:0;border-radius:6px;background:#22c55e;color:#0b1e12;cursor:pointer">Einbetten</button>
+              <button id="kb-cancel" style="padding:6px 10px;border:0;border-radius:6px;background:rgba(255,255,255,.18);color:#fff;cursor:pointer">Cancel</button>
+              <button id="kb-run" style="padding:6px 10px;border:0;border-radius:6px;background:#22c55e;color:#0b1e12;cursor:pointer">Embed</button>
             </div>`
           ov.appendChild(box); document.body.appendChild(ov)
           box.querySelector('#kb-cancel').onclick=()=>ov.remove()
           box.querySelector('#kb-run').onclick=()=>{
-            const sel=box.querySelector('input[name="kb-tgt"]:checked'); if(!sel){ showToast('Bitte Ziel auswählen'); return }
+            const sel=box.querySelector('input[name="kb-tgt"]:checked'); if(!sel){ showToast('Please select a target'); return }
             try{
               const key=sel.value==='session'?'optimando-context-bucket-session':'optimando-context-bucket-account'
               const prev=JSON.parse(localStorage.getItem(key)||'[]')

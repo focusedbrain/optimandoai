@@ -698,19 +698,19 @@ function Popup() {
       {confirmOpen && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2147483651 }}>
           <div style={{ width: 420, background: 'linear-gradient(135deg,#667eea,#764ba2)', borderRadius: 12, color: 'white', border: '1px solid rgba(255,255,255,0.25)', boxShadow: '0 12px 30px rgba(0,0,0,0.4)', overflow: 'hidden' }}>
-            <div style={{ padding: '12px 14px', borderBottom: '1px solid rgba(255,255,255,0.25)', fontWeight: 700 }}>Wohin einbetten?</div>
+            <div style={{ padding: '12px 14px', borderBottom: '1px solid rgba(255,255,255,0.25)', fontWeight: 700 }}>Where to embed?</div>
             <div style={{ padding: '12px 14px', fontSize: 12 }}>
-              <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}><input type="radio" name="kb-target" onChange={()=>{}} /> <span>Session Memory (nur diese Sitzung)</span></label>
-              <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}><input type="radio" name="kb-target" onChange={()=>{}} data-account /> <span>Account Memory (kontoweit, langfristig)</span></label>
-              <div style={{ marginTop: 8, opacity: 0.9 }}>Die Inhalte werden aufbereitet (OCR/ASR/Parsing), gechunkt und lokal eingebettet.</div>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}><input type="radio" name="kb-target" onChange={()=>{}} /> <span>Session Memory (this session only)</span></label>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}><input type="radio" name="kb-target" onChange={()=>{}} data-account /> <span>Account Memory (account-wide, long term)</span></label>
+              <div style={{ marginTop: 8, opacity: 0.9 }}>Content will be processed (OCR/ASR/Parsing), chunked, and embedded locally.</div>
             </div>
             <div style={{ padding: '10px 14px', background: 'rgba(255,255,255,0.08)', display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-              <button onClick={()=> setConfirmOpen(false)} style={{ padding: '6px 10px', border: 0, borderRadius: 6, background: 'rgba(255,255,255,0.18)', color: 'white', cursor: 'pointer' }}>Abbrechen</button>
+              <button onClick={()=> setConfirmOpen(false)} style={{ padding: '6px 10px', border: 0, borderRadius: 6, background: 'rgba(255,255,255,0.18)', color: 'white', cursor: 'pointer' }}>Cancel</button>
               <button onClick={()=>{
                 const selected = document.querySelector<HTMLInputElement>('input[name="kb-target"]:checked')
-                if (!selected) { showToast('Bitte Ziel auswählen'); return }
+                if (!selected) { showToast('Please select a target'); return }
                 handleEmbed(selected.hasAttribute('data-account') ? 'account' : 'session')
-              }} style={{ padding: '6px 10px', border: 0, borderRadius: 6, background: '#22c55e', color: '#0b1e12', cursor: 'pointer' }}>Einbetten</button>
+              }} style={{ padding: '6px 10px', border: 0, borderRadius: 6, background: '#22c55e', color: '#0b1e12', cursor: 'pointer' }}>Embed</button>
             </div>
           </div>
         </div>

@@ -9185,22 +9185,22 @@ ${pageText}
       const box = document.createElement('div')
       box.style.cssText = 'width:420px;background:linear-gradient(135deg,#667eea,#764ba2);color:white;border-radius:12px;border:1px solid rgba(255,255,255,.25);box-shadow:0 12px 30px rgba(0,0,0,.4);overflow:hidden'
       box.innerHTML = `
-        <div style="padding:14px 16px;border-bottom:1px solid rgba(255,255,255,.25);font-weight:700">Wohin einbetten?</div>
+        <div style="padding:14px 16px;border-bottom:1px solid rgba(255,255,255,.25);font-weight:700">Where to embed?</div>
         <div style="padding:14px 16px;font-size:12px">
-          <label style="display:flex;gap:8px;align-items:center;margin-bottom:8px"><input type="radio" name="ing-target" value="session"> <span>Session Memory (nur diese Sitzung)</span></label>
-          <label style="display:flex;gap:8px;align-items:center;margin-bottom:8px"><input type="radio" name="ing-target" value="account"> <span>Account Memory (kontoweit, langfristig)</span></label>
-          <div style="margin-top:10px;opacity:.9">Die Inhalte werden aufbereitet (OCR/ASR/Parsing), gechunkt und lokal eingebettet.</div>
+          <label style="display:flex;gap:8px;align-items:center;margin-bottom:8px"><input type="radio" name="ing-target" value="session"> <span>Session Memory (this session only)</span></label>
+          <label style="display:flex;gap:8px;align-items:center;margin-bottom:8px"><input type="radio" name="ing-target" value="account"> <span>Account Memory (account-wide, long term)</span></label>
+          <div style="margin-top:10px;opacity:.9">Content will be processed (OCR/ASR/Parsing), chunked, and embedded locally.</div>
         </div>
         <div style="padding:12px 16px;background:rgba(255,255,255,.08);display:flex;gap:8px;justify-content:flex-end">
-          <button id="ing-cancel" style="padding:6px 10px;border:0;border-radius:6px;background:rgba(255,255,255,.18);color:white;cursor:pointer">Abbrechen</button>
-          <button id="ing-run" style="padding:6px 10px;border:0;border-radius:6px;background:#22c55e;color:#0b1e12;cursor:pointer">Einbetten</button>
+          <button id="ing-cancel" style="padding:6px 10px;border:0;border-radius:6px;background:rgba(255,255,255,.18);color:white;cursor:pointer">Cancel</button>
+          <button id="ing-run" style="padding:6px 10px;border:0;border-radius:6px;background:#22c55e;color:#0b1e12;cursor:pointer">Embed</button>
         </div>`
       ov.appendChild(box)
       document.body.appendChild(ov)
       ;(box.querySelector('#ing-cancel') as HTMLButtonElement)?.addEventListener('click', ()=> ov.remove())
       ;(box.querySelector('#ing-run') as HTMLButtonElement)?.addEventListener('click', ()=>{
         const sel = box.querySelector('input[name="ing-target"]:checked') as HTMLInputElement | null
-        if (!sel) { showToast('Bitte Ziel auswählen', 'error'); return }
+        if (!sel) { showToast('Please select a target', 'error'); return }
         ov.remove(); onPick(sel.value as IngestTarget)
       })
     }
