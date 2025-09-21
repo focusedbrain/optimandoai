@@ -167,7 +167,6 @@ function initializeExtension() {
     console.log('🔄 Optimando AI Extension already loaded')
     return
   }
-  
   console.log('🚀 Loading Optimando AI Extension...')
   // Tab-specific data structure
   const tabId = `tab-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
@@ -2184,7 +2183,6 @@ function initializeExtension() {
         try { chrome.storage?.local?.set({ 'optimando-ui-theme': 'default' }) } catch {}
     }
   } catch {}
-
   // Bottom Panel Content
   let isExpanded = false
   const expandedHeight = 300
@@ -2277,7 +2275,7 @@ function initializeExtension() {
             <div style="display:grid; grid-template-columns: 1fr 1fr; gap: 10px; align-items:start; grid-auto-rows: min-content;">
               <div style="display:flex;flex-direction:column;gap:4px; position:relative; grid-row: 1 / span 2;">
                 <label for="goal-text" style="display:flex; align-items:center; gap:6px; font-size:11px;">Goal</label>
-                <textarea id="goal-text" placeholder="What’s your goal right now?" style="width: 100%; height: 100px; background: rgba(0,0,0,0.25); border: 1px solid rgba(255,255,255,0.45); color: white; padding: 6px 36px 6px 10px; border-radius: 6px; font-size: 11px; resize: vertical;"></textarea>
+                <textarea id="goal-text" placeholder="What's your goal right now?" style="width: 100%; height: 100px; background: rgba(0,0,0,0.25); border: 1px solid rgba(255,255,255,0.45); color: white; padding: 6px 36px 6px 10px; border-radius: 6px; font-size: 11px; resize: vertical;"></textarea>
                 <button id="goal-mic" title="Speak your goal" style="position:absolute; right:8px; bottom:8px; background:rgba(255,255,255,0.15);border:1px solid rgba(255,255,255,0.35);color:#fff;padding:2px 6px;border-radius:6px;cursor:pointer">🎤</button>
               </div>
               <div style="display:flex;flex-direction:column;gap:4px; position:relative;">
@@ -2378,7 +2376,6 @@ function initializeExtension() {
       localStorage.setItem('optimando-topbar-expanded', isExpanded ? 'true' : 'false')
     } catch {}
   }
-
   // Tabs logic for expandable content
   function setActiveTopbarTab(tabId: 'reasoning' | 'session-goals' | 'workflows') {
     try { localStorage.setItem('optimando-topbar-active-tab', tabId) } catch {}
@@ -2563,7 +2560,6 @@ function initializeExtension() {
 
     // Force default look for Settings wrapper as well
     const themeGradient = 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)'
-
     overlay.innerHTML = `
       <div style="background: ${themeGradient}; border-radius: 16px; width: 90vw; height: 85vh; max-width: 1200px; color: white; overflow: hidden; box-shadow: 0 20px 40px rgba(0,0,0,0.3); display: flex; flex-direction: column;">
         <div style="padding: 20px; border-bottom: 1px solid rgba(255,255,255,0.3); display: flex; justify-content: space-between; align-items: center;">
@@ -2736,7 +2732,6 @@ function initializeExtension() {
     // Get existing data or create default
     const storageKey = `agent_${agentName}_${type}`
     const existingData = localStorage.getItem(storageKey) || ''
-    
     let content = ''
     if (type === 'instructions') {
       // Revised unified Agent Editor
@@ -2932,7 +2927,6 @@ function initializeExtension() {
         row.appendChild(del)
         cont.appendChild(row)
       }
-
       // Dedicated workflow-row adder (no kind selector)
       const addWorkflowRow = (containerId: string) => {
         const cont = configOverlay.querySelector(containerId) as HTMLElement | null
@@ -3142,7 +3136,7 @@ function initializeExtension() {
             </div>
             <div id="L-passive" style="border:1px solid rgba(255,255,255,.25);border-radius:8px;padding:10px;background:rgba(255,255,255,0.04);margin-bottom:10px">
             <label style="display:flex;align-items:center;gap:6px">Expected Context
-              <span title="Describe examples, keywords, or patterns the Listener Agent should detect. These instructions improve the intent detection of the optimization layer and can enhance or overwrite the trained LLM logic of finetuned models, depending on this agent’s settings. It offers a more tailored experience for the users." style="font-size:12px;opacity:0.9;cursor:help;background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.35);padding:0 6px;border-radius:50%">i</span>
+              <span title="Describe examples, keywords, or patterns the Listener Agent should detect. These instructions improve the intent detection of the optimization layer and can enhance or overwrite the trained LLM logic of finetuned models, depending on this agent's settings. It offers a more tailored experience for the users." style="font-size:12px;opacity:0.9;cursor:help;background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.35);padding:0 6px;border-radius:50%">i</span>
             </label>
             <textarea id="L-context" placeholder="e.g. business email, product research, visiting specific site" style="width:100%;min-height:90px;background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.45);color:#fff;padding:8px;border-radius:6px"></textarea>
             <div style="margin:8px 0;display:flex;flex-wrap:wrap;gap:10px">
@@ -3478,7 +3472,6 @@ function initializeExtension() {
           const tgt = e.target as HTMLElement
           if (tgt && tgt.classList.contains('act-tag')) refreshApplyForOptions()
         })
-
         // Add extra Reasoning sections
         const rExtra = configOverlay.querySelector('#R-sections-extra') as HTMLElement | null
         const rAddSection = configOverlay.querySelector('#R-add-section') as HTMLButtonElement | null
@@ -3628,7 +3621,6 @@ function initializeExtension() {
     // Close handlers
     document.getElementById('close-agent-config').onclick = () => configOverlay.remove()
     document.getElementById('agent-config-cancel').onclick = () => configOverlay.remove()
-    
     // Save handler
     document.getElementById('agent-config-save').onclick = () => {
       let dataToSave = ''
@@ -4153,7 +4145,7 @@ function initializeExtension() {
           <div style="margin-top:10px"></div>
           <div id="account-context-content" style="display: none;">
             <div style="background: rgba(255,255,255,0.1); padding: 20px; border-radius: 8px; margin-bottom: 10px; font-size:12px;opacity:.9">
-              Account context is persistent across all sessions (e.g. a company’s knowledgebase), while session context only applies within a single active session.
+              Account context is persistent across all sessions (e.g. a company's knowledgebase), while session context only applies within a single active session.
             </div>
             <div style="background: rgba(255,255,255,0.1); padding: 20px; border-radius: 8px; margin-bottom: 20px;">
               <h3 style="margin: 0 0 15px 0; font-size: 16px; color: #66FF66;">Auto-scrape Website Context</h3>
@@ -4188,7 +4180,6 @@ function initializeExtension() {
               " placeholder="Publisher context will be loaded from wrcode.org or injected via template..."></textarea>
             </div>
           </div>
-          
           <!-- Action Buttons -->
           <div style="display: flex; justify-content: center; gap: 15px; margin-top: 20px;">
             <button id="inject-context-btn" style="
@@ -4382,7 +4373,6 @@ ${pageText}
     document.getElementById('inject-context-btn')?.addEventListener('click', () => {
       alert('Context injection to LLMs functionality would be implemented here')
     })
-    
     // Export context
     document.getElementById('export-context-btn')?.addEventListener('click', () => {
       const userText = document.getElementById('user-context-text') as HTMLTextAreaElement
@@ -4749,7 +4739,6 @@ ${pageText}
         btn.addEventListener('click', () => renderSessions((btn as HTMLElement).getAttribute('data-k') || 'Runs'))
       })
     }
-
     function openDrawer(id: string) {
       const item = SessionsStore.get(id); if (!item) return
       const drawer = document.createElement('div')
@@ -4931,7 +4920,6 @@ ${pageText}
       }
     }
   }
-
   // Save full session data to Electron app
   function saveSessionToElectron(sessionId, sessionData) {
     console.log('💾 Saving full session to Electron app:', sessionId)
@@ -5090,7 +5078,6 @@ ${pageText}
       backdrop-filter: blur(5px);
       pointer-events: auto;
     `
-    
     overlay.innerHTML = `
       <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 16px; width: 90vw; height: 85vh; max-width: 1200px; color: white; overflow: hidden; box-shadow: 0 20px 40px rgba(0,0,0,0.3); display: flex; flex-direction: column;">
         <div style="padding: 20px; border-bottom: 1px solid rgba(255,255,255,0.3); display: flex; justify-content: space-between; align-items: center;">
@@ -5286,7 +5273,6 @@ ${pageText}
     `
     
     document.body.appendChild(overlay)
-    
     document.getElementById('close-settings-lightbox').onclick = () => overlay.remove()
     const whitelistBtnInSettings = document.getElementById('settings-whitelist-btn')
     if (whitelistBtnInSettings) {
@@ -5829,7 +5815,6 @@ ${pageText}
         monthlyBtn.addEventListener('click', setMonthly)
         setAnnual()
       }
-
       // Wire Enterprise pricing toggle if present
       const entPrice = b.querySelector('#enterprise-price') as HTMLElement | null
       const entAnnual = b.querySelector('#enterprise-annual') as HTMLButtonElement | null
@@ -6029,7 +6014,6 @@ ${pageText}
                 </div>
               </div>
             </div>
-
             <!-- Port 5 -->
             <div style="background: rgba(255,255,255,0.1); padding: 12px; border-radius: 6px;">
               <h4 style="margin: 0 0 10px 0; font-size: 12px; color: #FFD700;">🖥️ Display Port #5</h4>
@@ -6429,13 +6413,8 @@ ${pageText}
         setTimeout(() => {
           notification.remove()
         }, 3000)
-        
         overlay.remove()
         console.log('🚀 Helper tabs opened and saved to session:', urls)
-      } else {
-        // Just save empty configuration
-        localStorage.setItem('helper_tabs_urls', JSON.stringify(['https://chatgpt.com']))
-        overlay.remove()
       }
     }
   }
@@ -6941,7 +6920,6 @@ ${pageText}
         setCurrentSessionKey(activeSessionKey)
         console.log('🆕 Created new session for display grids:', activeSessionKey)
       }
-      
       // Load the active session and update it
       chrome.storage.local.get([activeSessionKey], (result) => {
         let sessionData = result[activeSessionKey] || {
@@ -7289,7 +7267,6 @@ ${pageText}
             console.error('❌ Failed to save grid config from opener:', err)
           }
         })
-
         // Bind edit-slot buttons to open the slot editor even if inline onclick fails
         try {
           const bindEditHandlers = () => {
@@ -7488,7 +7465,6 @@ ${pageText}
           })
         })
       })
-      
     } catch (e) {
       console.log('Error checking grid saves:', e)
     }
@@ -8917,7 +8893,6 @@ ${pageText}
     } catch (e) {
       console.error('❌ Failed to add session to history:', e)
     }
-
     // Clear agent box outputs
     const summarizeOutput = document.getElementById('summarize-output')
     if (summarizeOutput) summarizeOutput.innerText = 'Ready for new summaries...'
@@ -9114,7 +9089,6 @@ ${pageText}
       saveTabDataToStorage()
     })
   }
-  
   // Render dynamic agent boxes after DOM is ready
   setTimeout(() => {
     renderAgentBoxes()
@@ -9285,18 +9259,7 @@ ${pageText}
       const hdr = theme === 'professional' ? 'linear-gradient(135deg,#ffffff,#f1f5f9)' : (theme==='dark' ? 'linear-gradient(135deg,#0f172a,#1e293b)' : 'linear-gradient(135deg,#667eea,#764ba2)')
       container.style.cssText = `background:${bg}; color:${fg}; border:1px solid ${br}; border-radius:8px; padding:0; margin: 0 0 12px 0; overflow:hidden; position:relative;`
       container.innerHTML = `
-        <div id="ccd-header" style="display:flex; align-items:center; justify-content:space-between; padding:6px 8px; background:${hdr}; border-bottom:1px solid ${br};">
-            <div style="display:flex; align-items:center; gap:8px; color:${theme==='professional'?'#0f172a':'white'}">
-            <div style="font-size:12px; font-weight:700;">💬 Command Chat</div>
-            <div style="display:flex; gap:6px; align-items:center;">
-              <button id="ccd-lm-one" title="LmGTFY - Capture a screen area as screenshot or stream and send it to your pre-defined automation tasks." style="background:${theme==='professional'?'#e2e8f0':'rgba(255,255,255,0.15)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; padding:2px 6px; font-size:12px; cursor:pointer;">✎</button>
-            </div>
-          </div>
-          <div style="display:flex; gap:6px; align-items:center;">
-            <button id="ccd-undock" title="Undock from sidepanel" style="background:${theme==='professional'?'#e2e8f0':'rgba(255,255,255,0.15)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; padding:4px 6px; font-size:10px; cursor:pointer;">↗</button>
-            <button id="ccd-bucket" title="Context Bucket: Embed context directly into the session" style="height:28px;background:${theme==='professional'?'#ffffff':'rgba(255,255,255,0.08)'}; border:1px solid ${br}; color:#ef4444; border-radius:6px; padding:0 8px; font-size:12px; cursor:pointer; display:flex;align-items:center;justify-content:center;">🪣</button>
-          </div>
-        </div>
+        <div id=\"ccd-header\" style=\"display:flex; align-items:center; justify-content:space-between; padding:6px 8px; background:${hdr}; border-bottom:1px solid ${br};\">\n            <div style=\"display:flex; align-items:center; gap:8px; color:${theme==='professional'?'#0f172a':'white'}\">\n            <div style=\"font-size:12px; font-weight:700;\">💬 Command Chat</div>\n            <div style=\"display:flex; gap:6px; align-items:center;\">\n              <button id=\"ccd-bucket\" title=\"Context Bucket: Embed context directly into the session\" style=\"height:28px;background:${theme==='professional'?'#ffffff':'rgba(255,255,255,0.08)'}; border:1px solid ${br}; color:#ef4444; border-radius:6px; padding:0 8px; font-size:12px; cursor:pointer; display:flex;align-items:center;justify-content:center;\">🪣</button>\n              <button id=\"ccd-lm-one\" title=\"LmGTFY - Capture a screen area as screenshot or stream and send it to your pre-defined automation tasks.\" style=\"background:${theme==='professional'?'#e2e8f0':'rgba(255,255,255,0.15)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; padding:2px 6px; font-size:12px; cursor:pointer;\">✎</button>\n            </div>\n          </div>\n          <div style=\"display:flex; gap:6px; align-items:center;\">\n            <button id=\"ccd-undock\" title=\"Undock from sidepanel\" style=\"background:${theme==='professional'?'#e2e8f0':'rgba(255,255,255,0.15)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; padding:4px 6px; font-size:10px; cursor:pointer;\">↗</button>\n          </div>\n        </div>
         <div id="ccd-messages" style="height:160px; overflow:auto; display:flex; flex-direction:column; gap:6px; background:${theme==='professional'?'#f8fafc':'rgba(255,255,255,0.06)'}; border-left:0; border-right:0; border-top:0; border-bottom:1px solid ${br}; padding:8px;"></div>
         <div id="ccd-compose" style="display:grid; grid-template-columns:1fr 36px 36px 68px; gap:6px; align-items:center; padding:8px;">
           <textarea id="ccd-input" placeholder="Type..." style="box-sizing:border-box; height:36px; resize:vertical; background:${theme==='professional'?'#ffffff':'rgba(255,255,255,0.08)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; padding:8px; font-size:12px;"></textarea>
@@ -9477,7 +9440,6 @@ ${pageText}
       // Mount context bucket to popup (drop anywhere in the box)
       mountContextBucket(box, 'ccf-bucket')
     }
-
     function startLmgtfy(mode: 'screenshot'|'stream'){
       try {
         // Launch desktop via deep-link which also triggers the mode
