@@ -3090,6 +3090,11 @@ function initializeExtension() {
             </label>
             <div id="R-custom-list" style="display:flex;flex-direction:column;gap:8px;margin-top:8px"></div>
             <button id="R-add-custom" style="background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.35);color:#fff;padding:6px 10px;border-radius:6px;cursor:pointer">+ Custom field</button>
+            <div style="margin-top:8px">
+              <div style="font-weight:600;margin:6px 0">Report to (optional)</div>
+              <div id="R-report-list" style="display:flex;flex-direction:column;gap:8px"></div>
+              <button id="R-add-report" style="background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.35);color:#fff;padding:6px 10px;border-radius:6px;cursor:pointer;margin-top:6px">+ Add</button>
+            </div>
             <div id="R-sections-extra" style="display:flex;flex-direction:column;gap:10px;margin-top:10px"></div>`
           container.appendChild(wrap)
 
@@ -3217,24 +3222,6 @@ function initializeExtension() {
         const eAdd = configOverlay.querySelector('#E-add-accept') as HTMLButtonElement | null
         const lRep = configOverlay.querySelector('#L-add-report') as HTMLButtonElement | null
         const eRep = null as unknown as HTMLButtonElement | null
-        const rRepWrap = document.createElement('div')
-        if (configOverlay.querySelector('#box-reasoning')) {
-          const rBox = configOverlay.querySelector('#box-reasoning') as HTMLElement
-          const title = document.createElement('div')
-          title.textContent = 'Report to (optional)'
-          title.style.cssText = 'margin-top:8px;font-weight:600'
-          const list = document.createElement('div')
-          list.id = 'R-report-list'
-          list.style.cssText = 'display:flex;flex-direction:column;gap:8px'
-          const btn = document.createElement('button')
-          btn.id = 'R-add-report'
-          btn.textContent = '+ Add'
-          btn.style.cssText = 'background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.35);color:#fff;padding:6px 10px;border-radius:6px;cursor:pointer;margin-top:6px'
-          rRepWrap.appendChild(title)
-          rRepWrap.appendChild(list)
-          rRepWrap.appendChild(btn)
-          rBox.appendChild(rRepWrap)
-        }
         const eWf = configOverlay.querySelector('#E-add-workflow') as HTMLButtonElement | null
         rAdd && rAdd.addEventListener('click', () => addRow('#R-accept-list', 'acc-row', 'route-kind', 'route-specific'))
         eAdd && eAdd.addEventListener('click', () => addRow('#E-accept-list', 'acc-row', 'route-kind', 'route-specific'))
@@ -3371,6 +3358,8 @@ function initializeExtension() {
           const sec = document.createElement('div')
           sec.className = 'R-section'
           sec.style.cssText = 'border:1px dashed rgba(255,255,255,.35);padding:10px;border-radius:8px'
+          const accId = `R-acc-sub-${Math.random().toString(36).slice(2,8)}`
+          const repId = `R-rep-sub-${Math.random().toString(36).slice(2,8)}`
           sec.innerHTML = `
             <div style="display:flex;align-items:center;gap:10px;margin:6px 0">
               <label>Apply for:
@@ -3379,6 +3368,11 @@ function initializeExtension() {
                 </select>
               </label>
               <button class="R-del" title="Remove" style="background:#f44336;color:#fff;border:1px solid rgba(255,255,255,.25);padding:2px 8px;border-radius:6px;cursor:pointer">×</button>
+            </div>
+            <div>
+              <div style="display:flex;align-items:center;gap:8px;margin:6px 0"><span>Listen from</span></div>
+              <div id="${accId}" class="R-accept-list-sub" style="display:flex;flex-direction:column;gap:8px"></div>
+              <button class="R-add-accept-sub" style="background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.35);color:#fff;padding:6px 10px;border-radius:6px;cursor:pointer">+ Add</button>
             </div>
             <label style="margin-top:6px">Goals (System instructions)
               <textarea class="R-goals" style="width:100%;min-height:70px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.35);color:#fff;padding:8px;border-radius:6px"></textarea>
@@ -3391,6 +3385,11 @@ function initializeExtension() {
             </label>
             <div class="R-custom-list" style="display:flex;flex-direction:column;gap:8px;margin-top:6px"></div>
             <button class="R-add-custom" style="background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.35);color:#fff;padding:6px 10px;border-radius:6px;cursor:pointer">+ Custom field</button>
+            <div style="margin-top:8px">
+              <div style="font-weight:600;margin:6px 0">Report to (optional)</div>
+              <div id="${repId}" class="R-report-list-sub" style="display:flex;flex-direction:column;gap:8px"></div>
+              <button class="R-add-report-sub" style="background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.35);color:#fff;padding:6px 10px;border-radius:6px;cursor:pointer;margin-top:6px">+ Add</button>
+            </div>
           `
           ;(sec.querySelector('.R-del') as HTMLButtonElement).addEventListener('click', ()=> sec.remove())
           ;(sec.querySelector('.R-add-custom') as HTMLButtonElement).addEventListener('click', ()=>{
@@ -3410,6 +3409,8 @@ function initializeExtension() {
               addW?.click()
             } catch {}
           }, 0)
+          ;(sec.querySelector('.R-add-accept-sub') as HTMLButtonElement).addEventListener('click', ()=> addRow(`#${accId}`, 'acc-row', 'route-kind', 'route-specific'))
+          ;(sec.querySelector('.R-add-report-sub') as HTMLButtonElement).addEventListener('click', ()=> addRow(`#${repId}`, 'rep-row', 'route-kind', 'route-specific'))
           return sec
         }
         rAddSection && rExtra && rAddSection.addEventListener('click', ()=>{
