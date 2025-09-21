@@ -3002,6 +3002,34 @@ function initializeExtension() {
         // Before clearing, capture current Reasoning values if present
         syncPersistedFromDom()
         container.innerHTML = ''
+        // Agent Context (optional) uploader
+        const agentCtxWrap = document.createElement('div')
+        agentCtxWrap.style.cssText = 'background:rgba(255,255,255,0.06);padding:12px;border-radius:10px;border:1px solid rgba(255,255,255,0.15)'
+        agentCtxWrap.innerHTML = `
+          <div style="display:flex;align-items:center;gap:12px;justify-content:space-between">
+            <div style="font-weight:700">Agent Context (optional)</div>
+            <div style="display:flex;align-items:center;gap:12px;font-size:12px">
+              <label style="display:flex;align-items:center;gap:6px"><input id="AC-session" type="checkbox" checked> Session Context</label>
+              <label style="display:flex;align-items:center;gap:6px"><input id="AC-account" type="checkbox" checked> Account Context</label>
+              <label style="display:flex;align-items:center;gap:6px"><input id="AC-agent" type="checkbox"> Agent Context</label>
+            </div>
+          </div>
+          <div id="AC-content" style="display:none;margin-top:8px">
+            <label style="display:block;margin-bottom:6px">Upload JSON / PDF / DOCX / MD</label>
+            <input id="AC-files" type="file" multiple accept="application/json,application/pdf,.doc,.docx,text/markdown,.md,application/vnd.openxmlformats-officedocument.wordprocessingml.document" style="width:100%;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.35);color:#fff;padding:8px;border-radius:6px">
+            <div id="AC-list" style="margin-top:6px;font-size:12px;opacity:.85">No files selected</div>
+          </div>`
+        container.appendChild(agentCtxWrap)
+        const acEnable = agentCtxWrap.querySelector('#AC-agent') as HTMLInputElement
+        const acContent = agentCtxWrap.querySelector('#AC-content') as HTMLElement
+        const acFiles = agentCtxWrap.querySelector('#AC-files') as HTMLInputElement
+        const acList = agentCtxWrap.querySelector('#AC-list') as HTMLElement
+        const syncAc = () => { acContent.style.display = acEnable.checked ? 'block' : 'none' }
+        acEnable.addEventListener('change', syncAc); syncAc()
+        acFiles.addEventListener('change', () => {
+          const n = (acFiles.files||[]).length
+          acList.textContent = n ? `${n} file(s) selected` : 'No files selected'
+        })
         if (capL && capL.checked) {
           const wrap = document.createElement('div')
           wrap.id = 'box-listening'
@@ -3966,7 +3994,7 @@ function initializeExtension() {
         display: flex; flex-direction: column;
       ">
         <div style="padding: 20px; border-bottom: 1px solid rgba(255,255,255,0.3); display: flex; justify-content: space-between; align-items: center;">
-          <h2 style="margin: 0; font-size: 20px;">📄 Context Management</h2>
+          <h2 style="margin: 0; font-size: 20px;">📄 Global Context Management</h2>
           <button id="close-context-lightbox" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 30px; height: 30px; border-radius: 50%; cursor: pointer; font-size: 16px;">×</button>
         </div>
         
@@ -3977,12 +4005,17 @@ function initializeExtension() {
               padding: 10px 20px; background: rgba(255,255,255,0.2); border: none; 
               color: white; border-radius: 8px 8px 0 0; cursor: pointer; font-size: 14px;
               transition: all 0.3s ease;
-            ">👤 User Context</button>
+            ">👤 User Context (Session)</button>
             <button id="publisher-context-tab" style="
               padding: 10px 20px; background: rgba(255,255,255,0.1); border: none; 
               color: white; border-radius: 8px 8px 0 0; cursor: pointer; font-size: 14px;
               transition: all 0.3s ease;
-            ">🌐 Publisher Context</button>
+            ">🌐 Publisher Context (Session)</button>
+            <button id="account-context-tab" style="
+              padding: 10px 20px; background: rgba(255,255,255,0.1); border: none; 
+              color: white; border-radius: 8px 8px 0 0; cursor: pointer; font-size: 14px;
+              transition: all 0.3s ease;
+            ">🏢 Account Context</button>
           </div>
           
           <!-- User Context Tab Content -->
@@ -4016,6 +4049,25 @@ function initializeExtension() {
             </div>
           </div>
           
+          <!-- Account Context Tab Button -->
+          <div style="margin-top:10px"></div>
+          <div id="account-context-content" style="display: none;">
+            <div style="background: rgba(255,255,255,0.1); padding: 20px; border-radius: 8px; margin-bottom: 10px; font-size:12px;opacity:.9">
+              Account context is persistent across all sessions (e.g. a company’s knowledgebase), while session context only applies within a single active session.
+            </div>
+            <div style="background: rgba(255,255,255,0.1); padding: 20px; border-radius: 8px; margin-bottom: 20px;">
+              <h3 style="margin: 0 0 15px 0; font-size: 16px; color: #66FF66;">Auto-scrape Website Context</h3>
+              <div style="display: flex; gap: 10px; margin-bottom: 15px;">
+                <button id="account-scrape-context" style="background: #34D399; color: white; border: none; padding: 10px 14px; border-radius: 6px; cursor: pointer; font-weight: 600; display:flex;align-items:center;gap:6px">🔎 Scrape Current Page</button>
+              </div>
+              <textarea id="account-context-input" placeholder="Enter your context information here or use the scrape button above..." style="width: 100%; height: 160px; background: rgba(255,255,255,0.05); color: white; border: 1px solid rgba(255,255,255,0.2); border-radius: 6px; padding: 10px;"></textarea>
+            </div>
+            <div style="background: rgba(255,255,255,0.1); padding: 20px; border-radius: 8px;">
+              <h3 style="margin: 0 0 15px 0; font-size: 16px; color: #66FF66;">Upload PDF Files</h3>
+              <input id="account-context-pdf" type="file" accept="application/pdf" multiple style="background: rgba(255,255,255,0.05); color: white; border: 1px solid rgba(255,255,255,0.2); border-radius: 6px; padding: 8px; width: 100%;" />
+              <div id="account-pdf-list" style="margin-top: 10px; font-size: 12px; opacity: 0.8;">No PDF files uploaded</div>
+            </div>
+          </div>
           <!-- Publisher Context Tab Content -->
           <div id="publisher-context-content" style="display: none;">
             <div style="background: rgba(255,255,255,0.1); padding: 20px; border-radius: 8px; margin-bottom: 20px;">
@@ -4098,21 +4150,36 @@ function initializeExtension() {
     // Tab switching functionality
     const userTab = document.getElementById('user-context-tab')
     const publisherTab = document.getElementById('publisher-context-tab')
+    const accountTab = document.getElementById('account-context-tab')
     const userContent = document.getElementById('user-context-content')
     const publisherContent = document.getElementById('publisher-context-content')
+    const accountContent = document.getElementById('account-context-content')
     
     userTab?.addEventListener('click', () => {
       userTab.style.background = 'rgba(255,255,255,0.2)'
       publisherTab.style.background = 'rgba(255,255,255,0.1)'
+      if (accountTab) accountTab.style.background = 'rgba(255,255,255,0.1)'
       userContent.style.display = 'block'
       publisherContent.style.display = 'none'
+      if (accountContent) accountContent.style.display = 'none'
     })
     
     publisherTab?.addEventListener('click', () => {
       publisherTab.style.background = 'rgba(255,255,255,0.2)'
       userTab.style.background = 'rgba(255,255,255,0.1)'
+      if (accountTab) accountTab.style.background = 'rgba(255,255,255,0.1)'
       publisherContent.style.display = 'block'
       userContent.style.display = 'none'
+      if (accountContent) accountContent.style.display = 'none'
+    })
+    
+    accountTab?.addEventListener('click', () => {
+      accountTab.style.background = 'rgba(255,255,255,0.2)'
+      userTab.style.background = 'rgba(255,255,255,0.1)'
+      publisherTab.style.background = 'rgba(255,255,255,0.1)'
+      if (accountContent) accountContent.style.display = 'block'
+      userContent.style.display = 'none'
+      publisherContent.style.display = 'none'
     })
     
     // Close button
