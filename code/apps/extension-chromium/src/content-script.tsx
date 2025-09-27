@@ -5046,14 +5046,15 @@ ${pageText}
       const btnShot = document.createElement('button'); btnShot.textContent = 'Screenshot'; btnShot.style.cssText='background:#10b981;border:0;color:white;padding:4px 8px;border-radius:6px;cursor:pointer'
       const btnStream = document.createElement('button'); btnStream.textContent = 'Stream'; btnStream.style.cssText='background:#3b82f6;border:0;color:white;padding:4px 8px;border-radius:6px;cursor:pointer'
       const btnRec = document.createElement('button'); btnRec.textContent = '⏺'; btnRec.title = 'Record'; btnRec.style.cssText='background:#ef4444;border:0;color:white;padding:4px 8px;border-radius:6px;cursor:pointer;display:none'
-      const btnStop = document.createElement('button'); btnStop.textContent = '⏹'; btnStop.style.cssText='background:#991b1b;border:0;color:white;padding:4px 8px;border-radius:6px;cursor:pointer;display:none'
+      const btnStop = document.createElement('button'); btnStop.textContent = '⏹'; btnStop.title = 'Stop'; btnStop.style.cssText='background:#991b1b;border:0;color:white;padding:4px 8px;border-radius:6px;cursor:pointer;display:none'
+      const timerEl = document.createElement('span'); timerEl.textContent = '00:00'; timerEl.title = 'Recording time'; timerEl.style.cssText='color:#e5e7eb;opacity:.9;font-variant-numeric:tabular-nums;display:none;align-self:center'
       const lab = document.createElement('label'); lab.style.cssText='display:flex;align-items:center;gap:6px;color:white;user-select:none'
       const cbCreate = document.createElement('input'); cbCreate.type='checkbox'
       const spanTxt = document.createElement('span'); spanTxt.textContent = 'Create Tagged Trigger'
       lab.append(cbCreate, spanTxt)
       // Close control (×)
       const btnClose = document.createElement('button'); btnClose.textContent='×'; btnClose.title='Close selection'; btnClose.style.cssText='background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.25);color:white;padding:4px 8px;border-radius:6px;cursor:pointer'
-      toolbar.append(btnShot, btnStream, btnRec, btnStop, lab, btnClose)
+      toolbar.append(btnShot, btnStream, btnRec, btnStop, timerEl, lab, btnClose)
       document.body.appendChild(toolbar)
       // Prevent toolbar clicks from bubbling to overlay handlers
       ;[toolbar, btnShot, btnStream, btnRec, btnStop, lab, cbCreate, spanTxt, btnClose].forEach(el=>{
@@ -5062,12 +5063,20 @@ ${pageText}
         el.addEventListener('click', e=>{ e.stopPropagation() })
       })
 
-      let streamTimer: any = null
+      let recTimer: any = null
       let mediaRecorder: MediaRecorder | null = null
       let recordedChunks: BlobPart[] = []
       let stopAll: (()=>void) | null = null
       let frameTimer: any = null
       let recBadge: HTMLElement | null = null
+      let recStartMs: number = 0
+
+      function formatTime(ms:number){
+        const total = Math.max(0, Math.floor(ms/1000))
+        const m = Math.floor(total/60).toString().padStart(2,'0')
+        const s = (total%60).toString().padStart(2,'0')
+        return m+':'+s
+      }
 
       function placeToolbar(){
         const r = box.getBoundingClientRect()
@@ -5193,7 +5202,14 @@ ${pageText}
           const stream = (cnv as any).captureStream ? (cnv as any).captureStream(5) : null
           if (!stream) return
           recordedChunks = []
-          const mime = MediaRecorder.isTypeSupported('video/webm;codecs=vp9') ? 'video/webm;codecs=vp9' : 'video/webm;codecs=vp8'
+          const preferred = [
+            'video/mp4;codecs=h264',
+            'video/mp4',
+            'video/webm;codecs=vp9',
+            'video/webm;codecs=vp8',
+            'video/webm'
+          ]
+          const mime = preferred.find(t=>{ try { return (MediaRecorder as any).isTypeSupported ? MediaRecorder.isTypeSupported(t) : false } catch { return false } }) || 'video/webm'
           mediaRecorder = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 1_500_000 })
           mediaRecorder.ondataavailable = (e)=>{ if (e.data && e.data.size > 0) recordedChunks.push(e.data) }
           mediaRecorder.onstop = ()=>{
@@ -5203,6 +5219,8 @@ ${pageText}
             const url = URL.createObjectURL(blob)
             pasteVideoToChat(url)
             renderTriggerPrompt(url as any, r, 'stream')
+            try{ if(recTimer){ clearInterval(recTimer); recTimer=null } }catch{}
+            try{ timerEl.style.display='none'; timerEl.textContent='00:00' }catch{}
           }
           mediaRecorder.start(500)
           // Periodically capture frames of the visible tab and draw cropped region
@@ -5223,17 +5241,26 @@ ${pageText}
             const st = document.createElement('style'); st.textContent='@keyframes pulse{0%{opacity:1}50%{opacity:.35}100%{opacity:1}}'; recBadge.appendChild(st)
             document.body.appendChild(recBadge)
           } catch{}
+          // Start timer next to controls
+          try {
+            recStartMs = Date.now();
+            timerEl.style.display='inline-block';
+            timerEl.textContent = '00:00';
+            recTimer = setInterval(()=>{ try{ timerEl.textContent = formatTime(Date.now()-recStartMs) }catch{} }, 1000)
+          } catch {}
           stopAll = ()=>{
             try{ clearInterval(frameTimer) }catch{}
             try{ mediaRecorder && mediaRecorder.state !== 'inactive' && mediaRecorder.stop() }catch{}
             try{ recBadge && recBadge.remove() }catch{}
+            try{ if(recTimer){ clearInterval(recTimer); recTimer=null } }catch{}
+            try{ timerEl.style.display='none'; timerEl.textContent='00:00' }catch{}
           }
         }catch{}
       }
       btnStop.onclick = (ev:any)=>{
         try{ ev.preventDefault(); ev.stopPropagation() }catch{}
-        // Stop any placeholder timer
-        if (streamTimer){ clearInterval(streamTimer); streamTimer=null }
+        // Stop timer if running
+        if (recTimer){ try{ clearInterval(recTimer) }catch{} recTimer=null }
         if (stopAll) stopAll()
       }
       // removed explicit button; checkbox governs prompt on actions
