@@ -8,8 +8,8 @@ This repository contains the original scientific paper and license documentation
 We introduce **OpenGiraffe**, a novel open-source framework that transforms browser tabs into collaborative AI agents using a master–helper orchestration model. The system provides forward-thinking, real-time, context-aware workflow suggestions by coordinating multiple language models across tabs—managed by a local orchestrator application. The entire architecture is client-side, open-source, and privacy-respecting.
 
 🗂 **Repository Contents**
-- `optimandoai-research-paper-v117.pdf` – Full scientific paper  
-- `optimandoai-research-paper-v117.pdf.ots` – OpenTimestamps proof of authorship  
+- `optimandoai-research-paper-v121.pdf` – Full scientific paper  
+- `optimandoai-research-paper-v121.pdf.ots` – OpenTimestamps proof of authorship  
 - `license.pdf` – Full license terms (CC BY-SA 4.0 with UI attribution requirement)  
 - `license.pdf.ots` – OpenTimestamps proof of license authorship  
 - `License-AGPL-3.0-OpenGiraffe.txt` – Modified AGPLv3 license with UI attribution clause for OpenGiraffe  
