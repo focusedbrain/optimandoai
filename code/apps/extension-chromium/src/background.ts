@@ -258,6 +258,18 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       } catch { try { sendResponse({ success:false }) } catch {} }
       break
     }
+    case 'ELECTRON_CANCEL_SELECTION': {
+      try {
+        if (WS_ENABLED && ws && ws.readyState === WebSocket.OPEN) {
+          const payload = { type: 'CANCEL_SELECTION', source: msg.source || 'browser' }
+          try { ws.send(JSON.stringify(payload)) } catch {}
+          try { sendResponse({ success: true }) } catch {}
+        } else {
+          try { sendResponse({ success: false, error: 'WS not connected' }) } catch {}
+        }
+      } catch { try { sendResponse({ success:false }) } catch {} }
+      break
+    }
     case 'REQUEST_START_SELECTION_POPUP': {
       try {
         chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
