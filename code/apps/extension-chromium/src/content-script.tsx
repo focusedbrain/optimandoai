@@ -5240,6 +5240,19 @@ ${pageText}
 
       document.body.appendChild(ov)
 
+      // External cancel support from popup or Electron
+      try {
+        const cancelHandler = (incoming:any)=>{
+          try{ if (!incoming || !incoming.type) return; if (incoming.type !== 'OG_CANCEL_SELECTION') return; }catch{ return }
+          try{ clearInterval(frameTimer) }catch{}
+          try{ mediaRecorder && mediaRecorder.state !== 'inactive' && mediaRecorder.stop() }catch{}
+          try{ recBadge && recBadge.remove() }catch{}
+          try{ toolbar.remove() }catch{}
+          try{ ov.remove() }catch{}
+        }
+        chrome.runtime?.onMessage.addListener(cancelHandler)
+      } catch {}
+
       // Handle selection results coming back from Electron (for popup window mode)
       try {
         const onElectronResult = (evt:any)=>{

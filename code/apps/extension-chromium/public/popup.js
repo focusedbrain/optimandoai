@@ -24,6 +24,7 @@ const send = document.getElementById('send')
 const bucketBtn = document.getElementById('tk-bucket')
 const pencilBtn = document.getElementById('tk-pencil')
 const ddTags = document.getElementById('tk-tags')
+const cancelBtn = document.getElementById('tk-cancel')
 
 function row(role, text){
   const r = document.createElement('div'); r.className = 'row ' + (role === 'user' ? 'user' : 'assistant');
@@ -90,6 +91,7 @@ if (pencilBtn) pencilBtn.onclick = (e)=>{
   try{ e.preventDefault() }catch{}
   try{ chrome.runtime?.sendMessage({ type: 'REQUEST_START_SELECTION_POPUP' }) }catch{}
   try{ chrome.runtime?.sendMessage({ type:'ELECTRON_START_SELECTION', source:'popup' }, (res)=>{ if(!res||!res.success){ try{ window.open('opengiraffe://lmgtfy?mode=stream','_self') }catch{} } }) }catch{}
+  try{ cancelBtn && (cancelBtn.style.display='inline-flex') }catch{}
 }
 if (ddTags) ddTags.onchange = ()=>{ const idx=parseInt(ddTags.value||'-1',10); if(!isNaN(idx)&&idx>=0){ try{ chrome.runtime?.sendMessage({ type:'OG_CAPTURE_SAVED_TAG', index: idx }) }catch{} } ddTags.value='' }
 
@@ -107,9 +109,18 @@ try {
           const v = document.createElement('video'); v.src = msg.url; v.controls = true; v.style.maxWidth='260px'; v.style.borderRadius='8px'; bub.appendChild(v)
         }
         row.appendChild(bub); msgs.appendChild(row); msgs.scrollTop = 1e9
+        try{ cancelBtn && (cancelBtn.style.display='none') }catch{}
       }
     }catch{}
   })
 }catch{}
+
+// Allow cancel from the popup (×) to stop selection in Electron/content
+if (cancelBtn) cancelBtn.onclick = (e)=>{
+  try{ e.preventDefault() }catch{}
+  try{ chrome.runtime?.sendMessage({ type:'ELECTRON_CANCEL_SELECTION', source:'popup' }) }catch{}
+  try{ chrome.runtime?.sendMessage({ type:'OG_CANCEL_SELECTION' }) }catch{}
+  try{ cancelBtn && (cancelBtn.style.display='none') }catch{}
+}
 
 
