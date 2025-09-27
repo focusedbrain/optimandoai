@@ -93,5 +93,23 @@ if (pencilBtn) pencilBtn.onclick = (e)=>{
 }
 if (ddTags) ddTags.onchange = ()=>{ const idx=parseInt(ddTags.value||'-1',10); if(!isNaN(idx)&&idx>=0){ try{ chrome.runtime?.sendMessage({ type:'OG_CAPTURE_SAVED_TAG', index: idx }) }catch{} } ddTags.value='' }
 
+// Append incoming captures (image/video) from the content script to the popup chat
+try {
+  chrome.runtime?.onMessage.addListener((msg)=>{
+    try{
+      if (!msg || !msg.type) return
+      if (msg.type === 'COMMAND_POPUP_APPEND'){
+        const row = document.createElement('div'); row.className='row user'
+        const bub = document.createElement('div'); bub.className='bubble user'
+        if (msg.kind === 'image'){
+          const img = document.createElement('img'); img.src = msg.url; img.style.maxWidth='260px'; img.style.borderRadius='8px'; bub.appendChild(img)
+        } else if (msg.kind === 'video'){
+          const v = document.createElement('video'); v.src = msg.url; v.controls = true; v.style.maxWidth='260px'; v.style.borderRadius='8px'; bub.appendChild(v)
+        }
+        row.appendChild(bub); msgs.appendChild(row); msgs.scrollTop = 1e9
+      }
+    }catch{}
+  })
+}catch{}
 
 
