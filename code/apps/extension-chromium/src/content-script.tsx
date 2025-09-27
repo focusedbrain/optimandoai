@@ -5028,6 +5028,7 @@ ${pageText}
       ov.appendChild(box)
 
       let startX = 0, startY = 0, curX = 0, curY = 0, isDragging = false
+      let hasSelected = false
       function setBox(a:number,b:number,c:number,d:number){
         const x = Math.min(a,c), y = Math.min(b,d)
         const w = Math.abs(c-a), h = Math.abs(d-b)
@@ -5050,13 +5051,15 @@ ${pageText}
       const cbCreate = document.createElement('input'); cbCreate.type='checkbox'
       const spanTxt = document.createElement('span'); spanTxt.textContent = 'Create Tagged Trigger'
       lab.append(cbCreate, spanTxt)
-      toolbar.append(btnShot, btnStream, btnRec, btnStop, lab)
+      // Close control (×)
+      const btnClose = document.createElement('button'); btnClose.textContent='×'; btnClose.title='Close selection'; btnClose.style.cssText='background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.25);color:white;padding:4px 8px;border-radius:6px;cursor:pointer'
+      toolbar.append(btnShot, btnStream, btnRec, btnStop, lab, btnClose)
       document.body.appendChild(toolbar)
       // Prevent toolbar clicks from bubbling to overlay handlers
-      ;[toolbar, btnShot, btnStream, btnRec, btnStop, lab, cbCreate, spanTxt].forEach(el=>{
-        el.addEventListener('mousedown', e=>{ e.preventDefault(); e.stopPropagation() })
-        el.addEventListener('mouseup', e=>{ e.preventDefault(); e.stopPropagation() })
-        el.addEventListener('click', e=>{ e.preventDefault(); e.stopPropagation() })
+      ;[toolbar, btnShot, btnStream, btnRec, btnStop, lab, cbCreate, spanTxt, btnClose].forEach(el=>{
+        el.addEventListener('mousedown', e=>{ e.stopPropagation() })
+        el.addEventListener('mouseup', e=>{ e.stopPropagation() })
+        el.addEventListener('click', e=>{ e.stopPropagation() })
       })
 
       let streamTimer: any = null
@@ -5073,9 +5076,19 @@ ${pageText}
         toolbar.style.left = tx + 'px'; toolbar.style.top = ty + 'px'; toolbar.style.display='flex'
       }
 
-      ov.addEventListener('mousedown', (e)=>{ const t=e.target as Element|null; if (t && (t===toolbar || toolbar.contains(t))) { e.preventDefault(); e.stopPropagation(); return; } isDragging = true; startX = e.clientX; startY = e.clientY; curX = startX; curY = startY; setBox(startX,startY,curX,curY) })
+      ov.addEventListener('mousedown', (e)=>{ const t=e.target as Element|null; if (t && (t===toolbar || toolbar.contains(t))) { e.stopPropagation(); return; } if (hasSelected) { e.stopPropagation(); return; } isDragging = true; startX = e.clientX; startY = e.clientY; curX = startX; curY = startY; setBox(startX,startY,curX,curY) })
       ov.addEventListener('mousemove', (e)=>{ if(!isDragging) return; curX=e.clientX; curY=e.clientY; setBox(startX,startY,curX,curY) })
-      ov.addEventListener('mouseup', (e)=>{ const t=e.target as Element|null; if (t && (t===toolbar || toolbar.contains(t))) { e.preventDefault(); e.stopPropagation(); return; } if(!isDragging) return; isDragging=false; placeToolbar(); toolbar.style.pointerEvents='auto' })
+      ov.addEventListener('mouseup', (e)=>{ const t=e.target as Element|null; if (t && (t===toolbar || toolbar.contains(t))) { e.stopPropagation(); return; } if(!isDragging) return; isDragging=false; hasSelected = true; placeToolbar(); toolbar.style.pointerEvents='auto'; try{ (ov as HTMLElement).style.cursor='default'; (ov as HTMLElement).style.pointerEvents='none' }catch{} })
+
+      // Close selection and controls
+      function closeSelection(){
+        try{ clearInterval(frameTimer) }catch{}
+        try{ mediaRecorder && mediaRecorder.state !== 'inactive' && mediaRecorder.stop() }catch{}
+        try{ recBadge && recBadge.remove() }catch{}
+        try{ toolbar.remove() }catch{}
+        try{ ov.remove() }catch{}
+      }
+      btnClose.onclick = (ev:any)=>{ try{ ev.preventDefault(); ev.stopPropagation() }catch{}; closeSelection() }
 
       async function captureVisibleTab(): Promise<string|null>{
         try {
@@ -5163,7 +5176,7 @@ ${pageText}
 
       btnShot.onclick = async (ev:any)=>{
         try{ ev.preventDefault(); ev.stopPropagation() }catch{}
-        const r = coords(); const raw = await captureVisibleTab(); if(!raw) return; const cropped = await cropDataUrl(raw, r.x, r.y, r.w, r.h); pasteImageToChat(cropped); renderTriggerPrompt(cropped, r, 'screenshot'); ov.remove()
+        const r = coords(); const raw = await captureVisibleTab(); if(!raw) return; const cropped = await cropDataUrl(raw, r.x, r.y, r.w, r.h); pasteImageToChat(cropped); renderTriggerPrompt(cropped, r, 'screenshot')
       }
       btnStream.onclick = async (ev:any)=>{
         try{ ev.preventDefault(); ev.stopPropagation() }catch{}
@@ -5213,8 +5226,6 @@ ${pageText}
           stopAll = ()=>{
             try{ clearInterval(frameTimer) }catch{}
             try{ mediaRecorder && mediaRecorder.state !== 'inactive' && mediaRecorder.stop() }catch{}
-            try{ ov.remove() }catch{}
-            try{ toolbar.remove() }catch{}
             try{ recBadge && recBadge.remove() }catch{}
           }
         }catch{}
@@ -5241,7 +5252,7 @@ ${pageText}
               if (!url) return
               if (kind === 'video') pasteVideoToChat(url)
               else pasteImageToChat(url)
-              ov.remove(); toolbar.remove(); try{ recBadge && recBadge.remove() }catch{}
+              try{ recBadge && recBadge.remove() }catch{}
             }
           }catch{}
         }
@@ -5254,7 +5265,7 @@ ${pageText}
               if (!url) return
               if (kind === 'video') pasteVideoToChat(url)
               else pasteImageToChat(url)
-              try{ ov.remove(); toolbar.remove(); recBadge && recBadge.remove() }catch{}
+              try{ recBadge && recBadge.remove() }catch{}
             }
           }catch{}
         })
