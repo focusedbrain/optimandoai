@@ -86,6 +86,62 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 })
 
+// Global handler: append captures coming back from Electron to whichever chat is visible
+try {
+  chrome.runtime.onMessage.addListener((msg:any)=>{
+    try{
+      if (!msg || !msg.type) return
+      if (msg.type === 'ELECTRON_SELECTION_RESULT'){
+        const target = (document.getElementById('ccf-messages') as HTMLElement | null) || (document.getElementById('ccd-messages') as HTMLElement | null)
+        if (!target) return
+        const kind = msg.kind || 'image'
+        const url = msg.dataUrl || msg.url
+        if (!url) return
+        const row = document.createElement('div'); row.style.display='flex'; row.style.justifyContent='flex-end'
+        const bub = document.createElement('div'); bub.style.maxWidth='78%'; bub.style.padding='6px'; bub.style.borderRadius='10px'; bub.style.fontSize='12px'; bub.style.background='var(--bubble-user-bg, rgba(34,197,94,0.12))'; bub.style.border='1px solid var(--bubble-user-border, rgba(34,197,94,0.45))'
+        if (kind==='video'){ const v=document.createElement('video'); v.src=url; v.controls=true; v.style.maxWidth='260px'; v.style.borderRadius='8px'; bub.appendChild(v) }
+        else { const img=document.createElement('img'); img.src=url; img.style.maxWidth='260px'; img.style.borderRadius='8px'; img.alt='screenshot'; bub.appendChild(img) }
+        row.appendChild(bub); target.appendChild(row); target.scrollTop = 1e9
+      }
+    }catch{}
+  })
+} catch {}
+
+// Ensure popup-triggered selection works even if main overlay wasn't toggled yet
+chrome.runtime.onMessage.addListener((msg:any)=>{
+  try {
+    if (!msg || !msg.type) return
+    if (msg.type === 'OG_BEGIN_SELECTION_FOR_POPUP'){
+      try {
+        const popupMsgs = document.getElementById('ccf-messages') as HTMLElement | null
+        beginScreenSelect(popupMsgs || document.body)
+      } catch {}
+    } else if (msg.type === 'OG_CAPTURE_SAVED_TAG') {
+      try{
+        const key='optimando-tagged-triggers'; const list = JSON.parse(localStorage.getItem(key)||'[]'); const t = list?.[msg.index]
+        if (!t) return
+        ;(async ()=>{
+          const raw = await new Promise<string|null>((resolve)=>{ try{ chrome.runtime.sendMessage({ type:'CAPTURE_VISIBLE_TAB' }, (res:any)=> resolve(res?.dataUrl||null)) }catch{ resolve(null) } })
+          if(!raw) return
+          const dpr = Math.max(1, (window as any).devicePixelRatio || 1)
+          const cnv = document.createElement('canvas'); cnv.width = Math.max(1, Math.round(t.rect.w*dpr)); cnv.height = Math.max(1, Math.round(t.rect.h*dpr))
+          const ctx = cnv.getContext('2d')!
+          const img = new Image(); img.onload=()=>{ try{ ctx.drawImage(img, Math.round(t.rect.x*dpr), Math.round(t.rect.y*dpr), Math.round(t.rect.w*dpr), Math.round(t.rect.h*dpr), 0, 0, Math.round(t.rect.w*dpr), Math.round(t.rect.h*dpr)); const out = cnv.toDataURL('image/png');
+            const msgs = (document.getElementById('ccf-messages') || document.getElementById('ccd-messages')) as HTMLElement | null
+            if (msgs) {
+              const row = document.createElement('div'); row.style.display='flex'; row.style.justifyContent='flex-end'
+              const bub = document.createElement('div'); bub.style.maxWidth='78%'; bub.style.padding='6px'; bub.style.borderRadius='10px'; bub.style.fontSize='12px'; bub.style.background='var(--bubble-user-bg, rgba(34,197,94,0.12))'; bub.style.border='1px solid var(--bubble-user-border, rgba(34,197,94,0.45))'
+              const image = document.createElement('img'); image.src=out; image.style.maxWidth='260px'; image.style.borderRadius='8px'; image.alt='screenshot'
+              bub.appendChild(image); row.appendChild(bub); msgs.appendChild(row); msgs.scrollTop = 1e9
+            }
+          }catch{}}
+          img.src = raw
+        })()
+      }catch{}
+    }
+  } catch {}
+})
+
 function deactivateExtension() {
   const existingExtension = document.getElementById('optimando-sidebars')
   if (existingExtension) {
@@ -101,6 +157,39 @@ function deactivateExtension() {
 }
 
 function initializeExtension() {
+  try {
+    chrome.runtime.onMessage.addListener((msg:any)=>{
+      if (!msg || !msg.type) return
+      if (msg.type === 'OG_BEGIN_SELECTION_FOR_POPUP'){
+        try {
+          const popupMsgs = document.getElementById('ccf-messages') as HTMLElement | null
+          beginScreenSelect(popupMsgs || document.body)
+        } catch {}
+      } else if (msg.type === 'OG_CAPTURE_SAVED_TAG') {
+        try{
+          const key='optimando-tagged-triggers'; const list = JSON.parse(localStorage.getItem(key)||'[]'); const t = list?.[msg.index]
+          if (!t) return
+          ;(async ()=>{
+            const raw = await new Promise<string|null>((resolve)=>{ try{ chrome.runtime.sendMessage({ type:'CAPTURE_VISIBLE_TAB' }, (res:any)=> resolve(res?.dataUrl||null)) }catch{ resolve(null) } })
+            if(!raw) return
+            const dpr = Math.max(1, (window as any).devicePixelRatio || 1)
+            const cnv = document.createElement('canvas'); cnv.width = Math.max(1, Math.round(t.rect.w*dpr)); cnv.height = Math.max(1, Math.round(t.rect.h*dpr))
+            const ctx = cnv.getContext('2d')!
+            const img = new Image(); img.onload=()=>{ try{ ctx.drawImage(img, Math.round(t.rect.x*dpr), Math.round(t.rect.y*dpr), Math.round(t.rect.w*dpr), Math.round(t.rect.h*dpr), 0, 0, Math.round(t.rect.w*dpr), Math.round(t.rect.h*dpr)); const out = cnv.toDataURL('image/png');
+              const msgs = (document.getElementById('ccf-messages') || document.getElementById('ccd-messages')) as HTMLElement | null
+              if (msgs) {
+                const row = document.createElement('div'); row.style.display='flex'; row.style.justifyContent='flex-end'
+                const bub = document.createElement('div'); bub.style.maxWidth='78%'; bub.style.padding='6px'; bub.style.borderRadius='10px'; bub.style.fontSize='12px'; bub.style.background='var(--bubble-user-bg, rgba(34,197,94,0.12))'; bub.style.border='1px solid var(--bubble-user-border, rgba(34,197,94,0.45))'
+                const image = document.createElement('img'); image.src=out; image.style.maxWidth='260px'; image.style.borderRadius='8px'; image.alt='screenshot'
+                bub.appendChild(image); row.appendChild(bub); msgs.appendChild(row); msgs.scrollTop = 1e9
+              }
+            }catch{}}
+            img.src = raw
+          })()
+        }catch{}
+      }
+    })
+  } catch {}
   console.log('🔧 DEBUG: initializeExtension called for:', window.location.href)
   // agent-manager-v2 is now statically imported at top to guarantee execution
   console.log('🔧 DEBUG: dedicatedRole:', dedicatedRole)
@@ -1690,6 +1779,10 @@ function initializeExtension() {
         <button id="sync-btn" style="padding: 8px; background: #2196F3; border: none; color: white; border-radius: 4px; cursor: pointer; font-size: 10px;">🔄 Sync</button>
         <button id="export-btn" style="padding: 8px; background: #FF9800; border: none; color: white; border-radius: 4px; cursor: pointer; font-size: 10px;">📤 Export</button>
         <button id="import-btn" style="padding: 8px; background: #9C27B0; border: none; color: white; border-radius: 4px; cursor: pointer; font-size: 10px;">📥 Import</button>
+        <button id="wrvault-open-btn" style="padding: 10px; border-radius: 6px; cursor: pointer; font-size: 11px; display:flex; align-items:center; gap:8px; justify-content:center; font-weight:700; border:1px solid rgba(255,255,255,0.25); grid-column: 1 / span 2;">
+          <span>🔒</span>
+          <span>WRVault</span>
+        </button>
       </div>
     </div>
 
@@ -4864,6 +4957,311 @@ ${pageText}
     }
   }
 
+  // WRVault Lightbox
+  function openWRVaultLightbox() {
+    const overlay = document.createElement('div')
+    overlay.style.cssText = `position:fixed;inset:0;background:rgba(0,0,0,0.8);z-index:2147483649;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(5px)`
+    overlay.innerHTML = `
+      <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 16px; width: 85vw; max-width: 900px; height: 80vh; color: white; overflow: hidden; box-shadow: 0 20px 40px rgba(0,0,0,0.4); display: flex; flex-direction: column;">
+        <div style="padding: 16px 20px; border-bottom: 1px solid rgba(255,255,255,0.3); display:flex; align-items:center; justify-content:space-between;">
+          <div style="display:flex;align-items:center;gap:8px;font-size:18px;font-weight:700">🔒 WRVault – Secure Data Vault</div>
+          <button id="wrv-close" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 30px; height: 30px; border-radius: 50%; cursor: pointer; font-size: 16px;">×</button>
+        </div>
+        <div style="padding:10px 20px; background: rgba(255,255,255,0.06); border-bottom:1px solid rgba(255,255,255,0.2); font-size:12px;">
+          ⚠️ This is a UI prototype only. Real encryption, storage, and access control must be implemented by security experts.
+        </div>
+        <div style="flex:1; display:flex; flex-direction:column; padding: 16px 20px; overflow:auto;">
+          <div style="display:flex; gap:8px; border-bottom:1px solid rgba(255,255,255,0.25); margin-bottom:12px;">
+            <button class="wrv-tab" data-k="pw" style="padding:8px 12px; background: rgba(255,255,255,0.2); border:0; color:white; border-radius:8px 8px 0 0; cursor:pointer">Passwords</button>
+            <button class="wrv-tab" data-k="pii" style="padding:8px 12px; background: rgba(255,255,255,0.1); border:0; color:white; border-radius:8px 8px 0 0; cursor:pointer">PII</button>
+            <button class="wrv-tab" data-k="bucket" style="padding:8px 12px; background: rgba(255,255,255,0.1); border:0; color:white; border-radius:8px 8px 0 0; cursor:pointer">Sensitive Bucket</button>
+            <button class="wrv-tab" data-k="pay" style="padding:8px 12px; background: rgba(255,255,255,0.1); border:0; color:white; border-radius:8px 8px 0 0; cursor:pointer">Payment Methods</button>
+          </div>
+          <div id="wrv-content"></div>
+        </div>
+      </div>
+    `
+    const root = overlay.querySelector('#wrv-content') as HTMLElement
+    function render(kind:'pw'|'pii'|'bucket'|'pay'){
+      const mkRow = (label:string, valueMask:string) => `
+        <div style="display:grid; grid-template-columns: 1fr 1fr auto; gap:8px; align-items:center; background: rgba(0,0,0,0.12); padding:8px; border-radius:8px; border:1px solid rgba(255,255,255,0.18)">
+          <div>${label}</div>
+          <div style="opacity:.8">${valueMask}</div>
+          <div style="display:flex; gap:6px;">
+            <button disabled style="opacity:.6; cursor:not-allowed; padding:4px 8px; background: rgba(255,255,255,0.15); border:1px solid rgba(255,255,255,0.2); color:white; border-radius:6px;">Reveal 🔒</button>
+            <button disabled style="opacity:.6; cursor:not-allowed; padding:4px 8px; background: rgba(255,255,255,0.15); border:1px solid rgba(255,255,255,0.2); color:white; border-radius:6px;">Copy 🔒</button>
+            <button disabled style="opacity:.6; cursor:not-allowed; padding:4px 8px; background: rgba(255,255,255,0.15); border:1px solid rgba(255,255,255,0.2); color:white; border-radius:6px;">Use in Workflow 🔒</button>
+          </div>
+        </div>`
+      const addBtn = `<button id="wrv-add" style="margin-bottom:10px;padding:6px 10px;background:rgba(255,255,255,0.15);border:1px solid rgba(255,255,255,0.3);color:white;border-radius:6px;cursor:pointer">${kind==='pay'?'+ Add Payment Method':'+ Add New'}</button>`
+      if (kind==='pw') root.innerHTML = addBtn + [mkRow('GitHub Login','••••••••'), mkRow('Email – Work','••••••••')].join('<div style="height:8px"></div>')
+      else if (kind==='pii') root.innerHTML = addBtn + [mkRow('Home Address','Hidden until unlock'), mkRow('Government ID','Hidden until unlock')].join('<div style="height:8px"></div>')
+      else if (kind==='bucket') root.innerHTML = addBtn + [mkRow('SSH Notes','Hidden until unlock'), mkRow('Production access notes','Hidden until unlock')].join('<div style="height:8px"></div>')
+      else root.innerHTML = addBtn + [mkRow('Visa **** 1234','••/••'), mkRow('PayPal – masked','Hidden until unlock')].join('<div style="height:8px"></div>')
+    }
+    ;['pw','pii','bucket','pay'].forEach((k,idx)=>{
+      const btn = overlay.querySelector(`.wrv-tab[data-k="${k}"]`) as HTMLButtonElement
+      btn?.addEventListener('click', ()=>{
+        overlay.querySelectorAll('.wrv-tab').forEach(b=> (b as HTMLButtonElement).style.background='rgba(255,255,255,0.1)')
+        btn.style.background = 'rgba(255,255,255,0.2)'
+        render(k as any)
+      })
+      if (idx===0) btn?.click()
+    })
+    overlay.querySelector('#wrv-close')?.addEventListener('click', ()=> overlay.remove())
+    overlay.addEventListener('click', (e)=>{ if (e.target === overlay) overlay.remove() })
+    document.body.appendChild(overlay)
+  }
+
+  // Simple screen selection overlay with controls (Screenshot | Stream | [ ] Create Tagged Trigger)
+  function beginScreenSelect(messagesEl: HTMLElement){
+    try {
+      const existing = document.getElementById('og-select-overlay')
+      if (existing) existing.remove()
+
+      const dpr = Math.max(1, (window as any).devicePixelRatio || 1)
+      const ov = document.createElement('div')
+      ov.id = 'og-select-overlay'
+      ov.style.cssText = 'position:fixed; inset:0; z-index:2147483647; cursor:crosshair; background:rgba(0,0,0,0.05);'
+      const box = document.createElement('div')
+      box.style.cssText = 'position:fixed; border:2px dashed #0ea5e9; background:rgba(14,165,233,0.08); pointer-events:none; display:none;'
+      ov.appendChild(box)
+
+      let startX = 0, startY = 0, curX = 0, curY = 0, isDragging = false
+      function setBox(a:number,b:number,c:number,d:number){
+        const x = Math.min(a,c), y = Math.min(b,d)
+        const w = Math.abs(c-a), h = Math.abs(d-b)
+        box.style.left = x + 'px'; box.style.top = y + 'px'; box.style.width = w + 'px'; box.style.height = h + 'px'
+        box.style.display = 'block'
+      }
+      function coords(){
+        const r = box.getBoundingClientRect()
+        return { x: Math.round(r.left), y: Math.round(r.top), w: Math.round(r.width), h: Math.round(r.height) }
+      }
+
+      // Controls toolbar
+      const toolbar = document.createElement('div')
+      toolbar.style.cssText = 'position:fixed; display:none; gap:8px; background:#111827; color:white; padding:6px 8px; border-radius:8px; border:1px solid rgba(255,255,255,0.25); font-size:12px; pointer-events:auto; z-index:2147483648;'
+      const btnShot = document.createElement('button'); btnShot.textContent = 'Screenshot'; btnShot.style.cssText='background:#10b981;border:0;color:white;padding:4px 8px;border-radius:6px;cursor:pointer'
+      const btnStream = document.createElement('button'); btnStream.textContent = 'Stream'; btnStream.style.cssText='background:#3b82f6;border:0;color:white;padding:4px 8px;border-radius:6px;cursor:pointer'
+      const btnRec = document.createElement('button'); btnRec.textContent = '⏺'; btnRec.title = 'Record'; btnRec.style.cssText='background:#ef4444;border:0;color:white;padding:4px 8px;border-radius:6px;cursor:pointer;display:none'
+      const btnStop = document.createElement('button'); btnStop.textContent = '⏹'; btnStop.style.cssText='background:#991b1b;border:0;color:white;padding:4px 8px;border-radius:6px;cursor:pointer;display:none'
+      const lab = document.createElement('label'); lab.style.cssText='display:flex;align-items:center;gap:6px;color:white;user-select:none'
+      const cbCreate = document.createElement('input'); cbCreate.type='checkbox'
+      const spanTxt = document.createElement('span'); spanTxt.textContent = 'Create Tagged Trigger'
+      lab.append(cbCreate, spanTxt)
+      toolbar.append(btnShot, btnStream, btnRec, btnStop, lab)
+      document.body.appendChild(toolbar)
+      // Prevent toolbar clicks from bubbling to overlay handlers
+      ;[toolbar, btnShot, btnStream, btnRec, btnStop, lab, cbCreate, spanTxt].forEach(el=>{
+        el.addEventListener('mousedown', e=>{ e.preventDefault(); e.stopPropagation() })
+        el.addEventListener('mouseup', e=>{ e.preventDefault(); e.stopPropagation() })
+        el.addEventListener('click', e=>{ e.preventDefault(); e.stopPropagation() })
+      })
+
+      let streamTimer: any = null
+      let mediaRecorder: MediaRecorder | null = null
+      let recordedChunks: BlobPart[] = []
+      let stopAll: (()=>void) | null = null
+      let frameTimer: any = null
+      let recBadge: HTMLElement | null = null
+
+      function placeToolbar(){
+        const r = box.getBoundingClientRect()
+        const tx = Math.max(8, Math.min(window.innerWidth - 220, r.left))
+        const ty = Math.max(8, r.top - 36)
+        toolbar.style.left = tx + 'px'; toolbar.style.top = ty + 'px'; toolbar.style.display='flex'
+      }
+
+      ov.addEventListener('mousedown', (e)=>{ const t=e.target as Element|null; if (t && (t===toolbar || toolbar.contains(t))) { e.preventDefault(); e.stopPropagation(); return; } isDragging = true; startX = e.clientX; startY = e.clientY; curX = startX; curY = startY; setBox(startX,startY,curX,curY) })
+      ov.addEventListener('mousemove', (e)=>{ if(!isDragging) return; curX=e.clientX; curY=e.clientY; setBox(startX,startY,curX,curY) })
+      ov.addEventListener('mouseup', (e)=>{ const t=e.target as Element|null; if (t && (t===toolbar || toolbar.contains(t))) { e.preventDefault(); e.stopPropagation(); return; } if(!isDragging) return; isDragging=false; placeToolbar(); toolbar.style.pointerEvents='auto' })
+
+      async function captureVisibleTab(): Promise<string|null>{
+        try {
+          // First try standard captureVisibleTab
+          const dataUrl = await new Promise<string|null>((resolve)=>{ try{ chrome.runtime.sendMessage({ type:'CAPTURE_VISIBLE_TAB' }, (res:any)=> resolve(res?.dataUrl||null)) }catch{ resolve(null) } })
+          if (dataUrl) return dataUrl
+        } catch {}
+        // Fallback: draw current viewport using html2canvas style approach via paint worklet is not available; skip.
+        return null
+      }
+      function pasteVideoToChat(url:string){
+        try{
+          const target = (messagesEl || (document.getElementById('ccf-messages') as HTMLElement | null) || (document.getElementById('ccd-messages') as HTMLElement | null)) as HTMLElement | null
+          if (!target) return null
+          const row = document.createElement('div'); row.style.display='flex'; row.style.justifyContent='flex-end'
+          const bub = document.createElement('div'); bub.style.maxWidth='78%'; bub.style.padding='6px'; bub.style.borderRadius='10px'; bub.style.fontSize='12px'; bub.style.background='var(--bubble-user-bg, rgba(34,197,94,0.12))'; bub.style.border='1px solid var(--bubble-user-border, rgba(34,197,94,0.45))'
+          const vid = document.createElement('video'); vid.src=url; vid.controls = true; vid.style.maxWidth='260px'; vid.style.borderRadius='8px'
+          bub.appendChild(vid); row.appendChild(bub); target.appendChild(row); target.scrollTop = 1e9
+          try { chrome.runtime?.sendMessage({ type:'COMMAND_POPUP_APPEND', kind:'video', url }) } catch {}
+          return row
+        }catch{ return null }
+      }
+      async function cropDataUrl(dataUrl:string, x:number,y:number,w:number,h:number): Promise<string>{
+        return await new Promise((resolve)=>{
+          const img = new Image(); img.onload=()=>{
+            try{
+              const cnv = document.createElement('canvas'); cnv.width = Math.max(1, Math.round(w*dpr)); cnv.height = Math.max(1, Math.round(h*dpr))
+              const ctx = cnv.getContext('2d')!
+              ctx.drawImage(img, Math.round(x*dpr), Math.round(y*dpr), Math.round(w*dpr), Math.round(h*dpr), 0, 0, Math.round(w*dpr), Math.round(h*dpr))
+              resolve(cnv.toDataURL('image/png'))
+            }catch{ resolve(dataUrl) }
+          }; img.src = dataUrl
+        })
+      }
+      function pasteImageToChat(url:string){
+        try{
+          // Prefer the provided element; fallback to popup then docked messages containers
+          const target = (messagesEl || (document.getElementById('ccf-messages') as HTMLElement | null) || (document.getElementById('ccd-messages') as HTMLElement | null)) as HTMLElement | null
+          if (!target) return null
+          const row = document.createElement('div'); row.style.display='flex'; row.style.justifyContent='flex-end'
+          const bub = document.createElement('div'); bub.style.maxWidth='78%'; bub.style.padding='6px'; bub.style.borderRadius='10px'; bub.style.fontSize='12px'; bub.style.background='var(--bubble-user-bg, rgba(34,197,94,0.12))'; bub.style.border='1px solid var(--bubble-user-border, rgba(34,197,94,0.45))'
+          const img = document.createElement('img'); img.src=url; img.style.maxWidth='260px'; img.style.height='auto'; img.style.borderRadius='8px'; img.alt='screenshot'
+          bub.appendChild(img); row.appendChild(bub); target.appendChild(row); target.scrollTop = 1e9
+          try { chrome.runtime?.sendMessage({ type:'COMMAND_POPUP_APPEND', kind:'image', url }) } catch {}
+          return row
+        }catch{ return null }
+      }
+      function renderTriggerPrompt(url:string, rect:{x:number,y:number,w:number,h:number}, mode:'screenshot'|'stream'){
+        try{
+          if (!cbCreate.checked) return
+          const composer = (document.getElementById('ccd-compose') || document.getElementById('ccf-compose')) as HTMLElement | null
+          if (!composer) return
+          // avoid duplicates
+          composer.querySelector('#og-trigger-savebar')?.remove()
+          const bar = document.createElement('div')
+          bar.id = 'og-trigger-savebar'
+          bar.style.cssText = 'grid-column:1 / -1; display:flex; align-items:center; gap:8px; padding:6px 8px; background:rgba(2,6,23,0.85); color:#e5e7eb; border:1px solid rgba(255,255,255,0.15); border-radius:6px;'
+          const label = document.createElement('span'); label.textContent='Tagged Trigger name:'
+          const nameIn = document.createElement('input'); nameIn.type='text'; nameIn.placeholder='Trigger name'; nameIn.style.cssText='flex:1; min-width:120px; padding:4px 6px; border:1px solid #e5e7eb; border-radius:6px; font-size:12px; background:#0b1220; color:#e5e7eb'
+          const save = document.createElement('button'); save.textContent='Save'; save.style.cssText='background:#2563eb;border:0;color:white;padding:4px 10px;border-radius:6px;cursor:pointer;font-size:12px'
+          const cancel = document.createElement('button'); cancel.textContent='Cancel'; cancel.style.cssText='background:rgba(255,255,255,0.12);border:0;color:#e5e7eb;padding:4px 10px;border-radius:6px;cursor:pointer;font-size:12px'
+          bar.append(label, nameIn, save, cancel)
+          composer.appendChild(bar)
+          nameIn.focus()
+          cancel.onclick = ()=> bar.remove()
+          save.onclick = ()=>{
+            const name = (nameIn.value||'').trim() || ('Trigger ' + new Date().toLocaleString())
+            try{
+              const key='optimando-tagged-triggers'
+              chrome.storage?.local?.get([key], (data:any)=>{
+                try{
+                  const prev = Array.isArray(data?.[key]) ? data[key] : []
+                  prev.push({ name, at: Date.now(), image: url, rect, mode })
+                  chrome.storage?.local?.set({ [key]: prev }, ()=>{
+                    try{ window.dispatchEvent(new CustomEvent('optimando-triggers-updated')) }catch{}
+                    try{ chrome.runtime?.sendMessage({ type:'TRIGGERS_UPDATED' }) }catch{}
+                  })
+                }catch{}
+              })
+            }catch{}
+            bar.remove()
+          }
+        }catch{}
+      }
+
+      btnShot.onclick = async (ev:any)=>{
+        try{ ev.preventDefault(); ev.stopPropagation() }catch{}
+        const r = coords(); const raw = await captureVisibleTab(); if(!raw) return; const cropped = await cropDataUrl(raw, r.x, r.y, r.w, r.h); pasteImageToChat(cropped); renderTriggerPrompt(cropped, r, 'screenshot'); ov.remove()
+      }
+      btnStream.onclick = async (ev:any)=>{
+        try{ ev.preventDefault(); ev.stopPropagation() }catch{}
+        // Reveal recording controls for selected region
+        btnRec.style.display='inline-block'; btnStop.style.display='inline-block'
+      }
+      btnRec.onclick = async (ev:any)=>{
+        try{ ev.preventDefault(); ev.stopPropagation() }catch{}
+        try{
+          const r = coords()
+          const dpr = Math.max(1, (window as any).devicePixelRatio || 1)
+          const cnv = document.createElement('canvas'); cnv.width = Math.max(1, Math.round(r.w*dpr)); cnv.height = Math.max(1, Math.round(r.h*dpr))
+          const ctx = cnv.getContext('2d')!
+          const stream = (cnv as any).captureStream ? (cnv as any).captureStream(5) : null
+          if (!stream) return
+          recordedChunks = []
+          const mime = MediaRecorder.isTypeSupported('video/webm;codecs=vp9') ? 'video/webm;codecs=vp9' : 'video/webm;codecs=vp8'
+          mediaRecorder = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 1_500_000 })
+          mediaRecorder.ondataavailable = (e)=>{ if (e.data && e.data.size > 0) recordedChunks.push(e.data) }
+          mediaRecorder.onstop = ()=>{
+            try{ clearInterval(frameTimer) }catch{}
+            try{ (stream.getTracks()||[]).forEach((t:any)=>t.stop()) }catch{}
+            const blob = new Blob(recordedChunks, { type: mime })
+            const url = URL.createObjectURL(blob)
+            pasteVideoToChat(url)
+            renderTriggerPrompt(url as any, r, 'stream')
+          }
+          mediaRecorder.start(500)
+          // Periodically capture frames of the visible tab and draw cropped region
+          frameTimer = setInterval(async ()=>{
+            try{
+              const raw = await captureVisibleTab(); if(!raw) return
+              await new Promise<void>((resolve)=>{ const img=new Image(); img.onload=()=>{ try{ ctx.drawImage(img, Math.round(r.x*dpr), Math.round(r.y*dpr), Math.round(r.w*dpr), Math.round(r.h*dpr), 0, 0, Math.round(r.w*dpr), Math.round(r.h*dpr)) }catch{}; resolve() }; img.src=raw })
+            }catch{}
+          }, 200)
+          // Hide overlay so it is not captured
+          try{ ov.style.pointerEvents='none'; box.style.display='block' }catch{}
+          // Visual recording badge
+          try {
+            recBadge = document.createElement('div')
+            recBadge.id = 'og-rec-ind'
+            recBadge.style.cssText = 'position:fixed; top:8px; right:12px; z-index:2147483647; display:flex; align-items:center; gap:6px; background:rgba(17,24,39,0.85); color:#fecaca; border:1px solid rgba(239,68,68,0.6); padding:4px 8px; border-radius:8px; font-size:12px;'
+            recBadge.innerHTML = '<span style="display:inline-block;width:8px;height:8px;border-radius:9999px;background:#ef4444;animation:pulse 1s infinite"></span><span>REC</span>'
+            const st = document.createElement('style'); st.textContent='@keyframes pulse{0%{opacity:1}50%{opacity:.35}100%{opacity:1}}'; recBadge.appendChild(st)
+            document.body.appendChild(recBadge)
+          } catch{}
+          stopAll = ()=>{
+            try{ clearInterval(frameTimer) }catch{}
+            try{ mediaRecorder && mediaRecorder.state !== 'inactive' && mediaRecorder.stop() }catch{}
+            try{ ov.remove() }catch{}
+            try{ toolbar.remove() }catch{}
+            try{ recBadge && recBadge.remove() }catch{}
+          }
+        }catch{}
+      }
+      btnStop.onclick = (ev:any)=>{
+        try{ ev.preventDefault(); ev.stopPropagation() }catch{}
+        // Stop any placeholder timer
+        if (streamTimer){ clearInterval(streamTimer); streamTimer=null }
+        if (stopAll) stopAll()
+      }
+      // removed explicit button; checkbox governs prompt on actions
+
+      document.body.appendChild(ov)
+
+      // Handle selection results coming back from Electron (for popup window mode)
+      try {
+        const onElectronResult = (evt:any)=>{
+          try{
+            const msg = evt?.detail || evt
+            if (!msg || !msg.type) return
+            if (msg.type === 'ELECTRON_SELECTION_RESULT'){
+              const kind = msg.kind || 'image'
+              const url = msg.dataUrl || msg.url
+              if (!url) return
+              if (kind === 'video') pasteVideoToChat(url)
+              else pasteImageToChat(url)
+              ov.remove(); toolbar.remove(); try{ recBadge && recBadge.remove() }catch{}
+            }
+          }catch{}
+        }
+        // Also listen via chrome.runtime messaging in case background forwards it
+        chrome.runtime?.onMessage.addListener((incoming:any)=>{
+          try{
+            if (incoming && incoming.type === 'ELECTRON_SELECTION_RESULT'){
+              const kind = incoming.kind || 'image'
+              const url = incoming.dataUrl || incoming.url
+              if (!url) return
+              if (kind === 'video') pasteVideoToChat(url)
+              else pasteImageToChat(url)
+              try{ ov.remove(); toolbar.remove(); recBadge && recBadge.remove() }catch{}
+            }
+          }catch{}
+        })
+      } catch {}
+    } catch {}
+  }
+
   function sendContextToElectron() {
     console.log('💾 Saving context to Electron app...')
     console.log('💾 currentTabData.context:', currentTabData.context)
@@ -5084,7 +5482,7 @@ ${pageText}
           <h2 style="margin: 0; font-size: 20px;">⚙️ Extension Settings</h2>
           <div style="display:flex; gap:10px; align-items:center;">
             <button id="settings-whitelist-btn" style="background: rgba(255,255,255,0.15); border: 1px solid rgba(255,255,255,0.4); color: white; padding: 6px 10px; border-radius: 999px; cursor: pointer; font-size: 11px; font-weight:700;">🛡️ Whitelist</button>
-            <button id="close-settings-lightbox" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 30px; height: 30px; border-radius: 50%; cursor: pointer; font-size: 16px;">×</button>
+          <button id="close-settings-lightbox" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 30px; height: 30px; border-radius: 50%; cursor: pointer; font-size: 16px;">×</button>
           </div>
         </div>
         <div style="flex: 1; padding: 20px; overflow-y: auto;">
@@ -9259,7 +9657,7 @@ ${pageText}
       const hdr = theme === 'professional' ? 'linear-gradient(135deg,#ffffff,#f1f5f9)' : (theme==='dark' ? 'linear-gradient(135deg,#0f172a,#1e293b)' : 'linear-gradient(135deg,#667eea,#764ba2)')
       container.style.cssText = `background:${bg}; color:${fg}; border:1px solid ${br}; border-radius:8px; padding:0; margin: 0 0 12px 0; overflow:hidden; position:relative;`
       container.innerHTML = `
-        <div id=\"ccd-header\" style=\"display:flex; align-items:center; justify-content:space-between; padding:6px 8px; background:${hdr}; border-bottom:1px solid ${br};\">\n            <div style=\"display:flex; align-items:center; gap:8px; color:${theme==='professional'?'#0f172a':'white'}\">\n            <div style=\"font-size:12px; font-weight:700;\">💬 Command Chat</div>\n            <div style=\"display:flex; gap:6px; align-items:center;\">\n              <button id=\"ccd-bucket\" title=\"Context Bucket: Embed context directly into the session\" style=\"height:28px;background:${theme==='professional'?'#ffffff':'rgba(255,255,255,0.08)'}; border:1px solid ${br}; color:#ef4444; border-radius:6px; padding:0 8px; font-size:12px; cursor:pointer; display:flex;align-items:center;justify-content:center;\">🪣</button>\n              <button id=\"ccd-lm-one\" title=\"LmGTFY - Capture a screen area as screenshot or stream and send it to your pre-defined automation tasks.\" style=\"background:${theme==='professional'?'#e2e8f0':'rgba(255,255,255,0.15)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; padding:2px 6px; font-size:12px; cursor:pointer;\">✎</button>\n            </div>\n          </div>\n          <div style=\"display:flex; gap:6px; align-items:center;\">\n            <button id=\"ccd-undock\" title=\"Undock from sidepanel\" style=\"background:${theme==='professional'?'#e2e8f0':'rgba(255,255,255,0.15)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; padding:4px 6px; font-size:10px; cursor:pointer;\">↗</button>\n          </div>\n        </div>
+        <div id=\"ccd-header\" style=\"display:flex; align-items:center; justify-content:space-between; padding:6px 8px; background:${hdr}; border-bottom:1px solid ${br};\">\n            <div style=\"display:flex; align-items:center; gap:8px; color:${theme==='professional'?'#0f172a':'white'}\">\n            <div style=\"font-size:12px; font-weight:700;\">💬 Command Chat</div>\n            <div style=\"display:flex; gap:6px; align-items:center;\">\n              <button id=\"ccd-bucket\" title=\"Context Bucket: Embed context directly into the session\" style=\"height:28px;background:${theme==='professional'?'#e2e8f0':'rgba(255,255,255,0.08)'}; border:1px solid ${br}; color:#ef4444; border-radius:6px; padding:0 8px; font-size:12px; cursor:pointer; display:flex;align-items:center;justify-content:center;\">🪣</button>\n              <button id=\"ccd-lm-one\" title=\"LmGTFY - Capture a screen area as screenshot or stream and send it to your pre-defined automation tasks.\" style=\"background:${theme==='professional'?'#e2e8f0':'rgba(255,255,255,0.15)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; padding:2px 6px; font-size:12px; cursor:pointer;\">✎</button>\n            </div>\n          </div>\n          <div style=\"display:flex; gap:6px; align-items:center;\">\n            <button id=\"ccd-undock\" title=\"Undock from sidepanel\" style=\"background:${theme==='professional'?'#e2e8f0':'rgba(255,255,255,0.15)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; padding:4px 6px; font-size:10px; cursor:pointer;\">↗</button>\n          </div>\n        </div>
         <div id="ccd-messages" style="height:160px; overflow:auto; display:flex; flex-direction:column; gap:6px; background:${theme==='professional'?'#f8fafc':'rgba(255,255,255,0.06)'}; border-left:0; border-right:0; border-top:0; border-bottom:1px solid ${br}; padding:8px;"></div>
         <div id="ccd-compose" style="display:grid; grid-template-columns:1fr 36px 36px 68px; gap:6px; align-items:center; padding:8px;">
           <textarea id="ccd-input" placeholder="Type..." style="box-sizing:border-box; height:36px; resize:vertical; background:${theme==='professional'?'#ffffff':'rgba(255,255,255,0.08)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; padding:8px; font-size:12px;"></textarea>
@@ -9293,7 +9691,7 @@ ${pageText}
       undock.addEventListener('click', ()=>{ undockCommandChat() })
       // Mount context bucket (drag & drop + click-to-pick)
       mountContextBucket(container, 'ccd-bucket')
-      ;(container.querySelector('#ccd-lm-one') as HTMLButtonElement | null)?.addEventListener('click', ()=> startLmgtfy('stream'))
+      ;(container.querySelector('#ccd-lm-one') as HTMLButtonElement | null)?.addEventListener('click', (e)=>{ try{ e.preventDefault(); e.stopPropagation() }catch{}; beginScreenSelect(msgs) })
 
       // Allow vertical resize by dragging the outer bottom border of the docked box
       let startY = 0, startBoxH = 0, startMsgsH = 0
@@ -9420,23 +9818,66 @@ ${pageText}
         bucket.id = 'ccf-bucket'
         bucket.title = 'Context Bucket: Embed context directly into the session'
         bucket.textContent = '🪣'
-        bucket.style.background = 'transparent'
-        bucket.style.border = '0'
+        // professional theme gets pill background + border for visibility
+        bucket.style.background = (theme==='professional'?'#e2e8f0':'transparent')
+        bucket.style.border = (theme==='professional'?'1px solid '+br:'0')
         bucket.style.color = '#ef4444'
         bucket.style.borderRadius = '6px'
         bucket.style.padding = '2px 6px'
         bucket.style.fontSize = '12px'
         bucket.style.cursor = 'pointer'
         headerTools.appendChild(bucket)
+        // Tags dropdown next to pencil for quick re-use of saved areas
+        const ddWrap = document.createElement('div'); ddWrap.style.position='relative'
+        const dd = document.createElement('select') as HTMLSelectElement
+        dd.id = 'ccf-tags'
+        dd.style.cssText = 'appearance:none;background:'+ (theme==='professional'?'#e2e8f0':'rgba(255,255,255,0.08)') +'; border:1px solid '+br+'; color:'+fg+'; border-radius:6px; padding:2px 22px 2px 6px; font-size:12px; cursor:pointer;'
+        const caret = document.createElement('span'); caret.textContent='▾'; caret.style.cssText='position:absolute; right:6px; top:2px; font-size:12px; color:'+fg
+        const opt0 = document.createElement('option'); opt0.value=''; opt0.textContent='Tags'; dd.appendChild(opt0)
+        function refreshDD(){
+          try{
+            const key='optimando-tagged-triggers'
+            chrome.storage?.local?.get([key], (data:any)=>{
+              try{
+                const list = Array.isArray(data?.[key]) ? data[key] : []
+                while (dd.options.length>1) dd.remove(1)
+                list.forEach((t:any,i:number)=>{ const o=document.createElement('option'); o.value=String(i); o.textContent=t.name||('Trigger '+(i+1)); dd.appendChild(o) })
+              }catch{}
+            })
+          }catch{}
+        }
+        refreshDD()
+        window.addEventListener('optimando-triggers-updated', refreshDD)
+        dd.onchange = async ()=>{
+          const idx = parseInt(dd.value||'-1',10)
+          if (isNaN(idx) || idx<0) return
+          try{
+            const key='optimando-tagged-triggers';
+            chrome.storage?.local?.get([key], async (data:any)=>{
+              const list = Array.isArray(data?.[key]) ? data[key] : []
+              const t = list[idx]; if(!t) { dd.value=''; return }
+            const raw = await new Promise<string|null>((resolve)=>{ try{ chrome.runtime.sendMessage({ type:'CAPTURE_VISIBLE_TAB' }, (res:any)=> resolve(res?.dataUrl||null)) }catch{ resolve(null) } })
+            if(!raw) return
+            const dpr = Math.max(1, (window as any).devicePixelRatio || 1)
+            const cnv = document.createElement('canvas'); cnv.width = Math.max(1, Math.round(t.rect.w*dpr)); cnv.height = Math.max(1, Math.round(t.rect.h*dpr))
+            const ctx = cnv.getContext('2d')!
+            const img = new Image(); img.onload=()=>{ try{ ctx.drawImage(img, Math.round(t.rect.x*dpr), Math.round(t.rect.y*dpr), Math.round(t.rect.w*dpr), Math.round(t.rect.h*dpr), 0, 0, Math.round(t.rect.w*dpr), Math.round(t.rect.h*dpr)); const out = cnv.toDataURL('image/png');
+              const msgs = (document.getElementById('ccf-messages') || document.getElementById('ccd-messages')) as HTMLElement | null
+              if (msgs) {
+                const row = document.createElement('div'); row.style.display='flex'; row.style.justifyContent='flex-end'
+                const bub = document.createElement('div'); bub.style.maxWidth='78%'; bub.style.padding='6px'; bub.style.borderRadius='10px'; bub.style.fontSize='12px'; bub.style.background='var(--bubble-user-bg, rgba(34,197,94,0.12))'; bub.style.border='1px solid var(--bubble-user-border, rgba(34,197,94,0.45))'
+                const image = document.createElement('img'); image.src=out; image.style.maxWidth='240px'; image.style.borderRadius='8px'; image.alt='screenshot'
+                bub.appendChild(image); row.appendChild(bub); msgs.appendChild(row); msgs.scrollTop = 1e9
+              }
+            }catch{}}
+            img.src = raw
+            })
+          }catch{}
+          dd.value = ''
+        }
+        ddWrap.appendChild(dd); ddWrap.appendChild(caret); headerTools.appendChild(ddWrap)
       }
-      ;(box.querySelector('#ccf-lm-one') as HTMLButtonElement | null)?.addEventListener('click', (e)=>{
-        try { e.preventDefault() } catch {}
-        try { e.stopPropagation() } catch {}
-        // Same function as docked
-        try { startLmgtfy('stream') } catch {}
-        // Robust fallback via background
-        try { chrome.runtime.sendMessage({ type: 'LAUNCH_LMGTFY', mode: 'stream' }) } catch {}
-      })
+      ;(box.querySelector('#ccf-lm-one') as HTMLButtonElement | null)?.addEventListener('click', (e)=>{ try{ e.preventDefault(); e.stopPropagation() }catch{}; const msgs = box.querySelector('#ccf-messages') as HTMLElement | null; beginScreenSelect(msgs || document.body); try{ chrome.runtime?.sendMessage({ type:'ELECTRON_START_SELECTION', source:'popup' }, (res:any)=>{ try{ if(!res||!res.success){ window.open('opengiraffe://lmgtfy?mode=stream','_self') } }catch{} }) }catch{} })
       // Mount context bucket to popup (drop anywhere in the box)
       mountContextBucket(box, 'ccf-bucket')
     }
@@ -9458,9 +9899,44 @@ ${pageText}
     window.addEventListener('optimando-theme-changed', (e: any) => {
       const t = (e?.detail?.theme || localStorage.getItem('optimando-ui-theme') || 'default') as 'default'|'dark'|'professional'
       try { setDockedChatTheme(t) } catch {}
+      // Re-style WRVault button gradient per theme
+      try {
+        const btn = document.getElementById('wrvault-open-btn') as HTMLButtonElement | null
+        if (btn) {
+          if (t === 'professional') {
+            btn.style.background = 'linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%)'
+            btn.style.border = '1px solid #cbd5e1'
+            btn.style.color = '#1e293b'
+          } else if (t === 'dark') {
+            btn.style.background = 'linear-gradient(135deg,#334155,#1e293b)'
+            btn.style.color = '#e5e7eb'
+          } else {
+            btn.style.background = 'linear-gradient(135deg,#667eea,#764ba2)'
+            btn.style.color = '#ffffff'
+          }
+        }
+      } catch {}
     })
     // Apply initial state
     updateDockButtonUI(); if (isChatDocked()) createDockedChat()
+    // Initial theme styling for WRVault button
+    try {
+      const currentTheme = (localStorage.getItem('optimando-ui-theme') || 'default') as 'default'|'dark'|'professional'
+      const btn = document.getElementById('wrvault-open-btn') as HTMLButtonElement | null
+      if (btn) {
+        if (currentTheme === 'professional') {
+          btn.style.background = 'linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%)'
+          btn.style.border = '1px solid #cbd5e1'
+          btn.style.color = '#1e293b'
+        } else if (currentTheme === 'dark') {
+          btn.style.background = 'linear-gradient(135deg,#334155,#1e293b)'
+          btn.style.color = '#e5e7eb'
+        } else {
+          btn.style.background = 'linear-gradient(135deg,#667eea,#764ba2)'
+          btn.style.color = '#ffffff'
+        }
+      }
+    } catch {}
     
     // Right sidebar buttons
     document.getElementById('add-helpergrid-btn')?.addEventListener('click', openHelperGridLightbox)
@@ -9469,6 +9945,7 @@ ${pageText}
     document.getElementById('sync-btn')?.addEventListener('click', syncSession)
     document.getElementById('export-btn')?.addEventListener('click', exportSession)
     document.getElementById('import-btn')?.addEventListener('click', importSession)
+    document.getElementById('wrvault-open-btn')?.addEventListener('click', openWRVaultLightbox)
     
     // Left sidebar quick expand button
     document.getElementById('quick-expand-btn')?.addEventListener('click', () => {

@@ -3,7 +3,7 @@ let isConnecting = false;
 let autoConnectInterval: NodeJS.Timeout | null = null;
 let heartbeatInterval: NodeJS.Timeout | null = null;
 // Feature flag to completely disable WebSocket auto-connection
-const WS_ENABLED = false;
+const WS_ENABLED = true;
 // Track sidebar visibility per tab
 const tabSidebarStatus = new Map<number, boolean>();
 
@@ -39,16 +39,27 @@ function connectToWebSocketServer() {
     });
 
     ws.addEventListener('message', (e) => {
-      console.log(`📨 Nachricht erhalten: ${String(e.data)}`);
-      
-      // Handle pong responses
       try {
-        const data = JSON.parse(String(e.data));
-        if (data.type === 'pong') {
-          console.log('🏓 Pong erhalten - Verbindung ist aktiv');
+        const payload = String(e.data)
+        console.log(`📨 Desktop WS: ${payload}`)
+        const data = JSON.parse(payload)
+        if (data && data.type) {
+          if (data.type === 'pong') {
+            console.log('🏓 Pong erhalten - Verbindung ist aktiv')
+          } else if (data.type === 'SELECTION_RESULT' || data.type === 'SELECTION_RESULT_IMAGE' || data.type === 'SELECTION_RESULT_VIDEO') {
+            const kind = data.kind || (data.type.includes('VIDEO') ? 'video' : 'image')
+            const dataUrl = data.dataUrl || data.url || null
+            chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+              const tabId = tabs[0]?.id
+              if (!tabId) return
+              try { chrome.tabs.sendMessage(tabId, { type: 'ELECTRON_SELECTION_RESULT', kind, dataUrl }) } catch {}
+            })
+          } else if (data.type === 'TRIGGERS_UPDATED') {
+            try { chrome.runtime.sendMessage({ type: 'TRIGGERS_UPDATED' }) } catch {}
+          }
         }
       } catch (error) {
-        // Ignore parsing errors
+        // ignore
       }
     });
 
@@ -172,29 +183,24 @@ function toggleSidebars() {
 // Start connection when extension loads
 chrome.runtime.onStartup.addListener(() => {
   console.log('🚀 Extension gestartet');
-  // WebSocket disabled
+  if (WS_ENABLED) {
+    try { connectToWebSocketServer() } catch {}
+  }
 });
 
 chrome.runtime.onInstalled.addListener(() => {
   console.log('📦 Extension installiert');
-  // WebSocket disabled
+  if (WS_ENABLED) {
+    try { connectToWebSocketServer() } catch {}
+  }
 });
 
-// Handle extension icon click: launch desktop headlessly via deep-link in a tiny hidden window
+// Handle extension icon click: toggle the Optimando UI for the active tab
 chrome.action.onClicked.addListener(async () => {
   try {
-    const url = chrome.runtime.getURL('silent-launch.html')
-    // Create the smallest possible popup off-screen; it will immediately close itself.
-    const opts: chrome.windows.CreateData = {
-      url,
-      type: 'popup',
-      width: 10,
-      height: 10,
-      focused: false
-    }
-    await chrome.windows.create(opts)
+    toggleSidebars()
   } catch (e) {
-    console.error('Failed to trigger headless launch:', e)
+    console.error('Failed to toggle sidebars:', e)
   }
 });
 
@@ -227,6 +233,47 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   console.log(`📨 Nachricht erhalten: ${msg.type}`);
 
   switch (msg.type) {
+    case 'CAPTURE_VISIBLE_TAB': {
+      try {
+        chrome.tabs.captureVisibleTab({ format: 'png' }, (dataUrl) => {
+          try { sendResponse({ success: true, dataUrl }) } catch {}
+        })
+      } catch(e) { try { sendResponse({ success:false }) } catch {} }
+      break
+    }
+    case 'ELECTRON_START_SELECTION': {
+      try {
+        if (WS_ENABLED && ws && ws.readyState === WebSocket.OPEN) {
+          const payload = {
+            type: 'START_SELECTION',
+            source: msg.source || 'browser',
+            mode: msg.mode || 'area',
+            options: msg.options || {}
+          }
+          try { ws.send(JSON.stringify(payload)) } catch {}
+          try { sendResponse({ success: true }) } catch {}
+        } else {
+          try { sendResponse({ success: false, error: 'WS not connected' }) } catch {}
+        }
+      } catch { try { sendResponse({ success:false }) } catch {} }
+      break
+    }
+    case 'REQUEST_START_SELECTION_POPUP': {
+      try {
+        chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+          const tabId = tabs[0]?.id
+          if (!tabId) { try { sendResponse({ success:false }) } catch {}; return }
+          try { chrome.tabs.sendMessage(tabId, { type: 'OG_BEGIN_SELECTION_FOR_POPUP' }, ()=>{ try { sendResponse({ success:true }) } catch {} }) } catch { try { sendResponse({ success:false }) } catch {} }
+          // Also trigger desktop deep-link as fallback when content-script isn't injected
+          try {
+            const url = chrome.runtime.getURL('silent-launch.html?mode=' + encodeURIComponent('stream'))
+            const opts: chrome.windows.CreateData = { url, type: 'popup', width: 10, height: 10, focused: false }
+            chrome.windows.create(opts)
+          } catch {}
+        })
+      } catch { try { sendResponse({ success:false }) } catch {} }
+      break
+    }
     case 'TEST_CONNECTION':
       connectToWebSocketServer();
       sendResponse({ success: true, message: 'Verbindung wird getestet' });
@@ -293,6 +340,12 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       break
     }
 
+    case 'COMMAND_POPUP_APPEND': {
+      // No-op in background for now; the content script posts to docked chat directly. The popup page can also listen for this if needed.
+      try { sendResponse({ success: true }) } catch {}
+      break
+    }
+
     case 'LAUNCH_LMGTFY': {
       try {
         const mode = (typeof msg.mode === 'string' && (msg.mode === 'screenshot' || msg.mode === 'stream')) ? msg.mode : 'stream'
@@ -301,6 +354,16 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         chrome.windows.create(opts, () => sendResponse({ success: true }))
       } catch (e) { try { sendResponse({ success: false, error: String(e) }) } catch {}
       }
+      break
+    }
+    case 'OG_CAPTURE_SAVED_TAG': {
+      try {
+        chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+          const tabId = tabs[0]?.id
+          if (!tabId) { try { sendResponse({ success:false }) } catch {}; return }
+          try { chrome.tabs.sendMessage(tabId, { type: 'OG_CAPTURE_SAVED_TAG', index: msg.index }, ()=>{ try { sendResponse({ success:true }) } catch {} }) } catch { try { sendResponse({ success:false }) } catch {} }
+        })
+      } catch { try { sendResponse({ success:false }) } catch {} }
       break
     }
   }

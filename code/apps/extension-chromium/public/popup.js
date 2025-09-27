@@ -21,6 +21,9 @@ const file = document.getElementById('file')
 const up = document.getElementById('up')
 const mic = document.getElementById('mic')
 const send = document.getElementById('send')
+const bucketBtn = document.getElementById('tk-bucket')
+const pencilBtn = document.getElementById('tk-pencil')
+const ddTags = document.getElementById('tk-tags')
 
 function row(role, text){
   const r = document.createElement('div'); r.className = 'row ' + (role === 'user' ? 'user' : 'assistant');
@@ -66,16 +69,29 @@ mic.addEventListener('click', () => {
   if (!recognition || recognizing) return; recognizing = true; mic.disabled = true; try { recognition.start(); } catch {}
 });
 
-// LmGTFY pencil (stream capture)
-try {
-  const pencil = document.getElementById('lm-pencil');
-  if (pencil) {
-    pencil.addEventListener('click', () => {
-      try { window.open('opengiraffe://lmgtfy?mode=' + encodeURIComponent('stream'), '_self') } catch {}
-      try { chrome.runtime?.sendMessage({ type: 'LAUNCH_LMGTFY', mode: 'stream' }) } catch {}
-    });
-  }
-} catch {}
+// Context Bucket + Pencil wiring (CSP-safe)
+function refreshTags(){
+  try{
+    const key='optimando-tagged-triggers'
+    chrome.storage?.local?.get([key], (data)=>{
+      try{
+        const list = Array.isArray(data?.[key]) ? data[key] : []
+        while (ddTags.options && ddTags.options.length>1) ddTags.remove(1)
+        list.forEach((t,i)=>{ const o=document.createElement('option'); o.value=String(i); o.textContent=t.name||('Trigger '+(i+1)); ddTags.appendChild(o) })
+      }catch{}
+    })
+  }catch{}
+}
+refreshTags()
+try{ chrome.runtime?.onMessage.addListener((msg)=>{ if(msg?.type==='TRIGGERS_UPDATED') refreshTags() }) }catch{}
+
+if (bucketBtn) bucketBtn.onclick = (e)=>{ try{ e.preventDefault() }catch{}; try{ file && file.click() }catch{} }
+if (pencilBtn) pencilBtn.onclick = (e)=>{
+  try{ e.preventDefault() }catch{}
+  try{ chrome.runtime?.sendMessage({ type: 'REQUEST_START_SELECTION_POPUP' }) }catch{}
+  try{ chrome.runtime?.sendMessage({ type:'ELECTRON_START_SELECTION', source:'popup' }, (res)=>{ if(!res||!res.success){ try{ window.open('opengiraffe://lmgtfy?mode=stream','_self') }catch{} } }) }catch{}
+}
+if (ddTags) ddTags.onchange = ()=>{ const idx=parseInt(ddTags.value||'-1',10); if(!isNaN(idx)&&idx>=0){ try{ chrome.runtime?.sendMessage({ type:'OG_CAPTURE_SAVED_TAG', index: idx }) }catch{} } ddTags.value='' }
 
 
 
