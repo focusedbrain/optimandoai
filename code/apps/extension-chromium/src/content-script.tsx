@@ -5014,7 +5014,7 @@ ${pageText}
   }
 
   // Simple screen selection overlay with controls (Screenshot | Stream | [ ] Create Tagged Trigger)
-  function beginScreenSelect(messagesEl: HTMLElement){
+  function beginScreenSelect(messagesEl: HTMLElement, preset?: { rect: { x:number,y:number,w:number,h:number }, mode: 'screenshot'|'stream' }){
     try {
       const existing = document.getElementById('og-select-overlay')
       if (existing) existing.remove()
@@ -5266,6 +5266,23 @@ ${pageText}
       // removed explicit button; checkbox governs prompt on actions
 
       document.body.appendChild(ov)
+
+      // If a preset is provided, auto-apply the rectangle and optionally auto-start stream
+      try {
+        if (preset && preset.rect && preset.mode){
+          const r = preset.rect
+          // Apply rectangle visually
+          setBox(r.x, r.y, r.x + r.w, r.y + r.h)
+          hasSelected = true
+          placeToolbar(); toolbar.style.pointerEvents='auto'
+          try{ (ov as HTMLElement).style.cursor='default'; (ov as HTMLElement).style.pointerEvents='none' }catch{}
+          if (preset.mode === 'stream'){
+            // Reveal controls then auto-start recording
+            try{ btnStream.click() }catch{}
+            setTimeout(()=>{ try{ btnRec.click() }catch{} }, 0)
+          }
+        }
+      } catch {}
 
       // External cancel support from popup or Electron
       try {
@@ -9742,6 +9759,49 @@ ${pageText}
       undock.addEventListener('click', ()=>{ undockCommandChat() })
       // Mount context bucket (drag & drop + click-to-pick)
       mountContextBucket(container, 'ccd-bucket')
+      // Tags dropdown next to pencil for quick re-use of saved areas (docked)
+      try {
+        const lmBtn = container.querySelector('#ccd-lm-one') as HTMLButtonElement | null
+        const toolsParent = lmBtn?.parentElement as HTMLElement | null
+        if (toolsParent){
+          const ddWrap = document.createElement('div'); ddWrap.style.position='relative'
+          const dd = document.createElement('select') as HTMLSelectElement
+          dd.id = 'ccd-tags'
+          dd.style.cssText = 'appearance:none;background:'+ (theme==='professional'?'#e2e8f0':'rgba(255,255,255,0.08)') +'; border:1px solid '+br+'; color:'+fg+'; border-radius:6px; padding:2px 22px 2px 6px; font-size:12px; cursor:pointer;'
+          const caret = document.createElement('span'); caret.textContent='▾'; caret.style.cssText='position:absolute; right:6px; top:2px; font-size:12px; color:'+fg
+          const opt0 = document.createElement('option'); opt0.value=''; opt0.textContent='Tags'; dd.appendChild(opt0)
+          function refreshDD(){
+            try{
+              const key='optimando-tagged-triggers'
+              chrome.storage?.local?.get([key], (data:any)=>{
+                try{
+                  const list = Array.isArray(data?.[key]) ? data[key] : []
+                  while (dd.options.length>1) dd.remove(1)
+                  list.forEach((t:any,i:number)=>{ const o=document.createElement('option'); o.value=String(i); o.textContent=t.name||('Trigger '+(i+1)); dd.appendChild(o) })
+                }catch{}
+              })
+            }catch{}
+          }
+          refreshDD()
+          window.addEventListener('optimando-triggers-updated', refreshDD)
+          dd.onchange = async ()=>{
+            const idx = parseInt(dd.value||'-1',10)
+            if (isNaN(idx) || idx<0) return
+            try{
+              const key='optimando-tagged-triggers';
+              chrome.storage?.local?.get([key], async (data:any)=>{
+                const list = Array.isArray(data?.[key]) ? data[key] : []
+                const t = list[idx]; if(!t) { dd.value=''; return }
+                // Use the main overlay flow with preset so toolbar and controls are visible and recording uses the shared code path
+                if ((t.mode||'screenshot') === 'stream') beginScreenSelect(msgs, { rect: t.rect, mode: 'stream' })
+                else beginScreenSelect(msgs, { rect: t.rect, mode: 'screenshot' })
+              })
+            }catch{}
+            dd.value = ''
+          }
+          ddWrap.appendChild(dd); ddWrap.appendChild(caret); toolsParent.appendChild(ddWrap)
+        }
+      } catch {}
       ;(container.querySelector('#ccd-lm-one') as HTMLButtonElement | null)?.addEventListener('click', (e)=>{ try{ e.preventDefault(); e.stopPropagation() }catch{}; beginScreenSelect(msgs) })
 
       // Allow vertical resize by dragging the outer bottom border of the docked box
@@ -9907,21 +9967,68 @@ ${pageText}
             chrome.storage?.local?.get([key], async (data:any)=>{
               const list = Array.isArray(data?.[key]) ? data[key] : []
               const t = list[idx]; if(!t) { dd.value=''; return }
-            const raw = await new Promise<string|null>((resolve)=>{ try{ chrome.runtime.sendMessage({ type:'CAPTURE_VISIBLE_TAB' }, (res:any)=> resolve(res?.dataUrl||null)) }catch{ resolve(null) } })
-            if(!raw) return
-            const dpr = Math.max(1, (window as any).devicePixelRatio || 1)
-            const cnv = document.createElement('canvas'); cnv.width = Math.max(1, Math.round(t.rect.w*dpr)); cnv.height = Math.max(1, Math.round(t.rect.h*dpr))
-            const ctx = cnv.getContext('2d')!
-            const img = new Image(); img.onload=()=>{ try{ ctx.drawImage(img, Math.round(t.rect.x*dpr), Math.round(t.rect.y*dpr), Math.round(t.rect.w*dpr), Math.round(t.rect.h*dpr), 0, 0, Math.round(t.rect.w*dpr), Math.round(t.rect.h*dpr)); const out = cnv.toDataURL('image/png');
-              const msgs = (document.getElementById('ccf-messages') || document.getElementById('ccd-messages')) as HTMLElement | null
-              if (msgs) {
-                const row = document.createElement('div'); row.style.display='flex'; row.style.justifyContent='flex-end'
-                const bub = document.createElement('div'); bub.style.maxWidth='78%'; bub.style.padding='6px'; bub.style.borderRadius='10px'; bub.style.fontSize='12px'; bub.style.background='var(--bubble-user-bg, rgba(34,197,94,0.12))'; bub.style.border='1px solid var(--bubble-user-border, rgba(34,197,94,0.45))'
-                const image = document.createElement('img'); image.src=out; image.style.maxWidth='240px'; image.style.borderRadius='8px'; image.alt='screenshot'
-                bub.appendChild(image); row.appendChild(bub); msgs.appendChild(row); msgs.scrollTop = 1e9
-              }
-            }catch{}}
-            img.src = raw
+            if ((t.mode||'screenshot') === 'stream'){
+              try{
+                const r = t.rect || { x:0,y:0,w:0,h:0 }
+                const dpr = Math.max(1, (window as any).devicePixelRatio || 1)
+                const cnv = document.createElement('canvas'); cnv.width = Math.max(1, Math.round(r.w*dpr)); cnv.height = Math.max(1, Math.round(r.h*dpr))
+                const ctx = cnv.getContext('2d')!
+                const stream = (cnv as any).captureStream ? (cnv as any).captureStream(5) : null
+                if (!stream) { dd.value=''; return }
+                const preferred = ['video/mp4;codecs=h264','video/mp4','video/webm;codecs=vp9','video/webm;codecs=vp8','video/webm']
+                const mime = preferred.find(t=>{ try { return (MediaRecorder as any).isTypeSupported ? MediaRecorder.isTypeSupported(t) : false } catch { return false } }) || 'video/webm'
+                let recorded: BlobPart[] = []
+                const rec = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 1_500_000 })
+                rec.ondataavailable = (e)=>{ if (e.data && e.data.size>0) recorded.push(e.data) }
+                let frameTimer:any = null
+                let timer:any = null
+                let badge:HTMLElement|null = null
+                const startMs = Date.now()
+                const fmt=(ms:number)=>{ const s=Math.floor(ms/1000); const m2=String(Math.floor(s/60)).padStart(2,'0'); const s2=String(s%60).padStart(2,'0'); return m2+':'+s2 }
+                function stopAll(){ try{ frameTimer&&clearInterval(frameTimer) }catch{}; try{ rec.state!=='inactive'&&rec.stop() }catch{}; try{ (stream.getTracks()||[]).forEach((t:any)=>t.stop()) }catch{}; try{ timer&&clearInterval(timer) }catch{}; try{ badge&&badge.remove() }catch{} }
+                rec.onstop = ()=>{
+                  const blob = new Blob(recorded, { type: mime })
+                  const url = URL.createObjectURL(blob)
+                  const msgs = (document.getElementById('ccf-messages') || document.getElementById('ccd-messages')) as HTMLElement | null
+                  if (msgs){ const row=document.createElement('div'); row.style.display='flex'; row.style.justifyContent='flex-end'; const bub=document.createElement('div'); bub.style.maxWidth='78%'; bub.style.padding='6px'; bub.style.borderRadius='10px'; bub.style.fontSize='12px'; bub.style.background='var(--bubble-user-bg, rgba(34,197,94,0.12))'; bub.style.border='1px solid var(--bubble-user-border, rgba(34,197,94,0.45))'; const vid=document.createElement('video'); vid.src=url; vid.controls=true; vid.style.maxWidth='260px'; vid.style.borderRadius='8px'; bub.appendChild(vid); row.appendChild(bub); msgs.appendChild(row); msgs.scrollTop = 1e9 }
+                }
+                rec.start(500)
+                frameTimer = setInterval(async ()=>{
+                  try{
+                    const raw = await new Promise<string|null>((resolve)=>{ try{ chrome.runtime.sendMessage({ type:'CAPTURE_VISIBLE_TAB' }, (res:any)=> resolve(res?.dataUrl||null)) }catch{ resolve(null) } })
+                    if(!raw) return
+                    await new Promise<void>((resolve)=>{ const img=new Image(); img.onload=()=>{ try{ ctx.drawImage(img, Math.round(r.x*dpr), Math.round(r.y*dpr), Math.round(r.w*dpr), Math.round(r.h*dpr), 0, 0, Math.round(r.w*dpr), Math.round(r.h*dpr)) }catch{}; resolve() }; img.src=raw })
+                  }catch{}
+                }, 200)
+                // Floating stop + timer
+                try{
+                  badge = document.createElement('div'); badge.style.cssText='position:fixed; top:8px; right:12px; z-index:2147483647; display:flex; align-items:center; gap:8px; background:rgba(17,24,39,0.85); color:#fecaca; border:1px solid rgba(239,68,68,0.6); padding:4px 8px; border-radius:8px; font-size:12px;'
+                  const dot=document.createElement('span'); dot.style.cssText='display:inline-block;width:8px;height:8px;border-radius:9999px;background:#ef4444;animation:pulse 1s infinite';
+                  const time=document.createElement('span'); time.textContent='00:00'
+                  const stop=document.createElement('button'); stop.textContent='⏹'; stop.style.cssText='background:#991b1b;border:0;color:white;padding:2px 6px;border-radius:6px;cursor:pointer'
+                  const st = document.createElement('style'); st.textContent='@keyframes pulse{0%{opacity:1}50%{opacity:.35}100%{opacity:1}}'
+                  stop.onclick = (e)=>{ try{ e.preventDefault(); e.stopPropagation() }catch{}; stopAll() }
+                  badge.appendChild(dot); badge.appendChild(time); badge.appendChild(stop); badge.appendChild(st); document.body.appendChild(badge)
+                  timer = setInterval(()=>{ try{ time.textContent = fmt(Date.now()-startMs) }catch{} }, 1000)
+                }catch{}
+              }catch{}
+            } else {
+              const raw = await new Promise<string|null>((resolve)=>{ try{ chrome.runtime.sendMessage({ type:'CAPTURE_VISIBLE_TAB' }, (res:any)=> resolve(res?.dataUrl||null)) }catch{ resolve(null) } })
+              if(!raw) return
+              const dpr = Math.max(1, (window as any).devicePixelRatio || 1)
+              const cnv = document.createElement('canvas'); cnv.width = Math.max(1, Math.round(t.rect.w*dpr)); cnv.height = Math.max(1, Math.round(t.rect.h*dpr))
+              const ctx = cnv.getContext('2d')!
+              const img = new Image(); img.onload=()=>{ try{ ctx.drawImage(img, Math.round(t.rect.x*dpr), Math.round(t.rect.y*dpr), Math.round(t.rect.w*dpr), Math.round(t.rect.h*dpr), 0, 0, Math.round(t.rect.w*dpr), Math.round(t.rect.h*dpr)); const out = cnv.toDataURL('image/png');
+                const msgs = (document.getElementById('ccf-messages') || document.getElementById('ccd-messages')) as HTMLElement | null
+                if (msgs) {
+                  const row = document.createElement('div'); row.style.display='flex'; row.style.justifyContent='flex-end'
+                  const bub = document.createElement('div'); bub.style.maxWidth='78%'; bub.style.padding='6px'; bub.style.borderRadius='10px'; bub.style.fontSize='12px'; bub.style.background='var(--bubble-user-bg, rgba(34,197,94,0.12))'; bub.style.border='1px solid var(--bubble-user-border, rgba(34,197,94,0.45))'
+                  const image = document.createElement('img'); image.src=out; image.style.maxWidth='240px'; image.style.borderRadius='8px'; image.alt='screenshot'
+                  bub.appendChild(image); row.appendChild(bub); msgs.appendChild(row); msgs.scrollTop = 1e9
+                }
+              }catch{}}
+              img.src = raw
+            }
             })
           }catch{}
           dd.value = ''
