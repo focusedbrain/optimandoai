@@ -5185,7 +5185,7 @@ ${pageText}
 
       btnShot.onclick = async (ev:any)=>{
         try{ ev.preventDefault(); ev.stopPropagation() }catch{}
-        const r = coords(); const raw = await captureVisibleTab(); if(!raw) return; const cropped = await cropDataUrl(raw, r.x, r.y, r.w, r.h); pasteImageToChat(cropped); renderTriggerPrompt(cropped, r, 'screenshot')
+        const r = coords(); const raw = await captureVisibleTab(); if(!raw) return; const cropped = await cropDataUrl(raw, r.x, r.y, r.w, r.h); pasteImageToChat(cropped); renderTriggerPrompt(cropped, r, 'screenshot'); try{ closeSelection() }catch{}
       }
       btnStream.onclick = async (ev:any)=>{
         try{ ev.preventDefault(); ev.stopPropagation() }catch{}
@@ -9764,42 +9764,79 @@ ${pageText}
         const lmBtn = container.querySelector('#ccd-lm-one') as HTMLButtonElement | null
         const toolsParent = lmBtn?.parentElement as HTMLElement | null
         if (toolsParent){
-          const ddWrap = document.createElement('div'); ddWrap.style.position='relative'
-          const dd = document.createElement('select') as HTMLSelectElement
-          dd.id = 'ccd-tags'
-          dd.style.cssText = 'appearance:none;background:'+ (theme==='professional'?'#e2e8f0':'rgba(255,255,255,0.08)') +'; border:1px solid '+br+'; color:'+fg+'; border-radius:6px; padding:2px 22px 2px 6px; font-size:12px; cursor:pointer;'
-          const caret = document.createElement('span'); caret.textContent='▾'; caret.style.cssText='position:absolute; right:6px; top:2px; font-size:12px; color:'+fg
-          const opt0 = document.createElement('option'); opt0.value=''; opt0.textContent='Tags'; dd.appendChild(opt0)
-          function refreshDD(){
+          const ddWrap = document.createElement('div'); ddWrap.style.position='relative'; ddWrap.style.display='inline-flex'
+          const tagBtn = document.createElement('button'); tagBtn.type='button'; tagBtn.title='Tags'; tagBtn.textContent='Tags'; tagBtn.style.cssText='display:inline-flex;align-items:center;gap:6px;background:'+ (theme==='professional'?'#e2e8f0':'rgba(255,255,255,0.08)') +'; border:1px solid '+br+'; color:'+fg+'; border-radius:6px; padding:2px 6px; font-size:12px; cursor:pointer'
+          const caret = document.createElement('span'); caret.textContent='▾'; caret.style.cssText='font-size:12px; opacity:.9'
+          tagBtn.appendChild(caret)
+          // Dropdown menu (custom)
+          const menu = document.createElement('div');
+          menu.id = 'ccd-tags-menu'
+          menu.style.cssText = 'position:fixed; display:none; min-width:220px; width:320px; max-height:260px; overflow:auto; z-index:2147483647; background:'+ (theme==='professional'?'#ffffff':'#111827') +'; color:'+fg+'; border:1px solid '+br+'; border-radius:8px; box-shadow:0 10px 22px rgba(0,0,0,0.35)'
+          document.body.appendChild(menu)
+          function closeMenu(){ try{ menu.style.display='none' }catch{}; window.removeEventListener('mousedown', outside) }
+          function outside(e:MouseEvent){ const t=e.target as HTMLElement; if (!t) return; if (t===menu || menu.contains(t) || t===tagBtn) return; closeMenu() }
+          function openMenu(){
+            try{
+              const r = tagBtn.getBoundingClientRect();
+              menu.style.left = Math.max(8, Math.min(window.innerWidth-340, r.left)) + 'px'
+              menu.style.top = Math.min(window.innerHeight-280, r.bottom + 6) + 'px'
+              menu.style.display='block'
+              setTimeout(()=> window.addEventListener('mousedown', outside), 0)
+            }catch{}
+          }
+          function renderItems(items:any[]){
+            try{
+              menu.innerHTML = ''
+              if (!items.length){ const empty=document.createElement('div'); empty.textContent='No tags yet'; empty.style.cssText='padding:8px 10px; font-size:12px; opacity:.8'; menu.appendChild(empty); return }
+              items.forEach((t:any, i:number)=>{
+                const row = document.createElement('button'); row.type='button'; row.style.cssText='display:block; text-align:left; width:100%; padding:8px 10px; font-size:12px; background:transparent; border:0; color:inherit; cursor:pointer; white-space:nowrap; overflow:hidden; text-overflow:ellipsis'
+                row.title = t.name || ('Trigger '+(i+1))
+                row.textContent = t.name || ('Trigger '+(i+1))
+                row.onmouseenter = ()=>{ row.style.background = (theme==='professional'?'#f1f5f9':'rgba(255,255,255,0.06)') }
+                row.onmouseleave = ()=>{ row.style.background = 'transparent' }
+                row.onclick = ()=>{
+                  closeMenu()
+                  try{
+                    if ((t.mode||'screenshot') === 'stream') {
+                      beginScreenSelect(msgs, { rect: t.rect, mode: 'stream' })
+                    } else {
+                      // Headless screenshot capture of saved rect and post to chat
+                      ;(async ()=>{
+                        try{
+                          const raw = await new Promise<string|null>((resolve)=>{ try{ chrome.runtime.sendMessage({ type:'CAPTURE_VISIBLE_TAB' }, (res:any)=> resolve(res?.dataUrl||null)) }catch{ resolve(null) } })
+                          if(!raw) return
+                          const r = t.rect || { x:0,y:0,w:0,h:0 }
+                          const dpr = Math.max(1, (window as any).devicePixelRatio || 1)
+                          const cnv = document.createElement('canvas'); cnv.width = Math.max(1, Math.round(r.w*dpr)); cnv.height = Math.max(1, Math.round(r.h*dpr))
+                          const ctx = cnv.getContext('2d')!
+                          await new Promise<void>((resolve)=>{ const img=new Image(); img.onload=()=>{ try{ ctx.drawImage(img, Math.round(r.x*dpr), Math.round(r.y*dpr), Math.round(r.w*dpr), Math.round(r.h*dpr), 0, 0, Math.round(r.w*dpr), Math.round(r.h*dpr)) }catch{}; resolve() }; img.src=raw })
+                          const out = cnv.toDataURL('image/png')
+                          if (msgs) {
+                            const rowEl = document.createElement('div'); rowEl.style.display='flex'; rowEl.style.justifyContent='flex-end'
+                            const bub = document.createElement('div'); bub.style.maxWidth='78%'; bub.style.padding='6px'; bub.style.borderRadius='10px'; bub.style.fontSize='12px'; bub.style.background='var(--bubble-user-bg, rgba(34,197,94,0.12))'; bub.style.border='1px solid var(--bubble-user-border, rgba(34,197,94,0.45))'
+                            const image = document.createElement('img'); image.src=out; image.style.maxWidth='240px'; image.style.borderRadius='8px'; image.alt='screenshot'
+                            bub.appendChild(image); rowEl.appendChild(bub); msgs.appendChild(rowEl); msgs.scrollTop = 1e9
+                          }
+                        }catch{}
+                      })()
+                    }
+                  }catch{}
+                }
+                menu.appendChild(row)
+              })
+            }catch{}
+          }
+          function refreshMenu(){
             try{
               const key='optimando-tagged-triggers'
               chrome.storage?.local?.get([key], (data:any)=>{
-                try{
-                  const list = Array.isArray(data?.[key]) ? data[key] : []
-                  while (dd.options.length>1) dd.remove(1)
-                  list.forEach((t:any,i:number)=>{ const o=document.createElement('option'); o.value=String(i); o.textContent=t.name||('Trigger '+(i+1)); dd.appendChild(o) })
-                }catch{}
+                try{ const list = Array.isArray(data?.[key]) ? data[key] : []; renderItems(list) }catch{}
               })
             }catch{}
           }
-          refreshDD()
-          window.addEventListener('optimando-triggers-updated', refreshDD)
-          dd.onchange = async ()=>{
-            const idx = parseInt(dd.value||'-1',10)
-            if (isNaN(idx) || idx<0) return
-            try{
-              const key='optimando-tagged-triggers';
-              chrome.storage?.local?.get([key], async (data:any)=>{
-                const list = Array.isArray(data?.[key]) ? data[key] : []
-                const t = list[idx]; if(!t) { dd.value=''; return }
-                // Use the main overlay flow with preset so toolbar and controls are visible and recording uses the shared code path
-                if ((t.mode||'screenshot') === 'stream') beginScreenSelect(msgs, { rect: t.rect, mode: 'stream' })
-                else beginScreenSelect(msgs, { rect: t.rect, mode: 'screenshot' })
-              })
-            }catch{}
-            dd.value = ''
-          }
-          ddWrap.appendChild(dd); ddWrap.appendChild(caret); toolsParent.appendChild(ddWrap)
+          refreshMenu(); window.addEventListener('optimando-triggers-updated', refreshMenu)
+          tagBtn.onclick = ()=>{ refreshMenu(); openMenu() }
+          ddWrap.appendChild(tagBtn); toolsParent.appendChild(ddWrap)
         }
       } catch {}
       ;(container.querySelector('#ccd-lm-one') as HTMLButtonElement | null)?.addEventListener('click', (e)=>{ try{ e.preventDefault(); e.stopPropagation() }catch{}; beginScreenSelect(msgs) })
