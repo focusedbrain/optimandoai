@@ -5221,6 +5221,7 @@ ${pageText}
             renderTriggerPrompt(url as any, r, 'stream')
             try{ if(recTimer){ clearInterval(recTimer); recTimer=null } }catch{}
             try{ timerEl.style.display='none'; timerEl.textContent='00:00' }catch{}
+            try{ closeSelection() }catch{}
           }
           mediaRecorder.start(500)
           // Periodically capture frames of the visible tab and draw cropped region
@@ -5307,7 +5308,7 @@ ${pageText}
               const kind = msg.kind || 'image'
               const url = msg.dataUrl || msg.url
               if (!url) return
-              if (kind === 'video') pasteVideoToChat(url)
+              if (kind === 'video') { pasteVideoToChat(url); try{ closeSelection() }catch{} }
               else pasteImageToChat(url)
               try{ recBadge && recBadge.remove() }catch{}
             }
@@ -5320,7 +5321,7 @@ ${pageText}
               const kind = incoming.kind || 'image'
               const url = incoming.dataUrl || incoming.url
               if (!url) return
-              if (kind === 'video') pasteVideoToChat(url)
+              if (kind === 'video') { pasteVideoToChat(url); try{ closeSelection() }catch{} }
               else pasteImageToChat(url)
               try{ recBadge && recBadge.remove() }catch{}
             }
