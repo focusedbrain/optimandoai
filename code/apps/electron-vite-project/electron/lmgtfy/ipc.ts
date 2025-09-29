@@ -4,6 +4,7 @@ export const LmgtfyChannels = {
   SelectScreenshot: 'lmgtfy/select-screenshot',
   SelectStream: 'lmgtfy/select-stream',
   StopStream: 'lmgtfy/stop-stream',
+  CapturePreset: 'lmgtfy/capture-preset',
   GetPresets: 'lmgtfy/get-presets',
   SavePreset: 'lmgtfy/save-preset',
   OnCaptureEvent: 'lmgtfy.capture',
@@ -19,6 +20,7 @@ export interface CaptureMeta {
   h: number
   dpr: number
   displayId?: number
+  createTrigger?: boolean
 }
 
 export interface CaptureEventPayload {

@@ -9,7 +9,21 @@ export interface Selection {
   dpr: number
 }
 
-export async function selectRegion(): Promise<Selection | null> {
+let activeState: { overlays: BrowserWindow[]; finished: boolean; resolve: ((v: Selection | null) => void) | null } | null = null
+
+export function cancelActiveSelection(): void {
+  try {
+    if (!activeState || activeState.finished) return
+    activeState.finished = true
+    const overlays = activeState.overlays || []
+    overlays.forEach(w => { try { w.removeAllListeners('close'); w.close() } catch {} })
+    const res = activeState.resolve
+    activeState.resolve = null
+    if (res) { try { res(null) } catch {} }
+  } catch {}
+}
+
+export async function selectRegion(_expectedMode?: 'screenshot' | 'stream'): Promise<Selection | null> {
   return new Promise(resolve => {
     const displays = screen.getAllDisplays()
     const overlays: BrowserWindow[] = []
@@ -44,37 +58,124 @@ export async function selectRegion(): Promise<Selection | null> {
         alwaysOnTop: true,
         skipTaskbar: true,
         focusable: true,
+        acceptFirstMouse: true,
+        backgroundColor: '#00000000',
+        titleBarStyle: 'hidden',
         fullscreenable: false,
-        webPreferences: { nodeIntegration: true, contextIsolation: false }
+        webPreferences: { nodeIntegration: true, contextIsolation: false, backgroundThrottling: false }
       })
       overlays.push(overlay)
-      overlay.setIgnoreMouseEvents(false)
+      overlay.setAlwaysOnTop(true, 'pop-up-menu')
+      overlay.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
+      try { overlay.setIgnoreMouseEvents(false, { forward: false } as any) } catch { try { overlay.setIgnoreMouseEvents(false) } catch {} }
       overlay.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(`
       <!DOCTYPE html>
       <html><head><meta charset="utf-8"/>
       <style>
-        html,body{margin:0;height:100%;cursor:crosshair}
-        canvas{width:100%;height:100%;display:block}
+        html,body{margin:0;height:100%;cursor:crosshair;-webkit-user-select:none;user-select:none}
+        #lay{position:fixed;inset:0;touch-action:none}
+        #box{position:fixed;border:2px dashed #0ea5e9;background:rgba(14,165,233,0.08);pointer-events:none;display:none}
+        .tb{position:fixed;display:none;gap:8px;background:rgba(17,24,39,0.95);color:#fff;padding:6px 8px;border-radius:8px;border:1px solid rgba(255,255,255,0.25);font-size:12px;pointer-events:auto;z-index:2147483648}
+        .btn{background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.25);color:#fff;padding:4px 8px;border-radius:6px;cursor:pointer}
+        .btn.primary{background:#10b981;border-color:#10b981}
+        .btn.stream{background:#3b82f6;border-color:#3b82f6}
+        .btn.danger{background:#ef4444;border-color:#ef4444}
       </style></head>
       <body>
-        <canvas id="c"></canvas>
+        <div id="lay"></div>
+        <div id="box"></div>
+        <div id="tb" class="tb" role="toolbar" aria-label="Capture controls">
+          <button id="shot" class="btn primary" aria-label="Screenshot">Screenshot</button>
+          <button id="stream" class="btn stream" aria-label="Stream">Stream</button>
+          <button id="rec" class="btn danger" aria-label="Record" style="display:none">⏺</button>
+          <button id="stop" class="btn danger" aria-label="Stop" style="display:none">⏹</button>
+          <label style="display:inline-flex;align-items:center;gap:6px;color:#fff;user-select:none"><input id="cbTrig" type="checkbox"/> <span>Create Tagged Trigger</span></label>
+          <button id="close" class="btn" aria-label="Close">×</button>
+        </div>
         <script>
+          const DISPLAY_ID = ${d.id};
           const { ipcRenderer } = require('electron');
-          const c=document.getElementById('c');
-          const ctx=c.getContext('2d');
-          function resize(){c.width=window.innerWidth*devicePixelRatio;c.height=window.innerHeight*devicePixelRatio;draw()}
-          window.addEventListener('resize',resize);resize();
+          const lay=document.getElementById('lay');
+          const box=document.getElementById('box');
           let sx=0,sy=0,ex=0,ey=0,drag=false
-          function draw(){ctx.clearRect(0,0,c.width,c.height);ctx.fillStyle='rgba(0,0,0,0.25)';ctx.fillRect(0,0,c.width,c.height);if(drag){const x=Math.min(sx,ex),y=Math.min(sy,ey),w=Math.abs(ex-sx),h=Math.abs(ey-sy);ctx.clearRect(x,y,w,h);ctx.strokeStyle='rgba(255,255,255,0.9)';ctx.lineWidth=2*devicePixelRatio;ctx.setLineDash([6*devicePixelRatio,4*devicePixelRatio]);ctx.strokeRect(x,y,w,h)}}
-          window.addEventListener('mousedown',e=>{drag=true;sx=e.clientX*devicePixelRatio;sy=e.clientY*devicePixelRatio;ex=sx;ey=sy;draw()})
-          window.addEventListener('mousemove',e=>{if(!drag)return;ex=e.clientX*devicePixelRatio;ey=e.clientY*devicePixelRatio;draw()})
-          window.addEventListener('mouseup',e=>{drag=false;ex=e.clientX*devicePixelRatio;ey=e.clientY*devicePixelRatio;const x=Math.min(sx,ex),y=Math.min(sy,ey),w=Math.abs(ex-sx),h=Math.abs(ey-sy);ipcRenderer.send('overlay-selection',{x,y,w,h,dpr:devicePixelRatio})})
+          const tb=document.getElementById('tb');
+          const btnShot=document.getElementById('shot');
+          const btnStream=document.getElementById('stream');
+          const btnRec=document.getElementById('rec');
+          const btnStop=document.getElementById('stop');
+          const btnClose=document.getElementById('close');
+          const timer=document.createElement('span');
+          timer.style.cssText='color:#e5e7eb;opacity:.9;font-variant-numeric:tabular-nums;display:none;align-self:center';
+          timer.id='og-timer';
+          timer.textContent='00:00';
+          tb.insertBefore(timer, btnClose);
+          const cbTrig=document.getElementById('cbTrig');
+          function placeToolbar(){
+            const x=Math.min(sx,ex), y=Math.min(sy,ey);
+            tb.style.left=Math.max(8, Math.min(window.innerWidth-300, x))+'px';
+            tb.style.top=Math.max(8, y-36)+'px';
+            tb.style.display='flex';
+          }
+          function onDown(e){
+            try{ e.preventDefault(); e.stopPropagation() }catch{}
+            drag=true; sx=e.clientX; sy=e.clientY; ex=sx; ey=sy;
+            box.style.left=sx+'px'; box.style.top=sy+'px'; box.style.width='0px'; box.style.height='0px'; box.style.display='block'
+            try{ document.body.style.cursor='crosshair' }catch{}
+          }
+          function onMove(e){ if(!drag) return; try{ e.preventDefault(); e.stopPropagation() }catch{}; ex=e.clientX; ey=e.clientY; const x=Math.min(sx,ex), y=Math.min(sy,ey), w=Math.abs(ex-sx), h=Math.abs(ey-sy); box.style.left=x+'px'; box.style.top=y+'px'; box.style.width=w+'px'; box.style.height=h+'px' }
+          function onUp(e){ try{ e.preventDefault(); e.stopPropagation() }catch{}; drag=false; ex=e.clientX; ey=e.clientY; placeToolbar(); try{ document.body.style.cursor='default' }catch{} }
+          // Mouse events (fallback)
+          window.addEventListener('mousedown', onDown, true)
+          window.addEventListener('mousemove', onMove, true)
+          window.addEventListener('mouseup', onUp, true)
+          // After selection is confirmed, restore transparency
+          function confirmRect(){
+            const x=Math.min(sx,ex),y=Math.min(sy,ey),w=Math.abs(ex-sx),h=Math.abs(ey-sy);
+            return {x,y,w,h}
+          }
+          btnShot.addEventListener('click',()=>{
+            const r=confirmRect();
+            ipcRenderer.send('overlay-cmd',{ action:'shot', rect:r, displayId: DISPLAY_ID, createTrigger: !!cbTrig.checked });
+          })
+          btnStream.addEventListener('click',()=>{ btnRec.style.display='inline-block'; btnStop.style.display='inline-block'; timer.style.display='inline-block'; timer.textContent='00:00' })
+          btnRec.addEventListener('click',()=>{ const r=confirmRect(); ipcRenderer.send('overlay-cmd',{ action:'stream-start', rect:r, displayId: DISPLAY_ID, createTrigger: !!cbTrig.checked}); try{ startTimer() }catch{} })
+          btnStop.addEventListener('click',()=>{ ipcRenderer.send('overlay-cmd',{ action:'stream-stop' }) })
+          // Allow main to close the overlay when done
+          try{ ipcRenderer.on('overlay-close', ()=>{ try{ window.close() }catch{} }) }catch{}
+          // Timer helpers
+          let t0=0, tid=null; function startTimer(){ try{ t0=Date.now(); if(tid){clearInterval(tid)}; tid=setInterval(()=>{ try{ const s=Math.max(0, Math.floor((Date.now()-t0)/1000)); const m=String(Math.floor(s/60)).padStart(2,'0'); const ss=String(s%60).padStart(2,'0'); timer.textContent=m+':'+ss }catch{} }, 1000) }catch{} }
+          lay.addEventListener('pointerdown', (e)=>{ try{ e.preventDefault(); e.stopPropagation(); lay.setPointerCapture(e.pointerId) }catch{}; onDown(e) }, true)
+          lay.addEventListener('pointermove', (e)=>{ onMove(e) }, true)
+          lay.addEventListener('pointerup', (e)=>{ try{ lay.releasePointerCapture(e.pointerId) }catch{}; onUp(e) }, true)
+          window.addEventListener('contextmenu', e=>{ try{ e.preventDefault(); e.stopPropagation() }catch{} })
           window.addEventListener('keydown',e=>{if(e.key==='Escape'){ipcRenderer.send('overlay-selection',{cancel:true})}})
+          btnClose.addEventListener('click',()=>{ipcRenderer.send('overlay-selection',{cancel:true})})
+          btnShot.addEventListener('click',()=>{
+            const x=Math.min(sx,ex),y=Math.min(sy,ey),w=Math.abs(ex-sx),h=Math.abs(ey-sy);
+            ipcRenderer.send('overlay-selection',{x,y,w,h,dpr:devicePixelRatio, mode:'screenshot', createTrigger: !!cbTrig.checked})
+          })
+          btnStream.addEventListener('click',()=>{
+            btnRec.style.display='inline-block'; btnStop.style.display='inline-block';
+          })
+          btnRec.addEventListener('click',()=>{
+            const x=Math.min(sx,ex),y=Math.min(sy,ey),w=Math.abs(ex-sx),h=Math.abs(ey-sy);
+            ipcRenderer.send('overlay-selection',{x,y,w,h,dpr:devicePixelRatio, mode:'stream:start', createTrigger: !!cbTrig.checked})
+          })
+          btnStop.addEventListener('click',()=>{
+            ipcRenderer.send('overlay-selection',{mode:'stream:stop'})
+          })
         </script>
       </body></html>
     `))
       wire(overlay, d.id, d.scaleFactor)
+      try {
+        overlay.once('ready-to-show', () => { try{ overlay.show(); overlay.focus() }catch{} })
+        overlay.show(); overlay.focus()
+      } catch {}
     }
+
+    // Track active selection so it can be cancelled externally
+    activeState = { overlays, finished: false, resolve: (v) => { try { resolve(v) } catch {} } }
   })
 }
 

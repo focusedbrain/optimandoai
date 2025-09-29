@@ -11,14 +11,8 @@
   <body>
     <script>
       (function(){
-        try {
-          // Trigger desktop app in headless mode. Desktop should interpret and remain hidden.
-          const qp = new URLSearchParams(location.search);
-          const mode = qp.get('mode') || 'stream';
-          window.open('opengiraffe://lmgtfy?mode=' + encodeURIComponent(mode), '_self');
-        } catch (e) {}
-        // Close the window quickly to avoid any flash
-        setTimeout(() => { try { window.close(); } catch (e) {} }, 50);
+        // Disabled to avoid extra popup; this page now closes immediately
+        try { window.close() } catch {}
       })();
     </script>
   </body>

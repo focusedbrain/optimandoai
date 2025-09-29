@@ -54,6 +54,8 @@ function connectToWebSocketServer() {
               if (!tabId) return
               try { chrome.tabs.sendMessage(tabId, { type: 'ELECTRON_SELECTION_RESULT', kind, dataUrl }) } catch {}
             })
+            // Forward to popup chat as well so it appends immediately
+            try { chrome.runtime.sendMessage({ type: 'COMMAND_POPUP_APPEND', kind, url: dataUrl }) } catch {}
           } else if (data.type === 'TRIGGERS_UPDATED') {
             try { chrome.runtime.sendMessage({ type: 'TRIGGERS_UPDATED' }) } catch {}
           }
@@ -253,7 +255,17 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           try { ws.send(JSON.stringify(payload)) } catch {}
           try { sendResponse({ success: true }) } catch {}
         } else {
-          try { sendResponse({ success: false, error: 'WS not connected' }) } catch {}
+          // Try to connect on-demand to 127.0.0.1:53247 and retry
+          try {
+            const url = 'ws://127.0.0.1:53247/'
+            const temp = new WebSocket(url)
+            temp.addEventListener('open', () => {
+              try { ws = temp as any } catch {}
+              try { ws?.send(JSON.stringify({ type: 'START_SELECTION', source: msg.source || 'browser', mode: msg.mode || 'area', options: msg.options || {} })) } catch {}
+              try { sendResponse({ success: true }) } catch {}
+            })
+            temp.addEventListener('error', () => { try { sendResponse({ success:false, error:'WS not connected' }) } catch {} })
+          } catch { try { sendResponse({ success:false, error:'WS not connected' }) } catch {} }
         }
       } catch { try { sendResponse({ success:false }) } catch {} }
       break
@@ -274,14 +286,13 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       try {
         chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
           const tabId = tabs[0]?.id
+          const winId = tabs[0]?.windowId
           if (!tabId) { try { sendResponse({ success:false }) } catch {}; return }
-          try { chrome.tabs.sendMessage(tabId, { type: 'OG_BEGIN_SELECTION_FOR_POPUP' }, ()=>{ try { sendResponse({ success:true }) } catch {} }) } catch { try { sendResponse({ success:false }) } catch {} }
-          // Also trigger desktop deep-link as fallback when content-script isn't injected
-          try {
-            const url = chrome.runtime.getURL('silent-launch.html?mode=' + encodeURIComponent('stream'))
-            const opts: chrome.windows.CreateData = { url, type: 'popup', width: 10, height: 10, focused: false }
-            chrome.windows.create(opts)
-          } catch {}
+          try { if (typeof winId === 'number') chrome.windows.update(winId, { focused: true }) } catch {}
+          try { chrome.tabs.highlight({ tabs: tabs[0].index }, () => {}) } catch {}
+          setTimeout(() => {
+            try { chrome.tabs.sendMessage(tabId, { type: 'OG_BEGIN_SELECTION_FOR_POPUP' }, ()=>{ try { sendResponse({ success:true }) } catch {} }) } catch { try { sendResponse({ success:false }) } catch {} }
+          }, 50)
         })
       } catch { try { sendResponse({ success:false }) } catch {} }
       break
@@ -337,7 +348,20 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           opts.left = Math.max(0, bounds.left + 40)
           opts.top = Math.max(0, bounds.top + 40)
         }
-        chrome.windows.create(opts, () => sendResponse({ success: true }))
+        // Prevent duplicates: if a popup already exists, focus instead of opening a new tiny one
+        try {
+          chrome.windows.getAll({ populate: false, windowTypes: ['popup', 'normal'] }, (wins) => {
+            const existing = wins && wins.find(w => (w.type === 'popup'))
+            if (existing && existing.id) {
+              chrome.windows.update(existing.id, { focused: true })
+              sendResponse({ success: true })
+            } else {
+              chrome.windows.create(opts, () => sendResponse({ success: true }))
+            }
+          })
+        } catch {
+          chrome.windows.create(opts, () => sendResponse({ success: true }))
+        }
       }
 
       if (chrome.system?.display) {
@@ -353,19 +377,17 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     }
 
     case 'COMMAND_POPUP_APPEND': {
-      // No-op in background for now; the content script posts to docked chat directly. The popup page can also listen for this if needed.
+      try {
+        // Forward to popup page to append media
+        chrome.runtime.sendMessage({ type: 'COMMAND_POPUP_APPEND', kind: msg.kind, url: msg.url })
+      } catch {}
       try { sendResponse({ success: true }) } catch {}
       break
     }
 
     case 'LAUNCH_LMGTFY': {
-      try {
-        const mode = (typeof msg.mode === 'string' && (msg.mode === 'screenshot' || msg.mode === 'stream')) ? msg.mode : 'stream'
-        const url = chrome.runtime.getURL('silent-launch.html?mode=' + encodeURIComponent(mode))
-        const opts: chrome.windows.CreateData = { url, type: 'popup', width: 300, height: 120, focused: false }
-        chrome.windows.create(opts, () => sendResponse({ success: true }))
-      } catch (e) { try { sendResponse({ success: false, error: String(e) }) } catch {}
-      }
+      // Disable silent popup launcher to avoid extra UI
+      try { sendResponse({ success: true }) } catch {}
       break
     }
     case 'OG_CAPTURE_SAVED_TAG': {

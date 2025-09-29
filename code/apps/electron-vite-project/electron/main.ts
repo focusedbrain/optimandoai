@@ -1,6 +1,7 @@
 import { app, BrowserWindow, globalShortcut, Tray, Menu, Notification } from 'electron'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
+// WS bridge removed to avoid port conflicts; extension fallback/deep-link is used
 import { registerHandler, LmgtfyChannels, emitCapture } from './lmgtfy/ipc'
 import { selectRegion } from './lmgtfy/overlay'
 import { captureScreenshot, startRegionStream } from './lmgtfy/capture'
@@ -29,6 +30,10 @@ process.env.VITE_PUBLIC = VITE_DEV_SERVER_URL ? path.join(process.env.APP_ROOT, 
 let win: BrowserWindow | null
 let pendingLaunchMode: 'screenshot' | 'stream' | null = null
 let tray: Tray | null = null
+// Track connected WS clients (extension bridge)
+var wsClients: any[] = (globalThis as any).__og_ws_clients__ || [];
+(globalThis as any).__og_ws_clients__ = wsClients;
+
 
 function handleDeepLink(raw: string) {
   try {
@@ -54,14 +59,13 @@ function handleDeepLink(raw: string) {
   } catch {}
 }
 
-function createWindow() {
-  const startHidden = process.argv.includes('--hidden')
+async function createWindow() {
   win = new BrowserWindow({
     icon: path.join(process.env.VITE_PUBLIC, 'electron-vite.svg'),
     webPreferences: {
       preload: path.join(__dirname, 'preload.mjs'),
     },
-    show: !startHidden,
+    show: false,
   })
 
   // Test active push message to Renderer-process.
@@ -72,7 +76,6 @@ function createWindow() {
   if (VITE_DEV_SERVER_URL) {
     win.loadURL(VITE_DEV_SERVER_URL)
   } else {
-    // win.loadFile('dist/index.html')
     win.loadFile(path.join(RENDERER_DIST, 'index.html'))
   }
 
@@ -88,21 +91,50 @@ function createWindow() {
   let activeStop: null | (() => Promise<string>) = null
   registerHandler(LmgtfyChannels.GetPresets, () => loadPresets())
   registerHandler(LmgtfyChannels.SavePreset, async (_e, payload) => upsertRegion(payload))
+  // Overlay direct IPC (renderer->main) to drive capture + posting
+  try {
+    const { ipcMain } = await import('electron')
+    ipcMain.on('overlay-cmd', async (_e, msg: any) => {
+      try {
+        if (!msg || !msg.action) return
+        if (msg.action === 'shot') {
+          const rect = msg.rect || { x:0,y:0,w:0,h:0 }
+          const displayId = Number(msg.displayId)||0
+          const sel = { displayId, x: rect.x, y: rect.y, w: rect.w, h: rect.h, dpr: 1 }
+          const { filePath } = await captureScreenshot(sel as any)
+          await postScreenshotToPopup(filePath, { x: sel.x, y: sel.y, w: sel.w, h: sel.h, dpr: 1 })
+          try { win?.webContents.send('overlay-close') } catch {}
+          return
+        }
+        if (msg.action === 'stream-start') {
+          const rect = msg.rect || { x:0,y:0,w:0,h:0 }
+          const displayId = Number(msg.displayId)||0
+          const sel = { displayId, x: rect.x, y: rect.y, w: rect.w, h: rect.h, dpr: 1 }
+          const controller = await startRegionStream(sel as any)
+          activeStop = controller.stop
+          emitCapture(win!, { event: LmgtfyChannels.OnCaptureEvent, mode: 'stream', filePath: '', thumbnailPath: '', meta: { x: sel.x, y: sel.y, w: sel.w, h: sel.h, dpr: 1, displayId } })
+          return
+        }
+        if (msg.action === 'stream-stop') {
+          if (!activeStop) return
+          const out = await activeStop()
+          activeStop = null
+          await postStreamToPopup(out)
+          try { win?.webContents.send('overlay-close') } catch {}
+          return
+        }
+      } catch {}
+    })
+  } catch {}
   registerHandler(LmgtfyChannels.SelectScreenshot, async () => {
-    const sel = await selectRegion()
+    const sel = await selectRegion('screenshot')
     if (!sel || !win) return null
     const { filePath, thumbnailPath } = await captureScreenshot(sel)
-    emitCapture(win, {
-      event: LmgtfyChannels.OnCaptureEvent,
-      mode: 'screenshot',
-      filePath,
-      thumbnailPath,
-      meta: { x: sel.x, y: sel.y, w: sel.w, h: sel.h, dpr: sel.dpr, displayId: sel.displayId },
-    })
+    await postScreenshotToPopup(filePath, sel)
     return { filePath, thumbnailPath }
   })
   registerHandler(LmgtfyChannels.SelectStream, async () => {
-    const sel = await selectRegion()
+    const sel = await selectRegion('stream')
     if (!sel || !win) return null
     const controller = await startRegionStream(sel)
     activeStop = controller.stop
@@ -119,14 +151,24 @@ function createWindow() {
     if (!activeStop || !win) return null
     const out = await activeStop()
     activeStop = null
-    emitCapture(win, {
-      event: LmgtfyChannels.OnCaptureEvent,
-      mode: 'stream',
-      filePath: out,
-      thumbnailPath: '',
-      meta: { presetName: 'finalized', x: 0, y: 0, w: 0, h: 0, dpr: 1 },
-    })
+    await postStreamToPopup(out)
     return { filePath: out }
+  })
+  registerHandler(LmgtfyChannels.CapturePreset, async (_e, payload: { mode: 'screenshot'|'stream', rect: { x:number,y:number,w:number,h:number }, displayId?: number }) => {
+    if (!win) return null
+    // Bypass interactive selector; directly emit capture or stream marker
+    if (payload.mode === 'screenshot') {
+      const sel = { displayId: payload.displayId ?? 0, x: payload.rect.x, y: payload.rect.y, w: payload.rect.w, h: payload.rect.h, dpr: 1 }
+      const { filePath, thumbnailPath } = await captureScreenshot(sel as any)
+      emitCapture(win, { event: LmgtfyChannels.OnCaptureEvent, mode: 'screenshot', filePath, thumbnailPath, meta: { x: sel.x, y: sel.y, w: sel.w, h: sel.h, dpr: sel.dpr, displayId: sel.displayId } })
+      return { filePath, thumbnailPath }
+    } else {
+      const sel = { displayId: payload.displayId ?? 0, x: payload.rect.x, y: payload.rect.y, w: payload.rect.w, h: payload.rect.h, dpr: 1 }
+      const controller = await startRegionStream(sel as any)
+      activeStop = controller.stop
+      emitCapture(win, { event: LmgtfyChannels.OnCaptureEvent, mode: 'stream', filePath: '', thumbnailPath: '', meta: { x: sel.x, y: sel.y, w: sel.w, h: sel.h, dpr: sel.dpr, displayId: sel.displayId } })
+      return { ok: true }
+    }
   })
 
   // Global hotkeys
@@ -205,7 +247,8 @@ app.on('activate', () => {
   }
 })
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
+  try { process.env.WS_NO_BUFFER_UTIL = '1'; process.env.WS_NO_UTF_8_VALIDATE = '1' } catch {}
   // Auto-start on login (Windows/macOS). Pass --hidden so it starts in background.
   try {
     if (process.platform === 'win32' || process.platform === 'darwin') {
@@ -217,4 +260,66 @@ app.whenReady().then(() => {
   } catch {}
   createWindow()
   createTray()
+  // WS bridge for extension (127.0.0.1:51247) with safe startup
+  try {
+    const mod = await import('ws').catch(() => null)
+    const WebSocketServer = (mod && (mod as any).WebSocketServer) || null
+    if (WebSocketServer) {
+      const wss = new WebSocketServer({ host: '127.0.0.1', port: 51247 })
+      wss.on('error', (err: any) => {
+        try {
+          const msg = String((err && (err.code || err.message)) || '')
+          if (msg.includes('EADDRINUSE')) { try { wss.close() } catch {} }
+        } catch {}
+      })
+      wss.on('connection', (socket: any) => {
+        try { wsClients.push(socket) } catch {}
+        socket.on('close', () => { try { wsClients = wsClients.filter(s => s !== socket) } catch {} })
+        socket.on('message', async (raw: any) => {
+          try {
+            const msg = JSON.parse(String(raw))
+            if (!msg || !msg.type) return
+            if (msg.type === 'ping') { try { socket.send(JSON.stringify({ type: 'pong' })) } catch {} }
+            if (msg.type === 'START_SELECTION') {
+              const mode = msg.mode === 'stream' ? 'stream' : 'screenshot'
+              if (mode === 'screenshot') {
+                const sel = await selectRegion('screenshot')
+                if (!sel) return
+                const { filePath } = await captureScreenshot(sel)
+                await postScreenshotToPopup(filePath, sel)
+              } else {
+                const sel = await selectRegion('stream')
+                if (!sel) return
+                try { await postStreamToPopup('') } catch {}
+              }
+            }
+          } catch {}
+        })
+      })
+    }
+  } catch {}
 })
+
+// Helpers to post to popup chat and close overlay via background
+async function postScreenshotToPopup(filePath: string, sel: { x:number,y:number,w:number,h:number,dpr:number }){
+  try {
+    emitCapture(win!, { event: LmgtfyChannels.OnCaptureEvent, mode: 'screenshot', filePath, thumbnailPath: '', meta: { x: sel.x, y: sel.y, w: sel.w, h: sel.h, dpr: sel.dpr } })
+  } catch {}
+  try {
+    const fs = await import('node:fs')
+    const data = fs.readFileSync(filePath)
+    const dataUrl = 'data:image/png;base64,' + data.toString('base64')
+    const payload = JSON.stringify({ type: 'SELECTION_RESULT_IMAGE', kind: 'image', dataUrl })
+    wsClients.forEach((c) => { try { c.send(payload) } catch {} })
+  } catch {}
+}
+
+async function postStreamToPopup(filePath: string){
+  try {
+    emitCapture(win!, { event: LmgtfyChannels.OnCaptureEvent, mode: 'stream', filePath, thumbnailPath: '', meta: { presetName: 'finalized', x: 0, y: 0, w: 0, h: 0, dpr: 1 } })
+  } catch {}
+  try {
+    const payload = JSON.stringify({ type: 'SELECTION_RESULT_VIDEO', kind: 'video', dataUrl: '' })
+    wsClients.forEach((c) => { try { c.send(payload) } catch {} })
+  } catch {}
+}

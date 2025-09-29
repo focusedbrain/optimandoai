@@ -10073,7 +10073,7 @@ ${pageText}
         }
         ddWrap.appendChild(dd); ddWrap.appendChild(caret); headerTools.appendChild(ddWrap)
       }
-      ;(box.querySelector('#ccf-lm-one') as HTMLButtonElement | null)?.addEventListener('click', (e)=>{ try{ e.preventDefault(); e.stopPropagation() }catch{}; const msgs = box.querySelector('#ccf-messages') as HTMLElement | null; beginScreenSelect(msgs || document.body); try{ chrome.runtime?.sendMessage({ type:'ELECTRON_START_SELECTION', source:'popup' }, (res:any)=>{ try{ if(!res||!res.success){ window.open('opengiraffe://lmgtfy?mode=stream','_self') } }catch{} }) }catch{} })
+      ;(box.querySelector('#ccf-lm-one') as HTMLButtonElement | null)?.addEventListener('click', (e)=>{ try{ e.preventDefault(); e.stopPropagation() }catch{}; const msgs = box.querySelector('#ccf-messages') as HTMLElement | null; beginScreenSelect(msgs || document.body) })
       // Mount context bucket to popup (drop anywhere in the box)
       mountContextBucket(box, 'ccf-bucket')
     }
