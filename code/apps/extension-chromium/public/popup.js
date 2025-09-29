@@ -89,10 +89,8 @@ try{ chrome.runtime?.onMessage.addListener((msg)=>{ if(msg?.type==='TRIGGERS_UPD
 if (bucketBtn) bucketBtn.onclick = (e)=>{ try{ e.preventDefault() }catch{}; try{ file && file.click() }catch{} }
 if (pencilBtn) pencilBtn.onclick = (e)=>{
   try{ e.preventDefault() }catch{}
-  // Headless: trigger Electron overlay selection via background WS bridge
+  // Trigger Electron overlay selection via background WS bridge; keep chat open
   try{ chrome.runtime?.sendMessage({ type:'ELECTRON_START_SELECTION', source:'popup' }) }catch{}
-  // Close the popup so mouse events go to the desktop overlay
-  try{ window.close() }catch{}
 }
 if (ddTags) ddTags.onchange = ()=>{ const idx=parseInt(ddTags.value||'-1',10); if(!isNaN(idx)&&idx>=0){ try{ chrome.runtime?.sendMessage({ type:'OG_CAPTURE_SAVED_TAG', index: idx }) }catch{} } ddTags.value='' }
 

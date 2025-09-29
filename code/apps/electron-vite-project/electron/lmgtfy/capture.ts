@@ -1,4 +1,4 @@
-import { app, desktopCapturer } from 'electron'
+import { app, desktopCapturer, screen } from 'electron'
 import fs from 'node:fs'
 import path from 'node:path'
 import { Selection } from './overlay'
@@ -22,7 +22,10 @@ function datedDir() {
 }
 
 export async function captureScreenshot(sel: Selection): Promise<{ filePath: string; thumbnailPath: string }> {
-  const sources = await desktopCapturer.getSources({ types: ['screen'], thumbnailSize: { width: sel.w, height: sel.h } })
+  const display = screen.getAllDisplays().find(d => d.id === sel.displayId) || screen.getPrimaryDisplay()
+  const fullW = Math.max(1, Math.round(display.size.width * display.scaleFactor))
+  const fullH = Math.max(1, Math.round(display.size.height * display.scaleFactor))
+  const sources = await desktopCapturer.getSources({ types: ['screen'], thumbnailSize: { width: fullW, height: fullH } })
   const screenSource = sources.find(s => s.display_id && Number(s.display_id) === sel.displayId) || sources[0]
   const image = screenSource.thumbnail.crop({ x: sel.x, y: sel.y, width: sel.w, height: sel.h })
   const png = image.toPNG()

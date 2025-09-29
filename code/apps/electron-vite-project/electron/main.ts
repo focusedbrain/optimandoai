@@ -3,7 +3,7 @@ import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 // WS bridge removed to avoid port conflicts; extension fallback/deep-link is used
 import { registerHandler, LmgtfyChannels, emitCapture } from './lmgtfy/ipc'
-import { selectRegion } from './lmgtfy/overlay'
+import { selectRegion, beginOverlay } from './lmgtfy/overlay'
 import { captureScreenshot, startRegionStream } from './lmgtfy/capture'
 import { loadPresets, upsertRegion } from './lmgtfy/presets'
 
@@ -103,6 +103,27 @@ async function createWindow() {
           const sel = { displayId, x: rect.x, y: rect.y, w: rect.w, h: rect.h, dpr: 1 }
           const { filePath } = await captureScreenshot(sel as any)
           await postScreenshotToPopup(filePath, { x: sel.x, y: sel.y, w: sel.w, h: sel.h, dpr: 1 })
+          // Optionally save tagged trigger
+          try {
+            if (msg.createTrigger && typeof msg.triggerName === 'string' && msg.triggerName.trim()) {
+              upsertRegion({ id: undefined, name: String(msg.triggerName).trim(), displayId, x: rect.x, y: rect.y, w: rect.w, h: rect.h, mode: 'screenshot', headless: true })
+              // notify extension to refresh dropdown
+              try { const { webContents } = await import('electron'); webContents.getAllWebContents().forEach(c=>{ try{ c.send('TRIGGERS_UPDATED') }catch{} }) } catch {}
+              try { wsClients.forEach(c=>{ try { c.send(JSON.stringify({ type: 'TRIGGERS_UPDATED' })) } catch {} }) } catch {}
+            }
+          } catch {}
+          try { win?.webContents.send('overlay-close') } catch {}
+          return
+        }
+        if (msg.action === 'stream-post') {
+          const dataUrl = typeof msg.dataUrl === 'string' ? msg.dataUrl : ''
+          if (dataUrl) {
+            try {
+              const payload = JSON.stringify({ type: 'SELECTION_RESULT_VIDEO', kind: 'video', dataUrl })
+              wsClients.forEach((c) => { try { c.send(payload) } catch {} })
+            } catch {}
+            try { const { webContents } = await import('electron'); webContents.getAllWebContents().forEach(c=>{ try{ c.send('COMMAND_POPUP_APPEND',{ kind:'video', url: dataUrl }) }catch{} }) } catch {}
+          }
           try { win?.webContents.send('overlay-close') } catch {}
           return
         }
@@ -112,7 +133,16 @@ async function createWindow() {
           const sel = { displayId, x: rect.x, y: rect.y, w: rect.w, h: rect.h, dpr: 1 }
           const controller = await startRegionStream(sel as any)
           activeStop = controller.stop
+          // Keep overlay visible during recording; notify UI
           emitCapture(win!, { event: LmgtfyChannels.OnCaptureEvent, mode: 'stream', filePath: '', thumbnailPath: '', meta: { x: sel.x, y: sel.y, w: sel.w, h: sel.h, dpr: 1, displayId } })
+          // Optionally save tagged trigger (non-headless stream)
+          try {
+            if (msg.createTrigger && typeof msg.triggerName === 'string' && msg.triggerName.trim()) {
+              upsertRegion({ id: undefined, name: String(msg.triggerName).trim(), displayId, x: rect.x, y: rect.y, w: rect.w, h: rect.h, mode: 'stream', headless: false })
+              try { const { webContents } = await import('electron'); webContents.getAllWebContents().forEach(c=>{ try{ c.send('TRIGGERS_UPDATED') }catch{} }) } catch {}
+              try { wsClients.forEach(c=>{ try { c.send(JSON.stringify({ type: 'TRIGGERS_UPDATED' })) } catch {} }) } catch {}
+            }
+          } catch {}
           return
         }
         if (msg.action === 'stream-stop') {
@@ -282,16 +312,8 @@ app.whenReady().then(async () => {
             if (msg.type === 'ping') { try { socket.send(JSON.stringify({ type: 'pong' })) } catch {} }
             if (msg.type === 'START_SELECTION') {
               const mode = msg.mode === 'stream' ? 'stream' : 'screenshot'
-              if (mode === 'screenshot') {
-                const sel = await selectRegion('screenshot')
-                if (!sel) return
-                const { filePath } = await captureScreenshot(sel)
-                await postScreenshotToPopup(filePath, sel)
-              } else {
-                const sel = await selectRegion('stream')
-                if (!sel) return
-                try { await postStreamToPopup('') } catch {}
-              }
+              // Open interactive overlay that mirrors extension UX; overlay drives posting via IPC
+              beginOverlay(mode)
             }
           } catch {}
         })
@@ -311,6 +333,9 @@ async function postScreenshotToPopup(filePath: string, sel: { x:number,y:number,
     const dataUrl = 'data:image/png;base64,' + data.toString('base64')
     const payload = JSON.stringify({ type: 'SELECTION_RESULT_IMAGE', kind: 'image', dataUrl })
     wsClients.forEach((c) => { try { c.send(payload) } catch {} })
+    // Ask popup to append directly and show thumbnail
+    try { const { webContents } = await import('electron'); webContents.getAllWebContents().forEach(c=>{ try{ c.send('COMMAND_POPUP_APPEND',{ kind:'image', url: dataUrl, thumbnail: dataUrl }) }catch{} }) } catch {}
+    try { win?.webContents.send('overlay-close') } catch {}
   } catch {}
 }
 
@@ -319,7 +344,16 @@ async function postStreamToPopup(filePath: string){
     emitCapture(win!, { event: LmgtfyChannels.OnCaptureEvent, mode: 'stream', filePath, thumbnailPath: '', meta: { presetName: 'finalized', x: 0, y: 0, w: 0, h: 0, dpr: 1 } })
   } catch {}
   try {
-    const payload = JSON.stringify({ type: 'SELECTION_RESULT_VIDEO', kind: 'video', dataUrl: '' })
+    const fs = await import('node:fs')
+    let dataUrl = ''
+    try {
+      const data = fs.readFileSync(filePath)
+      const base64 = data.toString('base64')
+      dataUrl = 'data:video/mp4;base64,' + base64
+    } catch {}
+    const payload = JSON.stringify({ type: 'SELECTION_RESULT_VIDEO', kind: 'video', dataUrl })
     wsClients.forEach((c) => { try { c.send(payload) } catch {} })
+    try { const { webContents } = await import('electron'); webContents.getAllWebContents().forEach(c=>{ try{ c.send('COMMAND_POPUP_APPEND',{ kind:'video', url: dataUrl, thumbnail: dataUrl }) }catch{} }) } catch {}
+    try { win?.webContents.send('overlay-close') } catch {}
   } catch {}
 }

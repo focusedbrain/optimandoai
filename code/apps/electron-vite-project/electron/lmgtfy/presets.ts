@@ -10,6 +10,10 @@ export interface RegionPreset {
   y: number
   w: number
   h: number
+  mode?: 'screenshot' | 'stream'
+  headless?: boolean
+  createdAt: number
+  updatedAt: number
 }
 
 export interface PresetsFile {
@@ -41,10 +45,13 @@ export function savePresets(data: PresetsFile) {
   fs.writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf8')
 }
 
-export function upsertRegion(preset: Omit<RegionPreset, 'id'> & { id?: string }): RegionPreset {
+export function upsertRegion(preset: Omit<RegionPreset, 'id' | 'createdAt' | 'updatedAt'> & { id?: string }): RegionPreset {
   const all = loadPresets()
   const id = preset.id ?? `r_${Date.now()}`
-  const next: RegionPreset = { ...preset, id }
+  const now = Date.now()
+  const existing = all.regions.find(r => r.id === id) || null
+  const createdAt = existing?.createdAt ?? now
+  const next: RegionPreset = { ...preset, id, createdAt, updatedAt: now }
   const idx = all.regions.findIndex(r => r.id === id)
   if (idx >= 0) all.regions[idx] = next
   else all.regions.unshift(next)

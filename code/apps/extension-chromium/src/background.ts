@@ -257,7 +257,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         } else {
           // Try to connect on-demand to 127.0.0.1:53247 and retry
           try {
-            const url = 'ws://127.0.0.1:53247/'
+            const url = 'ws://localhost:51247/'
             const temp = new WebSocket(url)
             temp.addEventListener('open', () => {
               try { ws = temp as any } catch {}
@@ -348,10 +348,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           opts.left = Math.max(0, bounds.left + 40)
           opts.top = Math.max(0, bounds.top + 40)
         }
-        // Prevent duplicates: if a popup already exists, focus instead of opening a new tiny one
+        // Prevent duplicates: if a popup already exists, focus instead of opening any new one
         try {
           chrome.windows.getAll({ populate: false, windowTypes: ['popup', 'normal'] }, (wins) => {
-            const existing = wins && wins.find(w => (w.type === 'popup'))
+            const existing = wins && wins.find(w => (w.type === 'popup' && typeof w.id === 'number'))
             if (existing && existing.id) {
               chrome.windows.update(existing.id, { focused: true })
               sendResponse({ success: true })

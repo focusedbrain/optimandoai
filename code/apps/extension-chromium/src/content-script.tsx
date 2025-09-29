@@ -10078,12 +10078,8 @@ ${pageText}
       mountContextBucket(box, 'ccf-bucket')
     }
     function startLmgtfy(mode: 'screenshot'|'stream'){
-      try {
-        // Launch desktop via deep-link which also triggers the mode
-        const url = 'opengiraffe://lmgtfy?mode=' + encodeURIComponent(mode)
-        window.open(url, '_self')
-      } catch {}
-      // Show lightweight toast that the feature is starting
+      // Disabled deep link launcher to avoid empty popups; use WS bridge instead
+      try { chrome.runtime?.sendMessage({ type:'ELECTRON_START_SELECTION', source:'content', mode }) } catch {}
       const note = document.createElement('div')
       note.textContent = `Starting LETmeGIRAFFETHATFORYOU: ${mode}`
       note.style.cssText = 'position:fixed;bottom:20px;left:20px;z-index:2147483650;background:#0b1220;color:#e5e7eb;padding:8px 12px;border:1px solid rgba(255,255,255,0.18);border-radius:8px;font-size:12px;box-shadow:0 6px 18px rgba(0,0,0,0.35)'
