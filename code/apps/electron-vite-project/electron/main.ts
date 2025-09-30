@@ -112,6 +112,7 @@ async function createWindow() {
               try { wsClients.forEach(c=>{ try { c.send(JSON.stringify({ type: 'TRIGGERS_UPDATED' })) } catch {} }) } catch {}
             }
           } catch {}
+          // Close overlay only after successful posting is enqueued
           try { win?.webContents.send('overlay-close') } catch {}
           return
         }
@@ -124,6 +125,7 @@ async function createWindow() {
             } catch {}
             try { const { webContents } = await import('electron'); webContents.getAllWebContents().forEach(c=>{ try{ c.send('COMMAND_POPUP_APPEND',{ kind:'video', url: dataUrl }) }catch{} }) } catch {}
           }
+          // Close overlay only after posting is sent
           try { win?.webContents.send('overlay-close') } catch {}
           return
         }

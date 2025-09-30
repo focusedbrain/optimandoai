@@ -23,11 +23,26 @@ function datedDir() {
 
 export async function captureScreenshot(sel: Selection): Promise<{ filePath: string; thumbnailPath: string }> {
   const display = screen.getAllDisplays().find(d => d.id === sel.displayId) || screen.getPrimaryDisplay()
-  const fullW = Math.max(1, Math.round(display.size.width * display.scaleFactor))
-  const fullH = Math.max(1, Math.round(display.size.height * display.scaleFactor))
+  const scale = Math.max(1, display.scaleFactor)
+  const fullW = Math.max(1, Math.round(display.size.width * scale))
+  const fullH = Math.max(1, Math.round(display.size.height * scale))
   const sources = await desktopCapturer.getSources({ types: ['screen'], thumbnailSize: { width: fullW, height: fullH } })
-  const screenSource = sources.find(s => s.display_id && Number(s.display_id) === sel.displayId) || sources[0]
-  const image = screenSource.thumbnail.crop({ x: sel.x, y: sel.y, width: sel.w, height: sel.h })
+  // Prefer matching by display_id; fall back to matching by thumbnail size as a heuristic
+  let screenSource = sources.find(s => {
+    try { return s.display_id && String(s.display_id) === String(display.id) } catch { return false }
+  }) as any
+  if (!screenSource) {
+    screenSource = sources.find(s => {
+      try { return s.thumbnail && s.thumbnail.getSize && s.thumbnail.getSize().width === fullW && s.thumbnail.getSize().height === fullH } catch { return false }
+    }) as any
+  }
+  if (!screenSource) screenSource = sources[0] as any
+  // Clamp crop rect to bounds to avoid out-of-range on rounding
+  const x = Math.max(0, Math.min(fullW - 1, Math.round(sel.x)))
+  const y = Math.max(0, Math.min(fullH - 1, Math.round(sel.y)))
+  const w = Math.max(1, Math.min(fullW - x, Math.round(sel.w)))
+  const h = Math.max(1, Math.min(fullH - y, Math.round(sel.h)))
+  const image = screenSource.thumbnail.crop({ x, y, width: w, height: h })
   const png = image.toPNG()
 
   const dir = datedDir()
