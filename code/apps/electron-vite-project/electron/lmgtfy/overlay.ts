@@ -97,7 +97,7 @@ export async function selectRegion(_expectedMode?: 'screenshot' | 'stream'): Pro
         </div>
         <script>
           const DISPLAY_ID = ${d.id};
-          const { ipcRenderer, desktopCapturer } = require('electron');
+          const { ipcRenderer, desktopCapturer, screen } = require('electron');
           const lay=document.getElementById('lay');
           const box=document.getElementById('box');
           let sx=0,sy=0,ex=0,ey=0,drag=false,locked=false,tbX=0,tbY=0
@@ -122,7 +122,11 @@ export async function selectRegion(_expectedMode?: 'screenshot' | 'stream'): Pro
             const r = getRect()
             try{
               const sources = await desktopCapturer.getSources({ types:['screen'], thumbnailSize:{width:1,height:1} })
-              const src = sources.find((s:any)=> Number(s.display_id||s.id) === DISPLAY_ID) || sources[0]
+              let src = sources.find((s:any)=> String(s.display_id||s.id) === String(DISPLAY_ID)) || null
+              if (!src) {
+                const idx = Math.max(0, sources.findIndex((s:any)=> (s.display_id||'')!==''))
+                src = sources[idx] || sources[0]
+              }
               const stream = await (navigator.mediaDevices as any).getUserMedia({
                 audio: false,
                 video: { mandatory: { chromeMediaSource:'desktop', chromeMediaSourceId: src.id } }

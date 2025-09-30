@@ -27,10 +27,13 @@ export async function captureScreenshot(sel: Selection): Promise<{ filePath: str
   const fullW = Math.max(1, Math.round(display.size.width * scale))
   const fullH = Math.max(1, Math.round(display.size.height * scale))
   const sources = await desktopCapturer.getSources({ types: ['screen'], thumbnailSize: { width: fullW, height: fullH } })
-  // Prefer matching by display_id; fall back to matching by thumbnail size as a heuristic
+  const displays = screen.getAllDisplays()
+  const displayIndex = Math.max(0, displays.findIndex(d => d.id === display.id))
+  // Try matching by display_id string first, then by index fallback
   let screenSource = sources.find(s => {
-    try { return s.display_id && String(s.display_id) === String(display.id) } catch { return false }
+    try { return s.display_id && (String(s.display_id) === String(display.id)) } catch { return false }
   }) as any
+  if (!screenSource && sources[displayIndex]) screenSource = sources[displayIndex] as any
   if (!screenSource) {
     screenSource = sources.find(s => {
       try { return s.thumbnail && s.thumbnail.getSize && s.thumbnail.getSize().width === fullW && s.thumbnail.getSize().height === fullH } catch { return false }
