@@ -292,7 +292,7 @@ export function beginOverlay(_expectedMode?: 'screenshot' | 'stream'): void {
           const { ipcRenderer } = require('electron');
           const lay=document.getElementById('lay');
           const box=document.getElementById('box');
-          let sx=0,sy=0,ex=0,ey=0,drag=false,locked=false
+          let sx=0,sy=0,ex=0,ey=0,drag=false,locked=false,tbX=0,tbY=0
           const tb=document.getElementById('tb');
           const btnShot=document.getElementById('shot');
           const btnStream=document.getElementById('stream');
@@ -306,7 +306,16 @@ export function beginOverlay(_expectedMode?: 'screenshot' | 'stream'): void {
           timer.textContent='00:00';
           tb.insertBefore(timer, btnClose);
           const cbTrig=document.getElementById('cbTrig');
-          function placeToolbar(){ const x=Math.min(sx,ex), y=Math.min(sy,ey); tb.style.left=Math.max(8, Math.min(window.innerWidth-300, x))+'px'; tb.style.top=Math.max(8, y-36)+'px'; tb.style.display='flex' }
+          function placeToolbar(){
+            if (locked) { tb.style.left=tbX+'px'; tb.style.top=tbY+'px'; tb.style.display='flex'; return }
+            const x=Math.min(sx,ex), y=Math.min(sy,ey);
+            const left=Math.max(8, Math.min(window.innerWidth-300, x));
+            const top=Math.max(8, y-36);
+            tbX = left; tbY = top;
+            tb.style.left=left+'px';
+            tb.style.top=top+'px';
+            tb.style.display='flex'
+          }
           function onDown(e){ try{ e.preventDefault(); e.stopPropagation() }catch{}; try{ if (tb && (e.target && tb.contains(e.target))) return }catch{}; if (locked) return; drag=true; sx=e.clientX; sy=e.clientY; ex=sx; ey=sy; box.style.left=sx+'px'; box.style.top=sy+'px'; box.style.width='0px'; box.style.height='0px'; box.style.display='block'; try{ document.body.style.cursor='crosshair' }catch{} }
           function onMove(e){ if(!drag) return; try{ e.preventDefault(); e.stopPropagation() }catch{}; ex=e.clientX; ey=e.clientY; const x=Math.min(sx,ex), y=Math.min(sy,ey), w=Math.abs(ex-sx), h=Math.abs(ey-sy); box.style.left=x+'px'; box.style.top=y+'px'; box.style.width=w+'px'; box.style.height=h+'px' }
           function onUp(e){ try{ e.preventDefault(); e.stopPropagation() }catch{}; drag=false; ex=e.clientX; ey=e.clientY; placeToolbar(); locked=true; try{ document.body.style.cursor='default' }catch{} }
@@ -314,10 +323,10 @@ export function beginOverlay(_expectedMode?: 'screenshot' | 'stream'): void {
           window.addEventListener('mousemove', onMove, true)
           window.addEventListener('mouseup', onUp, true)
           function confirmRect(){ const x=Math.min(sx,ex),y=Math.min(sy,ey),w=Math.abs(ex-sx),h=Math.abs(ey-sy); const dpr=Math.max(1,(window.devicePixelRatio||1)); return {x:Math.round(x*dpr),y:Math.round(y*dpr),w:Math.round(w*dpr),h:Math.round(h*dpr)} }
-          btnShot.addEventListener('click',(e)=>{ try{ e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation && e.stopImmediatePropagation() }catch{}; const r=confirmRect(); const createTrig=!!cbTrig.checked; let triggerName=''; if(createTrig){ try{ triggerName = window.prompt('Trigger name?')||'' }catch{} } ipcRenderer.send('overlay-cmd',{ action:'shot', rect:r, displayId: DISPLAY_ID, createTrigger: createTrig, triggerName }) })
-          btnStream.addEventListener('click',(e)=>{ try{ e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation && e.stopImmediatePropagation() }catch{}; btnRec.style.display='inline-block'; btnStop.style.display='inline-block'; timer.style.display='inline-block'; timer.textContent='00:00'; tb.style.display='flex' })
-          btnRec.addEventListener('click',(e)=>{ try{ e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation && e.stopImmediatePropagation() }catch{}; const r=confirmRect(); const createTrig=!!cbTrig.checked; let triggerName=''; if(createTrig){ try{ triggerName = window.prompt('Trigger name?')||'' }catch{} } ipcRenderer.send('overlay-cmd',{ action:'stream-start', rect:r, displayId: DISPLAY_ID, createTrigger: createTrig, triggerName }); try{ startTimer(); tb.style.display='flex' }catch{} })
-          btnStop.addEventListener('click',(e)=>{ try{ e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation && e.stopImmediatePropagation() }catch{}; ipcRenderer.send('overlay-cmd',{ action:'stream-stop' }) })
+          btnShot.addEventListener('click',(e)=>{ try{ e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation && e.stopImmediatePropagation() }catch{}; if(locked){ tb.style.left=tbX+'px'; tb.style.top=tbY+'px' } const r=confirmRect(); const createTrig=!!cbTrig.checked; let triggerName=''; if(createTrig){ try{ triggerName = window.prompt('Trigger name?')||'' }catch{} } ipcRenderer.send('overlay-cmd',{ action:'shot', rect:r, displayId: DISPLAY_ID, createTrigger: createTrig, triggerName }) })
+          btnStream.addEventListener('click',(e)=>{ try{ e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation && e.stopImmediatePropagation() }catch{}; if(locked){ tb.style.left=tbX+'px'; tb.style.top=tbY+'px' } btnRec.style.display='inline-block'; btnStop.style.display='inline-block'; timer.style.display='inline-block'; timer.textContent='00:00'; tb.style.display='flex' })
+          btnRec.addEventListener('click',(e)=>{ try{ e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation && e.stopImmediatePropagation() }catch{}; if(locked){ tb.style.left=tbX+'px'; tb.style.top=tbY+'px' } const r=confirmRect(); const createTrig=!!cbTrig.checked; let triggerName=''; if(createTrig){ try{ triggerName = window.prompt('Trigger name?')||'' }catch{} } ipcRenderer.send('overlay-cmd',{ action:'stream-start', rect:r, displayId: DISPLAY_ID, createTrigger: createTrig, triggerName }); try{ startTimer(); tb.style.display='flex' }catch{} })
+          btnStop.addEventListener('click',(e)=>{ try{ e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation && e.stopImmediatePropagation() }catch{}; if(locked){ tb.style.left=tbX+'px'; tb.style.top=tbY+'px' } ipcRenderer.send('overlay-cmd',{ action:'stream-stop' }) })
           try{ ipcRenderer.on('overlay-close', ()=>{ try{ window.close() }catch{} }) }catch{}
           let t0=0, tid=null; function startTimer(){ try{ t0=Date.now(); if(tid){clearInterval(tid)}; tid=setInterval(()=>{ try{ const s=Math.max(0, Math.floor((Date.now()-t0)/1000)); const m=String(Math.floor(s/60)).padStart(2,'0'); const ss=String(s%60).padStart(2,'0'); timer.textContent=m+':'+ss }catch{} }, 1000) }catch{} }
           lay.addEventListener('pointerdown', (e)=>{ try{ e.preventDefault(); e.stopPropagation(); lay.setPointerCapture(e.pointerId) }catch{}; onDown(e) }, true)
