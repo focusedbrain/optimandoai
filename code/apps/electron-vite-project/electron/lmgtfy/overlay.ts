@@ -293,7 +293,7 @@ export function beginOverlay(_expectedMode?: 'screenshot' | 'stream'): void {
         </div>
         <script>
           const DISPLAY_ID = ${d.id};
-          const { ipcRenderer } = require('electron');
+          const { ipcRenderer, desktopCapturer } = require('electron');
           const lay=document.getElementById('lay');
           const box=document.getElementById('box');
           let sx=0,sy=0,ex=0,ey=0,drag=false,locked=false,tbX=0,tbY=0
@@ -308,8 +308,42 @@ export function beginOverlay(_expectedMode?: 'screenshot' | 'stream'): void {
           timer.style.cssText='color:#e5e7eb;opacity:.9;font-variant-numeric:tabular-nums;display:none;align-self:center';
           timer.id='og-timer';
           timer.textContent='00:00';
-          tb.insertBefore(timer, btnClose);
+          try { tb.insertBefore(timer, btnStop.nextSibling) } catch { try { tb.insertBefore(timer, btnClose) } catch {} }
           const cbTrig=document.getElementById('cbTrig');
+          // In-renderer recording (cropped to selected rect) so Stop can post immediately
+          let recChunks=[]; let rec=null; let rafId=0; let srcStream=null; let videoEl=null; let cropCanvas=null; let cropCtx=null; let isRecording=false
+          function getRect(){ const x=Math.min(sx,ex),y=Math.min(sy,ey),w=Math.abs(ex-sx),h=Math.abs(ey-sy); const dpr=Math.max(1,(window.devicePixelRatio||1)); return { x: Math.round(x*dpr), y: Math.round(y*dpr), w: Math.round(w*dpr), h: Math.round(h*dpr) } }
+          async function startRecording(){
+            if (isRecording) return; isRecording=true; recChunks=[]
+            const r = getRect()
+            try{
+              const sources = await desktopCapturer.getSources({ types:['screen'], thumbnailSize:{width:1,height:1} })
+              let src = sources.find((s)=> String((s).display_id||(s).id) === String(DISPLAY_ID)) || null
+              if (!src) src = sources[0]
+              const stream = await (navigator.mediaDevices).getUserMedia({ audio:false, video:{ mandatory:{ chromeMediaSource:'desktop', chromeMediaSourceId: (src).id } } })
+              srcStream = stream
+              videoEl = document.createElement('video'); (videoEl).muted=true; (videoEl).srcObject=stream; await (videoEl).play()
+              cropCanvas = document.createElement('canvas'); (cropCanvas).width=Math.max(2,r.w); (cropCanvas).height=Math.max(2,r.h)
+              cropCtx = (cropCanvas).getContext('2d')
+              const draw=()=>{ try{ cropCtx.drawImage(videoEl, r.x, r.y, r.w, r.h, 0, 0, (cropCanvas).width, (cropCanvas).height) }catch{}; rafId=requestAnimationFrame(draw) }
+              rafId=requestAnimationFrame(draw)
+              const outStream = (cropCanvas).captureStream(30)
+              const opts = { mimeType: 'video/webm;codecs=vp9' }
+              rec = new (window).MediaRecorder(outStream, opts)
+              ;(rec).ondataavailable=(e)=>{ if(e && e.data && e.data.size) recChunks.push(e.data) }
+              ;(rec).onstop=async ()=>{
+                try{ cancelAnimationFrame(rafId) }catch{}; rafId=0
+                try{ (srcStream)?.getTracks?.().forEach((t)=> t.stop()) }catch{}
+                try{ (videoEl)?.remove?.() }catch{}
+                let dataUrl=''; try{ const blob = new Blob(recChunks, { type: 'video/webm' }); const fr = new FileReader(); dataUrl = await new Promise((resolve)=>{ fr.onload=()=>resolve(String(fr.result||'')); fr.readAsDataURL(blob) }) }catch{}
+                ipcRenderer.send('overlay-cmd', { action:'stream-post', dataUrl })
+                isRecording=false
+              }
+              ;(rec).start(250)
+              try{ startTimer() }catch{}
+            }catch{ isRecording=false }
+          }
+          function stopRecording(){ try{ (rec) && (rec).state!=='inactive' && (rec).stop() }catch{}; try{ if(rafId) cancelAnimationFrame(rafId) }catch{}; try{ (srcStream)?.getTracks?.().forEach((t)=> t.stop()) }catch{}; isRecording=false }
           function placeToolbar(){
             if (locked) { tb.style.left=tbX+'px'; tb.style.top=tbY+'px'; tb.style.display='flex'; return }
             const x=Math.min(sx,ex), y=Math.min(sy,ey);
