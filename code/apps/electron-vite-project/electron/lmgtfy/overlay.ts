@@ -188,8 +188,7 @@ export async function selectRegion(_expectedMode?: 'screenshot' | 'stream'): Pro
             try{ e.preventDefault(); e.stopPropagation() }catch{}
             const r=confirmRect();
             ipcRenderer.send('overlay-cmd',{ action:'shot', rect:r, displayId: DISPLAY_ID, createTrigger: !!cbTrig.checked });
-            // Close immediately after sending screenshot command
-            try{ window.close() }catch{}
+            // Wire function in beginOverlay will close all overlays
           })
           btnStream.addEventListener('click',(e)=>{ try{ e.preventDefault(); e.stopPropagation() }catch{}; btnRec.style.display='inline-block'; btnStop.style.display='inline-block'; timer.style.display='inline-block'; timer.textContent='00:00'; tb.style.display='flex' })
           btnRec.addEventListener('click', async (e)=>{ try{ e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation && e.stopImmediatePropagation() }catch{}; try{ tb.style.display='flex' }catch{}; await startRecording() })
@@ -234,8 +233,15 @@ export function beginOverlay(_expectedMode?: 'screenshot' | 'stream'): void {
 
     function wire(win: BrowserWindow){
       win.webContents.on('ipc-message', (_e, channel, data) => {
-        if (channel !== 'overlay-selection' || finished) return
-        if (data?.cancel) { finished = true; closeAll() }
+        if (channel === 'overlay-selection' && !finished) {
+          if (data?.cancel) { finished = true; closeAll() }
+        }
+        if (channel === 'overlay-cmd' && !finished) {
+          if (data?.action === 'shot' || data?.action === 'stream-post') {
+            finished = true
+            setTimeout(() => closeAll(), 100)
+          }
+        }
       })
       win.on('close', () => { /* noop */ })
     }
@@ -361,7 +367,7 @@ export function beginOverlay(_expectedMode?: 'screenshot' | 'stream'): void {
           window.addEventListener('mousemove', onMove, true)
           window.addEventListener('mouseup', onUp, true)
           function confirmRect(){ const x=Math.min(sx,ex),y=Math.min(sy,ey),w=Math.abs(ex-sx),h=Math.abs(ey-sy); return {x:Math.round(x),y:Math.round(y),w:Math.round(w),h:Math.round(h)} }
-          btnShot.addEventListener('click',(e)=>{ try{ e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation && e.stopImmediatePropagation() }catch{}; if(locked){ tb.style.left=tbX+'px'; tb.style.top=tbY+'px' } const r=confirmRect(); const createTrig=!!cbTrig.checked; let triggerName=''; if(createTrig){ try{ triggerName = window.prompt('Trigger name?')||'' }catch{} } ipcRenderer.send('overlay-cmd',{ action:'shot', rect:r, displayId: DISPLAY_ID, createTrigger: createTrig, triggerName }); try{ window.close() }catch{} })
+          btnShot.addEventListener('click',(e)=>{ try{ e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation && e.stopImmediatePropagation() }catch{}; if(locked){ tb.style.left=tbX+'px'; tb.style.top=tbY+'px' } const r=confirmRect(); const createTrig=!!cbTrig.checked; let triggerName=''; if(createTrig){ try{ triggerName = window.prompt('Trigger name?')||'' }catch{} } ipcRenderer.send('overlay-cmd',{ action:'shot', rect:r, displayId: DISPLAY_ID, createTrigger: createTrig, triggerName }) })
           btnStream.addEventListener('click',(e)=>{ try{ e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation && e.stopImmediatePropagation() }catch{}; if(locked){ tb.style.left=tbX+'px'; tb.style.top=tbY+'px' } btnRec.style.display='inline-block'; btnStop.style.display='inline-block'; timer.style.display='inline-block'; timer.textContent='00:00'; tb.style.display='flex' })
           btnRec.addEventListener('click',(e)=>{ try{ e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation && e.stopImmediatePropagation() }catch{}; if(locked){ tb.style.left=tbX+'px'; tb.style.top=tbY+'px' } const r=confirmRect(); const createTrig=!!cbTrig.checked; let triggerName=''; if(createTrig){ try{ triggerName = window.prompt('Trigger name?')||'' }catch{} } ipcRenderer.send('overlay-cmd',{ action:'stream-start', rect:r, displayId: DISPLAY_ID, createTrigger: createTrig, triggerName }); try{ startTimer(); tb.style.display='flex' }catch{} })
           btnStop.addEventListener('click',(e)=>{ try{ e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation && e.stopImmediatePropagation() }catch{}; if(locked){ tb.style.left=tbX+'px'; tb.style.top=tbY+'px' } ipcRenderer.send('overlay-cmd',{ action:'stream-stop' }) })

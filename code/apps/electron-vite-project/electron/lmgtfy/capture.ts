@@ -40,12 +40,23 @@ export async function captureScreenshot(sel: Selection): Promise<{ filePath: str
     }) as any
   }
   if (!screenSource) screenSource = sources[0] as any
-  // Apply scale factor to coordinates and clamp crop rect to bounds
-  const x = Math.max(0, Math.min(fullW - 1, Math.round(sel.x * scale)))
-  const y = Math.max(0, Math.min(fullH - 1, Math.round(sel.y * scale)))
-  const w = Math.max(1, Math.min(fullW - x, Math.round(sel.w * scale)))
-  const h = Math.max(1, Math.min(fullH - y, Math.round(sel.h * scale)))
-  const image = screenSource.thumbnail.crop({ x, y, width: w, height: h })
+  
+  // Get actual captured image dimensions
+  const capturedImg = screenSource.thumbnail
+  const actualW = capturedImg.getSize().width
+  const actualH = capturedImg.getSize().height
+  
+  // Calculate scale ratios between logical display size and actual captured size
+  const scaleX = actualW / display.size.width
+  const scaleY = actualH / display.size.height
+  
+  // Apply scaling to selection coordinates
+  const x = Math.max(0, Math.min(actualW - 1, Math.round(sel.x * scaleX)))
+  const y = Math.max(0, Math.min(actualH - 1, Math.round(sel.y * scaleY)))
+  const w = Math.max(1, Math.min(actualW - x, Math.round(sel.w * scaleX)))
+  const h = Math.max(1, Math.min(actualH - y, Math.round(sel.h * scaleY)))
+  
+  const image = capturedImg.crop({ x, y, width: w, height: h })
   const png = image.toPNG()
 
   const dir = datedDir()
