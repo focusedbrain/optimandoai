@@ -97,10 +97,10 @@ if (ddTags) ddTags.onchange = ()=>{ const idx=parseInt(ddTags.value||'-1',10); i
 // Image lightbox for enlarging screenshots
 function createImageLightbox(imgSrc){
   const overlay = document.createElement('div')
-  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.9);z-index:999999;display:flex;align-items:center;justify-content:center;cursor:zoom-out'
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.95);z-index:999999;display:flex;align-items:center;justify-content:center;cursor:zoom-out;padding:20px'
   const img = document.createElement('img')
   img.src = imgSrc
-  img.style.cssText = 'max-width:90%;max-height:90%;object-fit:contain;border-radius:8px;box-shadow:0 8px 32px rgba(0,0,0,0.5)'
+  img.style.cssText = 'max-width:100%;max-height:100%;object-fit:contain;border-radius:8px;box-shadow:0 12px 48px rgba(0,0,0,0.8)'
   overlay.appendChild(img)
   overlay.onclick = ()=> overlay.remove()
   document.body.appendChild(overlay)
@@ -115,11 +115,14 @@ try {
         const row = document.createElement('div'); row.className='row user'
         const bub = document.createElement('div'); bub.className='bubble user'
         if (msg.kind === 'image'){
-          const img = document.createElement('img'); img.src = msg.url; img.style.maxWidth='260px'; img.style.borderRadius='8px'; img.style.cursor='zoom-in'; img.title='Click to enlarge'
+          const img = document.createElement('img')
+          img.src = msg.url
+          img.style.cssText = 'width:100%;height:auto;max-width:450px;border-radius:8px;cursor:zoom-in;display:block'
+          img.title='Click to view full size'
           img.onclick = ()=> createImageLightbox(msg.url)
           bub.appendChild(img)
         } else if (msg.kind === 'video'){
-          const v = document.createElement('video'); v.src = msg.url; v.controls = true; v.style.maxWidth='260px'; v.style.borderRadius='8px'; bub.appendChild(v)
+          const v = document.createElement('video'); v.src = msg.url; v.controls = true; v.style.maxWidth='450px'; v.style.width='100%'; v.style.borderRadius='8px'; bub.appendChild(v)
         }
         row.appendChild(bub); msgs.appendChild(row); msgs.scrollTop = 1e9
         try{ cancelBtn && (cancelBtn.style.display='none') }catch{}
