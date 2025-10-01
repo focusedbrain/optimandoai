@@ -5185,7 +5185,12 @@ ${pageText}
 
       btnShot.onclick = async (ev:any)=>{
         try{ ev.preventDefault(); ev.stopPropagation() }catch{}
-        const r = coords(); const raw = await captureVisibleTab(); if(!raw) return; const cropped = await cropDataUrl(raw, r.x, r.y, r.w, r.h); pasteImageToChat(cropped); renderTriggerPrompt(cropped, r, 'screenshot'); try{ closeSelection() }catch{}
+        const r = coords(); 
+        const raw = await captureVisibleTab(); 
+        if(!raw) return; 
+        pasteImageToChat(raw); 
+        renderTriggerPrompt(raw, r, 'screenshot'); 
+        closeSelection()
       }
       btnStream.onclick = async (ev:any)=>{
         try{ ev.preventDefault(); ev.stopPropagation() }catch{}
