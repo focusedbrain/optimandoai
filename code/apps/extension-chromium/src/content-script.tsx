@@ -123,19 +123,15 @@ chrome.runtime.onMessage.addListener((msg:any)=>{
         ;(async ()=>{
           const raw = await new Promise<string|null>((resolve)=>{ try{ chrome.runtime.sendMessage({ type:'CAPTURE_VISIBLE_TAB' }, (res:any)=> resolve(res?.dataUrl||null)) }catch{ resolve(null) } })
           if(!raw) return
-          const dpr = Math.max(1, (window as any).devicePixelRatio || 1)
-          const cnv = document.createElement('canvas'); cnv.width = Math.max(1, Math.round(t.rect.w*dpr)); cnv.height = Math.max(1, Math.round(t.rect.h*dpr))
-          const ctx = cnv.getContext('2d')!
-          const img = new Image(); img.onload=()=>{ try{ ctx.drawImage(img, Math.round(t.rect.x*dpr), Math.round(t.rect.y*dpr), Math.round(t.rect.w*dpr), Math.round(t.rect.h*dpr), 0, 0, Math.round(t.rect.w*dpr), Math.round(t.rect.h*dpr)); const out = cnv.toDataURL('image/png');
-            const msgs = (document.getElementById('ccf-messages') || document.getElementById('ccd-messages')) as HTMLElement | null
-            if (msgs) {
-              const row = document.createElement('div'); row.style.display='flex'; row.style.justifyContent='flex-end'
-              const bub = document.createElement('div'); bub.style.maxWidth='78%'; bub.style.padding='6px'; bub.style.borderRadius='10px'; bub.style.fontSize='12px'; bub.style.background='var(--bubble-user-bg, rgba(34,197,94,0.12))'; bub.style.border='1px solid var(--bubble-user-border, rgba(34,197,94,0.45))'
-              const image = document.createElement('img'); image.src=out; image.style.maxWidth='260px'; image.style.borderRadius='8px'; image.alt='screenshot'
-              bub.appendChild(image); row.appendChild(bub); msgs.appendChild(row); msgs.scrollTop = 1e9
-            }
-          }catch{}}
-          img.src = raw
+          const rect = t.rect || { x: 0, y: 0, w: 0, h: 0 }
+          const out = await cropCapturedImageToRect(raw, rect)
+          const msgs = (document.getElementById('ccf-messages') || document.getElementById('ccd-messages')) as HTMLElement | null
+          if (msgs) {
+            const row = document.createElement('div'); row.style.display='flex'; row.style.justifyContent='flex-end'
+            const bub = document.createElement('div'); bub.style.maxWidth='78%'; bub.style.padding='6px'; bub.style.borderRadius='10px'; bub.style.fontSize='12px'; bub.style.background='var(--bubble-user-bg, rgba(34,197,94,0.12))'; bub.style.border='1px solid var(--bubble-user-border, rgba(34,197,94,0.45))'
+            const image = document.createElement('img'); image.src=out; image.style.maxWidth='260px'; image.style.borderRadius='8px'; image.alt='screenshot'
+            bub.appendChild(image); row.appendChild(bub); msgs.appendChild(row); msgs.scrollTop = 1e9
+          }
         })()
       }catch{}
     }
@@ -172,19 +168,15 @@ function initializeExtension() {
           ;(async ()=>{
             const raw = await new Promise<string|null>((resolve)=>{ try{ chrome.runtime.sendMessage({ type:'CAPTURE_VISIBLE_TAB' }, (res:any)=> resolve(res?.dataUrl||null)) }catch{ resolve(null) } })
             if(!raw) return
-            const dpr = Math.max(1, (window as any).devicePixelRatio || 1)
-            const cnv = document.createElement('canvas'); cnv.width = Math.max(1, Math.round(t.rect.w*dpr)); cnv.height = Math.max(1, Math.round(t.rect.h*dpr))
-            const ctx = cnv.getContext('2d')!
-            const img = new Image(); img.onload=()=>{ try{ ctx.drawImage(img, Math.round(t.rect.x*dpr), Math.round(t.rect.y*dpr), Math.round(t.rect.w*dpr), Math.round(t.rect.h*dpr), 0, 0, Math.round(t.rect.w*dpr), Math.round(t.rect.h*dpr)); const out = cnv.toDataURL('image/png');
-              const msgs = (document.getElementById('ccf-messages') || document.getElementById('ccd-messages')) as HTMLElement | null
-              if (msgs) {
-                const row = document.createElement('div'); row.style.display='flex'; row.style.justifyContent='flex-end'
-                const bub = document.createElement('div'); bub.style.maxWidth='78%'; bub.style.padding='6px'; bub.style.borderRadius='10px'; bub.style.fontSize='12px'; bub.style.background='var(--bubble-user-bg, rgba(34,197,94,0.12))'; bub.style.border='1px solid var(--bubble-user-border, rgba(34,197,94,0.45))'
-                const image = document.createElement('img'); image.src=out; image.style.maxWidth='260px'; image.style.borderRadius='8px'; image.alt='screenshot'
-                bub.appendChild(image); row.appendChild(bub); msgs.appendChild(row); msgs.scrollTop = 1e9
-              }
-            }catch{}}
-            img.src = raw
+            const rect = t.rect || { x: 0, y: 0, w: 0, h: 0 }
+            const out = await cropCapturedImageToRect(raw, rect)
+            const msgs = (document.getElementById('ccf-messages') || document.getElementById('ccd-messages')) as HTMLElement | null
+            if (msgs) {
+              const row = document.createElement('div'); row.style.display='flex'; row.style.justifyContent='flex-end'
+              const bub = document.createElement('div'); bub.style.maxWidth='78%'; bub.style.padding='6px'; bub.style.borderRadius='10px'; bub.style.fontSize='12px'; bub.style.background='var(--bubble-user-bg, rgba(34,197,94,0.12))'; bub.style.border='1px solid var(--bubble-user-border, rgba(34,197,94,0.45))'
+              const image = document.createElement('img'); image.src=out; image.style.maxWidth='260px'; image.style.borderRadius='8px'; image.alt='screenshot'
+              bub.appendChild(image); row.appendChild(bub); msgs.appendChild(row); msgs.scrollTop = 1e9
+            }
           })()
         }catch{}
       }
@@ -5013,8 +5005,52 @@ ${pageText}
     document.body.appendChild(overlay)
   }
 
+  type CaptureRect = { x: number, y: number, w: number, h: number }
+
+  function computeCaptureScaleFromImage(img: HTMLImageElement){
+    const naturalWidth = Math.max(1, img.naturalWidth || img.width || 1)
+    const naturalHeight = Math.max(1, img.naturalHeight || img.height || 1)
+    const viewportWidth = Math.max(1, window.innerWidth)
+    const viewportHeight = Math.max(1, window.innerHeight)
+    const scaleX = naturalWidth / viewportWidth
+    const scaleY = naturalHeight / viewportHeight
+    return {
+      scaleX: Number.isFinite(scaleX) && scaleX > 0 ? scaleX : 1,
+      scaleY: Number.isFinite(scaleY) && scaleY > 0 ? scaleY : 1
+    }
+  }
+
+  async function cropCapturedImageToRect(dataUrl:string, rect: CaptureRect): Promise<string>{
+    return await new Promise<string>((resolve)=>{
+      try{
+        const img = new Image()
+        img.onload = ()=>{
+          try{
+            const { scaleX, scaleY } = computeCaptureScaleFromImage(img)
+            const cropLeft = Math.max(0, Math.round(rect.x * scaleX))
+            const cropTop = Math.max(0, Math.round(rect.y * scaleY))
+            const cropWidth = Math.max(1, Math.round(rect.w * scaleX))
+            const cropHeight = Math.max(1, Math.round(rect.h * scaleY))
+            const cnv = document.createElement('canvas')
+            cnv.width = cropWidth
+            cnv.height = cropHeight
+            const ctx = cnv.getContext('2d')
+            if (ctx){
+              ctx.drawImage(img, cropLeft, cropTop, cropWidth, cropHeight, 0, 0, cropWidth, cropHeight)
+              resolve(cnv.toDataURL('image/png'))
+              return
+            }
+          }catch{}
+          resolve(dataUrl)
+        }
+        img.onerror = ()=> resolve(dataUrl)
+        img.src = dataUrl
+      }catch{ resolve(dataUrl) }
+    })
+  }
+
   // Simple screen selection overlay with controls (Screenshot | Stream | [ ] Create Tagged Trigger)
-  function beginScreenSelect(messagesEl: HTMLElement, preset?: { rect: { x:number,y:number,w:number,h:number }, mode: 'screenshot'|'stream' }){
+  function beginScreenSelect(messagesEl: HTMLElement, preset?: { rect: CaptureRect, mode: 'screenshot'|'stream' }){
     try {
       const existing = document.getElementById('og-select-overlay')
       if (existing) existing.remove()
@@ -5108,6 +5144,10 @@ ${pageText}
         // Fallback: draw current viewport using html2canvas style approach via paint worklet is not available; skip.
         return null
       }
+
+      async function cropImageToRect(dataUrl:string, rect: CaptureRect){
+        return await cropCapturedImageToRect(dataUrl, rect)
+      }
       function pasteVideoToChat(url:string){
         try{
           const target = (messagesEl || (document.getElementById('ccf-messages') as HTMLElement | null) || (document.getElementById('ccd-messages') as HTMLElement | null)) as HTMLElement | null
@@ -5119,18 +5159,6 @@ ${pageText}
           try { chrome.runtime?.sendMessage({ type:'COMMAND_POPUP_APPEND', kind:'video', url }) } catch {}
           return row
         }catch{ return null }
-      }
-      async function cropDataUrl(dataUrl:string, x:number,y:number,w:number,h:number): Promise<string>{
-        return await new Promise((resolve)=>{
-          const img = new Image(); img.onload=()=>{
-            try{
-              const cnv = document.createElement('canvas'); cnv.width = Math.max(1, Math.round(w*dpr)); cnv.height = Math.max(1, Math.round(h*dpr))
-              const ctx = cnv.getContext('2d')!
-              ctx.drawImage(img, Math.round(x*dpr), Math.round(y*dpr), Math.round(w*dpr), Math.round(h*dpr), 0, 0, Math.round(w*dpr), Math.round(h*dpr))
-              resolve(cnv.toDataURL('image/png'))
-            }catch{ resolve(dataUrl) }
-          }; img.src = dataUrl
-        })
       }
       function pasteImageToChat(url:string){
         try{
@@ -5185,12 +5213,7 @@ ${pageText}
 
       btnShot.onclick = async (ev:any)=>{
         try{ ev.preventDefault(); ev.stopPropagation() }catch{}
-        const r = coords(); 
-        const raw = await captureVisibleTab(); 
-        if(!raw) return; 
-        pasteImageToChat(raw); 
-        renderTriggerPrompt(raw, r, 'screenshot'); 
-        closeSelection()
+        const r = coords(); const raw = await captureVisibleTab(); if(!raw) return; const cropped = await cropCapturedImageToRect(raw, r); pasteImageToChat(cropped); renderTriggerPrompt(cropped, r, 'screenshot'); try{ closeSelection() }catch{}
       }
       btnStream.onclick = async (ev:any)=>{
         try{ ev.preventDefault(); ev.stopPropagation() }catch{}

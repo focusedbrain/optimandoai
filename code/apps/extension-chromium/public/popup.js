@@ -94,6 +94,18 @@ if (pencilBtn) pencilBtn.onclick = (e)=>{
 }
 if (ddTags) ddTags.onchange = ()=>{ const idx=parseInt(ddTags.value||'-1',10); if(!isNaN(idx)&&idx>=0){ try{ chrome.runtime?.sendMessage({ type:'OG_CAPTURE_SAVED_TAG', index: idx }) }catch{} } ddTags.value='' }
 
+// Image lightbox for enlarging screenshots
+function createImageLightbox(imgSrc){
+  const overlay = document.createElement('div')
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.9);z-index:999999;display:flex;align-items:center;justify-content:center;cursor:zoom-out'
+  const img = document.createElement('img')
+  img.src = imgSrc
+  img.style.cssText = 'max-width:90%;max-height:90%;object-fit:contain;border-radius:8px;box-shadow:0 8px 32px rgba(0,0,0,0.5)'
+  overlay.appendChild(img)
+  overlay.onclick = ()=> overlay.remove()
+  document.body.appendChild(overlay)
+}
+
 // Append incoming captures (image/video) from the content script to the popup chat
 try {
   chrome.runtime?.onMessage.addListener((msg)=>{
@@ -103,7 +115,9 @@ try {
         const row = document.createElement('div'); row.className='row user'
         const bub = document.createElement('div'); bub.className='bubble user'
         if (msg.kind === 'image'){
-          const img = document.createElement('img'); img.src = msg.url; img.style.maxWidth='260px'; img.style.borderRadius='8px'; bub.appendChild(img)
+          const img = document.createElement('img'); img.src = msg.url; img.style.maxWidth='260px'; img.style.borderRadius='8px'; img.style.cursor='zoom-in'; img.title='Click to enlarge'
+          img.onclick = ()=> createImageLightbox(msg.url)
+          bub.appendChild(img)
         } else if (msg.kind === 'video'){
           const v = document.createElement('video'); v.src = msg.url; v.controls = true; v.style.maxWidth='260px'; v.style.borderRadius='8px'; bub.appendChild(v)
         }
