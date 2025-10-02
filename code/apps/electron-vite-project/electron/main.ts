@@ -282,17 +282,12 @@ function updateTrayMenu() {
           label: `${icon} ${trigger.name}`,
           click: async () => {
             if (!win) return
-            const payload = {
-              mode: trigger.mode,
-              rect: { x: trigger.x, y: trigger.y, w: trigger.w, h: trigger.h },
-              displayId: trigger.displayId
-            }
             // Execute trigger directly
             try {
               const sel = { displayId: trigger.displayId ?? 0, x: trigger.x, y: trigger.y, w: trigger.w, h: trigger.h, dpr: 1 }
               if (trigger.mode === 'screenshot') {
                 console.log('[TRAY] Executing screenshot trigger:', trigger.name)
-                const { filePath, thumbnailPath } = await captureScreenshot(sel as any)
+                const { filePath } = await captureScreenshot(sel as any)
                 await postScreenshotToPopup(filePath, { x: sel.x, y: sel.y, w: sel.w, h: sel.h, dpr: 1 })
               } else if (trigger.mode === 'stream') {
                 console.log('[TRAY] Executing stream trigger:', trigger.name)
