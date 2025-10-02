@@ -85,14 +85,19 @@ export async function startRegionStream(sel: Selection): Promise<{ stop: () => P
   const displays = screen.getAllDisplays()
   const display = displays.find(d => d.id === sel.displayId) || displays[0]
   if (!display) throw new Error('Display not found')
+  const displayIndex = Math.max(0, displays.findIndex(d => d.id === display.id))
 
   const fullW = Math.round(display.size.width * display.scaleFactor)
   const fullH = Math.round(display.size.height * display.scaleFactor)
+  const scale = display.scaleFactor
 
-  const x = Math.max(0, Math.min(fullW - 1, Math.round(sel.x)))
-  const y = Math.max(0, Math.min(fullH - 1, Math.round(sel.y)))
-  const w = Math.max(1, Math.min(fullW - x, Math.round(sel.w)))
-  const h = Math.max(1, Math.min(fullH - y, Math.round(sel.h)))
+  // Convert logical pixel coordinates to physical pixels for cropping
+  const x = Math.max(0, Math.min(fullW - 1, Math.round(sel.x * scale)))
+  const y = Math.max(0, Math.min(fullH - 1, Math.round(sel.y * scale)))
+  const w = Math.max(1, Math.min(fullW - x, Math.round(sel.w * scale)))
+  const h = Math.max(1, Math.min(fullH - y, Math.round(sel.h * scale)))
+
+  console.log('[CAPTURE] Video setup:', { displayId: sel.displayId, displayIndex, fullW, fullH, scale, x, y, w, h })
 
   let frameCount = 0
   let recording = true
@@ -108,7 +113,18 @@ export async function startRegionStream(sel: Selection): Promise<{ stop: () => P
         thumbnailSize: { width: fullW, height: fullH }
       })
 
-      const source = sources.find(s => String(s.display_id || s.id) === String(sel.displayId)) || sources[0]
+      // Robust display matching - same logic as screenshots
+      let source = sources.find(s => {
+        try { return s.display_id && (String(s.display_id) === String(display.id)) } catch { return false }
+      }) as any
+      if (!source && sources[displayIndex]) source = sources[displayIndex] as any
+      if (!source) {
+        source = sources.find(s => {
+          try { return s.thumbnail && s.thumbnail.getSize && s.thumbnail.getSize().width === fullW && s.thumbnail.getSize().height === fullH } catch { return false }
+        }) as any
+      }
+      if (!source) source = sources[0] as any
+
       if (!source || !source.thumbnail) return
 
       const croppedImage = source.thumbnail.crop({ x, y, width: w, height: h })
