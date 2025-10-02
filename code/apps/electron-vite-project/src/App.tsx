@@ -49,6 +49,8 @@ function App() {
   const [showSettings, setShowSettings] = useState(false)
   const [showPlans, setShowPlans] = useState(false)
   const [captures, setCaptures] = useState<any[]>([])
+  const [triggerPrompt, setTriggerPrompt] = useState<{ mode: 'screenshot'|'stream', rect: any, displayId: number } | null>(null)
+  const [triggerName, setTriggerName] = useState('')
 
   useEffect(() => {
     // @ts-ignore
@@ -66,7 +68,52 @@ function App() {
         window.lmgtfy?.stopStream()
       }
     })
+
+    const ipc: any = (window as any).ipcRenderer
+    if (ipc?.on) {
+      console.log('[APP] Setting up SHOW_TRIGGER_PROMPT listener')
+      const handleTriggerSaveRequest = (_e: any, data: any) => {
+        console.log('[APP] SHOW_TRIGGER_PROMPT received:', data)
+        setTriggerPrompt(data)
+        setTriggerName('')
+      }
+      ipc.on('SHOW_TRIGGER_PROMPT', handleTriggerSaveRequest)
+      return () => {
+        ipc.off?.('SHOW_TRIGGER_PROMPT', handleTriggerSaveRequest)
+      }
+    } else {
+      console.log('[APP] ipcRenderer not available')
+    }
   }, [])
+
+  const handleSaveTrigger = async () => {
+    if (!triggerPrompt || !triggerName.trim()) return
+    try {
+      // @ts-ignore
+      await window.LETmeGIRAFFETHATFORYOU?.savePreset({
+        id: undefined,
+        name: triggerName.trim(),
+        displayId: triggerPrompt.displayId,
+        x: triggerPrompt.rect.x,
+        y: triggerPrompt.rect.y,
+        w: triggerPrompt.rect.w,
+        h: triggerPrompt.rect.h,
+        mode: triggerPrompt.mode,
+        headless: triggerPrompt.mode === 'screenshot'
+      })
+      const ipc: any = (window as any).ipcRenderer
+      ipc?.send?.('TRIGGER_SAVED')
+    } catch (err) {
+      console.log('Error saving trigger:', err)
+    }
+    setTriggerPrompt(null)
+    setTriggerName('')
+  }
+
+  const handleCancelTrigger = () => {
+    setTriggerPrompt(null)
+    setTriggerName('')
+  }
   return (
     <div className="app-root">
       <div className="topbar">
@@ -181,6 +228,74 @@ function App() {
                 <div style={{ fontSize: 12 }}>
                   🔑 BYOK Feature: Available for all subscription plans. Use your own API keys from OpenAI, Claude, Gemini, Grok, and more!
                 </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+      {triggerPrompt && (
+        <div className="modal-overlay" role="dialog" aria-modal="true" aria-label="Save Tagged Trigger">
+          <div className="modal" style={{ maxWidth: 500 }}>
+            <div className="modal-header">
+              <div className="modal-title">Save Tagged Trigger</div>
+              <button className="btn" onClick={handleCancelTrigger} aria-label="Close">×</button>
+            </div>
+            <div className="modal-body">
+              <div style={{ marginBottom: 12 }}>
+                <div style={{ marginBottom: 8, color: '#e5e7eb', fontSize: 14 }}>
+                  {triggerPrompt.mode === 'screenshot' ? '📸 Screenshot' : '🎥 Stream'} trigger will be saved for quick access.
+                </div>
+                <label style={{ display: 'block', marginBottom: 6, color: '#e5e7eb', fontSize: 13 }}>
+                  Tagged Trigger name:
+                </label>
+                <input
+                  type="text"
+                  placeholder="Trigger name"
+                  value={triggerName}
+                  onChange={(e) => setTriggerName(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && triggerName.trim()) {
+                      handleSaveTrigger()
+                    } else if (e.key === 'Escape') {
+                      handleCancelTrigger()
+                    }
+                  }}
+                  autoFocus
+                  style={{
+                    width: '100%',
+                    padding: '8px 12px',
+                    fontSize: 14,
+                    border: '1px solid rgba(255,255,255,0.2)',
+                    borderRadius: 6,
+                    background: 'rgba(11,18,32,0.8)',
+                    color: '#e5e7eb'
+                  }}
+                />
+              </div>
+              <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+                <button
+                  className="btn"
+                  onClick={handleCancelTrigger}
+                  style={{
+                    background: 'rgba(255,255,255,0.12)',
+                    color: '#e5e7eb'
+                  }}
+                >
+                  Cancel
+                </button>
+                <button
+                  className="btn"
+                  onClick={handleSaveTrigger}
+                  disabled={!triggerName.trim()}
+                  style={{
+                    background: '#2563eb',
+                    color: 'white',
+                    opacity: triggerName.trim() ? 1 : 0.5,
+                    cursor: triggerName.trim() ? 'pointer' : 'not-allowed'
+                  }}
+                >
+                  Save
+                </button>
               </div>
             </div>
           </div>

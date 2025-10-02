@@ -92,7 +92,32 @@ if (pencilBtn) pencilBtn.onclick = (e)=>{
   // Trigger Electron overlay selection via background WS bridge; keep chat open
   try{ chrome.runtime?.sendMessage({ type:'ELECTRON_START_SELECTION', source:'popup' }) }catch{}
 }
-if (ddTags) ddTags.onchange = ()=>{ const idx=parseInt(ddTags.value||'-1',10); if(!isNaN(idx)&&idx>=0){ try{ chrome.runtime?.sendMessage({ type:'OG_CAPTURE_SAVED_TAG', index: idx }) }catch{} } ddTags.value='' }
+if (ddTags) ddTags.onchange = ()=>{ 
+  const idx=parseInt(ddTags.value||'-1',10); 
+  if(!isNaN(idx)&&idx>=0){ 
+    // Check if it's an Electron trigger or extension trigger
+    try{
+      const key='optimando-tagged-triggers'
+      chrome.storage?.local?.get([key], (data)=>{
+        const list = Array.isArray(data?.[key]) ? data[key] : []
+        const trigger = list[idx]
+        if (!trigger) return
+        // If has displayId, it's an Electron trigger - send to Electron for execution
+        if (trigger.displayId !== undefined) {
+          console.log('Executing Electron trigger:', trigger)
+          chrome.runtime?.sendMessage({ 
+            type: 'ELECTRON_EXECUTE_TRIGGER', 
+            trigger 
+          })
+        } else {
+          // Extension trigger - use existing flow
+          chrome.runtime?.sendMessage({ type:'OG_CAPTURE_SAVED_TAG', index: idx })
+        }
+      })
+    }catch{}
+  } 
+  ddTags.value='' 
+}
 
 // Image lightbox for enlarging screenshots
 function createImageLightbox(imgSrc){
@@ -126,10 +151,107 @@ try {
         }
         row.appendChild(bub); msgs.appendChild(row); msgs.scrollTop = 1e9
         try{ cancelBtn && (cancelBtn.style.display='none') }catch{}
+      } else if (msg.type === 'SHOW_TRIGGER_PROMPT'){
+        // Show trigger name input UI below composer
+        console.log('📝 Showing trigger prompt in popup:', msg)
+        showTriggerPromptUI(msg.mode, msg.rect, msg.displayId, msg.imageUrl, msg.videoUrl)
       }
     }catch{}
   })
 }catch{}
+
+// Show trigger name input UI
+function showTriggerPromptUI(mode, rect, displayId, imageUrl, videoUrl){
+  try{
+    const wrap = document.querySelector('.wrap')
+    if (!wrap) return
+    // Remove existing prompt if any
+    const existing = document.getElementById('og-trigger-savebar')
+    if (existing) existing.remove()
+    // Create trigger save bar (insert before messages)
+    const bar = document.createElement('div')
+    bar.id = 'og-trigger-savebar'
+    bar.style.cssText = 'display:flex; flex-direction:column; gap:8px; padding:10px; background:rgba(37,99,235,0.08); color:#e5e7eb; border:1px solid rgba(37,99,235,0.3); border-radius:6px; margin:0 0 8px 0;'
+    
+    const header = document.createElement('div')
+    header.style.cssText = 'display:flex; align-items:center; gap:6px; font-size:13px; font-weight:500;'
+    header.innerHTML = (mode === 'screenshot' ? '📸' : '🎥') + ' Save Tagged Trigger'
+    
+    const inputRow = document.createElement('div')
+    inputRow.style.cssText = 'display:flex; align-items:center; gap:8px;'
+    
+    const nameIn = document.createElement('input')
+    nameIn.type = 'text'
+    nameIn.placeholder = 'Enter trigger name...'
+    nameIn.style.cssText = 'flex:1; padding:6px 10px; border:1px solid rgba(255,255,255,0.2); border-radius:6px; font-size:13px; background:rgba(11,18,32,0.6); color:#e5e7eb; outline:none;'
+    nameIn.addEventListener('focus', () => { nameIn.style.borderColor = 'rgba(37,99,235,0.5)' })
+    nameIn.addEventListener('blur', () => { nameIn.style.borderColor = 'rgba(255,255,255,0.2)' })
+    
+    const save = document.createElement('button')
+    save.textContent = 'Save'
+    save.style.cssText = 'background:#2563eb;border:0;color:white;padding:6px 16px;border-radius:6px;cursor:pointer;font-size:13px;font-weight:500;white-space:nowrap;'
+    save.addEventListener('mouseenter', () => { save.style.background = '#1d4ed8' })
+    save.addEventListener('mouseleave', () => { save.style.background = '#2563eb' })
+    
+    const cancel = document.createElement('button')
+    cancel.textContent = 'Cancel'
+    cancel.style.cssText = 'background:rgba(255,255,255,0.08);border:0;color:#e5e7eb;padding:6px 16px;border-radius:6px;cursor:pointer;font-size:13px;white-space:nowrap;'
+    cancel.addEventListener('mouseenter', () => { cancel.style.background = 'rgba(255,255,255,0.15)' })
+    cancel.addEventListener('mouseleave', () => { cancel.style.background = 'rgba(255,255,255,0.08)' })
+    
+    inputRow.append(nameIn, save, cancel)
+    bar.append(header, inputRow)
+    
+    // Insert after toolkit, before messages
+    const toolkit = wrap.querySelector('.toolkit')
+    const messages = wrap.querySelector('.messages')
+    if (toolkit && messages) {
+      wrap.insertBefore(bar, messages)
+    } else {
+      wrap.insertBefore(bar, wrap.firstChild)
+    }
+    
+    nameIn.focus()
+    
+    cancel.onclick = () => bar.remove()
+    
+    const saveTrigger = () => {
+      const name = (nameIn.value || '').trim() || ('Trigger ' + new Date().toLocaleString())
+      // Save to chrome.storage for extension dropdown
+      try{
+        const key='optimando-tagged-triggers'
+        chrome.storage?.local?.get([key], (data)=>{
+          const prev = Array.isArray(data?.[key]) ? data[key] : []
+          prev.push({ name, at: Date.now(), rect, mode, displayId })
+          chrome.storage?.local?.set({ [key]: prev }, ()=>{
+            refreshTags()
+          })
+        })
+      }catch{}
+      // Send trigger back to Electron via WebSocket
+      try{
+        chrome.runtime?.sendMessage({
+          type: 'ELECTRON_SAVE_TRIGGER',
+          name,
+          mode,
+          rect,
+          displayId,
+          imageUrl,
+          videoUrl
+        })
+      }catch{}
+      bar.remove()
+    }
+    
+    save.onclick = saveTrigger
+    nameIn.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && nameIn.value.trim()) saveTrigger()
+      else if (e.key === 'Escape') bar.remove()
+    })
+  }catch(err){
+    console.log('Error showing trigger prompt:', err)
+  }
+}
 
 // Allow cancel from the popup (×) to stop selection in Electron/content
 

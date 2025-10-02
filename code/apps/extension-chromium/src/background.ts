@@ -58,6 +58,10 @@ function connectToWebSocketServer() {
             try { chrome.runtime.sendMessage({ type: 'COMMAND_POPUP_APPEND', kind, url: dataUrl }) } catch {}
           } else if (data.type === 'TRIGGERS_UPDATED') {
             try { chrome.runtime.sendMessage({ type: 'TRIGGERS_UPDATED' }) } catch {}
+          } else if (data.type === 'SHOW_TRIGGER_PROMPT') {
+            // Forward trigger prompt request to popup
+            console.log('📝 Received SHOW_TRIGGER_PROMPT from Electron:', data)
+            try { chrome.runtime.sendMessage({ type: 'SHOW_TRIGGER_PROMPT', mode: data.mode, rect: data.rect, displayId: data.displayId, imageUrl: data.imageUrl, videoUrl: data.videoUrl }) } catch {}
           }
         }
       } catch (error) {
@@ -274,6 +278,41 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       try {
         if (WS_ENABLED && ws && ws.readyState === WebSocket.OPEN) {
           const payload = { type: 'CANCEL_SELECTION', source: msg.source || 'browser' }
+          try { ws.send(JSON.stringify(payload)) } catch {}
+          try { sendResponse({ success: true }) } catch {}
+        } else {
+          try { sendResponse({ success: false, error: 'WS not connected' }) } catch {}
+        }
+      } catch { try { sendResponse({ success:false }) } catch {} }
+      break
+    }
+    case 'ELECTRON_SAVE_TRIGGER': {
+      try {
+        if (WS_ENABLED && ws && ws.readyState === WebSocket.OPEN) {
+          const payload = {
+            type: 'SAVE_TRIGGER',
+            name: msg.name,
+            mode: msg.mode,
+            rect: msg.rect,
+            displayId: msg.displayId,
+            imageUrl: msg.imageUrl,
+            videoUrl: msg.videoUrl
+          }
+          try { ws.send(JSON.stringify(payload)) } catch {}
+          try { sendResponse({ success: true }) } catch {}
+        } else {
+          try { sendResponse({ success: false, error: 'WS not connected' }) } catch {}
+        }
+      } catch { try { sendResponse({ success:false }) } catch {} }
+      break
+    }
+    case 'ELECTRON_EXECUTE_TRIGGER': {
+      try {
+        if (WS_ENABLED && ws && ws.readyState === WebSocket.OPEN) {
+          const payload = {
+            type: 'EXECUTE_TRIGGER',
+            trigger: msg.trigger
+          }
           try { ws.send(JSON.stringify(payload)) } catch {}
           try { sendResponse({ success: true }) } catch {}
         } else {

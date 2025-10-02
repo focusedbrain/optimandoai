@@ -4,7 +4,7 @@ import path from 'node:path'
 import { WebSocketServer } from 'ws'
 // WS bridge removed to avoid port conflicts; extension fallback/deep-link is used
 import { registerHandler, LmgtfyChannels, emitCapture } from './lmgtfy/ipc'
-import { beginOverlay, closeAllOverlays } from './lmgtfy/overlay'
+import { beginOverlay, closeAllOverlays, showStreamTriggerOverlay } from './lmgtfy/overlay'
 import { captureScreenshot, startRegionStream } from './lmgtfy/capture'
 import { loadPresets, upsertRegion } from './lmgtfy/presets'
 
@@ -31,6 +31,7 @@ process.env.VITE_PUBLIC = VITE_DEV_SERVER_URL ? path.join(process.env.APP_ROOT, 
 let win: BrowserWindow | null
 let pendingLaunchMode: 'screenshot' | 'stream' | null = null
 let tray: Tray | null = null
+let activeStop: null | (() => Promise<string>) = null
 // Track connected WS clients (extension bridge)
 var wsClients: any[] = (globalThis as any).__og_ws_clients__ || [];
 (globalThis as any).__og_ws_clients__ = wsClients;
@@ -89,7 +90,6 @@ async function createWindow() {
   }
 
   // LmGTFY IPC wiring
-  let activeStop: null | (() => Promise<string>) = null
   registerHandler(LmgtfyChannels.GetPresets, () => loadPresets())
   registerHandler(LmgtfyChannels.SavePreset, async (_e, payload) => upsertRegion(payload))
   
@@ -120,30 +120,54 @@ async function createWindow() {
         }
       } catch {}
     })
+    // Handle trigger saved from UI
+    ipcMain.on('TRIGGER_SAVED', async () => {
+      try {
+        console.log('[MAIN] Trigger saved, updating menus...')
+        updateTrayMenu()
+        // Notify all windows and extension
+        try { const { webContents } = await import('electron'); webContents.getAllWebContents().forEach(c=>{ try{ c.send('TRIGGERS_UPDATED') }catch{} }) } catch {}
+        try { wsClients.forEach(c=>{ try { c.send(JSON.stringify({ type: 'TRIGGERS_UPDATED' })) } catch {} }) } catch {}
+      } catch (err) {
+        console.log('[MAIN] Error updating after trigger save:', err)
+      }
+    })
     ipcMain.on('overlay-cmd', async (_e, msg: any) => {
       try {
         console.log('[MAIN] Overlay command received:', msg?.action)
         
         if (!msg || !msg.action) return
         if (msg.action === 'shot') {
+          console.log('[MAIN] Screenshot action - createTrigger:', msg.createTrigger)
           const rect = msg.rect || { x:0,y:0,w:0,h:0 }
           const displayId = Number(msg.displayId)||0
           const sel = { displayId, x: rect.x, y: rect.y, w: rect.w, h: rect.h, dpr: 1 }
           const { filePath } = await captureScreenshot(sel as any)
           await postScreenshotToPopup(filePath, { x: sel.x, y: sel.y, w: sel.w, h: sel.h, dpr: 1 })
-          // Optionally save tagged trigger
-          try {
-            if (msg.createTrigger && typeof msg.triggerName === 'string' && msg.triggerName.trim()) {
-              upsertRegion({ id: undefined, name: String(msg.triggerName).trim(), displayId, x: rect.x, y: rect.y, w: rect.w, h: rect.h, mode: 'screenshot', headless: true })
-              // notify extension and update tray menu
-              try { updateTrayMenu() } catch {}
-              try { const { webContents } = await import('electron'); webContents.getAllWebContents().forEach(c=>{ try{ c.send('TRIGGERS_UPDATED') }catch{} }) } catch {}
-              try { wsClients.forEach(c=>{ try { c.send(JSON.stringify({ type: 'TRIGGERS_UPDATED' })) } catch {} }) } catch {}
-            }
-          } catch {}
           // Close all overlay windows if requested
           if (msg.closeOverlay) {
             try { closeAllOverlays() } catch {}
+          }
+          // Show trigger prompt UI in extension popup if requested
+          if (msg.createTrigger) {
+            console.log('[MAIN] Requesting trigger prompt in extension for screenshot')
+            try {
+              // Send to extension via WebSocket to show trigger prompt in popup
+              wsClients.forEach(client => {
+                try {
+                  client.send(JSON.stringify({
+                    type: 'SHOW_TRIGGER_PROMPT',
+                    mode: 'screenshot',
+                    rect,
+                    displayId,
+                    imageUrl: filePath // Send the file path so extension can display the image
+                  }))
+                } catch {}
+              })
+              console.log('[MAIN] Trigger prompt request sent to extension')
+            } catch (err) {
+              console.log('[MAIN] Error sending trigger prompt request:', err)
+            }
           }
           return
         }
@@ -161,26 +185,23 @@ async function createWindow() {
           return
         }
         if (msg.action === 'stream-start') {
-          console.log('[MAIN] Starting stream recording...')
+          console.log('[MAIN] Starting stream recording... createTrigger:', msg.createTrigger)
           const rect = msg.rect || { x:0,y:0,w:0,h:0 }
           const displayId = Number(msg.displayId)||0
           const sel = { displayId, x: rect.x, y: rect.y, w: rect.w, h: rect.h, dpr: 1 }
+          // Store trigger info if needed (will show prompt after stream stops)
+          const shouldCreateTrigger = msg.createTrigger
           try {
             const controller = await startRegionStream(sel as any)
             activeStop = controller.stop
+            // Store trigger info for after recording
+            if (shouldCreateTrigger) {
+              (activeStop as any)._triggerInfo = { mode: 'stream', rect, displayId }
+              console.log('[MAIN] Storing trigger info for after stream stops')
+            }
             console.log('[MAIN] Stream recording started successfully')
             // Keep overlay visible during recording; notify UI
-            emitCapture(win!, { event: LmgtfyChannels.OnCaptureEvent, mode: 'stream', filePath: '', thumbnailPath: '', meta: { x: sel.x, y: sel.y, w: sel.w, h: sel.h, dpr: 1, displayId } })
-            // Optionally save tagged trigger (non-headless stream)
-            try {
-              if (msg.createTrigger && typeof msg.triggerName === 'string' && msg.triggerName.trim()) {
-                upsertRegion({ id: undefined, name: String(msg.triggerName).trim(), displayId, x: rect.x, y: rect.y, w: rect.w, h: rect.h, mode: 'stream', headless: false })
-                // Update tray menu with new trigger
-                try { updateTrayMenu() } catch {}
-                try { const { webContents } = await import('electron'); webContents.getAllWebContents().forEach(c=>{ try{ c.send('TRIGGERS_UPDATED') }catch{} }) } catch {}
-                try { wsClients.forEach(c=>{ try { c.send(JSON.stringify({ type: 'TRIGGERS_UPDATED' })) } catch {} }) } catch {}
-              }
-            } catch {}
+            if (win) emitCapture(win, { event: LmgtfyChannels.OnCaptureEvent, mode: 'stream', filePath: '', thumbnailPath: '', meta: { x: sel.x, y: sel.y, w: sel.w, h: sel.h, dpr: 1, displayId } })
           } catch (err) {
             console.log('[MAIN] Error starting stream:', err)
           }
@@ -192,12 +213,35 @@ async function createWindow() {
             console.log('[MAIN] No active recording to stop')
             return
           }
+          const triggerInfo = (activeStop as any)._triggerInfo
+          console.log('[MAIN] Trigger info:', triggerInfo)
           const out = await activeStop()
           activeStop = null
           console.log('[MAIN] Stream stopped, posting video...')
           await postStreamToPopup(out)
           console.log('[MAIN] Video posted, closing overlays...')
           try { closeAllOverlays() } catch {}
+          // Show trigger prompt UI in extension popup if requested
+          if (triggerInfo) {
+            console.log('[MAIN] Requesting trigger prompt in extension for stream')
+            try {
+              // Send to extension via WebSocket to show trigger prompt in popup
+              wsClients.forEach(client => {
+                try {
+                  client.send(JSON.stringify({
+                    type: 'SHOW_TRIGGER_PROMPT',
+                    mode: triggerInfo.mode,
+                    rect: triggerInfo.rect,
+                    displayId: triggerInfo.displayId,
+                    videoUrl: out // Send the video file path
+                  }))
+                } catch {}
+              })
+              console.log('[MAIN] Trigger prompt request sent to extension')
+            } catch (err) {
+              console.log('[MAIN] Error sending trigger prompt request:', err)
+            }
+          }
           return
         }
       } catch {}
@@ -233,11 +277,13 @@ async function createWindow() {
         emitCapture(win, { event: LmgtfyChannels.OnCaptureEvent, mode: 'screenshot', filePath, thumbnailPath, meta: { x: sel.x, y: sel.y, w: sel.w, h: sel.h, dpr: sel.dpr, displayId: sel.displayId } })
         return { filePath, thumbnailPath }
       } else {
-        // Stream triggers are VISIBLE - start recording with UI
+        // Stream triggers are VISIBLE - show overlay and start recording
         console.log('[MAIN] Executing visible stream trigger:', sel)
+        // Show visible overlay at the saved position
+        showStreamTriggerOverlay(sel.displayId, { x: sel.x, y: sel.y, w: sel.w, h: sel.h })
+        // Start recording immediately
         const controller = await startRegionStream(sel as any)
         activeStop = controller.stop
-        emitCapture(win, { event: LmgtfyChannels.OnCaptureEvent, mode: 'stream', filePath: '', thumbnailPath: '', meta: { x: sel.x, y: sel.y, w: sel.w, h: sel.h, dpr: sel.dpr, displayId: sel.displayId } })
         return { ok: true }
       }
     } catch (err) {
@@ -291,13 +337,11 @@ function updateTrayMenu() {
                 await postScreenshotToPopup(filePath, { x: sel.x, y: sel.y, w: sel.w, h: sel.h, dpr: 1 })
               } else if (trigger.mode === 'stream') {
                 console.log('[TRAY] Executing stream trigger:', trigger.name)
-                win.webContents.send('lmgtfy.capture', {
-                  event: LmgtfyChannels.OnCaptureEvent,
-                  mode: 'stream',
-                  filePath: '',
-                  thumbnailPath: '',
-                  meta: { x: sel.x, y: sel.y, w: sel.w, h: sel.h, dpr: 1, displayId: sel.displayId }
-                })
+                // Show visible overlay at the saved position
+                showStreamTriggerOverlay(sel.displayId, { x: sel.x, y: sel.y, w: sel.w, h: sel.h })
+                // Start recording immediately
+                const controller = await startRegionStream(sel as any)
+                activeStop = controller.stop
               }
             } catch (err) {
               console.log('[TRAY] Error executing trigger:', err)
@@ -418,6 +462,63 @@ app.whenReady().then(async () => {
                 fs.appendFileSync(path.join(os.homedir(), '.opengiraffe', 'main-debug.log'), '\n[MAIN] START_SELECTION received at ' + new Date().toISOString() + '\n')
               } catch {}
               beginOverlay()
+            }
+            if (msg.type === 'SAVE_TRIGGER') {
+              // Extension sends back trigger to save in Electron's presets
+              console.log('[MAIN] Received SAVE_TRIGGER from extension:', msg)
+              try {
+                upsertRegion({
+                  id: undefined,
+                  name: msg.name,
+                  displayId: msg.displayId,
+                  x: msg.rect.x,
+                  y: msg.rect.y,
+                  w: msg.rect.w,
+                  h: msg.rect.h,
+                  mode: msg.mode,
+                  headless: msg.mode === 'screenshot'
+                })
+                updateTrayMenu()
+                console.log('[MAIN] Trigger saved to Electron presets')
+              } catch (err) {
+                console.log('[MAIN] Error saving trigger:', err)
+              }
+            }
+            if (msg.type === 'EXECUTE_TRIGGER') {
+              // Extension requests execution of a saved trigger
+              console.log('[MAIN] Received EXECUTE_TRIGGER from extension:', msg.trigger)
+              try {
+                const t = msg.trigger
+                const sel = { displayId: t.displayId ?? 0, x: t.rect.x, y: t.rect.y, w: t.rect.w, h: t.rect.h, dpr: 1 }
+                if (t.mode === 'screenshot') {
+                  // Headless screenshot
+                  console.log('[MAIN] Executing screenshot trigger headlessly')
+                  ;(async () => {
+                    try {
+                      const { filePath } = await captureScreenshot(sel as any)
+                      await postScreenshotToPopup(filePath, { x: sel.x, y: sel.y, w: sel.w, h: sel.h, dpr: 1 })
+                      console.log('[MAIN] Screenshot trigger executed and posted')
+                    } catch (err) {
+                      console.log('[MAIN] Error executing screenshot trigger:', err)
+                    }
+                  })()
+                } else if (t.mode === 'stream') {
+                  // Visible stream overlay
+                  console.log('[MAIN] Executing stream trigger with visible overlay')
+                  ;(async () => {
+                    try {
+                      showStreamTriggerOverlay(sel.displayId, { x: sel.x, y: sel.y, w: sel.w, h: sel.h })
+                      const controller = await startRegionStream(sel as any)
+                      activeStop = controller.stop
+                      console.log('[MAIN] Stream trigger started')
+                    } catch (err) {
+                      console.log('[MAIN] Error executing stream trigger:', err)
+                    }
+                  })()
+                }
+              } catch (err) {
+                console.log('[MAIN] Error processing EXECUTE_TRIGGER:', err)
+              }
             }
           } catch {}
         })

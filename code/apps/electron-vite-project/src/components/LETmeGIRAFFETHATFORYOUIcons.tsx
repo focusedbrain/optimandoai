@@ -13,8 +13,29 @@ export default function LETmeGIRAFFETHATFORYOUIcons({ onCapture }: { onCapture: 
       if (k === 'stream') startStream()
       if (k === 'stop') stopStream()
     })
-    // @ts-ignore
-    window.LETmeGIRAFFETHATFORYOU?.getPresets()?.then((d: any) => setPresets(d?.regions || []))
+
+    const ipc: any = (window as any).ipcRenderer
+    const refresh = async () => {
+      try {
+        // @ts-ignore
+        const data = await window.LETmeGIRAFFETHATFORYOU?.getPresets()
+        setPresets(data?.regions || [])
+      } catch (err) {
+        console.log('Error loading presets:', err)
+      }
+    }
+    refresh()
+
+    if (ipc?.on) {
+      const handler = () => {
+        console.log('[UI] TRIGGERS_UPDATED received, reloading presets')
+        refresh()
+      }
+      ipc.on('TRIGGERS_UPDATED', handler)
+      return () => {
+        ipc.off?.('TRIGGERS_UPDATED', handler)
+      }
+    }
   }, [])
 
   const startShot = async () => {

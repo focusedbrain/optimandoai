@@ -43,7 +43,7 @@ export function beginOverlay(_expectedMode?: 'screenshot' | 'stream'): void {
     function wire(win: BrowserWindow){
       win.webContents.on('ipc-message', (_e, channel, data) => {
         if (channel !== 'overlay-selection' || finished) return
-        if (data?.cancel) { finished = true; closeAll() }
+          if (data?.cancel) { finished = true; closeAll() }
       })
       win.on('close', () => { /* noop */ })
     }
@@ -140,16 +140,14 @@ export function beginOverlay(_expectedMode?: 'screenshot' | 'stream'): void {
           window.addEventListener('mousemove', onMove, true)
           window.addEventListener('mouseup', onUp, true)
           function confirmRect(){ const boxRect = box.getBoundingClientRect(); return {x:Math.round(boxRect.left),y:Math.round(boxRect.top),w:Math.round(boxRect.width),h:Math.round(boxRect.height)} }
-          btnShot.addEventListener('click',(e)=>{ try{ e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation && e.stopImmediatePropagation() }catch{}; if(locked){ tb.style.left=tbX+'px'; tb.style.top=tbY+'px' } const r=confirmRect(); const createTrig=!!cbTrig.checked; let triggerName=''; if(createTrig){ try{ triggerName = window.prompt('Trigger name?')||'' }catch{} } ipcRenderer.send('overlay-cmd',{ action:'shot', rect:r, displayId: DISPLAY_ID, createTrigger: createTrig, triggerName, closeOverlay: true }) })
+          btnShot.addEventListener('click',(e)=>{ try{ e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation && e.stopImmediatePropagation() }catch{}; if(locked){ tb.style.left=tbX+'px'; tb.style.top=tbY+'px' } const r=confirmRect(); const createTrig=!!cbTrig.checked; ipcRenderer.send('overlay-cmd',{ action:'shot', rect:r, displayId: DISPLAY_ID, createTrigger: createTrig, closeOverlay: true }) })
           btnStream.addEventListener('click',(e)=>{ 
             try{ e.preventDefault(); e.stopPropagation() }catch{}
             if(locked){ tb.style.left=tbX+'px'; tb.style.top=tbY+'px' }
             const r=confirmRect()
             const createTrig=!!cbTrig.checked
-            let triggerName=''
-            if(createTrig){ try{ triggerName = window.prompt('Trigger name?')||'' }catch{} }
             // Send stream-start command to main process (main handles ALL recording)
-            ipcRenderer.send('overlay-cmd',{ action:'stream-start', rect:r, displayId: DISPLAY_ID, createTrigger: createTrig, triggerName })
+            ipcRenderer.send('overlay-cmd',{ action:'stream-start', rect:r, displayId: DISPLAY_ID, createTrigger: createTrig })
             // Update UI
             btnStream.style.display='none'
             btnShot.style.display='none'
@@ -183,6 +181,113 @@ export function beginOverlay(_expectedMode?: 'screenshot' | 'stream'): void {
 
     activeState = { overlays, finished: false, resolve: null }
   } catch {}
+}
+
+// Show pre-positioned overlay for stream trigger execution (visible recording)
+export function showStreamTriggerOverlay(displayId: number, rect: { x: number, y: number, w: number, h: number }): void {
+  try {
+    const displays = screen.getAllDisplays()
+    const display = displays.find(d => d.id === displayId) || displays[0]
+    if (!display) return
+
+    const overlay = new BrowserWindow({
+      x: display.bounds.x,
+      y: display.bounds.y,
+      width: display.bounds.width,
+      height: display.bounds.height,
+      frame: false,
+      transparent: true,
+      resizable: false,
+      movable: false,
+      hasShadow: false,
+      alwaysOnTop: true,
+      skipTaskbar: true,
+      focusable: true,
+      acceptFirstMouse: true,
+      backgroundColor: '#00000000',
+      titleBarStyle: 'hidden',
+      fullscreenable: false,
+      webPreferences: { 
+        nodeIntegration: true, 
+        contextIsolation: false, 
+        backgroundThrottling: false,
+        webSecurity: false,
+        allowRunningInsecureContent: true,
+        enableBlinkFeatures: 'GetUserMedia'
+      }
+    })
+    
+    activeOverlays.push(overlay)
+    overlay.setAlwaysOnTop(true, 'pop-up-menu')
+    overlay.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
+    try { overlay.setIgnoreMouseEvents(false, { forward: false } as any) } catch { try { overlay.setIgnoreMouseEvents(false) } catch {} }
+    
+    overlay.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(`
+    <!DOCTYPE html>
+    <html><head><meta charset="utf-8"/>
+    <style>
+      html,body{margin:0;height:100%;-webkit-user-select:none;user-select:none;background:transparent}
+      #box{position:fixed;border:2px dashed #ef4444;background:rgba(239,68,68,0.1);box-shadow:0 0 0 9999px rgba(0,0,0,0.3)}
+      .tb{position:fixed;display:flex;gap:8px;background:rgba(17,24,39,0.95);color:#fff;padding:6px 8px;border-radius:8px;border:1px solid rgba(255,255,255,0.25);font-size:12px;pointer-events:auto;z-index:2147483648}
+      .btn{background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.25);color:#fff;padding:4px 8px;border-radius:6px;cursor:pointer}
+      .btn.danger{background:#ef4444;border-color:#ef4444}
+    </style></head>
+    <body>
+      <div id="box" style="left:${rect.x}px;top:${rect.y}px;width:${rect.w}px;height:${rect.h}px"></div>
+      <div id="tb" class="tb" style="left:${Math.max(8, rect.x)}px;top:${Math.max(8, rect.y - 36)}px" role="toolbar" aria-label="Recording controls">
+        <span id="timer" style="color:#e5e7eb;opacity:.9;font-variant-numeric:tabular-nums">00:00</span>
+        <button id="stop" class="btn danger" aria-label="Stop Recording">⬛ STOP</button>
+        <button id="close" class="btn" aria-label="Close">✕</button>
+      </div>
+      <script>
+        const { ipcRenderer } = require('electron');
+        const timer = document.getElementById('timer');
+        const btnStop = document.getElementById('stop');
+        const btnClose = document.getElementById('close');
+        
+        // Start timer immediately
+        let t0 = Date.now();
+        const tid = setInterval(() => {
+          try {
+            const s = Math.max(0, Math.floor((Date.now() - t0) / 1000));
+            const m = String(Math.floor(s / 60)).padStart(2, '0');
+            const ss = String(s % 60).padStart(2, '0');
+            timer.textContent = m + ':' + ss;
+          } catch {}
+        }, 1000);
+        
+        btnStop.addEventListener('click', (e) => {
+          try { e.preventDefault(); e.stopPropagation() } catch {}
+          clearInterval(tid);
+          ipcRenderer.send('overlay-cmd', { action: 'stream-stop' });
+        });
+        
+        btnClose.addEventListener('click', () => {
+          clearInterval(tid);
+          ipcRenderer.send('overlay-selection', { cancel: true });
+        });
+        
+        window.addEventListener('keydown', e => {
+          if (e.key === 'Escape') {
+            clearInterval(tid);
+            ipcRenderer.send('overlay-selection', { cancel: true });
+          }
+        });
+        
+        try { ipcRenderer.on('overlay-close', () => { try { clearInterval(tid); window.close() } catch {} }) } catch {}
+      </script>
+    </body></html>
+    `))
+    
+    overlay.on('close', () => {
+      activeOverlays = activeOverlays.filter(w => w !== overlay)
+    })
+    
+    try { overlay.once('ready-to-show', () => { try { overlay.show(); overlay.focus() } catch {} }) } catch {}
+    try { overlay.show(); overlay.focus() } catch {}
+  } catch (err) {
+    console.log('[OVERLAY] Error showing stream trigger overlay:', err)
+  }
 }
 
 
