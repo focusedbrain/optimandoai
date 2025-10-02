@@ -1,4 +1,4 @@
-import { BrowserWindow, screen } from 'electron'
+﻿import { BrowserWindow, screen } from 'electron'
 
 export interface Selection {
   displayId: number
@@ -88,12 +88,11 @@ export async function selectRegion(_expectedMode?: 'screenshot' | 'stream'): Pro
         <div id="lay"></div>
         <div id="box"></div>
         <div id="tb" class="tb" role="toolbar" aria-label="Capture controls">
-          <button id="shot" class="btn primary" aria-label="Screenshot">Screenshot</button>
-          <button id="stream" class="btn stream" aria-label="Stream">Stream</button>
-          <button id="rec" class="btn danger" aria-label="Record" style="display:none">⏺</button>
-          <button id="stop" class="btn danger" aria-label="Stop" style="display:none">⏹</button>
+          <button id="shot" class="btn primary" aria-label="Screenshot">📸 Screenshot</button>
+          <button id="stream" class="btn stream" aria-label="Start Recording">🎥 Stream</button>
+          <button id="stop" class="btn danger" aria-label="Stop Recording" style="display:none">⬛ STOP</button>
           <label style="display:inline-flex;align-items:center;gap:6px;color:#fff;user-select:none"><input id="cbTrig" type="checkbox"/> <span>Create Tagged Trigger</span></label>
-          <button id="close" class="btn" aria-label="Close">×</button>
+          <button id="close" class="btn" aria-label="Close">✕</button>
         </div>
         <script>
           const DISPLAY_ID = ${d.id};
@@ -104,9 +103,7 @@ export async function selectRegion(_expectedMode?: 'screenshot' | 'stream'): Pro
           const tb=document.getElementById('tb');
           const btnShot=document.getElementById('shot');
           const btnStream=document.getElementById('stream');
-          const btnRec=document.getElementById('rec');
           const btnStop=document.getElementById('stop');
-          try{ btnRec.innerHTML='<span class="icon rec">●</span>'; btnStop.innerHTML='<span class="icon stop">■</span>' }catch{}
           const btnClose=document.getElementById('close');
           const timer=document.createElement('span');
           timer.style.cssText='color:#e5e7eb;opacity:.9;font-variant-numeric:tabular-nums;display:none;align-self:center';
@@ -116,21 +113,26 @@ export async function selectRegion(_expectedMode?: 'screenshot' | 'stream'): Pro
           const cbTrig=document.getElementById('cbTrig');
           // Recording state (canvas-cropped stream)
           let recChunks=[]; let rec: any=null; let rafId=0; let srcStream: any=null; let videoEl: any=null; let cropCanvas: any=null; let cropCtx: any=null; let isRecording=false
-          function getRect(){ const x=Math.min(sx,ex),y=Math.min(sy,ey),w=Math.abs(ex-sx),h=Math.abs(ey-sy); const dpr=Math.max(1,(window.devicePixelRatio||1)); return { x: Math.round(x*dpr), y: Math.round(y*dpr), w: Math.round(w*dpr), h: Math.round(h*dpr) } }
+          function getRect(){ const boxRect = box.getBoundingClientRect(); const dpr=Math.max(1,(window.devicePixelRatio||1)); return { x: Math.round(boxRect.left*dpr), y: Math.round(boxRect.top*dpr), w: Math.round(boxRect.width*dpr), h: Math.round(boxRect.height*dpr) } }
           async function startRecording(){
+            ipcRenderer.send('overlay-log', '[OVERLAY selectRegion] startRecording called, isRecording: ' + isRecording);
             if (isRecording) return; isRecording=true; recChunks=[]
             const r = getRect()
+            ipcRenderer.send('overlay-log', '[OVERLAY selectRegion] Recording rect: ' + JSON.stringify(r));
             try{
               const sources = await desktopCapturer.getSources({ types:['screen'], thumbnailSize:{width:1,height:1} })
+              ipcRenderer.send('overlay-log', '[OVERLAY selectRegion] Got sources: ' + sources.length);
               let src = sources.find((s:any)=> String(s.display_id||s.id) === String(DISPLAY_ID)) || null
               if (!src) {
                 const idx = Math.max(0, sources.findIndex((s:any)=> (s.display_id||'')!==''))
                 src = sources[idx] || sources[0]
               }
+              ipcRenderer.send('overlay-log', '[OVERLAY selectRegion] Using source: ' + src?.name);
               const stream = await (navigator.mediaDevices as any).getUserMedia({
                 audio: false,
                 video: { mandatory: { chromeMediaSource:'desktop', chromeMediaSourceId: src.id } }
               })
+              ipcRenderer.send('overlay-log', '[OVERLAY selectRegion] Got stream');
               srcStream = stream
               videoEl = document.createElement('video'); videoEl.muted=true; videoEl.srcObject=stream; await videoEl.play()
               cropCanvas = document.createElement('canvas'); cropCanvas.width = Math.max(2, r.w); cropCanvas.height = Math.max(2, r.h)
@@ -142,6 +144,7 @@ export async function selectRegion(_expectedMode?: 'screenshot' | 'stream'): Pro
               rec = new MediaRecorder(outStream, opts)
               rec.ondataavailable = (e:any)=>{ if(e && e.data && e.data.size) recChunks.push(e.data) }
               rec.onstop = async ()=>{
+                ipcRenderer.send('overlay-log', '[OVERLAY selectRegion] Recording stopped, posting video');
                 try{ cancelAnimationFrame(rafId) }catch{}; rafId=0
                 try{ (srcStream.getTracks()||[]).forEach((t:any)=> t.stop()) }catch{}
                 try{ videoEl && videoEl.remove() }catch{}
@@ -150,10 +153,19 @@ export async function selectRegion(_expectedMode?: 'screenshot' | 'stream'): Pro
                 isRecording=false
               }
               rec.start(250)
+              ipcRenderer.send('overlay-log', '[OVERLAY selectRegion] Recording started!');
               try{ startTimer() }catch{}
-            }catch{ isRecording=false }
+            }catch(err){ ipcRenderer.send('overlay-log', '[OVERLAY selectRegion] Recording error: ' + String(err)); isRecording=false }
           }
-          function stopRecording(){ try{ if(rec && rec.state!=='inactive') rec.stop() }catch{}; try{ if(rafId) cancelAnimationFrame(rafId) }catch{}; try{ if(srcStream) (srcStream.getTracks()||[]).forEach((t:any)=> t.stop()) }catch{}; try{ isRecording=false }catch{} }
+          function stopRecording(){ 
+            // Only stop the MediaRecorder - let rec.onstop handle all cleanup
+            try{ 
+              if(rec && rec.state!=='inactive') {
+                console.log('[OVERLAY] Stopping MediaRecorder...');
+                rec.stop();
+              }
+            }catch(err){ console.log('[OVERLAY] Error stopping recorder:', err) } 
+          }
           function placeToolbar(){
             if (locked) { tb.style.left=tbX+'px'; tb.style.top=tbY+'px'; tb.style.display='flex'; return }
             const x=Math.min(sx,ex), y=Math.min(sy,ey);
@@ -179,20 +191,35 @@ export async function selectRegion(_expectedMode?: 'screenshot' | 'stream'): Pro
           window.addEventListener('mousedown', onDown, true)
           window.addEventListener('mousemove', onMove, true)
           window.addEventListener('mouseup', onUp, true)
-          // After selection is confirmed, restore transparency
+          // After selection is confirmed, use getBoundingClientRect() like the working extension!
           function confirmRect(){
-            const x=Math.min(sx,ex),y=Math.min(sy,ey),w=Math.abs(ex-sx),h=Math.abs(ey-sy);
-            return {x:Math.round(x),y:Math.round(y),w:Math.round(w),h:Math.round(h)}
+            const boxRect = box.getBoundingClientRect();
+            return {x:Math.round(boxRect.left),y:Math.round(boxRect.top),w:Math.round(boxRect.width),h:Math.round(boxRect.height)}
           }
           btnShot.addEventListener('click',(e)=>{
             try{ e.preventDefault(); e.stopPropagation() }catch{}
             const r=confirmRect();
+            console.log('[OVERLAY selectRegion] BoundingRect:', r);
             ipcRenderer.send('overlay-cmd',{ action:'shot', rect:r, displayId: DISPLAY_ID, createTrigger: !!cbTrig.checked });
-            // Wire function in beginOverlay will close all overlays
+            // Close overlay immediately after screenshot is requested
+            try{ window.close() }catch{}
           })
-          btnStream.addEventListener('click',(e)=>{ try{ e.preventDefault(); e.stopPropagation() }catch{}; btnRec.style.display='inline-block'; btnStop.style.display='inline-block'; timer.style.display='inline-block'; timer.textContent='00:00'; tb.style.display='flex' })
-          btnRec.addEventListener('click', async (e)=>{ try{ e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation && e.stopImmediatePropagation() }catch{}; try{ tb.style.display='flex' }catch{}; await startRecording() })
-          btnStop.addEventListener('click',(e)=>{ try{ e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation && e.stopImmediatePropagation() }catch{}; stopRecording() })
+          btnStream.addEventListener('click', async (e)=>{ 
+            try{ e.preventDefault(); e.stopPropagation() }catch{}
+            btnStream.style.display='none';
+            btnShot.style.display='none';
+            btnStop.style.display='inline-block'; 
+            timer.style.display='inline-block'; 
+            timer.textContent='00:00'; 
+            tb.style.display='flex';
+            try{ startTimer() }catch{};
+            await startRecording();
+          })
+          btnStop.addEventListener('click',(e)=>{ 
+            try{ e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation && e.stopImmediatePropagation() }catch{}
+            ipcRenderer.send('overlay-log', '[OVERLAY selectRegion] Stop clicked, stopping recording');
+            stopRecording();
+          })
           try{ cbTrig.addEventListener('click', (e)=>{ try{ e.stopPropagation() }catch{} }) }catch{}
           // Allow main to close the overlay when done (after posting)
           try{ ipcRenderer.on('overlay-close', ()=>{ try{ window.close() }catch{} }) }catch{}
@@ -233,15 +260,8 @@ export function beginOverlay(_expectedMode?: 'screenshot' | 'stream'): void {
 
     function wire(win: BrowserWindow){
       win.webContents.on('ipc-message', (_e, channel, data) => {
-        if (channel === 'overlay-selection' && !finished) {
-          if (data?.cancel) { finished = true; closeAll() }
-        }
-        if (channel === 'overlay-cmd' && !finished) {
-          if (data?.action === 'shot' || data?.action === 'stream-post') {
-            finished = true
-            setTimeout(() => closeAll(), 100)
-          }
-        }
+        if (channel !== 'overlay-selection' || finished) return
+        if (data?.cancel) { finished = true; closeAll() }
       })
       win.on('close', () => { /* noop */ })
     }
@@ -290,12 +310,11 @@ export function beginOverlay(_expectedMode?: 'screenshot' | 'stream'): void {
         <div id="lay"></div>
         <div id="box"></div>
         <div id="tb" class="tb" role="toolbar" aria-label="Capture controls">
-          <button id="shot" class="btn primary" aria-label="Screenshot">Screenshot</button>
-          <button id="stream" class="btn stream" aria-label="Stream">Stream</button>
-          <button id="rec" class="btn danger" aria-label="Record" style="display:none">⏺</button>
-          <button id="stop" class="btn danger" aria-label="Stop" style="display:none">⏹</button>
+          <button id="shot" class="btn primary" aria-label="Screenshot">📸 Screenshot</button>
+          <button id="stream" class="btn stream" aria-label="Start Recording">🎥 Stream</button>
+          <button id="stop" class="btn danger" aria-label="Stop Recording" style="display:none">⬛ STOP</button>
           <label style="display:inline-flex;align-items:center;gap:6px;color:#fff;user-select:none"><input id="cbTrig" type="checkbox"/> <span>Create Tagged Trigger</span></label>
-          <button id="close" class="btn" aria-label="Close">×</button>
+          <button id="close" class="btn" aria-label="Close">✕</button>
         </div>
         <script>
           const DISPLAY_ID = ${d.id};
@@ -306,9 +325,7 @@ export function beginOverlay(_expectedMode?: 'screenshot' | 'stream'): void {
           const tb=document.getElementById('tb');
           const btnShot=document.getElementById('shot');
           const btnStream=document.getElementById('stream');
-          const btnRec=document.getElementById('rec');
           const btnStop=document.getElementById('stop');
-          try{ btnRec.innerHTML='<span class="icon rec">●</span>'; btnStop.innerHTML='<span class="icon stop">■</span>' }catch{}
           const btnClose=document.getElementById('close');
           const timer=document.createElement('span');
           timer.style.cssText='color:#e5e7eb;opacity:.9;font-variant-numeric:tabular-nums;display:none;align-self:center';
@@ -318,7 +335,7 @@ export function beginOverlay(_expectedMode?: 'screenshot' | 'stream'): void {
           const cbTrig=document.getElementById('cbTrig');
           // In-renderer recording (cropped to selected rect) so Stop can post immediately
           let recChunks=[]; let rec=null; let rafId=0; let srcStream=null; let videoEl=null; let cropCanvas=null; let cropCtx=null; let isRecording=false
-          function getRect(){ const x=Math.min(sx,ex),y=Math.min(sy,ey),w=Math.abs(ex-sx),h=Math.abs(ey-sy); const dpr=Math.max(1,(window.devicePixelRatio||1)); return { x: Math.round(x*dpr), y: Math.round(y*dpr), w: Math.round(w*dpr), h: Math.round(h*dpr) } }
+          function getRect(){ const boxRect = box.getBoundingClientRect(); const dpr=Math.max(1,(window.devicePixelRatio||1)); return { x: Math.round(boxRect.left*dpr), y: Math.round(boxRect.top*dpr), w: Math.round(boxRect.width*dpr), h: Math.round(boxRect.height*dpr) } }
           async function startRecording(){
             if (isRecording) return; isRecording=true; recChunks=[]
             const r = getRect()
@@ -349,7 +366,14 @@ export function beginOverlay(_expectedMode?: 'screenshot' | 'stream'): void {
               try{ startTimer() }catch{}
             }catch{ isRecording=false }
           }
-          function stopRecording(){ try{ (rec) && (rec).state!=='inactive' && (rec).stop() }catch{}; try{ if(rafId) cancelAnimationFrame(rafId) }catch{}; try{ (srcStream)?.getTracks?.().forEach((t)=> t.stop()) }catch{}; isRecording=false }
+          function stopRecording(){ 
+            // Only stop the MediaRecorder - let rec.onstop handle all cleanup
+            try{ 
+              if((rec) && (rec).state!=='inactive') {
+                (rec).stop();
+              }
+            }catch{} 
+          }
           function placeToolbar(){
             if (locked) { tb.style.left=tbX+'px'; tb.style.top=tbY+'px'; tb.style.display='flex'; return }
             const x=Math.min(sx,ex), y=Math.min(sy,ey);
@@ -366,11 +390,10 @@ export function beginOverlay(_expectedMode?: 'screenshot' | 'stream'): void {
           window.addEventListener('mousedown', onDown, true)
           window.addEventListener('mousemove', onMove, true)
           window.addEventListener('mouseup', onUp, true)
-          function confirmRect(){ const x=Math.min(sx,ex),y=Math.min(sy,ey),w=Math.abs(ex-sx),h=Math.abs(ey-sy); return {x:Math.round(x),y:Math.round(y),w:Math.round(w),h:Math.round(h)} }
-          btnShot.addEventListener('click',(e)=>{ try{ e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation && e.stopImmediatePropagation() }catch{}; if(locked){ tb.style.left=tbX+'px'; tb.style.top=tbY+'px' } const r=confirmRect(); const createTrig=!!cbTrig.checked; let triggerName=''; if(createTrig){ try{ triggerName = window.prompt('Trigger name?')||'' }catch{} } ipcRenderer.send('overlay-cmd',{ action:'shot', rect:r, displayId: DISPLAY_ID, createTrigger: createTrig, triggerName }) })
-          btnStream.addEventListener('click',(e)=>{ try{ e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation && e.stopImmediatePropagation() }catch{}; if(locked){ tb.style.left=tbX+'px'; tb.style.top=tbY+'px' } btnRec.style.display='inline-block'; btnStop.style.display='inline-block'; timer.style.display='inline-block'; timer.textContent='00:00'; tb.style.display='flex' })
-          btnRec.addEventListener('click',(e)=>{ try{ e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation && e.stopImmediatePropagation() }catch{}; if(locked){ tb.style.left=tbX+'px'; tb.style.top=tbY+'px' } const r=confirmRect(); const createTrig=!!cbTrig.checked; let triggerName=''; if(createTrig){ try{ triggerName = window.prompt('Trigger name?')||'' }catch{} } ipcRenderer.send('overlay-cmd',{ action:'stream-start', rect:r, displayId: DISPLAY_ID, createTrigger: createTrig, triggerName }); try{ startTimer(); tb.style.display='flex' }catch{} })
-          btnStop.addEventListener('click',(e)=>{ try{ e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation && e.stopImmediatePropagation() }catch{}; if(locked){ tb.style.left=tbX+'px'; tb.style.top=tbY+'px' } ipcRenderer.send('overlay-cmd',{ action:'stream-stop' }) })
+          function confirmRect(){ const boxRect = box.getBoundingClientRect(); return {x:Math.round(boxRect.left),y:Math.round(boxRect.top),w:Math.round(boxRect.width),h:Math.round(boxRect.height)} }
+          btnShot.addEventListener('click',(e)=>{ try{ e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation && e.stopImmediatePropagation() }catch{}; if(locked){ tb.style.left=tbX+'px'; tb.style.top=tbY+'px' } const r=confirmRect(); const createTrig=!!cbTrig.checked; let triggerName=''; if(createTrig){ try{ triggerName = window.prompt('Trigger name?')||'' }catch{} } ipcRenderer.send('overlay-cmd',{ action:'shot', rect:r, displayId: DISPLAY_ID, createTrigger: createTrig, triggerName }); try{ window.close() }catch{} })
+          btnStream.addEventListener('click', async (e)=>{ try{ e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation && e.stopImmediatePropagation() }catch{}; if(locked){ tb.style.left=tbX+'px'; tb.style.top=tbY+'px' } console.log('[OVERLAY beginOverlay] Stream clicked'); btnStream.style.display='none'; btnShot.style.display='none'; btnStop.style.display='inline-block'; timer.style.display='inline-block'; timer.textContent='00:00'; tb.style.display='flex'; try{ startTimer() }catch{}; await startRecording() })
+          btnStop.addEventListener('click',(e)=>{ try{ e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation && e.stopImmediatePropagation() }catch{}; if(locked){ tb.style.left=tbX+'px'; tb.style.top=tbY+'px' } stopRecording() })
           try{ ipcRenderer.on('overlay-close', ()=>{ try{ window.close() }catch{} }) }catch{}
           let t0=0, tid=null; function startTimer(){ try{ t0=Date.now(); if(tid){clearInterval(tid)}; tid=setInterval(()=>{ try{ const s=Math.max(0, Math.floor((Date.now()-t0)/1000)); const m=String(Math.floor(s/60)).padStart(2,'0'); const ss=String(s%60).padStart(2,'0'); timer.textContent=m+':'+ss }catch{} }, 1000) }catch{} }
           lay.addEventListener('pointerdown', (e)=>{ try{ e.preventDefault(); e.stopPropagation(); lay.setPointerCapture(e.pointerId) }catch{}; onDown(e) }, true)

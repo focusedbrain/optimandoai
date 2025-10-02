@@ -1,9 +1,10 @@
 import { app, BrowserWindow, globalShortcut, Tray, Menu, Notification } from 'electron'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
+import { WebSocketServer } from 'ws'
 // WS bridge removed to avoid port conflicts; extension fallback/deep-link is used
 import { registerHandler, LmgtfyChannels, emitCapture } from './lmgtfy/ipc'
-import { selectRegion, beginOverlay } from './lmgtfy/overlay'
+import { beginOverlay } from './lmgtfy/overlay'
 import { captureScreenshot, startRegionStream } from './lmgtfy/capture'
 import { loadPresets, upsertRegion } from './lmgtfy/presets'
 
@@ -91,11 +92,27 @@ async function createWindow() {
   let activeStop: null | (() => Promise<string>) = null
   registerHandler(LmgtfyChannels.GetPresets, () => loadPresets())
   registerHandler(LmgtfyChannels.SavePreset, async (_e, payload) => upsertRegion(payload))
+  
   // Overlay direct IPC (renderer->main) to drive capture + posting
   try {
     const { ipcMain } = await import('electron')
+    ipcMain.on('overlay-log', (_e, msg: string) => {
+      console.log(msg)
+    })
+    // Handle overlay cancel (X button or Escape key)
+    ipcMain.on('overlay-selection', (_e, msg: any) => {
+      try {
+        if (msg && msg.cancel) {
+          // Just close the overlay without posting anything
+          console.log('[MAIN] Overlay cancelled by user')
+          try { win?.webContents.send('overlay-close') } catch {}
+        }
+      } catch {}
+    })
     ipcMain.on('overlay-cmd', async (_e, msg: any) => {
       try {
+        console.log('[MAIN] Overlay command received:', msg?.action)
+        
         if (!msg || !msg.action) return
         if (msg.action === 'shot') {
           const rect = msg.rect || { x:0,y:0,w:0,h:0 }
@@ -158,26 +175,14 @@ async function createWindow() {
       } catch {}
     })
   } catch {}
+  // Old IPC handlers (now using simple overlay for screenshots)
   registerHandler(LmgtfyChannels.SelectScreenshot, async () => {
-    const sel = await selectRegion('screenshot')
-    if (!sel || !win) return null
-    const { filePath, thumbnailPath } = await captureScreenshot(sel)
-    await postScreenshotToPopup(filePath, sel)
-    return { filePath, thumbnailPath }
+    // Using simple overlay now via WebSocket START_SELECTION
+    return null
   })
   registerHandler(LmgtfyChannels.SelectStream, async () => {
-    const sel = await selectRegion('stream')
-    if (!sel || !win) return null
-    const controller = await startRegionStream(sel)
-    activeStop = controller.stop
-    emitCapture(win, {
-      event: LmgtfyChannels.OnCaptureEvent,
-      mode: 'stream',
-      filePath: '',
-      thumbnailPath: '',
-      meta: { x: sel.x, y: sel.y, w: sel.w, h: sel.h, dpr: sel.dpr, displayId: sel.displayId },
-    })
-    return { ok: true }
+    // Using simple overlay now via WebSocket START_SELECTION
+    return null
   })
   registerHandler(LmgtfyChannels.StopStream, async () => {
     if (!activeStop || !win) return null
@@ -294,10 +299,12 @@ app.whenReady().then(async () => {
   createTray()
   // WS bridge for extension (127.0.0.1:51247) with safe startup
   try {
-    const mod = await import('ws').catch(() => null)
-    const WebSocketServer = (mod && (mod as any).WebSocketServer) || null
+    console.log('[MAIN] ===== ATTEMPTING TO START WEBSOCKET SERVER =====')
+    console.log('[MAIN] WebSocketServer available:', !!WebSocketServer)
     if (WebSocketServer) {
+      console.log('[MAIN] Creating WebSocket server on 127.0.0.1:51247')
       const wss = new WebSocketServer({ host: '127.0.0.1', port: 51247 })
+      console.log('[MAIN] WebSocket server created!')
       wss.on('error', (err: any) => {
         try {
           const msg = String((err && (err.code || err.message)) || '')
@@ -305,17 +312,25 @@ app.whenReady().then(async () => {
         } catch {}
       })
       wss.on('connection', (socket: any) => {
+        console.log('[MAIN] ===== NEW WEBSOCKET CONNECTION =====')
         try { wsClients.push(socket) } catch {}
-        socket.on('close', () => { try { wsClients = wsClients.filter(s => s !== socket) } catch {} })
+        socket.on('close', () => { console.log('[MAIN] WebSocket connection closed'); try { wsClients = wsClients.filter(s => s !== socket) } catch {} })
         socket.on('message', async (raw: any) => {
           try {
             const msg = JSON.parse(String(raw))
+            console.log('[MAIN] WebSocket message received:', msg)
             if (!msg || !msg.type) return
-            if (msg.type === 'ping') { try { socket.send(JSON.stringify({ type: 'pong' })) } catch {} }
+            if (msg.type === 'ping') { console.log('[MAIN] Ping received, sending pong'); try { socket.send(JSON.stringify({ type: 'pong' })) } catch {} }
             if (msg.type === 'START_SELECTION') {
-              const mode = msg.mode === 'stream' ? 'stream' : 'screenshot'
-              // Open interactive overlay that mirrors extension UX; overlay drives posting via IPC
-              beginOverlay(mode)
+              // Open full-featured overlay with all controls
+              console.log('[MAIN] ===== RECEIVED START_SELECTION, LAUNCHING FULL OVERLAY =====')
+              try {
+                const fs = require('fs')
+                const path = require('path')
+                const os = require('os')
+                fs.appendFileSync(path.join(os.homedir(), '.opengiraffe', 'main-debug.log'), '\n[MAIN] START_SELECTION received at ' + new Date().toISOString() + '\n')
+              } catch {}
+              beginOverlay()
             }
           } catch {}
         })
