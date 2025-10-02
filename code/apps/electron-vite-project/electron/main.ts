@@ -135,7 +135,8 @@ async function createWindow() {
           try {
             if (msg.createTrigger && typeof msg.triggerName === 'string' && msg.triggerName.trim()) {
               upsertRegion({ id: undefined, name: String(msg.triggerName).trim(), displayId, x: rect.x, y: rect.y, w: rect.w, h: rect.h, mode: 'screenshot', headless: true })
-              // notify extension to refresh dropdown
+              // notify extension and update tray menu
+              try { updateTrayMenu() } catch {}
               try { const { webContents } = await import('electron'); webContents.getAllWebContents().forEach(c=>{ try{ c.send('TRIGGERS_UPDATED') }catch{} }) } catch {}
               try { wsClients.forEach(c=>{ try { c.send(JSON.stringify({ type: 'TRIGGERS_UPDATED' })) } catch {} }) } catch {}
             }
@@ -174,6 +175,8 @@ async function createWindow() {
             try {
               if (msg.createTrigger && typeof msg.triggerName === 'string' && msg.triggerName.trim()) {
                 upsertRegion({ id: undefined, name: String(msg.triggerName).trim(), displayId, x: rect.x, y: rect.y, w: rect.w, h: rect.h, mode: 'stream', headless: false })
+                // Update tray menu with new trigger
+                try { updateTrayMenu() } catch {}
                 try { const { webContents } = await import('electron'); webContents.getAllWebContents().forEach(c=>{ try{ c.send('TRIGGERS_UPDATED') }catch{} }) } catch {}
                 try { wsClients.forEach(c=>{ try { c.send(JSON.stringify({ type: 'TRIGGERS_UPDATED' })) } catch {} }) } catch {}
               }
@@ -216,20 +219,30 @@ async function createWindow() {
     await postStreamToPopup(out)
     return { filePath: out }
   })
+  // Execute saved trigger (headless for screenshots, visible for streams)
   registerHandler(LmgtfyChannels.CapturePreset, async (_e, payload: { mode: 'screenshot'|'stream', rect: { x:number,y:number,w:number,h:number }, displayId?: number }) => {
     if (!win) return null
-    // Bypass interactive selector; directly emit capture or stream marker
-    if (payload.mode === 'screenshot') {
+    try {
       const sel = { displayId: payload.displayId ?? 0, x: payload.rect.x, y: payload.rect.y, w: payload.rect.w, h: payload.rect.h, dpr: 1 }
-      const { filePath, thumbnailPath } = await captureScreenshot(sel as any)
-      emitCapture(win, { event: LmgtfyChannels.OnCaptureEvent, mode: 'screenshot', filePath, thumbnailPath, meta: { x: sel.x, y: sel.y, w: sel.w, h: sel.h, dpr: sel.dpr, displayId: sel.displayId } })
-      return { filePath, thumbnailPath }
-    } else {
-      const sel = { displayId: payload.displayId ?? 0, x: payload.rect.x, y: payload.rect.y, w: payload.rect.w, h: payload.rect.h, dpr: 1 }
-      const controller = await startRegionStream(sel as any)
-      activeStop = controller.stop
-      emitCapture(win, { event: LmgtfyChannels.OnCaptureEvent, mode: 'stream', filePath: '', thumbnailPath: '', meta: { x: sel.x, y: sel.y, w: sel.w, h: sel.h, dpr: sel.dpr, displayId: sel.displayId } })
-      return { ok: true }
+      
+      if (payload.mode === 'screenshot') {
+        // Screenshot triggers are HEADLESS - capture directly and post to command chat
+        console.log('[MAIN] Executing headless screenshot trigger:', sel)
+        const { filePath, thumbnailPath } = await captureScreenshot(sel as any)
+        await postScreenshotToPopup(filePath, { x: sel.x, y: sel.y, w: sel.w, h: sel.h, dpr: 1 })
+        emitCapture(win, { event: LmgtfyChannels.OnCaptureEvent, mode: 'screenshot', filePath, thumbnailPath, meta: { x: sel.x, y: sel.y, w: sel.w, h: sel.h, dpr: sel.dpr, displayId: sel.displayId } })
+        return { filePath, thumbnailPath }
+      } else {
+        // Stream triggers are VISIBLE - start recording with UI
+        console.log('[MAIN] Executing visible stream trigger:', sel)
+        const controller = await startRegionStream(sel as any)
+        activeStop = controller.stop
+        emitCapture(win, { event: LmgtfyChannels.OnCaptureEvent, mode: 'stream', filePath: '', thumbnailPath: '', meta: { x: sel.x, y: sel.y, w: sel.w, h: sel.h, dpr: sel.dpr, displayId: sel.displayId } })
+        return { ok: true }
+      }
+    } catch (err) {
+      console.log('[MAIN] Error executing trigger:', err)
+      return { error: String(err) }
     }
   })
 
@@ -246,23 +259,77 @@ async function createWindow() {
 function createTray() {
   try {
     tray = new Tray(path.join(process.env.VITE_PUBLIC, 'electron-vite.svg'))
-    const menu = Menu.buildFromTemplate([
-      { label: 'Show', click: () => { if (!win) return; win.show(); win.focus() } },
-      { type: 'separator' },
-      { label: 'Screenshot (Alt+Shift+S)', click: () => win?.webContents.send('hotkey', 'screenshot') },
-      { label: 'Stream (Alt+Shift+V)', click: () => win?.webContents.send('hotkey', 'stream') },
-      { label: 'Stop Stream (Alt+0)', click: () => win?.webContents.send('hotkey', 'stop') },
-      { type: 'separator' },
-      { label: 'Quit', role: 'quit' },
-    ])
+    updateTrayMenu()
     tray.setToolTip('OpenGiraffe Orchestrator')
-    tray.setContextMenu(menu)
     tray.on('click', () => { if (!win) return; if (win.isVisible()) win.focus(); else win.show() })
     // Startup toast
     try {
       new Notification({ title: 'OpenGiraffe Orchestrator', body: 'Running in background. Use Alt+Shift+S or chat icons to capture.' }).show()
     } catch {}
   } catch {}
+}
+
+function updateTrayMenu() {
+  if (!tray) return
+  try {
+    const presets = loadPresets()
+    const triggerMenuItems: Electron.MenuItemConstructorOptions[] = []
+    
+    if (presets.regions && presets.regions.length > 0) {
+      presets.regions.forEach((trigger) => {
+        const icon = trigger.mode === 'screenshot' ? '📸' : '🎥'
+        triggerMenuItems.push({
+          label: `${icon} ${trigger.name}`,
+          click: async () => {
+            if (!win) return
+            const payload = {
+              mode: trigger.mode,
+              rect: { x: trigger.x, y: trigger.y, w: trigger.w, h: trigger.h },
+              displayId: trigger.displayId
+            }
+            // Execute trigger directly
+            try {
+              const sel = { displayId: trigger.displayId ?? 0, x: trigger.x, y: trigger.y, w: trigger.w, h: trigger.h, dpr: 1 }
+              if (trigger.mode === 'screenshot') {
+                console.log('[TRAY] Executing screenshot trigger:', trigger.name)
+                const { filePath, thumbnailPath } = await captureScreenshot(sel as any)
+                await postScreenshotToPopup(filePath, { x: sel.x, y: sel.y, w: sel.w, h: sel.h, dpr: 1 })
+              } else if (trigger.mode === 'stream') {
+                console.log('[TRAY] Executing stream trigger:', trigger.name)
+                win.webContents.send('lmgtfy.capture', {
+                  event: LmgtfyChannels.OnCaptureEvent,
+                  mode: 'stream',
+                  filePath: '',
+                  thumbnailPath: '',
+                  meta: { x: sel.x, y: sel.y, w: sel.w, h: sel.h, dpr: 1, displayId: sel.displayId }
+                })
+              }
+            } catch (err) {
+              console.log('[TRAY] Error executing trigger:', err)
+            }
+          }
+        })
+      })
+    }
+    
+    const menu = Menu.buildFromTemplate([
+      { label: 'Show', click: () => { if (!win) return; win.show(); win.focus() } },
+      { type: 'separator' },
+      { label: 'Screenshot (Alt+Shift+S)', click: () => win?.webContents.send('hotkey', 'screenshot') },
+      { label: 'Stream (Alt+Shift+V)', click: () => win?.webContents.send('hotkey', 'stream') },
+      { label: 'Stop Stream (Alt+0)', click: () => win?.webContents.send('hotkey', 'stop') },
+      ...(triggerMenuItems.length > 0 ? [
+        { type: 'separator' as const },
+        { label: '📌 Saved Triggers', enabled: false },
+        ...triggerMenuItems,
+      ] : []),
+      { type: 'separator' },
+      { label: 'Quit', role: 'quit' as const },
+    ])
+    tray.setContextMenu(menu)
+  } catch (err) {
+    console.log('[TRAY] Error updating menu:', err)
+  }
 }
 
 // Quit when all windows are closed, except on macOS. There, it's common
