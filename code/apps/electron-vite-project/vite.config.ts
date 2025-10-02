@@ -11,6 +11,13 @@ export default defineConfig({
       main: {
         // Shortcut of `build.lib.entry`.
         entry: 'electron/main.ts',
+        vite: {
+          build: {
+            rollupOptions: {
+              external: ['ws', 'bufferutil', 'utf-8-validate', 'fluent-ffmpeg', 'ffmpeg-static']
+            }
+          }
+        }
       },
       preload: {
         // Shortcut of `build.rollupOptions.input`.
