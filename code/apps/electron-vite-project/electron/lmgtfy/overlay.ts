@@ -305,7 +305,8 @@ export function beginOverlay(_expectedMode?: 'screenshot' | 'stream'): void {
           contextIsolation: false, 
           backgroundThrottling: false,
           webSecurity: false,
-          allowRunningInsecureContent: true
+          allowRunningInsecureContent: true,
+          enableBlinkFeatures: 'GetUserMedia'
         }
       })
       overlays.push(overlay)
@@ -356,78 +357,6 @@ export function beginOverlay(_expectedMode?: 'screenshot' | 'stream'): void {
           timer.textContent='00:00';
           try { tb.insertBefore(timer, btnStop.nextSibling) } catch { try { tb.insertBefore(timer, btnClose) } catch {} }
           const cbTrig=document.getElementById('cbTrig');
-          // In-renderer recording (cropped to selected rect) so Stop can post immediately
-          let recChunks=[]; let rec=null; let rafId=0; let srcStream=null; let videoEl=null; let cropCanvas=null; let cropCtx=null; let isRecording=false
-          function getRect(){ const boxRect = box.getBoundingClientRect(); const dpr=Math.max(1,(window.devicePixelRatio||1)); return { x: Math.round(boxRect.left*dpr), y: Math.round(boxRect.top*dpr), w: Math.round(boxRect.width*dpr), h: Math.round(boxRect.height*dpr) } }
-          async function startRecording(){
-            ipcRenderer.send('overlay-log', '[OVERLAY beginOverlay] startRecording called, isRecording: ' + isRecording);
-            if (isRecording) return; isRecording=true; recChunks=[]
-            const r = getRect()
-            ipcRenderer.send('overlay-log', '[OVERLAY beginOverlay] Recording rect: ' + JSON.stringify(r));
-            try{
-              ipcRenderer.send('overlay-log', '[OVERLAY beginOverlay] Getting desktop sources via IPC...');
-              const sources = await ipcRenderer.invoke('get-desktop-sources', { types:['screen'], thumbnailSize:{width:1,height:1} })
-              ipcRenderer.send('overlay-log', '[OVERLAY beginOverlay] Got ' + sources.length + ' sources');
-              let src = sources.find((s)=> String((s).display_id||(s).id) === String(DISPLAY_ID)) || null
-              if (!src) src = sources[0]
-              ipcRenderer.send('overlay-log', '[OVERLAY beginOverlay] Using source: ' + (src ? src.name : 'null'));
-              ipcRenderer.send('overlay-log', '[OVERLAY beginOverlay] Requesting getUserMedia...');
-              const stream = await (navigator.mediaDevices).getUserMedia({ audio:false, video:{ mandatory:{ chromeMediaSource:'desktop', chromeMediaSourceId: (src).id } } })
-              ipcRenderer.send('overlay-log', '[OVERLAY beginOverlay] Got stream successfully');
-              srcStream = stream
-              videoEl = document.createElement('video'); (videoEl).muted=true; (videoEl).srcObject=stream; await (videoEl).play()
-              cropCanvas = document.createElement('canvas'); (cropCanvas).width=Math.max(2,r.w); (cropCanvas).height=Math.max(2,r.h)
-              cropCtx = (cropCanvas).getContext('2d')
-              const draw=()=>{ try{ cropCtx.drawImage(videoEl, r.x, r.y, r.w, r.h, 0, 0, (cropCanvas).width, (cropCanvas).height) }catch{}; rafId=requestAnimationFrame(draw) }
-              rafId=requestAnimationFrame(draw)
-              const outStream = (cropCanvas).captureStream(30)
-              const opts = { mimeType: 'video/webm;codecs=vp9' }
-              rec = new (window).MediaRecorder(outStream, opts)
-              ;(rec).ondataavailable=(e)=>{ if(e && e.data && e.data.size) recChunks.push(e.data) }
-              ;(rec).onstop=async ()=>{
-                ipcRenderer.send('overlay-log', '[OVERLAY beginOverlay] === rec.onstop TRIGGERED ===');
-                ipcRenderer.send('overlay-log', '[OVERLAY beginOverlay] recChunks length: ' + recChunks.length);
-                try{ cancelAnimationFrame(rafId) }catch{}; rafId=0
-                try{ (srcStream)?.getTracks?.().forEach((t)=> t.stop()) }catch{}
-                try{ (videoEl)?.remove?.() }catch{}
-                let dataUrl=''; 
-                try{ 
-                  const blob = new Blob(recChunks, { type: 'video/webm' }); 
-                  ipcRenderer.send('overlay-log', '[OVERLAY beginOverlay] Blob size: ' + blob.size + ' bytes');
-                  const fr = new FileReader(); 
-                  dataUrl = await new Promise((resolve)=>{ fr.onload=()=>resolve(String(fr.result||'')); fr.readAsDataURL(blob) }) 
-                  ipcRenderer.send('overlay-log', '[OVERLAY beginOverlay] DataURL length: ' + dataUrl.length);
-                }catch(err){ 
-                  ipcRenderer.send('overlay-log', '[OVERLAY beginOverlay] Error creating dataURL: ' + String(err));
-                }
-                ipcRenderer.send('overlay-log', '[OVERLAY beginOverlay] Sending stream-post to main');
-                ipcRenderer.send('overlay-cmd', { action:'stream-post', dataUrl })
-                isRecording=false
-              }
-              ;(rec).start(250)
-              ipcRenderer.send('overlay-log', '[OVERLAY beginOverlay] Recording started successfully!');
-              try{ startTimer() }catch{}
-            }catch(err){ 
-              ipcRenderer.send('overlay-log', '[OVERLAY beginOverlay] === RECORDING FAILED ===');
-              ipcRenderer.send('overlay-log', '[OVERLAY beginOverlay] Error: ' + String(err));
-              isRecording=false 
-            }
-          }
-          function stopRecording(){ 
-            // Only stop the MediaRecorder - let rec.onstop handle all cleanup
-            ipcRenderer.send('overlay-log', '[OVERLAY beginOverlay] stopRecording called, rec state: ' + (rec ? rec.state : 'null'));
-            try{ 
-              if((rec) && (rec).state!=='inactive') {
-                ipcRenderer.send('overlay-log', '[OVERLAY beginOverlay] Calling rec.stop()');
-                (rec).stop();
-                ipcRenderer.send('overlay-log', '[OVERLAY beginOverlay] rec.stop() called successfully');
-              } else {
-                ipcRenderer.send('overlay-log', '[OVERLAY beginOverlay] rec is null or inactive, cannot stop');
-              }
-            }catch(err){ 
-              ipcRenderer.send('overlay-log', '[OVERLAY beginOverlay] Error in stopRecording: ' + String(err));
-            } 
-          }
           function placeToolbar(){
             if (locked) { tb.style.left=tbX+'px'; tb.style.top=tbY+'px'; tb.style.display='flex'; return }
             const x=Math.min(sx,ex), y=Math.min(sy,ey);
@@ -446,16 +375,16 @@ export function beginOverlay(_expectedMode?: 'screenshot' | 'stream'): void {
           window.addEventListener('mouseup', onUp, true)
           function confirmRect(){ const boxRect = box.getBoundingClientRect(); return {x:Math.round(boxRect.left),y:Math.round(boxRect.top),w:Math.round(boxRect.width),h:Math.round(boxRect.height)} }
           btnShot.addEventListener('click',(e)=>{ try{ e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation && e.stopImmediatePropagation() }catch{}; if(locked){ tb.style.left=tbX+'px'; tb.style.top=tbY+'px' } const r=confirmRect(); const createTrig=!!cbTrig.checked; let triggerName=''; if(createTrig){ try{ triggerName = window.prompt('Trigger name?')||'' }catch{} } ipcRenderer.send('overlay-cmd',{ action:'shot', rect:r, displayId: DISPLAY_ID, createTrigger: createTrig, triggerName, closeOverlay: true }) })
-          btnStream.addEventListener('click', (e)=>{ 
-            try{ e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation && e.stopImmediatePropagation() }catch{}
+          btnStream.addEventListener('click',(e)=>{ 
+            try{ e.preventDefault(); e.stopPropagation() }catch{}
             if(locked){ tb.style.left=tbX+'px'; tb.style.top=tbY+'px' }
             const r=confirmRect()
             const createTrig=!!cbTrig.checked
             let triggerName=''
             if(createTrig){ try{ triggerName = window.prompt('Trigger name?')||'' }catch{} }
-            // Send stream-start to main process
+            // Send stream-start command to main process (main handles ALL recording)
             ipcRenderer.send('overlay-cmd',{ action:'stream-start', rect:r, displayId: DISPLAY_ID, createTrigger: createTrig, triggerName })
-            // Hide stream/shot buttons, show stop button and timer
+            // Update UI
             btnStream.style.display='none'
             btnShot.style.display='none'
             btnStop.style.display='inline-block'
@@ -465,9 +394,9 @@ export function beginOverlay(_expectedMode?: 'screenshot' | 'stream'): void {
             try{ startTimer() }catch{}
           })
           btnStop.addEventListener('click',(e)=>{ 
-            try{ e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation && e.stopImmediatePropagation() }catch{}; 
+            try{ e.preventDefault(); e.stopPropagation() }catch{}
             if(locked){ tb.style.left=tbX+'px'; tb.style.top=tbY+'px' }
-            // Send stream-stop to main process (main will handle stopping, posting, and closing overlay)
+            // Send stream-stop command to main process (main will stop, post video, and close overlay)
             ipcRenderer.send('overlay-cmd',{ action:'stream-stop' })
           })
           try{ ipcRenderer.on('overlay-close', ()=>{ try{ window.close() }catch{} }) }catch{}
