@@ -4,7 +4,7 @@ import path from 'node:path'
 import { WebSocketServer } from 'ws'
 // WS bridge removed to avoid port conflicts; extension fallback/deep-link is used
 import { registerHandler, LmgtfyChannels, emitCapture } from './lmgtfy/ipc'
-import { beginOverlay } from './lmgtfy/overlay'
+import { beginOverlay, closeAllOverlays } from './lmgtfy/overlay'
 import { captureScreenshot, startRegionStream } from './lmgtfy/capture'
 import { loadPresets, upsertRegion } from './lmgtfy/presets'
 
@@ -99,6 +99,17 @@ async function createWindow() {
     ipcMain.on('overlay-log', (_e, msg: string) => {
       console.log(msg)
     })
+    // Handle request for desktop sources (for video recording)
+    ipcMain.handle('get-desktop-sources', async (_e, opts: any) => {
+      try {
+        const { desktopCapturer } = await import('electron')
+        const sources = await desktopCapturer.getSources(opts)
+        return sources.map(s => ({ id: s.id, name: s.name, display_id: s.display_id }))
+      } catch (err) {
+        console.log('[MAIN] Error getting desktop sources:', err)
+        return []
+      }
+    })
     // Handle overlay cancel (X button or Escape key)
     ipcMain.on('overlay-selection', (_e, msg: any) => {
       try {
@@ -129,8 +140,10 @@ async function createWindow() {
               try { wsClients.forEach(c=>{ try { c.send(JSON.stringify({ type: 'TRIGGERS_UPDATED' })) } catch {} }) } catch {}
             }
           } catch {}
-          // Close overlay only after successful posting is enqueued
-          try { win?.webContents.send('overlay-close') } catch {}
+          // Close all overlay windows if requested
+          if (msg.closeOverlay) {
+            try { closeAllOverlays() } catch {}
+          }
           return
         }
         if (msg.action === 'stream-post') {
@@ -142,34 +155,46 @@ async function createWindow() {
             } catch {}
             try { const { webContents } = await import('electron'); webContents.getAllWebContents().forEach(c=>{ try{ c.send('COMMAND_POPUP_APPEND',{ kind:'video', url: dataUrl }) }catch{} }) } catch {}
           }
-          // Close overlay only after posting is sent
-          try { win?.webContents.send('overlay-close') } catch {}
+          // Close all overlay windows after video is posted
+          try { closeAllOverlays() } catch {}
           return
         }
         if (msg.action === 'stream-start') {
+          console.log('[MAIN] Starting stream recording...')
           const rect = msg.rect || { x:0,y:0,w:0,h:0 }
           const displayId = Number(msg.displayId)||0
           const sel = { displayId, x: rect.x, y: rect.y, w: rect.w, h: rect.h, dpr: 1 }
-          const controller = await startRegionStream(sel as any)
-          activeStop = controller.stop
-          // Keep overlay visible during recording; notify UI
-          emitCapture(win!, { event: LmgtfyChannels.OnCaptureEvent, mode: 'stream', filePath: '', thumbnailPath: '', meta: { x: sel.x, y: sel.y, w: sel.w, h: sel.h, dpr: 1, displayId } })
-          // Optionally save tagged trigger (non-headless stream)
           try {
-            if (msg.createTrigger && typeof msg.triggerName === 'string' && msg.triggerName.trim()) {
-              upsertRegion({ id: undefined, name: String(msg.triggerName).trim(), displayId, x: rect.x, y: rect.y, w: rect.w, h: rect.h, mode: 'stream', headless: false })
-              try { const { webContents } = await import('electron'); webContents.getAllWebContents().forEach(c=>{ try{ c.send('TRIGGERS_UPDATED') }catch{} }) } catch {}
-              try { wsClients.forEach(c=>{ try { c.send(JSON.stringify({ type: 'TRIGGERS_UPDATED' })) } catch {} }) } catch {}
-            }
-          } catch {}
+            const controller = await startRegionStream(sel as any)
+            activeStop = controller.stop
+            console.log('[MAIN] Stream recording started successfully')
+            // Keep overlay visible during recording; notify UI
+            emitCapture(win!, { event: LmgtfyChannels.OnCaptureEvent, mode: 'stream', filePath: '', thumbnailPath: '', meta: { x: sel.x, y: sel.y, w: sel.w, h: sel.h, dpr: 1, displayId } })
+            // Optionally save tagged trigger (non-headless stream)
+            try {
+              if (msg.createTrigger && typeof msg.triggerName === 'string' && msg.triggerName.trim()) {
+                upsertRegion({ id: undefined, name: String(msg.triggerName).trim(), displayId, x: rect.x, y: rect.y, w: rect.w, h: rect.h, mode: 'stream', headless: false })
+                try { const { webContents } = await import('electron'); webContents.getAllWebContents().forEach(c=>{ try{ c.send('TRIGGERS_UPDATED') }catch{} }) } catch {}
+                try { wsClients.forEach(c=>{ try { c.send(JSON.stringify({ type: 'TRIGGERS_UPDATED' })) } catch {} }) } catch {}
+              }
+            } catch {}
+          } catch (err) {
+            console.log('[MAIN] Error starting stream:', err)
+          }
           return
         }
         if (msg.action === 'stream-stop') {
-          if (!activeStop) return
+          console.log('[MAIN] Stopping stream recording...')
+          if (!activeStop) {
+            console.log('[MAIN] No active recording to stop')
+            return
+          }
           const out = await activeStop()
           activeStop = null
+          console.log('[MAIN] Stream stopped, posting video...')
           await postStreamToPopup(out)
-          try { win?.webContents.send('overlay-close') } catch {}
+          console.log('[MAIN] Video posted, closing overlays...')
+          try { closeAllOverlays() } catch {}
           return
         }
       } catch {}
