@@ -10174,34 +10174,102 @@ ${pageText}
         bucket.style.cursor = 'pointer'
         headerTools.appendChild(bucket)
         // Tags dropdown next to pencil for quick re-use of saved areas
-        const ddWrap = document.createElement('div'); ddWrap.style.position='relative'
-        const dd = document.createElement('select') as HTMLSelectElement
-        dd.id = 'ccf-tags'
-        dd.style.cssText = 'appearance:none;background:'+ (theme==='professional'?'#e2e8f0':'rgba(255,255,255,0.08)') +'; border:1px solid '+br+'; color:'+fg+'; border-radius:6px; padding:2px 22px 2px 6px; font-size:12px; cursor:pointer;'
-        const caret = document.createElement('span'); caret.textContent='▾'; caret.style.cssText='position:absolute; right:6px; top:2px; font-size:12px; color:'+fg
-        const opt0 = document.createElement('option'); opt0.value=''; opt0.textContent='Tags'; dd.appendChild(opt0)
+        const ddWrap = document.createElement('div'); ddWrap.style.cssText = 'position:relative;'
+        const ddBtn = document.createElement('button')
+        ddBtn.id = 'ccf-tags-btn'
+        ddBtn.textContent = '▾ Tags'
+        ddBtn.style.cssText = 'background:'+ (theme==='professional'?'#e2e8f0':'rgba(255,255,255,0.08)') +'; border:1px solid '+br+'; color:'+fg+'; border-radius:6px; padding:2px 8px; font-size:12px; cursor:pointer;'
+        
+        const ddDropdown = document.createElement('div')
+        ddDropdown.id = 'ccf-tags-dropdown'
+        ddDropdown.style.cssText = 'display:none;position:absolute;top:100%;left:0;min-width:200px;max-height:300px;overflow-y:auto;background:'+ (theme==='professional'?'#ffffff':'rgba(17,24,39,0.95)') +';border:1px solid '+br+';border-radius:6px;margin-top:4px;box-shadow:0 4px 12px rgba(0,0,0,0.3);z-index:1000;'
+        
+        let isDropdownOpen = false
+        
         function refreshDD(){
           try{
             const key='optimando-tagged-triggers'
             chrome.storage?.local?.get([key], (data:any)=>{
               try{
                 const list = Array.isArray(data?.[key]) ? data[key] : []
-                while (dd.options.length>1) dd.remove(1)
-                list.forEach((t:any,i:number)=>{ const o=document.createElement('option'); o.value=String(i); o.textContent=t.name||('Trigger '+(i+1)); dd.appendChild(o) })
+                ddDropdown.innerHTML = ''
+                
+                if (list.length === 0) {
+                  const empty = document.createElement('div')
+                  empty.style.cssText = 'padding:8px 12px;font-size:11px;color:'+fg+';opacity:0.6;text-align:center;'
+                  empty.textContent = 'No saved triggers'
+                  ddDropdown.appendChild(empty)
+                  return
+                }
+                
+                list.forEach((t:any,i:number)=>{
+                  const item = document.createElement('div')
+                  item.style.cssText = 'display:flex;align-items:center;justify-content:space-between;padding:6px 8px;font-size:11px;cursor:pointer;border-bottom:1px solid '+br+';'
+                  item.addEventListener('mouseenter', () => item.style.background = 'rgba(255,255,255,0.1)')
+                  item.addEventListener('mouseleave', () => item.style.background = 'transparent')
+                  
+                  const name = document.createElement('span')
+                  name.textContent = t.name||('Trigger '+(i+1))
+                  name.style.cssText = 'flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;'
+                  
+                  const deleteBtn = document.createElement('button')
+                  deleteBtn.textContent = '×'
+                  deleteBtn.style.cssText = 'width:20px;height:20px;border:none;background:rgba(239,68,68,0.2);color:#ef4444;border-radius:4px;cursor:pointer;font-size:16px;line-height:1;padding:0;margin-left:8px;flex-shrink:0;'
+                  deleteBtn.addEventListener('mouseenter', () => deleteBtn.style.background = 'rgba(239,68,68,0.4)')
+                  deleteBtn.addEventListener('mouseleave', () => deleteBtn.style.background = 'rgba(239,68,68,0.2)')
+                  deleteBtn.onclick = (e) => {
+                    e.stopPropagation()
+                    if (confirm(`Delete trigger "${t.name||('Trigger '+(i+1))}"?`)) {
+                      const key='optimando-tagged-triggers'
+                      chrome.storage?.local?.get([key], (data:any)=>{
+                        const list = Array.isArray(data?.[key]) ? data[key] : []
+                        list.splice(i, 1)
+                        chrome.storage?.local?.set({ [key]: list }, ()=>{
+                          refreshDD()
+                          try{ chrome.runtime?.sendMessage({ type:'TRIGGERS_UPDATED' }) }catch{}
+                          try{ window.dispatchEvent(new CustomEvent('optimando-triggers-updated')) }catch{}
+                        })
+                      })
+                    }
+                  }
+                  
+                  const triggerData = t
+                  const triggerIndex = i
+                  item.onclick = async () => {
+                    isDropdownOpen = false
+                    ddDropdown.style.display = 'none'
+                    // Execute trigger logic (moved from dd.onchange)
+                    await executeTrigger(triggerData, triggerIndex)
+                  }
+                  
+                  item.append(name, deleteBtn)
+                  ddDropdown.appendChild(item)
+                })
               }catch{}
             })
           }catch{}
         }
         refreshDD()
         window.addEventListener('optimando-triggers-updated', refreshDD)
-        dd.onchange = async ()=>{
-          const idx = parseInt(dd.value||'-1',10)
-          if (isNaN(idx) || idx<0) return
+        
+        // Toggle dropdown
+        ddBtn.onclick = (e) => {
+          e.stopPropagation()
+          isDropdownOpen = !isDropdownOpen
+          ddDropdown.style.display = isDropdownOpen ? 'block' : 'none'
+        }
+        
+        // Close dropdown when clicking outside
+        document.addEventListener('click', () => {
+          if (isDropdownOpen) {
+            isDropdownOpen = false
+            ddDropdown.style.display = 'none'
+          }
+        })
+        
+        // Extract trigger execution logic into a function
+        async function executeTrigger(t: any, idx: number) {
           try{
-            const key='optimando-tagged-triggers';
-            chrome.storage?.local?.get([key], async (data:any)=>{
-              const list = Array.isArray(data?.[key]) ? data[key] : []
-              const t = list[idx]; if(!t) { dd.value=''; return }
             if ((t.mode||'screenshot') === 'stream'){
               try{
                 const r = t.rect || { x:0,y:0,w:0,h:0 }
@@ -10264,11 +10332,9 @@ ${pageText}
               }catch{}}
               img.src = raw
             }
-            })
           }catch{}
-          dd.value = ''
         }
-        ddWrap.appendChild(dd); ddWrap.appendChild(caret); headerTools.appendChild(ddWrap)
+        ddWrap.appendChild(ddBtn); ddWrap.appendChild(ddDropdown); headerTools.appendChild(ddWrap)
       }
       ;(box.querySelector('#ccf-lm-one') as HTMLButtonElement | null)?.addEventListener('click', (e)=>{ 
         try{ e.preventDefault(); e.stopPropagation() }catch{}

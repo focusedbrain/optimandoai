@@ -71,14 +71,73 @@ mic.addEventListener('click', () => {
 });
 
 // Context Bucket + Pencil wiring (CSP-safe)
+const ddTagsBtn = document.getElementById('tk-tags')
+const ddTagsDropdown = document.getElementById('tk-tags-dropdown')
+let isDropdownOpen = false
+
 function refreshTags(){
   try{
     const key='optimando-tagged-triggers'
     chrome.storage?.local?.get([key], (data)=>{
       try{
         const list = Array.isArray(data?.[key]) ? data[key] : []
-        while (ddTags.options && ddTags.options.length>1) ddTags.remove(1)
-        list.forEach((t,i)=>{ const o=document.createElement('option'); o.value=String(i); o.textContent=t.name||('Trigger '+(i+1)); ddTags.appendChild(o) })
+        ddTagsDropdown.innerHTML = ''
+        
+        if (list.length === 0) {
+          const empty = document.createElement('div')
+          empty.style.cssText = 'padding:8px 12px;font-size:11px;color:var(--muted);text-align:center;'
+          empty.textContent = 'No saved triggers'
+          ddTagsDropdown.appendChild(empty)
+          return
+        }
+        
+        list.forEach((t,i)=>{
+          const item = document.createElement('div')
+          item.style.cssText = 'display:flex;align-items:center;justify-content:space-between;padding:6px 8px;font-size:11px;cursor:pointer;border-bottom:1px solid var(--border);'
+          item.addEventListener('mouseenter', () => item.style.background = 'rgba(255,255,255,0.1)')
+          item.addEventListener('mouseleave', () => item.style.background = 'transparent')
+          
+          const name = document.createElement('span')
+          name.textContent = t.name||('Trigger '+(i+1))
+          name.style.cssText = 'flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;'
+          
+          const deleteBtn = document.createElement('button')
+          deleteBtn.textContent = '×'
+          deleteBtn.style.cssText = 'width:20px;height:20px;border:none;background:rgba(239,68,68,0.2);color:#ef4444;border-radius:4px;cursor:pointer;font-size:16px;line-height:1;padding:0;margin-left:8px;flex-shrink:0;'
+          deleteBtn.addEventListener('mouseenter', () => deleteBtn.style.background = 'rgba(239,68,68,0.4)')
+          deleteBtn.addEventListener('mouseleave', () => deleteBtn.style.background = 'rgba(239,68,68,0.2)')
+          deleteBtn.onclick = (e) => {
+            e.stopPropagation()
+            if (confirm(`Delete trigger "${t.name||('Trigger '+(i+1))}"?`)) {
+              const key='optimando-tagged-triggers'
+              chrome.storage?.local?.get([key], (data)=>{
+                const list = Array.isArray(data?.[key]) ? data[key] : []
+                list.splice(i, 1)
+                chrome.storage?.local?.set({ [key]: list }, ()=>{
+                  refreshTags()
+                  try{ chrome.runtime?.sendMessage({ type:'TRIGGERS_UPDATED' }) }catch{}
+                })
+              })
+            }
+          }
+          
+          item.onclick = () => {
+            isDropdownOpen = false
+            ddTagsDropdown.style.display = 'none'
+            console.log('[POPUP] Trigger selected from dropdown, index:', i)
+            try{
+              chrome.runtime?.sendMessage({ 
+                type: 'ELECTRON_EXECUTE_TRIGGER', 
+                trigger: t 
+              })
+            }catch(err){
+              console.log('[POPUP] Error executing trigger:', err)
+            }
+          }
+          
+          item.append(name, deleteBtn)
+          ddTagsDropdown.appendChild(item)
+        })
       }catch{}
     })
   }catch{}
@@ -92,36 +151,23 @@ if (pencilBtn) pencilBtn.onclick = (e)=>{
   // Trigger Electron overlay selection via background WS bridge; keep chat open
   try{ chrome.runtime?.sendMessage({ type:'ELECTRON_START_SELECTION', source:'popup' }) }catch{}
 }
-if (ddTags) ddTags.onchange = ()=>{ 
-  const idx=parseInt(ddTags.value||'-1',10); 
-  if(!isNaN(idx)&&idx>=0){ 
-    console.log('[POPUP] Trigger selected from dropdown, index:', idx)
-    // Check if it's an Electron trigger or extension trigger
-    try{
-      const key='optimando-tagged-triggers'
-      chrome.storage?.local?.get([key], (data)=>{
-        const list = Array.isArray(data?.[key]) ? data[key] : []
-        console.log('[POPUP] All triggers in storage:', list)
-        const trigger = list[idx]
-        console.log('[POPUP] Selected trigger:', trigger)
-        if (!trigger) {
-          console.log('[POPUP] No trigger found at index:', idx)
-          return
-        }
-        // Check if trigger has 'at' field (timestamp) - this indicates it's from storage
-        // All triggers should be sent to Electron for execution since Electron manages screen capture
-        console.log('[POPUP] Sending trigger to Electron for execution')
-        chrome.runtime?.sendMessage({ 
-          type: 'ELECTRON_EXECUTE_TRIGGER', 
-          trigger 
-        })
-      })
-    }catch(err){
-      console.log('[POPUP] Error executing trigger:', err)
-    }
-  } 
-  ddTags.value='' 
+
+// Toggle dropdown
+if (ddTagsBtn) {
+  ddTagsBtn.onclick = (e) => {
+    e.stopPropagation()
+    isDropdownOpen = !isDropdownOpen
+    ddTagsDropdown.style.display = isDropdownOpen ? 'block' : 'none'
+  }
 }
+
+// Close dropdown when clicking outside
+document.addEventListener('click', () => {
+  if (isDropdownOpen) {
+    isDropdownOpen = false
+    ddTagsDropdown.style.display = 'none'
+  }
+})
 
 // Image lightbox for enlarging screenshots
 function createImageLightbox(imgSrc){

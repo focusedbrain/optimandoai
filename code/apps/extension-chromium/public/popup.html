@@ -93,9 +93,10 @@
         <button id="tk-bucket" class="tk-btn tk-bucket" title="Context Bucket: Embed context directly into the session">🪣</button>
         <button id="tk-pencil" class="tk-btn" title="LmGTFY - Capture a screen area as screenshot or stream and send it to your pre-defined automation tasks.">✎</button>
         
-        <select id="tk-tags" class="tk-btn" title="Saved Tagged Triggers" style="padding-right:18px;position:relative">
-          <option value="">▾ Tags</option>
-        </select>
+        <div id="tk-tags-wrapper" style="position:relative;">
+          <button id="tk-tags" class="tk-btn" title="Saved Tagged Triggers" style="padding-right:18px;">▾ Tags</button>
+          <div id="tk-tags-dropdown" style="display:none;position:absolute;top:100%;left:0;min-width:200px;max-height:300px;overflow-y:auto;background:var(--surface);border:1px solid var(--border);border-radius:6px;margin-top:4px;box-shadow:0 4px 12px rgba(0,0,0,0.3);z-index:1000;"></div>
+        </div>
       </div>
       <div id="msgs" class="messages"></div>
       <div class="composer" id="composer">
