@@ -9977,11 +9977,37 @@ ${pageText}
               menu.innerHTML = ''
               if (!items.length){ const empty=document.createElement('div'); empty.textContent='No tags yet'; empty.style.cssText='padding:8px 10px; font-size:12px; opacity:.8'; menu.appendChild(empty); return }
               items.forEach((t:any, i:number)=>{
-                const row = document.createElement('button'); row.type='button'; row.style.cssText='display:block; text-align:left; width:100%; padding:8px 10px; font-size:12px; background:transparent; border:0; color:inherit; cursor:pointer; white-space:nowrap; overflow:hidden; text-overflow:ellipsis'
+                const rowWrapper = document.createElement('div')
+                rowWrapper.style.cssText='display:flex;align-items:center;justify-content:space-between;padding:6px 8px;border-bottom:1px solid '+br+';'
+                rowWrapper.onmouseenter = ()=>{ rowWrapper.style.background = (theme==='professional'?'#f1f5f9':'rgba(255,255,255,0.06)') }
+                rowWrapper.onmouseleave = ()=>{ rowWrapper.style.background = 'transparent' }
+                
+                const row = document.createElement('button'); row.type='button'; row.style.cssText='flex:1;text-align:left;padding:0;font-size:12px;background:transparent;border:0;color:inherit;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;'
                 row.title = t.name || ('Trigger '+(i+1))
                 row.textContent = t.name || ('Trigger '+(i+1))
-                row.onmouseenter = ()=>{ row.style.background = (theme==='professional'?'#f1f5f9':'rgba(255,255,255,0.06)') }
-                row.onmouseleave = ()=>{ row.style.background = 'transparent' }
+                
+                const deleteBtn = document.createElement('button')
+                deleteBtn.textContent = '×'
+                deleteBtn.type = 'button'
+                deleteBtn.style.cssText = 'width:20px;height:20px;border:none;background:rgba(239,68,68,0.2);color:#ef4444;border-radius:4px;cursor:pointer;font-size:16px;line-height:1;padding:0;margin-left:8px;flex-shrink:0;'
+                deleteBtn.onmouseenter = () => { deleteBtn.style.background = 'rgba(239,68,68,0.4)' }
+                deleteBtn.onmouseleave = () => { deleteBtn.style.background = 'rgba(239,68,68,0.2)' }
+                deleteBtn.onclick = (e) => {
+                  e.stopPropagation()
+                  if (confirm(`Delete trigger "${t.name||('Trigger '+(i+1))}"?`)) {
+                    const key='optimando-tagged-triggers'
+                    chrome.storage?.local?.get([key], (data:any)=>{
+                      const list = Array.isArray(data?.[key]) ? data[key] : []
+                      list.splice(i, 1)
+                      chrome.storage?.local?.set({ [key]: list }, ()=>{
+                        refreshMenu()
+                        try{ chrome.runtime?.sendMessage({ type:'TRIGGERS_UPDATED' }) }catch{}
+                        try{ window.dispatchEvent(new CustomEvent('optimando-triggers-updated')) }catch{}
+                      })
+                    })
+                  }
+                }
+                
                 row.onclick = ()=>{
                   closeMenu()
                   try{
@@ -10010,7 +10036,9 @@ ${pageText}
                     }
                   }catch{}
                 }
-                menu.appendChild(row)
+                rowWrapper.appendChild(row)
+                rowWrapper.appendChild(deleteBtn)
+                menu.appendChild(rowWrapper)
               })
             }catch{}
           }
