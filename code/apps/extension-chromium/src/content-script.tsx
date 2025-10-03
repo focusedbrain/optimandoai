@@ -10011,30 +10011,15 @@ ${pageText}
                 row.onclick = ()=>{
                   closeMenu()
                   try{
-                    if ((t.mode||'screenshot') === 'stream') {
-                      beginScreenSelect(msgs, { rect: t.rect, mode: 'stream' })
-                    } else {
-                      // Headless screenshot capture of saved rect and post to chat
-                      ;(async ()=>{
-                        try{
-                          const raw = await new Promise<string|null>((resolve)=>{ try{ chrome.runtime.sendMessage({ type:'CAPTURE_VISIBLE_TAB' }, (res:any)=> resolve(res?.dataUrl||null)) }catch{ resolve(null) } })
-                          if(!raw) return
-                          const r = t.rect || { x:0,y:0,w:0,h:0 }
-                          const dpr = Math.max(1, (window as any).devicePixelRatio || 1)
-                          const cnv = document.createElement('canvas'); cnv.width = Math.max(1, Math.round(r.w*dpr)); cnv.height = Math.max(1, Math.round(r.h*dpr))
-                          const ctx = cnv.getContext('2d')!
-                          await new Promise<void>((resolve)=>{ const img=new Image(); img.onload=()=>{ try{ ctx.drawImage(img, Math.round(r.x*dpr), Math.round(r.y*dpr), Math.round(r.w*dpr), Math.round(r.h*dpr), 0, 0, Math.round(r.w*dpr), Math.round(r.h*dpr)) }catch{}; resolve() }; img.src=raw })
-                          const out = cnv.toDataURL('image/png')
-                          if (msgs) {
-                            const rowEl = document.createElement('div'); rowEl.style.display='flex'; rowEl.style.justifyContent='flex-end'
-                            const bub = document.createElement('div'); bub.style.maxWidth='78%'; bub.style.padding='6px'; bub.style.borderRadius='10px'; bub.style.fontSize='12px'; bub.style.background='var(--bubble-user-bg, rgba(34,197,94,0.12))'; bub.style.border='1px solid var(--bubble-user-border, rgba(34,197,94,0.45))'
-                            const image = document.createElement('img'); image.src=out; image.style.maxWidth='240px'; image.style.borderRadius='8px'; image.alt='screenshot'
-                            bub.appendChild(image); rowEl.appendChild(bub); msgs.appendChild(rowEl); msgs.scrollTop = 1e9
-                          }
-                        }catch{}
-                      })()
-                    }
-                  }catch{}
+                    // Send trigger to Electron for execution (respects displayId for multi-monitor)
+                    console.log('[CONTENT] Executing trigger via Electron:', t)
+                    chrome.runtime?.sendMessage({ 
+                      type: 'ELECTRON_EXECUTE_TRIGGER', 
+                      trigger: t 
+                    })
+                  }catch(err){
+                    console.log('[CONTENT] Error executing trigger:', err)
+                  }
                 }
                 rowWrapper.appendChild(row)
                 rowWrapper.appendChild(deleteBtn)
@@ -10298,6 +10283,14 @@ ${pageText}
         // Extract trigger execution logic into a function
         async function executeTrigger(t: any, idx: number) {
           try{
+            // Send trigger to Electron for execution (respects displayId for multi-monitor)
+            console.log('[CONTENT] Executing trigger via Electron:', t)
+            chrome.runtime?.sendMessage({ 
+              type: 'ELECTRON_EXECUTE_TRIGGER', 
+              trigger: t 
+            })
+            return
+            /* OLD BROWSER-BASED CAPTURE (doesn't support multi-monitor):
             if ((t.mode||'screenshot') === 'stream'){
               try{
                 const r = t.rect || { x:0,y:0,w:0,h:0 }
@@ -10360,7 +10353,10 @@ ${pageText}
               }catch{}}
               img.src = raw
             }
-          }catch{}
+            */
+          }catch(err){
+            console.log('[CONTENT] Error executing trigger:', err)
+          }
         }
         ddWrap.appendChild(ddBtn); ddWrap.appendChild(ddDropdown); headerTools.appendChild(ddWrap)
       }
