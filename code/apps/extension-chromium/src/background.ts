@@ -59,9 +59,27 @@ function connectToWebSocketServer() {
           } else if (data.type === 'TRIGGERS_UPDATED') {
             try { chrome.runtime.sendMessage({ type: 'TRIGGERS_UPDATED' }) } catch {}
           } else if (data.type === 'SHOW_TRIGGER_PROMPT') {
-            // Forward trigger prompt request to popup
+            // Forward trigger prompt request to popup AND content script
             console.log('📝 Received SHOW_TRIGGER_PROMPT from Electron:', data)
+            // Send to popup
             try { chrome.runtime.sendMessage({ type: 'SHOW_TRIGGER_PROMPT', mode: data.mode, rect: data.rect, displayId: data.displayId, imageUrl: data.imageUrl, videoUrl: data.videoUrl }) } catch {}
+            // Send to active tab's content script (for docked chat)
+            chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+              const tabId = tabs[0]?.id
+              if (!tabId) return
+              try { 
+                chrome.tabs.sendMessage(tabId, { 
+                  type: 'SHOW_TRIGGER_PROMPT', 
+                  mode: data.mode, 
+                  rect: data.rect, 
+                  displayId: data.displayId, 
+                  imageUrl: data.imageUrl, 
+                  videoUrl: data.videoUrl 
+                }) 
+              } catch (e) {
+                console.log('❌ Failed to send SHOW_TRIGGER_PROMPT to content script:', e)
+              }
+            })
           }
         }
       } catch (error) {
@@ -295,6 +313,27 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             mode: msg.mode,
             rect: msg.rect,
             displayId: msg.displayId,
+            imageUrl: msg.imageUrl,
+            videoUrl: msg.videoUrl
+          }
+          try { ws.send(JSON.stringify(payload)) } catch {}
+          try { sendResponse({ success: true }) } catch {}
+        } else {
+          try { sendResponse({ success: false, error: 'WS not connected' }) } catch {}
+        }
+      } catch { try { sendResponse({ success:false }) } catch {} }
+      break
+    }
+    case 'EXTENSION_SAVE_TRIGGER': {
+      // Extension-native trigger (no displayId) - forward to Electron
+      try {
+        if (WS_ENABLED && ws && ws.readyState === WebSocket.OPEN) {
+          const payload = {
+            type: 'SAVE_TRIGGER',
+            name: msg.name,
+            mode: msg.mode,
+            rect: msg.rect,
+            displayId: undefined, // Extension trigger has no displayId
             imageUrl: msg.imageUrl,
             videoUrl: msg.videoUrl
           }

@@ -1,4 +1,4 @@
-import { app, BrowserWindow, globalShortcut, Tray, Menu, Notification } from 'electron'
+import { app, BrowserWindow, globalShortcut, Tray, Menu, Notification, screen } from 'electron'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 import { WebSocketServer } from 'ws'
@@ -266,14 +266,22 @@ async function createWindow() {
   // Execute saved trigger (headless for screenshots, visible for streams)
   registerHandler(LmgtfyChannels.CapturePreset, async (_e, payload: { mode: 'screenshot'|'stream', rect: { x:number,y:number,w:number,h:number }, displayId?: number }) => {
     if (!win) return null
+    console.log('[MAIN] ===== CapturePreset CALLED =====')
+    console.log('[MAIN] Payload received:', JSON.stringify(payload, null, 2))
     try {
-      const sel = { displayId: payload.displayId ?? 0, x: payload.rect.x, y: payload.rect.y, w: payload.rect.w, h: payload.rect.h, dpr: 1 }
+      // If no displayId or displayId is 0 (invalid), use primary display
+      const displayId = (payload.displayId && payload.displayId !== 0) ? payload.displayId : screen.getPrimaryDisplay().id
+      console.log('[MAIN] Final displayId to use:', displayId)
+      const sel = { displayId: displayId, x: payload.rect.x, y: payload.rect.y, w: payload.rect.w, h: payload.rect.h, dpr: 1 }
+      console.log('[MAIN] Selection object:', JSON.stringify(sel, null, 2))
       
       if (payload.mode === 'screenshot') {
         // Screenshot triggers are HEADLESS - capture directly and post to command chat
         console.log('[MAIN] Executing headless screenshot trigger:', sel)
         const { filePath, thumbnailPath } = await captureScreenshot(sel as any)
+        console.log('[MAIN] Screenshot captured:', filePath)
         await postScreenshotToPopup(filePath, { x: sel.x, y: sel.y, w: sel.w, h: sel.h, dpr: 1 })
+        console.log('[MAIN] Screenshot posted to popup')
         emitCapture(win, { event: LmgtfyChannels.OnCaptureEvent, mode: 'screenshot', filePath, thumbnailPath, meta: { x: sel.x, y: sel.y, w: sel.w, h: sel.h, dpr: sel.dpr, displayId: sel.displayId } })
         return { filePath, thumbnailPath }
       } else {
@@ -281,9 +289,11 @@ async function createWindow() {
         console.log('[MAIN] Executing visible stream trigger:', sel)
         // Show visible overlay at the saved position
         showStreamTriggerOverlay(sel.displayId, { x: sel.x, y: sel.y, w: sel.w, h: sel.h })
+        console.log('[MAIN] Stream overlay shown')
         // Start recording immediately
         const controller = await startRegionStream(sel as any)
         activeStop = controller.stop
+        console.log('[MAIN] Stream recording started')
         return { ok: true }
       }
     } catch (err) {
@@ -465,12 +475,24 @@ app.whenReady().then(async () => {
             }
             if (msg.type === 'SAVE_TRIGGER') {
               // Extension sends back trigger to save in Electron's presets
+              // (can be from Electron overlay with displayId, or extension-native without displayId)
               console.log('[MAIN] Received SAVE_TRIGGER from extension:', msg)
               try {
+                let displayId = msg.displayId
+                
+                // If no displayId provided (extension-native trigger), try to detect it
+                if (!displayId) {
+                  // Get the cursor position to determine which display the user is on
+                  const cursorPoint = screen.getCursorScreenPoint()
+                  const displayAtCursor = screen.getDisplayNearestPoint(cursorPoint)
+                  displayId = displayAtCursor.id
+                  console.log('[MAIN] No displayId provided, detected display from cursor:', displayId)
+                }
+                
                 upsertRegion({
                   id: undefined,
                   name: msg.name,
-                  displayId: msg.displayId,
+                  displayId: displayId,
                   x: msg.rect.x,
                   y: msg.rect.y,
                   w: msg.rect.w,
@@ -479,7 +501,7 @@ app.whenReady().then(async () => {
                   headless: msg.mode === 'screenshot'
                 })
                 updateTrayMenu()
-                console.log('[MAIN] Trigger saved to Electron presets')
+                console.log('[MAIN] Trigger saved to Electron presets with displayId:', displayId)
               } catch (err) {
                 console.log('[MAIN] Error saving trigger:', err)
               }
@@ -489,7 +511,9 @@ app.whenReady().then(async () => {
               console.log('[MAIN] Received EXECUTE_TRIGGER from extension:', msg.trigger)
               try {
                 const t = msg.trigger
-                const sel = { displayId: t.displayId ?? 0, x: t.rect.x, y: t.rect.y, w: t.rect.w, h: t.rect.h, dpr: 1 }
+                // If no displayId (extension-native trigger), use primary display
+                const displayId = t.displayId ?? screen.getPrimaryDisplay().id
+                const sel = { displayId: displayId, x: t.rect.x, y: t.rect.y, w: t.rect.w, h: t.rect.h, dpr: 1 }
                 if (t.mode === 'screenshot') {
                   // Headless screenshot
                   console.log('[MAIN] Executing screenshot trigger headlessly')

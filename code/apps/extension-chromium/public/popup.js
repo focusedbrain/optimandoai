@@ -95,26 +95,30 @@ if (pencilBtn) pencilBtn.onclick = (e)=>{
 if (ddTags) ddTags.onchange = ()=>{ 
   const idx=parseInt(ddTags.value||'-1',10); 
   if(!isNaN(idx)&&idx>=0){ 
+    console.log('[POPUP] Trigger selected from dropdown, index:', idx)
     // Check if it's an Electron trigger or extension trigger
     try{
       const key='optimando-tagged-triggers'
       chrome.storage?.local?.get([key], (data)=>{
         const list = Array.isArray(data?.[key]) ? data[key] : []
+        console.log('[POPUP] All triggers in storage:', list)
         const trigger = list[idx]
-        if (!trigger) return
-        // If has displayId, it's an Electron trigger - send to Electron for execution
-        if (trigger.displayId !== undefined) {
-          console.log('Executing Electron trigger:', trigger)
-          chrome.runtime?.sendMessage({ 
-            type: 'ELECTRON_EXECUTE_TRIGGER', 
-            trigger 
-          })
-        } else {
-          // Extension trigger - use existing flow
-          chrome.runtime?.sendMessage({ type:'OG_CAPTURE_SAVED_TAG', index: idx })
+        console.log('[POPUP] Selected trigger:', trigger)
+        if (!trigger) {
+          console.log('[POPUP] No trigger found at index:', idx)
+          return
         }
+        // Check if trigger has 'at' field (timestamp) - this indicates it's from storage
+        // All triggers should be sent to Electron for execution since Electron manages screen capture
+        console.log('[POPUP] Sending trigger to Electron for execution')
+        chrome.runtime?.sendMessage({ 
+          type: 'ELECTRON_EXECUTE_TRIGGER', 
+          trigger 
+        })
       })
-    }catch{}
+    }catch(err){
+      console.log('[POPUP] Error executing trigger:', err)
+    }
   } 
   ddTags.value='' 
 }
@@ -168,39 +172,39 @@ function showTriggerPromptUI(mode, rect, displayId, imageUrl, videoUrl){
     // Remove existing prompt if any
     const existing = document.getElementById('og-trigger-savebar')
     if (existing) existing.remove()
-    // Create trigger save bar (insert before messages)
+    // Create trigger save bar (insert before messages) - compact design
     const bar = document.createElement('div')
     bar.id = 'og-trigger-savebar'
-    bar.style.cssText = 'display:flex; flex-direction:column; gap:8px; padding:10px; background:rgba(37,99,235,0.08); color:#e5e7eb; border:1px solid rgba(37,99,235,0.3); border-radius:6px; margin:0 0 8px 0;'
+    bar.style.cssText = 'display:flex; flex-direction:column; gap:6px; padding:8px; background:rgba(37,99,235,0.08); color:#e5e7eb; border:1px solid rgba(37,99,235,0.3); border-radius:6px; margin:0 0 8px 0; width:100%; box-sizing:border-box;'
     
     const header = document.createElement('div')
-    header.style.cssText = 'display:flex; align-items:center; gap:6px; font-size:13px; font-weight:500;'
-    header.innerHTML = (mode === 'screenshot' ? '📸' : '🎥') + ' Save Tagged Trigger'
-    
-    const inputRow = document.createElement('div')
-    inputRow.style.cssText = 'display:flex; align-items:center; gap:8px;'
+    header.style.cssText = 'display:flex; align-items:center; gap:4px; font-size:11px; font-weight:500;'
+    header.innerHTML = (mode === 'screenshot' ? '📸' : '🎥') + ' Save Trigger'
     
     const nameIn = document.createElement('input')
     nameIn.type = 'text'
-    nameIn.placeholder = 'Enter trigger name...'
-    nameIn.style.cssText = 'flex:1; padding:6px 10px; border:1px solid rgba(255,255,255,0.2); border-radius:6px; font-size:13px; background:rgba(11,18,32,0.6); color:#e5e7eb; outline:none;'
+    nameIn.placeholder = 'Trigger name...'
+    nameIn.style.cssText = 'width:100%; padding:5px 8px; border:1px solid rgba(255,255,255,0.2); border-radius:4px; font-size:12px; background:rgba(11,18,32,0.6); color:#e5e7eb; outline:none; box-sizing:border-box;'
     nameIn.addEventListener('focus', () => { nameIn.style.borderColor = 'rgba(37,99,235,0.5)' })
     nameIn.addEventListener('blur', () => { nameIn.style.borderColor = 'rgba(255,255,255,0.2)' })
     
+    const buttonRow = document.createElement('div')
+    buttonRow.style.cssText = 'display:flex; gap:4px;'
+    
     const save = document.createElement('button')
     save.textContent = 'Save'
-    save.style.cssText = 'background:#2563eb;border:0;color:white;padding:6px 16px;border-radius:6px;cursor:pointer;font-size:13px;font-weight:500;white-space:nowrap;'
+    save.style.cssText = 'flex:1; background:#2563eb;border:0;color:white;padding:5px 8px;border-radius:4px;cursor:pointer;font-size:11px;font-weight:500;'
     save.addEventListener('mouseenter', () => { save.style.background = '#1d4ed8' })
     save.addEventListener('mouseleave', () => { save.style.background = '#2563eb' })
     
     const cancel = document.createElement('button')
     cancel.textContent = 'Cancel'
-    cancel.style.cssText = 'background:rgba(255,255,255,0.08);border:0;color:#e5e7eb;padding:6px 16px;border-radius:6px;cursor:pointer;font-size:13px;white-space:nowrap;'
+    cancel.style.cssText = 'flex:1; background:rgba(255,255,255,0.08);border:0;color:#e5e7eb;padding:5px 8px;border-radius:4px;cursor:pointer;font-size:11px;'
     cancel.addEventListener('mouseenter', () => { cancel.style.background = 'rgba(255,255,255,0.15)' })
     cancel.addEventListener('mouseleave', () => { cancel.style.background = 'rgba(255,255,255,0.08)' })
     
-    inputRow.append(nameIn, save, cancel)
-    bar.append(header, inputRow)
+    buttonRow.append(save, cancel)
+    bar.append(header, nameIn, buttonRow)
     
     // Insert after toolkit, before messages
     const toolkit = wrap.querySelector('.toolkit')

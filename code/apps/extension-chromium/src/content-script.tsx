@@ -86,12 +86,213 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 })
 
+// Function to show trigger name prompt in docked or floating chat
+function showTriggerPromptInChat(mode: string, rect: any, displayId: number, imageUrl: string, videoUrl: string){
+  try{
+    console.log('[CONTENT] ===== showTriggerPromptInChat START =====')
+    console.log('[CONTENT] Parameters:', { mode, rect, displayId, imageUrl, videoUrl })
+    
+    // Find the active composer (docked or floating) or the container
+    const dockedComposer = document.getElementById('ccd-compose') as HTMLElement | null
+    const floatingComposer = document.getElementById('ccf-compose') as HTMLElement | null
+    const dockedMessages = document.getElementById('ccd-messages') as HTMLElement | null
+    const floatingMessages = document.getElementById('ccf-messages') as HTMLElement | null
+    
+    console.log('[CONTENT] Found elements:', {
+      dockedComposer: !!dockedComposer,
+      floatingComposer: !!floatingComposer,
+      dockedMessages: !!dockedMessages,
+      floatingMessages: !!floatingMessages
+    })
+    
+    // Try composer first, then fall back to inserting before messages
+    const composer = dockedComposer || floatingComposer
+    const messagesEl = dockedMessages || floatingMessages
+    
+    if (!composer && !messagesEl) {
+      console.error('[CONTENT] ERROR: No composer or messages element found to show trigger prompt')
+      console.log('[CONTENT] Available IDs in document:', Array.from(document.querySelectorAll('[id]')).map(el => el.id))
+      return
+    }
+    console.log('[CONTENT] Will use composer:', !!composer, 'or messagesEl:', !!messagesEl)
+    
+    // Remove existing prompt if any
+    const existing = document.getElementById('og-trigger-savebar-content')
+    if (existing) existing.remove()
+    
+    // Create trigger save bar - compact design for narrow sidebar
+    const bar = document.createElement('div')
+    bar.id = 'og-trigger-savebar-content'
+    bar.style.cssText = 'display:flex !important; flex-direction:column !important; gap:6px; padding:8px; background:rgba(37,99,235,0.08); color:#e5e7eb; border:1px solid rgba(37,99,235,0.3); border-radius:6px; margin:0 0 8px 0; width:100% !important; box-sizing:border-box !important; min-width:0 !important; flex-shrink:0 !important;'
+    
+    const header = document.createElement('div')
+    header.style.cssText = 'display:flex !important; align-items:center; gap:4px; font-size:11px; font-weight:500; width:100%; box-sizing:border-box;'
+    header.innerHTML = (mode === 'screenshot' ? '📸' : '🎥') + ' Save Trigger'
+    
+    const nameIn = document.createElement('input')
+    nameIn.type = 'text'
+    nameIn.placeholder = 'Trigger name...'
+    nameIn.style.cssText = 'width:100% !important; padding:5px 8px; border:1px solid rgba(255,255,255,0.2); border-radius:4px; font-size:12px; background:rgba(11,18,32,0.6); color:#e5e7eb; outline:none; box-sizing:border-box !important; display:block !important; min-width:0;'
+    nameIn.addEventListener('focus', () => { nameIn.style.borderColor = 'rgba(37,99,235,0.5)' })
+    nameIn.addEventListener('blur', () => { nameIn.style.borderColor = 'rgba(255,255,255,0.2)' })
+    
+    const buttonRow = document.createElement('div')
+    buttonRow.style.cssText = 'display:table !important; table-layout:fixed !important; width:100% !important; border-spacing:4px !important; box-sizing:border-box !important; min-height:30px !important;'
+    buttonRow.id = 'og-trigger-button-row'
+    
+    const buttonCell1 = document.createElement('div')
+    buttonCell1.style.cssText = 'display:table-cell !important; width:50% !important;'
+    
+    const buttonCell2 = document.createElement('div')
+    buttonCell2.style.cssText = 'display:table-cell !important; width:50% !important;'
+    
+    const save = document.createElement('button')
+    save.textContent = 'Save'
+    save.id = 'og-trigger-save-btn'
+    save.style.cssText = 'width:100% !important; background:#2563eb !important;border:0 !important;color:white !important;padding:6px 8px !important;border-radius:4px;cursor:pointer;font-size:11px;font-weight:500; display:block !important; height:28px !important; line-height:16px !important;'
+    save.addEventListener('mouseenter', () => { save.style.background = '#1d4ed8 !important' })
+    save.addEventListener('mouseleave', () => { save.style.background = '#2563eb !important' })
+    
+    const cancel = document.createElement('button')
+    cancel.textContent = 'Cancel'
+    cancel.id = 'og-trigger-cancel-btn'
+    cancel.style.cssText = 'width:100% !important; background:rgba(255,255,255,0.08) !important;border:0 !important;color:#e5e7eb !important;padding:6px 8px !important;border-radius:4px;cursor:pointer;font-size:11px; display:block !important; height:28px !important; line-height:16px !important;'
+    cancel.addEventListener('mouseenter', () => { cancel.style.background = 'rgba(255,255,255,0.15) !important' })
+    cancel.addEventListener('mouseleave', () => { cancel.style.background = 'rgba(255,255,255,0.08) !important' })
+    
+    buttonCell1.appendChild(save)
+    buttonCell2.appendChild(cancel)
+    buttonRow.append(buttonCell1, buttonCell2)
+    bar.append(header, nameIn, buttonRow)
+    
+    console.log('[CONTENT] Button row created with buttons:', { 
+      buttonRowExists: !!buttonRow, 
+      saveExists: !!save, 
+      cancelExists: !!cancel,
+      buttonRowId: buttonRow.id
+    })
+    
+    // Insert as a SEPARATE section - try multiple strategies
+    let inserted = false
+    
+    // Strategy 1: Before composer
+    if (composer && composer.parentElement) {
+      console.log('[CONTENT] Inserting bar before composer as separate section')
+      composer.parentElement.insertBefore(bar, composer)
+      inserted = true
+    }
+    // Strategy 2: Before messages
+    else if (messagesEl && messagesEl.parentElement) {
+      console.log('[CONTENT] Inserting bar before messages element')
+      messagesEl.parentElement.insertBefore(bar, messagesEl)
+      inserted = true
+    }
+    // Strategy 3: Find the main chat container
+    else {
+      const chatContainer = document.querySelector('#optimando-command-chat-docked') || document.querySelector('#optimando-command-chat-floating')
+      if (chatContainer) {
+        console.log('[CONTENT] Inserting bar at top of chat container')
+        chatContainer.insertBefore(bar, chatContainer.firstChild)
+        inserted = true
+      }
+    }
+    
+    if (!inserted) {
+      console.log('[CONTENT] ERROR: Could not insert trigger bar - no suitable parent found')
+      return
+    }
+    
+    console.log('[CONTENT] Bar inserted, focusing input')
+    nameIn.focus()
+    
+    // Set up a MutationObserver to detect if the bar gets removed and RE-INSERT it
+    let isRemoving = false
+    const observer = new MutationObserver((mutations) => {
+      if (!document.contains(bar) && !isRemoving) {
+        console.log('[CONTENT] WARNING: Trigger bar was removed from DOM, re-injecting...')
+        // Re-insert the bar
+        try {
+          if (composer && composer.parentElement && document.contains(composer)) {
+            composer.parentElement.insertBefore(bar, composer)
+            console.log('[CONTENT] Bar re-injected before composer')
+          } else if (messagesEl && messagesEl.parentElement && document.contains(messagesEl)) {
+            messagesEl.parentElement.insertBefore(bar, messagesEl)
+            console.log('[CONTENT] Bar re-injected before messages')
+          } else {
+            console.log('[CONTENT] Cannot re-inject, parent elements not found')
+            observer.disconnect()
+          }
+        } catch (e) {
+          console.error('[CONTENT] Error re-injecting bar:', e)
+          observer.disconnect()
+        }
+      }
+    })
+    
+    // Observe the document body for any removals
+    observer.observe(document.body, { childList: true, subtree: true })
+    
+    cancel.onclick = () => {
+      isRemoving = true
+      observer.disconnect()
+      bar.remove()
+    }
+    
+    const saveTrigger = () => {
+      const name = (nameIn.value || '').trim() || ('Trigger ' + new Date().toLocaleString())
+      // Save to chrome.storage for extension dropdown
+      try{
+        const key='optimando-tagged-triggers'
+        chrome.storage?.local?.get([key], (data:any)=>{
+          const prev = Array.isArray(data?.[key]) ? data[key] : []
+          prev.push({ name, at: Date.now(), rect, mode, displayId })
+          chrome.storage?.local?.set({ [key]: prev }, ()=>{
+            try{ window.dispatchEvent(new CustomEvent('optimando-triggers-updated')) }catch{}
+            try{ chrome.runtime?.sendMessage({ type:'TRIGGERS_UPDATED' }) }catch{}
+          })
+        })
+      }catch{}
+      // Send trigger back to Electron via WebSocket
+      try{
+        chrome.runtime?.sendMessage({
+          type: 'ELECTRON_SAVE_TRIGGER',
+          name,
+          mode,
+          rect,
+          displayId,
+          imageUrl,
+          videoUrl
+        })
+      }catch{}
+      isRemoving = true
+      observer.disconnect()
+      bar.remove()
+    }
+    
+    save.onclick = saveTrigger
+    nameIn.addEventListener('keydown', (e:any) => {
+      if (e.key === 'Enter' && nameIn.value.trim()) saveTrigger()
+      else if (e.key === 'Escape') {
+        isRemoving = true
+        observer.disconnect()
+        bar.remove()
+      }
+    })
+  }catch(err){
+    console.log('[CONTENT] Error showing trigger prompt:', err)
+  }
+}
+
 // Global handler: append captures coming back from Electron to whichever chat is visible
 try {
   chrome.runtime.onMessage.addListener((msg:any)=>{
     try{
       if (!msg || !msg.type) return
-      if (msg.type === 'ELECTRON_SELECTION_RESULT'){
+      if (msg.type === 'SHOW_TRIGGER_PROMPT'){
+        // Show trigger name input in docked chat or floating popup
+        console.log('[CONTENT] Showing trigger prompt:', msg)
+        showTriggerPromptInChat(msg.mode, msg.rect, msg.displayId, msg.imageUrl, msg.videoUrl)
+      } else if (msg.type === 'ELECTRON_SELECTION_RESULT'){
         const target = (document.getElementById('ccf-messages') as HTMLElement | null) || (document.getElementById('ccd-messages') as HTMLElement | null)
         if (!target) return
         const kind = msg.kind || 'image'
@@ -5206,6 +5407,18 @@ ${pageText}
                 }catch{}
               })
             }catch{}
+            // Also send to Electron so it appears in Electron's dropdown
+            // Note: Extension triggers don't have displayId, Electron will detect the display
+            try{
+              chrome.runtime?.sendMessage({
+                type: 'EXTENSION_SAVE_TRIGGER',
+                name,
+                mode,
+                rect,
+                imageUrl: url,
+                detectDisplay: true // Ask Electron to detect which display the browser is on
+              })
+            }catch{}
             bar.remove()
           }
         }catch{}
@@ -9868,7 +10081,17 @@ ${pageText}
           ddWrap.appendChild(tagBtn); toolsParent.appendChild(ddWrap)
         }
       } catch {}
-      ;(container.querySelector('#ccd-lm-one') as HTMLButtonElement | null)?.addEventListener('click', (e)=>{ try{ e.preventDefault(); e.stopPropagation() }catch{}; beginScreenSelect(msgs) })
+      ;(container.querySelector('#ccd-lm-one') as HTMLButtonElement | null)?.addEventListener('click', (e)=>{ 
+        try{ e.preventDefault(); e.stopPropagation() }catch{}
+        console.log('[CONTENT] Docked pencil button clicked')
+        // Trigger Electron overlay for screen selection (can capture outside browser)
+        try{ 
+          chrome.runtime?.sendMessage({ type:'ELECTRON_START_SELECTION', source:'docked-chat' })
+          console.log('[CONTENT] Sent ELECTRON_START_SELECTION message')
+        }catch(err){
+          console.log('[CONTENT] Error sending message:', err)
+        }
+      })
 
       // Allow vertical resize by dragging the outer bottom border of the docked box
       let startY = 0, startBoxH = 0, startMsgsH = 0
@@ -10101,7 +10324,17 @@ ${pageText}
         }
         ddWrap.appendChild(dd); ddWrap.appendChild(caret); headerTools.appendChild(ddWrap)
       }
-      ;(box.querySelector('#ccf-lm-one') as HTMLButtonElement | null)?.addEventListener('click', (e)=>{ try{ e.preventDefault(); e.stopPropagation() }catch{}; const msgs = box.querySelector('#ccf-messages') as HTMLElement | null; beginScreenSelect(msgs || document.body) })
+      ;(box.querySelector('#ccf-lm-one') as HTMLButtonElement | null)?.addEventListener('click', (e)=>{ 
+        try{ e.preventDefault(); e.stopPropagation() }catch{}
+        console.log('[CONTENT] Floating pencil button clicked')
+        // Trigger Electron overlay for screen selection (can capture outside browser)
+        try{ 
+          chrome.runtime?.sendMessage({ type:'ELECTRON_START_SELECTION', source:'floating-popup' })
+          console.log('[CONTENT] Sent ELECTRON_START_SELECTION message')
+        }catch(err){
+          console.log('[CONTENT] Error sending message:', err)
+        }
+      })
       // Mount context bucket to popup (drop anywhere in the box)
       mountContextBucket(box, 'ccf-bucket')
     }

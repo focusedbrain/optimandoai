@@ -58,11 +58,19 @@ export default function LETmeGIRAFFETHATFORYOUIcons({ onCapture }: { onCapture: 
       <button title="Stop stream (Alt+0)" onClick={stopStream} aria-label="Stop stream">■</button>
       <select title="Tagged triggers" onChange={async (e) => {
         const id = e.target.value
+        console.log('[UI] Trigger selected, id:', id)
+        console.log('[UI] Available presets:', presets)
         const p = presets.find((r) => r.id === id)
-        if (!p) return
+        console.log('[UI] Found preset:', p)
+        if (!p) {
+          console.log('[UI] No preset found for id:', id)
+          return
+        }
+        console.log('[UI] Calling capturePreset with:', { mode: p.mode, rect: { x: p.x, y: p.y, w: p.w, h: p.h }, displayId: p.displayId })
         // @ts-ignore
         if (p.mode === 'stream') await window.LETmeGIRAFFETHATFORYOU?.capturePreset({ mode: 'stream', rect: { x: p.x, y: p.y, w: p.w, h: p.h }, displayId: p.displayId })
         else await window.LETmeGIRAFFETHATFORYOU?.capturePreset({ mode: 'screenshot', rect: { x: p.x, y: p.y, w: p.w, h: p.h }, displayId: p.displayId })
+        console.log('[UI] capturePreset call completed')
         e.currentTarget.selectedIndex = 0
       }}>
         <option value="">Triggers…</option>
