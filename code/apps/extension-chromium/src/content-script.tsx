@@ -3234,8 +3234,21 @@ function initializeExtension() {
     }
     
     // Load existing config data asynchronously based on scope
+    // Store previously saved data for merging on save
+    let previouslySavedData: any = null
+    
     loadAgentConfig(agentName, agentScope, type, (loadedData) => {
       const existingData = loadedData || ''
+      
+      // Parse and store the previously saved data
+      try {
+        if (existingData && typeof existingData === 'string' && existingData.trim()) {
+          previouslySavedData = JSON.parse(existingData)
+        }
+      } catch (e) {
+        console.warn('Could not parse previously saved data:', e)
+      }
+      
     const storageKey = `agent_${agentName}_${type}`
     let content = ''
     if (type === 'instructions') {
@@ -3640,19 +3653,10 @@ function initializeExtension() {
               <label style="display:flex;align-items:center;gap:6px"><input id="L-toggle-active" type="checkbox"> Active Listener</label>
             </div>
             <div id="L-passive" style="border:1px solid rgba(255,255,255,.25);border-radius:8px;padding:10px;background:rgba(255,255,255,0.04);margin-bottom:10px">
-            <label style="display:flex;align-items:center;gap:6px">Expected Context
-              <span title="Describe examples, keywords, or patterns the Listener Agent should detect. These instructions improve the intent detection of the optimization layer and can enhance or overwrite the trained LLM logic of finetuned models, depending on this agent's settings. It offers a more tailored experience for the users." style="font-size:12px;opacity:0.9;cursor:help;background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.35);padding:0 6px;border-radius:50%">i</span>
-            </label>
-            <textarea id="L-context" placeholder="e.g. business email, product research, visiting specific site" style="width:100%;min-height:90px;background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.45);color:#fff;padding:8px;border-radius:6px"></textarea>
-            <div style="margin:8px 0;display:flex;flex-wrap:wrap;gap:10px">
-              <label><input class="L-tag" type="checkbox" value="patterns" checked> patterns</label>
-              <label><input class="L-tag" type="checkbox" value="code"> code</label>
-              <label><input class="L-tag" type="checkbox" value="debug-error"> debug error</label>
-              <label><input class="L-tag" type="checkbox" value="math"> math</label>
-            </div>
-            <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px">
               <label>Listen on (type)
                 <select id="L-source" style="width:100%;background:#fff;color:#0f172a;border:1px solid #cbd5e1;padding:8px;border-radius:6px">
+                  <option value="all" selected>All</option>
                   <option value="website">website</option>
                   <option value="api">api</option>
                   <option value="lmgtfy">LmGTFY</option>
@@ -3668,14 +3672,31 @@ function initializeExtension() {
                 <input id="L-website" placeholder="https://example.com" style="width:100%;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.35);color:#fff;padding:8px;border-radius:6px">
               </label>
             </div>
-            <div style="margin-top:8px">
+            <div style="margin-bottom:12px;padding-bottom:12px;border-bottom:1px solid rgba(255,255,255,.15)">
+              <div style="font-weight:700;margin-bottom:6px">Tagged Trigger (with pattern detection)</div>
+              <div id="L-passive-triggers" style="display:flex;flex-direction:column;gap:8px;margin-bottom:8px"></div>
+              <button id="L-add-passive-trigger" style="background:rgba(255,255,255,.2);border:1px solid rgba(255,255,255,.35);color:#fff;padding:6px 10px;border-radius:6px;cursor:pointer">+ Add Trigger</button>
+              <div style="margin-top:8px;font-size:12px;opacity:0.9">Add #tags inside media or along uploads to the command chat. Pattern detection will analyze context automatically.</div>
+            </div>
+            <label style="display:flex;align-items:center;gap:6px">Expected Context
+              <span title="Describe examples, keywords, or patterns the Listener Agent should detect. These instructions improve the intent detection of the optimization layer and can enhance or overwrite the trained LLM logic of finetuned models, depending on this agent's settings. It offers a more tailored experience for the users." style="font-size:12px;opacity:0.9;cursor:help;background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.35);padding:0 6px;border-radius:50%">i</span>
+            </label>
+            <textarea id="L-context" placeholder="e.g. business email, product research, visiting specific site" style="width:100%;min-height:90px;background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.45);color:#fff;padding:8px;border-radius:6px;margin-bottom:8px"></textarea>
+            <div style="margin-bottom:12px">
               <label>Example Context (optional)
-                <input id="L-examples" type="file" multiple style="width:100%;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.25);color:#fff;padding:6px;border-radius:6px">
+                <input id="L-examples" type="file" multiple style="width:100%;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.25);color:#fff;padding:6px;border-radius:6px;margin-top:4px">
               </label>
+              <div id="L-examples-list-container"></div>
+            </div>
+            <div style="margin:8px 0;display:flex;flex-wrap:wrap;gap:10px">
+              <label><input class="L-tag" type="checkbox" value="patterns" checked> patterns</label>
+              <label><input class="L-tag" type="checkbox" value="code"> code</label>
+              <label><input class="L-tag" type="checkbox" value="debug-error"> debug error</label>
+              <label><input class="L-tag" type="checkbox" value="math"> math</label>
             </div>
             </div>
             <div id="L-active" style="display:none;border:1px solid rgba(255,255,255,.25);border-radius:8px;padding:10px;background:rgba(255,255,255,0.04);margin-bottom:10px">
-              <div style="font-weight:700;margin-bottom:6px">Tagged Event Triggers</div>
+              <div style="font-weight:700;margin-bottom:6px">Tagged Trigger (without pattern detection)</div>
               <div id="L-active-list" style="display:flex;flex-direction:column;gap:8px"></div>
               <button id="L-add-active-trigger" style="margin-top:6px;background:rgba(255,255,255,.2);border:1px solid rgba(255,255,255,.35);color:#fff;padding:6px 10px;border-radius:6px;cursor:pointer">+ Add Trigger</button>
               <div style="margin-top:8px;font-size:12px;opacity:0.9">Add #tags inside media or along uploads to the command chat in order to trigger the automation</div>
@@ -3842,6 +3863,17 @@ function initializeExtension() {
             persistedActiveTriggers.forEach(t => activeList.appendChild(makeTriggerRow({ tag: t.tag, kind: t.kind, extra: t.extra })))
           } else if (activeList.childElementCount === 0) {
             activeList.appendChild(makeTriggerRow())
+          }
+        }
+        
+        // Passive triggers (with pattern detection)
+        const passiveList = configOverlay.querySelector('#L-passive-triggers') as HTMLElement | null
+        const passiveAddBtn = configOverlay.querySelector('#L-add-passive-trigger') as HTMLButtonElement | null
+        if (passiveList && passiveAddBtn) {
+          passiveAddBtn.addEventListener('click', ()=>{ passiveList.appendChild(makeTriggerRow()) })
+          // Initialize with one row if empty
+          if (passiveList.childElementCount === 0) {
+            passiveList.appendChild(makeTriggerRow())
           }
         }
 
@@ -4230,10 +4262,11 @@ function initializeExtension() {
                 })
               }
               
-              // Restore active triggers
+              // Restore active triggers (without pattern detection)
               if (l.active?.triggers) {
-                l.active.triggers.forEach((trigger: any) => {
-                  const addBtn = configOverlay.querySelector('.act-add') as HTMLButtonElement
+                console.log(`🔄 Restoring ${l.active.triggers.length} active triggers (without pattern detection)...`)
+                l.active.triggers.forEach((trigger: any, idx: number) => {
+                  const addBtn = configOverlay.querySelector('#L-add-active-trigger') as HTMLButtonElement
                   if (addBtn) {
                     addBtn.click()
                     const rows = configOverlay.querySelectorAll('#L-active-list .act-row')
@@ -4241,8 +4274,61 @@ function initializeExtension() {
                     if (lastRow && trigger.tag) {
                       const nameInput = lastRow.querySelector('.act-tag') as HTMLInputElement
                       const kindSelect = lastRow.querySelector('.act-kind') as HTMLSelectElement
+                      const extraSelect = lastRow.querySelector('.act-extra') as HTMLSelectElement
+                      
                       if (nameInput) nameInput.value = trigger.tag.name || ''
-                      if (kindSelect && trigger.tag.kind) kindSelect.value = trigger.tag.kind
+                      if (kindSelect && trigger.tag.kind) {
+                        kindSelect.value = trigger.tag.kind
+                        // Trigger change event to show extra field if needed
+                        kindSelect.dispatchEvent(new Event('change'))
+                      }
+                      
+                      // Restore extra field after kind is set
+                      if (trigger.tag.extra && extraSelect) {
+                        setTimeout(() => {
+                          if (extraSelect.style.display !== 'none') {
+                            extraSelect.value = trigger.tag.extra
+                          }
+                        }, 50)
+                      }
+                      
+                      console.log(`  ✓ Active Trigger ${idx + 1}: name="${trigger.tag.name}", kind="${trigger.tag.kind}", extra="${trigger.tag.extra || 'none'}"`)
+                    }
+                  }
+                })
+              }
+              
+              // Restore passive triggers (with pattern detection)
+              if (l.passive?.triggers) {
+                console.log(`🔄 Restoring ${l.passive.triggers.length} passive triggers (with pattern detection)...`)
+                l.passive.triggers.forEach((trigger: any, idx: number) => {
+                  const addBtn = configOverlay.querySelector('#L-add-passive-trigger') as HTMLButtonElement
+                  if (addBtn) {
+                    addBtn.click()
+                    const rows = configOverlay.querySelectorAll('#L-passive-triggers .act-row')
+                    const lastRow = rows[rows.length - 1]
+                    if (lastRow && trigger.tag) {
+                      const nameInput = lastRow.querySelector('.act-tag') as HTMLInputElement
+                      const kindSelect = lastRow.querySelector('.act-kind') as HTMLSelectElement
+                      const extraSelect = lastRow.querySelector('.act-extra') as HTMLSelectElement
+                      
+                      if (nameInput) nameInput.value = trigger.tag.name || ''
+                      if (kindSelect && trigger.tag.kind) {
+                        kindSelect.value = trigger.tag.kind
+                        // Trigger change event to show extra field if needed
+                        kindSelect.dispatchEvent(new Event('change'))
+                      }
+                      
+                      // Restore extra field after kind is set
+                      if (trigger.tag.extra && extraSelect) {
+                        setTimeout(() => {
+                          if (extraSelect.style.display !== 'none') {
+                            extraSelect.value = trigger.tag.extra
+                          }
+                        }, 50)
+                      }
+                      
+                      console.log(`  ✓ Passive Trigger ${idx + 1}: name="${trigger.tag.name}", kind="${trigger.tag.kind}", extra="${trigger.tag.extra || 'none'}"`)
                     }
                   }
                 })
@@ -4270,22 +4356,44 @@ function initializeExtension() {
               
               // Restore example files (display list, can't restore to file input)
               if (l.exampleFiles && l.exampleFiles.length > 0) {
-                const lExamplesWrap = configOverlay.querySelector('#L-examples')?.parentElement
-                if (lExamplesWrap) {
+                const lExamplesContainer = configOverlay.querySelector('#L-examples-list-container')
+                if (lExamplesContainer) {
                   const fileList = document.createElement('div')
-                  fileList.style.cssText = 'margin-top:4px;font-size:11px;opacity:0.8;padding:6px;background:rgba(255,255,255,0.05);border-radius:4px'
+                  fileList.style.cssText = 'margin-top:8px;font-size:11px;opacity:0.9;padding:8px;background:rgba(255,255,255,0.05);border-radius:4px'
+                  fileList.id = 'L-examples-list'
                   fileList.innerHTML = `
-                    <div style="font-weight:bold;margin-bottom:4px;">${l.exampleFiles.length} example file(s) previously uploaded:</div>
-                    ${l.exampleFiles.map((f: any) => `
-                      <div style="margin-left:8px;opacity:0.8;">
-                        📄 ${f.name} (${(f.size / 1024).toFixed(1)} KB)
+                    <div style="font-weight:bold;margin-bottom:8px;color:#4CAF50;">${l.exampleFiles.length} example file(s) saved:</div>
+                    ${l.exampleFiles.map((f: any, idx: number) => `
+                      <div class="saved-file-row" data-file-type="listener" data-file-idx="${idx}" style="display:flex;align-items:center;gap:8px;margin-bottom:6px;padding:4px 8px;background:rgba(255,255,255,0.05);border-radius:4px;">
+                        <span>📄 ${f.name} (${(f.size / 1024).toFixed(1)} KB)</span>
+                        <button class="delete-file-btn" data-file-type="listener" data-file-idx="${idx}" style="margin-left:auto;background:#f44336;border:none;color:white;padding:2px 8px;border-radius:4px;cursor:pointer;font-size:10px;">✕ Delete</button>
                       </div>
                     `).join('')}
-                    <div style="font-size:10px;opacity:0.6;margin-top:6px;font-style:italic;">
-                      Upload new files to replace these
+                    <div style="font-size:10px;opacity:0.6;margin-top:12px;font-style:italic;">
+                      ✚ Upload new files below to add more (duplicates will be skipped)
                     </div>
                   `
-                  lExamplesWrap.appendChild(fileList)
+                  lExamplesContainer.appendChild(fileList)
+                  
+                  // Add delete handlers
+                  fileList.querySelectorAll('.delete-file-btn[data-file-type="listener"]').forEach((btn: Element) => {
+                    btn.addEventListener('click', () => {
+                      const idx = parseInt((btn as HTMLElement).dataset.fileIdx || '0')
+                      if (l.exampleFiles) {
+                        l.exampleFiles.splice(idx, 1)
+                        // Store updated list in previouslySavedData
+                        if (previouslySavedData?.listening) {
+                          previouslySavedData.listening.exampleFiles = l.exampleFiles
+                        }
+                        // Update display
+                        const row = btn.closest('.saved-file-row')
+                        if (row) row.remove()
+                        const countEl = fileList.querySelector('div')
+                        if (countEl) countEl.textContent = `${l.exampleFiles.length} example file(s) saved:`
+                        console.log(`🗑️ Deleted Listener Example file at index ${idx}, ${l.exampleFiles.length} remaining`)
+                      }
+                    })
+                  })
                 }
               }
             }
@@ -4439,16 +4547,40 @@ function initializeExtension() {
               syncAc()
               if (acList) {
                 acList.innerHTML = `
-                  <div style="font-weight:bold;margin-bottom:4px;">${parsed.agentContextFiles.length} file(s) previously uploaded:</div>
-                  ${parsed.agentContextFiles.map((f: any) => `
-                    <div style="font-size:11px;opacity:0.8;margin-left:8px;">
-                      📄 ${f.name} (${(f.size / 1024).toFixed(1)} KB)
+                  <div style="font-weight:bold;margin-bottom:8px;color:#4CAF50;">${parsed.agentContextFiles.length} file(s) saved:</div>
+                  ${parsed.agentContextFiles.map((f: any, idx: number) => `
+                    <div class="saved-file-row" data-file-type="agent" data-file-idx="${idx}" style="display:flex;align-items:center;gap:8px;font-size:11px;opacity:0.9;margin-left:8px;margin-bottom:6px;padding:4px 8px;background:rgba(255,255,255,0.05);border-radius:4px;">
+                      <span>📄 ${f.name} (${(f.size / 1024).toFixed(1)} KB)</span>
+                      <button class="delete-file-btn" data-file-type="agent" data-file-idx="${idx}" style="margin-left:auto;background:#f44336;border:none;color:white;padding:2px 8px;border-radius:4px;cursor:pointer;font-size:10px;">✕ Delete</button>
                     </div>
                   `).join('')}
-                  <div style="font-size:10px;opacity:0.6;margin-top:8px;font-style:italic;">
-                    Upload new files to replace these
+                  <div style="font-size:10px;opacity:0.6;margin-top:12px;font-style:italic;">
+                    ✚ Upload new files below to add more (duplicates will be skipped)
                   </div>
                 `
+                
+                // Add delete handlers
+                acList.querySelectorAll('.delete-file-btn[data-file-type="agent"]').forEach((btn: Element) => {
+                  btn.addEventListener('click', () => {
+                    const idx = parseInt((btn as HTMLElement).dataset.fileIdx || '0')
+                    if (parsed.agentContextFiles) {
+                      parsed.agentContextFiles.splice(idx, 1)
+                      // Store updated list in previouslySavedData
+                      if (previouslySavedData) {
+                        previouslySavedData.agentContextFiles = parsed.agentContextFiles
+                      }
+                      // Re-render
+                      const event = new CustomEvent('file-deleted')
+                      acList.dispatchEvent(event)
+                      // Update display
+                      const row = btn.closest('.saved-file-row')
+                      if (row) row.remove()
+                      const countEl = acList.querySelector('div')
+                      if (countEl) countEl.textContent = `${parsed.agentContextFiles.length} file(s) saved:`
+                      console.log(`🗑️ Deleted Agent Context file at index ${idx}, ${parsed.agentContextFiles.length} remaining`)
+                    }
+                  })
+                })
               }
             }
             
@@ -4509,36 +4641,47 @@ function initializeExtension() {
     document.getElementById('close-agent-config').onclick = () => configOverlay.remove()
     document.getElementById('agent-config-cancel').onclick = () => configOverlay.remove()
     // Save handler
-    document.getElementById('agent-config-save').onclick = () => {
-      let dataToSave = ''
-      if (type === 'instructions') {
-        // Collect draft
-        const draft:any = {
-          id: agentName,
-          name: (document.getElementById('ag-name') as HTMLInputElement)?.value || agentName,
-          icon: (document.getElementById('ag-icon') as HTMLInputElement)?.value || '🤖',
-          capabilities: [],
-          contextSettings: {
-            sessionContext: !!(document.getElementById('AC-session') as HTMLInputElement)?.checked,
-            accountContext: !!(document.getElementById('AC-account') as HTMLInputElement)?.checked,
-            agentContext: !!(document.getElementById('AC-agent') as HTMLInputElement)?.checked
-          },
-          memorySettings: {
-            sessionEnabled: !!(document.getElementById('MEM-session') as HTMLInputElement)?.checked,
-            sessionRead: !!(document.getElementById('MEM-session-read') as HTMLInputElement)?.checked,
-            sessionWrite: !!(document.getElementById('MEM-session-write') as HTMLInputElement)?.checked,
-            accountEnabled: !!(document.getElementById('MEM-account') as HTMLInputElement)?.checked,
-            accountRead: !!(document.getElementById('MEM-account-read') as HTMLInputElement)?.checked,
-            accountWrite: !!(document.getElementById('MEM-account-write') as HTMLInputElement)?.checked,
-            agentEnabled: true // Always enabled
+    document.getElementById('agent-config-save').onclick = async () => {
+      // Disable button and show loading state
+      const saveButton = document.getElementById('agent-config-save') as HTMLButtonElement
+      if (!saveButton) return
+      
+      const originalButtonHTML = saveButton.innerHTML
+      saveButton.disabled = true
+      saveButton.style.opacity = '0.6'
+      saveButton.style.cursor = 'not-allowed'
+      saveButton.innerHTML = '💾 Saving...'
+      
+      try {
+        let dataToSave = ''
+        if (type === 'instructions') {
+          // Collect draft
+          const draft:any = {
+            id: agentName,
+            name: (document.getElementById('ag-name') as HTMLInputElement)?.value || agentName,
+            icon: (document.getElementById('ag-icon') as HTMLInputElement)?.value || '🤖',
+            capabilities: [],
+            contextSettings: {
+              sessionContext: !!(document.getElementById('AC-session') as HTMLInputElement)?.checked,
+              accountContext: !!(document.getElementById('AC-account') as HTMLInputElement)?.checked,
+              agentContext: !!(document.getElementById('AC-agent') as HTMLInputElement)?.checked
+            },
+            memorySettings: {
+              sessionEnabled: !!(document.getElementById('MEM-session') as HTMLInputElement)?.checked,
+              sessionRead: !!(document.getElementById('MEM-session-read') as HTMLInputElement)?.checked,
+              sessionWrite: !!(document.getElementById('MEM-session-write') as HTMLInputElement)?.checked,
+              accountEnabled: !!(document.getElementById('MEM-account') as HTMLInputElement)?.checked,
+              accountRead: !!(document.getElementById('MEM-account-read') as HTMLInputElement)?.checked,
+              accountWrite: !!(document.getElementById('MEM-account-write') as HTMLInputElement)?.checked,
+              agentEnabled: true // Always enabled
+            }
           }
-        }
-        const L = (document.getElementById('cap-listening') as HTMLInputElement).checked
-        const R = (document.getElementById('cap-reasoning') as HTMLInputElement).checked
-        const E = (document.getElementById('cap-execution') as HTMLInputElement).checked
-        if (L) draft.capabilities.push('listening')
-        if (R) draft.capabilities.push('reasoning')
-        if (E) draft.capabilities.push('execution')
+          const L = (document.getElementById('cap-listening') as HTMLInputElement).checked
+          const R = (document.getElementById('cap-reasoning') as HTMLInputElement).checked
+          const E = (document.getElementById('cap-execution') as HTMLInputElement).checked
+          if (L) draft.capabilities.push('listening')
+          if (R) draft.capabilities.push('reasoning')
+          if (E) draft.capabilities.push('execution')
         // Listening - SAVE ALL FIELDS regardless of toggle state
         if (L) {
           const passiveEnabled = !!(document.getElementById('L-toggle-passive') as HTMLInputElement)?.checked
@@ -4557,19 +4700,68 @@ function initializeExtension() {
             website: ((document.getElementById('L-website') as HTMLInputElement)?.value || '')
           }
           
-          // ALWAYS save triggers (not conditional on activeEnabled)
+          // ALWAYS save active triggers (without pattern detection)
             const triggers:any[] = []
-            document.querySelectorAll('#L-active-list .act-row').forEach((row:any)=>{
-              const name = (row.querySelector('.act-tag') as HTMLInputElement)?.value || ''
-              const kind = (row.querySelector('.act-kind') as HTMLSelectElement)?.value || 'OTHER'
+            const triggerRows = document.querySelectorAll('#L-active-list .act-row')
+            console.log(`🔍 Collecting active triggers (without pattern detection) from ${triggerRows.length} rows...`)
+            
+            triggerRows.forEach((row:any, idx: number)=>{
+              const nameInput = row.querySelector('.act-tag') as HTMLInputElement
+              const kindSelect = row.querySelector('.act-kind') as HTMLSelectElement
               const extraSel = row.querySelector('.act-extra') as HTMLSelectElement | null
+              
+              const name = nameInput?.value || ''
+              const kind = kindSelect?.value || 'OTHER'
               const extra = extraSel && extraSel.style.display !== 'none' ? (extraSel.value || '') : ''
-              if (name || kind || extra) {
+              
+              console.log(`  Row ${idx + 1}: name="${name}", kind="${kind}", extra="${extra}", display="${extraSel?.style.display}"`)
+              
+              // Save trigger if it has at least a name (most important field)
+              if (name.trim()) {
                 triggers.push({ tag: { name, kind, extra } })
+                console.log(`    ✓ Added active trigger: ${name}`)
+              } else {
+                console.log(`    ⊘ Skipped (empty name)`)
               }
             })
+            
           if (triggers.length > 0) {
             listening.active = { triggers }
+            console.log(`✅ Saved ${triggers.length} active triggers (without pattern detection)`)
+          } else {
+            console.log(`⚠️ No active triggers to save`)
+          }
+          
+          // ALWAYS save passive triggers (with pattern detection)
+            const passiveTriggers:any[] = []
+            const passiveTriggerRows = document.querySelectorAll('#L-passive-triggers .act-row')
+            console.log(`🔍 Collecting passive triggers (with pattern detection) from ${passiveTriggerRows.length} rows...`)
+            
+            passiveTriggerRows.forEach((row:any, idx: number)=>{
+              const nameInput = row.querySelector('.act-tag') as HTMLInputElement
+              const kindSelect = row.querySelector('.act-kind') as HTMLSelectElement
+              const extraSel = row.querySelector('.act-extra') as HTMLSelectElement | null
+              
+              const name = nameInput?.value || ''
+              const kind = kindSelect?.value || 'OTHER'
+              const extra = extraSel && extraSel.style.display !== 'none' ? (extraSel.value || '') : ''
+              
+              console.log(`  Row ${idx + 1}: name="${name}", kind="${kind}", extra="${extra}"`)
+              
+              // Save trigger if it has at least a name (most important field)
+              if (name.trim()) {
+                passiveTriggers.push({ tag: { name, kind, extra } })
+                console.log(`    ✓ Added passive trigger: ${name}`)
+              } else {
+                console.log(`    ⊘ Skipped (empty name)`)
+              }
+            })
+            
+          if (passiveTriggers.length > 0) {
+            listening.passive = { triggers: passiveTriggers }
+            console.log(`✅ Saved ${passiveTriggers.length} passive triggers (with pattern detection)`)
+          } else {
+            console.log(`⚠️ No passive triggers to save`)
           }
           
           // Report to list
@@ -4684,204 +4876,348 @@ function initializeExtension() {
           contextSettings: draft.contextSettings,
           memorySettings: draft.memorySettings,
           hasListening: !!draft.listening,
+          listeningTriggers: draft.listening?.active?.triggers?.length || 0,
+          listeningExampleFiles: draft.listening?.exampleFiles?.length || 0,
           hasReasoning: !!draft.reasoning,
-          hasExecution: !!draft.execution
+          hasExecution: !!draft.execution,
+          agentContextFiles: draft.agentContextFiles?.length || 0
         })
         
-        // Handle ALL file uploads asynchronously
-        const allFilePromises: Promise<void>[] = []
-        
-        // 1. Agent Context files (AC-files)
-        const acFiles = configOverlay.querySelector('#AC-files') as HTMLInputElement
-        const acEnable = configOverlay.querySelector('#AC-agent') as HTMLInputElement
-        if (acFiles && acFiles.files && acFiles.files.length > 0 && acEnable?.checked) {
-          allFilePromises.push(
-            new Promise((resolve) => {
-              const filePromises: Promise<any>[] = []
-              Array.from(acFiles.files).forEach((file: File) => {
-                filePromises.push(
-                  new Promise((resolveFile) => {
-                    const reader = new FileReader()
-                    reader.onload = () => {
-                      resolveFile({
-                        name: file.name,
-                        type: file.type,
-                        size: file.size,
-                        data: reader.result // base64
-                      })
-                    }
-                    reader.onerror = () => resolveFile(null)
-                    reader.readAsDataURL(file)
-                  })
-                )
-              })
-              
-              Promise.all(filePromises).then((filesData) => {
-                draft.agentContextFiles = filesData.filter(f => f !== null)
-                console.log(`✅ Read ${draft.agentContextFiles.length} Agent Context files`)
-                resolve()
-              })
-            })
-          )
+        // Detailed file logging
+        if (draft.agentContextFiles?.length) {
+          console.log(`  📄 Agent Context Files (${draft.agentContextFiles.length}):`, 
+            draft.agentContextFiles.map((f: any) => f.name))
+        }
+        if (draft.listening?.exampleFiles?.length) {
+          console.log(`  📄 Listener Example Files (${draft.listening.exampleFiles.length}):`, 
+            draft.listening.exampleFiles.map((f: any) => f.name))
+        }
+        if (draft.listening?.active?.triggers?.length) {
+          console.log(`  🎯 Active Triggers (${draft.listening.active.triggers.length}):`, 
+            draft.listening.active.triggers.map((t: any) => `${t.tag.name} [${t.tag.kind}]`))
         }
         
-        // 2. Listener Example Context files (L-examples)
-        const lExamples = configOverlay.querySelector('#L-examples') as HTMLInputElement
-        if (lExamples && lExamples.files && lExamples.files.length > 0) {
-          allFilePromises.push(
-            new Promise((resolve) => {
-              const filePromises: Promise<any>[] = []
-              Array.from(lExamples.files).forEach((file: File) => {
-                filePromises.push(
-                  new Promise((resolveFile) => {
-                    const reader = new FileReader()
-                    reader.onload = () => {
-                      resolveFile({
-                        name: file.name,
-                        type: file.type,
-                        size: file.size,
-                        data: reader.result // base64
-                      })
-                    }
-                    reader.onerror = () => resolveFile(null)
-                    reader.readAsDataURL(file)
-                  })
-                )
-              })
-              
-              Promise.all(filePromises).then((filesData) => {
-                if (!draft.listening) draft.listening = {}
-                draft.listening.exampleFiles = filesData.filter(f => f !== null)
-                console.log(`✅ Read ${draft.listening.exampleFiles.length} Listener Example files`)
-                resolve()
-              })
-            })
-          )
-        }
-        
-        // Wait for all files to be read, then save
-        if (allFilePromises.length > 0) {
-          Promise.all(allFilePromises).then(() => {
-        dataToSave = JSON.stringify(draft)
-            console.log(`📦 All files processed, saving config...`)
-            saveAgentConfig(agentName, agentScope, type, dataToSave, showSaveNotification)
-          })
-          return // Early return to wait for file reading
-        }
-        
-        dataToSave = JSON.stringify(draft)
-      } else if (type === 'context') {
-        const contextData = {
-          text: (document.getElementById('agent-context') as HTMLTextAreaElement)?.value || '',
-          memory: (document.getElementById('agent-memory') as HTMLSelectElement)?.value || 'medium',
-          source: (document.getElementById('agent-context-source') as HTMLSelectElement)?.value || 'user',
-          persist: (document.getElementById('agent-persist-memory') as HTMLInputElement)?.checked || false
-        }
-        dataToSave = JSON.stringify(contextData)
-      } else if (type === 'settings') {
-        const settingsData = {
-          priority: (document.getElementById('agent-priority') as HTMLSelectElement)?.value || 'medium',
-          autostart: (document.getElementById('agent-auto-start') as HTMLInputElement)?.checked || false,
-          autorespond: (document.getElementById('agent-auto-respond') as HTMLInputElement)?.checked || false,
-          delay: (document.getElementById('agent-delay') as HTMLInputElement)?.value || '0'
-        }
-        dataToSave = JSON.stringify(settingsData)
-      }
-      
-      // Helper function to show save notification
-      const showSaveNotification = () => {
-        // Parse the saved data to show what was saved
-        let savedInfo = ''
-        try {
-          const parsed = JSON.parse(dataToSave)
-          const details: string[] = []
+          // Handle ALL file uploads asynchronously with proper error handling
+          const allFilePromises: Promise<void>[] = []
           
-          if (type === 'instructions') {
-            details.push(`✓ Name: ${parsed.name}`)
-            details.push(`✓ Icon: ${parsed.icon}`)
-            if (parsed.capabilities) details.push(`✓ Capabilities: ${parsed.capabilities.join(', ')}`)
-            if (parsed.contextSettings) details.push(`✓ Context Settings`)
-            if (parsed.memorySettings) details.push(`✓ Memory Settings`)
-            if (parsed.listening) details.push(`✓ Listener Config`)
-            if (parsed.reasoning) details.push(`✓ Reasoning Config`)
-            if (parsed.execution) details.push(`✓ Execution Config`)
-            if (parsed.agentContextFiles?.length) details.push(`✓ ${parsed.agentContextFiles.length} Agent Context Files`)
-          } else if (type === 'context') {
-            if (parsed.text) details.push(`✓ Context Text (${parsed.text.length} chars)`)
-            if (parsed.memory) details.push(`✓ Memory: ${parsed.memory}`)
-            if (parsed.source) details.push(`✓ Source: ${parsed.source}`)
-          } else if (type === 'settings') {
-            if (parsed.priority) details.push(`✓ Priority: ${parsed.priority}`)
-            if (parsed.autostart !== undefined) details.push(`✓ Auto-start: ${parsed.autostart ? 'ON' : 'OFF'}`)
-            if (parsed.autorespond !== undefined) details.push(`✓ Auto-respond: ${parsed.autorespond ? 'ON' : 'OFF'}`)
+          // 1. Agent Context files (AC-files) - ACCUMULATE mode (add to existing)
+          const acFiles = configOverlay.querySelector('#AC-files') as HTMLInputElement
+          const acEnable = configOverlay.querySelector('#AC-agent') as HTMLInputElement
+          
+          // Start with previously saved files
+          const existingAgentFiles = previouslySavedData?.agentContextFiles || []
+          
+          // Check if new files are being uploaded
+          const hasNewAgentFiles = acFiles && acFiles.files && acFiles.files.length > 0
+          
+          if (hasNewAgentFiles) {
+            // Read new files and ADD to existing
+            console.log(`📁 Reading ${acFiles.files?.length || 0} NEW Agent Context files to add to ${existingAgentFiles.length} existing...`)
+            allFilePromises.push(
+              (async () => {
+                try {
+                  const filePromises: Promise<any>[] = []
+                  Array.from(acFiles.files || []).forEach((file: File) => {
+                    filePromises.push(
+                      new Promise((resolveFile, rejectFile) => {
+                        const reader = new FileReader()
+                        reader.onload = () => {
+                          resolveFile({
+                            name: file.name,
+                            type: file.type,
+                            size: file.size,
+                            data: reader.result // base64
+                          })
+                        }
+                        reader.onerror = (err) => {
+                          console.error(`❌ Error reading file ${file.name}:`, err)
+                          resolveFile(null) // Don't reject, just skip the file
+                        }
+                        reader.readAsDataURL(file)
+                      })
+                    )
+                  })
+                  
+                  const newFilesData = await Promise.all(filePromises)
+                  const validNewFiles = newFilesData.filter(f => f !== null)
+                  
+                  // ACCUMULATE: Combine existing + new files (avoiding duplicates by name)
+                  const existingFileNames = new Set(existingAgentFiles.map((f: any) => f.name))
+                  const uniqueNewFiles = validNewFiles.filter(f => !existingFileNames.has(f.name))
+                  
+                  draft.agentContextFiles = [...existingAgentFiles, ...uniqueNewFiles]
+                  console.log(`✅ Added ${uniqueNewFiles.length} NEW files, total now: ${draft.agentContextFiles.length}`)
+                  if (uniqueNewFiles.length !== validNewFiles.length) {
+                    console.log(`⚠️ Skipped ${validNewFiles.length - uniqueNewFiles.length} duplicate file(s)`)
+                  }
+                } catch (err) {
+                  console.error('❌ Error processing Agent Context files:', err)
+                  draft.agentContextFiles = existingAgentFiles // Keep existing on error
+                }
+              })()
+            )
+          } else {
+            // No new files - just preserve existing
+            draft.agentContextFiles = existingAgentFiles
+            if (existingAgentFiles.length > 0) {
+              console.log(`📦 Preserved ${existingAgentFiles.length} existing Agent Context files`)
+            }
           }
           
-          savedInfo = details.join('<br>')
-        } catch (e) {
-          savedInfo = 'Configuration saved successfully'
+          // 2. Listener Example Context files (L-examples) - ACCUMULATE mode
+          const lExamples = configOverlay.querySelector('#L-examples') as HTMLInputElement
+          
+          // Start with previously saved files
+          const existingListenerFiles = previouslySavedData?.listening?.exampleFiles || []
+          
+          const hasNewListenerFiles = lExamples && lExamples.files && lExamples.files.length > 0
+          
+          if (hasNewListenerFiles) {
+            // Read new files and ADD to existing
+            console.log(`📁 Reading ${lExamples.files?.length || 0} NEW Listener Example files to add to ${existingListenerFiles.length} existing...`)
+            allFilePromises.push(
+              (async () => {
+                try {
+                  const filePromises: Promise<any>[] = []
+                  Array.from(lExamples.files || []).forEach((file: File) => {
+                    filePromises.push(
+                      new Promise((resolveFile, rejectFile) => {
+                        const reader = new FileReader()
+                        reader.onload = () => {
+                          resolveFile({
+                            name: file.name,
+                            type: file.type,
+                            size: file.size,
+                            data: reader.result // base64
+                          })
+                        }
+                        reader.onerror = (err) => {
+                          console.error(`❌ Error reading file ${file.name}:`, err)
+                          resolveFile(null) // Don't reject, just skip the file
+                        }
+                        reader.readAsDataURL(file)
+                      })
+                    )
+                  })
+                  
+                  const newFilesData = await Promise.all(filePromises)
+                  const validNewFiles = newFilesData.filter(f => f !== null)
+                  
+                  // ACCUMULATE: Combine existing + new files (avoiding duplicates by name)
+                  const existingFileNames = new Set(existingListenerFiles.map((f: any) => f.name))
+                  const uniqueNewFiles = validNewFiles.filter(f => !existingFileNames.has(f.name))
+                  
+                  if (!draft.listening) draft.listening = {}
+                  draft.listening.exampleFiles = [...existingListenerFiles, ...uniqueNewFiles]
+                  console.log(`✅ Added ${uniqueNewFiles.length} NEW files, total now: ${draft.listening.exampleFiles.length}`)
+                  if (uniqueNewFiles.length !== validNewFiles.length) {
+                    console.log(`⚠️ Skipped ${validNewFiles.length - uniqueNewFiles.length} duplicate file(s)`)
+                  }
+                } catch (err) {
+                  console.error('❌ Error processing Listener Example files:', err)
+                  if (!draft.listening) draft.listening = {}
+                  draft.listening.exampleFiles = existingListenerFiles // Keep existing on error
+                }
+              })()
+            )
+          } else {
+            // No new files - just preserve existing
+            if (existingListenerFiles.length > 0) {
+              if (!draft.listening) draft.listening = {}
+              draft.listening.exampleFiles = existingListenerFiles
+              console.log(`📦 Preserved ${existingListenerFiles.length} existing Listener Example files`)
+            }
+          }
+          
+          // Wait for all files to be read
+          if (allFilePromises.length > 0) {
+            console.log(`⏳ Waiting for ${allFilePromises.length} file upload groups to complete...`)
+            await Promise.all(allFilePromises)
+            console.log(`✅ All file uploads processed`)
+          }
+          
+          dataToSave = JSON.stringify(draft)
+        } else if (type === 'context') {
+          const contextData = {
+            text: (document.getElementById('agent-context') as HTMLTextAreaElement)?.value || '',
+            memory: (document.getElementById('agent-memory') as HTMLSelectElement)?.value || 'medium',
+            source: (document.getElementById('agent-context-source') as HTMLSelectElement)?.value || 'user',
+            persist: (document.getElementById('agent-persist-memory') as HTMLInputElement)?.checked || false
+          }
+          dataToSave = JSON.stringify(contextData)
+        } else if (type === 'settings') {
+          const settingsData = {
+            priority: (document.getElementById('agent-priority') as HTMLSelectElement)?.value || 'medium',
+            autostart: (document.getElementById('agent-auto-start') as HTMLInputElement)?.checked || false,
+            autorespond: (document.getElementById('agent-auto-respond') as HTMLInputElement)?.checked || false,
+            delay: (document.getElementById('agent-delay') as HTMLInputElement)?.value || '0'
+          }
+          dataToSave = JSON.stringify(settingsData)
         }
         
-      const notification = document.createElement('div')
-      notification.style.cssText = `
-        position: fixed;
+        // Log what we're about to save
+        console.log(`💾 SAVING ${type} config for agent ${agentName} to ${agentScope} scope`)
+        console.log('📦 Data to save:', JSON.parse(dataToSave))
+        console.log(`📊 Data size: ${dataToSave.length} characters`)
+        
+        // Wrap saveAgentConfig in a promise so we can await it
+        await new Promise<void>((resolve, reject) => {
+          try {
+            saveAgentConfig(agentName, agentScope, type, dataToSave, () => {
+              console.log(`✅ SaveAgentConfig callback executed successfully`)
+              resolve()
+            })
+          } catch (error) {
+            console.error(`❌ Error in saveAgentConfig:`, error)
+            reject(error)
+          }
+        })
+        
+        console.log(`🎉 Save operation completed successfully!`)
+        
+        // Show success notification
+        const showSaveNotification = (dataStr: string) => {
+          // Parse the saved data to show what was saved
+          let savedInfo = ''
+          try {
+            const parsed = JSON.parse(dataStr)
+            const details: string[] = []
+            
+            if (type === 'instructions') {
+              details.push(`✓ Name: ${parsed.name}`)
+              details.push(`✓ Icon: ${parsed.icon}`)
+              if (parsed.capabilities?.length) details.push(`✓ Capabilities: ${parsed.capabilities.join(', ')}`)
+              if (parsed.contextSettings) details.push(`✓ Context Settings`)
+              if (parsed.memorySettings) details.push(`✓ Memory Settings`)
+              if (parsed.listening) details.push(`✓ Listener Config`)
+              if (parsed.reasoning) details.push(`✓ Reasoning Config`)
+              if (parsed.execution) details.push(`✓ Execution Config`)
+              if (parsed.agentContextFiles?.length) details.push(`✓ ${parsed.agentContextFiles.length} Agent Context Files`)
+              if (parsed.listening?.exampleFiles?.length) details.push(`✓ ${parsed.listening.exampleFiles.length} Listener Example Files`)
+            } else if (type === 'context') {
+              if (parsed.text) details.push(`✓ Context Text (${parsed.text.length} chars)`)
+              if (parsed.memory) details.push(`✓ Memory: ${parsed.memory}`)
+              if (parsed.source) details.push(`✓ Source: ${parsed.source}`)
+            } else if (type === 'settings') {
+              if (parsed.priority) details.push(`✓ Priority: ${parsed.priority}`)
+              if (parsed.autostart !== undefined) details.push(`✓ Auto-start: ${parsed.autostart ? 'ON' : 'OFF'}`)
+              if (parsed.autorespond !== undefined) details.push(`✓ Auto-respond: ${parsed.autorespond ? 'ON' : 'OFF'}`)
+            }
+            
+            savedInfo = details.join('<br>')
+          } catch (e) {
+            savedInfo = 'Configuration saved successfully'
+          }
+          
+          const notification = document.createElement('div')
+          notification.style.cssText = `
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: linear-gradient(135deg, #4CAF50 0%, #45a049 100%);
+            color: white;
+            padding: 24px 32px;
+            border-radius: 12px;
+            font-size: 14px;
+            z-index: 2147483651;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+            min-width: 400px;
+            animation: slideDown 0.3s ease-out;
+          `
+          
+          // Add animation
+          const style = document.createElement('style')
+          style.textContent = `
+            @keyframes slideDown {
+              from { transform: translate(-50%, -60%); opacity: 0; }
+              to { transform: translate(-50%, -50%); opacity: 1; }
+            }
+          `
+          document.head.appendChild(style)
+          
+          notification.innerHTML = `
+            <div style="display: flex; align-items: center; gap: 16px; margin-bottom: 16px;">
+              <div style="font-size: 48px;">✅</div>
+              <div>
+                <div style="font-size: 18px; font-weight: bold; margin-bottom: 4px;">
+                  Configuration Saved Successfully!
+                </div>
+                <div style="font-size: 12px; opacity: 0.9;">
+                  ${agentName} ${type} → ${agentScope} scope
+                </div>
+              </div>
+            </div>
+            <div style="background: rgba(255,255,255,0.2); padding: 12px; border-radius: 8px; font-size: 11px; line-height: 1.6;">
+              ${savedInfo}
+            </div>
+          `
+          document.body.appendChild(notification)
+          
+          setTimeout(() => {
+            notification.style.opacity = '0'
+            notification.style.transition = 'opacity 0.3s ease-out'
+            setTimeout(() => {
+              notification.remove()
+              style.remove()
+            }, 300)
+          }, 3000)
+        }
+        
+        showSaveNotification(dataToSave)
+        console.log(`✅ SAVED ${type} for agent ${agentName} to ${agentScope}`)
+        
+        // Close the overlay after successful save
+        configOverlay.remove()
+        
+      } catch (error) {
+        // Handle errors gracefully
+        console.error('❌ Error saving configuration:', error)
+        
+        // Show error notification
+        const errorNotification = document.createElement('div')
+        errorNotification.style.cssText = `
+          position: fixed;
           top: 50%;
           left: 50%;
           transform: translate(-50%, -50%);
-          background: linear-gradient(135deg, #4CAF50 0%, #45a049 100%);
-        color: white;
+          background: linear-gradient(135deg, #f44336 0%, #d32f2f 100%);
+          color: white;
           padding: 24px 32px;
           border-radius: 12px;
           font-size: 14px;
-        z-index: 2147483651;
+          z-index: 2147483651;
           box-shadow: 0 8px 32px rgba(0,0,0,0.3);
           min-width: 400px;
-          animation: slideDown 0.3s ease-out;
         `
         
-        // Add animation
-        const style = document.createElement('style')
-        style.textContent = `
-          @keyframes slideDown {
-            from { transform: translate(-50%, -60%); opacity: 0; }
-            to { transform: translate(-50%, -50%); opacity: 1; }
-          }
-        `
-        document.head.appendChild(style)
-        
-        notification.innerHTML = `
-          <div style="display: flex; align-items: center; gap: 16px; margin-bottom: 16px;">
-            <div style="font-size: 48px;">✅</div>
+        errorNotification.innerHTML = `
+          <div style="display: flex; align-items: center; gap: 16px;">
+            <div style="font-size: 48px;">❌</div>
             <div>
               <div style="font-size: 18px; font-weight: bold; margin-bottom: 4px;">
-                Configuration Saved Successfully!
+                Save Failed
               </div>
               <div style="font-size: 12px; opacity: 0.9;">
-                ${agentName} ${type} → ${agentScope} scope
+                ${error instanceof Error ? error.message : 'An error occurred while saving'}
               </div>
             </div>
           </div>
-          <div style="background: rgba(255,255,255,0.2); padding: 12px; border-radius: 8px; font-size: 11px; line-height: 1.6;">
-            ${savedInfo}
-          </div>
         `
-      document.body.appendChild(notification)
-      
+        document.body.appendChild(errorNotification)
+        
         setTimeout(() => {
-          notification.style.opacity = '0'
-          notification.style.transition = 'opacity 0.3s ease-out'
-      setTimeout(() => {
-        notification.remove()
-            style.remove()
-          }, 300)
-        }, 3000)
-      
-      configOverlay.remove()
-        console.log(`✅ SAVED ${type} for agent ${agentName} to ${agentScope}:`)
-        console.log('📦 Saved data:', JSON.parse(dataToSave))
+          errorNotification.style.opacity = '0'
+          errorNotification.style.transition = 'opacity 0.3s ease-out'
+          setTimeout(() => errorNotification.remove(), 300)
+        }, 4000)
+        
+        // Re-enable the save button
+        saveButton.disabled = false
+        saveButton.style.opacity = '1'
+        saveButton.style.cursor = 'pointer'
+        saveButton.innerHTML = originalButtonHTML
       }
-      
-      // Save using scope-aware helper
-      saveAgentConfig(agentName, agentScope, type, dataToSave, showSaveNotification)
     }
     
     configOverlay.onclick = (e) => { if (e.target === configOverlay) configOverlay.remove() }

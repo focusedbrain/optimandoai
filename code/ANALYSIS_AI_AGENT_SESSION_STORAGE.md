@@ -240,3 +240,4 @@ After implementing, verify:
 - ⏳ Session history shows AI Agents count correctly
 - ⏳ Clicking session in history restores agents and configs
 
+
