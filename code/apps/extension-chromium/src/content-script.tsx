@@ -564,12 +564,12 @@ function initializeExtension() {
   function normalizeSessionAgents(activeKey:string, session:any, cb:(session:any)=>void){
     let changed = false
     if (!Array.isArray(session.agents)) {
-      // Seed with builtins 1..5
+      // Seed with builtins 1..5 (default to session scope)
       session.agents = BUILTIN_AGENTS.map((b, i) => ({ 
         ...b, 
         number: i+1, 
         kind: 'builtin',
-        scope: 'system',
+        scope: 'session',
         config: {}
       }))
       session.numberMap = session.agents.reduce((acc:any,a:any)=>{ acc[a.key]=a.number; return acc }, {})
@@ -595,7 +595,7 @@ function initializeExtension() {
             ...b, 
             number: num, 
             kind: 'builtin',
-            scope: 'system',
+            scope: 'session',
             config: {}
           })
           session.numberMap[b.key] = num
@@ -605,7 +605,7 @@ function initializeExtension() {
       // Ensure all agents have scope and config properties (backward compatibility)
       session.agents.forEach((a: any) => {
         if (!a.scope) {
-          a.scope = a.kind === 'builtin' ? 'system' : 'session'
+          a.scope = 'session'  // Default to session for all agents
           changed = true
         }
         if (!a.config) {
@@ -714,9 +714,8 @@ function initializeExtension() {
   
   function getAllAgentsForSession(session: any, callback: (agents: any[]) => void) {
     getAccountAgents((accountAgents) => {
-      const sessionAgents = (session.agents || []).filter((a: any) => a.scope !== 'system')
-      const systemAgents = (session.agents || []).filter((a: any) => a.scope === 'system')
-      const allAgents = [...systemAgents, ...accountAgents, ...sessionAgents]
+      const sessionAgents = (session.agents || []).filter((a: any) => a.scope === 'session')
+      const allAgents = [...accountAgents, ...sessionAgents]
       callback(allAgents)
     })
   }
@@ -792,7 +791,7 @@ function initializeExtension() {
           
           agents.forEach((a:any) => {
             const num = pad2(Number(a.number)||1)
-            const isSystem = a.scope === 'system'
+            const isAccount = a.scope === 'account'
             const card = document.createElement('div')
             card.style.cssText = 'background: rgba(255,255,255,0.1); padding: 15px; border-radius: 8px; text-align: center; position: relative;'
             card.innerHTML = `
@@ -800,18 +799,15 @@ function initializeExtension() {
               <h4 style="margin: 0 0 8px 0; font-size: 12px; color: #FFFFFF; font-weight: bold;">Agent ${num} — ${a.name || 'Agent'}</h4>
               <button class="agent-toggle" style="padding: 4px 8px; background: #f44336; border: none; color: white; border-radius: 3px; cursor: pointer; font-size: 9px; margin-bottom: 4px;">OFF</button>
               
-              ${!isSystem ? `
-                <div class="scope-toggle-container" style="margin: 8px 0; display: flex; border-radius: 4px; overflow: hidden; border: 1px solid rgba(255,255,255,0.3);">
-                  <button class="scope-toggle-btn ${a.scope === 'session' ? 'active' : ''}" data-scope="session" data-agent="${a.key}" style="flex: 1; padding: 4px 8px; background: ${a.scope === 'session' ? 'rgba(255,255,255,0.3)' : 'rgba(255,255,255,0.1)'}; border: none; color: white; cursor: pointer; font-size: 9px;">
-                    📍 Session
-                  </button>
-                  <button class="scope-toggle-btn ${a.scope === 'account' ? 'active' : ''}" data-scope="account" data-agent="${a.key}" style="flex: 1; padding: 4px 8px; background: ${a.scope === 'account' ? 'rgba(255,255,255,0.3)' : 'rgba(255,255,255,0.1)'}; border: none; color: white; cursor: pointer; font-size: 9px;">
-                    🌐 Account
-                  </button>
-                </div>
-              ` : '<div style="height: 32px; margin: 8px 0; display: flex; align-items: center; justify-content: center; font-size: 9px; color: rgba(255,255,255,0.5);">🔒 System</div>'}
+              <div class="scope-toggle-container" style="margin: 8px 0; display: flex; align-items: center; justify-content: center; gap: 8px;">
+                <span style="font-size: 9px; color: rgba(255,255,255,0.7);">Session</span>
+                <button class="scope-toggle-switch" data-agent="${a.key}" style="position: relative; width: 40px; height: 20px; background: ${isAccount ? '#4CAF50' : 'rgba(255,255,255,0.2)'}; border: none; border-radius: 10px; cursor: pointer; transition: background 0.3s;">
+                  <div style="position: absolute; top: 2px; left: ${isAccount ? '22px' : '2px'}; width: 16px; height: 16px; background: white; border-radius: 50%; transition: left 0.3s;"></div>
+                </button>
+                <span style="font-size: 9px; color: rgba(255,255,255,0.7);">Account</span>
+              </div>
               
-              ${!isSystem ? `<button class="delete-agent" data-key="${a.key}" title="Delete" style="position:absolute;top:6px;right:6px;background:rgba(244,67,54,0.85);border:none;color:#fff;width:20px;height:20px;border-radius:50%;cursor:pointer">×</button>` : ''}
+              <button class="delete-agent" data-key="${a.key}" title="Delete" style="position:absolute;top:6px;right:6px;background:rgba(244,67,54,0.85);border:none;color:#fff;width:20px;height:20px;border-radius:50%;cursor:pointer">×</button>
               
               <div style="display: flex; justify-content: center; gap: 6px; margin-top: 10px;">
                 <button class="lightbox-btn" data-agent="${a.key}" data-type="instructions" style="background: rgba(255,255,255,0.2); border: none; color: white; padding: 4px; border-radius: 3px; cursor: pointer; font-size: 8px;" title="AI Instructions">📋</button>
@@ -829,19 +825,16 @@ function initializeExtension() {
               toggle.style.background = isOn ? '#f44336' : '#4CAF50'
             })
             
-            // Scope toggle handlers
-            card.querySelectorAll('.scope-toggle-btn').forEach((btn: any) => {
-              btn.addEventListener('click', (e: any) => {
-                e.stopPropagation()
-                const newScope = btn.getAttribute('data-scope')
-                const agentKey = btn.getAttribute('data-agent')
-                const currentScope = a.scope
-                
-                if (newScope !== currentScope) {
-                  toggleAgentScope(agentKey, currentScope, newScope, () => {
-                    renderAgentsGrid(overlay, filter)
-                  })
-                }
+            // Scope toggle switch handler
+            const scopeSwitch = card.querySelector('.scope-toggle-switch') as HTMLElement | null
+            scopeSwitch?.addEventListener('click', (e: any) => {
+              e.stopPropagation()
+              const agentKey = scopeSwitch.getAttribute('data-agent')
+              const currentScope = a.scope
+              const newScope = currentScope === 'session' ? 'account' : 'session'
+              
+              toggleAgentScope(agentKey, currentScope, newScope, () => {
+                renderAgentsGrid(overlay, filter)
               })
             })
             
