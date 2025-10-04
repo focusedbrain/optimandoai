@@ -4101,6 +4101,271 @@ function initializeExtension() {
       const hook = (el: HTMLInputElement | null) => el && el.addEventListener('change', render)
       hook(capL); hook(capR); hook(capE)
       render()
+      
+      // Load existing configuration data
+      if (existingData && type === 'instructions') {
+        try {
+          const parsed = JSON.parse(existingData)
+          console.log('📂 Loading existing agent config:', parsed)
+          
+          // Set name and icon
+          if (parsed.name) (configOverlay.querySelector('#ag-name') as HTMLInputElement).value = parsed.name
+          if (parsed.icon) (configOverlay.querySelector('#ag-icon') as HTMLInputElement).value = parsed.icon
+          
+          // Check capabilities
+          if (parsed.capabilities?.includes('listening')) (capL as HTMLInputElement).checked = true
+          if (parsed.capabilities?.includes('reasoning')) (capR as HTMLInputElement).checked = true
+          if (parsed.capabilities?.includes('execution')) (capE as HTMLInputElement).checked = true
+          
+          // Trigger render to show sections
+          render()
+          
+          // Wait for render, then populate fields
+          requestAnimationFrame(() => {
+            // Populate Listening config
+            if (parsed.listening) {
+              const l = parsed.listening
+              const passiveToggle = configOverlay.querySelector('#L-toggle-passive') as HTMLInputElement
+              const activeToggle = configOverlay.querySelector('#L-toggle-active') as HTMLInputElement
+              
+              if (passiveToggle) passiveToggle.checked = !!l.passiveEnabled
+              if (activeToggle) activeToggle.checked = !!l.activeEnabled
+              
+              if (l.expectedContext) {
+                const ctx = configOverlay.querySelector('#L-context') as HTMLTextAreaElement
+                if (ctx) ctx.value = l.expectedContext
+              }
+              
+              if (l.source) {
+                const src = configOverlay.querySelector('#L-source') as HTMLSelectElement
+                if (src) src.value = l.source
+              }
+              
+              if (l.website) {
+                const web = configOverlay.querySelector('#L-website') as HTMLInputElement
+                if (web) web.value = l.website
+              }
+              
+              // Restore tags
+              if (l.tags) {
+                l.tags.forEach((tag: string) => {
+                  const checkbox = configOverlay.querySelector(`.L-tag[value="${tag}"]`) as HTMLInputElement
+                  if (checkbox) checkbox.checked = true
+                })
+              }
+              
+              // Restore active triggers
+              if (l.active?.triggers) {
+                l.active.triggers.forEach((trigger: any) => {
+                  const addBtn = configOverlay.querySelector('.act-add') as HTMLButtonElement
+                  if (addBtn) {
+                    addBtn.click()
+                    const rows = configOverlay.querySelectorAll('#L-active-list .act-row')
+                    const lastRow = rows[rows.length - 1]
+                    if (lastRow && trigger.tag) {
+                      const nameInput = lastRow.querySelector('.act-tag') as HTMLInputElement
+                      const kindSelect = lastRow.querySelector('.act-kind') as HTMLSelectElement
+                      if (nameInput) nameInput.value = trigger.tag.name || ''
+                      if (kindSelect && trigger.tag.kind) kindSelect.value = trigger.tag.kind
+                    }
+                  }
+                })
+              }
+            }
+            
+            // Populate Reasoning config
+            if (parsed.reasoning || parsed.reasoningSections) {
+              const sections = parsed.reasoningSections || [parsed.reasoning]
+              const baseSection = sections[0]
+              
+              if (baseSection) {
+                const goals = configOverlay.querySelector('#R-goals') as HTMLTextAreaElement
+                const role = configOverlay.querySelector('#R-role') as HTMLInputElement
+                const rules = configOverlay.querySelector('#R-rules') as HTMLTextAreaElement
+                const apply = configOverlay.querySelector('#R-apply') as HTMLSelectElement
+                
+                if (goals && baseSection.goals) goals.value = baseSection.goals
+                if (role && baseSection.role) role.value = baseSection.role
+                if (rules && baseSection.rules) rules.value = baseSection.rules
+                if (apply && baseSection.applyFor) apply.value = baseSection.applyFor
+                
+                // Restore acceptFrom
+                if (baseSection.acceptFrom) {
+                  baseSection.acceptFrom.forEach((target: string) => {
+                    const addBtn = configOverlay.querySelector('#R-accept-add') as HTMLButtonElement
+                    if (addBtn) {
+                      addBtn.click()
+                      const rows = configOverlay.querySelectorAll('#R-accept-list .acc-row')
+                      const lastRow = rows[rows.length - 1]
+                      if (lastRow) {
+                        const kindSel = lastRow.querySelector('.route-kind') as HTMLSelectElement
+                        const specSel = lastRow.querySelector('.route-specific') as HTMLSelectElement
+                        // Parse target like "agent:summarize"
+                        const [kind, spec] = target.split(':')
+                        if (kindSel) kindSel.value = kind
+                        kindSel?.dispatchEvent(new Event('change'))
+                        setTimeout(() => { if (specSel && spec) specSel.value = spec }, 50)
+                      }
+                    }
+                  })
+                }
+                
+                // Restore custom fields
+                if (baseSection.custom) {
+                  baseSection.custom.forEach((item: any) => {
+                    const addBtn = configOverlay.querySelector('#R-custom-add') as HTMLButtonElement
+                    if (addBtn) {
+                      addBtn.click()
+                      const rows = configOverlay.querySelectorAll('#R-custom-list > div')
+                      const lastRow = rows[rows.length - 1]
+                      if (lastRow) {
+                        const keyInput = lastRow.querySelector('input:nth-child(1)') as HTMLInputElement
+                        const valInput = lastRow.querySelector('input:nth-child(2)') as HTMLInputElement
+                        if (keyInput) keyInput.value = item.key || ''
+                        if (valInput) valInput.value = item.value || ''
+                      }
+                    }
+                  })
+                }
+              }
+            }
+            
+            // Populate Execution config
+            if (parsed.execution) {
+              const e = parsed.execution
+              const apply = configOverlay.querySelector('#E-apply') as HTMLSelectElement
+              if (apply && e.applyFor) apply.value = e.applyFor
+              
+              // Restore acceptFrom
+              if (e.acceptFrom) {
+                e.acceptFrom.forEach((target: string) => {
+                  const addBtn = configOverlay.querySelector('#E-accept-add') as HTMLButtonElement
+                  if (addBtn) {
+                    addBtn.click()
+                    const rows = configOverlay.querySelectorAll('#E-accept-list .acc-row')
+                    const lastRow = rows[rows.length - 1]
+                    if (lastRow) {
+                      const kindSel = lastRow.querySelector('.route-kind') as HTMLSelectElement
+                      const specSel = lastRow.querySelector('.route-specific') as HTMLSelectElement
+                      const [kind, spec] = target.split(':')
+                      if (kindSel) kindSel.value = kind
+                      kindSel?.dispatchEvent(new Event('change'))
+                      setTimeout(() => { if (specSel && spec) specSel.value = spec }, 50)
+                    }
+                  }
+                })
+              }
+              
+              // Restore workflows
+              if (e.workflows) {
+                e.workflows.forEach((workflow: string) => {
+                  const addBtn = configOverlay.querySelector('#E-add-workflow') as HTMLButtonElement
+                  if (addBtn) {
+                    addBtn.click()
+                    const rows = configOverlay.querySelectorAll('#E-workflow-list .wf-row')
+                    const lastRow = rows[rows.length - 1]
+                    if (lastRow) {
+                      const sel = lastRow.querySelector('.wf-target') as HTMLSelectElement
+                      if (sel) sel.value = workflow
+                    }
+                  }
+                })
+              }
+              
+              // Restore reportTo (special destinations)
+              if (e.specialDestinations) {
+                e.specialDestinations.forEach((dest: any) => {
+                  const addBtn = configOverlay.querySelector('#E-special-add') as HTMLButtonElement
+                  if (addBtn) {
+                    addBtn.click()
+                    const rows = configOverlay.querySelectorAll('#E-special-list .esp-row')
+                    const lastRow = rows[rows.length - 1]
+                    if (lastRow) {
+                      const kindSel = lastRow.querySelector('.esp-kind') as HTMLSelectElement
+                      if (kindSel) kindSel.value = dest.kind
+                      kindSel?.dispatchEvent(new Event('change'))
+                    }
+                  }
+                })
+              }
+            }
+            
+            // Restore uploaded files list (files themselves can't be restored to input for security)
+            if (parsed.agentContextFiles && parsed.agentContextFiles.length > 0) {
+              const acEnable = configOverlay.querySelector('#AC-agent') as HTMLInputElement
+              const acList = configOverlay.querySelector('#AC-list') as HTMLElement
+              if (acEnable) acEnable.checked = true
+              const syncAc = () => {
+                const acContent = configOverlay.querySelector('#AC-content') as HTMLElement
+                if (acContent) acContent.style.display = acEnable.checked ? 'block' : 'none'
+              }
+              syncAc()
+              if (acList) {
+                acList.innerHTML = `
+                  <div style="font-weight:bold;margin-bottom:4px;">${parsed.agentContextFiles.length} file(s) previously uploaded:</div>
+                  ${parsed.agentContextFiles.map((f: any) => `
+                    <div style="font-size:11px;opacity:0.8;margin-left:8px;">
+                      📄 ${f.name} (${(f.size / 1024).toFixed(1)} KB)
+                    </div>
+                  `).join('')}
+                  <div style="font-size:10px;opacity:0.6;margin-top:8px;font-style:italic;">
+                    Upload new files to replace these
+                  </div>
+                `
+              }
+            }
+            
+            console.log('✅ Agent config loaded successfully')
+          })
+        } catch (e) {
+          console.error('❌ Failed to load agent config:', e)
+        }
+      } else if (existingData && type === 'context') {
+        // Context data is already populated in the HTML template (line 3251)
+        try {
+          const parsed = JSON.parse(existingData)
+          if (parsed.memory) {
+            const memSel = configOverlay.querySelector('#agent-memory') as HTMLSelectElement
+            if (memSel) memSel.value = parsed.memory
+          }
+          if (parsed.source) {
+            const srcSel = configOverlay.querySelector('#agent-context-source') as HTMLSelectElement
+            if (srcSel) srcSel.value = parsed.source
+          }
+          if (parsed.persist !== undefined) {
+            const persistCheck = configOverlay.querySelector('#agent-persist-memory') as HTMLInputElement
+            if (persistCheck) persistCheck.checked = parsed.persist
+          }
+          if (parsed.text) {
+            const textarea = configOverlay.querySelector('#agent-context') as HTMLTextAreaElement
+            if (textarea) textarea.value = parsed.text
+          }
+        } catch (e) {
+          console.warn('Could not parse context data, using as plain text')
+        }
+      } else if (existingData && type === 'settings') {
+        try {
+          const parsed = JSON.parse(existingData)
+          if (parsed.priority) {
+            const prioritySel = configOverlay.querySelector('#agent-priority') as HTMLSelectElement
+            if (prioritySel) prioritySel.value = parsed.priority
+          }
+          if (parsed.autostart !== undefined) {
+            const check = configOverlay.querySelector('#agent-auto-start') as HTMLInputElement
+            if (check) check.checked = parsed.autostart
+          }
+          if (parsed.autorespond !== undefined) {
+            const check = configOverlay.querySelector('#agent-auto-respond') as HTMLInputElement
+            if (check) check.checked = parsed.autorespond
+          }
+          if (parsed.delay !== undefined) {
+            const input = configOverlay.querySelector('#agent-delay') as HTMLInputElement
+            if (input) input.value = parsed.delay
+          }
+        } catch (e) {
+          console.error('Failed to load settings:', e)
+        }
+      }
     } catch {}
     
     // Close handlers
@@ -4221,6 +4486,42 @@ function initializeExtension() {
             executionSections: eSections
           }
         }
+        
+        // Handle uploaded files for Agent Context
+        const acFiles = configOverlay.querySelector('#AC-files') as HTMLInputElement
+        const acEnable = configOverlay.querySelector('#AC-agent') as HTMLInputElement
+        if (acFiles && acFiles.files && acFiles.files.length > 0 && acEnable?.checked) {
+          const filePromises: Promise<any>[] = []
+          Array.from(acFiles.files).forEach((file: File) => {
+            filePromises.push(
+              new Promise((resolve) => {
+                const reader = new FileReader()
+                reader.onload = () => {
+                  resolve({
+                    name: file.name,
+                    type: file.type,
+                    size: file.size,
+                    data: reader.result // base64
+                  })
+                }
+                reader.onerror = () => resolve(null)
+                reader.readAsDataURL(file)
+              })
+            )
+          })
+          
+          Promise.all(filePromises).then((filesData) => {
+            draft.agentContextFiles = filesData.filter(f => f !== null)
+            dataToSave = JSON.stringify(draft)
+            
+            // Save using scope-aware helper
+            saveAgentConfig(agentName, agentScope, type, dataToSave, () => {
+              showSaveNotification()
+            })
+          })
+          return // Early return to wait for file reading
+        }
+        
         dataToSave = JSON.stringify(draft)
       } else if (type === 'context') {
         const contextData = {
@@ -4240,9 +4541,8 @@ function initializeExtension() {
         dataToSave = JSON.stringify(settingsData)
       }
       
-      // Save using scope-aware helper
-      saveAgentConfig(agentName, agentScope, type, dataToSave, () => {
-        // Show notification
+      // Helper function to show save notification
+      const showSaveNotification = () => {
         const notification = document.createElement('div')
         notification.style.cssText = `
           position: fixed;
@@ -4264,7 +4564,10 @@ function initializeExtension() {
         
         configOverlay.remove()
         console.log(`✅ Saved ${type} for agent ${agentName} to ${agentScope}:`, dataToSave)
-      })
+      }
+      
+      // Save using scope-aware helper
+      saveAgentConfig(agentName, agentScope, type, dataToSave, showSaveNotification)
     }
     
     configOverlay.onclick = (e) => { if (e.target === configOverlay) configOverlay.remove() }
