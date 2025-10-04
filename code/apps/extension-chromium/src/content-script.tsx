@@ -771,6 +771,26 @@ function initializeExtension() {
   // NEW: Config storage helpers (scope-aware)
   function saveAgentConfig(agentKey: string, scope: string, configType: string, configData: any, callback: () => void) {
     console.log(`💾 Saving ${configType} for agent ${agentKey} in ${scope} scope`)
+    console.log(`📊 Data size: ${configData.length} characters`)
+    
+    // Parse and verify what's being saved
+    try {
+      const parsed = JSON.parse(configData)
+      console.log('🔍 VERIFICATION - Data being saved:', {
+        keys: Object.keys(parsed),
+        capabilities: parsed.capabilities,
+        hasContextSettings: !!parsed.contextSettings,
+        hasMemorySettings: !!parsed.memorySettings,
+        hasListening: !!parsed.listening,
+        hasReasoning: !!parsed.reasoning,
+        hasExecution: !!parsed.execution,
+        hasAgentContextFiles: !!parsed.agentContextFiles,
+        agentContextFilesCount: parsed.agentContextFiles?.length || 0,
+        listeningExampleFilesCount: parsed.listening?.exampleFiles?.length || 0
+      })
+    } catch (e) {
+      console.warn('Could not parse config for verification:', e)
+    }
     
     if (scope === 'session') {
       // Save to session.agents[x].config
@@ -852,7 +872,7 @@ function initializeExtension() {
     ensureActiveSession((activeKey:string, session:any) => {
       normalizeSessionAgents(activeKey, session, (s:any)=>{
         getAllAgentsForSession(s, (allAgents) => {
-          const hidden = Array.isArray(s.hiddenBuiltins) ? s.hiddenBuiltins : []
+        const hidden = Array.isArray(s.hiddenBuiltins) ? s.hiddenBuiltins : []
           
           // Apply filter
           let agents = allAgents.filter((a:any)=> !(a?.kind==='builtin' && hidden.includes(a.key)))
@@ -866,14 +886,14 @@ function initializeExtension() {
           
           agents.sort((a:any,b:any)=> (a.number||0)-(b.number||0))
           
-          agents.forEach((a:any) => {
-            const num = pad2(Number(a.number)||1)
+        agents.forEach((a:any) => {
+          const num = pad2(Number(a.number)||1)
             const isAccount = a.scope === 'account'
-            const card = document.createElement('div')
-            card.style.cssText = 'background: rgba(255,255,255,0.1); padding: 15px; border-radius: 8px; text-align: center; position: relative;'
-            card.innerHTML = `
-              <div style="font-size: 32px; margin-bottom: 8px;">${a.icon || '🤖'}</div>
-              <h4 style="margin: 0 0 8px 0; font-size: 12px; color: #FFFFFF; font-weight: bold;">Agent ${num} — ${a.name || 'Agent'}</h4>
+          const card = document.createElement('div')
+          card.style.cssText = 'background: rgba(255,255,255,0.1); padding: 15px; border-radius: 8px; text-align: center; position: relative;'
+          card.innerHTML = `
+            <div style="font-size: 32px; margin-bottom: 8px;">${a.icon || '🤖'}</div>
+            <h4 style="margin: 0 0 8px 0; font-size: 12px; color: #FFFFFF; font-weight: bold;">Agent ${num} — ${a.name || 'Agent'}</h4>
               <button class="agent-toggle" style="padding: 4px 8px; background: #f44336; border: none; color: white; border-radius: 3px; cursor: pointer; font-size: 9px; margin-bottom: 4px;">OFF</button>
               
               <div class="scope-toggle-container" style="margin: 8px 0; display: flex; align-items: center; justify-content: center; gap: 8px;">
@@ -884,23 +904,23 @@ function initializeExtension() {
                 <span style="font-size: 9px; color: rgba(255,255,255,0.7);">Account</span>
               </div>
               
-              <button class="delete-agent" data-key="${a.key}" title="Delete" style="position:absolute;top:6px;right:6px;background:rgba(244,67,54,0.85);border:none;color:#fff;width:20px;height:20px;border-radius:50%;cursor:pointer">×</button>
+            <button class="delete-agent" data-key="${a.key}" title="Delete" style="position:absolute;top:6px;right:6px;background:rgba(244,67,54,0.85);border:none;color:#fff;width:20px;height:20px;border-radius:50%;cursor:pointer">×</button>
               
-              <div style="display: flex; justify-content: center; gap: 6px; margin-top: 10px;">
-                <button class="lightbox-btn" data-agent="${a.key}" data-type="instructions" style="background: rgba(255,255,255,0.2); border: none; color: white; padding: 4px; border-radius: 3px; cursor: pointer; font-size: 8px;" title="AI Instructions">📋</button>
-                <button class="lightbox-btn" data-agent="${a.key}" data-type="context" style="background: rgba(255,255,255,0.2); border: none; color: white; padding: 4px; border-radius: 3px; cursor: pointer; font-size: 8px;" title="Memory">📄</button>
-                <button class="lightbox-btn" data-agent="${a.key}" data-type="settings" style="background: rgba(255,255,255,0.2); border: none; color: white; padding: 4px; border-radius: 3px; cursor: pointer; font-size: 8px;" title="Settings">⚙️</button>
-              </div>
-            `
-            grid.appendChild(card)
+            <div style="display: flex; justify-content: center; gap: 6px; margin-top: 10px;">
+              <button class="lightbox-btn" data-agent="${a.key}" data-type="instructions" style="background: rgba(255,255,255,0.2); border: none; color: white; padding: 4px; border-radius: 3px; cursor: pointer; font-size: 8px;" title="AI Instructions">📋</button>
+              <button class="lightbox-btn" data-agent="${a.key}" data-type="context" style="background: rgba(255,255,255,0.2); border: none; color: white; padding: 4px; border-radius: 3px; cursor: pointer; font-size: 8px;" title="Memory">📄</button>
+              <button class="lightbox-btn" data-agent="${a.key}" data-type="settings" style="background: rgba(255,255,255,0.2); border: none; color: white; padding: 4px; border-radius: 3px; cursor: pointer; font-size: 8px;" title="Settings">⚙️</button>
+            </div>
+          `
+          grid.appendChild(card)
             
             // ON/OFF toggle
-            const toggle = card.querySelector('.agent-toggle') as HTMLElement | null
-            toggle?.addEventListener('click', () => {
-              const isOn = toggle.textContent === 'ON'
-              toggle.textContent = isOn ? 'OFF' : 'ON'
-              toggle.style.background = isOn ? '#f44336' : '#4CAF50'
-            })
+          const toggle = card.querySelector('.agent-toggle') as HTMLElement | null
+          toggle?.addEventListener('click', () => {
+            const isOn = toggle.textContent === 'ON'
+            toggle.textContent = isOn ? 'OFF' : 'ON'
+            toggle.style.background = isOn ? '#f44336' : '#4CAF50'
+          })
             
             // Scope toggle switch handler
             const scopeSwitch = card.querySelector('.scope-toggle-switch') as HTMLElement | null
@@ -916,21 +936,21 @@ function initializeExtension() {
             })
             
             // Config dialog buttons
-            card.querySelectorAll('.lightbox-btn').forEach((btn:any) => {
-              btn.addEventListener('click', (e:any) => {
-                const agentKey = e.currentTarget.getAttribute('data-agent') || a.key
-                const t = e.currentTarget.getAttribute('data-type') || 'instructions'
+          card.querySelectorAll('.lightbox-btn').forEach((btn:any) => {
+            btn.addEventListener('click', (e:any) => {
+              const agentKey = e.currentTarget.getAttribute('data-agent') || a.key
+              const t = e.currentTarget.getAttribute('data-type') || 'instructions'
                 openAgentConfigDialog(agentKey, t, overlay, a.scope || 'session')
-              })
-            })
-            
-            // Delete button
-            const del = card.querySelector('.delete-agent') as HTMLElement | null
-            del?.addEventListener('click', () => {
-              if (!confirm('Delete this agent?')) return
-              deleteAgentFromSession(a.key, () => renderAgentsGrid(overlay, filter))
             })
           })
+            
+            // Delete button
+          const del = card.querySelector('.delete-agent') as HTMLElement | null
+          del?.addEventListener('click', () => {
+            if (!confirm('Delete this agent?')) return
+              deleteAgentFromSession(a.key, () => renderAgentsGrid(overlay, filter))
+          })
+        })
         })
       })
     })
@@ -3216,9 +3236,9 @@ function initializeExtension() {
     // Load existing config data asynchronously based on scope
     loadAgentConfig(agentName, agentScope, type, (loadedData) => {
       const existingData = loadedData || ''
-      const storageKey = `agent_${agentName}_${type}`
-      let content = ''
-      if (type === 'instructions') {
+    const storageKey = `agent_${agentName}_${type}`
+    let content = ''
+    if (type === 'instructions') {
       // Revised unified Agent Editor
       content = `
         <div style="display:grid;gap:14px;">
@@ -4178,8 +4198,14 @@ function initializeExtension() {
               const passiveToggle = configOverlay.querySelector('#L-toggle-passive') as HTMLInputElement
               const activeToggle = configOverlay.querySelector('#L-toggle-active') as HTMLInputElement
               
-              if (passiveToggle) passiveToggle.checked = !!l.passiveEnabled
-              if (activeToggle) activeToggle.checked = !!l.activeEnabled
+              if (passiveToggle) {
+                passiveToggle.checked = !!l.passiveEnabled
+                passiveToggle.dispatchEvent(new Event('change')) // Trigger visibility
+              }
+              if (activeToggle) {
+                activeToggle.checked = !!l.activeEnabled
+                activeToggle.dispatchEvent(new Event('change')) // Trigger visibility
+              }
               
               if (l.expectedContext) {
                 const ctx = configOverlay.querySelector('#L-context') as HTMLTextAreaElement
@@ -4513,24 +4539,25 @@ function initializeExtension() {
         if (L) draft.capabilities.push('listening')
         if (R) draft.capabilities.push('reasoning')
         if (E) draft.capabilities.push('execution')
-        // Listening
+        // Listening - SAVE ALL FIELDS regardless of toggle state
         if (L) {
           const passiveEnabled = !!(document.getElementById('L-toggle-passive') as HTMLInputElement)?.checked
           const activeEnabled = !!(document.getElementById('L-toggle-active') as HTMLInputElement)?.checked
           const tags = Array.from(document.querySelectorAll('.L-tag'))
             .filter((el:any)=>el.checked).map((el:any)=>el.value)
           const src = (document.getElementById('L-source') as HTMLSelectElement)?.value || ''
+          
+          // ALWAYS save all fields (not conditional on passiveEnabled)
           const listening:any = {
             passiveEnabled,
-            activeEnabled
+            activeEnabled,
+            expectedContext: (document.getElementById('L-context') as HTMLTextAreaElement)?.value || '',
+            tags: tags,
+            source: src,
+            website: ((document.getElementById('L-website') as HTMLInputElement)?.value || '')
           }
-          if (passiveEnabled) {
-            listening.expectedContext = (document.getElementById('L-context') as HTMLTextAreaElement)?.value || ''
-            listening.tags = tags
-            listening.source = src
-            listening.website = src==='website' ? ((document.getElementById('L-website') as HTMLInputElement)?.value || '') : ''
-          }
-          if (activeEnabled) {
+          
+          // ALWAYS save triggers (not conditional on activeEnabled)
             const triggers:any[] = []
             document.querySelectorAll('#L-active-list .act-row').forEach((row:any)=>{
               const name = (row.querySelector('.act-tag') as HTMLInputElement)?.value || ''
@@ -4541,10 +4568,24 @@ function initializeExtension() {
                 triggers.push({ tag: { name, kind, extra } })
               }
             })
+          if (triggers.length > 0) {
             listening.active = { triggers }
           }
+          
           // Report to list
           listening.reportTo = Array.from(document.querySelectorAll('#L-report-list .rep-row .rep-target')).map((n:any)=> n.value)
+          
+          console.log('📝 Listener config collected:', {
+            passiveEnabled,
+            activeEnabled,
+            contextLength: listening.expectedContext.length,
+            tagsCount: listening.tags.length,
+            source: listening.source,
+            website: listening.website,
+            triggersCount: triggers.length,
+            reportToCount: listening.reportTo.length
+          })
+          
           draft.listening = listening
         }
         // Reasoning
@@ -4583,6 +4624,17 @@ function initializeExtension() {
           })
           draft.reasoning = { acceptFrom: accepts, goals: base.goals, role: base.role, rules: base.rules, custom: {}, applyFor: base.applyFor }
           ;(draft as any).reasoningSections = sections
+          
+          console.log('📝 Reasoning config collected:', {
+            applyFor: base.applyFor,
+            goalsLength: base.goals.length,
+            roleLength: base.role.length,
+            rulesLength: base.rules.length,
+            customFieldsCount: base.custom.length,
+            acceptFromCount: accepts.length,
+            reportToCount: base.reportTo.length,
+            sectionsCount: sections.length
+          })
         }
         // Execution
         if (E) {
@@ -4613,7 +4665,28 @@ function initializeExtension() {
             specialDestinations: eDestinationsMain,
             executionSections: eSections
           }
+          
+          console.log('📝 Execution config collected:', {
+            acceptFromCount: eAccepts.length,
+            workflowsCount: eWfs.length,
+            reportToCount: draft.execution.reportTo.length,
+            applyFor: draft.execution.applyFor,
+            specialDestinationsCount: eDestinationsMain.length,
+            executionSectionsCount: eSections.length
+          })
         }
+        
+        // VERIFICATION LOG - Show ALL collected data
+        console.log('📦 COMPLETE CONFIG DRAFT:', {
+          name: draft.name,
+          icon: draft.icon,
+          capabilities: draft.capabilities,
+          contextSettings: draft.contextSettings,
+          memorySettings: draft.memorySettings,
+          hasListening: !!draft.listening,
+          hasReasoning: !!draft.reasoning,
+          hasExecution: !!draft.execution
+        })
         
         // Handle ALL file uploads asynchronously
         const allFilePromises: Promise<void>[] = []
@@ -4689,7 +4762,7 @@ function initializeExtension() {
         // Wait for all files to be read, then save
         if (allFilePromises.length > 0) {
           Promise.all(allFilePromises).then(() => {
-            dataToSave = JSON.stringify(draft)
+        dataToSave = JSON.stringify(draft)
             console.log(`📦 All files processed, saving config...`)
             saveAgentConfig(agentName, agentScope, type, dataToSave, showSaveNotification)
           })
@@ -4717,27 +4790,94 @@ function initializeExtension() {
       
       // Helper function to show save notification
       const showSaveNotification = () => {
-        const notification = document.createElement('div')
-        notification.style.cssText = `
-          position: fixed;
-          top: 60px;
-          right: 20px;
-          background: rgba(76, 175, 80, 0.9);
-          color: white;
-          padding: 10px 15px;
-          border-radius: 5px;
-          font-size: 12px;
-          z-index: 2147483651;
+        // Parse the saved data to show what was saved
+        let savedInfo = ''
+        try {
+          const parsed = JSON.parse(dataToSave)
+          const details: string[] = []
+          
+          if (type === 'instructions') {
+            details.push(`✓ Name: ${parsed.name}`)
+            details.push(`✓ Icon: ${parsed.icon}`)
+            if (parsed.capabilities) details.push(`✓ Capabilities: ${parsed.capabilities.join(', ')}`)
+            if (parsed.contextSettings) details.push(`✓ Context Settings`)
+            if (parsed.memorySettings) details.push(`✓ Memory Settings`)
+            if (parsed.listening) details.push(`✓ Listener Config`)
+            if (parsed.reasoning) details.push(`✓ Reasoning Config`)
+            if (parsed.execution) details.push(`✓ Execution Config`)
+            if (parsed.agentContextFiles?.length) details.push(`✓ ${parsed.agentContextFiles.length} Agent Context Files`)
+          } else if (type === 'context') {
+            if (parsed.text) details.push(`✓ Context Text (${parsed.text.length} chars)`)
+            if (parsed.memory) details.push(`✓ Memory: ${parsed.memory}`)
+            if (parsed.source) details.push(`✓ Source: ${parsed.source}`)
+          } else if (type === 'settings') {
+            if (parsed.priority) details.push(`✓ Priority: ${parsed.priority}`)
+            if (parsed.autostart !== undefined) details.push(`✓ Auto-start: ${parsed.autostart ? 'ON' : 'OFF'}`)
+            if (parsed.autorespond !== undefined) details.push(`✓ Auto-respond: ${parsed.autorespond ? 'ON' : 'OFF'}`)
+          }
+          
+          savedInfo = details.join('<br>')
+        } catch (e) {
+          savedInfo = 'Configuration saved successfully'
+        }
+        
+      const notification = document.createElement('div')
+      notification.style.cssText = `
+        position: fixed;
+          top: 50%;
+          left: 50%;
+          transform: translate(-50%, -50%);
+          background: linear-gradient(135deg, #4CAF50 0%, #45a049 100%);
+        color: white;
+          padding: 24px 32px;
+          border-radius: 12px;
+          font-size: 14px;
+        z-index: 2147483651;
+          box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+          min-width: 400px;
+          animation: slideDown 0.3s ease-out;
         `
-        notification.innerHTML = `💾 ${agentName} ${type} saved to ${agentScope} scope!`
-        document.body.appendChild(notification)
         
+        // Add animation
+        const style = document.createElement('style')
+        style.textContent = `
+          @keyframes slideDown {
+            from { transform: translate(-50%, -60%); opacity: 0; }
+            to { transform: translate(-50%, -50%); opacity: 1; }
+          }
+        `
+        document.head.appendChild(style)
+        
+        notification.innerHTML = `
+          <div style="display: flex; align-items: center; gap: 16px; margin-bottom: 16px;">
+            <div style="font-size: 48px;">✅</div>
+            <div>
+              <div style="font-size: 18px; font-weight: bold; margin-bottom: 4px;">
+                Configuration Saved Successfully!
+              </div>
+              <div style="font-size: 12px; opacity: 0.9;">
+                ${agentName} ${type} → ${agentScope} scope
+              </div>
+            </div>
+          </div>
+          <div style="background: rgba(255,255,255,0.2); padding: 12px; border-radius: 8px; font-size: 11px; line-height: 1.6;">
+            ${savedInfo}
+          </div>
+        `
+      document.body.appendChild(notification)
+      
         setTimeout(() => {
-          notification.remove()
-        }, 2000)
-        
-        configOverlay.remove()
-        console.log(`✅ Saved ${type} for agent ${agentName} to ${agentScope}:`, dataToSave)
+          notification.style.opacity = '0'
+          notification.style.transition = 'opacity 0.3s ease-out'
+      setTimeout(() => {
+        notification.remove()
+            style.remove()
+          }, 300)
+        }, 3000)
+      
+      configOverlay.remove()
+        console.log(`✅ SAVED ${type} for agent ${agentName} to ${agentScope}:`)
+        console.log('📦 Saved data:', JSON.parse(dataToSave))
       }
       
       // Save using scope-aware helper
@@ -6112,10 +6252,10 @@ ${pageText}
         const r = coords(); const raw = await captureVisibleTab(); if(!raw) return; const cropped = await cropCapturedImageToRect(raw, r); pasteImageToChat(cropped); renderTriggerPrompt(cropped, r, 'screenshot'); try{ closeSelection() }catch{}
       }
       btnStream.onclick = async (ev:any)=>{
-        try{ ev.preventDefault(); ev.stopPropagation() }catch{}
+          try{ ev.preventDefault(); ev.stopPropagation() }catch{}
         // Reveal recording controls for selected region
         btnRec.style.display='inline-block'; btnStop.style.display='inline-block'
-      }
+        }
       btnRec.onclick = async (ev:any)=>{
         try{ ev.preventDefault(); ev.stopPropagation() }catch{}
         try{
@@ -6159,12 +6299,12 @@ ${pageText}
           try{ ov.style.pointerEvents='none'; box.style.display='block' }catch{}
           // Visual recording badge
           try {
-            recBadge = document.createElement('div')
+          recBadge = document.createElement('div')
             recBadge.id = 'og-rec-ind'
             recBadge.style.cssText = 'position:fixed; top:8px; right:12px; z-index:2147483647; display:flex; align-items:center; gap:6px; background:rgba(17,24,39,0.85); color:#fecaca; border:1px solid rgba(239,68,68,0.6); padding:4px 8px; border-radius:8px; font-size:12px;'
             recBadge.innerHTML = '<span style="display:inline-block;width:8px;height:8px;border-radius:9999px;background:#ef4444;animation:pulse 1s infinite"></span><span>REC</span>'
             const st = document.createElement('style'); st.textContent='@keyframes pulse{0%{opacity:1}50%{opacity:.35}100%{opacity:1}}'; recBadge.appendChild(st)
-            document.body.appendChild(recBadge)
+          document.body.appendChild(recBadge)
           } catch{}
           // Start timer next to controls
           try {
@@ -6239,7 +6379,7 @@ ${pageText}
           }catch{}
         }
         // Also listen via chrome.runtime messaging in case background forwards it
-        chrome.runtime?.onMessage.addListener((incoming:any)=>{
+      chrome.runtime?.onMessage.addListener((incoming:any)=>{
           try{
             if (incoming && incoming.type === 'ELECTRON_SELECTION_RESULT'){
               const kind = incoming.kind || 'image'
@@ -10781,8 +10921,8 @@ ${pageText}
         try{ e.preventDefault(); e.stopPropagation() }catch{}
         console.log('[CONTENT] Docked pencil button clicked')
         // Trigger Electron overlay for screen selection (can capture outside browser)
-        try{ 
-          chrome.runtime?.sendMessage({ type:'ELECTRON_START_SELECTION', source:'docked-chat' })
+          try{ 
+            chrome.runtime?.sendMessage({ type:'ELECTRON_START_SELECTION', source:'docked-chat' })
           console.log('[CONTENT] Sent ELECTRON_START_SELECTION message')
         }catch(err){
           console.log('[CONTENT] Error sending message:', err)
@@ -11101,8 +11241,8 @@ ${pageText}
         try{ e.preventDefault(); e.stopPropagation() }catch{}
         console.log('[CONTENT] Floating pencil button clicked')
         // Trigger Electron overlay for screen selection (can capture outside browser)
-        try{ 
-          chrome.runtime?.sendMessage({ type:'ELECTRON_START_SELECTION', source:'floating-popup' })
+          try{ 
+            chrome.runtime?.sendMessage({ type:'ELECTRON_START_SELECTION', source:'floating-popup' })
           console.log('[CONTENT] Sent ELECTRON_START_SELECTION message')
         }catch(err){
           console.log('[CONTENT] Error sending message:', err)
