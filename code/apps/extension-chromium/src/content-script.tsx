@@ -767,6 +767,83 @@ function initializeExtension() {
       }
     })
   }
+  
+  // NEW: Config storage helpers (scope-aware)
+  function saveAgentConfig(agentKey: string, scope: string, configType: string, configData: any, callback: () => void) {
+    console.log(`💾 Saving ${configType} for agent ${agentKey} in ${scope} scope`)
+    
+    if (scope === 'session') {
+      // Save to session.agents[x].config
+      ensureActiveSession((activeKey: string, session: any) => {
+        normalizeSessionAgents(activeKey, session, (s: any) => {
+          let agent = s.agents.find((a: any) => a.key === agentKey)
+          if (!agent) {
+            console.warn(`Agent ${agentKey} not found in session, creating it`)
+            agent = { key: agentKey, name: agentKey, icon: '🤖', number: s.nextNumber || 1, kind: 'custom', scope: 'session', config: {} }
+            s.agents.push(agent)
+            s.nextNumber = (s.nextNumber || 1) + 1
+          }
+          
+          if (!agent.config) agent.config = {}
+          agent.config[configType] = configData
+          s.timestamp = new Date().toISOString()
+          
+          chrome.storage.local.set({ [activeKey]: s }, () => {
+            console.log(`✅ Saved ${configType} to session for ${agentKey}`)
+            callback()
+          })
+        })
+      })
+    } else if (scope === 'account') {
+      // Save to accountAgents[x].config
+      getAccountAgents((accountAgents) => {
+        let agent = accountAgents.find((a: any) => a.key === agentKey)
+        if (!agent) {
+          console.warn(`Agent ${agentKey} not found in account agents, creating it`)
+          agent = { key: agentKey, name: agentKey, icon: '🤖', number: 1, kind: 'custom', scope: 'account', config: {} }
+          accountAgents.push(agent)
+        }
+        
+        if (!agent.config) agent.config = {}
+        agent.config[configType] = configData
+        
+        saveAccountAgents(accountAgents, () => {
+          console.log(`✅ Saved ${configType} to account for ${agentKey}`)
+          callback()
+        })
+      })
+    } else {
+      console.warn(`Unknown scope: ${scope}`)
+      callback()
+    }
+  }
+  
+  function loadAgentConfig(agentKey: string, scope: string, configType: string, callback: (data: any) => void) {
+    console.log(`📂 Loading ${configType} for agent ${agentKey} from ${scope} scope`)
+    
+    if (scope === 'session') {
+      // Load from session.agents[x].config
+      ensureActiveSession((activeKey: string, session: any) => {
+        normalizeSessionAgents(activeKey, session, (s: any) => {
+          const agent = s.agents.find((a: any) => a.key === agentKey)
+          const data = agent?.config?.[configType] || null
+          console.log(`📂 Loaded ${configType} from session for ${agentKey}:`, data ? 'Found' : 'Not found')
+          callback(data)
+        })
+      })
+    } else if (scope === 'account') {
+      // Load from accountAgents[x].config
+      getAccountAgents((accountAgents) => {
+        const agent = accountAgents.find((a: any) => a.key === agentKey)
+        const data = agent?.config?.[configType] || null
+        console.log(`📂 Loaded ${configType} from account for ${agentKey}:`, data ? 'Found' : 'Not found')
+        callback(data)
+      })
+    } else {
+      console.warn(`Unknown scope: ${scope}`)
+      callback(null)
+    }
+  }
   function renderAgentsGrid(overlay:HTMLElement, filter: string = 'all'){
     const grid = overlay.querySelector('#agents-grid') as HTMLElement | null
     if (!grid) return
@@ -3136,11 +3213,12 @@ function initializeExtension() {
       'coordinate': '#607D8B'
     }
     
-    // Get existing data or create default
-    const storageKey = `agent_${agentName}_${type}`
-    const existingData = localStorage.getItem(storageKey) || ''
-    let content = ''
-    if (type === 'instructions') {
+    // Load existing config data asynchronously based on scope
+    loadAgentConfig(agentName, agentScope, type, (loadedData) => {
+      const existingData = loadedData || ''
+      const storageKey = `agent_${agentName}_${type}`
+      let content = ''
+      if (type === 'instructions') {
       // Revised unified Agent Editor
       content = `
         <div style="display:grid;gap:14px;">
@@ -4144,43 +4222,49 @@ function initializeExtension() {
           }
         }
         dataToSave = JSON.stringify(draft)
-        localStorage.setItem('agent_model_v2_'+agentName, dataToSave)
       } else if (type === 'context') {
-        dataToSave = document.getElementById('agent-context').value
-        localStorage.setItem(storageKey + '_memory', document.getElementById('agent-memory').value)
-        localStorage.setItem(storageKey + '_source', document.getElementById('agent-context-source').value)
-        localStorage.setItem(storageKey + '_persist', document.getElementById('agent-persist-memory').checked)
+        const contextData = {
+          text: (document.getElementById('agent-context') as HTMLTextAreaElement)?.value || '',
+          memory: (document.getElementById('agent-memory') as HTMLSelectElement)?.value || 'medium',
+          source: (document.getElementById('agent-context-source') as HTMLSelectElement)?.value || 'user',
+          persist: (document.getElementById('agent-persist-memory') as HTMLInputElement)?.checked || false
+        }
+        dataToSave = JSON.stringify(contextData)
       } else if (type === 'settings') {
-        localStorage.setItem(storageKey + '_priority', document.getElementById('agent-priority').value)
-        localStorage.setItem(storageKey + '_autostart', document.getElementById('agent-auto-start').checked)
-        localStorage.setItem(storageKey + '_autorespond', document.getElementById('agent-auto-respond').checked)
-        localStorage.setItem(storageKey + '_delay', document.getElementById('agent-delay').value)
+        const settingsData = {
+          priority: (document.getElementById('agent-priority') as HTMLSelectElement)?.value || 'medium',
+          autostart: (document.getElementById('agent-auto-start') as HTMLInputElement)?.checked || false,
+          autorespond: (document.getElementById('agent-auto-respond') as HTMLInputElement)?.checked || false,
+          delay: (document.getElementById('agent-delay') as HTMLInputElement)?.value || '0'
+        }
+        dataToSave = JSON.stringify(settingsData)
       }
       
-      localStorage.setItem(storageKey, dataToSave)
-      
-      // Show notification
-      const notification = document.createElement('div')
-      notification.style.cssText = `
-        position: fixed;
-        top: 60px;
-        right: 20px;
-        background: rgba(76, 175, 80, 0.9);
-        color: white;
-        padding: 10px 15px;
-        border-radius: 5px;
-        font-size: 12px;
-        z-index: 2147483651;
-      `
-      notification.innerHTML = `💾 ${agentName} ${type} saved!`
-      document.body.appendChild(notification)
-      
-      setTimeout(() => {
-        notification.remove()
-      }, 2000)
-      
-      configOverlay.remove()
-      console.log(`Saved ${type} for agent ${agentName}:`, dataToSave)
+      // Save using scope-aware helper
+      saveAgentConfig(agentName, agentScope, type, dataToSave, () => {
+        // Show notification
+        const notification = document.createElement('div')
+        notification.style.cssText = `
+          position: fixed;
+          top: 60px;
+          right: 20px;
+          background: rgba(76, 175, 80, 0.9);
+          color: white;
+          padding: 10px 15px;
+          border-radius: 5px;
+          font-size: 12px;
+          z-index: 2147483651;
+        `
+        notification.innerHTML = `💾 ${agentName} ${type} saved to ${agentScope} scope!`
+        document.body.appendChild(notification)
+        
+        setTimeout(() => {
+          notification.remove()
+        }, 2000)
+        
+        configOverlay.remove()
+        console.log(`✅ Saved ${type} for agent ${agentName} to ${agentScope}:`, dataToSave)
+      })
     }
     
     configOverlay.onclick = (e) => { if (e.target === configOverlay) configOverlay.remove() }
@@ -4211,6 +4295,7 @@ function initializeExtension() {
 
     // Ensure first paint reflects state
     requestAnimationFrame(() => updateBoxes())
+    }) // Close loadAgentConfig callback
   }
   function openAddNewAgentDialog(parentOverlay) {
     // Create add new agent dialog
