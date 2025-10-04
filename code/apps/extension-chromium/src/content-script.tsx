@@ -4122,6 +4122,56 @@ function initializeExtension() {
           
           // Wait for render, then populate fields
           requestAnimationFrame(() => {
+            // Restore Context Settings
+            if (parsed.contextSettings) {
+              const cs = parsed.contextSettings
+              const acSession = configOverlay.querySelector('#AC-session') as HTMLInputElement
+              const acAccount = configOverlay.querySelector('#AC-account') as HTMLInputElement
+              const acAgent = configOverlay.querySelector('#AC-agent') as HTMLInputElement
+              if (acSession) acSession.checked = !!cs.sessionContext
+              if (acAccount) acAccount.checked = !!cs.accountContext
+              if (acAgent) {
+                acAgent.checked = !!cs.agentContext
+                acAgent.dispatchEvent(new Event('change'))
+              }
+            }
+            
+            // Restore Memory Settings
+            if (parsed.memorySettings) {
+              const ms = parsed.memorySettings
+              const memSession = configOverlay.querySelector('#MEM-session') as HTMLInputElement
+              const memSessionRead = configOverlay.querySelector('#MEM-session-read') as HTMLInputElement
+              const memSessionWrite = configOverlay.querySelector('#MEM-session-write') as HTMLInputElement
+              const memAccount = configOverlay.querySelector('#MEM-account') as HTMLInputElement
+              const memAccountRead = configOverlay.querySelector('#MEM-account-read') as HTMLInputElement
+              const memAccountWrite = configOverlay.querySelector('#MEM-account-write') as HTMLInputElement
+              
+              if (memSession) {
+                memSession.checked = !!ms.sessionEnabled
+                memSession.dispatchEvent(new Event('change'))
+              }
+              if (memSessionRead) {
+                memSessionRead.checked = !!ms.sessionRead
+                memSessionRead.dispatchEvent(new Event('change'))
+              }
+              if (memSessionWrite) {
+                memSessionWrite.checked = !!ms.sessionWrite
+                memSessionWrite.dispatchEvent(new Event('change'))
+              }
+              if (memAccount) {
+                memAccount.checked = !!ms.accountEnabled
+                memAccount.dispatchEvent(new Event('change'))
+              }
+              if (memAccountRead) {
+                memAccountRead.checked = !!ms.accountRead
+                memAccountRead.dispatchEvent(new Event('change'))
+              }
+              if (memAccountWrite) {
+                memAccountWrite.checked = !!ms.accountWrite
+                memAccountWrite.dispatchEvent(new Event('change'))
+              }
+            }
+            
             // Populate Listening config
             if (parsed.listening) {
               const l = parsed.listening
@@ -4170,6 +4220,47 @@ function initializeExtension() {
                     }
                   }
                 })
+              }
+              
+              // Restore reportTo list
+              if (l.reportTo && l.reportTo.length > 0) {
+                l.reportTo.forEach((target: string) => {
+                  const addBtn = configOverlay.querySelector('#L-add-report') as HTMLButtonElement
+                  if (addBtn) {
+                    addBtn.click()
+                    const rows = configOverlay.querySelectorAll('#L-report-list .rep-row')
+                    const lastRow = rows[rows.length - 1]
+                    if (lastRow) {
+                      const kindSel = lastRow.querySelector('.route-kind') as HTMLSelectElement
+                      const specSel = lastRow.querySelector('.route-specific') as HTMLSelectElement
+                      const [kind, spec] = target.split(':')
+                      if (kindSel) kindSel.value = kind
+                      kindSel?.dispatchEvent(new Event('change'))
+                      setTimeout(() => { if (specSel && spec) specSel.value = spec }, 50)
+                    }
+                  }
+                })
+              }
+              
+              // Restore example files (display list, can't restore to file input)
+              if (l.exampleFiles && l.exampleFiles.length > 0) {
+                const lExamplesWrap = configOverlay.querySelector('#L-examples')?.parentElement
+                if (lExamplesWrap) {
+                  const fileList = document.createElement('div')
+                  fileList.style.cssText = 'margin-top:4px;font-size:11px;opacity:0.8;padding:6px;background:rgba(255,255,255,0.05);border-radius:4px'
+                  fileList.innerHTML = `
+                    <div style="font-weight:bold;margin-bottom:4px;">${l.exampleFiles.length} example file(s) previously uploaded:</div>
+                    ${l.exampleFiles.map((f: any) => `
+                      <div style="margin-left:8px;opacity:0.8;">
+                        📄 ${f.name} (${(f.size / 1024).toFixed(1)} KB)
+                      </div>
+                    `).join('')}
+                    <div style="font-size:10px;opacity:0.6;margin-top:6px;font-style:italic;">
+                      Upload new files to replace these
+                    </div>
+                  `
+                  lExamplesWrap.appendChild(fileList)
+                }
               }
             }
             
@@ -4223,6 +4314,26 @@ function initializeExtension() {
                         const valInput = lastRow.querySelector('input:nth-child(2)') as HTMLInputElement
                         if (keyInput) keyInput.value = item.key || ''
                         if (valInput) valInput.value = item.value || ''
+                      }
+                    }
+                  })
+                }
+                
+                // Restore reportTo list
+                if (baseSection.reportTo && baseSection.reportTo.length > 0) {
+                  baseSection.reportTo.forEach((target: string) => {
+                    const addBtn = configOverlay.querySelector('#R-add-report') as HTMLButtonElement
+                    if (addBtn) {
+                      addBtn.click()
+                      const rows = configOverlay.querySelectorAll('#R-report-list .rep-row')
+                      const lastRow = rows[rows.length - 1]
+                      if (lastRow) {
+                        const kindSel = lastRow.querySelector('.route-kind') as HTMLSelectElement
+                        const specSel = lastRow.querySelector('.route-specific') as HTMLSelectElement
+                        const [kind, spec] = target.split(':')
+                        if (kindSel) kindSel.value = kind
+                        kindSel?.dispatchEvent(new Event('change'))
+                        setTimeout(() => { if (specSel && spec) specSel.value = spec }, 50)
                       }
                     }
                   })
@@ -4381,6 +4492,20 @@ function initializeExtension() {
           name: (document.getElementById('ag-name') as HTMLInputElement)?.value || agentName,
           icon: (document.getElementById('ag-icon') as HTMLInputElement)?.value || '🤖',
           capabilities: [],
+          contextSettings: {
+            sessionContext: !!(document.getElementById('AC-session') as HTMLInputElement)?.checked,
+            accountContext: !!(document.getElementById('AC-account') as HTMLInputElement)?.checked,
+            agentContext: !!(document.getElementById('AC-agent') as HTMLInputElement)?.checked
+          },
+          memorySettings: {
+            sessionEnabled: !!(document.getElementById('MEM-session') as HTMLInputElement)?.checked,
+            sessionRead: !!(document.getElementById('MEM-session-read') as HTMLInputElement)?.checked,
+            sessionWrite: !!(document.getElementById('MEM-session-write') as HTMLInputElement)?.checked,
+            accountEnabled: !!(document.getElementById('MEM-account') as HTMLInputElement)?.checked,
+            accountRead: !!(document.getElementById('MEM-account-read') as HTMLInputElement)?.checked,
+            accountWrite: !!(document.getElementById('MEM-account-write') as HTMLInputElement)?.checked,
+            agentEnabled: true // Always enabled
+          }
         }
         const L = (document.getElementById('cap-listening') as HTMLInputElement).checked
         const R = (document.getElementById('cap-reasoning') as HTMLInputElement).checked
@@ -4418,6 +4543,8 @@ function initializeExtension() {
             })
             listening.active = { triggers }
           }
+          // Report to list
+          listening.reportTo = Array.from(document.querySelectorAll('#L-report-list .rep-row .rep-target')).map((n:any)=> n.value)
           draft.listening = listening
         }
         // Reasoning
@@ -4430,7 +4557,8 @@ function initializeExtension() {
             role: (document.getElementById('R-role') as HTMLInputElement)?.value || '',
             rules: (document.getElementById('R-rules') as HTMLTextAreaElement)?.value || '',
             custom: [],
-            acceptFrom: accepts
+            acceptFrom: accepts,
+            reportTo: Array.from(document.querySelectorAll('#R-report-list .rep-row .rep-target')).map((n:any)=> n.value)
           }
           document.querySelectorAll('#R-custom-list > div').forEach((row:any)=>{
             const key = (row.querySelector('input:nth-child(1)') as HTMLInputElement)?.value || ''
@@ -4487,37 +4615,83 @@ function initializeExtension() {
           }
         }
         
-        // Handle uploaded files for Agent Context
+        // Handle ALL file uploads asynchronously
+        const allFilePromises: Promise<void>[] = []
+        
+        // 1. Agent Context files (AC-files)
         const acFiles = configOverlay.querySelector('#AC-files') as HTMLInputElement
         const acEnable = configOverlay.querySelector('#AC-agent') as HTMLInputElement
         if (acFiles && acFiles.files && acFiles.files.length > 0 && acEnable?.checked) {
-          const filePromises: Promise<any>[] = []
-          Array.from(acFiles.files).forEach((file: File) => {
-            filePromises.push(
-              new Promise((resolve) => {
-                const reader = new FileReader()
-                reader.onload = () => {
-                  resolve({
-                    name: file.name,
-                    type: file.type,
-                    size: file.size,
-                    data: reader.result // base64
+          allFilePromises.push(
+            new Promise((resolve) => {
+              const filePromises: Promise<any>[] = []
+              Array.from(acFiles.files).forEach((file: File) => {
+                filePromises.push(
+                  new Promise((resolveFile) => {
+                    const reader = new FileReader()
+                    reader.onload = () => {
+                      resolveFile({
+                        name: file.name,
+                        type: file.type,
+                        size: file.size,
+                        data: reader.result // base64
+                      })
+                    }
+                    reader.onerror = () => resolveFile(null)
+                    reader.readAsDataURL(file)
                   })
-                }
-                reader.onerror = () => resolve(null)
-                reader.readAsDataURL(file)
+                )
               })
-            )
-          })
-          
-          Promise.all(filePromises).then((filesData) => {
-            draft.agentContextFiles = filesData.filter(f => f !== null)
-            dataToSave = JSON.stringify(draft)
-            
-            // Save using scope-aware helper
-            saveAgentConfig(agentName, agentScope, type, dataToSave, () => {
-              showSaveNotification()
+              
+              Promise.all(filePromises).then((filesData) => {
+                draft.agentContextFiles = filesData.filter(f => f !== null)
+                console.log(`✅ Read ${draft.agentContextFiles.length} Agent Context files`)
+                resolve()
+              })
             })
+          )
+        }
+        
+        // 2. Listener Example Context files (L-examples)
+        const lExamples = configOverlay.querySelector('#L-examples') as HTMLInputElement
+        if (lExamples && lExamples.files && lExamples.files.length > 0) {
+          allFilePromises.push(
+            new Promise((resolve) => {
+              const filePromises: Promise<any>[] = []
+              Array.from(lExamples.files).forEach((file: File) => {
+                filePromises.push(
+                  new Promise((resolveFile) => {
+                    const reader = new FileReader()
+                    reader.onload = () => {
+                      resolveFile({
+                        name: file.name,
+                        type: file.type,
+                        size: file.size,
+                        data: reader.result // base64
+                      })
+                    }
+                    reader.onerror = () => resolveFile(null)
+                    reader.readAsDataURL(file)
+                  })
+                )
+              })
+              
+              Promise.all(filePromises).then((filesData) => {
+                if (!draft.listening) draft.listening = {}
+                draft.listening.exampleFiles = filesData.filter(f => f !== null)
+                console.log(`✅ Read ${draft.listening.exampleFiles.length} Listener Example files`)
+                resolve()
+              })
+            })
+          )
+        }
+        
+        // Wait for all files to be read, then save
+        if (allFilePromises.length > 0) {
+          Promise.all(allFilePromises).then(() => {
+            dataToSave = JSON.stringify(draft)
+            console.log(`📦 All files processed, saving config...`)
+            saveAgentConfig(agentName, agentScope, type, dataToSave, showSaveNotification)
           })
           return // Early return to wait for file reading
         }
