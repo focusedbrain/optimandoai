@@ -565,7 +565,13 @@ function initializeExtension() {
     let changed = false
     if (!Array.isArray(session.agents)) {
       // Seed with builtins 1..5
-      session.agents = BUILTIN_AGENTS.map((b, i) => ({ ...b, number: i+1, kind: 'builtin' }))
+      session.agents = BUILTIN_AGENTS.map((b, i) => ({ 
+        ...b, 
+        number: i+1, 
+        kind: 'builtin',
+        scope: 'system',
+        config: {}
+      }))
       session.numberMap = session.agents.reduce((acc:any,a:any)=>{ acc[a.key]=a.number; return acc }, {})
       session.nextNumber = 6
       changed = true
@@ -585,8 +591,25 @@ function initializeExtension() {
       BUILTIN_AGENTS.forEach((b, idx) => {
         if (!session.agents.find((a:any)=>a.key===b.key)) {
           const num = idx+1
-          session.agents.push({ ...b, number: num, kind: 'builtin' })
+          session.agents.push({ 
+            ...b, 
+            number: num, 
+            kind: 'builtin',
+            scope: 'system',
+            config: {}
+          })
           session.numberMap[b.key] = num
+          changed = true
+        }
+      })
+      // Ensure all agents have scope and config properties (backward compatibility)
+      session.agents.forEach((a: any) => {
+        if (!a.scope) {
+          a.scope = a.kind === 'builtin' ? 'system' : 'session'
+          changed = true
+        }
+        if (!a.config) {
+          a.config = {}
           changed = true
         }
       })
@@ -610,7 +633,15 @@ function initializeExtension() {
           existing.icon = icon || existing.icon
         } else {
           const num = Number(s.nextNumber)||1
-          s.agents.push({ key, name, icon: icon||'🤖', number: num, kind: 'custom' })
+          s.agents.push({ 
+            key, 
+            name, 
+            icon: icon||'🤖', 
+            number: num, 
+            kind: 'custom',
+            scope: 'session',
+            config: {}
+          })
           s.numberMap[key] = num
           s.nextNumber = num + 1
         }
@@ -669,53 +700,168 @@ function initializeExtension() {
       })
     })
   }
-  function renderAgentsGrid(overlay:HTMLElement){
+  
+  // NEW: Helper functions for scope-aware agent storage
+  function getAccountAgents(callback: (agents: any[]) => void) {
+    chrome.storage.local.get(['accountAgents'], (result) => {
+      callback(result.accountAgents || [])
+    })
+  }
+  
+  function saveAccountAgents(agents: any[], callback: () => void) {
+    chrome.storage.local.set({ accountAgents: agents }, callback)
+  }
+  
+  function getAllAgentsForSession(session: any, callback: (agents: any[]) => void) {
+    getAccountAgents((accountAgents) => {
+      const sessionAgents = (session.agents || []).filter((a: any) => a.scope !== 'system')
+      const systemAgents = (session.agents || []).filter((a: any) => a.scope === 'system')
+      const allAgents = [...systemAgents, ...accountAgents, ...sessionAgents]
+      callback(allAgents)
+    })
+  }
+  
+  function toggleAgentScope(agentKey: string, fromScope: string, toScope: string, callback: () => void) {
+    if (fromScope === toScope) return callback()
+    
+    ensureActiveSession((activeKey: string, session: any) => {
+      if (fromScope === 'session' && toScope === 'account') {
+        // Move from session to account
+        const agent = (session.agents || []).find((a: any) => a.key === agentKey)
+        if (!agent) return callback()
+        
+        session.agents = session.agents.filter((a: any) => a.key !== agentKey)
+        session.timestamp = new Date().toISOString()
+        
+        agent.scope = 'account'
+        getAccountAgents((accountAgents) => {
+          accountAgents.push(agent)
+          saveAccountAgents(accountAgents, () => {
+            chrome.storage.local.set({ [activeKey]: session }, () => {
+              console.log('✅ Agent moved to Account scope:', agentKey)
+              callback()
+            })
+          })
+        })
+      } else if (fromScope === 'account' && toScope === 'session') {
+        // Move from account to session
+        getAccountAgents((accountAgents) => {
+          const agent = accountAgents.find((a: any) => a.key === agentKey)
+          if (!agent) return callback()
+          
+          const updatedAccountAgents = accountAgents.filter((a: any) => a.key !== agentKey)
+          agent.scope = 'session'
+          
+          if (!Array.isArray(session.agents)) session.agents = []
+          session.agents.push(agent)
+          session.timestamp = new Date().toISOString()
+          
+          saveAccountAgents(updatedAccountAgents, () => {
+            chrome.storage.local.set({ [activeKey]: session }, () => {
+              console.log('✅ Agent moved to Session scope:', agentKey)
+              callback()
+            })
+          })
+        })
+      } else {
+        callback()
+      }
+    })
+  }
+  function renderAgentsGrid(overlay:HTMLElement, filter: string = 'all'){
     const grid = overlay.querySelector('#agents-grid') as HTMLElement | null
     if (!grid) return
     grid.innerHTML = ''
+    
     ensureActiveSession((activeKey:string, session:any) => {
       normalizeSessionAgents(activeKey, session, (s:any)=>{
-        const hidden = Array.isArray(s.hiddenBuiltins) ? s.hiddenBuiltins : []
-        const agents = (s.agents||[])
-          .filter((a:any)=> !(a?.kind==='builtin' && hidden.includes(a.key)))
-          .slice()
-          .sort((a:any,b:any)=> (a.number||0)-(b.number||0))
-        agents.forEach((a:any) => {
-          const num = pad2(Number(a.number)||1)
-          const card = document.createElement('div')
-          card.style.cssText = 'background: rgba(255,255,255,0.1); padding: 15px; border-radius: 8px; text-align: center; position: relative;'
-          card.innerHTML = `
-            <div style="font-size: 32px; margin-bottom: 8px;">${a.icon || '🤖'}</div>
-            <h4 style="margin: 0 0 8px 0; font-size: 12px; color: #FFFFFF; font-weight: bold;">Agent ${num} — ${a.name || 'Agent'}</h4>
-            <button class="agent-toggle" style="padding: 4px 8px; background: #f44336; border: none; color: white; border-radius: 3px; cursor: pointer; font-size: 9px; margin-bottom: 8px;">OFF</button>
-            <button class="delete-agent" data-key="${a.key}" title="Delete" style="position:absolute;top:6px;right:6px;background:rgba(244,67,54,0.85);border:none;color:#fff;width:20px;height:20px;border-radius:50%;cursor:pointer">×</button>
-            <div style="display: flex; justify-content: center; gap: 6px; margin-top: 10px;">
-              <button class="lightbox-btn" data-agent="${a.key}" data-type="instructions" style="background: rgba(255,255,255,0.2); border: none; color: white; padding: 4px; border-radius: 3px; cursor: pointer; font-size: 8px;" title="AI Instructions">📋</button>
-              <button class="lightbox-btn" data-agent="${a.key}" data-type="context" style="background: rgba(255,255,255,0.2); border: none; color: white; padding: 4px; border-radius: 3px; cursor: pointer; font-size: 8px;" title="Memory">📄</button>
-              <button class="lightbox-btn" data-agent="${a.key}" data-type="settings" style="background: rgba(255,255,255,0.2); border: none; color: white; padding: 4px; border-radius: 3px; cursor: pointer; font-size: 8px;" title="Settings">⚙️</button>
-            </div>
-          `
-          grid.appendChild(card)
-          const toggle = card.querySelector('.agent-toggle') as HTMLElement | null
-          toggle?.addEventListener('click', () => {
-            const isOn = toggle.textContent === 'ON'
-            toggle.textContent = isOn ? 'OFF' : 'ON'
-            toggle.style.background = isOn ? '#f44336' : '#4CAF50'
-          })
-          card.querySelectorAll('.lightbox-btn').forEach((btn:any) => {
-            btn.addEventListener('click', (e:any) => {
-              const agentKey = e.currentTarget.getAttribute('data-agent') || a.key
-              const t = e.currentTarget.getAttribute('data-type') || 'instructions'
-              openAgentConfigDialog(agentKey, t, overlay)
+        getAllAgentsForSession(s, (allAgents) => {
+          const hidden = Array.isArray(s.hiddenBuiltins) ? s.hiddenBuiltins : []
+          
+          // Apply filter
+          let agents = allAgents.filter((a:any)=> !(a?.kind==='builtin' && hidden.includes(a.key)))
+          
+          if (filter === 'account') {
+            agents = agents.filter((a:any) => a.scope === 'account')
+          } else if (filter === 'system') {
+            agents = agents.filter((a:any) => a.scope === 'system')
+          }
+          // 'all' shows everything
+          
+          agents.sort((a:any,b:any)=> (a.number||0)-(b.number||0))
+          
+          agents.forEach((a:any) => {
+            const num = pad2(Number(a.number)||1)
+            const isSystem = a.scope === 'system'
+            const card = document.createElement('div')
+            card.style.cssText = 'background: rgba(255,255,255,0.1); padding: 15px; border-radius: 8px; text-align: center; position: relative;'
+            card.innerHTML = `
+              <div style="font-size: 32px; margin-bottom: 8px;">${a.icon || '🤖'}</div>
+              <h4 style="margin: 0 0 8px 0; font-size: 12px; color: #FFFFFF; font-weight: bold;">Agent ${num} — ${a.name || 'Agent'}</h4>
+              <button class="agent-toggle" style="padding: 4px 8px; background: #f44336; border: none; color: white; border-radius: 3px; cursor: pointer; font-size: 9px; margin-bottom: 4px;">OFF</button>
+              
+              ${!isSystem ? `
+                <div class="scope-toggle-container" style="margin: 8px 0; display: flex; border-radius: 4px; overflow: hidden; border: 1px solid rgba(255,255,255,0.3);">
+                  <button class="scope-toggle-btn ${a.scope === 'session' ? 'active' : ''}" data-scope="session" data-agent="${a.key}" style="flex: 1; padding: 4px 8px; background: ${a.scope === 'session' ? 'rgba(255,255,255,0.3)' : 'rgba(255,255,255,0.1)'}; border: none; color: white; cursor: pointer; font-size: 9px;">
+                    📍 Session
+                  </button>
+                  <button class="scope-toggle-btn ${a.scope === 'account' ? 'active' : ''}" data-scope="account" data-agent="${a.key}" style="flex: 1; padding: 4px 8px; background: ${a.scope === 'account' ? 'rgba(255,255,255,0.3)' : 'rgba(255,255,255,0.1)'}; border: none; color: white; cursor: pointer; font-size: 9px;">
+                    🌐 Account
+                  </button>
+                </div>
+              ` : '<div style="height: 32px; margin: 8px 0; display: flex; align-items: center; justify-content: center; font-size: 9px; color: rgba(255,255,255,0.5);">🔒 System</div>'}
+              
+              ${!isSystem ? `<button class="delete-agent" data-key="${a.key}" title="Delete" style="position:absolute;top:6px;right:6px;background:rgba(244,67,54,0.85);border:none;color:#fff;width:20px;height:20px;border-radius:50%;cursor:pointer">×</button>` : ''}
+              
+              <div style="display: flex; justify-content: center; gap: 6px; margin-top: 10px;">
+                <button class="lightbox-btn" data-agent="${a.key}" data-type="instructions" style="background: rgba(255,255,255,0.2); border: none; color: white; padding: 4px; border-radius: 3px; cursor: pointer; font-size: 8px;" title="AI Instructions">📋</button>
+                <button class="lightbox-btn" data-agent="${a.key}" data-type="context" style="background: rgba(255,255,255,0.2); border: none; color: white; padding: 4px; border-radius: 3px; cursor: pointer; font-size: 8px;" title="Memory">📄</button>
+                <button class="lightbox-btn" data-agent="${a.key}" data-type="settings" style="background: rgba(255,255,255,0.2); border: none; color: white; padding: 4px; border-radius: 3px; cursor: pointer; font-size: 8px;" title="Settings">⚙️</button>
+              </div>
+            `
+            grid.appendChild(card)
+            
+            // ON/OFF toggle
+            const toggle = card.querySelector('.agent-toggle') as HTMLElement | null
+            toggle?.addEventListener('click', () => {
+              const isOn = toggle.textContent === 'ON'
+              toggle.textContent = isOn ? 'OFF' : 'ON'
+              toggle.style.background = isOn ? '#f44336' : '#4CAF50'
+            })
+            
+            // Scope toggle handlers
+            card.querySelectorAll('.scope-toggle-btn').forEach((btn: any) => {
+              btn.addEventListener('click', (e: any) => {
+                e.stopPropagation()
+                const newScope = btn.getAttribute('data-scope')
+                const agentKey = btn.getAttribute('data-agent')
+                const currentScope = a.scope
+                
+                if (newScope !== currentScope) {
+                  toggleAgentScope(agentKey, currentScope, newScope, () => {
+                    renderAgentsGrid(overlay, filter)
+                  })
+                }
+              })
+            })
+            
+            // Config dialog buttons
+            card.querySelectorAll('.lightbox-btn').forEach((btn:any) => {
+              btn.addEventListener('click', (e:any) => {
+                const agentKey = e.currentTarget.getAttribute('data-agent') || a.key
+                const t = e.currentTarget.getAttribute('data-type') || 'instructions'
+                openAgentConfigDialog(agentKey, t, overlay, a.scope || 'session')
+              })
+            })
+            
+            // Delete button
+            const del = card.querySelector('.delete-agent') as HTMLElement | null
+            del?.addEventListener('click', () => {
+              if (!confirm('Delete this agent?')) return
+              deleteAgentFromSession(a.key, () => renderAgentsGrid(overlay, filter))
             })
           })
-          const del = card.querySelector('.delete-agent') as HTMLElement | null
-          del?.addEventListener('click', () => {
-            if (!confirm('Delete this agent?')) return
-            deleteAgentFromSession(a.key, () => renderAgentsGrid(overlay))
-          })
         })
-        // Do not hide cards; CSS grid handles wrapping to next rows
       })
     })
   }
@@ -2798,6 +2944,20 @@ function initializeExtension() {
           <h2 style="margin: 0; font-size: 20px;">🤖 AI Agents Configuration</h2>
           <button id="close-agents-lightbox" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 30px; height: 30px; border-radius: 50%; cursor: pointer; font-size: 16px;">×</button>
         </div>
+        
+        <!-- TABS: All Agents | Account | System -->
+        <div style="padding: 10px 20px; border-bottom: 1px solid rgba(255,255,255,0.2); display: flex; gap: 10px;">
+          <button class="agent-filter-tab" data-filter="all" style="padding: 8px 16px; background: rgba(255,255,255,0.3); border: none; color: white; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: bold;">
+            All Agents
+          </button>
+          <button class="agent-filter-tab" data-filter="account" style="padding: 8px 16px; background: rgba(255,255,255,0.1); border: none; color: rgba(255,255,255,0.7); border-radius: 6px; cursor: pointer; font-size: 12px;">
+            Account
+          </button>
+          <button class="agent-filter-tab" data-filter="system" style="padding: 8px 16px; background: rgba(255,255,255,0.1); border: none; color: rgba(255,255,255,0.7); border-radius: 6px; cursor: pointer; font-size: 12px;">
+            System
+          </button>
+        </div>
+        
         <div style="flex: 1; padding: 20px; overflow-y: auto;">
           <div id="agents-grid" style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; margin-bottom: 20px;"></div>
 
@@ -2816,8 +2976,30 @@ function initializeExtension() {
     document.getElementById('close-agents-lightbox').onclick = () => overlay.remove()
     overlay.onclick = (e) => { if (e.target === overlay) overlay.remove() }
     
+    // Tab switching functionality
+    let currentFilter = 'all'
+    overlay.querySelectorAll('.agent-filter-tab').forEach((tab: any) => {
+      tab.addEventListener('click', () => {
+        currentFilter = tab.getAttribute('data-filter')
+        // Update tab styles
+        overlay.querySelectorAll('.agent-filter-tab').forEach((t: any) => {
+          if (t === tab) {
+            t.style.background = 'rgba(255,255,255,0.3)'
+            t.style.color = 'white'
+            t.style.fontWeight = 'bold'
+          } else {
+            t.style.background = 'rgba(255,255,255,0.1)'
+            t.style.color = 'rgba(255,255,255,0.7)'
+            t.style.fontWeight = 'normal'
+          }
+        })
+        // Re-render grid with filter
+        renderAgentsGrid(overlay, currentFilter)
+      })
+    })
+    
     // Render grid from session (single source of truth)
-    renderAgentsGrid(overlay)
+    renderAgentsGrid(overlay, currentFilter)
     // Delegated handlers for dynamically rendered buttons
     overlay.addEventListener('click', (ev:any) => {
       const t = ev?.target as HTMLElement | null
@@ -2827,7 +3009,7 @@ function initializeExtension() {
         const key = t.getAttribute('data-key') || ''
         if (!key) return
         if (!confirm('Delete this agent?')) return
-        deleteAgentFromSession(key, () => renderAgentsGrid(overlay))
+        deleteAgentFromSession(key, () => renderAgentsGrid(overlay, currentFilter))
         return
       }
       if (t.classList?.contains('lightbox-btn')) {
@@ -2923,7 +3105,7 @@ function initializeExtension() {
       }
     })
   }
-  function openAgentConfigDialog(agentName, type, parentOverlay) {
+  function openAgentConfigDialog(agentName, type, parentOverlay, agentScope = 'session') {
     function pad2(n) { try { const num = parseInt(n, 10) || 0; return num < 10 ? `0${num}` : String(num) } catch { return '01' } }
     function capitalizeName(n) { try { return (n || '').toString().charAt(0).toUpperCase() + (n || '').toString().slice(1) } catch { return n } }
     function getOrAssignAgentNumber(key) {
