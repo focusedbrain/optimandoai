@@ -429,12 +429,7 @@ function initializeExtension() {
     helperTabs: null as any,
     displayGrids: null as any,
     agentBoxHeights: {} as any,
-    agentBoxes: [
-      { id: 'brainstorm', agentId: 'agent1', number: 1, title: '#1 🧠 Brainstorm Support Ideas', color: '#4CAF50', outputId: 'brainstorm-output' },
-      { id: 'knowledge', agentId: 'agent2', number: 2, title: '#2 🔍 Knowledge Gap Detection', color: '#2196F3', outputId: 'knowledge-output' },
-      { id: 'risks', agentId: 'agent3', number: 3, title: '#3 ⚖️ Risks & Chances', color: '#FF9800', outputId: 'risks-output' },
-      { id: 'explainer', agentId: 'agent4', number: 4, title: '#4 🎬 Explainer Video Suggestions', color: '#9C27B0', outputId: 'explainer-output' }
-    ] as any
+    agentBoxes: [] as any
   }
 
   // Save/Load functions
@@ -564,16 +559,10 @@ function initializeExtension() {
   function normalizeSessionAgents(activeKey:string, session:any, cb:(session:any)=>void){
     let changed = false
     if (!Array.isArray(session.agents)) {
-      // Seed with builtins 1..5 (default to session scope)
-      session.agents = BUILTIN_AGENTS.map((b, i) => ({ 
-        ...b, 
-        number: i+1, 
-        kind: 'builtin',
-        scope: 'session',
-        config: {}
-      }))
-      session.numberMap = session.agents.reduce((acc:any,a:any)=>{ acc[a.key]=a.number; return acc }, {})
-      session.nextNumber = 6
+      // Initialize with empty agents array - users will add agents manually
+      session.agents = []
+      session.numberMap = {}
+      session.nextNumber = 1
       changed = true
     } else {
       // Ensure numberMap and nextNumber consistent
@@ -587,21 +576,6 @@ function initializeExtension() {
         session.nextNumber = maxNum + 1
         changed = true
       }
-      // Ensure builtins exist at least once
-      BUILTIN_AGENTS.forEach((b, idx) => {
-        if (!session.agents.find((a:any)=>a.key===b.key)) {
-          const num = idx+1
-          session.agents.push({ 
-            ...b, 
-            number: num, 
-            kind: 'builtin',
-            scope: 'session',
-            config: {}
-          })
-          session.numberMap[b.key] = num
-          changed = true
-        }
-      })
       // Ensure all agents have scope and config properties (backward compatibility)
       session.agents.forEach((a: any) => {
         if (!a.scope) {
@@ -1124,22 +1098,10 @@ function initializeExtension() {
     })
     
     if (!currentTabData.agentBoxes || currentTabData.agentBoxes.length === 0) {
-      // Only create default boxes for the main master tab, not hybrid masters
-      if (!isHybridMaster) {
-        console.log('🔧 DEBUG: No agent boxes found, using default configuration for main master')
-        // Initialize with default boxes if none exist
-        currentTabData.agentBoxes = [
-          { id: 'brainstorm', number: 1, title: '#1 🧠 Brainstorm Support Ideas', color: '#4CAF50', outputId: 'brainstorm-output', agentId: 'agent1' },
-          { id: 'knowledge', number: 2, title: '#2 🔍 Knowledge Gap Detection', color: '#2196F3', outputId: 'knowledge-output', agentId: 'agent2' },
-          { id: 'risks', number: 3, title: '#3 ⚖️ Risks & Chances', color: '#FF9800', outputId: 'risks-output', agentId: 'agent3' },
-          { id: 'explainer', number: 4, title: '#4 🎬 Explainer Video Suggestions', color: '#9C27B0', outputId: 'explainer-output', agentId: 'agent4' }
-        ]
-        saveTabDataToStorage()
-      } else {
-        console.log('🔧 DEBUG: Hybrid master tab - no default boxes created')
-        currentTabData.agentBoxes = []
-        saveTabDataToStorage()
-      }
+      // Initialize with empty agent boxes array - users will add boxes manually
+      console.log('🔧 DEBUG: No agent boxes found, initializing with empty array')
+      currentTabData.agentBoxes = []
+      saveTabDataToStorage()
     }
     console.log('🔧 DEBUG: Rendering', currentTabData.agentBoxes.length, 'agent boxes')
     
@@ -3494,6 +3456,10 @@ function initializeExtension() {
       let persistedMemAccountRead = false
       let persistedMemAccountWrite = false
       let persistedMemAgentEnabled = true
+      // Persist Agent Context checkboxes
+      let persistedACSession = true
+      let persistedACAccount = true
+      let persistedACAgent = false
       const syncPersistedFromDom = () => {
         try {
           const g = configOverlay.querySelector('#R-goals') as HTMLTextAreaElement | null
@@ -3520,6 +3486,13 @@ function initializeExtension() {
           if (mar) persistedMemAccountRead = !!mar.checked
           if (maw) persistedMemAccountWrite = !!maw.checked
           if (mAgent) persistedMemAgentEnabled = !!mAgent.checked
+          // Persist Agent Context checkboxes
+          const acSession = configOverlay.querySelector('#AC-session') as HTMLInputElement | null
+          const acAccount = configOverlay.querySelector('#AC-account') as HTMLInputElement | null
+          const acAgent = configOverlay.querySelector('#AC-agent') as HTMLInputElement | null
+          if (acSession) persistedACSession = !!acSession.checked
+          if (acAccount) persistedACAccount = !!acAccount.checked
+          if (acAgent) persistedACAgent = !!acAgent.checked
           // Also persist Active Listener triggers (so tags do not get lost)
           const rows = Array.from(configOverlay.querySelectorAll('#L-active-list .act-row')) as HTMLElement[]
           persistedActiveTriggers = rows.map((row:any)=> ({
@@ -3544,9 +3517,9 @@ function initializeExtension() {
           <div style="display:flex;align-items:center;gap:12px;justify-content:space-between">
             <div style="font-weight:700">Context</div>
             <div style="display:flex;align-items:center;gap:12px;font-size:12px">
-              <label style="display:flex;align-items:center;gap:6px"><input id="AC-session" type="checkbox" checked> Session Context</label>
-              <label style="display:flex;align-items:center;gap:6px"><input id="AC-account" type="checkbox" checked> Account Context</label>
-              <label style="display:flex;align-items:center;gap:6px"><input id="AC-agent" type="checkbox"> Agent Context</label>
+              <label style="display:flex;align-items:center;gap:6px"><input id="AC-session" type="checkbox" ${persistedACSession ? 'checked' : ''}> Session Context</label>
+              <label style="display:flex;align-items:center;gap:6px"><input id="AC-account" type="checkbox" ${persistedACAccount ? 'checked' : ''}> Account Context</label>
+              <label style="display:flex;align-items:center;gap:6px"><input id="AC-agent" type="checkbox" ${persistedACAgent ? 'checked' : ''}> Agent Context</label>
             </div>
           </div>
           <div id="AC-content" style="display:none;margin-top:8px">
@@ -3560,10 +3533,139 @@ function initializeExtension() {
         const acFiles = agentCtxWrap.querySelector('#AC-files') as HTMLInputElement
         const acList = agentCtxWrap.querySelector('#AC-list') as HTMLElement
         const syncAc = () => { acContent.style.display = acEnable.checked ? 'block' : 'none' }
-        acEnable.addEventListener('change', syncAc); syncAc()
-        acFiles.addEventListener('change', () => {
+        acEnable.addEventListener('change', syncAc); 
+        
+        // Restore saved files display if Agent Context was checked
+        if (persistedACAgent && previouslySavedData?.agentContextFiles?.length > 0) {
+          const files = previouslySavedData.agentContextFiles
+          acList.innerHTML = `
+            <div style="color:#22c55e;font-weight:600;margin-bottom:6px">✓ ${files.length} file(s) saved:</div>
+            ${files.map((f: any, idx: number) => `
+              <div class="saved-file-row" style="display:flex;align-items:center;gap:6px;padding:4px 8px;background:rgba(255,255,255,0.08);border-radius:6px;margin-bottom:4px">
+                <span>📄 ${f.name} (${(f.size / 1024).toFixed(1)} KB)</span>
+                <button class="delete-ac-file-btn" data-idx="${idx}" style="margin-left:auto;background:#f44336;border:none;color:white;padding:2px 8px;border-radius:4px;cursor:pointer;font-size:10px;">✕</button>
+              </div>
+            `).join('')}
+          `
+          
+          // Add delete handlers
+          acList.querySelectorAll('.delete-ac-file-btn').forEach((btn: Element) => {
+            btn.addEventListener('click', () => {
+              const idx = parseInt(btn.getAttribute('data-idx') || '0')
+              previouslySavedData.agentContextFiles.splice(idx, 1)
+              const dataToSave = JSON.stringify(previouslySavedData)
+              saveAgentConfig(agentName, agentScope, type, dataToSave, () => {
+                console.log(`🗑️ Deleted Agent Context file at index ${idx}`)
+                btn.closest('.saved-file-row')?.remove()
+                const countEl = acList.querySelector('div')
+                if (countEl) countEl.textContent = `✓ ${previouslySavedData.agentContextFiles.length} file(s) saved:`
+              })
+            })
+          })
+        }
+        
+        syncAc()
+        
+        // Pre-save files immediately when uploaded to prevent loss on form changes
+        acFiles.addEventListener('change', async () => {
           const n = (acFiles.files||[]).length
-          acList.textContent = n ? `${n} file(s) selected` : 'No files selected'
+          if (n === 0) {
+            acList.textContent = 'No files selected'
+            return
+          }
+          
+          acList.textContent = `⏳ Uploading ${n} file(s)...`
+          
+          try {
+            // Read all files
+            const filePromises: Promise<any>[] = []
+            Array.from(acFiles.files || []).forEach((file: File) => {
+              filePromises.push(
+                new Promise((resolve, reject) => {
+                  const reader = new FileReader()
+                  reader.onload = () => {
+                    resolve({
+                      name: file.name,
+                      type: file.type,
+                      size: file.size,
+                      data: reader.result
+                    })
+                  }
+                  reader.onerror = (err) => {
+                    console.error(`❌ Error reading file ${file.name}:`, err)
+                    resolve(null)
+                  }
+                  reader.readAsDataURL(file)
+                })
+              )
+            })
+            
+            const newFilesData = await Promise.all(filePromises)
+            const validNewFiles = newFilesData.filter(f => f !== null)
+            
+            // Load existing agent config and merge files
+            loadAgentConfig(agentName, agentScope, type, (loadedData) => {
+              let parsed: any = {}
+              try {
+                if (loadedData && typeof loadedData === 'string' && loadedData.trim()) {
+                  parsed = JSON.parse(loadedData)
+                }
+              } catch {}
+              
+              // Merge with existing files
+              const existingFiles = parsed.agentContextFiles || []
+              const existingFileNames = new Set(existingFiles.map((f: any) => f.name))
+              const uniqueNewFiles = validNewFiles.filter(f => !existingFileNames.has(f.name))
+              
+              parsed.agentContextFiles = [...existingFiles, ...uniqueNewFiles]
+              previouslySavedData = parsed
+              
+              // Save immediately
+              const dataToSave = JSON.stringify(parsed)
+              saveAgentConfig(agentName, agentScope, type, dataToSave, () => {
+                console.log(`✅ Pre-saved ${uniqueNewFiles.length} Agent Context file(s)`)
+                
+                // Auto-check the Agent Context checkbox and update persisted state
+                acEnable.checked = true
+                persistedACAgent = true
+                syncAc() // Show the content area
+                
+                // Update display
+                const totalFiles = parsed.agentContextFiles.length
+                acList.innerHTML = `
+                  <div style="color:#22c55e;font-weight:600;margin-bottom:6px">✓ ${totalFiles} file(s) saved:</div>
+                  ${parsed.agentContextFiles.map((f: any, idx: number) => `
+                    <div class="saved-file-row" style="display:flex;align-items:center;gap:6px;padding:4px 8px;background:rgba(255,255,255,0.08);border-radius:6px;margin-bottom:4px">
+                      <span>📄 ${f.name} (${(f.size / 1024).toFixed(1)} KB)</span>
+                      <button class="delete-ac-file-btn" data-idx="${idx}" style="margin-left:auto;background:#f44336;border:none;color:white;padding:2px 8px;border-radius:4px;cursor:pointer;font-size:10px;">✕</button>
+                    </div>
+                  `).join('')}
+                `
+                
+                // Add delete handlers
+                acList.querySelectorAll('.delete-ac-file-btn').forEach((btn: Element) => {
+                  btn.addEventListener('click', () => {
+                    const idx = parseInt(btn.getAttribute('data-idx') || '0')
+                    parsed.agentContextFiles.splice(idx, 1)
+                    previouslySavedData = parsed
+                    const dataToSave = JSON.stringify(parsed)
+                    saveAgentConfig(agentName, agentScope, type, dataToSave, () => {
+                      console.log(`🗑️ Deleted Agent Context file at index ${idx}`)
+                      btn.closest('.saved-file-row')?.remove()
+                      const countEl = acList.querySelector('div')
+                      if (countEl) countEl.textContent = `✓ ${parsed.agentContextFiles.length} file(s) saved:`
+                    })
+                  })
+                })
+                
+                // Clear the file input
+                acFiles.value = ''
+              })
+            })
+          } catch (err) {
+            console.error('❌ Error pre-saving Agent Context files:', err)
+            acList.textContent = `❌ Error uploading files`
+          }
         })
 
         // Memory settings block
@@ -3707,6 +3809,144 @@ function initializeExtension() {
               <button id="L-add-report" style="margin-top:6px;background:rgba(255,255,255,.2);border:1px solid rgba(255,255,255,.35);color:#fff;padding:6px 10px;border-radius:6px;cursor:pointer">+ Add</button>
             </div>`
           container.appendChild(wrap)
+          
+          // Pre-save Listener Example files immediately when uploaded
+          const lExamplesInput = wrap.querySelector('#L-examples') as HTMLInputElement
+          const lExamplesContainer = wrap.querySelector('#L-examples-list-container') as HTMLElement
+          
+          // Restore saved files display if there are any
+          if (lExamplesContainer && previouslySavedData?.listening?.exampleFiles?.length > 0) {
+            const files = previouslySavedData.listening.exampleFiles
+            lExamplesContainer.innerHTML = `
+              <div style="margin-top:8px;font-size:11px;opacity:0.9;padding:8px;background:rgba(255,255,255,0.05);border-radius:4px">
+                <div style="font-weight:bold;margin-bottom:8px;color:#4CAF50;">✓ ${files.length} example file(s) saved:</div>
+                ${files.map((f: any, idx: number) => `
+                  <div class="saved-file-row" style="display:flex;align-items:center;gap:8px;margin-bottom:6px;padding:4px 8px;background:rgba(255,255,255,0.05);border-radius:4px;">
+                    <span>📄 ${f.name} (${(f.size / 1024).toFixed(1)} KB)</span>
+                    <button class="delete-lexample-file-btn" data-idx="${idx}" style="margin-left:auto;background:#f44336;border:none;color:white;padding:2px 8px;border-radius:4px;cursor:pointer;font-size:10px;">✕</button>
+                  </div>
+                `).join('')}
+                <div style="font-size:10px;opacity:0.6;margin-top:12px;font-style:italic;">
+                  ✚ Upload new files below to add more (duplicates will be skipped)
+                </div>
+              </div>
+            `
+            
+            // Add delete handlers for restored files
+            lExamplesContainer.querySelectorAll('.delete-lexample-file-btn').forEach((btn: Element) => {
+              btn.addEventListener('click', () => {
+                const idx = parseInt(btn.getAttribute('data-idx') || '0')
+                previouslySavedData.listening.exampleFiles.splice(idx, 1)
+                const dataToSave = JSON.stringify(previouslySavedData)
+                saveAgentConfig(agentName, agentScope, type, dataToSave, () => {
+                  console.log(`🗑️ Deleted Listener Example file at index ${idx}`)
+                  btn.closest('.saved-file-row')?.remove()
+                  const countEl = lExamplesContainer.querySelector('div')
+                  if (countEl) countEl.textContent = `✓ ${previouslySavedData.listening.exampleFiles.length} example file(s) saved:`
+                })
+              })
+            })
+          }
+          
+          if (lExamplesInput && lExamplesContainer) {
+            lExamplesInput.addEventListener('change', async () => {
+              const n = (lExamplesInput.files||[]).length
+              if (n === 0) return
+              
+              lExamplesContainer.textContent = `⏳ Uploading ${n} file(s)...`
+              
+              try {
+                // Read all files
+                const filePromises: Promise<any>[] = []
+                Array.from(lExamplesInput.files || []).forEach((file: File) => {
+                  filePromises.push(
+                    new Promise((resolve, reject) => {
+                      const reader = new FileReader()
+                      reader.onload = () => {
+                        resolve({
+                          name: file.name,
+                          type: file.type,
+                          size: file.size,
+                          data: reader.result
+                        })
+                      }
+                      reader.onerror = (err) => {
+                        console.error(`❌ Error reading file ${file.name}:`, err)
+                        resolve(null)
+                      }
+                      reader.readAsDataURL(file)
+                    })
+                  )
+                })
+                
+                const newFilesData = await Promise.all(filePromises)
+                const validNewFiles = newFilesData.filter(f => f !== null)
+                
+                // Load existing agent config and merge files
+                loadAgentConfig(agentName, agentScope, type, (loadedData) => {
+                  let parsed: any = {}
+                  try {
+                    if (loadedData && typeof loadedData === 'string' && loadedData.trim()) {
+                      parsed = JSON.parse(loadedData)
+                    }
+                  } catch {}
+                  
+                  // Ensure listening object exists
+                  if (!parsed.listening) parsed.listening = {}
+                  
+                  // Merge with existing files
+                  const existingFiles = parsed.listening.exampleFiles || []
+                  const existingFileNames = new Set(existingFiles.map((f: any) => f.name))
+                  const uniqueNewFiles = validNewFiles.filter(f => !existingFileNames.has(f.name))
+                  
+                  parsed.listening.exampleFiles = [...existingFiles, ...uniqueNewFiles]
+                  previouslySavedData = parsed
+                  
+                  // Save immediately
+                  const dataToSave = JSON.stringify(parsed)
+                  saveAgentConfig(agentName, agentScope, type, dataToSave, () => {
+                    console.log(`✅ Pre-saved ${uniqueNewFiles.length} Listener Example file(s)`)
+                    
+                    // Update display
+                    const totalFiles = parsed.listening.exampleFiles.length
+                    lExamplesContainer.innerHTML = `
+                      <div style="margin-top:8px;font-size:11px;opacity:0.9;padding:8px;background:rgba(255,255,255,0.05);border-radius:4px">
+                        <div style="font-weight:bold;margin-bottom:8px;color:#4CAF50;">✓ ${totalFiles} example file(s) saved:</div>
+                        ${parsed.listening.exampleFiles.map((f: any, idx: number) => `
+                          <div class="saved-file-row" style="display:flex;align-items:center;gap:8px;margin-bottom:6px;padding:4px 8px;background:rgba(255,255,255,0.05);border-radius:4px;">
+                            <span>📄 ${f.name} (${(f.size / 1024).toFixed(1)} KB)</span>
+                            <button class="delete-lexample-file-btn" data-idx="${idx}" style="margin-left:auto;background:#f44336;border:none;color:white;padding:2px 8px;border-radius:4px;cursor:pointer;font-size:10px;">✕</button>
+                          </div>
+                        `).join('')}
+                      </div>
+                    `
+                    
+                    // Add delete handlers
+                    lExamplesContainer.querySelectorAll('.delete-lexample-file-btn').forEach((btn: Element) => {
+                      btn.addEventListener('click', () => {
+                        const idx = parseInt(btn.getAttribute('data-idx') || '0')
+                        parsed.listening.exampleFiles.splice(idx, 1)
+                        previouslySavedData = parsed
+                        const dataToSave = JSON.stringify(parsed)
+                        saveAgentConfig(agentName, agentScope, type, dataToSave, () => {
+                          console.log(`🗑️ Deleted Listener Example file at index ${idx}`)
+                          btn.closest('.saved-file-row')?.remove()
+                          const countEl = lExamplesContainer.querySelector('div')
+                          if (countEl) countEl.textContent = `✓ ${parsed.listening.exampleFiles.length} example file(s) saved:`
+                        })
+                      })
+                    })
+                    
+                    // Clear the file input
+                    lExamplesInput.value = ''
+                  })
+                })
+              } catch (err) {
+                console.error('❌ Error pre-saving Listener Example files:', err)
+                lExamplesContainer.textContent = `❌ Error uploading files`
+              }
+            })
+          }
         }
         if (capR && capR.checked) {
           const wrap = document.createElement('div')
@@ -10733,12 +10973,7 @@ ${pageText}
       helperTabs: null as any,
       displayGrids: null as any,
       agentBoxHeights: {} as any,
-      agentBoxes: [
-        { id: 'brainstorm', agentId: 'agent1', number: 1, title: '#1 🧠 Brainstorm Support Ideas', color: '#4CAF50', outputId: 'brainstorm-output' },
-        { id: 'knowledge', agentId: 'agent2', number: 2, title: '#2 🔍 Knowledge Gap Detection', color: '#2196F3', outputId: 'knowledge-output' },
-        { id: 'risks', agentId: 'agent3', number: 3, title: '#3 ⚖️ Risks & Chances', color: '#FF9800', outputId: 'risks-output' },
-        { id: 'explainer', agentId: 'agent4', number: 4, title: '#4 🎬 Explainer Video Suggestions', color: '#9C27B0', outputId: 'explainer-output' }
-      ] as any
+      agentBoxes: [] as any
     }
 
     // Save the new session data
