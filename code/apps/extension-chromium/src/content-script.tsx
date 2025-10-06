@@ -3885,12 +3885,48 @@ function initializeExtension() {
               const value = (row.querySelector('input:nth-child(2)') as HTMLInputElement)?.value || ''
               base.custom.push({ key, value })  // Store ALL, even empty ones
             })
+            
+            // Collect ALL additional Reasoning sections
+            const rSections:any[] = [base]
+            document.querySelectorAll('#R-sections-extra .R-section').forEach((sec:any)=>{
+              // Collect acceptFrom for this section
+              const sectionAccepts = Array.from(sec.querySelectorAll('.R-accept-list-sub .acc-row')).map((row:any)=> {
+                const kindSel = row.querySelector('.route-kind') as HTMLSelectElement
+                const specSel = row.querySelector('.route-specific') as HTMLSelectElement
+                return kindSel && specSel ? `${kindSel.value}:${specSel.value}` : ''
+              }).filter((v:string) => v)
+              
+              // Collect reportTo for this section
+              const sectionReportTo = Array.from(sec.querySelectorAll('.R-report-list-sub .rep-row')).map((row:any)=> {
+                const kindSel = row.querySelector('.route-kind') as HTMLSelectElement
+                const specSel = row.querySelector('.route-specific') as HTMLSelectElement
+                return kindSel && specSel ? `${kindSel.value}:${specSel.value}` : ''
+              }).filter((v:string) => v)
+              
+              const s:any = {
+                applyFor: (sec.querySelector('.R-apply') as HTMLSelectElement)?.value || '__any__',
+                goals: (sec.querySelector('.R-goals') as HTMLTextAreaElement)?.value || '',
+                role: (sec.querySelector('.R-role') as HTMLInputElement)?.value || '',
+                rules: (sec.querySelector('.R-rules') as HTMLTextAreaElement)?.value || '',
+                custom: [],
+                acceptFrom: sectionAccepts,
+                reportTo: sectionReportTo
+              }
+              sec.querySelectorAll('.R-custom-list > div').forEach((row:any)=>{
+                const key = (row.querySelector('input:nth-child(1)') as HTMLInputElement)?.value || ''
+                const value = (row.querySelector('input:nth-child(2)') as HTMLInputElement)?.value || ''
+                s.custom.push({ key, value })
+              })
+              rSections.push(s)
+            })
+            
             draft.reasoning = base
-            draft.reasoningSections = [base]
+            draft.reasoningSections = rSections
             console.log('💾 Saved Reasoning data:', {
               applyFor: base.applyFor,
               acceptFromCount: accepts.length,
-              reportToCount: reportTo.length
+              reportToCount: reportTo.length,
+              additionalSectionsCount: rSections.length - 1
             })
           }
           
@@ -5015,50 +5051,58 @@ function initializeExtension() {
           })
           
           if (previouslySavedData.agentContextFiles && previouslySavedData.agentContextFiles.length > 0) {
-            const acList = configOverlay.querySelector('#AC-list')
-            const acEnable = configOverlay.querySelector('#AC-agent') as HTMLInputElement
-            const acContent = configOverlay.querySelector('#AC-content') as HTMLElement
-            
-            console.log('🔍 Found DOM elements:', { 
-              hasAcList: !!acList, 
-              hasAcEnable: !!acEnable,
-              hasAcContent: !!acContent
-            })
-            
-            if (acList && acEnable) {
-              // FORCE checkbox to be checked if there are files
-              acEnable.checked = true
-              acEnable.dispatchEvent(new Event('change'))
+            // Wait a bit longer for DOM to be fully ready
+            setTimeout(() => {
+              const acList = configOverlay.querySelector('#AC-list')
+              const acEnable = configOverlay.querySelector('#AC-agent') as HTMLInputElement
+              const acContent = configOverlay.querySelector('#AC-content') as HTMLElement
               
-              // Also update the persisted variable
-              persistedACAgent = true
-              
-              const files = previouslySavedData.agentContextFiles
-              acList.innerHTML = `
-                <div style="color:#fbbf24;font-weight:600;margin-bottom:6px">📦 ${files.length} file(s) staged (click Save to finalize):</div>
-                ${files.map((f: any, idx: number) => `
-                  <div class="saved-file-row" style="display:flex;align-items:center;gap:6px;padding:4px 8px;background:rgba(251,191,36,0.1);border-radius:6px;margin-bottom:4px;border:1px solid rgba(251,191,36,0.3)">
-                    <span>📄 ${f.name} (${(f.size / 1024).toFixed(1)} KB)</span>
-                    <button class="delete-ac-file-btn" data-idx="${idx}" style="margin-left:auto;background:#f44336;border:none;color:white;padding:2px 8px;border-radius:4px;cursor:pointer;font-size:10px;">✕</button>
-                  </div>
-                `).join('')}
-              `
-              
-              // Re-add delete handlers
-              acList.querySelectorAll('.delete-ac-file-btn').forEach((btn: Element) => {
-                btn.addEventListener('click', () => {
-                  const idx = parseInt(btn.getAttribute('data-idx') || '0')
-                  previouslySavedData.agentContextFiles.splice(idx, 1)
-                  console.log(`🗑️ Removed Agent Context file at index ${idx} from staging`)
-                  btn.closest('.saved-file-row')?.remove()
-                  const countEl = acList.querySelector('div')
-                  if (countEl) countEl.textContent = `📦 ${previouslySavedData.agentContextFiles.length} file(s) staged (click Save to finalize):`
-                })
+              console.log('🔍 Found DOM elements:', { 
+                hasAcList: !!acList, 
+                hasAcEnable: !!acEnable,
+                hasAcContent: !!acContent
               })
-              console.log(`✅ Successfully restored ${files.length} Agent Context files to display`)
-            } else {
-              console.error('❌ Could not find DOM elements to restore Agent Context files!')
-            }
+              
+              if (acList && acEnable) {
+                // FORCE checkbox to be checked if there are files
+                acEnable.checked = true
+                acEnable.dispatchEvent(new Event('change'))
+                
+                // Also update the persisted variable
+                persistedACAgent = true
+                
+                const files = previouslySavedData.agentContextFiles
+                acList.innerHTML = `
+                  <div style="color:#fbbf24;font-weight:600;margin-bottom:6px">📦 ${files.length} file(s) previously uploaded:</div>
+                  ${files.map((f: any, idx: number) => `
+                    <div class="saved-file-row" style="display:flex;align-items:center;gap:6px;padding:4px 8px;background:rgba(251,191,36,0.1);border-radius:6px;margin-bottom:4px;border:1px solid rgba(251,191,36,0.3)">
+                      <span>📄 ${f.name} (${(f.size / 1024).toFixed(1)} KB)</span>
+                      <button class="delete-ac-file-btn" data-idx="${idx}" style="margin-left:auto;background:#f44336;border:none;color:white;padding:2px 8px;border-radius:4px;cursor:pointer;font-size:10px;">✕</button>
+                    </div>
+                  `).join('')}
+                `
+                
+                // Re-add delete handlers
+                acList.querySelectorAll('.delete-ac-file-btn').forEach((btn: Element) => {
+                  btn.addEventListener('click', () => {
+                    const idx = parseInt(btn.getAttribute('data-idx') || '0')
+                    previouslySavedData.agentContextFiles.splice(idx, 1)
+                    console.log(`🗑️ Removed Agent Context file at index ${idx}`)
+                    btn.closest('.saved-file-row')?.remove()
+                    const countEl = acList.querySelector('div')
+                    if (countEl) countEl.textContent = `📦 ${previouslySavedData.agentContextFiles.length} file(s) previously uploaded:`
+                    
+                    // Auto-save after deletion
+                    syncPersistedFromDom()
+                  })
+                })
+                console.log(`✅ Successfully restored ${files.length} Agent Context files to display`)
+              } else {
+                console.error('❌ Could not find DOM elements to restore Agent Context files!', {
+                  triedSelectors: ['#AC-list', '#AC-agent', '#AC-content']
+                })
+              }
+            }, 200) // Give DOM more time to render
           } else {
             console.log('ℹ️ No Agent Context files to restore')
           }
@@ -5285,6 +5329,144 @@ function initializeExtension() {
                 console.log(`  ✓ Restored ${r.reportTo.length} reasoning report-to rows`)
               }
             }
+            
+            // Restore Custom Fields for base Reasoning section
+            if (r.custom && r.custom.length > 0) {
+              console.log(`  🔄 Restoring ${r.custom.length} custom fields for base reasoning section...`)
+              r.custom.forEach((customField: any, idx: number) => {
+                const addBtn = configOverlay.querySelector('#R-add-custom') as HTMLButtonElement
+                if (addBtn) {
+                  addBtn.click()
+                  setTimeout(() => {
+                    const customList = configOverlay.querySelector('#R-custom-list')
+                    const rows = customList?.querySelectorAll('div')
+                    const lastRow = rows && rows[rows.length - 1]
+                    if (lastRow) {
+                      const inputs = lastRow.querySelectorAll('input')
+                      if (inputs.length >= 2) {
+                        inputs[0].value = customField.key || ''
+                        inputs[1].value = customField.value || ''
+                        console.log(`    ✓ Restored custom field ${idx + 1}: ${customField.key}`)
+                      }
+                    }
+                  }, 50 * (idx + 1))
+                }
+              })
+            }
+            
+            // Restore Additional Reasoning Sections
+            if (previouslySavedData.reasoningSections && previouslySavedData.reasoningSections.length > 1) {
+              console.log(`  🔄 Restoring ${previouslySavedData.reasoningSections.length - 1} additional reasoning sections...`)
+              const rAddSectionBtn = configOverlay.querySelector('#R-add-section') as HTMLButtonElement
+              const rExtra = configOverlay.querySelector('#R-sections-extra') as HTMLElement
+              
+              if (rAddSectionBtn && rExtra) {
+                // Skip first section (index 0) as it's the base section already restored above
+                previouslySavedData.reasoningSections.slice(1).forEach((rSection: any, sectionIdx: number) => {
+                  // Create a new section
+                  rAddSectionBtn.click()
+                  
+                  setTimeout(() => {
+                    const sections = configOverlay.querySelectorAll('#R-sections-extra .R-section')
+                    const newSection = sections[sectionIdx] as HTMLElement
+                    
+                    if (newSection) {
+                      // Restore Apply For
+                      if (rSection.applyFor) {
+                        const applySelect = newSection.querySelector('.R-apply') as HTMLSelectElement
+                        if (applySelect) applySelect.value = rSection.applyFor
+                      }
+                      
+                      // Restore Goals
+                      if (rSection.goals) {
+                        const goalsTextarea = newSection.querySelector('.R-goals') as HTMLTextAreaElement
+                        if (goalsTextarea) goalsTextarea.value = rSection.goals
+                      }
+                      
+                      // Restore Role
+                      if (rSection.role) {
+                        const roleInput = newSection.querySelector('.R-role') as HTMLInputElement
+                        if (roleInput) roleInput.value = rSection.role
+                      }
+                      
+                      // Restore Rules
+                      if (rSection.rules) {
+                        const rulesTextarea = newSection.querySelector('.R-rules') as HTMLTextAreaElement
+                        if (rulesTextarea) rulesTextarea.value = rSection.rules
+                      }
+                      
+                      // Restore Custom Fields
+                      if (rSection.custom && rSection.custom.length > 0) {
+                        rSection.custom.forEach((customField: any) => {
+                          const addBtn = newSection.querySelector('.R-add-custom') as HTMLButtonElement
+                          if (addBtn) {
+                            addBtn.click()
+                            setTimeout(() => {
+                              const customList = newSection.querySelector('.R-custom-list')
+                              const rows = customList?.querySelectorAll('div')
+                              const lastRow = rows && rows[rows.length - 1]
+                              if (lastRow) {
+                                const inputs = lastRow.querySelectorAll('input')
+                                if (inputs.length >= 2) {
+                                  inputs[0].value = customField.key || ''
+                                  inputs[1].value = customField.value || ''
+                                }
+                              }
+                            }, 50)
+                          }
+                        })
+                      }
+                      
+                      // Restore Listen From (acceptFrom)
+                      if (rSection.acceptFrom && rSection.acceptFrom.length > 0) {
+                        rSection.acceptFrom.forEach((target: string) => {
+                          const addBtn = newSection.querySelector('.R-add-accept-sub') as HTMLButtonElement
+                          if (addBtn) {
+                            addBtn.click()
+                            setTimeout(() => {
+                              const rows = newSection.querySelectorAll('.R-accept-list-sub .acc-row')
+                              const lastRow = rows[rows.length - 1]
+                              if (lastRow) {
+                                const kindSel = lastRow.querySelector('.route-kind') as HTMLSelectElement
+                                const specSel = lastRow.querySelector('.route-specific') as HTMLSelectElement
+                                const [kind, spec] = target.split(':')
+                                if (kindSel) kindSel.value = kind
+                                kindSel?.dispatchEvent(new Event('change'))
+                                setTimeout(() => { if (specSel && spec) specSel.value = spec }, 50)
+                              }
+                            }, 50)
+                          }
+                        })
+                      }
+                      
+                      // Restore Report To
+                      if (rSection.reportTo && rSection.reportTo.length > 0) {
+                        rSection.reportTo.forEach((target: string) => {
+                          const addBtn = newSection.querySelector('.R-add-report-sub') as HTMLButtonElement
+                          if (addBtn) {
+                            addBtn.click()
+                            setTimeout(() => {
+                              const rows = newSection.querySelectorAll('.R-report-list-sub .rep-row')
+                              const lastRow = rows[rows.length - 1]
+                              if (lastRow) {
+                                const kindSel = lastRow.querySelector('.route-kind') as HTMLSelectElement
+                                const specSel = lastRow.querySelector('.route-specific') as HTMLSelectElement
+                                const [kind, spec] = target.split(':')
+                                if (kindSel) kindSel.value = kind
+                                kindSel?.dispatchEvent(new Event('change'))
+                                setTimeout(() => { if (specSel && spec) specSel.value = spec }, 50)
+                              }
+                            }, 50)
+                          }
+                        })
+                      }
+                      
+                      console.log(`    ✓ Restored reasoning section ${sectionIdx + 1}`)
+                    }
+                  }, 100 * (sectionIdx + 1)) // Stagger the restoration
+                })
+              }
+            }
           }
           
           // Restore Execution data
@@ -5441,11 +5623,11 @@ function initializeExtension() {
                         })
                       }
                       
-                      // Restore Special Destinations
+                      // Restore Special Destinations (Report to)
                       if (eSection.specialDestinations && eSection.specialDestinations.length > 0) {
                         eSection.specialDestinations.forEach((dest: any) => {
                           const specialList = newSection.querySelector('.E-special-list-sub') as HTMLElement
-                          const addBtn = newSection.querySelector('button[onclick*="E-special-list-sub"]') as HTMLButtonElement
+                          const addBtn = newSection.querySelector('.E-special-add-sub') as HTMLButtonElement
                           if (addBtn) {
                             addBtn.click()
                             setTimeout(() => {
@@ -5521,7 +5703,7 @@ function initializeExtension() {
           if (parsed.capabilities?.includes('reasoning')) (capR as HTMLInputElement).checked = true
           if (parsed.capabilities?.includes('execution')) (capE as HTMLInputElement).checked = true
           
-          // Trigger render to show sections
+          // CRITICAL: Render UI to show capability sections
           render()
           
           // Wait for render, then populate fields
@@ -5950,6 +6132,12 @@ function initializeExtension() {
             
             console.log('✅ Agent config loaded successfully')
             
+            // CRITICAL: Call restoreFromMemory() to populate all fields comprehensively
+            setTimeout(() => {
+              restoreFromMemory()
+              console.log('✅ restoreFromMemory() called after initial data load')
+            }, 150)
+            
             // CRITICAL: Mark first render as complete so future renders can sync data
             isFirstRender = false
             console.log('✅ First render complete, future renders will sync data from DOM')
@@ -6031,7 +6219,7 @@ function initializeExtension() {
       try {
         let dataToSave = ''
         if (type === 'instructions') {
-          // Collect draft
+          // Collect draft - CRITICAL: Initialize with previouslySavedData to preserve files
           const draft:any = {
             id: agentName,
             name: (document.getElementById('ag-name') as HTMLInputElement)?.value || agentName,
@@ -6050,7 +6238,9 @@ function initializeExtension() {
               accountRead: !!(document.getElementById('MEM-account-read') as HTMLInputElement)?.checked,
               accountWrite: !!(document.getElementById('MEM-account-write') as HTMLInputElement)?.checked,
               agentEnabled: true // Always enabled
-            }
+            },
+            // CRITICAL: Preserve agentContextFiles from previouslySavedData
+            agentContextFiles: previouslySavedData?.agentContextFiles || []
           }
           const L = (document.getElementById('cap-listening') as HTMLInputElement)?.checked || false
           const R = (document.getElementById('cap-reasoning') as HTMLInputElement)?.checked || false
@@ -6161,15 +6351,10 @@ function initializeExtension() {
             reportToCount: listening.reportTo.length
           })
           
-          // CRITICAL: Merge listening data with draft.listening to preserve exampleFiles set earlier
-          if (!draft.listening) {
-            draft.listening = listening
-          } else {
-            // Preserve exampleFiles that were set during file upload processing
-            const preservedFiles = draft.listening.exampleFiles
-            draft.listening = { ...listening, exampleFiles: preservedFiles || [] }
-            console.log(`📦 Preserved ${preservedFiles?.length || 0} example files during merge`)
-          }
+          // CRITICAL: Merge listening data with previouslySavedData to preserve exampleFiles
+          const preservedExampleFiles = previouslySavedData?.listening?.exampleFiles || []
+          draft.listening = { ...listening, exampleFiles: preservedExampleFiles }
+          console.log(`📦 Preserved ${preservedExampleFiles.length} example files from previouslySavedData`)
         }
         // Reasoning - ALWAYS save if section exists
         const reasoningSection = document.getElementById('box-reasoning')
@@ -6204,12 +6389,28 @@ function initializeExtension() {
           })
           const sections:any[] = [base]
           document.querySelectorAll('#R-sections-extra .R-section').forEach((sec:any)=>{
+            // Collect acceptFrom for this section
+            const sectionAccepts = Array.from(sec.querySelectorAll('.R-accept-list-sub .acc-row')).map((row:any)=> {
+              const kindSel = row.querySelector('.route-kind') as HTMLSelectElement
+              const specSel = row.querySelector('.route-specific') as HTMLSelectElement
+              return kindSel && specSel ? `${kindSel.value}:${specSel.value}` : ''
+            }).filter((v:string) => v)
+            
+            // Collect reportTo for this section
+            const sectionReportTo = Array.from(sec.querySelectorAll('.R-report-list-sub .rep-row')).map((row:any)=> {
+              const kindSel = row.querySelector('.route-kind') as HTMLSelectElement
+              const specSel = row.querySelector('.route-specific') as HTMLSelectElement
+              return kindSel && specSel ? `${kindSel.value}:${specSel.value}` : ''
+            }).filter((v:string) => v)
+            
             const s:any = {
               applyFor: (sec.querySelector('.R-apply') as HTMLSelectElement)?.value || '__any__',
               goals: (sec.querySelector('.R-goals') as HTMLTextAreaElement)?.value || '',
               role: (sec.querySelector('.R-role') as HTMLInputElement)?.value || '',
               rules: (sec.querySelector('.R-rules') as HTMLTextAreaElement)?.value || '',
-              custom: []
+              custom: [],
+              acceptFrom: sectionAccepts,
+              reportTo: sectionReportTo
             }
             sec.querySelectorAll('.R-custom-list > div').forEach((row:any)=>{
               const key = (row.querySelector('input:nth-child(1)') as HTMLInputElement)?.value || ''
