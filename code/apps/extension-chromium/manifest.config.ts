@@ -8,6 +8,7 @@ export default defineManifest({
   permissions: [
     'activeTab',
     'storage',
+    'unlimitedStorage',
     'scripting',
     'windows',
     'system.display'

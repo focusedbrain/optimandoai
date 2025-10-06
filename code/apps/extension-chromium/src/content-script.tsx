@@ -556,7 +556,7 @@ function initializeExtension() {
     { key: 'coordinate', name: 'Coordinate', icon: '🎯' }
   ]
   function pad2(n:number){ return n < 10 ? `0${n}` : String(n) }
-  function normalizeSessionAgents(activeKey:string, session:any, cb:(session:any)=>void){
+  function normalizeSessionAgents(activeKey:string, session:any, cb:(session:any)=>void, skipSave?:boolean){
     let changed = false
     if (!Array.isArray(session.agents)) {
       // Initialize with empty agents array - users will add agents manually
@@ -588,12 +588,22 @@ function initializeExtension() {
         }
       })
     }
+    
+    // Update localStorage with number map
+    try { localStorage.setItem('optimando-agent-number-map', JSON.stringify(session.numberMap||{})) } catch {}
+    
+    // If skipSave is true, don't save to chrome.storage (caller will save after making additional changes)
+    if (skipSave) {
+      console.log('⏩ Skipping session save in normalizeSessionAgents (caller will save)')
+      cb(session)
+      return
+    }
+    
+    // Otherwise, save if changes were made
     if (changed) {
       session.timestamp = new Date().toISOString()
-      try { localStorage.setItem('optimando-agent-number-map', JSON.stringify(session.numberMap||{})) } catch {}
       ensureSessionInHistory(activeKey, session, () => cb(session))
     } else {
-      try { localStorage.setItem('optimando-agent-number-map', JSON.stringify(session.numberMap||{})) } catch {}
       cb(session)
     }
   }
@@ -742,10 +752,42 @@ function initializeExtension() {
     })
   }
   
+  function updateAgentPlatform(agentKey: string, platform: 'desktop' | 'mobile', enabled: boolean, scope: string) {
+    console.log(`🖥️ Updating ${platform} platform for agent ${agentKey} in ${scope} scope:`, enabled)
+    
+    if (scope === 'account') {
+      getAccountAgents((accountAgents) => {
+        const agent = accountAgents.find((a: any) => a.key === agentKey)
+        if (!agent) return
+        
+        if (!agent.platforms) agent.platforms = { desktop: true, mobile: true }
+        agent.platforms[platform] = enabled
+        
+        saveAccountAgents(accountAgents, () => {
+          console.log('✅ Platform preference saved for account agent:', agentKey)
+        })
+      })
+    } else {
+      ensureActiveSession((activeKey: string, session: any) => {
+        const agent = (session.agents || []).find((a: any) => a.key === agentKey)
+        if (!agent) return
+        
+        if (!agent.platforms) agent.platforms = { desktop: true, mobile: true }
+        agent.platforms[platform] = enabled
+        
+        session.timestamp = new Date().toISOString()
+        chrome.storage.local.set({ [activeKey]: session }, () => {
+          console.log('✅ Platform preference saved for session agent:', agentKey)
+        })
+      })
+    }
+  }
+  
   // NEW: Config storage helpers (scope-aware)
   function saveAgentConfig(agentKey: string, scope: string, configType: string, configData: any, callback: () => void) {
     console.log(`💾 Saving ${configType} for agent ${agentKey} in ${scope} scope`)
     console.log(`📊 Data size: ${configData.length} characters`)
+    console.log(`🔑 Current session key: ${getCurrentSessionKey()}`)
     
     // Parse and verify what's being saved
     try {
@@ -769,6 +811,7 @@ function initializeExtension() {
     if (scope === 'session') {
       // Save to session.agents[x].config
       ensureActiveSession((activeKey: string, session: any) => {
+        // Pass skipSave=true to avoid double-saving (we'll save after updating config)
         normalizeSessionAgents(activeKey, session, (s: any) => {
           let agent = s.agents.find((a: any) => a.key === agentKey)
           if (!agent) {
@@ -782,11 +825,37 @@ function initializeExtension() {
           agent.config[configType] = configData
           s.timestamp = new Date().toISOString()
           
+          console.log(`💾 About to write to chrome.storage.local with key: ${activeKey}`)
+          console.log(`📊 Session has ${s.agents?.length || 0} agents`)
+          console.log(`🔍 Agent "${agentKey}" config keys:`, Object.keys(agent.config))
+          console.log(`🔍 Data type being saved:`, typeof configData)
+          console.log(`🔍 Data length:`, typeof configData === 'string' ? configData.length : 'NOT A STRING')
+          console.log(`🔍 First 200 chars:`, typeof configData === 'string' ? configData.substring(0, 200) : JSON.stringify(configData).substring(0, 200))
+          
           chrome.storage.local.set({ [activeKey]: s }, () => {
-            console.log(`✅ Saved ${configType} to session for ${agentKey}`)
-            callback()
+            if (chrome.runtime.lastError) {
+              console.error(`❌ Chrome storage error:`, chrome.runtime.lastError)
+              callback()
+              return
+            }
+            
+            // VERIFICATION: Read back what was saved to confirm it persisted
+            chrome.storage.local.get([activeKey], (verification) => {
+              if (verification[activeKey]) {
+                const savedAgent = verification[activeKey].agents?.find((a: any) => a.key === agentKey)
+                if (savedAgent?.config?.[configType]) {
+                  console.log(`✅ VERIFIED: ${configType} successfully saved to session for ${agentKey}`)
+                  console.log(`📏 Saved data size: ${savedAgent.config[configType].length} characters`)
+                } else {
+                  console.error(`❌ VERIFICATION FAILED: ${configType} not found in saved session!`)
+                }
+              } else {
+                console.error(`❌ VERIFICATION FAILED: Session key not found after save!`)
+              }
+              callback()
+            })
           })
-        })
+        }, true)  // skipSave=true: we save explicitly after updating config
       })
     } else if (scope === 'account') {
       // Save to accountAgents[x].config
@@ -814,6 +883,7 @@ function initializeExtension() {
   
   function loadAgentConfig(agentKey: string, scope: string, configType: string, callback: (data: any) => void) {
     console.log(`📂 Loading ${configType} for agent ${agentKey} from ${scope} scope`)
+    console.log(`🔑 Current session key: ${getCurrentSessionKey()}`)
     
     if (scope === 'session') {
       // Load from session.agents[x].config
@@ -822,8 +892,13 @@ function initializeExtension() {
           const agent = s.agents.find((a: any) => a.key === agentKey)
           const data = agent?.config?.[configType] || null
           console.log(`📂 Loaded ${configType} from session for ${agentKey}:`, data ? 'Found' : 'Not found')
+          if (data) {
+            console.log(`🔍 Loaded data type:`, typeof data)
+            console.log(`🔍 Loaded data length:`, typeof data === 'string' ? data.length : 'NOT A STRING')
+            console.log(`🔍 First 200 chars:`, typeof data === 'string' ? data.substring(0, 200) : JSON.stringify(data).substring(0, 200))
+          }
           callback(data)
-        })
+        }, true)  // skipSave=true: we're only reading, not modifying
       })
     } else if (scope === 'account') {
       // Load from accountAgents[x].config
@@ -878,6 +953,18 @@ function initializeExtension() {
                 <span style="font-size: 9px; color: rgba(255,255,255,0.7);">Account</span>
               </div>
               
+              <div class="platform-toggle-container" style="margin: 8px 0; display: flex; align-items: center; justify-content: center; gap: 10px;">
+                <label style="display: flex; align-items: center; gap: 4px; cursor: pointer;">
+                  <input type="checkbox" class="platform-checkbox-desktop" data-agent="${a.key}" checked style="cursor: pointer;">
+                  <span style="font-size: 9px; color: rgba(255,255,255,0.9);">Desktop</span>
+                </label>
+                <span style="font-size: 9px; color: rgba(255,255,255,0.4);">|</span>
+                <label style="display: flex; align-items: center; gap: 4px; cursor: pointer;">
+                  <input type="checkbox" class="platform-checkbox-mobile" data-agent="${a.key}" checked style="cursor: pointer;">
+                  <span style="font-size: 9px; color: rgba(255,255,255,0.9);">Mobile</span>
+                </label>
+              </div>
+              
             <button class="delete-agent" data-key="${a.key}" title="Delete" style="position:absolute;top:6px;right:6px;background:rgba(244,67,54,0.85);border:none;color:#fff;width:20px;height:20px;border-radius:50%;cursor:pointer">×</button>
               
             <div style="display: flex; justify-content: center; gap: 6px; margin-top: 10px;">
@@ -907,6 +994,26 @@ function initializeExtension() {
               toggleAgentScope(agentKey, currentScope, newScope, () => {
                 renderAgentsGrid(overlay, filter)
               })
+            })
+            
+            // Platform checkboxes handler
+            const desktopCheckbox = card.querySelector('.platform-checkbox-desktop') as HTMLInputElement | null
+            const mobileCheckbox = card.querySelector('.platform-checkbox-mobile') as HTMLInputElement | null
+            
+            // Load existing platform preferences
+            if (a.platforms) {
+              if (desktopCheckbox) desktopCheckbox.checked = a.platforms.desktop !== false
+              if (mobileCheckbox) mobileCheckbox.checked = a.platforms.mobile !== false
+            }
+            
+            desktopCheckbox?.addEventListener('change', (e: any) => {
+              e.stopPropagation()
+              updateAgentPlatform(a.key, 'desktop', desktopCheckbox.checked, a.scope || 'session')
+            })
+            
+            mobileCheckbox?.addEventListener('change', (e: any) => {
+              e.stopPropagation()
+              updateAgentPlatform(a.key, 'mobile', mobileCheckbox.checked, a.scope || 'session')
             })
             
             // Config dialog buttons
@@ -3199,17 +3306,227 @@ function initializeExtension() {
     // Store previously saved data for merging on save
     let previouslySavedData: any = null
     
-    loadAgentConfig(agentName, agentScope, type, (loadedData) => {
-      const existingData = loadedData || ''
-      
-      // Parse and store the previously saved data
-      try {
-        if (existingData && typeof existingData === 'string' && existingData.trim()) {
-          previouslySavedData = JSON.parse(existingData)
-        }
-      } catch (e) {
-        console.warn('Could not parse previously saved data:', e)
+    // ROBUST LOADING: Check draft in chrome.storage first, then fallback to saved config
+    const draftKey = `agent_${agentName}_draft_${agentScope}`
+    chrome.storage.local.get([draftKey], (draftResult) => {
+      if (draftResult[draftKey]) {
+        // Load from draft (auto-saved data)
+        console.log('📂 Loading from AUTO-SAVED draft:', draftKey)
+        console.log('📦 Draft data:', draftResult[draftKey])
+        previouslySavedData = draftResult[draftKey]
+        continueDialogSetup()
+      } else {
+        console.log('ℹ️ No draft found, loading from session...')
+        // Load from saved configuration
+        loadAgentConfig(agentName, agentScope, type, (loadedData) => {
+          console.log('📂 loadAgentConfig returned:', loadedData ? `${loadedData.length} chars` : 'NULL')
+          const existingData = loadedData || ''
+          
+          // Parse and store the previously saved data
+          try {
+            if (existingData && typeof existingData === 'string' && existingData.trim()) {
+              previouslySavedData = JSON.parse(existingData)
+              console.log('📂 Loading from SAVED config, keys:', Object.keys(previouslySavedData))
+              console.log('✅ Capabilities:', previouslySavedData.capabilities)
+              console.log('✅ Has Listening:', !!previouslySavedData.listening)
+              console.log('✅ Has Reasoning:', !!previouslySavedData.reasoning)
+              console.log('✅ Has Execution:', !!previouslySavedData.execution)
+            } else {
+              console.warn('⚠️ No existing data found in session')
+              // CRITICAL: For new agents, mark first render as complete immediately
+              isFirstRender = false
+              console.log('✅ New agent: first render flag cleared')
+            }
+          } catch (e) {
+            console.error('❌ Could not parse previously saved data:', e)
+            console.error('Raw data:', existingData)
+            isFirstRender = false // Clear flag on error
+          }
+          continueDialogSetup()
+        })
       }
+    })
+    
+    function continueDialogSetup() {
+      
+    // CRITICAL: Track if this is the first render to prevent premature data sync
+    let isFirstRender = true
+      
+    // CRITICAL: Define auto-save function at TOP of scope so it's accessible everywhere
+    let autoSaveTimer: any = null
+    const draftKey = `agent_${agentName}_draft_${agentScope}`
+    
+    const autoSaveToChromeStorage = () => {
+      console.log(`🔔 autoSaveToChromeStorage called! Type: "${type}", Agent: "${agentName}", Scope: "${agentScope}"`)
+      if (autoSaveTimer) clearTimeout(autoSaveTimer)
+      autoSaveTimer = setTimeout(async () => {
+        try {
+          console.log('💾 AUTO-SAVING to chrome.storage...')
+          
+          // Collect ALL form data comprehensively
+          let dataToSave = ''
+          if (type === 'instructions') {
+            const draft:any = {
+              id: agentName,
+              name: (document.getElementById('ag-name') as HTMLInputElement)?.value || agentName,
+              icon: (document.getElementById('ag-icon') as HTMLInputElement)?.value || '🤖',
+              capabilities: [],
+              contextSettings: {
+                sessionContext: !!(document.getElementById('AC-session') as HTMLInputElement)?.checked,
+                accountContext: !!(document.getElementById('AC-account') as HTMLInputElement)?.checked,
+                agentContext: !!(document.getElementById('AC-agent') as HTMLInputElement)?.checked
+              },
+              memorySettings: {
+                sessionEnabled: !!(document.getElementById('MEM-session') as HTMLInputElement)?.checked,
+                sessionRead: !!(document.getElementById('MEM-session-read') as HTMLInputElement)?.checked,
+                sessionWrite: !!(document.getElementById('MEM-session-write') as HTMLInputElement)?.checked,
+                accountEnabled: !!(document.getElementById('MEM-account') as HTMLInputElement)?.checked,
+                accountRead: !!(document.getElementById('MEM-account-read') as HTMLInputElement)?.checked,
+                accountWrite: !!(document.getElementById('MEM-account-write') as HTMLInputElement)?.checked,
+                agentEnabled: true
+              }
+            }
+            const L = (document.getElementById('cap-listening') as HTMLInputElement)?.checked || false
+            const R = (document.getElementById('cap-reasoning') as HTMLInputElement)?.checked || false
+            const E = (document.getElementById('cap-execution') as HTMLInputElement)?.checked || false
+            if (L) draft.capabilities.push('listening')
+            if (R) draft.capabilities.push('reasoning')
+            if (E) draft.capabilities.push('execution')
+            
+            // Collect Listener data if checkbox checked
+            if (L) {
+              const passiveEnabled = !!(document.getElementById('L-toggle-passive') as HTMLInputElement)?.checked
+              const activeEnabled = !!(document.getElementById('L-toggle-active') as HTMLInputElement)?.checked
+              const tags = Array.from(document.querySelectorAll('.L-tag')).filter((el:any)=>el.checked).map((el:any)=>el.value)
+              const src = (document.getElementById('L-source') as HTMLSelectElement)?.value || ''
+              const listening:any = {
+                passiveEnabled,
+                activeEnabled,
+                expectedContext: (document.getElementById('L-context') as HTMLTextAreaElement)?.value || '',
+                tags,
+                source: src,
+                website: (document.getElementById('L-website') as HTMLInputElement)?.value || ''
+              }
+              // Collect triggers
+              const triggers:any[] = []
+              document.querySelectorAll('#L-active-list .act-row').forEach((row:any)=>{
+                const name = (row.querySelector('.act-tag') as HTMLInputElement)?.value || ''
+                const kind = (row.querySelector('.act-kind') as HTMLSelectElement)?.value || 'OTHER'
+                if (name.trim()) triggers.push({ tag: { name, kind } })
+              })
+              if (triggers.length > 0) listening.active = { triggers }
+              const passiveTriggers:any[] = []
+              document.querySelectorAll('#L-passive-triggers .act-row').forEach((row:any)=>{
+                const name = (row.querySelector('.act-tag') as HTMLInputElement)?.value || ''
+                const kind = (row.querySelector('.act-kind') as HTMLSelectElement)?.value || 'OTHER'
+                if (name.trim()) passiveTriggers.push({ tag: { name, kind } })
+              })
+              if (passiveTriggers.length > 0) listening.passive = { triggers: passiveTriggers }
+              listening.reportTo = Array.from(document.querySelectorAll('#L-report-list .rep-row')).map((row:any)=> {
+                const kindSel = row.querySelector('.route-kind') as HTMLSelectElement
+                const specSel = row.querySelector('.route-specific') as HTMLSelectElement
+                return kindSel && specSel ? `${kindSel.value}:${specSel.value}` : ''
+              }).filter((v:string) => v)
+              draft.listening = listening
+              console.log('💾 Saved Listener data with triggers:', {
+                activeTriggerCount: triggers.length,
+                passiveTriggerCount: passiveTriggers.length,
+                triggerNames: [...triggers, ...passiveTriggers].map(t => t.tag.name)
+              })
+            }
+            // Collect all Reasoning data
+            if (R) {
+              const accepts:string[] = Array.from(document.querySelectorAll('#R-accept-list .acc-row')).map((row:any) => {
+                const kindSel = row.querySelector('.route-kind') as HTMLSelectElement
+                const specSel = row.querySelector('.route-specific') as HTMLSelectElement
+                return kindSel && specSel ? `${kindSel.value}:${specSel.value}` : ''
+              }).filter((v:string) => v)
+              const reportTo:string[] = Array.from(document.querySelectorAll('#R-report-list .rep-row')).map((row:any) => {
+                const kindSel = row.querySelector('.route-kind') as HTMLSelectElement
+                const specSel = row.querySelector('.route-specific') as HTMLSelectElement
+                return kindSel && specSel ? `${kindSel.value}:${specSel.value}` : ''
+              }).filter((v:string) => v)
+              const base:any = {
+                applyFor: (document.getElementById('R-apply') as HTMLSelectElement)?.value || '__any__',
+                goals: (document.getElementById('R-goals') as HTMLTextAreaElement)?.value || '',
+                role: (document.getElementById('R-role') as HTMLInputElement)?.value || '',
+                rules: (document.getElementById('R-rules') as HTMLTextAreaElement)?.value || '',
+                custom: [],
+                acceptFrom: accepts,
+                reportTo: reportTo
+              }
+              document.querySelectorAll('#R-custom-list > div').forEach((row:any)=>{
+                const key = (row.querySelector('input:nth-child(1)') as HTMLInputElement)?.value || ''
+                const value = (row.querySelector('input:nth-child(2)') as HTMLInputElement)?.value || ''
+                if (key || value) base.custom.push({ key, value })
+              })
+              draft.reasoning = base
+              draft.reasoningSections = [base]
+              console.log('💾 Saved Reasoning data:', {
+                applyFor: base.applyFor,
+                acceptFromCount: accepts.length,
+                reportToCount: base.reportTo.length
+              })
+            }
+            // Collect all Execution data
+            if (E) {
+              const eAccepts:string[] = Array.from(document.querySelectorAll('#E-accept-list .acc-row')).map((row:any) => {
+                const kindSel = row.querySelector('.route-kind') as HTMLSelectElement
+                const specSel = row.querySelector('.route-specific') as HTMLSelectElement
+                return kindSel && specSel ? `${kindSel.value}:${specSel.value}` : ''
+              }).filter((v:string) => v)
+              const eWfs:string[] = Array.from(document.querySelectorAll('#E-workflow-list .wf-row .wf-target')).map((n:any)=> n.value).filter((v:string) => v)
+              // Collect special destinations (Report to)
+              const eKindsMain = Array.from(document.querySelectorAll('#E-special-list .esp-row .esp-kind')) as HTMLSelectElement[]
+              const eDestinationsMain = eKindsMain.map(sel => {
+                const agents = Array.from(sel.parentElement?.querySelectorAll('.esp-agents .E-agent') || []).filter((cb:any)=> cb.checked).map((cb:any)=> cb.value)
+                return { kind: sel.value, agents: sel.value==='agent' ? agents : [] }
+              })
+              draft.execution = { workflows: eWfs, acceptFrom: eAccepts, specialDestinations: eDestinationsMain, destinations: [] }
+              console.log('💾 Saved Execution data:', {
+                applyFor: draft.execution.applyFor || '__any__',
+                acceptFromCount: eAccepts.length,
+                reportToCount: eDestinationsMain.length,
+                additionalSectionsCount: 0
+              })
+            }
+            // Preserve files
+            if (previouslySavedData) {
+              if (previouslySavedData.agentContextFiles) draft.agentContextFiles = previouslySavedData.agentContextFiles
+              if (previouslySavedData.listening?.exampleFiles) {
+                if (!draft.listening) draft.listening = {}
+                draft.listening.exampleFiles = previouslySavedData.listening.exampleFiles
+              }
+            }
+            
+            dataToSave = JSON.stringify(draft)
+            previouslySavedData = draft
+            
+            // CRITICAL: Save to chrome.storage immediately for persistence
+            chrome.storage.local.set({ [draftKey]: draft }, () => {
+              console.log('✅ AUTO-SAVED to chrome.storage:', draftKey, {
+                capabilities: draft.capabilities,
+                hasListening: !!draft.listening,
+                hasReasoning: !!draft.reasoning,
+                hasExecution: !!draft.execution,
+                agentContextFiles: draft.agentContextFiles?.length || 0
+              })
+            })
+          }
+          console.log('💾 Synced all form data to memory before re-render', {
+            capabilities: previouslySavedData?.capabilities,
+            hasAgentContextFiles: !!previouslySavedData?.agentContextFiles,
+            fileCount: previouslySavedData?.agentContextFiles?.length || 0,
+            agentContextChecked: !!(document.getElementById('AC-agent') as HTMLInputElement)?.checked,
+            hasListening: !!previouslySavedData?.listening,
+            hasReasoning: !!previouslySavedData?.reasoning,
+            hasExecution: !!previouslySavedData?.execution
+          })
+        } catch (err) {
+          console.error('❌ Auto-save error:', err)
+        }
+      }, 500) // Debounce for 500ms
+    }
       
     const storageKey = `agent_${agentName}_${type}`
     let content = ''
@@ -3366,11 +3683,16 @@ function initializeExtension() {
           { label: 'UI', value: 'ui' },
           { label: 'Agent Box', value: 'agentBox' }
         ]
-        const agents = [
-          { label: `Agent ${getOrAssignAgentNumber('summarize')} — Summarizer`, value: 'summarize' },
-          { label: `Agent ${getOrAssignAgentNumber('research')} — Researcher`, value: 'research' },
-          { label: `Agent ${getOrAssignAgentNumber('execute')} — Executor`, value: 'execute' }
-        ]
+        // Generate Agent 01 to Agent 10
+        const agents = Array.from({ length: 10 }, (_, i) => {
+          const num = String(i + 1).padStart(2, '0')
+          return { label: `Agent ${num}`, value: `agent-${num}` }
+        })
+        // Generate Agent Box 01 to Agent Box 50
+        const agentBoxes = Array.from({ length: 50 }, (_, i) => {
+          const num = String(i + 1).padStart(2, '0')
+          return { label: `Agent Box ${num}`, value: `agentbox-${num}` }
+        })
         const workflows = [
           { label: 'Email', value: 'email' },
           { label: 'Calendar', value: 'calendar' },
@@ -3391,7 +3713,7 @@ function initializeExtension() {
           else if (k === 'workflow') opts = workflows
           else if (k === 'tool') opts = tools
           else if (k === 'ui') opts = [{ label: 'UI Overlay', value: 'overlay' }]
-          else if (k === 'agentBox') opts = [{ label: 'Agent Box', value: 'agentBox' }]
+          else if (k === 'agentBox') opts = agentBoxes
           opts.forEach(o => { const opt = document.createElement('option'); opt.value = o.value; opt.textContent = o.label; specSel.appendChild(opt) })
           if (defaults?.specific) specSel.value = defaults.specific
         }
@@ -3451,9 +3773,9 @@ function initializeExtension() {
       // Persist Memory toggles
       let persistedMemSessionEnabled = true
       let persistedMemSessionRead = true
-      let persistedMemSessionWrite = false
+      let persistedMemSessionWrite = true
       let persistedMemAccountEnabled = true
-      let persistedMemAccountRead = false
+      let persistedMemAccountRead = true
       let persistedMemAccountWrite = false
       let persistedMemAgentEnabled = true
       // Persist Agent Context checkboxes
@@ -3462,16 +3784,191 @@ function initializeExtension() {
       let persistedACAgent = false
       const syncPersistedFromDom = () => {
         try {
+          // Use the same comprehensive data collection as auto-save
+          const draft:any = {
+            agentContextFiles: previouslySavedData?.agentContextFiles || [],
+            contextSettings: {
+              sessionContext: !!(configOverlay.querySelector('#AC-session') as HTMLInputElement)?.checked,
+              accountContext: !!(configOverlay.querySelector('#AC-account') as HTMLInputElement)?.checked,
+              agentContext: !!(configOverlay.querySelector('#AC-agent') as HTMLInputElement)?.checked
+            },
+            memorySettings: {
+              sessionEnabled: !!(configOverlay.querySelector('#MEM-session') as HTMLInputElement)?.checked,
+              sessionRead: !!(configOverlay.querySelector('#MEM-session-read') as HTMLInputElement)?.checked,
+              sessionWrite: !!(configOverlay.querySelector('#MEM-session-write') as HTMLInputElement)?.checked,
+              accountEnabled: !!(configOverlay.querySelector('#MEM-account') as HTMLInputElement)?.checked,
+              accountRead: !!(configOverlay.querySelector('#MEM-account-read') as HTMLInputElement)?.checked,
+              accountWrite: !!(configOverlay.querySelector('#MEM-account-write') as HTMLInputElement)?.checked,
+              agentEnabled: true
+            }
+          }
+          
+          const L = (document.getElementById('cap-listening') as HTMLInputElement)?.checked
+          const R = (document.getElementById('cap-reasoning') as HTMLInputElement)?.checked
+          const E = (document.getElementById('cap-execution') as HTMLInputElement)?.checked
+          
+          // Collect ALL Listener data - ALWAYS save trigger names regardless of capability checkbox state
+          // This ensures triggers are available for "Apply for:" dropdowns even when capability is unchecked
+          const listeningElement = document.getElementById('L-context') as HTMLTextAreaElement | null
+          if (listeningElement || document.querySelectorAll('#L-active-list .act-row').length > 0) {
+            const listening:any = {
+              passiveEnabled: !!(document.getElementById('L-toggle-passive') as HTMLInputElement)?.checked,
+              activeEnabled: !!(document.getElementById('L-toggle-active') as HTMLInputElement)?.checked,
+              expectedContext: (document.getElementById('L-context') as HTMLTextAreaElement)?.value || '',
+              tags: Array.from(document.querySelectorAll('.L-tag')).filter((el:any)=>el.checked).map((el:any)=>el.value),
+              source: (document.getElementById('L-source') as HTMLSelectElement)?.value || '',
+              website: (document.getElementById('L-website') as HTMLInputElement)?.value || '',
+              exampleFiles: previouslySavedData?.listening?.exampleFiles || []
+            }
+            // Active triggers - CRITICAL: Always save these for "Apply for:" dropdowns
+            const triggers:any[] = []
+            document.querySelectorAll('#L-active-list .act-row').forEach((row:any)=>{
+              const name = (row.querySelector('.act-tag') as HTMLInputElement)?.value || ''
+              const kind = (row.querySelector('.act-kind') as HTMLSelectElement)?.value || 'OTHER'
+              const extraSel = row.querySelector('.act-extra') as HTMLSelectElement | null
+              const extra = extraSel && extraSel.style.display !== 'none' ? (extraSel.value || '') : ''
+              if (name.trim()) {  // Only save non-empty trigger names
+                triggers.push({ tag: { name, kind, extra } })
+              }
+            })
+            if (triggers.length > 0) listening.active = { triggers }
+            // Passive triggers
+            const passiveTriggers:any[] = []
+            document.querySelectorAll('#L-passive-triggers .act-row').forEach((row:any)=>{
+              const name = (row.querySelector('.act-tag') as HTMLInputElement)?.value || ''
+              const kind = (row.querySelector('.act-kind') as HTMLSelectElement)?.value || 'OTHER'
+              const extraSel = row.querySelector('.act-extra') as HTMLSelectElement | null
+              const extra = extraSel && extraSel.style.display !== 'none' ? (extraSel.value || '') : ''
+              if (name.trim()) {  // Only save non-empty trigger names
+                passiveTriggers.push({ tag: { name, kind, extra } })
+              }
+            })
+            if (passiveTriggers.length > 0) listening.passive = { triggers: passiveTriggers }
+            // Report to
+            listening.reportTo = Array.from(document.querySelectorAll('#L-report-list .rep-row')).map((row:any)=> {
+              const kindSel = row.querySelector('.route-kind') as HTMLSelectElement
+              const specSel = row.querySelector('.route-specific') as HTMLSelectElement
+              return kindSel && specSel ? `${kindSel.value}:${specSel.value}` : ''
+            }).filter((v:string) => v)
+            draft.listening = listening
+            console.log('💾 Saved Listener data with triggers:', {
+              activeTriggerCount: triggers.length,
+              passiveTriggerCount: passiveTriggers.length,
+              triggerNames: [...triggers, ...passiveTriggers].map(t => t.tag.name)
+            })
+          }
+          
+          // Collect ALL Reasoning data - ALWAYS save to preserve selectbox values
+          const reasoningElement = document.getElementById('R-goals') as HTMLTextAreaElement | null
+          if (reasoningElement) {
+            const accepts = Array.from(document.querySelectorAll('#R-accept-list .acc-row')).map((row:any)=> {
+              const kindSel = row.querySelector('.route-kind') as HTMLSelectElement
+              const specSel = row.querySelector('.route-specific') as HTMLSelectElement
+              return kindSel && specSel ? `${kindSel.value}:${specSel.value}` : ''
+            }).filter((v:string) => v)
+            const reportTo = Array.from(document.querySelectorAll('#R-report-list .rep-row')).map((row:any)=> {
+              const kindSel = row.querySelector('.route-kind') as HTMLSelectElement
+              const specSel = row.querySelector('.route-specific') as HTMLSelectElement
+              return kindSel && specSel ? `${kindSel.value}:${specSel.value}` : ''
+            }).filter((v:string) => v)
+            const base:any = {
+              applyFor: (document.getElementById('R-apply') as HTMLSelectElement)?.value || '__any__',
+              goals: (document.getElementById('R-goals') as HTMLTextAreaElement)?.value || '',
+              role: (document.getElementById('R-role') as HTMLInputElement)?.value || '',
+              rules: (document.getElementById('R-rules') as HTMLTextAreaElement)?.value || '',
+              custom: [],
+              acceptFrom: accepts,
+              reportTo: reportTo
+            }
+            document.querySelectorAll('#R-custom-list > div').forEach((row:any)=>{
+              const key = (row.querySelector('input:nth-child(1)') as HTMLInputElement)?.value || ''
+              const value = (row.querySelector('input:nth-child(2)') as HTMLInputElement)?.value || ''
+              base.custom.push({ key, value })  // Store ALL, even empty ones
+            })
+            draft.reasoning = base
+            draft.reasoningSections = [base]
+            console.log('💾 Saved Reasoning data:', {
+              applyFor: base.applyFor,
+              acceptFromCount: accepts.length,
+              reportToCount: reportTo.length
+            })
+          }
+          
+          // Collect ALL Execution data - ALWAYS save to preserve selectbox values
+          const executionElement = document.getElementById('E-apply') as HTMLSelectElement | null
+          if (executionElement || document.querySelectorAll('#E-accept-list .acc-row').length > 0) {
+            const eAccepts = Array.from(document.querySelectorAll('#E-accept-list .acc-row')).map((row:any)=> {
+              const kindSel = row.querySelector('.route-kind') as HTMLSelectElement
+              const specSel = row.querySelector('.route-specific') as HTMLSelectElement
+              return kindSel && specSel ? `${kindSel.value}:${specSel.value}` : ''
+            }).filter((v:string) => v)
+            const eWfs = Array.from(document.querySelectorAll('#E-workflow-list .wf-row .wf-target')).map((n:any)=> n.value).filter((v:string) => v)
+            // Collect special destinations (Report to) from MAIN section
+            const eKindsMain = Array.from(document.querySelectorAll('#E-special-list .esp-row .esp-kind')) as HTMLSelectElement[]
+            const eDestinationsMain = eKindsMain.map(sel => {
+              const agents = Array.from(sel.parentElement?.querySelectorAll('.esp-agents .E-agent') || []).filter((cb:any)=> cb.checked).map((cb:any)=> cb.value)
+              return { kind: sel.value, agents: sel.value==='agent' ? agents : [] }
+            })
+            // Collect data from ALL additional execution sections
+            const eSections:any[] = []
+            document.querySelectorAll('#E-sections-extra .E-section').forEach((sec:any)=>{
+              const applyFor = (sec.querySelector('.E-apply-sub') as HTMLSelectElement)?.value || '__any__'
+              const kinds = Array.from(sec.querySelectorAll('.E-special-list-sub .esp-row .esp-kind')) as HTMLSelectElement[]
+              const dests = kinds.map(sel => {
+                const agents = Array.from(sel.parentElement?.querySelectorAll('.esp-agents .E-agent') || []).filter((cb:any)=> cb.checked).map((cb:any)=> cb.value)
+                return { kind: sel.value, agents: sel.value==='agent' ? agents : [] }
+              })
+              const wfs = Array.from(sec.querySelectorAll('.E-wf-sub .wf-row .wf-target')).map((n:any)=> n.value).filter((v:string) => v)
+              const accepts = Array.from(sec.querySelectorAll('.E-acc-sub .acc-row')).map((row:any)=> {
+                const kindSel = row.querySelector('.route-kind') as HTMLSelectElement
+                const specSel = row.querySelector('.route-specific') as HTMLSelectElement
+                return kindSel && specSel ? `${kindSel.value}:${specSel.value}` : ''
+              }).filter((v:string) => v)
+              eSections.push({ applyFor, specialDestinations: dests, workflows: wfs, acceptFrom: accepts })
+            })
+            draft.execution = { 
+              workflows: eWfs, 
+              acceptFrom: eAccepts, 
+              applyFor: (document.getElementById('E-apply') as HTMLSelectElement)?.value || '__any__',
+              specialDestinations: eDestinationsMain,
+              destinations: [],
+              executionSections: eSections.length > 0 ? eSections : []
+            }
+            console.log('💾 Saved Execution data:', {
+              applyFor: draft.execution.applyFor,
+              acceptFromCount: eAccepts.length,
+              reportToCount: eDestinationsMain.length,
+              additionalSectionsCount: eSections.length
+            })
+          }
+          
+          // Build capabilities array based on checkboxes
+          draft.capabilities = []
+          if (L) draft.capabilities.push('listening')
+          if (R) draft.capabilities.push('reasoning')
+          if (E) draft.capabilities.push('execution')
+          
+          // Update previouslySavedData with all current form state
+          previouslySavedData = draft
+          console.log('💾 Synced all form data to memory before re-render', {
+            capabilities: draft.capabilities,
+            hasAgentContextFiles: !!draft.agentContextFiles,
+            fileCount: draft.agentContextFiles?.length || 0,
+            agentContextChecked: draft.contextSettings?.agentContext,
+            hasListening: !!draft.listening,
+            hasReasoning: !!draft.reasoning,
+            hasExecution: !!draft.execution
+          })
+          
+          // Also update the simple persisted variables for backward compatibility
           const g = configOverlay.querySelector('#R-goals') as HTMLTextAreaElement | null
           const r = configOverlay.querySelector('#R-role') as HTMLInputElement | null
           if (g) persistedGoals = g.value
           if (r) persistedRole = r.value
-          // Persist Listener toggles
           const p = configOverlay.querySelector('#L-toggle-passive') as HTMLInputElement | null
           const a = configOverlay.querySelector('#L-toggle-active') as HTMLInputElement | null
           if (p) persistedPassiveToggle = !!p.checked
           if (a) persistedActiveToggle = !!a.checked
-          // Persist Memory UI
           const ms = configOverlay.querySelector('#MEM-session') as HTMLInputElement | null
           const msr = configOverlay.querySelector('#MEM-session-read') as HTMLInputElement | null
           const msw = configOverlay.querySelector('#MEM-session-write') as HTMLInputElement | null
@@ -3486,29 +3983,25 @@ function initializeExtension() {
           if (mar) persistedMemAccountRead = !!mar.checked
           if (maw) persistedMemAccountWrite = !!maw.checked
           if (mAgent) persistedMemAgentEnabled = !!mAgent.checked
-          // Persist Agent Context checkboxes
           const acSession = configOverlay.querySelector('#AC-session') as HTMLInputElement | null
           const acAccount = configOverlay.querySelector('#AC-account') as HTMLInputElement | null
           const acAgent = configOverlay.querySelector('#AC-agent') as HTMLInputElement | null
           if (acSession) persistedACSession = !!acSession.checked
           if (acAccount) persistedACAccount = !!acAccount.checked
           if (acAgent) persistedACAgent = !!acAgent.checked
-          // Also persist Active Listener triggers (so tags do not get lost)
-          const rows = Array.from(configOverlay.querySelectorAll('#L-active-list .act-row')) as HTMLElement[]
-          persistedActiveTriggers = rows.map((row:any)=> ({
-            tag: (row.querySelector('.act-tag') as HTMLInputElement)?.value || '',
-            kind: (row.querySelector('.act-kind') as HTMLSelectElement)?.value || 'OTHER',
-            extra: (():string=>{
-              const ex = row.querySelector('.act-extra') as HTMLSelectElement | null
-              return ex && ex.style.display !== 'none' ? (ex.value || '') : ''
-            })()
-          }))
-        } catch {}
+        } catch (err) {
+          console.error('❌ Error syncing form data:', err)
+        }
       }
 
       const render = () => {
         // Before clearing, capture current Reasoning values if present
-        syncPersistedFromDom()
+        // CRITICAL: Skip sync on first render to prevent overwriting loaded data
+        if (!isFirstRender) {
+          syncPersistedFromDom()
+        } else {
+          console.log('⏩ Skipping syncPersistedFromDom on first render to preserve loaded data')
+        }
         container.innerHTML = ''
         // Context uploader
         const agentCtxWrap = document.createElement('div')
@@ -3539,9 +4032,9 @@ function initializeExtension() {
         if (persistedACAgent && previouslySavedData?.agentContextFiles?.length > 0) {
           const files = previouslySavedData.agentContextFiles
           acList.innerHTML = `
-            <div style="color:#22c55e;font-weight:600;margin-bottom:6px">✓ ${files.length} file(s) saved:</div>
+            <div style="color:#fbbf24;font-weight:600;margin-bottom:6px">📦 ${files.length} file(s) staged (click Save to finalize):</div>
             ${files.map((f: any, idx: number) => `
-              <div class="saved-file-row" style="display:flex;align-items:center;gap:6px;padding:4px 8px;background:rgba(255,255,255,0.08);border-radius:6px;margin-bottom:4px">
+              <div class="saved-file-row" style="display:flex;align-items:center;gap:6px;padding:4px 8px;background:rgba(251,191,36,0.1);border-radius:6px;margin-bottom:4px;border:1px solid rgba(251,191,36,0.3)">
                 <span>📄 ${f.name} (${(f.size / 1024).toFixed(1)} KB)</span>
                 <button class="delete-ac-file-btn" data-idx="${idx}" style="margin-left:auto;background:#f44336;border:none;color:white;padding:2px 8px;border-radius:4px;cursor:pointer;font-size:10px;">✕</button>
               </div>
@@ -3553,13 +4046,10 @@ function initializeExtension() {
             btn.addEventListener('click', () => {
               const idx = parseInt(btn.getAttribute('data-idx') || '0')
               previouslySavedData.agentContextFiles.splice(idx, 1)
-              const dataToSave = JSON.stringify(previouslySavedData)
-              saveAgentConfig(agentName, agentScope, type, dataToSave, () => {
-                console.log(`🗑️ Deleted Agent Context file at index ${idx}`)
+              console.log(`🗑️ Removed Agent Context file at index ${idx} from staging`)
                 btn.closest('.saved-file-row')?.remove()
                 const countEl = acList.querySelector('div')
-                if (countEl) countEl.textContent = `✓ ${previouslySavedData.agentContextFiles.length} file(s) saved:`
-              })
+              if (countEl) countEl.textContent = `📦 ${previouslySavedData.agentContextFiles.length} file(s) staged (click Save to finalize):`
             })
           })
         }
@@ -3620,22 +4110,20 @@ function initializeExtension() {
               parsed.agentContextFiles = [...existingFiles, ...uniqueNewFiles]
               previouslySavedData = parsed
               
-              // Save immediately
-              const dataToSave = JSON.stringify(parsed)
-              saveAgentConfig(agentName, agentScope, type, dataToSave, () => {
-                console.log(`✅ Pre-saved ${uniqueNewFiles.length} Agent Context file(s)`)
-                
-                // Auto-check the Agent Context checkbox and update persisted state
-                acEnable.checked = true
-                persistedACAgent = true
-                syncAc() // Show the content area
+              // Store in memory only - will be saved when Save button is clicked
+              console.log(`📦 Staged ${uniqueNewFiles.length} Agent Context file(s) in memory`)
+              
+              // Auto-check the Agent Context checkbox and update persisted state
+              acEnable.checked = true
+              persistedACAgent = true
+              syncAc() // Show the content area
                 
                 // Update display
                 const totalFiles = parsed.agentContextFiles.length
                 acList.innerHTML = `
-                  <div style="color:#22c55e;font-weight:600;margin-bottom:6px">✓ ${totalFiles} file(s) saved:</div>
+                <div style="color:#fbbf24;font-weight:600;margin-bottom:6px">📦 ${totalFiles} file(s) staged (click Save to finalize):</div>
                   ${parsed.agentContextFiles.map((f: any, idx: number) => `
-                    <div class="saved-file-row" style="display:flex;align-items:center;gap:6px;padding:4px 8px;background:rgba(255,255,255,0.08);border-radius:6px;margin-bottom:4px">
+                  <div class="saved-file-row" style="display:flex;align-items:center;gap:6px;padding:4px 8px;background:rgba(251,191,36,0.1);border-radius:6px;margin-bottom:4px;border:1px solid rgba(251,191,36,0.3)">
                       <span>📄 ${f.name} (${(f.size / 1024).toFixed(1)} KB)</span>
                       <button class="delete-ac-file-btn" data-idx="${idx}" style="margin-left:auto;background:#f44336;border:none;color:white;padding:2px 8px;border-radius:4px;cursor:pointer;font-size:10px;">✕</button>
                     </div>
@@ -3648,19 +4136,15 @@ function initializeExtension() {
                     const idx = parseInt(btn.getAttribute('data-idx') || '0')
                     parsed.agentContextFiles.splice(idx, 1)
                     previouslySavedData = parsed
-                    const dataToSave = JSON.stringify(parsed)
-                    saveAgentConfig(agentName, agentScope, type, dataToSave, () => {
-                      console.log(`🗑️ Deleted Agent Context file at index ${idx}`)
+                  console.log(`🗑️ Removed Agent Context file at index ${idx} from staging`)
                       btn.closest('.saved-file-row')?.remove()
                       const countEl = acList.querySelector('div')
-                      if (countEl) countEl.textContent = `✓ ${parsed.agentContextFiles.length} file(s) saved:`
-                    })
+                  if (countEl) countEl.textContent = `📦 ${parsed.agentContextFiles.length} file(s) staged (click Save to finalize):`
                   })
                 })
                 
                 // Clear the file input
                 acFiles.value = ''
-              })
             })
           } catch (err) {
             console.error('❌ Error pre-saving Agent Context files:', err)
@@ -3744,10 +4228,10 @@ function initializeExtension() {
         memAccountRead?.addEventListener('change', () => syncToggleText('MEM-account-read', memAccountRead.checked))
         memAccountWrite?.addEventListener('change', () => syncToggleText('MEM-account-write', memAccountWrite.checked))
         syncParentEnable()
-        if (capL && capL.checked) {
+        if (capL) {
           const wrap = document.createElement('div')
           wrap.id = 'box-listening'
-          wrap.style.cssText = 'background:rgba(255,255,255,0.08);padding:12px;border-radius:10px;border:1px solid rgba(255,255,255,0.25);color:#fff'
+          wrap.style.cssText = `background:rgba(255,255,255,0.08);padding:12px;border-radius:10px;border:1px solid rgba(255,255,255,0.25);color:#fff;display:${capL.checked ? 'block' : 'none'}`
           wrap.innerHTML = `
             <div style="font-weight:700;margin-bottom:6px">Listener</div>
             <div style="margin:6px 0 8px 0;display:flex;align-items:center;gap:14px">
@@ -3818,8 +4302,8 @@ function initializeExtension() {
           if (lExamplesContainer && previouslySavedData?.listening?.exampleFiles?.length > 0) {
             const files = previouslySavedData.listening.exampleFiles
             lExamplesContainer.innerHTML = `
-              <div style="margin-top:8px;font-size:11px;opacity:0.9;padding:8px;background:rgba(255,255,255,0.05);border-radius:4px">
-                <div style="font-weight:bold;margin-bottom:8px;color:#4CAF50;">✓ ${files.length} example file(s) saved:</div>
+              <div style="margin-top:8px;font-size:11px;opacity:0.9;padding:8px;background:rgba(251,191,36,0.1);border-radius:4px;border:1px solid rgba(251,191,36,0.3)">
+                <div style="font-weight:bold;margin-bottom:8px;color:#fbbf24;">📦 ${files.length} example file(s) staged (click Save to finalize):</div>
                 ${files.map((f: any, idx: number) => `
                   <div class="saved-file-row" style="display:flex;align-items:center;gap:8px;margin-bottom:6px;padding:4px 8px;background:rgba(255,255,255,0.05);border-radius:4px;">
                     <span>📄 ${f.name} (${(f.size / 1024).toFixed(1)} KB)</span>
@@ -3837,13 +4321,10 @@ function initializeExtension() {
               btn.addEventListener('click', () => {
                 const idx = parseInt(btn.getAttribute('data-idx') || '0')
                 previouslySavedData.listening.exampleFiles.splice(idx, 1)
-                const dataToSave = JSON.stringify(previouslySavedData)
-                saveAgentConfig(agentName, agentScope, type, dataToSave, () => {
-                  console.log(`🗑️ Deleted Listener Example file at index ${idx}`)
-                  btn.closest('.saved-file-row')?.remove()
-                  const countEl = lExamplesContainer.querySelector('div')
-                  if (countEl) countEl.textContent = `✓ ${previouslySavedData.listening.exampleFiles.length} example file(s) saved:`
-                })
+                console.log(`🗑️ Removed Listener Example file at index ${idx} from staging`)
+                btn.closest('.saved-file-row')?.remove()
+                const countEl = lExamplesContainer.querySelector('div')
+                if (countEl) countEl.textContent = `📦 ${previouslySavedData.listening.exampleFiles.length} example file(s) staged (click Save to finalize):`
               })
             })
           }
@@ -3902,16 +4383,14 @@ function initializeExtension() {
                   parsed.listening.exampleFiles = [...existingFiles, ...uniqueNewFiles]
                   previouslySavedData = parsed
                   
-                  // Save immediately
-                  const dataToSave = JSON.stringify(parsed)
-                  saveAgentConfig(agentName, agentScope, type, dataToSave, () => {
-                    console.log(`✅ Pre-saved ${uniqueNewFiles.length} Listener Example file(s)`)
+                  // Store in memory only - will be saved when Save button is clicked
+                  console.log(`📦 Staged ${uniqueNewFiles.length} Listener Example file(s) in memory`)
                     
                     // Update display
                     const totalFiles = parsed.listening.exampleFiles.length
                     lExamplesContainer.innerHTML = `
-                      <div style="margin-top:8px;font-size:11px;opacity:0.9;padding:8px;background:rgba(255,255,255,0.05);border-radius:4px">
-                        <div style="font-weight:bold;margin-bottom:8px;color:#4CAF50;">✓ ${totalFiles} example file(s) saved:</div>
+                    <div style="margin-top:8px;font-size:11px;opacity:0.9;padding:8px;background:rgba(251,191,36,0.1);border-radius:4px;border:1px solid rgba(251,191,36,0.3)">
+                      <div style="font-weight:bold;margin-bottom:8px;color:#fbbf24;">📦 ${totalFiles} example file(s) staged (click Save to finalize):</div>
                         ${parsed.listening.exampleFiles.map((f: any, idx: number) => `
                           <div class="saved-file-row" style="display:flex;align-items:center;gap:8px;margin-bottom:6px;padding:4px 8px;background:rgba(255,255,255,0.05);border-radius:4px;">
                             <span>📄 ${f.name} (${(f.size / 1024).toFixed(1)} KB)</span>
@@ -3927,19 +4406,15 @@ function initializeExtension() {
                         const idx = parseInt(btn.getAttribute('data-idx') || '0')
                         parsed.listening.exampleFiles.splice(idx, 1)
                         previouslySavedData = parsed
-                        const dataToSave = JSON.stringify(parsed)
-                        saveAgentConfig(agentName, agentScope, type, dataToSave, () => {
-                          console.log(`🗑️ Deleted Listener Example file at index ${idx}`)
+                      console.log(`🗑️ Removed Listener Example file at index ${idx} from staging`)
                           btn.closest('.saved-file-row')?.remove()
                           const countEl = lExamplesContainer.querySelector('div')
-                          if (countEl) countEl.textContent = `✓ ${parsed.listening.exampleFiles.length} example file(s) saved:`
-                        })
+                      if (countEl) countEl.textContent = `📦 ${parsed.listening.exampleFiles.length} example file(s) staged (click Save to finalize):`
                       })
                     })
                     
                     // Clear the file input
                     lExamplesInput.value = ''
-                  })
                 })
               } catch (err) {
                 console.error('❌ Error pre-saving Listener Example files:', err)
@@ -3948,10 +4423,10 @@ function initializeExtension() {
             })
           }
         }
-        if (capR && capR.checked) {
+        if (capR) {
           const wrap = document.createElement('div')
           wrap.id = 'box-reasoning'
-          wrap.style.cssText = 'background:rgba(255,255,255,0.06);padding:12px;border-radius:10px;border:1px solid rgba(255,255,255,0.15)'
+          wrap.style.cssText = `background:rgba(255,255,255,0.06);padding:12px;border-radius:10px;border:1px solid rgba(255,255,255,0.15);display:${capR.checked ? 'block' : 'none'}`
           wrap.innerHTML = `
             <div style="font-weight:700;margin-bottom:6px">Reasoning</div>
             <div style="display:flex;align-items:center;gap:10px;margin:6px 0">
@@ -3996,10 +4471,10 @@ function initializeExtension() {
             r && r.addEventListener('input', () => { persistedRole = r.value })
           } catch {}
         }
-        if (capE && capE.checked) {
+        if (capE) {
           const wrap = document.createElement('div')
           wrap.id = 'box-execution'
-          wrap.style.cssText = 'background:rgba(255,255,255,0.06);padding:12px;border-radius:10px;border:1px solid rgba(255,255,255,0.15)'
+          wrap.style.cssText = `background:rgba(255,255,255,0.06);padding:12px;border-radius:10px;border:1px solid rgba(255,255,255,0.15);display:${capE.checked ? 'block' : 'none'}`
           wrap.innerHTML = `
             <div style="font-weight:700;margin-bottom:6px">Execution</div>
             <div style="display:flex;align-items:center;gap:10px;margin:6px 0">
@@ -4027,6 +4502,26 @@ function initializeExtension() {
             <div id="E-sections-extra" style="display:flex;flex-direction:column;gap:10px;margin-top:10px"></div>
             <div style="margin-top:8px"></div>`
           container.appendChild(wrap)
+        }
+
+        // Add event listeners to capability checkboxes to toggle section visibility
+        if (capL) {
+          capL.addEventListener('change', () => {
+            const wrap = configOverlay.querySelector('#box-listening') as HTMLElement | null
+            if (wrap) wrap.style.display = capL.checked ? 'block' : 'none'
+          })
+        }
+        if (capR) {
+          capR.addEventListener('change', () => {
+            const wrap = configOverlay.querySelector('#box-reasoning') as HTMLElement | null
+            if (wrap) wrap.style.display = capR.checked ? 'block' : 'none'
+          })
+        }
+        if (capE) {
+          capE.addEventListener('change', () => {
+            const wrap = configOverlay.querySelector('#box-execution') as HTMLElement | null
+            if (wrap) wrap.style.display = capE.checked ? 'block' : 'none'
+          })
         }
 
         // After mount init
@@ -4080,7 +4575,7 @@ function initializeExtension() {
           const kindSel = document.createElement('select'); kindSel.className = 'act-kind'; kindSel.style.cssText = 'background:#fff;color:#0f172a;border:1px solid #cbd5e1;padding:8px;border-radius:6px'
           const kinds = ['URL','API','PIN-SCREENSHOT','PIN-STREAM','VIDEO','PICTURE','VOICEMEMO','MIC','COMMAND','PDF','FILE','DOCS','SIGNAL','OTHER']
           const kindLabels: Record<string, string> = {
-            'PIN-SCREENSHOT': 'Tagged Trigger Screenshot',
+            'PIN-SCREENSHOT': 'Tagged-Trigger Screenshot',
             'PIN-STREAM': 'Tagged-Trigger Stream'
           }
           kinds.forEach(k=>{ const op=document.createElement('option'); op.value=k; op.textContent=kindLabels[k] || k; if(!init?.kind && k==='OTHER') op.selected=true; if(init?.kind===k) op.selected=true; kindSel.appendChild(op) })
@@ -4089,7 +4584,8 @@ function initializeExtension() {
           delBtn.addEventListener('click', ()=> row.remove())
           const syncExtra = () => {
             const v = kindSel.value
-            if (v==='PIN-SCREENSHOT' || v==='PIN-STREAM') { extraSel.style.display='block'; loadPinnedInto(v as any, extraSel) } else { extraSel.style.display='none'; extraSel.innerHTML='' }
+            // Removed PIN-SCREENSHOT and PIN-STREAM from showing extra select - user can write in textbox
+            extraSel.style.display='none'; extraSel.innerHTML=''
           }
           kindSel.addEventListener('change', syncExtra)
           row.appendChild(hash); row.appendChild(tagInput); row.appendChild(kindSel); row.appendChild(delBtn)
@@ -4100,7 +4596,11 @@ function initializeExtension() {
           return row
         }
         if (activeList && activeAddBtn) {
-          activeAddBtn.addEventListener('click', ()=>{ activeList.appendChild(makeTriggerRow()) })
+          activeAddBtn.addEventListener('click', ()=>{ 
+            activeList.appendChild(makeTriggerRow())
+            // Immediately refresh Apply For dropdowns after adding a new trigger row
+            setTimeout(() => refreshApplyForOptions(), 50)
+          })
           // Rehydrate previously entered triggers if available
           if (persistedActiveTriggers && persistedActiveTriggers.length > 0) {
             activeList.innerHTML = ''
@@ -4114,7 +4614,11 @@ function initializeExtension() {
         const passiveList = configOverlay.querySelector('#L-passive-triggers') as HTMLElement | null
         const passiveAddBtn = configOverlay.querySelector('#L-add-passive-trigger') as HTMLButtonElement | null
         if (passiveList && passiveAddBtn) {
-          passiveAddBtn.addEventListener('click', ()=>{ passiveList.appendChild(makeTriggerRow()) })
+          passiveAddBtn.addEventListener('click', ()=>{ 
+            passiveList.appendChild(makeTriggerRow())
+            // Immediately refresh Apply For dropdowns after adding a new passive trigger row
+            setTimeout(() => refreshApplyForOptions(), 50)
+          })
           // Initialize with one row if empty
           if (passiveList.childElementCount === 0) {
             passiveList.appendChild(makeTriggerRow())
@@ -4227,10 +4731,15 @@ function initializeExtension() {
           rCustomList.appendChild(row)
         })
 
-        // Apply-for population based on active tags
-        const getActiveTags = (): string[] => Array.from(configOverlay.querySelectorAll('#L-active-list .act-row .act-tag')).map((el:any)=> (el.value||'').trim()).filter((v:string, i:number, a:string[])=> v && a.indexOf(v)===i)
+        // Apply-for population based on BOTH active AND passive tags
+        const getAllTriggerTags = (): string[] => {
+          const activeTags = Array.from(configOverlay.querySelectorAll('#L-active-list .act-row .act-tag')).map((el:any)=> (el.value||'').trim())
+          const passiveTags = Array.from(configOverlay.querySelectorAll('#L-passive-triggers .act-row .act-tag')).map((el:any)=> (el.value||'').trim())
+          const allTags = [...activeTags, ...passiveTags]
+          return allTags.filter((v:string, i:number, a:string[])=> v && a.indexOf(v)===i) // unique, non-empty
+        }
         const refreshApplyForOptions = () => {
-          const tags = getActiveTags()
+          const tags = getAllTriggerTags()
           const updateSelect = (sel: HTMLSelectElement | null) => {
             if (!sel) return
             const prev = sel.value
@@ -4249,7 +4758,12 @@ function initializeExtension() {
           if (eAddSec) eAddSec.style.display = tags.length >= 1 ? 'inline-block' : 'none'
         }
         refreshApplyForOptions()
+        // Listen to BOTH active and passive trigger tag inputs
         activeList?.addEventListener('input', (e)=>{
+          const tgt = e.target as HTMLElement
+          if (tgt && tgt.classList.contains('act-tag')) refreshApplyForOptions()
+        })
+        passiveList?.addEventListener('input', (e)=>{
           const tgt = e.target as HTMLElement
           if (tgt && tgt.classList.contains('act-tag')) refreshApplyForOptions()
         })
@@ -4304,21 +4818,29 @@ function initializeExtension() {
             row.appendChild(key); row.appendChild(val); row.appendChild(del)
             list.appendChild(row)
           })
-          // Ensure each new Execution section starts with one workflow row by default
-          setTimeout(()=>{
-            try {
-              const addW = sec.querySelector('.E-add-workflow-sub') as HTMLButtonElement
-              addW?.click()
-            } catch {}
-          }, 0)
+          // Removed auto-workflow addition - user can add manually if needed
           ;(sec.querySelector('.R-add-accept-sub') as HTMLButtonElement).addEventListener('click', ()=> addRow(`#${accId}`, 'acc-row', 'route-kind', 'route-specific'))
           ;(sec.querySelector('.R-add-report-sub') as HTMLButtonElement).addEventListener('click', ()=> addRow(`#${repId}`, 'rep-row', 'route-kind', 'route-specific'))
           return sec
         }
         rAddSection && rExtra && rAddSection.addEventListener('click', ()=>{
+          // CRITICAL: Save all current form data BEFORE adding new section
+          syncPersistedFromDom()
+          console.log('💾 Synced form data before adding new reasoning section')
+          
           const sec = createRSection()
           rExtra.appendChild(sec)
-          refreshApplyForOptions()
+          
+          // Don't call refreshApplyForOptions here - it will be called after restoration
+          // refreshApplyForOptions()
+          
+          // Restore all form data IMMEDIATELY after adding section (synchronously)
+          requestAnimationFrame(() => {
+            restoreFromMemory()
+            // NOW call refreshApplyForOptions AFTER restoration to populate new section's options
+            refreshApplyForOptions()
+            console.log('✅ Restored form data and refreshed options after adding new reasoning section')
+          })
         })
 
         // Add extra Execution sections (same structure as base Execution block)
@@ -4384,25 +4906,611 @@ function initializeExtension() {
           })
           ;(sec.querySelector('.E-add-workflow-sub') as HTMLButtonElement).addEventListener('click', ()=> addWorkflowRow(`#${wfId}`))
           ;(sec.querySelector('.E-add-accept-sub') as HTMLButtonElement).addEventListener('click', ()=> addRow(`#${accId}`, 'acc-row', 'route-kind', 'route-specific'))
-          // Default one workflow row
-          setTimeout(()=>{ try { (sec.querySelector('.E-add-workflow-sub') as HTMLButtonElement)?.click() } catch {} }, 0)
+          // Initialize with one default Report to row (Agent Boxes)
+          setTimeout(()=>{ 
+            try { 
+              addBtn.click() // Add one default Report to row
+            } catch {} 
+          }, 0)
           return sec
         }
         eAddSection && eExtra && eAddSection.addEventListener('click', ()=>{
+          // CRITICAL: Save all current form data BEFORE adding new section
+          syncPersistedFromDom()
+          console.log('💾 Synced form data before adding new execution section')
+          
           const sec = createESection()
           eExtra.appendChild(sec)
-          refreshApplyForOptions()
+          
+          // Don't call refreshApplyForOptions here - it will be called after restoration
+          // refreshApplyForOptions()
+          
+          // Restore all form data IMMEDIATELY after adding section (synchronously)
+          requestAnimationFrame(() => {
+            restoreFromMemory()
+            // NOW call refreshApplyForOptions AFTER restoration to populate new section's options
+            refreshApplyForOptions()
+            console.log('✅ Restored form data and refreshed options after adding new execution section')
+          })
         })
       }
-      const hook = (el: HTMLInputElement | null) => el && el.addEventListener('change', render)
+      
+      // Function to restore data from previouslySavedData after render
+      const restoreFromMemory = () => {
+        requestAnimationFrame(() => {
+          console.log('🔄 restoreFromMemory() called')
+          if (!previouslySavedData) {
+            console.warn('⚠️ No previouslySavedData to restore!')
+            return
+          }
+          console.log('🔄 Restoring form data from memory...')
+          console.log('📦 Full previouslySavedData:', previouslySavedData)
+          console.log('📦 Keys to restore:', Object.keys(previouslySavedData))
+          
+          // Restore Context Settings checkboxes
+          if (previouslySavedData.contextSettings) {
+            const cs = previouslySavedData.contextSettings
+            const acSession = configOverlay.querySelector('#AC-session') as HTMLInputElement
+            const acAccount = configOverlay.querySelector('#AC-account') as HTMLInputElement
+            const acAgent = configOverlay.querySelector('#AC-agent') as HTMLInputElement
+            
+            if (acSession && cs.sessionContext !== undefined) {
+              acSession.checked = cs.sessionContext
+              console.log(`  ✓ Restored Session Context: ${cs.sessionContext}`)
+            }
+            if (acAccount && cs.accountContext !== undefined) {
+              acAccount.checked = cs.accountContext
+              console.log(`  ✓ Restored Account Context: ${cs.accountContext}`)
+            }
+            if (acAgent && cs.agentContext !== undefined) {
+              acAgent.checked = cs.agentContext
+              acAgent.dispatchEvent(new Event('change'))
+              console.log(`  ✓ Restored Agent Context: ${cs.agentContext}`)
+            }
+          }
+          
+          // Restore Memory Settings checkboxes
+          if (previouslySavedData.memorySettings) {
+            const ms = previouslySavedData.memorySettings
+            const memSession = configOverlay.querySelector('#MEM-session') as HTMLInputElement
+            const memSessionRead = configOverlay.querySelector('#MEM-session-read') as HTMLInputElement
+            const memSessionWrite = configOverlay.querySelector('#MEM-session-write') as HTMLInputElement
+            const memAccount = configOverlay.querySelector('#MEM-account') as HTMLInputElement
+            const memAccountRead = configOverlay.querySelector('#MEM-account-read') as HTMLInputElement
+            const memAccountWrite = configOverlay.querySelector('#MEM-account-write') as HTMLInputElement
+            
+            if (memSession && ms.sessionEnabled !== undefined) {
+              memSession.checked = ms.sessionEnabled
+              memSession.dispatchEvent(new Event('change'))
+              console.log(`  ✓ Restored Memory Session: ${ms.sessionEnabled}`)
+            }
+            if (memSessionRead && ms.sessionRead !== undefined) {
+              memSessionRead.checked = ms.sessionRead
+              memSessionRead.dispatchEvent(new Event('change'))
+            }
+            if (memSessionWrite && ms.sessionWrite !== undefined) {
+              memSessionWrite.checked = ms.sessionWrite
+              memSessionWrite.dispatchEvent(new Event('change'))
+            }
+            if (memAccount && ms.accountEnabled !== undefined) {
+              memAccount.checked = ms.accountEnabled
+              memAccount.dispatchEvent(new Event('change'))
+              console.log(`  ✓ Restored Memory Account: ${ms.accountEnabled}`)
+            }
+            if (memAccountRead && ms.accountRead !== undefined) {
+              memAccountRead.checked = ms.accountRead
+              memAccountRead.dispatchEvent(new Event('change'))
+            }
+            if (memAccountWrite && ms.accountWrite !== undefined) {
+              memAccountWrite.checked = ms.accountWrite
+              memAccountWrite.dispatchEvent(new Event('change'))
+            }
+          }
+          
+          // Restore Agent Context files - CRITICAL for preserving uploads
+          console.log('🔍 Checking for Agent Context files to restore:', {
+            hasFiles: !!previouslySavedData.agentContextFiles,
+            fileCount: previouslySavedData.agentContextFiles?.length || 0,
+            files: previouslySavedData.agentContextFiles
+          })
+          
+          if (previouslySavedData.agentContextFiles && previouslySavedData.agentContextFiles.length > 0) {
+            const acList = configOverlay.querySelector('#AC-list')
+            const acEnable = configOverlay.querySelector('#AC-agent') as HTMLInputElement
+            const acContent = configOverlay.querySelector('#AC-content') as HTMLElement
+            
+            console.log('🔍 Found DOM elements:', { 
+              hasAcList: !!acList, 
+              hasAcEnable: !!acEnable,
+              hasAcContent: !!acContent
+            })
+            
+            if (acList && acEnable) {
+              // FORCE checkbox to be checked if there are files
+              acEnable.checked = true
+              acEnable.dispatchEvent(new Event('change'))
+              
+              // Also update the persisted variable
+              persistedACAgent = true
+              
+              const files = previouslySavedData.agentContextFiles
+              acList.innerHTML = `
+                <div style="color:#fbbf24;font-weight:600;margin-bottom:6px">📦 ${files.length} file(s) staged (click Save to finalize):</div>
+                ${files.map((f: any, idx: number) => `
+                  <div class="saved-file-row" style="display:flex;align-items:center;gap:6px;padding:4px 8px;background:rgba(251,191,36,0.1);border-radius:6px;margin-bottom:4px;border:1px solid rgba(251,191,36,0.3)">
+                    <span>📄 ${f.name} (${(f.size / 1024).toFixed(1)} KB)</span>
+                    <button class="delete-ac-file-btn" data-idx="${idx}" style="margin-left:auto;background:#f44336;border:none;color:white;padding:2px 8px;border-radius:4px;cursor:pointer;font-size:10px;">✕</button>
+                  </div>
+                `).join('')}
+              `
+              
+              // Re-add delete handlers
+              acList.querySelectorAll('.delete-ac-file-btn').forEach((btn: Element) => {
+                btn.addEventListener('click', () => {
+                  const idx = parseInt(btn.getAttribute('data-idx') || '0')
+                  previouslySavedData.agentContextFiles.splice(idx, 1)
+                  console.log(`🗑️ Removed Agent Context file at index ${idx} from staging`)
+                  btn.closest('.saved-file-row')?.remove()
+                  const countEl = acList.querySelector('div')
+                  if (countEl) countEl.textContent = `📦 ${previouslySavedData.agentContextFiles.length} file(s) staged (click Save to finalize):`
+                })
+              })
+              console.log(`✅ Successfully restored ${files.length} Agent Context files to display`)
+            } else {
+              console.error('❌ Could not find DOM elements to restore Agent Context files!')
+            }
+          } else {
+            console.log('ℹ️ No Agent Context files to restore')
+          }
+          
+          // Restore Listener data
+          if (previouslySavedData.listening) {
+            const l = previouslySavedData.listening
+            
+            // Restore Expected Context text
+            if (l.expectedContext) {
+              const contextTextarea = configOverlay.querySelector('#L-context') as HTMLTextAreaElement
+              if (contextTextarea) {
+                contextTextarea.value = l.expectedContext
+                console.log(`  ✓ Restored Expected Context text (${l.expectedContext.length} chars)`)
+              }
+            }
+            
+            // Restore Source dropdown
+            if (l.source) {
+              const sourceSelect = configOverlay.querySelector('#L-source') as HTMLSelectElement
+              if (sourceSelect) {
+                sourceSelect.value = l.source
+                sourceSelect.dispatchEvent(new Event('change'))
+                console.log(`  ✓ Restored Source: ${l.source}`)
+              }
+            }
+            
+            // Restore Website field
+            if (l.website) {
+              const websiteInput = configOverlay.querySelector('#L-website') as HTMLInputElement
+              if (websiteInput) {
+                websiteInput.value = l.website
+                console.log(`  ✓ Restored Website: ${l.website}`)
+              }
+            }
+            
+            // Restore Passive/Active toggles
+            if (l.passiveEnabled !== undefined) {
+              const passiveToggle = configOverlay.querySelector('#L-toggle-passive') as HTMLInputElement
+              if (passiveToggle) {
+                passiveToggle.checked = l.passiveEnabled
+                passiveToggle.dispatchEvent(new Event('change'))
+                console.log(`  ✓ Restored Passive toggle: ${l.passiveEnabled}`)
+              }
+            }
+            if (l.activeEnabled !== undefined) {
+              const activeToggle = configOverlay.querySelector('#L-toggle-active') as HTMLInputElement
+              if (activeToggle) {
+                activeToggle.checked = l.activeEnabled
+                activeToggle.dispatchEvent(new Event('change'))
+                console.log(`  ✓ Restored Active toggle: ${l.activeEnabled}`)
+              }
+            }
+            
+            // Restore passive triggers
+            if (l.passive?.triggers && l.passive.triggers.length > 0) {
+              const passiveList = configOverlay.querySelector('#L-passive-triggers')
+              if (passiveList) {
+                passiveList.innerHTML = ''  // Clear first
+                l.passive.triggers.forEach((trigger: any) => {
+                  const addBtn = configOverlay.querySelector('#L-add-passive-trigger') as HTMLButtonElement
+                  if (addBtn) {
+                    addBtn.click()
+                    const rows = configOverlay.querySelectorAll('#L-passive-triggers .act-row')
+                    const lastRow = rows[rows.length - 1]
+                    if (lastRow && trigger.tag) {
+                      const nameInput = lastRow.querySelector('.act-tag') as HTMLInputElement
+                      const kindSelect = lastRow.querySelector('.act-kind') as HTMLSelectElement
+                      if (nameInput) nameInput.value = trigger.tag.name || ''
+                      if (kindSelect) kindSelect.value = trigger.tag.kind || 'OTHER'
+                    }
+                  }
+                })
+                console.log(`  ✓ Restored ${l.passive.triggers.length} passive triggers`)
+              }
+            }
+            
+            // Restore active triggers
+            if (l.active?.triggers && l.active.triggers.length > 0) {
+              const activeList = configOverlay.querySelector('#L-active-list')
+              if (activeList) {
+                activeList.innerHTML = ''  // Clear first
+                l.active.triggers.forEach((trigger: any) => {
+                  const addBtn = configOverlay.querySelector('#L-add-active-trigger') as HTMLButtonElement
+                  if (addBtn) {
+                    addBtn.click()
+                    const rows = configOverlay.querySelectorAll('#L-active-list .act-row')
+                    const lastRow = rows[rows.length - 1]
+                    if (lastRow && trigger.tag) {
+                      const nameInput = lastRow.querySelector('.act-tag') as HTMLInputElement
+                      const kindSelect = lastRow.querySelector('.act-kind') as HTMLSelectElement
+                      if (nameInput) nameInput.value = trigger.tag.name || ''
+                      if (kindSelect) kindSelect.value = trigger.tag.kind || 'OTHER'
+                    }
+                  }
+                })
+                console.log(`  ✓ Restored ${l.active.triggers.length} active triggers`)
+              }
+            }
+            
+            // Restore tag checkboxes (patterns, code, debug-error, math)
+            if (l.tags && l.tags.length > 0) {
+              l.tags.forEach((tag: string) => {
+                const checkbox = configOverlay.querySelector(`.L-tag[value="${tag}"]`) as HTMLInputElement
+                if (checkbox) {
+                  checkbox.checked = true
+                  console.log(`  ✓ Restored tag checkbox: ${tag}`)
+                }
+              })
+            }
+            
+            // Restore Report To rows
+            if (l.reportTo && l.reportTo.length > 0) {
+              const reportList = configOverlay.querySelector('#L-report-list')
+              if (reportList) {
+                reportList.innerHTML = ''  // Clear first
+                l.reportTo.forEach((target: string) => {
+                  const addBtn = configOverlay.querySelector('#L-add-report') as HTMLButtonElement
+                  if (addBtn) {
+                    addBtn.click()
+                    const rows = configOverlay.querySelectorAll('#L-report-list .rep-row')
+                    const lastRow = rows[rows.length - 1]
+                    if (lastRow) {
+                      const kindSel = lastRow.querySelector('.route-kind') as HTMLSelectElement
+                      const specSel = lastRow.querySelector('.route-specific') as HTMLSelectElement
+                      const [kind, spec] = target.split(':')
+                      if (kindSel) kindSel.value = kind
+                      kindSel?.dispatchEvent(new Event('change'))
+                      setTimeout(() => { if (specSel && spec) specSel.value = spec }, 50)
+                    }
+                  }
+                })
+                console.log(`  ✓ Restored ${l.reportTo.length} listener report-to rows`)
+              }
+            }
+          }
+          
+          // Restore Reasoning data
+          if (previouslySavedData.reasoning) {
+            const r = previouslySavedData.reasoning
+            
+            // Restore Goals text
+            if (r.goals) {
+              const goalsTextarea = configOverlay.querySelector('#R-goals') as HTMLTextAreaElement
+              if (goalsTextarea) {
+                goalsTextarea.value = r.goals
+                console.log(`  ✓ Restored Goals text (${r.goals.length} chars)`)
+              }
+            }
+            
+            // Restore Role text
+            if (r.role) {
+              const roleInput = configOverlay.querySelector('#R-role') as HTMLInputElement
+              if (roleInput) {
+                roleInput.value = r.role
+                console.log(`  ✓ Restored Role text: ${r.role}`)
+              }
+            }
+            
+            // Restore Rules text
+            if (r.rules) {
+              const rulesTextarea = configOverlay.querySelector('#R-rules') as HTMLTextAreaElement
+              if (rulesTextarea) {
+                rulesTextarea.value = r.rules
+                console.log(`  ✓ Restored Rules text (${r.rules.length} chars)`)
+              }
+            }
+            
+            // Restore Apply For select
+            if (r.applyFor) {
+              const applySelect = configOverlay.querySelector('#R-apply') as HTMLSelectElement
+              if (applySelect) {
+                applySelect.value = r.applyFor
+                console.log(`  ✓ Restored Apply For: ${r.applyFor}`)
+              }
+            }
+            
+            // Restore Listen From rows
+            if (r.acceptFrom && r.acceptFrom.length > 0) {
+              const acceptList = configOverlay.querySelector('#R-accept-list')
+              if (acceptList) {
+                acceptList.innerHTML = ''  // Clear first
+                r.acceptFrom.forEach((target: string) => {
+                  const addBtn = configOverlay.querySelector('#R-add-accept') as HTMLButtonElement
+                  if (addBtn) {
+                    addBtn.click()
+                    const rows = configOverlay.querySelectorAll('#R-accept-list .acc-row')
+                    const lastRow = rows[rows.length - 1]
+                    if (lastRow) {
+                      const kindSel = lastRow.querySelector('.route-kind') as HTMLSelectElement
+                      const specSel = lastRow.querySelector('.route-specific') as HTMLSelectElement
+                      const [kind, spec] = target.split(':')
+                      if (kindSel) kindSel.value = kind
+                      kindSel?.dispatchEvent(new Event('change'))
+                      setTimeout(() => { if (specSel && spec) specSel.value = spec }, 50)
+                    }
+                  }
+                })
+                console.log(`  ✓ Restored ${r.acceptFrom.length} reasoning listen-from rows`)
+              }
+            }
+            
+            // Restore Report To rows
+            if (r.reportTo && r.reportTo.length > 0) {
+              const reportList = configOverlay.querySelector('#R-report-list')
+              if (reportList) {
+                reportList.innerHTML = ''  // Clear first
+                r.reportTo.forEach((target: string) => {
+                  const addBtn = configOverlay.querySelector('#R-add-report') as HTMLButtonElement
+                  if (addBtn) {
+                    addBtn.click()
+                    const rows = configOverlay.querySelectorAll('#R-report-list .rep-row')
+                    const lastRow = rows[rows.length - 1]
+                    if (lastRow) {
+                      const kindSel = lastRow.querySelector('.route-kind') as HTMLSelectElement
+                      const specSel = lastRow.querySelector('.route-specific') as HTMLSelectElement
+                      const [kind, spec] = target.split(':')
+                      if (kindSel) kindSel.value = kind
+                      kindSel?.dispatchEvent(new Event('change'))
+                      setTimeout(() => { if (specSel && spec) specSel.value = spec }, 50)
+                    }
+                  }
+                })
+                console.log(`  ✓ Restored ${r.reportTo.length} reasoning report-to rows`)
+              }
+            }
+          }
+          
+          // Restore Execution data
+          if (previouslySavedData.execution) {
+            const e = previouslySavedData.execution
+            
+            // Restore Apply For select
+            if (e.applyFor) {
+              const applySelect = configOverlay.querySelector('#E-apply') as HTMLSelectElement
+              if (applySelect) {
+                applySelect.value = e.applyFor
+                console.log(`  ✓ Restored Execution Apply For: ${e.applyFor}`)
+              }
+            }
+            
+            // Restore Listen From rows
+            if (e.acceptFrom && e.acceptFrom.length > 0) {
+              const acceptList = configOverlay.querySelector('#E-accept-list')
+              if (acceptList) {
+                acceptList.innerHTML = ''  // Clear first
+                e.acceptFrom.forEach((target: string) => {
+                  const addBtn = configOverlay.querySelector('#E-add-accept') as HTMLButtonElement
+                  if (addBtn) {
+                    addBtn.click()
+                    const rows = configOverlay.querySelectorAll('#E-accept-list .acc-row')
+                    const lastRow = rows[rows.length - 1]
+                    if (lastRow) {
+                      const kindSel = lastRow.querySelector('.route-kind') as HTMLSelectElement
+                      const specSel = lastRow.querySelector('.route-specific') as HTMLSelectElement
+                      const [kind, spec] = target.split(':')
+                      if (kindSel) kindSel.value = kind
+                      kindSel?.dispatchEvent(new Event('change'))
+                      setTimeout(() => { if (specSel && spec) specSel.value = spec }, 50)
+                    }
+                  }
+                })
+                console.log(`  ✓ Restored ${e.acceptFrom.length} execution listen-from rows`)
+              }
+            }
+            
+            // Restore Workflows
+            if (e.workflows && e.workflows.length > 0) {
+              const workflowList = configOverlay.querySelector('#E-workflow-list')
+              if (workflowList) {
+                workflowList.innerHTML = ''  // Clear first
+                e.workflows.forEach((workflow: string) => {
+                  const addBtn = configOverlay.querySelector('#E-add-workflow') as HTMLButtonElement
+                  if (addBtn) {
+                    addBtn.click()
+                    const rows = configOverlay.querySelectorAll('#E-workflow-list .wf-row')
+                    const lastRow = rows[rows.length - 1]
+                    if (lastRow) {
+                      const input = lastRow.querySelector('.wf-target') as HTMLInputElement
+                      if (input) input.value = workflow
+                    }
+                  }
+                })
+                console.log(`  ✓ Restored ${e.workflows.length} execution workflows`)
+              }
+            }
+            
+            // Restore Special Destinations (Report to)
+            if (e.specialDestinations && e.specialDestinations.length > 0) {
+              const specialList = configOverlay.querySelector('#E-special-list')
+              if (specialList) {
+                specialList.innerHTML = ''  // Clear first
+                e.specialDestinations.forEach((dest: any) => {
+                  const addBtn = configOverlay.querySelector('#E-special-add') as HTMLButtonElement
+                  if (addBtn) {
+                    addBtn.click()
+                    const rows = configOverlay.querySelectorAll('#E-special-list .esp-row')
+                    const lastRow = rows[rows.length - 1]
+                    if (lastRow) {
+                      const kindSel = lastRow.querySelector('.esp-kind') as HTMLSelectElement
+                      if (kindSel) {
+                        kindSel.value = dest.kind
+                        kindSel.dispatchEvent(new Event('change'))
+                      }
+                      // If agent type, restore selected agents
+                      if (dest.kind === 'agent' && dest.agents && dest.agents.length > 0) {
+                        setTimeout(() => {
+                          dest.agents.forEach((agentId: string) => {
+                            const checkbox = lastRow.querySelector(`.E-agent[value="${agentId}"]`) as HTMLInputElement
+                            if (checkbox) checkbox.checked = true
+                          })
+                        }, 100)
+                      }
+                    }
+                  }
+                })
+                console.log(`  ✓ Restored ${e.specialDestinations.length} execution special destinations`)
+              }
+            }
+            
+            // Restore Additional Execution Sections
+            if (e.executionSections && e.executionSections.length > 0) {
+              console.log(`  🔄 Restoring ${e.executionSections.length} additional execution sections...`)
+              const eAddSectionBtn = configOverlay.querySelector('#E-add-section') as HTMLButtonElement
+              const eExtra = configOverlay.querySelector('#E-sections-extra') as HTMLElement
+              
+              if (eAddSectionBtn && eExtra) {
+                e.executionSections.forEach((eSection: any, sectionIdx: number) => {
+                  // Create a new section
+                  eAddSectionBtn.click()
+                  
+                  setTimeout(() => {
+                    const sections = configOverlay.querySelectorAll('#E-sections-extra .E-section')
+                    const newSection = sections[sectionIdx] as HTMLElement
+                    
+                    if (newSection) {
+                      // Restore Apply For
+                      if (eSection.applyFor) {
+                        const applySelect = newSection.querySelector('.E-apply-sub') as HTMLSelectElement
+                        if (applySelect) applySelect.value = eSection.applyFor
+                      }
+                      
+                      // Restore Workflows
+                      if (eSection.workflows && eSection.workflows.length > 0) {
+                        eSection.workflows.forEach((workflow: string) => {
+                          const addBtn = newSection.querySelector('.E-add-workflow-sub') as HTMLButtonElement
+                          if (addBtn) {
+                            addBtn.click()
+                            setTimeout(() => {
+                              const rows = newSection.querySelectorAll('.E-wf-sub .wf-row')
+                              const lastRow = rows[rows.length - 1]
+                              if (lastRow) {
+                                const input = lastRow.querySelector('.wf-target') as HTMLInputElement
+                                if (input) input.value = workflow
+                              }
+                            }, 50)
+                          }
+                        })
+                      }
+                      
+                      // Restore Accept From
+                      if (eSection.acceptFrom && eSection.acceptFrom.length > 0) {
+                        eSection.acceptFrom.forEach((target: string) => {
+                          const addBtn = newSection.querySelector('.E-add-accept-sub') as HTMLButtonElement
+                          if (addBtn) {
+                            addBtn.click()
+                            setTimeout(() => {
+                              const rows = newSection.querySelectorAll('.E-acc-sub .acc-row')
+                              const lastRow = rows[rows.length - 1]
+                              if (lastRow) {
+                                const kindSel = lastRow.querySelector('.route-kind') as HTMLSelectElement
+                                const specSel = lastRow.querySelector('.route-specific') as HTMLSelectElement
+                                const [kind, spec] = target.split(':')
+                                if (kindSel) kindSel.value = kind
+                                kindSel?.dispatchEvent(new Event('change'))
+                                setTimeout(() => { if (specSel && spec) specSel.value = spec }, 50)
+                              }
+                            }, 50)
+                          }
+                        })
+                      }
+                      
+                      // Restore Special Destinations
+                      if (eSection.specialDestinations && eSection.specialDestinations.length > 0) {
+                        eSection.specialDestinations.forEach((dest: any) => {
+                          const specialList = newSection.querySelector('.E-special-list-sub') as HTMLElement
+                          const addBtn = newSection.querySelector('button[onclick*="E-special-list-sub"]') as HTMLButtonElement
+                          if (addBtn) {
+                            addBtn.click()
+                            setTimeout(() => {
+                              const rows = specialList?.querySelectorAll('.esp-row')
+                              const lastRow = rows && rows[rows.length - 1]
+                              if (lastRow) {
+                                const kindSel = lastRow.querySelector('.esp-kind') as HTMLSelectElement
+                                if (kindSel) {
+                                  kindSel.value = dest.kind
+                                  kindSel.dispatchEvent(new Event('change'))
+                                }
+                                if (dest.kind === 'agent' && dest.agents && dest.agents.length > 0) {
+                                  setTimeout(() => {
+                                    dest.agents.forEach((agentId: string) => {
+                                      const checkbox = lastRow.querySelector(`.E-agent[value="${agentId}"]`) as HTMLInputElement
+                                      if (checkbox) checkbox.checked = true
+                                    })
+                                  }, 100)
+                                }
+                              }
+                            }, 50)
+                          }
+                        })
+                      }
+                      
+                      console.log(`    ✓ Restored execution section ${sectionIdx + 1}`)
+                    }
+                  }, 100 * (sectionIdx + 1)) // Stagger the restoration
+                })
+              }
+            }
+          }
+          
+          console.log('✅ Form data restored from memory')
+        })
+      }
+      
+      const hook = (el: HTMLInputElement | null) => {
+        if (el) {
+          el.addEventListener('change', () => {
+            autoSaveToChromeStorage() // Auto-save before render
+            render()
+            restoreFromMemory() // Restore data after render
+          })
+        }
+      }
       hook(capL); hook(capR); hook(capE)
       render()
       
-      // Load existing configuration data
-      if (existingData && type === 'instructions') {
+      // Load existing configuration data from previouslySavedData
+      if (previouslySavedData && type === 'instructions') {
         try {
-          const parsed = JSON.parse(existingData)
-          console.log('📂 Loading existing agent config:', parsed)
+          const parsed = previouslySavedData
+          console.log('📂 Loading existing agent config - START')
+          console.log('🔍 parsed has listening?:', !!parsed.listening)
+          console.log('🔍 parsed.listening.expectedContext:', parsed.listening?.expectedContext?.substring(0, 50) || '(none)')
+          console.log('🔍 parsed has reasoning?:', !!parsed.reasoning)
+          console.log('🔍 parsed.reasoning.rules:', parsed.reasoning?.rules?.substring(0, 50) || '(none)')
+          
+          // Initialize previouslySavedData early so auto-save can preserve files
+          previouslySavedData = parsed
+          console.log('📦 Initialized previouslySavedData with loaded config, files:', {
+            agentContextFiles: parsed.agentContextFiles?.length || 0,
+            listeningExampleFiles: parsed.listening?.exampleFiles?.length || 0
+          })
           
           // Set name and icon
           if (parsed.name) (configOverlay.querySelector('#ag-name') as HTMLInputElement).value = parsed.name
@@ -4580,6 +5688,11 @@ function initializeExtension() {
               
               // Restore reportTo list
               if (l.reportTo && l.reportTo.length > 0) {
+                const reportList = configOverlay.querySelector('#L-report-list')
+                if (reportList) {
+                  // Clear existing rows first to prevent duplicates
+                  reportList.innerHTML = ''
+                }
                 l.reportTo.forEach((target: string) => {
                   const addBtn = configOverlay.querySelector('#L-add-report') as HTMLButtonElement
                   if (addBtn) {
@@ -4699,6 +5812,11 @@ function initializeExtension() {
                 
                 // Restore reportTo list
                 if (baseSection.reportTo && baseSection.reportTo.length > 0) {
+                  const reportList = configOverlay.querySelector('#R-report-list')
+                  if (reportList) {
+                    // Clear existing rows first to prevent duplicates
+                    reportList.innerHTML = ''
+                  }
                   baseSection.reportTo.forEach((target: string) => {
                     const addBtn = configOverlay.querySelector('#R-add-report') as HTMLButtonElement
                     if (addBtn) {
@@ -4761,22 +5879,7 @@ function initializeExtension() {
                 })
               }
               
-              // Restore reportTo (special destinations)
-              if (e.specialDestinations) {
-                e.specialDestinations.forEach((dest: any) => {
-                  const addBtn = configOverlay.querySelector('#E-special-add') as HTMLButtonElement
-                  if (addBtn) {
-                    addBtn.click()
-                    const rows = configOverlay.querySelectorAll('#E-special-list .esp-row')
-                    const lastRow = rows[rows.length - 1]
-                    if (lastRow) {
-                      const kindSel = lastRow.querySelector('.esp-kind') as HTMLSelectElement
-                      if (kindSel) kindSel.value = dest.kind
-                      kindSel?.dispatchEvent(new Event('change'))
-                    }
-                  }
-                })
-              }
+              // Note: specialDestinations are restored by restoreFromMemory()
             }
             
             // Restore uploaded files list (files themselves can't be restored to input for security)
@@ -4828,10 +5931,32 @@ function initializeExtension() {
               }
             }
             
+            // CRITICAL VERIFICATION - Check if fields are in loaded data
+            console.log('🔍 BEFORE VERIFICATION - checking parsed variable:')
+            console.log('  Type of parsed:', typeof parsed)
+            console.log('  parsed is null?:', parsed === null)
+            console.log('  parsed is undefined?:', parsed === undefined)
+            console.log('  parsed has listening?:', !!parsed?.listening)
+            console.log('  parsed.listening.expectedContext exists?:', !!parsed?.listening?.expectedContext)
+            
+            console.log('🔍 LOAD VERIFICATION - Critical fields from storage:')
+            console.log(`  📁 Agent Context Files: ${parsed?.agentContextFiles?.length || 0} files`)
+            if (parsed?.agentContextFiles?.length) {
+              console.log(`     Files: ${parsed.agentContextFiles.map((f: any) => f.name).join(', ')}`)
+            }
+            console.log(`  📝 Expected Context: "${parsed?.listening?.expectedContext?.substring(0, 50) || '(empty)'}${parsed?.listening?.expectedContext?.length > 50 ? '...' : ''}"`)
+            console.log(`  🎯 Listen on (type): "${parsed?.listening?.source || '(empty)'}"`)
+            console.log(`  📋 Rules: "${parsed?.reasoning?.rules?.substring(0, 50) || '(empty)'}${parsed?.reasoning?.rules?.length > 50 ? '...' : ''}"`)
+            
             console.log('✅ Agent config loaded successfully')
+            
+            // CRITICAL: Mark first render as complete so future renders can sync data
+            isFirstRender = false
+            console.log('✅ First render complete, future renders will sync data from DOM')
           })
         } catch (e) {
           console.error('❌ Failed to load agent config:', e)
+          isFirstRender = false // Also clear flag on error
         }
       } else if (existingData && type === 'context') {
         // Context data is already populated in the HTML template (line 3251)
@@ -4885,10 +6010,17 @@ function initializeExtension() {
     document.getElementById('close-agent-config').onclick = () => configOverlay.remove()
     document.getElementById('agent-config-cancel').onclick = () => configOverlay.remove()
     // Save handler
-    document.getElementById('agent-config-save').onclick = async () => {
-      // Disable button and show loading state
-      const saveButton = document.getElementById('agent-config-save') as HTMLButtonElement
-      if (!saveButton) return
+    const saveBtn = document.getElementById('agent-config-save')
+    console.log(`🔧 Save button element:`, saveBtn ? 'FOUND' : 'NOT FOUND')
+    if (saveBtn) {
+      saveBtn.onclick = async () => {
+        console.log(`🔴 SAVE BUTTON CLICKED! Starting save process...`)
+        // Disable button and show loading state
+        const saveButton = document.getElementById('agent-config-save') as HTMLButtonElement
+        if (!saveButton) {
+          console.error('❌ Save button not found after click!')
+          return
+        }
       
       const originalButtonHTML = saveButton.innerHTML
       saveButton.disabled = true
@@ -4920,14 +6052,17 @@ function initializeExtension() {
               agentEnabled: true // Always enabled
             }
           }
-          const L = (document.getElementById('cap-listening') as HTMLInputElement).checked
-          const R = (document.getElementById('cap-reasoning') as HTMLInputElement).checked
-          const E = (document.getElementById('cap-execution') as HTMLInputElement).checked
+          const L = (document.getElementById('cap-listening') as HTMLInputElement)?.checked || false
+          const R = (document.getElementById('cap-reasoning') as HTMLInputElement)?.checked || false
+          const E = (document.getElementById('cap-execution') as HTMLInputElement)?.checked || false
           if (L) draft.capabilities.push('listening')
           if (R) draft.capabilities.push('reasoning')
           if (E) draft.capabilities.push('execution')
-        // Listening - SAVE ALL FIELDS regardless of toggle state
-        if (L) {
+        
+        // ALWAYS save ALL section data (regardless of capability checkbox state)
+        // The capability checkbox only controls which features are ACTIVE, not what data is saved
+        const listeningSection = document.getElementById('box-listening')
+        if (listeningSection) {
           const passiveEnabled = !!(document.getElementById('L-toggle-passive') as HTMLInputElement)?.checked
           const activeEnabled = !!(document.getElementById('L-toggle-active') as HTMLInputElement)?.checked
           const tags = Array.from(document.querySelectorAll('.L-tag'))
@@ -5008,8 +6143,12 @@ function initializeExtension() {
             console.log(`⚠️ No passive triggers to save`)
           }
           
-          // Report to list
-          listening.reportTo = Array.from(document.querySelectorAll('#L-report-list .rep-row .rep-target')).map((n:any)=> n.value)
+          // Report to list - format as "kind:specific"
+          listening.reportTo = Array.from(document.querySelectorAll('#L-report-list .rep-row')).map((row:any) => {
+            const kindSel = row.querySelector('.route-kind') as HTMLSelectElement
+            const specSel = row.querySelector('.route-specific') as HTMLSelectElement
+            return kindSel && specSel ? `${kindSel.value}:${specSel.value}` : ''
+          }).filter((v:string) => v)
           
           console.log('📝 Listener config collected:', {
             passiveEnabled,
@@ -5022,12 +6161,33 @@ function initializeExtension() {
             reportToCount: listening.reportTo.length
           })
           
-          draft.listening = listening
+          // CRITICAL: Merge listening data with draft.listening to preserve exampleFiles set earlier
+          if (!draft.listening) {
+            draft.listening = listening
+          } else {
+            // Preserve exampleFiles that were set during file upload processing
+            const preservedFiles = draft.listening.exampleFiles
+            draft.listening = { ...listening, exampleFiles: preservedFiles || [] }
+            console.log(`📦 Preserved ${preservedFiles?.length || 0} example files during merge`)
+          }
         }
-        // Reasoning
-        if (R) {
-          const accepts:string[] = []
-          document.querySelectorAll('#R-accept-list .acc-row .acc-target').forEach((n:any)=> accepts.push(n.value))
+        // Reasoning - ALWAYS save if section exists
+        const reasoningSection = document.getElementById('box-reasoning')
+        if (reasoningSection) {
+          // Accept From list - format as "kind:specific"
+          const accepts:string[] = Array.from(document.querySelectorAll('#R-accept-list .acc-row')).map((row:any) => {
+            const kindSel = row.querySelector('.route-kind') as HTMLSelectElement
+            const specSel = row.querySelector('.route-specific') as HTMLSelectElement
+            return kindSel && specSel ? `${kindSel.value}:${specSel.value}` : ''
+          }).filter((v:string) => v)
+          
+          // Report To list - format as "kind:specific"
+          const reportTo:string[] = Array.from(document.querySelectorAll('#R-report-list .rep-row')).map((row:any) => {
+            const kindSel = row.querySelector('.route-kind') as HTMLSelectElement
+            const specSel = row.querySelector('.route-specific') as HTMLSelectElement
+            return kindSel && specSel ? `${kindSel.value}:${specSel.value}` : ''
+          }).filter((v:string) => v)
+          
           const base:any = {
             applyFor: (document.getElementById('R-apply') as HTMLSelectElement)?.value || '__any__',
             goals: (document.getElementById('R-goals') as HTMLTextAreaElement)?.value || '',
@@ -5035,7 +6195,7 @@ function initializeExtension() {
             rules: (document.getElementById('R-rules') as HTMLTextAreaElement)?.value || '',
             custom: [],
             acceptFrom: accepts,
-            reportTo: Array.from(document.querySelectorAll('#R-report-list .rep-row .rep-target')).map((n:any)=> n.value)
+            reportTo: reportTo
           }
           document.querySelectorAll('#R-custom-list > div').forEach((row:any)=>{
             const key = (row.querySelector('input:nth-child(1)') as HTMLInputElement)?.value || ''
@@ -5058,7 +6218,7 @@ function initializeExtension() {
             })
             sections.push(s)
           })
-          draft.reasoning = { acceptFrom: accepts, goals: base.goals, role: base.role, rules: base.rules, custom: {}, applyFor: base.applyFor }
+          draft.reasoning = { acceptFrom: accepts, reportTo: reportTo, goals: base.goals, role: base.role, rules: base.rules, custom: {}, applyFor: base.applyFor }
           ;(draft as any).reasoningSections = sections
           
           console.log('📝 Reasoning config collected:', {
@@ -5072,12 +6232,18 @@ function initializeExtension() {
             sectionsCount: sections.length
           })
         }
-        // Execution
-        if (E) {
-          const eAccepts:string[] = []
-          document.querySelectorAll('#E-accept-list .acc-row .acc-target').forEach((n:any)=> eAccepts.push(n.value))
-          const eWfs:string[] = []
-          document.querySelectorAll('#E-workflow-list .wf-row .wf-target').forEach((n:any)=> eWfs.push(n.value))
+        // Execution - ALWAYS save if section exists
+        const executionSection = document.getElementById('box-execution')
+        if (executionSection) {
+          // Accept From list - format as "kind:specific"
+          const eAccepts:string[] = Array.from(document.querySelectorAll('#E-accept-list .acc-row')).map((row:any) => {
+            const kindSel = row.querySelector('.route-kind') as HTMLSelectElement
+            const specSel = row.querySelector('.route-specific') as HTMLSelectElement
+            return kindSel && specSel ? `${kindSel.value}:${specSel.value}` : ''
+          }).filter((v:string) => v)
+          
+          // Workflows list
+          const eWfs:string[] = Array.from(document.querySelectorAll('#E-workflow-list .wf-row .wf-target')).map((n:any)=> n.value).filter((v:string) => v)
           const eKindsMain = Array.from(document.querySelectorAll('#E-special-list .esp-row .esp-kind')) as HTMLSelectElement[]
           const eDestinationsMain = eKindsMain.map(sel => {
             const agents = Array.from(sel.parentElement?.querySelectorAll('.esp-agents .E-agent') || []).filter((cb:any)=> cb.checked).map((cb:any)=> cb.value)
@@ -5086,28 +6252,40 @@ function initializeExtension() {
           const eSections:any[] = []
           document.querySelectorAll('#E-sections-extra .E-section').forEach((sec:any)=>{
             const applyFor = (sec.querySelector('.E-apply-sub') as HTMLSelectElement)?.value || '__any__'
+            
+            // Collect workflows for this section
+            const workflows = Array.from(sec.querySelectorAll('.E-wf-sub .wf-row .wf-target')).map((n:any)=> n.value).filter((v:string) => v)
+            
+            // Collect acceptFrom for this section
+            const acceptFrom = Array.from(sec.querySelectorAll('.E-acc-sub .acc-row')).map((row:any) => {
+              const kindSel = row.querySelector('.route-kind') as HTMLSelectElement
+              const specSel = row.querySelector('.route-specific') as HTMLSelectElement
+              return kindSel && specSel ? `${kindSel.value}:${specSel.value}` : ''
+            }).filter((v:string) => v)
+            
+            // Collect special destinations
             const kinds = Array.from(sec.querySelectorAll('.E-special-list-sub .esp-row .esp-kind')) as HTMLSelectElement[]
             const dests = kinds.map(sel => {
               const agents = Array.from(sel.parentElement?.querySelectorAll('.esp-agents .E-agent') || []).filter((cb:any)=> cb.checked).map((cb:any)=> cb.value)
               return { kind: sel.value, agents: sel.value==='agent' ? agents : [] }
             })
-            eSections.push({ applyFor, specialDestinations: dests })
+            
+            eSections.push({ applyFor, workflows, acceptFrom, specialDestinations: dests })
           })
           draft.execution = {
             acceptFrom: eAccepts,
             workflows: eWfs,
-            reportTo: Array.from(document.querySelectorAll('#L-report-list .rep-row .rep-target')).map((n:any)=> n.value),
             applyFor: (document.getElementById('E-apply') as HTMLSelectElement)?.value || '__any__',
             specialDestinations: eDestinationsMain,
-            executionSections: eSections
+            executionSections: eSections,
+            destinations: []  // For backward compatibility
           }
           
           console.log('📝 Execution config collected:', {
             acceptFromCount: eAccepts.length,
             workflowsCount: eWfs.length,
-            reportToCount: draft.execution.reportTo.length,
-            applyFor: draft.execution.applyFor,
             specialDestinationsCount: eDestinationsMain.length,
+            applyFor: draft.execution.applyFor,
             executionSectionsCount: eSections.length
           })
         }
@@ -5301,10 +6479,41 @@ function initializeExtension() {
         
         // Log what we're about to save
         console.log(`💾 SAVING ${type} config for agent ${agentName} to ${agentScope} scope`)
-        console.log('📦 Data to save:', JSON.parse(dataToSave))
+        const parsedData = JSON.parse(dataToSave)
+        console.log('📦 Data to save:', parsedData)
         console.log(`📊 Data size: ${dataToSave.length} characters`)
         
+        // CRITICAL VERIFICATION - Check specific fields the user reported as not saving
+        if (type === 'instructions') {
+          console.log('🔍 VERIFICATION - Critical fields:')
+          console.log(`  📁 Agent Context Files: ${parsedData.agentContextFiles?.length || 0} files`)
+          if (parsedData.agentContextFiles?.length) {
+            console.log(`     Files: ${parsedData.agentContextFiles.map((f: any) => f.name).join(', ')}`)
+          }
+          console.log(`  📝 Expected Context: "${parsedData.listening?.expectedContext?.substring(0, 50) || '(empty)'}${parsedData.listening?.expectedContext?.length > 50 ? '...' : ''}"`)
+          console.log(`  🎯 Listen on (type): "${parsedData.listening?.source || '(empty)'}"`)
+          console.log(`  🌐 Website: "${parsedData.listening?.website || '(empty)'}"`)
+          console.log(`  🏷️ Tags: ${JSON.stringify(parsedData.listening?.tags || [])}`)
+          console.log(`  📤 Report To: ${JSON.stringify(parsedData.listening?.reportTo || [])}`)
+          console.log(`  🎬 Active Triggers: ${parsedData.listening?.active?.triggers?.length || 0}`)
+          console.log(`  💤 Passive Triggers: ${parsedData.listening?.passive?.triggers?.length || 0}`)
+          console.log(`  📎 Example Files: ${parsedData.listening?.exampleFiles?.length || 0}`)
+          console.log(`  📋 R-Rules: "${parsedData.reasoning?.rules?.substring(0, 50) || '(empty)'}${parsedData.reasoning?.rules?.length > 50 ? '...' : ''}"`)
+          console.log(`  📥 R-Accept From: ${JSON.stringify(parsedData.reasoning?.acceptFrom || [])}`)
+          console.log(`  📤 R-Report To: ${JSON.stringify(parsedData.reasoning?.reportTo || [])}`)
+          console.log(`  📥 E-Accept From: ${JSON.stringify(parsedData.execution?.acceptFrom || [])}`)
+          console.log(`  🔧 E-Workflows: ${parsedData.execution?.workflows?.length || 0}`)
+          console.log(`  ⚡ E-Special Destinations: ${parsedData.execution?.specialDestinations?.length || 0}`)
+        }
+        
         // Wrap saveAgentConfig in a promise so we can await it
+        console.log(`🚀 Calling saveAgentConfig with:`)
+        console.log(`   Agent: "${agentName}"`)
+        console.log(`   Scope: "${agentScope}"`)
+        console.log(`   Type: "${type}"`)
+        console.log(`   Data length: ${dataToSave.length} chars`)
+        console.log(`   Data is string?: ${typeof dataToSave === 'string'}`)
+        
         await new Promise<void>((resolve, reject) => {
           try {
             saveAgentConfig(agentName, agentScope, type, dataToSave, () => {
@@ -5318,6 +6527,15 @@ function initializeExtension() {
         })
         
         console.log(`🎉 Save operation completed successfully!`)
+        
+        // CRITICAL: Wait for draft cleanup before proceeding
+        await new Promise<void>((resolve) => {
+          // Clear the draft from chrome.storage since we've committed it
+          chrome.storage.local.remove([draftKey], () => {
+            console.log('🗑️ Cleared auto-save draft:', draftKey)
+            resolve()
+          })
+        })
         
         // Show success notification
         const showSaveNotification = (dataStr: string) => {
@@ -5411,6 +6629,9 @@ function initializeExtension() {
         showSaveNotification(dataToSave)
         console.log(`✅ SAVED ${type} for agent ${agentName} to ${agentScope}`)
         
+        // Wait a moment to ensure notification is visible and all async operations complete
+        await new Promise(resolve => setTimeout(resolve, 800))
+        
         // Close the overlay after successful save
         configOverlay.remove()
         
@@ -5463,9 +6684,33 @@ function initializeExtension() {
         saveButton.innerHTML = originalButtonHTML
       }
     }
+    } else {
+      console.error('❌ Save button element not found in DOM!')
+    }
     
     configOverlay.onclick = (e) => { if (e.target === configOverlay) configOverlay.remove() }
 
+    // Define helper functions for UI updates
+    const updateBoxes = () => {
+      const capL = configOverlay.querySelector('#cap-listening') as HTMLInputElement | null
+      const capR = configOverlay.querySelector('#cap-reasoning') as HTMLInputElement | null
+      const capE = configOverlay.querySelector('#cap-execution') as HTMLInputElement | null
+      const boxL = configOverlay.querySelector('#box-listening') as HTMLElement | null
+      const boxR = configOverlay.querySelector('#box-reasoning') as HTMLElement | null
+      const boxE = configOverlay.querySelector('#box-execution') as HTMLElement | null
+      if (boxL && capL) boxL.style.display = capL.checked ? 'block' : 'none'
+      if (boxR && capR) boxR.style.display = capR.checked ? 'block' : 'none'
+      if (boxE && capE) boxE.style.display = capE.checked ? 'block' : 'none'
+    }
+    
+    const updateWebsiteVisibility = () => {
+      const srcSel = configOverlay.querySelector('#L-source') as HTMLSelectElement | null
+      const websiteWrap = configOverlay.querySelector('#L-website-wrap') as HTMLElement | null
+      if (srcSel && websiteWrap) {
+        websiteWrap.style.display = srcSel.value === 'website' ? 'block' : 'none'
+      }
+    }
+    
     // Delegated listeners for broader compatibility
     configOverlay.addEventListener('input', (ev) => {
       const el = ev.target as HTMLElement | null
@@ -5492,7 +6737,31 @@ function initializeExtension() {
 
     // Ensure first paint reflects state
     requestAnimationFrame(() => updateBoxes())
-    }) // Close loadAgentConfig callback
+    
+    // CRITICAL: Hook up auto-save to ALL form inputs using event delegation
+    console.log(`🔧 Installing auto-save hooks. Function exists?: ${typeof autoSaveToChromeStorage !== 'undefined'}`)
+    console.log(`   Type: "${type}", Agent: "${agentName}"`)
+    
+    configOverlay.addEventListener('input', (e) => {
+      console.log('📝 Form input detected, triggering auto-save...')
+      if (typeof autoSaveToChromeStorage === 'function') {
+        autoSaveToChromeStorage()
+      } else {
+        console.error('❌ autoSaveToChromeStorage is not a function!', typeof autoSaveToChromeStorage)
+      }
+    })
+    configOverlay.addEventListener('change', (e) => {
+      console.log('📝 Form change detected, triggering auto-save...')
+      if (typeof autoSaveToChromeStorage === 'function') {
+        autoSaveToChromeStorage()
+      } else {
+        console.error('❌ autoSaveToChromeStorage is not a function!', typeof autoSaveToChromeStorage)
+      }
+    })
+    
+    console.log('✅ Auto-save hooks installed - ALL form changes will be saved automatically')
+    
+    } // Close continueDialogSetup function
   }
   function openAddNewAgentDialog(parentOverlay) {
     // Create add new agent dialog
@@ -10121,6 +11390,7 @@ ${pageText}
             
             // Persist active session key globally and in this tab
             setCurrentSessionKey(sessionId)
+            console.log('✅ Active session key set to:', sessionId)
 
             // CRITICAL: Restore session data to currentTabData IMMEDIATELY before any window.open
             currentTabData = {
@@ -10135,6 +11405,7 @@ ${pageText}
             
             console.log('🔧 DEBUG: Session data restored to currentTabData BEFORE opening windows')
             console.log('🔧 DEBUG: currentTabData.displayGrids:', currentTabData.displayGrids)
+            console.log('✅ Session restored with agents:', sessionData.agents?.length || 0)
 
             // Don't navigate immediately - this breaks the helper tabs opening
             // Instead, store the target URL and navigate after opening helper tabs
@@ -10173,6 +11444,15 @@ ${pageText}
               setTimeout(() => {
                 console.log('🔧 DEBUG: About to re-render agent boxes with:', currentTabData.agentBoxes?.length || 0, 'boxes')
                 renderAgentBoxes()
+                
+                // CRITICAL: Re-render agents grid to show agents from restored session
+                if (rightSidebar) {
+                  const agentsGrid = rightSidebar.querySelector('#agents-grid')
+                  if (agentsGrid) {
+                    console.log('🔄 Refreshing agents grid after session restore')
+                    renderAgentsGrid(rightSidebar)
+                  }
+                }
               }, 200)
               
               // Restore hybrid views if they exist
@@ -10299,6 +11579,15 @@ ${pageText}
               setTimeout(() => {
                 console.log('🔧 DEBUG: About to re-render agent boxes with:', currentTabData.agentBoxes?.length || 0, 'boxes')
                 renderAgentBoxes()
+                
+                // CRITICAL: Re-render agents grid to show agents from restored session
+                if (rightSidebar) {
+                  const agentsGrid = rightSidebar.querySelector('#agents-grid')
+                  if (agentsGrid) {
+                    console.log('🔄 Refreshing agents grid after session restore (no helper tabs)')
+                    renderAgentsGrid(rightSidebar)
+                  }
+                }
               }, 200)
               
               // Restore hybrid views if they exist (no helper tabs case)
