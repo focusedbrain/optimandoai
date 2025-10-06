@@ -6219,6 +6219,15 @@ function initializeExtension() {
       try {
         let dataToSave = ''
         if (type === 'instructions') {
+          // CRITICAL DEBUG: Log what's in previouslySavedData before save
+          console.log('🔍 PRE-SAVE CHECK - previouslySavedData state:', {
+            hasData: !!previouslySavedData,
+            agentContextFilesCount: previouslySavedData?.agentContextFiles?.length || 0,
+            listeningExampleFilesCount: previouslySavedData?.listening?.exampleFiles?.length || 0,
+            reasoningCustomFieldsCount: previouslySavedData?.reasoning?.custom?.length || 0,
+            reasoningSectionsCount: previouslySavedData?.reasoningSections?.length || 0
+          })
+          
           // Collect draft - CRITICAL: Initialize with previouslySavedData to preserve files
           const draft:any = {
             id: agentName,
@@ -6419,7 +6428,7 @@ function initializeExtension() {
             })
             sections.push(s)
           })
-          draft.reasoning = { acceptFrom: accepts, reportTo: reportTo, goals: base.goals, role: base.role, rules: base.rules, custom: {}, applyFor: base.applyFor }
+          draft.reasoning = { acceptFrom: accepts, reportTo: reportTo, goals: base.goals, role: base.role, rules: base.rules, custom: base.custom, applyFor: base.applyFor }
           ;(draft as any).reasoningSections = sections
           
           console.log('📝 Reasoning config collected:', {
@@ -6700,8 +6709,18 @@ function initializeExtension() {
           console.log(`  💤 Passive Triggers: ${parsedData.listening?.passive?.triggers?.length || 0}`)
           console.log(`  📎 Example Files: ${parsedData.listening?.exampleFiles?.length || 0}`)
           console.log(`  📋 R-Rules: "${parsedData.reasoning?.rules?.substring(0, 50) || '(empty)'}${parsedData.reasoning?.rules?.length > 50 ? '...' : ''}"`)
+          console.log(`  🔧 R-Custom Fields: ${parsedData.reasoning?.custom?.length || 0} field(s)`)
+          if (parsedData.reasoning?.custom?.length) {
+            console.log(`     Custom: ${JSON.stringify(parsedData.reasoning.custom)}`)
+          }
           console.log(`  📥 R-Accept From: ${JSON.stringify(parsedData.reasoning?.acceptFrom || [])}`)
           console.log(`  📤 R-Report To: ${JSON.stringify(parsedData.reasoning?.reportTo || [])}`)
+          console.log(`  📚 Reasoning Sections: ${parsedData.reasoningSections?.length || 0} section(s)`)
+          if (parsedData.reasoningSections?.length > 1) {
+            parsedData.reasoningSections.slice(1).forEach((section: any, idx: number) => {
+              console.log(`     Section ${idx + 2}: ${section.custom?.length || 0} custom fields, ${section.acceptFrom?.length || 0} listen-from, ${section.reportTo?.length || 0} report-to`)
+            })
+          }
           console.log(`  📥 E-Accept From: ${JSON.stringify(parsedData.execution?.acceptFrom || [])}`)
           console.log(`  🔧 E-Workflows: ${parsedData.execution?.workflows?.length || 0}`)
           console.log(`  ⚡ E-Special Destinations: ${parsedData.execution?.specialDestinations?.length || 0}`)
