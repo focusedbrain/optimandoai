@@ -204,15 +204,39 @@ if (window.gridScriptLoaded) {
       
       var agent = agentNum ? ('agent' + agentNum) : '';
       
-      console.log('💾 POPUP: Saving slot config:', { title, agent, provider, model });
+      // NEW: Use existing boxNumber if already assigned, otherwise it will be assigned when syncing to session
+      // For now, use slotId as placeholder - will be corrected by parent when syncing
+      var boxNumber = cfg.boxNumber || parseInt(slotId) || 0;
+      var agentNumber = parseInt(agentNum) || 0;
+      var agentNumForAB = agentNumber > 0 ? String(agentNumber).padStart(2, '0') : '00';
+      var identifier = boxNumber > 0 ? ('AB' + String(boxNumber).padStart(2, '0') + agentNumForAB) : 'AB??'+agentNumForAB;
       
-      // Update slot data attribute
-      var newConfig = { title: title, agent: agent, provider: provider, model: model, tools: (cfg.tools || []) };
+      console.log('📦 POPUP: Creating agent box:', {
+        slotId: slotId,
+        boxNumber: boxNumber,
+        agentNumber: agentNumber,
+        identifier: identifier,
+        title: title,
+        agent: agent,
+        provider: provider,
+        model: model
+      });
+      
+      // Update slot data attribute with new fields
+      var newConfig = {
+        title: title,
+        agent: agent,
+        boxNumber: boxNumber,
+        agentNumber: agentNumber,
+        identifier: identifier,
+        provider: provider,
+        model: model,
+        tools: (cfg.tools || [])
+      };
       slot.setAttribute('data-slot-config', JSON.stringify(newConfig));
       
       // Update visual display
-      var agentNumForAB = agent ? agent.replace('agent', '').padStart(2, '0') : '';
-      var ab = 'AB' + String(slotId).padStart(2, '0') + agentNumForAB;
+      var ab = identifier;
       var abEl = slot.querySelector('span[style*="font-family: monospace"]');
       if (abEl) abEl.textContent = ab;
       

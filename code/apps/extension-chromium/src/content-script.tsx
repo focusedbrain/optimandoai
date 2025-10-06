@@ -1264,74 +1264,99 @@ function initializeExtension() {
   function openAddAgentBoxDialog() {
     const colors = ['#4CAF50', '#2196F3', '#FF9800', '#9C27B0', '#F44336', '#E91E63', '#9E9E9E', '#795548', '#607D8B', '#FF5722']
     
-    // Get next sequential number across entire session
-    let nextNumber = Math.max(...currentTabData.agentBoxes.map((box: any) => box.number), 0) + 1
-    
-    // Also check session storage for highest number across all tabs/grids
+    // Calculate next BOX number by checking session storage FIRST
     const sessionKey = getCurrentSessionKey()
+    
+    // Function to find max box number across entire session
+    const findMaxBoxNumber = (session: any): number => {
+      let maxBoxNumber = 0
+      
+      // Check all agent boxes in master tabs
+      if (session.agentBoxes && Array.isArray(session.agentBoxes)) {
+        session.agentBoxes.forEach((box: any) => {
+          if (box && box.boxNumber && box.boxNumber > maxBoxNumber) {
+            maxBoxNumber = box.boxNumber
+          }
+          // Fallback to old 'number' field for backwards compatibility
+          else if (box && box.number && !box.boxNumber && box.number > maxBoxNumber) {
+            maxBoxNumber = box.number
+          }
+        })
+      }
+      
+      // Check display grid slots
+      if (session.displayGrids && Array.isArray(session.displayGrids)) {
+        session.displayGrids.forEach((grid: any) => {
+          if (grid.config && grid.config.slots) {
+            Object.entries(grid.config.slots).forEach(([slotId, slotData]: [string, any]) => {
+              if (slotData && slotData.boxNumber && slotData.boxNumber > maxBoxNumber) {
+                maxBoxNumber = slotData.boxNumber
+              }
+            })
+          }
+        })
+      }
+      
+      // Check helper tabs (if they have agent boxes)
+      if (session.helperTabs && session.helperTabs.agentBoxes && Array.isArray(session.helperTabs.agentBoxes)) {
+        session.helperTabs.agentBoxes.forEach((box: any) => {
+          if (box && box.boxNumber && box.boxNumber > maxBoxNumber) {
+            maxBoxNumber = box.boxNumber
+          }
+        })
+      }
+      
+      return maxBoxNumber
+    }
+    
+    // Start with box number 1 by default, will be updated after loading session
+    let nextBoxNumber = 1
+    
+    // Load session data to get correct next box number BEFORE showing dialog
     if (sessionKey && chrome?.storage?.local) {
       chrome.storage.local.get([sessionKey], (result) => {
         if (result[sessionKey]) {
           const session = result[sessionKey]
-          let maxNumber = nextNumber - 1
-          
-          // Check all agent boxes in session
-          if (session.agentBoxes && Array.isArray(session.agentBoxes)) {
-            session.agentBoxes.forEach((box: any) => {
-              if (box && box.number && box.number > maxNumber) {
-                maxNumber = box.number
-              }
-            })
-          }
-          
-          // Check display grid slots
-          if (session.displayGrids && Array.isArray(session.displayGrids)) {
-            session.displayGrids.forEach((grid: any) => {
-              if (grid.config && grid.config.slots) {
-                Object.entries(grid.config.slots).forEach(([slotId, slotData]: [string, any]) => {
-                  const slotNum = parseInt(slotId)
-                  if (!isNaN(slotNum) && slotNum > maxNumber) {
-                    maxNumber = slotNum
-                  }
-                })
-              }
-            })
-          }
-          
-          nextNumber = maxNumber + 1
-          console.log('📦 Next agent box number calculated:', nextNumber, 'from max:', maxNumber)
-          
-          // Update the input field if dialog is still open
-          const numberInput = document.querySelector('#agent-number') as HTMLInputElement
-          if (numberInput) {
-            numberInput.value = String(nextNumber)
-          }
+          const maxBoxNumber = findMaxBoxNumber(session)
+          nextBoxNumber = maxBoxNumber + 1
+          console.log('📦 Next agent box number calculated:', nextBoxNumber, 'from max:', maxBoxNumber)
         }
+        showDialog()
       })
+    } else {
+      showDialog()
     }
     
-    const overlay = document.createElement('div')
-    overlay.style.cssText = `
-      position: fixed;
-      top: 0;
-      left: 0;
-      width: 100%;
-      height: 100%;
-      background: rgba(0, 0, 0, 0.8);
-      z-index: 2147483647;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-    `
-    
-    overlay.innerHTML = `
-      <div style="background: white; padding: 30px; border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.3); max-width: 500px; width: 90%;">
-        <h3 style="margin: 0 0 20px 0; color: #333; font-size: 18px; text-align: center;">Add New Agent Box</h3>
-        
-        <div style="margin-bottom: 20px;">
-          <label style="display: block; margin-bottom: 8px; color: #555; font-weight: bold;">Agent Number:</label>
-          <input id="agent-number" type="number" value="${nextNumber}" min="1" max="99" style="width: 100%; padding: 10px; border: 2px solid #ddd; border-radius: 6px; font-size: 14px;">
-        </div>
+    function showDialog() {
+      const overlay = document.createElement('div')
+      overlay.style.cssText = `
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0, 0, 0, 0.8);
+        z-index: 2147483647;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      `
+      
+      overlay.innerHTML = `
+        <div style="background: white; padding: 30px; border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.3); max-width: 500px; width: 90%;">
+          <h3 style="margin: 0 0 20px 0; color: #333; font-size: 18px; text-align: center;">Add New Agent Box</h3>
+          
+          <div style="margin-bottom: 20px;">
+            <label style="display: block; margin-bottom: 8px; color: #555; font-weight: bold;">Agent Box Number:</label>
+            <input id="agent-box-number" type="text" value="${String(nextBoxNumber).padStart(2, '0')}" readonly style="width: 100%; padding: 10px; border: 2px solid #ddd; border-radius: 6px; font-size: 14px; background: #f5f5f5; color: #666;">
+            <div style="font-size: 11px; color: #888; margin-top: 4px;">Auto-incremented from last box</div>
+          </div>
+          
+          <div style="margin-bottom: 20px;">
+            <label style="display: block; margin-bottom: 8px; color: #555; font-weight: bold;">Agent Number:</label>
+            <input id="agent-number" type="number" value="1" min="1" max="99" placeholder="e.g., 5" style="width: 100%; padding: 10px; border: 2px solid #ddd; border-radius: 6px; font-size: 14px;">
+            <div style="font-size: 11px; color: #888; margin-top: 4px;">Which agent to allocate to this box</div>
+          </div>
         
         <div style="margin-bottom: 20px;">
           <label style="display: block; margin-bottom: 8px; color: #555; font-weight: bold;">Agent Title:</label>
@@ -1385,99 +1410,119 @@ function initializeExtension() {
         default: return ['auto']
       }
     }
-    const providerSelect = overlay.querySelector('#agent-provider') as HTMLSelectElement | null
-    const modelSelect = overlay.querySelector('#agent-model') as HTMLSelectElement | null
-    const refreshModels = () => {
-      if (!modelSelect) return
-      const provider = providerSelect?.value || ''
-      if (!provider) {
-        modelSelect.innerHTML = '<option value="" selected disabled>Select provider first</option>'
-        modelSelect.disabled = true
-        return
+      const providerSelect = overlay.querySelector('#agent-provider') as HTMLSelectElement | null
+      const modelSelect = overlay.querySelector('#agent-model') as HTMLSelectElement | null
+      const refreshModels = () => {
+        if (!modelSelect) return
+        const provider = providerSelect?.value || ''
+        if (!provider) {
+          modelSelect.innerHTML = '<option value="" selected disabled>Select provider first</option>'
+          modelSelect.disabled = true
+          return
+        }
+        const models = getPlaceholderModels(provider)
+        modelSelect.innerHTML = models.map(m => `<option value="${m}">${m}</option>`).join('')
+        modelSelect.disabled = false
+        modelSelect.value = models[0]
       }
-      const models = getPlaceholderModels(provider)
-      modelSelect.innerHTML = models.map(m => `<option value="${m}">${m}</option>`).join('')
-      modelSelect.disabled = false
-      modelSelect.value = models[0]
-    }
-    providerSelect?.addEventListener('change', refreshModels)
-    
-    // Color selection
-    overlay.querySelectorAll('.color-select').forEach(btn => {
-      btn.addEventListener('click', () => {
-        overlay.querySelectorAll('.color-select').forEach(b => b.style.border = '3px solid transparent')
-        btn.style.border = '3px solid #333'
-        selectedColor = btn.getAttribute('data-color') || colors[0]
+      providerSelect?.addEventListener('change', refreshModels)
+      
+      // Color selection
+      overlay.querySelectorAll('.color-select').forEach(btn => {
+        btn.addEventListener('click', () => {
+          overlay.querySelectorAll('.color-select').forEach(b => b.style.border = '3px solid transparent')
+          btn.style.border = '3px solid #333'
+          selectedColor = btn.getAttribute('data-color') || colors[0]
+        })
       })
-    })
-    // Cancel button
-    overlay.querySelector('#cancel-add-agent')?.addEventListener('click', () => {
-      overlay.remove()
-    })
-    // Confirm button
-    overlay.querySelector('#confirm-add-agent')?.addEventListener('click', () => {
-      const numberInput = overlay.querySelector('#agent-number') as HTMLInputElement
-      const titleInput = overlay.querySelector('#agent-title') as HTMLInputElement
-      const providerInput = overlay.querySelector('#agent-provider') as HTMLSelectElement | null
-      const modelInput = overlay.querySelector('#agent-model') as HTMLSelectElement | null
       
-      const number = parseInt(numberInput.value) || nextNumber
-      const title = titleInput.value.trim() || `Agent ${number}`
-      const provider = providerInput?.value || ''
-      const model = modelInput?.value || 'auto'
-      
-      // Create unique ID
-      const id = `custom-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
-      const outputId = `${id}-output`
-      
-      // Allocate agent by the chosen Agent Number
-      let agentId = `agent${number}`
-      
-      const newBox = {
-        id: id,
-        agentId: agentId,
-        number: number,
-        title: title,
-        color: selectedColor,
-        outputId: outputId,
-        provider: provider,
-        model: model
-      }
-      
-      currentTabData.agentBoxes.push(newBox)
-      saveTabDataToStorage()
-      renderAgentBoxes()
-      
-      overlay.remove()
-      
-      // Show success notification
-      const notification = document.createElement('div')
-      notification.style.cssText = `
-        position: fixed;
-        top: 60px;
-        right: 20px;
-        background: rgba(76, 175, 80, 0.9);
-        color: white;
-        padding: 10px 15px;
-        border-radius: 5px;
-        font-size: 12px;
-        z-index: 2147483648;
-        animation: slideIn 0.3s ease;
-      `
-      notification.innerHTML = `➕ Agent box "${title}" added!`
-      document.body.appendChild(notification)
-      
-      setTimeout(() => {
-        notification.remove()
-      }, 3000)
-    })
-    
-    // Close on background click
-    overlay.addEventListener('click', (e) => {
-      if (e.target === overlay) {
+      // Cancel button
+      overlay.querySelector('#cancel-add-agent')?.addEventListener('click', () => {
         overlay.remove()
-      }
-    })
+      })
+      
+      // Confirm button
+      overlay.querySelector('#confirm-add-agent')?.addEventListener('click', () => {
+        const boxNumberInput = overlay.querySelector('#agent-box-number') as HTMLInputElement
+        const agentNumberInput = overlay.querySelector('#agent-number') as HTMLInputElement
+        const titleInput = overlay.querySelector('#agent-title') as HTMLInputElement
+        const providerInput = overlay.querySelector('#agent-provider') as HTMLSelectElement | null
+        const modelInput = overlay.querySelector('#agent-model') as HTMLSelectElement | null
+        
+        // Get box number and agent number
+        const boxNumber = nextBoxNumber  // Use the calculated box number
+        const agentNumber = parseInt(agentNumberInput.value) || 1
+        const title = titleInput.value.trim() || `Agent Box ${String(boxNumber).padStart(2, '0')}`
+        const provider = providerInput?.value || ''
+        const model = modelInput?.value || 'auto'
+        
+        // Create unique ID
+        const id = `custom-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+        const outputId = `${id}-output`
+        
+        // Generate identifier AB[BoxNum][AgentNum]
+        const identifier = `AB${String(boxNumber).padStart(2, '0')}${String(agentNumber).padStart(2, '0')}`
+        
+        // Allocate agent by the chosen Agent Number
+        const agentId = `agent${agentNumber}`
+        
+        console.log('📦 Creating new agent box:', {
+          boxNumber,
+          agentNumber,
+          identifier,
+          agentId,
+          title
+        })
+        
+        const newBox = {
+          id: id,
+          boxNumber: boxNumber,  // NEW: Separate box number
+          agentNumber: agentNumber,  // NEW: Separate agent number
+          identifier: identifier,  // NEW: Full AB identifier
+          agentId: agentId,
+          number: boxNumber,  // Keep for backwards compatibility
+          title: title,
+          color: selectedColor,
+          outputId: outputId,
+          provider: provider,
+          model: model
+        }
+        
+        currentTabData.agentBoxes.push(newBox)
+        saveTabDataToStorage()
+        renderAgentBoxes()
+        
+        overlay.remove()
+        
+        // Show success notification with identifier
+        const notification = document.createElement('div')
+        notification.style.cssText = `
+          position: fixed;
+          top: 60px;
+          right: 20px;
+          background: rgba(76, 175, 80, 0.9);
+          color: white;
+          padding: 10px 15px;
+          border-radius: 5px;
+          font-size: 12px;
+          z-index: 2147483648;
+          animation: slideIn 0.3s ease;
+        `
+        notification.innerHTML = `➕ Agent box ${identifier} created: "${title}"`
+        document.body.appendChild(notification)
+        
+        setTimeout(() => {
+          notification.remove()
+        }, 3000)
+      })
+      
+      // Close on background click
+      overlay.addEventListener('click', (e) => {
+        if (e.target === overlay) {
+          overlay.remove()
+        }
+      })
+    }  // End of showDialog function
   }
   function openEditAgentBoxDialog(agentId: string) {
     const colors = ['#4CAF50', '#2196F3', '#FF9800', '#9C27B0', '#F44336', '#E91E63', '#9E9E9E', '#795548', '#607D8B', '#FF5722']
@@ -11053,6 +11098,50 @@ ${pageText}
           chrome.storage.local.get([sessionKey], (result) => {
             const existingSession = result[sessionKey] || {}
             
+            // CRITICAL: Assign box numbers to grid slots that don't have them yet
+            // Find the highest box number across ALL boxes in the session
+            let maxBoxNumber = 0
+            
+            // Check master tab agent boxes
+            if (existingSession.agentBoxes && Array.isArray(existingSession.agentBoxes)) {
+              existingSession.agentBoxes.forEach((box: any) => {
+                const boxNum = box.boxNumber || box.number || 0
+                if (boxNum > maxBoxNumber) maxBoxNumber = boxNum
+              })
+            }
+            
+            // Check all display grids
+            if (existingSession.displayGrids && Array.isArray(existingSession.displayGrids)) {
+              existingSession.displayGrids.forEach((grid: any) => {
+                if (grid.config && grid.config.slots) {
+                  Object.values(grid.config.slots).forEach((slot: any) => {
+                    const boxNum = slot.boxNumber || 0
+                    if (boxNum > maxBoxNumber) maxBoxNumber = boxNum
+                  })
+                }
+              })
+            }
+            
+            // Assign box numbers to new slots in the current grid save
+            if (payload && payload.slots) {
+              Object.keys(payload.slots).forEach(slotId => {
+                const slot = payload.slots[slotId]
+                // Only assign box number if this slot has config but no box number yet
+                if (slot && (slot.title || slot.agent || slot.provider || slot.model) && !slot.boxNumber) {
+                  maxBoxNumber++
+                  slot.boxNumber = maxBoxNumber
+                  
+                  // Update identifier if agent number is set
+                  if (slot.agentNumber || slot.agent) {
+                    const agentNum = slot.agentNumber || (slot.agent ? parseInt(String(slot.agent).replace(/\D/g, '')) : 0)
+                    slot.agentNumber = agentNum
+                    slot.identifier = `AB${String(maxBoxNumber).padStart(2, '0')}${String(agentNum).padStart(2, '0')}`
+                    console.log(`📦 Assigned box number ${maxBoxNumber} to grid slot ${slotId}, identifier: ${slot.identifier}`)
+                  }
+                }
+              })
+            }
+            
             // Merge displayGrids into the session
             const sessionData = {
               ...existingSession,
@@ -12087,63 +12176,45 @@ ${pageText}
       
       // Build registered agent boxes list
       const registeredBoxes: Array<{
-        number: number;
-        agentId: string;
+        boxNumber: number;
+        agentNumber: number;
+        identifier: string;
         title: string;
         location: string;
         provider?: string;
         model?: string;
       }> = []
       
-      // First 4 boxes from master tab (always registered)
+      // Add ALL agent boxes from master tab that have been configured
       if (session.agentBoxes && Array.isArray(session.agentBoxes)) {
         session.agentBoxes.forEach((box: any) => {
-          if (box && box.number && box.number <= 4) {
-            // Extract CURRENT agent allocation from the stored data
-            let agentId = `agent${box.number}` // Default: box 1 = agent1, box 2 = agent2, etc.
+          // Only include boxes that have at least a title, agent, or model configured
+          if (box && (box.title || box.agentId || box.agentNumber || box.model || box.provider)) {
+            // Get box number
+            const boxNumber = box.boxNumber || box.number || 0
             
-            // First check the agentId field directly
-            if (box.agentId && String(box.agentId).match(/agent(\d+)/)) {
+            // Get agent number
+            let agentNumber = 0
+            if (box.agentNumber) {
+              agentNumber = box.agentNumber
+            } else if (box.agentId && String(box.agentId).match(/agent(\d+)/)) {
               const match = String(box.agentId).match(/agent(\d+)/)
-              agentId = `agent${match[1]}`
-            }
-            // Then check if model contains agent info (this overrides agentId)
-            else if (box.model && String(box.model).match(/agent(\d+)/)) {
+              agentNumber = parseInt(match[1])
+            } else if (box.model && String(box.model).match(/agent(\d+)/)) {
               const match = String(box.model).match(/agent(\d+)/)
-              agentId = `agent${match[1]}`
+              agentNumber = parseInt(match[1])
             }
             
-            console.log(`📦 Box ${box.number}: agentId="${box.agentId}", model="${box.model}" → resolved agentId="${agentId}"`)
+            // Generate identifier
+            const identifier = box.identifier || `AB${String(boxNumber).padStart(2, '0')}${String(agentNumber).padStart(2, '0')}`
+            
+            console.log(`📦 Master Tab Box: boxNum=${boxNumber}, agentNum=${agentNumber}, identifier=${identifier}`)
             
             registeredBoxes.push({
-              number: box.number,
-              agentId: agentId,
-              title: box.title || `Agent Box ${box.number}`,
-              location: 'Master Tab',
-              provider: box.provider,
-              model: box.model
-            })
-          }
-        })
-      }
-      // Add additional master tab boxes that are set up (number > 4)
-      if (session.agentBoxes && Array.isArray(session.agentBoxes)) {
-        session.agentBoxes.forEach((box: any) => {
-          if (box && box.number && box.number > 4 && (box.title || box.agentId || box.model || box.provider)) {
-            // Extract agent number from agentId or model
-            let agentId = 'agent0'
-            if (box.agentId && String(box.agentId).match(/\d+/)) {
-              const match = String(box.agentId).match(/\d+/)
-              agentId = `agent${match[0]}`
-            } else if (box.model && String(box.model).match(/agent[- ]?(\d+)/i)) {
-              const match = String(box.model).match(/agent[- ]?(\d+)/i)
-              agentId = `agent${match[1]}`
-            }
-            
-            registeredBoxes.push({
-              number: box.number,
-              agentId: agentId,
-              title: box.title || `Agent Box ${box.number}`,
+              boxNumber: boxNumber,
+              agentNumber: agentNumber,
+              identifier: identifier,
+              title: box.title || `Agent Box ${String(boxNumber).padStart(2, '0')}`,
               location: 'Master Tab',
               provider: box.provider,
               model: box.model
@@ -12157,19 +12228,29 @@ ${pageText}
         session.displayGrids.forEach((grid: any) => {
           if (grid.config && grid.config.slots) {
             Object.entries(grid.config.slots).forEach(([slotId, slotData]: [string, any]) => {
-              const slotNum = parseInt(slotId)
-              if (!isNaN(slotNum) && slotData && (slotData.title || slotData.agent || slotData.model || slotData.provider)) {
+              if (slotData && (slotData.title || slotData.agent || slotData.model || slotData.provider)) {
+                // Get box number
+                const boxNumber = slotData.boxNumber || parseInt(slotId) || 0
+                
                 // Extract agent number
-                let agentId = 'agent0'
-                if (slotData.agent && String(slotData.agent).match(/\d+/)) {
+                let agentNumber = 0
+                if (slotData.agentNumber) {
+                  agentNumber = slotData.agentNumber
+                } else if (slotData.agent && String(slotData.agent).match(/\d+/)) {
                   const match = String(slotData.agent).match(/\d+/)
-                  agentId = `agent${match[0]}`
+                  agentNumber = parseInt(match[0])
                 }
                 
+                // Generate identifier
+                const identifier = slotData.identifier || `AB${String(boxNumber).padStart(2, '0')}${String(agentNumber).padStart(2, '0')}`
+                
+                console.log(`📦 Display Grid Box: boxNum=${boxNumber}, agentNum=${agentNumber}, identifier=${identifier}`)
+                
                 registeredBoxes.push({
-                  number: slotNum,
-                  agentId: agentId,
-                  title: slotData.title || `Display Port ${slotNum}`,
+                  boxNumber: boxNumber,
+                  agentNumber: agentNumber,
+                  identifier: identifier,
+                  title: slotData.title || `Display Port ${slotId}`,
                   location: `Grid: ${grid.layout}`,
                   provider: slotData.provider,
                   model: slotData.model
@@ -12180,36 +12261,13 @@ ${pageText}
         })
       }
       
-      // Sort by number for consistent display
-      registeredBoxes.sort((a, b) => a.number - b.number)
+      // Sort by box number for consistent display
+      registeredBoxes.sort((a, b) => a.boxNumber - b.boxNumber)
       
       // Generate HTML for each registered box
       const boxesHTML = registeredBoxes.map(box => {
-        // Generate AB identifier dynamically: AB[BoxNumber][AgentNumber]
-        const boxNum = String(box.number).padStart(2, '0')
-        
-        // Extract current agent number from agentId or model
-        let agentNum = '00' // Default if no agent
-        
-        // Check agentId first
-        if (box.agentId && box.agentId.match(/agent(\d+)/)) {
-          const match = box.agentId.match(/agent(\d+)/)
-          agentNum = match[1].padStart(2, '0')
-        }
-        // Override with model if it contains agent info
-        else if (box.model && box.model.match(/agent(\d+)/)) {
-          const match = box.model.match(/agent(\d+)/)
-          agentNum = match[1].padStart(2, '0')
-        }
-        // Fallback: use box number as agent number for first 4 boxes
-        else if (box.number <= 4) {
-          agentNum = String(box.number).padStart(2, '0')
-        }
-        
-        const identifier = `AB${boxNum}${agentNum}`
-        
-        console.log(`📦 Box ${box.number}: agentId="${box.agentId}", model="${box.model}" → identifier="${identifier}"`)
-        
+        // Use the pre-calculated identifier
+        const identifier = box.identifier
         
         // Get LLM info
         const llmInfo = box.provider && box.model 
@@ -12241,9 +12299,10 @@ ${pageText}
             <div style="background: rgba(255,255,255,0.05); padding: 15px; border-radius: 8px; margin-bottom: 20px;">
               <div style="font-size: 12px; color: rgba(255,255,255,0.7); line-height: 1.6;">
                 <strong>Identifier System:</strong><br>
-                • AB[BoxNumber][AgentNumber] format (e.g., AB0101 = Box 01 with Agent 01)<br>
-                • First 4 boxes (AB01-AB04) are registered by default<br>
-                • Additional boxes register when set up with agent/title/model
+                • AB[BoxNumber][AgentNumber] format (e.g., AB0105 = Box 01 with Agent 05)<br>
+                • Box numbers auto-increment (AB01, AB02, AB03, etc.)<br>
+                • Agent numbers are assigned when creating each box<br>
+                • All configured boxes are listed below
               </div>
             </div>
             
