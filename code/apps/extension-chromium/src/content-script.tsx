@@ -3990,9 +3990,12 @@ function initializeExtension() {
             capabilities: draft.capabilities,
             hasAgentContextFiles: !!draft.agentContextFiles,
             fileCount: draft.agentContextFiles?.length || 0,
+            fileNames: draft.agentContextFiles?.map((f: any) => f.name) || [],
             agentContextChecked: draft.contextSettings?.agentContext,
             hasListening: !!draft.listening,
             hasReasoning: !!draft.reasoning,
+            reasoningCustomFields: draft.reasoning?.custom?.length || 0,
+            reasoningCustomData: draft.reasoning?.custom || [],
             hasExecution: !!draft.execution
           })
           
@@ -4148,6 +4151,12 @@ function initializeExtension() {
               
               // Store in memory only - will be saved when Save button is clicked
               console.log(`📦 Staged ${uniqueNewFiles.length} Agent Context file(s) in memory`)
+              console.log(`   Total files now: ${parsed.agentContextFiles.length}`)
+              console.log(`   File names: ${parsed.agentContextFiles.map((f: any) => f.name).join(', ')}`)
+              console.log(`   previouslySavedData updated:`, {
+                hasAgentContextFiles: !!previouslySavedData.agentContextFiles,
+                fileCount: previouslySavedData.agentContextFiles?.length
+              })
               
               // Auto-check the Agent Context checkbox and update persisted state
               acEnable.checked = true
@@ -6223,10 +6232,13 @@ function initializeExtension() {
           console.log('🔍 PRE-SAVE CHECK - previouslySavedData state:', {
             hasData: !!previouslySavedData,
             agentContextFilesCount: previouslySavedData?.agentContextFiles?.length || 0,
+            agentContextFileNames: previouslySavedData?.agentContextFiles?.map((f: any) => f.name) || [],
             listeningExampleFilesCount: previouslySavedData?.listening?.exampleFiles?.length || 0,
             reasoningCustomFieldsCount: previouslySavedData?.reasoning?.custom?.length || 0,
+            reasoningCustomFieldsData: previouslySavedData?.reasoning?.custom || [],
             reasoningSectionsCount: previouslySavedData?.reasoningSections?.length || 0
           })
+          console.log('📝 Full previouslySavedData.agentContextFiles:', previouslySavedData?.agentContextFiles)
           
           // Collect draft - CRITICAL: Initialize with previouslySavedData to preserve files
           const draft:any = {
