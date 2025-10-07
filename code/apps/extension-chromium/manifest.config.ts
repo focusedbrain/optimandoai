@@ -40,7 +40,7 @@ export default defineManifest({
   },
   web_accessible_resources: [
     {
-      resources: ['grid-display.html', 'grid-script.js', 'popup.html', 'popup.js'],
+      resources: ['grid-display.html', 'grid-script.js', 'grid-display-v2.html', 'grid-script-v2.js', 'popup.html', 'popup.js'],
       matches: ['<all_urls>']
     }
   ],

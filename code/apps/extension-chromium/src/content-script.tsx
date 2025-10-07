@@ -1048,6 +1048,22 @@ function initializeExtension() {
       timestamp: new Date().toISOString()
     }))
     console.log('🔧 DEBUG: Saved agent boxes to URL-based storage:', urlKey)
+    
+    // ✅ SYNC TO SESSION: Also update the session's agentBoxes array
+    const sessionKey = getCurrentSessionKey()
+    if (sessionKey && chrome?.storage?.local && currentTabData.agentBoxes) {
+      chrome.storage.local.get([sessionKey], (result) => {
+        const session = result[sessionKey] || {}
+        
+        // Update session's agent boxes array
+        session.agentBoxes = currentTabData.agentBoxes
+        session.agentBoxHeights = currentTabData.agentBoxHeights
+        
+        chrome.storage.local.set({ [sessionKey]: session }, () => {
+          console.log('✅ Synced agent boxes to session:', sessionKey, currentTabData.agentBoxes.length, 'boxes')
+        })
+      })
+    }
   }
   function loadTabDataFromStorage() {
     // Check if this is a fresh browser session (sessionStorage gets cleared on browser close)
@@ -1182,13 +1198,20 @@ function initializeExtension() {
   function renderAgentBoxes() {
     console.log('🔧 DEBUG: renderAgentBoxes called with currentTabData.agentBoxes:', currentTabData.agentBoxes)
     
-    const container = document.getElementById('agent-boxes-container')
-    if (!container) {
+    const leftContainer = document.getElementById('agent-boxes-container')
+    const rightContainer = document.getElementById('agent-boxes-container-right')
+    
+    if (!leftContainer) {
       console.log('🔧 DEBUG: agent-boxes-container not found!')
       return
     }
 
-    container.innerHTML = ''
+    // Clear both containers
+    leftContainer.innerHTML = ''
+    if (rightContainer) {
+      rightContainer.innerHTML = ''
+      console.log('🔧 DEBUG: Found right container, will render to both sides')
+    }
     
     // Check if this is a hybrid master tab
     const urlParams = new URLSearchParams(window.location.search)
@@ -1213,6 +1236,15 @@ function initializeExtension() {
     console.log('🔧 DEBUG: Rendering', currentTabData.agentBoxes.length, 'agent boxes')
     
     currentTabData.agentBoxes.forEach((box: any) => {
+      // Determine target container based on side property (for hybrid tabs)
+      let targetContainer = leftContainer
+      if (isHybridMaster && rightContainer && box.side === 'right') {
+        targetContainer = rightContainer
+        console.log('📍 Rendering box', box.identifier || box.title, 'to RIGHT side')
+      } else {
+        console.log('📍 Rendering box', box.identifier || box.title, 'to LEFT side')
+      }
+      
       const agentDiv = document.createElement('div')
       agentDiv.className = 'agent-box-wrapper'
       agentDiv.setAttribute('data-agent-id', box.id)
@@ -1240,7 +1272,7 @@ function initializeExtension() {
         </div>
       `
       
-      container.appendChild(agentDiv)
+      targetContainer.appendChild(agentDiv)
     })
     
     // Re-attach resize event listeners
@@ -1474,6 +1506,10 @@ function initializeExtension() {
           title
         })
         
+        // Determine which side the box should be on (for hybrid master tabs)
+        const clickSide = (window as any).lastAgentBoxClickSide || 'left'
+        console.log('📍 Box will be created on:', clickSide, 'side')
+        
         const newBox = {
           id: id,
           boxNumber: boxNumber,  // NEW: Separate box number
@@ -1485,7 +1521,8 @@ function initializeExtension() {
           color: selectedColor,
           outputId: outputId,
           provider: provider,
-          model: model
+          model: model,
+          side: clickSide  // ← Add side info for hybrid tabs
         }
         
         currentTabData.agentBoxes.push(newBox)
@@ -2293,6 +2330,11 @@ function initializeExtension() {
         <button id="add-agent-box-btn-right" style="width: 100%; padding: 12px 16px; background: rgba(76, 175, 80, 0.8); border: 2px dashed rgba(76, 175, 80, 1); color: white; border-radius: 8px; cursor: pointer; font-size: 14px; font-weight: bold; min-height: 44px; transition: all 0.3s ease; text-shadow: 1px 1px 2px rgba(0,0,0,0.5);">
           ➕ Add New Agent Box
         </button>
+      </div>
+      
+      <!-- Container for right-side agent boxes -->
+      <div id="agent-boxes-container-right" style="margin-bottom: 20px;">
+        <!-- Right-side agent boxes will be rendered here -->
       </div>
     `
   }
@@ -10617,7 +10659,7 @@ ${pageText}
       // Open only the new grids that were actually added
       newGridsToOpen.forEach((grid, index) => {
         setTimeout(() => {
-          openGridFromSession(grid.layout, grid.sessionId)
+          openGridFromSession(grid.layout, grid.sessionId)  // ← Back to V1
         }, index * 300)
       })
       
@@ -10803,56 +10845,185 @@ ${pageText}
     // Get current theme
     const currentTheme = localStorage.getItem('optimando-ui-theme') || 'default'
     console.log('🎨 DEBUG: Current theme for grid:', currentTheme)
-    console.log('🎨 DEBUG: Theme value from localStorage:', localStorage.getItem('optimando-ui-theme'))
-    console.log('🎨 DEBUG: Theme will be passed to createGridHTML:', currentTheme)
     
-    // CRITICAL: Ensure we have displayGrids data before creating HTML
-    if (currentTabData.displayGrids) {
-      const gridEntry = currentTabData.displayGrids.find(g => g.layout === layout)
-      if (gridEntry && (gridEntry as any).config) {
-        console.log('✅ Found grid config for', layout, ':', (gridEntry as any).config)
-        console.log('✅ Grid has', Object.keys((gridEntry as any).config.slots || {}).length, 'configured slots')
-      } else {
-        console.log('❌ No grid config found for', layout)
-      }
+    // Calculate next box number from session
+    const sessionKey = getCurrentSessionKey()
+    
+    if (sessionKey && chrome?.storage?.local) {
+      chrome.storage.local.get([sessionKey], (result) => {
+        const session = result[sessionKey] || {}
+        
+        // Find max box number across all boxes
+        let maxBoxNumber = 0
+        if (session.agentBoxes && Array.isArray(session.agentBoxes)) {
+          session.agentBoxes.forEach((box: any) => {
+            const boxNum = box.boxNumber || box.number || 0
+            if (boxNum > maxBoxNumber) maxBoxNumber = boxNum
+          })
+        }
+        if (session.displayGrids && Array.isArray(session.displayGrids)) {
+          session.displayGrids.forEach((grid: any) => {
+            if (grid.config && grid.config.slots) {
+              Object.values(grid.config.slots).forEach((slot: any) => {
+                const boxNum = (slot as any).boxNumber || 0
+                if (boxNum > maxBoxNumber) maxBoxNumber = boxNum
+              })
+            }
+          })
+        }
+        
+        const nextBoxNumber = maxBoxNumber + 1
+        console.log('📦 Calculated next box number for grid:', nextBoxNumber, 'from max:', maxBoxNumber)
+        
+        // Create the complete HTML content with nextBoxNumber
+        const gridHTML = createGridHTML(layout, sessionId, currentTheme, nextBoxNumber)
+        
+        // Create a new tab with the grid content
+        const newTab = window.open('about:blank', 'grid-' + layout + '-' + sessionId)
+        
+        if (!newTab) {
+          console.error('❌ Failed to open grid tab - popup blocked?')
+          alert('Grid tab was blocked. Please allow popups for this site.')
+          return
+        }
+        
+        // Write the HTML content to the new tab
+        newTab.document.write(gridHTML)
+        newTab.document.close()
+        
+        // Set global variables in the new tab
+        newTab.window.gridLayout = layout
+        newTab.window.gridSessionId = sessionId
+        newTab.window.nextBoxNumber = nextBoxNumber  // ← Pass nextBoxNumber
+        
+        console.log('✅ Grid tab opened from session:', layout)
+        console.log('🔧 Set global variables:', { layout, sessionId, nextBoxNumber })
+
+        // Attach save handler from the opener (avoids CSP issues with inline scripts)
+        attachGridSaveHandler(newTab, layout, sessionId)
+      })
     } else {
-      console.log('❌ No displayGrids in currentTabData')
+      // Fallback without session
+      const gridHTML = createGridHTML(layout, sessionId, currentTheme, 1)
+      const newTab = window.open('about:blank', 'grid-' + layout + '-' + sessionId)
+      if (newTab) {
+        newTab.document.write(gridHTML)
+        newTab.document.close()
+        newTab.window.gridLayout = layout
+        newTab.window.gridSessionId = sessionId
+        newTab.window.nextBoxNumber = 1
+        attachGridSaveHandler(newTab, layout, sessionId)
+      }
     }
+  }
+  
+  function openGridWindowWithExtensionURL(layout: string, sessionId: string, theme: string, sessionKey: string, nextBoxNumber: number) {
+    // Build extension URL for grid-display.html
+    const gridUrl = chrome.runtime.getURL('grid-display.html')
+    const params = new URLSearchParams({
+      layout: layout,
+      session: sessionId,
+      theme: theme,
+      sessionKey: sessionKey,
+      nextBoxNumber: String(nextBoxNumber)
+    })
     
-    // Create the complete HTML content for the new tab
-    console.log('🎨 DEBUG: Creating grid HTML with theme:', currentTheme)
-    const gridHTML = createGridHTML(layout, sessionId, currentTheme)
+    const fullUrl = gridUrl + '?' + params.toString()
+    console.log('🔗 Opening grid URL:', fullUrl)
     
-    console.log('🔍 DEBUG: Generated HTML length:', gridHTML.length)
-    console.log('🔍 DEBUG: HTML contains save button:', gridHTML.includes('save-grid-btn'))
-    console.log('🔍 DEBUG: HTML contains slot-title:', gridHTML.includes('slot-title'))
-    console.log('🔍 DEBUG: HTML contains Agent options:', gridHTML.includes('Agent 1'))
+    // Open as a new tab - will have FULL Chrome API access!
+    const gridWindow = window.open(fullUrl, '_blank')
     
-    // Create a new tab with the grid content
-    const newTab = window.open('about:blank', 'grid-' + layout + '-' + sessionId)
-    
-    if (!newTab) {
-      console.error('❌ Failed to open grid tab - popup blocked?')
-      alert('Grid tab was blocked. Please allow popups for this site.')
+    if (!gridWindow) {
+      console.error('❌ Failed to open grid window - popup blocked?')
+      alert('Grid window was blocked. Please allow popups for this site.')
       return
     }
     
-    console.log('🔍 DEBUG: Writing HTML to new tab...')
-    
-    // Write the HTML content to the new tab
-    newTab.document.write(gridHTML)
-    newTab.document.close()
-    
-    // Set global variables in the new tab
-    newTab.window.gridLayout = layout
-    newTab.window.gridSessionId = sessionId
-    
-    console.log('✅ Grid tab opened from session:', layout)
-    console.log('🔧 Set global variables:', { layout, sessionId })
-
-    // Attach save handler from the opener (avoids CSP issues with inline scripts)
-    attachGridSaveHandler(newTab, layout, sessionId)
+    console.log('✅ Grid window opened successfully!', layout)
   }
+  
+  // 🆕 V2 GRID SYSTEM - Opens grid using extension URL (has full Chrome API access!)
+  function openGridFromSession_v2(layout: string, sessionId: string) {
+    console.log('🎯 V2: Opening grid from session:', layout, sessionId)
+    
+    // Get current theme
+    const currentTheme = localStorage.getItem('optimando-ui-theme') || 'dark'
+    console.log('🎨 V2: Current theme:', currentTheme)
+    
+    // Calculate next box number from session
+    const sessionKey = getCurrentSessionKey()
+    
+    if (sessionKey && chrome?.storage?.local) {
+      chrome.storage.local.get([sessionKey], (result) => {
+        const session = result[sessionKey] || {}
+        
+        // Find max box number across all boxes
+        let maxBoxNumber = 0
+        if (session.agentBoxes && Array.isArray(session.agentBoxes)) {
+          session.agentBoxes.forEach((box: any) => {
+            const boxNum = box.boxNumber || box.number || 0
+            if (boxNum > maxBoxNumber) maxBoxNumber = boxNum
+          })
+        }
+        if (session.displayGrids && Array.isArray(session.displayGrids)) {
+          session.displayGrids.forEach((grid: any) => {
+            if (grid.config && grid.config.slots) {
+              Object.values(grid.config.slots).forEach((slot: any) => {
+                const boxNum = (slot as any).boxNumber || 0
+                if (boxNum > maxBoxNumber) maxBoxNumber = boxNum
+              })
+            }
+          })
+        }
+        
+        const nextBoxNumber = maxBoxNumber + 1
+        console.log('📦 V2: Calculated next box number:', nextBoxNumber, 'from max:', maxBoxNumber)
+        
+        // Open grid with extension URL
+        openGridWindow_v2(layout, sessionId, currentTheme, sessionKey, nextBoxNumber)
+      })
+    } else {
+      openGridWindow_v2(layout, sessionId, currentTheme, '', 1)
+    }
+  }
+  
+  function openGridWindow_v2(layout: string, sessionId: string, theme: string, sessionKey: string, nextBoxNumber: number) {
+    // Build extension URL for grid-display-v2.html
+    const gridUrl = chrome.runtime.getURL('grid-display-v2.html')
+    const params = new URLSearchParams({
+      layout: layout,
+      session: sessionId,
+      theme: theme,
+      sessionKey: sessionKey,
+      nextBoxNumber: String(nextBoxNumber)
+    })
+    
+    const fullUrl = gridUrl + '?' + params.toString()
+    console.log('🔗 V2: Opening grid URL:', fullUrl)
+    
+    // Open as a new tab (not popup!) - will have FULL Chrome API access!
+    const gridWindow = window.open(fullUrl, '_blank')
+    
+    if (!gridWindow) {
+      console.error('❌ V2: Failed to open grid window - popup blocked?')
+      alert('Grid window was blocked. Please allow popups for this site.')
+      return
+    }
+    
+    console.log('✅ V2: Grid window opened successfully!', layout)
+  }
+  
+  // 🧪 TEST COMMAND: Make V2 grid opener available globally for testing
+  // Usage: Open console and run: window.testGridV2('4-slot')
+  ;(window as any).testGridV2 = (layout: string = '4-slot') => {
+    console.log('🧪 TEST: Opening Grid V2 with layout:', layout)
+    const sessionId = `test-${Date.now()}`
+    openGridFromSession_v2(layout, sessionId)
+  }
+  
+  console.log('✅ Grid V2 system initialized! Test with: window.testGridV2("4-slot")')
+  
   function attachGridSaveHandler(gridWindow: Window, layout: string, sessionId: string) {
     const tryAttach = () => {
       try {
@@ -11171,7 +11342,7 @@ ${pageText}
     }
   }, 1000)
   
-  function createGridHTML(layout, sessionId, theme = 'default') {
+  function createGridHTML(layout, sessionId, theme = 'default', nextBoxNumber = 1) {
     // Configure grid layout
     const layouts = {
       '2-slot': { slots: 2, columns: '2fr 1fr', rows: 'auto' },
@@ -11187,6 +11358,8 @@ ${pageText}
     
     const config = layouts[layout] || layouts['4-slot']
     const activeSessionKeyForGrid = (typeof getCurrentSessionKey === 'function' ? (getCurrentSessionKey() || '') : '')
+
+    console.log('📦 createGridHTML: nextBoxNumber =', nextBoxNumber)
 
     // Prefill from currentTabData if a config exists
     console.log('🔍 DEBUG: createGridHTML - currentTabData.displayGrids:', currentTabData.displayGrids)
@@ -11389,6 +11562,7 @@ ${pageText}
       <html>
       <head>
         <meta charset="UTF-8">
+        <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' ${chrome.runtime.getURL('')}; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self' https:; font-src 'self' data:;">
         <title>AI Grid - ${layout.toUpperCase()}</title>
         <style>
           * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -11494,7 +11668,7 @@ ${pageText}
           ✅ Grid saved to session!
         </div>
         <!-- Pass data to grid-script.js via data attributes on script -->
-        <script src="${chrome.runtime.getURL('grid-script.js')}" data-session-id="${sessionId}" data-layout="${layout}" data-session-key="${activeSessionKeyForGrid}" id="grid-script"></script>
+        <script src="${chrome.runtime.getURL('grid-script.js')}" data-session-id="${sessionId}" data-layout="${layout}" data-session-key="${activeSessionKeyForGrid}" data-next-box-number="${nextBoxNumber}" id="grid-script"></script>
       </body>
       </html>
     `
@@ -11872,7 +12046,7 @@ ${pageText}
                   // Add delay to ensure data is available
                   setTimeout(() => {
                     try {
-                      openGridFromSession(grid.layout, grid.sessionId)
+                      openGridFromSession(grid.layout, grid.sessionId)  // ← Back to V1
                       console.log(`✅ Successfully opened display grid ${index + 1}:`, grid.layout)
                     } catch (error) {
                       console.error(`❌ Failed to open display grid ${index + 1}:`, error)
@@ -11973,7 +12147,7 @@ ${pageText}
                   
                   // Open immediately to preserve user gesture for popup blocker
                   try {
-                    openGridFromSession(grid.layout, grid.sessionId)
+                    openGridFromSession(grid.layout, grid.sessionId)  // ← Back to V1
                     console.log(`✅ Successfully opened display grid ${index + 1}:`, grid.layout)
                   } catch (error) {
                     console.error(`❌ Failed to open display grid ${index + 1}:`, error)
@@ -12730,6 +12904,8 @@ ${pageText}
   if (isHybridMaster) {
     // Only handle Add button click - no agent boxes to render
     document.getElementById('add-agent-box-btn-right')?.addEventListener('click', () => {
+      ;(window as any).lastAgentBoxClickSide = 'right'  // ← Store which side was clicked
+      console.log('📦 Right-side Add Agent Box clicked')
       try { openAddAgentBoxDialog() } catch (e) {}
     })
 
@@ -13506,6 +13682,8 @@ ${pageText}
     
     // Add New Agent Box button
     document.getElementById('add-agent-box-btn')?.addEventListener('click', () => {
+      ;(window as any).lastAgentBoxClickSide = 'left'  // ← Store which side was clicked
+      console.log('📦 Left-side Add Agent Box clicked')
       openAddAgentBoxDialog()
     })
     

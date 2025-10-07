@@ -126,8 +126,19 @@
         const urlParams = new URLSearchParams(window.location.search);
         const layout = urlParams.get('layout') || '4-slot';
         const sessionId = urlParams.get('session') || 'default';
+        const theme = urlParams.get('theme') || 'default';
+        const sessionKey = urlParams.get('sessionKey') || '';
+        const nextBoxNumber = parseInt(urlParams.get('nextBoxNumber') || '1', 10);
         
-        console.log('🎯 Grid Display starting:', { layout, sessionId });
+        console.log('🎯 Grid Display starting:', { layout, sessionId, theme, sessionKey, nextBoxNumber });
+        
+        // Store globally for grid-script.js
+        window.gridLayout = layout;
+        window.gridSessionId = sessionId;
+        window.sessionId = sessionId;
+        window.layout = layout;
+        window.nextBoxNumber = nextBoxNumber;
+        window.sessionKey = sessionKey;
         
         // Layout configurations
         const layouts = {

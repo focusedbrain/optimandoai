@@ -1,48 +1,38 @@
-// Grid functionality for display grids
+// Grid functionality V2 for display grids - WITH AGENT BOX NUMBER DISPLAY
 // Prevent script from running multiple times
-if (window.gridScriptLoaded) {
-  console.log('⚠️ Grid script already loaded, skipping...');
+if (window.gridScriptV2Loaded) {
+  console.log('⚠️ Grid script V2 already loaded, skipping...');
 } else {
-  window.gridScriptLoaded = true;
-  console.log('✅ Grid script loaded');
-  console.log('🔧 Setting up grid functionality...');
+  window.gridScriptV2Loaded = true;
+  console.log('✅ Grid script V2 loaded');
+  console.log('🔧 Setting up grid V2 functionality...');
   
-  // Get sessionId and layout from script tag data attributes
-  var scriptTag = document.getElementById('grid-script');
-  var sessionId = scriptTag ? scriptTag.getAttribute('data-session-id') : 'unknown';
-  var layout = scriptTag ? scriptTag.getAttribute('data-layout') : 'unknown';
-  var parentSessionKey = scriptTag ? scriptTag.getAttribute('data-session-key') : '';
-  var nextBoxNumberFromTag = scriptTag ? scriptTag.getAttribute('data-next-box-number') : '1';
+  // Get data from global variables (set by grid-display-v2.html)
+  var sessionId = window.gridSessionId || window.sessionId || 'unknown';
+  var layout = window.gridLayout || window.layout || 'unknown';
+  var sessionKey = window.sessionKey || '';
+  var nextBoxNumber = window.nextBoxNumber || 1;
   
-  // Store globally for other functions to use
-  window.gridSessionId = sessionId;
-  window.gridLayout = layout;
-  window.sessionId = sessionId;
-  window.layout = layout;
-  window.nextBoxNumber = parseInt(nextBoxNumberFromTag, 10) || 1;  // ← Parse and store
-  
-  console.log('✅ Grid loaded successfully:', layout, 'Session:', sessionId);
-  console.log('🔧 Parent session key:', parentSessionKey);
-  console.log('📦 Next box number:', window.nextBoxNumber);
-  document.title = 'AI Grid - ' + layout.toUpperCase();
+  console.log('✅ Grid V2 loaded successfully:', { layout, sessionId, sessionKey, nextBoxNumber });
+  document.title = 'AI Grid V2 - ' + layout.toUpperCase();
   
   // Define openGridSlotEditor function immediately
   window.openGridSlotEditor = function(slotId) {
-    console.log('🔍 POPUP: openGridSlotEditor called with slotId:', slotId);
+    console.log('🔍 POPUP V2: openGridSlotEditor called with slotId:', slotId);
     const slot = document.querySelector('[data-slot-id="' + slotId + '"]');
     if (!slot) {
-      console.error('❌ POPUP: No slot found with id:', slotId);
+      console.error('❌ POPUP V2: No slot found with id:', slotId);
       return;
     }
     
     const configStr = slot.getAttribute('data-slot-config') || '{}';
-    console.log('📋 POPUP: Slot config string:', configStr);
+    console.log('📋 POPUP V2: Slot config string:', configStr);
     let cfg = {};
     try { 
       cfg = JSON.parse(configStr);
-      console.log('📋 POPUP: Parsed config:', cfg);
+      console.log('📋 POPUP V2: Parsed config:', cfg);
     } catch(e) { 
-      console.error('❌ POPUP: Failed to parse config:', e);
+      console.error('❌ POPUP V2: Failed to parse config:', e);
       cfg = {};
     }
     
@@ -50,7 +40,7 @@ if (window.gridScriptLoaded) {
     overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.8);z-index:9999;display:flex;align-items:center;justify-content:center;';
     
     const dialog = document.createElement('div');
-    dialog.style.cssText = 'background:white;padding:20px;border-radius:10px;max-width:520px;width:92%;font-family:-apple-system,Segoe UI,Roboto,sans-serif;';
+    dialog.style.cssText = 'background:white;padding:20px;border-radius:10px;max-width:520px;width:92%;font-family:-apple-system,Segoe UI,Roboto,sans-serif;max-height:90vh;overflow-y:auto;';
     
     function modelOptions(p) {
       p = (p || '').toLowerCase();
@@ -65,21 +55,21 @@ if (window.gridScriptLoaded) {
     const currentProvider = cfg.provider || '';
     const models = currentProvider ? modelOptions(currentProvider) : [];
     
-    console.log('📋 POPUP: Form will show:', {
+    // Display next box number (will be assigned on save)
+    const displayBoxNumber = String(nextBoxNumber).padStart(2, '0');
+    
+    console.log('📋 POPUP V2: Form will show:', {
+      boxNumber: nextBoxNumber,
       title: cfg.title || ('Display Port ' + slotId),
       agent: cfg.agent ? String(cfg.agent).replace('agent', '') : '',
       provider: currentProvider,
       model: cfg.model || 'auto'
     });
     
-    // Get next box number from global variable (set by grid-display.html from URL params)
-    var nextBoxNumber = (typeof window.nextBoxNumber !== 'undefined') ? window.nextBoxNumber : 1;
-    var displayBoxNumber = String(nextBoxNumber).padStart(2, '0');
-    
     dialog.innerHTML = 
       '<h3 style="margin:0 0 20px 0;font-size:18px;font-weight:600;color:#333">Setup Agent Box #' + slotId + '</h3>' +
       
-      // 🆕 Agent Box Number field
+      // 🆕 KEY FIX: Agent Box Number field
       '<div style="margin-bottom:16px;background:#f0f9ff;padding:12px;border-radius:8px;border:2px solid #3b82f6">' +
         '<label style="display:block;margin-bottom:8px;font-weight:700;color:#1e40af;font-size:14px">📦 Agent Box Number</label>' +
         '<input type="text" value="' + displayBoxNumber + '" readonly style="width:100%;padding:12px;border:2px solid #93c5fd;border-radius:8px;font-size:16px;font-weight:700;background:#dbeafe;color:#1e40af;text-align:center;letter-spacing:2px">' +
@@ -128,15 +118,15 @@ if (window.gridScriptLoaded) {
         '<button id="gs-save" style="padding:12px 24px;border:0;border-radius:8px;background:#2196F3;color:#fff;cursor:pointer;font-weight:600;font-size:14px;transition:background 0.2s">Save</button>' +
       '</div>';
     
-    console.log('✅ POPUP: Form HTML created');
+    console.log('✅ POPUP V2: Form HTML created with box number:', displayBoxNumber);
     
     // Add dialog to overlay and overlay to document
     overlay.appendChild(dialog);
     document.body.appendChild(overlay);
     
-    console.log('✅ POPUP: Added to DOM');
+    console.log('✅ POPUP V2: Added to DOM');
     
-    // Tools render & handlers (integrated)
+    // Tools render & handlers
     cfg.tools = Array.isArray(cfg.tools) ? cfg.tools : [];
     function renderTools(){
       var wrap = dialog.querySelector('#gs-tools'); if (!wrap) return;
@@ -182,7 +172,7 @@ if (window.gridScriptLoaded) {
       var titleInput = document.getElementById('gs-title');
       if (titleInput) {
         titleInput.focus();
-        console.log('✅ POPUP: Title input focused');
+        console.log('✅ POPUP V2: Title input focused');
       }
     }, 0);
     
@@ -194,7 +184,7 @@ if (window.gridScriptLoaded) {
       modelSelect.innerHTML = newModels.map(function(m) { 
         return '<option>' + m + '</option>'; 
       }).join('');
-      console.log('🔄 POPUP: Updated models for provider:', provider);
+      console.log('🔄 POPUP V2: Updated models for provider:', provider);
     };
 
     // Finetune feedback
@@ -206,11 +196,11 @@ if (window.gridScriptLoaded) {
     
     // Cancel button
     document.getElementById('gs-cancel').onclick = function() {
-      console.log('❌ POPUP: Cancelled');
+      console.log('❌ POPUP V2: Cancelled');
       overlay.remove();
     };
     
-    // Save button
+    // 🆕 KEY FIX: Save with chrome.runtime.sendMessage to background script
     document.getElementById('gs-save').onclick = function() {
       var title = document.getElementById('gs-title').value || ('Display Port ' + slotId);
       var agentNum = document.getElementById('gs-agent').value;
@@ -219,23 +209,23 @@ if (window.gridScriptLoaded) {
       
       var agent = agentNum ? ('agent' + agentNum) : '';
       
-      console.log('💾 POPUP: Saving slot config:', { title, agent, provider, model, boxNumber: nextBoxNumber });
+      console.log('💾 POPUP V2: Saving slot config:', { title, agent, provider, model, boxNumber: nextBoxNumber });
       
-      // Update slot data attribute - include boxNumber
-      var agentNum = agent ? parseInt(agent.replace('agent', '')) : 0;
+      // 🆕 Include box number in config
       var newConfig = { 
         title: title, 
         agent: agent, 
         provider: provider, 
         model: model, 
-        boxNumber: nextBoxNumber,
-        agentNumber: agentNum,
-        identifier: 'AB' + String(nextBoxNumber).padStart(2, '0') + String(agentNum).padStart(2, '0'),
+        boxNumber: nextBoxNumber,  // ← KEY FIX: Store the box number
+        agentNumber: agentNum ? parseInt(agentNum) : 0,
+        identifier: 'AB' + String(nextBoxNumber).padStart(2, '0') + (agentNum ? String(agentNum).padStart(2, '0') : '00'),
         tools: (cfg.tools || []) 
       };
+      
       slot.setAttribute('data-slot-config', JSON.stringify(newConfig));
       
-      // Update visual display with correct box number
+      // Update visual display
       var agentNumForAB = agent ? agent.replace('agent', '').padStart(2, '0') : '00';
       var ab = 'AB' + String(nextBoxNumber).padStart(2, '0') + agentNumForAB;
       var abEl = slot.querySelector('span[style*="font-family: monospace"]');
@@ -251,7 +241,7 @@ if (window.gridScriptLoaded) {
       var dispEl = slot.querySelector('.slot-display-text');
       if (dispEl) dispEl.textContent = disp;
       
-      console.log('✅ POPUP: Updated slot display for slot', slotId);
+      console.log('✅ POPUP V2: Updated slot display for slot', slotId, 'with identifier:', newConfig.identifier);
       
       // Collect all slot configurations
       var payload = {
@@ -270,213 +260,51 @@ if (window.gridScriptLoaded) {
         }
       });
       
-      console.log('📦 Full payload to save:', payload);
+      console.log('📦 POPUP V2: Full payload:', payload);
       
-      // Get parent session key (passed via script tag data attribute)
-      var scriptTag = document.getElementById('grid-script');
-      var parentSessionKey = scriptTag ? scriptTag.getAttribute('data-session-key') : '';
-      
-      console.log('🔑 Parent session key:', parentSessionKey);
-      
-      // Try chrome.runtime.sendMessage first (if available)
-      if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage && parentSessionKey) {
-        console.log('📤 Sending GRID_SAVE via chrome.runtime.sendMessage...');
+      // 🆕 KEY FIX: Use chrome.runtime.sendMessage to background script
+      if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
+        console.log('📤 V2: Sending GRID_SAVE via chrome.runtime.sendMessage...');
         
         chrome.runtime.sendMessage({
           type: 'GRID_SAVE',
           payload: payload,
-          sessionKey: parentSessionKey,
+          sessionKey: sessionKey,
           timestamp: Date.now()
         }, function(response) {
           if (chrome.runtime.lastError) {
-            console.error('❌ chrome.runtime.sendMessage failed:', chrome.runtime.lastError);
-            // Try window.opener fallback
-            tryOpenerSave();
+            console.error('❌ V2: chrome.runtime.sendMessage failed:', chrome.runtime.lastError);
+            alert('Failed to save grid configuration: ' + chrome.runtime.lastError.message);
           } else if (response && response.success) {
-            console.log('✅ Save successful via background script!');
+            console.log('✅ V2: Save successful via background script!');
             
-            // ✅ INCREMENT nextBoxNumber for next save
+            // Show success notification
+            alert('✅ Grid configuration saved successfully!\n\nAgent Box: ' + newConfig.identifier);
+            
+            // Increment nextBoxNumber for next save
             window.nextBoxNumber++;
-            console.log('📦 Incremented nextBoxNumber to:', window.nextBoxNumber);
-            
-            // Show success alert with identifier
-            alert('✅ Grid configuration saved!\n\nAgent Box: ' + newConfig.identifier);
           } else {
-            console.error('❌ Save failed:', response);
-            tryOpenerSave();
+            console.error('❌ V2: Save failed:', response);
+            alert('Failed to save grid configuration. Please try again.');
           }
         });
       } else {
-        // Chrome runtime not available, try window.opener
-        tryOpenerSave();
-      }
-      
-      function tryOpenerSave() {
-        console.log('🔄 Trying window.opener relay...');
-        
-        if (window.opener && typeof window.opener.chrome !== 'undefined' && window.opener.chrome.runtime) {
-          console.log('📤 Sending GRID_SAVE via window.opener.chrome.runtime...');
-          
-          window.opener.chrome.runtime.sendMessage({
-            type: 'GRID_SAVE',
-            payload: payload,
-            sessionKey: parentSessionKey,
-            timestamp: Date.now()
-          }, function(response) {
-            if (window.opener.chrome.runtime.lastError) {
-              console.error('❌ Opener sendMessage failed:', window.opener.chrome.runtime.lastError);
-              alert('Failed to save: ' + window.opener.chrome.runtime.lastError.message);
-            } else if (response && response.success) {
-              console.log('✅ Save successful via window.opener!');
-              
-              // ✅ INCREMENT nextBoxNumber for next save
-              window.nextBoxNumber++;
-              console.log('📦 Incremented nextBoxNumber to:', window.nextBoxNumber);
-              
-              // Show success alert with identifier
-              alert('✅ Grid configuration saved!\n\nAgent Box: ' + newConfig.identifier);
-            } else {
-              console.error('❌ Save failed via opener:', response);
-              alert('Failed to save grid configuration.');
-            }
-          });
-        } else {
-          console.error('❌ No window.opener or chrome.runtime not available!');
-          alert('Cannot save: Extension APIs not accessible.');
-        }
+        console.error('❌ V2: chrome.runtime not available!');
+        alert('Chrome extension APIs not available. Cannot save configuration.');
       }
       
       overlay.remove();
-      console.log('✅ POPUP: Dialog closed');
+      console.log('✅ POPUP V2: Dialog closed');
     };
   };
   
-  console.log('✅ openGridSlotEditor function defined and available globally');
-
-  // --- Tools catalog integration ---
-  function parseSlotConfig(slotEl){
-    try { return JSON.parse(slotEl.getAttribute('data-slot-config') || '{}') } catch { return {} }
-  }
-  function writeSlotConfig(slotEl, cfg){
-    try { slotEl.setAttribute('data-slot-config', JSON.stringify(cfg)) } catch {}
-  }
-  function openToolCatalog(slotId){
-    var slot = document.querySelector('[data-slot-id="' + slotId + '"]');
-    if (!slot){ console.error('❌ TOOL: slot not found', slotId); return }
-    var overlay = document.createElement('div');
-    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.55);backdrop-filter:blur(3px);z-index:2147483647;display:flex;align-items:center;justify-content:center';
-    overlay.onclick = function(e){ if (e.target === overlay) overlay.remove() };
-
-    var panel = document.createElement('div');
-    panel.style.cssText = 'width:620px;max-width:92vw;max-height:70vh;overflow:auto;background:#0b1220;color:#e5e7eb;border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,.4)';
-    panel.innerHTML = ''+
-      '<div style="display:flex;align-items:center;justify-content:space-between;padding:12px 14px;border-bottom:1px solid rgba(255,255,255,.08)">' +
-        '<div style="font-weight:700">Tool Catalog</div>' +
-        '<button id="tc-close" style="padding:6px 10px;background:#475569;border:none;color:#e2e8f0;border-radius:6px;cursor:pointer">Close</button>' +
-      '</div>' +
-      '<div style="padding:12px 14px;display:flex;gap:10px;align-items:center">' +
-        '<input id="tc-search" placeholder="Search tools..." style="flex:1;padding:8px 10px;border-radius:8px;border:1px solid rgba(255,255,255,.12);background:#0f172a;color:#e2e8f0" />' +
-        '<button id="tc-add" disabled style="padding:8px 12px;background:#22c55e;border:none;color:#07210f;border-radius:8px;cursor:pointer;font-weight:700">Add</button>' +
-      '</div>' +
-      '<div id="tc-empty" style="padding:0 14px 14px 14px;opacity:.7;font-size:12px">No tools yet. Type a name and click Add to attach a tool to this agent box.</div>';
-
-    overlay.appendChild(panel);
-    document.body.appendChild(overlay);
-
-    var search = panel.querySelector('#tc-search');
-    var addBtn = panel.querySelector('#tc-add');
-    search.oninput = function(){ addBtn.disabled = !search.value.trim() };
-    panel.querySelector('#tc-close').onclick = function(){ overlay.remove() };
-    addBtn.onclick = function(){
-      var name = (search.value || '').trim();
-      if (!name) return;
-      var cfg = parseSlotConfig(slot);
-      if (!cfg.tools) cfg.tools = [];
-      if (!cfg.tools.includes(name)) cfg.tools.push(name);
-      writeSlotConfig(slot, cfg);
-      addBtn.textContent = 'Added';
-      addBtn.disabled = true;
-      setTimeout(function(){ overlay.remove() }, 500);
-    };
-  }
-
-  // Delegate clicks for "+ Tool" links inside the grid tab
-  document.addEventListener('click', function(e){
-    var t = e.target;
-    if (t && t.classList && t.classList.contains('slot-add-tool')){
-      e.preventDefault();
-      var sid = t.getAttribute('data-slot-id');
-      openToolCatalog(sid);
-    }
-  }, true);
-
-  // Load saved configurations from session
-  setTimeout(function() {
-    console.log('🔍 Checking for saved configurations...');
-    
-    // Check if we have a parent session key to load from
-    if (parentSessionKey && typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
-      console.log('🔍 Loading from session:', parentSessionKey, 'for layout:', layout);
-      
-      chrome.storage.local.get([parentSessionKey], function(sessionResult) {
-        if (sessionResult[parentSessionKey] && sessionResult[parentSessionKey].displayGrids) {
-          var sessionData = sessionResult[parentSessionKey];
-          console.log('📊 Session has', sessionData.displayGrids.length, 'display grids');
-          
-          var gridEntry = sessionData.displayGrids.find(function(g) { 
-            return g.layout === layout; 
-          });
-          
-          if (gridEntry && gridEntry.config && gridEntry.config.slots) {
-            console.log('🎯 SUCCESS: Found grid config in session for', layout);
-            console.log('📂 Config has', Object.keys(gridEntry.config.slots).length, 'slots configured');
-            
-            // Apply the configuration
-            Object.keys(gridEntry.config.slots).forEach(function(slotId) {
-              var slot = document.querySelector('[data-slot-id="' + slotId + '"]');
-              if (slot && gridEntry.config.slots[slotId]) {
-                var slotConfig = gridEntry.config.slots[slotId];
-                
-                // Update the data attribute
-                slot.setAttribute('data-slot-config', JSON.stringify(slotConfig));
-                
-                // Update the display
-                var agentNum = slotConfig.agent ? slotConfig.agent.replace('agent', '') : '';
-                var ab = 'AB' + String(slotId).padStart(2, '0') + (agentNum ? agentNum.padStart(2, '0') : '');
-                var abEl = slot.querySelector('span[style*="font-family: monospace"]');
-                if (abEl) abEl.textContent = ab;
-                
-                var parts = [slotConfig.title || ('Display Port ' + slotId)];
-                if (slotConfig.model && slotConfig.model !== 'auto') {
-                  parts.push(slotConfig.model);
-                } else if (slotConfig.provider) {
-                  parts.push(slotConfig.provider);
-                }
-                var disp = parts.join(' · ');
-                var dispEl = slot.querySelector('.slot-display-text');
-                if (dispEl) dispEl.textContent = disp;
-                
-                console.log('✅ Applied config to slot', slotId, ':', slotConfig);
-              }
-            });
-          } else {
-            console.log('❌ No grid config found for layout:', layout);
-          }
-        } else {
-          console.log('❌ No session data or displayGrids found');
-        }
-      });
-    } else {
-      console.log('❌ No parent session key or chrome.storage not available');
-    }
-  }, 100);
+  console.log('✅ openGridSlotEditor V2 function defined and available globally');
 
   // Fullscreen functionality
   function toggleFullscreen() {
-    console.log('🖥️ Fullscreen toggle clicked');
+    console.log('🖥️ V2: Fullscreen toggle clicked');
     
     if (!document.fullscreenElement && !document.webkitFullscreenElement && !document.mozFullScreenElement && !document.msFullscreenElement) {
-      // Enter fullscreen
       var elem = document.documentElement;
       if (elem.requestFullscreen) {
         elem.requestFullscreen();
@@ -487,9 +315,8 @@ if (window.gridScriptLoaded) {
       } else if (elem.msRequestFullscreen) {
         elem.msRequestFullscreen();
       }
-      console.log('✅ Entering fullscreen mode');
+      console.log('✅ V2: Entering fullscreen mode');
     } else {
-      // Exit fullscreen
       if (document.exitFullscreen) {
         document.exitFullscreen();
       } else if (document.webkitExitFullscreen) {
@@ -499,12 +326,12 @@ if (window.gridScriptLoaded) {
       } else if (document.msExitFullscreen) {
         document.msExitFullscreen();
       }
-      console.log('✅ Exiting fullscreen mode');
+      console.log('✅ V2: Exiting fullscreen mode');
     }
   }
   
-  // Make toggleFullscreen globally available
   window.toggleFullscreen = toggleFullscreen;
   
-  console.log('✅ All grid functions loaded and available');
+  console.log('✅ All grid V2 functions loaded and available');
 }
+

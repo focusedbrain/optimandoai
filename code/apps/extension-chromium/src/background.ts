@@ -478,6 +478,58 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       } catch { try { sendResponse({ success:false }) } catch {} }
       break
     }
+    
+    case 'GRID_SAVE': {
+      console.log('📥 BG: Received GRID_SAVE message:', msg)
+      const { payload, sessionKey, timestamp } = msg
+      
+      if (!sessionKey) {
+        console.error('❌ BG: No sessionKey provided')
+        try { sendResponse({ success: false, error: 'No session key' }) } catch {}
+        break
+      }
+      
+      // Load current session
+      chrome.storage.local.get([sessionKey], (result) => {
+        const session = result[sessionKey] || {}
+        
+        // Initialize displayGrids if needed
+        if (!session.displayGrids) {
+          session.displayGrids = []
+        }
+        
+        // Find or create grid entry
+        let gridEntry = session.displayGrids.find((g: any) => g.layout === payload.layout)
+        if (!gridEntry) {
+          gridEntry = {
+            layout: payload.layout,
+            sessionId: payload.sessionId,
+            config: { slots: {} }
+          }
+          session.displayGrids.push(gridEntry)
+        }
+        
+        // Update grid config
+        gridEntry.config.slots = payload.slots
+        gridEntry.timestamp = timestamp || Date.now()
+        
+        console.log('💾 BG: Saving session with updated grid:', sessionKey)
+        console.log('📊 BG: Grid entry:', gridEntry)
+        
+        // Save updated session
+        chrome.storage.local.set({ [sessionKey]: session }, () => {
+          if (chrome.runtime.lastError) {
+            console.error('❌ BG: Failed to save session:', chrome.runtime.lastError)
+            try { sendResponse({ success: false, error: chrome.runtime.lastError.message }) } catch {}
+          } else {
+            console.log('✅ BG: Session saved with grid config!')
+            try { sendResponse({ success: true }) } catch {}
+          }
+        })
+      })
+      
+      return true  // Keep message channel open for async response
+    }
   }
   return true;
 });

@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self' https:; font-src 'self' data:;">
+    <title>AI Grid Display V2</title>
+    <style>
+        * { 
+            margin: 0; 
+            padding: 0; 
+            box-sizing: border-box; 
+        }
+        
+        body { 
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif;
+            height: 100vh;
+            overflow: hidden;
+        }
+        
+        .grid { 
+            width: 100vw; 
+            height: 100vh; 
+            display: grid; 
+            gap: 0px; 
+            padding: 0px;
+        }
+        
+        /* Control buttons */
+        #fullscreen-btn {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            width: 48px;
+            height: 48px;
+            border: none;
+            border-radius: 12px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+            transition: all 0.3s ease;
+            z-index: 1000;
+        }
+        
+        #fullscreen-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 16px rgba(0, 0, 0, 0.3);
+        }
+    </style>
+</head>
+<body>
+    <div id="grid-root"></div>
+    
+    <!-- Fullscreen Button -->
+    <button id="fullscreen-btn" title="Fullscreen">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/>
+        </svg>
+    </button>
+    
+    <script>
+        console.log('🎯 Grid Display V2 starting...');
+        
+        // Get URL parameters
+        const urlParams = new URLSearchParams(window.location.search);
+        const layout = urlParams.get('layout') || '4-slot';
+        const sessionId = urlParams.get('session') || 'default';
+        const theme = urlParams.get('theme') || 'dark';
+        const sessionKey = urlParams.get('sessionKey') || '';
+        const nextBoxNumber = parseInt(urlParams.get('nextBoxNumber') || '1', 10);
+        
+        console.log('📋 Grid V2 params:', { layout, sessionId, theme, sessionKey, nextBoxNumber });
+        
+        // Store globally for grid-script-v2.js
+        window.gridLayout = layout;
+        window.gridSessionId = sessionId;
+        window.sessionId = sessionId;
+        window.layout = layout;
+        window.nextBoxNumber = nextBoxNumber;
+        window.sessionKey = sessionKey;
+        
+        // Layout configurations
+        const layouts = {
+            '2-slot': { slots: 2, columns: '2fr 1fr', rows: 'auto' },
+            '3-slot': { slots: 3, columns: '2fr 1fr 1fr', rows: 'auto' },
+            '4-slot': { slots: 4, columns: '1fr 1fr', rows: '1fr 1fr' },
+            '5-slot': { slots: 5, columns: '2fr 1fr 1fr', rows: '1fr 1fr' },
+            '6-slot': { slots: 6, columns: '1fr 1fr 1fr', rows: '1fr 1fr' },
+            '7-slot': { slots: 7, columns: '2fr 1fr 1fr', rows: '1fr 1fr' },
+            '8-slot': { slots: 8, columns: 'repeat(4, 1fr)', rows: '1fr 1fr' },
+            '9-slot': { slots: 9, columns: 'repeat(3, 1fr)', rows: 'repeat(3, 1fr)' },
+            '10-slot': { slots: 10, columns: 'repeat(5, 1fr)', rows: '1fr 1fr' },
+            'dashboard': { slots: 4, columns: '3fr 1fr', rows: '1fr 1fr 1fr' }
+        };
+        
+        const config = layouts[layout] || layouts['4-slot'];
+        
+        // Apply theme to body
+        let bodyBg, bodyText, actionBtnBg, actionBtnText;
+        if (theme === 'dark') {
+            bodyBg = 'linear-gradient(135deg, #0f172a 0%, #1e293b 100%)';
+            bodyText = '#e5e7eb';
+            actionBtnBg = 'rgba(255,255,255,0.15)';
+            actionBtnText = '#e5e7eb';
+        } else if (theme === 'professional') {
+            bodyBg = 'linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%)';
+            bodyText = '#333333';
+            actionBtnBg = 'linear-gradient(135deg, #94a3b8 0%, #64748b 100%)';
+            actionBtnText = '#ffffff';
+        } else {
+            bodyBg = 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)';
+            bodyText = '#ffffff';
+            actionBtnBg = 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)';
+            actionBtnText = '#ffffff';
+        }
+        
+        document.body.style.background = bodyBg;
+        document.body.style.color = bodyText;
+        
+        const fullscreenBtn = document.getElementById('fullscreen-btn');
+        fullscreenBtn.style.background = actionBtnBg;
+        fullscreenBtn.style.color = actionBtnText;
+        
+        // Create grid container
+        const container = document.getElementById('grid-root');
+        const gridDiv = document.createElement('div');
+        gridDiv.className = 'grid';
+        gridDiv.style.gridTemplateColumns = config.columns;
+        if (config.rows && config.rows !== 'auto') {
+            gridDiv.style.gridTemplateRows = config.rows;
+        }
+        
+        // Try to load saved configuration from storage
+        function loadSavedConfig() {
+            if (!chrome?.storage?.local) {
+                console.warn('⚠️ chrome.storage.local not available, creating empty grid');
+                buildGrid({});
+                return;
+            }
+            
+            console.log('📦 Loading config for session:', sessionKey);
+            
+            // Try to get the current session's display grids
+            if (sessionKey) {
+                chrome.storage.local.get([sessionKey], (result) => {
+                    const session = result[sessionKey];
+                    if (session && session.displayGrids) {
+                        const gridEntry = session.displayGrids.find(g => g.layout === layout);
+                        if (gridEntry && gridEntry.config && gridEntry.config.slots) {
+                            console.log('✅ Loaded saved config:', gridEntry.config.slots);
+                            buildGrid(gridEntry.config.slots);
+                            return;
+                        }
+                    }
+                    console.log('ℹ️ No saved config found, creating empty grid');
+                    buildGrid({});
+                });
+            } else {
+                buildGrid({});
+            }
+        }
+        
+        function buildGrid(savedSlots) {
+            console.log('🔨 Building grid with', Object.keys(savedSlots).length, 'saved slots');
+            
+            // Create slots
+            for (let i = 1; i <= config.slots; i++) {
+                const slotNum = i + 5; // Start from #6
+                const slotKey = String(slotNum);
+                const savedConfig = savedSlots[slotKey] || {};
+                
+                const savedTitle = savedConfig.title || `Display Port ${slotNum}`;
+                const savedAgent = savedConfig.agent || '';
+                const savedProvider = savedConfig.provider || '';
+                const savedModel = savedConfig.model || '';
+                const savedBoxNumber = savedConfig.boxNumber || 0;
+                
+                // Build display text
+                let displayParts = [savedTitle];
+                if (savedModel && savedModel !== 'auto') {
+                    displayParts.push(savedModel);
+                } else if (savedProvider) {
+                    displayParts.push(savedProvider);
+                }
+                const displayText = displayParts.join(' · ');
+                
+                // Build AB code
+                const agentNumForAB = savedAgent ? String(savedAgent).replace('agent', '').padStart(2, '0') : '';
+                const boxNumForAB = savedBoxNumber > 0 ? String(savedBoxNumber).padStart(2, '0') : String(slotNum).padStart(2, '0');
+                const abCode = `AB${boxNumForAB}${agentNumForAB}`;
+                
+                // Theme-specific colors for slots
+                let headerColor, textColor, slotBg;
+                if (theme === 'dark') {
+                    headerColor = 'linear-gradient(135deg, #0f172a 0%, #1e293b 100%)';
+                    textColor = '#e5e7eb';
+                    slotBg = 'rgba(255,255,255,0.06)';
+                } else if (theme === 'professional') {
+                    headerColor = 'linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%)';
+                    textColor = '#1e293b';
+                    slotBg = 'white';
+                } else {
+                    headerColor = '#667eea';
+                    textColor = 'white';
+                    slotBg = 'white';
+                }
+                
+                const slot = document.createElement('div');
+                slot.setAttribute('data-slot-id', slotNum);
+                slot.setAttribute('data-slot-config', JSON.stringify(savedConfig));
+                slot.style.cssText = `
+                    background: ${slotBg} !important;
+                    border: 1px solid rgba(255,255,255,0.14);
+                    border-radius: 8px;
+                    display: flex;
+                    flex-direction: column;
+                    overflow: hidden;
+                    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+                `;
+                
+                // Special grid row spans
+                if (layout === '5-slot' && i === 1) slot.style.gridRow = 'span 2';
+                if (layout === '7-slot' && i === 1) slot.style.gridRow = 'span 2';
+                if (layout === 'dashboard' && i === 1) slot.style.gridRow = 'span 3';
+                
+                slot.innerHTML = `
+                    <div style="background: ${headerColor}; padding: 6px 8px; font-size: 11px; display: flex; justify-content: space-between; align-items: center; border-radius: 8px 8px 0 0; min-height: 32px; flex-shrink: 0;">
+                        <div style="display: flex; align-items: center; color: ${textColor}; font-weight: bold; min-width: 0; flex: 1;">
+                            <span style="margin-right: 4px; white-space: nowrap; font-family: monospace; font-size: 10px;">${abCode}</span>
+                            <span style="margin-right: 4px;">🖥️</span>
+                            <span class="slot-display-text" style="flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 2px 6px;">${displayText}</span>
+                        </div>
+                        <div style="display: flex; align-items: center; flex-shrink: 0; gap: 4px;">
+                            <button class="edit-slot" data-slot-id="${slotNum}" title="Setup Agent Box" style="background: ${theme === 'professional' ? 'rgba(0,0,0,0.1)' : 'rgba(255,255,255,0.2)'}; border: none; color: ${textColor}; width: 20px; height: 20px; border-radius: 50%; cursor: pointer; font-size: 11px; display: flex; align-items: center; justify-content: center; transition: all 0.2s ease;">✏️</button>
+                            <button class="close-slot" style="background: ${theme === 'professional' ? 'rgba(0,0,0,0.1)' : 'rgba(255,255,255,0.2)'}; border: none; color: ${textColor}; width: 18px; height: 18px; border-radius: 50%; cursor: pointer; font-size: 10px; font-weight: bold; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">×</button>
+                        </div>
+                    </div>
+                    <div style="flex: 1; display: flex; align-items: center; justify-content: center; font-size: 14px; color: ${theme === 'dark' ? '#e5e7eb' : (theme === 'professional' ? '#1e293b' : '#333')}; text-align: center; padding: 16px; background: ${slotBg} !important; min-height: 0;">
+                    </div>
+                `;
+                
+                gridDiv.appendChild(slot);
+            }
+            
+            container.appendChild(gridDiv);
+            
+            // Update document title
+            document.title = 'AI Grid V2 - ' + layout.toUpperCase();
+            
+            console.log('✅ Grid V2 created successfully:', layout, 'with', config.slots, 'slots');
+            
+            // Attach edit button handlers
+            setTimeout(() => {
+                document.querySelectorAll('.edit-slot').forEach(btn => {
+                    btn.addEventListener('click', (e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        const slotId = btn.getAttribute('data-slot-id');
+                        if (window.openGridSlotEditor) {
+                            console.log('✏️ Opening editor for slot:', slotId);
+                            window.openGridSlotEditor(slotId);
+                        } else {
+                            console.error('❌ openGridSlotEditor not found');
+                        }
+                    });
+                });
+            }, 100);
+        }
+        
+        // Fullscreen toggle
+        fullscreenBtn.addEventListener('click', () => {
+            if (!document.fullscreenElement) {
+                document.documentElement.requestFullscreen().catch(err => {
+                    console.error('Failed to enter fullscreen:', err);
+                });
+            } else {
+                document.exitFullscreen();
+            }
+        });
+        
+        // Load configuration and build grid
+        loadSavedConfig();
+        
+        console.log('✅ Grid V2 initialized, waiting for grid-script-v2.js...');
+    </script>
+    
+    <!-- Load grid-script-v2.js with full extension URL -->
+    <script>
+        // Load the script dynamically with chrome.runtime.getURL
+        const scriptUrl = chrome.runtime.getURL('grid-script-v2.js');
+        console.log('📜 Loading script from:', scriptUrl);
+        const script = document.createElement('script');
+        script.src = scriptUrl;
+        script.id = 'grid-script-v2';
+        script.onerror = () => console.error('❌ Failed to load grid-script-v2.js');
+        script.onload = () => console.log('✅ grid-script-v2.js loaded successfully');
+        document.body.appendChild(script);
+    </script>
+</body>
+</html>
+
