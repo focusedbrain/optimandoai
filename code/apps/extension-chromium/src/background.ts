@@ -479,50 +479,90 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       break
     }
     
+    case 'PING': {
+      // Simple ping-pong to wake up service worker
+      console.log('🏓 BG: Received PING')
+      try { sendResponse({ success: true }) } catch {}
+      return true
+    }
+    
     case 'GRID_SAVE': {
       console.log('📥 BG: Received GRID_SAVE message:', msg)
-      const { payload, sessionKey, timestamp } = msg
+      const { payload } = msg
       
-      if (!sessionKey) {
+      console.log('📦 BG: Payload:', JSON.stringify(payload, null, 2))
+      console.log('🔑 BG: Session key:', payload.sessionKey)
+      
+      if (!payload.sessionKey) {
         console.error('❌ BG: No sessionKey provided')
         try { sendResponse({ success: false, error: 'No session key' }) } catch {}
         break
       }
       
       // Load current session
-      chrome.storage.local.get([sessionKey], (result) => {
-        const session = result[sessionKey] || {}
+      chrome.storage.local.get([payload.sessionKey], (result) => {
+        const session = result[payload.sessionKey] || {}
         
-        // Initialize displayGrids if needed
+        console.log('📋 BG: Loaded session:', JSON.stringify(session, null, 2))
+        
+        // Initialize arrays if needed
         if (!session.displayGrids) {
+          console.log('🆕 BG: Initializing displayGrids array')
           session.displayGrids = []
+        }
+        if (!session.agentBoxes) {
+          console.log('🆕 BG: Initializing agentBoxes array')
+          session.agentBoxes = []
         }
         
         // Find or create grid entry
-        let gridEntry = session.displayGrids.find((g: any) => g.layout === payload.layout)
+        let gridEntry = session.displayGrids.find((g: any) => g.sessionId === payload.sessionId)
         if (!gridEntry) {
+          console.log('🆕 BG: Creating new grid entry for sessionId:', payload.sessionId)
           gridEntry = {
             layout: payload.layout,
             sessionId: payload.sessionId,
-            config: { slots: {} }
+            config: payload.config || { slots: {} },
+            agentBoxes: payload.agentBoxes || []
           }
           session.displayGrids.push(gridEntry)
+        } else {
+          console.log('♻️ BG: Updating existing grid entry for sessionId:', payload.sessionId)
+          gridEntry.config = payload.config || gridEntry.config
+          gridEntry.agentBoxes = payload.agentBoxes || []
         }
         
-        // Update grid config
-        gridEntry.config.slots = payload.slots
-        gridEntry.timestamp = timestamp || Date.now()
+        // Merge agent boxes into session (deduplicating by identifier)
+        if (payload.agentBoxes && payload.agentBoxes.length > 0) {
+          console.log('📦 BG: Merging', payload.agentBoxes.length, 'agent boxes into session')
+          
+          payload.agentBoxes.forEach((newBox: any) => {
+            const existingIndex = session.agentBoxes.findIndex(
+              (b: any) => b.identifier === newBox.identifier
+            )
+            if (existingIndex !== -1) {
+              // Update existing
+              session.agentBoxes[existingIndex] = newBox
+              console.log('♻️ BG: Updated existing agent box:', newBox.identifier)
+            } else {
+              // Add new
+              session.agentBoxes.push(newBox)
+              console.log('🆕 BG: Added new agent box:', newBox.identifier)
+            }
+          })
+        }
         
-        console.log('💾 BG: Saving session with updated grid:', sessionKey)
-        console.log('📊 BG: Grid entry:', gridEntry)
+        console.log('💾 BG: Saving session with', session.agentBoxes.length, 'total agent boxes')
+        console.log('📊 BG: Full grid entry:', JSON.stringify(gridEntry, null, 2))
         
         // Save updated session
-        chrome.storage.local.set({ [sessionKey]: session }, () => {
+        chrome.storage.local.set({ [payload.sessionKey]: session }, () => {
           if (chrome.runtime.lastError) {
             console.error('❌ BG: Failed to save session:', chrome.runtime.lastError)
             try { sendResponse({ success: false, error: chrome.runtime.lastError.message }) } catch {}
           } else {
-            console.log('✅ BG: Session saved with grid config!')
+            console.log('✅ BG: Session saved with grid config and agent boxes!')
+            console.log('✅ BG: Total agent boxes in session:', session.agentBoxes.length)
             try { sendResponse({ success: true }) } catch {}
           }
         })

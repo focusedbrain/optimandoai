@@ -335,3 +335,5 @@ if (window.gridScriptV2Loaded) {
   console.log('✅ All grid V2 functions loaded and available');
 }
 
+
+

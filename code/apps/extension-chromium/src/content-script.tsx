@@ -1051,16 +1051,32 @@ function initializeExtension() {
     
     // ✅ SYNC TO SESSION: Also update the session's agentBoxes array
     const sessionKey = getCurrentSessionKey()
-    if (sessionKey && chrome?.storage?.local && currentTabData.agentBoxes) {
+    if (sessionKey && chrome?.storage?.local) {
       chrome.storage.local.get([sessionKey], (result) => {
         const session = result[sessionKey] || {}
         
-        // Update session's agent boxes array
-        session.agentBoxes = currentTabData.agentBoxes
-        session.agentBoxHeights = currentTabData.agentBoxHeights
+        // Merge agent boxes from currentTabData (master tab boxes)
+        if (currentTabData.agentBoxes && currentTabData.agentBoxes.length > 0) {
+          session.agentBoxes = [...(session.agentBoxes || []), ...currentTabData.agentBoxes]
+            .filter((box, index, self) => 
+              index === self.findIndex(b => b.identifier === box.identifier)
+            ) // Remove duplicates by identifier
+          session.agentBoxHeights = { ...(session.agentBoxHeights || {}), ...currentTabData.agentBoxHeights }
+        } else if (!session.agentBoxes) {
+          session.agentBoxes = []
+          session.agentBoxHeights = {}
+        }
+        
+        // Save displayGrids metadata to session
+        if (currentTabData.displayGrids && currentTabData.displayGrids.length > 0) {
+          session.displayGrids = currentTabData.displayGrids
+        } else if (!session.displayGrids) {
+          session.displayGrids = []
+        }
         
         chrome.storage.local.set({ [sessionKey]: session }, () => {
-          console.log('✅ Synced agent boxes to session:', sessionKey, currentTabData.agentBoxes.length, 'boxes')
+          console.log('✅ Synced agent boxes to session:', sessionKey, session.agentBoxes?.length || 0, 'boxes')
+          console.log('✅ Synced display grids to session:', sessionKey, currentTabData.displayGrids?.length || 0, 'grids')
         })
       })
     }
@@ -1304,31 +1320,31 @@ function initializeExtension() {
       let maxBoxNumber = 0
       
       // Check all agent boxes in master tabs
-      if (session.agentBoxes && Array.isArray(session.agentBoxes)) {
-        session.agentBoxes.forEach((box: any) => {
+          if (session.agentBoxes && Array.isArray(session.agentBoxes)) {
+            session.agentBoxes.forEach((box: any) => {
           if (box && box.boxNumber && box.boxNumber > maxBoxNumber) {
             maxBoxNumber = box.boxNumber
           }
           // Fallback to old 'number' field for backwards compatibility
           else if (box && box.number && !box.boxNumber && box.number > maxBoxNumber) {
             maxBoxNumber = box.number
-          }
-        })
-      }
-      
-      // Check display grid slots
-      if (session.displayGrids && Array.isArray(session.displayGrids)) {
-        session.displayGrids.forEach((grid: any) => {
-          if (grid.config && grid.config.slots) {
-            Object.entries(grid.config.slots).forEach(([slotId, slotData]: [string, any]) => {
-              if (slotData && slotData.boxNumber && slotData.boxNumber > maxBoxNumber) {
-                maxBoxNumber = slotData.boxNumber
               }
             })
           }
-        })
-      }
-      
+          
+          // Check display grid slots
+          if (session.displayGrids && Array.isArray(session.displayGrids)) {
+            session.displayGrids.forEach((grid: any) => {
+              if (grid.config && grid.config.slots) {
+                Object.entries(grid.config.slots).forEach(([slotId, slotData]: [string, any]) => {
+              if (slotData && slotData.boxNumber && slotData.boxNumber > maxBoxNumber) {
+                maxBoxNumber = slotData.boxNumber
+                  }
+                })
+              }
+            })
+          }
+          
       // Check helper tabs (if they have agent boxes)
       if (session.helperTabs && session.helperTabs.agentBoxes && Array.isArray(session.helperTabs.agentBoxes)) {
         session.helperTabs.agentBoxes.forEach((box: any) => {
@@ -1360,40 +1376,46 @@ function initializeExtension() {
     }
     
     function showDialog() {
-      const overlay = document.createElement('div')
-      overlay.style.cssText = `
-        position: fixed;
-        top: 0;
-        left: 0;
-        width: 100%;
-        height: 100%;
-        background: rgba(0, 0, 0, 0.8);
-        z-index: 2147483647;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-      `
-      
-      overlay.innerHTML = `
-        <div style="background: white; padding: 30px; border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.3); max-width: 500px; width: 90%;">
-          <h3 style="margin: 0 0 20px 0; color: #333; font-size: 18px; text-align: center;">Add New Agent Box</h3>
+    const overlay = document.createElement('div')
+    overlay.style.cssText = `
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0, 0, 0, 0.8);
+      z-index: 2147483647;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    `
+    
+    overlay.innerHTML = `
+      <div style="background: white; padding: 30px; border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.3); max-width: 500px; width: 90%;">
+        <h3 style="margin: 0 0 20px 0; color: #333; font-size: 18px; text-align: center;">Add New Agent Box</h3>
           
           <div style="margin-bottom: 20px;">
             <label style="display: block; margin-bottom: 8px; color: #555; font-weight: bold;">Agent Box Number:</label>
             <input id="agent-box-number" type="text" value="${String(nextBoxNumber).padStart(2, '0')}" readonly style="width: 100%; padding: 10px; border: 2px solid #ddd; border-radius: 6px; font-size: 14px; background: #f5f5f5; color: #666;">
             <div style="font-size: 11px; color: #888; margin-top: 4px;">Auto-incremented from last box</div>
           </div>
-          
-          <div style="margin-bottom: 20px;">
-            <label style="display: block; margin-bottom: 8px; color: #555; font-weight: bold;">Agent Number:</label>
+        
+        <div style="margin-bottom: 20px;">
+          <label style="display: block; margin-bottom: 8px; color: #555; font-weight: bold;">Agent Number:</label>
             <input id="agent-number" type="number" value="1" min="1" max="99" placeholder="e.g., 5" style="width: 100%; padding: 10px; border: 2px solid #ddd; border-radius: 6px; font-size: 14px;">
             <div style="font-size: 11px; color: #888; margin-top: 4px;">Which agent to allocate to this box</div>
-          </div>
+        </div>
         
         <div style="margin-bottom: 20px;">
           <label style="display: block; margin-bottom: 8px; color: #555; font-weight: bold;">Agent Title:</label>
           <input id="agent-title" type="text" placeholder="e.g., 🤖 Custom Agent" style="width: 100%; padding: 10px; border: 2px solid #ddd; border-radius: 6px; font-size: 14px;">
         </div>
+        
+        <div style="margin: 6px 0 8px 0; display: flex; align-items: center; gap: 8px;">
+          <button id="add-tool-btn" style="background: transparent; border: 0; color: #2563eb; text-decoration: underline; cursor: pointer; padding: 0; font-size: 12px;">+ Tool</button>
+          <span style="font-size: 12px; color: #64748b;">(optional)</span>
+        </div>
+        <div id="tools-container" style="display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 16px;"></div>
 
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 20px;">
           <div>
@@ -1412,6 +1434,15 @@ function initializeExtension() {
               <option value="" selected disabled>Select provider first</option>
             </select>
           </div>
+        </div>
+        
+        <div style="margin: 4px 0 12px 0;">
+          <button id="finetune-btn" style="background: transparent; border: 0; color: #2563eb; text-decoration: underline; cursor: pointer; padding: 0; font-size: 12px;">Finetune Model</button>
+          <div id="finetune-feedback" style="display: none; margin-top: 6px; background: #fee2e2; color: #b91c1c; padding: 6px 8px; border-radius: 6px; font-size: 12px;">Finetuning is not available for this Model</div>
+        </div>
+        
+        <div style="margin-top: 8px; margin-bottom: 20px; padding: 12px; background: #f5f5f5; border-radius: 8px; font-size: 12px; color: #666;">
+          <strong>Note:</strong> If no agent or LLM is selected, this box will use the global "Setup AI Agent" settings as fallback.
         </div>
         
         <div style="margin-bottom: 25px;">
@@ -1442,60 +1473,100 @@ function initializeExtension() {
         default: return ['auto']
       }
     }
-      const providerSelect = overlay.querySelector('#agent-provider') as HTMLSelectElement | null
-      const modelSelect = overlay.querySelector('#agent-model') as HTMLSelectElement | null
-      const refreshModels = () => {
-        if (!modelSelect) return
-        const provider = providerSelect?.value || ''
-        if (!provider) {
-          modelSelect.innerHTML = '<option value="" selected disabled>Select provider first</option>'
-          modelSelect.disabled = true
-          return
-        }
-        const models = getPlaceholderModels(provider)
-        modelSelect.innerHTML = models.map(m => `<option value="${m}">${m}</option>`).join('')
-        modelSelect.disabled = false
-        modelSelect.value = models[0]
+    const providerSelect = overlay.querySelector('#agent-provider') as HTMLSelectElement | null
+    const modelSelect = overlay.querySelector('#agent-model') as HTMLSelectElement | null
+    const refreshModels = () => {
+      if (!modelSelect) return
+      const provider = providerSelect?.value || ''
+      if (!provider) {
+        modelSelect.innerHTML = '<option value="" selected disabled>Select provider first</option>'
+        modelSelect.disabled = true
+        return
       }
-      providerSelect?.addEventListener('change', refreshModels)
+      const models = getPlaceholderModels(provider)
+      modelSelect.innerHTML = models.map(m => `<option value="${m}">${m}</option>`).join('')
+      modelSelect.disabled = false
+      modelSelect.value = models[0]
+    }
+    providerSelect?.addEventListener('change', refreshModels)
+    
+    // Tools functionality
+    let tools: string[] = []
+    const toolsContainer = overlay.querySelector('#tools-container')
+    
+    function renderTools() {
+      if (!toolsContainer) return
+      toolsContainer.innerHTML = tools.map((tool, idx) => `
+        <span data-idx="${idx}" style="display: inline-flex; align-items: center; gap: 6px; background: #eef2ff; color: #1e3a8a; border: 1px solid #c7d2fe; padding: 4px 8px; border-radius: 999px; font-size: 12px;">
+          ${tool}
+          <button class="tool-remove" data-idx="${idx}" style="background: transparent; border: 0; color: #1e3a8a; cursor: pointer; font-weight: 700;">×</button>
+        </span>
+      `).join('')
       
-      // Color selection
-      overlay.querySelectorAll('.color-select').forEach(btn => {
+      // Attach remove handlers
+      toolsContainer.querySelectorAll('.tool-remove').forEach(btn => {
         btn.addEventListener('click', () => {
-          overlay.querySelectorAll('.color-select').forEach(b => b.style.border = '3px solid transparent')
-          btn.style.border = '3px solid #333'
-          selectedColor = btn.getAttribute('data-color') || colors[0]
+          const idx = parseInt(btn.getAttribute('data-idx') || '0')
+          tools.splice(idx, 1)
+          renderTools()
         })
       })
-      
-      // Cancel button
-      overlay.querySelector('#cancel-add-agent')?.addEventListener('click', () => {
-        overlay.remove()
+    }
+    
+    overlay.querySelector('#add-tool-btn')?.addEventListener('click', () => {
+      const toolName = prompt('Enter tool name:')
+      if (toolName && toolName.trim()) {
+        tools.push(toolName.trim())
+        renderTools()
+      }
+    })
+    
+    // Finetune functionality
+    overlay.querySelector('#finetune-btn')?.addEventListener('click', () => {
+      const feedback = overlay.querySelector('#finetune-feedback') as HTMLElement
+      if (feedback) {
+        feedback.style.display = 'block'
+        setTimeout(() => { feedback.style.display = 'none' }, 3000)
+      }
+    })
+    
+    // Color selection
+    overlay.querySelectorAll('.color-select').forEach(btn => {
+      btn.addEventListener('click', () => {
+        overlay.querySelectorAll('.color-select').forEach(b => b.style.border = '3px solid transparent')
+        btn.style.border = '3px solid #333'
+        selectedColor = btn.getAttribute('data-color') || colors[0]
       })
+    })
       
-      // Confirm button
-      overlay.querySelector('#confirm-add-agent')?.addEventListener('click', () => {
+    // Cancel button
+    overlay.querySelector('#cancel-add-agent')?.addEventListener('click', () => {
+      overlay.remove()
+    })
+      
+    // Confirm button
+    overlay.querySelector('#confirm-add-agent')?.addEventListener('click', () => {
         const boxNumberInput = overlay.querySelector('#agent-box-number') as HTMLInputElement
         const agentNumberInput = overlay.querySelector('#agent-number') as HTMLInputElement
-        const titleInput = overlay.querySelector('#agent-title') as HTMLInputElement
-        const providerInput = overlay.querySelector('#agent-provider') as HTMLSelectElement | null
-        const modelInput = overlay.querySelector('#agent-model') as HTMLSelectElement | null
-        
+      const titleInput = overlay.querySelector('#agent-title') as HTMLInputElement
+      const providerInput = overlay.querySelector('#agent-provider') as HTMLSelectElement | null
+      const modelInput = overlay.querySelector('#agent-model') as HTMLSelectElement | null
+      
         // Get box number and agent number
         const boxNumber = nextBoxNumber  // Use the calculated box number
         const agentNumber = parseInt(agentNumberInput.value) || 1
         const title = titleInput.value.trim() || `Agent Box ${String(boxNumber).padStart(2, '0')}`
-        const provider = providerInput?.value || ''
-        const model = modelInput?.value || 'auto'
-        
-        // Create unique ID
-        const id = `custom-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
-        const outputId = `${id}-output`
+      const provider = providerInput?.value || ''
+      const model = modelInput?.value || 'auto'
+      
+      // Create unique ID
+      const id = `custom-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+      const outputId = `${id}-output`
         
         // Generate identifier AB[BoxNum][AgentNum]
         const identifier = `AB${String(boxNumber).padStart(2, '0')}${String(agentNumber).padStart(2, '0')}`
-        
-        // Allocate agent by the chosen Agent Number
+      
+      // Allocate agent by the chosen Agent Number
         const agentId = `agent${agentNumber}`
         
         console.log('📦 Creating new agent box:', {
@@ -1510,55 +1581,66 @@ function initializeExtension() {
         const clickSide = (window as any).lastAgentBoxClickSide || 'left'
         console.log('📍 Box will be created on:', clickSide, 'side')
         
-        const newBox = {
-          id: id,
+        // Determine tab index for hybrid master tabs
+        // Count how many unique tabs already have agent boxes in this session
+        let tabIndex = 1  // Default to 1 for the first/main master tab
+        if (sessionKey && chrome?.storage?.local) {
+          // We'll update this after checking session storage
+          // For now, use a placeholder that will be updated on save
+        }
+      
+      const newBox = {
+        id: id,
           boxNumber: boxNumber,  // NEW: Separate box number
           agentNumber: agentNumber,  // NEW: Separate agent number
           identifier: identifier,  // NEW: Full AB identifier
-          agentId: agentId,
+        agentId: agentId,
           number: boxNumber,  // Keep for backwards compatibility
-          title: title,
-          color: selectedColor,
-          outputId: outputId,
-          provider: provider,
+        title: title,
+        color: selectedColor,
+        outputId: outputId,
+        provider: provider,
           model: model,
-          side: clickSide  // ← Add side info for hybrid tabs
-        }
-        
-        currentTabData.agentBoxes.push(newBox)
-        saveTabDataToStorage()
-        renderAgentBoxes()
-        
-        overlay.remove()
-        
-        // Show success notification with identifier
-        const notification = document.createElement('div')
-        notification.style.cssText = `
-          position: fixed;
-          top: 60px;
-          right: 20px;
-          background: rgba(76, 175, 80, 0.9);
-          color: white;
-          padding: 10px 15px;
-          border-radius: 5px;
-          font-size: 12px;
-          z-index: 2147483648;
-          animation: slideIn 0.3s ease;
-        `
-        notification.innerHTML = `➕ Agent box ${identifier} created: "${title}"`
-        document.body.appendChild(notification)
-        
-        setTimeout(() => {
-          notification.remove()
-        }, 3000)
-      })
+          tools: tools,  // ← Add tools array
+          side: clickSide,  // ← Add side info for hybrid tabs
+          tabIndex: tabIndex,  // ← Add tab index for location tracking
+          tabUrl: window.location.href  // ← Store tab URL to identify unique tabs
+      }
       
-      // Close on background click
-      overlay.addEventListener('click', (e) => {
-        if (e.target === overlay) {
-          overlay.remove()
-        }
-      })
+      currentTabData.agentBoxes.push(newBox)
+      saveTabDataToStorage()
+      renderAgentBoxes()
+      
+      overlay.remove()
+      
+        // Show success notification with identifier
+      const notification = document.createElement('div')
+      notification.style.cssText = `
+        position: fixed;
+        top: 60px;
+        right: 20px;
+        background: rgba(76, 175, 80, 0.9);
+        color: white;
+        padding: 10px 15px;
+        border-radius: 5px;
+        font-size: 12px;
+        z-index: 2147483648;
+        animation: slideIn 0.3s ease;
+      `
+        notification.innerHTML = `➕ Agent box ${identifier} created: "${title}"`
+      document.body.appendChild(notification)
+      
+      setTimeout(() => {
+        notification.remove()
+      }, 3000)
+    })
+    
+    // Close on background click
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay) {
+        overlay.remove()
+      }
+    })
     }  // End of showDialog function
   }
   function openEditAgentBoxDialog(agentId: string) {
@@ -5149,55 +5231,55 @@ function initializeExtension() {
           if (previouslySavedData.agentContextFiles && previouslySavedData.agentContextFiles.length > 0) {
             // Wait a bit longer for DOM to be fully ready
             setTimeout(() => {
-              const acList = configOverlay.querySelector('#AC-list')
-              const acEnable = configOverlay.querySelector('#AC-agent') as HTMLInputElement
-              const acContent = configOverlay.querySelector('#AC-content') as HTMLElement
+            const acList = configOverlay.querySelector('#AC-list')
+            const acEnable = configOverlay.querySelector('#AC-agent') as HTMLInputElement
+            const acContent = configOverlay.querySelector('#AC-content') as HTMLElement
+            
+            console.log('🔍 Found DOM elements:', { 
+              hasAcList: !!acList, 
+              hasAcEnable: !!acEnable,
+              hasAcContent: !!acContent
+            })
+            
+            if (acList && acEnable) {
+              // FORCE checkbox to be checked if there are files
+              acEnable.checked = true
+              acEnable.dispatchEvent(new Event('change'))
               
-              console.log('🔍 Found DOM elements:', { 
-                hasAcList: !!acList, 
-                hasAcEnable: !!acEnable,
-                hasAcContent: !!acContent
-              })
+              // Also update the persisted variable
+              persistedACAgent = true
               
-              if (acList && acEnable) {
-                // FORCE checkbox to be checked if there are files
-                acEnable.checked = true
-                acEnable.dispatchEvent(new Event('change'))
-                
-                // Also update the persisted variable
-                persistedACAgent = true
-                
-                const files = previouslySavedData.agentContextFiles
-                acList.innerHTML = `
+              const files = previouslySavedData.agentContextFiles
+              acList.innerHTML = `
                   <div style="color:#fbbf24;font-weight:600;margin-bottom:6px">📦 ${files.length} file(s) previously uploaded:</div>
-                  ${files.map((f: any, idx: number) => `
-                    <div class="saved-file-row" style="display:flex;align-items:center;gap:6px;padding:4px 8px;background:rgba(251,191,36,0.1);border-radius:6px;margin-bottom:4px;border:1px solid rgba(251,191,36,0.3)">
-                      <span>📄 ${f.name} (${(f.size / 1024).toFixed(1)} KB)</span>
-                      <button class="delete-ac-file-btn" data-idx="${idx}" style="margin-left:auto;background:#f44336;border:none;color:white;padding:2px 8px;border-radius:4px;cursor:pointer;font-size:10px;">✕</button>
-                    </div>
-                  `).join('')}
-                `
-                
-                // Re-add delete handlers
-                acList.querySelectorAll('.delete-ac-file-btn').forEach((btn: Element) => {
-                  btn.addEventListener('click', () => {
-                    const idx = parseInt(btn.getAttribute('data-idx') || '0')
-                    previouslySavedData.agentContextFiles.splice(idx, 1)
+                ${files.map((f: any, idx: number) => `
+                  <div class="saved-file-row" style="display:flex;align-items:center;gap:6px;padding:4px 8px;background:rgba(251,191,36,0.1);border-radius:6px;margin-bottom:4px;border:1px solid rgba(251,191,36,0.3)">
+                    <span>📄 ${f.name} (${(f.size / 1024).toFixed(1)} KB)</span>
+                    <button class="delete-ac-file-btn" data-idx="${idx}" style="margin-left:auto;background:#f44336;border:none;color:white;padding:2px 8px;border-radius:4px;cursor:pointer;font-size:10px;">✕</button>
+                  </div>
+                `).join('')}
+              `
+              
+              // Re-add delete handlers
+              acList.querySelectorAll('.delete-ac-file-btn').forEach((btn: Element) => {
+                btn.addEventListener('click', () => {
+                  const idx = parseInt(btn.getAttribute('data-idx') || '0')
+                  previouslySavedData.agentContextFiles.splice(idx, 1)
                     console.log(`🗑️ Removed Agent Context file at index ${idx}`)
-                    btn.closest('.saved-file-row')?.remove()
-                    const countEl = acList.querySelector('div')
+                  btn.closest('.saved-file-row')?.remove()
+                  const countEl = acList.querySelector('div')
                     if (countEl) countEl.textContent = `📦 ${previouslySavedData.agentContextFiles.length} file(s) previously uploaded:`
                     
                     // Auto-save after deletion
                     syncPersistedFromDom()
-                  })
                 })
-                console.log(`✅ Successfully restored ${files.length} Agent Context files to display`)
-              } else {
+              })
+              console.log(`✅ Successfully restored ${files.length} Agent Context files to display`)
+            } else {
                 console.error('❌ Could not find DOM elements to restore Agent Context files!', {
                   triedSelectors: ['#AC-list', '#AC-agent', '#AC-content']
                 })
-              }
+            }
             }, 200) // Give DOM more time to render
           } else {
             console.log('ℹ️ No Agent Context files to restore')
@@ -10838,6 +10920,146 @@ ${pageText}
     setTimeout(() => notification.remove(), 4000)
   }
   
+  // Global function for grid windows to save their configuration
+  // This is called by grid-script.js when chrome.runtime is not available
+  ;(window as any).optimandoSaveGridConfig = (payload: any, sessionKey: string) => {
+    console.log('🌐 PARENT: optimandoSaveGridConfig called from grid window')
+    console.log('📦 PARENT: Payload:', payload)
+    console.log('🔑 PARENT: Session key:', sessionKey)
+    
+    if (!sessionKey) {
+      console.error('❌ PARENT: No session key provided')
+      return Promise.reject(new Error('No session key'))
+    }
+    
+    return new Promise((resolve, reject) => {
+      // Use parent window's chrome.runtime to send message to background
+      chrome.runtime.sendMessage({
+        type: 'GRID_SAVE',
+        payload: payload,
+        sessionKey: sessionKey,
+        timestamp: Date.now()
+      }, (response) => {
+        if (chrome.runtime.lastError) {
+          console.error('❌ PARENT: sendMessage failed:', chrome.runtime.lastError)
+          reject(chrome.runtime.lastError)
+        } else if (response && response.success) {
+          console.log('✅ PARENT: Grid config saved successfully via parent!')
+          resolve(response)
+        } else {
+          console.error('❌ PARENT: Save failed:', response)
+          reject(new Error('Save failed'))
+        }
+      })
+    })
+  }
+  
+  console.log('✅ PARENT: optimandoSaveGridConfig function exposed on window object')
+  console.log('🔍 PARENT: typeof window.optimandoSaveGridConfig =', typeof (window as any).optimandoSaveGridConfig)
+
+  // Listen for postMessage from grid windows (fallback when direct function call fails)
+  window.addEventListener('message', (event) => {
+    console.log('📨 PARENT: Message received:', event.data?.type || 'unknown type')
+    
+    // Security check: only process messages from our own grid windows
+    if (event.data && event.data.type === 'OPTIMANDO_GRID_SAVE') {
+      console.log('✅ PARENT: Processing OPTIMANDO_GRID_SAVE postMessage from grid')
+      console.log('📦 PARENT: Payload:', event.data.payload)
+      console.log('🔑 PARENT: Session key:', event.data.sessionKey)
+
+      const { payload, sessionKey } = event.data
+      console.log('🔑 PARENT: Session key:', sessionKey)
+
+      if (payload && sessionKey) {
+        // Extract agent boxes from grid slots
+        const gridAgentBoxes: any[] = []
+        console.log('🔍 PARENT: Extracting agent boxes from payload.slots:', payload.slots)
+        
+        if (payload.slots) {
+          Object.entries(payload.slots).forEach(([slotId, config]: [string, any]) => {
+            console.log(`🔍 PARENT: Processing slot ${slotId}:`, config)
+            console.log(`   - boxNumber: ${config.boxNumber}`)
+            console.log(`   - agent: ${config.agent}`)
+            console.log(`   - agentNumber: ${config.agentNumber}`)
+            console.log(`   - title: ${config.title}`)
+            
+            // Check if this slot has ANY agent configuration (lenient check)
+            if (config.boxNumber && (config.agent || config.agentNumber || config.title)) {
+              const agentBox = {
+                identifier: config.identifier || `grid_${payload.sessionId}_slot_${slotId}`,
+                boxNumber: config.boxNumber,
+                agentNumber: config.agentNumber || (config.agent ? parseInt(config.agent.replace('agent', '')) : 0),
+                title: config.title || `Display Port ${slotId}`,
+                provider: config.provider || '',
+                model: config.model || '',
+                source: 'display_grid',
+                gridSessionId: payload.sessionId,
+                slotId: slotId
+              }
+              gridAgentBoxes.push(agentBox)
+              console.log('✅ PARENT: Added agent box:', agentBox)
+            } else {
+              console.log('⏭️ PARENT: Skipping slot (no valid config):', slotId)
+            }
+          })
+        }
+        
+        console.log('📦 PARENT: Extracted', gridAgentBoxes.length, 'grid agent boxes total')
+        console.log('📦 PARENT: Full gridAgentBoxes array:', gridAgentBoxes)
+        
+        // Update or add display grid entry in currentTabData
+        const existingGridIndex = currentTabData.displayGrids.findIndex(
+          (g: any) => g.sessionId === payload.sessionId
+        )
+        
+        if (existingGridIndex !== -1) {
+          currentTabData.displayGrids[existingGridIndex].config = payload
+          currentTabData.displayGrids[existingGridIndex].agentBoxes = gridAgentBoxes
+        } else {
+          currentTabData.displayGrids.push({
+            layout: payload.layout,
+            sessionId: payload.sessionId,
+            config: payload,
+            agentBoxes: gridAgentBoxes
+          })
+        }
+        
+        console.log('✅ PARENT: Updated currentTabData with', gridAgentBoxes.length, 'grid boxes')
+        
+        // Now save to chrome.storage via background script
+        console.log('📤 PARENT: Sending GRID_SAVE to background with agent boxes...')
+        
+        chrome.runtime.sendMessage({
+          type: 'GRID_SAVE',
+          payload: {
+            sessionKey,
+            layout: payload.layout,
+            sessionId: payload.sessionId,
+            config: payload,
+            timestamp: new Date().toISOString(),
+            agentBoxes: gridAgentBoxes
+          }
+        }, (response) => {
+          console.log('✅ PARENT: Background response:', response)
+          
+          // Send success back to grid window
+          if (event.source) {
+            ;(event.source as Window).postMessage({
+              type: 'OPTIMANDO_GRID_SAVE_SUCCESS',
+              data: 'success'
+            }, '*')
+          }
+        })
+        
+        // Also persist to local storage
+        saveTabDataToStorage()
+        console.log('✅ PARENT: Saved to local storage')
+      }
+    }
+  })
+  
+  console.log('✅ PARENT: postMessage listener registered for OPTIMANDO_GRID_SAVE')
+  
   function openGridFromSession(layout, sessionId) {
     console.log('🔍 DEBUG: Opening grid from session:', layout, sessionId)
     console.log('🔍 DEBUG: currentTabData.displayGrids at grid open:', currentTabData.displayGrids)
@@ -10875,45 +11097,14 @@ ${pageText}
         const nextBoxNumber = maxBoxNumber + 1
         console.log('📦 Calculated next box number for grid:', nextBoxNumber, 'from max:', maxBoxNumber)
         
-        // Create the complete HTML content with nextBoxNumber
-        const gridHTML = createGridHTML(layout, sessionId, currentTheme, nextBoxNumber)
-        
-        // Create a new tab with the grid content
-        const newTab = window.open('about:blank', 'grid-' + layout + '-' + sessionId)
-        
-        if (!newTab) {
-          console.error('❌ Failed to open grid tab - popup blocked?')
-          alert('Grid tab was blocked. Please allow popups for this site.')
-          return
-        }
-        
-        // Write the HTML content to the new tab
-        newTab.document.write(gridHTML)
-        newTab.document.close()
-        
-        // Set global variables in the new tab
-        newTab.window.gridLayout = layout
-        newTab.window.gridSessionId = sessionId
-        newTab.window.nextBoxNumber = nextBoxNumber  // ← Pass nextBoxNumber
-        
-        console.log('✅ Grid tab opened from session:', layout)
-        console.log('🔧 Set global variables:', { layout, sessionId, nextBoxNumber })
-
-        // Attach save handler from the opener (avoids CSP issues with inline scripts)
-        attachGridSaveHandler(newTab, layout, sessionId)
+        // ✅ USE EXTENSION URL INSTEAD OF about:blank
+        console.log('🔗 Opening grid with extension URL...')
+        openGridWindowWithExtensionURL(layout, sessionId, currentTheme, sessionKey, nextBoxNumber)
       })
     } else {
       // Fallback without session
-      const gridHTML = createGridHTML(layout, sessionId, currentTheme, 1)
-      const newTab = window.open('about:blank', 'grid-' + layout + '-' + sessionId)
-      if (newTab) {
-        newTab.document.write(gridHTML)
-        newTab.document.close()
-        newTab.window.gridLayout = layout
-        newTab.window.gridSessionId = sessionId
-        newTab.window.nextBoxNumber = 1
-        attachGridSaveHandler(newTab, layout, sessionId)
-      }
+      const sessionKey = getCurrentSessionKey() || 'session_fallback'
+      openGridWindowWithExtensionURL(layout, sessionId, currentTheme, sessionKey, 1)
     }
   }
   
@@ -12359,9 +12550,17 @@ ${pageText}
         model?: string;
       }> = []
       
+      // Track unique tab URLs to assign tab numbers
+      const tabUrlToIndex = new Map<string, number>()
+      let nextTabIndex = 1
+      
       // Add ALL agent boxes from master tab that have been configured
       if (session.agentBoxes && Array.isArray(session.agentBoxes)) {
-        session.agentBoxes.forEach((box: any) => {
+        console.log(`📊 Overview: Processing ${session.agentBoxes.length} agent boxes from session.agentBoxes`)
+        
+        session.agentBoxes.forEach((box: any, index: number) => {
+          console.log(`📦 Overview: Box ${index}:`, JSON.stringify(box, null, 2))
+          
           // Only include boxes that have at least a title, agent, or model configured
           if (box && (box.title || box.agentId || box.agentNumber || box.model || box.provider)) {
             // Get box number
@@ -12382,26 +12581,72 @@ ${pageText}
             // Generate identifier
             const identifier = box.identifier || `AB${String(boxNumber).padStart(2, '0')}${String(agentNumber).padStart(2, '0')}`
             
-            console.log(`📦 Master Tab Box: boxNum=${boxNumber}, agentNum=${agentNumber}, identifier=${identifier}`)
+            console.log(`✅ Overview: INCLUDING Box ${index}: boxNum=${boxNumber}, agentNum=${agentNumber}, identifier=${identifier}`)
+            
+            // Determine location based on source field
+            let location = 'Master Tab'
+            if (box.source === 'display_grid') {
+              // Show grid layout if available (e.g., "2-slot Display Grid")
+              if (box.gridLayout) {
+                location = `${box.gridLayout} Display Grid`
+              } else {
+                location = 'Display Grid'
+              }
+            } else if (box.gridSessionId) {
+              // Fallback: if it has gridSessionId, it's from a display grid
+              if (box.gridLayout) {
+                location = `${box.gridLayout} Display Grid`
+              } else {
+                location = 'Display Grid'
+              }
+            } else {
+              // Master tab - assign tab number based on unique URL
+              if (box.tabUrl) {
+                // Get or assign tab index for this URL
+                if (!tabUrlToIndex.has(box.tabUrl)) {
+                  tabUrlToIndex.set(box.tabUrl, nextTabIndex)
+                  nextTabIndex++
+                }
+                const tabNum = tabUrlToIndex.get(box.tabUrl)
+                if (tabNum && tabNum > 1) {
+                  location = `Master Tab (${tabNum})`
+                } else {
+                  location = 'Master Tab'  // First tab doesn't need number
+                }
+              }
+            }
             
             registeredBoxes.push({
               boxNumber: boxNumber,
               agentNumber: agentNumber,
               identifier: identifier,
               title: box.title || `Agent Box ${String(boxNumber).padStart(2, '0')}`,
-              location: 'Master Tab',
+              location: location,
               provider: box.provider,
               model: box.model
             })
+          } else {
+            console.log(`❌ Overview: EXCLUDING Box ${index}: no title/agent/model/provider`)
           }
         })
       }
       
       // Add display grid slots that are set up
+      console.log('📊 Overview: Checking session.displayGrids:', session.displayGrids)
+      
       if (session.displayGrids && Array.isArray(session.displayGrids)) {
-        session.displayGrids.forEach((grid: any) => {
+        console.log(`📊 Overview: Processing ${session.displayGrids.length} display grids`)
+        
+        session.displayGrids.forEach((grid: any, gridIndex: number) => {
+          console.log(`📊 Overview: Grid ${gridIndex}:`, JSON.stringify(grid, null, 2))
+          
           if (grid.config && grid.config.slots) {
+            const slotCount = Object.keys(grid.config.slots).length
+            console.log(`📊 Overview: Grid ${gridIndex} has ${slotCount} slots`)
+            
             Object.entries(grid.config.slots).forEach(([slotId, slotData]: [string, any]) => {
+              console.log(`📦 Overview: Slot ${slotId}:`, JSON.stringify(slotData, null, 2))
+              
               if (slotData && (slotData.title || slotData.agent || slotData.model || slotData.provider)) {
                 // Get box number
                 const boxNumber = slotData.boxNumber || parseInt(slotId) || 0
@@ -12418,7 +12663,7 @@ ${pageText}
                 // Generate identifier
                 const identifier = slotData.identifier || `AB${String(boxNumber).padStart(2, '0')}${String(agentNumber).padStart(2, '0')}`
                 
-                console.log(`📦 Display Grid Box: boxNum=${boxNumber}, agentNum=${agentNumber}, identifier=${identifier}`)
+                console.log(`✅ Overview: INCLUDING Display Grid Box: boxNum=${boxNumber}, agentNum=${agentNumber}, identifier=${identifier}`)
                 
                 registeredBoxes.push({
                   boxNumber: boxNumber,
@@ -12429,10 +12674,16 @@ ${pageText}
                   provider: slotData.provider,
                   model: slotData.model
                 })
+              } else {
+                console.log(`❌ Overview: EXCLUDING Slot ${slotId}: no title/agent/model/provider`)
               }
             })
+          } else {
+            console.log(`⚠️ Overview: Grid ${gridIndex} has no config.slots`)
           }
         })
+      } else {
+        console.log('⚠️ Overview: No displayGrids array in session')
       }
       
       // Sort by box number for consistent display
