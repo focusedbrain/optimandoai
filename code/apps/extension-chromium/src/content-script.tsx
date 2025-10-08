@@ -12525,6 +12525,16 @@ ${pageText}
     document.body.appendChild(overlay)
     console.log('📦 Overlay created and added to DOM')
     
+    // Helper function to normalize URLs for comparison (remove query params and hash)
+    const normalizeUrl = (url: string): string => {
+      try {
+        const urlObj = new URL(url)
+        return urlObj.origin + urlObj.pathname
+      } catch {
+        return url
+      }
+    }
+    
     // Load session data to get agent boxes
     chrome.storage.local.get([sessionKey], (result) => {
       const session = result[sessionKey]
@@ -12553,6 +12563,13 @@ ${pageText}
       // Track unique tab URLs to assign tab numbers
       const tabUrlToIndex = new Map<string, number>()
       let nextTabIndex = 1
+      
+      // Pre-register the main master tab URL as index 1
+      const mainTabUrl = normalizeUrl(session.masterUrl || window.location.href)
+      tabUrlToIndex.set(mainTabUrl, 1)
+      nextTabIndex = 2  // Start hybrid tabs from 2
+      
+      console.log('🔍 Overview: Main tab URL set to:', mainTabUrl)
       
       // Add ALL agent boxes from master tab that have been configured
       if (session.agentBoxes && Array.isArray(session.agentBoxes)) {
@@ -12600,14 +12617,17 @@ ${pageText}
                 location = 'Display Grid'
               }
             } else {
-              // Master tab - assign tab number based on unique URL
+              // Master tab - assign tab number based on unique URL (normalized)
               if (box.tabUrl) {
-                // Get or assign tab index for this URL
-                if (!tabUrlToIndex.has(box.tabUrl)) {
-                  tabUrlToIndex.set(box.tabUrl, nextTabIndex)
+                // Normalize URL to remove query parameters and hash
+                const normalizedUrl = normalizeUrl(box.tabUrl)
+                
+                // Get or assign tab index for this normalized URL
+                if (!tabUrlToIndex.has(normalizedUrl)) {
+                  tabUrlToIndex.set(normalizedUrl, nextTabIndex)
                   nextTabIndex++
                 }
-                const tabNum = tabUrlToIndex.get(box.tabUrl)
+                const tabNum = tabUrlToIndex.get(normalizedUrl)
                 if (tabNum && tabNum > 1) {
                   location = `Master Tab (${tabNum})`
                 } else {
