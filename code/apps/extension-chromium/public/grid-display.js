@@ -70,35 +70,34 @@ const container = document.getElementById('grid-root');
 const gridDiv = document.createElement('div');
 gridDiv.className = 'grid-container layout-' + layout;
 
-// ✅ AUTO-LOAD: Load configurations FIRST by locationId, then create slots with data
+/**
+ * Load saved configurations from chrome.storage and create slots
+ * Uses locationId pattern: grid_{sessionId}_{layout}_slot{N}
+ */
 if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local && sessionKey) {
     chrome.storage.local.get([sessionKey], function(result) {
-        console.log('📦 AUTO-LOAD: Loaded session from storage:', result);
         const session = result[sessionKey] || {};
-        
-        // Build savedSlots object by locationId matching this grid
         const savedSlotsByLocation = {};
         
+        // Map agent boxes to slots by locationId
         if (session.agentBoxes && Array.isArray(session.agentBoxes)) {
-            console.log('🔍 AUTO-LOAD: Found', session.agentBoxes.length, 'agent boxes in session');
+            const gridPrefix = 'grid_' + sessionId + '_' + layout;
             
-            // Filter boxes that belong to this grid by locationId
             session.agentBoxes.forEach(box => {
-                if (box.locationId && box.locationId.startsWith('grid_' + sessionId + '_' + layout)) {
-                    // Extract slot ID from locationId (e.g., "grid_123_3-slot_slot7" -> "7")
+                if (box.locationId && box.locationId.startsWith(gridPrefix)) {
                     const match = box.locationId.match(/_slot(\d+)$/)
                     if (match) {
-                        const slotId = match[1]
-                        savedSlotsByLocation[slotId] = box
-                        console.log('✅ AUTO-LOAD: Mapped slot', slotId, 'to config:', box.title)
+                        savedSlotsByLocation[match[1]] = box
                     }
                 }
             })
+            
+            const configuredCount = Object.keys(savedSlotsByLocation).length;
+            if (configuredCount > 0) {
+                console.log('✅ Loaded', configuredCount, 'slot configuration(s) from session');
+            }
         }
         
-        console.log('📋 AUTO-LOAD: Saved slots by location:', savedSlotsByLocation)
-        
-        // Now create slots WITH the saved data
         createSlots(config.slots, savedSlotsByLocation)
     });
 } else {
@@ -106,20 +105,20 @@ if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local && s
     createSlots(config.slots, {});
 }
 
-    function createSlots(slotCount, savedSlots) {
-    console.log('🎨 Creating slots:', slotCount);
-    console.log('🎨 Received savedSlots:', savedSlots);
-    console.log('🎨 Keys in savedSlots:', Object.keys(savedSlots));
+/**
+ * Create and render display grid slots
+ * @param {number} slotCount - Number of slots to create
+ * @param {Object} savedSlots - Map of slot IDs to saved configurations
+ */
+function createSlots(slotCount, savedSlots) {
+    // Slots are numbered starting from 6 (agent boxes 1-5 are reserved for master tabs)
+    const SLOT_NUMBER_OFFSET = 5;
     
     for (let i = 1; i <= slotCount; i++) {
-        const slotNum = i + 5; // Start from #6
+        const slotNum = i + SLOT_NUMBER_OFFSET;
         
-        console.log('🔍 Looking for slot:', slotNum, 'in savedSlots');
-        
-        // Get saved config for this slot
+        // Get saved config for this slot (if exists)
         const saved = savedSlots[String(slotNum)] || {};
-        console.log('📦 Found saved config for slot', slotNum, ':', saved);
-        
         const savedTitle = saved.title || 'Display Port ' + slotNum;
         const savedAgent = saved.agent || '';
         const savedProvider = saved.provider || '';
@@ -160,7 +159,7 @@ if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local && s
         `;
         slot.setAttribute('data-slot-id', slotNum);
         
-        // ✅ CRITICAL: Preserve ALL saved config fields including locationId, tools, etc.
+        // Preserve full saved config (including locationId, tools, etc.) or use defaults
         const fullConfig = Object.keys(saved).length > 0 ? saved : {
             title: savedTitle,
             agent: savedAgent,
@@ -171,7 +170,6 @@ if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local && s
         };
         
         slot.setAttribute('data-slot-config', JSON.stringify(fullConfig));
-        console.log('📝 Created slot', slotNum, 'with full config:', fullConfig);
         
         // Create header div
         const header = document.createElement('div');
@@ -222,117 +220,71 @@ if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local && s
         slot.appendChild(header);
         slot.appendChild(content);
         gridDiv.appendChild(slot);
-        console.log('✅ Added slot:', slotNum);
     }
     
     container.appendChild(gridDiv);
-    console.log('✅ Grid appended to container');
-    console.log('✅ Grid created successfully:', layout, 'with', slotCount, 'slots');
     
     // Update document title
     document.title = 'AI Grid - ' + layout.toUpperCase();
-    }
+}
 
-    function updateSlotDisplay(slotElement, slotId, config) {
-    console.log('🔄 Updating slot', slotId, 'with config:', config);
+/**
+ * Add fullscreen toggle button to the grid display
+ */
+function addFullscreenButton() {
+    const fullscreenBtn = document.createElement('button');
+    fullscreenBtn.id = 'fullscreen-btn';
+    fullscreenBtn.title = 'Toggle Fullscreen';
+    fullscreenBtn.style.cssText = `
+        position: fixed;
+        bottom: 20px;
+        right: 20px;
+        width: 48px;
+        height: 48px;
+        border-radius: 50%;
+        background: rgba(255,255,255,0.9);
+        border: 2px solid rgba(0,0,0,0.1);
+        box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        cursor: pointer;
+        z-index: 10000;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 20px;
+        transition: all 0.2s ease;
+    `;
+    fullscreenBtn.innerHTML = '⛶';
     
-    const savedAgent = config.agent || '';
-    const savedProvider = config.provider || '';
-    const savedModel = config.model || '';
-    const savedBoxNumber = config.boxNumber || '';
-    
-    // Calculate AB code
-    const agentNumForAB = savedAgent ? savedAgent.replace('agent', '').padStart(2, '0') : '00';
-    const boxNumForAB = savedBoxNumber ? String(savedBoxNumber).padStart(2, '0') : String(slotId).padStart(2, '0');
-    const abCode = 'AB' + boxNumForAB + agentNumForAB;
-    
-    // Build display text
-    let displayParts = [config.title || 'Display Port ' + slotId];
-    if (savedModel && savedModel !== 'auto') {
-        displayParts.push(savedModel);
-    } else if (savedProvider) {
-        displayParts.push(savedProvider);
-    }
-    const displayText = displayParts.join(' · ');
-    
-    // Update slot data attribute
-    slotElement.setAttribute('data-slot-config', JSON.stringify(config));
-    
-    // Update AB code display
-    const abCodeElement = slotElement.querySelector('[style*="monospace"]');
-    if (abCodeElement) abCodeElement.textContent = abCode;
-    
-    // Update display text
-    const displayTextElement = slotElement.querySelector('.slot-display-text');
-    if (displayTextElement) displayTextElement.textContent = displayText;
-    
-    // Update status in content area
-    const contentArea = slotElement.querySelector('[style*="flex: 1"]');
-    if (contentArea) {
-        contentArea.innerHTML = `<div style="opacity: 0.6;">${savedAgent ? 'Configured ✓' : 'Click ✏️ to configure'}</div>`;
-    }
-    }
-
-    // Add fullscreen button
-    function addFullscreenButton() {
-        const fullscreenBtn = document.createElement('button');
-        fullscreenBtn.id = 'fullscreen-btn';
-        fullscreenBtn.title = 'Toggle Fullscreen';
-        fullscreenBtn.style.cssText = `
-            position: fixed;
-            bottom: 20px;
-            right: 20px;
-            width: 48px;
-            height: 48px;
-            border-radius: 50%;
-            background: rgba(255,255,255,0.9);
-            border: 2px solid rgba(0,0,0,0.1);
-            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-            cursor: pointer;
-            z-index: 10000;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 20px;
-            transition: all 0.2s ease;
-        `;
-        fullscreenBtn.innerHTML = '⛶';
-        
-        fullscreenBtn.addEventListener('mouseenter', function() {
-            fullscreenBtn.style.transform = 'scale(1.1)';
-            fullscreenBtn.style.boxShadow = '0 6px 16px rgba(0,0,0,0.2)';
-        });
-        
-        fullscreenBtn.addEventListener('mouseleave', function() {
-            fullscreenBtn.style.transform = 'scale(1)';
-            fullscreenBtn.style.boxShadow = '0 4px 12px rgba(0,0,0,0.15)';
-        });
-        
-        fullscreenBtn.addEventListener('click', function() {
-            console.log('🖥️ Fullscreen button clicked');
-            
-            // Wait for toggleFullscreen to be available if not yet loaded
-            const attemptToggle = function() {
-                if (typeof window.toggleFullscreen === 'function') {
-                    console.log('✅ Calling toggleFullscreen');
-                    window.toggleFullscreen();
-                } else {
-                    console.warn('⚠️ toggleFullscreen not available yet, retrying...');
-                    setTimeout(attemptToggle, 100);
-                }
-            };
-            
-            attemptToggle();
-        });
-        
-        document.body.appendChild(fullscreenBtn);
-        console.log('✅ Fullscreen button added');
-    }
-
-    // Add fullscreen button after DOM is ready
-    window.addEventListener('DOMContentLoaded', function() {
-        addFullscreenButton();
+    fullscreenBtn.addEventListener('mouseenter', function() {
+        fullscreenBtn.style.transform = 'scale(1.1)';
+        fullscreenBtn.style.boxShadow = '0 6px 16px rgba(0,0,0,0.2)';
     });
+    
+    fullscreenBtn.addEventListener('mouseleave', function() {
+        fullscreenBtn.style.transform = 'scale(1)';
+        fullscreenBtn.style.boxShadow = '0 4px 12px rgba(0,0,0,0.15)';
+    });
+    
+    fullscreenBtn.addEventListener('click', function() {
+        // Wait for toggleFullscreen to be available if not yet loaded
+        const attemptToggle = function() {
+            if (typeof window.toggleFullscreen === 'function') {
+                window.toggleFullscreen();
+            } else {
+                setTimeout(attemptToggle, 100);
+            }
+        };
+        
+        attemptToggle();
+    });
+    
+    document.body.appendChild(fullscreenBtn);
+}
+
+// Add fullscreen button after DOM is ready
+window.addEventListener('DOMContentLoaded', function() {
+    addFullscreenButton();
+});
 
 })(); // End of IIFE
 
