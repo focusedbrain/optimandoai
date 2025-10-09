@@ -1036,24 +1036,171 @@ function initializeExtension() {
       })
     })
   }
+  // ========================================
+  // PERSISTENT MASTER TAB REGISTRATION
+  // ========================================
+  
+  /**
+   * Get or create a unique, persistent browser tab ID
+   * This ID survives page refreshes (stored in sessionStorage)
+   */
+  function getBrowserTabId(): string {
+    let browserTabId = sessionStorage.getItem('optimando-browser-tab-id')
+    if (!browserTabId) {
+      browserTabId = `tab_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+      sessionStorage.setItem('optimando-browser-tab-id', browserTabId)
+      console.log('🆔 Created new browser tab ID:', browserTabId)
+    }
+    return browserTabId
+  }
+  
+  /**
+   * Synchronously get the master tab number from cache
+   * Must call initializeMasterTabNumber() first to populate cache
+   */
+  function getMasterTabNumber(): { masterTabNumber: number; masterTabCode: string } {
+    const cachedMasterTabNumber = sessionStorage.getItem('optimando-master-tab-number')
+    const browserTabId = sessionStorage.getItem('optimando-browser-tab-id')
+    
+    if (cachedMasterTabNumber) {
+      const num = parseInt(cachedMasterTabNumber, 10)
+      console.log('📍 getMasterTabNumber: Using cached number', num, 'for browser tab:', browserTabId)
+      return {
+        masterTabNumber: num,
+        masterTabCode: `MT${String(num).padStart(2, '0')}`
+      }
+    }
+    
+    // Fallback: use URL parameter if no cache available (should only happen briefly during initialization)
+    const urlParams = new URLSearchParams(window.location.search)
+    const hybridMasterId = urlParams.get('hybrid_master_id')
+    const num = hybridMasterId ? parseInt(hybridMasterId, 10) + 2 : 1
+    console.warn('⚠️ getMasterTabNumber: No cached master tab number! Using fallback:', num, '(browser tab:', browserTabId, ')')
+    console.warn('⚠️ This should only happen briefly during initialization. If you see this repeatedly, there is a bug.')
+    return {
+      masterTabNumber: num,
+      masterTabCode: `MT${String(num).padStart(2, '0')}`
+    }
+  }
+  
+  /**
+   * Initialize and register this browser tab with the session (async)
+   * This should be called early in the page lifecycle
+   */
+  function initializeMasterTabNumber(callback?: (result: { masterTabNumber: number; masterTabCode: string; isNewRegistration: boolean }) => void) {
+    const browserTabId = getBrowserTabId()
+    const sessionKey = getCurrentSessionKey()
+    
+    // Check if already cached
+    const cachedMasterTabNumber = sessionStorage.getItem('optimando-master-tab-number')
+    if (cachedMasterTabNumber) {
+      const num = parseInt(cachedMasterTabNumber, 10)
+      console.log('📍 Using cached master tab number:', num, 'for browser tab:', browserTabId)
+      if (callback) {
+        callback({
+          masterTabNumber: num,
+          masterTabCode: `MT${String(num).padStart(2, '0')}`,
+          isNewRegistration: false
+        })
+      }
+      return
+    }
+    
+    if (!sessionKey || !chrome?.storage?.local) {
+      // Fallback: use URL parameter if no session available
+      const urlParams = new URLSearchParams(window.location.search)
+      const hybridMasterId = urlParams.get('hybrid_master_id')
+      const num = hybridMasterId ? parseInt(hybridMasterId, 10) + 2 : 1
+      console.log('⚠️ No session key, using fallback master tab number:', num)
+      sessionStorage.setItem('optimando-master-tab-number', String(num))
+      if (callback) {
+        callback({
+          masterTabNumber: num,
+          masterTabCode: `MT${String(num).padStart(2, '0')}`,
+          isNewRegistration: false
+        })
+      }
+      return
+    }
+    
+    // Load session and check/register this browser tab
+    console.log('🔍 Loading session to check/register browser tab:', browserTabId, 'in session:', sessionKey)
+    chrome.storage.local.get([sessionKey], (result) => {
+      const session = result[sessionKey] || {}
+      
+      console.log('📋 Session loaded. Current registry:', session.masterTabRegistry || {})
+      
+      // Initialize masterTabRegistry if not exists
+      if (!session.masterTabRegistry) {
+        session.masterTabRegistry = {}
+        console.log('🆕 Created new masterTabRegistry for session')
+      }
+      
+      // Check if this browser tab is already registered
+      if (session.masterTabRegistry[browserTabId]) {
+        const num = session.masterTabRegistry[browserTabId]
+        console.log('✅ Browser tab already registered:', browserTabId, '→ Master Tab', num)
+        console.log('📋 Full registry:', JSON.stringify(session.masterTabRegistry, null, 2))
+        sessionStorage.setItem('optimando-master-tab-number', String(num))
+        if (callback) {
+          callback({
+            masterTabNumber: num,
+            masterTabCode: `MT${String(num).padStart(2, '0')}`,
+            isNewRegistration: false
+          })
+        }
+        return
+      }
+      
+      // New browser tab - assign next available master tab number
+      const existingNumbers = Object.values(session.masterTabRegistry).map((n: any) => parseInt(n, 10))
+      const maxNumber = existingNumbers.length > 0 ? Math.max(...existingNumbers) : 0
+      const newNumber = maxNumber + 1
+      
+      // Register this browser tab
+      session.masterTabRegistry[browserTabId] = newNumber
+      
+      console.log('🆕 Registered NEW browser tab:', browserTabId, '→ Master Tab', newNumber)
+      console.log('📋 Previous registry:', JSON.stringify(session.masterTabRegistry, null, 2))
+      
+      // Save updated session
+      chrome.storage.local.set({ [sessionKey]: session }, () => {
+        console.log('💾 Saved updated registry to session:', sessionKey)
+        sessionStorage.setItem('optimando-master-tab-number', String(newNumber))
+        if (callback) {
+          callback({
+            masterTabNumber: newNumber,
+            masterTabCode: `MT${String(newNumber).padStart(2, '0')}`,
+            isNewRegistration: true
+          })
+        }
+      })
+    })
+  }
+  
   function saveTabDataToStorage() {
     localStorage.setItem(`optimando-tab-${tabId}`, JSON.stringify(currentTabData))
     
-    // Get current master tab location
-    const urlParams = new URLSearchParams(window.location.search)
-    const hybridMasterId = urlParams.get('hybrid_master_id')
-    const masterTabNumber = hybridMasterId ? parseInt(hybridMasterId, 10) + 2 : 1
-    const masterTabCode = `MT${String(masterTabNumber).padStart(2, '0')}`
+    // Get persistent master tab number
+    const { masterTabNumber, masterTabCode } = getMasterTabNumber()
+    
+    // Filter boxes that belong to THIS master tab only (critical for multi-tab support)
+    const boxesForThisTab = currentTabData.agentBoxes.filter((box: any) => {
+      // Skip display grid boxes (they're stored separately)
+      if (box.source === 'display_grid' || box.gridSessionId) return false
+      // Include only boxes that match this master tab code
+      return box.masterTabCode === masterTabCode
+    })
     
     // Save with location-specific key
     const locationKey = `optimando-agentboxes-${masterTabCode}`
     localStorage.setItem(locationKey, JSON.stringify({
-      agentBoxes: currentTabData.agentBoxes,
+      agentBoxes: boxesForThisTab,
       agentBoxHeights: currentTabData.agentBoxHeights,
       masterTabCode: masterTabCode,
       timestamp: new Date().toISOString()
     }))
-    console.log('🔧 DEBUG: Saved agent boxes to location storage:', locationKey, currentTabData.agentBoxes?.length)
+    console.log('🔧 DEBUG: Saved', boxesForThisTab.length, 'agent boxes to location storage:', locationKey)
     
     // ✅ SYNC TO SESSION: Update session storage with location-separated boxes
     const sessionKey = getCurrentSessionKey()
@@ -1067,8 +1214,8 @@ function initializeExtension() {
         }
         
         // Store boxes for this specific master tab location
-        if (currentTabData.agentBoxes && currentTabData.agentBoxes.length > 0) {
-          session.agentBoxesByLocation[masterTabCode] = currentTabData.agentBoxes
+        if (boxesForThisTab.length > 0) {
+          session.agentBoxesByLocation[masterTabCode] = boxesForThisTab
           
           // Also maintain flat list for backward compatibility
           const allBoxes: any[] = []
@@ -1099,11 +1246,28 @@ function initializeExtension() {
     // Check if this is a fresh browser session (sessionStorage gets cleared on browser close)
     const browserSessionMarker = sessionStorage.getItem('optimando-browser-session')
     const existingSessionKey = sessionStorage.getItem('optimando-current-session-key')
-    const isFreshBrowserSession = !browserSessionMarker && !existingSessionKey
+    
+    // CRITICAL: Check URL for session key (hybrid tabs have this)
+    const urlParams = new URLSearchParams(window.location.search)
+    const sessionKeyFromUrl = urlParams.get('optimando_session_key')
+    
+    // If URL has session key, use it immediately (hybrid tab joining existing session)
+    if (sessionKeyFromUrl) {
+      console.log('🔗 Hybrid tab detected - joining session:', sessionKeyFromUrl)
+      try {
+        sessionStorage.setItem('optimando-current-session-key', sessionKeyFromUrl)
+        sessionStorage.setItem('optimando-browser-session', 'active')
+        localStorage.setItem('optimando-global-active-session', sessionKeyFromUrl)
+      } catch {}
+    }
+    
+    // Only treat as fresh if NO session markers AND no URL session key
+    const isFreshBrowserSession = !browserSessionMarker && !existingSessionKey && !sessionKeyFromUrl
     
     console.log('🔧 DEBUG: Session check:', {
       browserSessionMarker,
       existingSessionKey,
+      sessionKeyFromUrl,
       isFreshBrowserSession
     })
     
@@ -1136,10 +1300,20 @@ function initializeExtension() {
       
       // Clear all old tab-specific data to ensure fresh start
       Object.keys(localStorage).forEach(key => {
-        if (key.startsWith('optimando-tab-')) {
+        if (key.startsWith('optimando-tab-') || key.startsWith('optimando-agentboxes-')) {
           localStorage.removeItem(key)
+          console.log('🧹 Cleared old data:', key)
         }
       })
+      
+      // Clear session storage cache for master tab numbering
+      sessionStorage.removeItem('optimando-master-tab-number')
+      sessionStorage.removeItem('optimando-browser-tab-id')
+      
+      // Clear agent boxes from current tab data
+      currentTabData.agentBoxes = []
+      currentTabData.agentBoxHeights = {}
+      currentTabData.displayGrids = []
       
       // Generate new session name for fresh start
       currentTabData.tabName = `WR Session ${new Date().toLocaleString('en-GB', { 
@@ -1162,12 +1336,24 @@ function initializeExtension() {
           ...currentTabData,
           timestamp: new Date().toISOString(),
           url: window.location.href,
+          masterUrl: window.location.href,
+          agentBoxes: [],
+          agentBoxesByLocation: {},
+          agentBoxHeights: {},
           helperTabs: null,
-          displayGrids: null
+          displayGrids: [],
+          masterTabRegistry: {}  // Fresh registry for new session
         }
         chrome.storage.local.set({ [sessionKey]: sessionData }, () => {
           console.log('🆕 Fresh browser session added to history:', sessionKey)
           setCurrentSessionKey(sessionKey)
+          
+          // Initialize this tab as MT01 for the new session
+          initializeMasterTabNumber((result) => {
+            console.log('🎯 Fresh session - Master tab initialized:', result.masterTabCode)
+            // Render empty state
+            renderAgentBoxes()
+          })
         })
       } catch (e) {
         console.error('❌ Failed to create fresh session entry:', e)
@@ -1181,48 +1367,59 @@ function initializeExtension() {
     console.log('🔧 DEBUG: Continuing existing browser session')
     sessionStorage.setItem('optimando-browser-session', 'active') // Refresh marker
     
-    const saved = localStorage.getItem(`optimando-tab-${tabId}`)
-    if (saved) {
-      const savedData = JSON.parse(saved)
-      currentTabData = { ...currentTabData, ...savedData }
-      console.log('🔧 DEBUG: Loaded tab data from storage, agentBoxes:', currentTabData.agentBoxes?.length || 0)
-    } else {
-      console.log('🔧 DEBUG: No saved tab data found')
-    }
-    // Load agent boxes for THIS specific master tab location
-    const urlParams = new URLSearchParams(window.location.search)
-    const hybridMasterId = urlParams.get('hybrid_master_id')
-    const masterTabNumber = hybridMasterId ? parseInt(hybridMasterId, 10) + 2 : 1
-    const masterTabCode = `MT${String(masterTabNumber).padStart(2, '0')}`
-    
-    // Try location-specific storage first
-    const locationKey = `optimando-agentboxes-${masterTabCode}`
-    const locationSaved = localStorage.getItem(locationKey)
-    if (locationSaved) {
-      try {
-        const locationData = JSON.parse(locationSaved)
-        if (locationData.agentBoxes && locationData.agentBoxes.length > 0) {
-          currentTabData.agentBoxes = locationData.agentBoxes
-          currentTabData.agentBoxHeights = locationData.agentBoxHeights || {}
-          console.log('🔧 DEBUG: Restored agent boxes from location storage:', masterTabCode, locationData.agentBoxes.length, 'boxes')
-        }
-      } catch (e) {
-        console.log('🔧 DEBUG: Error parsing location-based agent box data:', e)
+    // ✅ INITIALIZE PERSISTENT MASTER TAB NUMBER FIRST
+    // All data loading must happen AFTER this completes
+    initializeMasterTabNumber((result) => {
+      console.log('🎯 Master tab initialized:', result.masterTabCode, 
+                  result.isNewRegistration ? '(NEW)' : '(EXISTING)')
+      
+      const { masterTabCode } = result
+      
+      const saved = localStorage.getItem(`optimando-tab-${tabId}`)
+      if (saved) {
+        const savedData = JSON.parse(saved)
+        currentTabData = { ...currentTabData, ...savedData }
+        console.log('🔧 DEBUG: Loaded tab data from storage, agentBoxes:', currentTabData.agentBoxes?.length || 0)
+      } else {
+        console.log('🔧 DEBUG: No saved tab data found')
       }
-    }
-    
-    // Also try to load from session storage
-    const sessionKey = getCurrentSessionKey()
-    if (sessionKey && chrome?.storage?.local) {
-      chrome.storage.local.get([sessionKey], (result) => {
-        const session = result[sessionKey]
-        if (session?.agentBoxesByLocation?.[masterTabCode]) {
-          currentTabData.agentBoxes = session.agentBoxesByLocation[masterTabCode]
-          console.log('📦 Loaded agent boxes from session for', masterTabCode, ':', currentTabData.agentBoxes.length)
-          renderAgentBoxes()
+      
+      // Load agent boxes for THIS specific master tab location
+      console.log('🔧 DEBUG: Loading data for persistent master tab:', masterTabCode)
+      
+      // Try location-specific storage first
+      const locationKey = `optimando-agentboxes-${masterTabCode}`
+      const locationSaved = localStorage.getItem(locationKey)
+      if (locationSaved) {
+        try {
+          const locationData = JSON.parse(locationSaved)
+          if (locationData.agentBoxes && locationData.agentBoxes.length > 0) {
+            currentTabData.agentBoxes = locationData.agentBoxes
+            currentTabData.agentBoxHeights = locationData.agentBoxHeights || {}
+            console.log('🔧 DEBUG: Restored agent boxes from location storage:', masterTabCode, locationData.agentBoxes.length, 'boxes')
+          }
+        } catch (e) {
+          console.log('🔧 DEBUG: Error parsing location-based agent box data:', e)
         }
-      })
-    }
+      }
+      
+      // Also try to load from session storage (with priority)
+      const sessionKey = getCurrentSessionKey()
+      if (sessionKey && chrome?.storage?.local) {
+        chrome.storage.local.get([sessionKey], (sessionResult) => {
+          const session = sessionResult[sessionKey]
+          if (session?.agentBoxesByLocation?.[masterTabCode]) {
+            currentTabData.agentBoxes = session.agentBoxesByLocation[masterTabCode]
+            console.log('📦 Loaded agent boxes from session for', masterTabCode, ':', currentTabData.agentBoxes.length)
+          }
+          // Always render after loading (whether from session or localStorage)
+          renderAgentBoxes()
+        })
+      } else {
+        // No session available, render what we have from localStorage
+        renderAgentBoxes()
+      }
+    })
   }
 
   loadTabDataFromStorage()
@@ -1267,11 +1464,9 @@ function initializeExtension() {
       saveTabDataToStorage()
     }
     
-    // Get current master tab code for filtering
-    const currentUrlParams = new URLSearchParams(window.location.search)
-    const currentHybridId = currentUrlParams.get('hybrid_master_id')
-    const currentMasterTabNumber = currentHybridId ? parseInt(currentHybridId, 10) + 2 : 1
-    const currentMasterTabCode = `MT${String(currentMasterTabNumber).padStart(2, '0')}`
+    // Get current master tab code for filtering (using persistent registration)
+    const { masterTabNumber: currentMasterTabNumber, masterTabCode: currentMasterTabCode } = getMasterTabNumber()
+    console.log('🔧 DEBUG: Using persistent master tab for rendering:', currentMasterTabCode)
     
     // Filter boxes that belong to THIS master tab only
     const boxesForThisTab = currentTabData.agentBoxes.filter((box: any) => {
@@ -1289,13 +1484,13 @@ function initializeExtension() {
     console.log('🔧 DEBUG: Rendering', boxesForThisTab.length, 'boxes for', currentMasterTabCode)
     
     boxesForThisTab.forEach((box: any) => {
-      // Determine target container based on sidebar code
+      // Determine target container based on sidebar code (works for ALL master tabs)
       let targetContainer = leftContainer
-      if (isHybridMaster && rightContainer && (box.sidebarCode === 'SBR' || box.side === 'right')) {
+      if (rightContainer && (box.sidebarCode === 'SBR' || box.side === 'right')) {
         targetContainer = rightContainer
-        console.log('📍 Rendering box', box.identifier || box.title, 'to RIGHT side')
+        console.log('📍 Rendering box', box.identifier || box.title, 'to RIGHT side (sidebarCode:', box.sidebarCode, ')')
       } else {
-        console.log('📍 Rendering box', box.identifier || box.title, 'to LEFT side')
+        console.log('📍 Rendering box', box.identifier || box.title, 'to LEFT side (sidebarCode:', box.sidebarCode, ')')
       }
       
       const agentDiv = document.createElement('div')
@@ -1600,14 +1795,9 @@ function initializeExtension() {
       const id = `custom-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
       const outputId = `${id}-output`
         
-        // Determine which master tab and sidebar
-        const urlParams = new URLSearchParams(window.location.search)
-        const hybridMasterId = urlParams.get('hybrid_master_id')
+        // Determine which master tab and sidebar (using persistent registration)
         const clickSide = (window as any).lastAgentBoxClickSide || 'left'
-        
-        // Calculate master tab number and codes
-        const masterTabNumber = hybridMasterId ? parseInt(hybridMasterId, 10) + 2 : 1
-        const masterTabCode = `MT${String(masterTabNumber).padStart(2, '0')}`
+        const { masterTabNumber, masterTabCode } = getMasterTabNumber()
         const sidebarCode = clickSide === 'right' ? 'SBR' : 'SBL'
         const locationId = `${masterTabCode}_${sidebarCode}`
         
@@ -12615,46 +12805,76 @@ ${pageText}
       
       // Add ALL agent boxes from ALL master tabs
       const allBoxes: any[] = []
+      const seenIdentifiers = new Set<string>()
       
       // Collect from agentBoxesByLocation if available
       if (session.agentBoxesByLocation) {
         console.log(`📊 Overview: Found agentBoxesByLocation:`, Object.keys(session.agentBoxesByLocation))
         Object.entries(session.agentBoxesByLocation).forEach(([masterTabCode, boxes]: [string, any]) => {
           if (Array.isArray(boxes)) {
-            console.log(`📊 Overview: Processing ${boxes.length} boxes from ${masterTabCode}`)
-            allBoxes.push(...boxes)
+            console.log(`📊 Overview: Processing ${boxes.length} boxes from ${masterTabCode}:`, boxes.map((b: any) => b.identifier))
+            boxes.forEach((box: any) => {
+              if (box) {
+                const boxId = box.identifier || box.id || `${box.boxNumber}_${box.agentNumber}`
+                if (!seenIdentifiers.has(boxId)) {
+                  seenIdentifiers.add(boxId)
+                  allBoxes.push(box)
+                }
+              }
+            })
           }
         })
       }
       
-      // Fallback to flat agentBoxes array if agentBoxesByLocation doesn't exist
-      if (allBoxes.length === 0 && session.agentBoxes && Array.isArray(session.agentBoxes)) {
-        console.log(`📊 Overview: Using flat session.agentBoxes (${session.agentBoxes.length} boxes)`)
-        allBoxes.push(...session.agentBoxes)
+      // Also check flat agentBoxes array for any missed boxes (merge, don't replace)
+      if (session.agentBoxes && Array.isArray(session.agentBoxes)) {
+        console.log(`📊 Overview: Also checking flat session.agentBoxes (${session.agentBoxes.length} boxes)`)
+        session.agentBoxes.forEach((box: any) => {
+          if (box) {
+            const boxId = box.identifier || box.id || `${box.boxNumber}_${box.agentNumber}`
+            if (!seenIdentifiers.has(boxId)) {
+              console.log(`📊 Overview: Adding box from flat array: ${box.identifier}`)
+              seenIdentifiers.add(boxId)
+              allBoxes.push(box)
+            }
+          }
+        })
       }
       
       console.log(`📊 Overview: Processing total of ${allBoxes.length} agent boxes`)
       
       allBoxes.forEach((box: any, index: number) => {
+        console.log(`🔍 Overview: Checking Box ${index}:`, {
+          identifier: box.identifier,
+          title: box.title,
+          masterTabCode: box.masterTabCode,
+          sidebarCode: box.sidebarCode,
+          source: box.source,
+          gridSessionId: box.gridSessionId,
+          boxNumber: box.boxNumber,
+          agentNumber: box.agentNumber
+        })
+        
         // Only include master tab boxes (not display grid)
-        if (box && box.source !== 'display_grid' && !box.gridSessionId && (box.title || box.agentId || box.agentNumber || box.model || box.provider)) {
+        // Relaxed condition: just check if it's not a grid box and has an identifier or box number
+        if (box && box.source !== 'display_grid' && !box.gridSessionId && (box.identifier || box.boxNumber || box.number)) {
           // Use the stored identifier
           const identifier = box.identifier || `AB${String(box.boxNumber || box.number || 0).padStart(2, '0')}${String(box.agentNumber || 0).padStart(2, '0')}`
           
-          console.log(`✅ Overview: INCLUDING Box ${index}: identifier=${identifier}`)
+          console.log(`✅ Overview: INCLUDING Box ${index}: identifier=${identifier}, title=${box.title}`)
           
           // Determine location from masterTabCode and sidebarCode
-          let location = 'Master Tab (1)'
+          let location = 'Master Tab (01) - Left Panel'
           if (box.masterTabCode) {
             const tabNum = parseInt(box.masterTabCode.slice(2), 10)
             const sidebar = box.sidebarCode === 'SBR' ? ' - Right Panel' : ' - Left Panel'
-            if (tabNum === 1) {
-              location = 'Master Tab (1)'
-            } else {
-              location = `Master Tab (${tabNum})${sidebar}`
-            }
+            location = `Master Tab (${String(tabNum).padStart(2, '0')})${sidebar}`
           } else if (box.locationLabel) {
             location = box.locationLabel
+          } else if (box.sidebarCode) {
+            // Fallback: derive from sidebarCode if masterTabCode is missing
+            const sidebar = box.sidebarCode === 'SBR' ? ' - Right Panel' : ' - Left Panel'
+            location = `Master Tab (01)${sidebar}`
           }
           
           registeredBoxes.push({
