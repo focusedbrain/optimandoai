@@ -26,7 +26,7 @@ if (window.gridScriptLoaded) {
   console.log('📦 Next box number:', window.nextBoxNumber);
   
   if (layout && layout !== 'unknown') {
-    document.title = 'AI Grid - ' + layout.toUpperCase();
+  document.title = 'AI Grid - ' + layout.toUpperCase();
   }
   
   // Define openGridSlotEditor function immediately
@@ -274,26 +274,23 @@ if (window.gridScriptLoaded) {
       var model = document.getElementById('gs-model').value;
       
       var agent = agentNum ? ('agent' + agentNum) : '';
+      var agentNumParsed = agent ? parseInt(agent.replace('agent', '')) : 0;
       
-      console.log('💾 POPUP: Saving slot config:', { title, agent, provider, model, boxNumber: nextBoxNumber });
-      
-      // Update slot data attribute - include boxNumber AND locationId
-      var agentNum = agent ? parseInt(agent.replace('agent', '')) : 0;
-      
-      // ✅ Generate locationId and locationLabel for this slot
+      // Generate locationId and locationLabel for this slot
       var gridSessionId = window.gridSessionId || 'unknown';
       var gridLayout = window.gridLayout || layout;
       var locationId = 'grid_' + gridSessionId + '_' + gridLayout + '_slot' + slotId;
       var locationLabel = gridLayout + ' Display Grid - Slot ' + slotId;
       
+      // Build complete configuration object with all metadata
       var newConfig = { 
         title: title, 
         agent: agent, 
         provider: provider, 
         model: model, 
         boxNumber: nextBoxNumber,
-        agentNumber: agentNum,
-        identifier: 'AB' + String(nextBoxNumber).padStart(2, '0') + String(agentNum).padStart(2, '0'),
+        agentNumber: agentNumParsed,
+        identifier: 'AB' + String(nextBoxNumber).padStart(2, '0') + String(agentNumParsed).padStart(2, '0'),
         tools: (cfg.tools || []),
         locationId: locationId,
         locationLabel: locationLabel,
@@ -302,36 +299,28 @@ if (window.gridScriptLoaded) {
         slotId: slotId,
         source: 'display_grid'
       };
+      
+      // Update slot's data attribute with complete config
       slot.setAttribute('data-slot-config', JSON.stringify(newConfig));
       
-      // Update visual display with correct box number
+      // Update visual display
       var agentNumForAB = agent ? agent.replace('agent', '').padStart(2, '0') : '00';
       var ab = 'AB' + String(nextBoxNumber).padStart(2, '0') + agentNumForAB;
       var abEl = slot.querySelector('span[style*="font-family: monospace"]');
       if (abEl) abEl.textContent = ab;
       
-      var parts = [title];
+      var displayParts = [title];
       if (model && model !== 'auto') {
-        parts.push(model);
+        displayParts.push(model);
       } else if (provider) {
-        parts.push(provider);
+        displayParts.push(provider);
       }
-      var disp = parts.join(' · ');
+      var displayText = displayParts.join(' · ');
       var dispEl = slot.querySelector('.slot-display-text');
-      if (dispEl) dispEl.textContent = disp;
-      
-      console.log('✅ POPUP: Updated slot display for slot', slotId);
-      
-      // ✅ CRITICAL: Save newConfig to the slot's data attribute BEFORE collecting all slots!
-      slot.setAttribute('data-slot-config', JSON.stringify(newConfig));
-      console.log('✅ POPUP: Saved newConfig to slot data attribute:', newConfig);
-      console.log('🔍 POPUP: Slot element after save:', slot);
-      console.log('🔍 POPUP: data-slot-config value:', slot.getAttribute('data-slot-config'));
+      if (dispEl) dispEl.textContent = displayText;
       
       // Get parent session key from global config
       var parentSessionKey = (window.GRID_CONFIG && window.GRID_CONFIG.sessionKey) || '';
-      
-      console.log('🔑 Parent session key:', parentSessionKey);
       
       if (!parentSessionKey) {
         alert('❌ No session key found! Cannot save.');
@@ -339,10 +328,7 @@ if (window.gridScriptLoaded) {
         return;
       }
       
-      // ✅ NEW APPROACH: Write directly to chrome.storage.local
-      console.log('💾 DIRECT SAVE: Writing agent box directly to session storage...');
-      
-      // Create the agent box entry with ALL fields from newConfig
+      // Save agent box to chrome.storage.local
       var agentBox = {
         identifier: newConfig.identifier,
         boxNumber: newConfig.boxNumber,
