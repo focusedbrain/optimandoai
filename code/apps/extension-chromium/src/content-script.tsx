@@ -12613,85 +12613,61 @@ ${pageText}
       
       console.log('🔍 Overview: Main tab URL set to:', mainTabUrl)
       
-      // Add ALL agent boxes from master tab that have been configured
-      if (session.agentBoxes && Array.isArray(session.agentBoxes)) {
-        console.log(`📊 Overview: Processing ${session.agentBoxes.length} agent boxes from session.agentBoxes`)
-        
-        session.agentBoxes.forEach((box: any, index: number) => {
-          console.log(`📦 Overview: Box ${index}:`, JSON.stringify(box, null, 2))
-          
-          // Only include boxes that have at least a title, agent, or model configured
-          if (box && (box.title || box.agentId || box.agentNumber || box.model || box.provider)) {
-            // Get box number
-            const boxNumber = box.boxNumber || box.number || 0
-            
-            // Get agent number
-            let agentNumber = 0
-            if (box.agentNumber) {
-              agentNumber = box.agentNumber
-            } else if (box.agentId && String(box.agentId).match(/agent(\d+)/)) {
-              const match = String(box.agentId).match(/agent(\d+)/)
-              agentNumber = parseInt(match[1])
-            } else if (box.model && String(box.model).match(/agent(\d+)/)) {
-              const match = String(box.model).match(/agent(\d+)/)
-              agentNumber = parseInt(match[1])
-            }
-            
-            // Generate identifier
-            const identifier = box.identifier || `AB${String(boxNumber).padStart(2, '0')}${String(agentNumber).padStart(2, '0')}`
-            
-            console.log(`✅ Overview: INCLUDING Box ${index}: boxNum=${boxNumber}, agentNum=${agentNumber}, identifier=${identifier}`)
-            
-            // Determine location based on source field
-            let location = 'Master Tab'
-            if (box.source === 'display_grid') {
-              // Show grid layout if available (e.g., "2-slot Display Grid")
-              if (box.gridLayout) {
-                location = `${box.gridLayout} Display Grid`
-              } else {
-                location = 'Display Grid'
-              }
-            } else if (box.gridSessionId) {
-              // Fallback: if it has gridSessionId, it's from a display grid
-              if (box.gridLayout) {
-                location = `${box.gridLayout} Display Grid`
-              } else {
-                location = 'Display Grid'
-              }
-            } else {
-              // Master tab - assign tab number based on unique URL (normalized)
-              if (box.tabUrl) {
-                // Normalize URL to remove query parameters and hash
-                const normalizedUrl = normalizeUrl(box.tabUrl)
-                
-                // Get or assign tab index for this normalized URL
-                if (!tabUrlToIndex.has(normalizedUrl)) {
-                  tabUrlToIndex.set(normalizedUrl, nextTabIndex)
-                  nextTabIndex++
-                }
-                const tabNum = tabUrlToIndex.get(normalizedUrl)
-                if (tabNum && tabNum > 1) {
-                  location = `Master Tab (${tabNum})`
-                } else {
-                  location = 'Master Tab'  // First tab doesn't need number
-                }
-              }
-            }
-            
-            registeredBoxes.push({
-              boxNumber: boxNumber,
-              agentNumber: agentNumber,
-              identifier: identifier,
-              title: box.title || `Agent Box ${String(boxNumber).padStart(2, '0')}`,
-              location: location,
-              provider: box.provider,
-              model: box.model
-            })
-          } else {
-            console.log(`❌ Overview: EXCLUDING Box ${index}: no title/agent/model/provider`)
+      // Add ALL agent boxes from ALL master tabs
+      const allBoxes: any[] = []
+      
+      // Collect from agentBoxesByLocation if available
+      if (session.agentBoxesByLocation) {
+        console.log(`📊 Overview: Found agentBoxesByLocation:`, Object.keys(session.agentBoxesByLocation))
+        Object.entries(session.agentBoxesByLocation).forEach(([masterTabCode, boxes]: [string, any]) => {
+          if (Array.isArray(boxes)) {
+            console.log(`📊 Overview: Processing ${boxes.length} boxes from ${masterTabCode}`)
+            allBoxes.push(...boxes)
           }
         })
       }
+      
+      // Fallback to flat agentBoxes array if agentBoxesByLocation doesn't exist
+      if (allBoxes.length === 0 && session.agentBoxes && Array.isArray(session.agentBoxes)) {
+        console.log(`📊 Overview: Using flat session.agentBoxes (${session.agentBoxes.length} boxes)`)
+        allBoxes.push(...session.agentBoxes)
+      }
+      
+      console.log(`📊 Overview: Processing total of ${allBoxes.length} agent boxes`)
+      
+      allBoxes.forEach((box: any, index: number) => {
+        // Only include master tab boxes (not display grid)
+        if (box && box.source !== 'display_grid' && !box.gridSessionId && (box.title || box.agentId || box.agentNumber || box.model || box.provider)) {
+          // Use the stored identifier
+          const identifier = box.identifier || `AB${String(box.boxNumber || box.number || 0).padStart(2, '0')}${String(box.agentNumber || 0).padStart(2, '0')}`
+          
+          console.log(`✅ Overview: INCLUDING Box ${index}: identifier=${identifier}`)
+          
+          // Determine location from masterTabCode and sidebarCode
+          let location = 'Master Tab (1)'
+          if (box.masterTabCode) {
+            const tabNum = parseInt(box.masterTabCode.slice(2), 10)
+            const sidebar = box.sidebarCode === 'SBR' ? ' - Right Panel' : ' - Left Panel'
+            if (tabNum === 1) {
+              location = 'Master Tab (1)'
+            } else {
+              location = `Master Tab (${tabNum})${sidebar}`
+            }
+          } else if (box.locationLabel) {
+            location = box.locationLabel
+          }
+          
+          registeredBoxes.push({
+            boxNumber: box.boxNumber || box.number || 0,
+            agentNumber: box.agentNumber || 0,
+            identifier: identifier,
+            title: box.title || `Agent Box ${String(box.boxNumber || 0).padStart(2, '0')}`,
+            location: location,
+            provider: box.provider,
+            model: box.model
+          })
+        }
+      })
       
       // Add display grid slots that are set up
       console.log('📊 Overview: Checking session.displayGrids:', session.displayGrids)
@@ -12762,11 +12738,11 @@ ${pageText}
           : box.provider || box.model || 'Not configured'
         
         return `
-          <div style="background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.2); border-radius: 10px; padding: 12px; margin: 8px 0; display: grid; grid-template-columns: 110px 1fr 1fr 140px; gap: 12px; align-items: center;">
-            <div style="font-family: monospace; font-weight: 700; color: #fbbf24; font-size: 16px;">${identifier}</div>
-            <div style="font-size: 14px;">${box.title}</div>
-            <div style="font-size: 13px; opacity: 0.9;">${llmInfo}</div>
-            <div style="font-size: 12px; opacity: 0.8;">${box.location}</div>
+          <div style="background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.2); border-radius: 10px; padding: 12px; margin: 8px 0; display: grid; grid-template-columns: 180px 1fr 1fr 200px; gap: 12px; align-items: center;">
+            <div style="font-family: monospace; font-weight: 700; color: #fbbf24; font-size: 13px; word-break: break-all;">${identifier}</div>
+            <div style="font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${box.title}</div>
+            <div style="font-size: 13px; opacity: 0.9; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${llmInfo}</div>
+            <div style="font-size: 12px; opacity: 0.8; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${box.location}</div>
           </div>
         `
       }).join('')
@@ -12794,7 +12770,7 @@ ${pageText}
             </div>
             
             <div style="background: rgba(255,255,255,0.05); padding: 10px; border-radius: 8px; margin-bottom: 15px;">
-              <div style="display: grid; grid-template-columns: 110px 1fr 1fr 140px; gap: 12px; font-size: 11px; font-weight: 600; color: rgba(255,255,255,0.6); text-transform: uppercase;">
+              <div style="display: grid; grid-template-columns: 180px 1fr 1fr 200px; gap: 12px; font-size: 11px; font-weight: 600; color: rgba(255,255,255,0.6); text-transform: uppercase;">
                 <div>Identifier</div>
                 <div>Title</div>
                 <div>Selected LLM</div>
