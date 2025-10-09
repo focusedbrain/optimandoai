@@ -1039,32 +1039,47 @@ function initializeExtension() {
   function saveTabDataToStorage() {
     localStorage.setItem(`optimando-tab-${tabId}`, JSON.stringify(currentTabData))
     
-    // Also save agent boxes configuration with URL-based key for persistence across page reloads
-    const currentUrl = window.location.href.split('?')[0]
-    const urlKey = `optimando-agentboxes-${btoa(currentUrl).substring(0, 20)}`
-    localStorage.setItem(urlKey, JSON.stringify({
+    // Get current master tab location
+    const urlParams = new URLSearchParams(window.location.search)
+    const hybridMasterId = urlParams.get('hybrid_master_id')
+    const masterTabNumber = hybridMasterId ? parseInt(hybridMasterId, 10) + 2 : 1
+    const masterTabCode = `MT${String(masterTabNumber).padStart(2, '0')}`
+    
+    // Save with location-specific key
+    const locationKey = `optimando-agentboxes-${masterTabCode}`
+    localStorage.setItem(locationKey, JSON.stringify({
       agentBoxes: currentTabData.agentBoxes,
       agentBoxHeights: currentTabData.agentBoxHeights,
+      masterTabCode: masterTabCode,
       timestamp: new Date().toISOString()
     }))
-    console.log('🔧 DEBUG: Saved agent boxes to URL-based storage:', urlKey)
+    console.log('🔧 DEBUG: Saved agent boxes to location storage:', locationKey, currentTabData.agentBoxes?.length)
     
-    // ✅ SYNC TO SESSION: Also update the session's agentBoxes array
+    // ✅ SYNC TO SESSION: Update session storage with location-separated boxes
     const sessionKey = getCurrentSessionKey()
     if (sessionKey && chrome?.storage?.local) {
       chrome.storage.local.get([sessionKey], (result) => {
         const session = result[sessionKey] || {}
         
-        // Merge agent boxes from currentTabData (master tab boxes)
+        // Initialize agentBoxesByLocation if needed
+        if (!session.agentBoxesByLocation) {
+          session.agentBoxesByLocation = {}
+        }
+        
+        // Store boxes for this specific master tab location
         if (currentTabData.agentBoxes && currentTabData.agentBoxes.length > 0) {
-          session.agentBoxes = [...(session.agentBoxes || []), ...currentTabData.agentBoxes]
-            .filter((box, index, self) => 
-              index === self.findIndex(b => b.identifier === box.identifier)
-            ) // Remove duplicates by identifier
+          session.agentBoxesByLocation[masterTabCode] = currentTabData.agentBoxes
+          
+          // Also maintain flat list for backward compatibility
+          const allBoxes: any[] = []
+          Object.values(session.agentBoxesByLocation).forEach((boxes: any) => {
+            if (Array.isArray(boxes)) {
+              allBoxes.push(...boxes)
+            }
+          })
+          session.agentBoxes = allBoxes
+          
           session.agentBoxHeights = { ...(session.agentBoxHeights || {}), ...currentTabData.agentBoxHeights }
-        } else if (!session.agentBoxes) {
-          session.agentBoxes = []
-          session.agentBoxHeights = {}
         }
         
         // Save displayGrids metadata to session
@@ -1075,8 +1090,7 @@ function initializeExtension() {
         }
         
         chrome.storage.local.set({ [sessionKey]: session }, () => {
-          console.log('✅ Synced agent boxes to session:', sessionKey, session.agentBoxes?.length || 0, 'boxes')
-          console.log('✅ Synced display grids to session:', sessionKey, currentTabData.displayGrids?.length || 0, 'grids')
+          console.log('✅ Synced agent boxes to session:', sessionKey, masterTabCode, currentTabData.agentBoxes?.length || 0, 'boxes')
         })
       })
     }
@@ -1175,36 +1189,39 @@ function initializeExtension() {
     } else {
       console.log('🔧 DEBUG: No saved tab data found')
     }
-    // Also try to load agent boxes from URL-based storage (for persistence across page reloads)
-    const currentUrl = window.location.href.split('?')[0]
-    const urlKey = `optimando-agentboxes-${btoa(currentUrl).substring(0, 20)}`
-    const urlSaved = localStorage.getItem(urlKey)
-    if (urlSaved) {
+    // Load agent boxes for THIS specific master tab location
+    const urlParams = new URLSearchParams(window.location.search)
+    const hybridMasterId = urlParams.get('hybrid_master_id')
+    const masterTabNumber = hybridMasterId ? parseInt(hybridMasterId, 10) + 2 : 1
+    const masterTabCode = `MT${String(masterTabNumber).padStart(2, '0')}`
+    
+    // Try location-specific storage first
+    const locationKey = `optimando-agentboxes-${masterTabCode}`
+    const locationSaved = localStorage.getItem(locationKey)
+    if (locationSaved) {
       try {
-        const urlData = JSON.parse(urlSaved)
-        if (urlData.agentBoxes && urlData.agentBoxes.length > 0) {
-          currentTabData.agentBoxes = urlData.agentBoxes
-          currentTabData.agentBoxHeights = urlData.agentBoxHeights || {}
-          console.log('🔧 DEBUG: Restored agent boxes from URL-based storage:', urlData.agentBoxes.length, 'boxes')
+        const locationData = JSON.parse(locationSaved)
+        if (locationData.agentBoxes && locationData.agentBoxes.length > 0) {
+          currentTabData.agentBoxes = locationData.agentBoxes
+          currentTabData.agentBoxHeights = locationData.agentBoxHeights || {}
+          console.log('🔧 DEBUG: Restored agent boxes from location storage:', masterTabCode, locationData.agentBoxes.length, 'boxes')
         }
       } catch (e) {
-        console.log('🔧 DEBUG: Error parsing URL-based agent box data:', e)
+        console.log('🔧 DEBUG: Error parsing location-based agent box data:', e)
       }
     }
     
-    // For hybrid master tabs, clear any loaded agent boxes
-    const urlParams = new URLSearchParams(window.location.search)
-    const bootState = readOptimandoState()
-    const isHybridMaster = urlParams.has('hybrid_master_id') || 
-                          (dedicatedRole && dedicatedRole.type === 'hybrid') ||
-                          (bootState.role && bootState.role.type === 'hybrid')
-    
-    if (isHybridMaster && currentTabData.agentBoxes && currentTabData.agentBoxes.length > 0) {
-      console.log('🔧 DEBUG: Clearing agent boxes for hybrid master tab')
-      currentTabData.agentBoxes = []
-      currentTabData.agentBoxHeights = {}
-      // Save the cleared state
-      saveTabDataToStorage()
+    // Also try to load from session storage
+    const sessionKey = getCurrentSessionKey()
+    if (sessionKey && chrome?.storage?.local) {
+      chrome.storage.local.get([sessionKey], (result) => {
+        const session = result[sessionKey]
+        if (session?.agentBoxesByLocation?.[masterTabCode]) {
+          currentTabData.agentBoxes = session.agentBoxesByLocation[masterTabCode]
+          console.log('📦 Loaded agent boxes from session for', masterTabCode, ':', currentTabData.agentBoxes.length)
+          renderAgentBoxes()
+        }
+      })
     }
   }
 
@@ -1249,12 +1266,32 @@ function initializeExtension() {
       currentTabData.agentBoxes = []
       saveTabDataToStorage()
     }
-    console.log('🔧 DEBUG: Rendering', currentTabData.agentBoxes.length, 'agent boxes')
     
-    currentTabData.agentBoxes.forEach((box: any) => {
-      // Determine target container based on side property (for hybrid tabs)
+    // Get current master tab code for filtering
+    const currentUrlParams = new URLSearchParams(window.location.search)
+    const currentHybridId = currentUrlParams.get('hybrid_master_id')
+    const currentMasterTabNumber = currentHybridId ? parseInt(currentHybridId, 10) + 2 : 1
+    const currentMasterTabCode = `MT${String(currentMasterTabNumber).padStart(2, '0')}`
+    
+    // Filter boxes that belong to THIS master tab only
+    const boxesForThisTab = currentTabData.agentBoxes.filter((box: any) => {
+      // Skip display grid boxes
+      if (box.source === 'display_grid' || (box.locationId && box.locationId.startsWith('grid_'))) {
+        return false
+      }
+      // Check if box belongs to this master tab
+      const boxMasterTab = box.masterTabCode || 'MT01'
+      const belongs = boxMasterTab === currentMasterTabCode
+      console.log(`  Box ${box.identifier}: masterTab=${boxMasterTab}, current=${currentMasterTabCode} → ${belongs ? '✅ SHOW' : '❌ HIDE'}`)
+      return belongs
+    })
+    
+    console.log('🔧 DEBUG: Rendering', boxesForThisTab.length, 'boxes for', currentMasterTabCode)
+    
+    boxesForThisTab.forEach((box: any) => {
+      // Determine target container based on sidebar code
       let targetContainer = leftContainer
-      if (isHybridMaster && rightContainer && box.side === 'right') {
+      if (isHybridMaster && rightContainer && (box.sidebarCode === 'SBR' || box.side === 'right')) {
         targetContainer = rightContainer
         console.log('📍 Rendering box', box.identifier || box.title, 'to RIGHT side')
       } else {
@@ -1563,48 +1600,53 @@ function initializeExtension() {
       const id = `custom-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
       const outputId = `${id}-output`
         
-        // Generate identifier AB[BoxNum][AgentNum]
-        const identifier = `AB${String(boxNumber).padStart(2, '0')}${String(agentNumber).padStart(2, '0')}`
-      
-      // Allocate agent by the chosen Agent Number
+        // Determine which master tab and sidebar
+        const urlParams = new URLSearchParams(window.location.search)
+        const hybridMasterId = urlParams.get('hybrid_master_id')
+        const clickSide = (window as any).lastAgentBoxClickSide || 'left'
+        
+        // Calculate master tab number and codes
+        const masterTabNumber = hybridMasterId ? parseInt(hybridMasterId, 10) + 2 : 1
+        const masterTabCode = `MT${String(masterTabNumber).padStart(2, '0')}`
+        const sidebarCode = clickSide === 'right' ? 'SBR' : 'SBL'
+        const locationId = `${masterTabCode}_${sidebarCode}`
+        
+        // Generate base identifier and full identifier
+        const baseIdentifier = `AB${String(boxNumber).padStart(2, '0')}${String(agentNumber).padStart(2, '0')}`
+        const identifier = `${masterTabCode}_${sidebarCode}_${baseIdentifier}`
+        
+        // Allocate agent by the chosen Agent Number
         const agentId = `agent${agentNumber}`
         
         console.log('📦 Creating new agent box:', {
-          boxNumber,
-          agentNumber,
+          masterTabNumber,
+          masterTabCode,
+          sidebarCode,
+          locationId,
           identifier,
-          agentId,
-          title
+          clickSide
         })
-        
-        // Determine which side the box should be on (for hybrid master tabs)
-        const clickSide = (window as any).lastAgentBoxClickSide || 'left'
-        console.log('📍 Box will be created on:', clickSide, 'side')
-        
-        // Determine tab index for hybrid master tabs
-        // Count how many unique tabs already have agent boxes in this session
-        let tabIndex = 1  // Default to 1 for the first/main master tab
-        if (sessionKey && chrome?.storage?.local) {
-          // We'll update this after checking session storage
-          // For now, use a placeholder that will be updated on save
-        }
       
       const newBox = {
         id: id,
-          boxNumber: boxNumber,  // NEW: Separate box number
-          agentNumber: agentNumber,  // NEW: Separate agent number
-          identifier: identifier,  // NEW: Full AB identifier
+          boxNumber: boxNumber,
+          agentNumber: agentNumber,
+          identifier: identifier,
+          baseIdentifier: baseIdentifier,
         agentId: agentId,
-          number: boxNumber,  // Keep for backwards compatibility
+          number: boxNumber,
         title: title,
         color: selectedColor,
         outputId: outputId,
         provider: provider,
           model: model,
-          tools: tools,  // ← Add tools array
-          side: clickSide,  // ← Add side info for hybrid tabs
-          tabIndex: tabIndex,  // ← Add tab index for location tracking
-          tabUrl: window.location.href  // ← Store tab URL to identify unique tabs
+          tools: tools,
+          side: clickSide,
+          masterTabCode: masterTabCode,
+          sidebarCode: sidebarCode,
+          locationId: locationId,
+          hybridMasterId: hybridMasterId,
+          tabUrl: window.location.href
       }
       
       currentTabData.agentBoxes.push(newBox)
