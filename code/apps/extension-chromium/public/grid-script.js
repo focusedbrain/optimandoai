@@ -277,8 +277,15 @@ if (window.gridScriptLoaded) {
       
       console.log('💾 POPUP: Saving slot config:', { title, agent, provider, model, boxNumber: nextBoxNumber });
       
-      // Update slot data attribute - include boxNumber
+      // Update slot data attribute - include boxNumber AND locationId
       var agentNum = agent ? parseInt(agent.replace('agent', '')) : 0;
+      
+      // ✅ Generate locationId and locationLabel for this slot
+      var gridSessionId = window.gridSessionId || 'unknown';
+      var gridLayout = window.gridLayout || layout;
+      var locationId = 'grid_' + gridSessionId + '_' + gridLayout + '_slot' + slotId;
+      var locationLabel = gridLayout + ' Display Grid - Slot ' + slotId;
+      
       var newConfig = { 
         title: title, 
         agent: agent, 
@@ -287,7 +294,13 @@ if (window.gridScriptLoaded) {
         boxNumber: nextBoxNumber,
         agentNumber: agentNum,
         identifier: 'AB' + String(nextBoxNumber).padStart(2, '0') + String(agentNum).padStart(2, '0'),
-        tools: (cfg.tools || []) 
+        tools: (cfg.tools || []),
+        locationId: locationId,
+        locationLabel: locationLabel,
+        gridSessionId: gridSessionId,
+        gridLayout: gridLayout,
+        slotId: slotId,
+        source: 'display_grid'
       };
       slot.setAttribute('data-slot-config', JSON.stringify(newConfig));
       
@@ -329,7 +342,7 @@ if (window.gridScriptLoaded) {
       // ✅ NEW APPROACH: Write directly to chrome.storage.local
       console.log('💾 DIRECT SAVE: Writing agent box directly to session storage...');
       
-      // Create the agent box entry
+      // Create the agent box entry with ALL fields from newConfig
       var agentBox = {
         identifier: newConfig.identifier,
         boxNumber: newConfig.boxNumber,
@@ -337,10 +350,13 @@ if (window.gridScriptLoaded) {
         title: newConfig.title,
         provider: newConfig.provider,
         model: newConfig.model,
+        tools: newConfig.tools || [],
+        locationId: newConfig.locationId,
+        locationLabel: newConfig.locationLabel,
         source: 'display_grid',
-        gridSessionId: window.gridSessionId,
-        gridLayout: window.gridLayout || layout,  // Store the grid layout (e.g., "2-slot", "6-slot")
-        slotId: slotId,
+        gridSessionId: newConfig.gridSessionId,
+        gridLayout: newConfig.gridLayout,
+        slotId: newConfig.slotId,
         timestamp: new Date().toISOString()
       };
       
