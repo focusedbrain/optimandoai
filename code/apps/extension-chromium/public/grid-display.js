@@ -108,12 +108,18 @@ if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local && s
 
     function createSlots(slotCount, savedSlots) {
     console.log('🎨 Creating slots:', slotCount);
+    console.log('🎨 Received savedSlots:', savedSlots);
+    console.log('🎨 Keys in savedSlots:', Object.keys(savedSlots));
     
     for (let i = 1; i <= slotCount; i++) {
         const slotNum = i + 5; // Start from #6
         
+        console.log('🔍 Looking for slot:', slotNum, 'in savedSlots');
+        
         // Get saved config for this slot
         const saved = savedSlots[String(slotNum)] || {};
+        console.log('📦 Found saved config for slot', slotNum, ':', saved);
+        
         const savedTitle = saved.title || 'Display Port ' + slotNum;
         const savedAgent = saved.agent || '';
         const savedProvider = saved.provider || '';

@@ -651,66 +651,8 @@ if (window.gridScriptLoaded) {
     }
   }, true);
 
-  // Load saved configurations from session
-  setTimeout(function() {
-    console.log('🔍 Checking for saved configurations...');
-    
-    // Check if we have a parent session key to load from
-    if (parentSessionKey && typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
-      console.log('🔍 Loading from session:', parentSessionKey, 'for layout:', layout);
-      
-      chrome.storage.local.get([parentSessionKey], function(sessionResult) {
-        if (sessionResult[parentSessionKey] && sessionResult[parentSessionKey].displayGrids) {
-          var sessionData = sessionResult[parentSessionKey];
-          console.log('📊 Session has', sessionData.displayGrids.length, 'display grids');
-          
-          var gridEntry = sessionData.displayGrids.find(function(g) { 
-            return g.layout === layout; 
-          });
-          
-          if (gridEntry && gridEntry.config && gridEntry.config.slots) {
-            console.log('🎯 SUCCESS: Found grid config in session for', layout);
-            console.log('📂 Config has', Object.keys(gridEntry.config.slots).length, 'slots configured');
-            
-            // Apply the configuration
-            Object.keys(gridEntry.config.slots).forEach(function(slotId) {
-              var slot = document.querySelector('[data-slot-id="' + slotId + '"]');
-              if (slot && gridEntry.config.slots[slotId]) {
-                var slotConfig = gridEntry.config.slots[slotId];
-                
-                // Update the data attribute
-                slot.setAttribute('data-slot-config', JSON.stringify(slotConfig));
-                
-                // Update the display
-                var agentNum = slotConfig.agent ? slotConfig.agent.replace('agent', '') : '';
-                var ab = 'AB' + String(slotId).padStart(2, '0') + (agentNum ? agentNum.padStart(2, '0') : '');
-                var abEl = slot.querySelector('span[style*="font-family: monospace"]');
-                if (abEl) abEl.textContent = ab;
-                
-                var parts = [slotConfig.title || ('Display Port ' + slotId)];
-                if (slotConfig.model && slotConfig.model !== 'auto') {
-                  parts.push(slotConfig.model);
-                } else if (slotConfig.provider) {
-                  parts.push(slotConfig.provider);
-                }
-                var disp = parts.join(' · ');
-                var dispEl = slot.querySelector('.slot-display-text');
-                if (dispEl) dispEl.textContent = disp;
-                
-                console.log('✅ Applied config to slot', slotId, ':', slotConfig);
-              }
-            });
-          } else {
-            console.log('❌ No grid config found for layout:', layout);
-          }
-        } else {
-          console.log('❌ No session data or displayGrids found');
-        }
-      });
-    } else {
-      console.log('❌ No parent session key or chrome.storage not available');
-    }
-  }, 100);
+  // ✅ REMOVED: Old loading system that conflicted with locationId-based loading in grid-display.js
+  // Config loading is now handled in grid-display.js using locationId from session.agentBoxes
 
   // Fullscreen functionality
   function toggleFullscreen() {
