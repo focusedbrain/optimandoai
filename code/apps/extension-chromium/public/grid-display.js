@@ -70,36 +70,41 @@ const container = document.getElementById('grid-root');
 const gridDiv = document.createElement('div');
 gridDiv.className = 'grid-container layout-' + layout;
 
-// Create slots immediately, then load saved configs
-createSlots(config.slots, {});
-
-// Load saved configurations from chrome.storage (async)
+// ✅ AUTO-LOAD: Load configurations FIRST by locationId, then create slots with data
 if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local && sessionKey) {
     chrome.storage.local.get([sessionKey], function(result) {
-        console.log('📦 Loaded session from storage:', result);
+        console.log('📦 AUTO-LOAD: Loaded session from storage:', result);
         const session = result[sessionKey] || {};
-        const savedSlots = {};
         
-        // Find saved grid config
-        if (session.displayGrids && Array.isArray(session.displayGrids)) {
-            const gridEntry = session.displayGrids.find(g => g.sessionId === sessionId);
-            if (gridEntry && gridEntry.config && gridEntry.config.slots) {
-                Object.assign(savedSlots, gridEntry.config.slots);
-                console.log('✅ Found saved grid config:', savedSlots);
-                
-                // Update slots with saved configs
-                Object.entries(savedSlots).forEach(([slotId, config]) => {
-                    const slot = document.querySelector(`[data-slot-id="${slotId}"]`);
-                    if (slot) {
-                        updateSlotDisplay(slot, slotId, config);
+        // Build savedSlots object by locationId matching this grid
+        const savedSlotsByLocation = {};
+        
+        if (session.agentBoxes && Array.isArray(session.agentBoxes)) {
+            console.log('🔍 AUTO-LOAD: Found', session.agentBoxes.length, 'agent boxes in session');
+            
+            // Filter boxes that belong to this grid by locationId
+            session.agentBoxes.forEach(box => {
+                if (box.locationId && box.locationId.startsWith('grid_' + sessionId + '_' + layout)) {
+                    // Extract slot ID from locationId (e.g., "grid_123_3-slot_slot7" -> "7")
+                    const match = box.locationId.match(/_slot(\d+)$/)
+                    if (match) {
+                        const slotId = match[1]
+                        savedSlotsByLocation[slotId] = box
+                        console.log('✅ AUTO-LOAD: Mapped slot', slotId, 'to config:', box.title)
                     }
-                });
-            }
-        } else {
-            console.log('ℹ️ No saved grid config found');
+                }
+            })
         }
+        
+        console.log('📋 AUTO-LOAD: Saved slots by location:', savedSlotsByLocation)
+        
+        // Now create slots WITH the saved data
+        createSlots(config.slots, savedSlotsByLocation)
     });
-    }
+} else {
+    // No storage available, create empty slots
+    createSlots(config.slots, {});
+}
 
     function createSlots(slotCount, savedSlots) {
     console.log('🎨 Creating slots:', slotCount);
@@ -148,14 +153,19 @@ if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local && s
             ${gridRowStyle}
         `;
         slot.setAttribute('data-slot-id', slotNum);
-        slot.setAttribute('data-slot-config', JSON.stringify({
+        
+        // ✅ CRITICAL: Preserve ALL saved config fields including locationId, tools, etc.
+        const fullConfig = Object.keys(saved).length > 0 ? saved : {
             title: savedTitle,
             agent: savedAgent,
             provider: savedProvider,
             model: savedModel,
             boxNumber: savedBoxNumber,
             agentNumber: savedAgentNumber
-        }));
+        };
+        
+        slot.setAttribute('data-slot-config', JSON.stringify(fullConfig));
+        console.log('📝 Created slot', slotNum, 'with full config:', fullConfig);
         
         // Create header div
         const header = document.createElement('div');
