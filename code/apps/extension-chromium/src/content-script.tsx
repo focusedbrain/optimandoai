@@ -399,9 +399,12 @@ function initializeExtension() {
   // Tab-specific data structure
   const tabId = `tab-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
   
-  let currentTabData = {
-    tabId: tabId,
-    tabName: `WR Session ${new Date().toLocaleString('en-GB', { 
+  // CRITICAL: Hybrid tabs should NOT generate their own session name
+  // They will load the session name from the main master tab's session
+  let initialTabName = 'Loading Session...'
+  if (!sessionKeyFromUrl) {
+    // Only main master tabs generate a new session name
+    initialTabName = `WR Session ${new Date().toLocaleString('en-GB', { 
       day: '2-digit', 
       month: '2-digit', 
       year: 'numeric', 
@@ -409,7 +412,12 @@ function initializeExtension() {
       minute: '2-digit', 
       second: '2-digit',
       hour12: false 
-    }).replace(/[\/,]/g, '-').replace(/ /g, '_')}`,
+    }).replace(/[\/,]/g, '-').replace(/ /g, '_')}`
+  }
+  
+  let currentTabData = {
+    tabId: tabId,
+    tabName: initialTabName,
     isLocked: false,
     goals: {
       shortTerm: '',
@@ -479,9 +487,52 @@ function initializeExtension() {
   }
   // Ensure there is an active session; if none, create one and persist immediately
   function ensureActiveSession(cb: any) {
+    // CRITICAL: Check URL for session key FIRST (for hybrid tabs joining existing session)
+    try {
+      const urlParams = new URLSearchParams(window.location.search)
+      const sessionKeyFromUrl = urlParams.get('optimando_session_key')
+      if (sessionKeyFromUrl) {
+        console.log('🔗 ensureActiveSession: Found session key in URL (hybrid tab):', sessionKeyFromUrl)
+        // Set this as the current session key
+        setCurrentSessionKey(sessionKeyFromUrl)
+        // Load the session data
+        chrome.storage.local.get([sessionKeyFromUrl], (all:any) => {
+          const session = (all && all[sessionKeyFromUrl]) || {}
+          // Ensure session has all required fields
+          if (!session.tabName) session.tabName = document.title || 'Unnamed Session'
+          if (!session.url) session.url = window.location.href
+          if (!session.displayGrids) session.displayGrids = []
+          if (!session.agentBoxes) session.agentBoxes = []
+          if (!session.customAgents) session.customAgents = []
+          if (!session.hiddenBuiltins) session.hiddenBuiltins = []
+          if (!session.timestamp) session.timestamp = new Date().toISOString()
+          
+          // CRITICAL: Update currentTabData with session name from main master tab
+          currentTabData.tabName = session.tabName
+          console.log('✅ Hybrid tab joined session:', sessionKeyFromUrl, '- Session name:', session.tabName)
+          
+          // Update UI to show the correct session name
+          setTimeout(() => {
+            const sessionNameInput = document.getElementById('session-name-input') as HTMLInputElement
+            if (sessionNameInput) {
+              sessionNameInput.value = session.tabName
+              console.log('✅ Updated session name in UI:', session.tabName)
+            }
+          }, 100) // Small delay to ensure DOM is ready
+          
+          cb(sessionKeyFromUrl, session)
+        })
+        return
+      }
+    } catch (e) {
+      console.error('Error checking URL for session key:', e)
+    }
+    
+    // Check for existing session key
     try {
       const existingKey = getCurrentSessionKey()
       if (existingKey) {
+        console.log('📍 ensureActiveSession: Using existing session key:', existingKey)
         chrome.storage.local.get([existingKey], (all:any) => {
           const session = (all && all[existingKey]) || {}
           // Ensure session has all required fields
@@ -497,10 +548,13 @@ function initializeExtension() {
         return
       }
     } catch {}
+    
+    // Only create new session if no existing key and no URL key
     const newKey = `session_${Date.now()}_${Math.floor(Math.random()*1000000)}`
+    console.log('🆕 ensureActiveSession: Creating NEW session (main master tab):', newKey)
     try { setCurrentSessionKey(newKey) } catch {}
     const newSession:any = {
-      tabName: document.title || 'Unnamed Session',
+      tabName: currentTabData.tabName || document.title || 'Unnamed Session',
       url: (window.location && window.location.href) || '',
       timestamp: new Date().toISOString(),
       isLocked: false,
@@ -510,7 +564,7 @@ function initializeExtension() {
       hiddenBuiltins: []
     }
     chrome.storage.local.set({ [newKey]: newSession }, () => {
-      console.log('🆕 New session created and added to history:', newKey)
+      console.log('✅ New session created:', newKey, '- Session name:', newSession.tabName)
       cb(newKey, newSession)
     })
   }
@@ -1082,19 +1136,98 @@ function initializeExtension() {
     }
   }
   function loadTabDataFromStorage() {
-    // Check if this is a fresh browser session (sessionStorage gets cleared on browser close)
+    // CRITICAL: Check multiple sources for existing session (in priority order)
+    const urlParams = new URLSearchParams(window.location.search)
+    const sessionKeyFromUrl = urlParams.get('optimando_session_key')
     const browserSessionMarker = sessionStorage.getItem('optimando-browser-session')
     const existingSessionKey = sessionStorage.getItem('optimando-current-session-key')
-    const isFreshBrowserSession = !browserSessionMarker && !existingSessionKey
+    const globalActiveSession = localStorage.getItem('optimando-global-active-session')
     
     console.log('🔧 DEBUG: Session check:', {
-      browserSessionMarker,
+      sessionKeyFromUrl,
       existingSessionKey,
-      isFreshBrowserSession
+      globalActiveSession,
+      browserSessionMarker
     })
     
+    // PRIORITY 1: Session key in URL (hybrid tab joining existing session)
+    if (sessionKeyFromUrl) {
+      console.log('🔗 Hybrid tab detected - loading session from URL:', sessionKeyFromUrl)
+      sessionStorage.setItem('optimando-current-session-key', sessionKeyFromUrl)
+      sessionStorage.setItem('optimando-browser-session', 'active')
+      setCurrentSessionKey(sessionKeyFromUrl)
+      
+      // Load session data from chrome storage
+      if (chrome?.storage?.local) {
+        chrome.storage.local.get([sessionKeyFromUrl], (result) => {
+          const sessionData = result[sessionKeyFromUrl]
+          if (sessionData) {
+            currentTabData.tabName = sessionData.tabName || 'Unnamed Session'
+            console.log('✅ Loaded session name for hybrid tab:', currentTabData.tabName)
+            // Update UI
+            setTimeout(() => {
+              const sessionInput = document.getElementById('session-name-input') as HTMLInputElement
+              if (sessionInput) sessionInput.value = currentTabData.tabName
+            }, 100)
+          }
+        })
+      }
+      return // Skip creating new session
+    }
+    
+    // PRIORITY 2: Existing session in sessionStorage (same tab, page refresh)
+    if (existingSessionKey) {
+      console.log('📍 Page refresh detected - continuing session:', existingSessionKey)
+      sessionStorage.setItem('optimando-browser-session', 'active')
+      
+      // Load session data to get session name
+      if (chrome?.storage?.local) {
+        chrome.storage.local.get([existingSessionKey], (result) => {
+          const sessionData = result[existingSessionKey]
+          if (sessionData && sessionData.tabName) {
+            currentTabData.tabName = sessionData.tabName
+            console.log('✅ Restored session name after refresh:', currentTabData.tabName)
+            // Update UI
+            setTimeout(() => {
+              const sessionInput = document.getElementById('session-name-input') as HTMLInputElement
+              if (sessionInput) sessionInput.value = currentTabData.tabName
+            }, 100)
+          }
+        })
+      }
+      return // Continue with existing session
+    }
+    
+    // PRIORITY 3: Global active session in localStorage (browser reopen within timeout)
+    if (globalActiveSession) {
+      console.log('🔄 Restoring global session from localStorage:', globalActiveSession)
+      sessionStorage.setItem('optimando-current-session-key', globalActiveSession)
+      sessionStorage.setItem('optimando-browser-session', 'active')
+      setCurrentSessionKey(globalActiveSession)
+      
+      // Load session data
+      if (chrome?.storage?.local) {
+        chrome.storage.local.get([globalActiveSession], (result) => {
+          const sessionData = result[globalActiveSession]
+          if (sessionData && sessionData.tabName) {
+            currentTabData.tabName = sessionData.tabName
+            console.log('✅ Restored session name from global storage:', currentTabData.tabName)
+            // Update UI
+            setTimeout(() => {
+              const sessionInput = document.getElementById('session-name-input') as HTMLInputElement
+              if (sessionInput) sessionInput.value = currentTabData.tabName
+            }, 100)
+          }
+        })
+      }
+      return // Use restored session
+    }
+    
+    // ONLY NOW: Create NEW session (only for main master tab with no existing session)
+    const isFreshBrowserSession = !browserSessionMarker && !existingSessionKey && !globalActiveSession && !sessionKeyFromUrl
+    
     if (isFreshBrowserSession) {
-      console.log('🆕 Fresh browser session detected - starting new session')
+      console.log('🆕 CREATING NEW SESSION - Main master tab with no existing session')
       
       // Set browser session marker for future checks
       sessionStorage.setItem('optimando-browser-session', 'active')
@@ -1193,7 +1326,7 @@ function initializeExtension() {
     }
     
     // For hybrid master tabs, clear any loaded agent boxes
-    const urlParams = new URLSearchParams(window.location.search)
+    // urlParams already declared at top of function
     const bootState = readOptimandoState()
     const isHybridMaster = urlParams.has('hybrid_master_id') || 
                           (dedicatedRole && dedicatedRole.type === 'hybrid') ||
@@ -10288,14 +10421,17 @@ ${pageText}
         hybridUrls.push(url)
       }
 
-      // Get current session key and theme to share with hybrid views
-      const currentSessionKey = getCurrentSessionKey()
-      const currentTheme = localStorage.getItem('optimando-ui-theme') || 'default'
-      console.log('🔧 DEBUG: Current session key for hybrid views:', currentSessionKey)
-      console.log('🔧 DEBUG: Current theme for hybrid views:', currentTheme)
+      // CRITICAL: Ensure session exists BEFORE opening hybrid tabs
+      // This guarantees hybrid tabs will have a session key to join
+      ensureActiveSession((activeSessionKey: string) => {
+        console.log('✅ Session ensured before opening hybrid tabs:', activeSessionKey)
+        
+        const currentTheme = localStorage.getItem('optimando-ui-theme') || 'default'
+        console.log('🔧 DEBUG: Using session key for ALL hybrid views:', activeSessionKey)
+        console.log('🔧 DEBUG: Current theme for hybrid views:', currentTheme)
 
-      // Open hybrid views with their respective URLs
-      for (let i = 1; i <= count; i++) {
+        // Open hybrid views with their respective URLs
+        for (let i = 1; i <= count; i++) {
         let targetUrl = hybridUrls[i - 1]
         
         // If no URL provided, use current page as fallback
@@ -10309,53 +10445,56 @@ ${pageText}
         try {
           const url = new URL(targetUrl)
           url.searchParams.set('hybrid_master_id', String(i))
-          if (currentSessionKey) {
-            url.searchParams.set('optimando_session_key', currentSessionKey)
-          }
+          // CRITICAL: Always set session key (guaranteed to exist from ensureActiveSession)
+          url.searchParams.set('optimando_session_key', activeSessionKey)
           if (currentTheme && currentTheme !== 'default') {
             url.searchParams.set('optimando_theme', currentTheme)
           }
           window.open(url.toString(), `hybrid-master-${i}`)
-          console.log(`🧩 Opened hybrid view ${i} with URL:`, url.toString())
+          console.log(`🧩 Opened hybrid view ${i} with session key:`, activeSessionKey)
         } catch (error) {
           console.error(`❌ Invalid URL for hybrid view ${i}:`, targetUrl, error)
           // Fallback to current page if URL is invalid
           const base = new URL(window.location.href)
           base.searchParams.delete('optimando_extension')
           base.searchParams.set('hybrid_master_id', String(i))
-          if (currentSessionKey) {
-            base.searchParams.set('optimando_session_key', currentSessionKey)
-          }
+          // CRITICAL: Always set session key (guaranteed to exist from ensureActiveSession)
+          base.searchParams.set('optimando_session_key', activeSessionKey)
           if (currentTheme && currentTheme !== 'default') {
             base.searchParams.set('optimando_theme', currentTheme)
           }
           window.open(base.toString(), `hybrid-master-${i}`)
         }
       }
-      // Mirror hybrid placeholders into session history with URLs
-      try {
-        chrome.storage.local.get(null, (allData) => {
-          // Use active session key instead of URL matching
-          const activeKey = getCurrentSessionKey()
-          if (!activeKey) return
-          const sessionData = allData[activeKey]
-          if (!sessionData) return
-          sessionData.hybridAgentBoxes = Array.from({ length: count }, (_, idx) => ({ 
-            id: String(idx + 1), 
-            count: 4,
-            url: hybridUrls[idx] || '' // Store the URL for session restoration
-          }))
-          sessionData.timestamp = new Date().toISOString()
-          chrome.storage.local.set({ [activeKey]: sessionData }, () => {})
-        })
-      } catch {}
+      
+        // Mirror hybrid placeholders into session history with URLs
+        try {
+          chrome.storage.local.get([activeSessionKey], (allData) => {
+            const sessionData = allData[activeSessionKey]
+            if (!sessionData) return
+            sessionData.hybridAgentBoxes = Array.from({ length: count }, (_, idx) => ({ 
+              id: String(idx + 1), 
+              count: 4,
+              url: hybridUrls[idx] || '' // Store the URL for session restoration
+            }))
+            sessionData.timestamp = new Date().toISOString()
+            chrome.storage.local.set({ [activeSessionKey]: sessionData }, () => {
+              console.log(`✅ Saved ${count} hybrid views to session:`, activeSessionKey)
+            })
+          })
+        } catch (e) {
+          console.error('❌ Error saving hybrid views to session:', e)
+        }
 
-      const note = document.createElement('div')
-      note.textContent = `✅ Opened ${count} hybrid master tab${count > 1 ? 's' : ''} with custom URLs`
-      note.style.cssText = `position:fixed;top:20px;right:20px;z-index:2147483650;background:#4CAF50;color:#fff;padding:10px 14px;border-radius:8px;font-size:12px;box-shadow:0 4px 12px rgba(0,0,0,0.3)`
-      document.body.appendChild(note)
-      setTimeout(() => note.remove(), 2500)
-      close()
+        const note = document.createElement('div')
+        note.textContent = `✅ Opened ${count} hybrid master tab${count > 1 ? 's' : ''} with session key: ${activeSessionKey.split('_')[1]}`
+        note.style.cssText = `position:fixed;top:20px;right:20px;z-index:2147483650;background:#4CAF50;color:#fff;padding:10px 14px;border-radius:8px;font-size:12px;box-shadow:0 4px 12px rgba(0,0,0,0.3)`
+        document.body.appendChild(note)
+        setTimeout(() => note.remove(), 2500)
+        close()
+      
+      // Close the ensureActiveSession callback
+      })
     }
   }
   function openDisplayGridBrowserConfig() {
