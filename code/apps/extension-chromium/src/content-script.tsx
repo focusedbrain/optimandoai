@@ -1248,13 +1248,14 @@ function initializeExtension() {
             })
           })
             
-            // Memory button - Opens the Memory Lightbox
+            // Memory button - Opens agent-specific memory configuration
           const memoryBtn = card.querySelector('.memory-btn') as HTMLElement | null
           memoryBtn?.addEventListener('click', (e:any) => {
             e.stopPropagation()
             const agentKey = e.currentTarget.getAttribute('data-agent') || a.key
-            console.log(`🧠 Memory button clicked for agent "${agentKey}"`)
-            openMemoryLightbox()
+            const agentScope = a.scope || 'session'
+            console.log(`🧠 Memory button clicked for agent "${agentKey}" with scope: ${agentScope}`)
+            openAgentMemoryDialog(agentKey, agentScope, overlay)
           })
             
             // Delete button
@@ -3704,8 +3705,9 @@ function initializeExtension() {
       if (t.classList?.contains('memory-btn')) {
         ev.preventDefault(); ev.stopPropagation()
         const agentKey = t.getAttribute('data-agent') || ''
-        console.log(`🧠 Opening Memory Lightbox from delegated handler for agent: "${agentKey}"`)
-        openMemoryLightbox()
+        const scope = t.getAttribute('data-scope') || 'session'
+        console.log(`🧠 Opening Agent Memory Dialog from delegated handler for agent: "${agentKey}", scope: ${scope}`)
+        openAgentMemoryDialog(agentKey, scope, overlay)
         return
       }
     }, true)
@@ -8872,6 +8874,155 @@ ${pageText}
       ;(drawer.querySelector('#sess-accept-draft') as HTMLButtonElement)?.addEventListener('click', ()=>{ SessionsStore.transition(item.id, 'Co-Auth Draft'); renderSessions(); drawer.remove() })
       ;(drawer.querySelector('#do-embed') as HTMLButtonElement)?.addEventListener('click', ()=>{ SessionsStore.transition(item.id, 'Embedded'); renderSessions(); drawer.remove() })
     }
+  }
+
+  // Agent-specific Memory Dialog
+  function openAgentMemoryDialog(agentKey: string, agentScope: string, parentOverlay: any) {
+    console.log(`🧠 Opening Agent Memory Dialog for: "${agentKey}", scope: ${agentScope}`)
+    
+    // Get current session key
+    const sessionKey = getCurrentSessionKey()
+    const storageKey = agentScope === 'session' 
+      ? `agent_${agentKey}_memory_${sessionKey}`
+      : `agent_${agentKey}_memory_${agentScope}`
+    
+    // Load existing memory data
+    let memoryData: any = {
+      notes: '',
+      shareWithSession: false,
+      shareWithAllSessions: false
+    }
+    
+    const overlay = document.createElement('div')
+    overlay.style.cssText = `
+      position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+      background: rgba(0,0,0,0.9); z-index: 2147483651;
+      display: flex; align-items: center; justify-content: center;
+      backdrop-filter: blur(5px);
+    `
+    
+    overlay.innerHTML = `
+      <div style="
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
+        border-radius: 16px; width: 85vw; max-width: 800px; height: auto; max-height: 80vh;
+        color: white; overflow: hidden; box-shadow: 0 20px 40px rgba(0,0,0,0.3); 
+        display: flex; flex-direction: column;
+      ">
+        <div style="padding: 20px; border-bottom: 1px solid rgba(255,255,255,0.3); display: flex; justify-content: space-between; align-items: center;">
+          <h2 style="margin: 0; font-size: 20px;">🧠 Agent Memory: ${agentKey}</h2>
+          <button id="close-agent-memory" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 30px; height: 30px; border-radius: 50%; cursor: pointer; font-size: 16px;">×</button>
+        </div>
+        
+        <div style="flex: 1; padding: 20px; overflow-y: auto;">
+          <div style="background: rgba(255,255,255,0.05); padding: 12px; border-radius: 8px; margin-bottom: 15px; font-size: 12px; opacity: 0.9;">
+            💡 Agent Memory stores context and notes specific to this agent. Use it to maintain conversation history, preferences, or important information the agent should remember.
+          </div>
+          
+          <div style="background: rgba(255,255,255,0.1); padding: 20px; border-radius: 8px; margin-bottom: 20px;">
+            <label style="display: block; margin-bottom: 10px; font-size: 14px; color: #66FF66; font-weight: bold;">📝 Memory Notes:</label>
+            <textarea id="agent-memory-notes" style="
+              width: 100%; height: 300px; background: rgba(255,255,255,0.1);
+              border: 1px solid rgba(255,255,255,0.3); color: white; padding: 15px;
+              border-radius: 8px; font-size: 13px; resize: vertical;
+              font-family: 'Consolas', monospace; line-height: 1.6;
+            " placeholder="Enter agent-specific memory, context, conversation history, preferences, etc..."></textarea>
+          </div>
+          
+          <div style="background: rgba(255,255,255,0.1); padding: 20px; border-radius: 8px;">
+            <label style="display: block; margin-bottom: 15px; font-size: 14px; color: #66FF66; font-weight: bold;">💾 Memory Sharing Settings:</label>
+            
+            <label style="display: flex; align-items: center; margin-bottom: 12px; cursor: pointer; font-size: 13px;">
+              <input type="checkbox" id="agent-memory-share-session" style="margin-right: 10px; transform: scale(1.3); cursor: pointer;">
+              <span>📤 Share with entire Session (all agents in this session can access)</span>
+            </label>
+            
+            <label style="display: flex; align-items: center; cursor: pointer; font-size: 13px;">
+              <input type="checkbox" id="agent-memory-share-all" style="margin-right: 10px; transform: scale(1.3); cursor: pointer;">
+              <span>🌐 Share with all Sessions (available across all sessions)</span>
+            </label>
+          </div>
+        </div>
+        
+        <div style="padding: 16px 20px; border-top: 1px solid rgba(255,255,255,0.3); display: flex; justify-content: flex-end; gap: 12px; background: rgba(255,255,255,0.05);">
+          <button id="agent-memory-cancel" style="
+            padding: 10px 20px; background: rgba(255,255,255,0.2); border: none;
+            color: white; border-radius: 6px; cursor: pointer; font-size: 13px;
+          ">Cancel</button>
+          <button id="agent-memory-save" style="
+            padding: 10px 20px; background: linear-gradient(135deg, #4CAF50, #45a049);
+            border: none; color: white; border-radius: 6px; cursor: pointer; font-size: 13px; font-weight: bold;
+          ">💾 Save Memory</button>
+        </div>
+      </div>
+    `
+    
+    document.body.appendChild(overlay)
+    
+    // Load existing memory data
+    chrome.storage.local.get([storageKey], (result) => {
+      if (result[storageKey]) {
+        memoryData = result[storageKey]
+        const notesArea = document.getElementById('agent-memory-notes') as HTMLTextAreaElement
+        const shareSession = document.getElementById('agent-memory-share-session') as HTMLInputElement
+        const shareAll = document.getElementById('agent-memory-share-all') as HTMLInputElement
+        
+        if (notesArea) notesArea.value = memoryData.notes || ''
+        if (shareSession) shareSession.checked = memoryData.shareWithSession || false
+        if (shareAll) shareAll.checked = memoryData.shareWithAllSessions || false
+        
+        console.log('✅ Loaded agent memory from storage:', storageKey)
+      }
+    })
+    
+    // Close button
+    document.getElementById('close-agent-memory')?.addEventListener('click', () => {
+      overlay.remove()
+    })
+    
+    // Cancel button
+    document.getElementById('agent-memory-cancel')?.addEventListener('click', () => {
+      overlay.remove()
+    })
+    
+    // Click outside to close
+    overlay.onclick = (e) => {
+      if (e.target === overlay) overlay.remove()
+    }
+    
+    // Save button
+    document.getElementById('agent-memory-save')?.addEventListener('click', () => {
+      const notesArea = document.getElementById('agent-memory-notes') as HTMLTextAreaElement
+      const shareSession = document.getElementById('agent-memory-share-session') as HTMLInputElement
+      const shareAll = document.getElementById('agent-memory-share-all') as HTMLInputElement
+      
+      memoryData = {
+        notes: notesArea?.value || '',
+        shareWithSession: shareSession?.checked || false,
+        shareWithAllSessions: shareAll?.checked || false,
+        lastUpdated: new Date().toISOString()
+      }
+      
+      chrome.storage.local.set({ [storageKey]: memoryData }, () => {
+        console.log('✅ Agent memory saved:', storageKey, memoryData)
+        
+        // Show success notification
+        const notification = document.createElement('div')
+        notification.style.cssText = `
+          position: fixed; top: 20px; right: 20px; z-index: 2147483652;
+          background: linear-gradient(135deg, #4CAF50, #45a049); color: white;
+          padding: 15px 20px; border-radius: 8px; font-size: 14px;
+          box-shadow: 0 4px 12px rgba(0,0,0,0.3); font-weight: bold;
+        `
+        notification.innerHTML = '✅ Agent memory saved successfully!'
+        document.body.appendChild(notification)
+        
+        setTimeout(() => {
+          notification.remove()
+        }, 3000)
+        
+        overlay.remove()
+      })
+    })
   }
 
   // WRVault Lightbox
