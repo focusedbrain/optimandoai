@@ -1157,17 +1157,27 @@ function initializeExtension() {
       sessionStorage.setItem('optimando-browser-session', 'active')
       setCurrentSessionKey(sessionKeyFromUrl)
       
-      // Load session data from chrome storage
+      // Load FULL session data from chrome storage (including agentBoxes)
       if (chrome?.storage?.local) {
         chrome.storage.local.get([sessionKeyFromUrl], (result) => {
           const sessionData = result[sessionKeyFromUrl]
           if (sessionData) {
-            currentTabData.tabName = sessionData.tabName || 'Unnamed Session'
-            console.log('✅ Loaded session name for hybrid tab:', currentTabData.tabName)
+            // Load ALL session data including agentBoxes
+            currentTabData = {
+              ...currentTabData,
+              ...sessionData,
+              tabId: currentTabData.tabId  // Keep current tab ID
+            }
+            console.log('✅ Loaded FULL session data for hybrid tab:', currentTabData.tabName)
+            console.log('📦 Loaded agent boxes:', currentTabData.agentBoxes?.length || 0)
+            
             // Update UI
             setTimeout(() => {
               const sessionInput = document.getElementById('session-name-input') as HTMLInputElement
               if (sessionInput) sessionInput.value = currentTabData.tabName
+              
+              // Re-render agent boxes after loading session data
+              renderAgentBoxes()
             }, 100)
           }
         })
@@ -1324,21 +1334,6 @@ function initializeExtension() {
         console.log('🔧 DEBUG: Error parsing URL-based agent box data:', e)
       }
     }
-    
-    // For hybrid master tabs, clear any loaded agent boxes
-    // urlParams already declared at top of function
-    const bootState = readOptimandoState()
-    const isHybridMaster = urlParams.has('hybrid_master_id') || 
-                          (dedicatedRole && dedicatedRole.type === 'hybrid') ||
-                          (bootState.role && bootState.role.type === 'hybrid')
-    
-    if (isHybridMaster && currentTabData.agentBoxes && currentTabData.agentBoxes.length > 0) {
-      console.log('🔧 DEBUG: Clearing agent boxes for hybrid master tab')
-      currentTabData.agentBoxes = []
-      currentTabData.agentBoxHeights = {}
-      // Save the cleared state
-      saveTabDataToStorage()
-    }
   }
 
   loadTabDataFromStorage()
@@ -1382,9 +1377,44 @@ function initializeExtension() {
       currentTabData.agentBoxes = []
       saveTabDataToStorage()
     }
-    console.log('🔧 DEBUG: Rendering', currentTabData.agentBoxes.length, 'agent boxes')
     
-    currentTabData.agentBoxes.forEach((box: any) => {
+    // Determine which tab index this is
+    let currentHybridId = 1 // Default to main master tab
+    if (isHybridMaster) {
+      const hybridId = urlParams.get('hybrid_master_id') || 
+                       (bootState.role && bootState.role.hybridMasterId)
+      if (hybridId) {
+        currentHybridId = parseInt(hybridId) + 1 // +1 because hybrid_master_id starts from 0, but tabIndex starts from 1
+      }
+      console.log('🔧 DEBUG: Hybrid Master Tab detected with ID:', hybridId, '→ tabIndex:', currentHybridId)
+    }
+    
+    // Filter agent boxes for this specific tab
+    let boxesToRender = currentTabData.agentBoxes
+    if (currentHybridId > 1) {
+      // This is a hybrid master tab (Master Tab 2, 3, etc.) - only show boxes for this tab
+      // Exclude display grid boxes as they show in their own windows
+      boxesToRender = currentTabData.agentBoxes.filter((box: any) => {
+        const boxTabIndex = box.tabIndex || 1
+        const isDisplayGrid = box.source === 'display_grid' || box.gridSessionId
+        return boxTabIndex === currentHybridId && !isDisplayGrid
+      })
+      console.log(`🔧 DEBUG: Filtered to ${boxesToRender.length} boxes for Master Tab (${currentHybridId})`)
+    } else {
+      // This is the main master tab - show boxes with tabIndex === 1 or no tabIndex
+      // Exclude display grid boxes as they show in their own windows
+      boxesToRender = currentTabData.agentBoxes.filter((box: any) => {
+        const boxTabIndex = box.tabIndex || 1
+        const isDisplayGrid = box.source === 'display_grid' || box.gridSessionId
+        // Main tab shows: boxes with tabIndex 1 but NOT display grid boxes
+        return boxTabIndex === 1 && !isDisplayGrid
+      })
+      console.log(`🔧 DEBUG: Filtered to ${boxesToRender.length} boxes for Main Master Tab`)
+    }
+    
+    console.log('🔧 DEBUG: Rendering', boxesToRender.length, 'agent boxes')
+    
+    boxesToRender.forEach((box: any) => {
       // Determine target container based on side property (for hybrid tabs)
       let targetContainer = leftContainer
       if (isHybridMaster && rightContainer && box.side === 'right') {
@@ -1715,11 +1745,20 @@ function initializeExtension() {
         console.log('📍 Box will be created on:', clickSide, 'side')
         
         // Determine tab index for hybrid master tabs
-        // Count how many unique tabs already have agent boxes in this session
+        const urlParams = new URLSearchParams(window.location.search)
+        const bootState = readOptimandoState()
+        const isHybridMaster = urlParams.has('hybrid_master_id') || 
+                               (dedicatedRole && dedicatedRole.type === 'hybrid') ||
+                               (bootState.role && bootState.role.type === 'hybrid')
+        
         let tabIndex = 1  // Default to 1 for the first/main master tab
-        if (sessionKey && chrome?.storage?.local) {
-          // We'll update this after checking session storage
-          // For now, use a placeholder that will be updated on save
+        if (isHybridMaster) {
+          const hybridId = urlParams.get('hybrid_master_id') || 
+                           (bootState.role && bootState.role.hybridMasterId)
+          if (hybridId) {
+            tabIndex = parseInt(hybridId) + 1 // +1 because hybrid_master_id starts from 0 but tabIndex starts from 1
+          }
+          console.log('📍 Creating box on Hybrid Master Tab with hybridId:', hybridId, '→ tabIndex:', tabIndex)
         }
       
       const newBox = {
@@ -11133,6 +11172,7 @@ ${pageText}
                 model: config.model || '',
                 source: 'display_grid',
                 gridSessionId: payload.sessionId,
+                gridLayout: payload.layout,  // Store the grid layout
                 slotId: slotId
               }
               gridAgentBoxes.push(agentBox)
@@ -12741,19 +12781,33 @@ ${pageText}
             
             // Determine location based on source field
             let location = 'Master Tab'
-            if (box.source === 'display_grid') {
-              // Show grid layout if available (e.g., "2-slot Display Grid")
-              if (box.gridLayout) {
-                location = `${box.gridLayout} Display Grid`
-              } else {
-                location = 'Display Grid'
+            if (box.source === 'display_grid' || box.gridSessionId) {
+              // This box is from a display grid - look up the grid layout
+              let gridLayout = 'Display Grid'
+              let slotPosition = box.slotId // default to the raw slotId
+              
+              // Try to find the grid layout from session.displayGrids
+              if (box.gridSessionId && session.displayGrids && Array.isArray(session.displayGrids)) {
+                const matchingGrid = session.displayGrids.find((g: any) => g.sessionId === box.gridSessionId)
+                if (matchingGrid && matchingGrid.layout) {
+                  gridLayout = `${matchingGrid.layout} Display Grid`
+                  
+                  // Calculate the actual slot position within this grid
+                  if (box.slotId && matchingGrid.config && matchingGrid.config.slots) {
+                    const allSlotIds = Object.keys(matchingGrid.config.slots).sort((a, b) => parseInt(a) - parseInt(b))
+                    const positionIndex = allSlotIds.indexOf(String(box.slotId))
+                    if (positionIndex !== -1) {
+                      slotPosition = positionIndex + 1 // +1 to start from 1
+                    }
+                  }
+                }
               }
-            } else if (box.gridSessionId) {
-              // Fallback: if it has gridSessionId, it's from a display grid
-              if (box.gridLayout) {
-                location = `${box.gridLayout} Display Grid`
+              
+              // Add slot information if available
+              if (box.slotId) {
+                location = `${gridLayout}, Slot ${slotPosition}`
               } else {
-                location = 'Display Grid'
+                location = gridLayout
               }
             } else {
               // Master tab - assign tab number based on unique URL (normalized)
@@ -12769,6 +12823,12 @@ ${pageText}
                 const tabNum = tabUrlToIndex.get(normalizedUrl)
                 if (tabNum && tabNum > 1) {
                   location = `Master Tab (${tabNum})`
+                  // Add side panel information for Master Tab (2) and onwards
+                  if (box.side === 'left') {
+                    location = `Master Tab (${tabNum}), SPL`
+                  } else if (box.side === 'right') {
+                    location = `Master Tab (${tabNum}), SPR`
+                  }
                 } else {
                   location = 'Master Tab'  // First tab doesn't need number
                 }
@@ -12824,12 +12884,18 @@ ${pageText}
                 
                 console.log(`✅ Overview: INCLUDING Display Grid Box: boxNum=${boxNumber}, agentNum=${agentNumber}, identifier=${identifier}`)
                 
+                // Calculate the actual slot position within this grid
+                // Slots are numbered starting from 6 internally (6,7,8...), so we need to calculate the position
+                // Get all slots from this grid and find the index
+                const allSlotIds = Object.keys(grid.config.slots).sort((a, b) => parseInt(a) - parseInt(b))
+                const slotPosition = allSlotIds.indexOf(slotId) + 1 // +1 to start from 1
+                
                 registeredBoxes.push({
                   boxNumber: boxNumber,
                   agentNumber: agentNumber,
                   identifier: identifier,
                   title: slotData.title || `Display Port ${slotId}`,
-                  location: `Grid: ${grid.layout}`,
+                  location: `${grid.layout} Display Grid, Slot ${slotPosition}`,
                   provider: slotData.provider,
                   model: slotData.model
                 })
