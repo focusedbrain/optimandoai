@@ -1177,9 +1177,18 @@ function initializeExtension() {
             <button class="delete-agent" data-key="${a.key}" data-scope="${a.scope || 'session'}" title="Delete" style="position:absolute;top:6px;right:6px;background:rgba(244,67,54,0.85);border:none;color:#fff;width:20px;height:20px;border-radius:50%;cursor:pointer">×</button>
               
             <div style="display: flex; justify-content: center; gap: 6px; margin-top: 10px;">
-              <button class="lightbox-btn" data-agent="${a.key}" data-scope="${a.scope || 'session'}" data-type="instructions" style="background: rgba(255,255,255,0.2); border: none; color: white; padding: 4px; border-radius: 3px; cursor: pointer; font-size: 8px;" title="AI Instructions">📋</button>
-              <button class="lightbox-btn" data-agent="${a.key}" data-scope="${a.scope || 'session'}" data-type="context" style="background: rgba(255,255,255,0.2); border: none; color: white; padding: 4px; border-radius: 3px; cursor: pointer; font-size: 8px;" title="Memory">📄</button>
-              <button class="lightbox-btn" data-agent="${a.key}" data-scope="${a.scope || 'session'}" data-type="settings" style="background: rgba(255,255,255,0.2); border: none; color: white; padding: 4px; border-radius: 3px; cursor: pointer; font-size: 8px;" title="Settings">⚙️</button>
+              <button class="lightbox-btn" data-agent="${a.key}" data-scope="${a.scope || 'session'}" data-type="instructions" style="background: rgba(255,255,255,0.2); border: none; color: white; padding: 6px 8px; border-radius: 5px; cursor: pointer; font-size: 10px; display: flex; flex-direction: column; align-items: center; gap: 2px; min-width: 50px;" title="AI Instructions">
+                <span style="font-size: 14px;">📋</span>
+                <span style="font-size: 8px; font-weight: 500;">Config</span>
+              </button>
+              <button class="memory-btn" data-agent="${a.key}" data-scope="${a.scope || 'session'}" style="background: rgba(255,255,255,0.2); border: none; color: white; padding: 6px 8px; border-radius: 5px; cursor: pointer; font-size: 10px; display: flex; flex-direction: column; align-items: center; gap: 2px; min-width: 50px;" title="Agent Memory">
+                <span style="font-size: 14px;">🧠</span>
+                <span style="font-size: 8px; font-weight: 500;">Memory</span>
+              </button>
+              <button class="lightbox-btn" data-agent="${a.key}" data-scope="${a.scope || 'session'}" data-type="settings" style="background: rgba(255,255,255,0.2); border: none; color: white; padding: 6px 8px; border-radius: 5px; cursor: pointer; font-size: 10px; display: flex; flex-direction: column; align-items: center; gap: 2px; min-width: 50px;" title="Agent Settings">
+                <span style="font-size: 14px;">⚙️</span>
+                <span style="font-size: 8px; font-weight: 500;">Settings</span>
+              </button>
             </div>
           `
           grid.appendChild(card)
@@ -1225,7 +1234,7 @@ function initializeExtension() {
               updateAgentPlatform(a.key, 'mobile', mobileCheckbox.checked, a.scope || 'session')
             })
             
-            // Config dialog buttons
+            // Config dialog buttons (Config and Settings)
           card.querySelectorAll('.lightbox-btn').forEach((btn:any) => {
             btn.addEventListener('click', (e:any) => {
               const agentKey = e.currentTarget.getAttribute('data-agent') || a.key
@@ -1237,6 +1246,15 @@ function initializeExtension() {
               console.log(`   Full agent object:`, a)
               openAgentConfigDialog(agentKey, t, overlay, agentScope)
             })
+          })
+            
+            // Memory button - Opens the Memory Lightbox
+          const memoryBtn = card.querySelector('.memory-btn') as HTMLElement | null
+          memoryBtn?.addEventListener('click', (e:any) => {
+            e.stopPropagation()
+            const agentKey = e.currentTarget.getAttribute('data-agent') || a.key
+            console.log(`🧠 Memory button clicked for agent "${agentKey}"`)
+            openMemoryLightbox()
           })
             
             // Delete button
@@ -3681,6 +3699,13 @@ function initializeExtension() {
         const scope = t.getAttribute('data-scope') || 'session'
         console.log(`📂 Opening agent config from delegated handler: "${agentKey}", type: ${type}, scope: ${scope}`)
         openAgentConfigDialog(agentKey, type, overlay, scope)
+        return
+      }
+      if (t.classList?.contains('memory-btn')) {
+        ev.preventDefault(); ev.stopPropagation()
+        const agentKey = t.getAttribute('data-agent') || ''
+        console.log(`🧠 Opening Memory Lightbox from delegated handler for agent: "${agentKey}"`)
+        openMemoryLightbox()
         return
       }
     }, true)
