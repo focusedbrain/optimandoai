@@ -3648,7 +3648,14 @@ function initializeExtension() {
     let previouslySavedData: any = null
     
     // ROBUST LOADING: Check draft in chrome.storage first, then fallback to saved config
-    const draftKey = `agent_${agentName}_draft_${agentScope}`
+    // CRITICAL: For session scope, include session ID to prevent cross-session data leakage
+    const sessionKey = getCurrentSessionKey()
+    const draftKey = agentScope === 'session' 
+      ? `agent_${agentName}_draft_session_${sessionKey}` 
+      : `agent_${agentName}_draft_${agentScope}`
+    
+    console.log('🔑 Draft key for agent:', draftKey, '(scope:', agentScope, ', session:', sessionKey, ')')
+    
     chrome.storage.local.get([draftKey], (draftResult) => {
       if (draftResult[draftKey]) {
         // Load from draft (auto-saved data)
@@ -3695,10 +3702,13 @@ function initializeExtension() {
       
     // CRITICAL: Define auto-save function at TOP of scope so it's accessible everywhere
     let autoSaveTimer: any = null
-    const draftKey = `agent_${agentName}_draft_${agentScope}`
+    // CRITICAL: For session scope, include session ID to prevent cross-session data leakage
+    const autoSaveDraftKey = agentScope === 'session' 
+      ? `agent_${agentName}_draft_session_${sessionKey}` 
+      : `agent_${agentName}_draft_${agentScope}`
     
     const autoSaveToChromeStorage = () => {
-      console.log(`🔔 autoSaveToChromeStorage called! Type: "${type}", Agent: "${agentName}", Scope: "${agentScope}"`)
+      console.log(`🔔 autoSaveToChromeStorage called! Type: "${type}", Agent: "${agentName}", Scope: "${agentScope}", Key: "${autoSaveDraftKey}"`)
       if (autoSaveTimer) clearTimeout(autoSaveTimer)
       autoSaveTimer = setTimeout(async () => {
         try {
@@ -3746,7 +3756,9 @@ function initializeExtension() {
                 expectedContext: (document.getElementById('L-context') as HTMLTextAreaElement)?.value || '',
                 tags,
                 source: src,
-                website: (document.getElementById('L-website') as HTMLInputElement)?.value || ''
+                website: (document.getElementById('L-website') as HTMLInputElement)?.value || '',
+                // CRITICAL: Always preserve example files even when capability is toggled
+                exampleFiles: previouslySavedData?.listening?.exampleFiles || []
               }
               // Collect triggers
               const triggers:any[] = []
@@ -3772,8 +3784,13 @@ function initializeExtension() {
               console.log('💾 Saved Listener data with triggers:', {
                 activeTriggerCount: triggers.length,
                 passiveTriggerCount: passiveTriggers.length,
-                triggerNames: [...triggers, ...passiveTriggers].map(t => t.tag.name)
+                triggerNames: [...triggers, ...passiveTriggers].map(t => t.tag.name),
+                exampleFilesCount: listening.exampleFiles?.length || 0
               })
+            } else if (previouslySavedData?.listening?.exampleFiles) {
+              // CRITICAL: Preserve listener example files even when Listener capability is unchecked
+              draft.listening = { exampleFiles: previouslySavedData.listening.exampleFiles }
+              console.log('💾 Preserved Listener example files despite capability being unchecked:', draft.listening.exampleFiles.length)
             }
             // Collect all Reasoning data
             if (R) {
@@ -3831,21 +3848,25 @@ function initializeExtension() {
                 additionalSectionsCount: 0
               })
             }
-            // Preserve files
-            if (previouslySavedData) {
-              if (previouslySavedData.agentContextFiles) draft.agentContextFiles = previouslySavedData.agentContextFiles
-              if (previouslySavedData.listening?.exampleFiles) {
-                if (!draft.listening) draft.listening = {}
-                draft.listening.exampleFiles = previouslySavedData.listening.exampleFiles
-              }
+            // CRITICAL: Always preserve files - they should NEVER be lost regardless of other form changes
+            // Agent Context files
+            if (previouslySavedData?.agentContextFiles && previouslySavedData.agentContextFiles.length > 0) {
+              draft.agentContextFiles = previouslySavedData.agentContextFiles
+              console.log('💾 Preserved Agent Context files:', draft.agentContextFiles.length)
+            }
+            // Listener Example files - preserve even if capability was toggled
+            if (previouslySavedData?.listening?.exampleFiles && previouslySavedData.listening.exampleFiles.length > 0) {
+              if (!draft.listening) draft.listening = {}
+              draft.listening.exampleFiles = previouslySavedData.listening.exampleFiles
+              console.log('💾 Preserved Listener Example files:', draft.listening.exampleFiles.length)
             }
             
             dataToSave = JSON.stringify(draft)
             previouslySavedData = draft
             
             // CRITICAL: Save to chrome.storage immediately for persistence
-            chrome.storage.local.set({ [draftKey]: draft }, () => {
-              console.log('✅ AUTO-SAVED to chrome.storage:', draftKey, {
+            chrome.storage.local.set({ [autoSaveDraftKey]: draft }, () => {
+              console.log('✅ AUTO-SAVED to chrome.storage:', autoSaveDraftKey, {
                 capabilities: draft.capabilities,
                 hasListening: !!draft.listening,
                 hasReasoning: !!draft.reasoning,
@@ -4426,9 +4447,18 @@ function initializeExtension() {
             btn.addEventListener('click', () => {
               const idx = parseInt(btn.getAttribute('data-idx') || '0')
               previouslySavedData.agentContextFiles.splice(idx, 1)
-              console.log(`🗑️ Removed Agent Context file at index ${idx} from staging`)
-                btn.closest('.saved-file-row')?.remove()
-                const countEl = acList.querySelector('div')
+              
+              // CRITICAL: Immediately persist deletion to chrome.storage
+              const dKey = agentScope === 'session' 
+                ? `agent_${agentName}_draft_session_${sessionKey}` 
+                : `agent_${agentName}_draft_${agentScope}`
+              chrome.storage.local.set({ [dKey]: previouslySavedData }, () => {
+                console.log(`✅ IMMEDIATELY saved Agent Context file deletion to chrome.storage!`)
+              })
+              
+              console.log(`🗑️ Removed Agent Context file at index ${idx} and saved to storage`)
+              btn.closest('.saved-file-row')?.remove()
+              const countEl = acList.querySelector('div')
               if (countEl) countEl.textContent = `📦 ${previouslySavedData.agentContextFiles.length} file(s) staged (click Save to finalize):`
             })
           })
@@ -4473,65 +4503,75 @@ function initializeExtension() {
             const newFilesData = await Promise.all(filePromises)
             const validNewFiles = newFilesData.filter(f => f !== null)
             
-            // Load existing agent config and merge files
-            loadAgentConfig(agentName, agentScope, type, (loadedData) => {
-              let parsed: any = {}
-              try {
-                if (loadedData && typeof loadedData === 'string' && loadedData.trim()) {
-                  parsed = JSON.parse(loadedData)
-                }
-              } catch {}
-              
-              // Merge with existing files
-              const existingFiles = parsed.agentContextFiles || []
-              const existingFileNames = new Set(existingFiles.map((f: any) => f.name))
-              const uniqueNewFiles = validNewFiles.filter(f => !existingFileNames.has(f.name))
-              
-              parsed.agentContextFiles = [...existingFiles, ...uniqueNewFiles]
-              previouslySavedData = parsed
-              
-              // Store in memory only - will be saved when Save button is clicked
-              console.log(`📦 Staged ${uniqueNewFiles.length} Agent Context file(s) in memory`)
-              console.log(`   Total files now: ${parsed.agentContextFiles.length}`)
-              console.log(`   File names: ${parsed.agentContextFiles.map((f: any) => f.name).join(', ')}`)
-              console.log(`   previouslySavedData updated:`, {
-                hasAgentContextFiles: !!previouslySavedData.agentContextFiles,
-                fileCount: previouslySavedData.agentContextFiles?.length
-              })
-              
-              // Auto-check the Agent Context checkbox and update persisted state
-              acEnable.checked = true
-              persistedACAgent = true
-              syncAc() // Show the content area
+            // CRITICAL: Use current draft data (previouslySavedData), not saved config
+            // This prevents losing files when multiple uploads happen before save
+            let parsed: any = previouslySavedData || {}
+            
+            // Merge with existing files
+            const existingFiles = parsed.agentContextFiles || []
+            const existingFileNames = new Set(existingFiles.map((f: any) => f.name))
+            const uniqueNewFiles = validNewFiles.filter(f => !existingFileNames.has(f.name))
+            
+            parsed.agentContextFiles = [...existingFiles, ...uniqueNewFiles]
+            previouslySavedData = parsed
+            
+            // CRITICAL: Immediately persist to chrome.storage to prevent loss
+            const dKey = agentScope === 'session' 
+              ? `agent_${agentName}_draft_session_${sessionKey}` 
+              : `agent_${agentName}_draft_${agentScope}`
+            chrome.storage.local.set({ [dKey]: parsed }, () => {
+              console.log(`✅ IMMEDIATELY saved Agent Context files to chrome.storage!`)
+            })
+            
+            console.log(`📦 Staged ${uniqueNewFiles.length} Agent Context file(s) and saved to storage`)
+            console.log(`   Total files now: ${parsed.agentContextFiles.length}`)
+            console.log(`   File names: ${parsed.agentContextFiles.map((f: any) => f.name).join(', ')}`)
+            console.log(`   previouslySavedData updated:`, {
+              hasAgentContextFiles: !!previouslySavedData.agentContextFiles,
+              fileCount: previouslySavedData.agentContextFiles?.length
+            })
+            
+            // Auto-check the Agent Context checkbox and update persisted state
+            acEnable.checked = true
+            persistedACAgent = true
+            syncAc() // Show the content area
+            
+            // Update display
+            const totalFiles = parsed.agentContextFiles.length
+            acList.innerHTML = `
+            <div style="color:#fbbf24;font-weight:600;margin-bottom:6px">📦 ${totalFiles} file(s) staged (click Save to finalize):</div>
+              ${parsed.agentContextFiles.map((f: any, idx: number) => `
+              <div class="saved-file-row" style="display:flex;align-items:center;gap:6px;padding:4px 8px;background:rgba(251,191,36,0.1);border-radius:6px;margin-bottom:4px;border:1px solid rgba(251,191,36,0.3)">
+                  <span>📄 ${f.name} (${(f.size / 1024).toFixed(1)} KB)</span>
+                  <button class="delete-ac-file-btn" data-idx="${idx}" style="margin-left:auto;background:#f44336;border:none;color:white;padding:2px 8px;border-radius:4px;cursor:pointer;font-size:10px;">✕</button>
+                </div>
+              `).join('')}
+            `
+            
+            // Add delete handlers
+            acList.querySelectorAll('.delete-ac-file-btn').forEach((btn: Element) => {
+              btn.addEventListener('click', () => {
+                const idx = parseInt(btn.getAttribute('data-idx') || '0')
+                parsed.agentContextFiles.splice(idx, 1)
+                previouslySavedData = parsed
                 
-                // Update display
-                const totalFiles = parsed.agentContextFiles.length
-                acList.innerHTML = `
-                <div style="color:#fbbf24;font-weight:600;margin-bottom:6px">📦 ${totalFiles} file(s) staged (click Save to finalize):</div>
-                  ${parsed.agentContextFiles.map((f: any, idx: number) => `
-                  <div class="saved-file-row" style="display:flex;align-items:center;gap:6px;padding:4px 8px;background:rgba(251,191,36,0.1);border-radius:6px;margin-bottom:4px;border:1px solid rgba(251,191,36,0.3)">
-                      <span>📄 ${f.name} (${(f.size / 1024).toFixed(1)} KB)</span>
-                      <button class="delete-ac-file-btn" data-idx="${idx}" style="margin-left:auto;background:#f44336;border:none;color:white;padding:2px 8px;border-radius:4px;cursor:pointer;font-size:10px;">✕</button>
-                    </div>
-                  `).join('')}
-                `
-                
-                // Add delete handlers
-                acList.querySelectorAll('.delete-ac-file-btn').forEach((btn: Element) => {
-                  btn.addEventListener('click', () => {
-                    const idx = parseInt(btn.getAttribute('data-idx') || '0')
-                    parsed.agentContextFiles.splice(idx, 1)
-                    previouslySavedData = parsed
-                  console.log(`🗑️ Removed Agent Context file at index ${idx} from staging`)
-                      btn.closest('.saved-file-row')?.remove()
-                      const countEl = acList.querySelector('div')
-                  if (countEl) countEl.textContent = `📦 ${parsed.agentContextFiles.length} file(s) staged (click Save to finalize):`
-                  })
+                // CRITICAL: Immediately persist deletion to chrome.storage
+                const dKey = agentScope === 'session' 
+                  ? `agent_${agentName}_draft_session_${sessionKey}` 
+                  : `agent_${agentName}_draft_${agentScope}`
+                chrome.storage.local.set({ [dKey]: parsed }, () => {
+                  console.log(`✅ IMMEDIATELY saved Agent Context file deletion to chrome.storage!`)
                 })
                 
-                // Clear the file input
-                acFiles.value = ''
+                console.log(`🗑️ Removed Agent Context file at index ${idx} and saved to storage`)
+                btn.closest('.saved-file-row')?.remove()
+                const countEl = acList.querySelector('div')
+                if (countEl) countEl.textContent = `📦 ${parsed.agentContextFiles.length} file(s) staged (click Save to finalize):`
+              })
             })
+            
+            // Clear the file input
+            acFiles.value = ''
           } catch (err) {
             console.error('❌ Error pre-saving Agent Context files:', err)
             acList.textContent = `❌ Error uploading files`
@@ -4707,7 +4747,16 @@ function initializeExtension() {
               btn.addEventListener('click', () => {
                 const idx = parseInt(btn.getAttribute('data-idx') || '0')
                 previouslySavedData.listening.exampleFiles.splice(idx, 1)
-                console.log(`🗑️ Removed Listener Example file at index ${idx} from staging`)
+                
+                // CRITICAL: Immediately persist deletion to chrome.storage
+                const dKey = agentScope === 'session' 
+                  ? `agent_${agentName}_draft_session_${sessionKey}` 
+                  : `agent_${agentName}_draft_${agentScope}`
+                chrome.storage.local.set({ [dKey]: previouslySavedData }, () => {
+                  console.log(`✅ IMMEDIATELY saved Listener Example file deletion to chrome.storage!`)
+                })
+                
+                console.log(`🗑️ Removed Listener Example file at index ${idx} and saved to storage`)
                 btn.closest('.saved-file-row')?.remove()
                 const countEl = lExamplesContainer.querySelector('div')
                 if (countEl) countEl.textContent = `📦 ${previouslySavedData.listening.exampleFiles.length} example file(s) staged (click Save to finalize):`
@@ -4749,59 +4798,69 @@ function initializeExtension() {
                 const newFilesData = await Promise.all(filePromises)
                 const validNewFiles = newFilesData.filter(f => f !== null)
                 
-                // Load existing agent config and merge files
-                loadAgentConfig(agentName, agentScope, type, (loadedData) => {
-                  let parsed: any = {}
-                  try {
-                    if (loadedData && typeof loadedData === 'string' && loadedData.trim()) {
-                      parsed = JSON.parse(loadedData)
-                    }
-                  } catch {}
-                  
-                  // Ensure listening object exists
-                  if (!parsed.listening) parsed.listening = {}
-                  
-                  // Merge with existing files
-                  const existingFiles = parsed.listening.exampleFiles || []
-                  const existingFileNames = new Set(existingFiles.map((f: any) => f.name))
-                  const uniqueNewFiles = validNewFiles.filter(f => !existingFileNames.has(f.name))
-                  
-                  parsed.listening.exampleFiles = [...existingFiles, ...uniqueNewFiles]
-                  previouslySavedData = parsed
-                  
-                  // Store in memory only - will be saved when Save button is clicked
-                  console.log(`📦 Staged ${uniqueNewFiles.length} Listener Example file(s) in memory`)
-                    
-                    // Update display
-                    const totalFiles = parsed.listening.exampleFiles.length
-                    lExamplesContainer.innerHTML = `
-                    <div style="margin-top:8px;font-size:11px;opacity:0.9;padding:8px;background:rgba(251,191,36,0.1);border-radius:4px;border:1px solid rgba(251,191,36,0.3)">
-                      <div style="font-weight:bold;margin-bottom:8px;color:#fbbf24;">📦 ${totalFiles} example file(s) staged (click Save to finalize):</div>
-                        ${parsed.listening.exampleFiles.map((f: any, idx: number) => `
-                          <div class="saved-file-row" style="display:flex;align-items:center;gap:8px;margin-bottom:6px;padding:4px 8px;background:rgba(255,255,255,0.05);border-radius:4px;">
-                            <span>📄 ${f.name} (${(f.size / 1024).toFixed(1)} KB)</span>
-                            <button class="delete-lexample-file-btn" data-idx="${idx}" style="margin-left:auto;background:#f44336;border:none;color:white;padding:2px 8px;border-radius:4px;cursor:pointer;font-size:10px;">✕</button>
-                          </div>
-                        `).join('')}
+                // CRITICAL: Use current draft data (previouslySavedData), not saved config
+                // This prevents losing files when multiple uploads happen before save
+                let parsed: any = previouslySavedData || {}
+                
+                // Ensure listening object exists
+                if (!parsed.listening) parsed.listening = {}
+                
+                // Merge with existing files
+                const existingFiles = parsed.listening.exampleFiles || []
+                const existingFileNames = new Set(existingFiles.map((f: any) => f.name))
+                const uniqueNewFiles = validNewFiles.filter(f => !existingFileNames.has(f.name))
+                
+                parsed.listening.exampleFiles = [...existingFiles, ...uniqueNewFiles]
+                previouslySavedData = parsed
+                
+                // CRITICAL: Immediately persist to chrome.storage to prevent loss
+                const dKey = agentScope === 'session' 
+                  ? `agent_${agentName}_draft_session_${sessionKey}` 
+                  : `agent_${agentName}_draft_${agentScope}`
+                chrome.storage.local.set({ [dKey]: parsed }, () => {
+                  console.log(`✅ IMMEDIATELY saved Listener Example files to chrome.storage!`)
+                })
+                
+                console.log(`📦 Staged ${uniqueNewFiles.length} Listener Example file(s) and saved to storage`)
+                
+                // Update display
+                const totalFiles = parsed.listening.exampleFiles.length
+                lExamplesContainer.innerHTML = `
+                <div style="margin-top:8px;font-size:11px;opacity:0.9;padding:8px;background:rgba(251,191,36,0.1);border-radius:4px;border:1px solid rgba(251,191,36,0.3)">
+                  <div style="font-weight:bold;margin-bottom:8px;color:#fbbf24;">📦 ${totalFiles} example file(s) staged (click Save to finalize):</div>
+                    ${parsed.listening.exampleFiles.map((f: any, idx: number) => `
+                      <div class="saved-file-row" style="display:flex;align-items:center;gap:8px;margin-bottom:6px;padding:4px 8px;background:rgba(255,255,255,0.05);border-radius:4px;">
+                        <span>📄 ${f.name} (${(f.size / 1024).toFixed(1)} KB)</span>
+                        <button class="delete-lexample-file-btn" data-idx="${idx}" style="margin-left:auto;background:#f44336;border:none;color:white;padding:2px 8px;border-radius:4px;cursor:pointer;font-size:10px;">✕</button>
                       </div>
-                    `
+                    `).join('')}
+                  </div>
+                `
+                
+                // Add delete handlers
+                lExamplesContainer.querySelectorAll('.delete-lexample-file-btn').forEach((btn: Element) => {
+                  btn.addEventListener('click', () => {
+                    const idx = parseInt(btn.getAttribute('data-idx') || '0')
+                    parsed.listening.exampleFiles.splice(idx, 1)
+                    previouslySavedData = parsed
                     
-                    // Add delete handlers
-                    lExamplesContainer.querySelectorAll('.delete-lexample-file-btn').forEach((btn: Element) => {
-                      btn.addEventListener('click', () => {
-                        const idx = parseInt(btn.getAttribute('data-idx') || '0')
-                        parsed.listening.exampleFiles.splice(idx, 1)
-                        previouslySavedData = parsed
-                      console.log(`🗑️ Removed Listener Example file at index ${idx} from staging`)
-                          btn.closest('.saved-file-row')?.remove()
-                          const countEl = lExamplesContainer.querySelector('div')
-                      if (countEl) countEl.textContent = `📦 ${parsed.listening.exampleFiles.length} example file(s) staged (click Save to finalize):`
-                      })
+                    // CRITICAL: Immediately persist deletion to chrome.storage
+                    const dKey = agentScope === 'session' 
+                      ? `agent_${agentName}_draft_session_${sessionKey}` 
+                      : `agent_${agentName}_draft_${agentScope}`
+                    chrome.storage.local.set({ [dKey]: parsed }, () => {
+                      console.log(`✅ IMMEDIATELY saved Listener Example file deletion to chrome.storage!`)
                     })
                     
-                    // Clear the file input
-                    lExamplesInput.value = ''
+                    console.log(`🗑️ Removed Listener Example file at index ${idx} and saved to storage`)
+                    btn.closest('.saved-file-row')?.remove()
+                    const countEl = lExamplesContainer.querySelector('div')
+                    if (countEl) countEl.textContent = `📦 ${parsed.listening.exampleFiles.length} example file(s) staged (click Save to finalize):`
+                  })
                 })
+                
+                // Clear the file input
+                lExamplesInput.value = ''
               } catch (err) {
                 console.error('❌ Error pre-saving Listener Example files:', err)
                 lExamplesContainer.textContent = `❌ Error uploading files`
@@ -5437,13 +5496,22 @@ function initializeExtension() {
                 btn.addEventListener('click', () => {
                   const idx = parseInt(btn.getAttribute('data-idx') || '0')
                   previouslySavedData.agentContextFiles.splice(idx, 1)
-                    console.log(`🗑️ Removed Agent Context file at index ${idx}`)
+                  
+                  // CRITICAL: Immediately persist deletion to chrome.storage
+                  const dKey = agentScope === 'session' 
+                    ? `agent_${agentName}_draft_session_${sessionKey}` 
+                    : `agent_${agentName}_draft_${agentScope}`
+                  chrome.storage.local.set({ [dKey]: previouslySavedData }, () => {
+                    console.log(`✅ IMMEDIATELY saved Agent Context file deletion to chrome.storage!`)
+                  })
+                  
+                  console.log(`🗑️ Removed Agent Context file at index ${idx}`)
                   btn.closest('.saved-file-row')?.remove()
                   const countEl = acList.querySelector('div')
-                    if (countEl) countEl.textContent = `📦 ${previouslySavedData.agentContextFiles.length} file(s) previously uploaded:`
+                  if (countEl) countEl.textContent = `📦 ${previouslySavedData.agentContextFiles.length} file(s) previously uploaded:`
                     
-                    // Auto-save after deletion
-                    syncPersistedFromDom()
+                  // Also sync to keep everything in sync
+                  syncPersistedFromDom()
                 })
               })
               console.log(`✅ Successfully restored ${files.length} Agent Context files to display`)
@@ -5587,6 +5655,64 @@ function initializeExtension() {
                 })
                 console.log(`  ✓ Restored ${l.reportTo.length} listener report-to rows`)
               }
+            }
+            
+            // Restore Listener Example files - CRITICAL for preserving uploads
+            console.log('🔍 Checking for Listener Example files to restore:', {
+              hasFiles: !!l.exampleFiles,
+              fileCount: l.exampleFiles?.length || 0
+            })
+            
+            if (l.exampleFiles && l.exampleFiles.length > 0) {
+              setTimeout(() => {
+                const lExamplesContainer = configOverlay.querySelector('#L-examples-list-container') as HTMLElement
+                
+                console.log('🔍 Found Listener examples container:', !!lExamplesContainer)
+                
+                if (lExamplesContainer) {
+                  const files = l.exampleFiles
+                  lExamplesContainer.innerHTML = `
+                    <div style="margin-top:8px;font-size:11px;opacity:0.9;padding:8px;background:rgba(251,191,36,0.1);border-radius:4px;border:1px solid rgba(251,191,36,0.3)">
+                      <div style="font-weight:bold;margin-bottom:8px;color:#fbbf24;">📦 ${files.length} example file(s) previously uploaded:</div>
+                      ${files.map((f: any, idx: number) => `
+                        <div class="saved-file-row" style="display:flex;align-items:center;gap:8px;margin-bottom:6px;padding:4px 8px;background:rgba(255,255,255,0.05);border-radius:4px;">
+                          <span>📄 ${f.name} (${(f.size / 1024).toFixed(1)} KB)</span>
+                          <button class="delete-lexample-file-btn" data-idx="${idx}" style="margin-left:auto;background:#f44336;border:none;color:white;padding:2px 8px;border-radius:4px;cursor:pointer;font-size:10px;">✕</button>
+                        </div>
+                      `).join('')}
+                    </div>
+                  `
+                  
+                  // Re-add delete handlers
+                  lExamplesContainer.querySelectorAll('.delete-lexample-file-btn').forEach((btn: Element) => {
+                    btn.addEventListener('click', () => {
+                      const idx = parseInt(btn.getAttribute('data-idx') || '0')
+                      previouslySavedData.listening.exampleFiles.splice(idx, 1)
+                      
+                      // CRITICAL: Immediately persist deletion to chrome.storage
+                      const dKey = agentScope === 'session' 
+                        ? `agent_${agentName}_draft_session_${sessionKey}` 
+                        : `agent_${agentName}_draft_${agentScope}`
+                      chrome.storage.local.set({ [dKey]: previouslySavedData }, () => {
+                        console.log(`✅ IMMEDIATELY saved Listener Example file deletion to chrome.storage!`)
+                      })
+                      
+                      console.log(`🗑️ Removed Listener Example file at index ${idx}`)
+                      btn.closest('.saved-file-row')?.remove()
+                      const countEl = lExamplesContainer.querySelector('div')
+                      if (countEl) countEl.textContent = `📦 ${previouslySavedData.listening.exampleFiles.length} example file(s) previously uploaded:`
+                      
+                      // Also sync to keep everything in sync
+                      syncPersistedFromDom()
+                    })
+                  })
+                  console.log(`✅ Successfully restored ${files.length} Listener Example files to display`)
+                } else {
+                  console.error('❌ Could not find #L-examples-list-container to restore files!')
+                }
+              }, 200)
+            } else {
+              console.log('ℹ️ No Listener Example files to restore')
             }
           }
           
@@ -7104,8 +7230,8 @@ function initializeExtension() {
         // CRITICAL: Wait for draft cleanup before proceeding
         await new Promise<void>((resolve) => {
           // Clear the draft from chrome.storage since we've committed it
-          chrome.storage.local.remove([draftKey], () => {
-            console.log('🗑️ Cleared auto-save draft:', draftKey)
+          chrome.storage.local.remove([autoSaveDraftKey], () => {
+            console.log('🗑️ Cleared auto-save draft:', autoSaveDraftKey)
             resolve()
           })
         })
