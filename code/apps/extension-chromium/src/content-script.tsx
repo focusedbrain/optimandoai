@@ -641,6 +641,31 @@ function initializeExtension() {
           changed = true
         }
       })
+      
+      // CRITICAL: Remove any account-scoped agents from session.agents
+      // Account agents should ONLY be in accountAgents storage, never in session.agents
+      const sessionOnlyAgents = session.agents.filter((a: any) => a.scope !== 'account')
+      if (sessionOnlyAgents.length !== session.agents.length) {
+        console.log(`🧹 Cleaning up: Removed ${session.agents.length - sessionOnlyAgents.length} account agent(s) from session.agents`)
+        session.agents = sessionOnlyAgents
+        changed = true
+      }
+      
+      // CRITICAL: Remove any duplicates within session.agents (shouldn't happen but safety check)
+      const seen = new Set()
+      const deduped: any[] = []
+      session.agents.forEach((a: any) => {
+        if (!seen.has(a.key)) {
+          seen.add(a.key)
+          deduped.push(a)
+        } else {
+          console.warn(`⚠️ Duplicate agent found in session.agents: ${a.key}, removing duplicate`)
+          changed = true
+        }
+      })
+      if (deduped.length !== session.agents.length) {
+        session.agents = deduped
+      }
     }
     
     // Update localStorage with number map
@@ -706,6 +731,26 @@ function initializeExtension() {
       })
     })
   }
+  // NEW: Scope-aware delete function
+  function deleteAgent(key: string, scope: string, done: () => void) {
+    console.log(`🗑️ deleteAgent called for "${key}" with scope: ${scope}`)
+    
+    if (scope === 'account') {
+      // Delete from account agents
+      getAccountAgents((accountAgents) => {
+        const updatedAgents = accountAgents.filter((a: any) => a.key !== key)
+        console.log(`🗑️ Removing account agent "${key}". Before: ${accountAgents.length}, After: ${updatedAgents.length}`)
+        saveAccountAgents(updatedAgents, () => {
+          console.log(`✅ Account agent "${key}" deleted successfully`)
+          done()
+        })
+      })
+    } else {
+      // Delete from session agents (existing logic)
+      deleteAgentFromSession(key, done)
+    }
+  }
+
   function deleteAgentFromSession(key:string, done:()=>void){
     ensureActiveSession((activeKey:string, session:any) => {
       normalizeSessionAgents(activeKey, session, (s:any)=>{
@@ -742,19 +787,97 @@ function initializeExtension() {
   // NEW: Helper functions for scope-aware agent storage
   function getAccountAgents(callback: (agents: any[]) => void) {
     chrome.storage.local.get(['accountAgents'], (result) => {
-      callback(result.accountAgents || [])
+      const agents = result.accountAgents || []
+      console.log(`📥 getAccountAgents: Retrieved ${agents.length} account agent(s)`)
+      agents.forEach((a: any) => {
+        console.log(`   - ${a.name} (${a.key}), scope: ${a.scope}, originalSession: ${a.originalSessionKey || 'none'}, has config: ${!!a.config}, config keys: ${a.config ? Object.keys(a.config).join(', ') : 'none'}`)
+      })
+      callback(agents)
     })
   }
   
   function saveAccountAgents(agents: any[], callback: () => void) {
+    console.log(`📤 saveAccountAgents: Saving ${agents.length} account agent(s)`)
+    agents.forEach((a: any) => {
+      console.log(`   - ${a.name} (${a.key}), scope: ${a.scope}, originalSession: ${a.originalSessionKey || 'none'}, has config: ${!!a.config}, config keys: ${a.config ? Object.keys(a.config).join(', ') : 'none'}`)
+    })
     chrome.storage.local.set({ accountAgents: agents }, callback)
   }
   
-  function getAllAgentsForSession(session: any, callback: (agents: any[]) => void) {
+  // CRITICAL: Cleanup function to remove agents that exist in wrong storage location
+  function cleanupAgentStorage(session: any, callback: () => void) {
     getAccountAgents((accountAgents) => {
-      const sessionAgents = (session.agents || []).filter((a: any) => a.scope === 'session')
-      const allAgents = [...accountAgents, ...sessionAgents]
-      callback(allAgents)
+      let sessionChanged = false
+      let accountChanged = false
+      
+      // Remove any account-scoped agents from session.agents
+      const sessionAgentsClean = (session.agents || []).filter((a: any) => {
+        if (a.scope === 'account') {
+          console.log(`🧹 Removing account agent "${a.key}" from session.agents`)
+          sessionChanged = true
+          return false
+        }
+        return true
+      })
+      
+      // Check if any session agents exist in accountAgents (and remove them from account)
+      const sessionAgentKeys = new Set(sessionAgentsClean.map((a: any) => a.key))
+      const accountAgentsClean = accountAgents.filter((a: any) => {
+        if (sessionAgentKeys.has(a.key)) {
+          console.log(`🧹 Removing duplicate agent "${a.key}" from accountAgents (exists in session)`)
+          accountChanged = true
+          return false
+        }
+        return true
+      })
+      
+      // Apply changes if needed
+      if (sessionChanged) {
+        session.agents = sessionAgentsClean
+      }
+      
+      if (accountChanged) {
+        saveAccountAgents(accountAgentsClean, callback)
+      } else {
+        callback()
+      }
+    })
+  }
+
+  function getAllAgentsForSession(session: any, callback: (agents: any[]) => void) {
+    // First, cleanup any data corruption
+    cleanupAgentStorage(session, () => {
+      getAccountAgents((accountAgents) => {
+        const sessionAgents = (session.agents || []).filter((a: any) => a.scope === 'session')
+        
+        // CRITICAL: Build a map to track ALL agents by key across both scopes
+        // Rule: If an agent exists in BOTH places, ALWAYS prefer the one with proper scope
+        const agentMap = new Map()
+        
+        // First, add all session agents (they take precedence if scope is 'session')
+        sessionAgents.forEach((a: any) => {
+          agentMap.set(a.key, a)
+        })
+        
+        // Then, add account agents ONLY if they don't already exist in the map
+        accountAgents.forEach((a: any) => {
+          if (!agentMap.has(a.key)) {
+            agentMap.set(a.key, a)
+          } else {
+            console.warn(`⚠️ Agent "${a.key}" exists in BOTH session and account storage - using session version`)
+          }
+        })
+        
+        const allAgents = Array.from(agentMap.values())
+        
+        console.log(`🔄 getAllAgentsForSession: Merging ${accountAgents.length} account + ${sessionAgents.length} session agents`)
+        console.log(`   Account agents:`, accountAgents.map((a: any) => `${a.name} (${a.key}, scope: ${a.scope})`))
+        console.log(`   Session agents:`, sessionAgents.map((a: any) => `${a.name} (${a.key}, scope: ${a.scope})`))
+        console.log(`   Duplicates found and removed: ${(accountAgents.length + sessionAgents.length) - allAgents.length}`)
+        console.log(`   Final unique agents (${allAgents.length}):`, allAgents.map((a: any) => `${a.name} (${a.key}, scope: ${a.scope})`))
+        
+        callback(allAgents)
+      })
     })
   }
   
@@ -763,7 +886,7 @@ function initializeExtension() {
     
     ensureActiveSession((activeKey: string, session: any) => {
       if (fromScope === 'session' && toScope === 'account') {
-        // Move from session to account
+        // Move from session to account - STORE ORIGINAL SESSION KEY
         const agent = (session.agents || []).find((a: any) => a.key === agentKey)
         if (!agent) return callback()
         
@@ -771,6 +894,10 @@ function initializeExtension() {
         session.timestamp = new Date().toISOString()
         
         agent.scope = 'account'
+        // CRITICAL: Store the original session key so we can restore it later
+        agent.originalSessionKey = activeKey
+        console.log(`📌 Moving agent "${agentKey}" to Account scope, storing original session: ${activeKey}`)
+        
         getAccountAgents((accountAgents) => {
           accountAgents.push(agent)
           saveAccountAgents(accountAgents, () => {
@@ -781,7 +908,7 @@ function initializeExtension() {
           })
         })
       } else if (fromScope === 'account' && toScope === 'session') {
-        // Move from account to session
+        // Move from account to session - RESTORE TO ORIGINAL SESSION
         getAccountAgents((accountAgents) => {
           const agent = accountAgents.find((a: any) => a.key === agentKey)
           if (!agent) return callback()
@@ -789,14 +916,41 @@ function initializeExtension() {
           const updatedAccountAgents = accountAgents.filter((a: any) => a.key !== agentKey)
           agent.scope = 'session'
           
-          if (!Array.isArray(session.agents)) session.agents = []
-          session.agents.push(agent)
-          session.timestamp = new Date().toISOString()
+          // CRITICAL: Restore to original session, not current session
+          const targetSessionKey = agent.originalSessionKey || activeKey
+          console.log(`📌 Moving agent "${agentKey}" back to Session scope`)
+          console.log(`   Original session: ${agent.originalSessionKey}`)
+          console.log(`   Current session: ${activeKey}`)
+          console.log(`   Target session: ${targetSessionKey}`)
           
-          saveAccountAgents(updatedAccountAgents, () => {
-            chrome.storage.local.set({ [activeKey]: session }, () => {
-              console.log('✅ Agent moved to Session scope:', agentKey)
-              callback()
+          // Load the target session (might be different from current)
+          chrome.storage.local.get([targetSessionKey], (result) => {
+            let targetSession = result[targetSessionKey]
+            if (!targetSession) {
+              console.warn(`⚠️ Original session ${targetSessionKey} not found, using current session`)
+              targetSession = session
+            }
+            
+            if (!Array.isArray(targetSession.agents)) targetSession.agents = []
+            
+            // CRITICAL: Check if agent already exists in target session (prevent duplicates)
+            const existingIndex = targetSession.agents.findIndex((a: any) => a.key === agentKey)
+            if (existingIndex >= 0) {
+              console.log(`⚠️ Agent "${agentKey}" already exists in target session, removing old copy`)
+              targetSession.agents.splice(existingIndex, 1)
+            }
+            
+            targetSession.agents.push(agent)
+            targetSession.timestamp = new Date().toISOString()
+            
+            // Clean up the originalSessionKey since it's back in session scope
+            delete agent.originalSessionKey
+            
+            saveAccountAgents(updatedAccountAgents, () => {
+              chrome.storage.local.set({ [targetSessionKey]: targetSession }, () => {
+                console.log(`✅ Agent moved to Session scope in session: ${targetSessionKey}`)
+                callback()
+              })
             })
           })
         })
@@ -991,7 +1145,8 @@ function initializeExtension() {
           
         agents.forEach((a:any) => {
           const num = pad2(Number(a.number)||1)
-            const isAccount = a.scope === 'account'
+          const isAccount = a.scope === 'account'
+          console.log(`🎨 Rendering agent card: ${a.name} (${a.key}), scope: "${a.scope}", isAccount: ${isAccount}`)
           const card = document.createElement('div')
           card.style.cssText = 'background: rgba(255,255,255,0.1); padding: 15px; border-radius: 8px; text-align: center; position: relative;'
           card.innerHTML = `
@@ -1019,12 +1174,12 @@ function initializeExtension() {
                 </label>
               </div>
               
-            <button class="delete-agent" data-key="${a.key}" title="Delete" style="position:absolute;top:6px;right:6px;background:rgba(244,67,54,0.85);border:none;color:#fff;width:20px;height:20px;border-radius:50%;cursor:pointer">×</button>
+            <button class="delete-agent" data-key="${a.key}" data-scope="${a.scope || 'session'}" title="Delete" style="position:absolute;top:6px;right:6px;background:rgba(244,67,54,0.85);border:none;color:#fff;width:20px;height:20px;border-radius:50%;cursor:pointer">×</button>
               
             <div style="display: flex; justify-content: center; gap: 6px; margin-top: 10px;">
-              <button class="lightbox-btn" data-agent="${a.key}" data-type="instructions" style="background: rgba(255,255,255,0.2); border: none; color: white; padding: 4px; border-radius: 3px; cursor: pointer; font-size: 8px;" title="AI Instructions">📋</button>
-              <button class="lightbox-btn" data-agent="${a.key}" data-type="context" style="background: rgba(255,255,255,0.2); border: none; color: white; padding: 4px; border-radius: 3px; cursor: pointer; font-size: 8px;" title="Memory">📄</button>
-              <button class="lightbox-btn" data-agent="${a.key}" data-type="settings" style="background: rgba(255,255,255,0.2); border: none; color: white; padding: 4px; border-radius: 3px; cursor: pointer; font-size: 8px;" title="Settings">⚙️</button>
+              <button class="lightbox-btn" data-agent="${a.key}" data-scope="${a.scope || 'session'}" data-type="instructions" style="background: rgba(255,255,255,0.2); border: none; color: white; padding: 4px; border-radius: 3px; cursor: pointer; font-size: 8px;" title="AI Instructions">📋</button>
+              <button class="lightbox-btn" data-agent="${a.key}" data-scope="${a.scope || 'session'}" data-type="context" style="background: rgba(255,255,255,0.2); border: none; color: white; padding: 4px; border-radius: 3px; cursor: pointer; font-size: 8px;" title="Memory">📄</button>
+              <button class="lightbox-btn" data-agent="${a.key}" data-scope="${a.scope || 'session'}" data-type="settings" style="background: rgba(255,255,255,0.2); border: none; color: white; padding: 4px; border-radius: 3px; cursor: pointer; font-size: 8px;" title="Settings">⚙️</button>
             </div>
           `
           grid.appendChild(card)
@@ -1075,7 +1230,12 @@ function initializeExtension() {
             btn.addEventListener('click', (e:any) => {
               const agentKey = e.currentTarget.getAttribute('data-agent') || a.key
               const t = e.currentTarget.getAttribute('data-type') || 'instructions'
-                openAgentConfigDialog(agentKey, t, overlay, a.scope || 'session')
+              const agentScope = a.scope || 'session'
+              console.log(`🖱️ Config button clicked for agent "${agentKey}"`)
+              console.log(`   Agent object scope: "${a.scope}"`)
+              console.log(`   Resolved scope: "${agentScope}"`)
+              console.log(`   Full agent object:`, a)
+              openAgentConfigDialog(agentKey, t, overlay, agentScope)
             })
           })
             
@@ -3507,16 +3667,20 @@ function initializeExtension() {
       if (t.classList?.contains('delete-agent')) {
         ev.preventDefault(); ev.stopPropagation()
         const key = t.getAttribute('data-key') || ''
+        const scope = t.getAttribute('data-scope') || 'session'
         if (!key) return
         if (!confirm('Delete this agent?')) return
-        deleteAgentFromSession(key, () => renderAgentsGrid(overlay, currentFilter))
+        console.log(`🗑️ Deleting agent "${key}" with scope: ${scope}`)
+        deleteAgent(key, scope, () => renderAgentsGrid(overlay, currentFilter))
         return
       }
       if (t.classList?.contains('lightbox-btn')) {
         ev.preventDefault(); ev.stopPropagation()
         const agentKey = t.getAttribute('data-agent') || ''
         const type = t.getAttribute('data-type') || 'instructions'
-        openAgentConfigDialog(agentKey, type, overlay)
+        const scope = t.getAttribute('data-scope') || 'session'
+        console.log(`📂 Opening agent config from delegated handler: "${agentKey}", type: ${type}, scope: ${scope}`)
+        openAgentConfigDialog(agentKey, type, overlay, scope)
         return
       }
     }, true)
@@ -3606,6 +3770,7 @@ function initializeExtension() {
     })
   }
   function openAgentConfigDialog(agentName, type, parentOverlay, agentScope = 'session') {
+    console.log(`🚀 openAgentConfigDialog called - Agent: "${agentName}", Type: "${type}", Scope: "${agentScope}"`)
     function pad2(n) { try { const num = parseInt(n, 10) || 0; return num < 10 ? `0${num}` : String(num) } catch { return '01' } }
     function capitalizeName(n) { try { return (n || '').toString().charAt(0).toUpperCase() + (n || '').toString().slice(1) } catch { return n } }
     function getOrAssignAgentNumber(key) {
@@ -3657,6 +3822,8 @@ function initializeExtension() {
     console.log('🔑 Draft key for agent:', draftKey, '(scope:', agentScope, ', session:', sessionKey, ')')
     
     chrome.storage.local.get([draftKey], (draftResult) => {
+      console.log(`🔍 Checked for draft with key: ${draftKey}`)
+      console.log(`🔍 Draft found: ${!!draftResult[draftKey]}`)
       if (draftResult[draftKey]) {
         // Load from draft (auto-saved data)
         console.log('📂 Loading from AUTO-SAVED draft:', draftKey)
@@ -3664,7 +3831,7 @@ function initializeExtension() {
         previouslySavedData = draftResult[draftKey]
         continueDialogSetup()
       } else {
-        console.log('ℹ️ No draft found, loading from session...')
+        console.log(`ℹ️ No draft found, loading from ${agentScope} scope with loadAgentConfig...`)
         // Load from saved configuration
         loadAgentConfig(agentName, agentScope, type, (loadedData) => {
           console.log('📂 loadAgentConfig returned:', loadedData ? `${loadedData.length} chars` : 'NULL')
@@ -7562,8 +7729,11 @@ function initializeExtension() {
       }, 3000)
       
       // Persist via manager then re-render from session
+      console.log(`💾 Saving new agent: ${agentName} (${agentIcon})`)
       addAgentToSession(agentName, agentIcon, () => {
+        console.log(`✅ Agent saved successfully, re-rendering grid...`)
         renderAgentsGrid(parentOverlay)
+        console.log(`✅ Grid re-rendered, closing dialog`)
         configOverlay.remove()
       })
     }
