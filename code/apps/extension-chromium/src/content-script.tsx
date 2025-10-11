@@ -843,12 +843,12 @@ function initializeExtension() {
       }
     })
   }
-
+  
   function getAllAgentsForSession(session: any, callback: (agents: any[]) => void) {
     // First, cleanup any data corruption
     cleanupAgentStorage(session, () => {
-      getAccountAgents((accountAgents) => {
-        const sessionAgents = (session.agents || []).filter((a: any) => a.scope === 'session')
+    getAccountAgents((accountAgents) => {
+      const sessionAgents = (session.agents || []).filter((a: any) => a.scope === 'session')
         
         // CRITICAL: Build a map to track ALL agents by key across both scopes
         // Rule: If an agent exists in BOTH places, ALWAYS prefer the one with proper scope
@@ -876,7 +876,7 @@ function initializeExtension() {
         console.log(`   Duplicates found and removed: ${(accountAgents.length + sessionAgents.length) - allAgents.length}`)
         console.log(`   Final unique agents (${allAgents.length}):`, allAgents.map((a: any) => `${a.name} (${a.key}, scope: ${a.scope})`))
         
-        callback(allAgents)
+      callback(allAgents)
       })
     })
   }
@@ -945,11 +945,11 @@ function initializeExtension() {
             
             // Clean up the originalSessionKey since it's back in session scope
             delete agent.originalSessionKey
-            
-            saveAccountAgents(updatedAccountAgents, () => {
+          
+          saveAccountAgents(updatedAccountAgents, () => {
               chrome.storage.local.set({ [targetSessionKey]: targetSession }, () => {
                 console.log(`✅ Agent moved to Session scope in session: ${targetSessionKey}`)
-                callback()
+              callback()
               })
             })
           })
@@ -1145,7 +1145,7 @@ function initializeExtension() {
           
         agents.forEach((a:any) => {
           const num = pad2(Number(a.number)||1)
-          const isAccount = a.scope === 'account'
+            const isAccount = a.scope === 'account'
           console.log(`🎨 Rendering agent card: ${a.name} (${a.key}), scope: "${a.scope}", isAccount: ${isAccount}`)
           const card = document.createElement('div')
           card.style.cssText = 'background: rgba(255,255,255,0.1); padding: 15px; border-radius: 8px; text-align: center; position: relative;'
@@ -4023,8 +4023,8 @@ function initializeExtension() {
             }
             // Listener Example files - preserve even if capability was toggled
             if (previouslySavedData?.listening?.exampleFiles && previouslySavedData.listening.exampleFiles.length > 0) {
-              if (!draft.listening) draft.listening = {}
-              draft.listening.exampleFiles = previouslySavedData.listening.exampleFiles
+                if (!draft.listening) draft.listening = {}
+                draft.listening.exampleFiles = previouslySavedData.listening.exampleFiles
               console.log('💾 Preserved Listener Example files:', draft.listening.exampleFiles.length)
             }
             
@@ -4624,8 +4624,8 @@ function initializeExtension() {
               })
               
               console.log(`🗑️ Removed Agent Context file at index ${idx} and saved to storage`)
-              btn.closest('.saved-file-row')?.remove()
-              const countEl = acList.querySelector('div')
+                btn.closest('.saved-file-row')?.remove()
+                const countEl = acList.querySelector('div')
               if (countEl) countEl.textContent = `📦 ${previouslySavedData.agentContextFiles.length} file(s) staged (click Save to finalize):`
             })
           })
@@ -4673,15 +4673,15 @@ function initializeExtension() {
             // CRITICAL: Use current draft data (previouslySavedData), not saved config
             // This prevents losing files when multiple uploads happen before save
             let parsed: any = previouslySavedData || {}
-            
-            // Merge with existing files
-            const existingFiles = parsed.agentContextFiles || []
-            const existingFileNames = new Set(existingFiles.map((f: any) => f.name))
-            const uniqueNewFiles = validNewFiles.filter(f => !existingFileNames.has(f.name))
-            
-            parsed.agentContextFiles = [...existingFiles, ...uniqueNewFiles]
-            previouslySavedData = parsed
-            
+              
+              // Merge with existing files
+              const existingFiles = parsed.agentContextFiles || []
+              const existingFileNames = new Set(existingFiles.map((f: any) => f.name))
+              const uniqueNewFiles = validNewFiles.filter(f => !existingFileNames.has(f.name))
+              
+              parsed.agentContextFiles = [...existingFiles, ...uniqueNewFiles]
+              previouslySavedData = parsed
+              
             // CRITICAL: Immediately persist to chrome.storage to prevent loss
             const dKey = agentScope === 'session' 
               ? `agent_${agentName}_draft_session_${sessionKey}` 
@@ -4691,36 +4691,36 @@ function initializeExtension() {
             })
             
             console.log(`📦 Staged ${uniqueNewFiles.length} Agent Context file(s) and saved to storage`)
-            console.log(`   Total files now: ${parsed.agentContextFiles.length}`)
-            console.log(`   File names: ${parsed.agentContextFiles.map((f: any) => f.name).join(', ')}`)
-            console.log(`   previouslySavedData updated:`, {
-              hasAgentContextFiles: !!previouslySavedData.agentContextFiles,
-              fileCount: previouslySavedData.agentContextFiles?.length
-            })
-            
-            // Auto-check the Agent Context checkbox and update persisted state
-            acEnable.checked = true
-            persistedACAgent = true
-            syncAc() // Show the content area
-            
-            // Update display
-            const totalFiles = parsed.agentContextFiles.length
-            acList.innerHTML = `
-            <div style="color:#fbbf24;font-weight:600;margin-bottom:6px">📦 ${totalFiles} file(s) staged (click Save to finalize):</div>
-              ${parsed.agentContextFiles.map((f: any, idx: number) => `
-              <div class="saved-file-row" style="display:flex;align-items:center;gap:6px;padding:4px 8px;background:rgba(251,191,36,0.1);border-radius:6px;margin-bottom:4px;border:1px solid rgba(251,191,36,0.3)">
-                  <span>📄 ${f.name} (${(f.size / 1024).toFixed(1)} KB)</span>
-                  <button class="delete-ac-file-btn" data-idx="${idx}" style="margin-left:auto;background:#f44336;border:none;color:white;padding:2px 8px;border-radius:4px;cursor:pointer;font-size:10px;">✕</button>
-                </div>
-              `).join('')}
-            `
-            
-            // Add delete handlers
-            acList.querySelectorAll('.delete-ac-file-btn').forEach((btn: Element) => {
-              btn.addEventListener('click', () => {
-                const idx = parseInt(btn.getAttribute('data-idx') || '0')
-                parsed.agentContextFiles.splice(idx, 1)
-                previouslySavedData = parsed
+              console.log(`   Total files now: ${parsed.agentContextFiles.length}`)
+              console.log(`   File names: ${parsed.agentContextFiles.map((f: any) => f.name).join(', ')}`)
+              console.log(`   previouslySavedData updated:`, {
+                hasAgentContextFiles: !!previouslySavedData.agentContextFiles,
+                fileCount: previouslySavedData.agentContextFiles?.length
+              })
+              
+              // Auto-check the Agent Context checkbox and update persisted state
+              acEnable.checked = true
+              persistedACAgent = true
+              syncAc() // Show the content area
+                
+                // Update display
+                const totalFiles = parsed.agentContextFiles.length
+                acList.innerHTML = `
+                <div style="color:#fbbf24;font-weight:600;margin-bottom:6px">📦 ${totalFiles} file(s) staged (click Save to finalize):</div>
+                  ${parsed.agentContextFiles.map((f: any, idx: number) => `
+                  <div class="saved-file-row" style="display:flex;align-items:center;gap:6px;padding:4px 8px;background:rgba(251,191,36,0.1);border-radius:6px;margin-bottom:4px;border:1px solid rgba(251,191,36,0.3)">
+                      <span>📄 ${f.name} (${(f.size / 1024).toFixed(1)} KB)</span>
+                      <button class="delete-ac-file-btn" data-idx="${idx}" style="margin-left:auto;background:#f44336;border:none;color:white;padding:2px 8px;border-radius:4px;cursor:pointer;font-size:10px;">✕</button>
+                    </div>
+                  `).join('')}
+                `
+                
+                // Add delete handlers
+                acList.querySelectorAll('.delete-ac-file-btn').forEach((btn: Element) => {
+                  btn.addEventListener('click', () => {
+                    const idx = parseInt(btn.getAttribute('data-idx') || '0')
+                    parsed.agentContextFiles.splice(idx, 1)
+                    previouslySavedData = parsed
                 
                 // CRITICAL: Immediately persist deletion to chrome.storage
                 const dKey = agentScope === 'session' 
@@ -4731,14 +4731,14 @@ function initializeExtension() {
                 })
                 
                 console.log(`🗑️ Removed Agent Context file at index ${idx} and saved to storage`)
-                btn.closest('.saved-file-row')?.remove()
-                const countEl = acList.querySelector('div')
-                if (countEl) countEl.textContent = `📦 ${parsed.agentContextFiles.length} file(s) staged (click Save to finalize):`
-              })
-            })
-            
-            // Clear the file input
-            acFiles.value = ''
+                      btn.closest('.saved-file-row')?.remove()
+                      const countEl = acList.querySelector('div')
+                  if (countEl) countEl.textContent = `📦 ${parsed.agentContextFiles.length} file(s) staged (click Save to finalize):`
+                  })
+                })
+                
+                // Clear the file input
+                acFiles.value = ''
           } catch (err) {
             console.error('❌ Error pre-saving Agent Context files:', err)
             acList.textContent = `❌ Error uploading files`
@@ -4968,18 +4968,18 @@ function initializeExtension() {
                 // CRITICAL: Use current draft data (previouslySavedData), not saved config
                 // This prevents losing files when multiple uploads happen before save
                 let parsed: any = previouslySavedData || {}
-                
-                // Ensure listening object exists
-                if (!parsed.listening) parsed.listening = {}
-                
-                // Merge with existing files
-                const existingFiles = parsed.listening.exampleFiles || []
-                const existingFileNames = new Set(existingFiles.map((f: any) => f.name))
-                const uniqueNewFiles = validNewFiles.filter(f => !existingFileNames.has(f.name))
-                
-                parsed.listening.exampleFiles = [...existingFiles, ...uniqueNewFiles]
-                previouslySavedData = parsed
-                
+                  
+                  // Ensure listening object exists
+                  if (!parsed.listening) parsed.listening = {}
+                  
+                  // Merge with existing files
+                  const existingFiles = parsed.listening.exampleFiles || []
+                  const existingFileNames = new Set(existingFiles.map((f: any) => f.name))
+                  const uniqueNewFiles = validNewFiles.filter(f => !existingFileNames.has(f.name))
+                  
+                  parsed.listening.exampleFiles = [...existingFiles, ...uniqueNewFiles]
+                  previouslySavedData = parsed
+                  
                 // CRITICAL: Immediately persist to chrome.storage to prevent loss
                 const dKey = agentScope === 'session' 
                   ? `agent_${agentName}_draft_session_${sessionKey}` 
@@ -4989,27 +4989,27 @@ function initializeExtension() {
                 })
                 
                 console.log(`📦 Staged ${uniqueNewFiles.length} Listener Example file(s) and saved to storage`)
-                
-                // Update display
-                const totalFiles = parsed.listening.exampleFiles.length
-                lExamplesContainer.innerHTML = `
-                <div style="margin-top:8px;font-size:11px;opacity:0.9;padding:8px;background:rgba(251,191,36,0.1);border-radius:4px;border:1px solid rgba(251,191,36,0.3)">
-                  <div style="font-weight:bold;margin-bottom:8px;color:#fbbf24;">📦 ${totalFiles} example file(s) staged (click Save to finalize):</div>
-                    ${parsed.listening.exampleFiles.map((f: any, idx: number) => `
-                      <div class="saved-file-row" style="display:flex;align-items:center;gap:8px;margin-bottom:6px;padding:4px 8px;background:rgba(255,255,255,0.05);border-radius:4px;">
-                        <span>📄 ${f.name} (${(f.size / 1024).toFixed(1)} KB)</span>
-                        <button class="delete-lexample-file-btn" data-idx="${idx}" style="margin-left:auto;background:#f44336;border:none;color:white;padding:2px 8px;border-radius:4px;cursor:pointer;font-size:10px;">✕</button>
+                    
+                    // Update display
+                    const totalFiles = parsed.listening.exampleFiles.length
+                    lExamplesContainer.innerHTML = `
+                    <div style="margin-top:8px;font-size:11px;opacity:0.9;padding:8px;background:rgba(251,191,36,0.1);border-radius:4px;border:1px solid rgba(251,191,36,0.3)">
+                      <div style="font-weight:bold;margin-bottom:8px;color:#fbbf24;">📦 ${totalFiles} example file(s) staged (click Save to finalize):</div>
+                        ${parsed.listening.exampleFiles.map((f: any, idx: number) => `
+                          <div class="saved-file-row" style="display:flex;align-items:center;gap:8px;margin-bottom:6px;padding:4px 8px;background:rgba(255,255,255,0.05);border-radius:4px;">
+                            <span>📄 ${f.name} (${(f.size / 1024).toFixed(1)} KB)</span>
+                            <button class="delete-lexample-file-btn" data-idx="${idx}" style="margin-left:auto;background:#f44336;border:none;color:white;padding:2px 8px;border-radius:4px;cursor:pointer;font-size:10px;">✕</button>
+                          </div>
+                        `).join('')}
                       </div>
-                    `).join('')}
-                  </div>
-                `
-                
-                // Add delete handlers
-                lExamplesContainer.querySelectorAll('.delete-lexample-file-btn').forEach((btn: Element) => {
-                  btn.addEventListener('click', () => {
-                    const idx = parseInt(btn.getAttribute('data-idx') || '0')
-                    parsed.listening.exampleFiles.splice(idx, 1)
-                    previouslySavedData = parsed
+                    `
+                    
+                    // Add delete handlers
+                    lExamplesContainer.querySelectorAll('.delete-lexample-file-btn').forEach((btn: Element) => {
+                      btn.addEventListener('click', () => {
+                        const idx = parseInt(btn.getAttribute('data-idx') || '0')
+                        parsed.listening.exampleFiles.splice(idx, 1)
+                        previouslySavedData = parsed
                     
                     // CRITICAL: Immediately persist deletion to chrome.storage
                     const dKey = agentScope === 'session' 
@@ -5020,14 +5020,14 @@ function initializeExtension() {
                     })
                     
                     console.log(`🗑️ Removed Listener Example file at index ${idx} and saved to storage`)
-                    btn.closest('.saved-file-row')?.remove()
-                    const countEl = lExamplesContainer.querySelector('div')
-                    if (countEl) countEl.textContent = `📦 ${parsed.listening.exampleFiles.length} example file(s) staged (click Save to finalize):`
-                  })
-                })
-                
-                // Clear the file input
-                lExamplesInput.value = ''
+                          btn.closest('.saved-file-row')?.remove()
+                          const countEl = lExamplesContainer.querySelector('div')
+                      if (countEl) countEl.textContent = `📦 ${parsed.listening.exampleFiles.length} example file(s) staged (click Save to finalize):`
+                      })
+                    })
+                    
+                    // Clear the file input
+                    lExamplesInput.value = ''
               } catch (err) {
                 console.error('❌ Error pre-saving Listener Example files:', err)
                 lExamplesContainer.textContent = `❌ Error uploading files`
@@ -5672,13 +5672,13 @@ function initializeExtension() {
                     console.log(`✅ IMMEDIATELY saved Agent Context file deletion to chrome.storage!`)
                   })
                   
-                  console.log(`🗑️ Removed Agent Context file at index ${idx}`)
+                    console.log(`🗑️ Removed Agent Context file at index ${idx}`)
                   btn.closest('.saved-file-row')?.remove()
                   const countEl = acList.querySelector('div')
-                  if (countEl) countEl.textContent = `📦 ${previouslySavedData.agentContextFiles.length} file(s) previously uploaded:`
+                    if (countEl) countEl.textContent = `📦 ${previouslySavedData.agentContextFiles.length} file(s) previously uploaded:`
                     
                   // Also sync to keep everything in sync
-                  syncPersistedFromDom()
+                    syncPersistedFromDom()
                 })
               })
               console.log(`✅ Successfully restored ${files.length} Agent Context files to display`)
@@ -7896,6 +7896,22 @@ function initializeExtension() {
   }
 
   function openContextLightbox() {
+    console.log('📄 Opening Context Management...')
+    
+    // Get current session key for session-scoped contexts
+    const sessionKey = getCurrentSessionKey()
+    console.log('🔑 Current session key:', sessionKey)
+    
+    // Storage keys
+    const userContextKey = sessionKey ? `user_context_${sessionKey}` : null
+    const publisherContextKey = sessionKey ? `publisher_context_${sessionKey}` : null
+    const accountContextKey = 'optimando_account_context' // Global key
+    
+    // Temporary storage for loaded contexts
+    let userContextData: any = { text: '', pdfFiles: [] }
+    let publisherContextData: any = { text: '', pdfFiles: [] }
+    let accountContextData: any = { text: '', pdfFiles: [] }
+    
     // Create context lightbox
     const overlay = document.createElement('div')
     overlay.id = 'context-lightbox'
@@ -7941,7 +7957,7 @@ function initializeExtension() {
           <div id="user-context-content" style="display: block;">
             <div style="background: rgba(255,255,255,0.1); padding: 20px; border-radius: 8px; margin-bottom: 20px;">
               <h3 style="margin: 0 0 15px 0; font-size: 16px; color: #66FF66;">Auto-scrape Website Context</h3>
-              <button id="scrape-context-btn" style="
+              <button id="scrape-user-context-btn" style="
                 background: linear-gradient(135deg, #4CAF50, #45a049);
                 border: none; color: white; padding: 12px 24px; border-radius: 8px;
                 cursor: pointer; font-size: 14px; font-weight: bold;
@@ -7959,17 +7975,52 @@ function initializeExtension() {
             
             <div style="background: rgba(255,255,255,0.1); padding: 20px; border-radius: 8px; margin-bottom: 20px;">
               <h3 style="margin: 0 0 15px 0; font-size: 16px; color: #66FF66;">📎 Upload PDF Files</h3>
-              <input type="file" id="context-pdf-upload" multiple accept=".pdf" style="
+              <input type="file" id="user-context-pdf-upload" multiple accept=".pdf" style="
                 width: 100%; padding: 10px; background: rgba(255,255,255,0.1);
                 border: 1px solid rgba(255,255,255,0.3); color: white;
                 border-radius: 6px; font-size: 12px; margin-bottom: 10px;
               ">
-              <div id="pdf-files-list" style="font-size: 12px; color: #CCCCCC;"></div>
+              <div id="user-pdf-files-list" style="font-size: 12px; color: #CCCCCC;"></div>
             </div>
           </div>
           
-          <!-- Account Context Tab Button -->
-          <div style="margin-top:10px"></div>
+          <!-- Publisher Context Tab Content -->
+          <div id="publisher-context-content" style="display: none;">
+            <div style="background: rgba(255,255,255,0.1); padding: 20px; border-radius: 8px; margin-bottom: 20px;">
+              <h3 style="margin: 0 0 15px 0; font-size: 16px; color: #66FF66;">Publisher Context from wrcode.org</h3>
+              <div style="display: flex; gap: 10px; margin-bottom: 15px;">
+                <button id="scrape-publisher-context-btn" style="
+                  background: linear-gradient(135deg, #4CAF50, #45a049);
+                  border: none; color: white; padding: 10px 20px; border-radius: 6px;
+                  cursor: pointer; font-size: 12px; font-weight: bold;
+                ">🔍 Scrape Current Page</button>
+                <button id="load-wrcode-context" style="
+                  background: linear-gradient(135deg, #2196F3, #1976D2);
+                  border: none; color: white; padding: 10px 20px; border-radius: 6px;
+                  cursor: pointer; font-size: 12px; font-weight: bold;
+                ">Load from wrcode.org</button>
+              </div>
+              
+              <textarea id="publisher-context-text" style="
+                width: 100%; height: 200px; background: rgba(255,255,255,0.1);
+                border: 1px solid rgba(255,255,255,0.3); color: white; padding: 15px;
+                border-radius: 8px; font-size: 14px; resize: vertical;
+                font-family: 'Consolas', monospace; line-height: 1.5;
+              " placeholder="Publisher context will be loaded from wrcode.org or injected via template..."></textarea>
+            </div>
+            
+            <div style="background: rgba(255,255,255,0.1); padding: 20px; border-radius: 8px; margin-bottom: 20px;">
+              <h3 style="margin: 0 0 15px 0; font-size: 16px; color: #66FF66;">📎 Upload PDF Files</h3>
+              <input type="file" id="publisher-context-pdf-upload" multiple accept=".pdf" style="
+                width: 100%; padding: 10px; background: rgba(255,255,255,0.1);
+                border: 1px solid rgba(255,255,255,0.3); color: white;
+                border-radius: 6px; font-size: 12px; margin-bottom: 10px;
+              ">
+              <div id="publisher-pdf-files-list" style="font-size: 12px; color: #CCCCCC;"></div>
+          </div>
+          </div>
+          
+          <!-- Account Context Tab Content -->
           <div id="account-context-content" style="display: none;">
             <div style="background: rgba(255,255,255,0.1); padding: 20px; border-radius: 8px; margin-bottom: 10px; font-size:12px;opacity:.9">
               Account context is persistent across all sessions (e.g. a company's knowledgebase), while session context only applies within a single active session.
@@ -7987,26 +8038,7 @@ function initializeExtension() {
               <div id="account-pdf-list" style="margin-top: 10px; font-size: 12px; opacity: 0.8;">No PDF files uploaded</div>
             </div>
           </div>
-          <!-- Publisher Context Tab Content -->
-          <div id="publisher-context-content" style="display: none;">
-            <div style="background: rgba(255,255,255,0.1); padding: 20px; border-radius: 8px; margin-bottom: 20px;">
-              <h3 style="margin: 0 0 15px 0; font-size: 16px; color: #66FF66;">Publisher Context from wrcode.org</h3>
-              <div style="display: flex; gap: 10px; margin-bottom: 15px;">
-                <button id="load-wrcode-context" style="
-                  background: linear-gradient(135deg, #2196F3, #1976D2);
-                  border: none; color: white; padding: 10px 20px; border-radius: 6px;
-                  cursor: pointer; font-size: 12px; font-weight: bold;
-                ">Load from wrcode.org</button>
-              </div>
-              
-              <textarea id="publisher-context-text" style="
-                width: 100%; height: 200px; background: rgba(255,255,255,0.1);
-                border: 1px solid rgba(255,255,255,0.3); color: white; padding: 15px;
-                border-radius: 8px; font-size: 14px; resize: vertical;
-                font-family: 'Consolas', monospace; line-height: 1.5;
-              " placeholder="Publisher context will be loaded from wrcode.org or injected via template..."></textarea>
-            </div>
-          </div>
+          
           <!-- Action Buttons -->
           <div style="display: flex; justify-content: center; gap: 15px; margin-top: 20px;">
             <button id="inject-context-btn" style="
@@ -8034,36 +8066,137 @@ function initializeExtension() {
     
     document.body.appendChild(overlay)
     
-    // Load existing context data
-    const userText = document.getElementById('user-context-text') as HTMLTextAreaElement
-    const publisherText = document.getElementById('publisher-context-text') as HTMLTextAreaElement
-    
-    if (currentTabData.context?.userContext?.text) {
-      userText.value = currentTabData.context.userContext.text
-    }
-    if (currentTabData.context?.publisherContext?.text) {
-      publisherText.value = currentTabData.context.publisherContext.text
-    }
-    // Update PDF files list
-    updatePdfFilesList()
-    
-    // Auto-save on text changes
-    const autoSaveContext = () => {
-      if (!currentTabData.context) {
-        currentTabData.context = { userContext: { text: '', pdfFiles: [] }, publisherContext: { text: '' } }
-      }
-      currentTabData.context.userContext.text = userText.value
-      currentTabData.context.publisherContext.text = publisherText.value
-      saveTabDataToStorage()
+    // Load existing context data from storage
+    const loadContexts = () => {
+      const keysToLoad = [userContextKey, publisherContextKey, accountContextKey].filter(k => k) as string[]
       
-      if (currentTabData.isLocked) {
-        sendContextToElectron()
+      chrome.storage.local.get(keysToLoad, (result) => {
+        console.log('📥 Loaded contexts:', result)
+        
+        // Load User Context (Session-scoped)
+        if (userContextKey && result[userContextKey]) {
+          userContextData = result[userContextKey]
+    const userText = document.getElementById('user-context-text') as HTMLTextAreaElement
+          if (userText) userText.value = userContextData.text || ''
+          updateUserPdfList()
+          console.log('✅ Loaded User Context from session')
+        }
+        
+        // Load Publisher Context (Session-scoped)
+        if (publisherContextKey && result[publisherContextKey]) {
+          publisherContextData = result[publisherContextKey]
+    const publisherText = document.getElementById('publisher-context-text') as HTMLTextAreaElement
+          if (publisherText) publisherText.value = publisherContextData.text || ''
+          updatePublisherPdfList()
+          console.log('✅ Loaded Publisher Context from session')
+        }
+        
+        // Load Account Context (Global)
+        if (result[accountContextKey]) {
+          accountContextData = result[accountContextKey]
+          const accountText = document.getElementById('account-context-input') as HTMLTextAreaElement
+          if (accountText) accountText.value = accountContextData.text || ''
+          updateAccountPdfList()
+          console.log('✅ Loaded Account Context (global)')
+        }
+      })
+    }
+    
+    // Helper functions to update PDF lists
+    function updateUserPdfList() {
+      const pdfList = document.getElementById('user-pdf-files-list')
+      if (pdfList) {
+        const pdfFiles = userContextData.pdfFiles || []
+        if (pdfFiles.length > 0) {
+          pdfList.innerHTML = `
+            <div style="color: #66FF66; font-weight: bold; margin-bottom: 5px;">📎 Uploaded Files (${pdfFiles.length}):</div>
+            ${pdfFiles.map((file: any, index: number) => `
+              <div style="display: flex; justify-content: space-between; align-items: center; background: rgba(255,255,255,0.1); padding: 5px 10px; border-radius: 4px; margin: 2px 0; font-size: 11px;">
+                <span>📄 ${file.name} (${Math.round(file.size / 1024)}KB)</span>
+                <button onclick="window.removeUserPdfFile(${index})" style="background: #f44336; border: none; color: white; padding: 2px 6px; border-radius: 3px; cursor: pointer; font-size: 10px;">✕</button>
+              </div>
+            `).join('')}
+          `
+        } else {
+          pdfList.innerHTML = '<div style="color: #888; font-size: 11px;">No PDF files uploaded</div>'
+        }
       }
     }
     
-    // Add auto-save listeners
-    userText.addEventListener('input', autoSaveContext)
-    publisherText.addEventListener('input', autoSaveContext)
+    function updatePublisherPdfList() {
+      const pdfList = document.getElementById('publisher-pdf-files-list')
+      if (pdfList) {
+        const pdfFiles = publisherContextData.pdfFiles || []
+        if (pdfFiles.length > 0) {
+          pdfList.innerHTML = `
+            <div style="color: #66FF66; font-weight: bold; margin-bottom: 5px;">📎 Uploaded Files (${pdfFiles.length}):</div>
+            ${pdfFiles.map((file: any, index: number) => `
+              <div style="display: flex; justify-content: space-between; align-items: center; background: rgba(255,255,255,0.1); padding: 5px 10px; border-radius: 4px; margin: 2px 0; font-size: 11px;">
+                <span>📄 ${file.name} (${Math.round(file.size / 1024)}KB)</span>
+                <button onclick="window.removePublisherPdfFile(${index})" style="background: #f44336; border: none; color: white; padding: 2px 6px; border-radius: 3px; cursor: pointer; font-size: 10px;">✕</button>
+              </div>
+            `).join('')}
+          `
+        } else {
+          pdfList.innerHTML = '<div style="color: #888; font-size: 11px;">No PDF files uploaded</div>'
+        }
+      }
+    }
+    
+    function updateAccountPdfList() {
+      const pdfList = document.getElementById('account-pdf-list')
+      if (pdfList) {
+        const pdfFiles = accountContextData.pdfFiles || []
+        if (pdfFiles.length > 0) {
+          pdfList.innerHTML = `
+            <div style="color: #66FF66; font-weight: bold; margin-bottom: 5px;">📎 Uploaded Files (${pdfFiles.length}):</div>
+            ${pdfFiles.map((file: any, index: number) => `
+              <div style="display: flex; justify-content: space-between; align-items: center; background: rgba(255,255,255,0.1); padding: 5px 10px; border-radius: 4px; margin: 2px 0; font-size: 11px;">
+                <span>📄 ${file.name} (${Math.round(file.size / 1024)}KB)</span>
+                <button onclick="window.removeAccountPdfFile(${index})" style="background: #f44336; border: none; color: white; padding: 2px 6px; border-radius: 3px; cursor: pointer; font-size: 10px;">✕</button>
+              </div>
+            `).join('')}
+          `
+        } else {
+          pdfList.innerHTML = '<div style="color: #888; font-size: 11px;">No PDF files uploaded</div>'
+        }
+      }
+    }
+    
+    // Global functions for removing PDF files
+    (window as any).removeUserPdfFile = (index: number) => {
+      userContextData.pdfFiles = userContextData.pdfFiles || []
+      userContextData.pdfFiles.splice(index, 1)
+      updateUserPdfList()
+      if (userContextKey) {
+        chrome.storage.local.set({ [userContextKey]: userContextData }, () => {
+          console.log('✅ User Context PDF removed and saved')
+        })
+      }
+    }
+    
+    (window as any).removePublisherPdfFile = (index: number) => {
+      publisherContextData.pdfFiles = publisherContextData.pdfFiles || []
+      publisherContextData.pdfFiles.splice(index, 1)
+      updatePublisherPdfList()
+      if (publisherContextKey) {
+        chrome.storage.local.set({ [publisherContextKey]: publisherContextData }, () => {
+          console.log('✅ Publisher Context PDF removed and saved')
+        })
+      }
+    }
+    
+    (window as any).removeAccountPdfFile = (index: number) => {
+      accountContextData.pdfFiles = accountContextData.pdfFiles || []
+      accountContextData.pdfFiles.splice(index, 1)
+      updateAccountPdfList()
+      chrome.storage.local.set({ [accountContextKey]: accountContextData }, () => {
+        console.log('✅ Account Context PDF removed and saved')
+      })
+    }
+    
+    // Load contexts
+    loadContexts()
     
     // Tab switching functionality
     const userTab = document.getElementById('user-context-tab')
@@ -8075,29 +8208,29 @@ function initializeExtension() {
     
     userTab?.addEventListener('click', () => {
       userTab.style.background = 'rgba(255,255,255,0.2)'
-      publisherTab.style.background = 'rgba(255,255,255,0.1)'
-      if (accountTab) accountTab.style.background = 'rgba(255,255,255,0.1)'
-      userContent.style.display = 'block'
-      publisherContent.style.display = 'none'
-      if (accountContent) accountContent.style.display = 'none'
+      publisherTab!.style.background = 'rgba(255,255,255,0.1)'
+      accountTab!.style.background = 'rgba(255,255,255,0.1)'
+      userContent!.style.display = 'block'
+      publisherContent!.style.display = 'none'
+      accountContent!.style.display = 'none'
     })
     
     publisherTab?.addEventListener('click', () => {
       publisherTab.style.background = 'rgba(255,255,255,0.2)'
-      userTab.style.background = 'rgba(255,255,255,0.1)'
-      if (accountTab) accountTab.style.background = 'rgba(255,255,255,0.1)'
-      publisherContent.style.display = 'block'
-      userContent.style.display = 'none'
-      if (accountContent) accountContent.style.display = 'none'
+      userTab!.style.background = 'rgba(255,255,255,0.1)'
+      accountTab!.style.background = 'rgba(255,255,255,0.1)'
+      publisherContent!.style.display = 'block'
+      userContent!.style.display = 'none'
+      accountContent!.style.display = 'none'
     })
     
     accountTab?.addEventListener('click', () => {
       accountTab.style.background = 'rgba(255,255,255,0.2)'
-      userTab.style.background = 'rgba(255,255,255,0.1)'
-      publisherTab.style.background = 'rgba(255,255,255,0.1)'
-      if (accountContent) accountContent.style.display = 'block'
-      userContent.style.display = 'none'
-      publisherContent.style.display = 'none'
+      userTab!.style.background = 'rgba(255,255,255,0.1)'
+      publisherTab!.style.background = 'rgba(255,255,255,0.1)'
+      accountContent!.style.display = 'block'
+      userContent!.style.display = 'none'
+      publisherContent!.style.display = 'none'
     })
     
     // Close button
@@ -8107,8 +8240,8 @@ function initializeExtension() {
     
     overlay.onclick = (e) => { if (e.target === overlay) overlay.remove() }
     
-    // Scrape context functionality
-    document.getElementById('scrape-context-btn')?.addEventListener('click', () => {
+    // Scrape context functionality - User Context
+    document.getElementById('scrape-user-context-btn')?.addEventListener('click', () => {
       const pageTitle = document.title
       const pageUrl = window.location.href
       const pageText = document.body.innerText.substring(0, 3000)
@@ -8120,171 +8253,169 @@ ${pageText}
 [Scraped on ${new Date().toLocaleString()}]`
       
       const textarea = document.getElementById('user-context-text') as HTMLTextAreaElement
-      textarea.value = scrapedContext
+      if (textarea) textarea.value = scrapedContext
     })
     
-    // PDF upload functionality
-    document.getElementById('context-pdf-upload')?.addEventListener('change', (e) => {
+    // Scrape context functionality - Publisher Context
+    document.getElementById('scrape-publisher-context-btn')?.addEventListener('click', () => {
+      const pageTitle = document.title
+      const pageUrl = window.location.href
+      const pageText = document.body.innerText.substring(0, 3000)
+      
+      const scrapedContext = `Page Title: ${pageTitle}
+URL: ${pageUrl}
+Content:
+${pageText}
+[Scraped on ${new Date().toLocaleString()}]`
+      
+      const textarea = document.getElementById('publisher-context-text') as HTMLTextAreaElement
+      if (textarea) textarea.value = scrapedContext
+    })
+    
+    // Scrape context functionality - Account Context
+    document.getElementById('account-scrape-context')?.addEventListener('click', () => {
+      const pageTitle = document.title
+      const pageUrl = window.location.href
+      const pageText = document.body.innerText.substring(0, 3000)
+      
+      const scrapedContext = `Page Title: ${pageTitle}
+URL: ${pageUrl}
+Content:
+${pageText}
+[Scraped on ${new Date().toLocaleString()}]`
+      
+      const textarea = document.getElementById('account-context-input') as HTMLTextAreaElement
+      if (textarea) textarea.value = scrapedContext
+    })
+    
+    // PDF upload functionality - User Context
+    document.getElementById('user-context-pdf-upload')?.addEventListener('change', async (e) => {
       const files = (e.target as HTMLInputElement).files
       if (files && files.length > 0) {
-        // Initialize context data structure if not exists
-        if (!currentTabData.context) {
-          currentTabData.context = { userContext: { text: '', pdfFiles: [] }, publisherContext: { text: '' } }
-        }
-        if (!currentTabData.context.userContext) {
-          currentTabData.context.userContext = { text: '', pdfFiles: [] }
-        }
-        if (!currentTabData.context.userContext.pdfFiles) {
-          currentTabData.context.userContext.pdfFiles = []
-        }
+        if (!userContextData.pdfFiles) userContextData.pdfFiles = []
         
-        // Add new files to existing list
-        Array.from(files).forEach(file => {
+        for (const file of Array.from(files)) {
           if (file.type === 'application/pdf') {
-            currentTabData.context.userContext.pdfFiles.push({
+            // Read file as Data URL for storage
+            const reader = new FileReader()
+            reader.onload = (event) => {
+              userContextData.pdfFiles.push({
               name: file.name,
               size: file.size,
               lastModified: file.lastModified,
-              id: Date.now() + Math.random() // Unique ID for removal
-            })
+                dataUrl: event.target?.result as string,
+                id: Date.now() + Math.random()
+              })
+              updateUserPdfList()
+              // Auto-save
+              if (userContextKey) {
+                chrome.storage.local.set({ [userContextKey]: userContextData }, () => {
+                  console.log('✅ User Context PDF saved immediately')
+                })
+              }
+            }
+            reader.readAsDataURL(file)
           }
-        })
-        
-        updatePdfFilesList()
-        saveTabDataToStorage()
-        
-        // Auto-save context to session if locked
-        if (currentTabData.isLocked) {
-          sendContextToElectron()
         }
       }
     })
     
-    // Helper function to update PDF files list
-    function updatePdfFilesList() {
-      const pdfList = document.getElementById('pdf-files-list')
-      if (pdfList) {
-        const pdfFiles = currentTabData.context?.userContext?.pdfFiles || []
-        if (pdfFiles.length > 0) {
-          pdfList.innerHTML = `
-            <div style="color: #66FF66; font-weight: bold; margin-bottom: 5px;">📎 Uploaded Files (${pdfFiles.length}):</div>
-            ${pdfFiles.map((file, index) => `
-              <div style="display: flex; justify-content: space-between; align-items: center; background: rgba(255,255,255,0.1); padding: 5px 10px; border-radius: 4px; margin: 2px 0; font-size: 11px;">
-                <span>📄 ${file.name} (${Math.round(file.size / 1024)}KB)</span>
-                <button onclick="removePdfFile(${index})" style="background: #f44336; border: none; color: white; padding: 2px 6px; border-radius: 3px; cursor: pointer; font-size: 10px;">✕</button>
-              </div>
-            `).join('')}
-          `
-        } else {
-          pdfList.innerHTML = '<div style="color: #888; font-size: 11px;">No PDF files uploaded</div>'
+    // PDF upload functionality - Publisher Context
+    document.getElementById('publisher-context-pdf-upload')?.addEventListener('change', async (e) => {
+      const files = (e.target as HTMLInputElement).files
+      if (files && files.length > 0) {
+        if (!publisherContextData.pdfFiles) publisherContextData.pdfFiles = []
+        
+        for (const file of Array.from(files)) {
+          if (file.type === 'application/pdf') {
+            const reader = new FileReader()
+            reader.onload = (event) => {
+              publisherContextData.pdfFiles.push({
+                name: file.name,
+                size: file.size,
+                lastModified: file.lastModified,
+                dataUrl: event.target?.result as string,
+                id: Date.now() + Math.random()
+              })
+              updatePublisherPdfList()
+              // Auto-save
+              if (publisherContextKey) {
+                chrome.storage.local.set({ [publisherContextKey]: publisherContextData }, () => {
+                  console.log('✅ Publisher Context PDF saved immediately')
+                })
+              }
+            }
+            reader.readAsDataURL(file)
+          }
         }
       }
-    }
+    })
     
-    // Global function for removing PDF files
-    (window as any).removePdfFile = (index: number) => {
-      if (currentTabData.context?.userContext?.pdfFiles) {
-        currentTabData.context.userContext.pdfFiles.splice(index, 1)
-        updatePdfFilesList()
-        saveTabDataToStorage()
+    // PDF upload functionality - Account Context
+    document.getElementById('account-context-pdf')?.addEventListener('change', async (e) => {
+      const files = (e.target as HTMLInputElement).files
+      if (files && files.length > 0) {
+        if (!accountContextData.pdfFiles) accountContextData.pdfFiles = []
+        
+        for (const file of Array.from(files)) {
+          if (file.type === 'application/pdf') {
+            const reader = new FileReader()
+            reader.onload = (event) => {
+              accountContextData.pdfFiles.push({
+                name: file.name,
+                size: file.size,
+                lastModified: file.lastModified,
+                dataUrl: event.target?.result as string,
+                id: Date.now() + Math.random()
+              })
+              updateAccountPdfList()
+              // Auto-save
+              chrome.storage.local.set({ [accountContextKey]: accountContextData }, () => {
+                console.log('✅ Account Context PDF saved immediately')
+              })
+            }
+            reader.readAsDataURL(file)
+          }
+        }
       }
-    }
+    })
     
     // Load wrcode context
     document.getElementById('load-wrcode-context')?.addEventListener('click', () => {
       const textarea = document.getElementById('publisher-context-text') as HTMLTextAreaElement
-      textarea.value = 'Loading context from wrcode.org...\n[This would connect to wrcode.org API]'
+      if (textarea) textarea.value = 'Loading context from wrcode.org...\n[This would connect to wrcode.org API]'
     })
     
     // Inject context to LLMs
     document.getElementById('inject-context-btn')?.addEventListener('click', () => {
       alert('Context injection to LLMs functionality would be implemented here')
     })
-    // Export context
-    document.getElementById('export-context-btn')?.addEventListener('click', () => {
-      const userText = document.getElementById('user-context-text') as HTMLTextAreaElement
-      const publisherText = document.getElementById('publisher-context-text') as HTMLTextAreaElement
-      const pdfFiles = currentTabData.context?.userContext?.pdfFiles || []
-      
-      const exportData = {
-        userContext: {
-          text: userText.value,
-          pdfFiles: pdfFiles.map(file => ({
-            name: file.name,
-            size: file.size,
-            lastModified: file.lastModified
-          }))
-        },
-        publisherContext: {
-          text: publisherText.value
-        },
-        exportedAt: new Date().toISOString(),
-        sessionId: currentTabData.tabId
-      }
-      
-      // Create and download JSON file
-      const dataStr = JSON.stringify(exportData, null, 2)
-      const dataBlob = new Blob([dataStr], { type: 'application/json' })
-      const url = URL.createObjectURL(dataBlob)
-      
-      const link = document.createElement('a')
-      link.href = url
-      link.download = `context-export-${new Date().toISOString().split('T')[0]}.json`
-      document.body.appendChild(link)
-      link.click()
-      document.body.removeChild(link)
-      URL.revokeObjectURL(url)
-      
-      // Show success notification
-      const notification = document.createElement('div')
-      notification.style.cssText = `
-        position: fixed; top: 20px; right: 20px; z-index: 2147483650;
-        background: linear-gradient(135deg, #FF9800, #F57C00); color: white;
-        padding: 15px 20px; border-radius: 8px; font-size: 14px;
-        box-shadow: 0 4px 12px rgba(0,0,0,0.3); font-weight: bold;
-      `
-      notification.innerHTML = '📤 Context exported successfully!'
-      document.body.appendChild(notification)
-      
-      setTimeout(() => {
-        notification.remove()
-      }, 3000)
-    })
+    
     // Save context
     document.getElementById('save-context-btn')?.addEventListener('click', () => {
-      // Initialize context data structure if not exists
-      if (!currentTabData.context) {
-        currentTabData.context = { userContext: { text: '', pdfFiles: [] }, publisherContext: { text: '' } }
-      }
+      console.log('💾 Saving all contexts...')
       
-      // Update context data
+      // Get current values from textareas
       const userText = document.getElementById('user-context-text') as HTMLTextAreaElement
       const publisherText = document.getElementById('publisher-context-text') as HTMLTextAreaElement
+      const accountText = document.getElementById('account-context-input') as HTMLTextAreaElement
       
-      currentTabData.context.userContext.text = userText.value
-      currentTabData.context.publisherContext.text = publisherText.value
+      // Update context data
+      userContextData.text = userText?.value || ''
+      publisherContextData.text = publisherText?.value || ''
+      accountContextData.text = accountText?.value || ''
       
-      // Save to local storage
-      saveTabDataToStorage()
+      // Save to chrome.storage
+      const dataToSave: any = {}
+      if (userContextKey) dataToSave[userContextKey] = userContextData
+      if (publisherContextKey) dataToSave[publisherContextKey] = publisherContextData
+      dataToSave[accountContextKey] = accountContextData
       
-      // Send to Electron app
-      sendContextToElectron()
-      
-      // Also save to chrome.storage.local for session persistence
-      if (currentTabData.isLocked) {
-        const sessionKey = `session_${currentTabData.tabId}`
-        chrome.storage.local.get([sessionKey], (result) => {
-          if (result[sessionKey]) {
-            const updatedSession = {
-              ...result[sessionKey],
-              context: currentTabData.context
-            }
-            chrome.storage.local.set({ [sessionKey]: updatedSession }, () => {
-              console.log('✅ Context saved to session storage:', sessionKey)
-            })
-          }
-        })
-      }
+      chrome.storage.local.set(dataToSave, () => {
+        console.log('✅ All contexts saved:', dataToSave)
+        console.log('  - User Context (Session):', userContextKey)
+        console.log('  - Publisher Context (Session):', publisherContextKey)
+        console.log('  - Account Context (Global):', accountContextKey)
       
       // Show success notification
       const notification = document.createElement('div')
@@ -8294,24 +8425,51 @@ ${pageText}
         padding: 15px 20px; border-radius: 8px; font-size: 14px;
         box-shadow: 0 4px 12px rgba(0,0,0,0.3); font-weight: bold;
       `
-      notification.innerHTML = '✅ Context saved to active session!'
+        notification.innerHTML = '✅ All contexts saved successfully!'
       document.body.appendChild(notification)
       
       setTimeout(() => {
         notification.remove()
       }, 3000)
+      })
       
       overlay.remove()
     })
     
     // Clear context
     document.getElementById('clear-context-btn')?.addEventListener('click', () => {
-      if (confirm('Clear all context data?')) {
+      if (confirm('Clear all context data for the current tab?')) {
+        // Get current active tab
+        const userContent = document.getElementById('user-context-content')
+        const publisherContent = document.getElementById('publisher-context-content')
+        const accountContent = document.getElementById('account-context-content')
+        
+        if (userContent?.style.display !== 'none') {
+          // Clear User Context
         const userText = document.getElementById('user-context-text') as HTMLTextAreaElement
+          if (userText) userText.value = ''
+          userContextData = { text: '', pdfFiles: [] }
+          updateUserPdfList()
+          if (userContextKey) {
+            chrome.storage.local.set({ [userContextKey]: userContextData })
+          }
+        } else if (publisherContent?.style.display !== 'none') {
+          // Clear Publisher Context
         const publisherText = document.getElementById('publisher-context-text') as HTMLTextAreaElement
-        userText.value = ''
-        publisherText.value = ''
-        document.getElementById('pdf-files-list').innerHTML = ''
+          if (publisherText) publisherText.value = ''
+          publisherContextData = { text: '', pdfFiles: [] }
+          updatePublisherPdfList()
+          if (publisherContextKey) {
+            chrome.storage.local.set({ [publisherContextKey]: publisherContextData })
+          }
+        } else if (accountContent?.style.display !== 'none') {
+          // Clear Account Context
+          const accountText = document.getElementById('account-context-input') as HTMLTextAreaElement
+          if (accountText) accountText.value = ''
+          accountContextData = { text: '', pdfFiles: [] }
+          updateAccountPdfList()
+          chrome.storage.local.set({ [accountContextKey]: accountContextData })
+        }
       }
     })
   }
