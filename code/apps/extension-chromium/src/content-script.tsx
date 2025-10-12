@@ -178,7 +178,7 @@ function showTriggerPromptInChat(mode: string, rect: any, displayId: number, ima
       commandLabel.style.cssText = 'font-size: 13px; font-weight: 600; color: #9ca3af;'
       
       commandInput = document.createElement('textarea')
-      commandInput.placeholder = 'Enter command or instructions...'
+      commandInput.placeholder = 'Quickly enhance the agent\'s default behaviour...'
       commandInput.style.cssText = `
         width: 100%;
         min-height: 80px;
@@ -9384,7 +9384,7 @@ ${pageText}
             const commandRow = document.createElement('div')
             commandRow.style.cssText = 'display:flex; flex-direction:column; gap:4px;'
             const label = document.createElement('span'); label.textContent='Command:'
-            commandIn = document.createElement('textarea'); commandIn.placeholder='Enter command or instructions'; commandIn.style.cssText='width:100%; min-height:60px; padding:4px 6px; border:1px solid #e5e7eb; border-radius:6px; font-size:12px; background:#0b1220; color:#e5e7eb; resize:vertical; box-sizing:border-box;'
+            commandIn = document.createElement('textarea'); commandIn.placeholder='Quickly enhance the agent\'s default behaviour...'; commandIn.style.cssText='width:100%; min-height:60px; padding:4px 6px; border:1px solid #e5e7eb; border-radius:6px; font-size:12px; background:#0b1220; color:#e5e7eb; resize:vertical; box-sizing:border-box;'
             commandRow.append(label, commandIn)
             bar.appendChild(commandRow)
           }

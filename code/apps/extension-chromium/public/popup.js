@@ -273,7 +273,7 @@ function showTriggerPromptUI(mode, rect, displayId, imageUrl, videoUrl, createTr
       commandLabel.style.cssText = 'font-size:11px; font-weight:600; opacity:0.8;'
       
       commandIn = document.createElement('textarea')
-      commandIn.placeholder = 'Enter command or instructions...'
+      commandIn.placeholder = 'Quickly enhance the agent\'s default behaviour...'
       commandIn.style.cssText = 'width:100%; min-height:60px; padding:6px 8px; border:1px solid rgba(255,255,255,0.2); border-radius:4px; font-size:12px; background:rgba(11,18,32,0.6); color:#e5e7eb; resize:vertical; box-sizing:border-box; line-height:1.4; font-family:inherit; outline:none;'
       commandIn.addEventListener('focus', () => { commandIn.style.borderColor = 'rgba(37,99,235,0.5)' })
       commandIn.addEventListener('blur', () => { commandIn.style.borderColor = 'rgba(255,255,255,0.2)' })
