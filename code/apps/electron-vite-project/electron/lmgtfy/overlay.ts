@@ -103,7 +103,8 @@ export function beginOverlay(_expectedMode?: 'screenshot' | 'stream'): void {
           <button id="shot" class="btn primary" aria-label="Screenshot">📸 Screenshot</button>
           <button id="stream" class="btn stream" aria-label="Start Recording">🎥 Stream</button>
           <button id="stop" class="btn danger" aria-label="Stop Recording" style="display:none">⬛ STOP</button>
-          <label style="display:inline-flex;align-items:center;gap:6px;color:#fff;user-select:none"><input id="cbTrig" type="checkbox"/> <span>Create Tagged Trigger</span></label>
+          <label style="display:inline-flex;align-items:center;gap:6px;color:#fff;user-select:none"><input id="cbTrig" type="checkbox"/> <span>Create Trigger</span></label>
+          <label style="display:inline-flex;align-items:center;gap:6px;color:#fff;user-select:none"><input id="cbCommand" type="checkbox"/> <span>Add Command</span></label>
           <button id="close" class="btn" aria-label="Close">✕</button>
         </div>
         <script>
@@ -123,6 +124,7 @@ export function beginOverlay(_expectedMode?: 'screenshot' | 'stream'): void {
           timer.textContent='00:00';
           try { tb.insertBefore(timer, btnStop.nextSibling) } catch { try { tb.insertBefore(timer, btnClose) } catch {} }
           const cbTrig=document.getElementById('cbTrig');
+          const cbCommand=document.getElementById('cbCommand');
           function placeToolbar(){
             if (locked) { tb.style.left=tbX+'px'; tb.style.top=tbY+'px'; tb.style.display='flex'; return }
             const x=Math.min(sx,ex), y=Math.min(sy,ey);
@@ -140,14 +142,15 @@ export function beginOverlay(_expectedMode?: 'screenshot' | 'stream'): void {
           window.addEventListener('mousemove', onMove, true)
           window.addEventListener('mouseup', onUp, true)
           function confirmRect(){ const boxRect = box.getBoundingClientRect(); return {x:Math.round(boxRect.left),y:Math.round(boxRect.top),w:Math.round(boxRect.width),h:Math.round(boxRect.height)} }
-          btnShot.addEventListener('click',(e)=>{ try{ e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation && e.stopImmediatePropagation() }catch{}; if(locked){ tb.style.left=tbX+'px'; tb.style.top=tbY+'px' } const r=confirmRect(); const createTrig=!!cbTrig.checked; ipcRenderer.send('overlay-cmd',{ action:'shot', rect:r, displayId: DISPLAY_ID, createTrigger: createTrig, closeOverlay: true }) })
+          btnShot.addEventListener('click',(e)=>{ try{ e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation && e.stopImmediatePropagation() }catch{}; if(locked){ tb.style.left=tbX+'px'; tb.style.top=tbY+'px' } const r=confirmRect(); const createTrig=!!cbTrig.checked; const addCommand=!!cbCommand.checked; ipcRenderer.send('overlay-cmd',{ action:'shot', rect:r, displayId: DISPLAY_ID, createTrigger: createTrig, addCommand: addCommand, closeOverlay: true }) })
           btnStream.addEventListener('click',(e)=>{ 
             try{ e.preventDefault(); e.stopPropagation() }catch{}
             if(locked){ tb.style.left=tbX+'px'; tb.style.top=tbY+'px' }
             const r=confirmRect()
             const createTrig=!!cbTrig.checked
+            const addCommand=!!cbCommand.checked
             // Send stream-start command to main process (main handles ALL recording)
-            ipcRenderer.send('overlay-cmd',{ action:'stream-start', rect:r, displayId: DISPLAY_ID, createTrigger: createTrig })
+            ipcRenderer.send('overlay-cmd',{ action:'stream-start', rect:r, displayId: DISPLAY_ID, createTrigger: createTrig, addCommand: addCommand })
             // Update UI
             btnStream.style.display='none'
             btnShot.style.display='none'

@@ -87,9 +87,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 })
 
 // Function to show trigger name prompt in docked or floating chat
-function showTriggerPromptInChat(mode: string, rect: any, displayId: number, imageUrl: string, videoUrl: string){
+function showTriggerPromptInChat(mode: string, rect: any, displayId: number, imageUrl: string, videoUrl: string, createTrigger: boolean = false, addCommand: boolean = false){
   try{
-    console.log('[CONTENT] showTriggerPromptInChat called:', { mode, rect, displayId })
+    console.log('[CONTENT] showTriggerPromptInChat called:', { mode, rect, displayId, createTrigger, addCommand })
+    
+    // If neither is checked, don't show anything
+    if (!createTrigger && !addCommand) return
     
     // Remove existing prompt if any
     const existing = document.getElementById('og-trigger-modal')
@@ -116,32 +119,89 @@ function showTriggerPromptInChat(mode: string, rect: any, displayId: number, ima
       border-radius: 8px;
       padding: 20px;
       width: 90%;
-      max-width: 400px;
+      max-width: 450px;
       box-shadow: 0 20px 25px -5px rgba(0,0,0,0.3);
     `
     
+    // Header with title only (no checkboxes)
+    const header = document.createElement('div')
+    header.style.cssText = 'display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px;'
+    
     const title = document.createElement('div')
-    title.style.cssText = 'font-size: 16px; font-weight: 600; color: #f9fafb; margin-bottom: 16px;'
-    title.textContent = (mode === 'screenshot' ? '📸 ' : '🎥 ') + 'Save Trigger'
+    title.style.cssText = 'font-size: 16px; font-weight: 600; color: #f9fafb;'
+    title.textContent = (mode === 'screenshot' ? '📸 Screenshot' : '🎥 Stream')
     
-    const input = document.createElement('input')
-    input.type = 'text'
-    input.placeholder = 'Enter trigger name...'
-    input.style.cssText = `
-      width: 100%;
-      padding: 10px 12px;
-      background: #111827;
-      border: 1px solid #374151;
-      border-radius: 6px;
-      color: #f9fafb;
-      font-size: 14px;
-      margin-bottom: 16px;
-      box-sizing: border-box;
-      outline: none;
-    `
-    input.addEventListener('focus', () => { input.style.borderColor = '#3b82f6' })
-    input.addEventListener('blur', () => { input.style.borderColor = '#374151' })
+    header.append(title)
+    card.appendChild(header)
     
+    // Trigger name input (shown if createTrigger is true)
+    let nameInput: HTMLInputElement | null = null
+    if (createTrigger) {
+      const triggerRow = document.createElement('div')
+      triggerRow.id = 'trigger-row'
+      triggerRow.style.cssText = 'display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px;'
+      
+      const triggerLabel = document.createElement('span')
+      triggerLabel.textContent = 'Trigger Name'
+      triggerLabel.style.cssText = 'font-size: 13px; font-weight: 600; color: #9ca3af;'
+      
+      nameInput = document.createElement('input')
+      nameInput.type = 'text'
+      nameInput.placeholder = 'Enter trigger name...'
+      nameInput.style.cssText = `
+        width: 100%;
+        padding: 10px 12px;
+        background: #111827;
+        border: 1px solid #374151;
+        border-radius: 6px;
+        color: #f9fafb;
+        font-size: 14px;
+        box-sizing: border-box;
+        outline: none;
+      `
+      nameInput.addEventListener('focus', () => { nameInput!.style.borderColor = '#3b82f6' })
+      nameInput.addEventListener('blur', () => { nameInput!.style.borderColor = '#374151' })
+      
+      triggerRow.append(triggerLabel, nameInput)
+      card.appendChild(triggerRow)
+    }
+    
+    // Command textarea (shown if addCommand is true)
+    let commandInput: HTMLTextAreaElement | null = null
+    if (addCommand) {
+      const commandRow = document.createElement('div')
+      commandRow.id = 'command-row'
+      commandRow.style.cssText = 'display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px;'
+      
+      const commandLabel = document.createElement('span')
+      commandLabel.textContent = 'Command'
+      commandLabel.style.cssText = 'font-size: 13px; font-weight: 600; color: #9ca3af;'
+      
+      commandInput = document.createElement('textarea')
+      commandInput.placeholder = 'Enter command or instructions...'
+      commandInput.style.cssText = `
+        width: 100%;
+        min-height: 80px;
+        padding: 10px 12px;
+        background: #111827;
+        border: 1px solid #374151;
+        border-radius: 6px;
+        color: #f9fafb;
+        font-size: 14px;
+        resize: vertical;
+        box-sizing: border-box;
+        line-height: 1.5;
+        font-family: inherit;
+        outline: none;
+      `
+      commandInput.addEventListener('focus', () => { commandInput!.style.borderColor = '#3b82f6' })
+      commandInput.addEventListener('blur', () => { commandInput!.style.borderColor = '#374151' })
+      
+      commandRow.append(commandLabel, commandInput)
+      card.appendChild(commandRow)
+    }
+    
+    // Buttons
     const buttons = document.createElement('div')
     buttons.style.cssText = 'display: flex; gap: 8px; justify-content: flex-end;'
     
@@ -161,7 +221,7 @@ function showTriggerPromptInChat(mode: string, rect: any, displayId: number, ima
     cancelBtn.addEventListener('mouseleave', () => { cancelBtn.style.background = '#374151' })
     
     const saveBtn = document.createElement('button')
-    saveBtn.textContent = 'Save Trigger'
+    saveBtn.textContent = '💾 Save'
     saveBtn.style.cssText = `
       padding: 8px 16px;
       background: #3b82f6;
@@ -176,7 +236,7 @@ function showTriggerPromptInChat(mode: string, rect: any, displayId: number, ima
     saveBtn.addEventListener('mouseleave', () => { saveBtn.style.background = '#3b82f6' })
     
     buttons.append(cancelBtn, saveBtn)
-    card.append(title, input, buttons)
+    card.appendChild(buttons)
     modal.appendChild(card)
     
     // Close on clicking outside
@@ -187,43 +247,81 @@ function showTriggerPromptInChat(mode: string, rect: any, displayId: number, ima
     cancelBtn.onclick = () => modal.remove()
     
     const saveTrigger = () => {
-      const name = input.value.trim() || ('Trigger ' + new Date().toLocaleString())
-      // Save to chrome.storage
-      try{
-        const key='optimando-tagged-triggers'
-        chrome.storage?.local?.get([key], (data:any)=>{
-          const prev = Array.isArray(data?.[key]) ? data[key] : []
-          prev.push({ name, at: Date.now(), rect, mode, displayId })
-          chrome.storage?.local?.set({ [key]: prev }, ()=>{
-            try{ window.dispatchEvent(new CustomEvent('optimando-triggers-updated')) }catch{}
-            try{ chrome.runtime?.sendMessage({ type:'TRIGGERS_UPDATED' }) }catch{}
+      const name = nameInput ? (nameInput.value.trim() || ('Trigger ' + new Date().toLocaleString())) : ''
+      const command = commandInput ? commandInput.value.trim() : ''
+      
+      // Save trigger if createTrigger is true
+      if (createTrigger) {
+        // Save to chrome.storage
+        try{
+          const key='optimando-tagged-triggers'
+          chrome.storage?.local?.get([key], (data:any)=>{
+            const prev = Array.isArray(data?.[key]) ? data[key] : []
+            prev.push({ name, at: Date.now(), rect, mode, displayId, command: command || undefined })
+            chrome.storage?.local?.set({ [key]: prev }, ()=>{
+              try{ window.dispatchEvent(new CustomEvent('optimando-triggers-updated')) }catch{}
+              try{ chrome.runtime?.sendMessage({ type:'TRIGGERS_UPDATED' }) }catch{}
+            })
           })
-        })
-      }catch{}
-      // Send to Electron
-      try{
-        chrome.runtime?.sendMessage({
-          type: 'ELECTRON_SAVE_TRIGGER',
-          name,
-          mode,
-          rect,
-          displayId,
-          imageUrl,
-          videoUrl
-        })
-      }catch{}
+        }catch{}
+        // Send to Electron
+        try{
+          chrome.runtime?.sendMessage({
+            type: 'ELECTRON_SAVE_TRIGGER',
+            name,
+            mode,
+            rect,
+            displayId,
+            imageUrl,
+            videoUrl,
+            command: command || undefined
+          })
+        }catch{}
+      }
+      
+      // If only command is checked (no trigger), send command to chat
+      if (addCommand && command && !createTrigger) {
+        try {
+          const msgs = (document.getElementById('ccf-messages') || document.getElementById('ccd-messages')) as HTMLElement | null
+          if (msgs) {
+            const row = document.createElement('div')
+            row.style.display = 'flex'
+            row.style.justifyContent = 'flex-end'
+            const bub = document.createElement('div')
+            bub.style.maxWidth = '78%'
+            bub.style.padding = '8px 10px'
+            bub.style.borderRadius = '10px'
+            bub.style.fontSize = '12px'
+            bub.style.background = 'rgba(59,130,246,0.12)'
+            bub.style.border = '1px solid rgba(59,130,246,0.45)'
+            bub.style.color = '#e5e7eb'
+            bub.textContent = `📝 Command: ${command}`
+            row.appendChild(bub)
+            msgs.appendChild(row)
+            msgs.scrollTop = msgs.scrollHeight
+          }
+        } catch {}
+      }
+      
       modal.remove()
     }
     
     saveBtn.onclick = saveTrigger
-    input.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') saveTrigger()
-      else if (e.key === 'Escape') modal.remove()
-    })
+    if (nameInput) {
+      nameInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' && !e.shiftKey) saveTrigger()
+        else if (e.key === 'Escape') modal.remove()
+      })
+    }
+    if (commandInput) {
+      commandInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') modal.remove()
+      })
+    }
     
     document.body.appendChild(modal)
-    setTimeout(() => input.focus(), 100)
-    console.log('[CONTENT] Modal created and shown')
+    setTimeout(() => { if (nameInput) nameInput.focus(); else if (commandInput) commandInput.focus() }, 100)
+    console.log('[CONTENT] Modal with checkboxes created and shown')
   }catch(err){
     console.error('[CONTENT] Error showing trigger prompt:', err)
   }
@@ -237,7 +335,7 @@ try {
       if (msg.type === 'SHOW_TRIGGER_PROMPT'){
         // Show trigger name input in docked chat or floating popup
         console.log('[CONTENT] Showing trigger prompt:', msg)
-        showTriggerPromptInChat(msg.mode, msg.rect, msg.displayId, msg.imageUrl, msg.videoUrl)
+        showTriggerPromptInChat(msg.mode, msg.rect, msg.displayId, msg.imageUrl, msg.videoUrl, msg.createTrigger, msg.addCommand)
       } else if (msg.type === 'ELECTRON_SELECTION_RESULT'){
         const target = (document.getElementById('ccf-messages') as HTMLElement | null) || (document.getElementById('ccd-messages') as HTMLElement | null)
         if (!target) return
@@ -9162,14 +9260,18 @@ ${pageText}
       const timerEl = document.createElement('span'); timerEl.textContent = '00:00'; timerEl.title = 'Recording time'; timerEl.style.cssText='color:#e5e7eb;opacity:.9;font-variant-numeric:tabular-nums;display:none;align-self:center'
       const lab = document.createElement('label'); lab.style.cssText='display:flex;align-items:center;gap:6px;color:white;user-select:none'
       const cbCreate = document.createElement('input'); cbCreate.type='checkbox'
-      const spanTxt = document.createElement('span'); spanTxt.textContent = 'Create Tagged Trigger'
+      const spanTxt = document.createElement('span'); spanTxt.textContent = 'Create Trigger'
       lab.append(cbCreate, spanTxt)
+      const labCommand = document.createElement('label'); labCommand.style.cssText='display:flex;align-items:center;gap:6px;color:white;user-select:none'
+      const cbCommand = document.createElement('input'); cbCommand.type='checkbox'
+      const spanCommand = document.createElement('span'); spanCommand.textContent = 'Add Command'
+      labCommand.append(cbCommand, spanCommand)
       // Close control (×)
       const btnClose = document.createElement('button'); btnClose.textContent='×'; btnClose.title='Close selection'; btnClose.style.cssText='background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.25);color:white;padding:4px 8px;border-radius:6px;cursor:pointer'
-      toolbar.append(btnShot, btnStream, btnRec, btnStop, timerEl, lab, btnClose)
+      toolbar.append(btnShot, btnStream, btnRec, btnStop, timerEl, lab, labCommand, btnClose)
       document.body.appendChild(toolbar)
       // Prevent toolbar clicks from bubbling to overlay handlers
-      ;[toolbar, btnShot, btnStream, btnRec, btnStop, lab, cbCreate, spanTxt, btnClose].forEach(el=>{
+      ;[toolbar, btnShot, btnStream, btnRec, btnStop, lab, cbCreate, spanTxt, labCommand, cbCommand, spanCommand, btnClose].forEach(el=>{
         el.addEventListener('mousedown', e=>{ e.stopPropagation() })
         el.addEventListener('mouseup', e=>{ e.stopPropagation() })
         el.addEventListener('click', e=>{ e.stopPropagation() })
@@ -9251,49 +9353,101 @@ ${pageText}
       }
       function renderTriggerPrompt(url:string, rect:{x:number,y:number,w:number,h:number}, mode:'screenshot'|'stream'){
         try{
-          if (!cbCreate.checked) return
+          const isTriggerChecked = cbCreate.checked
+          const isCommandChecked = cbCommand.checked
+          
+          // If neither is checked, do nothing
+          if (!isTriggerChecked && !isCommandChecked) return
+          
           const composer = (document.getElementById('ccd-compose') || document.getElementById('ccf-compose')) as HTMLElement | null
           if (!composer) return
           // avoid duplicates
           composer.querySelector('#og-trigger-savebar')?.remove()
           const bar = document.createElement('div')
           bar.id = 'og-trigger-savebar'
-          bar.style.cssText = 'grid-column:1 / -1; display:flex; align-items:center; gap:8px; padding:6px 8px; background:rgba(2,6,23,0.85); color:#e5e7eb; border:1px solid rgba(255,255,255,0.15); border-radius:6px;'
-          const label = document.createElement('span'); label.textContent='Tagged Trigger name:'
-          const nameIn = document.createElement('input'); nameIn.type='text'; nameIn.placeholder='Trigger name'; nameIn.style.cssText='flex:1; min-width:120px; padding:4px 6px; border:1px solid #e5e7eb; border-radius:6px; font-size:12px; background:#0b1220; color:#e5e7eb'
+          bar.style.cssText = 'grid-column:1 / -1; display:flex; flex-direction:column; gap:8px; padding:8px; background:rgba(2,6,23,0.85); color:#e5e7eb; border:1px solid rgba(255,255,255,0.15); border-radius:6px;'
+          
+          // Trigger name field (only if checked)
+          let nameIn: HTMLInputElement | null = null
+          if (isTriggerChecked) {
+            const triggerRow = document.createElement('div')
+            triggerRow.style.cssText = 'display:flex; align-items:center; gap:8px;'
+            const label = document.createElement('span'); label.textContent='Trigger name:'; label.style.cssText='min-width:90px;'
+            nameIn = document.createElement('input'); nameIn.type='text'; nameIn.placeholder='Enter trigger name'; nameIn.style.cssText='flex:1; padding:4px 6px; border:1px solid #e5e7eb; border-radius:6px; font-size:12px; background:#0b1220; color:#e5e7eb'
+            triggerRow.append(label, nameIn)
+            bar.appendChild(triggerRow)
+          }
+          
+          // Command textarea (only if checked)
+          let commandIn: HTMLTextAreaElement | null = null
+          if (isCommandChecked) {
+            const commandRow = document.createElement('div')
+            commandRow.style.cssText = 'display:flex; flex-direction:column; gap:4px;'
+            const label = document.createElement('span'); label.textContent='Command:'
+            commandIn = document.createElement('textarea'); commandIn.placeholder='Enter command or instructions'; commandIn.style.cssText='width:100%; min-height:60px; padding:4px 6px; border:1px solid #e5e7eb; border-radius:6px; font-size:12px; background:#0b1220; color:#e5e7eb; resize:vertical; box-sizing:border-box;'
+            commandRow.append(label, commandIn)
+            bar.appendChild(commandRow)
+          }
+          
+          // Buttons
+          const buttonRow = document.createElement('div')
+          buttonRow.style.cssText = 'display:flex; gap:8px; justify-content:flex-end;'
           const save = document.createElement('button'); save.textContent='Save'; save.style.cssText='background:#2563eb;border:0;color:white;padding:4px 10px;border-radius:6px;cursor:pointer;font-size:12px'
           const cancel = document.createElement('button'); cancel.textContent='Cancel'; cancel.style.cssText='background:rgba(255,255,255,0.12);border:0;color:#e5e7eb;padding:4px 10px;border-radius:6px;cursor:pointer;font-size:12px'
-          bar.append(label, nameIn, save, cancel)
+          buttonRow.append(cancel, save)
+          bar.appendChild(buttonRow)
+          
           composer.appendChild(bar)
-          nameIn.focus()
+          if (nameIn) nameIn.focus()
+          else if (commandIn) commandIn.focus()
+          
           cancel.onclick = ()=> bar.remove()
           save.onclick = ()=>{
-            const name = (nameIn.value||'').trim() || ('Trigger ' + new Date().toLocaleString())
-            try{
-              const key='optimando-tagged-triggers'
-              chrome.storage?.local?.get([key], (data:any)=>{
-                try{
-                  const prev = Array.isArray(data?.[key]) ? data[key] : []
-                  prev.push({ name, at: Date.now(), image: url, rect, mode })
-                  chrome.storage?.local?.set({ [key]: prev }, ()=>{
-                    try{ window.dispatchEvent(new CustomEvent('optimando-triggers-updated')) }catch{}
-                    try{ chrome.runtime?.sendMessage({ type:'TRIGGERS_UPDATED' }) }catch{}
-                  })
-                }catch{}
-              })
-            }catch{}
-            // Also send to Electron so it appears in Electron's dropdown
-            // Note: Extension triggers don't have displayId, Electron will detect the display
-            try{
-              chrome.runtime?.sendMessage({
-                type: 'EXTENSION_SAVE_TRIGGER',
-                name,
-                mode,
-                rect,
-                imageUrl: url,
-                detectDisplay: true // Ask Electron to detect which display the browser is on
-              })
-            }catch{}
+            const name = nameIn ? ((nameIn.value||'').trim() || ('Trigger ' + new Date().toLocaleString())) : ''
+            const command = commandIn ? (commandIn.value||'').trim() : ''
+            
+            // Save trigger if checked
+            if (isTriggerChecked) {
+              try{
+                const key='optimando-tagged-triggers'
+                chrome.storage?.local?.get([key], (data:any)=>{
+                  try{
+                    const prev = Array.isArray(data?.[key]) ? data[key] : []
+                    prev.push({ name, at: Date.now(), image: url, rect, mode, command: command || undefined })
+                    chrome.storage?.local?.set({ [key]: prev }, ()=>{
+                      try{ window.dispatchEvent(new CustomEvent('optimando-triggers-updated')) }catch{}
+                      try{ chrome.runtime?.sendMessage({ type:'TRIGGERS_UPDATED' }) }catch{}
+                    })
+                  }catch{}
+                })
+              }catch{}
+              // Also send to Electron so it appears in Electron's dropdown
+              try{
+                chrome.runtime?.sendMessage({
+                  type: 'EXTENSION_SAVE_TRIGGER',
+                  name,
+                  mode,
+                  rect,
+                  imageUrl: url,
+                  command: command || undefined,
+                  detectDisplay: true
+                })
+              }catch{}
+            }
+            
+            // If only command is checked (no trigger), send command to chat
+            if (isCommandChecked && command && !isTriggerChecked) {
+              try {
+                const msgs = (document.getElementById('ccf-messages') || document.getElementById('ccd-messages')) as HTMLElement | null
+                if (msgs) {
+                  const row = document.createElement('div'); row.style.display='flex'; row.style.justifyContent='flex-end'
+                  const bub = document.createElement('div'); bub.style.maxWidth='78%'; bub.style.padding='8px 10px'; bub.style.borderRadius='10px'; bub.style.fontSize='12px'; bub.style.background='rgba(59,130,246,0.12)'; bub.style.border='1px solid rgba(59,130,246,0.45)'; bub.style.color='#e5e7eb'
+                  bub.textContent = `📝 Command: ${command}`
+                  row.appendChild(bub); msgs.appendChild(row); msgs.scrollTop = msgs.scrollHeight
+                }
+              } catch {}
+            }
+            
             bar.remove()
           }
         }catch{}

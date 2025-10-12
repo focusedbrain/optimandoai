@@ -204,15 +204,20 @@ try {
       } else if (msg.type === 'SHOW_TRIGGER_PROMPT'){
         // Show trigger name input UI below composer
         console.log('📝 Showing trigger prompt in popup:', msg)
-        showTriggerPromptUI(msg.mode, msg.rect, msg.displayId, msg.imageUrl, msg.videoUrl)
+        showTriggerPromptUI(msg.mode, msg.rect, msg.displayId, msg.imageUrl, msg.videoUrl, msg.createTrigger, msg.addCommand)
       }
     }catch{}
   })
 }catch{}
 
 // Show trigger name input UI
-function showTriggerPromptUI(mode, rect, displayId, imageUrl, videoUrl){
+function showTriggerPromptUI(mode, rect, displayId, imageUrl, videoUrl, createTrigger = false, addCommand = false){
   try{
+    console.log('[POPUP] showTriggerPromptUI called:', { mode, rect, displayId, createTrigger, addCommand })
+    
+    // If neither is checked, don't show anything
+    if (!createTrigger && !addCommand) return
+    
     const wrap = document.querySelector('.wrap')
     if (!wrap) return
     // Remove existing prompt if any
@@ -221,36 +226,80 @@ function showTriggerPromptUI(mode, rect, displayId, imageUrl, videoUrl){
     // Create trigger save bar (insert before messages) - compact design
     const bar = document.createElement('div')
     bar.id = 'og-trigger-savebar'
-    bar.style.cssText = 'display:flex; flex-direction:column; gap:6px; padding:8px; background:rgba(37,99,235,0.08); color:#e5e7eb; border:1px solid rgba(37,99,235,0.3); border-radius:6px; margin:0 0 8px 0; width:100%; box-sizing:border-box;'
+    bar.style.cssText = 'display:flex; flex-direction:column; gap:8px; padding:10px; background:rgba(37,99,235,0.08); color:#e5e7eb; border:1px solid rgba(37,99,235,0.3); border-radius:6px; margin:0 0 8px 0; width:100%; box-sizing:border-box;'
     
+    // Header with title only (no checkboxes)
     const header = document.createElement('div')
-    header.style.cssText = 'display:flex; align-items:center; gap:4px; font-size:11px; font-weight:500;'
-    header.innerHTML = (mode === 'screenshot' ? '📸' : '🎥') + ' Save Trigger'
+    header.style.cssText = 'display:flex; align-items:center; justify-content:space-between;'
     
-    const nameIn = document.createElement('input')
-    nameIn.type = 'text'
-    nameIn.placeholder = 'Trigger name...'
-    nameIn.style.cssText = 'width:100%; padding:5px 8px; border:1px solid rgba(255,255,255,0.2); border-radius:4px; font-size:12px; background:rgba(11,18,32,0.6); color:#e5e7eb; outline:none; box-sizing:border-box;'
-    nameIn.addEventListener('focus', () => { nameIn.style.borderColor = 'rgba(37,99,235,0.5)' })
-    nameIn.addEventListener('blur', () => { nameIn.style.borderColor = 'rgba(255,255,255,0.2)' })
+    const title = document.createElement('div')
+    title.style.cssText = 'font-size:12px; font-weight:600;'
+    title.textContent = (mode === 'screenshot' ? '📸 Screenshot' : '🎥 Stream')
     
+    header.append(title)
+    bar.appendChild(header)
+    
+    // Trigger name input (shown if createTrigger is true)
+    let nameIn = null
+    if (createTrigger) {
+      const triggerRow = document.createElement('div')
+      triggerRow.id = 'trigger-row'
+      triggerRow.style.cssText = 'display:flex; flex-direction:column; gap:4px;'
+      
+      const triggerLabel = document.createElement('span')
+      triggerLabel.textContent = 'Trigger Name'
+      triggerLabel.style.cssText = 'font-size:11px; font-weight:600; opacity:0.8;'
+      
+      nameIn = document.createElement('input')
+      nameIn.type = 'text'
+      nameIn.placeholder = 'Enter trigger name...'
+      nameIn.style.cssText = 'width:100%; padding:6px 8px; border:1px solid rgba(255,255,255,0.2); border-radius:4px; font-size:12px; background:rgba(11,18,32,0.6); color:#e5e7eb; outline:none; box-sizing:border-box;'
+      nameIn.addEventListener('focus', () => { nameIn.style.borderColor = 'rgba(37,99,235,0.5)' })
+      nameIn.addEventListener('blur', () => { nameIn.style.borderColor = 'rgba(255,255,255,0.2)' })
+      
+      triggerRow.append(triggerLabel, nameIn)
+      bar.appendChild(triggerRow)
+    }
+    
+    // Command textarea (shown if addCommand is true)
+    let commandIn = null
+    if (addCommand) {
+      const commandRow = document.createElement('div')
+      commandRow.id = 'command-row'
+      commandRow.style.cssText = 'display:flex; flex-direction:column; gap:4px;'
+      
+      const commandLabel = document.createElement('span')
+      commandLabel.textContent = 'Command'
+      commandLabel.style.cssText = 'font-size:11px; font-weight:600; opacity:0.8;'
+      
+      commandIn = document.createElement('textarea')
+      commandIn.placeholder = 'Enter command or instructions...'
+      commandIn.style.cssText = 'width:100%; min-height:60px; padding:6px 8px; border:1px solid rgba(255,255,255,0.2); border-radius:4px; font-size:12px; background:rgba(11,18,32,0.6); color:#e5e7eb; resize:vertical; box-sizing:border-box; line-height:1.4; font-family:inherit; outline:none;'
+      commandIn.addEventListener('focus', () => { commandIn.style.borderColor = 'rgba(37,99,235,0.5)' })
+      commandIn.addEventListener('blur', () => { commandIn.style.borderColor = 'rgba(255,255,255,0.2)' })
+      
+      commandRow.append(commandLabel, commandIn)
+      bar.appendChild(commandRow)
+    }
+    
+    // Buttons
     const buttonRow = document.createElement('div')
-    buttonRow.style.cssText = 'display:flex; gap:4px;'
+    buttonRow.style.cssText = 'display:flex; gap:6px;'
     
     const save = document.createElement('button')
-    save.textContent = 'Save'
-    save.style.cssText = 'flex:1; background:#2563eb;border:0;color:white;padding:5px 8px;border-radius:4px;cursor:pointer;font-size:11px;font-weight:500;'
+    save.textContent = '💾 Save'
+    save.style.cssText = 'flex:1; background:#2563eb;border:0;color:white;padding:6px 10px;border-radius:4px;cursor:pointer;font-size:11px;font-weight:600;'
     save.addEventListener('mouseenter', () => { save.style.background = '#1d4ed8' })
     save.addEventListener('mouseleave', () => { save.style.background = '#2563eb' })
     
     const cancel = document.createElement('button')
-    cancel.textContent = 'Cancel'
-    cancel.style.cssText = 'flex:1; background:rgba(255,255,255,0.08);border:0;color:#e5e7eb;padding:5px 8px;border-radius:4px;cursor:pointer;font-size:11px;'
+    cancel.textContent = '✕ Cancel'
+    cancel.style.cssText = 'flex:1; background:rgba(255,255,255,0.08);border:0;color:#e5e7eb;padding:6px 10px;border-radius:4px;cursor:pointer;font-size:11px;'
     cancel.addEventListener('mouseenter', () => { cancel.style.background = 'rgba(255,255,255,0.15)' })
     cancel.addEventListener('mouseleave', () => { cancel.style.background = 'rgba(255,255,255,0.08)' })
     
-    buttonRow.append(save, cancel)
-    bar.append(header, nameIn, buttonRow)
+    buttonRow.append(cancel, save)
+    bar.appendChild(buttonRow)
     
     // Insert after toolkit, before messages
     const toolkit = wrap.querySelector('.toolkit')
@@ -261,43 +310,57 @@ function showTriggerPromptUI(mode, rect, displayId, imageUrl, videoUrl){
       wrap.insertBefore(bar, wrap.firstChild)
     }
     
-    nameIn.focus()
+    if (nameIn) nameIn.focus()
+    else if (commandIn) commandIn.focus()
     
     cancel.onclick = () => bar.remove()
     
     const saveTrigger = () => {
-      const name = (nameIn.value || '').trim() || ('Trigger ' + new Date().toLocaleString())
-      // Save to chrome.storage for extension dropdown
-      try{
-        const key='optimando-tagged-triggers'
-        chrome.storage?.local?.get([key], (data)=>{
-          const prev = Array.isArray(data?.[key]) ? data[key] : []
-          prev.push({ name, at: Date.now(), rect, mode, displayId })
-          chrome.storage?.local?.set({ [key]: prev }, ()=>{
-            refreshTags()
+      const name = nameIn ? ((nameIn.value || '').trim() || ('Trigger ' + new Date().toLocaleString())) : ''
+      const command = commandIn ? (commandIn.value || '').trim() : ''
+      
+      // Save trigger if createTrigger is true
+      if (createTrigger) {
+        // Save to chrome.storage for extension dropdown
+        try{
+          const key='optimando-tagged-triggers'
+          chrome.storage?.local?.get([key], (data)=>{
+            const prev = Array.isArray(data?.[key]) ? data[key] : []
+            prev.push({ name, at: Date.now(), rect, mode, displayId, command: command || undefined })
+            chrome.storage?.local?.set({ [key]: prev }, ()=>{
+              refreshTags()
+            })
           })
-        })
-      }catch{}
-      // Send trigger back to Electron via WebSocket
-      try{
-        chrome.runtime?.sendMessage({
-          type: 'ELECTRON_SAVE_TRIGGER',
-          name,
-          mode,
-          rect,
-          displayId,
-          imageUrl,
-          videoUrl
-        })
-      }catch{}
+        }catch{}
+        // Send trigger back to Electron via WebSocket
+        try{
+          chrome.runtime?.sendMessage({
+            type: 'ELECTRON_SAVE_TRIGGER',
+            name,
+            mode,
+            rect,
+            displayId,
+            imageUrl,
+            videoUrl,
+            command: command || undefined
+          })
+        }catch{}
+      }
+      
+      // If only command is checked (no trigger), send command to chat
+      if (addCommand && command && !createTrigger) {
+        row('user', `📝 Command: ${command}`)
+      }
       bar.remove()
     }
     
     save.onclick = saveTrigger
-    nameIn.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter' && nameIn.value.trim()) saveTrigger()
-      else if (e.key === 'Escape') bar.remove()
-    })
+    if (nameIn) {
+      nameIn.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' && nameIn.value.trim()) saveTrigger()
+        else if (e.key === 'Escape') bar.remove()
+      })
+    }
   }catch(err){
     console.log('Error showing trigger prompt:', err)
   }

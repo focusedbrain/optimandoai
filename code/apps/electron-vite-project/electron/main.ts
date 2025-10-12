@@ -149,7 +149,7 @@ async function createWindow() {
             try { closeAllOverlays() } catch {}
           }
           // Show trigger prompt UI in extension popup if requested
-          if (msg.createTrigger) {
+          if (msg.createTrigger || msg.addCommand) {
             console.log('[MAIN] Requesting trigger prompt in extension for screenshot')
             try {
               // Send to extension via WebSocket to show trigger prompt in popup
@@ -160,7 +160,9 @@ async function createWindow() {
                     mode: 'screenshot',
                     rect,
                     displayId,
-                    imageUrl: filePath // Send the file path so extension can display the image
+                    imageUrl: filePath, // Send the file path so extension can display the image
+                    createTrigger: !!msg.createTrigger,
+                    addCommand: !!msg.addCommand
                   }))
                 } catch {}
               })
@@ -185,18 +187,19 @@ async function createWindow() {
           return
         }
         if (msg.action === 'stream-start') {
-          console.log('[MAIN] Starting stream recording... createTrigger:', msg.createTrigger)
+          console.log('[MAIN] Starting stream recording... createTrigger:', msg.createTrigger, 'addCommand:', msg.addCommand)
           const rect = msg.rect || { x:0,y:0,w:0,h:0 }
           const displayId = Number(msg.displayId)||0
           const sel = { displayId, x: rect.x, y: rect.y, w: rect.w, h: rect.h, dpr: 1 }
           // Store trigger info if needed (will show prompt after stream stops)
           const shouldCreateTrigger = msg.createTrigger
+          const shouldAddCommand = msg.addCommand
           try {
             const controller = await startRegionStream(sel as any)
             activeStop = controller.stop
             // Store trigger info for after recording
-            if (shouldCreateTrigger) {
-              (activeStop as any)._triggerInfo = { mode: 'stream', rect, displayId }
+            if (shouldCreateTrigger || shouldAddCommand) {
+              (activeStop as any)._triggerInfo = { mode: 'stream', rect, displayId, createTrigger: !!shouldCreateTrigger, addCommand: !!shouldAddCommand }
               console.log('[MAIN] Storing trigger info for after stream stops')
             }
             console.log('[MAIN] Stream recording started successfully')
@@ -233,7 +236,9 @@ async function createWindow() {
                     mode: triggerInfo.mode,
                     rect: triggerInfo.rect,
                     displayId: triggerInfo.displayId,
-                    videoUrl: out // Send the video file path
+                    videoUrl: out, // Send the video file path
+                    createTrigger: !!triggerInfo.createTrigger,
+                    addCommand: !!triggerInfo.addCommand
                   }))
                 } catch {}
               })

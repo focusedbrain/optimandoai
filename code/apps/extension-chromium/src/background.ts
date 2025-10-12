@@ -62,7 +62,7 @@ function connectToWebSocketServer() {
             // Forward trigger prompt request to popup AND content script
             console.log('📝 Received SHOW_TRIGGER_PROMPT from Electron:', data)
             // Send to popup
-            try { chrome.runtime.sendMessage({ type: 'SHOW_TRIGGER_PROMPT', mode: data.mode, rect: data.rect, displayId: data.displayId, imageUrl: data.imageUrl, videoUrl: data.videoUrl }) } catch {}
+            try { chrome.runtime.sendMessage({ type: 'SHOW_TRIGGER_PROMPT', mode: data.mode, rect: data.rect, displayId: data.displayId, imageUrl: data.imageUrl, videoUrl: data.videoUrl, createTrigger: data.createTrigger, addCommand: data.addCommand }) } catch {}
             // Send to active tab's content script (for docked chat)
             chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
               const tabId = tabs[0]?.id
@@ -74,7 +74,9 @@ function connectToWebSocketServer() {
                   rect: data.rect, 
                   displayId: data.displayId, 
                   imageUrl: data.imageUrl, 
-                  videoUrl: data.videoUrl 
+                  videoUrl: data.videoUrl,
+                  createTrigger: data.createTrigger,
+                  addCommand: data.addCommand
                 }) 
               } catch (e) {
                 console.log('❌ Failed to send SHOW_TRIGGER_PROMPT to content script:', e)
