@@ -61,6 +61,7 @@ const globalLightboxFunctions: {
   syncSession?: () => void
   importSession?: () => void
   openWRVaultLightbox?: () => void
+  openReasoningLightbox?: () => void
 } = {}
 
 // Check if extension was previously activated for this URL OR if dedicated
@@ -474,6 +475,26 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       }
     } catch (e) {
       console.error('❌ Error opening WRVault lightbox:', e)
+      sendResponse({ success: false, error: String(e) })
+    }
+  }
+  // Handle OPEN REASONING LIGHTBOX request from sidepanel
+  else if (message.type === 'OPEN_REASONING_LIGHTBOX') {
+    console.log('📨 Received OPEN_REASONING_LIGHTBOX message')
+    console.log('🔍 Checking globalLightboxFunctions:', Object.keys(globalLightboxFunctions))
+    console.log('🔍 openReasoningLightbox available?', !!globalLightboxFunctions.openReasoningLightbox)
+    try {
+      if (globalLightboxFunctions.openReasoningLightbox) {
+        console.log('✅ Calling openReasoningLightbox()...')
+        globalLightboxFunctions.openReasoningLightbox()
+        console.log('✅ Reasoning lightbox opened successfully')
+        sendResponse({ success: true })
+      } else {
+        console.warn('⚠️ openReasoningLightbox function not available')
+        sendResponse({ success: false, error: 'Function not available' })
+      }
+    } catch (e) {
+      console.error('❌ Error opening Reasoning lightbox:', e)
       sendResponse({ success: false, error: String(e) })
     }
   }
@@ -14256,6 +14277,202 @@ ${pageText}
     })
   }
 
+  // Reasoning & Goals Lightbox
+  function openReasoningLightbox() {
+    const overlay = document.createElement('div')
+    overlay.style.cssText = `position:fixed;inset:0;background:rgba(0,0,0,0.85);z-index:2147483649;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(5px)`
+    overlay.innerHTML = `
+      <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 16px; width: 90vw; max-width: 1100px; height: 85vh; color: white; overflow: hidden; box-shadow: 0 20px 40px rgba(0,0,0,0.5); display: flex; flex-direction: column;">
+        <!-- Header -->
+        <div style="padding: 20px 24px; border-bottom: 1px solid rgba(255,255,255,0.3); display:flex; align-items:center; justify-content:space-between;">
+          <div style="display:flex;align-items:center;gap:10px;font-size:20px;font-weight:700">🧠 Reasoning & Session Goals</div>
+          <button id="close-reasoning-lightbox" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 36px; height: 36px; border-radius: 50%; cursor: pointer; font-size: 20px; display: flex; align-items: center; justify-content: center; transition: all 0.2s;">×</button>
+        </div>
+        
+        <!-- Tabs -->
+        <div style="padding: 16px 24px 0; display: flex; gap: 10px; border-bottom: 1px solid rgba(255,255,255,0.2);">
+          <button id="tab-reasoning" class="reasoning-tab active" style="padding: 10px 20px; background: rgba(255,255,255,0.25); border: none; border-bottom: 3px solid white; color: white; border-radius: 8px 8px 0 0; cursor: pointer; font-size: 14px; font-weight: 600; transition: all 0.2s;">
+            💡 Reasoning & Insights
+          </button>
+          <button id="tab-workflows" class="reasoning-tab" style="padding: 10px 20px; background: rgba(255,255,255,0.1); border: none; border-bottom: 3px solid transparent; color: rgba(255,255,255,0.7); border-radius: 8px 8px 0 0; cursor: pointer; font-size: 14px; font-weight: 600; transition: all 0.2s;">
+            🛠️ Workflows
+          </button>
+        </div>
+        
+        <!-- Content Area -->
+        <div style="flex: 1; overflow-y: auto; padding: 24px;">
+          <!-- Reasoning & Insights Tab -->
+          <div id="content-reasoning" class="reasoning-content" style="display: block;">
+            <!-- Session Goals Section (Top) -->
+            <div style="background: rgba(255,255,255,0.15); padding: 20px; border-radius: 12px; margin-bottom: 20px;">
+              <div style="display:flex; align-items:center; gap:8px; margin-bottom: 16px;">
+                <h3 style="margin: 0; font-size: 16px; font-weight: 700;">🎯 Session Goals</h3>
+                <span title="Defining goals helps the system detect your intent more accurately and orchestrate better actions." style="font-size:14px; opacity:0.85; cursor:help;">ℹ️</span>
+              </div>
+              <div style="display:grid; grid-template-columns: 2fr 1fr; gap: 16px; align-items:start;">
+                <div style="display:flex;flex-direction:column;gap:8px; position:relative;">
+                  <label for="reasoning-goal-text" style="display:flex; align-items:center; gap:6px; font-size:13px; font-weight: 600;">Goal</label>
+                  <textarea id="reasoning-goal-text" placeholder="What's your goal right now?" style="width: 100%; height: 100px; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.4); color: white; padding: 10px 40px 10px 12px; border-radius: 8px; font-size: 13px; resize: vertical; font-family: inherit;"></textarea>
+                  <button id="reasoning-goal-mic" title="Speak your goal" style="position:absolute; right:10px; bottom:10px; background:rgba(255,255,255,0.2);border:1px solid rgba(255,255,255,0.4);color:#fff;padding:4px 8px;border-radius:6px;cursor:pointer; font-size: 14px;">🎤</button>
+                </div>
+                <div style="display:flex;flex-direction:column;gap:8px;">
+                  <label for="reasoning-role-text" style="display:flex; align-items:center; gap:6px; font-size:13px; font-weight: 600;">Role</label>
+                  <input id="reasoning-role-text" placeholder="e.g. assistant, validator" style="width:100%; height: 48px; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.4); color: white; padding: 10px 40px 10px 12px; border-radius: 8px; font-size: 13px; font-family: inherit;"/>
+                  <button id="reasoning-role-mic" title="Speak your role" style="position:absolute; right:10px; top: 38px; background:rgba(255,255,255,0.2);border:1px solid rgba(255,255,255,0.4);color:#fff;padding:4px 8px;border-radius:6px;cursor:pointer; font-size: 14px;">🎤</button>
+                  <button id="save-as-agent-btn" title="Save your Goals and Role into an Agent. This allows recurring tasks and intent detection to be refined and tailored to you." style="margin-top: 8px; padding:10px 16px; background:#22c55e; border:none; color:#07210f; border-radius:8px; font-size:13px; font-weight: 600; cursor:pointer; display:flex; align-items:center; justify-content: center; gap:8px; transition: all 0.2s;">
+                    💾 Save as Agent
+                  </button>
+                </div>
+              </div>
+            </div>
+            
+            <!-- User Intent Detection & Orchestration Logic (Bottom) -->
+            <div style="display:grid; grid-template-columns: 1fr 2fr; gap: 20px;">
+              <!-- User Intent Detection -->
+              <div style="background: rgba(255,255,255,0.15); padding: 18px; border-radius: 12px; display:flex; flex-direction:column; gap:12px;">
+                <div style="display:flex; align-items:center; justify-content:space-between; gap:10px;">
+                  <h4 style="margin: 0; font-size: 14px; font-weight: 700;">🧭 User Intent Detection</h4>
+                  <div style="display:flex; align-items:center; gap:8px;">
+                    <label for="optimization-mode-select" style="font-size: 11px; opacity: 0.9;">Optimization</label>
+                    <select id="optimization-mode-select" style="background: rgba(0,0,0,0.4); border: 1px solid rgba(255,255,255,0.4); color: #ffffff; padding: 6px 8px; border-radius: 6px; font-size: 11px; appearance: auto; color-scheme: dark;">
+                      <option value="off">Off (default)</option>
+                      <option value="on">On</option>
+                      <option value="optiscan">Optiscan</option>
+                      <option value="deepfix">Deepfix</option>
+                    </select>
+                  </div>
+                </div>
+                <div style="font-size: 12px; opacity: 0.95; line-height:1.6; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.25); border-radius:8px; padding:12px;">
+                  <div><strong>Detected Intent:</strong> Compare product prices and find best value</div>
+                  <div style="opacity:0.8; margin-top: 6px;">Confidence: 72% • Updated: just now</div>
+                </div>
+              </div>
+              
+              <!-- Orchestration Logic -->
+              <div style="background: rgba(255,255,255,0.15); padding: 18px; border-radius: 12px; display:flex; flex-direction:column; gap:12px;">
+                <div style="display:flex; align-items:center; justify-content:space-between;">
+                  <h4 style="margin: 0; font-size: 14px; font-weight: 700;">🧠 Orchestration Logic</h4>
+                  <div style="display:flex; gap:8px;">
+                    <button id="gen-followups-btn" title="Re-generate follow-up questions" style="padding:8px 12px; background: rgba(255,255,255,0.2); border: 1px solid rgba(255,255,255,0.3); color: white; border-radius:8px; font-size:12px; cursor:pointer; font-weight: 600; transition: all 0.2s;">🔄 Re-Generate</button>
+                    <button id="show-paths-btn" title="Show reasoning paths" style="padding:8px 12px; background: rgba(255,255,255,0.2); border: 1px solid rgba(255,255,255,0.3); color: white; border-radius:8px; font-size:12px; cursor:pointer; font-weight: 600; transition: all 0.2s;">🧭 Paths</button>
+                    <button id="feedback-loop-btn" title="Trigger feedback loop" style="padding:8px 12px; background: rgba(255,255,255,0.2); border: 1px solid rgba(255,255,255,0.3); color: white; border-radius:8px; font-size:12px; cursor:pointer; font-weight: 600; transition: all 0.2s;">♻️ Feedback</button>
+                  </div>
+                </div>
+                <div id="orchestration-log" style="background: rgba(0,0,0,0.4); padding: 12px; border-radius: 8px; font-size: 12px; height: 140px; overflow-y: auto; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; line-height: 1.6; border: 1px solid rgba(255,255,255,0.25);">
+                  [System] Orchestrator idle. Awaiting actions…
+                </div>
+              </div>
+            </div>
+          </div>
+          
+          <!-- Workflows Tab -->
+          <div id="content-workflows" class="reasoning-content" style="display: none;">
+            <div style="display:grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 20px;">
+              <div style="background: rgba(255,255,255,0.15); padding: 20px; border-radius: 12px; display:flex; flex-direction:column; gap:12px;">
+                <div style="font-size:16px; font-weight:700;">📧 Send Email</div>
+                <div style="font-size:13px; opacity:0.9; line-height: 1.5;">Draft and send a concise email.</div>
+                <button data-workflow="email" class="wf-action" style="padding:10px 14px; background:#22c55e; border:none; color:#07210f; border-radius:8px; font-size:13px; font-weight: 600; cursor:pointer; transition: all 0.2s;">Start</button>
+              </div>
+              <div style="background: rgba(255,255,255,0.15); padding: 20px; border-radius: 12px; display:flex; flex-direction:column; gap:12px;">
+                <div style="font-size:16px; font-weight:700;">📅 Manage Calendar</div>
+                <div style="font-size:13px; opacity:0.9; line-height: 1.5;">Create or reschedule meetings.</div>
+                <button data-workflow="calendar" class="wf-action" style="padding:10px 14px; background:#3b82f6; border:none; color:white; border-radius:8px; font-size:13px; font-weight: 600; cursor:pointer; transition: all 0.2s;">Start</button>
+              </div>
+              <div style="background: rgba(255,255,255,0.15); padding: 20px; border-radius: 12px; display:flex; flex-direction:column; gap:12px;">
+                <div style="font-size:16px; font-weight:700;">🧹 Clean Up Draft</div>
+                <div style="font-size:13px; opacity:0.9; line-height: 1.5;">Refine text for clarity and tone.</div>
+                <button data-workflow="cleanup" class="wf-action" style="padding:10px 14px; background:#f59e0b; border:none; color:#1f2937; border-radius:8px; font-size:13px; font-weight: 600; cursor:pointer; transition: all 0.2s;">Start</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    `
+    
+    document.body.appendChild(overlay)
+    
+    // Close handlers
+    document.getElementById('close-reasoning-lightbox').onclick = () => overlay.remove()
+    overlay.onclick = (e) => { if (e.target === overlay) overlay.remove() }
+    
+    // Tab switching
+    const tabs = overlay.querySelectorAll('.reasoning-tab')
+    const contents = overlay.querySelectorAll('.reasoning-content')
+    
+    tabs.forEach(tab => {
+      tab.addEventListener('click', () => {
+        const tabId = tab.id.replace('tab-', '')
+        
+        // Update tab styles
+        tabs.forEach(t => {
+          if (t === tab) {
+            t.style.background = 'rgba(255,255,255,0.25)'
+            t.style.borderBottom = '3px solid white'
+            t.style.color = 'white'
+          } else {
+            t.style.background = 'rgba(255,255,255,0.1)'
+            t.style.borderBottom = '3px solid transparent'
+            t.style.color = 'rgba(255,255,255,0.7)'
+          }
+        })
+        
+        // Update content visibility
+        contents.forEach(content => {
+          const contentId = content.id.replace('content-', '')
+          content.style.display = contentId === tabId ? 'block' : 'none'
+        })
+      })
+    })
+    
+    // Save as Agent button handler
+    document.getElementById('save-as-agent-btn').onclick = () => {
+      const goal = (document.getElementById('reasoning-goal-text') as HTMLTextAreaElement)?.value || ''
+      const role = (document.getElementById('reasoning-role-text') as HTMLInputElement)?.value || ''
+      
+      // Close reasoning lightbox
+      overlay.remove()
+      
+      // Open agent configuration dialog with pre-filled data
+      if (globalLightboxFunctions.openAddAgentBoxDialog) {
+        // Wait a moment for the overlay to be removed
+        setTimeout(() => {
+          globalLightboxFunctions.openAddAgentBoxDialog()
+          // Pre-fill the goal and role fields after the dialog opens
+          setTimeout(() => {
+            const goalField = document.getElementById('agent-goal') as HTMLTextAreaElement
+            const roleField = document.getElementById('agent-role') as HTMLInputElement
+            if (goalField) goalField.value = goal
+            if (roleField) roleField.value = role
+          }, 100)
+        }, 100)
+      }
+    }
+    
+    // Dummy handlers for orchestration buttons
+    document.getElementById('gen-followups-btn')?.addEventListener('click', () => {
+      const log = document.getElementById('orchestration-log')
+      if (log) log.textContent = '[System] Re-generating follow-up questions…\n' + log.textContent
+    })
+    
+    document.getElementById('show-paths-btn')?.addEventListener('click', () => {
+      const log = document.getElementById('orchestration-log')
+      if (log) log.textContent = '[System] Displaying reasoning paths…\n' + log.textContent
+    })
+    
+    document.getElementById('feedback-loop-btn')?.addEventListener('click', () => {
+      const log = document.getElementById('orchestration-log')
+      if (log) log.textContent = '[System] Triggering feedback loop…\n' + log.textContent
+    })
+    
+    // Dummy handlers for workflow buttons
+    overlay.querySelectorAll('.wf-action').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const workflow = (btn as HTMLElement).getAttribute('data-workflow')
+        alert(`Starting workflow: ${workflow}`)
+      })
+    })
+  }
+
   function openEditHelperTabsDialog(sessionData, sessionId, parentOverlay) {
     // Create helper tabs edit dialog
     const editOverlay = document.createElement('div')
@@ -15638,6 +15855,7 @@ ${pageText}
   globalLightboxFunctions.syncSession = syncSession
   globalLightboxFunctions.importSession = importSession
   globalLightboxFunctions.openWRVaultLightbox = openWRVaultLightbox
+  globalLightboxFunctions.openReasoningLightbox = openReasoningLightbox
   
   console.log('✅ Lightbox and chat functions assigned to global scope:', Object.keys(globalLightboxFunctions))
   

@@ -49,6 +49,15 @@ function SidepanelOrchestrator() {
     chrome.storage.local.get(['commandChatPinned'], (result) => {
       if (result.commandChatPinned !== undefined) {
         setIsCommandChatPinned(result.commandChatPinned)
+        
+        // If pinned, ensure docked chat is created on the page
+        if (result.commandChatPinned) {
+          chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+            if (tabs[0]?.id) {
+              chrome.tabs.sendMessage(tabs[0].id, { type: 'CREATE_DOCKED_CHAT' })
+            }
+          })
+        }
       }
     })
   }, [])
@@ -58,6 +67,19 @@ function SidepanelOrchestrator() {
     const newState = !isCommandChatPinned
     setIsCommandChatPinned(newState)
     chrome.storage.local.set({ commandChatPinned: newState })
+    
+    // Actually create or remove the docked chat
+    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+      if (tabs[0]?.id) {
+        if (newState) {
+          // Pin: Create docked chat
+          chrome.tabs.sendMessage(tabs[0].id, { type: 'CREATE_DOCKED_CHAT' })
+        } else {
+          // Unpin: Remove docked chat  
+          chrome.tabs.sendMessage(tabs[0].id, { type: 'REMOVE_DOCKED_CHAT' })
+        }
+      }
+    })
   }
 
   // Original useEffect for connection status
@@ -203,6 +225,11 @@ function SidepanelOrchestrator() {
   const openContext = () => {
     console.log('🎯 Opening Context lightbox...')
     sendToContentScript('OPEN_CONTEXT_LIGHTBOX')
+  }
+
+  const openReasoningLightbox = () => {
+    console.log('🧠 Opening Reasoning lightbox...')
+    sendToContentScript('OPEN_REASONING_LIGHTBOX')
   }
 
   const openAgentsLightbox = () => {
@@ -513,16 +540,46 @@ function SidepanelOrchestrator() {
       flexDirection: 'column',
       overflowX: 'hidden'
     }}>
-      {/* Session Controls at the very top */}
+      {/* Session Controls at the very top - Single Row */}
       <div style={{ 
         padding: '12px 16px',
         borderBottom: '1px solid rgba(255,255,255,0.2)',
         display: 'flex',
-        flexDirection: 'column',
-        gap: '10px',
+        alignItems: 'center',
+        gap: '8px',
         background: 'rgba(0,0,0,0.15)'
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', width: '100%' }}>
+        <button
+          onClick={openReasoningLightbox}
+          style={{
+            width: '32px',
+            height: '32px',
+            flexShrink: 0,
+            background: 'rgba(156, 39, 176, 0.8)',
+            border: 'none',
+            color: 'white',
+            borderRadius: '4px',
+            cursor: 'pointer',
+            fontSize: '14px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            transition: 'all 0.2s ease',
+            padding: 0
+          }}
+          onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(156, 39, 176, 1)'}
+          onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(156, 39, 176, 0.8)'}
+          title="Reasoning & Session Goals"
+        >
+          🧠
+        </button>
+        <div style={{
+          flex: 1,
+          minWidth: 0,
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '2px'
+        }}>
           <input
             type="text"
             value={sessionName}
@@ -530,13 +587,12 @@ function SidepanelOrchestrator() {
             onBlur={saveSession}
             placeholder="Session Name"
             style={{
-              flex: 1,
-              minWidth: 0,
-              padding: '8px 10px',
+              width: '100%',
+              padding: '6px 10px',
               background: 'rgba(255,255,255,0.1)',
               border: '1px solid rgba(255,255,255,0.2)',
               color: 'white',
-              borderRadius: '6px',
+              borderRadius: '4px',
               fontSize: '13px',
               fontWeight: '500',
               whiteSpace: 'nowrap',
@@ -544,76 +600,70 @@ function SidepanelOrchestrator() {
               textOverflow: 'ellipsis'
             }}
           />
-          <button
-            onClick={createNewSession}
-            style={{
-              width: '32px',
-              height: '32px',
-              flexShrink: 0,
-              background: '#4CAF50',
-              border: 'none',
-              color: 'white',
-              borderRadius: '4px',
-              cursor: 'pointer',
-              fontSize: '18px',
-              fontWeight: 'bold',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              transition: 'all 0.2s ease'
-            }}
-            onMouseEnter={(e) => e.currentTarget.style.background = '#45a049'}
-            onMouseLeave={(e) => e.currentTarget.style.background = '#4CAF50'}
-            title="New Session"
-          >
-            +
-          </button>
-          <button
-            onClick={() => {
-              console.log('💾 Save/Export session...')
-              sendToContentScript('SAVE_SESSION')
-            }}
-            style={{
-              width: '32px',
-              height: '32px',
-              flexShrink: 0,
-              background: 'rgba(76, 175, 80, 0.8)',
-              border: 'none',
-              color: 'white',
-              borderRadius: '4px',
-              cursor: 'pointer',
-              fontSize: '14px',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              transition: 'all 0.2s ease'
-            }}
-            onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(76, 175, 80, 1)'}
-            onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(76, 175, 80, 0.8)'}
-            title="Save/Export Session"
-          >
-            💾
-          </button>
+          {sessionKey && (
+            <div style={{
+              padding: '2px 10px',
+              fontSize: '9px',
+              fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+              color: 'rgba(255,255,255,0.6)',
+              whiteSpace: 'nowrap',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis'
+            }}>
+              ID: <span style={{ color: '#FFD700' }}>{sessionKey}</span>
+            </div>
+          )}
         </div>
-        {/* Session ID Display */}
-        {sessionKey && (
-          <div style={{
-            padding: '6px 10px',
-            background: 'rgba(0,0,0,0.25)',
+        <button
+          onClick={createNewSession}
+          style={{
+            width: '32px',
+            height: '32px',
+            flexShrink: 0,
+            background: '#4CAF50',
+            border: 'none',
+            color: 'white',
             borderRadius: '4px',
-            fontSize: '10px',
-            fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
-            color: 'rgba(255,255,255,0.7)',
+            cursor: 'pointer',
+            fontSize: '18px',
+            fontWeight: 'bold',
             display: 'flex',
             alignItems: 'center',
-            gap: '6px',
-            width: '100%',
-            boxSizing: 'border-box'
-          }}>
-            <span style={{ opacity: 0.8, flexShrink: 0 }}>ID:</span>
-            <span style={{ fontWeight: '600', color: '#FFD700', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{sessionKey}</span>
-          </div>
-        )}
+            justifyContent: 'center',
+            transition: 'all 0.2s ease'
+          }}
+          onMouseEnter={(e) => e.currentTarget.style.background = '#45a049'}
+          onMouseLeave={(e) => e.currentTarget.style.background = '#4CAF50'}
+          title="New Session"
+        >
+          +
+        </button>
+        <button
+          onClick={() => {
+            console.log('💾 Save/Export session...')
+            sendToContentScript('SAVE_SESSION')
+          }}
+          style={{
+            width: '32px',
+            height: '32px',
+            flexShrink: 0,
+            background: 'rgba(76, 175, 80, 0.8)',
+            border: 'none',
+            color: 'white',
+            borderRadius: '4px',
+            cursor: 'pointer',
+            fontSize: '14px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            transition: 'all 0.2s ease'
+          }}
+          onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(76, 175, 80, 1)'}
+          onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(76, 175, 80, 0.8)'}
+          title="Save/Export Session"
+        >
+          💾
+        </button>
       </div>
 
       {/* Administration Section */}
@@ -1353,7 +1403,7 @@ function SidepanelOrchestrator() {
       <div style={{
         background: 'rgba(255,255,255,0.12)',
         padding: '16px',
-        borderRadius: '10px',
+          borderRadius: '10px',
         marginBottom: '28px',
         border: '1px solid rgba(255,255,255,0.15)'
       }}>
@@ -1379,7 +1429,7 @@ function SidepanelOrchestrator() {
               border: 'none',
               color: 'white',
               borderRadius: '8px',
-              cursor: 'pointer',
+          cursor: 'pointer',
               fontSize: '13px',
               fontWeight: '600',
               display: 'flex',
@@ -1388,13 +1438,13 @@ function SidepanelOrchestrator() {
               gap: '6px',
               transition: 'all 0.2s ease',
               boxShadow: '0 2px 6px rgba(0,0,0,0.2)'
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.transform = 'translateY(-2px)'
+        }}
+        onMouseEnter={(e) => {
+          e.currentTarget.style.transform = 'translateY(-2px)'
               e.currentTarget.style.boxShadow = '0 4px 12px rgba(255,107,107,0.4)'
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.transform = 'translateY(0)'
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.transform = 'translateY(0)'
               e.currentTarget.style.boxShadow = '0 2px 6px rgba(0,0,0,0.2)'
             }}
           >
@@ -1518,40 +1568,8 @@ function SidepanelOrchestrator() {
             }}
           >
             🔒 WRVault
-          </button>
-        </div>
-      </div>
-
-      {/* Settings Button - Now wired to lightbox */}
-      <div style={{ marginTop: '24px' }}>
-        <button onClick={openSettings} style={{
-          width: '100%',
-          padding: '16px 20px',
-          backgroundColor: 'rgba(255,255,255,0.15)',
-          color: 'white',
-          border: '1px solid rgba(255,255,255,0.3)',
-          borderRadius: '10px',
-          cursor: 'pointer',
-          fontSize: '15px',
-          fontWeight: '600',
-          transition: 'all 0.2s ease',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          gap: '10px'
-        }}
-        onMouseEnter={(e) => {
-          e.currentTarget.style.backgroundColor = 'rgba(255,255,255,0.25)'
-          e.currentTarget.style.transform = 'translateY(-2px)'
-          e.currentTarget.style.boxShadow = '0 6px 20px rgba(0,0,0,0.15)'
-        }}
-        onMouseLeave={(e) => {
-          e.currentTarget.style.backgroundColor = 'rgba(255,255,255,0.15)'
-          e.currentTarget.style.transform = 'translateY(0)'
-          e.currentTarget.style.boxShadow = 'none'
-        }}>
-          ⚙️ Settings
         </button>
+      </div>
       </div>
       </div>
       
