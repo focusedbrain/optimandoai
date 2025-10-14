@@ -55,6 +55,12 @@ const globalLightboxFunctions: {
   beginScreenSelect?: (target: HTMLElement) => void
   createDockedChat?: () => void
   removeDockedChat?: () => void
+  startNewSession?: () => void
+  openHelperGridLightbox?: () => void
+  openSessionsLightbox?: () => void
+  syncSession?: () => void
+  importSession?: () => void
+  openWRVaultLightbox?: () => void
 } = {}
 
 // Check if extension was previously activated for this URL OR if dedicated
@@ -74,6 +80,9 @@ if (savedState === 'true' || dedicatedRole) {
 
 // Listen for toggle message from background script
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  // Log all incoming messages for debugging
+  console.log('📬 [CONTENT SCRIPT] Message received:', message.type, 'from:', sender.tab ? 'tab' : 'extension')
+  
   if (message.type === 'TOGGLE_SIDEBARS') {
     if (message.visible && !isExtensionActive) {
       isExtensionActive = true
@@ -289,6 +298,193 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       }
     } catch (e) {
       console.error('❌ Error removing docked chat:', e)
+      sendResponse({ success: false, error: String(e) })
+    }
+  }
+  // Handle GET SESSION DATA request from sidepanel
+  else if (message.type === 'GET_SESSION_DATA') {
+    try {
+      const sessionKey = getCurrentSessionKey()
+      const responseData = {
+        sessionName: currentTabData.tabName,
+        sessionKey: sessionKey,
+        isLocked: currentTabData.isLocked,
+        agentBoxes: currentTabData.agentBoxes || []
+      }
+      console.log('📤 Sending session data to sidepanel:', responseData)
+      console.log('  → Session Key from getCurrentSessionKey():', sessionKey)
+      console.log('  → Session Key from sessionStorage:', sessionStorage.getItem('optimando-current-session-key'))
+      console.log('  → Session Key from localStorage:', localStorage.getItem('optimando-global-active-session'))
+      sendResponse(responseData)
+    } catch (e) {
+      console.error('❌ Error getting session data:', e)
+      sendResponse({ error: String(e) })
+    }
+  }
+  // Handle UPDATE SESSION NAME request from sidepanel
+  else if (message.type === 'UPDATE_SESSION_NAME') {
+    try {
+      if (message.data.sessionName !== undefined) {
+        currentTabData.tabName = message.data.sessionName
+      }
+      if (message.data.isLocked !== undefined) {
+        currentTabData.isLocked = message.data.isLocked
+      }
+      saveTabDataToStorage()
+      
+      // Notify sidepanel of the update
+      chrome.runtime.sendMessage({
+        type: 'UPDATE_SESSION_DATA',
+        data: {
+          sessionName: currentTabData.tabName,
+          sessionKey: getCurrentSessionKey(),
+          isLocked: currentTabData.isLocked,
+          agentBoxes: currentTabData.agentBoxes || []
+        }
+      })
+      
+      sendResponse({ success: true })
+    } catch (e) {
+      console.error('❌ Error updating session name:', e)
+      sendResponse({ success: false, error: String(e) })
+    }
+  }
+  // Handle CREATE NEW SESSION request from sidepanel - use the ORIGINAL startNewSession function
+  else if (message.type === 'CREATE_NEW_SESSION') {
+    try {
+      if (globalLightboxFunctions.startNewSession) {
+        console.log('🆕 Creating new session from sidepanel...')
+        // Call the original startNewSession function that already exists
+        globalLightboxFunctions.startNewSession()
+        
+        // Wait longer for the session to be created and saved to storage
+        setTimeout(() => {
+          const sessionKey = getCurrentSessionKey()
+          console.log('📤 Broadcasting new session data to sidepanel:', {
+            sessionName: currentTabData.tabName,
+            sessionKey: sessionKey,
+            isLocked: currentTabData.isLocked,
+            agentBoxCount: (currentTabData.agentBoxes || []).length
+          })
+          
+          // Notify sidepanel of new session
+          chrome.runtime.sendMessage({
+            type: 'UPDATE_SESSION_DATA',
+            data: {
+              sessionName: currentTabData.tabName,
+              sessionKey: sessionKey,
+              isLocked: currentTabData.isLocked,
+              agentBoxes: currentTabData.agentBoxes || []
+            }
+          })
+        }, 300) // Increased timeout to ensure storage write completes
+        
+        sendResponse({ success: true })
+      } else {
+        console.warn('⚠️ startNewSession not available yet')
+        sendResponse({ success: false, error: 'Function not available' })
+      }
+    } catch (e) {
+      console.error('❌ Error creating new session:', e)
+      sendResponse({ success: false, error: String(e) })
+    }
+  }
+  // Handle OPEN HELPER GRID LIGHTBOX request from sidepanel
+  else if (message.type === 'OPEN_HELPER_GRID_LIGHTBOX') {
+    console.log('📨 Received OPEN_HELPER_GRID_LIGHTBOX message')
+    console.log('🔍 Checking globalLightboxFunctions:', Object.keys(globalLightboxFunctions))
+    console.log('🔍 openHelperGridLightbox available?', !!globalLightboxFunctions.openHelperGridLightbox)
+    try {
+      if (globalLightboxFunctions.openHelperGridLightbox) {
+        console.log('✅ Calling openHelperGridLightbox()...')
+        globalLightboxFunctions.openHelperGridLightbox()
+        console.log('✅ Helper Grid lightbox opened successfully')
+        sendResponse({ success: true })
+      } else {
+        console.warn('⚠️ openHelperGridLightbox function not available')
+        sendResponse({ success: false, error: 'Function not available' })
+      }
+    } catch (e) {
+      console.error('❌ Error opening helper grid lightbox:', e)
+      sendResponse({ success: false, error: String(e) })
+    }
+  }
+  // Handle OPEN SESSIONS LIGHTBOX request from sidepanel
+  else if (message.type === 'OPEN_SESSIONS_LIGHTBOX') {
+    console.log('📨 Received OPEN_SESSIONS_LIGHTBOX message')
+    console.log('🔍 Checking globalLightboxFunctions:', Object.keys(globalLightboxFunctions))
+    console.log('🔍 openSessionsLightbox available?', !!globalLightboxFunctions.openSessionsLightbox)
+    try {
+      if (globalLightboxFunctions.openSessionsLightbox) {
+        console.log('✅ Calling openSessionsLightbox()...')
+        globalLightboxFunctions.openSessionsLightbox()
+        console.log('✅ Sessions lightbox opened successfully')
+        sendResponse({ success: true })
+      } else {
+        console.warn('⚠️ openSessionsLightbox function not available')
+        sendResponse({ success: false, error: 'Function not available' })
+      }
+    } catch (e) {
+      console.error('❌ Error opening sessions lightbox:', e)
+      sendResponse({ success: false, error: String(e) })
+    }
+  }
+  // Handle SYNC SESSION request from sidepanel
+  else if (message.type === 'SYNC_SESSION') {
+    try {
+      if (globalLightboxFunctions.syncSession) {
+        globalLightboxFunctions.syncSession()
+        sendResponse({ success: true })
+      } else {
+        sendResponse({ success: false, error: 'Function not available' })
+      }
+    } catch (e) {
+      console.error('❌ Error syncing session:', e)
+      sendResponse({ success: false, error: String(e) })
+    }
+  }
+  // Handle IMPORT SESSION request from sidepanel
+  else if (message.type === 'IMPORT_SESSION') {
+    try {
+      if (globalLightboxFunctions.importSession) {
+        globalLightboxFunctions.importSession()
+        sendResponse({ success: true })
+      } else {
+        sendResponse({ success: false, error: 'Function not available' })
+      }
+    } catch (e) {
+      console.error('❌ Error importing session:', e)
+      sendResponse({ success: false, error: String(e) })
+    }
+  }
+  // Handle OPEN WRVAULT LIGHTBOX request from sidepanel
+  else if (message.type === 'OPEN_WRVAULT_LIGHTBOX') {
+    console.log('📨 Received OPEN_WRVAULT_LIGHTBOX message')
+    console.log('🔍 Checking globalLightboxFunctions:', Object.keys(globalLightboxFunctions))
+    console.log('🔍 openWRVaultLightbox available?', !!globalLightboxFunctions.openWRVaultLightbox)
+    try {
+      if (globalLightboxFunctions.openWRVaultLightbox) {
+        console.log('✅ Calling openWRVaultLightbox()...')
+        globalLightboxFunctions.openWRVaultLightbox()
+        console.log('✅ WRVault lightbox opened successfully')
+        sendResponse({ success: true })
+      } else {
+        console.warn('⚠️ openWRVaultLightbox function not available')
+        sendResponse({ success: false, error: 'Function not available' })
+      }
+    } catch (e) {
+      console.error('❌ Error opening WRVault lightbox:', e)
+      sendResponse({ success: false, error: String(e) })
+    }
+  }
+  // Handle SAVE SESSION request from sidepanel
+  else if (message.type === 'SAVE_SESSION') {
+    try {
+      // Call the saveCurrentSession function
+      saveCurrentSession()
+      sendResponse({ success: true })
+    } catch (e) {
+      console.error('❌ Error saving session:', e)
       sendResponse({ success: false, error: String(e) })
     }
   }
@@ -599,7 +795,7 @@ function deactivateExtension() {
 
 function initializeExtension() {
   try {
-    chrome.runtime.onMessage.addListener((msg:any)=>{
+    chrome.runtime.onMessage.addListener((msg:any, sender:any, sendResponse:any)=>{
       if (!msg || !msg.type) return
       if (msg.type === 'OG_BEGIN_SELECTION_FOR_POPUP'){
         try {
@@ -624,6 +820,35 @@ function initializeExtension() {
             }
           })()
         }catch{}
+      } else if (msg.type === 'GET_SESSION_DATA') {
+        // Return current session data to sidepanel
+        sendResponse({
+          success: true,
+          data: {
+            tabId: currentTabData.tabId,
+            tabName: currentTabData.tabName,
+            isLocked: currentTabData.isLocked,
+            agentBoxes: currentTabData.agentBoxes || [],
+            agentBoxHeights: currentTabData.agentBoxHeights || {}
+          }
+        })
+        return true // Keep channel open for async response
+      } else if (msg.type === 'EXPORT_SESSION') {
+        // Call existing exportSession function
+        exportSession()
+        sendResponse({ success: true })
+        return true
+      } else if (msg.type === 'START_NEW_SESSION') {
+        // Call existing startNewSession function
+        startNewSession()
+        sendResponse({
+          success: true,
+          data: {
+            tabId: currentTabData.tabId,
+            tabName: currentTabData.tabName
+          }
+        })
+        return true
       }
     })
   } catch {}
@@ -14270,6 +14495,7 @@ ${pageText}
     // Also create a new session in Sessions History
     try {
       const sessionKey = `session_${Date.now()}`
+      console.log('🔑 Generated new session key:', sessionKey)
       const sessionData = {
         ...currentTabData,
         timestamp: new Date().toISOString(),
@@ -14278,8 +14504,27 @@ ${pageText}
         displayGrids: null
       }
       chrome.storage.local.set({ [sessionKey]: sessionData }, () => {
-        console.log('🆕 New session added to history:', sessionKey)
+        console.log('✅ New session added to history:', sessionKey)
         setCurrentSessionKey(sessionKey)
+        console.log('✅ Session key set in storage')
+        
+        // Verify the key was set
+        const verifyKey = getCurrentSessionKey()
+        console.log('🔍 Verification - getCurrentSessionKey() returns:', verifyKey)
+        
+        // Broadcast to sidepanel immediately after setting key
+        setTimeout(() => {
+          chrome.runtime.sendMessage({
+            type: 'UPDATE_SESSION_DATA',
+            data: {
+              sessionName: currentTabData.tabName,
+              sessionKey: sessionKey,
+              isLocked: currentTabData.isLocked,
+              agentBoxes: currentTabData.agentBoxes || []
+            }
+          })
+          console.log('📤 Sent UPDATE_SESSION_DATA to sidepanel with key:', sessionKey)
+        }, 50)
       })
     } catch (e) {
       console.error('❌ Failed to add session to history:', e)
@@ -14313,27 +14558,7 @@ ${pageText}
     // Re-render agent boxes with default configuration
     renderAgentBoxes()
 
-    // Show success notification
-    const notification = document.createElement('div')
-    notification.style.cssText = `
-      position: fixed;
-      top: 60px;
-      right: 20px;
-      background: rgba(76, 175, 80, 0.9);
-      color: white;
-      padding: 10px 15px;
-      border-radius: 5px;
-      font-size: 12px;
-      z-index: 2147483648;
-      animation: slideIn 0.3s ease;
-    `
-    notification.innerHTML = `🆕 New session "${newSessionName}" started!`
-    document.body.appendChild(notification)
-    
-    setTimeout(() => {
-      notification.remove()
-    }, 3000)
-
+    // Note: Notification is now shown in the sidepanel instead of here
     console.log('🆕 New session started:', newSessionName)
   }
 
@@ -15401,11 +15626,18 @@ ${pageText}
   globalLightboxFunctions.openAgentsLightbox = openAgentsLightbox
   globalLightboxFunctions.openSettingsLightbox = openSettingsLightbox
   globalLightboxFunctions.openMemoryLightbox = openMemoryLightbox
+  globalLightboxFunctions.startNewSession = startNewSession
   globalLightboxFunctions.openContextLightbox = openContextLightbox
   globalLightboxFunctions.openAddAgentBoxDialog = openAddAgentBoxDialog
   globalLightboxFunctions.beginScreenSelect = beginScreenSelect
-  globalLightboxFunctions.createDockedChat = createDockedChat
-  globalLightboxFunctions.removeDockedChat = removeDockedChat
+  // These might not be defined, so assign conditionally
+  if (typeof createDockedChat !== 'undefined') globalLightboxFunctions.createDockedChat = createDockedChat
+  if (typeof removeDockedChat !== 'undefined') globalLightboxFunctions.removeDockedChat = removeDockedChat
+  globalLightboxFunctions.openHelperGridLightbox = openHelperGridLightbox
+  globalLightboxFunctions.openSessionsLightbox = openSessionsLightbox
+  globalLightboxFunctions.syncSession = syncSession
+  globalLightboxFunctions.importSession = importSession
+  globalLightboxFunctions.openWRVaultLightbox = openWRVaultLightbox
   
   console.log('✅ Lightbox and chat functions assigned to global scope:', Object.keys(globalLightboxFunctions))
   

@@ -4,6 +4,42 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>OpenGiraffe Orchestrator</title>
+    <style>
+        /* Theme-colored scrollbar */
+        * {
+            scrollbar-width: thin;
+            scrollbar-color: #764ba2 rgba(0,0,0,0.2);
+        }
+        
+        *::-webkit-scrollbar {
+            width: 10px;
+        }
+        
+        *::-webkit-scrollbar-track {
+            background: rgba(0,0,0,0.2);
+        }
+        
+        *::-webkit-scrollbar-thumb {
+            background: #764ba2;
+            border-radius: 5px;
+        }
+        
+        *::-webkit-scrollbar-thumb:hover {
+            background: #667eea;
+        }
+        
+        body {
+            margin: 0;
+            padding: 0;
+            overflow-x: hidden;
+            width: 100%;
+            box-sizing: border-box;
+        }
+        
+        * {
+            box-sizing: border-box;
+        }
+    </style>
 </head>
 <body>
     <div id="sidepanel-root"></div>

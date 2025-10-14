@@ -21,7 +21,8 @@ function SidepanelOrchestrator() {
   })
 
   // Additional state for new features
-  const [sessionName, setSessionName] = useState('New Session')
+  const [sessionName, setSessionName] = useState('Loading...')
+  const [sessionKey, setSessionKey] = useState<string>('')
   const [isLocked, setIsLocked] = useState(false)
   const [agentBoxes, setAgentBoxes] = useState<Array<any>>([])
   const [agentBoxHeights, setAgentBoxHeights] = useState<Record<string, number>>({})
@@ -39,6 +40,7 @@ function SidepanelOrchestrator() {
   const [showEmbedDialog, setShowEmbedDialog] = useState(false)
   const [pendingItems, setPendingItems] = useState<any[]>([])
   const [embedTarget, setEmbedTarget] = useState<'session' | 'account'>('session')
+  const [notification, setNotification] = useState<{message: string, type: 'success' | 'error' | 'info'} | null>(null)
   const chatRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   
@@ -63,13 +65,36 @@ function SidepanelOrchestrator() {
     chrome.runtime.sendMessage({ type: 'GET_STATUS' })
 
     const handleMessage = (message: any) => {
+      console.log('📨 Sidepanel received message:', message.type, message.data)
+      
       if (message.type === 'STATUS_UPDATE') {
         setConnectionStatus(message.data)
         setIsLoading(false)
       }
       // Listen for agent box updates from content script
-      if (message.type === 'UPDATE_AGENT_BOXES') {
+      else if (message.type === 'UPDATE_AGENT_BOXES') {
+        console.log('📦 Updating agent boxes:', message.data)
         setAgentBoxes(message.data || [])
+      }
+      // Listen for session data updates
+      else if (message.type === 'UPDATE_SESSION_DATA') {
+        console.log('📥 Session data updated from broadcast:', message.data)
+        if (message.data.sessionName !== undefined) {
+          console.log('  → Setting session name:', message.data.sessionName)
+          setSessionName(message.data.sessionName)
+        }
+        if (message.data.sessionKey !== undefined) {
+          console.log('  → Setting session key:', message.data.sessionKey)
+          setSessionKey(message.data.sessionKey)
+        }
+        if (message.data.isLocked !== undefined) {
+          console.log('  → Setting locked state:', message.data.isLocked)
+          setIsLocked(message.data.isLocked)
+        }
+        if (message.data.agentBoxes !== undefined) {
+          console.log('  → Setting agent boxes:', message.data.agentBoxes.length)
+          setAgentBoxes(message.data.agentBoxes)
+        }
       }
     }
 
@@ -87,14 +112,38 @@ function SidepanelOrchestrator() {
     }
   }, [])
 
-  // Load additional data (session and agent boxes)
+  // Load session data from active tab
   useEffect(() => {
-    chrome.storage.local.get(['sessionName', 'isLocked', 'agentBoxes', 'agentBoxHeights'], (result) => {
-      if (result.sessionName) setSessionName(result.sessionName)
-      if (result.isLocked) setIsLocked(result.isLocked)
-      if (result.agentBoxes) setAgentBoxes(result.agentBoxes)
-      if (result.agentBoxHeights) setAgentBoxHeights(result.agentBoxHeights)
-    })
+    const loadSessionData = () => {
+      chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+        if (tabs[0]?.id) {
+          chrome.tabs.sendMessage(tabs[0].id, { type: 'GET_SESSION_DATA' }, (response) => {
+            if (chrome.runtime.lastError) {
+              console.log('No active session in current tab')
+              setSessionName('No Session')
+              return
+            }
+            if (response) {
+              console.log('📥 Received session data:', response)
+              setSessionName(response.sessionName || 'New Session')
+              setSessionKey(response.sessionKey || '')
+              setIsLocked(response.isLocked || false)
+              setAgentBoxes(response.agentBoxes || [])
+            } else {
+              setSessionName('No Session')
+            }
+          })
+        }
+      })
+    }
+    
+    // Load immediately
+    loadSessionData()
+    
+    // Retry after a short delay to ensure content script is ready
+    const retryTimer = setTimeout(loadSessionData, 500)
+    
+    return () => clearTimeout(retryTimer)
   }, [])
 
   // Chat resize handlers
@@ -136,17 +185,7 @@ function SidepanelOrchestrator() {
     chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
       if (tabs[0]?.id) {
         const message = data ? { type: action, data } : { type: action }
-        chrome.tabs.sendMessage(tabs[0].id, message, (response) => {
-          if (chrome.runtime.lastError) {
-            console.error('❌ Error sending message:', chrome.runtime.lastError)
-          } else if (response?.success) {
-            console.log('✅ Message sent successfully:', action)
-          } else {
-            console.warn('⚠️ Message sent but function not available:', action, response)
-          }
-        })
-      } else {
-        console.error('❌ No active tab found')
+        chrome.tabs.sendMessage(tabs[0].id, message)
       }
     })
   }
@@ -179,6 +218,33 @@ function SidepanelOrchestrator() {
   const addAgentBox = () => {
     console.log('🎯 Opening Add Agent Box dialog...')
     sendToContentScript('ADD_AGENT_BOX')
+  }
+
+  // Notification helper - defined before quick actions so it can be used
+  const showNotification = (message: string, type: 'success' | 'error' | 'info' = 'success') => {
+    setNotification({ message, type })
+    setTimeout(() => setNotification(null), 3000)
+  }
+
+  // Quick Actions functions - EXACTLY like the original buttons
+  const openAddView = () => {
+    sendToContentScript('OPEN_HELPER_GRID_LIGHTBOX')
+  }
+
+  const openSessions = () => {
+    sendToContentScript('OPEN_SESSIONS_LIGHTBOX')
+  }
+
+  const syncSession = () => {
+    sendToContentScript('SYNC_SESSION')
+  }
+
+  const importSession = () => {
+    sendToContentScript('IMPORT_SESSION')
+  }
+
+  const openWRVault = () => {
+    sendToContentScript('OPEN_WRVAULT_LIGHTBOX')
   }
 
   const removeAgentBox = (id: string) => {
@@ -374,107 +440,199 @@ function SidepanelOrchestrator() {
   }
 
   const saveSession = () => {
-    chrome.storage.local.set({ sessionName, isLocked, agentBoxes })
+    // Send update to content script
+    sendToContentScript('UPDATE_SESSION_NAME', { sessionName, isLocked })
+  }
+
+  const createNewSession = () => {
+    console.log('🆕 Creating new session...')
+    // Send message to content script to create new session
+    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+      if (tabs[0]?.id) {
+        const tabId = tabs[0].id
+        chrome.tabs.sendMessage(tabId, { type: 'CREATE_NEW_SESSION' }, (response) => {
+          if (chrome.runtime.lastError) {
+            console.error('❌ Error creating session:', chrome.runtime.lastError)
+            showNotification('Failed to create session', 'error')
+            return
+          }
+          console.log('✅ Session created:', response)
+          
+          // Poll for updated session data after creation - multiple attempts
+          let pollAttempts = 0
+          const pollInterval = setInterval(() => {
+            pollAttempts++
+            console.log(`🔄 Polling for new session data (attempt ${pollAttempts})...`)
+            
+            chrome.tabs.sendMessage(tabId, { type: 'GET_SESSION_DATA' }, (sessionResponse) => {
+              if (chrome.runtime.lastError) {
+                console.error('❌ Error getting session data:', chrome.runtime.lastError)
+                if (pollAttempts >= 3) {
+                  clearInterval(pollInterval)
+                  showNotification('Session created but data not synced', 'error')
+                }
+                return
+              }
+              if (sessionResponse) {
+                console.log('📥 Received new session data:', sessionResponse)
+                console.log('  → sessionName:', sessionResponse.sessionName)
+                console.log('  → sessionKey:', sessionResponse.sessionKey)
+                console.log('  → isLocked:', sessionResponse.isLocked)
+                console.log('  → agentBoxes:', sessionResponse.agentBoxes?.length || 0)
+                
+                setSessionName(sessionResponse.sessionName || 'New Session')
+                setSessionKey(sessionResponse.sessionKey || '')
+                setIsLocked(sessionResponse.isLocked || false)
+                setAgentBoxes(sessionResponse.agentBoxes || [])
+                
+                // Show success notification
+                showNotification(`🆕 New session "${sessionResponse.sessionName}" started!`, 'success')
+                clearInterval(pollInterval)
+              } else if (pollAttempts >= 3) {
+                clearInterval(pollInterval)
+                showNotification('Session created but no data received', 'error')
+              }
+            })
+          }, 200) // Poll every 200ms, up to 3 times
+        })
+      }
+    })
   }
 
   return (
     <div style={{
       width: '100%',
       minHeight: '100vh',
-      fontFamily: 'Arial, sans-serif',
+      fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
       background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
       color: 'white',
       padding: '0',
+      margin: '0',
       boxSizing: 'border-box',
       display: 'flex',
-      flexDirection: 'column'
+      flexDirection: 'column',
+      overflowX: 'hidden'
     }}>
-      {/* NEW: Session Controls at the very top */}
+      {/* Session Controls at the very top */}
       <div style={{ 
-        padding: '10px 15px',
+        padding: '12px 16px',
         borderBottom: '1px solid rgba(255,255,255,0.2)',
         display: 'flex',
-        alignItems: 'center',
-        gap: '8px'
+        flexDirection: 'column',
+        gap: '10px',
+        background: 'rgba(0,0,0,0.15)'
       }}>
-        <input
-          type="text"
-          value={sessionName}
-          onChange={(e) => setSessionName(e.target.value)}
-          disabled={isLocked}
-          placeholder="Session Name"
-          style={{
-            flex: 1,
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', width: '100%' }}>
+          <input
+            type="text"
+            value={sessionName}
+            onChange={(e) => setSessionName(e.target.value)}
+            onBlur={saveSession}
+            placeholder="Session Name"
+            style={{
+              flex: 1,
+              minWidth: 0,
+              padding: '8px 10px',
+              background: 'rgba(255,255,255,0.1)',
+              border: '1px solid rgba(255,255,255,0.2)',
+              color: 'white',
+              borderRadius: '6px',
+              fontSize: '13px',
+              fontWeight: '500',
+              whiteSpace: 'nowrap',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis'
+            }}
+          />
+          <button
+            onClick={createNewSession}
+            style={{
+              width: '32px',
+              height: '32px',
+              flexShrink: 0,
+              background: '#4CAF50',
+              border: 'none',
+              color: 'white',
+              borderRadius: '4px',
+              cursor: 'pointer',
+              fontSize: '18px',
+              fontWeight: 'bold',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              transition: 'all 0.2s ease'
+            }}
+            onMouseEnter={(e) => e.currentTarget.style.background = '#45a049'}
+            onMouseLeave={(e) => e.currentTarget.style.background = '#4CAF50'}
+            title="New Session"
+          >
+            +
+          </button>
+          <button
+            onClick={() => {
+              console.log('💾 Save/Export session...')
+              sendToContentScript('SAVE_SESSION')
+            }}
+            style={{
+              width: '32px',
+              height: '32px',
+              flexShrink: 0,
+              background: 'rgba(76, 175, 80, 0.8)',
+              border: 'none',
+              color: 'white',
+              borderRadius: '4px',
+              cursor: 'pointer',
+              fontSize: '14px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              transition: 'all 0.2s ease'
+            }}
+            onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(76, 175, 80, 1)'}
+            onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(76, 175, 80, 0.8)'}
+            title="Save/Export Session"
+          >
+            💾
+          </button>
+        </div>
+        {/* Session ID Display */}
+        {sessionKey && (
+          <div style={{
             padding: '6px 10px',
-            background: 'rgba(255,255,255,0.1)',
-            border: '1px solid rgba(255,255,255,0.2)',
-            color: 'white',
+            background: 'rgba(0,0,0,0.25)',
             borderRadius: '4px',
-            fontSize: '13px',
-            opacity: isLocked ? 0.6 : 1
-          }}
-        />
-        <button
-          onClick={() => {
-            setIsLocked(!isLocked)
-            saveSession()
-          }}
-          style={{
-            width: '32px',
-            height: '32px',
-            background: isLocked ? 'rgba(255,215,0,0.3)' : 'rgba(255,255,255,0.1)',
-            border: 'none',
-            color: 'white',
-            borderRadius: '4px',
-            cursor: 'pointer',
-            fontSize: '14px'
-          }}
-          title={isLocked ? 'Unlock' : 'Lock'}
-        >
-          {isLocked ? '🔒' : '🔓'}
-        </button>
-        <button
-          onClick={() => {
-            setSessionName('New Session')
-            setIsLocked(false)
-            setAgentBoxes([])
-            setMessages([])
-            saveSession()
-          }}
-          style={{
-            width: '32px',
-            height: '32px',
-            background: 'rgba(76,175,80,0.8)',
-            border: 'none',
-            color: 'white',
-          borderRadius: '4px',
-            cursor: 'pointer',
-            fontSize: '18px',
-            fontWeight: 'bold'
-          }}
-          title="New Session"
-        >
-          +
-        </button>
+            fontSize: '10px',
+            fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+            color: 'rgba(255,255,255,0.7)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '6px',
+            width: '100%',
+            boxSizing: 'border-box'
+          }}>
+            <span style={{ opacity: 0.8, flexShrink: 0 }}>ID:</span>
+            <span style={{ fontWeight: '600', color: '#FFD700', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{sessionKey}</span>
+          </div>
+        )}
       </div>
 
       {/* Administration Section */}
       <div style={{
-        padding: '10px 15px',
+        padding: '12px 16px',
         borderBottom: '1px solid rgba(255,255,255,0.2)',
         background: 'rgba(0,0,0,0.1)'
       }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <div style={{ fontSize: '11px', fontWeight: '700', opacity: 0.8, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', width: '100%' }}>
+          <div style={{ fontSize: '11px', fontWeight: '700', opacity: 0.85, textTransform: 'uppercase', letterSpacing: '0.5px', flexShrink: 0 }}>
             ADMIN
           </div>
-          <div style={{ display: 'flex', gap: '6px' }}>
-            <button onClick={openAgentsLightbox} title="Agents" style={{ width: '36px', height: '36px', background: 'rgba(255,255,255,0.1)', border: 'none', color: 'white', borderRadius: '6px', cursor: 'pointer', fontSize: '16px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>🤖</button>
-            <button onClick={openContext} title="Context" style={{ width: '36px', height: '36px', background: 'rgba(255,255,255,0.1)', border: 'none', color: 'white', borderRadius: '6px', cursor: 'pointer', fontSize: '16px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>📄</button>
-            <button onClick={openMemory} title="Memory" style={{ width: '36px', height: '36px', background: 'rgba(255,255,255,0.1)', border: 'none', color: 'white', borderRadius: '6px', cursor: 'pointer', fontSize: '16px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>💽</button>
-            <button onClick={openSettings} title="Settings" style={{ width: '36px', height: '36px', background: 'rgba(255,255,255,0.1)', border: 'none', color: 'white', borderRadius: '6px', cursor: 'pointer', fontSize: '16px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>⚙️</button>
-            <button onClick={openPopupChat} title="Open Popup Chat" style={{ width: '36px', height: '36px', background: 'rgba(255,255,255,0.1)', border: 'none', color: 'white', borderRadius: '6px', cursor: 'pointer', fontSize: '16px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>💬</button>
-            <button onClick={toggleCommandChatPin} title={isCommandChatPinned ? "Unpin Command Chat" : "Pin Command Chat"} style={{ width: '36px', height: '36px', background: isCommandChatPinned ? 'rgba(76,175,80,0.3)' : 'rgba(255,255,255,0.1)', border: 'none', color: 'white', borderRadius: '6px', cursor: 'pointer', fontSize: '16px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>📌</button>
+          <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', justifyContent: 'flex-end', flex: 1 }}>
+            <button onClick={openAgentsLightbox} title="Agents" style={{ width: '32px', height: '32px', flexShrink: 0, background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)', color: 'white', borderRadius: '6px', cursor: 'pointer', fontSize: '16px', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.2s ease' }} onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.2)'} onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.1)'}>🤖</button>
+            <button onClick={openContext} title="Context" style={{ width: '32px', height: '32px', flexShrink: 0, background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)', color: 'white', borderRadius: '6px', cursor: 'pointer', fontSize: '16px', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.2s ease' }} onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.2)'} onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.1)'}>📄</button>
+            <button onClick={openMemory} title="Memory" style={{ width: '32px', height: '32px', flexShrink: 0, background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)', color: 'white', borderRadius: '6px', cursor: 'pointer', fontSize: '16px', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.2s ease' }} onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.2)'} onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.1)'}>💽</button>
+            <button onClick={openSettings} title="Settings" style={{ width: '32px', height: '32px', flexShrink: 0, background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)', color: 'white', borderRadius: '6px', cursor: 'pointer', fontSize: '16px', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.2s ease' }} onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.2)'} onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.1)'}>⚙️</button>
+            <button onClick={openPopupChat} title="Open Popup Chat" style={{ width: '32px', height: '32px', flexShrink: 0, background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)', color: 'white', borderRadius: '6px', cursor: 'pointer', fontSize: '16px', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.2s ease' }} onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.2)'} onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.1)'}>💬</button>
+            <button onClick={toggleCommandChatPin} title={isCommandChatPinned ? "Unpin Command Chat" : "Pin Command Chat"} style={{ width: '32px', height: '32px', flexShrink: 0, background: isCommandChatPinned ? 'rgba(76,175,80,0.4)' : 'rgba(255,255,255,0.1)', border: `1px solid ${isCommandChatPinned ? 'rgba(76,175,80,0.6)' : 'rgba(255,255,255,0.2)'}`, color: 'white', borderRadius: '6px', cursor: 'pointer', fontSize: '16px', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.2s ease' }} onMouseEnter={(e) => e.currentTarget.style.background = isCommandChatPinned ? 'rgba(76,175,80,0.5)' : 'rgba(255,255,255,0.2)'} onMouseLeave={(e) => e.currentTarget.style.background = isCommandChatPinned ? 'rgba(76,175,80,0.4)' : 'rgba(255,255,255,0.1)'}>📌</button>
           </div>
         </div>
       </div>
@@ -487,7 +645,7 @@ function SidepanelOrchestrator() {
         <div 
           onClick={() => setIsWRLoginCollapsed(!isWRLoginCollapsed)}
           style={{
-            padding: '12px 15px',
+            padding: '16px 20px',
             display: 'flex',
             justifyContent: 'space-between',
             alignItems: 'center',
@@ -495,11 +653,11 @@ function SidepanelOrchestrator() {
             userSelect: 'none'
           }}
         >
-          <div style={{ fontSize: '13px', fontWeight: '700', opacity: 0.9, display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <span style={{ fontSize: '16px' }}>🔐</span> WR Code
+          <div style={{ fontSize: '14px', fontWeight: '700', opacity: 0.95, display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <span style={{ fontSize: '18px' }}>🔐</span> WR Code
           </div>
           <div style={{ 
-            fontSize: '14px', 
+            fontSize: '16px', 
             opacity: 0.7,
             transition: 'transform 0.2s ease',
             transform: isWRLoginCollapsed ? 'rotate(-90deg)' : 'rotate(0deg)'
@@ -509,21 +667,22 @@ function SidepanelOrchestrator() {
         </div>
         {!isWRLoginCollapsed && (
           <div style={{
-            padding: '12px 15px 20px 15px',
+            padding: '16px 20px 24px 20px',
             display: 'flex',
             flexDirection: 'column',
             alignItems: 'center',
-            gap: '12px'
+            gap: '16px'
           }}>
             <div style={{
-              width: '140px',
-              height: '140px',
+              width: '150px',
+              height: '150px',
               background: 'white',
-              borderRadius: '8px',
-              padding: '10px',
+              borderRadius: '10px',
+              padding: '12px',
               display: 'flex',
               alignItems: 'center',
-              justifyContent: 'center'
+              justifyContent: 'center',
+              boxShadow: '0 4px 12px rgba(0,0,0,0.15)'
             }}>
               <div style={{
                 width: '100%',
@@ -531,23 +690,32 @@ function SidepanelOrchestrator() {
                 background: 'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' viewBox=\'0 0 100 100\'%3E%3Crect fill=\'%23000\' x=\'0\' y=\'0\' width=\'20\' height=\'20\'/%3E%3Crect fill=\'%23000\' x=\'0\' y=\'80\' width=\'20\' height=\'20\'/%3E%3Crect fill=\'%23000\' x=\'80\' y=\'0\' width=\'20\' height=\'20\'/%3E%3Crect fill=\'%23000\' x=\'10\' y=\'10\' width=\'5\' height=\'5\'/%3E%3Crect fill=\'%23000\' x=\'10\' y=\'85\' width=\'5\' height=\'5\'/%3E%3Crect fill=\'%23000\' x=\'85\' y=\'10\' width=\'5\' height=\'5\'/%3E%3Cpath fill=\'%23000\' d=\'M30,30 h5 v5 h-5 v-5 M40,30 h5 v5 h-5 v-5 M50,30 h5 v5 h-5 v-5 M60,30 h5 v5 h-5 v-5 M30,40 h5 v5 h-5 v-5 M40,40 h5 v5 h-5 v-5 M50,40 h5 v5 h-5 v-5 M60,40 h5 v5 h-5 v-5 M30,50 h5 v5 h-5 v-5 M40,50 h5 v5 h-5 v-5 M50,50 h5 v5 h-5 v-5 M60,50 h5 v5 h-5 v-5 M30,60 h5 v5 h-5 v-5 M40,60 h5 v5 h-5 v-5 M50,60 h5 v5 h-5 v-5 M60,60 h5 v5 h-5 v-5\'/%3E%3C/svg%3E") center/contain no-repeat'
               }}></div>
             </div>
-            <div style={{ fontSize: '11px', opacity: 0.7, textAlign: 'center' }}>
+            <div style={{ fontSize: '12px', opacity: 0.75, textAlign: 'center', lineHeight: '1.5' }}>
               Scan to connect your WR account
             </div>
             <button style={{
               width: '100%',
-              padding: '10px 16px',
+              padding: '12px 18px',
               background: 'rgba(255,255,255,0.15)',
               border: '1px solid rgba(255,255,255,0.3)',
               color: 'white',
-              borderRadius: '6px',
+              borderRadius: '8px',
               cursor: 'pointer',
-              fontSize: '13px',
+              fontSize: '14px',
               fontWeight: '600',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              gap: '6px'
+              gap: '8px',
+              transition: 'all 0.2s ease'
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = 'rgba(255,255,255,0.25)'
+              e.currentTarget.style.transform = 'translateY(-1px)'
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = 'rgba(255,255,255,0.15)'
+              e.currentTarget.style.transform = 'translateY(0)'
             }}>
               <span>🔗</span> WR Login
             </button>
@@ -563,10 +731,11 @@ function SidepanelOrchestrator() {
               borderBottom: '1px solid rgba(255,255,255,0.2)',
               background: 'rgba(255,255,255,0.10)',
               border: '1px solid rgba(255,255,255,0.20)',
-              margin: '10px 15px',
+              margin: '12px 16px',
               borderRadius: '8px',
               overflow: 'hidden',
-              position: 'relative'
+              position: 'relative',
+              boxShadow: '0 4px 12px rgba(0,0,0,0.1)'
             }}
             onDragOver={(e) => e.preventDefault()}
             onDrop={handleChatDrop}
@@ -576,30 +745,34 @@ function SidepanelOrchestrator() {
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'space-between',
-              padding: '6px 8px',
+              padding: '10px 14px',
               background: 'linear-gradient(135deg,#667eea,#764ba2)',
               borderBottom: '1px solid rgba(255,255,255,0.20)',
               color: 'white'
             }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <div style={{ fontSize: '12px', fontWeight: '700' }}>💬 Command Chat</div>
-                <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <div style={{ fontSize: '13px', fontWeight: '700' }}>💬 Command Chat</div>
+                <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
                   <button 
                     onClick={handleBucketClick}
                     title="Context Bucket: Embed context directly into the session"
                     style={{
-                      height: '28px',
-                      background: 'rgba(255,255,255,0.08)',
-                      border: '1px solid rgba(255,255,255,0.20)',
+                      height: '32px',
+                      minWidth: '32px',
+                      background: 'rgba(255,255,255,0.12)',
+                      border: '1px solid rgba(255,255,255,0.25)',
                       color: '#ef4444',
                       borderRadius: '6px',
-                      padding: '0 8px',
-                      fontSize: '12px',
+                      padding: '0 10px',
+                      fontSize: '14px',
                       cursor: 'pointer',
                       display: 'flex',
                       alignItems: 'center',
-                      justifyContent: 'center'
+                      justifyContent: 'center',
+                      transition: 'all 0.2s ease'
                     }}
+                    onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.2)'}
+                    onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.12)'}
                   >
                     🪣
                   </button>
@@ -608,13 +781,21 @@ function SidepanelOrchestrator() {
                     title="LmGTFY - Capture a screen area as screenshot or stream"
                     style={{
                       background: 'rgba(255,255,255,0.15)',
-                      border: '1px solid rgba(255,255,255,0.20)',
+                      border: '1px solid rgba(255,255,255,0.25)',
                       color: 'white',
                       borderRadius: '6px',
-                      padding: '2px 6px',
-                      fontSize: '12px',
-                      cursor: 'pointer'
+                      padding: '0 10px',
+                      height: '32px',
+                      minWidth: '32px',
+                      fontSize: '14px',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      transition: 'all 0.2s ease'
                     }}
+                    onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.25)'}
+                    onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.15)'}
                   >
                     ✎
                   </button>
@@ -623,19 +804,23 @@ function SidepanelOrchestrator() {
                       onClick={() => setShowTagsMenu(!showTagsMenu)}
                       title="Tags - Quick access to saved triggers"
                       style={{
-                        background: 'rgba(255,255,255,0.08)',
-                        border: '1px solid rgba(255,255,255,0.20)',
+                        background: 'rgba(255,255,255,0.12)',
+                        border: '1px solid rgba(255,255,255,0.25)',
                         color: 'white',
                         borderRadius: '6px',
-                        padding: '2px 8px',
-                        fontSize: '12px',
+                        padding: '0 12px',
+                        height: '32px',
+                        fontSize: '13px',
                         cursor: 'pointer',
                         display: 'inline-flex',
                         alignItems: 'center',
-                        gap: '4px'
+                        gap: '6px',
+                        transition: 'all 0.2s ease'
                       }}
+                      onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.2)'}
+                      onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.12)'}
                     >
-                      Tags <span style={{ fontSize: '10px', opacity: 0.9 }}>▾</span>
+                      Tags <span style={{ fontSize: '11px', opacity: 0.9 }}>▾</span>
                     </button>
                     
                     {/* Tags Dropdown Menu */}
@@ -753,14 +938,14 @@ function SidepanelOrchestrator() {
                 overflowY: 'auto',
                 display: 'flex',
                 flexDirection: 'column',
-                gap: '6px',
+                gap: '10px',
                 background: 'rgba(255,255,255,0.06)',
                 borderBottom: '1px solid rgba(255,255,255,0.20)',
-                padding: '8px'
+                padding: '14px'
               }}
             >
               {chatMessages.length === 0 ? (
-                <div style={{ fontSize: '12px', opacity: 0.6, textAlign: 'center', padding: '20px' }}>
+                <div style={{ fontSize: '13px', opacity: 0.6, textAlign: 'center', padding: '32px 20px' }}>
                   Start a conversation...
                 </div>
               ) : (
@@ -773,13 +958,13 @@ function SidepanelOrchestrator() {
                     }}
                   >
                     <div style={{
-                      maxWidth: '78%',
-                      padding: '8px 10px',
-                      borderRadius: '10px',
-                      fontSize: '12px',
-                      lineHeight: '1.45',
-                      background: msg.role === 'user' ? 'rgba(34,197,94,0.12)' : 'rgba(255,255,255,0.10)',
-                      border: msg.role === 'user' ? '1px solid rgba(34,197,94,0.45)' : '1px solid rgba(255,255,255,0.20)'
+                      maxWidth: '80%',
+                      padding: '10px 14px',
+                      borderRadius: '12px',
+                      fontSize: '13px',
+                      lineHeight: '1.5',
+                      background: msg.role === 'user' ? 'rgba(34,197,94,0.15)' : 'rgba(255,255,255,0.12)',
+                      border: msg.role === 'user' ? '1px solid rgba(34,197,94,0.5)' : '1px solid rgba(255,255,255,0.25)'
                     }}>
                       {msg.text}
                     </div>
@@ -806,27 +991,29 @@ function SidepanelOrchestrator() {
             {/* Compose Area */}
             <div style={{
               display: 'grid',
-              gridTemplateColumns: '1fr 36px 36px 68px',
-              gap: '6px',
+              gridTemplateColumns: '1fr 40px 40px 72px',
+              gap: '8px',
               alignItems: 'center',
-              padding: '8px'
+              padding: '12px 14px'
             }}>
               <textarea
                 value={chatInput}
                 onChange={(e) => setChatInput(e.target.value)}
                 onKeyDown={handleChatKeyDown}
-                placeholder="Type..."
+                placeholder="Type your message..."
                 style={{
                   boxSizing: 'border-box',
-                  height: '36px',
+                  height: '40px',
+                  minHeight: '40px',
                   resize: 'vertical',
                   background: 'rgba(255,255,255,0.08)',
                   border: '1px solid rgba(255,255,255,0.20)',
                   color: 'white',
-                  borderRadius: '6px',
-                  padding: '8px',
-                  fontSize: '12px',
-                  fontFamily: 'inherit'
+                  borderRadius: '8px',
+                  padding: '10px 12px',
+                  fontSize: '13px',
+                  fontFamily: 'inherit',
+                  lineHeight: '1.5'
                 }}
               />
             <input
@@ -840,48 +1027,63 @@ function SidepanelOrchestrator() {
                 onClick={handleBucketClick}
                 title="Attach" 
                 style={{
-                  height: '36px',
+                  height: '40px',
                   background: 'rgba(255,255,255,0.15)',
-                  border: '1px solid rgba(255,255,255,0.20)',
+                  border: '1px solid rgba(255,255,255,0.25)',
                   color: 'white',
-                  borderRadius: '6px',
+                  borderRadius: '8px',
                   cursor: 'pointer',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  fontSize: '16px'
+                  fontSize: '18px',
+                  transition: 'all 0.2s ease'
                 }}
+                onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.25)'}
+                onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.15)'}
               >
                 📎
               </button>
               <button 
                 title="Voice" 
                 style={{
-                  height: '36px',
+                  height: '40px',
                   background: 'rgba(255,255,255,0.15)',
-                  border: '1px solid rgba(255,255,255,0.20)',
+                  border: '1px solid rgba(255,255,255,0.25)',
                   color: 'white',
-                  borderRadius: '6px',
+                  borderRadius: '8px',
                   cursor: 'pointer',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  fontSize: '16px'
+                  fontSize: '18px',
+                  transition: 'all 0.2s ease'
                 }}
+                onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.25)'}
+                onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.15)'}
               >
                 🎙️
               </button>
               <button
                 onClick={handleSendMessage}
                 style={{
-                  height: '36px',
+                  height: '40px',
                   background: '#22c55e',
                   border: '1px solid #16a34a',
                   color: '#0b1e12',
-                  borderRadius: '6px',
-                  fontWeight: '800',
+                  borderRadius: '8px',
+                  fontWeight: '700',
                   cursor: 'pointer',
-                  fontSize: '12px'
+                  fontSize: '13px',
+                  transition: 'all 0.2s ease'
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = '#16a34a'
+                  e.currentTarget.style.transform = 'translateY(-1px)'
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = '#22c55e'
+                  e.currentTarget.style.transform = 'translateY(0)'
                 }}
               >
                 Send
@@ -978,53 +1180,57 @@ function SidepanelOrchestrator() {
         </>
       )}
 
-      <div style={{ flex: 1, overflowY: 'auto', padding: '20px' }}>
+      <div style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', padding: '16px', width: '100%', boxSizing: 'border-box' }}>
       {/* Agent Boxes Display */}
       {agentBoxes.length > 0 && (
-        <div style={{ marginBottom: '15px' }}>
+        <div style={{ marginBottom: '20px' }}>
           {agentBoxes.map(box => {
             const currentHeight = agentBoxHeights[box.id] || 120
             return (
               <div key={box.id} style={{
-                background: 'rgba(255,255,255,0.1)',
-                borderRadius: '8px',
+                background: 'rgba(255,255,255,0.12)',
+                borderRadius: '10px',
                 overflow: 'hidden',
-                marginBottom: '12px'
+                marginBottom: '16px',
+                border: '1px solid rgba(255,255,255,0.15)',
+                boxShadow: '0 4px 12px rgba(0,0,0,0.1)'
               }}>
       <div style={{ 
                   background: box.color || '#4CAF50',
-                  padding: '10px 12px',
+                  padding: '12px 16px',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'space-between'
                 }}>
-                  <span style={{ fontSize: '13px', fontWeight: '700' }}>{box.title || 'Agent Box'}</span>
-                  <div style={{ display: 'flex', gap: '6px' }}>
+                  <span style={{ fontSize: '14px', fontWeight: '700' }}>{box.title || 'Agent Box'}</span>
+                  <div style={{ display: 'flex', gap: '8px' }}>
                     <button
                       onClick={() => editAgentBox(box.id)}
                       style={{
                         background: 'rgba(255,255,255,0.2)',
                         border: 'none',
                         color: 'white',
-                        width: '26px',
-                        height: '26px',
-                        borderRadius: '4px',
+                        minWidth: '32px',
+                        height: '32px',
+                        borderRadius: '6px',
                         cursor: 'pointer',
-                        fontSize: '12px',
+                        fontSize: '14px',
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'center',
                         transition: 'all 0.2s ease',
-                        opacity: 0.7
+                        opacity: 0.85
                       }}
                       title="Edit agent box"
                       onMouseEnter={(e) => {
                         e.currentTarget.style.opacity = '1'
                         e.currentTarget.style.background = 'rgba(33, 150, 243, 0.8)'
+                        e.currentTarget.style.transform = 'scale(1.05)'
                       }}
                       onMouseLeave={(e) => {
-                        e.currentTarget.style.opacity = '0.7'
+                        e.currentTarget.style.opacity = '0.85'
                         e.currentTarget.style.background = 'rgba(255,255,255,0.2)'
+                        e.currentTarget.style.transform = 'scale(1)'
                       }}
                     >
                       ✏️
@@ -1035,26 +1241,28 @@ function SidepanelOrchestrator() {
                         background: 'rgba(244,67,54,0.9)',
                         border: 'none',
                         color: 'white',
-                        width: '26px',
-                        height: '26px',
-                        borderRadius: '4px',
+                        minWidth: '32px',
+                        height: '32px',
+                        borderRadius: '6px',
                         cursor: 'pointer',
-                        fontSize: '14px',
+                        fontSize: '16px',
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'center',
                         fontWeight: 'bold',
                         transition: 'all 0.2s ease',
-                        opacity: 0.7
+                        opacity: 0.85
                       }}
                       title="Delete agent box"
                       onMouseEnter={(e) => {
                         e.currentTarget.style.opacity = '1'
                         e.currentTarget.style.background = 'rgba(211, 47, 47, 1)'
+                        e.currentTarget.style.transform = 'scale(1.05)'
                       }}
                       onMouseLeave={(e) => {
-                        e.currentTarget.style.opacity = '0.7'
+                        e.currentTarget.style.opacity = '0.85'
                         e.currentTarget.style.background = 'rgba(244,67,54,0.9)'
+                        e.currentTarget.style.transform = 'scale(1)'
                       }}
                     >
                       ×
@@ -1063,20 +1271,20 @@ function SidepanelOrchestrator() {
                 </div>
                 <div 
                   style={{
-                    background: 'rgba(255,255,255,0.95)',
-                    color: '#333',
-                    borderRadius: '0 0 8px 8px',
-                    padding: '12px',
+                    background: 'rgba(255,255,255,0.96)',
+                    color: '#1e293b',
+                    borderRadius: '0 0 10px 10px',
+                    padding: '16px',
                     minHeight: `${currentHeight}px`,
                     height: `${currentHeight}px`,
                     border: '1px solid rgba(0,0,0,0.1)',
-                    boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
+                    boxShadow: '0 2px 6px rgba(0,0,0,0.08)',
                     position: 'relative',
                     overflow: 'auto'
                   }}
                 >
-                  <div style={{ fontSize: '12px', color: '#333', lineHeight: '1.4' }}>
-                    {box.output || <span style={{ opacity: 0.5, color: '#666' }}>Ready for {box.title?.replace(/[📝🔍🎯🧮]/g, '').trim()}...</span>}
+                  <div style={{ fontSize: '13px', color: '#1e293b', lineHeight: '1.6' }}>
+                    {box.output || <span style={{ opacity: 0.5, color: '#64748b' }}>Ready for {box.title?.replace(/[📝🔍🎯🧮]/g, '').trim()}...</span>}
                   </div>
                   <div 
                     style={{
@@ -1111,59 +1319,267 @@ function SidepanelOrchestrator() {
         onClick={addAgentBox}
         style={{
           width: '100%',
-          padding: '14px',
-          background: 'linear-gradient(135deg, rgba(76,175,80,0.9), rgba(56,142,60,0.9))',
-          border: '2px solid rgba(76,175,80,1)',
+          padding: '16px 20px',
+          background: 'linear-gradient(135deg, rgba(76,175,80,0.95), rgba(56,142,60,0.95))',
+          border: '2px dashed rgba(76,175,80,1)',
           color: 'white',
-          borderRadius: '8px',
+          borderRadius: '10px',
           cursor: 'pointer',
           fontSize: '15px',
           fontWeight: '700',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
-          gap: '8px',
+          gap: '10px',
           transition: 'all 0.2s ease',
-          marginBottom: '25px'
+          marginBottom: '28px',
+          boxShadow: '0 4px 12px rgba(76,175,80,0.3)'
         }}
         onMouseEnter={(e) => {
           e.currentTarget.style.transform = 'translateY(-2px)'
-          e.currentTarget.style.boxShadow = '0 6px 16px rgba(76,175,80,0.5)'
+          e.currentTarget.style.boxShadow = '0 6px 20px rgba(76,175,80,0.5)'
+          e.currentTarget.style.background = 'linear-gradient(135deg, rgba(56,142,60,1), rgba(46,125,50,1))'
         }}
         onMouseLeave={(e) => {
           e.currentTarget.style.transform = 'translateY(0)'
-          e.currentTarget.style.boxShadow = 'none'
+          e.currentTarget.style.boxShadow = '0 4px 12px rgba(76,175,80,0.3)'
+          e.currentTarget.style.background = 'linear-gradient(135deg, rgba(76,175,80,0.95), rgba(56,142,60,0.95))'
         }}
       >
         ➕ Add New Agent Box
       </button>
 
+      {/* Quick Actions Section */}
+      <div style={{
+        background: 'rgba(255,255,255,0.12)',
+        padding: '16px',
+        borderRadius: '10px',
+        marginBottom: '28px',
+        border: '1px solid rgba(255,255,255,0.15)'
+      }}>
+        <h3 style={{
+          margin: '0 0 14px 0',
+          fontSize: '13px',
+          fontWeight: '700',
+          textTransform: 'uppercase',
+          letterSpacing: '0.5px',
+          opacity: 0.95,
+          display: 'flex',
+          alignItems: 'center',
+          gap: '6px'
+        }}>
+          ⚡ Quick Actions
+        </h3>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+          <button
+            onClick={openAddView}
+            style={{
+              padding: '12px',
+              background: '#FF6B6B',
+              border: 'none',
+              color: 'white',
+              borderRadius: '8px',
+              cursor: 'pointer',
+              fontSize: '13px',
+              fontWeight: '600',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '6px',
+              transition: 'all 0.2s ease',
+              boxShadow: '0 2px 6px rgba(0,0,0,0.2)'
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.transform = 'translateY(-2px)'
+              e.currentTarget.style.boxShadow = '0 4px 12px rgba(255,107,107,0.4)'
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.transform = 'translateY(0)'
+              e.currentTarget.style.boxShadow = '0 2px 6px rgba(0,0,0,0.2)'
+            }}
+          >
+            🚀 Add View
+          </button>
+          <button
+            onClick={openSessions}
+            style={{
+              padding: '12px',
+              background: '#2196F3',
+              border: 'none',
+              color: 'white',
+              borderRadius: '8px',
+              cursor: 'pointer',
+              fontSize: '13px',
+              fontWeight: '600',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '6px',
+              transition: 'all 0.2s ease',
+              boxShadow: '0 2px 6px rgba(0,0,0,0.2)'
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.transform = 'translateY(-2px)'
+              e.currentTarget.style.boxShadow = '0 4px 12px rgba(33,150,243,0.4)'
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.transform = 'translateY(0)'
+              e.currentTarget.style.boxShadow = '0 2px 6px rgba(0,0,0,0.2)'
+            }}
+          >
+            📚 Sessions
+          </button>
+          <button
+            onClick={syncSession}
+            style={{
+              padding: '12px',
+              background: '#2196F3',
+              border: 'none',
+              color: 'white',
+              borderRadius: '8px',
+              cursor: 'pointer',
+              fontSize: '13px',
+              fontWeight: '600',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '6px',
+              transition: 'all 0.2s ease',
+              boxShadow: '0 2px 6px rgba(0,0,0,0.2)'
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.transform = 'translateY(-2px)'
+              e.currentTarget.style.boxShadow = '0 4px 12px rgba(33,150,243,0.4)'
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.transform = 'translateY(0)'
+              e.currentTarget.style.boxShadow = '0 2px 6px rgba(0,0,0,0.2)'
+            }}
+          >
+            🔄 Sync
+          </button>
+          <button
+            onClick={importSession}
+            style={{
+              padding: '12px',
+              background: '#9C27B0',
+              border: 'none',
+              color: 'white',
+              borderRadius: '8px',
+              cursor: 'pointer',
+              fontSize: '13px',
+              fontWeight: '600',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '6px',
+              transition: 'all 0.2s ease',
+              boxShadow: '0 2px 6px rgba(0,0,0,0.2)'
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.transform = 'translateY(-2px)'
+              e.currentTarget.style.boxShadow = '0 4px 12px rgba(156,39,176,0.4)'
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.transform = 'translateY(0)'
+              e.currentTarget.style.boxShadow = '0 2px 6px rgba(0,0,0,0.2)'
+            }}
+          >
+            📥 Import
+          </button>
+          <button
+            onClick={openWRVault}
+            style={{
+              padding: '12px',
+              background: 'rgba(255,255,255,0.15)',
+              border: '1px solid rgba(255,255,255,0.25)',
+              color: 'white',
+              borderRadius: '8px',
+              cursor: 'pointer',
+              fontSize: '13px',
+              fontWeight: '700',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '8px',
+              transition: 'all 0.2s ease',
+              gridColumn: '1 / span 2',
+              boxShadow: '0 2px 6px rgba(0,0,0,0.2)'
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.transform = 'translateY(-2px)'
+              e.currentTarget.style.background = 'rgba(255,255,255,0.25)'
+              e.currentTarget.style.boxShadow = '0 4px 12px rgba(255,255,255,0.2)'
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.transform = 'translateY(0)'
+              e.currentTarget.style.background = 'rgba(255,255,255,0.15)'
+              e.currentTarget.style.boxShadow = '0 2px 6px rgba(0,0,0,0.2)'
+            }}
+          >
+            🔒 WRVault
+          </button>
+        </div>
+      </div>
+
       {/* Settings Button - Now wired to lightbox */}
-      <div style={{ marginTop: '20px' }}>
+      <div style={{ marginTop: '24px' }}>
         <button onClick={openSettings} style={{
           width: '100%',
-          padding: '15px',
-          backgroundColor: 'rgba(255,255,255,0.2)',
+          padding: '16px 20px',
+          backgroundColor: 'rgba(255,255,255,0.15)',
           color: 'white',
-          border: '2px solid rgba(255,255,255,0.3)',
+          border: '1px solid rgba(255,255,255,0.3)',
           borderRadius: '10px',
           cursor: 'pointer',
-          fontSize: '16px',
-          fontWeight: 'bold',
-          transition: 'all 0.3s ease'
+          fontSize: '15px',
+          fontWeight: '600',
+          transition: 'all 0.2s ease',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: '10px'
         }}
         onMouseEnter={(e) => {
-          e.currentTarget.style.backgroundColor = 'rgba(255,255,255,0.3)'
+          e.currentTarget.style.backgroundColor = 'rgba(255,255,255,0.25)'
           e.currentTarget.style.transform = 'translateY(-2px)'
+          e.currentTarget.style.boxShadow = '0 6px 20px rgba(0,0,0,0.15)'
         }}
         onMouseLeave={(e) => {
-          e.currentTarget.style.backgroundColor = 'rgba(255,255,255,0.2)'
+          e.currentTarget.style.backgroundColor = 'rgba(255,255,255,0.15)'
           e.currentTarget.style.transform = 'translateY(0)'
+          e.currentTarget.style.boxShadow = 'none'
         }}>
           ⚙️ Settings
         </button>
       </div>
       </div>
+      
+      {/* Notification Toast */}
+      {notification && (
+        <div style={{
+          position: 'fixed',
+          top: '20px',
+          right: '20px',
+          left: '20px',
+          background: notification.type === 'success' ? 'rgba(76, 175, 80, 0.95)' : 
+                      notification.type === 'error' ? 'rgba(244, 67, 54, 0.95)' : 
+                      'rgba(33, 150, 243, 0.95)',
+          color: 'white',
+          padding: '12px 16px',
+          borderRadius: '8px',
+          fontSize: '13px',
+          fontWeight: '600',
+          zIndex: 10000,
+          boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
+          animation: 'slideInDown 0.3s ease',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '8px'
+        }}>
+          <span>{notification.message}</span>
+        </div>
+      )}
     </div>
   )
 }
