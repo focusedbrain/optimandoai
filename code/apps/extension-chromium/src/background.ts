@@ -221,12 +221,16 @@ chrome.runtime.onInstalled.addListener(() => {
   }
 });
 
-// Handle extension icon click: toggle the Optimando UI for the active tab
-chrome.action.onClicked.addListener(async () => {
+// Handle extension icon click: open the side panel
+chrome.action.onClicked.addListener(async (tab) => {
   try {
-    toggleSidebars()
+    // Open side panel for the current tab
+    if (tab.id && chrome.sidePanel) {
+      await chrome.sidePanel.open({ tabId: tab.id })
+      console.log('✅ Side panel opened')
+    }
   } catch (e) {
-    console.error('Failed to toggle sidebars:', e)
+    console.error('Failed to open side panel:', e)
   }
 });
 

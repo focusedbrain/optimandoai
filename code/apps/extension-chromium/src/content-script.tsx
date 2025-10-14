@@ -43,6 +43,18 @@ if (bootState.sessionKey) {
   try { sessionStorage.setItem('optimando-current-session-key', bootState.sessionKey) } catch {}
 }
 
+// Global object to store lightbox functions and chat functions (will be populated in initializeExtension)
+const globalLightboxFunctions: {
+  openAgentsLightbox?: () => void
+  openSettingsLightbox?: () => void
+  openMemoryLightbox?: () => void
+  openContextLightbox?: () => void
+  openAddAgentBoxDialog?: () => void
+  beginScreenSelect?: (target: HTMLElement) => void
+  createDockedChat?: () => void
+  removeDockedChat?: () => void
+} = {}
+
 // Check if extension was previously activated for this URL OR if dedicated
 const savedState = localStorage.getItem(extensionStateKey)
 console.log('🔧 DEBUG: Extension activation check:', {
@@ -84,6 +96,165 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     }
     sendResponse({ success: true, active: isExtensionActive })
   }
+  // Handle lightbox open requests from side panel
+  else if (message.type === 'OPEN_SETTINGS_LIGHTBOX') {
+    try {
+      if (globalLightboxFunctions.openSettingsLightbox) {
+        globalLightboxFunctions.openSettingsLightbox()
+        sendResponse({ success: true })
+      } else {
+        console.warn('⚠️ openSettingsLightbox not available yet')
+        sendResponse({ success: false, error: 'Function not available' })
+      }
+    } catch (e) {
+      console.error('❌ Error opening settings:', e)
+      sendResponse({ success: false, error: String(e) })
+    }
+  }
+  else if (message.type === 'OPEN_MEMORY_LIGHTBOX') {
+    try {
+      if (globalLightboxFunctions.openMemoryLightbox) {
+        globalLightboxFunctions.openMemoryLightbox()
+        sendResponse({ success: true })
+      } else {
+        console.warn('⚠️ openMemoryLightbox not available yet')
+        sendResponse({ success: false, error: 'Function not available' })
+      }
+    } catch (e) {
+      console.error('❌ Error opening memory:', e)
+      sendResponse({ success: false, error: String(e) })
+    }
+  }
+  else if (message.type === 'OPEN_CONTEXT_LIGHTBOX') {
+    try {
+      if (globalLightboxFunctions.openContextLightbox) {
+        globalLightboxFunctions.openContextLightbox()
+        sendResponse({ success: true })
+      } else {
+        console.warn('⚠️ openContextLightbox not available yet')
+        sendResponse({ success: false, error: 'Function not available' })
+      }
+    } catch (e) {
+      console.error('❌ Error opening context:', e)
+      sendResponse({ success: false, error: String(e) })
+    }
+  }
+  else if (message.type === 'OPEN_AGENTS_LIGHTBOX') {
+    try {
+      if (globalLightboxFunctions.openAgentsLightbox) {
+        globalLightboxFunctions.openAgentsLightbox()
+        sendResponse({ success: true })
+      } else {
+        console.warn('⚠️ openAgentsLightbox not available yet')
+        sendResponse({ success: false, error: 'Function not available' })
+      }
+    } catch (e) {
+      console.error('❌ Error opening agents:', e)
+      sendResponse({ success: false, error: String(e) })
+    }
+  }
+  // Handle ADD AGENT BOX request from side panel - use the REAL function
+  else if (message.type === 'ADD_AGENT_BOX') {
+    try {
+      if (globalLightboxFunctions.openAddAgentBoxDialog) {
+        globalLightboxFunctions.openAddAgentBoxDialog()
+        sendResponse({ success: true })
+      } else {
+        console.warn('⚠️ openAddAgentBoxDialog not available yet')
+        sendResponse({ success: false, error: 'Function not available' })
+      }
+    } catch (e) {
+      console.error('❌ Error opening add agent box dialog:', e)
+      sendResponse({ success: false, error: String(e) })
+    }
+  }
+  // Handle SCREENSHOT request from side panel - use the REAL function
+  else if (message.type === 'BEGIN_SCREEN_SELECT') {
+    try {
+      if (globalLightboxFunctions.beginScreenSelect) {
+        // Find the right messages element (command chat)
+        const messagesEl = document.getElementById('ccd-messages') || document.getElementById('ccf-messages')
+        if (messagesEl) {
+          globalLightboxFunctions.beginScreenSelect(messagesEl as HTMLElement)
+          sendResponse({ success: true })
+        } else {
+          console.warn('⚠️ Messages element not found for screen select')
+          sendResponse({ success: false, error: 'Messages element not found' })
+        }
+      } else {
+        console.warn('⚠️ beginScreenSelect not available yet')
+        sendResponse({ success: false, error: 'Function not available' })
+      }
+    } catch (e) {
+      console.error('❌ Error starting screen select:', e)
+      sendResponse({ success: false, error: String(e) })
+    }
+  }
+  // Handle CONTEXT BUCKET trigger from side panel
+  else if (message.type === 'TRIGGER_CONTEXT_BUCKET') {
+    try {
+      // Trigger the file input click for context bucket
+      const bucketBtn = document.querySelector('#ccd-bucket') as HTMLButtonElement | null
+      if (bucketBtn) {
+        bucketBtn.click()
+        sendResponse({ success: true })
+      } else {
+        console.warn('⚠️ Context bucket button not found')
+        sendResponse({ success: false, error: 'Bucket button not found' })
+      }
+    } catch (e) {
+      console.error('❌ Error triggering context bucket:', e)
+      sendResponse({ success: false, error: String(e) })
+    }
+  }
+  // Handle PENCIL TAGS dropdown from side panel
+  else if (message.type === 'OPEN_PENCIL_TAGS') {
+    try {
+      // Find and click the Tags button to open dropdown
+      const tagsBtn = document.querySelector('#ccd-tags-menu')?.previousElementSibling as HTMLButtonElement | null
+      if (tagsBtn && tagsBtn.textContent?.includes('Tags')) {
+        tagsBtn.click()
+        sendResponse({ success: true })
+      } else {
+        console.warn('⚠️ Tags button not found')
+        sendResponse({ success: false, error: 'Tags button not found' })
+      }
+    } catch (e) {
+      console.error('❌ Error opening tags:', e)
+      sendResponse({ success: false, error: String(e) })
+    }
+  }
+  // Handle CREATE DOCKED CHAT from side panel
+  else if (message.type === 'CREATE_DOCKED_CHAT') {
+    try {
+      if (globalLightboxFunctions.createDockedChat) {
+        globalLightboxFunctions.createDockedChat()
+        sendResponse({ success: true })
+      } else {
+        console.warn('⚠️ createDockedChat not available yet')
+        sendResponse({ success: false, error: 'Function not available' })
+      }
+    } catch (e) {
+      console.error('❌ Error creating docked chat:', e)
+      sendResponse({ success: false, error: String(e) })
+    }
+  }
+  // Handle REMOVE DOCKED CHAT from side panel
+  else if (message.type === 'REMOVE_DOCKED_CHAT') {
+    try {
+      if (globalLightboxFunctions.removeDockedChat) {
+        globalLightboxFunctions.removeDockedChat()
+        sendResponse({ success: true })
+      } else {
+        console.warn('⚠️ removeDockedChat not available yet')
+        sendResponse({ success: false, error: 'Function not available' })
+      }
+    } catch (e) {
+      console.error('❌ Error removing docked chat:', e)
+      sendResponse({ success: false, error: String(e) })
+    }
+  }
+  return true // Keep message channel open for async response
 })
 
 // Function to show trigger name prompt in docked or floating chat
@@ -384,16 +555,7 @@ chrome.runtime.onMessage.addListener((msg:any)=>{
 })
 
 function deactivateExtension() {
-  const existingExtension = document.getElementById('optimando-sidebars')
-  if (existingExtension) {
-    existingExtension.remove()
-  }
-  
-  // Reset body styles to original
-  document.body.style.margin = ''
-  document.body.style.padding = ''
-  document.body.style.overflowX = ''
-  
+  // Extension now uses native Side Panel - no content script UI to remove
   console.log('🔴 Optimando AI Extension deactivated')
 }
 
@@ -529,7 +691,7 @@ function initializeExtension() {
     },
     uiConfig: {
       leftSidebarWidth: 350,
-      rightSidebarWidth: 250,
+      rightSidebarWidth: 450,
       bottomSidebarHeight: 45
     },
     helperTabs: null as any,
@@ -1619,19 +1781,20 @@ function initializeExtension() {
   function renderAgentBoxes() {
     console.log('🔧 DEBUG: renderAgentBoxes called with currentTabData.agentBoxes:', currentTabData.agentBoxes)
     
-    const leftContainer = document.getElementById('agent-boxes-container')
-    const rightContainer = document.getElementById('agent-boxes-container-right')
+    // Use the new right sidebar main container for agent boxes
+    const mainContainer = document.getElementById('agent-boxes-container-right-main')
+    const rightContainer = document.getElementById('agent-boxes-container-right') // Hybrid master right container
     
-    if (!leftContainer) {
-      console.log('🔧 DEBUG: agent-boxes-container not found!')
+    if (!mainContainer) {
+      console.log('🔧 DEBUG: agent-boxes-container-right-main not found!')
       return
     }
 
-    // Clear both containers
-    leftContainer.innerHTML = ''
+    // Clear containers
+    mainContainer.innerHTML = ''
     if (rightContainer) {
       rightContainer.innerHTML = ''
-      console.log('🔧 DEBUG: Found right container, will render to both sides')
+      console.log('🔧 DEBUG: Found hybrid right container')
     }
     
     // Check if this is a hybrid master tab
@@ -1693,12 +1856,12 @@ function initializeExtension() {
     
     boxesToRender.forEach((box: any) => {
       // Determine target container based on side property (for hybrid tabs)
-      let targetContainer = leftContainer
+      let targetContainer = mainContainer
       if (isHybridMaster && rightContainer && box.side === 'right') {
         targetContainer = rightContainer
-        console.log('📍 Rendering box', box.identifier || box.title, 'to RIGHT side')
+        console.log('📍 Rendering box', box.identifier || box.title, 'to HYBRID RIGHT side')
       } else {
-        console.log('📍 Rendering box', box.identifier || box.title, 'to LEFT side')
+        console.log('📍 Rendering box', box.identifier || box.title, 'to RIGHT sidebar main')
       }
       
       const agentDiv = document.createElement('div')
@@ -2584,7 +2747,38 @@ function initializeExtension() {
     `
     document.head.appendChild(style)
   }
-  // Create main container
+  // ===== SIMPLE OVERLAY WITH MINIMIZE CONTROLS =====
+  // Accept overlay reality and provide great UX
+  
+  let sidebarsVisible = true
+  
+  function toggleSidebars() {
+    sidebarsVisible = !sidebarsVisible
+    const leftSidebar = document.getElementById('left-sidebar')
+    const rightSidebar = document.getElementById('right-sidebar')
+    const bottomSidebar = document.getElementById('bottom-sidebar')
+    
+    if (leftSidebar) leftSidebar.style.display = sidebarsVisible ? 'block' : 'none'
+    if (rightSidebar) rightSidebar.style.display = sidebarsVisible ? 'block' : 'none'
+    if (bottomSidebar) bottomSidebar.style.display = sidebarsVisible ? 'block' : 'none'
+    
+    console.log(`${sidebarsVisible ? '👁️ Sidebars shown' : '🙈 Sidebars hidden'}`)
+  }
+  
+  function adjustViewport() {
+    // Extension now uses native Side Panel - no viewport adjustment needed
+    console.log('✅ Native Side Panel active - no content script UI')
+  }
+  
+  // ALL UI NOW IN NATIVE SIDE PANEL - Content script only handles data
+  console.log('🎉 OpenGiraffe Extension with Hybrid UI')
+  console.log('📌 Native Side Panel + Content Script Lightboxes')
+  console.log('ℹ️ Side Panel provides main UI, lightboxes overlay for detailed config')
+  
+  // The lightbox functions are defined later in this function (function declarations are hoisted)
+  // We'll assign them to the module-level variables at the end of this function
+  
+  // Create minimal UI elements for lightbox support
   const sidebarsDiv = document.createElement('div')
   sidebarsDiv.id = 'optimando-sidebars'
   sidebarsDiv.style.cssText = `
@@ -2745,15 +2939,7 @@ function initializeExtension() {
     
     const newWidth = Math.max(150, Math.min(1000, startWidth + (e.clientX - startX)))
     currentTabData.uiConfig.leftSidebarWidth = newWidth
-    
-    // Update left sidebar width
     leftSidebar.style.width = newWidth + 'px'
-    
-    // Update original margins only (wrapper removed)
-    document.body.style.marginLeft = newWidth + 'px'
-    document.body.style.overflowX = 'hidden'
-    
-    // Update bottom panel position
     bottomSidebar.style.left = newWidth + 'px'
   })
 
@@ -2788,6 +2974,7 @@ function initializeExtension() {
   rightSidebar.innerHTML = `
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
       <h2 style="margin: 0; font-size: 18px;" class="section-title">⚙️ AI Orchestrator</h2>
+      <button id="quick-expand-right-btn" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 24px; height: 24px; border-radius: 4px; cursor: pointer; font-size: 12px; transition: all 0.2s ease;" title="Quick expand">⇄</button>
     </div>
 
     <!-- WR Code Connection -->
@@ -2810,33 +2997,32 @@ function initializeExtension() {
 
       </div>
 
-    <!-- Add Helpergrid Button -->
-    <div id="helpergrid-card" style="background: rgba(255,255,255,0.1); padding: 15px; border-radius: 8px; margin-bottom: 20px;">
-      <button id="add-helpergrid-btn" style="width: 100%; padding: 12px 16px; background: #FF6B6B; border: none; color: white; border-radius: 8px; cursor: pointer; font-size: 14px; font-weight: 600; min-height: 44px; transition: all 0.3s ease;">
-        🚀 Add View
+    <!-- Command Chat Container (docked chat will be inserted here) -->
+    <div id="command-chat-container-right" style="margin-bottom: 20px;"></div>
+
+    <!-- Agent Boxes Container for Right Sidebar -->
+    <div id="agent-boxes-container-right-main" style="margin-bottom: 20px;">
+      <!-- Agent boxes will be rendered here -->
+    </div>
+
+    <!-- Add New Agent Box Button for Right Sidebar -->
+    <div style="margin-bottom: 20px;">
+      <button id="add-agent-box-btn-right-main" style="width: 100%; padding: 12px 16px; background: rgba(76, 175, 80, 0.8); border: 2px dashed rgba(76, 175, 80, 1); color: white; border-radius: 8px; cursor: pointer; font-size: 14px; font-weight: bold; min-height: 44px; transition: all 0.3s ease; text-shadow: 1px 1px 2px rgba(0,0,0,0.5);">
+        ➕ Add New Agent Box
       </button>
     </div>
 
-    <!-- Session History -->
-    <div id="sessions-card" style="background: rgba(255,255,255,0.1); padding: 15px; border-radius: 8px; margin-bottom: 20px;">
-      <div style="display: flex; justify-content: between; align-items: center; margin-bottom: 15px;">
-        <h3 style="margin: 0; font-size: 14px;" class="section-title">📚 Sessions History</h3>
-      </div>
-      
-      <button id="sessions-history-btn" style="width: 100%; padding: 12px 16px; background: #2196F3; border: none; color: white; border-radius: 4px; cursor: pointer; font-size: 14px; font-weight: 600; min-height: 44px;">
-        📋 View All Sessions
-      </button>
-    </div>
-
-    <!-- Quick Actions -->
+    <!-- Quick Actions - Consolidated -->
     <div id="quick-actions-card" style="background: rgba(255,255,255,0.1); padding: 15px; border-radius: 8px; margin-bottom: 20px;">
       <h3 style="margin: 0 0 15px 0; font-size: 14px;" class="section-title">⚡ Quick Actions</h3>
       <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
-        <button id="save-session-btn" style="padding: 8px; background: #4CAF50; border: none; color: white; border-radius: 4px; cursor: pointer; font-size: 10px;">💾 Save</button>
-        <button id="sync-btn" style="padding: 8px; background: #2196F3; border: none; color: white; border-radius: 4px; cursor: pointer; font-size: 10px;">🔄 Sync</button>
-        <button id="export-btn" style="padding: 8px; background: #FF9800; border: none; color: white; border-radius: 4px; cursor: pointer; font-size: 10px;">📤 Export</button>
-        <button id="import-btn" style="padding: 8px; background: #9C27B0; border: none; color: white; border-radius: 4px; cursor: pointer; font-size: 10px;">📥 Import</button>
-        <button id="wrvault-open-btn" style="padding: 10px; border-radius: 6px; cursor: pointer; font-size: 11px; display:flex; align-items:center; gap:8px; justify-content:center; font-weight:700; border:1px solid rgba(255,255,255,0.25); grid-column: 1 / span 2;">
+        <button id="add-helpergrid-btn" style="padding: 10px; background: #FF6B6B; border: none; color: white; border-radius: 6px; cursor: pointer; font-size: 11px; font-weight: 600;">🚀 Add View</button>
+        <button id="sessions-history-btn" style="padding: 10px; background: #2196F3; border: none; color: white; border-radius: 6px; cursor: pointer; font-size: 11px; font-weight: 600;">📚 Sessions</button>
+        <button id="save-session-btn" style="padding: 10px; background: #4CAF50; border: none; color: white; border-radius: 6px; cursor: pointer; font-size: 11px; font-weight: 600;">💾 Save</button>
+        <button id="sync-btn" style="padding: 10px; background: #2196F3; border: none; color: white; border-radius: 6px; cursor: pointer; font-size: 11px; font-weight: 600;">🔄 Sync</button>
+        <button id="export-btn" style="padding: 10px; background: #FF9800; border: none; color: white; border-radius: 6px; cursor: pointer; font-size: 11px; font-weight: 600;">📤 Export</button>
+        <button id="import-btn" style="padding: 10px; background: #9C27B0; border: none; color: white; border-radius: 6px; cursor: pointer; font-size: 11px; font-weight: 600;">📥 Import</button>
+        <button id="wrvault-open-btn" style="padding: 10px; border-radius: 6px; cursor: pointer; font-size: 11px; display:flex; align-items:center; gap:8px; justify-content:center; font-weight:700; border:1px solid rgba(255,255,255,0.25); grid-column: 1 / span 2; background: rgba(255,255,255,0.1);">
           <span>🔒</span>
           <span>WRVault</span>
         </button>
@@ -2875,7 +3061,7 @@ function initializeExtension() {
   bottomSidebar.id = 'bottom-sidebar'
   bottomSidebar.style.cssText = `
     position: fixed;
-    left: ${currentTabData.uiConfig.leftSidebarWidth}px;
+    left: 0;
     right: ${currentTabData.uiConfig.rightSidebarWidth}px;
     top: 0;
     height: 45px;
@@ -3356,7 +3542,8 @@ function initializeExtension() {
           <button id="context-lightbox-btn" style="padding: 4px 8px; background: rgba(255,255,255,0.1); border: none; border-radius: 3px; cursor: pointer; font-size: 10px; color: inherit;" class="menu-link">📄 Context</button>
           <button id="memory-lightbox-btn" style="padding: 4px 8px; background: rgba(255,255,255,0.1); border: none; border-radius: 3px; cursor: pointer; font-size: 10px; color: inherit;" class="menu-link">💽 Memory</button>
           <button id="settings-lightbox-btn" style="padding: 4px 8px; background: rgba(255,255,255,0.1); border: none; border-radius: 3px; cursor: pointer; font-size: 10px; color: inherit;" class="menu-link">⚙️ Settings</button>
-          <button id="dock-chat-btn" style="padding: 4px 8px; background: transparent; border: none; border-radius: 3px; cursor: pointer; font-size: 12px; color: inherit; font-weight:700;" class="menu-link" title="Dock to sidepanel">📌</button>
+          <button id="popup-chat-btn" style="padding: 4px 8px; background: transparent; border: none; border-radius: 3px; cursor: pointer; font-size: 12px; color: inherit; font-weight:700;" class="menu-link" title="Open popup chat">💬</button>
+          <button id="dock-chat-btn" style="padding: 4px 8px; background: transparent; border: none; border-radius: 3px; cursor: pointer; font-size: 12px; color: inherit; font-weight:700;" class="menu-link" title="Dock to right sidebar">📌</button>
         </div>
         
         <!-- Session Name + Controls -->
@@ -3484,10 +3671,13 @@ function initializeExtension() {
     if (saved === 'true') {
       isExpanded = true
       bottomSidebar.style.height = expandedHeight + 'px'
+      // Update page margin for expanded state
+      document.body.style.setProperty('margin-top', expandedHeight + 'px', 'important')
+      console.log('📏 Restored expanded state - page margin set to:', expandedHeight + 'px')
       bottomSidebar.style.cursor = 'default'
       if (expandBtn) (expandBtn as HTMLElement).style.transform = 'rotate(180deg)'
       if (expandableContent) (expandableContent as HTMLElement).style.display = 'block'
-      setTimeout(() => { document.body.style.marginTop = expandedHeight + 'px' }, 10)
+      setTimeout(() => { adjustViewport() }, 10)
     } else {
       // Ensure compact defaults
       isExpanded = false
@@ -3495,7 +3685,7 @@ function initializeExtension() {
       bottomSidebar.style.cursor = 'pointer'
       if (expandBtn) (expandBtn as HTMLElement).style.transform = 'rotate(0deg)'
       if (expandableContent) (expandableContent as HTMLElement).style.display = 'none'
-      setTimeout(() => { document.body.style.marginTop = '0px' }, 10)
+      setTimeout(() => { adjustViewport() }, 10)
     }
   } catch {}
 
@@ -3511,18 +3701,24 @@ function initializeExtension() {
       bottomSidebar.style.cursor = 'default'
       expandBtn.style.transform = 'rotate(180deg)'
       expandableContent.style.display = 'block'
-      // Re-apply offsets after transition completes
+      // Update page margin to accommodate expanded top bar - use setProperty for priority
+      document.body.style.setProperty('margin-top', expandedHeight + 'px', 'important')
+      console.log('📏 Top bar expanded - page margin set to:', expandedHeight + 'px')
+      // Use robust viewport adjustment
       setTimeout(() => {
-        document.body.style.marginTop = expandedHeight + 'px'
+        adjustViewport()
       }, 10)
     } else {
       bottomSidebar.style.height = '45px'
       bottomSidebar.style.cursor = 'pointer'
       expandBtn.style.transform = 'rotate(0deg)'
       expandableContent.style.display = 'none'
+      // Update page margin back to collapsed height - use setProperty for priority
+      document.body.style.setProperty('margin-top', '45px', 'important')
+      console.log('📏 Top bar collapsed - page margin set to: 45px')
+      // Use robust viewport adjustment
       setTimeout(() => {
-        // Remove any extra offset when collapsed to avoid wasted space
-        document.body.style.marginTop = '0px'
+        adjustViewport()
       }, 10)
     }
 
@@ -3574,10 +3770,14 @@ function initializeExtension() {
       if (saved === 'true' && expandableContent && expandableContent.style.display === 'none') {
         isExpanded = true
         bottomSidebar.style.height = expandedHeight + 'px'
+        // Update page margin for expanded state
+        document.body.style.setProperty('margin-top', expandedHeight + 'px', 'important')
+        console.log('📏 Re-restored expanded state - page margin set to:', expandedHeight + 'px')
         bottomSidebar.style.cursor = 'default'
         if (expandBtn) expandBtn.style.transform = 'rotate(180deg)'
         expandableContent.style.display = 'block'
-        document.body.style.marginTop = expandedHeight + 'px'
+        // Use robust viewport adjustment
+        adjustViewport()
       }
     } catch {}
     const tabButtons = Array.from(document.querySelectorAll('#topbar-tabs .topbar-tab')) as HTMLElement[]
@@ -14136,20 +14336,51 @@ ${pageText}
     input.click()
   }
 
-  // Add all sidebars to page
+  // Add all sidebars to the sidebars container
+  // Add all sidebars to the container
   sidebarsDiv.appendChild(leftSidebar)
   sidebarsDiv.appendChild(rightSidebar)
   sidebarsDiv.appendChild(bottomSidebar)
+  
+  // Add sidebars directly to body
   document.body.appendChild(sidebarsDiv)
+  
+  // Push page content down to avoid top bar overlap
+  function updatePageMargin() {
+    const topBarHeight = isExpanded ? expandedHeight : 45
+    document.body.style.setProperty('margin-top', topBarHeight + 'px', 'important')
+    document.body.style.transition = 'margin-top 0.3s ease'
+    console.log('📏 Initial page margin set to:', topBarHeight + 'px')
+  }
+  updatePageMargin()
+  
+  // Add keyboard shortcut to toggle visibility (Ctrl+Shift+H)
+  document.addEventListener('keydown', (e) => {
+    if (e.ctrlKey && e.shiftKey && e.key === 'H') {
+      toggleSidebars()
+    }
+  })
+  
+  console.log('✅ Extension loaded - Press Ctrl+Shift+H to toggle visibility')
+  
+  // Extension now uses Native Side Panel - no content script UI needed
+  console.log('✅ Content script initialized - Native Side Panel active')
+  
+  // Handle window resize events to recalculate viewport
+  let resizeTimeout: any = null
+  window.addEventListener('resize', () => {
+    // Debounce resize events to avoid performance issues
+    if (resizeTimeout) clearTimeout(resizeTimeout)
+    resizeTimeout = setTimeout(() => {
+      adjustViewport()
+    }, 150)
+  })
   
   // Dynamic margin applier to avoid top bar overlap on all sites (e.g., YouTube)
   function applyLayoutOffsets(){
     try {
-      const topH = Math.max(0, Math.round((bottomSidebar as HTMLElement)?.getBoundingClientRect()?.height || 45))
-      document.body.style.marginLeft = currentTabData.uiConfig.leftSidebarWidth + 'px'
-      document.body.style.marginRight = currentTabData.uiConfig.rightSidebarWidth + 'px'
-      document.body.style.marginTop = topH + 'px'
-      document.body.style.overflowX = 'hidden'
+      // Use the robust viewport adjustment instead of manual margin setting
+      adjustViewport()
     } catch {}
   }
   
@@ -14160,12 +14391,38 @@ ${pageText}
   } catch {}
   window.addEventListener('resize', applyLayoutOffsets)
   applyLayoutOffsets()
+  // Regular right sidebar "Add New Agent Box" button
+  document.getElementById('add-agent-box-btn-right-main')?.addEventListener('click', () => {
+    ;(window as any).lastAgentBoxClickSide = 'right'  // ← Store which side was clicked
+    console.log('📦 Right sidebar Add Agent Box clicked')
+    try { openAddAgentBoxDialog() } catch (e) {}
+  })
+  
+  // Right sidebar expand button (works for both regular and hybrid)
+  document.getElementById('quick-expand-right-btn')?.addEventListener('click', () => {
+    const currentWidth = currentTabData.uiConfig.rightSidebarWidth
+    // Expand cycle: 450 → 600 → 800 → 1000 → 1200 → back to 450
+    let newWidth = 450
+    if (currentWidth === 450) newWidth = 600
+    else if (currentWidth === 600) newWidth = 800
+    else if (currentWidth === 800) newWidth = 1000
+    else if (currentWidth === 1000) newWidth = 1200
+    else newWidth = 450
+    
+    currentTabData.uiConfig.rightSidebarWidth = newWidth
+    rightSidebar.style.width = newWidth + 'px'
+    bottomSidebar.style.right = newWidth + 'px'
+    
+    saveTabDataToStorage()
+    console.log('🔄 Right sidebar expanded to width:', newWidth)
+  })
+  
   // Hybrid right panel behaviors after mount
   if (isHybridMaster) {
     // Only handle Add button click - no agent boxes to render
     document.getElementById('add-agent-box-btn-right')?.addEventListener('click', () => {
       ;(window as any).lastAgentBoxClickSide = 'right'  // ← Store which side was clicked
-      console.log('📦 Right-side Add Agent Box clicked')
+      console.log('📦 Right-side Add Agent Box clicked (Hybrid Master)')
       try { openAddAgentBoxDialog() } catch (e) {}
     })
 
@@ -14189,7 +14446,7 @@ ${pageText}
     document.addEventListener('mousemove', (e) => {
       if (!isResizingRight) return
       const delta = startXRight - e.clientX
-      const newWidth = Math.max(150, Math.min(1000, startWidthRight + delta))
+      const newWidth = Math.max(150, Math.min(window.innerWidth - 200, startWidthRight + delta))
       currentTabData.uiConfig.rightSidebarWidth = newWidth
       rightSidebar.style.width = newWidth + 'px'
       bottomSidebar.style.right = newWidth + 'px'
@@ -14201,14 +14458,6 @@ ${pageText}
         document.body.style.cursor = ''
         saveTabDataToStorage()
       }
-    })
-    document.getElementById('quick-expand-right-btn')?.addEventListener('click', () => {
-      const currentWidth = currentTabData.uiConfig.rightSidebarWidth
-      const newWidth = currentWidth === 350 ? 600 : currentWidth === 600 ? 800 : 350
-      currentTabData.uiConfig.rightSidebarWidth = newWidth
-      rightSidebar.style.width = newWidth + 'px'
-      bottomSidebar.style.right = newWidth + 'px'
-      saveTabDataToStorage()
     })
   }
   // Render dynamic agent boxes after DOM is ready
@@ -14249,11 +14498,7 @@ ${pageText}
       }, 1000) // Delay to ensure UI is ready
     }
   }, 100)
-  // Restore original approach for now to stop crashes (no DOM reparenting)
-  document.body.style.marginLeft = currentTabData.uiConfig.leftSidebarWidth + 'px'
-  document.body.style.marginRight = currentTabData.uiConfig.rightSidebarWidth + 'px'
-  document.body.style.marginTop = '45px'  // Exact sidebar height
-  document.body.style.overflowX = 'hidden'
+  
   // Event handlers - AFTER DOM elements are created and added
   setTimeout(() => {
     // Reasoning header click (entire header area)
@@ -14264,13 +14509,28 @@ ${pageText}
     document.getElementById('context-lightbox-btn')?.addEventListener('click', openContextLightbox)
     document.getElementById('memory-lightbox-btn')?.addEventListener('click', openMemoryLightbox)
     document.getElementById('settings-lightbox-btn')?.addEventListener('click', openSettingsLightbox)
+    // Popup Command Chat Button
+    const popupChatBtn = document.getElementById('popup-chat-btn') as HTMLButtonElement | null
+    popupChatBtn?.addEventListener('click', () => {
+      try {
+        let theme = 'default'
+        try {
+          const t = localStorage.getItem('optimando-ui-theme')
+          if (t === 'professional' || t === 'dark') theme = t
+        } catch {}
+        chrome.runtime.sendMessage({ type: 'OPEN_COMMAND_CENTER_POPUP', theme })
+      } catch (e) {
+        console.error('Failed to open popup command chat:', e)
+      }
+    })
+    
     // Dock/Undock Command Chat
     const dockBtn = document.getElementById('dock-chat-btn') as HTMLButtonElement | null
     function isChatDocked(): boolean { try { return localStorage.getItem('optimando-chat-docked') === 'true' } catch { return false } }
     function updateDockButtonUI() {
       if (!dockBtn) return
       const docked = isChatDocked()
-      dockBtn.title = docked ? 'Undock from sidepanel' : 'Dock to sidepanel'
+      dockBtn.title = docked ? 'Undock from right sidebar' : 'Dock to right sidebar'
       dockBtn.textContent = docked ? '📌✓' : '📌'
     }
     // Context Bucket shared types/hook and helpers
@@ -14391,10 +14651,14 @@ ${pageText}
           <button id="ccd-send" class="send-btn">Send</button>
         </div>
       `
-      // Insert before agent boxes
-      const agentBoxes = leftSidebar?.querySelector('#agent-boxes-container')
-      if (leftSidebar && agentBoxes) leftSidebar.insertBefore(container, agentBoxes)
-      else if (leftSidebar) leftSidebar.appendChild(container)
+      // Insert into right sidebar command chat container
+      const chatContainer = rightSidebar?.querySelector('#command-chat-container-right')
+      if (chatContainer) {
+        chatContainer.innerHTML = '' // Clear any existing
+        chatContainer.appendChild(container)
+      } else if (rightSidebar) {
+        rightSidebar.insertBefore(container, rightSidebar.firstChild)
+      }
       // Wire actions
       const msgs = container.querySelector('#ccd-messages') as HTMLElement
       const input = container.querySelector('#ccd-input') as HTMLTextAreaElement
@@ -14918,10 +15182,8 @@ ${pageText}
         newWidth = 350 // Back to default
       }
       
+      // Left sidebar is now native Side Panel - no content script updates needed
       currentTabData.uiConfig.leftSidebarWidth = newWidth
-      leftSidebar.style.width = newWidth + 'px'
-      document.body.style.marginLeft = newWidth + 'px'
-      bottomSidebar.style.left = newWidth + 'px'
       
       saveTabDataToStorage()
       console.log('🔄 Left sidebar expanded to width:', newWidth)
@@ -15062,8 +15324,21 @@ ${pageText}
     
     console.log('✅ Event handlers attached for reasoning section')
   }, 100)
-
-}
+  
+  // CRITICAL: Assign local lightbox functions and chat functions to global object
+  // This allows the message handlers (defined at module level) to call these functions
+  globalLightboxFunctions.openAgentsLightbox = openAgentsLightbox
+  globalLightboxFunctions.openSettingsLightbox = openSettingsLightbox
+  globalLightboxFunctions.openMemoryLightbox = openMemoryLightbox
+  globalLightboxFunctions.openContextLightbox = openContextLightbox
+  globalLightboxFunctions.openAddAgentBoxDialog = openAddAgentBoxDialog
+  globalLightboxFunctions.beginScreenSelect = beginScreenSelect
+  globalLightboxFunctions.createDockedChat = createDockedChat
+  globalLightboxFunctions.removeDockedChat = removeDockedChat
+  
+  console.log('✅ Lightbox and chat functions assigned to global scope:', Object.keys(globalLightboxFunctions))
+  
+} // End of initializeExtension function
 // Check for grid config from Electron app via file system bridge
 function checkForElectronGridConfig() {
   try {
@@ -15253,9 +15528,12 @@ console.log('🔧 DEBUG: Final initialization check:', {
   console.log('⚠️ Reload the page to start fresh')
 }
 
+// All global functions and setup code above are OUTSIDE initializeExtension
+
 if (isExtensionActive) {
   console.log('🚀 Initializing extension automatically...')
   console.log('💡 TIP: To manually clear all sessions, run: clearAllOptimandoSessions()')
+  console.log('📌 Click the extension icon to open the Native Side Panel')
   initializeExtension()
 } else {
   console.log('❌ Extension not active, skipping initialization')

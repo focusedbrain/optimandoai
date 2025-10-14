@@ -11,8 +11,12 @@ export default defineManifest({
     'unlimitedStorage',
     'scripting',
     'windows',
-    'system.display'
+    'system.display',
+    'sidePanel'
   ],
+  side_panel: {
+    default_path: 'src/sidepanel.html'
+  },
   host_permissions: [
     '<all_urls>'
   ],
