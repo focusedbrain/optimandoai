@@ -7,15 +7,6 @@ interface ConnectionStatus {
   readyState?: number
 }
 
-interface AgentBox {
-  id: string
-  title: string
-  output: string
-  color: string
-  isMinimized: boolean
-  timestamp?: string
-}
-
 function SidepanelOrchestrator() {
   // Original state
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>({ isConnected: false })
@@ -32,7 +23,9 @@ function SidepanelOrchestrator() {
   // Additional state for new features
   const [sessionName, setSessionName] = useState('New Session')
   const [isLocked, setIsLocked] = useState(false)
-  const [agentBoxes, setAgentBoxes] = useState<AgentBox[]>([])
+  const [agentBoxes, setAgentBoxes] = useState<Array<any>>([])
+  const [agentBoxHeights, setAgentBoxHeights] = useState<Record<string, number>>({})
+  const [resizingBoxId, setResizingBoxId] = useState<string | null>(null)
   const [isWRLoginCollapsed, setIsWRLoginCollapsed] = useState(false)
   const [isCommandChatPinned, setIsCommandChatPinned] = useState(false)
   
@@ -74,9 +67,9 @@ function SidepanelOrchestrator() {
         setConnectionStatus(message.data)
         setIsLoading(false)
       }
-      // Also handle agent box updates
+      // Listen for agent box updates from content script
       if (message.type === 'UPDATE_AGENT_BOXES') {
-        setAgentBoxes(message.data)
+        setAgentBoxes(message.data || [])
       }
     }
 
@@ -94,12 +87,13 @@ function SidepanelOrchestrator() {
     }
   }, [])
 
-  // Load additional data (agent boxes, session)
+  // Load additional data (session and agent boxes)
   useEffect(() => {
-    chrome.storage.local.get(['agentBoxes', 'sessionName', 'isLocked'], (result) => {
-      if (result.agentBoxes) setAgentBoxes(result.agentBoxes)
+    chrome.storage.local.get(['sessionName', 'isLocked', 'agentBoxes', 'agentBoxHeights'], (result) => {
       if (result.sessionName) setSessionName(result.sessionName)
       if (result.isLocked) setIsLocked(result.isLocked)
+      if (result.agentBoxes) setAgentBoxes(result.agentBoxes)
+      if (result.agentBoxHeights) setAgentBoxHeights(result.agentBoxHeights)
     })
   }, [])
 
@@ -138,27 +132,42 @@ function SidepanelOrchestrator() {
   }
 
   // Helper functions for new features
-  const sendToContentScript = (action: string) => {
+  const sendToContentScript = (action: string, data?: any) => {
     chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
       if (tabs[0]?.id) {
-        chrome.tabs.sendMessage(tabs[0].id, { type: action })
+        const message = data ? { type: action, data } : { type: action }
+        chrome.tabs.sendMessage(tabs[0].id, message, (response) => {
+          if (chrome.runtime.lastError) {
+            console.error('❌ Error sending message:', chrome.runtime.lastError)
+          } else if (response?.success) {
+            console.log('✅ Message sent successfully:', action)
+          } else {
+            console.warn('⚠️ Message sent but function not available:', action, response)
+          }
+        })
+      } else {
+        console.error('❌ No active tab found')
       }
     })
   }
 
   const openSettings = () => {
+    console.log('🎯 Opening Settings lightbox...')
     sendToContentScript('OPEN_SETTINGS_LIGHTBOX')
   }
 
   const openMemory = () => {
+    console.log('🎯 Opening Memory lightbox...')
     sendToContentScript('OPEN_MEMORY_LIGHTBOX')
   }
 
   const openContext = () => {
+    console.log('🎯 Opening Context lightbox...')
     sendToContentScript('OPEN_CONTEXT_LIGHTBOX')
   }
 
   const openAgentsLightbox = () => {
+    console.log('🎯 Opening Agents lightbox...')
     sendToContentScript('OPEN_AGENTS_LIGHTBOX')
   }
 
@@ -168,12 +177,7 @@ function SidepanelOrchestrator() {
 
 
   const addAgentBox = () => {
-    // Call the REAL openAddAgentBoxDialog function from content script
-    // This will show the full dialog with:
-    // - Box number calculation from session
-    // - Color picker with 10 colors
-    // - Agent number input
-    // - Title input with validation
+    console.log('🎯 Opening Add Agent Box dialog...')
     sendToContentScript('ADD_AGENT_BOX')
   }
 
@@ -181,15 +185,48 @@ function SidepanelOrchestrator() {
     const updated = agentBoxes.filter(box => box.id !== id)
     setAgentBoxes(updated)
     chrome.storage.local.set({ agentBoxes: updated })
+    
+    // Also notify content script to delete the box
+    sendToContentScript('DELETE_AGENT_BOX', { agentId: id })
   }
 
-  const toggleMinimize = (id: string) => {
-    const updated = agentBoxes.map(box => 
-      box.id === id ? { ...box, isMinimized: !box.isMinimized } : box
-    )
-    setAgentBoxes(updated)
-    chrome.storage.local.set({ agentBoxes: updated })
+  const editAgentBox = (boxId: string) => {
+    console.log('✏️ Editing agent box:', boxId)
+    sendToContentScript('EDIT_AGENT_BOX', { box: { id: boxId } })
   }
+
+  // Resize handler for agent boxes
+  const startResizing = (boxId: string, e: React.MouseEvent) => {
+    e.preventDefault()
+    setResizingBoxId(boxId)
+    
+    const startY = e.clientY
+    const startHeight = agentBoxHeights[boxId] || 120
+    
+    const handleMouseMove = (moveEvent: MouseEvent) => {
+      const deltaY = moveEvent.clientY - startY
+      const newHeight = Math.max(80, Math.min(400, startHeight + deltaY))
+      setAgentBoxHeights(prev => ({ ...prev, [boxId]: newHeight }))
+    }
+    
+    const handleMouseUp = () => {
+      setResizingBoxId(null)
+      // Save to storage
+      const finalHeight = agentBoxHeights[boxId] || 120
+      chrome.storage.local.set({ agentBoxHeights: { ...agentBoxHeights, [boxId]: finalHeight } })
+      
+      document.removeEventListener('mousemove', handleMouseMove)
+      document.removeEventListener('mouseup', handleMouseUp)
+      document.body.style.cursor = ''
+      document.body.style.userSelect = ''
+    }
+    
+    document.addEventListener('mousemove', handleMouseMove)
+    document.addEventListener('mouseup', handleMouseUp)
+    document.body.style.cursor = 'ns-resize'
+    document.body.style.userSelect = 'none'
+  }
+
 
   // Load triggers
   useEffect(() => {
@@ -410,7 +447,7 @@ function SidepanelOrchestrator() {
             background: 'rgba(76,175,80,0.8)',
             border: 'none',
             color: 'white',
-            borderRadius: '4px',
+          borderRadius: '4px',
             cursor: 'pointer',
             fontSize: '18px',
             fontWeight: 'bold'
@@ -792,7 +829,7 @@ function SidepanelOrchestrator() {
                   fontFamily: 'inherit'
                 }}
               />
-              <input 
+            <input
                 ref={fileInputRef}
                 type="file" 
                 multiple 
@@ -849,8 +886,8 @@ function SidepanelOrchestrator() {
               >
                 Send
               </button>
-            </div>
-          </div>
+        </div>
+      </div>
 
           {/* Embed Dialog */}
           {showEmbedDialog && (
@@ -882,21 +919,21 @@ function SidepanelOrchestrator() {
                 </div>
                 <div style={{ padding: '14px 16px', fontSize: '12px' }}>
                   <label style={{ display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '8px' }}>
-                    <input 
+            <input
                       type="radio" 
                       checked={embedTarget === 'session'}
                       onChange={() => setEmbedTarget('session')}
                     />
                     <span>Session Memory (this session only)</span>
-                  </label>
+          </label>
                   <label style={{ display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '8px' }}>
-                    <input 
+            <input
                       type="radio" 
                       checked={embedTarget === 'account'}
                       onChange={() => setEmbedTarget('account')}
                     />
                     <span>Account Memory (account-wide, long term)</span>
-                  </label>
+          </label>
                   <div style={{ marginTop: '10px', opacity: 0.9 }}>
                     Content will be processed (OCR/ASR/Parsing), chunked, and embedded locally.
                   </div>
@@ -935,226 +972,171 @@ function SidepanelOrchestrator() {
                     Embed
                   </button>
                 </div>
-              </div>
-            </div>
+        </div>
+      </div>
           )}
         </>
       )}
 
       <div style={{ flex: 1, overflowY: 'auto', padding: '20px' }}>
-      {/* Tab Status */}
-      <div style={{ marginBottom: '25px' }}>
-        <h3 style={{ margin: '0 0 15px 0', fontSize: '18px', fontWeight: 'bold' }}>Tab Status</h3>
-        <div style={{
-          height: '8px',
-          backgroundColor: 'rgba(255,255,255,0.3)',
-          borderRadius: '4px',
-          marginBottom: '15px'
-        }}></div>
-        <div style={{
-          height: '40px',
-          backgroundColor: 'rgba(255,255,255,0.2)',
-          borderRadius: '8px',
-          border: '1px solid rgba(255,255,255,0.3)'
-        }}></div>
-      </div>
-
-      {/* Input Stream */}
-      <div style={{ marginBottom: '25px' }}>
-        <h3 style={{ margin: '0 0 15px 0', fontSize: '18px', fontWeight: 'bold' }}>Input Stream</h3>
-        <div style={{ fontSize: '16px', lineHeight: '2' }}>
-          <div style={{ padding: '8px 0' }}>• selection.changed</div>
-          <div style={{ padding: '8px 0' }}>• dom.changed</div>
-          <div style={{ padding: '8px 0' }}>• form.submit</div>
-        </div>
-      </div>
-
-      {/* Cost */}
-      <div style={{ marginBottom: '25px' }}>
-        <h3 style={{ margin: '0 0 15px 0', fontSize: '18px', fontWeight: 'bold' }}>Cost</h3>
-        <div style={{ fontSize: '24px', fontWeight: 'bold', color: '#FFD700' }}>$0.02/0.05</div>
-      </div>
-
-      {/* Mode Selection */}
-      <div style={{ marginBottom: '25px' }}>
-        <h3 style={{ margin: '0 0 15px 0', fontSize: '18px', fontWeight: 'bold' }}>Mode</h3>
-        <div style={{ fontSize: '16px' }}>
-          <label style={{ display: 'flex', alignItems: 'center', marginBottom: '12px', cursor: 'pointer' }}>
-            <input
-              type="radio"
-              name="mode"
-              value="perTab"
-              checked={mode === 'perTab'}
-              onChange={(e) => setMode(e.target.value)}
-              style={{ marginRight: '12px', transform: 'scale(1.3)' }}
-            />
-            Per-Tab
-          </label>
-          <label style={{ display: 'flex', alignItems: 'center', cursor: 'pointer' }}>
-            <input
-              type="radio"
-              name="mode"
-              value="master"
-              checked={mode === 'master'}
-              onChange={(e) => setMode(e.target.value)}
-              style={{ marginRight: '12px', transform: 'scale(1.3)' }}
-            />
-            Master
-          </label>
-        </div>
-      </div>
-
-      {/* Agents */}
-      <div style={{ marginBottom: '25px' }}>
-        <h3 style={{ margin: '0 0 15px 0', fontSize: '18px', fontWeight: 'bold' }}>Agents</h3>
-        <div style={{ fontSize: '16px' }}>
-          <label style={{ display: 'flex', alignItems: 'center', marginBottom: '12px', cursor: 'pointer' }}>
-            <input
-              type="checkbox"
-              checked={agents.summarize}
-              onChange={(e) => setAgents({...agents, summarize: e.target.checked})}
-              style={{ marginRight: '12px', transform: 'scale(1.3)' }}
-            />
-            Summarize
-          </label>
-          <label style={{ display: 'flex', alignItems: 'center', marginBottom: '12px', cursor: 'pointer' }}>
-            <input
-              type="checkbox"
-              checked={agents.refactor}
-              onChange={(e) => setAgents({...agents, refactor: e.target.checked})}
-              style={{ marginRight: '12px', transform: 'scale(1.3)' }}
-            />
-            Refactor
-          </label>
-          <label style={{ display: 'flex', alignItems: 'center', cursor: 'pointer' }}>
-            <input
-              type="checkbox"
-              checked={agents.entityExtract}
-              onChange={(e) => setAgents({...agents, entityExtract: e.target.checked})}
-              style={{ marginRight: '12px', transform: 'scale(1.3)' }}
-            />
-            Entity Extract
-          </label>
-        </div>
-      </div>
-
-      {/* Connection Status */}
-      <div style={{ 
-        marginTop: 'auto', 
-        padding: '20px', 
-        backgroundColor: 'rgba(0,0,0,0.2)', 
-        borderRadius: '12px',
-        border: '1px solid rgba(255,255,255,0.2)'
-      }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px' }}>
-          <div style={{
-            width: '12px',
-            height: '12px',
-            borderRadius: '50%',
-            backgroundColor: getStatusColor()
-          }}></div>
-          <span style={{ fontSize: '16px' }}>
-            WebSocket: {isLoading ? 'Lädt...' : connectionStatus.isConnected ? 'Verbunden' : 'Nicht verbunden'}
-          </span>
-        </div>
-      </div>
-
-      {/* Agent Boxes */}
-      <div style={{ marginBottom: '25px' }}>
-        <h3 style={{ margin: '0 0 15px 0', fontSize: '18px', fontWeight: 'bold' }}>📦 Agent Outputs ({agentBoxes.length})</h3>
-        {agentBoxes.length === 0 ? (
-          <div style={{ 
-            textAlign: 'center', 
-            padding: '20px', 
-            opacity: 0.6,
-            border: '2px dashed rgba(255,255,255,0.2)',
-            borderRadius: '6px',
-            fontSize: '12px'
-          }}>
-            No agent outputs yet
-          </div>
-        ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginBottom: '10px' }}>
-            {agentBoxes.map(box => (
+      {/* Agent Boxes Display */}
+      {agentBoxes.length > 0 && (
+        <div style={{ marginBottom: '15px' }}>
+          {agentBoxes.map(box => {
+            const currentHeight = agentBoxHeights[box.id] || 120
+            return (
               <div key={box.id} style={{
                 background: 'rgba(255,255,255,0.1)',
-                borderRadius: '6px',
-                overflow: 'hidden'
+                borderRadius: '8px',
+                overflow: 'hidden',
+                marginBottom: '12px'
               }}>
-                <div style={{
-                  background: box.color,
-                  padding: '8px 10px',
+      <div style={{ 
+                  background: box.color || '#4CAF50',
+                  padding: '10px 12px',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'space-between'
                 }}>
-                  <span style={{ fontSize: '12px', fontWeight: '600' }}>{box.title}</span>
-                  <div style={{ display: 'flex', gap: '4px' }}>
+                  <span style={{ fontSize: '13px', fontWeight: '700' }}>{box.title || 'Agent Box'}</span>
+                  <div style={{ display: 'flex', gap: '6px' }}>
                     <button
-                      onClick={() => toggleMinimize(box.id)}
+                      onClick={() => editAgentBox(box.id)}
                       style={{
                         background: 'rgba(255,255,255,0.2)',
                         border: 'none',
                         color: 'white',
-                        width: '22px',
-                        height: '22px',
-                        borderRadius: '3px',
+                        width: '26px',
+                        height: '26px',
+                        borderRadius: '4px',
                         cursor: 'pointer',
-                        fontSize: '11px'
+                        fontSize: '12px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        transition: 'all 0.2s ease',
+                        opacity: 0.7
+                      }}
+                      title="Edit agent box"
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.opacity = '1'
+                        e.currentTarget.style.background = 'rgba(33, 150, 243, 0.8)'
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.opacity = '0.7'
+                        e.currentTarget.style.background = 'rgba(255,255,255,0.2)'
                       }}
                     >
-                      {box.isMinimized ? '▼' : '▲'}
+                      ✏️
                     </button>
                     <button
                       onClick={() => removeAgentBox(box.id)}
                       style={{
-                        background: 'rgba(244,67,54,0.8)',
+                        background: 'rgba(244,67,54,0.9)',
                         border: 'none',
                         color: 'white',
-                        width: '22px',
-                        height: '22px',
-                        borderRadius: '3px',
+                        width: '26px',
+                        height: '26px',
+                        borderRadius: '4px',
                         cursor: 'pointer',
-                        fontSize: '11px'
+                        fontSize: '14px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        fontWeight: 'bold',
+                        transition: 'all 0.2s ease',
+                        opacity: 0.7
+                      }}
+                      title="Delete agent box"
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.opacity = '1'
+                        e.currentTarget.style.background = 'rgba(211, 47, 47, 1)'
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.opacity = '0.7'
+                        e.currentTarget.style.background = 'rgba(244,67,54,0.9)'
                       }}
                     >
                       ×
                     </button>
                   </div>
                 </div>
-                {!box.isMinimized && (
-                  <div style={{
-                    padding: '10px',
-                    background: 'rgba(0,0,0,0.2)',
-                    fontSize: '11px',
-                    lineHeight: '1.5',
-                    maxHeight: '150px',
-                    overflowY: 'auto'
-                  }}>
-                    {box.output || <span style={{ opacity: 0.5 }}>No output yet...</span>}
+                <div 
+                  style={{
+                    background: 'rgba(255,255,255,0.95)',
+                    color: '#333',
+                    borderRadius: '0 0 8px 8px',
+                    padding: '12px',
+                    minHeight: `${currentHeight}px`,
+                    height: `${currentHeight}px`,
+                    border: '1px solid rgba(0,0,0,0.1)',
+                    boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
+                    position: 'relative',
+                    overflow: 'auto'
+                  }}
+                >
+                  <div style={{ fontSize: '12px', color: '#333', lineHeight: '1.4' }}>
+                    {box.output || <span style={{ opacity: 0.5, color: '#666' }}>Ready for {box.title?.replace(/[📝🔍🎯🧮]/g, '').trim()}...</span>}
                   </div>
-                )}
+                  <div 
+                    style={{
+                      position: 'absolute',
+                      bottom: 0,
+                      left: 0,
+                      right: 0,
+                      height: '8px',
+                      cursor: 'ns-resize',
+                      background: 'rgba(0,0,0,0.1)',
+                      borderRadius: '0 0 8px 8px',
+                      opacity: resizingBoxId === box.id ? 1 : 0,
+                      transition: 'opacity 0.2s'
+                    }}
+                    onMouseDown={(e) => startResizing(box.id, e)}
+                    onMouseEnter={(e) => e.currentTarget.style.opacity = '0.6'}
+                    onMouseLeave={(e) => {
+                      if (resizingBoxId !== box.id) {
+                        e.currentTarget.style.opacity = '0'
+                      }
+                    }}
+                  />
+                </div>
               </div>
-            ))}
-          </div>
-        )}
-        <button
-          onClick={addAgentBox}
-          style={{
-            width: '100%',
-            padding: '8px',
-            background: 'rgba(76,175,80,0.8)',
-            border: '2px dashed rgba(76,175,80,1)',
-            color: 'white',
-            borderRadius: '6px',
-            cursor: 'pointer',
-            fontSize: '12px',
-            fontWeight: '600'
-          }}
-        >
-          ➕ Add New Agent Box
-        </button>
-      </div>
+            )
+          })}
+        </div>
+      )}
+      
+      {/* Add Agent Box Button */}
+      <button
+        onClick={addAgentBox}
+        style={{
+          width: '100%',
+          padding: '14px',
+          background: 'linear-gradient(135deg, rgba(76,175,80,0.9), rgba(56,142,60,0.9))',
+          border: '2px solid rgba(76,175,80,1)',
+          color: 'white',
+          borderRadius: '8px',
+          cursor: 'pointer',
+          fontSize: '15px',
+          fontWeight: '700',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: '8px',
+          transition: 'all 0.2s ease',
+          marginBottom: '25px'
+        }}
+        onMouseEnter={(e) => {
+          e.currentTarget.style.transform = 'translateY(-2px)'
+          e.currentTarget.style.boxShadow = '0 6px 16px rgba(76,175,80,0.5)'
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.transform = 'translateY(0)'
+          e.currentTarget.style.boxShadow = 'none'
+        }}
+      >
+        ➕ Add New Agent Box
+      </button>
 
       {/* Settings Button - Now wired to lightbox */}
       <div style={{ marginTop: '20px' }}>

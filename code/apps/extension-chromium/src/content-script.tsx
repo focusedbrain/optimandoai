@@ -50,6 +50,8 @@ const globalLightboxFunctions: {
   openMemoryLightbox?: () => void
   openContextLightbox?: () => void
   openAddAgentBoxDialog?: () => void
+  openEditAgentBoxDialog?: (agentId: string) => void
+  deleteAgentBox?: (agentId: string) => void
   beginScreenSelect?: (target: HTMLElement) => void
   createDockedChat?: () => void
   removeDockedChat?: () => void
@@ -165,6 +167,42 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       }
     } catch (e) {
       console.error('❌ Error opening add agent box dialog:', e)
+      sendResponse({ success: false, error: String(e) })
+    }
+  }
+  // Handle EDIT AGENT BOX request from side panel
+  else if (message.type === 'EDIT_AGENT_BOX') {
+    try {
+      if (globalLightboxFunctions.openEditAgentBoxDialog) {
+        const boxId = message.data?.box?.id
+        if (boxId) {
+          globalLightboxFunctions.openEditAgentBoxDialog(boxId)
+          sendResponse({ success: true })
+        } else {
+          console.warn('⚠️ No box ID provided')
+          sendResponse({ success: false, error: 'No box ID provided' })
+        }
+      } else {
+        console.warn('⚠️ openEditAgentBoxDialog not available yet')
+        sendResponse({ success: false, error: 'Function not available' })
+      }
+    } catch (e) {
+      console.error('❌ Error opening edit agent box dialog:', e)
+      sendResponse({ success: false, error: String(e) })
+    }
+  }
+  // Handle DELETE AGENT BOX request from side panel
+  else if (message.type === 'DELETE_AGENT_BOX') {
+    try {
+      if (globalLightboxFunctions.deleteAgentBox) {
+        globalLightboxFunctions.deleteAgentBox(message.data?.agentId)
+        sendResponse({ success: true })
+      } else {
+        console.warn('⚠️ deleteAgentBox not available yet')
+        sendResponse({ success: false, error: 'Function not available' })
+      }
+    } catch (e) {
+      console.error('❌ Error deleting agent box:', e)
       sendResponse({ success: false, error: String(e) })
     }
   }
@@ -1617,6 +1655,12 @@ function initializeExtension() {
               
               // Re-render agent boxes after loading session data
               renderAgentBoxes()
+              
+              // Notify sidepanel of loaded agent boxes
+              chrome.runtime.sendMessage({ 
+                type: 'UPDATE_AGENT_BOXES', 
+                data: currentTabData.agentBoxes 
+              })
             }, 100)
           }
         })
@@ -1898,6 +1942,12 @@ function initializeExtension() {
     attachAgentBoxResizeListeners()
     attachDeleteButtonListeners()
     attachEditButtonListeners()
+    
+    // Notify sidepanel of current agent boxes
+    chrome.runtime.sendMessage({ 
+      type: 'UPDATE_AGENT_BOXES', 
+      data: currentTabData.agentBoxes 
+    })
   }
 
   function deleteAgentBox(agentId: string) {
@@ -2223,6 +2273,12 @@ function initializeExtension() {
       saveTabDataToStorage()
       renderAgentBoxes()
       
+      // Notify sidepanel of new agent box
+      chrome.runtime.sendMessage({ 
+        type: 'UPDATE_AGENT_BOXES', 
+        data: currentTabData.agentBoxes 
+      })
+      
       overlay.remove()
       
         // Show success notification with identifier
@@ -2284,14 +2340,21 @@ function initializeExtension() {
         <h3 style="margin: 0 0 20px 0; color: #333; font-size: 18px; text-align: center;">Edit Agent Box</h3>
         
         <div style="margin-bottom: 20px;">
+          <label style="display: block; margin-bottom: 8px; color: #555; font-weight: bold;">Agent Box Number:</label>
+          <input id="edit-agent-box-number" type="text" value="${String(agentBox.boxNumber || agentBox.number || 1).padStart(2, '0')}" readonly style="width: 100%; padding: 10px; border: 2px solid #ddd; border-radius: 6px; font-size: 14px; background: #f5f5f5; color: #666;">
+          <div style="font-size: 11px; color: #888; margin-top: 4px;">Auto-assigned box number (cannot be changed)</div>
+        </div>
+        
+        <div style="margin-bottom: 20px;">
           <label style="display: block; margin-bottom: 8px; color: #555; font-weight: bold;">Agent Number:</label>
           <input id="edit-agent-number" type="number" value="${
             agentBox.agentId && agentBox.agentId.match(/agent(\d+)/) 
               ? agentBox.agentId.match(/agent(\d+)/)[1] 
               : agentBox.model && agentBox.model.match(/agent(\d+)/)
                 ? agentBox.model.match(/agent(\d+)/)[1]
-                : agentBox.number
+                : agentBox.agentNumber || 1
           }" min="1" max="99" style="width: 100%; padding: 10px; border: 2px solid #ddd; border-radius: 6px; font-size: 14px;">
+          <div style="font-size: 11px; color: #888; margin-top: 4px;">Which agent to allocate to this box</div>
         </div>
         
         <div style="margin-bottom: 20px;">
@@ -2495,6 +2558,14 @@ function initializeExtension() {
       }
     })
   }
+
+  // CRITICAL: Assign agent box functions to global object IMMEDIATELY after definition
+  // This allows the message handlers (defined at module level) to call these functions
+  globalLightboxFunctions.openAddAgentBoxDialog = openAddAgentBoxDialog
+  globalLightboxFunctions.openEditAgentBoxDialog = openEditAgentBoxDialog
+  globalLightboxFunctions.deleteAgentBox = deleteAgentBox
+  
+  console.log('✅ Agent box functions assigned to global scope')
 
   function updateAgentBox(agentId: string, updates: { number?: number, title?: string, color?: string, provider?: string, model?: string, agentId?: string }) {
     const agentBoxIndex = currentTabData.agentBoxes.findIndex((box: any) => box.id === agentId)
