@@ -23740,11 +23740,11 @@ ${pageText}
 
         </div>
 
-                  <div style="flex: 1; padding: 20px;">
+                  <div style="flex: 1; padding: 20px; overflow: hidden; display: flex; flex-direction: column;">
 
           <p style="margin: 0 0 20px 0; text-align: center; opacity: 0.8; font-size: 14px;">Select grid layouts to save and open. Multiple selections allowed.</p>
 
-          <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; height: calc(100% - 120px); overflow-y: auto;">
+          <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; flex: 1; overflow-y: auto; overflow-x: hidden;">
 
             
 
@@ -24084,7 +24084,7 @@ ${pageText}
 
           </div>
 
-          <div style="padding: 20px; text-align: center;">
+          <div style="padding: 20px; text-align: center; flex-shrink: 0; border-top: 1px solid rgba(255,255,255,0.2);">
 
             <button id="save-open-grids" style="padding: 15px 30px; background: #666; border: none; color: white; border-radius: 8px; cursor: not-allowed; font-size: 14px; font-weight: bold; transition: all 0.3s ease;" disabled>
 
