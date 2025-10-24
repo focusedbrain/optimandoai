@@ -24166,9 +24166,9 @@ ${pageText}
 
     overlay.innerHTML = `
 
-      <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 16px; width: 98vw; height: 95vh; color: white; overflow: hidden; display: flex; flex-direction: column;">
+      <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 16px; width: 98vw; height: 95vh; max-height: 95vh; color: white; overflow: hidden; display: flex; flex-direction: column;">
 
-        <div style="padding: 20px; border-bottom: 1px solid rgba(255,255,255,0.3); display: flex; justify-content: space-between; align-items: center;">
+        <div style="padding: 20px; border-bottom: 1px solid rgba(255,255,255,0.3); display: flex; justify-content: space-between; align-items: center; flex-shrink: 0;">
 
           <h2 style="margin: 0; font-size: 22px;">🗂️ Display Grid Browser Layouts</h2>
 
@@ -24176,11 +24176,11 @@ ${pageText}
 
         </div>
 
-                  <div style="flex: 1; padding: 20px;">
+                  <div style="flex: 1; padding: 20px; overflow-y: auto; overflow-x: hidden;">
 
           <p style="margin: 0 0 20px 0; text-align: center; opacity: 0.8; font-size: 14px;">Select grid layouts to save and open. Multiple selections allowed.</p>
 
-          <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; height: calc(100% - 120px); overflow-y: auto;">
+          <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px;">
 
             
 
@@ -24520,15 +24520,15 @@ ${pageText}
 
           </div>
 
-          <div style="padding: 20px; text-align: center;">
+        </div>
 
-            <button id="save-open-grids" style="padding: 15px 30px; background: #666; border: none; color: white; border-radius: 8px; cursor: not-allowed; font-size: 14px; font-weight: bold; transition: all 0.3s ease;" disabled>
+        <div style="padding: 20px; border-top: 1px solid rgba(255,255,255,0.3); display: flex; justify-content: center; background: rgba(255,255,255,0.05); flex-shrink: 0;">
 
-              🚀 Save & Open Grids
+          <button id="save-open-grids" style="padding: 15px 30px; background: #666; border: none; color: white; border-radius: 8px; cursor: not-allowed; font-size: 14px; font-weight: bold; transition: all 0.3s ease;" disabled>
 
-            </button>
+            🚀 Save & Open Grids
 
-          </div>
+          </button>
 
         </div>
 

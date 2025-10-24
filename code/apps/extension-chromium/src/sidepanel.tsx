@@ -684,6 +684,8 @@ function SidepanelOrchestrator() {
           <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', justifyContent: 'flex-end', flex: 1 }}>
             <button onClick={openUnifiedAdmin} title="Admin Configuration (Agents, Context, Memory)" style={{ width: '32px', height: '32px', flexShrink: 0, background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)', color: 'white', borderRadius: '6px', cursor: 'pointer', fontSize: '16px', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.2s ease' }} onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.2)'} onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.1)'}>⚙️</button>
             <button onClick={openSettings} title="Settings" style={{ width: '32px', height: '32px', flexShrink: 0, background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)', color: 'white', borderRadius: '6px', cursor: 'pointer', fontSize: '16px', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.2s ease' }} onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.2)'} onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.1)'}>🔧</button>
+            <button onClick={openAddView} title="Add View" style={{ width: '32px', height: '32px', flexShrink: 0, background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)', color: 'white', borderRadius: '6px', cursor: 'pointer', fontSize: '16px', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.2s ease' }} onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.2)'} onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.1)'}>⊞</button>
+            <button onClick={openSessions} title="Sessions" style={{ width: '32px', height: '32px', flexShrink: 0, background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)', color: 'white', borderRadius: '6px', cursor: 'pointer', fontSize: '16px', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.2s ease' }} onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.2)'} onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.1)'}>📚</button>
             <button onClick={openPopupChat} title="Open Popup Chat" style={{ width: '32px', height: '32px', flexShrink: 0, background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)', color: 'white', borderRadius: '6px', cursor: 'pointer', fontSize: '16px', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.2s ease' }} onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.2)'} onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.1)'}>💬</button>
             <button onClick={toggleCommandChatPin} title={isCommandChatPinned ? "Unpin Command Chat" : "Pin Command Chat"} style={{ width: '32px', height: '32px', flexShrink: 0, background: isCommandChatPinned ? 'rgba(76,175,80,0.4)' : 'rgba(255,255,255,0.1)', border: `1px solid ${isCommandChatPinned ? 'rgba(76,175,80,0.6)' : 'rgba(255,255,255,0.2)'}`, color: 'white', borderRadius: '6px', cursor: 'pointer', fontSize: '16px', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.2s ease' }} onMouseEnter={(e) => e.currentTarget.style.background = isCommandChatPinned ? 'rgba(76,175,80,0.5)' : 'rgba(255,255,255,0.2)'} onMouseLeave={(e) => e.currentTarget.style.background = isCommandChatPinned ? 'rgba(76,175,80,0.4)' : 'rgba(255,255,255,0.1)'}>📌</button>
           </div>
@@ -1233,7 +1235,15 @@ function SidepanelOrchestrator() {
         </>
       )}
 
-      <div style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', padding: '16px', width: '100%', boxSizing: 'border-box' }}>
+      <div style={{ 
+        flex: 1, 
+        overflowY: 'auto', 
+        overflowX: 'hidden', 
+        padding: '16px', 
+        width: '100%', 
+        boxSizing: 'border-box',
+        WebkitOverflowScrolling: 'touch'
+      } as React.CSSProperties}>
       {/* Agent Boxes Display */}
       {agentBoxes.length > 0 && (
         <div style={{ marginBottom: '20px' }}>
