@@ -100,6 +100,8 @@ const globalLightboxFunctions: {
 
   openContextLightbox?: () => void
 
+  openUnifiedAdminLightbox?: (initialTab?: 'agents' | 'context' | 'memory') => void
+
   openAddAgentBoxDialog?: () => void
 
   openEditAgentBoxDialog?: (agentId: string) => void
@@ -325,6 +327,40 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     } catch (e) {
 
       console.error('❌ Error opening agents:', e)
+
+      sendResponse({ success: false, error: String(e) })
+
+    }
+
+  }
+
+  // Handle OPEN UNIFIED ADMIN LIGHTBOX request from sidepanel
+
+  else if (message.type === 'OPEN_UNIFIED_ADMIN_LIGHTBOX') {
+
+    console.log('📨 Received OPEN_UNIFIED_ADMIN_LIGHTBOX message')
+
+    try {
+
+      if (globalLightboxFunctions.openUnifiedAdminLightbox) {
+
+        console.log('✅ Opening unified admin lightbox...')
+
+        globalLightboxFunctions.openUnifiedAdminLightbox('agents')
+
+        sendResponse({ success: true })
+
+      } else {
+
+        console.warn('⚠️ openUnifiedAdminLightbox not available yet')
+
+        sendResponse({ success: false, error: 'Function not available' })
+
+      }
+
+    } catch (e) {
+
+      console.error('❌ Error opening unified admin:', e)
 
       sendResponse({ success: false, error: String(e) })
 
@@ -8377,6 +8413,404 @@ function initializeExtension() {
 
 
   // Lightbox functions
+
+  // UNIFIED ADMIN LIGHTBOX with persistent top tabs
+
+  // This creates a tabbed interface where tabs ALWAYS stay visible
+
+  function openUnifiedAdminLightbox(initialTab: 'agents' | 'context' | 'memory' = 'agents') {
+
+    // Remove any existing unified lightbox or individual lightboxes
+
+    document.getElementById('unified-admin-lightbox')?.remove()
+
+    document.getElementById('agents-lightbox')?.remove()
+
+    document.getElementById('context-lightbox')?.remove()
+
+    document.getElementById('memory-lightbox')?.remove()
+
+    
+
+    const safeGradient = (() => {
+
+      try {
+
+        return getCurrentGradient()
+
+      } catch {
+
+        return 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)'
+
+      }
+
+    })()
+
+    
+
+    function getCurrentGradient() {
+
+      try {
+
+        const ls = document.getElementById('left-sidebar') as HTMLElement | null
+
+        if (ls) {
+
+          const inlineBg = ls.style.background
+
+          if (inlineBg && inlineBg.includes('linear-gradient')) return inlineBg
+
+          const cs = getComputedStyle(ls)
+
+          const ci = (cs.backgroundImage || cs.background || '').toString()
+
+          if (ci && ci.includes('gradient')) return ci
+
+        }
+
+      } catch {}
+
+      const t = (localStorage.getItem('optimando-ui-theme') || 'default') as 'default'|'dark'|'professional'
+
+      if (t === 'dark') return 'linear-gradient(135deg, #0f172a 0%, #1e293b 100%)'
+
+      if (t === 'professional') return 'linear-gradient(135deg, #0ea5e9 0%, #6366f1 100%)'
+
+      return 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)'
+
+    }
+
+    
+
+    // Open the appropriate lightbox with unified tabs
+
+    if (initialTab === 'agents') {
+
+      openAgentsLightboxWithTabs()
+
+    } else if (initialTab === 'context') {
+
+      openContextLightboxWithTabs()
+
+    } else if (initialTab === 'memory') {
+
+      openMemoryLightboxWithTabs()
+
+    }
+
+  }
+
+  
+
+  // Modified versions that include the unified tabs
+
+  function openAgentsLightboxWithTabs() {
+
+    // First, open the original lightbox
+
+    openAgentsLightboxOriginal()
+
+    
+
+    // Then inject the unified tabs at the top
+
+    setTimeout(() => {
+
+      const agentsLightbox = document.getElementById('agents-lightbox')
+
+      if (agentsLightbox) {
+
+        const innerContainer = agentsLightbox.querySelector('div[style*="border-radius"]') || agentsLightbox.querySelector('div')
+
+        if (innerContainer) {
+
+          // Create unified tabs
+
+          const unifiedTabs = createUnifiedTabs('agents')
+
+          
+
+          // Insert tabs after the header
+
+          const header = innerContainer.querySelector('div[style*="padding: 20px"]') || innerContainer.firstElementChild
+
+          if (header) {
+
+            if (header.nextSibling) {
+
+              innerContainer.insertBefore(unifiedTabs, header.nextSibling)
+
+            } else {
+
+              innerContainer.appendChild(unifiedTabs)
+
+            }
+
+          } else {
+
+            innerContainer.prepend(unifiedTabs)
+
+          }
+
+        }
+
+      } else {
+
+        console.warn('⚠️ Could not find agents-lightbox element')
+
+      }
+
+    }, 50)
+
+  }
+
+  
+
+  function openContextLightboxWithTabs() {
+
+    openContextLightboxOriginal()
+
+    
+
+    setTimeout(() => {
+
+      const contextLightbox = document.getElementById('context-lightbox')
+
+      if (contextLightbox) {
+
+        const innerContainer = contextLightbox.querySelector('div[style*="border-radius"]') || contextLightbox.querySelector('div')
+
+        if (innerContainer) {
+
+          const unifiedTabs = createUnifiedTabs('context')
+
+          const header = innerContainer.querySelector('div[style*="padding: 20px"]') || innerContainer.firstElementChild
+
+          if (header) {
+
+            if (header.nextSibling) {
+
+              innerContainer.insertBefore(unifiedTabs, header.nextSibling)
+
+            } else {
+
+              innerContainer.appendChild(unifiedTabs)
+
+            }
+
+          } else {
+
+            innerContainer.prepend(unifiedTabs)
+
+          }
+
+        }
+
+      } else {
+
+        console.warn('⚠️ Could not find context-lightbox element')
+
+      }
+
+    }, 50)
+
+  }
+
+  
+
+  function openMemoryLightboxWithTabs() {
+
+    openMemoryLightboxOriginal()
+
+    
+
+    setTimeout(() => {
+
+      const memoryLightbox = document.getElementById('memory-lightbox')
+
+      if (memoryLightbox) {
+
+        // Find the inner container (first child with border-radius or just the first div)
+
+        const innerContainer = memoryLightbox.querySelector('div[style*="border-radius"]') || memoryLightbox.querySelector('div')
+
+        if (innerContainer) {
+
+          const unifiedTabs = createUnifiedTabs('memory')
+
+          
+
+          // Find the header (first div with padding)
+
+          const header = innerContainer.querySelector('div[style*="padding: 20px"]') || innerContainer.firstElementChild
+
+          if (header) {
+
+            // Insert after header
+
+            if (header.nextSibling) {
+
+              innerContainer.insertBefore(unifiedTabs, header.nextSibling)
+
+            } else {
+
+              innerContainer.appendChild(unifiedTabs)
+
+            }
+
+          } else {
+
+            // If no header found, prepend to container
+
+            innerContainer.prepend(unifiedTabs)
+
+          }
+
+        }
+
+      } else {
+
+        console.warn('⚠️ Could not find memory-lightbox element')
+
+      }
+
+    }, 50)
+
+  }
+
+  
+
+  // Create the unified tabs element
+
+  function createUnifiedTabs(activeTab: 'agents' | 'context' | 'memory') {
+
+    const safeGradient = (() => {
+
+      try {
+
+        const t = (localStorage.getItem('optimando-ui-theme') || 'default') as 'default'|'dark'|'professional'
+
+        if (t === 'dark') return 'linear-gradient(135deg, #0f172a 0%, #1e293b 100%)'
+
+        if (t === 'professional') return 'linear-gradient(135deg, #0ea5e9 0%, #6366f1 100%)'
+
+        return 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)'
+
+      } catch {
+
+        return 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)'
+
+      }
+
+    })()
+
+    
+
+    const tabsContainer = document.createElement('div')
+
+    tabsContainer.style.cssText = `
+
+      position: sticky; top: 0; z-index: 1000;
+
+      padding: 10px 20px; border-bottom: 1px solid rgba(255,255,255,0.2);
+
+      display: flex; gap: 10px; background: ${safeGradient};
+
+      isolation: isolate;
+
+    `
+
+    
+
+    const tabs = [
+
+      { id: 'agents', label: '🤖 AI Agent Configuration' },
+
+      { id: 'context', label: '📝 Global Context Management' },
+
+      { id: 'memory', label: '🧠 Global Memory Management' }
+
+    ]
+
+    
+
+    tabs.forEach(tab => {
+
+      const btn = document.createElement('button')
+
+      btn.textContent = tab.label
+
+      btn.style.cssText = `
+
+        padding: 8px 16px; border: none; border-radius: 6px;
+
+        cursor: pointer; font-size: 12px; font-weight: bold;
+
+        transition: all 0.2s ease;
+
+        background: ${tab.id === activeTab ? 'rgba(255,255,255,0.3)' : 'rgba(255,255,255,0.1)'};
+
+        color: ${tab.id === activeTab ? 'white' : 'rgba(255,255,255,0.7)'};
+
+      `
+
+      
+
+      btn.onclick = () => {
+
+        // Close current lightbox and open the new one with tabs
+
+        document.getElementById('agents-lightbox')?.remove()
+
+        document.getElementById('context-lightbox')?.remove()
+
+        document.getElementById('memory-lightbox')?.remove()
+
+        
+
+        openUnifiedAdminLightbox(tab.id as any)
+
+      }
+
+      
+
+      tabsContainer.appendChild(btn)
+
+    })
+
+    
+
+    return tabsContainer
+
+  }
+
+  
+
+  // Store references to original lightbox functions
+
+  function openAgentsLightboxOriginal() {
+
+    openAgentsLightbox()
+
+  }
+
+  
+
+  function openContextLightboxOriginal() {
+
+    openContextLightbox()
+
+  }
+
+  
+
+  function openMemoryLightboxOriginal() {
+
+    openMemoryLightbox()
+
+  }
+
+  
 
   function openAgentsLightbox() {
 
@@ -18438,6 +18872,8 @@ ${pageText}
 
     const overlay = document.createElement('div')
 
+    overlay.id = 'memory-lightbox'
+
     overlay.style.cssText = `
 
       position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
@@ -23740,11 +24176,11 @@ ${pageText}
 
         </div>
 
-                  <div style="flex: 1; padding: 20px; overflow: hidden; display: flex; flex-direction: column;">
+                  <div style="flex: 1; padding: 20px;">
 
           <p style="margin: 0 0 20px 0; text-align: center; opacity: 0.8; font-size: 14px;">Select grid layouts to save and open. Multiple selections allowed.</p>
 
-          <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; flex: 1; overflow-y: auto; overflow-x: hidden;">
+          <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; height: calc(100% - 120px); overflow-y: auto;">
 
             
 
@@ -24084,7 +24520,7 @@ ${pageText}
 
           </div>
 
-          <div style="padding: 20px; text-align: center; flex-shrink: 0; border-top: 1px solid rgba(255,255,255,0.2);">
+          <div style="padding: 20px; text-align: center;">
 
             <button id="save-open-grids" style="padding: 15px 30px; background: #666; border: none; color: white; border-radius: 8px; cursor: not-allowed; font-size: 14px; font-weight: bold; transition: all 0.3s ease;" disabled>
 
@@ -29712,9 +30148,7 @@ ${pageText}
 
   
 
-  // Add sidebars directly to body ONLY if extension is explicitly active
-
-  // This prevents the old overlay UI from showing when using only the native sidepanel
+  // Add sidebars directly to body ONLY if extension is active
 
   if (isExtensionActive) {
 
@@ -29724,7 +30158,7 @@ ${pageText}
 
   } else {
 
-    console.log('🚫 Extension UI not added - using native sidepanel only')
+    console.log('ℹ️ Skipping UI injection, extension not active')
 
   }
 
@@ -29743,8 +30177,6 @@ ${pageText}
     console.log('📏 Initial page margin set to:', topBarHeight + 'px')
 
   }
-
-  // Only adjust page margin if UI is visible
 
   if (isExtensionActive) {
 
@@ -31700,15 +32132,27 @@ ${pageText}
 
   // This allows the message handlers (defined at module level) to call these functions
 
-  globalLightboxFunctions.openAgentsLightbox = openAgentsLightbox
+  
+
+  // Register unified admin lightbox
+
+  globalLightboxFunctions.openUnifiedAdminLightbox = openUnifiedAdminLightbox
+
+  
+
+  // Original lightbox functions now redirect to unified lightbox
+
+  globalLightboxFunctions.openAgentsLightbox = () => openUnifiedAdminLightbox('agents')
+
+  globalLightboxFunctions.openContextLightbox = () => openUnifiedAdminLightbox('context')
+
+  globalLightboxFunctions.openMemoryLightbox = () => openUnifiedAdminLightbox('memory')
+
+  
 
   globalLightboxFunctions.openSettingsLightbox = openSettingsLightbox
 
-  globalLightboxFunctions.openMemoryLightbox = openMemoryLightbox
-
   globalLightboxFunctions.startNewSession = startNewSession
-
-  globalLightboxFunctions.openContextLightbox = openContextLightbox
 
   globalLightboxFunctions.openAddAgentBoxDialog = openAddAgentBoxDialog
 
@@ -32122,16 +32566,26 @@ console.log('🔧 DEBUG: Final initialization check:', {
 
 
 
-// ALWAYS initialize to make lightbox functions available
+// CRITICAL FIX: Always initialize lightbox functions so they're available even when extension UI is not active
 
-// But UI will only be added to DOM if isExtensionActive is true
+// This ensures lightboxes can be opened from sidepanel at any time
 
-console.log('🔧 Extension content script loaded')
-
-console.log('💡 TIP: To manually clear all sessions, run: clearAllOptimandoSessions()')
-
-console.log('📌 Use the Native Side Panel (click extension icon)')
+console.log('🔧 Registering lightbox functions...')
 
 initializeExtension()
 
-console.log('✅ Lightbox functions ready' + (isExtensionActive ? ' - UI visible' : ' - UI hidden'))
+
+
+if (isExtensionActive) {
+
+  console.log('🚀 Extension UI is active')
+
+  console.log('💡 TIP: To manually clear all sessions, run: clearAllOptimandoSessions()')
+
+  console.log('📌 Click the extension icon to open the Native Side Panel')
+
+} else {
+
+  console.log('ℹ️ Extension UI not active, but lightbox functions are ready')
+
+}

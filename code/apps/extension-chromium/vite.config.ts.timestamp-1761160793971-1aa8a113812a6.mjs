@@ -1,0 +1,71 @@
+// vite.config.ts
+import { defineConfig } from "file:///C:/Users/oscarturboprinz/Documents/optimandoai/code/apps/extension-chromium/node_modules/vite/dist/node/index.js";
+import react from "file:///C:/Users/oscarturboprinz/Documents/optimandoai/code/apps/extension-chromium/node_modules/@vitejs/plugin-react/dist/index.js";
+import { crx } from "file:///C:/Users/oscarturboprinz/Documents/optimandoai/code/apps/extension-chromium/node_modules/@crxjs/vite-plugin/dist/index.mjs";
+
+// manifest.config.ts
+import { defineManifest } from "file:///C:/Users/oscarturboprinz/Documents/optimandoai/code/apps/extension-chromium/node_modules/@crxjs/vite-plugin/dist/index.mjs";
+var manifest_config_default = defineManifest({
+  name: "OpenGiraffe Orchestrator",
+  description: "Multi-AI-Agenten Workflow Orchestrator mit echten Sidebars",
+  version: "0.0.1",
+  manifest_version: 3,
+  permissions: [
+    "activeTab",
+    "storage",
+    "unlimitedStorage",
+    "scripting",
+    "windows",
+    "system.display",
+    "sidePanel"
+  ],
+  side_panel: {
+    default_path: "src/sidepanel.html"
+  },
+  host_permissions: [
+    "<all_urls>"
+  ],
+  content_scripts: [
+    {
+      matches: ["<all_urls>"],
+      js: ["src/content-script.tsx"],
+      css: [],
+      run_at: "document_end"
+    }
+  ],
+  background: {
+    service_worker: "src/background.ts"
+  },
+  action: {
+    default_title: "OpenGiraffe Orchestrator - Toggle Sidebars"
+  },
+  commands: {
+    "toggle-overlay": {
+      suggested_key: {
+        default: "Alt+O"
+      },
+      description: "Toggle overlay on/off for this domain"
+    }
+  },
+  web_accessible_resources: [
+    {
+      resources: ["grid-display.html", "grid-display.js", "grid-script.js", "grid-display-v2.html", "grid-script-v2.js", "popup.html", "popup.js"],
+      matches: ["<all_urls>"]
+    }
+  ],
+  content_security_policy: {
+    extension_pages: "script-src 'self'; object-src 'self'; connect-src 'self' ws://localhost:* wss://localhost:* https://*; img-src 'self' data: https://*;"
+  }
+});
+
+// vite.config.ts
+var vite_config_default = defineConfig({
+  plugins: [
+    react(),
+    crx({ manifest: manifest_config_default })
+  ]
+});
+export {
+  vite_config_default as default
+};
+//# sourceMappingURL=data:application/json;base64,ewogICJ2ZXJzaW9uIjogMywKICAic291cmNlcyI6IFsidml0ZS5jb25maWcudHMiLCAibWFuaWZlc3QuY29uZmlnLnRzIl0sCiAgInNvdXJjZXNDb250ZW50IjogWyJjb25zdCBfX3ZpdGVfaW5qZWN0ZWRfb3JpZ2luYWxfZGlybmFtZSA9IFwiQzpcXFxcVXNlcnNcXFxcb3NjYXJ0dXJib3ByaW56XFxcXERvY3VtZW50c1xcXFxvcHRpbWFuZG9haVxcXFxjb2RlXFxcXGFwcHNcXFxcZXh0ZW5zaW9uLWNocm9taXVtXCI7Y29uc3QgX192aXRlX2luamVjdGVkX29yaWdpbmFsX2ZpbGVuYW1lID0gXCJDOlxcXFxVc2Vyc1xcXFxvc2NhcnR1cmJvcHJpbnpcXFxcRG9jdW1lbnRzXFxcXG9wdGltYW5kb2FpXFxcXGNvZGVcXFxcYXBwc1xcXFxleHRlbnNpb24tY2hyb21pdW1cXFxcdml0ZS5jb25maWcudHNcIjtjb25zdCBfX3ZpdGVfaW5qZWN0ZWRfb3JpZ2luYWxfaW1wb3J0X21ldGFfdXJsID0gXCJmaWxlOi8vL0M6L1VzZXJzL29zY2FydHVyYm9wcmluei9Eb2N1bWVudHMvb3B0aW1hbmRvYWkvY29kZS9hcHBzL2V4dGVuc2lvbi1jaHJvbWl1bS92aXRlLmNvbmZpZy50c1wiO2ltcG9ydCB7IGRlZmluZUNvbmZpZyB9IGZyb20gJ3ZpdGUnXHJcbmltcG9ydCByZWFjdCBmcm9tICdAdml0ZWpzL3BsdWdpbi1yZWFjdCdcclxuaW1wb3J0IHsgY3J4IH0gZnJvbSAnQGNyeGpzL3ZpdGUtcGx1Z2luJ1xyXG5pbXBvcnQgbWFuaWZlc3QgZnJvbSAnLi9tYW5pZmVzdC5jb25maWcnXHJcblxyXG5leHBvcnQgZGVmYXVsdCBkZWZpbmVDb25maWcoe1xyXG4gIHBsdWdpbnM6IFtcclxuICAgIHJlYWN0KCksXHJcbiAgICBjcngoeyBtYW5pZmVzdCB9KVxyXG4gIF1cclxufSlcclxuIiwgImNvbnN0IF9fdml0ZV9pbmplY3RlZF9vcmlnaW5hbF9kaXJuYW1lID0gXCJDOlxcXFxVc2Vyc1xcXFxvc2NhcnR1cmJvcHJpbnpcXFxcRG9jdW1lbnRzXFxcXG9wdGltYW5kb2FpXFxcXGNvZGVcXFxcYXBwc1xcXFxleHRlbnNpb24tY2hyb21pdW1cIjtjb25zdCBfX3ZpdGVfaW5qZWN0ZWRfb3JpZ2luYWxfZmlsZW5hbWUgPSBcIkM6XFxcXFVzZXJzXFxcXG9zY2FydHVyYm9wcmluelxcXFxEb2N1bWVudHNcXFxcb3B0aW1hbmRvYWlcXFxcY29kZVxcXFxhcHBzXFxcXGV4dGVuc2lvbi1jaHJvbWl1bVxcXFxtYW5pZmVzdC5jb25maWcudHNcIjtjb25zdCBfX3ZpdGVfaW5qZWN0ZWRfb3JpZ2luYWxfaW1wb3J0X21ldGFfdXJsID0gXCJmaWxlOi8vL0M6L1VzZXJzL29zY2FydHVyYm9wcmluei9Eb2N1bWVudHMvb3B0aW1hbmRvYWkvY29kZS9hcHBzL2V4dGVuc2lvbi1jaHJvbWl1bS9tYW5pZmVzdC5jb25maWcudHNcIjtpbXBvcnQgeyBkZWZpbmVNYW5pZmVzdCB9IGZyb20gJ0Bjcnhqcy92aXRlLXBsdWdpbidcclxuXHJcbmV4cG9ydCBkZWZhdWx0IGRlZmluZU1hbmlmZXN0KHtcclxuICBuYW1lOiAnT3BlbkdpcmFmZmUgT3JjaGVzdHJhdG9yJyxcclxuICBkZXNjcmlwdGlvbjogJ011bHRpLUFJLUFnZW50ZW4gV29ya2Zsb3cgT3JjaGVzdHJhdG9yIG1pdCBlY2h0ZW4gU2lkZWJhcnMnLFxyXG4gIHZlcnNpb246ICcwLjAuMScsXHJcbiAgbWFuaWZlc3RfdmVyc2lvbjogMyxcclxuICBwZXJtaXNzaW9uczogW1xyXG4gICAgJ2FjdGl2ZVRhYicsXHJcbiAgICAnc3RvcmFnZScsXHJcbiAgICAndW5saW1pdGVkU3RvcmFnZScsXHJcbiAgICAnc2NyaXB0aW5nJyxcclxuICAgICd3aW5kb3dzJyxcclxuICAgICdzeXN0ZW0uZGlzcGxheScsXHJcbiAgICAnc2lkZVBhbmVsJ1xyXG4gIF0sXHJcbiAgc2lkZV9wYW5lbDoge1xyXG4gICAgZGVmYXVsdF9wYXRoOiAnc3JjL3NpZGVwYW5lbC5odG1sJ1xyXG4gIH0sXHJcbiAgaG9zdF9wZXJtaXNzaW9uczogW1xyXG4gICAgJzxhbGxfdXJscz4nXHJcbiAgXSxcclxuICBjb250ZW50X3NjcmlwdHM6IFtcclxuICAgIHtcclxuICAgICAgbWF0Y2hlczogWyc8YWxsX3VybHM+J10sXHJcbiAgICAgIGpzOiBbJ3NyYy9jb250ZW50LXNjcmlwdC50c3gnXSxcclxuICAgICAgY3NzOiBbXSxcclxuICAgICAgcnVuX2F0OiAnZG9jdW1lbnRfZW5kJ1xyXG4gICAgfVxyXG4gIF0sXHJcbiAgYmFja2dyb3VuZDoge1xyXG4gICAgc2VydmljZV93b3JrZXI6ICdzcmMvYmFja2dyb3VuZC50cydcclxuICB9LFxyXG4gIGFjdGlvbjoge1xyXG4gICAgZGVmYXVsdF90aXRsZTogJ09wZW5HaXJhZmZlIE9yY2hlc3RyYXRvciAtIFRvZ2dsZSBTaWRlYmFycydcclxuICB9LFxyXG4gIGNvbW1hbmRzOiB7XHJcbiAgICAndG9nZ2xlLW92ZXJsYXknOiB7XHJcbiAgICAgIHN1Z2dlc3RlZF9rZXk6IHtcclxuICAgICAgICBkZWZhdWx0OiAnQWx0K08nXHJcbiAgICAgIH0sXHJcbiAgICAgIGRlc2NyaXB0aW9uOiAnVG9nZ2xlIG92ZXJsYXkgb24vb2ZmIGZvciB0aGlzIGRvbWFpbidcclxuICAgIH1cclxuICB9LFxyXG4gIHdlYl9hY2Nlc3NpYmxlX3Jlc291cmNlczogW1xyXG4gICAge1xyXG4gICAgICByZXNvdXJjZXM6IFsnZ3JpZC1kaXNwbGF5Lmh0bWwnLCAnZ3JpZC1kaXNwbGF5LmpzJywgJ2dyaWQtc2NyaXB0LmpzJywgJ2dyaWQtZGlzcGxheS12Mi5odG1sJywgJ2dyaWQtc2NyaXB0LXYyLmpzJywgJ3BvcHVwLmh0bWwnLCAncG9wdXAuanMnXSxcclxuICAgICAgbWF0Y2hlczogWyc8YWxsX3VybHM+J11cclxuICAgIH1cclxuICBdLFxyXG4gIGNvbnRlbnRfc2VjdXJpdHlfcG9saWN5OiB7XHJcbiAgICBleHRlbnNpb25fcGFnZXM6IFwic2NyaXB0LXNyYyAnc2VsZic7IG9iamVjdC1zcmMgJ3NlbGYnOyBjb25uZWN0LXNyYyAnc2VsZicgd3M6Ly9sb2NhbGhvc3Q6KiB3c3M6Ly9sb2NhbGhvc3Q6KiBodHRwczovLyo7IGltZy1zcmMgJ3NlbGYnIGRhdGE6IGh0dHBzOi8vKjtcIlxyXG4gIH1cclxufSlcclxuIl0sCiAgIm1hcHBpbmdzIjogIjtBQUFtYSxTQUFTLG9CQUFvQjtBQUNoYyxPQUFPLFdBQVc7QUFDbEIsU0FBUyxXQUFXOzs7QUNGdVosU0FBUyxzQkFBc0I7QUFFMWMsSUFBTywwQkFBUSxlQUFlO0FBQUEsRUFDNUIsTUFBTTtBQUFBLEVBQ04sYUFBYTtBQUFBLEVBQ2IsU0FBUztBQUFBLEVBQ1Qsa0JBQWtCO0FBQUEsRUFDbEIsYUFBYTtBQUFBLElBQ1g7QUFBQSxJQUNBO0FBQUEsSUFDQTtBQUFBLElBQ0E7QUFBQSxJQUNBO0FBQUEsSUFDQTtBQUFBLElBQ0E7QUFBQSxFQUNGO0FBQUEsRUFDQSxZQUFZO0FBQUEsSUFDVixjQUFjO0FBQUEsRUFDaEI7QUFBQSxFQUNBLGtCQUFrQjtBQUFBLElBQ2hCO0FBQUEsRUFDRjtBQUFBLEVBQ0EsaUJBQWlCO0FBQUEsSUFDZjtBQUFBLE1BQ0UsU0FBUyxDQUFDLFlBQVk7QUFBQSxNQUN0QixJQUFJLENBQUMsd0JBQXdCO0FBQUEsTUFDN0IsS0FBSyxDQUFDO0FBQUEsTUFDTixRQUFRO0FBQUEsSUFDVjtBQUFBLEVBQ0Y7QUFBQSxFQUNBLFlBQVk7QUFBQSxJQUNWLGdCQUFnQjtBQUFBLEVBQ2xCO0FBQUEsRUFDQSxRQUFRO0FBQUEsSUFDTixlQUFlO0FBQUEsRUFDakI7QUFBQSxFQUNBLFVBQVU7QUFBQSxJQUNSLGtCQUFrQjtBQUFBLE1BQ2hCLGVBQWU7QUFBQSxRQUNiLFNBQVM7QUFBQSxNQUNYO0FBQUEsTUFDQSxhQUFhO0FBQUEsSUFDZjtBQUFBLEVBQ0Y7QUFBQSxFQUNBLDBCQUEwQjtBQUFBLElBQ3hCO0FBQUEsTUFDRSxXQUFXLENBQUMscUJBQXFCLG1CQUFtQixrQkFBa0Isd0JBQXdCLHFCQUFxQixjQUFjLFVBQVU7QUFBQSxNQUMzSSxTQUFTLENBQUMsWUFBWTtBQUFBLElBQ3hCO0FBQUEsRUFDRjtBQUFBLEVBQ0EseUJBQXlCO0FBQUEsSUFDdkIsaUJBQWlCO0FBQUEsRUFDbkI7QUFDRixDQUFDOzs7QURoREQsSUFBTyxzQkFBUSxhQUFhO0FBQUEsRUFDMUIsU0FBUztBQUFBLElBQ1AsTUFBTTtBQUFBLElBQ04sSUFBSSxFQUFFLGtDQUFTLENBQUM7QUFBQSxFQUNsQjtBQUNGLENBQUM7IiwKICAibmFtZXMiOiBbXQp9Cg==
