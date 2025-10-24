@@ -669,6 +669,52 @@ function SidepanelOrchestrator() {
         >
           💾
         </button>
+        <button
+          onClick={openPopupChat}
+          style={{
+            width: '32px',
+            height: '32px',
+            flexShrink: 0,
+            background: 'rgba(255,255,255,0.1)',
+            border: '1px solid rgba(255,255,255,0.2)',
+            color: 'white',
+            borderRadius: '4px',
+            cursor: 'pointer',
+            fontSize: '14px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            transition: 'all 0.2s ease'
+          }}
+          onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.2)'}
+          onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.1)'}
+          title="Open Popup Chat"
+        >
+          💬
+        </button>
+        <button
+          onClick={toggleCommandChatPin}
+          style={{
+            width: '32px',
+            height: '32px',
+            flexShrink: 0,
+            background: isCommandChatPinned ? 'rgba(76,175,80,0.4)' : 'rgba(255,255,255,0.1)',
+            border: `1px solid ${isCommandChatPinned ? 'rgba(76,175,80,0.6)' : 'rgba(255,255,255,0.2)'}`,
+            color: 'white',
+            borderRadius: '4px',
+            cursor: 'pointer',
+            fontSize: '14px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            transition: 'all 0.2s ease'
+          }}
+          onMouseEnter={(e) => e.currentTarget.style.background = isCommandChatPinned ? 'rgba(76,175,80,0.5)' : 'rgba(255,255,255,0.2)'}
+          onMouseLeave={(e) => e.currentTarget.style.background = isCommandChatPinned ? 'rgba(76,175,80,0.4)' : 'rgba(255,255,255,0.1)'}
+          title={isCommandChatPinned ? "Unpin Command Chat" : "Pin Command Chat"}
+        >
+          📌
+        </button>
       </div>
 
       {/* Administration Section */}
@@ -683,11 +729,9 @@ function SidepanelOrchestrator() {
           </div>
           <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', justifyContent: 'flex-end', flex: 1 }}>
             <button onClick={openUnifiedAdmin} title="Admin Configuration (Agents, Context, Memory)" style={{ width: '32px', height: '32px', flexShrink: 0, background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)', color: 'white', borderRadius: '6px', cursor: 'pointer', fontSize: '16px', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.2s ease' }} onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.2)'} onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.1)'}>⚙️</button>
-            <button onClick={openSettings} title="Settings" style={{ width: '32px', height: '32px', flexShrink: 0, background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)', color: 'white', borderRadius: '6px', cursor: 'pointer', fontSize: '16px', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.2s ease' }} onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.2)'} onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.1)'}>🔧</button>
             <button onClick={openAddView} title="Add View" style={{ width: '32px', height: '32px', flexShrink: 0, background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)', color: 'white', borderRadius: '6px', cursor: 'pointer', fontSize: '16px', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.2s ease' }} onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.2)'} onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.1)'}>⊞</button>
             <button onClick={openSessions} title="Sessions" style={{ width: '32px', height: '32px', flexShrink: 0, background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)', color: 'white', borderRadius: '6px', cursor: 'pointer', fontSize: '16px', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.2s ease' }} onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.2)'} onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.1)'}>📚</button>
-            <button onClick={openPopupChat} title="Open Popup Chat" style={{ width: '32px', height: '32px', flexShrink: 0, background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)', color: 'white', borderRadius: '6px', cursor: 'pointer', fontSize: '16px', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.2s ease' }} onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.2)'} onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.1)'}>💬</button>
-            <button onClick={toggleCommandChatPin} title={isCommandChatPinned ? "Unpin Command Chat" : "Pin Command Chat"} style={{ width: '32px', height: '32px', flexShrink: 0, background: isCommandChatPinned ? 'rgba(76,175,80,0.4)' : 'rgba(255,255,255,0.1)', border: `1px solid ${isCommandChatPinned ? 'rgba(76,175,80,0.6)' : 'rgba(255,255,255,0.2)'}`, color: 'white', borderRadius: '6px', cursor: 'pointer', fontSize: '16px', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.2s ease' }} onMouseEnter={(e) => e.currentTarget.style.background = isCommandChatPinned ? 'rgba(76,175,80,0.5)' : 'rgba(255,255,255,0.2)'} onMouseLeave={(e) => e.currentTarget.style.background = isCommandChatPinned ? 'rgba(76,175,80,0.4)' : 'rgba(255,255,255,0.1)'}>📌</button>
+            <button onClick={openSettings} title="Settings" style={{ width: '32px', height: '32px', flexShrink: 0, background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)', color: 'white', borderRadius: '6px', cursor: 'pointer', fontSize: '16px', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.2s ease' }} onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.2)'} onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.1)'}>🔧</button>
           </div>
         </div>
       </div>
@@ -1434,64 +1478,6 @@ function SidepanelOrchestrator() {
           ⚡ Quick Actions
         </h3>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-          <button
-            onClick={openAddView}
-            style={{
-              padding: '12px',
-              background: '#FF6B6B',
-              border: 'none',
-              color: 'white',
-              borderRadius: '8px',
-          cursor: 'pointer',
-              fontSize: '13px',
-              fontWeight: '600',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: '6px',
-              transition: 'all 0.2s ease',
-              boxShadow: '0 2px 6px rgba(0,0,0,0.2)'
-        }}
-        onMouseEnter={(e) => {
-          e.currentTarget.style.transform = 'translateY(-2px)'
-              e.currentTarget.style.boxShadow = '0 4px 12px rgba(255,107,107,0.4)'
-        }}
-        onMouseLeave={(e) => {
-          e.currentTarget.style.transform = 'translateY(0)'
-              e.currentTarget.style.boxShadow = '0 2px 6px rgba(0,0,0,0.2)'
-            }}
-          >
-            🚀 Add View
-          </button>
-          <button
-            onClick={openSessions}
-            style={{
-              padding: '12px',
-              background: '#2196F3',
-              border: 'none',
-              color: 'white',
-              borderRadius: '8px',
-              cursor: 'pointer',
-              fontSize: '13px',
-              fontWeight: '600',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: '6px',
-              transition: 'all 0.2s ease',
-              boxShadow: '0 2px 6px rgba(0,0,0,0.2)'
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.transform = 'translateY(-2px)'
-              e.currentTarget.style.boxShadow = '0 4px 12px rgba(33,150,243,0.4)'
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.transform = 'translateY(0)'
-              e.currentTarget.style.boxShadow = '0 2px 6px rgba(0,0,0,0.2)'
-            }}
-          >
-            📚 Sessions
-          </button>
           <button
             onClick={syncSession}
             style={{
