@@ -7720,6 +7720,82 @@ function initializeExtension() {
 
   } catch {}
 
+  
+
+  // Listen for theme changes from chrome.storage (when settings are updated)
+
+  if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.onChanged) {
+
+    chrome.storage.onChanged.addListener((changes, namespace) => {
+
+      if (namespace === 'local' && changes['optimando-ui-theme']) {
+
+        const newTheme = changes['optimando-ui-theme'].newValue
+
+        console.log('🎨 Content script detected theme change:', newTheme)
+
+        
+
+        // Update localStorage
+
+        try {
+
+          localStorage.setItem('optimando-ui-theme', newTheme)
+
+        } catch {}
+
+        
+
+        // Apply theme to sidebars
+
+        if (newTheme === 'default') {
+
+          try { resetToDefaultTheme() } catch {}
+
+        } else if (newTheme === 'dark' || newTheme === 'professional') {
+
+          try { applyTheme(newTheme) } catch {}
+
+        }
+
+        
+
+        // Update docked command chat if it exists
+
+        const dockedChat = document.getElementById('command-chat-docked')
+
+        if (dockedChat) {
+
+          try {
+
+            if (globalLightboxFunctions.removeDockedChat) {
+
+              globalLightboxFunctions.removeDockedChat()
+
+            }
+
+            if (globalLightboxFunctions.createDockedChat) {
+
+              globalLightboxFunctions.createDockedChat()
+
+            }
+
+          } catch (e) {
+
+            console.error('🎨 Error updating docked chat theme:', e)
+
+          }
+
+        }
+
+      }
+
+    })
+
+  }
+
+  
+
   // Bottom Panel Content
 
   let isExpanded = false

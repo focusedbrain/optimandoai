@@ -41,6 +41,7 @@ function SidepanelOrchestrator() {
   const [pendingItems, setPendingItems] = useState<any[]>([])
   const [embedTarget, setEmbedTarget] = useState<'session' | 'account'>('session')
   const [notification, setNotification] = useState<{message: string, type: 'success' | 'error' | 'info'} | null>(null)
+  const [theme, setTheme] = useState<'default' | 'dark' | 'professional'>('default')
   const chatRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   
@@ -60,6 +61,30 @@ function SidepanelOrchestrator() {
         }
       }
     })
+  }, [])
+
+  // Load and listen for theme changes
+  useEffect(() => {
+    // Load initial theme
+    chrome.storage.local.get(['optimando-ui-theme'], (result) => {
+      const savedTheme = result['optimando-ui-theme'] || 'default'
+      setTheme(savedTheme as 'default' | 'dark' | 'professional')
+    })
+
+    // Listen for theme changes
+    const handleStorageChange = (changes: any, namespace: string) => {
+      if (namespace === 'local' && changes['optimando-ui-theme']) {
+        const newTheme = changes['optimando-ui-theme'].newValue || 'default'
+        console.log('🎨 Sidepanel: Theme changed to:', newTheme)
+        setTheme(newTheme as 'default' | 'dark' | 'professional')
+      }
+    }
+
+    chrome.storage.onChanged.addListener(handleStorageChange)
+
+    return () => {
+      chrome.storage.onChanged.removeListener(handleStorageChange)
+    }
   }, [])
   
   // Save pinned state and toggle docked chat
@@ -531,13 +556,157 @@ function SidepanelOrchestrator() {
     })
   }
 
+  // Get theme colors
+  const getThemeColors = () => {
+    switch (theme) {
+      case 'dark':
+        return {
+          background: 'linear-gradient(135deg, #0f172a 0%, #1e293b 100%)',
+          text: '#f1f5f9'
+        }
+      case 'professional':
+        return {
+          background: 'linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%)',
+          text: '#0f172a'
+        }
+      default:
+        return {
+          background: 'linear-gradient(135deg, #8b5cf6 0%, #764ba2 100%)',
+          text: 'white'
+        }
+    }
+  }
+
+  // Get icon button style based on theme
+  const getIconButtonStyle = (baseColor: string) => {
+    if (theme === 'professional') {
+      return {
+        background: 'rgba(0,0,0,0.08)',
+        border: '1px solid rgba(0,0,0,0.12)',
+        color: '#1e293b'
+      }
+    } else if (theme === 'dark') {
+      return {
+        background: 'rgba(255,255,255,0.1)',
+        border: '1px solid rgba(255,255,255,0.2)',
+        color: '#f1f5f9'
+      }
+    } else {
+      return {
+        background: baseColor,
+        border: 'none',
+        color: 'white'
+      }
+    }
+  }
+
+  const themeColors = getThemeColors()
+
+  // Admin icon button style
+  const adminIconStyle = {
+    width: '32px',
+    height: '32px',
+    flexShrink: 0,
+    ...(theme === 'professional' ? {
+      background: 'rgba(15,23,42,0.08)',
+      border: '1px solid rgba(15,23,42,0.2)',
+      color: '#0f172a'
+    } : theme === 'dark' ? {
+      background: 'rgba(255,255,255,0.1)',
+      border: '1px solid rgba(255,255,255,0.2)',
+      color: '#f1f5f9'
+    } : {
+      background: 'rgba(118,75,162,0.45)',
+      border: '1px solid rgba(255,255,255,0.5)',
+      color: 'white'
+    }),
+    borderRadius: '6px',
+    cursor: 'pointer',
+    fontSize: '16px',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    transition: 'all 0.2s ease'
+  }
+
+  // Action button style (for session controls)
+  const actionButtonStyle = (baseColor: string) => ({
+    width: '32px',
+    height: '32px',
+    flexShrink: 0,
+    ...(theme === 'professional' ? {
+      background: 'rgba(15,23,42,0.08)',
+      border: '1px solid rgba(15,23,42,0.2)',
+      color: '#0f172a'
+    } : theme === 'dark' ? {
+      background: 'rgba(255,255,255,0.1)',
+      border: '1px solid rgba(255,255,255,0.2)',
+      color: '#f1f5f9'
+    } : {
+      background: 'rgba(118,75,162,0.45)',
+      border: '1px solid rgba(255,255,255,0.5)',
+      color: 'white'
+    }),
+    borderRadius: '4px',
+    cursor: 'pointer',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    transition: 'all 0.2s ease'
+  })
+
+  // Command chat control button style
+  const chatControlButtonStyle = () => ({
+    ...(theme === 'professional' ? {
+      background: 'rgba(15,23,42,0.08)',
+      border: '1px solid rgba(15,23,42,0.2)',
+      color: '#0f172a'
+    } : theme === 'dark' ? {
+      background: 'rgba(255,255,255,0.1)',
+      border: '1px solid rgba(255,255,255,0.2)',
+      color: '#f1f5f9'
+    } : {
+      background: 'rgba(118,75,162,0.35)',
+      border: '1px solid rgba(255,255,255,0.45)',
+      color: 'white'
+    })
+  })
+
+  // WR button style (for WR Login and Vault)
+  const wrButtonStyle = () => ({
+    width: '100%',
+    padding: '12px 18px',
+    ...(theme === 'professional' ? {
+      background: 'rgba(15,23,42,0.08)',
+      border: '1px solid rgba(15,23,42,0.2)',
+      color: '#0f172a'
+    } : theme === 'dark' ? {
+      background: 'rgba(255,255,255,0.15)',
+      border: '1px solid rgba(255,255,255,0.3)',
+      color: '#f1f5f9'
+    } : {
+      background: 'rgba(118,75,162,0.35)',
+      border: '1px solid rgba(255,255,255,0.45)',
+      color: 'white'
+    }),
+    borderRadius: '8px',
+    cursor: 'pointer',
+    fontSize: '14px',
+    fontWeight: '600',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: '8px',
+    transition: 'all 0.2s ease'
+  })
+
   return (
     <div style={{
       width: '100%',
       minHeight: '100vh',
       fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
-      background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-      color: 'white',
+      background: themeColors.background,
+      color: themeColors.text,
       padding: '0',
       margin: '0',
       boxSizing: 'border-box',
@@ -545,35 +714,24 @@ function SidepanelOrchestrator() {
       flexDirection: 'column',
       overflowX: 'hidden'
     }}>
-      {/* Session Controls at the very top - Single Row */}
+      {/* Session Controls at the very top - Two Rows */}
       <div style={{ 
         padding: '12px 16px',
         borderBottom: '1px solid rgba(255,255,255,0.2)',
         display: 'flex',
-        alignItems: 'center',
+        flexDirection: 'column',
         gap: '8px',
-        background: 'rgba(0,0,0,0.15)'
+        background: theme === 'default' ? 'rgba(118,75,162,0.6)' : 'rgba(0,0,0,0.15)'
       }}>
+        {/* Row 1: Session Name + 4 Action Icons */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
         <button
           onClick={openReasoningLightbox}
           style={{
-            width: '32px',
-            height: '32px',
-            flexShrink: 0,
-            background: 'rgba(156, 39, 176, 0.8)',
-            border: 'none',
-            color: 'white',
-            borderRadius: '4px',
-            cursor: 'pointer',
+              ...actionButtonStyle('rgba(156, 39, 176, 0.8)'),
             fontSize: '14px',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            transition: 'all 0.2s ease',
             padding: 0
           }}
-          onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(156, 39, 176, 1)'}
-          onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(156, 39, 176, 0.8)'}
           title="Reasoning & Session Goals"
         >
           🧠
@@ -596,7 +754,7 @@ function SidepanelOrchestrator() {
               padding: '6px 10px',
               background: 'rgba(255,255,255,0.1)',
               border: '1px solid rgba(255,255,255,0.2)',
-              color: 'white',
+                color: themeColors.text,
               borderRadius: '4px',
               fontSize: '13px',
               fontWeight: '500',
@@ -622,23 +780,10 @@ function SidepanelOrchestrator() {
         <button
           onClick={createNewSession}
           style={{
-            width: '32px',
-            height: '32px',
-            flexShrink: 0,
-            background: '#4CAF50',
-            border: 'none',
-            color: 'white',
-            borderRadius: '4px',
-            cursor: 'pointer',
+              ...actionButtonStyle('#4CAF50'),
             fontSize: '18px',
-            fontWeight: 'bold',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            transition: 'all 0.2s ease'
-          }}
-          onMouseEnter={(e) => e.currentTarget.style.background = '#45a049'}
-          onMouseLeave={(e) => e.currentTarget.style.background = '#4CAF50'}
+              fontWeight: 'bold'
+            }}
           title="New Session"
         >
           +
@@ -649,97 +794,64 @@ function SidepanelOrchestrator() {
             sendToContentScript('SAVE_SESSION')
           }}
           style={{
-            width: '32px',
-            height: '32px',
-            flexShrink: 0,
-            background: 'rgba(76, 175, 80, 0.8)',
-            border: 'none',
-            color: 'white',
-            borderRadius: '4px',
-            cursor: 'pointer',
-            fontSize: '14px',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            transition: 'all 0.2s ease'
-          }}
-          onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(76, 175, 80, 1)'}
-          onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(76, 175, 80, 0.8)'}
+              ...actionButtonStyle('rgba(76, 175, 80, 0.8)'),
+              fontSize: '14px'
+            }}
           title="Save/Export Session"
         >
           💾
         </button>
-        <button
-          onClick={openPopupChat}
-          style={{
-            width: '32px',
-            height: '32px',
-            flexShrink: 0,
-            background: 'rgba(255,255,255,0.1)',
-            border: '1px solid rgba(255,255,255,0.2)',
-            color: 'white',
-            borderRadius: '4px',
-            cursor: 'pointer',
-            fontSize: '14px',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            transition: 'all 0.2s ease'
-          }}
-          onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.2)'}
-          onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.1)'}
-          title="Open Popup Chat"
-        >
-          💬
-        </button>
-        <button
-          onClick={toggleCommandChatPin}
-          style={{
-            width: '32px',
-            height: '32px',
-            flexShrink: 0,
-            background: isCommandChatPinned ? 'rgba(76,175,80,0.4)' : 'rgba(255,255,255,0.1)',
-            border: `1px solid ${isCommandChatPinned ? 'rgba(76,175,80,0.6)' : 'rgba(255,255,255,0.2)'}`,
-            color: 'white',
-            borderRadius: '4px',
-            cursor: 'pointer',
-            fontSize: '14px',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            transition: 'all 0.2s ease'
-          }}
-          onMouseEnter={(e) => e.currentTarget.style.background = isCommandChatPinned ? 'rgba(76,175,80,0.5)' : 'rgba(255,255,255,0.2)'}
-          onMouseLeave={(e) => e.currentTarget.style.background = isCommandChatPinned ? 'rgba(76,175,80,0.4)' : 'rgba(255,255,255,0.1)'}
-          title={isCommandChatPinned ? "Unpin Command Chat" : "Pin Command Chat"}
-        >
-          📌
-        </button>
+          <button
+            onClick={openPopupChat}
+            style={{
+              ...actionButtonStyle('rgba(255,255,255,0.1)'),
+              fontSize: '14px'
+            }}
+            title="Open Popup Chat"
+          >
+            💬
+          </button>
+          <button
+            onClick={toggleCommandChatPin}
+            style={{
+              ...actionButtonStyle(isCommandChatPinned ? 'rgba(76,175,80,0.4)' : 'rgba(255,255,255,0.1)'),
+              fontSize: '14px',
+              ...(isCommandChatPinned && theme === 'default' ? {
+                background: 'rgba(76,175,80,0.4)',
+                border: '1px solid rgba(76,175,80,0.6)'
+              } : {})
+            }}
+            title={isCommandChatPinned ? "Unpin Command Chat" : "Pin Command Chat"}
+          >
+            📌
+          </button>
       </div>
 
-      {/* Administration Section */}
+        {/* Row 2: ADMIN Label + 4 Admin Icons (matching width) */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
       <div style={{
-        padding: '12px 16px',
-        borderBottom: '1px solid rgba(255,255,255,0.2)',
-        background: 'rgba(0,0,0,0.1)'
-      }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', width: '100%' }}>
-          <div style={{ fontSize: '11px', fontWeight: '700', opacity: 0.85, textTransform: 'uppercase', letterSpacing: '0.5px', flexShrink: 0 }}>
-            ADMIN
+            fontSize: '11px', 
+            fontWeight: '700', 
+            opacity: 0.85, 
+            textTransform: 'uppercase', 
+            letterSpacing: '0.5px',
+            width: '32px',
+            textAlign: 'center'
+          }}>
+            Admin
           </div>
-          <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', justifyContent: 'flex-end', flex: 1 }}>
-            <button onClick={openUnifiedAdmin} title="Admin Configuration (Agents, Context, Memory)" style={{ width: '32px', height: '32px', flexShrink: 0, background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)', color: 'white', borderRadius: '6px', cursor: 'pointer', fontSize: '16px', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.2s ease' }} onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.2)'} onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.1)'}>⚙️</button>
-            <button onClick={openAddView} title="Add View" style={{ width: '32px', height: '32px', flexShrink: 0, background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)', color: 'white', borderRadius: '6px', cursor: 'pointer', fontSize: '16px', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.2s ease' }} onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.2)'} onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.1)'}>⊞</button>
-            <button onClick={openSessions} title="Sessions" style={{ width: '32px', height: '32px', flexShrink: 0, background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)', color: 'white', borderRadius: '6px', cursor: 'pointer', fontSize: '16px', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.2s ease' }} onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.2)'} onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.1)'}>📚</button>
-            <button onClick={openSettings} title="Settings" style={{ width: '32px', height: '32px', flexShrink: 0, background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)', color: 'white', borderRadius: '6px', cursor: 'pointer', fontSize: '16px', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.2s ease' }} onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.2)'} onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.1)'}>🔧</button>
-          </div>
+          <div style={{ flex: 1 }} />
+          <button onClick={openUnifiedAdmin} title="Admin Configuration (Agents, Context, Memory)" style={adminIconStyle}>⚙️</button>
+          <button onClick={openAddView} title="Add View" style={adminIconStyle}>⊞</button>
+          <button onClick={openSessions} title="Sessions" style={adminIconStyle}>📚</button>
+          <button onClick={openSettings} title="Settings" style={adminIconStyle}>🔧</button>
         </div>
       </div>
 
       {/* WR Login Section */}
       <div style={{
         borderBottom: '1px solid rgba(255,255,255,0.2)',
-        background: 'rgba(0,0,0,0.05)'
+        background: theme === 'default' ? 'rgba(118,75,162,0.5)' : 'rgba(0,0,0,0.05)'
       }}>
         <div 
           onClick={() => setIsWRLoginCollapsed(!isWRLoginCollapsed)}
@@ -792,30 +904,29 @@ function SidepanelOrchestrator() {
             <div style={{ fontSize: '12px', opacity: 0.75, textAlign: 'center', lineHeight: '1.5' }}>
               Scan to connect your WR account
             </div>
-            <button style={{
-              width: '100%',
-              padding: '12px 18px',
-              background: 'rgba(255,255,255,0.15)',
-              border: '1px solid rgba(255,255,255,0.3)',
-              color: 'white',
-              borderRadius: '8px',
-              cursor: 'pointer',
-              fontSize: '14px',
-              fontWeight: '600',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: '8px',
-              transition: 'all 0.2s ease'
-            }}
+            <button 
+              style={wrButtonStyle()}
             onMouseEnter={(e) => {
+                if (theme === 'professional') {
+                  e.currentTarget.style.background = 'rgba(15,23,42,0.12)'
+                } else if (theme === 'dark') {
               e.currentTarget.style.background = 'rgba(255,255,255,0.25)'
+                } else {
+                  e.currentTarget.style.background = 'rgba(118,75,162,0.5)'
+                }
               e.currentTarget.style.transform = 'translateY(-1px)'
             }}
             onMouseLeave={(e) => {
+                if (theme === 'professional') {
+                  e.currentTarget.style.background = 'rgba(15,23,42,0.08)'
+                } else if (theme === 'dark') {
               e.currentTarget.style.background = 'rgba(255,255,255,0.15)'
+                } else {
+                  e.currentTarget.style.background = 'rgba(102,126,234,0.25)'
+                }
               e.currentTarget.style.transform = 'translateY(0)'
-            }}>
+              }}
+            >
               <span>🔗</span> WR Login
             </button>
           </div>
@@ -828,7 +939,7 @@ function SidepanelOrchestrator() {
           <div 
             style={{
               borderBottom: '1px solid rgba(255,255,255,0.2)',
-              background: 'rgba(255,255,255,0.10)',
+              background: theme === 'default' ? 'rgba(118,75,162,0.4)' : 'rgba(255,255,255,0.10)',
               border: '1px solid rgba(255,255,255,0.20)',
               margin: '12px 16px',
               borderRadius: '8px',
@@ -845,9 +956,9 @@ function SidepanelOrchestrator() {
               alignItems: 'center',
               justifyContent: 'space-between',
               padding: '10px 14px',
-              background: 'linear-gradient(135deg,#667eea,#764ba2)',
+              background: themeColors.background,
               borderBottom: '1px solid rgba(255,255,255,0.20)',
-              color: 'white'
+              color: themeColors.text
             }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                 <div style={{ fontSize: '13px', fontWeight: '700' }}>💬 Command Chat</div>
@@ -858,9 +969,7 @@ function SidepanelOrchestrator() {
                     style={{
                       height: '32px',
                       minWidth: '32px',
-                      background: 'rgba(255,255,255,0.12)',
-                      border: '1px solid rgba(255,255,255,0.25)',
-                      color: '#ef4444',
+                      ...chatControlButtonStyle(),
                       borderRadius: '6px',
                       padding: '0 10px',
                       fontSize: '14px',
@@ -870,8 +979,24 @@ function SidepanelOrchestrator() {
                       justifyContent: 'center',
                       transition: 'all 0.2s ease'
                     }}
-                    onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.2)'}
-                    onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.12)'}
+                    onMouseEnter={(e) => {
+                      if (theme === 'professional') {
+                        e.currentTarget.style.background = 'rgba(15,23,42,0.12)'
+                      } else if (theme === 'dark') {
+                        e.currentTarget.style.background = 'rgba(255,255,255,0.2)'
+                      } else {
+                        e.currentTarget.style.background = 'rgba(118,75,162,0.6)'
+                      }
+                    }}
+                    onMouseLeave={(e) => {
+                      if (theme === 'professional') {
+                        e.currentTarget.style.background = 'rgba(15,23,42,0.08)'
+                      } else if (theme === 'dark') {
+                        e.currentTarget.style.background = 'rgba(255,255,255,0.12)'
+                      } else {
+                        e.currentTarget.style.background = 'rgba(118,75,162,0.35)'
+                      }
+                    }}
                   >
                     🪣
                   </button>
@@ -879,9 +1004,7 @@ function SidepanelOrchestrator() {
                     onClick={handleScreenSelect}
                     title="LmGTFY - Capture a screen area as screenshot or stream"
                     style={{
-                      background: 'rgba(255,255,255,0.15)',
-                      border: '1px solid rgba(255,255,255,0.25)',
-                      color: 'white',
+                      ...chatControlButtonStyle(),
                       borderRadius: '6px',
                       padding: '0 10px',
                       height: '32px',
@@ -893,8 +1016,24 @@ function SidepanelOrchestrator() {
                       justifyContent: 'center',
                       transition: 'all 0.2s ease'
                     }}
-                    onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.25)'}
-                    onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.15)'}
+                    onMouseEnter={(e) => {
+                      if (theme === 'professional') {
+                        e.currentTarget.style.background = 'rgba(15,23,42,0.12)'
+                      } else if (theme === 'dark') {
+                        e.currentTarget.style.background = 'rgba(255,255,255,0.25)'
+                      } else {
+                        e.currentTarget.style.background = 'rgba(118,75,162,0.6)'
+                      }
+                    }}
+                    onMouseLeave={(e) => {
+                      if (theme === 'professional') {
+                        e.currentTarget.style.background = 'rgba(15,23,42,0.08)'
+                      } else if (theme === 'dark') {
+                        e.currentTarget.style.background = 'rgba(255,255,255,0.15)'
+                      } else {
+                        e.currentTarget.style.background = 'rgba(118,75,162,0.35)'
+                      }
+                    }}
                   >
                     ✎
                   </button>
@@ -903,9 +1042,7 @@ function SidepanelOrchestrator() {
                       onClick={() => setShowTagsMenu(!showTagsMenu)}
                       title="Tags - Quick access to saved triggers"
                       style={{
-                        background: 'rgba(255,255,255,0.12)',
-                        border: '1px solid rgba(255,255,255,0.25)',
-                        color: 'white',
+                        ...chatControlButtonStyle(),
                         borderRadius: '6px',
                         padding: '0 12px',
                         height: '32px',
@@ -916,8 +1053,24 @@ function SidepanelOrchestrator() {
                         gap: '6px',
                         transition: 'all 0.2s ease'
                       }}
-                      onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.2)'}
-                      onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.12)'}
+                      onMouseEnter={(e) => {
+                        if (theme === 'professional') {
+                          e.currentTarget.style.background = 'rgba(15,23,42,0.12)'
+                        } else if (theme === 'dark') {
+                          e.currentTarget.style.background = 'rgba(255,255,255,0.2)'
+                        } else {
+                          e.currentTarget.style.background = 'rgba(118,75,162,0.6)'
+                        }
+                      }}
+                      onMouseLeave={(e) => {
+                        if (theme === 'professional') {
+                          e.currentTarget.style.background = 'rgba(15,23,42,0.08)'
+                        } else if (theme === 'dark') {
+                          e.currentTarget.style.background = 'rgba(255,255,255,0.12)'
+                        } else {
+                          e.currentTarget.style.background = 'rgba(118,75,162,0.35)'
+                        }
+                      }}
                     >
                       Tags <span style={{ fontSize: '11px', opacity: 0.9 }}>▾</span>
                     </button>
@@ -1015,9 +1168,7 @@ function SidepanelOrchestrator() {
                   onClick={toggleCommandChatPin}
                   title="Unpin from sidepanel"
                   style={{
-                    background: 'rgba(255,255,255,0.15)',
-                    border: '1px solid rgba(255,255,255,0.20)',
-                    color: 'white',
+                    ...chatControlButtonStyle(),
                     borderRadius: '6px',
                     padding: '4px 6px',
                     fontSize: '10px',
@@ -1038,7 +1189,7 @@ function SidepanelOrchestrator() {
                 display: 'flex',
                 flexDirection: 'column',
                 gap: '10px',
-                background: 'rgba(255,255,255,0.06)',
+                background: theme === 'default' ? 'rgba(118,75,162,0.25)' : 'rgba(255,255,255,0.06)',
                 borderBottom: '1px solid rgba(255,255,255,0.20)',
                 padding: '14px'
               }}
@@ -1427,9 +1578,19 @@ function SidepanelOrchestrator() {
         style={{
           width: '100%',
           padding: '16px 20px',
-          background: 'linear-gradient(135deg, rgba(76,175,80,0.95), rgba(56,142,60,0.95))',
-          border: '2px dashed rgba(76,175,80,1)',
-          color: 'white',
+          ...(theme === 'professional' ? {
+            background: 'rgba(15,23,42,0.08)',
+            border: '2px dashed rgba(15,23,42,0.3)',
+            color: '#0f172a'
+          } : theme === 'dark' ? {
+            background: 'rgba(255,255,255,0.1)',
+            border: '2px dashed rgba(255,255,255,0.3)',
+            color: '#f1f5f9'
+          } : {
+            background: 'rgba(118,75,162,0.3)',
+            border: '2px dashed rgba(255,255,255,0.5)',
+            color: 'white'
+          }),
           borderRadius: '10px',
           cursor: 'pointer',
           fontSize: '15px',
@@ -1440,17 +1601,33 @@ function SidepanelOrchestrator() {
           gap: '10px',
           transition: 'all 0.2s ease',
           marginBottom: '28px',
-          boxShadow: '0 4px 12px rgba(76,175,80,0.3)'
+          boxShadow: 'none'
         }}
         onMouseEnter={(e) => {
           e.currentTarget.style.transform = 'translateY(-2px)'
-          e.currentTarget.style.boxShadow = '0 6px 20px rgba(76,175,80,0.5)'
-          e.currentTarget.style.background = 'linear-gradient(135deg, rgba(56,142,60,1), rgba(46,125,50,1))'
+          if (theme === 'professional') {
+            e.currentTarget.style.background = 'rgba(15,23,42,0.12)'
+            e.currentTarget.style.borderColor = 'rgba(15,23,42,0.4)'
+          } else if (theme === 'dark') {
+            e.currentTarget.style.background = 'rgba(255,255,255,0.15)'
+            e.currentTarget.style.borderColor = 'rgba(255,255,255,0.4)'
+          } else {
+            e.currentTarget.style.background = 'rgba(118,75,162,0.55)'
+            e.currentTarget.style.borderColor = 'rgba(255,255,255,0.7)'
+          }
         }}
         onMouseLeave={(e) => {
           e.currentTarget.style.transform = 'translateY(0)'
-          e.currentTarget.style.boxShadow = '0 4px 12px rgba(76,175,80,0.3)'
-          e.currentTarget.style.background = 'linear-gradient(135deg, rgba(76,175,80,0.95), rgba(56,142,60,0.95))'
+          if (theme === 'professional') {
+            e.currentTarget.style.background = 'rgba(15,23,42,0.08)'
+            e.currentTarget.style.borderColor = 'rgba(15,23,42,0.3)'
+          } else if (theme === 'dark') {
+            e.currentTarget.style.background = 'rgba(255,255,255,0.1)'
+            e.currentTarget.style.borderColor = 'rgba(255,255,255,0.3)'
+          } else {
+            e.currentTarget.style.background = 'rgba(118,75,162,0.3)'
+            e.currentTarget.style.borderColor = 'rgba(255,255,255,0.5)'
+          }
         }}
       >
         ➕ Add New Agent Box
@@ -1458,7 +1635,7 @@ function SidepanelOrchestrator() {
 
       {/* Quick Actions Section */}
       <div style={{
-        background: 'rgba(255,255,255,0.12)',
+        background: theme === 'default' ? 'rgba(118,75,162,0.5)' : 'rgba(255,255,255,0.12)',
         padding: '16px',
           borderRadius: '10px',
         marginBottom: '28px',
@@ -1540,9 +1717,19 @@ function SidepanelOrchestrator() {
             onClick={openWRVault}
             style={{
               padding: '12px',
+              ...(theme === 'professional' ? {
+                background: 'rgba(15,23,42,0.08)',
+                border: '1px solid rgba(15,23,42,0.2)',
+                color: '#0f172a'
+              } : theme === 'dark' ? {
               background: 'rgba(255,255,255,0.15)',
               border: '1px solid rgba(255,255,255,0.25)',
-              color: 'white',
+                color: '#f1f5f9'
+              } : {
+                background: 'rgba(255,255,255,0.15)',
+                border: '1px solid rgba(255,255,255,0.25)',
+                color: 'white'
+              }),
               borderRadius: '8px',
               cursor: 'pointer',
               fontSize: '13px',
@@ -1557,12 +1744,26 @@ function SidepanelOrchestrator() {
             }}
             onMouseEnter={(e) => {
               e.currentTarget.style.transform = 'translateY(-2px)'
+              if (theme === 'professional') {
+                e.currentTarget.style.background = 'rgba(15,23,42,0.12)'
+                e.currentTarget.style.boxShadow = '0 4px 12px rgba(15,23,42,0.2)'
+              } else if (theme === 'dark') {
               e.currentTarget.style.background = 'rgba(255,255,255,0.25)'
               e.currentTarget.style.boxShadow = '0 4px 12px rgba(255,255,255,0.2)'
+              } else {
+                e.currentTarget.style.background = 'rgba(118,75,162,0.5)'
+                e.currentTarget.style.boxShadow = '0 4px 12px rgba(118,75,162,0.3)'
+              }
             }}
             onMouseLeave={(e) => {
               e.currentTarget.style.transform = 'translateY(0)'
+              if (theme === 'professional') {
+                e.currentTarget.style.background = 'rgba(15,23,42,0.08)'
+              } else if (theme === 'dark') {
               e.currentTarget.style.background = 'rgba(255,255,255,0.15)'
+              } else {
+                e.currentTarget.style.background = 'rgba(118,75,162,0.35)'
+              }
               e.currentTarget.style.boxShadow = '0 2px 6px rgba(0,0,0,0.2)'
             }}
           >

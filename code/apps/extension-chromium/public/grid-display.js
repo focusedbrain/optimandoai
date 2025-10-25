@@ -55,15 +55,29 @@ if (theme === 'dark') {
     slotBg = 'rgba(255,255,255,0.06)';
 } else if (theme === 'professional') {
     bodyBg = 'linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%)';
-    bodyText = '#333333';
+    bodyText = '#0f172a';
     headerColor = 'linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%)';
-    textColor = '#1e293b';
+    textColor = '#0f172a';
     slotBg = 'white';
 }
 
 // Apply theme to body
 document.body.style.background = bodyBg;
 document.body.style.color = bodyText;
+
+// Listen for theme changes from settings
+if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.onChanged) {
+    chrome.storage.onChanged.addListener(function(changes, namespace) {
+        if (namespace === 'local' && changes['optimando-ui-theme']) {
+            const newTheme = changes['optimando-ui-theme'].newValue;
+            console.log('🎨 Theme changed to:', newTheme);
+            // Reload the page with new theme
+            const url = new URL(window.location.href);
+            url.searchParams.set('theme', newTheme);
+            window.location.href = url.toString();
+        }
+    });
+}
 
 // Create grid container
 const container = document.getElementById('grid-root');
