@@ -268,7 +268,7 @@ function SidepanelOrchestrator() {
   }
 
   const openPopupChat = () => {
-    chrome.runtime.sendMessage({ type: 'OPEN_COMMAND_CENTER_POPUP', theme: 'default' })
+    chrome.runtime.sendMessage({ type: 'OPEN_COMMAND_CENTER_POPUP', theme: theme })
   }
 
 

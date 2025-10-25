@@ -4618,13 +4618,15 @@ function initializeExtension() {
 
     overlay.innerHTML = `
 
-      <div style="background: white; padding: 30px; border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.3); max-width: 500px; width: 90%;">
+      <div style="background: white; border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.3); max-width: 500px; width: 90%; max-height: 90vh; display: flex; flex-direction: column;">
 
-        <h3 style="margin: 0 0 20px 0; color: #333; font-size: 18px; text-align: center;">Add New Agent Box</h3>
+        <h3 style="margin: 0; padding: 20px 30px; color: #333; font-size: 18px; text-align: center; border-bottom: 1px solid #eee; flex-shrink: 0;">Add New Agent Box</h3>
+
+        <div style="flex: 1; overflow-y: auto; overflow-x: hidden; padding: 16px 30px;">
 
           
 
-          <div style="margin-bottom: 20px;">
+          <div style="margin-bottom: 16px;">
 
             <label style="display: block; margin-bottom: 8px; color: #555; font-weight: bold;">Agent Box Number:</label>
 
@@ -4636,7 +4638,7 @@ function initializeExtension() {
 
         
 
-        <div style="margin-bottom: 20px;">
+        <div style="margin-bottom: 16px;">
 
           <label style="display: block; margin-bottom: 8px; color: #555; font-weight: bold;">Agent Number:</label>
 
@@ -4648,7 +4650,7 @@ function initializeExtension() {
 
         
 
-        <div style="margin-bottom: 20px;">
+        <div style="margin-bottom: 16px;">
 
           <label style="display: block; margin-bottom: 8px; color: #555; font-weight: bold;">Agent Title:</label>
 
@@ -4666,11 +4668,11 @@ function initializeExtension() {
 
         </div>
 
-        <div id="tools-container" style="display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 16px;"></div>
+        <div id="tools-container" style="display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 14px;"></div>
 
 
 
-        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 20px;">
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 16px;">
 
           <div>
 
@@ -4718,7 +4720,7 @@ function initializeExtension() {
 
         
 
-        <div style="margin-top: 8px; margin-bottom: 20px; padding: 12px; background: #f5f5f5; border-radius: 8px; font-size: 12px; color: #666;">
+        <div style="margin-top: 8px; margin-bottom: 14px; padding: 12px; background: #f5f5f5; border-radius: 8px; font-size: 12px; color: #666;">
 
           <strong>Note:</strong> If no agent or LLM is selected, this box will use the global "Setup AI Agent" settings as fallback.
 
@@ -4726,7 +4728,7 @@ function initializeExtension() {
 
         
 
-        <div style="margin-bottom: 25px;">
+        <div style="margin-bottom: 18px;">
 
           <label style="display: block; margin-bottom: 8px; color: #555; font-weight: bold;">Color:</label>
 
@@ -4744,7 +4746,11 @@ function initializeExtension() {
 
         
 
-        <div style="display: flex; gap: 10px; justify-content: flex-end;">
+        </div>
+
+        
+
+        <div style="padding: 20px 30px; border-top: 1px solid #eee; flex-shrink: 0; display: flex; gap: 10px; justify-content: flex-end;">
 
           <button id="cancel-add-agent" style="padding: 10px 20px; background: #ccc; border: none; color: #333; border-radius: 6px; cursor: pointer; font-size: 14px;">Cancel</button>
 
@@ -5202,13 +5208,15 @@ function initializeExtension() {
 
     overlay.innerHTML = `
 
-      <div style="background: white; padding: 30px; border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.3); max-width: 500px; width: 90%;">
+      <div style="background: white; border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.3); max-width: 500px; width: 90%; max-height: 90vh; display: flex; flex-direction: column;">
 
-        <h3 style="margin: 0 0 20px 0; color: #333; font-size: 18px; text-align: center;">Edit Agent Box</h3>
+        <h3 style="margin: 0; padding: 20px 30px; color: #333; font-size: 18px; text-align: center; border-bottom: 1px solid #eee; flex-shrink: 0;">Edit Agent Box</h3>
+
+        <div style="flex: 1; overflow-y: auto; overflow-x: hidden; padding: 16px 30px;">
 
         
 
-        <div style="margin-bottom: 20px;">
+        <div style="margin-bottom: 16px;">
 
           <label style="display: block; margin-bottom: 8px; color: #555; font-weight: bold;">Agent Box Number:</label>
 
@@ -5220,7 +5228,7 @@ function initializeExtension() {
 
         
 
-        <div style="margin-bottom: 20px;">
+        <div style="margin-bottom: 16px;">
 
           <label style="display: block; margin-bottom: 8px; color: #555; font-weight: bold;">Agent Number:</label>
 
@@ -5244,7 +5252,7 @@ function initializeExtension() {
 
         
 
-        <div style="margin-bottom: 20px;">
+        <div style="margin-bottom: 16px;">
 
           <label style="display: block; margin-bottom: 8px; color: #555; font-weight: bold;">Agent Title:</label>
 
@@ -5264,7 +5272,7 @@ function initializeExtension() {
 
 
 
-        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 20px;">
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 16px;">
 
           <div>
 
@@ -5310,7 +5318,7 @@ function initializeExtension() {
 
         
 
-        <div style="margin-bottom: 25px;">
+        <div style="margin-bottom: 18px;">
 
           <label style="display: block; margin-bottom: 8px; color: #555; font-weight: bold;">Color:</label>
 
@@ -5328,7 +5336,11 @@ function initializeExtension() {
 
         
 
-        <div style="display: flex; gap: 10px; justify-content: flex-end;">
+        </div>
+
+        
+
+        <div style="padding: 20px 30px; border-top: 1px solid #eee; flex-shrink: 0; display: flex; gap: 10px; justify-content: flex-end;">
 
           <button id="cancel-edit-agent" style="padding: 10px 20px; background: #ccc; border: none; color: #333; border-radius: 6px; cursor: pointer; font-size: 14px;">Cancel</button>
 
