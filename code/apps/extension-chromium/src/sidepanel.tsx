@@ -90,22 +90,52 @@ function SidepanelOrchestrator() {
 
   // Detect if this is a Master Tab and get its ID
   useEffect(() => {
-    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-      if (tabs[0]?.url) {
-        try {
-          const url = new URL(tabs[0].url)
-          const hybridMasterId = url.searchParams.get('hybrid_master_id')
-          if (hybridMasterId) {
-            // Convert hybrid_master_id to display format (Master Tab 02, 03, etc.)
-            const displayId = String(parseInt(hybridMasterId) + 1).padStart(2, '0')
-            setMasterTabId(displayId)
-            console.log('🖥️ Detected Master Tab ID:', displayId)
+    const checkMasterTabId = () => {
+      chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+        if (tabs[0]?.url) {
+          try {
+            const url = new URL(tabs[0].url)
+            const hybridMasterId = url.searchParams.get('hybrid_master_id')
+            if (hybridMasterId) {
+              // Convert hybrid_master_id to display format (Master Tab 02, 03, etc.)
+              const displayId = String(parseInt(hybridMasterId) + 1).padStart(2, '0')
+              setMasterTabId(displayId)
+              console.log('🖥️ Detected Master Tab ID:', displayId)
+            } else {
+              // No hybrid_master_id, this is the main master tab
+              setMasterTabId(null)
+            }
+          } catch (e) {
+            console.error('Error parsing tab URL for master tab detection:', e)
           }
-        } catch (e) {
-          console.error('Error parsing tab URL for master tab detection:', e)
         }
+      })
+    }
+
+    // Check initially
+    checkMasterTabId()
+
+    // Listen for tab updates (URL changes)
+    const handleTabUpdate = (tabId: number, changeInfo: chrome.tabs.TabChangeInfo, tab: chrome.tabs.Tab) => {
+      if (changeInfo.url) {
+        console.log('🔄 Tab URL changed, rechecking master tab ID')
+        checkMasterTabId()
       }
-    })
+    }
+
+    // Listen for when user switches tabs
+    const handleTabActivated = (activeInfo: chrome.tabs.TabActiveInfo) => {
+      console.log('🔄 Tab activated, rechecking master tab ID')
+      checkMasterTabId()
+    }
+
+    chrome.tabs.onUpdated.addListener(handleTabUpdate)
+    chrome.tabs.onActivated.addListener(handleTabActivated)
+
+    return () => {
+      chrome.tabs.onUpdated.removeListener(handleTabUpdate)
+      chrome.tabs.onActivated.removeListener(handleTabActivated)
+    }
   }, [])
   
   // Save pinned state and toggle docked chat
@@ -845,23 +875,23 @@ function SidepanelOrchestrator() {
             title={isCommandChatPinned ? "Unpin Command Chat" : "Pin Command Chat"}
           >
             📌
-          </button>
+        </button>
       </div>
 
         {/* Row 2: ADMIN/Master Tab Label + 4 Admin Icons (matching width) */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
       <div style={{
-            fontSize: masterTabId ? '8px' : '11px', 
+            fontSize: masterTabId ? '9px' : '11px', 
             fontWeight: '700', 
             opacity: 0.85, 
             textTransform: 'uppercase', 
-            letterSpacing: masterTabId ? '0.3px' : '0.5px',
-            width: masterTabId ? '44px' : '32px',
+            letterSpacing: masterTabId ? '0.4px' : '0.5px',
+            width: masterTabId ? '65px' : '32px',
             textAlign: 'center',
             lineHeight: masterTabId ? '1.1' : 'normal',
-            whiteSpace: 'nowrap'
+            whiteSpace: masterTabId ? 'normal' : 'nowrap'
           }}>
-            {masterTabId ? `Master Tab ${masterTabId}` : 'Admin'}
+            {masterTabId ? `Master Tab (${masterTabId})` : 'Admin'}
           </div>
           <div style={{ flex: 1 }} />
           <button onClick={openUnifiedAdmin} title="Admin Configuration (Agents, Context, Memory)" style={adminIconStyle}>⚙️</button>
@@ -1462,6 +1492,29 @@ function SidepanelOrchestrator() {
         boxSizing: 'border-box',
         WebkitOverflowScrolling: 'touch'
       } as React.CSSProperties}>
+      
+      {/* Master Tab Title */}
+      {masterTabId && (
+        <div style={{
+          background: 'rgba(118,75,162,0.25)',
+          borderRadius: '10px',
+          padding: '16px 20px',
+          marginBottom: '20px',
+          border: '1px solid rgba(255,255,255,0.2)',
+          boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
+          textAlign: 'center'
+        }}>
+          <div style={{
+            fontSize: '16px',
+            fontWeight: '700',
+            letterSpacing: '0.5px',
+            opacity: 0.95
+          }}>
+            🖥️ Master Tab ({masterTabId})
+          </div>
+        </div>
+      )}
+      
       {/* Agent Boxes Display */}
       {agentBoxes.length > 0 && (
         <div style={{ marginBottom: '20px' }}>
