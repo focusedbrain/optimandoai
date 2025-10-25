@@ -42,6 +42,7 @@ function SidepanelOrchestrator() {
   const [embedTarget, setEmbedTarget] = useState<'session' | 'account'>('session')
   const [notification, setNotification] = useState<{message: string, type: 'success' | 'error' | 'info'} | null>(null)
   const [theme, setTheme] = useState<'default' | 'dark' | 'professional'>('default')
+  const [masterTabId, setMasterTabId] = useState<string | null>(null) // For Master Tab (02), (03), etc.
   const chatRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   
@@ -85,6 +86,26 @@ function SidepanelOrchestrator() {
     return () => {
       chrome.storage.onChanged.removeListener(handleStorageChange)
     }
+  }, [])
+
+  // Detect if this is a Master Tab and get its ID
+  useEffect(() => {
+    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+      if (tabs[0]?.url) {
+        try {
+          const url = new URL(tabs[0].url)
+          const hybridMasterId = url.searchParams.get('hybrid_master_id')
+          if (hybridMasterId) {
+            // Convert hybrid_master_id to display format (Master Tab 02, 03, etc.)
+            const displayId = String(parseInt(hybridMasterId) + 1).padStart(2, '0')
+            setMasterTabId(displayId)
+            console.log('🖥️ Detected Master Tab ID:', displayId)
+          }
+        } catch (e) {
+          console.error('Error parsing tab URL for master tab detection:', e)
+        }
+      }
+    })
   }, [])
   
   // Save pinned state and toggle docked chat
@@ -827,18 +848,20 @@ function SidepanelOrchestrator() {
           </button>
       </div>
 
-        {/* Row 2: ADMIN Label + 4 Admin Icons (matching width) */}
+        {/* Row 2: ADMIN/Master Tab Label + 4 Admin Icons (matching width) */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
       <div style={{
-            fontSize: '11px', 
+            fontSize: masterTabId ? '8px' : '11px', 
             fontWeight: '700', 
             opacity: 0.85, 
             textTransform: 'uppercase', 
-            letterSpacing: '0.5px',
-            width: '32px',
-            textAlign: 'center'
+            letterSpacing: masterTabId ? '0.3px' : '0.5px',
+            width: masterTabId ? '44px' : '32px',
+            textAlign: 'center',
+            lineHeight: masterTabId ? '1.1' : 'normal',
+            whiteSpace: 'nowrap'
           }}>
-            Admin
+            {masterTabId ? `Master Tab ${masterTabId}` : 'Admin'}
           </div>
           <div style={{ flex: 1 }} />
           <button onClick={openUnifiedAdmin} title="Admin Configuration (Agents, Context, Memory)" style={adminIconStyle}>⚙️</button>

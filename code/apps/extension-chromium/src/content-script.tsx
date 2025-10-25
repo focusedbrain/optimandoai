@@ -1812,7 +1812,7 @@ function initializeExtension() {
 
   
 
-  // Detect Hybrid Master mode via URL param, e.g. ?hybrid_master_id=3 or via dedicated role
+  // Detect Master Tab mode via URL param, e.g. ?hybrid_master_id=1 (Master Tab 02)
 
   let isHybridMaster = urlParams.has('hybrid_master_id')
 
@@ -1838,7 +1838,7 @@ function initializeExtension() {
 
   
 
-  // Check for session key in URL parameters (for hybrid views joining existing session)
+  // Check for session key in URL parameters (for master tabs joining existing session)
 
   const sessionKeyFromUrl = urlParams.get('optimando_session_key')
 
@@ -6746,8 +6746,10 @@ function initializeExtension() {
 
   `
 
-  // If this tab is a Hybrid Master, render a right-side agent panel with only Add button
-
+  // Master Tabs no longer use the old UI overlay - they only show the sidepanel
+  // The user distinguishes master tabs by the "MT 02", "MT 03" label in the sidepanel's Admin section
+  // The old overlay code below is disabled for the new sidepanel-only UI
+  /*
   if (isHybridMaster) {
 
     // Align right panel width with left panel and persist
@@ -6760,7 +6762,7 @@ function initializeExtension() {
 
       <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
 
-        <h2 style="margin: 0; font-size: 18px;" class="section-title">🧩 Master (${parseInt(hybridMasterId) + 1})</h2>
+        <h2 style="margin: 0; font-size: 18px;" class="section-title">🖥️ Master Tab (${String(parseInt(hybridMasterId) + 1).padStart(2, '0')})</h2>
 
         <button id="quick-expand-right-btn" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 24px; height: 24px; border-radius: 4px; cursor: pointer; font-size: 12px; transition: all 0.2s ease;" title="Quick expand to maximum width">⇄</button>
 
@@ -6793,6 +6795,7 @@ function initializeExtension() {
     `
 
   }
+  */
 
 
 
@@ -23378,9 +23381,9 @@ ${pageText}
 
                 <div style="font-size: 48px; margin-bottom: 10px;">🖥️</div>
 
-                <h4 style="margin: 0 0 8px 0; font-size: 14px;">Add Hybrid Grid</h4>
+                <h4 style="margin: 0 0 8px 0; font-size: 14px;">Add Master Tab</h4>
 
-                <p style="margin: 0; font-size: 11px; opacity: 0.7;">Layout display configurations</p>
+                <p style="margin: 0; font-size: 11px; opacity: 0.7;">Open new master tabs with session sync</p>
 
               </div>
 
@@ -23898,7 +23901,7 @@ ${pageText}
 
         <div style="padding: 20px; border-bottom: 1px solid rgba(255,255,255,0.3); display: flex; justify-content: space-between; align-items: center;">
 
-          <h2 style="margin: 0; font-size: 18px;">🧩 Add Master Views</h2>
+          <h2 style="margin: 0; font-size: 18px;">🖥️ Add Master Tabs</h2>
 
           <button id="close-hybrid-select" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 30px; height: 30px; border-radius: 50%; cursor: pointer; font-size: 16px;">×</button>
 
@@ -23906,7 +23909,7 @@ ${pageText}
 
         <div style="padding: 24px; overflow-y: auto; flex: 1;">
 
-          <label for="hybrid-count" style="display:block; margin-bottom:8px; font-size: 13px;">Number of hybrid master tabs</label>
+          <label for="hybrid-count" style="display:block; margin-bottom:8px; font-size: 13px;">Number of master tabs</label>
 
           <select id="hybrid-count" style="width: 100%; padding: 10px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.3); background: rgba(0,0,0,0.2); color: white; margin-bottom: 20px;">
 
@@ -23918,7 +23921,7 @@ ${pageText}
 
           <div id="hybrid-url-fields" style="display: none;">
 
-            <label style="display:block; margin-bottom:12px; font-size: 13px; color: #B3E5FC;">URLs for Hybrid Views</label>
+            <label style="display:block; margin-bottom:12px; font-size: 13px; color: #B3E5FC;">URLs for Master Tabs</label>
 
             <div id="url-inputs-container"></div>
 
@@ -23988,7 +23991,7 @@ ${pageText}
 
           inputWrapper.innerHTML = `
 
-            <label style="display:block; margin-bottom:4px; font-size: 12px; color: #E1F5FE;">Hybrid View ${i} URL:</label>
+            <label style="display:block; margin-bottom:4px; font-size: 12px; color: #E1F5FE;">Master Tab ${i} URL:</label>
 
             <input 
 
@@ -24060,13 +24063,13 @@ ${pageText}
 
         const currentTheme = localStorage.getItem('optimando-ui-theme') || 'default'
 
-        console.log('🔧 DEBUG: Using session key for ALL hybrid views:', activeSessionKey)
+        console.log('🔧 DEBUG: Using session key for ALL master tabs:', activeSessionKey)
 
-        console.log('🔧 DEBUG: Current theme for hybrid views:', currentTheme)
+        console.log('🔧 DEBUG: Current theme for master tabs:', currentTheme)
 
 
 
-        // Open hybrid views with their respective URLs
+        // Open master tabs with their respective URLs
 
         for (let i = 1; i <= count; i++) {
 
@@ -24108,11 +24111,11 @@ ${pageText}
 
           window.open(url.toString(), `hybrid-master-${i}`)
 
-          console.log(`🧩 Opened hybrid view ${i} with session key:`, activeSessionKey)
+          console.log(`🧩 Opened master tab ${i} with session key:`, activeSessionKey)
 
         } catch (error) {
 
-          console.error(`❌ Invalid URL for hybrid view ${i}:`, targetUrl, error)
+          console.error(`❌ Invalid URL for master tab ${i}:`, targetUrl, error)
 
           // Fallback to current page if URL is invalid
 
@@ -24140,7 +24143,7 @@ ${pageText}
 
       
 
-        // Mirror hybrid placeholders into session history with URLs
+        // Mirror master tab placeholders into session history with URLs
 
         try {
 
@@ -24164,7 +24167,7 @@ ${pageText}
 
             chrome.storage.local.set({ [activeSessionKey]: sessionData }, () => {
 
-              console.log(`✅ Saved ${count} hybrid views to session:`, activeSessionKey)
+              console.log(`✅ Saved ${count} master tabs to session:`, activeSessionKey)
 
             })
 
@@ -24172,7 +24175,7 @@ ${pageText}
 
         } catch (e) {
 
-          console.error('❌ Error saving hybrid views to session:', e)
+          console.error('❌ Error saving master tabs to session:', e)
 
         }
 
@@ -24180,7 +24183,7 @@ ${pageText}
 
         const note = document.createElement('div')
 
-        note.textContent = `✅ Opened ${count} hybrid master tab${count > 1 ? 's' : ''} with session key: ${activeSessionKey.split('_')[1]}`
+        note.textContent = `✅ Opened ${count} master tab${count > 1 ? 's' : ''} with session key: ${activeSessionKey.split('_')[1]}`
 
         note.style.cssText = `position:fixed;top:20px;right:20px;z-index:2147483650;background:#4CAF50;color:#fff;padding:10px 14px;border-radius:8px;font-size:12px;box-shadow:0 4px 12px rgba(0,0,0,0.3)`
 
@@ -27362,7 +27365,7 @@ ${pageText}
 
                   <div style=\"background: rgba(255,255,255,0.2); border: 1px solid rgba(255,255,255,0.25); border-radius: 8px; padding: 10px; margin: 8px 0;\">
 
-                    <span style=\"font-size: 11px; font-weight: bold; color: #B3E5FC;\">🧩 Hybrid Views (${session.hybridAgentBoxes.length})</span>
+                    <span style=\"font-size: 11px; font-weight: bold; color: #B3E5FC;\">🖥️ Master Tabs (${session.hybridAgentBoxes.length})</span>
 
                     <div style=\"display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px;\">
 
@@ -27768,11 +27771,11 @@ ${pageText}
 
               
 
-              // Restore hybrid views if they exist
+              // Restore master tabs if they exist
 
               if (sessionData.hybridAgentBoxes && sessionData.hybridAgentBoxes.length > 0) {
 
-                console.log('🔧 DEBUG: Restoring', sessionData.hybridAgentBoxes.length, 'hybrid views')
+                console.log('🔧 DEBUG: Restoring', sessionData.hybridAgentBoxes.length, 'master tabs')
 
                 
 
@@ -27814,7 +27817,7 @@ ${pageText}
 
                       
 
-                      console.log(`🔧 DEBUG: Opening hybrid view ${hybridId} with URL:`, url.toString())
+                      console.log(`🔧 DEBUG: Opening master tab ${hybridId} with URL:`, url.toString())
 
                       const hybridTab = window.open(url.toString(), `hybrid-master-${hybridId}`)
 
@@ -27822,11 +27825,11 @@ ${pageText}
 
                       if (!hybridTab) {
 
-                        console.error(`❌ Failed to open hybrid view ${hybridId} - popup blocked`)
+                        console.error(`❌ Failed to open master tab ${hybridId} - popup blocked`)
 
                       } else {
 
-                        console.log(`✅ Successfully opened hybrid view ${hybridId}`)
+                        console.log(`✅ Successfully opened master tab ${hybridId}`)
 
                       }
 
@@ -28084,7 +28087,7 @@ ${pageText}
 
                       
 
-                      console.log(`🔧 DEBUG: Opening hybrid view ${hybridId} with URL:`, url.toString())
+                      console.log(`🔧 DEBUG: Opening master tab ${hybridId} with URL:`, url.toString())
 
                       const hybridTab = window.open(url.toString(), `hybrid-master-${hybridId}`)
 
@@ -28092,11 +28095,11 @@ ${pageText}
 
                       if (!hybridTab) {
 
-                        console.error(`❌ Failed to open hybrid view ${hybridId} - popup blocked`)
+                        console.error(`❌ Failed to open master tab ${hybridId} - popup blocked`)
 
                       } else {
 
-                        console.log(`✅ Successfully opened hybrid view ${hybridId}`)
+                        console.log(`✅ Successfully opened master tab ${hybridId}`)
 
                       }
 
@@ -30227,7 +30230,10 @@ ${pageText}
   // Add all sidebars to the sidebars container
 
   // Add all sidebars to the container
-
+  
+  // OLD UI DISABLED - Now using native Chrome sidepanel instead of injected sidebars
+  // The old overlay UI (left/right/bottom sidebars) is no longer needed with the new sidepanel
+  /*
   sidebarsDiv.appendChild(leftSidebar)
 
   sidebarsDiv.appendChild(rightSidebar)
@@ -30271,6 +30277,9 @@ ${pageText}
     updatePageMargin()
 
   }
+  */
+
+  console.log('✅ Using native Chrome sidepanel (old overlay UI disabled)')
 
   
 
@@ -30400,8 +30409,9 @@ ${pageText}
 
   
 
-  // Hybrid right panel behaviors after mount
-
+  // Hybrid right panel behaviors - DISABLED for new sidepanel-only UI
+  // Master tabs now only use the sidepanel without any overlay
+  /*
   if (isHybridMaster) {
 
     // Only handle Add button click - no agent boxes to render
@@ -30485,6 +30495,7 @@ ${pageText}
     })
 
   }
+  */
 
   // Render dynamic agent boxes after DOM is ready
 
