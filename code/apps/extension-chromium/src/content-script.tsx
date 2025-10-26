@@ -478,9 +478,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
       if (globalLightboxFunctions.beginScreenSelect) {
 
-        // Find the right messages element (command chat)
+        // Find the right messages element (command chat) - try sidepanel first, then injected docked, then popup
 
-        const messagesEl = document.getElementById('ccd-messages') || document.getElementById('ccf-messages')
+        const messagesEl = document.getElementById('ccd-messages-sidepanel') || document.getElementById('ccd-messages') || document.getElementById('ccf-messages')
 
         if (messagesEl) {
 
@@ -1564,7 +1564,7 @@ try {
 
       } else if (msg.type === 'ELECTRON_SELECTION_RESULT'){
 
-        const target = (document.getElementById('ccf-messages') as HTMLElement | null) || (document.getElementById('ccd-messages') as HTMLElement | null)
+        const target = (document.getElementById('ccd-messages-sidepanel') as HTMLElement | null) || (document.getElementById('ccf-messages') as HTMLElement | null) || (document.getElementById('ccd-messages') as HTMLElement | null)
 
         if (!target) return
 
@@ -20243,9 +20243,9 @@ ${pageText}
 
         try{
 
-          // Prefer the provided element; fallback to popup then docked messages containers
+          // Prefer the provided element; fallback to sidepanel, then popup, then docked messages containers
 
-          const target = (messagesEl || (document.getElementById('ccf-messages') as HTMLElement | null) || (document.getElementById('ccd-messages') as HTMLElement | null)) as HTMLElement | null
+          const target = (messagesEl || (document.getElementById('ccd-messages-sidepanel') as HTMLElement | null) || (document.getElementById('ccf-messages') as HTMLElement | null) || (document.getElementById('ccd-messages') as HTMLElement | null)) as HTMLElement | null
 
           if (!target) return null
 
@@ -20281,7 +20281,7 @@ ${pageText}
 
           
 
-          const composer = (document.getElementById('ccd-compose') || document.getElementById('ccf-compose')) as HTMLElement | null
+          const composer = (document.getElementById('ccd-compose-sidepanel') || document.getElementById('ccd-compose') || document.getElementById('ccf-compose')) as HTMLElement | null
 
           if (!composer) return
 

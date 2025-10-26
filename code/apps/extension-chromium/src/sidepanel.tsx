@@ -43,6 +43,9 @@ function SidepanelOrchestrator() {
   const [notification, setNotification] = useState<{message: string, type: 'success' | 'error' | 'info'} | null>(null)
   const [theme, setTheme] = useState<'default' | 'dark' | 'professional'>('default')
   const [masterTabId, setMasterTabId] = useState<string | null>(null) // For Master Tab (02), (03), etc.
+  const [showTriggerPrompt, setShowTriggerPrompt] = useState<{mode: string, rect: any, imageUrl: string, videoUrl?: string, createTrigger: boolean, addCommand: boolean, name?: string, command?: string, bounds?: any} | null>(null)
+  const [createTriggerChecked, setCreateTriggerChecked] = useState(false)
+  const [addCommandChecked, setAddCommandChecked] = useState(false)
   const chatRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   
@@ -193,6 +196,49 @@ function SidepanelOrchestrator() {
           console.log('  → Setting agent boxes:', message.data.agentBoxes.length)
           setAgentBoxes(message.data.agentBoxes)
         }
+      }
+      // Listen for Electron screenshot results
+      else if (message.type === 'ELECTRON_SELECTION_RESULT') {
+        console.log('📷 Sidepanel received screenshot from Electron:', message.kind)
+        const url = message.dataUrl || message.url
+        if (url) {
+          // Add screenshot to chat messages as a user message with image
+          const imageMessage = {
+            role: 'user' as const,
+            text: `![Screenshot](${url})`,
+            imageUrl: url
+          }
+          setChatMessages(prev => [...prev, imageMessage])
+          // Scroll to bottom
+          setTimeout(() => {
+            if (chatRef.current) {
+              chatRef.current.scrollTop = chatRef.current.scrollHeight
+            }
+          }, 100)
+        }
+      }
+      // Listen for trigger prompt from Electron
+      else if (message.type === 'SHOW_TRIGGER_PROMPT') {
+        console.log('📝 Sidepanel received trigger prompt from Electron:', message)
+        setShowTriggerPrompt({
+          mode: message.mode,
+          rect: message.rect,
+          bounds: message.bounds,
+          imageUrl: message.imageUrl,
+          videoUrl: message.videoUrl,
+          createTrigger: message.createTrigger,
+          addCommand: message.addCommand,
+          name: '',
+          command: ''
+        })
+      }
+      // Listen for trigger updates from other contexts
+      else if (message.type === 'TRIGGERS_UPDATED') {
+        console.log('🔄 Sidepanel: Reloading triggers after update')
+        chrome.storage?.local?.get(['optimando-tagged-triggers'], (data: any) => {
+          const list = Array.isArray(data?.['optimando-tagged-triggers']) ? data['optimando-tagged-triggers'] : []
+          setTriggers(list)
+        })
       }
     }
 
@@ -502,7 +548,13 @@ function SidepanelOrchestrator() {
   }
 
   const handleScreenSelect = () => {
-    chrome.runtime?.sendMessage({ type: 'ELECTRON_START_SELECTION', source: 'docked-chat' })
+    console.log('📷 Sidepanel: Starting Electron screen selection', { createTrigger: createTriggerChecked, addCommand: addCommandChecked })
+    chrome.runtime?.sendMessage({ 
+      type: 'ELECTRON_START_SELECTION', 
+      source: 'sidepanel-docked-chat',
+      createTrigger: createTriggerChecked,
+      addCommand: addCommandChecked
+    })
   }
 
   const handleSendMessage = () => {
@@ -1132,11 +1184,13 @@ function SidepanelOrchestrator() {
                     {showTagsMenu && (
                       <div 
                         style={{
-                          position: 'fixed',
-                          minWidth: '220px',
-                          width: '320px',
-                          maxHeight: '260px',
-                          overflow: 'auto',
+                          position: 'absolute',
+                          top: '100%',
+                          right: 0,
+                          minWidth: '180px',
+                          width: '240px',
+                          maxHeight: '300px',
+                          overflowY: 'auto',
                           zIndex: 2147483647,
                           background: '#111827',
                           color: 'white',
@@ -1235,6 +1289,7 @@ function SidepanelOrchestrator() {
 
             {/* Messages Area */}
             <div 
+              id="ccd-messages-sidepanel"
               ref={chatRef}
               style={{
                 height: `${chatHeight}px`,
@@ -1252,7 +1307,7 @@ function SidepanelOrchestrator() {
                   Start a conversation...
                 </div>
               ) : (
-                chatMessages.map((msg, i) => (
+                chatMessages.map((msg: any, i) => (
                   <div 
                     key={i} 
                     style={{
@@ -1269,7 +1324,20 @@ function SidepanelOrchestrator() {
                       background: msg.role === 'user' ? 'rgba(34,197,94,0.15)' : 'rgba(255,255,255,0.12)',
                       border: msg.role === 'user' ? '1px solid rgba(34,197,94,0.5)' : '1px solid rgba(255,255,255,0.25)'
                     }}>
-                      {msg.text}
+                      {msg.imageUrl ? (
+                        <img 
+                          src={msg.imageUrl} 
+                          alt="Screenshot" 
+                          style={{ 
+                            maxWidth: '260px', 
+                            height: 'auto', 
+                            borderRadius: '8px',
+                            display: 'block'
+                          }} 
+                        />
+                      ) : (
+                        msg.text
+                      )}
                     </div>
                   </div>
                 ))
@@ -1292,7 +1360,9 @@ function SidepanelOrchestrator() {
             />
 
             {/* Compose Area */}
-            <div style={{
+            <div 
+              id="ccd-compose-sidepanel"
+              style={{
               display: 'grid',
               gridTemplateColumns: '1fr 40px 40px 72px',
               gap: '8px',
@@ -1392,6 +1462,169 @@ function SidepanelOrchestrator() {
                 Send
               </button>
         </div>
+
+            {/* Trigger Creation UI */}
+            {showTriggerPrompt && (
+              <div style={{
+                padding: '12px 14px',
+                background: 'rgba(255,255,255,0.08)',
+                borderTop: '1px solid rgba(255,255,255,0.20)'
+              }}>
+                <div style={{ marginBottom: '8px', fontSize: '12px', fontWeight: '700', opacity: 0.85 }}>
+                  {showTriggerPrompt.mode === 'screenshot' ? '📸 Screenshot' : '🎥 Stream'}
+                </div>
+                {showTriggerPrompt.createTrigger && (
+                  <input
+                    type="text"
+                    placeholder="Trigger Name"
+                    value={showTriggerPrompt.name || ''}
+                    onChange={(e) => setShowTriggerPrompt({ ...showTriggerPrompt, name: e.target.value })}
+                    style={{
+                      width: '100%',
+                      boxSizing: 'border-box',
+                      padding: '8px 10px',
+                      background: 'rgba(255,255,255,0.08)',
+                      border: '1px solid rgba(255,255,255,0.20)',
+                      color: 'white',
+                      borderRadius: '6px',
+                      fontSize: '12px',
+                      marginBottom: '8px'
+                    }}
+                  />
+                )}
+                {showTriggerPrompt.addCommand && (
+                  <textarea
+                    placeholder="Optional Command"
+                    value={showTriggerPrompt.command || ''}
+                    onChange={(e) => setShowTriggerPrompt({ ...showTriggerPrompt, command: e.target.value })}
+                    style={{
+                      width: '100%',
+                      boxSizing: 'border-box',
+                      padding: '8px 10px',
+                      background: 'rgba(255,255,255,0.08)',
+                      border: '1px solid rgba(255,255,255,0.20)',
+                      color: 'white',
+                      borderRadius: '6px',
+                      fontSize: '12px',
+                      minHeight: '60px',
+                      marginBottom: '8px',
+                      resize: 'vertical',
+                      fontFamily: 'inherit'
+                    }}
+                  />
+                )}
+                <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+                  <button
+                    onClick={() => setShowTriggerPrompt(null)}
+                    style={{
+                      padding: '6px 12px',
+                      background: 'rgba(255,255,255,0.15)',
+                      border: '1px solid rgba(255,255,255,0.25)',
+                      color: 'white',
+                      borderRadius: '6px',
+                      cursor: 'pointer',
+                      fontSize: '12px'
+                    }}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={async () => {
+                      const name = showTriggerPrompt.name?.trim() || ''
+                      const command = showTriggerPrompt.command?.trim() || ''
+                      
+                      // If createTrigger is checked, save the trigger
+                      if (showTriggerPrompt.createTrigger) {
+                        if (!name) {
+                          alert('Please enter a trigger name')
+                          return
+                        }
+                        
+                        const triggerData = {
+                          name,
+                          command,
+                          at: Date.now(),
+                          rect: showTriggerPrompt.rect,
+                          bounds: showTriggerPrompt.bounds,
+                          mode: showTriggerPrompt.mode
+                        }
+                        
+                        // Save to chrome.storage for dropdown
+                        chrome.storage.local.get(['optimando-tagged-triggers'], (result) => {
+                          const triggers = result['optimando-tagged-triggers'] || []
+                          triggers.push(triggerData)
+                          chrome.storage.local.set({ 'optimando-tagged-triggers': triggers }, () => {
+                            console.log('✅ Trigger saved to storage:', triggerData)
+                            setTriggers(triggers)
+                            // Notify other contexts
+                            try { chrome.runtime?.sendMessage({ type:'TRIGGERS_UPDATED' }) } catch {}
+                          })
+                        })
+                        
+                        // Send trigger to Electron
+                        try {
+                          chrome.runtime?.sendMessage({
+                            type: 'ELECTRON_SAVE_TRIGGER',
+                            name,
+                            mode: showTriggerPrompt.mode,
+                            rect: showTriggerPrompt.rect,
+                            displayId: 0, // Main display for sidepanel
+                            imageUrl: showTriggerPrompt.imageUrl,
+                            videoUrl: showTriggerPrompt.videoUrl,
+                            command: command || undefined
+                          })
+                        } catch (err) {
+                          console.error('Error sending trigger to Electron:', err)
+                        }
+                      }
+                      
+                      // Post the screenshot to chat
+                      if (showTriggerPrompt.imageUrl) {
+                        const imageMessage = {
+                          role: 'user' as const,
+                          text: `![Screenshot](${showTriggerPrompt.imageUrl})`,
+                          imageUrl: showTriggerPrompt.imageUrl
+                        }
+                        setChatMessages(prev => [...prev, imageMessage])
+                        // Scroll to bottom
+                        setTimeout(() => {
+                          if (chatRef.current) {
+                            chatRef.current.scrollTop = chatRef.current.scrollHeight
+                          }
+                        }, 100)
+                      }
+                      
+                      // If addCommand is checked and command exists, add it to chat
+                      if (showTriggerPrompt.addCommand && command) {
+                        const commandMessage = {
+                          role: 'user' as const,
+                          text: `📝 Command: ${command}`
+                        }
+                        setChatMessages(prev => [...prev, commandMessage])
+                      }
+                      
+                      // Clear the prompt
+                      setShowTriggerPrompt(null)
+                      // Reset checkboxes
+                      setCreateTriggerChecked(false)
+                      setAddCommandChecked(false)
+                    }}
+                    style={{
+                      padding: '6px 12px',
+                      background: '#22c55e',
+                      border: '1px solid #16a34a',
+                      color: '#0b1e12',
+                      borderRadius: '6px',
+                      cursor: 'pointer',
+                      fontSize: '12px',
+                      fontWeight: '700'
+                    }}
+                  >
+                    Save
+                  </button>
+                </div>
+              </div>
+            )}
       </div>
 
           {/* Embed Dialog */}

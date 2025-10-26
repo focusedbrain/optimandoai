@@ -56,6 +56,8 @@ function connectToWebSocketServer() {
             })
             // Forward to popup chat as well so it appends immediately
             try { chrome.runtime.sendMessage({ type: 'COMMAND_POPUP_APPEND', kind, url: dataUrl }) } catch {}
+            // Also send to sidepanel if it's open
+            try { chrome.runtime.sendMessage({ type: 'ELECTRON_SELECTION_RESULT', kind, dataUrl }) } catch {}
           } else if (data.type === 'TRIGGERS_UPDATED') {
             try { chrome.runtime.sendMessage({ type: 'TRIGGERS_UPDATED' }) } catch {}
           } else if (data.type === 'SHOW_TRIGGER_PROMPT') {
