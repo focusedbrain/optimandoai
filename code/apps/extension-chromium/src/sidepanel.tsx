@@ -970,7 +970,7 @@ function SidepanelOrchestrator() {
           }}
         >
           <div style={{ fontSize: '14px', fontWeight: '700', opacity: 0.95, display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <span style={{ fontSize: '18px' }}>🔐</span> WR Code
+            <span style={{ fontSize: '18px' }}>🔐</span> WR Login
           </div>
           <div style={{ 
             fontSize: '16px', 

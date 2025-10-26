@@ -6226,7 +6226,7 @@ function initializeExtension() {
 
   // ALL UI NOW IN NATIVE SIDE PANEL - Content script only handles data
 
-  console.log('🎉 OpenGiraffe Extension with Hybrid UI')
+  console.log('🎉 WR Code Extension with Hybrid UI')
 
   console.log('📌 Native Side Panel + Content Script Lightboxes')
 
@@ -6468,7 +6468,7 @@ function initializeExtension() {
 
         </svg>
 
-        <span class="title-text">OpenGiraffe</span>
+        <span class="title-text">WR Login</span>
 
       </h2>
 
@@ -6638,11 +6638,11 @@ function initializeExtension() {
 
 
 
-    <!-- WR Code Connection -->
+    <!-- WR Login Connection -->
 
     <div id="wr-card" style="background: rgba(255,255,255,0.1); padding: 20px; border-radius: 8px; margin-bottom: 20px; text-align: center;">
 
-      <h3 style="margin: 0 0 15px 0; font-size: 14px;" class="section-title">📱 WR Code</h3>
+      <h3 style="margin: 0 0 15px 0; font-size: 14px;" class="section-title">📱 WR Login</h3>
 
       
 
@@ -17359,7 +17359,7 @@ function initializeExtension() {
 
             <h3 style="margin: 0 0 15px 0; font-size: 16px; color: #FFD700;">Trusted URLs</h3>
 
-            <p style="margin: 0 0 20px 0; font-size: 12px; opacity: 0.8;">Add URLs that you trust and want to enable OpenGiraffe features on. Use HTTPS URLs for security.</p>
+            <p style="margin: 0 0 20px 0; font-size: 12px; opacity: 0.8;">Add URLs that you trust and want to enable WR Code features on. Use HTTPS URLs for security.</p>
 
             
 
@@ -17389,7 +17389,7 @@ function initializeExtension() {
 
             <div style="font-size: 12px; opacity: 0.8; line-height: 1.6;">
 
-              <p style="margin: 0 0 10px 0;">• Only URLs in this whitelist will have OpenGiraffe features enabled</p>
+              <p style="margin: 0 0 10px 0;">• Only URLs in this whitelist will have WR Code features enabled</p>
 
               <p style="margin: 0 0 10px 0;">• Wildcard patterns are supported (e.g., https://*.example.com)</p>
 
