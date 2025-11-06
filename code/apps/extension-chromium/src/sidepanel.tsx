@@ -21,7 +21,7 @@ function SidepanelOrchestrator() {
   })
 
   // Additional state for new features
-  const [sessionName, setSessionName] = useState('Loading...')
+  const [sessionName, setSessionName] = useState('')
   const [sessionKey, setSessionKey] = useState<string>('')
   const [isLocked, setIsLocked] = useState(false)
   const [agentBoxes, setAgentBoxes] = useState<Array<any>>([])
@@ -256,38 +256,106 @@ function SidepanelOrchestrator() {
     }
   }, [])
 
-  // Load session data from active tab
+  // Load session data immediately on mount and when sidebar becomes visible
   useEffect(() => {
-    const loadSessionData = () => {
+    const loadSessionDataFromStorage = () => {
+      // First, try to get the current session key from chrome.storage
+      // Check for a global active session marker
+      chrome.storage.local.get(null, (allData) => {
+        // Look for session keys (they start with 'session_')
+        const sessionKeys = Object.keys(allData).filter(key => key.startsWith('session_'))
+        
+        if (sessionKeys.length === 0) {
+          console.log('⚠️ No sessions found in storage')
+          setSessionName('No Session')
+          setSessionKey('')
+          return
+        }
+        
+        // Get the most recent session (by timestamp)
+        let mostRecentSession: any = null
+        let mostRecentKey: string = ''
+        let mostRecentTime = 0
+        
+        sessionKeys.forEach(key => {
+          const session = allData[key]
+          if (session && session.timestamp) {
+            const sessionTime = new Date(session.timestamp).getTime()
+            if (sessionTime > mostRecentTime) {
+              mostRecentTime = sessionTime
+              mostRecentSession = session
+              mostRecentKey = key
+            }
+          }
+        })
+        
+        // If we found a session, use it
+        if (mostRecentSession && mostRecentKey) {
+          console.log('✅ Loaded session from storage:', mostRecentKey, mostRecentSession.tabName)
+          setSessionName(mostRecentSession.tabName || 'Unnamed Session')
+          setSessionKey(mostRecentKey)
+          setIsLocked(mostRecentSession.isLocked || false)
+          setAgentBoxes(mostRecentSession.agentBoxes || [])
+        } else {
+          // Fallback: use the first session found
+          const firstKey = sessionKeys[0]
+          const firstSession = allData[firstKey]
+          if (firstSession) {
+            console.log('✅ Loaded first session from storage:', firstKey, firstSession.tabName)
+            setSessionName(firstSession.tabName || 'Unnamed Session')
+            setSessionKey(firstKey)
+            setIsLocked(firstSession.isLocked || false)
+            setAgentBoxes(firstSession.agentBoxes || [])
+          } else {
+            setSessionName('No Session')
+            setSessionKey('')
+          }
+        }
+      })
+    }
+    
+    const loadSessionDataFromContentScript = () => {
       chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
         if (tabs[0]?.id) {
           chrome.tabs.sendMessage(tabs[0].id, { type: 'GET_SESSION_DATA' }, (response) => {
             if (chrome.runtime.lastError) {
-              console.log('No active session in current tab')
-              setSessionName('No Session')
+              console.log('⚠️ Content script not ready, loading from storage:', chrome.runtime.lastError.message)
+              loadSessionDataFromStorage()
               return
             }
-            if (response) {
-              console.log('📥 Received session data:', response)
+            if (response && response.sessionKey) {
+              console.log('✅ Received session data from content script:', response)
               setSessionName(response.sessionName || 'New Session')
               setSessionKey(response.sessionKey || '')
               setIsLocked(response.isLocked || false)
               setAgentBoxes(response.agentBoxes || [])
             } else {
-              setSessionName('No Session')
+              // Fallback to storage
+              loadSessionDataFromStorage()
             }
           })
+        } else {
+          // No active tab, load from storage
+          loadSessionDataFromStorage()
         }
       })
     }
     
-    // Load immediately
-    loadSessionData()
+    // Load immediately from storage (fastest)
+    loadSessionDataFromStorage()
     
-    // Retry after a short delay to ensure content script is ready
-    const retryTimer = setTimeout(loadSessionData, 500)
+    // Also try to get from content script (more accurate for current session)
+    const contentScriptTimer = setTimeout(loadSessionDataFromContentScript, 100)
     
-    return () => clearTimeout(retryTimer)
+    // Retry content script a few times
+    const retryTimer1 = setTimeout(loadSessionDataFromContentScript, 500)
+    const retryTimer2 = setTimeout(loadSessionDataFromContentScript, 1500)
+    
+    return () => {
+      clearTimeout(contentScriptTimer)
+      clearTimeout(retryTimer1)
+      clearTimeout(retryTimer2)
+    }
   }, [])
 
   // Chat resize handlers
@@ -599,10 +667,6 @@ function SidepanelOrchestrator() {
     })
   }
 
-  const saveSession = () => {
-    // Send update to content script
-    sendToContentScript('UPDATE_SESSION_NAME', { sessionName, isLocked })
-  }
 
   const createNewSession = () => {
     console.log('🆕 Creating new session...')
@@ -640,13 +704,14 @@ function SidepanelOrchestrator() {
                 console.log('  → isLocked:', sessionResponse.isLocked)
                 console.log('  → agentBoxes:', sessionResponse.agentBoxes?.length || 0)
                 
+                // Show session name (editable), sessionKey shown below in small text
                 setSessionName(sessionResponse.sessionName || 'New Session')
                 setSessionKey(sessionResponse.sessionKey || '')
                 setIsLocked(sessionResponse.isLocked || false)
                 setAgentBoxes(sessionResponse.agentBoxes || [])
                 
                 // Show success notification
-                showNotification(`🆕 New session "${sessionResponse.sessionName}" started!`, 'success')
+                showNotification(`🆕 New session "${sessionResponse.sessionName || sessionResponse.sessionKey}" started!`, 'success')
                 clearInterval(pollInterval)
               } else if (pollAttempts >= 3) {
                 clearInterval(pollInterval)
@@ -844,39 +909,45 @@ function SidepanelOrchestrator() {
           minWidth: 0,
           display: 'flex',
           flexDirection: 'column',
-          gap: '2px'
+          gap: '3px'
         }}>
           <input
             type="text"
             value={sessionName}
-            onChange={(e) => setSessionName(e.target.value)}
-            onBlur={saveSession}
+            readOnly
             placeholder="Session Name"
             style={{
               width: '100%',
-              padding: '6px 10px',
-              background: 'rgba(255,255,255,0.1)',
-              border: '1px solid rgba(255,255,255,0.2)',
-                color: themeColors.text,
-              borderRadius: '4px',
+              padding: '8px 12px',
+              background: 'rgba(255,255,255,0.08)',
+              border: '1px solid rgba(255,255,255,0.15)',
+              color: themeColors.text,
+              borderRadius: '6px',
               fontSize: '13px',
               fontWeight: '500',
-              whiteSpace: 'nowrap',
-              overflow: 'hidden',
-              textOverflow: 'ellipsis'
+              cursor: 'default',
+              outline: 'none'
             }}
           />
           {sessionKey && (
             <div style={{
-              padding: '2px 10px',
-              fontSize: '9px',
-              fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
-              color: 'rgba(255,255,255,0.6)',
+              padding: '2px 12px',
+              fontSize: '10px',
+              fontFamily: 'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace',
+              color: 'rgba(255,255,255,0.5)',
               whiteSpace: 'nowrap',
               overflow: 'hidden',
-              textOverflow: 'ellipsis'
+              textOverflow: 'ellipsis',
+              letterSpacing: '0.3px'
             }}>
-              ID: <span style={{ color: '#FFD700' }}>{sessionKey}</span>
+              <span style={{ 
+                color: 'rgba(255,255,255,0.4)',
+                marginRight: '4px'
+              }}>ID:</span>
+              <span style={{ 
+                color: 'rgba(255,215,0,0.7)',
+                fontWeight: '400'
+              }}>{sessionKey}</span>
             </div>
           )}
         </div>

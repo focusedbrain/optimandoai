@@ -689,18 +689,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     try {
 
       if (message.data.sessionName !== undefined) {
-
-        currentTabData.tabName = message.data.sessionName
-
+        // Use centralized sync function to ensure all locations are updated
+        syncSessionName(message.data.sessionName, 'sidebar')
       }
 
       if (message.data.isLocked !== undefined) {
-
         currentTabData.isLocked = message.data.isLocked
-
+        saveTabDataToStorage()
       }
-
-      saveTabDataToStorage()
 
       
 
@@ -2156,7 +2152,8 @@ function initializeExtension() {
 
             if (sessionNameInput) {
 
-              sessionNameInput.value = session.tabName
+              // Use centralized sync to ensure name and ID are displayed correctly
+              syncSessionName(session.tabName || 'New Session', 'topbar')
 
               console.log('✅ Updated session name in UI:', session.tabName)
 
@@ -3830,11 +3827,8 @@ function initializeExtension() {
 
             setTimeout(() => {
 
-              const sessionInput = document.getElementById('session-name-input') as HTMLInputElement
-
-              if (sessionInput) sessionInput.value = currentTabData.tabName
-
-              
+              // Use centralized sync to ensure name and ID are displayed correctly
+              syncSessionName(currentTabData.tabName || 'New Session', 'topbar')
 
               // Re-render agent boxes after loading session data
 
@@ -3893,11 +3887,8 @@ function initializeExtension() {
             // Update UI
 
             setTimeout(() => {
-
-              const sessionInput = document.getElementById('session-name-input') as HTMLInputElement
-
-              if (sessionInput) sessionInput.value = currentTabData.tabName
-
+              // Use centralized sync to ensure name and ID are displayed correctly
+              syncSessionName(currentTabData.tabName || 'New Session', 'topbar')
             }, 100)
 
           }
@@ -3943,11 +3934,8 @@ function initializeExtension() {
             // Update UI
 
             setTimeout(() => {
-
-              const sessionInput = document.getElementById('session-name-input') as HTMLInputElement
-
-              if (sessionInput) sessionInput.value = currentTabData.tabName
-
+              // Use centralized sync to ensure name and ID are displayed correctly
+              syncSessionName(currentTabData.tabName || 'New Session', 'topbar')
             }, 100)
 
           }
@@ -7857,19 +7845,27 @@ function initializeExtension() {
 
         <!-- Session Name + Controls -->
 
-        <div style="display: flex; align-items: center; gap: 10px;">
+        <div style="display: flex; align-items: center; gap: 10px; position: relative;">
 
-          <input id="session-name-input" class="session-id-text" type="text" value="${currentTabData.tabName}" 
+          <div style="display: flex; flex-direction: column; gap: 3px; flex: 1; min-width: 0;">
 
-                 style="background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: inherit; 
+            <input id="session-name-input" class="session-id-text" type="text" value="" 
 
-                        padding: 4px 8px; border-radius: 3px; font-size: 11px; width: 140px; 
+                   style="background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.15); color: inherit; 
 
-                        ${currentTabData.isLocked ? 'opacity: 0.6; pointer-events: none;' : ''}"
+                          padding: 6px 10px; border-radius: 6px; font-size: 12px; width: 100%; 
 
-                 ${currentTabData.isLocked ? 'disabled' : ''}
+                          transition: all 0.2s ease; outline: none;
 
-                 placeholder="Session Name">
+                          ${currentTabData.isLocked ? 'opacity: 0.6; pointer-events: none;' : ''}"
+
+                   ${currentTabData.isLocked ? 'disabled' : ''}
+
+                   placeholder="Session Name">
+
+            ${(() => { const sk = getCurrentSessionKey(); return sk ? `<div style="padding: 2px 10px; font-size: 9px; font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace; color: rgba(255,255,255,0.5); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; letter-spacing: 0.3px;"><span style="color: rgba(255,255,255,0.4); margin-right: 4px;">ID:</span><span style="color: rgba(255,215,0,0.7); font-weight: 400;">${sk}</span></div>` : ''; })()}
+
+          </div>
 
           <button id="new-session-btn" style="background: rgba(76, 175, 80, 0.8); border: none; color: white; width: 24px; height: 24px; border-radius: 3px; cursor: pointer; font-size: 12px; font-weight: bold; transition: all 0.2s ease; ${isHybridMaster ? 'display: none;' : ''}" title="Start a new session">+</button>
 
@@ -27323,13 +27319,45 @@ ${pageText}
 
             <!-- Session title outside the box -->
 
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; padding: 0 4px;">
+            <div style="margin-bottom: 6px; padding: 0 4px;">
 
-              <h4 style="margin: 0; font-size: 16px; font-weight: bold; color: #FFEF94; text-shadow: 0 1px 2px rgba(0,0,0,0.5);">${session.tabName || 'Unnamed Session'}${session.isActive ? ' <span style="background: #4CAF50; color: white; padding: 2px 8px; border-radius: 4px; font-size: 10px; margin-left: 8px;">ACTIVE</span>' : ''}</h4>
+              <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 6px; gap: 12px;">
 
-              <div style="display: flex; gap: 6px;">
+                <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px;">
 
-                <button class="rename-session-btn" data-session-id="${session.id}" style="background: linear-gradient(135deg, #2196F3, #1976D2); border: none; color: white; padding: 6px 8px; border-radius: 4px; cursor: pointer; font-size: 10px; transition: all 0.2s ease;" title="Rename session" onmouseover="this.style.transform='scale(1.05)'" onmouseout="this.style.transform='scale(1)'">✏️</button>
+                  <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap; position: relative;">
+
+                    <input type="text" class="session-name-edit" data-session-id="${session.id}" value="${session.tabName || 'Unnamed Session'}" 
+
+                           style="background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); color: #FFEF94; 
+
+                                  padding: 6px ${session.isActive ? '70px' : '40px'} 6px 10px; border-radius: 6px; font-size: 15px; font-weight: bold; 
+
+                                  flex: 1; min-width: 200px; outline: none; transition: all 0.2s ease;
+
+                                  text-shadow: 0 1px 2px rgba(0,0,0,0.5); cursor: text; position: relative;"
+
+                           placeholder="Click to edit session name" />
+
+                    ${session.isActive ? '<span style="position: absolute; right: 8px; top: 50%; transform: translateY(-50%); background: #4CAF50; color: white; padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: 600; white-space: nowrap; pointer-events: none; z-index: 1;">ACTIVE</span>' : ''}
+
+                    <span class="session-save-indicator" data-session-id="${session.id}" style="position: absolute; right: ${session.isActive ? '50px' : '8px'}; top: 50%; transform: translateY(-50%); display: none; color: #FFB366; font-size: 14px; cursor: pointer; transition: all 0.2s ease; z-index: 2;" title="Click to save">💾</span>
+
+                  </div>
+
+                  <div style="font-size: 10px; font-family: ui-monospace, SFMono-Regular, \"SF Mono\", Menlo, Consolas, monospace; color: rgba(255,255,255,0.5); letter-spacing: 0.3px; padding-left: 2px;">
+
+                    <span style="color: rgba(255,255,255,0.4); margin-right: 4px;">ID:</span>
+
+                    <span style="color: rgba(255,215,0,0.7);">${session.id}</span>
+
+                  </div>
+
+                </div>
+
+                <div style="display: flex; gap: 6px; align-items: flex-start; flex-shrink: 0;">
+
+                  <button class="edit-session-name-btn" data-session-id="${session.id}" style="background: linear-gradient(135deg, #2196F3, #1976D2); border: none; color: white; padding: 6px 8px; border-radius: 4px; cursor: pointer; font-size: 10px; transition: all 0.2s ease;" title="Edit session name" onmouseover="this.style.transform='scale(1.05)'" onmouseout="this.style.transform='scale(1)'">✏️</button>
 
                 <button class="agentbox-overview-btn" data-session-id="${session.id}" style="background: linear-gradient(135deg, #10b981, #059669); border: none; color: white; padding: 6px 8px; border-radius: 4px; cursor: pointer; font-size: 10px; transition: all 0.2s ease;" title="Agent Box Overview" onmouseover="this.style.transform='scale(1.05)'" onmouseout="this.style.transform='scale(1)'">📦</button>
 
@@ -28275,42 +28303,134 @@ ${pageText}
 
       })
 
-            overlay.querySelectorAll('.rename-session-btn').forEach(btn => {
-
+      // Handle edit session name button - focus field (it's already editable)
+      overlay.querySelectorAll('.edit-session-name-btn').forEach(btn => {
         btn.addEventListener('click', (e) => {
-
           e.stopPropagation()
-
           const sessionId = btn.dataset.sessionId
-
-          const sessionData = sessions.find(s => s.id === sessionId)
-
-          
-
-          if (sessionData) {
-
-            let newName = prompt('Enter new session name:', sessionData.tabName || 'Unnamed Session')
-
-            if (newName && newName.trim()) {
-
-              sessionData.tabName = newName.trim()
-
-              chrome.storage.local.set({ [sessionId]: sessionData }, () => {
-
-                // Refresh the sessions list
-
-                overlay.remove()
-
-                openSessionsLightbox()
-
-              })
-
-            }
-
+          const nameInput = overlay.querySelector(`.session-name-edit[data-session-id="${sessionId}"]`) as HTMLInputElement
+          if (nameInput) {
+            nameInput.style.background = 'rgba(255,255,255,0.15)'
+            nameInput.style.borderColor = 'rgba(255,255,255,0.4)'
+            nameInput.focus()
+            nameInput.select()
           }
+        })
+      })
 
+      // Handle session name input - make it always editable with visual feedback
+      overlay.querySelectorAll('.session-name-edit').forEach(input => {
+        const nameInput = input as HTMLInputElement
+        const sessionId = nameInput.dataset.sessionId
+        const parentDiv = nameInput.parentElement as HTMLElement
+        const isActive = parentDiv?.querySelector('span[style*="ACTIVE"]') !== null
+        
+        // Make it always editable (remove readonly)
+        nameInput.readOnly = false
+        
+        // Update padding based on active status
+        if (isActive) {
+          nameInput.style.paddingRight = '70px'
+        } else {
+          nameInput.style.paddingRight = '40px'
+        }
+        
+        // Visual feedback on focus
+        nameInput.addEventListener('focus', () => {
+          nameInput.style.background = 'rgba(255,255,255,0.15)'
+          nameInput.style.borderColor = 'rgba(255,255,255,0.4)'
+        })
+        
+        // Visual feedback on blur
+        nameInput.addEventListener('blur', () => {
+          nameInput.style.background = 'rgba(255,255,255,0.1)'
+          nameInput.style.borderColor = 'rgba(255,255,255,0.2)'
         })
 
+        // Handle input changes with save hook
+        let saveTimeout: NodeJS.Timeout | null = null
+        const saveIndicator = overlay.querySelector(`.session-save-indicator[data-session-id="${sessionId}"]`) as HTMLElement
+        
+        nameInput.addEventListener('input', () => {
+          // Show save indicator
+          if (saveIndicator) {
+            saveIndicator.style.display = 'inline-block'
+            saveIndicator.textContent = '💾'
+            saveIndicator.style.color = '#FFB366'
+            saveIndicator.style.cursor = 'pointer'
+            saveIndicator.title = 'Click to save'
+          }
+          
+          // Clear existing timeout
+          if (saveTimeout) clearTimeout(saveTimeout)
+          
+          // Auto-save after 1000ms of no typing using centralized sync
+          // Pass the sessionId so it syncs the correct session
+          saveTimeout = setTimeout(() => {
+            syncSessionName(nameInput.value, 'history', sessionId)
+            if (saveIndicator) {
+              saveIndicator.textContent = '✓'
+              saveIndicator.style.color = '#4CAF50'
+              setTimeout(() => {
+                if (saveIndicator) saveIndicator.style.display = 'none'
+              }, 2000)
+            }
+            saveTimeout = null
+          }, 1000)
+        })
+        
+        // Make save indicator clickable
+        if (saveIndicator) {
+          saveIndicator.addEventListener('click', () => {
+            if (saveTimeout) {
+              clearTimeout(saveTimeout)
+              saveTimeout = null
+            }
+            syncSessionName(nameInput.value, 'history', sessionId)
+            saveIndicator.textContent = '✓'
+            saveIndicator.style.color = '#4CAF50'
+            setTimeout(() => {
+              if (saveIndicator) saveIndicator.style.display = 'none'
+            }, 2000)
+          })
+        }
+
+        // Handle blur - save immediately
+        nameInput.addEventListener('blur', () => {
+          if (saveTimeout) {
+            clearTimeout(saveTimeout)
+            saveTimeout = null
+          }
+          syncSessionName(nameInput.value, 'history', sessionId)
+          nameInput.style.background = 'rgba(255,255,255,0.1)'
+          nameInput.style.borderColor = 'rgba(255,255,255,0.2)'
+          if (saveIndicator) {
+            saveIndicator.textContent = '✓'
+            saveIndicator.style.color = '#4CAF50'
+            setTimeout(() => {
+              if (saveIndicator) saveIndicator.style.display = 'none'
+            }, 2000)
+          }
+        })
+
+        // Handle Enter key - save and blur
+        nameInput.addEventListener('keypress', (e) => {
+          if (e.key === 'Enter') {
+            if (saveTimeout) {
+              clearTimeout(saveTimeout)
+              saveTimeout = null
+            }
+            syncSessionName(nameInput.value, 'history', sessionId)
+            if (saveIndicator) {
+              saveIndicator.textContent = '✓'
+              saveIndicator.style.color = '#4CAF50'
+              setTimeout(() => {
+                if (saveIndicator) saveIndicator.style.display = 'none'
+              }, 2000)
+            }
+            nameInput.blur()
+          }
+        })
       })
 
       
@@ -29767,6 +29887,152 @@ ${pageText}
 
   }
 
+  // ============================================
+  // CENTRALIZED SESSION NAME SYNC FUNCTIONS
+  // ============================================
+  
+  // CENTRALIZED SESSION NAME SYNC FUNCTION - Single source of truth
+  // This function ensures session name is synchronized across all locations
+  function syncSessionName(newName: string, source: 'sidebar' | 'topbar' | 'history' = 'topbar', targetSessionKey?: string) {
+    // For history edits, use the provided session key; otherwise use current session
+    const sessionKey = targetSessionKey || getCurrentSessionKey()
+    if (!sessionKey) {
+      console.warn('⚠️ Cannot sync session name: No session key found')
+      return
+    }
+    
+    const trimmedName = newName.trim() || 'Unnamed Session'
+    const isCurrentSession = !targetSessionKey || sessionKey === getCurrentSessionKey()
+    
+    // 1. Update chrome.storage.local[sessionKey].tabName (SOURCE OF TRUTH)
+    chrome.storage.local.get([sessionKey], (result) => {
+      if (result[sessionKey]) {
+        const sessionData = result[sessionKey]
+        const oldName = sessionData.tabName
+        sessionData.tabName = trimmedName
+        sessionData.timestamp = new Date().toISOString() // Update timestamp
+        
+        chrome.storage.local.set({ [sessionKey]: sessionData }, () => {
+          console.log(`✅ [${source}] Session name synced to storage:`, sessionKey, oldName, '→', trimmedName)
+        })
+      } else {
+        console.warn('⚠️ Session not found in storage:', sessionKey)
+        return
+      }
+    })
+    
+    // 2. Update currentTabData (in-memory) only if it's the current session
+    if (isCurrentSession && currentTabData.tabName !== trimmedName) {
+      currentTabData.tabName = trimmedName
+      saveTabDataToStorage()
+    }
+    
+    // 3. Update all UI locations
+    updateSessionNameInAllUIs(trimmedName, sessionKey)
+    
+    // 4. Broadcast to sidepanel only if it's the current session
+    if (isCurrentSession) {
+      chrome.runtime.sendMessage({
+        type: 'UPDATE_SESSION_DATA',
+        data: {
+          sessionName: trimmedName,
+          sessionKey: sessionKey,
+          isLocked: currentTabData.isLocked,
+          agentBoxes: currentTabData.agentBoxes || []
+        }
+      })
+    }
+  }
+  
+  // Update session name in all UI locations
+  function updateSessionNameInAllUIs(name: string, sessionKey: string) {
+    const currentSessionKey = getCurrentSessionKey()
+    const isCurrentSession = sessionKey === currentSessionKey
+    
+    // Update top bar input only if it's the current session
+    if (isCurrentSession) {
+      const topBarInput = document.getElementById('session-name-input') as HTMLInputElement
+      if (topBarInput && topBarInput.value !== name) {
+        topBarInput.value = name
+      }
+      
+      // Update session ID display below top bar
+      updateSessionIdDisplay()
+    }
+    
+    // Always update Sessions History if open (for any session, not just current)
+    // This ensures sidebar changes are reflected in Sessions History
+    const sessionsOverlay = document.getElementById('sessions-history-overlay')
+    if (sessionsOverlay) {
+      const historyInputs = sessionsOverlay.querySelectorAll('.session-name-edit') as NodeListOf<HTMLInputElement>
+      historyInputs.forEach(input => {
+        if (input.dataset.sessionId === sessionKey && input.value !== name) {
+          // Only update if the input is not currently focused (to avoid interrupting user typing)
+          if (document.activeElement !== input) {
+            input.value = name
+            // Also update the save indicator to show it's synced
+            const saveIndicator = sessionsOverlay.querySelector(`.session-save-indicator[data-session-id="${sessionKey}"]`) as HTMLElement
+            if (saveIndicator) {
+              saveIndicator.style.display = 'none'
+            }
+          }
+        }
+      })
+    }
+  }
+  
+  // Helper function to update session ID display below the input field
+  function updateSessionIdDisplay() {
+    const sessionNameInput = document.getElementById('session-name-input') as HTMLInputElement
+    if (!sessionNameInput) return
+    
+    const sessionKey = getCurrentSessionKey()
+    // Find the parent container (the flex column div)
+    const parentDiv = sessionNameInput.parentElement
+    if (!parentDiv) return
+    
+    // Remove existing session ID display if any
+    const existingIdDisplay = parentDiv.querySelector('.session-id-display')
+    if (existingIdDisplay) existingIdDisplay.remove()
+    
+    // Add session ID display if sessionKey exists
+    if (sessionKey) {
+      const idDisplay = document.createElement('div')
+      idDisplay.className = 'session-id-display'
+      idDisplay.style.cssText = 'padding: 2px 10px; font-size: 9px; font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace; color: rgba(255,255,255,0.5); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; letter-spacing: 0.3px;'
+      idDisplay.innerHTML = `<span style="color: rgba(255,255,255,0.4); margin-right: 4px;">ID:</span><span style="color: rgba(255,215,0,0.7); font-weight: 400;">${sessionKey}</span>`
+      parentDiv.appendChild(idDisplay)
+    }
+  }
+  
+  // Load session name from storage and update UI
+  function loadAndDisplaySessionName() {
+    const sessionKey = getCurrentSessionKey()
+    if (!sessionKey) {
+      console.log('⚠️ No session key - cannot load session name')
+      return
+    }
+    
+    chrome.storage.local.get([sessionKey], (result) => {
+      if (result[sessionKey]) {
+        const sessionData = result[sessionKey]
+        const sessionName = sessionData.tabName || 'Unnamed Session'
+        
+        // Update currentTabData
+        if (currentTabData.tabName !== sessionName) {
+          currentTabData.tabName = sessionName
+        }
+        
+        // Update UI
+        updateSessionNameInAllUIs(sessionName, sessionKey)
+        
+        console.log('✅ Loaded session name from storage:', sessionName, 'for session:', sessionKey)
+      } else {
+        console.warn('⚠️ Session not found in storage:', sessionKey)
+      }
+    })
+  }
+
   // Quick action functions
 
   function saveCurrentSession() {
@@ -29865,39 +30131,93 @@ ${pageText}
 
 
 
+  // Helper function to get display name for session (sessionKey if no custom name, otherwise custom name)
+  function getSessionDisplayName(sessionKey: string | null, tabName: string | null): string {
+    if (!sessionKey) return tabName || 'No Session'
+    // Check if tabName is custom (not auto-generated)
+    const hasCustomName = tabName && 
+                          tabName !== 'New Session' && 
+                          !tabName.startsWith('WR Session')
+    return hasCustomName ? tabName : sessionKey
+  }
+
   function startNewSession() {
 
-    // Generate new session name with timestamp
-
-    const newSessionName = `WR Session ${new Date().toLocaleString('en-GB', { 
-
-      day: '2-digit', 
-
-      month: '2-digit', 
-
-      year: 'numeric', 
-
-      hour: '2-digit', 
-
-      minute: '2-digit', 
-
-      second: '2-digit',
-
-      hour12: false 
-
-    }).replace(/[\/,]/g, '-').replace(/ /g, '_')}`
-
-
-
-    // Reset current tab data to default state
-
-    const newTabId = `tab-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
-
+    // CRITICAL: Save the current session's data (including any name changes) before creating a new session
+    const oldSessionKey = getCurrentSessionKey()
+    if (oldSessionKey) {
+      // First, ensure current session data is saved to storage with any name changes
+      // This is important because the name might have been changed in Sessions History
+      chrome.storage.local.get([oldSessionKey], (result) => {
+        if (result[oldSessionKey]) {
+          const oldSessionData = result[oldSessionKey]
+          
+          // CRITICAL: The name in storage is the source of truth (may have been updated via syncSessionName in Sessions History)
+          // Always use the name from storage to preserve any changes made in Sessions History
+          const nameToPreserve = oldSessionData.tabName || currentTabData.tabName || 'Unnamed Session'
+          
+          // Update old session with latest data, but ALWAYS preserve the name from storage
+          // This ensures that if the name was changed in Sessions History, it stays changed
+          const updatedOldSession = {
+            ...oldSessionData,
+            ...currentTabData,
+            tabName: nameToPreserve, // CRITICAL: Use the name from storage (source of truth), placed AFTER spread to override
+            timestamp: new Date().toISOString(),
+            url: window.location.href
+          }
+          
+          console.log('💾 Preserving old session name from storage:', oldSessionKey, 'name:', nameToPreserve, 'was:', oldSessionData.tabName)
+          
+          // Save the old session BEFORE creating new one
+          chrome.storage.local.set({ [oldSessionKey]: updatedOldSession }, () => {
+            console.log('✅ Saved old session before creating new one:', oldSessionKey, 'name:', updatedOldSession.tabName)
+            
+            // Now proceed with creating the new session
+            createNewSessionAfterSave()
+          })
+        } else {
+          // No old session found, proceed directly
+          createNewSessionAfterSave()
+        }
+      })
+    } else {
+      // No old session, proceed directly
+      createNewSessionAfterSave()
+    }
     
+    // Function to create new session after old one is saved
+    function createNewSessionAfterSave() {
+      // Generate new session name with timestamp
 
-    // Preserve UI configuration but reset everything else
+      const newSessionName = `WR Session ${new Date().toLocaleString('en-GB', { 
 
-    const preservedUIConfig = { ...currentTabData.uiConfig }
+        day: '2-digit', 
+
+        month: '2-digit', 
+
+        year: 'numeric', 
+
+        hour: '2-digit', 
+
+        minute: '2-digit', 
+
+        second: '2-digit',
+
+        hour12: false 
+
+      }).replace(/[\/,]/g, '-').replace(/ /g, '_')}`
+
+
+
+      // Reset current tab data to default state
+
+      const newTabId = `tab-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+
+      
+
+      // Preserve UI configuration but reset everything else
+
+      const preservedUIConfig = { ...currentTabData.uiConfig }
 
     
 
@@ -29987,32 +30307,44 @@ ${pageText}
 
         
 
+        // Update the session name input in the UI
+        // Don't use syncSessionName here as it would try to update the old session
+        // Instead, just update the UI directly for the new session
+        const topBarInput = document.getElementById('session-name-input') as HTMLInputElement
+        if (topBarInput) {
+          topBarInput.value = newSessionName
+        }
+        updateSessionIdDisplay()
+
+        
+
         // Broadcast to sidepanel immediately after setting key
-
+        // Send multiple times to ensure it's received
         setTimeout(() => {
-
           chrome.runtime.sendMessage({
-
             type: 'UPDATE_SESSION_DATA',
-
             data: {
-
-              sessionName: currentTabData.tabName,
-
+              sessionName: newSessionName,
               sessionKey: sessionKey,
-
               isLocked: currentTabData.isLocked,
-
               agentBoxes: currentTabData.agentBoxes || []
-
             }
-
           })
-
-          console.log('📤 Sent UPDATE_SESSION_DATA to sidepanel with key:', sessionKey)
-
+          console.log('📤 Sent UPDATE_SESSION_DATA to sidepanel with key:', sessionKey, 'name:', newSessionName)
         }, 50)
-
+        
+        // Send again after a short delay to ensure sidepanel receives it
+        setTimeout(() => {
+          chrome.runtime.sendMessage({
+            type: 'UPDATE_SESSION_DATA',
+            data: {
+              sessionName: newSessionName,
+              sessionKey: sessionKey,
+              isLocked: currentTabData.isLocked,
+              agentBoxes: currentTabData.agentBoxes || []
+            }
+          })
+        }, 300)
       })
 
     } catch (e) {
@@ -30021,69 +30353,61 @@ ${pageText}
 
     }
 
-    // Clear agent box outputs
+      // Clear agent box outputs
 
-    const summarizeOutput = document.getElementById('summarize-output')
+      const summarizeOutput = document.getElementById('summarize-output')
 
-    if (summarizeOutput) summarizeOutput.innerText = 'Ready for new summaries...'
+      if (summarizeOutput) summarizeOutput.innerText = 'Ready for new summaries...'
 
-    
+      
 
-    const researchOutput = document.getElementById('research-output')
+      const researchOutput = document.getElementById('research-output')
 
-    if (researchOutput) researchOutput.innerText = 'Ready for new analysis...'
+      if (researchOutput) researchOutput.innerText = 'Ready for new analysis...'
 
-    
+      
 
-    const goalsOutput = document.getElementById('goals-output')
+      const goalsOutput = document.getElementById('goals-output')
 
-    if (goalsOutput) goalsOutput.innerText = 'Ready for new goal tracking...'
+      if (goalsOutput) goalsOutput.innerText = 'Ready for new goal tracking...'
 
-    
+      
 
-    const analysisOutput = document.getElementById('analysis-output')
+      const analysisOutput = document.getElementById('analysis-output')
 
-    if (analysisOutput) analysisOutput.innerText = 'Ready for new data analysis...'
-
-
-
-    // Update the session name input in the UI
-
-    const sessionNameInput = document.getElementById('session-name-input') as HTMLInputElement
-
-    if (sessionNameInput) {
-
-      sessionNameInput.value = newSessionName
-
-    }
+      if (analysisOutput) analysisOutput.innerText = 'Ready for new data analysis...'
 
 
 
-    // Update lock button to unlocked state
-
-    const lockBtn = document.getElementById('lock-btn')
-
-    if (lockBtn) {
-
-      lockBtn.innerHTML = '🔓'
-
-      lockBtn.style.background = 'rgba(255,255,255,0.1)'
-
-    }
+      // Update the session name input in the UI
+      // Don't use syncSessionName here as it would try to update the old session
+      const topBarInput = document.getElementById('session-name-input') as HTMLInputElement
+      if (topBarInput) {
+        topBarInput.value = newSessionName
+      }
+      updateSessionIdDisplay()
 
 
 
-    // Re-render agent boxes with default configuration
+      // Update lock button to unlocked state
 
-    renderAgentBoxes()
+      const lockBtn = document.getElementById('lock-btn')
+
+      if (lockBtn) {
+
+        lockBtn.innerHTML = '🔓'
+
+        lockBtn.style.background = 'rgba(255,255,255,0.1)'
+
+      }
 
 
 
-    // Note: Notification is now shown in the sidepanel instead of here
+      // Re-render agent boxes with default configuration
 
-    console.log('🆕 New session started:', newSessionName)
-
-  }
+      renderAgentBoxes()
+    } // End of createNewSessionAfterSave function
+  } // End of startNewSession function
 
 
 
@@ -32004,31 +32328,62 @@ ${pageText}
     
 
     if (sessionNameInput) {
-
-      sessionNameInput.addEventListener('input', () => {
-
-        if (!currentTabData.isLocked) {
-
-          currentTabData.tabName = sessionNameInput.value
-
-          saveTabDataToStorage()
-
-          console.log('📝 Session name updated:', currentTabData.tabName)
-
-        }
-
+      // Add focus/blur styling
+      sessionNameInput.addEventListener('focus', (e) => {
+        const target = e.target as HTMLInputElement
+        target.style.background = 'rgba(255,255,255,0.12)'
+        target.style.borderColor = 'rgba(255,255,255,0.25)'
       })
-
+      sessionNameInput.addEventListener('blur', (e) => {
+        const target = e.target as HTMLInputElement
+        target.style.background = 'rgba(255,255,255,0.08)'
+        target.style.borderColor = 'rgba(255,255,255,0.15)'
+      })
+      // Load session name from storage on initialization
+      setTimeout(() => {
+        loadAndDisplaySessionName()
+      }, 100)
       
-
-      sessionNameInput.addEventListener('keypress', (e) => {
-
-        if (e.key === 'Enter') {
-
-          sessionNameInput.blur()
-
+      // Handle input changes with auto-save using centralized sync function
+      let saveTimeout: NodeJS.Timeout | null = null
+      sessionNameInput.addEventListener('input', () => {
+        if (currentTabData.isLocked) return
+        
+        // Clear existing timeout
+        if (saveTimeout) clearTimeout(saveTimeout)
+        
+        // Auto-save after 500ms of no typing
+        saveTimeout = setTimeout(() => {
+          syncSessionName(sessionNameInput.value, 'topbar')
+          saveTimeout = null
+        }, 500)
+      })
+      
+      sessionNameInput.addEventListener('blur', (e) => {
+        const target = e.target as HTMLInputElement
+        target.style.background = 'rgba(255,255,255,0.08)'
+        target.style.borderColor = 'rgba(255,255,255,0.15)'
+        
+        if (saveTimeout) {
+          clearTimeout(saveTimeout)
+          saveTimeout = null
         }
-
+        if (!currentTabData.isLocked) {
+          syncSessionName(sessionNameInput.value, 'topbar')
+        }
+      })
+      
+      sessionNameInput.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') {
+          if (saveTimeout) {
+            clearTimeout(saveTimeout)
+            saveTimeout = null
+          }
+          if (!currentTabData.isLocked) {
+            syncSessionName(sessionNameInput.value, 'topbar')
+          }
+          sessionNameInput.blur()
+        }
       })
 
     }
