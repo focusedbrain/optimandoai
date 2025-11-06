@@ -41,9 +41,9 @@ const layouts = {
 const config = layouts[layout] || layouts['4-slot'];
 
 // Theme configuration
-let bodyBg = 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)';
+let bodyBg = 'linear-gradient(135deg, #c084fc 0%, #a855f7 50%, #9333ea 100%)';
 let bodyText = '#ffffff';
-let headerColor = '#667eea';
+let headerColor = 'linear-gradient(135deg, #c084fc 0%, #a855f7 50%, #9333ea 100%)';
 let textColor = 'white';
 let slotBg = 'white';
 

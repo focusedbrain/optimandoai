@@ -6931,7 +6931,7 @@ function initializeExtension() {
 
         #command-chat-docked .send-btn { font-weight: 800; height: 36px; border-radius: 6px; cursor: pointer; padding: 0 12px; }
 
-        .theme-default #command-chat-docked .send-btn { background: linear-gradient(135deg,#667eea,#764ba2); border: 1px solid rgba(255,255,255,0.30); color: #ffffff; }
+        .theme-default #command-chat-docked .send-btn { background: linear-gradient(135deg,#c084fc 0%,#a855f7 50%,#9333ea 100%); border: 1px solid rgba(255,255,255,0.30); color: #ffffff; }
 
         .theme-dark #command-chat-docked .send-btn { background: linear-gradient(135deg,#334155,#1e293b); border: 1px solid rgba(255,255,255,0.20); color: #e5e7eb; }
 
@@ -6985,7 +6985,7 @@ function initializeExtension() {
 
         .theme-default .chat-docked { background: rgba(255,255,255,0.10); border-color: rgba(255,255,255,0.20); color: white; }
 
-        .theme-default .chat-docked .chat-hdr { background: linear-gradient(135deg,#667eea,#764ba2); border-bottom-color: rgba(255,255,255,0.20); color: white; }
+        .theme-default .chat-docked .chat-hdr { background: linear-gradient(135deg,#c084fc 0%,#a855f7 50%,#9333ea 100%); border-bottom-color: rgba(255,255,255,0.20); color: white; }
 
         .theme-default .chat-docked .chat-msgs { background: rgba(255,255,255,0.06); border-bottom: 1px solid rgba(255,255,255,0.20); }
 
@@ -21381,9 +21381,9 @@ ${pageText}
 
               <div style="font-size: 10px; display: grid; grid-template-columns: auto 1fr; gap: 8px; align-items: center;">
 
-                <label style="display:block;">Theme:</label>
+                <label style="display: inline-block; margin: 0;">Theme:</label>
 
-                <select id="optimando-theme-select" style="width: 100%; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 3px; border-radius: 2px; font-size: 9px; pointer-events: auto; cursor: pointer;">
+                <select id="optimando-theme-select" style="width: 100%; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 6px 8px; border-radius: 4px; font-size: 11px; pointer-events: auto; cursor: pointer; appearance: auto;">
 
                   <option value="default" selected>Default (Original)</option>
 
@@ -26689,7 +26689,7 @@ ${pageText}
 
       if (theme === 'default') {
 
-        headerColor = '#667eea' // solid purple color matching the screenshot
+        headerColor = 'linear-gradient(135deg, #c084fc 0%, #a855f7 50%, #9333ea 100%)' // gradient matching the sidepanel
 
         textColor = 'white'
 
@@ -26793,11 +26793,11 @@ ${pageText}
 
     // Theme background/text for page
 
-    let bodyBg = 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)'
+    let bodyBg = 'linear-gradient(135deg, #c084fc 0%, #a855f7 50%, #9333ea 100%)'
 
     let bodyText = '#ffffff'
 
-    let actionBtnBg = 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)'
+    let actionBtnBg = 'linear-gradient(135deg, #c084fc 0%, #a855f7 50%, #9333ea 100%)'
 
     let actionBtnText = '#ffffff'
 
@@ -26833,11 +26833,11 @@ ${pageText}
 
     } else if (theme === 'default') {
 
-      bodyBg = 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)'
+      bodyBg = 'linear-gradient(135deg, #c084fc 0%, #a855f7 50%, #9333ea 100%)'
 
       bodyText = '#ffffff'
 
-      actionBtnBg = 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)'
+      actionBtnBg = 'linear-gradient(135deg, #c084fc 0%, #a855f7 50%, #9333ea 100%)'
 
       actionBtnText = '#ffffff'
 

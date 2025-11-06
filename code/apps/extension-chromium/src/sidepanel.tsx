@@ -674,7 +674,7 @@ function SidepanelOrchestrator() {
         }
       default:
         return {
-          background: 'linear-gradient(135deg, #8b5cf6 0%, #764ba2 100%)',
+          background: 'linear-gradient(135deg, #c084fc 0%, #a855f7 50%, #9333ea 100%)',
           text: 'white'
         }
     }
@@ -1641,7 +1641,7 @@ function SidepanelOrchestrator() {
             }}>
               <div style={{
                 width: '420px',
-                background: 'linear-gradient(135deg,#667eea,#764ba2)',
+                background: 'linear-gradient(135deg,#c084fc 0%,#a855f7 50%,#9333ea 100%)',
                 color: 'white',
                 borderRadius: '12px',
                 border: '1px solid rgba(255,255,255,0.25)',
