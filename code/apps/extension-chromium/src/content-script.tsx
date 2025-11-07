@@ -1660,7 +1660,42 @@ function deactivateExtension() {
 
 }
 
+// Safe DOM append helper function for lightboxes
+// Handles cases where document.body might not be available (e.g., YouTube, MSN)
+function safeAppendToBody(element: HTMLElement): void {
+  // Check if document.body exists immediately
+  if (document.body) {
+    document.body.appendChild(element)
+    return
+  }
 
+  // Check document.readyState
+  if (document.readyState === 'loading') {
+    // Document is still loading, wait for DOMContentLoaded
+    const handler = () => {
+      if (document.body) {
+        document.body.appendChild(element)
+      } else {
+        // Fallback to documentElement if body still doesn't exist
+        console.warn('⚠️ document.body not available, using document.documentElement as fallback')
+        document.documentElement.appendChild(element)
+      }
+      document.removeEventListener('DOMContentLoaded', handler)
+    }
+    document.addEventListener('DOMContentLoaded', handler)
+  } else {
+    // Document is interactive or complete but body is missing
+    // Use requestAnimationFrame to ensure DOM is ready, then fallback to documentElement
+    requestAnimationFrame(() => {
+      if (document.body) {
+        document.body.appendChild(element)
+      } else {
+        console.warn('⚠️ document.body not available, using document.documentElement as fallback')
+        document.documentElement.appendChild(element)
+      }
+    })
+  }
+}
 
 function initializeExtension() {
 
@@ -4752,7 +4787,7 @@ function initializeExtension() {
 
     
 
-    document.body.appendChild(overlay)
+    safeAppendToBody(overlay)
 
     
 
@@ -5342,7 +5377,7 @@ function initializeExtension() {
 
     
 
-    document.body.appendChild(overlay)
+    safeAppendToBody(overlay)
 
     
 
@@ -9053,7 +9088,7 @@ function initializeExtension() {
 
     
 
-    document.body.appendChild(overlay)
+    safeAppendToBody(overlay)
 
     
 
@@ -17415,7 +17450,7 @@ function initializeExtension() {
 
     
 
-    document.body.appendChild(overlay)
+    safeAppendToBody(overlay)
 
     
 
@@ -17935,7 +17970,7 @@ function initializeExtension() {
 
     
 
-    document.body.appendChild(overlay)
+    safeAppendToBody(overlay)
 
     
 
@@ -19129,7 +19164,7 @@ ${pageText}
 
     `
 
-    document.body.appendChild(overlay)
+    safeAppendToBody(overlay)
 
 
 
@@ -19667,7 +19702,7 @@ ${pageText}
 
     
 
-    document.body.appendChild(overlay)
+    safeAppendToBody(overlay)
 
     
 
@@ -19911,7 +19946,7 @@ ${pageText}
 
     overlay.addEventListener('click', (e)=>{ if (e.target === overlay) overlay.remove() })
 
-    document.body.appendChild(overlay)
+    safeAppendToBody(overlay)
 
   }
 
@@ -21577,7 +21612,7 @@ ${pageText}
 
     
 
-    document.body.appendChild(overlay)
+    safeAppendToBody(overlay)
 
     document.getElementById('close-settings-lightbox').onclick = () => overlay.remove()
 
@@ -23427,7 +23462,7 @@ ${pageText}
 
     
 
-    document.body.appendChild(overlay)
+    safeAppendToBody(overlay)
 
     
 
@@ -27251,7 +27286,7 @@ ${pageText}
 
     `
 
-    document.body.appendChild(overlay)
+    safeAppendToBody(overlay)
 
     
 
