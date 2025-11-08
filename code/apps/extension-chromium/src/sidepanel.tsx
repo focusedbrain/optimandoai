@@ -1,6 +1,7 @@
 /// <reference types="chrome-types"/>
 import React, { useState, useEffect, useRef } from 'react'
 import { createRoot } from 'react-dom/client'
+import { BackendSwitcher } from './components/BackendSwitcher'
 
 interface ConnectionStatus {
   isConnected: boolean
@@ -2148,11 +2149,13 @@ function SidepanelOrchestrator() {
             }}
           >
             🔒 WRVault
-        </button>
+          </button>
+        </div>
       </div>
-      </div>
-      </div>
-      
+
+      {/* Backend Switcher Section */}
+      <BackendSwitcher theme={theme} />
+
       {/* Notification Toast */}
       {notification && (
         <div style={{
@@ -2178,6 +2181,7 @@ function SidepanelOrchestrator() {
           <span>{notification.message}</span>
         </div>
       )}
+      </div>
     </div>
   )
 }

@@ -41,11 +41,29 @@ function connectToWebSocketServer() {
     ws.addEventListener('message', (e) => {
       try {
         const payload = String(e.data)
-        console.log(`📨 Desktop WS: ${payload}`)
+        console.log(`[BG] ===== WEBSOCKET MESSAGE RECEIVED FROM ELECTRON =====`)
+        console.log(`[BG] 📨 Raw payload: ${payload}`)
         const data = JSON.parse(payload)
+        console.log(`[BG] Parsed data:`, JSON.stringify(data, null, 2))
         if (data && data.type) {
+          console.log(`[BG] Message type: ${data.type}`);
           if (data.type === 'pong') {
-            console.log('🏓 Pong erhalten - Verbindung ist aktiv')
+            console.log('[BG] 🏓 Pong erhalten - Verbindung ist aktiv')
+            // Forward pong to UI for diagnostic test
+            try { chrome.runtime.sendMessage({ type: 'pong' }) } catch (forwardErr) {
+              console.error('[BG] Error forwarding pong:', forwardErr)
+            }
+          } else if (data.type === 'ELECTRON_LOG') {
+            // Forward Electron logs to console and UI for debugging
+            console.log('[BG] 📋 Electron Log:', data.message, data.rawMessage || data.parsedMessage || '')
+            try { chrome.runtime.sendMessage({ type: 'ELECTRON_LOG', data }) } catch {}
+          } else if (data.type === 'DB_TEST_CONNECTION_RESULT') {
+            console.log('[BG] ===== DB_TEST_CONNECTION_RESULT RECEIVED FROM ELECTRON =====');
+            console.log('[BG] Result:', JSON.stringify(data, null, 2));
+            // Forward to extension
+            try { chrome.runtime.sendMessage(data) } catch (forwardErr) {
+              console.error('[BG] Error forwarding DB_TEST_CONNECTION_RESULT:', forwardErr)
+            }
           } else if (data.type === 'SELECTION_RESULT' || data.type === 'SELECTION_RESULT_IMAGE' || data.type === 'SELECTION_RESULT_VIDEO') {
             const kind = data.kind || (data.type.includes('VIDEO') ? 'video' : 'image')
             const dataUrl = data.dataUrl || data.url || null
@@ -60,6 +78,9 @@ function connectToWebSocketServer() {
             try { chrome.runtime.sendMessage({ type: 'ELECTRON_SELECTION_RESULT', kind, dataUrl }) } catch {}
           } else if (data.type === 'TRIGGERS_UPDATED') {
             try { chrome.runtime.sendMessage({ type: 'TRIGGERS_UPDATED' }) } catch {}
+          } else if (data.type === 'DB_TEST_CONNECTION_RESULT' || data.type === 'DB_SYNC_RESULT' || data.type === 'DB_SET_ACTIVE_RESULT' || data.type === 'DB_GET_CONFIG_RESULT' || data.type === 'DB_GET_RESULT' || data.type === 'DB_SET_RESULT' || data.type === 'DB_GET_ALL_RESULT' || data.type === 'DB_SET_ALL_RESULT') {
+            // Forward DB operation results to extension
+            try { chrome.runtime.sendMessage(data) } catch {}
           } else if (data.type === 'SHOW_TRIGGER_PROMPT') {
             // Forward trigger prompt request to popup AND content script
             console.log('📝 Received SHOW_TRIGGER_PROMPT from Electron:', data)
@@ -491,6 +512,52 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       // Simple ping-pong to wake up service worker
       console.log('🏓 BG: Received PING')
       try { sendResponse({ success: true }) } catch {}
+      return true
+    }
+    
+    case 'DB_WEBSOCKET_MESSAGE': {
+      try {
+        console.log('[BG] DB_WEBSOCKET_MESSAGE received:', {
+          wsType: msg.wsType,
+          dataKeys: msg.data ? Object.keys(msg.data) : [],
+          wsEnabled: WS_ENABLED,
+          wsExists: !!ws,
+          wsReadyState: ws ? ws.readyState : null,
+          wsOpen: ws && ws.readyState === WebSocket.OPEN
+        });
+        
+        if (WS_ENABLED && ws && ws.readyState === WebSocket.OPEN) {
+          const payload = {
+            type: msg.wsType,
+            ...(msg.data || {})
+          }
+          console.log('[BG] Sending WebSocket payload:', {
+            type: payload.type,
+            hasConfig: !!payload.config,
+            configKeys: payload.config ? Object.keys(payload.config) : [],
+            fullPayload: JSON.stringify(payload, null, 2)
+          });
+          try { 
+            const payloadStr = JSON.stringify(payload);
+            console.log('[BG] WebSocket payload string:', payloadStr);
+            ws.send(payloadStr);
+            console.log('[BG] WebSocket message sent successfully');
+          } catch (sendErr) {
+            console.error('[BG] Error sending WebSocket message:', sendErr);
+            try { sendResponse({ success: false, error: `Send error: ${String(sendErr)}` }) } catch {}
+          }
+          try { sendResponse({ success: true }) } catch {}
+        } else {
+          const errorMsg = !WS_ENABLED ? 'WebSocket disabled' : 
+                          !ws ? 'WebSocket not initialized' : 
+                          `WebSocket not open (readyState: ${ws.readyState})`;
+          console.error('[BG] WebSocket not ready:', errorMsg);
+          try { sendResponse({ success: false, error: errorMsg }) } catch {}
+        }
+      } catch (e: any) {
+        console.error('[BG] Exception in DB_WEBSOCKET_MESSAGE:', e);
+        try { sendResponse({ success: false, error: String(e) }) } catch {}
+      }
       return true
     }
     

@@ -1,12 +1,14 @@
 import { app, BrowserWindow, globalShortcut, Tray, Menu, Notification, screen } from 'electron'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
+import os from 'node:os'
 import { WebSocketServer } from 'ws'
 // WS bridge removed to avoid port conflicts; extension fallback/deep-link is used
 import { registerHandler, LmgtfyChannels, emitCapture } from './lmgtfy/ipc'
 import { beginOverlay, closeAllOverlays, showStreamTriggerOverlay } from './lmgtfy/overlay'
 import { captureScreenshot, startRegionStream } from './lmgtfy/capture'
 import { loadPresets, upsertRegion } from './lmgtfy/presets'
+import { registerDbHandlers } from './ipc/db.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -67,7 +69,9 @@ async function createWindow() {
     webPreferences: {
       preload: path.join(__dirname, 'preload.mjs'),
     },
-    show: false,
+    show: true, // Show window immediately to prevent crash
+    width: 800,
+    height: 600,
   })
 
   // Test active push message to Renderer-process.
@@ -92,6 +96,9 @@ async function createWindow() {
   // LmGTFY IPC wiring
   registerHandler(LmgtfyChannels.GetPresets, () => loadPresets())
   registerHandler(LmgtfyChannels.SavePreset, async (_e, payload) => upsertRegion(payload))
+  
+  // Database IPC handlers
+  registerDbHandlers()
   
   // Overlay direct IPC (renderer->main) to drive capture + posting
   try {
@@ -411,13 +418,6 @@ app.on('open-url', (event, url) => {
   handleDeepLink(url)
 })
 
-app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') {
-    app.quit()
-    win = null
-  }
-})
-
 app.on('will-quit', () => {
   globalShortcut.unregisterAll()
 })
@@ -430,19 +430,95 @@ app.on('activate', () => {
   }
 })
 
-app.whenReady().then(async () => {
-  try { process.env.WS_NO_BUFFER_UTIL = '1'; process.env.WS_NO_UTF_8_VALIDATE = '1' } catch {}
-  // Auto-start on login (Windows/macOS). Pass --hidden so it starts in background.
+// Setup console logging to file for debugging (before app.whenReady)
+let logPath: string = ''
+let logFileSetup = false
+async function setupFileLogging() {
+  if (logFileSetup) return
   try {
-    if (process.platform === 'win32' || process.platform === 'darwin') {
-      app.setLoginItemSettings({ openAtLogin: true, args: ['--hidden'] })
+    const fs = await import('fs')
+    const os = await import('os')
+    logPath = path.join(os.default.homedir(), '.opengiraffe', 'electron-console.log')
+    const logDir = path.dirname(logPath)
+    if (!fs.default.existsSync(logDir)) {
+      fs.default.mkdirSync(logDir, { recursive: true })
     }
-    if (process.platform === 'win32') {
-      app.setAppUserModelId('com.opengiraffe.desktop')
+    // Write initial marker
+    fs.default.appendFileSync(logPath, `\n===== Electron Console Log Started: ${new Date().toISOString()} =====\n`)
+    
+    // Redirect console.log and console.error to both console and file
+    const originalLog = console.log
+    const originalError = console.error
+    console.log = (...args: any[]) => {
+      originalLog(...args)
+      try {
+        const logLine = `[${new Date().toISOString()}] ${args.map((a: any) => typeof a === 'object' ? JSON.stringify(a, null, 2) : String(a)).join(' ')}\n`
+        fs.default.appendFileSync(logPath, logLine)
+      } catch (e) {
+        originalError('[LOG ERROR]', e)
+      }
     }
-  } catch {}
+    console.error = (...args: any[]) => {
+      originalError(...args)
+      try {
+        const logLine = `[${new Date().toISOString()}] ERROR: ${args.map((a: any) => typeof a === 'object' ? JSON.stringify(a, null, 2) : String(a)).join(' ')}\n`
+        fs.default.appendFileSync(logPath, logLine)
+      } catch (e) {
+        originalError('[LOG ERROR]', e)
+      }
+    }
+    logFileSetup = true
+    console.log('[MAIN] Console logging to file:', logPath)
+  } catch (err) {
+    console.error('[MAIN] Failed to setup file logging:', err)
+  }
+}
+
+// Fix Windows cache permission errors by setting a custom user data directory
+const customUserDataPath = path.join(os.homedir(), '.opengiraffe', 'electron-data')
+app.setPath('userData', customUserDataPath)
+// Disable GPU to prevent crashes on some Windows systems
+app.disableHardwareAcceleration()
+app.commandLine.appendSwitch('disable-gpu')
+app.commandLine.appendSwitch('disable-gpu-compositing')
+app.commandLine.appendSwitch('no-sandbox')
+
+// Add crash handlers
+process.on('uncaughtException', (error) => {
+  console.error('[MAIN] Uncaught exception:', error)
+})
+
+process.on('unhandledRejection', (reason) => {
+  console.error('[MAIN] Unhandled rejection:', reason)
+})
+
+// Prevent app from quitting when all windows are closed
+app.on('window-all-closed', () => {
+  console.log('[MAIN] All windows closed, but keeping app running')
+  // Don't quit - keep the app and WebSocket server running
+})
+
+console.log('[MAIN] About to call app.whenReady()')
+
+app.whenReady().then(async () => {
+  console.log('[MAIN] ===== APP READY =====')
+  try {
+    // Setup console logging to file for debugging
+    await setupFileLogging()
+    try { process.env.WS_NO_BUFFER_UTIL = '1'; process.env.WS_NO_UTF_8_VALIDATE = '1' } catch {}
+    // Auto-start on login (Windows/macOS). Pass --hidden so it starts in background.
+    try {
+      if (process.platform === 'win32' || process.platform === 'darwin') {
+        app.setLoginItemSettings({ openAtLogin: true, args: ['--hidden'] })
+      }
+      if (process.platform === 'win32') {
+        app.setAppUserModelId('com.opengiraffe.desktop')
+      }
+    } catch {}
   createWindow()
   createTray()
+  console.log('[MAIN] Window and tray created')
+  
   // WS bridge for extension (127.0.0.1:51247) with safe startup
   try {
     console.log('[MAIN] ===== ATTEMPTING TO START WEBSOCKET SERVER =====')
@@ -451,7 +527,10 @@ app.whenReady().then(async () => {
       console.log('[MAIN] Creating WebSocket server on 127.0.0.1:51247')
       const wss = new WebSocketServer({ host: '127.0.0.1', port: 51247 })
       console.log('[MAIN] WebSocket server created!')
+      console.log('[MAIN] WebSocket server listening and ready for connections')
+      
       wss.on('error', (err: any) => {
+        console.error('[MAIN] WebSocket server error:', err)
         try {
           const msg = String((err && (err.code || err.message)) || '')
           if (msg.includes('EADDRINUSE')) { try { wss.close() } catch {} }
@@ -459,14 +538,96 @@ app.whenReady().then(async () => {
       })
       wss.on('connection', (socket: any) => {
         console.log('[MAIN] ===== NEW WEBSOCKET CONNECTION =====')
+        console.log('[MAIN] Socket readyState:', socket.readyState)
         try { wsClients.push(socket) } catch {}
+        
+        // Send immediate test message to verify connection works
+        try {
+          socket.send(JSON.stringify({ 
+            type: 'ELECTRON_LOG', 
+            message: '[MAIN] ✅ WebSocket connection established - ready to receive messages'
+          }))
+          console.log('[MAIN] ✅ Test ELECTRON_LOG sent on connection')
+        } catch (testErr) {
+          console.error('[MAIN] ❌ Failed to send test ELECTRON_LOG:', testErr)
+        }
+        
         socket.on('close', () => { console.log('[MAIN] WebSocket connection closed'); try { wsClients = wsClients.filter(s => s !== socket) } catch {} })
+        socket.on('error', (err: any) => {
+          console.error('[MAIN] WebSocket error:', err)
+        })
         socket.on('message', async (raw: any) => {
           try {
-            const msg = JSON.parse(String(raw))
-            console.log('[MAIN] WebSocket message received:', msg)
-            if (!msg || !msg.type) return
-            if (msg.type === 'ping') { console.log('[MAIN] Ping received, sending pong'); try { socket.send(JSON.stringify({ type: 'pong' })) } catch {} }
+            const rawStr = String(raw)
+            console.log('[MAIN] ===== RAW WEBSOCKET MESSAGE RECEIVED =====')
+            console.log('[MAIN] Raw message:', rawStr)
+            
+            // ALWAYS send log back to extension - this proves Electron is running new code
+            try {
+              const logMsg = JSON.stringify({ 
+                type: 'ELECTRON_LOG', 
+                message: '[MAIN] ===== RAW WEBSOCKET MESSAGE RECEIVED =====',
+                rawMessage: rawStr.substring(0, 200) // Limit size
+              })
+              socket.send(logMsg)
+              console.log('[MAIN] ✅ ELECTRON_LOG sent for raw message')
+            } catch (logErr) {
+              console.error('[MAIN] ❌ FAILED to send ELECTRON_LOG:', logErr)
+            }
+            
+            const msg = JSON.parse(rawStr)
+            console.log('[MAIN] Parsed message:', JSON.stringify(msg, null, 2))
+            
+            // Send parsed message log
+            try {
+              socket.send(JSON.stringify({ 
+                type: 'ELECTRON_LOG', 
+                message: '[MAIN] Parsed message',
+                parsedMessage: { type: msg.type, hasConfig: !!msg.config }
+              }))
+              console.log('[MAIN] ✅ ELECTRON_LOG sent for parsed message')
+            } catch (logErr) {
+              console.error('[MAIN] ❌ FAILED to send parsed message log:', logErr)
+            }
+            
+            if (!msg || !msg.type) {
+              console.warn('[MAIN] Message has no type, ignoring:', msg)
+              try {
+                socket.send(JSON.stringify({ 
+                  type: 'ELECTRON_LOG', 
+                  message: '[MAIN] ⚠️ Message has no type, ignoring'
+                }))
+              } catch {}
+              return
+            }
+            console.log(`[MAIN] Processing message type: ${msg.type}`)
+            
+            // Send message type log for ALL messages - CRITICAL for debugging
+            try {
+              const typeLogMsg = JSON.stringify({ 
+                type: 'ELECTRON_LOG', 
+                message: `[MAIN] Processing message type: ${msg.type}`,
+                messageType: msg.type,
+                timestamp: new Date().toISOString()
+              })
+              socket.send(typeLogMsg)
+              console.log(`[MAIN] ✅ ELECTRON_LOG sent for message type: ${msg.type}`)
+            } catch (logErr) {
+              console.error('[MAIN] ❌ FAILED to send message type log:', logErr)
+              console.error('[MAIN] Socket state:', {
+                readyState: socket.readyState,
+                OPEN: socket.OPEN,
+                isOpen: socket.readyState === socket.OPEN
+              })
+            }
+            
+            if (msg.type === 'ping') { 
+              console.log('[MAIN] Ping received, sending pong'); 
+              try { socket.send(JSON.stringify({ type: 'pong' })) } catch (e) {
+                console.error('[MAIN] Error sending pong:', e)
+              }
+              return // Don't process further handlers for ping
+            }
             if (msg.type === 'START_SELECTION') {
               // Open full-featured overlay with all controls
               console.log('[MAIN] ===== RECEIVED START_SELECTION, LAUNCHING FULL OVERLAY =====')
@@ -549,11 +710,212 @@ app.whenReady().then(async () => {
                 console.log('[MAIN] Error processing EXECUTE_TRIGGER:', err)
               }
             }
+            // Database operations via WebSocket
+            if (msg.type === 'DB_TEST_CONNECTION') {
+              console.log('[MAIN] ===== DB_TEST_CONNECTION HANDLER STARTED =====')
+              console.log('[MAIN] Full message:', JSON.stringify(msg, null, 2))
+              
+              // Send log to extension immediately - CRITICAL for debugging
+              try {
+                const handlerLogMsg = JSON.stringify({ 
+                  type: 'ELECTRON_LOG', 
+                  message: '[MAIN] ===== DB_TEST_CONNECTION HANDLER STARTED =====',
+                  hasConfig: !!msg.config,
+                  configKeys: msg.config ? Object.keys(msg.config) : [],
+                  msgKeys: Object.keys(msg)
+                })
+                socket.send(handlerLogMsg)
+                console.log('[MAIN] ✅ ELECTRON_LOG sent for DB_TEST_CONNECTION handler start')
+              } catch (logErr) {
+                console.error('[MAIN] ❌ FAILED to send DB_TEST_CONNECTION handler log:', logErr)
+                console.error('[MAIN] Socket readyState:', socket.readyState)
+              }
+              try {
+                const { testConnection } = await import('./ipc/db.js')
+                console.log('[MAIN] testConnection function imported successfully')
+                
+                // Support both msg.config and msg.data.config for compatibility
+                const config = msg.config || msg.data?.config
+                console.log('[MAIN] Extracted config:', config ? {
+                  ...config,
+                  password: '***REDACTED***'
+                } : 'NO CONFIG FOUND')
+                console.log('[MAIN] Config source - msg.config:', !!msg.config, 'msg.data?.config:', !!msg.data?.config)
+                
+                if (!config) {
+                  console.error('[MAIN] DB_TEST_CONNECTION: No config provided')
+                  console.error('[MAIN] Message structure:', {
+                    hasType: !!msg.type,
+                    hasConfig: !!msg.config,
+                    hasData: !!msg.data,
+                    dataKeys: msg.data ? Object.keys(msg.data) : [],
+                    fullMsg: msg
+                  })
+                  const errorResponse = { 
+                    type: 'DB_TEST_CONNECTION_RESULT', 
+                    ok: false, 
+                    message: 'No config provided',
+                    details: {
+                      receivedMessage: msg,
+                      availableKeys: Object.keys(msg)
+                    }
+                  }
+                  console.log('[MAIN] Sending error response:', JSON.stringify(errorResponse, null, 2))
+                  try { 
+                    socket.send(JSON.stringify(errorResponse))
+                    console.log('[MAIN] Error response sent successfully')
+                  } catch (sendErr) {
+                    console.error('[MAIN] Error sending error response:', sendErr)
+                  }
+                  return
+                }
+                
+                console.log('[MAIN] Testing connection with config:', { ...config, password: '***REDACTED***' })
+                const testStartTime = Date.now()
+                const result = await testConnection(config)
+                const testDuration = Date.now() - testStartTime
+                console.log('[MAIN] Connection test completed in', testDuration, 'ms')
+                console.log('[MAIN] Connection test result:', JSON.stringify(result, null, 2))
+                
+                const response = { type: 'DB_TEST_CONNECTION_RESULT', ...result }
+                console.log('[MAIN] Preparing to send response:', JSON.stringify(response, null, 2))
+                try { 
+                  socket.send(JSON.stringify(response))
+                  console.log('[MAIN] ===== DB_TEST_CONNECTION_RESULT SENT SUCCESSFULLY =====')
+                } catch (sendErr) {
+                  console.error('[MAIN] ===== ERROR SENDING DB_TEST_CONNECTION_RESULT =====')
+                  console.error('[MAIN] Send error:', sendErr)
+                  console.error('[MAIN] Socket readyState:', socket.readyState)
+                  console.error('[MAIN] Socket state:', {
+                    readyState: socket.readyState,
+                    OPEN: socket.OPEN,
+                    isOpen: socket.readyState === socket.OPEN
+                  })
+                }
+              } catch (err: any) {
+                console.error('[MAIN] ===== EXCEPTION IN DB_TEST_CONNECTION HANDLER =====')
+                console.error('[MAIN] Error:', err)
+                console.error('[MAIN] Error message:', err?.message)
+                console.error('[MAIN] Error stack:', err?.stack)
+                const errorResponse = {
+                  type: 'DB_TEST_CONNECTION_RESULT',
+                  ok: false,
+                  message: String(err?.message || err),
+                  details: {
+                    error: err.toString(),
+                    stack: err.stack,
+                    name: err?.name
+                  }
+                }
+                console.log('[MAIN] Sending error response:', JSON.stringify(errorResponse, null, 2))
+                try { 
+                  socket.send(JSON.stringify(errorResponse))
+                  console.log('[MAIN] Error response sent')
+                } catch (sendErr) {
+                  console.error('[MAIN] Failed to send error response:', sendErr)
+                }
+              }
+            }
+            if (msg.type === 'DB_SYNC') {
+              try {
+                const { syncChromeDataToPostgres } = await import('./ipc/db.js')
+                const result = await syncChromeDataToPostgres(msg.data || {})
+                try { socket.send(JSON.stringify({ type: 'DB_SYNC_RESULT', ...result })) } catch {}
+              } catch (err: any) {
+                console.log('[MAIN] Error handling DB_SYNC:', err)
+                try { socket.send(JSON.stringify({ type: 'DB_SYNC_RESULT', ok: false, message: String(err?.message || err) })) } catch {}
+              }
+            }
+            if (msg.type === 'DB_SET_ACTIVE') {
+              try {
+                // Store active backend in a way that can be accessed
+                // For now, just acknowledge
+                try { socket.send(JSON.stringify({ type: 'DB_SET_ACTIVE_RESULT', ok: true, message: 'Backend set to ' + msg.backend })) } catch {}
+              } catch (err: any) {
+                console.log('[MAIN] Error handling DB_SET_ACTIVE:', err)
+                try { socket.send(JSON.stringify({ type: 'DB_SET_ACTIVE_RESULT', ok: false, message: String(err?.message || err) })) } catch {}
+              }
+            }
+            if (msg.type === 'DB_GET_CONFIG') {
+              try {
+                const { getConfig } = await import('./ipc/db.js')
+                const result = await getConfig()
+                try { socket.send(JSON.stringify({ type: 'DB_GET_CONFIG_RESULT', ...result })) } catch {}
+              } catch (err: any) {
+                console.log('[MAIN] Error handling DB_GET_CONFIG:', err)
+                try { socket.send(JSON.stringify({ type: 'DB_GET_CONFIG_RESULT', ok: false, message: String(err?.message || err) })) } catch {}
+              }
+            }
+            if (msg.type === 'DB_GET') {
+              try {
+                const { getPostgresAdapter } = await import('./ipc/db.js')
+                const adapter = getPostgresAdapter()
+                if (!adapter) {
+                  try { socket.send(JSON.stringify({ type: 'DB_GET_RESULT', ok: false, message: 'Postgres adapter not initialized' })) } catch {}
+                  return
+                }
+                const value = await adapter.get(msg.key)
+                try { socket.send(JSON.stringify({ type: 'DB_GET_RESULT', ok: true, value })) } catch {}
+              } catch (err: any) {
+                console.log('[MAIN] Error handling DB_GET:', err)
+                try { socket.send(JSON.stringify({ type: 'DB_GET_RESULT', ok: false, message: String(err?.message || err) })) } catch {}
+              }
+            }
+            if (msg.type === 'DB_SET') {
+              try {
+                const { getPostgresAdapter } = await import('./ipc/db.js')
+                const adapter = getPostgresAdapter()
+                if (!adapter) {
+                  try { socket.send(JSON.stringify({ type: 'DB_SET_RESULT', ok: false, message: 'Postgres adapter not initialized' })) } catch {}
+                  return
+                }
+                await adapter.set(msg.key, msg.value)
+                try { socket.send(JSON.stringify({ type: 'DB_SET_RESULT', ok: true })) } catch {}
+              } catch (err: any) {
+                console.log('[MAIN] Error handling DB_SET:', err)
+                try { socket.send(JSON.stringify({ type: 'DB_SET_RESULT', ok: false, message: String(err?.message || err) })) } catch {}
+              }
+            }
+            if (msg.type === 'DB_GET_ALL') {
+              try {
+                const { getPostgresAdapter } = await import('./ipc/db.js')
+                const adapter = getPostgresAdapter()
+                if (!adapter) {
+                  try { socket.send(JSON.stringify({ type: 'DB_GET_ALL_RESULT', ok: false, message: 'Postgres adapter not initialized' })) } catch {}
+                  return
+                }
+                const data = await adapter.getAll()
+                try { socket.send(JSON.stringify({ type: 'DB_GET_ALL_RESULT', ok: true, data })) } catch {}
+              } catch (err: any) {
+                console.log('[MAIN] Error handling DB_GET_ALL:', err)
+                try { socket.send(JSON.stringify({ type: 'DB_GET_ALL_RESULT', ok: false, message: String(err?.message || err) })) } catch {}
+              }
+            }
+            if (msg.type === 'DB_SET_ALL') {
+              try {
+                const { getPostgresAdapter } = await import('./ipc/db.js')
+                const adapter = getPostgresAdapter()
+                if (!adapter) {
+                  try { socket.send(JSON.stringify({ type: 'DB_SET_ALL_RESULT', ok: false, message: 'Postgres adapter not initialized' })) } catch {}
+                  return
+                }
+                await adapter.setAll(msg.payload || {})
+                try { socket.send(JSON.stringify({ type: 'DB_SET_ALL_RESULT', ok: true })) } catch {}
+              } catch (err: any) {
+                console.log('[MAIN] Error handling DB_SET_ALL:', err)
+                try { socket.send(JSON.stringify({ type: 'DB_SET_ALL_RESULT', ok: false, message: String(err?.message || err) })) } catch {}
+              }
+            }
           } catch {}
         })
       })
     }
-  } catch {}
+  } catch (err) {
+    console.error('[MAIN] Error in WebSocket setup:', err)
+  }
+  } catch (err) {
+    console.error('[MAIN] Error in app.whenReady:', err)
+  }
 })
 
 // Helpers to post to popup chat and close overlay via background

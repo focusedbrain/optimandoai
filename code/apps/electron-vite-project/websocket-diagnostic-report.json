@@ -1,0 +1,31 @@
+{
+  "timestamp": "2025-11-08T16:39:56.775Z",
+  "electronRunning": true,
+  "websocketServerListening": true,
+  "websocketConnection": true,
+  "pingPongTest": true,
+  "messageFlowTest": false,
+  "databaseDirectTest": false,
+  "errors": [
+    "DB_TEST_CONNECTION message timeout - Electron not responding"
+  ],
+  "details": {
+    "portCheck": {
+      "status": "listening",
+      "port": 51247
+    },
+    "websocketTest": {
+      "status": "connected",
+      "duration": 20
+    },
+    "pingPongTest": {
+      "status": "success",
+      "latency": 24
+    },
+    "messageFlowTest": {
+      "status": "timeout",
+      "duration": 10012,
+      "message": "No DB_TEST_CONNECTION_RESULT received"
+    }
+  }
+}

@@ -46,3 +46,10 @@ contextBridge.exposeInMainWorld('LETmeGIRAFFETHATFORYOU', {
   onCapture: (cb: (payload: any) => void) => ipcRenderer.on('lmgtfy.capture', (_e, d) => cb(d)),
   onHotkey: (cb: (kind: string) => void) => ipcRenderer.on('hotkey', (_e, k) => cb(k)),
 })
+
+// Database API
+contextBridge.exposeInMainWorld('db', {
+  testConnection: (config: any) => ipcRenderer.invoke('db:testConnection', config),
+  sync: (data: Record<string, any>) => ipcRenderer.invoke('db:sync', data),
+  getConfig: () => ipcRenderer.invoke('db:getConfig'),
+})

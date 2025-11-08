@@ -30,7 +30,8 @@
         ]
       }
     ],
-    "artifactName": "${productName}-Windows-${version}-Setup.${ext}"
+    "artifactName": "${productName}-Windows-${version}-Setup.${ext}",
+    "executableName": "opengiraffe"
   },
   "nsis": {
     "oneClick": true,
