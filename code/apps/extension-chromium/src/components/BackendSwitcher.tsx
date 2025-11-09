@@ -435,22 +435,66 @@ export function BackendSwitcher({ theme = 'default' }: BackendSwitcherProps) {
                 {/* Admin Actions - Only show when connected */}
                 {config.postgres?.enabled && (
                   <div style={{ marginTop: '12px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                    {/* Open DBeaver Button */}
+                    {/* Connection Info Box */}
+                    <div style={{
+                      padding: '12px',
+                      background: 'rgba(76, 175, 80, 0.1)',
+                      border: '1px solid rgba(76, 175, 80, 0.3)',
+                      borderRadius: '6px',
+                      fontSize: '11px',
+                      color: textColor,
+                    }}>
+                      <div style={{ fontWeight: '600', marginBottom: '8px', opacity: 0.9 }}>
+                        🔗 DBeaver Connection Info
+                      </div>
+                      <div style={{ marginBottom: '4px', opacity: 0.8 }}>
+                        <strong>Connection:</strong> Local PostgreSQL (WR Code)
+                      </div>
+                      <div style={{ marginBottom: '4px', opacity: 0.8 }}>
+                        <strong>Username:</strong> {config.postgres.config.user}
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', opacity: 0.8 }}>
+                        <strong>Password:</strong>
+                        <code style={{
+                          padding: '2px 6px',
+                          background: 'rgba(0,0,0,0.3)',
+                          borderRadius: '4px',
+                          fontSize: '10px',
+                          userSelect: 'all',
+                        }}>
+                          {config.postgres.config.password}
+                        </code>
+                      </div>
+                      <div style={{ marginTop: '8px', fontSize: '10px', opacity: 0.7, fontStyle: 'italic' }}>
+                        💡 Copy password above if DBeaver prompts for it
+                      </div>
+                    </div>
+
+                    {/* Open DBeaver Button - Automatically configures connection and downloads drivers */}
                     <button
                       onClick={async () => {
-                        // Launch DBeaver via HTTP API
+                        if (!config.postgres?.enabled || !config.postgres?.config) {
+                          setNotification({
+                            message: 'Please connect to PostgreSQL first',
+                            type: 'error'
+                          });
+                          setTimeout(() => setNotification(null), 5000);
+                          return;
+                        }
+                        // Launch DBeaver and configure connection automatically
                         try {
                           const response = await fetch('http://127.0.0.1:51248/api/db/launch-dbeaver', {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ postgresConfig: config.postgres.config }),
                           });
                           const result = await response.json();
                           if (result.ok) {
                             setNotification({
-                              message: result.message || 'DBeaver is launching...',
+                              message: 'DBeaver launched! Look for "Local PostgreSQL (WR Code)" connection. Double-click to connect and enter password if prompted.',
                               type: 'success'
                             });
-                            setTimeout(() => setNotification(null), 3000);
+                            setTimeout(() => setNotification(null), 10000);
                           } else {
                             setNotification({
                               message: result.message || 'Could not launch DBeaver. Please open it manually from Start Menu.',
@@ -490,18 +534,26 @@ export function BackendSwitcher({ theme = 'default' }: BackendSwitcherProps) {
                       }}
                     >
                       <span>🗄️</span>
-                      <span>Open DBeaver</span>
+                      <span>Connect DBeaver</span>
                     </button>
 
                     {/* Insert Test Data Button */}
                     <button
                       onClick={async () => {
-                        if (!config.postgres?.enabled) return;
+                        if (!config.postgres?.enabled || !config.postgres?.config) {
+                          setNotification({
+                            message: 'Please connect to PostgreSQL first',
+                            type: 'error'
+                          });
+                          setTimeout(() => setNotification(null), 5000);
+                          return;
+                        }
                         setIsInsertingTestData(true);
                         try {
                           const response = await fetch('http://127.0.0.1:51248/api/db/insert-test-data', {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ postgresConfig: config.postgres.config }),
                           });
                           const result = await response.json();
                           if (result.ok) {

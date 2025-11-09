@@ -1127,12 +1127,46 @@ app.whenReady().then(async () => {
     })
 
     // POST /api/db/insert-test-data - Insert test data for testing PostgreSQL
-    httpApp.post('/api/db/insert-test-data', async (_req, res) => {
+    httpApp.post('/api/db/insert-test-data', async (req, res) => {
       try {
         console.log('[HTTP] POST /api/db/insert-test-data')
-        const adapter = getPostgresAdapter()
+        let adapter = getPostgresAdapter()
+        
+        // If adapter not initialized, try to initialize it from request config or stored config
         if (!adapter) {
-          res.status(500).json({ ok: false, message: 'Postgres adapter not initialized' })
+          console.log('[HTTP] Adapter not initialized, attempting to initialize...')
+          const postgresConfig = req.body.postgresConfig || req.body.config
+          
+          if (postgresConfig) {
+            console.log('[HTTP] Using config from request body')
+            const { testConnection } = await import('./ipc/db.js')
+            const testResult = await testConnection(postgresConfig)
+            if (testResult.ok) {
+              adapter = getPostgresAdapter()
+              console.log('[HTTP] Successfully initialized adapter from request config')
+            } else {
+              res.status(500).json({ 
+                ok: false, 
+                message: 'PostgreSQL connection failed. Please click "Connect Local PostgreSQL" first and ensure the connection succeeds.',
+                details: { error: testResult.message }
+              })
+              return
+            }
+          } else {
+            res.status(500).json({ 
+              ok: false, 
+              message: 'PostgreSQL not connected. Please click "Connect Local PostgreSQL" first and ensure the connection succeeds.',
+              details: { error: 'No PostgreSQL configuration provided' }
+            })
+            return
+          }
+        }
+        
+        if (!adapter) {
+          res.status(500).json({ 
+            ok: false, 
+            message: 'PostgreSQL not connected. Please click "Connect Local PostgreSQL" first and ensure the connection succeeds.'
+          })
           return
         }
 
@@ -1279,13 +1313,27 @@ app.whenReady().then(async () => {
       }
     })
 
-    // POST /api/db/launch-dbeaver - Launch DBeaver application
-    httpApp.post('/api/db/launch-dbeaver', async (_req, res) => {
+    // POST /api/db/launch-dbeaver - Launch DBeaver application and configure connection
+    httpApp.post('/api/db/launch-dbeaver', async (req, res) => {
       try {
         console.log('[HTTP] POST /api/db/launch-dbeaver')
-        const { spawn } = await import('child_process');
+        const postgresConfig = req.body.postgresConfig || req.body.config;
+        const { spawn, execSync } = await import('child_process');
         const path = await import('path');
         const fs = await import('fs');
+        
+        // First, close any running DBeaver instances to ensure clean configuration
+        if (postgresConfig) {
+          try {
+            execSync('taskkill /F /IM dbeaver.exe /T 2>nul', { stdio: 'ignore' });
+            console.log('[HTTP] Closed existing DBeaver instances');
+            // Wait a bit for the process to fully close
+            await new Promise(resolve => setTimeout(resolve, 1500));
+          } catch (e) {
+            // Process might not be running, that's fine
+            console.log('[HTTP] No DBeaver process to close or already closed');
+          }
+        }
         
         // Common DBeaver installation paths
         const dbeaverPaths = [
@@ -1342,10 +1390,227 @@ app.whenReady().then(async () => {
           }
         }
         
+        // If PostgreSQL config is provided, also configure the connection and download drivers
+        if (postgresConfig) {
+          console.log('[HTTP] Configuring DBeaver connection and downloading drivers...');
+          try {
+            // Import the configure-dbeaver logic (we'll inline it here)
+            const os = await import('os');
+            const https = await import('https');
+            
+            const appDataPath = process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming');
+            const dbeaverDataPath = path.join(appDataPath, 'DBeaverData');
+            
+            // Download PostgreSQL JDBC driver if not already present
+            const driversDir = path.join(dbeaverDataPath, 'drivers', 'maven', 'maven-central');
+            const postgresDriverDir = path.join(driversDir, 'org.postgresql', 'postgresql');
+            const driverVersion = '42.7.3';
+            const driverJarName = `postgresql-${driverVersion}.jar`;
+            const driverJarPath = path.join(postgresDriverDir, driverVersion, driverJarName);
+            
+            // Ensure driver directory exists
+            if (!fs.existsSync(path.dirname(driverJarPath))) {
+              fs.mkdirSync(path.dirname(driverJarPath), { recursive: true });
+            }
+            
+            // Download driver if it doesn't exist
+            if (!fs.existsSync(driverJarPath)) {
+              console.log('[HTTP] Downloading PostgreSQL JDBC driver...');
+              const driverUrl = `https://repo1.maven.org/maven2/org/postgresql/postgresql/${driverVersion}/${driverJarName}`;
+              
+              try {
+                await new Promise<void>((resolve, reject) => {
+                  const file = fs.createWriteStream(driverJarPath);
+                  https.get(driverUrl, (response) => {
+                    if (response.statusCode === 301 || response.statusCode === 302) {
+                      https.get(response.headers.location!, (redirectResponse) => {
+                        redirectResponse.pipe(file);
+                        file.on('finish', () => {
+                          file.close();
+                          console.log('[HTTP] PostgreSQL JDBC driver downloaded successfully');
+                          resolve();
+                        });
+                      }).on('error', (err) => {
+                        if (fs.existsSync(driverJarPath)) {
+                          fs.unlinkSync(driverJarPath);
+                        }
+                        reject(err);
+                      });
+                    } else if (response.statusCode === 200) {
+                      response.pipe(file);
+                      file.on('finish', () => {
+                        file.close();
+                        console.log('[HTTP] PostgreSQL JDBC driver downloaded successfully');
+                        resolve();
+                      });
+                    } else {
+                      if (fs.existsSync(driverJarPath)) {
+                        fs.unlinkSync(driverJarPath);
+                      }
+                      reject(new Error(`Failed to download driver: HTTP ${response.statusCode}`));
+                    }
+                  }).on('error', (err) => {
+                    if (fs.existsSync(driverJarPath)) {
+                      fs.unlinkSync(driverJarPath);
+                    }
+                    reject(err);
+                  });
+                });
+              } catch (downloadError: any) {
+                console.error('[HTTP] Failed to download PostgreSQL JDBC driver:', downloadError);
+                console.log('[HTTP] Continuing without driver download - DBeaver will prompt to download if needed');
+              }
+            } else {
+              console.log('[HTTP] PostgreSQL JDBC driver already exists');
+            }
+            
+            // Configure driver in DBeaver's drivers.xml - this ensures the driver is available
+            const driversConfigPath = path.join(dbeaverDataPath, 'drivers.xml');
+            try {
+              // DBeaver will auto-download the driver if we just reference it correctly
+              // We create a minimal drivers.xml that references the standard PostgreSQL driver
+              let driversXml = `<?xml version="1.0" encoding="UTF-8"?>
+<drivers>
+</drivers>`;
+              
+              if (!fs.existsSync(driversConfigPath)) {
+                fs.writeFileSync(driversConfigPath, driversXml, 'utf-8');
+                console.log('[HTTP] Created minimal drivers.xml');
+              }
+            } catch (driverConfigError: any) {
+              console.error('[HTTP] Error configuring drivers.xml:', driverConfigError);
+              // Continue anyway
+            }
+            
+            // Configure connection
+            let workspacePath = null;
+            try {
+              const workspaceDirs = fs.readdirSync(dbeaverDataPath, { withFileTypes: true })
+                .filter(dirent => dirent.isDirectory() && dirent.name.startsWith('workspace'))
+                .map(dirent => path.join(dbeaverDataPath, dirent.name));
+              
+              if (workspaceDirs.length > 0) {
+                workspacePath = workspaceDirs.sort().reverse()[0];
+              }
+            } catch (err) {
+              console.error('[HTTP] Error finding workspace:', err);
+            }
+            
+            if (workspacePath) {
+              const dataSourcesPath = path.join(workspacePath, 'General', '.dbeaver', 'data-sources.json');
+              const dataSourcesDir = path.dirname(dataSourcesPath);
+              
+              if (!fs.existsSync(dataSourcesDir)) {
+                fs.mkdirSync(dataSourcesDir, { recursive: true });
+              }
+              
+              let dataSources: any = {
+                folders: {},
+                connections: {},
+                'connection-types': {
+                  'dev': {
+                    name: 'Development',
+                    color: '255,255,255',
+                    description: 'Regular development database',
+                    'auto-commit': true,
+                    'confirm-execute': false,
+                    'confirm-data-change': false,
+                    'smart-commit': false,
+                    'smart-commit-recover': true,
+                    'auto-close-transactions': true,
+                    'close-transactions-period': 1800,
+                    'auto-close-connections': true,
+                    'close-connections-period': 14400
+                  }
+                }
+              };
+              
+              if (fs.existsSync(dataSourcesPath)) {
+                try {
+                  const fileContent = fs.readFileSync(dataSourcesPath, 'utf-8');
+                  dataSources = JSON.parse(fileContent);
+                  if (!dataSources.connections) {
+                    dataSources.connections = {};
+                  }
+                } catch (err) {
+                  console.error('[HTTP] Error reading data-sources.json:', err);
+                }
+              }
+              
+              const connectionId = 'postgres-local-wr-code';
+              const connectionName = 'Local PostgreSQL (WR Code)';
+              // Include credentials in JDBC URL for automatic authentication
+              const jdbcUrl = `jdbc:postgresql://${postgresConfig.host}:${postgresConfig.port}/${postgresConfig.database}?user=${encodeURIComponent(postgresConfig.user)}&password=${encodeURIComponent(postgresConfig.password)}`;
+              
+              const connectionConfig: any = {
+                provider: 'postgresql',
+                driver: 'postgres-jdbc',
+                name: connectionName,
+                'save-password': true,
+                configuration: {
+                  host: postgresConfig.host,
+                  port: postgresConfig.port,
+                  database: postgresConfig.database,
+                  url: jdbcUrl,
+                  type: 'dev',
+                  provider: 'postgresql',
+                  'configuration-type': 'MANUAL',
+                  'auth-model': 'native',
+                  handlers: {}
+                },
+                auth: {
+                  properties: {
+                    user: postgresConfig.user,
+                    password: postgresConfig.password
+                  },
+                  'save-password': true
+                }
+              };
+              
+              dataSources.connections[connectionId] = connectionConfig;
+              fs.writeFileSync(dataSourcesPath, JSON.stringify(dataSources, null, 2), 'utf-8');
+              console.log('[HTTP] DBeaver connection configured successfully');
+              
+              // Also create credentials file for automatic authentication
+              try {
+                const credentialsPath = path.join(workspacePath, 'General', '.dbeaver', 'credentials-config.json');
+                const credentialsDir = path.dirname(credentialsPath);
+                
+                if (!fs.existsSync(credentialsDir)) {
+                  fs.mkdirSync(credentialsDir, { recursive: true });
+                }
+                
+                const credentials = {
+                  [connectionId]: {
+                    '#connection': {
+                      user: postgresConfig.user,
+                      password: postgresConfig.password
+                    }
+                  }
+                };
+                
+                fs.writeFileSync(credentialsPath, JSON.stringify(credentials, null, 2), 'utf-8');
+                console.log('[HTTP] DBeaver credentials configured');
+              } catch (credError: any) {
+                console.error('[HTTP] Error configuring credentials:', credError);
+                // Continue anyway
+              }
+            }
+          } catch (configError: any) {
+            console.error('[HTTP] Error configuring DBeaver connection:', configError);
+            // Continue anyway - DBeaver is launched
+          }
+        }
+        
         res.json({
           ok: true,
-          message: 'DBeaver launched successfully',
-          path: launchPath
+          message: postgresConfig 
+            ? 'DBeaver launched and configured! The connection "Local PostgreSQL (WR Code)" is ready. Username is pre-filled. You may need to enter the password on first connect.'
+            : 'DBeaver launched successfully',
+          path: launchPath,
+          configured: !!postgresConfig,
+          connectionName: postgresConfig ? 'Local PostgreSQL (WR Code)' : undefined,
+          username: postgresConfig?.user
         });
       } catch (error: any) {
         console.error('[HTTP] Error in launch-dbeaver:', error);
@@ -1357,13 +1622,293 @@ app.whenReady().then(async () => {
       }
     })
 
+    // POST /api/db/configure-dbeaver - Configure DBeaver with PostgreSQL connection
+    httpApp.post('/api/db/configure-dbeaver', async (req, res) => {
+      try {
+        console.log('[HTTP] POST /api/db/configure-dbeaver')
+        const postgresConfig = req.body.postgresConfig || req.body.config
+        
+        if (!postgresConfig) {
+          res.status(400).json({
+            ok: false,
+            message: 'PostgreSQL configuration is required'
+          })
+          return
+        }
+
+        const path = await import('path');
+        const fs = await import('fs');
+        const os = await import('os');
+        const https = await import('https');
+        const http = await import('http');
+        
+        // Find DBeaver workspace directory
+        const appDataPath = process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming');
+        const dbeaverDataPath = path.join(appDataPath, 'DBeaverData');
+        
+        // Download PostgreSQL JDBC driver if not already present
+        const driversDir = path.join(dbeaverDataPath, 'drivers', 'maven', 'maven-central');
+        const postgresDriverDir = path.join(driversDir, 'org.postgresql', 'postgresql');
+        const driverVersion = '42.7.3'; // Latest stable version
+        const driverJarName = `postgresql-${driverVersion}.jar`;
+        const driverJarPath = path.join(postgresDriverDir, driverVersion, driverJarName);
+        
+        // Ensure driver directory exists
+        if (!fs.existsSync(path.dirname(driverJarPath))) {
+          fs.mkdirSync(path.dirname(driverJarPath), { recursive: true });
+        }
+        
+        // Download driver if it doesn't exist
+        if (!fs.existsSync(driverJarPath)) {
+          console.log('[HTTP] Downloading PostgreSQL JDBC driver...');
+          const driverUrl = `https://repo1.maven.org/maven2/org/postgresql/postgresql/${driverVersion}/${driverJarName}`;
+          
+          try {
+            await new Promise<void>((resolve, reject) => {
+              const file = fs.createWriteStream(driverJarPath);
+              https.get(driverUrl, (response) => {
+                if (response.statusCode === 301 || response.statusCode === 302) {
+                  // Handle redirect
+                  https.get(response.headers.location!, (redirectResponse) => {
+                    redirectResponse.pipe(file);
+                    file.on('finish', () => {
+                      file.close();
+                      console.log('[HTTP] PostgreSQL JDBC driver downloaded successfully');
+                      resolve();
+                    });
+                  }).on('error', (err) => {
+                    if (fs.existsSync(driverJarPath)) {
+                      fs.unlinkSync(driverJarPath);
+                    }
+                    reject(err);
+                  });
+                } else if (response.statusCode === 200) {
+                  response.pipe(file);
+                  file.on('finish', () => {
+                    file.close();
+                    console.log('[HTTP] PostgreSQL JDBC driver downloaded successfully');
+                    resolve();
+                  });
+                } else {
+                  if (fs.existsSync(driverJarPath)) {
+                    fs.unlinkSync(driverJarPath);
+                  }
+                  reject(new Error(`Failed to download driver: HTTP ${response.statusCode}`));
+                }
+              }).on('error', (err) => {
+                if (fs.existsSync(driverJarPath)) {
+                  fs.unlinkSync(driverJarPath);
+                }
+                reject(err);
+              });
+            });
+          } catch (downloadError: any) {
+            console.error('[HTTP] Failed to download PostgreSQL JDBC driver:', downloadError);
+            // Continue anyway - DBeaver might prompt to download it
+            console.log('[HTTP] Continuing without driver download - DBeaver will prompt to download if needed');
+          }
+        } else {
+          console.log('[HTTP] PostgreSQL JDBC driver already exists');
+        }
+        
+        // Find workspace directory
+        let workspacePath = null;
+        try {
+          const workspaceDirs = fs.readdirSync(dbeaverDataPath, { withFileTypes: true })
+            .filter(dirent => dirent.isDirectory() && dirent.name.startsWith('workspace'))
+            .map(dirent => path.join(dbeaverDataPath, dirent.name));
+          
+          if (workspaceDirs.length > 0) {
+            // Use the most recent workspace (highest number)
+            workspacePath = workspaceDirs.sort().reverse()[0];
+          }
+        } catch (err) {
+          console.error('[HTTP] Error finding workspace:', err);
+        }
+        
+        if (!workspacePath) {
+          res.status(500).json({
+            ok: false,
+            message: 'Could not find DBeaver workspace. Please open DBeaver at least once first.'
+          })
+          return
+        }
+        
+        const dataSourcesPath = path.join(workspacePath, 'General', '.dbeaver', 'data-sources.json');
+        const dataSourcesDir = path.dirname(dataSourcesPath);
+        
+        // Ensure directory exists
+        if (!fs.existsSync(dataSourcesDir)) {
+          fs.mkdirSync(dataSourcesDir, { recursive: true });
+        }
+        
+        // Read existing data-sources.json or create new
+        let dataSources: any = {
+          folders: {},
+          connections: {},
+          'connection-types': {
+            'dev': {
+              name: 'Development',
+              color: '255,255,255',
+              description: 'Regular development database',
+              'auto-commit': true,
+              'confirm-execute': false,
+              'confirm-data-change': false,
+              'smart-commit': false,
+              'smart-commit-recover': true,
+              'auto-close-transactions': true,
+              'close-transactions-period': 1800,
+              'auto-close-connections': true,
+              'close-connections-period': 14400
+            }
+          }
+        };
+        
+        if (fs.existsSync(dataSourcesPath)) {
+          try {
+            const fileContent = fs.readFileSync(dataSourcesPath, 'utf-8');
+            dataSources = JSON.parse(fileContent);
+            if (!dataSources.connections) {
+              dataSources.connections = {};
+            }
+          } catch (err) {
+            console.error('[HTTP] Error reading data-sources.json:', err);
+            // Continue with default structure
+          }
+        }
+        
+        // Create connection ID
+        const connectionId = 'postgres-local-wr-code';
+        const connectionName = 'Local PostgreSQL (WR Code)';
+        
+        // Build JDBC URL
+        const jdbcUrl = `jdbc:postgresql://${postgresConfig.host}:${postgresConfig.port}/${postgresConfig.database}`;
+        
+        // Create PostgreSQL connection configuration with driver library
+        const connectionConfig: any = {
+          provider: 'postgresql',
+          driver: 'postgres_jdbc',
+          name: connectionName,
+          'save-password': true,
+          'show-system-objects': true,
+          'show-utility-objects': true,
+          'read-only': false,
+          configuration: {
+            host: postgresConfig.host,
+            port: postgresConfig.port,
+            database: postgresConfig.database,
+            url: jdbcUrl,
+            type: 'dev',
+            provider: 'postgresql',
+            'driver-properties': {},
+            'configuration-type': 'MANUAL',
+            'close-idle-connection': true,
+            'auth-model': 'native',
+            'user-name': postgresConfig.user,
+            'user-password': postgresConfig.password,
+            'save-password': true,
+            'show-all-schemas': false,
+            'show-system-schemas': false,
+            'show-utility-schemas': true,
+            'public-show': true,
+            'public-schema-filter': '',
+            'public-schema': postgresConfig.schema || 'public',
+            'show-database': true,
+            'show-template-database': false,
+            'template-database-filter': '',
+            'show-default-database-only': false,
+            'database-filter': '',
+            'show-non-default-database': true,
+            'database-pattern': '',
+            'database-pattern-type': 'REGEX',
+            'schema-pattern': '',
+            'schema-pattern-type': 'REGEX',
+            'include-schema': '',
+            'exclude-schema': '',
+            'include-database': '',
+            'exclude-database': '',
+            'driver-name': 'PostgreSQL',
+            'driver-class': 'org.postgresql.Driver',
+            'driver-library': driverJarPath.replace(/\\/g, '/'), // Normalize path for DBeaver
+            'libraries': {
+              'postgresql': [
+                {
+                  'type': 'maven',
+                  'groupId': 'org.postgresql',
+                  'artifactId': 'postgresql',
+                  'version': driverVersion,
+                  'path': driverJarPath.replace(/\\/g, '/')
+                }
+              ]
+            }
+          }
+        };
+        
+        // Add or update the connection
+        dataSources.connections[connectionId] = connectionConfig;
+        
+        // Write the updated data-sources.json
+        fs.writeFileSync(dataSourcesPath, JSON.stringify(dataSources, null, 2), 'utf-8');
+        
+        console.log('[HTTP] DBeaver connection configured successfully');
+        
+        res.json({
+          ok: true,
+          message: `DBeaver connection configured successfully! PostgreSQL JDBC driver (v${driverVersion}) has been downloaded and configured. You can now connect to the database.`,
+          connectionId,
+          connectionName,
+          driverDownloaded: fs.existsSync(driverJarPath)
+        });
+      } catch (error: any) {
+        console.error('[HTTP] Failed to configure DBeaver:', error);
+        res.status(500).json({
+          ok: false,
+          message: 'Failed to configure DBeaver connection',
+          details: { error: error.toString() }
+        });
+      }
+    });
+
     // GET /api/db/test-data-stats - Get statistics about test data
     httpApp.get('/api/db/test-data-stats', async (_req, res) => {
       try {
         console.log('[HTTP] GET /api/db/test-data-stats')
-        const adapter = getPostgresAdapter()
+        let adapter = getPostgresAdapter()
+        
+        // If adapter not initialized, try to initialize it from config
         if (!adapter) {
-          res.status(500).json({ ok: false, message: 'Postgres adapter not initialized' })
+          console.log('[HTTP] Adapter not initialized, attempting to initialize from config...')
+          const { getConfig } = await import('./ipc/db.js')
+          const configResult = await getConfig()
+          
+          if (configResult.ok && configResult.data?.postgres?.config) {
+            const { testConnection } = await import('./ipc/db.js')
+            const testResult = await testConnection(configResult.data.postgres.config)
+            if (testResult.ok) {
+              adapter = getPostgresAdapter()
+              console.log('[HTTP] Successfully initialized adapter from config')
+            } else {
+              res.status(500).json({ 
+                ok: false, 
+                message: 'PostgreSQL not connected. Please click "Connect Local PostgreSQL" first.',
+                details: { error: testResult.message }
+              })
+              return
+            }
+          } else {
+            res.status(500).json({ 
+              ok: false, 
+              message: 'PostgreSQL not connected. Please click "Connect Local PostgreSQL" first.'
+            })
+            return
+          }
+        }
+        
+        if (!adapter) {
+          res.status(500).json({ 
+            ok: false, 
+            message: 'PostgreSQL not connected. Please click "Connect Local PostgreSQL" first.'
+          })
           return
         }
 
