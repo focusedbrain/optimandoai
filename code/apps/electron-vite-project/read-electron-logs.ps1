@@ -19,3 +19,4 @@ if (Test-Path $logPath) {
     Write-Host "3. Then test the connection" -ForegroundColor White
 }
 
+

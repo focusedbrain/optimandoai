@@ -895,6 +895,58 @@ app.whenReady().then(async () => {
                 try { socket.send(JSON.stringify({ type: 'DB_GET_ALL_RESULT', ok: false, message: String(err?.message || err) })) } catch {}
               }
             }
+            if (msg.type === 'LAUNCH_DBEAVER') {
+              try {
+                const { spawn } = await import('child_process');
+                const path = await import('path');
+                const fs = await import('fs');
+                
+                // Common DBeaver installation paths
+                const dbeaverPaths = [
+                  path.join(process.env.LOCALAPPDATA || '', 'DBeaver', 'dbeaver.exe'), // Most common location
+                  'C:\\Program Files\\DBeaver\\dbeaver.exe',
+                  'C:\\Program Files (x86)\\DBeaver\\dbeaver.exe',
+                  path.join(process.env.LOCALAPPDATA || '', 'Programs', 'dbeaver-ce', 'dbeaver.exe'),
+                  path.join(process.env.APPDATA || '', 'DBeaver', 'dbeaver.exe')
+                ];
+                
+                let launched = false;
+                for (const dbeaverPath of dbeaverPaths) {
+                  try {
+                    if (fs.existsSync(dbeaverPath)) {
+                      console.log('[MAIN] Launching DBeaver from:', dbeaverPath);
+                      spawn(dbeaverPath, [], { detached: true, stdio: 'ignore' });
+                      launched = true;
+                      try { socket.send(JSON.stringify({ type: 'LAUNCH_DBEAVER_RESULT', ok: true, message: 'DBeaver launched' })) } catch {}
+                      break;
+                    }
+                  } catch (err) {
+                    console.error('[MAIN] Error checking/launching DBeaver path:', dbeaverPath, err);
+                  }
+                }
+                
+                if (!launched) {
+                  // Try using Windows start command as fallback
+                  try {
+                    const { exec } = await import('child_process');
+                    exec('start dbeaver', (error) => {
+                      if (error) {
+                        console.error('[MAIN] Failed to launch DBeaver:', error);
+                        try { socket.send(JSON.stringify({ type: 'LAUNCH_DBEAVER_RESULT', ok: false, message: 'DBeaver not found. Please install it or open manually from Start Menu.' })) } catch {}
+                      } else {
+                        try { socket.send(JSON.stringify({ type: 'LAUNCH_DBEAVER_RESULT', ok: true, message: 'DBeaver launched' })) } catch {}
+                      }
+                    });
+                  } catch (err) {
+                    console.error('[MAIN] Failed to launch DBeaver:', err);
+                    try { socket.send(JSON.stringify({ type: 'LAUNCH_DBEAVER_RESULT', ok: false, message: String(err) })) } catch {}
+                  }
+                }
+              } catch (err: any) {
+                console.error('[MAIN] Error handling LAUNCH_DBEAVER:', err);
+                try { socket.send(JSON.stringify({ type: 'LAUNCH_DBEAVER_RESULT', ok: false, message: String(err?.message || err) })) } catch {}
+              }
+            }
             if (msg.type === 'DB_SET_ALL') {
               try {
                 const { getPostgresAdapter } = await import('./ipc/db.js')
@@ -1069,6 +1121,269 @@ app.whenReady().then(async () => {
         res.status(500).json({
           ok: false,
           message: error.message || 'Failed to get config',
+          details: { error: error.toString() }
+        })
+      }
+    })
+
+    // POST /api/db/insert-test-data - Insert test data for testing PostgreSQL
+    httpApp.post('/api/db/insert-test-data', async (_req, res) => {
+      try {
+        console.log('[HTTP] POST /api/db/insert-test-data')
+        const adapter = getPostgresAdapter()
+        if (!adapter) {
+          res.status(500).json({ ok: false, message: 'Postgres adapter not initialized' })
+          return
+        }
+
+        // Generate test data matching POSTGRES_KEY_PATTERNS
+        const testData: Record<string, any> = {
+          // Vault entries
+          'vault_github': {
+            service: 'GitHub',
+            username: 'testuser',
+            password: 'test_password_123',
+            url: 'https://github.com',
+            notes: 'Test GitHub account',
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString()
+          },
+          'vault_email': {
+            service: 'Email',
+            username: 'test@example.com',
+            password: 'email_password_456',
+            url: 'https://mail.example.com',
+            notes: 'Test email account',
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString()
+          },
+          'vault_database': {
+            service: 'PostgreSQL',
+            username: 'postgres',
+            password: 'test_db_password',
+            url: 'postgresql://localhost:5432/testdb',
+            notes: 'Test database connection',
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString()
+          },
+          // Log entries
+          'log_session_start': {
+            level: 'info',
+            message: 'Session started',
+            timestamp: new Date().toISOString(),
+            metadata: {
+              sessionId: 'test_session_001',
+              userId: 'test_user',
+              action: 'session_start'
+            }
+          },
+          'log_agent_execution': {
+            level: 'info',
+            message: 'Agent executed successfully',
+            timestamp: new Date().toISOString(),
+            metadata: {
+              agentId: 'summarize',
+              executionTime: 1234,
+              result: 'success'
+            }
+          },
+          'log_error': {
+            level: 'error',
+            message: 'Test error log entry',
+            timestamp: new Date().toISOString(),
+            metadata: {
+              errorCode: 'TEST_001',
+              stack: 'Test stack trace'
+            }
+          },
+          // Vector embeddings
+          'vector_document_1': {
+            id: 'doc_001',
+            content: 'This is a test document for vector search',
+            embedding: Array.from({ length: 1536 }, () => Math.random()),
+            metadata: {
+              title: 'Test Document 1',
+              category: 'test',
+              createdAt: new Date().toISOString()
+            }
+          },
+          'vector_document_2': {
+            id: 'doc_002',
+            content: 'Another test document with different content',
+            embedding: Array.from({ length: 1536 }, () => Math.random()),
+            metadata: {
+              title: 'Test Document 2',
+              category: 'test',
+              createdAt: new Date().toISOString()
+            }
+          },
+          // GIS/spatial data
+          'gis_location_1': {
+            id: 'loc_001',
+            name: 'Test Location',
+            coordinates: {
+              type: 'Point',
+              coordinates: [-122.4194, 37.7749] // San Francisco
+            },
+            metadata: {
+              address: '123 Test St',
+              city: 'San Francisco',
+              country: 'USA'
+            }
+          },
+          'gis_location_2': {
+            id: 'loc_002',
+            name: 'Another Location',
+            coordinates: {
+              type: 'Point',
+              coordinates: [-74.0060, 40.7128] // New York
+            },
+            metadata: {
+              address: '456 Sample Ave',
+              city: 'New York',
+              country: 'USA'
+            }
+          },
+          // Archived session
+          'archive_session_test_001': {
+            sessionId: 'test_session_001',
+            sessionName: 'Test Archived Session',
+            createdAt: new Date(Date.now() - 86400000).toISOString(), // 1 day ago
+            archivedAt: new Date().toISOString(),
+            data: {
+              agentBoxes: [],
+              displayGrids: [],
+              customAgents: []
+            }
+          }
+        }
+
+        // Insert all test data
+        await adapter.setAll(testData)
+        const keyCount = Object.keys(testData).length
+
+        console.log(`[HTTP] Inserted ${keyCount} test data items`)
+        res.json({
+          ok: true,
+          message: `Successfully inserted ${keyCount} test data items`,
+          count: keyCount,
+          keys: Object.keys(testData)
+        })
+      } catch (error: any) {
+        console.error('[HTTP] Error in insert-test-data:', error)
+        res.status(500).json({
+          ok: false,
+          message: error.message || 'Failed to insert test data',
+          details: { error: error.toString() }
+        })
+      }
+    })
+
+    // POST /api/db/launch-dbeaver - Launch DBeaver application
+    httpApp.post('/api/db/launch-dbeaver', async (_req, res) => {
+      try {
+        console.log('[HTTP] POST /api/db/launch-dbeaver')
+        const { spawn } = await import('child_process');
+        const path = await import('path');
+        const fs = await import('fs');
+        
+        // Common DBeaver installation paths
+        const dbeaverPaths = [
+          path.join(process.env.LOCALAPPDATA || '', 'DBeaver', 'dbeaver.exe'), // Most common location
+          'C:\\Program Files\\DBeaver\\dbeaver.exe',
+          'C:\\Program Files (x86)\\DBeaver\\dbeaver.exe',
+          path.join(process.env.LOCALAPPDATA || '', 'Programs', 'dbeaver-ce', 'dbeaver.exe'),
+          path.join(process.env.APPDATA || '', 'DBeaver', 'dbeaver.exe')
+        ];
+        
+        let launched = false;
+        let launchPath = '';
+        
+        for (const dbeaverPath of dbeaverPaths) {
+          try {
+            if (fs.existsSync(dbeaverPath)) {
+              console.log('[HTTP] Launching DBeaver from:', dbeaverPath);
+              spawn(dbeaverPath, [], { detached: true, stdio: 'ignore' });
+              launched = true;
+              launchPath = dbeaverPath;
+              break;
+            }
+          } catch (err) {
+            console.error('[HTTP] Error checking/launching DBeaver path:', dbeaverPath, err);
+          }
+        }
+        
+        if (!launched) {
+          // Try using Windows start command as fallback
+          try {
+            const { exec } = await import('child_process');
+            exec('start dbeaver', (error) => {
+              if (error) {
+                console.error('[HTTP] Failed to launch DBeaver:', error);
+              } else {
+                console.log('[HTTP] DBeaver launched via start command');
+              }
+            });
+            // Assume success for start command (it's async)
+            res.json({
+              ok: true,
+              message: 'DBeaver launch attempted via start command',
+              method: 'start_command'
+            });
+            return;
+          } catch (err) {
+            console.error('[HTTP] Failed to launch DBeaver:', err);
+            res.status(500).json({
+              ok: false,
+              message: 'DBeaver not found. Please install it or open manually from Start Menu.',
+              details: { error: String(err) }
+            });
+            return;
+          }
+        }
+        
+        res.json({
+          ok: true,
+          message: 'DBeaver launched successfully',
+          path: launchPath
+        });
+      } catch (error: any) {
+        console.error('[HTTP] Error in launch-dbeaver:', error);
+        res.status(500).json({
+          ok: false,
+          message: error.message || 'Failed to launch DBeaver',
+          details: { error: error.toString() }
+        });
+      }
+    })
+
+    // GET /api/db/test-data-stats - Get statistics about test data
+    httpApp.get('/api/db/test-data-stats', async (_req, res) => {
+      try {
+        console.log('[HTTP] GET /api/db/test-data-stats')
+        const adapter = getPostgresAdapter()
+        if (!adapter) {
+          res.status(500).json({ ok: false, message: 'Postgres adapter not initialized' })
+          return
+        }
+
+        const allData = await adapter.getAll()
+        const stats = {
+          total: Object.keys(allData).length,
+          vault: Object.keys(allData).filter(k => k.startsWith('vault_')).length,
+          logs: Object.keys(allData).filter(k => k.startsWith('log_')).length,
+          vectors: Object.keys(allData).filter(k => k.startsWith('vector_')).length,
+          gis: Object.keys(allData).filter(k => k.startsWith('gis_')).length,
+          archived: Object.keys(allData).filter(k => k.startsWith('archive_session_')).length,
+          sampleKeys: Object.keys(allData).slice(0, 10)
+        }
+
+        res.json({ ok: true, stats })
+      } catch (error: any) {
+        console.error('[HTTP] Error in test-data-stats:', error)
+        res.status(500).json({
+          ok: false,
+          message: error.message || 'Failed to get test data stats',
           details: { error: error.toString() }
         })
       }

@@ -4212,6 +4212,15 @@ function initializeExtension() {
 
 
   loadTabDataFromStorage()
+  
+  // Check if display grids are active and hide sidepanel if so
+  setTimeout(() => {
+    if (currentTabData.displayGrids && currentTabData.displayGrids.length > 0) {
+      chrome.runtime.sendMessage({ type: 'DISPLAY_GRIDS_OPENED' }, (response) => {
+        console.log('🚫 Page loaded with display grids active - sidepanel should be hidden')
+      })
+    }
+  }, 1000) // Wait a bit for storage to fully load
 
 
 
@@ -25026,6 +25035,16 @@ ${pageText}
         }, index * 300)
 
       })
+      
+      // Notify background script that display grids are active - hide sidepanel
+      if (newGridsToOpen.length > 0) {
+        // Wait for all grids to be opened before notifying
+        setTimeout(() => {
+          chrome.runtime.sendMessage({ type: 'DISPLAY_GRIDS_OPENED' }, (response) => {
+            console.log('🚫 Notified background: display grids opened, sidepanel should be hidden')
+          })
+        }, newGridsToOpen.length * 300 + 100)
+      }
 
       
 
@@ -28050,6 +28069,15 @@ ${pageText}
                       openGridFromSession(grid.layout, grid.sessionId)  // ← Back to V1
 
                       console.log(`✅ Successfully opened display grid ${index + 1}:`, grid.layout)
+                      
+                      // Notify background script on the last grid
+                      if (index === sessionData.displayGrids.length - 1) {
+                        setTimeout(() => {
+                          chrome.runtime.sendMessage({ type: 'DISPLAY_GRIDS_OPENED' }, (response) => {
+                            console.log('🚫 Notified background: display grids restored from session')
+                          })
+                        }, 500)
+                      }
 
                     } catch (error) {
 

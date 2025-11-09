@@ -234,9 +234,18 @@ chrome.runtime.onInstalled.addListener(() => {
   }
 });
 
+// Track if display grids are active per tab
+const tabDisplayGridsActive = new Map<number, boolean>();
+
 // Handle extension icon click: open the side panel
 chrome.action.onClicked.addListener(async (tab) => {
   try {
+    // Check if display grids are active for this tab
+    if (tab.id && tabDisplayGridsActive.get(tab.id)) {
+      console.log('🚫 Side panel blocked - display grids are active');
+      return;
+    }
+    
     // Open side panel for the current tab
     if (tab.id && chrome.sidePanel) {
       await chrome.sidePanel.open({ tabId: tab.id })
@@ -421,6 +430,78 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       sendResponse({ success: true, data: status });
       chrome.runtime.sendMessage({ type: 'STATUS_UPDATE', data: status });
       break;
+
+    case 'DISPLAY_GRIDS_OPENED': {
+      // Display grids were opened - hide sidepanel
+      if (sender.tab?.id) {
+        const tabId = sender.tab.id;
+        tabDisplayGridsActive.set(tabId, true);
+        console.log(`🚫 Display grids active for tab ${tabId} - closing sidepanel`);
+        
+        // Close sidepanel for this tab
+        if (chrome.sidePanel) {
+          chrome.sidePanel.setOptions({ 
+            tabId: tabId,
+            enabled: false 
+          }).catch((e) => {
+            console.error('Failed to disable sidepanel:', e);
+          });
+        }
+      }
+      try { sendResponse({ success: true }) } catch {}
+      break;
+    }
+    case 'DISPLAY_GRIDS_CLOSED': {
+      // Display grids were closed - allow sidepanel again
+      if (sender.tab?.id) {
+        const tabId = sender.tab.id;
+        tabDisplayGridsActive.set(tabId, false);
+        console.log(`✅ Display grids closed for tab ${tabId} - sidepanel enabled`);
+        
+        // Re-enable sidepanel for this tab
+        if (chrome.sidePanel) {
+          chrome.sidePanel.setOptions({ 
+            tabId: tabId,
+            enabled: true 
+          }).catch((e) => {
+            console.error('Failed to enable sidepanel:', e);
+          });
+        }
+      }
+      try { sendResponse({ success: true }) } catch {}
+      break;
+    }
+    case 'LAUNCH_DBEAVER': {
+      // Forward to Electron app to launch DBeaver via WebSocket
+      if (WS_ENABLED && ws && ws.readyState === WebSocket.OPEN) {
+        try {
+          ws.send(JSON.stringify({ type: 'LAUNCH_DBEAVER' }));
+          // Wait for response
+          const responseHandler = (event: MessageEvent) => {
+            try {
+              const data = JSON.parse(event.data);
+              if (data.type === 'LAUNCH_DBEAVER_RESULT') {
+                ws.removeEventListener('message', responseHandler);
+                try { sendResponse({ success: data.ok, message: data.message }) } catch {}
+              }
+            } catch {}
+          };
+          ws.addEventListener('message', responseHandler);
+          // Timeout after 5 seconds
+          setTimeout(() => {
+            ws.removeEventListener('message', responseHandler);
+            try { sendResponse({ success: false, error: 'Timeout waiting for response' }) } catch {}
+          }, 5000);
+        } catch (err) {
+          console.error('Failed to send LAUNCH_DBEAVER message:', err);
+          try { sendResponse({ success: false, error: 'WebSocket not connected' }) } catch {}
+        }
+      } else {
+        // WebSocket not available - show helpful message
+        try { sendResponse({ success: false, error: 'Electron app not connected. Please start the desktop app first.' }) } catch {}
+      }
+      return true; // Keep channel open for async response
+    }
 
     case 'SAVE_GRID_CONFIG':
       console.log('📥 SAVE_GRID_CONFIG received');

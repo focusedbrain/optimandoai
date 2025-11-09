@@ -39,6 +39,17 @@ export function BackendSwitcher({ theme = 'default' }: BackendSwitcherProps) {
   const [isExpanded, setIsExpanded] = useState(false);
   const [activeTab, setActiveTab] = useState<'localdb' | 'vectordb' | 'llm' | 'automation'>('localdb');
   const [notification, setNotification] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
+  const [isInsertingTestData, setIsInsertingTestData] = useState(false);
+  const [isLoadingStats, setIsLoadingStats] = useState(false);
+  const [testDataStats, setTestDataStats] = useState<{
+    total: number;
+    vault: number;
+    logs: number;
+    vectors: number;
+    gis: number;
+    archived: number;
+    sampleKeys: string[];
+  } | null>(null);
 
   // Load config on mount
   useEffect(() => {
@@ -66,6 +77,34 @@ export function BackendSwitcher({ theme = 'default' }: BackendSwitcherProps) {
     };
     setConfig(newConfig);
     chrome.storage.local.set({ backendConfig: newConfig });
+  };
+
+  const handleLoadStats = async () => {
+    if (!config.postgres?.enabled) return;
+    setIsLoadingStats(true);
+    try {
+      const response = await fetch('http://127.0.0.1:51248/api/db/test-data-stats', {
+        method: 'GET',
+      });
+      const result = await response.json();
+      if (result.ok) {
+        setTestDataStats(result.stats);
+      } else {
+        setNotification({
+          message: result.message || 'Failed to load stats',
+          type: 'error'
+        });
+        setTimeout(() => setNotification(null), 5000);
+      }
+    } catch (error: any) {
+      setNotification({
+        message: `Error: ${error.message || 'Failed to load stats'}`,
+        type: 'error'
+      });
+      setTimeout(() => setNotification(null), 5000);
+    } finally {
+      setIsLoadingStats(false);
+    }
   };
 
   const handleTestConnection = async () => {
@@ -392,6 +431,170 @@ export function BackendSwitcher({ theme = 'default' }: BackendSwitcherProps) {
                     'Connect Local PostgreSQL'
                   )}
                 </button>
+
+                {/* Admin Actions - Only show when connected */}
+                {config.postgres?.enabled && (
+                  <div style={{ marginTop: '12px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    {/* Open DBeaver Button */}
+                    <button
+                      onClick={async () => {
+                        // Launch DBeaver via HTTP API
+                        try {
+                          const response = await fetch('http://127.0.0.1:51248/api/db/launch-dbeaver', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                          });
+                          const result = await response.json();
+                          if (result.ok) {
+                            setNotification({
+                              message: result.message || 'DBeaver is launching...',
+                              type: 'success'
+                            });
+                            setTimeout(() => setNotification(null), 3000);
+                          } else {
+                            setNotification({
+                              message: result.message || 'Could not launch DBeaver. Please open it manually from Start Menu.',
+                              type: 'error'
+                            });
+                            setTimeout(() => setNotification(null), 5000);
+                          }
+                        } catch (error: any) {
+                          setNotification({
+                            message: `Could not connect to Electron app: ${error.message || 'Please start the desktop app first.'}`,
+                            type: 'error'
+                          });
+                          setTimeout(() => setNotification(null), 5000);
+                        }
+                      }}
+                      style={{
+                        width: '100%',
+                        padding: '10px',
+                        background: 'rgba(255,255,255,0.1)',
+                        border: '1px solid rgba(255,255,255,0.2)',
+                        borderRadius: '6px',
+                        color: textColor,
+                        fontSize: '12px',
+                        fontWeight: '500',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: '6px',
+                        transition: 'all 0.2s',
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.background = 'rgba(255,255,255,0.15)';
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.background = 'rgba(255,255,255,0.1)';
+                      }}
+                    >
+                      <span>🗄️</span>
+                      <span>Open DBeaver</span>
+                    </button>
+
+                    {/* Insert Test Data Button */}
+                    <button
+                      onClick={async () => {
+                        if (!config.postgres?.enabled) return;
+                        setIsInsertingTestData(true);
+                        try {
+                          const response = await fetch('http://127.0.0.1:51248/api/db/insert-test-data', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                          });
+                          const result = await response.json();
+                          if (result.ok) {
+                            setNotification({
+                              message: `Successfully inserted ${result.count} test data items`,
+                              type: 'success'
+                            });
+                            // Refresh stats
+                            handleLoadStats();
+                          } else {
+                            setNotification({
+                              message: result.message || 'Failed to insert test data',
+                              type: 'error'
+                            });
+                          }
+                        } catch (error: any) {
+                          setNotification({
+                            message: `Error: ${error.message || 'Failed to insert test data'}`,
+                            type: 'error'
+                          });
+                        } finally {
+                          setIsInsertingTestData(false);
+                          setTimeout(() => setNotification(null), 5000);
+                        }
+                      }}
+                      disabled={isInsertingTestData}
+                      style={{
+                        width: '100%',
+                        padding: '10px',
+                        background: isInsertingTestData ? 'rgba(255,255,255,0.1)' : 'rgba(59, 130, 246, 0.2)',
+                        border: '1px solid rgba(59, 130, 246, 0.3)',
+                        borderRadius: '6px',
+                        color: textColor,
+                        fontSize: '12px',
+                        fontWeight: '500',
+                        cursor: isInsertingTestData ? 'wait' : 'pointer',
+                        opacity: isInsertingTestData ? 0.7 : 1,
+                        transition: 'all 0.2s',
+                      }}
+                    >
+                      {isInsertingTestData ? 'Inserting...' : '📝 Insert Test Data'}
+                    </button>
+
+                    {/* View Test Data Stats Button */}
+                    <button
+                      onClick={handleLoadStats}
+                      disabled={isLoadingStats}
+                      style={{
+                        width: '100%',
+                        padding: '10px',
+                        background: 'rgba(255,255,255,0.1)',
+                        border: '1px solid rgba(255,255,255,0.2)',
+                        borderRadius: '6px',
+                        color: textColor,
+                        fontSize: '12px',
+                        fontWeight: '500',
+                        cursor: isLoadingStats ? 'wait' : 'pointer',
+                        opacity: isLoadingStats ? 0.7 : 1,
+                        transition: 'all 0.2s',
+                      }}
+                    >
+                      {isLoadingStats ? 'Loading...' : '📊 View Data Stats'}
+                    </button>
+
+                    {/* Test Data Stats Display */}
+                    {testDataStats && (
+                      <div style={{
+                        marginTop: '8px',
+                        padding: '10px',
+                        background: 'rgba(0,0,0,0.2)',
+                        border: '1px solid rgba(255,255,255,0.1)',
+                        borderRadius: '6px',
+                        fontSize: '11px',
+                        color: textColor,
+                      }}>
+                        <div style={{ fontWeight: '600', marginBottom: '6px', fontSize: '12px' }}>Database Statistics</div>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px', fontSize: '10px' }}>
+                          <div>Total: <strong>{testDataStats.total}</strong></div>
+                          <div>Vault: <strong>{testDataStats.vault}</strong></div>
+                          <div>Logs: <strong>{testDataStats.logs}</strong></div>
+                          <div>Vectors: <strong>{testDataStats.vectors}</strong></div>
+                          <div>GIS: <strong>{testDataStats.gis}</strong></div>
+                          <div>Archived: <strong>{testDataStats.archived}</strong></div>
+                        </div>
+                        {testDataStats.sampleKeys.length > 0 && (
+                          <div style={{ marginTop: '6px', fontSize: '9px', opacity: 0.7 }}>
+                            Sample keys: {testDataStats.sampleKeys.slice(0, 3).join(', ')}...
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
               </>
             )}
 

@@ -12,7 +12,8 @@ export default defineManifest({
     'scripting',
     'windows',
     'system.display',
-    'sidePanel'
+    'sidePanel',
+    'tabs'
   ],
   side_panel: {
     default_path: 'src/sidepanel.html'
