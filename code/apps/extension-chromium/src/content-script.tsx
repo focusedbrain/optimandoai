@@ -1697,6 +1697,26 @@ function safeAppendToBody(element: HTMLElement): void {
   }
 }
 
+// Storage wrapper helpers - routes through adapter for PostgreSQL support
+let storageWrapper: typeof import('./storage/storageWrapper') | null = null;
+async function getStorageWrapper() {
+  if (!storageWrapper) {
+    storageWrapper = await import('./storage/storageWrapper');
+  }
+  return storageWrapper;
+}
+
+// Wrapper functions that match chrome.storage.local API
+async function storageGet(keys: string | string[] | null, callback: (items: { [key: string]: any }) => void) {
+  const wrapper = await getStorageWrapper();
+  wrapper.storageGet(keys, callback);
+}
+
+async function storageSet(items: { [key: string]: any }, callback?: () => void) {
+  const wrapper = await getStorageWrapper();
+  wrapper.storageSet(items, callback);
+}
+
 function initializeExtension() {
 
   try {
@@ -2053,7 +2073,7 @@ function initializeExtension() {
 
         // Verify the session exists in chrome storage (async check, but return key immediately)
 
-        chrome.storage.local.get([tabSession], (result) => {
+        storageGet([tabSession], (result) => {
 
           if (!result[tabSession]) {
 
@@ -2149,7 +2169,7 @@ function initializeExtension() {
 
         // Load the session data
 
-        chrome.storage.local.get([sessionKeyFromUrl], (all:any) => {
+        storageGet([sessionKeyFromUrl], (all:any) => {
 
           const session = (all && all[sessionKeyFromUrl]) || {}
 
@@ -2224,7 +2244,7 @@ function initializeExtension() {
 
         console.log('📍 ensureActiveSession: Using existing session key:', existingKey)
 
-        chrome.storage.local.get([existingKey], (all:any) => {
+        storageGet([existingKey], (all:any) => {
 
           const session = (all && all[existingKey]) || {}
 
@@ -2284,7 +2304,7 @@ function initializeExtension() {
 
     }
 
-    chrome.storage.local.set({ [newKey]: newSession }, () => {
+        storageSet({ [newKey]: newSession }, () => {
 
       console.log('✅ New session created:', newKey, '- Session name:', newSession.tabName)
 
@@ -2324,7 +2344,7 @@ function initializeExtension() {
 
     
 
-    chrome.storage.local.set({ [sessionKey]: completeSessionData }, () => {
+    storageSet({ [sessionKey]: completeSessionData }, () => {
 
       if (chrome.runtime.lastError) {
 
@@ -2730,7 +2750,7 @@ function initializeExtension() {
 
   function getAccountAgents(callback: (agents: any[]) => void) {
 
-    chrome.storage.local.get(['accountAgents'], (result) => {
+    storageGet(['accountAgents'], (result) => {
 
       const agents = result.accountAgents || []
 
@@ -2760,7 +2780,7 @@ function initializeExtension() {
 
     })
 
-    chrome.storage.local.set({ accountAgents: agents }, callback)
+    storageSet({ accountAgents: agents }, callback)
 
   }
 
@@ -2960,7 +2980,7 @@ function initializeExtension() {
 
           saveAccountAgents(accountAgents, () => {
 
-            chrome.storage.local.set({ [activeKey]: session }, () => {
+            storageSet({ [activeKey]: session }, () => {
 
               console.log('✅ Agent moved to Account scope:', agentKey)
 
@@ -3006,7 +3026,7 @@ function initializeExtension() {
 
           // Load the target session (might be different from current)
 
-          chrome.storage.local.get([targetSessionKey], (result) => {
+          storageGet([targetSessionKey], (result) => {
 
             let targetSession = result[targetSessionKey]
 
@@ -3052,7 +3072,7 @@ function initializeExtension() {
 
           saveAccountAgents(updatedAccountAgents, () => {
 
-              chrome.storage.local.set({ [targetSessionKey]: targetSession }, () => {
+              storageSet({ [targetSessionKey]: targetSession }, () => {
 
                 console.log(`✅ Agent moved to Session scope in session: ${targetSessionKey}`)
 
@@ -3126,7 +3146,7 @@ function initializeExtension() {
 
         session.timestamp = new Date().toISOString()
 
-        chrome.storage.local.set({ [activeKey]: session }, () => {
+        storageSet({ [activeKey]: session }, () => {
 
           console.log('✅ Platform preference saved for session agent:', agentKey)
 
@@ -3238,7 +3258,7 @@ function initializeExtension() {
 
           
 
-          chrome.storage.local.set({ [activeKey]: s }, () => {
+          storageSet({ [activeKey]: s }, () => {
 
             if (chrome.runtime.lastError) {
 
@@ -3254,7 +3274,7 @@ function initializeExtension() {
 
             // VERIFICATION: Read back what was saved to confirm it persisted
 
-            chrome.storage.local.get([activeKey], (verification) => {
+            storageGet([activeKey], (verification) => {
 
               if (verification[activeKey]) {
 
@@ -3728,7 +3748,7 @@ function initializeExtension() {
 
     if (sessionKey && chrome?.storage?.local) {
 
-      chrome.storage.local.get([sessionKey], (result) => {
+      storageGet([sessionKey], (result) => {
 
         const session = result[sessionKey] || {}
 
@@ -3772,7 +3792,7 @@ function initializeExtension() {
 
         
 
-        chrome.storage.local.set({ [sessionKey]: session }, () => {
+        storageSet({ [sessionKey]: session }, () => {
 
           console.log('✅ Synced agent boxes to session:', sessionKey, session.agentBoxes?.length || 0, 'boxes')
 
@@ -3834,7 +3854,7 @@ function initializeExtension() {
 
       if (chrome?.storage?.local) {
 
-        chrome.storage.local.get([sessionKeyFromUrl], (result) => {
+        storageGet([sessionKeyFromUrl], (result) => {
 
           const sessionData = result[sessionKeyFromUrl]
 
@@ -3909,7 +3929,7 @@ function initializeExtension() {
 
       if (chrome?.storage?.local) {
 
-        chrome.storage.local.get([existingSessionKey], (result) => {
+        storageGet([existingSessionKey], (result) => {
 
           const sessionData = result[existingSessionKey]
 
@@ -3956,7 +3976,7 @@ function initializeExtension() {
 
       if (chrome?.storage?.local) {
 
-        chrome.storage.local.get([globalActiveSession], (result) => {
+        storageGet([globalActiveSession], (result) => {
 
           const sessionData = result[globalActiveSession]
 
@@ -4107,7 +4127,7 @@ function initializeExtension() {
 
         }
 
-        chrome.storage.local.set({ [sessionKey]: sessionData }, () => {
+        storageSet({ [sessionKey]: sessionData }, () => {
 
           console.log('🆕 Fresh browser session added to history:', sessionKey)
 
@@ -4583,7 +4603,7 @@ function initializeExtension() {
 
     if (sessionKey && chrome?.storage?.local) {
 
-      chrome.storage.local.get([sessionKey], (result) => {
+      storageGet([sessionKey], (result) => {
 
         if (result[sessionKey]) {
 
@@ -5769,7 +5789,7 @@ function initializeExtension() {
 
       if (sessionKey && chrome?.storage?.local) {
 
-        chrome.storage.local.get([sessionKey], (result) => {
+        storageGet([sessionKey], (result) => {
 
           const session = result[sessionKey] || {}
 
@@ -5777,7 +5797,7 @@ function initializeExtension() {
 
           session.timestamp = new Date().toISOString()
 
-          chrome.storage.local.set({ [sessionKey]: session }, () => {
+          storageSet({ [sessionKey]: session }, () => {
 
             console.log('✅ Persisted updated agentBoxes to session:', sessionKey)
 
@@ -9310,7 +9330,7 @@ function initializeExtension() {
 
           session.timestamp = new Date().toISOString()
 
-          chrome.storage.local.set({ [activeKey]: session }, ()=>{})
+          storageSet({ [activeKey]: session }, ()=>{})
 
           try { localStorage.setItem('optimando-agent-number-map', JSON.stringify(map)) } catch {}
 
@@ -9484,7 +9504,7 @@ function initializeExtension() {
 
     
 
-    chrome.storage.local.get([draftKey], (draftResult) => {
+    storageGet([draftKey], (draftResult) => {
 
       console.log(`🔍 Checked for draft with key: ${draftKey}`)
 
@@ -9906,7 +9926,7 @@ function initializeExtension() {
 
             // CRITICAL: Save to chrome.storage immediately for persistence
 
-            chrome.storage.local.set({ [autoSaveDraftKey]: draft }, () => {
+            storageSet({ [autoSaveDraftKey]: draft }, () => {
 
               console.log('✅ AUTO-SAVED to chrome.storage:', autoSaveDraftKey, {
 
@@ -11080,7 +11100,7 @@ function initializeExtension() {
 
                 : `agent_${agentName}_draft_${agentScope}`
 
-              chrome.storage.local.set({ [dKey]: previouslySavedData }, () => {
+              storageSet({ [dKey]: previouslySavedData }, () => {
 
                 console.log(`✅ IMMEDIATELY saved Agent Context file deletion to chrome.storage!`)
 
@@ -11214,7 +11234,7 @@ function initializeExtension() {
 
               : `agent_${agentName}_draft_${agentScope}`
 
-            chrome.storage.local.set({ [dKey]: parsed }, () => {
+            storageSet({ [dKey]: parsed }, () => {
 
               console.log(`✅ IMMEDIATELY saved Agent Context files to chrome.storage!`)
 
@@ -11294,7 +11314,7 @@ function initializeExtension() {
 
                   : `agent_${agentName}_draft_${agentScope}`
 
-                chrome.storage.local.set({ [dKey]: parsed }, () => {
+                storageSet({ [dKey]: parsed }, () => {
 
                   console.log(`✅ IMMEDIATELY saved Agent Context file deletion to chrome.storage!`)
 
@@ -11680,7 +11700,7 @@ function initializeExtension() {
 
                   : `agent_${agentName}_draft_${agentScope}`
 
-                chrome.storage.local.set({ [dKey]: previouslySavedData }, () => {
+                storageSet({ [dKey]: previouslySavedData }, () => {
 
                   console.log(`✅ IMMEDIATELY saved Listener Example file deletion to chrome.storage!`)
 
@@ -11810,7 +11830,7 @@ function initializeExtension() {
 
                   : `agent_${agentName}_draft_${agentScope}`
 
-                chrome.storage.local.set({ [dKey]: parsed }, () => {
+                storageSet({ [dKey]: parsed }, () => {
 
                   console.log(`✅ IMMEDIATELY saved Listener Example files to chrome.storage!`)
 
@@ -11872,7 +11892,7 @@ function initializeExtension() {
 
                       : `agent_${agentName}_draft_${agentScope}`
 
-                    chrome.storage.local.set({ [dKey]: parsed }, () => {
+                    storageSet({ [dKey]: parsed }, () => {
 
                       console.log(`✅ IMMEDIATELY saved Listener Example file deletion to chrome.storage!`)
 
@@ -12180,7 +12200,7 @@ function initializeExtension() {
 
             if (!key || !chrome?.storage?.local) { populateExtra(selectEl, [{ value:'', label:'No pinned items' }]); return }
 
-            chrome.storage.local.get([key], (all:any) => {
+            storageGet([key], (all:any) => {
 
               const sess = all[key] || {}
 
@@ -13178,7 +13198,7 @@ function initializeExtension() {
 
                     : `agent_${agentName}_draft_${agentScope}`
 
-                  chrome.storage.local.set({ [dKey]: previouslySavedData }, () => {
+                  storageSet({ [dKey]: previouslySavedData }, () => {
 
                     console.log(`✅ IMMEDIATELY saved Agent Context file deletion to chrome.storage!`)
 
@@ -13562,7 +13582,7 @@ function initializeExtension() {
 
                         : `agent_${agentName}_draft_${agentScope}`
 
-                      chrome.storage.local.set({ [dKey]: previouslySavedData }, () => {
+                      storageSet({ [dKey]: previouslySavedData }, () => {
 
                         console.log(`✅ IMMEDIATELY saved Listener Example file deletion to chrome.storage!`)
 
@@ -16636,7 +16656,8 @@ function initializeExtension() {
 
           // Clear the draft from chrome.storage since we've committed it
 
-          chrome.storage.local.remove([autoSaveDraftKey], () => {
+          // Note: storageRemove not implemented yet, using storageSet with undefined
+          storageSet({ [autoSaveDraftKey]: undefined }, () => {
 
             console.log('🗑️ Cleared auto-save draft:', autoSaveDraftKey)
 
@@ -17982,7 +18003,7 @@ function initializeExtension() {
 
       
 
-      chrome.storage.local.get(keysToLoad, (result) => {
+      storageGet(keysToLoad, (result) => {
 
         console.log('📥 Loaded contexts:', result)
 
@@ -18180,7 +18201,7 @@ function initializeExtension() {
 
       if (userContextKey) {
 
-        chrome.storage.local.set({ [userContextKey]: userContextData }, () => {
+        storageSet({ [userContextKey]: userContextData }, () => {
 
           console.log('✅ User Context PDF removed and saved')
 
@@ -18202,7 +18223,7 @@ function initializeExtension() {
 
       if (publisherContextKey) {
 
-        chrome.storage.local.set({ [publisherContextKey]: publisherContextData }, () => {
+        storageSet({ [publisherContextKey]: publisherContextData }, () => {
 
           console.log('✅ Publisher Context PDF removed and saved')
 
@@ -18222,7 +18243,7 @@ function initializeExtension() {
 
       updateAccountPdfList()
 
-      chrome.storage.local.set({ [accountContextKey]: accountContextData }, () => {
+      storageSet({ [accountContextKey]: accountContextData }, () => {
 
         console.log('✅ Account Context PDF removed and saved')
 
@@ -18460,7 +18481,7 @@ ${pageText}
 
               if (userContextKey) {
 
-                chrome.storage.local.set({ [userContextKey]: userContextData }, () => {
+                storageSet({ [userContextKey]: userContextData }, () => {
 
                   console.log('✅ User Context PDF saved immediately')
 
@@ -18522,7 +18543,7 @@ ${pageText}
 
               if (publisherContextKey) {
 
-                chrome.storage.local.set({ [publisherContextKey]: publisherContextData }, () => {
+                storageSet({ [publisherContextKey]: publisherContextData }, () => {
 
                   console.log('✅ Publisher Context PDF saved immediately')
 
@@ -18582,7 +18603,7 @@ ${pageText}
 
               // Auto-save
 
-              chrome.storage.local.set({ [accountContextKey]: accountContextData }, () => {
+              storageSet({ [accountContextKey]: accountContextData }, () => {
 
                 console.log('✅ Account Context PDF saved immediately')
 
@@ -18664,7 +18685,7 @@ ${pageText}
 
       
 
-      chrome.storage.local.set(dataToSave, () => {
+      storageSet(dataToSave, () => {
 
         console.log('✅ All contexts saved:', dataToSave)
 
@@ -18744,7 +18765,7 @@ ${pageText}
 
           if (userContextKey) {
 
-            chrome.storage.local.set({ [userContextKey]: userContextData })
+            storageSet({ [userContextKey]: userContextData })
 
           }
 
@@ -18762,7 +18783,7 @@ ${pageText}
 
           if (publisherContextKey) {
 
-            chrome.storage.local.set({ [publisherContextKey]: publisherContextData })
+            storageSet({ [publisherContextKey]: publisherContextData })
 
           }
 
@@ -18778,7 +18799,7 @@ ${pageText}
 
           updateAccountPdfList()
 
-          chrome.storage.local.set({ [accountContextKey]: accountContextData })
+          storageSet({ [accountContextKey]: accountContextData })
 
         }
 
@@ -19708,7 +19729,7 @@ ${pageText}
 
     // Load existing memory data
 
-    chrome.storage.local.get([storageKey], (result) => {
+    storageGet([storageKey], (result) => {
 
       if (result[storageKey]) {
 
@@ -19794,7 +19815,7 @@ ${pageText}
 
       
 
-      chrome.storage.local.set({ [storageKey]: memoryData }, () => {
+      storageSet({ [storageKey]: memoryData }, () => {
 
         console.log('✅ Agent memory saved:', storageKey, memoryData)
 
@@ -23742,7 +23763,7 @@ ${pageText}
 
         // Check if there's already a session for this tab to update instead of creating new
 
-        chrome.storage.local.get(null, (allData) => {
+        storageGet(null, (allData) => {
 
           const existingSessions = Object.entries(allData)
 
@@ -23830,7 +23851,7 @@ ${pageText}
 
           
 
-          chrome.storage.local.set({ [sessionKey]: sessionData }, () => {
+          storageSet({ [sessionKey]: sessionData }, () => {
 
             console.log('✅ Helper tabs session saved:', sessionData.tabName, 'Session ID:', sessionKey)
 
@@ -24178,7 +24199,7 @@ ${pageText}
 
         try {
 
-          chrome.storage.local.get([activeSessionKey], (allData) => {
+          storageGet([activeSessionKey], (allData) => {
 
             const sessionData = allData[activeSessionKey]
 
@@ -24196,7 +24217,7 @@ ${pageText}
 
             sessionData.timestamp = new Date().toISOString()
 
-            chrome.storage.local.set({ [activeSessionKey]: sessionData }, () => {
+            storageSet({ [activeSessionKey]: sessionData }, () => {
 
               console.log(`✅ Saved ${count} master tabs to session:`, activeSessionKey)
 
@@ -24922,7 +24943,7 @@ ${pageText}
 
       // Load the active session and update it
 
-      chrome.storage.local.get([activeSessionKey], (result) => {
+      storageGet([activeSessionKey], (result) => {
 
         let sessionData = result[activeSessionKey] || {
 
@@ -24950,7 +24971,7 @@ ${pageText}
 
         
 
-        chrome.storage.local.set({ [activeSessionKey]: sessionData }, () => {
+        storageSet({ [activeSessionKey]: sessionData }, () => {
 
           if (chrome.runtime.lastError) {
 
@@ -25132,7 +25153,7 @@ ${pageText}
 
       // Find and update existing session in chrome.storage.local
 
-      chrome.storage.local.get(null, (allSessions) => {
+      storageGet(null, (allSessions) => {
 
         const sessionEntries = Object.entries(allSessions).filter(([key, value]) => 
 
@@ -25158,7 +25179,7 @@ ${pageText}
 
           
 
-          chrome.storage.local.set({ [sessionKey]: updatedSessionData }, () => {
+          storageSet({ [sessionKey]: updatedSessionData }, () => {
 
             console.log('🔒 Updated session with new grid:', layout)
 
@@ -25222,7 +25243,7 @@ ${pageText}
 
     // Check if there's already a session for this tab to update instead of creating new
 
-    chrome.storage.local.get(null, (allData) => {
+    storageGet(null, (allData) => {
 
       const existingSessions = Object.entries(allData)
 
@@ -25310,7 +25331,7 @@ ${pageText}
 
       
 
-      chrome.storage.local.set({ [sessionKey]: sessionData }, () => {
+      storageSet({ [sessionKey]: sessionData }, () => {
 
         console.log('🗂️ Display grid session saved:', layout, 'Session ID:', sessionKey)
 
@@ -25664,7 +25685,7 @@ ${pageText}
 
     if (sessionKey && chrome?.storage?.local) {
 
-      chrome.storage.local.get([sessionKey], (result) => {
+      storageGet([sessionKey], (result) => {
 
         const session = result[sessionKey] || {}
 
@@ -25812,7 +25833,7 @@ ${pageText}
 
     if (sessionKey && chrome?.storage?.local) {
 
-      chrome.storage.local.get([sessionKey], (result) => {
+      storageGet([sessionKey], (result) => {
 
         const session = result[sessionKey] || {}
 
@@ -26190,7 +26211,7 @@ ${pageText}
 
     // STEP 2: Load ALL sessions to find and update the correct one
 
-    chrome.storage.local.get(null, (allData) => {
+    storageGet(null, (allData) => {
 
       console.log('📊 LOADING ALL SESSIONS FOR UPDATE')
 
@@ -26304,7 +26325,7 @@ ${pageText}
 
       
 
-      chrome.storage.local.set({ [activeSessionKey]: finalSessionData }, () => {
+      storageSet({ [activeSessionKey]: finalSessionData }, () => {
 
         if (chrome.runtime.lastError) {
 
@@ -26354,7 +26375,7 @@ ${pageText}
 
     try {
 
-      chrome.storage.local.get(['optimando_last_grid_save'], (result) => {
+      storageGet(['optimando_last_grid_save'], (result) => {
 
         const saveInfo = result.optimando_last_grid_save
 
@@ -26370,7 +26391,7 @@ ${pageText}
 
         // Get the actual grid data
 
-        chrome.storage.local.get([saveInfo.key], (gridResult) => {
+        storageGet([saveInfo.key], (gridResult) => {
 
           const payload = gridResult[saveInfo.key]
 
@@ -26434,7 +26455,7 @@ ${pageText}
 
           // First get the existing session data to merge with
 
-          chrome.storage.local.get([sessionKey], (result) => {
+          storageGet([sessionKey], (result) => {
 
             const existingSession = result[sessionKey] || {}
 
@@ -26548,7 +26569,7 @@ ${pageText}
 
             
 
-            chrome.storage.local.set({ [sessionKey]: sessionData }, () => {
+            storageSet({ [sessionKey]: sessionData }, () => {
 
               console.log('✅ Grid config saved to session:', sessionKey)
 
@@ -27292,7 +27313,7 @@ ${pageText}
 
     // Get saved sessions from chrome.storage.local
 
-    chrome.storage.local.get(null, (allData) => {
+    storageGet(null, (allData) => {
 
       console.log('📋 Loading sessions from storage, total keys:', Object.keys(allData).length)
 
@@ -28506,7 +28527,8 @@ ${pageText}
 
           if (confirm('Are you sure you want to delete this session?')) {
 
-            chrome.storage.local.remove(sessionId, () => {
+            // Note: storageRemove not implemented yet, using storageSet with undefined
+            storageSet({ [sessionId]: undefined }, () => {
 
               // Refresh the sessions list
 
@@ -28540,19 +28562,13 @@ ${pageText}
 
           
 
-          // Clear ALL chrome.storage.local
-
-          chrome.storage.local.clear(() => {
-
-            if (chrome.runtime.lastError) {
-
-              console.error('❌ Error clearing chrome storage:', chrome.runtime.lastError)
-
-              alert('Failed to clear sessions: ' + chrome.runtime.lastError.message)
-
-            } else {
-
-              console.log('✅ ALL chrome.storage.local cleared')
+          // Clear ALL storage
+          storageGet(null, (allData) => {
+            const keys = Object.keys(allData);
+            const itemsToRemove: { [key: string]: any } = {};
+            keys.forEach(key => { itemsToRemove[key] = undefined; });
+            storageSet(itemsToRemove, () => {
+              console.log('✅ ALL storage cleared');
 
               
 
@@ -28605,25 +28621,16 @@ ${pageText}
               document.body.appendChild(successNote)
 
               setTimeout(() => {
-
                 successNote.remove()
 
                 // Suggest reload
-
                 const reloadNote = document.createElement('div')
-
                 reloadNote.textContent = '💡 Reload the page to start fresh'
-
                 reloadNote.style.cssText = `position:fixed;top:20px;right:20px;z-index:2147483650;background:#2196F3;color:#fff;padding:10px 14px;border-radius:8px;font-size:12px;box-shadow:0 4px 12px rgba(0,0,0,0.3)`
-
                 document.body.appendChild(reloadNote)
-
                 setTimeout(() => reloadNote.remove(), 5000)
-
               }, 3000)
-
-            }
-
+            })
           })
 
         }
@@ -28716,7 +28723,7 @@ ${pageText}
 
     // Load session data to get agent boxes
 
-    chrome.storage.local.get([sessionKey], (result) => {
+    storageGet([sessionKey], (result) => {
 
       const session = result[sessionKey]
 
@@ -29812,7 +29819,7 @@ ${pageText}
 
       
 
-      chrome.storage.local.set({ [sessionId]: sessionData }, () => {
+      storageSet({ [sessionId]: sessionData }, () => {
 
         console.log('✅ Helper tabs updated for session:', sessionData.tabName)
 
@@ -29890,7 +29897,7 @@ ${pageText}
 
     
 
-    chrome.storage.local.get([sessionKey], (result) => {
+    storageGet([sessionKey], (result) => {
 
       if (result[sessionKey]) {
 
@@ -29910,7 +29917,7 @@ ${pageText}
 
         
 
-        chrome.storage.local.set({ [sessionKey]: updatedSessionData }, () => {
+        storageSet({ [sessionKey]: updatedSessionData }, () => {
 
           console.log('📝 Updated existing session with current data:', currentTabData.tabName)
 
@@ -29940,14 +29947,14 @@ ${pageText}
     const isCurrentSession = !targetSessionKey || sessionKey === getCurrentSessionKey()
     
     // 1. Update chrome.storage.local[sessionKey].tabName (SOURCE OF TRUTH)
-    chrome.storage.local.get([sessionKey], (result) => {
+    storageGet([sessionKey], (result) => {
       if (result[sessionKey]) {
         const sessionData = result[sessionKey]
         const oldName = sessionData.tabName
         sessionData.tabName = trimmedName
         sessionData.timestamp = new Date().toISOString() // Update timestamp
         
-        chrome.storage.local.set({ [sessionKey]: sessionData }, () => {
+        storageSet({ [sessionKey]: sessionData }, () => {
           console.log(`✅ [${source}] Session name synced to storage:`, sessionKey, oldName, '→', trimmedName)
         })
       } else {
@@ -30048,7 +30055,7 @@ ${pageText}
       return
     }
     
-    chrome.storage.local.get([sessionKey], (result) => {
+    storageGet([sessionKey], (result) => {
       if (result[sessionKey]) {
         const sessionData = result[sessionKey]
         const sessionName = sessionData.tabName || 'Unnamed Session'
@@ -30106,7 +30113,7 @@ ${pageText}
 
     
 
-    chrome.storage.local.set({ [sessionKey]: sessionData }, () => {
+    storageSet({ [sessionKey]: sessionData }, () => {
 
           // Show notification
 
@@ -30183,7 +30190,7 @@ ${pageText}
     if (oldSessionKey) {
       // First, ensure current session data is saved to storage with any name changes
       // This is important because the name might have been changed in Sessions History
-      chrome.storage.local.get([oldSessionKey], (result) => {
+      storageGet([oldSessionKey], (result) => {
         if (result[oldSessionKey]) {
           const oldSessionData = result[oldSessionKey]
           
@@ -30204,7 +30211,7 @@ ${pageText}
           console.log('💾 Preserving old session name from storage:', oldSessionKey, 'name:', nameToPreserve, 'was:', oldSessionData.tabName)
           
           // Save the old session BEFORE creating new one
-          chrome.storage.local.set({ [oldSessionKey]: updatedOldSession }, () => {
+          storageSet({ [oldSessionKey]: updatedOldSession }, () => {
             console.log('✅ Saved old session before creating new one:', oldSessionKey, 'name:', updatedOldSession.tabName)
             
             // Now proceed with creating the new session
@@ -30324,7 +30331,7 @@ ${pageText}
 
       }
 
-      chrome.storage.local.set({ [sessionKey]: sessionData }, () => {
+      storageSet({ [sessionKey]: sessionData }, () => {
 
         console.log('✅ New session added to history:', sessionKey)
 
@@ -30516,7 +30523,7 @@ ${pageText}
 
             const sessionKey = `session_${Date.now()}`
 
-            chrome.storage.local.set({ [sessionKey]: sessionData }, () => {
+            storageSet({ [sessionKey]: sessionData }, () => {
 
               console.log('📥 Session imported:', sessionData.tabName)
 
@@ -32507,7 +32514,7 @@ ${pageText}
 
           
 
-          chrome.storage.local.set({ [sessionKey]: sessionData }, () => {
+          storageSet({ [sessionKey]: sessionData }, () => {
 
             console.log('🔒 Session saved:', sessionKey, 'with', sessionData.helperTabs?.urls?.length || 0, 'helper tabs,', sessionData.agentBoxes?.length || 0, 'agent boxes')
 
@@ -32723,7 +32730,7 @@ function checkForElectronGridConfig() {
 
       // Save to chrome.storage.local
 
-      chrome.storage.local.get(null, (allData) => {
+      storageGet(null, (allData) => {
 
         const allSessions = Object.entries(allData).filter(([key, value]: any) => key.startsWith('session_')) as any[];
 
@@ -32759,7 +32766,7 @@ function checkForElectronGridConfig() {
 
           sessionData.timestamp = new Date().toISOString();
 
-          chrome.storage.local.set({ [sessionKey]: sessionData }, () => {
+          storageSet({ [sessionKey]: sessionData }, () => {
 
             console.log('✅ Grid config saved to session via Electron app:', sessionKey);
 
@@ -32835,7 +32842,7 @@ function handleElectronGridSave(config: any) {
 
   // Save to chrome.storage.local
 
-  chrome.storage.local.get(null, (allData) => {
+  storageGet(null, (allData) => {
 
     const allSessions = Object.entries(allData).filter(([key, value]: any) => key.startsWith('session_')) as any[];
 
@@ -32871,7 +32878,7 @@ function handleElectronGridSave(config: any) {
 
       sessionData.timestamp = new Date().toISOString();
 
-      chrome.storage.local.set({ [sessionKey]: sessionData }, () => {
+      storageSet({ [sessionKey]: sessionData }, () => {
 
         console.log('✅ Grid config saved to session via Electron app:', sessionKey);
 
@@ -32925,7 +32932,7 @@ console.log('🔧 DEBUG: Final initialization check:', {
 
   console.log('📋 Viewing all Optimando storage...')
 
-  chrome.storage.local.get(null, (allData) => {
+  storageGet(null, (allData) => {
 
     const sessionKeys = Object.keys(allData).filter(key => key.startsWith('session_'))
 
@@ -32991,7 +32998,7 @@ console.log('🔧 DEBUG: Final initialization check:', {
 
     } else {
 
-      console.log('✅ Cleared ALL chrome.storage.local')
+      console.log('✅ Cleared ALL storage')
 
     }
 

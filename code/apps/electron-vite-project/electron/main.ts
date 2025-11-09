@@ -3,12 +3,13 @@ import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 import os from 'node:os'
 import { WebSocketServer } from 'ws'
+import express from 'express'
 // WS bridge removed to avoid port conflicts; extension fallback/deep-link is used
 import { registerHandler, LmgtfyChannels, emitCapture } from './lmgtfy/ipc'
 import { beginOverlay, closeAllOverlays, showStreamTriggerOverlay } from './lmgtfy/overlay'
 import { captureScreenshot, startRegionStream } from './lmgtfy/capture'
 import { loadPresets, upsertRegion } from './lmgtfy/presets'
-import { registerDbHandlers } from './ipc/db.js'
+import { registerDbHandlers, testConnection, syncChromeDataToPostgres, getConfig, getPostgresAdapter } from './ipc/db.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -397,8 +398,11 @@ function updateTrayMenu() {
 // for applications and their menu bar to stay active until the user quits
 // explicitly with Cmd + Q.
 // Single instance + protocol
-const gotLock = app.requestSingleInstanceLock()
+// Disabled in development to avoid conflicts with Vite hot-reload
+const isDev = process.env.NODE_ENV !== 'production'
+const gotLock = isDev ? true : app.requestSingleInstanceLock()
 if (!gotLock) {
+  console.log('[MAIN] Another instance is already running, quitting...')
   app.quit()
 } else {
   app.on('second-instance', (_e, argv) => {
@@ -912,6 +916,172 @@ app.whenReady().then(async () => {
     }
   } catch (err) {
     console.error('[MAIN] Error in WebSocket setup:', err)
+  }
+
+  // HTTP API server for database operations (faster than WebSocket)
+  try {
+    console.log('[MAIN] ===== STARTING HTTP API SERVER =====')
+    const httpApp = express()
+    httpApp.use(express.json({ limit: '50mb' }))
+    
+    // CORS middleware - allow extension origin
+    httpApp.use((req, res, next) => {
+      res.header('Access-Control-Allow-Origin', '*')
+      res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
+      res.header('Access-Control-Allow-Headers', 'Content-Type')
+      if (req.method === 'OPTIONS') {
+        res.sendStatus(200)
+        return
+      }
+      next()
+    })
+
+    // POST /api/db/test-connection - Test PostgreSQL connection
+    httpApp.post('/api/db/test-connection', async (req, res) => {
+      try {
+        console.log('[HTTP] POST /api/db/test-connection')
+        const result = await testConnection(req.body)
+        res.json(result)
+      } catch (error: any) {
+        console.error('[HTTP] Error in test-connection:', error)
+        res.status(500).json({
+          ok: false,
+          message: error.message || 'Connection test failed',
+          details: { error: error.toString() }
+        })
+      }
+    })
+
+    // GET /api/db/get?keys=key1,key2 - Get specific keys
+    httpApp.get('/api/db/get', async (req, res) => {
+      try {
+        const keys = req.query.keys ? String(req.query.keys).split(',') : []
+        console.log('[HTTP] GET /api/db/get', keys)
+        const adapter = getPostgresAdapter()
+        if (!adapter) {
+          res.status(500).json({ ok: false, message: 'Postgres adapter not initialized' })
+          return
+        }
+        const results: Record<string, any> = {}
+        if (keys.length === 0) {
+          const allItems = await adapter.getAll()
+          res.json({ ok: true, data: allItems })
+          return
+        }
+        // Fetch keys in parallel
+        await Promise.all(keys.map(async (key: string) => {
+          try {
+            const value = await adapter.get(key)
+            if (value !== undefined) {
+              results[key] = value
+            }
+          } catch (err) {
+            console.error(`[HTTP] Error getting key ${key}:`, err)
+          }
+        }))
+        res.json({ ok: true, data: results })
+      } catch (error: any) {
+        console.error('[HTTP] Error in get:', error)
+        res.status(500).json({ ok: false, message: error.message || 'Failed to get values' })
+      }
+    })
+
+    // POST /api/db/set - Set key-value pair
+    httpApp.post('/api/db/set', async (req, res) => {
+      try {
+        const { key, value } = req.body
+        console.log('[HTTP] POST /api/db/set', key)
+        const adapter = getPostgresAdapter()
+        if (!adapter) {
+          res.status(500).json({ ok: false, message: 'Postgres adapter not initialized' })
+          return
+        }
+        await adapter.set(key, value)
+        res.json({ ok: true })
+      } catch (error: any) {
+        console.error('[HTTP] Error in set:', error)
+        res.status(500).json({ ok: false, message: error.message || 'Failed to set value' })
+      }
+    })
+
+    // GET /api/db/get-all - Get all keys
+    httpApp.get('/api/db/get-all', async (_req, res) => {
+      try {
+        console.log('[HTTP] GET /api/db/get-all')
+        const adapter = getPostgresAdapter()
+        if (!adapter) {
+          res.status(500).json({ ok: false, message: 'Postgres adapter not initialized' })
+          return
+        }
+        const data = await adapter.getAll()
+        res.json({ ok: true, data })
+      } catch (error: any) {
+        console.error('[HTTP] Error in get-all:', error)
+        res.status(500).json({ ok: false, message: error.message || 'Failed to get all values' })
+      }
+    })
+
+    // POST /api/db/set-all - Batch set multiple keys
+    httpApp.post('/api/db/set-all', async (req, res) => {
+      try {
+        const payload = req.body.payload || req.body
+        const keyCount = Object.keys(payload).length
+        console.log('[HTTP] POST /api/db/set-all', keyCount, 'keys')
+        const { getPostgresAdapter } = await import('./ipc/db.js')
+        const adapter = getPostgresAdapter()
+        if (!adapter) {
+          res.status(500).json({ ok: false, message: 'Postgres adapter not initialized' })
+          return
+        }
+        await adapter.setAll(payload)
+        res.json({ ok: true })
+      } catch (error: any) {
+        console.error('[HTTP] Error in set-all:', error)
+        res.status(500).json({ ok: false, message: error.message || 'Failed to set all values' })
+      }
+    })
+
+    // POST /api/db/sync - Sync Chrome storage to PostgreSQL
+    httpApp.post('/api/db/sync', async (req, res) => {
+      try {
+        const data = req.body.data || req.body
+        console.log('[HTTP] POST /api/db/sync', Object.keys(data).length, 'items')
+        const result = await syncChromeDataToPostgres(data)
+        res.json(result)
+      } catch (error: any) {
+        console.error('[HTTP] Error in sync:', error)
+        res.status(500).json({
+          ok: false,
+          message: error.message || 'Sync failed',
+          details: { error: error.toString() }
+        })
+      }
+    })
+
+    // GET /api/db/config - Get current backend config
+    httpApp.get('/api/db/config', async (_req, res) => {
+      try {
+        console.log('[HTTP] GET /api/db/config')
+        const result = await getConfig()
+        res.json(result)
+      } catch (error: any) {
+        console.error('[HTTP] Error in config:', error)
+        res.status(500).json({
+          ok: false,
+          message: error.message || 'Failed to get config',
+          details: { error: error.toString() }
+        })
+      }
+    })
+
+    const HTTP_PORT = 51248
+    httpApp.listen(HTTP_PORT, '127.0.0.1', () => {
+      console.log(`[MAIN] ✅ HTTP API server listening on http://127.0.0.1:${HTTP_PORT}`)
+    })
+
+    // Error handling is done via try-catch and httpApp.listen callback
+  } catch (err) {
+    console.error('[MAIN] Error in HTTP API setup:', err)
   }
   } catch (err) {
     console.error('[MAIN] Error in app.whenReady:', err)

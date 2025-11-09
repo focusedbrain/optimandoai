@@ -47,15 +47,17 @@ function ensureActiveSession(cb: (key: string, session: any) => void) {
   try {
     const existing = getCurrentSessionKey()
     if (existing) {
-      chrome.storage.local.get([existing], (all: any) => {
-        const session = (all && all[existing]) || {}
-        if (!Array.isArray(session.agentsV2)) session.agentsV2 = []
-        if (!Array.isArray(session.agentEvents)) session.agentEvents = []
-        if (!session.tabName) session.tabName = document.title || 'Unnamed Session'
-        if (!session.url) session.url = location.href
-        if (!session.timestamp) session.timestamp = new Date().toISOString()
-        cb(existing, session)
-      })
+      import('./storage/storageWrapper').then(({ storageGet }) => {
+        storageGet([existing], (all: any) => {
+          const session = (all && all[existing]) || {}
+          if (!Array.isArray(session.agentsV2)) session.agentsV2 = []
+          if (!Array.isArray(session.agentEvents)) session.agentEvents = []
+          if (!session.tabName) session.tabName = document.title || 'Unnamed Session'
+          if (!session.url) session.url = location.href
+          if (!session.timestamp) session.timestamp = new Date().toISOString()
+          cb(existing, session)
+        });
+      });
       return
     }
   } catch {}
@@ -69,13 +71,17 @@ function ensureActiveSession(cb: (key: string, session: any) => void) {
     agentsV2: [],
     agentEvents: []
   }
-  chrome.storage.local.set({ [newKey]: session }, () => cb(newKey, session))
+  import('./storage/storageWrapper').then(({ storageSet }) => {
+    storageSet({ [newKey]: session }, () => cb(newKey, session))
+  })
 }
 
 function persistSession(key: string, session: any, cb?: () => void) {
   session.timestamp = new Date().toISOString()
   try {
-    chrome.storage.local.set({ [key]: session }, () => cb && cb())
+    import('./storage/storageWrapper').then(({ storageSet }) => {
+      storageSet({ [key]: session }, () => cb && cb())
+    })
   } catch {
     cb && cb()
   }

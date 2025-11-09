@@ -1,15 +1,17 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 
-interface BackendConfig {
-  active: 'chrome' | 'postgres';
+interface PostgresConnectionConfig {
   postgres?: {
-    host: string;
-    port: number;
-    database: string;
-    user: string;
-    password: string;
-    ssl: boolean;
-    schema: string;
+    enabled: boolean;
+    config?: {
+      host: string;
+      port: number;
+      database: string;
+      user: string;
+      password: string;
+      ssl: boolean;
+      schema: string;
+    };
   };
 }
 
@@ -18,948 +20,413 @@ interface BackendSwitcherProps {
 }
 
 export function BackendSwitcher({ theme = 'default' }: BackendSwitcherProps) {
-  const [config, setConfig] = useState<BackendConfig>({
-    active: 'chrome',
+  const [config, setConfig] = useState<PostgresConnectionConfig>({
     postgres: {
-      host: '127.0.0.1',
-      port: 5432,
-      database: 'postgres',
-      user: 'postgres',
-      password: 'playboy906870',
-      ssl: false,
-      schema: 'public',
+      enabled: false,
+      config: {
+        host: '127.0.0.1',
+        port: 5432,
+        database: 'postgres',
+        user: 'postgres',
+        password: 'playboy906870',
+        ssl: false,
+        schema: 'public',
+      },
     },
   });
 
   const [isTesting, setIsTesting] = useState(false);
-  const [isSyncing, setIsSyncing] = useState(false);
-  const [isSettingActive, setIsSettingActive] = useState(false);
-  const [connectionTested, setConnectionTested] = useState(false);
-  const [notification, setNotification] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
-  const [errorLog, setErrorLog] = useState<string>('');
-  const [wsConnected, setWsConnected] = useState<boolean>(false);
-  const [diagnosticResults, setDiagnosticResults] = useState<{
-    electronRunning: boolean;
-    websocketServerListening: boolean;
-    websocketConnection: boolean;
-    pingPongTest: boolean;
-    messageFlowTest: boolean;
-    errors: string[];
-    details: any;
-  } | null>(null);
-  const [showDiagnostics, setShowDiagnostics] = useState(false);
-  const [electronLogs, setElectronLogs] = useState<string[]>([]);
-  const testTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const diagnosticTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const [isExpanded, setIsExpanded] = useState(false);
+  const [activeTab, setActiveTab] = useState<'localdb' | 'vectordb' | 'llm' | 'automation'>('localdb');
+  const [notification, setNotification] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
 
-  // Check WebSocket connection status on mount and periodically
-  useEffect(() => {
-    const checkWsStatus = () => {
-      chrome.runtime.sendMessage({ type: 'GET_STATUS' }, (response) => {
-        if (response?.data) {
-          setWsConnected(response.data.isConnected || false);
-        }
-      });
-    };
-    
-    // Check immediately
-    checkWsStatus();
-    
-    // Check every 2 seconds
-    const interval = setInterval(checkWsStatus, 2000);
-    
-    return () => clearInterval(interval);
-  }, []);
-
-  // Load config from storage on mount and migrate old values
+  // Load config on mount
   useEffect(() => {
     chrome.storage.local.get(['backendConfig'], (result) => {
       if (result.backendConfig) {
-        const loadedConfig = result.backendConfig;
-        // Migrate old "orchestrator" values to "postgres" and ensure SSL is false for localhost
-        if (loadedConfig.postgres) {
-          let needsUpdate = false;
-          const updatedPostgres = { ...loadedConfig.postgres };
-          
-          // Migrate database name
-          if (updatedPostgres.database === 'orchestrator') {
-            updatedPostgres.database = 'postgres';
-            needsUpdate = true;
-          }
-          
-          // Migrate user name
-          if (updatedPostgres.user === 'orchestrator') {
-            updatedPostgres.user = 'postgres';
-            needsUpdate = true;
-          }
-          
-          // Ensure SSL is false for localhost connections (default for local development)
-          if (updatedPostgres.host === '127.0.0.1' || updatedPostgres.host === 'localhost') {
-            if (updatedPostgres.ssl !== false) {
-              updatedPostgres.ssl = false;
-              needsUpdate = true;
-            }
-          }
-          
-          if (needsUpdate) {
-            const updatedConfig = {
-              ...loadedConfig,
-              postgres: updatedPostgres
-            };
-            setConfig(updatedConfig);
-            chrome.storage.local.set({ backendConfig: updatedConfig });
-          } else {
-            setConfig(loadedConfig);
-          }
-        } else {
-          setConfig(loadedConfig);
-        }
+        setConfig(result.backendConfig);
       }
     });
   }, []);
 
-  // Listen for WebSocket responses and status updates
-  useEffect(() => {
-    const handleMessage = (message: any) => {
-      console.log('[BackendSwitcher] Received message:', message.type, message);
-      
-      // Update WebSocket connection status
-      if (message.type === 'STATUS_UPDATE') {
-        console.log('[BackendSwitcher] STATUS_UPDATE:', message.data);
-        setWsConnected(message.data?.isConnected || false);
-      }
-      
-      if (message.type === 'DB_TEST_CONNECTION_RESULT') {
-        console.log('[BackendSwitcher] ===== DB_TEST_CONNECTION_RESULT RECEIVED =====');
-        console.log('[BackendSwitcher] Result:', JSON.stringify(message, null, 2));
-        
-        // Clear timeout if response received
-        if (testTimeoutRef.current) {
-          clearTimeout(testTimeoutRef.current);
-          testTimeoutRef.current = null;
-          console.log('[BackendSwitcher] Cleared timeout - response received');
-        }
-        if (diagnosticTimeoutRef.current) {
-          clearTimeout(diagnosticTimeoutRef.current);
-          diagnosticTimeoutRef.current = null;
-          console.log('[BackendSwitcher] Cleared diagnostic timeout - response received');
-        }
-        setIsTesting(false);
-        setConnectionTested(message.ok);
-        
-        // Update diagnostic results
-        setDiagnosticResults(prev => prev ? {
-          ...prev,
-          messageFlowTest: message.ok,
-          details: {
-            ...prev.details,
-            messageFlowTest: {
-              status: message.ok ? 'success' : 'failed',
-              response: message
-            }
-          }
-        } : null);
-        
-        if (message.ok) {
-          console.log('[BackendSwitcher] Connection test SUCCESS');
-          setErrorLog('');
-          showNotification('Connection successful!', 'success');
-        } else {
-          console.error('[BackendSwitcher] Connection test FAILED');
-          // Build detailed error log
-          const errorDetails = {
-            message: message.message || 'Unknown error',
-            details: message.details || {},
-            timestamp: new Date().toISOString(),
-            config: {
-              host: config.postgres?.host,
-              port: config.postgres?.port,
-              database: config.postgres?.database,
-              user: config.postgres?.user,
-              schema: config.postgres?.schema,
-              ssl: config.postgres?.ssl,
-            }
-          };
-          const errorLogText = JSON.stringify(errorDetails, null, 2);
-          console.error('[BackendSwitcher] Error details:', errorLogText);
-          setErrorLog(errorLogText);
-          showNotification(`Connection failed: ${message.message}`, 'error');
-        }
-      } else if (message.type === 'pong') {
-        // Handle pong response for ping test
-        console.log('[BackendSwitcher] ===== PONG RECEIVED =====');
-        setDiagnosticResults(prev => {
-          if (prev) {
-            console.log('[BackendSwitcher] Updating pingPongTest to true');
-            return {
-              ...prev,
-              pingPongTest: true,
-              details: {
-                ...prev.details,
-                pingPongTest: { status: 'success', received: true }
-              }
-            };
-          }
-          return null;
-        });
-      } else if (message.type === 'ELECTRON_LOG') {
-        // Display Electron logs in browser console and UI for debugging
-        const logMessage = message.data?.message || '';
-        const logData = message.data?.rawMessage || message.data?.parsedMessage || '';
-        const fullLog = `${new Date().toLocaleTimeString()} - ${logMessage}${logData ? '\n' + JSON.stringify(logData, null, 2) : ''}`;
-        console.log('[BackendSwitcher] 📋 Electron Log:', logMessage, logData);
-        setElectronLogs(prev => [...prev.slice(-49), fullLog]); // Keep last 50 logs
-      } else if (message.type === 'DB_SYNC_RESULT') {
-        setIsSyncing(false);
-        if (message.ok) {
-          showNotification(`Successfully synced ${message.count || 0} items`, 'success');
-        } else {
-          showNotification(`Sync failed: ${message.message}`, 'error');
-        }
-      } else if (message.type === 'DB_SET_ACTIVE_RESULT') {
-        setIsSettingActive(false);
-        if (message.ok) {
-          showNotification('Backend switched successfully', 'success');
-          // Update local config
-          const newConfig = { ...config, active: config.active === 'chrome' ? 'postgres' : 'chrome' };
-          setConfig(newConfig);
-          chrome.storage.local.set({ backendConfig: newConfig });
-        } else {
-          showNotification(`Failed to switch backend: ${message.message}`, 'error');
-        }
-      }
-    };
-
-    chrome.runtime.onMessage.addListener(handleMessage);
-    return () => {
-      chrome.runtime.onMessage.removeListener(handleMessage);
-    };
-  }, [config]);
-
-  const showNotification = (message: string, type: 'success' | 'error' | 'info') => {
-    setNotification({ message, type });
-    setTimeout(() => setNotification(null), 5000);
-  };
-
-  const sendWebSocketMessage = (type: string, data?: any) => {
-    chrome.runtime.sendMessage({ type: 'DB_WEBSOCKET_MESSAGE', wsType: type, data });
-  };
-
-  const handleBackendChange = (backend: 'chrome' | 'postgres') => {
-    const newConfig = { ...config, active: backend };
-    setConfig(newConfig);
-    chrome.storage.local.set({ backendConfig: newConfig });
-  };
-
-  const runDiagnostics = async () => {
-    if (!config.postgres) {
-      console.error('[BackendSwitcher] No postgres config available');
-      return;
-    }
-
-    setIsTesting(true);
-    setConnectionTested(false);
-    setErrorLog('');
-    setShowDiagnostics(true);
-    setElectronLogs([]); // Clear previous logs
-    
-    const initialResults = {
-      electronRunning: false,
-      websocketServerListening: false,
-      websocketConnection: false,
-      pingPongTest: false,
-      messageFlowTest: false,
-      errors: [] as string[],
-      details: {} as any
-    };
-    
-    setDiagnosticResults(initialResults);
-    const startTime = Date.now();
-
-    // Step 1: Check WebSocket status (proxy for Electron running)
-    console.log('[Diagnostics] Step 1: Checking Electron/WebSocket status...');
-    chrome.runtime.sendMessage({ type: 'CONNECT' }, () => {
-      setTimeout(() => {
-        chrome.runtime.sendMessage({ type: 'GET_STATUS' }, (statusResponse) => {
-          const isConnected = statusResponse?.data?.isConnected || false;
-          
-          setDiagnosticResults(prev => ({
-            ...prev,
-            websocketConnection: isConnected,
-            electronRunning: isConnected,
-            websocketServerListening: isConnected,
-            details: {
-              ...prev.details,
-              statusCheck: {
-                isConnected,
-                readyState: statusResponse?.data?.readyState
-              }
-            }
-          }));
-
-          if (!isConnected) {
-            setDiagnosticResults(prev => ({
-              ...prev,
-              errors: [...prev.errors, 'WebSocket not connected - Electron app may not be running']
-            }));
-            setIsTesting(false);
-            return;
-          }
-
-          // Step 2: Test ping/pong
-          console.log('[Diagnostics] Step 2: Testing ping/pong...');
-          chrome.runtime.sendMessage({ type: 'DB_WEBSOCKET_MESSAGE', wsType: 'ping', data: {} }, (pingResponse) => {
-            // Wait for pong response (handled by message listener)
-            setTimeout(() => {
-              // Step 3: Test DB_TEST_CONNECTION message flow
-              console.log('[Diagnostics] Step 3: Testing DB_TEST_CONNECTION message flow...');
-              const testMessage = {
-                type: 'DB_WEBSOCKET_MESSAGE',
-                wsType: 'DB_TEST_CONNECTION',
-                data: { config: config.postgres }
-              };
-              console.log('[Diagnostics] ===== SENDING MESSAGE TO BACKGROUND =====');
-              console.log('[Diagnostics] Message:', JSON.stringify(testMessage, null, 2));
-
-              diagnosticTimeoutRef.current = setTimeout(() => {
-                console.error('[Diagnostics] DB_TEST_CONNECTION timeout - no response received');
-                setDiagnosticResults(prev => ({
-                  ...prev,
-                  messageFlowTest: false,
-                  errors: [...prev.errors, 'DB_TEST_CONNECTION message timeout - Electron not responding. Check Electron console for errors.'],
-                  details: {
-                    ...prev.details,
-                    messageFlowTest: {
-                      status: 'timeout',
-                      duration: Date.now() - startTime,
-                      note: 'Check Electron console for: [MAIN] ===== DB_TEST_CONNECTION HANDLER STARTED ====='
-                    }
-                  }
-                }));
-                setIsTesting(false);
-              }, 10000);
-
-              chrome.runtime.sendMessage(testMessage, (response) => {
-                if (chrome.runtime.lastError || !response?.success) {
-                  if (diagnosticTimeoutRef.current) clearTimeout(diagnosticTimeoutRef.current);
-                  setDiagnosticResults(prev => ({
-                    ...prev,
-                    messageFlowTest: false,
-                    errors: [...prev.errors, chrome.runtime.lastError?.message || response?.error || 'Failed to send message']
-                  }));
-                  setIsTesting(false);
-                } else {
-                  // Message sent, wait for DB_TEST_CONNECTION_RESULT
-                  // This will be handled by the message listener
-                }
-              });
-            }, 1000);
-          });
-        });
-      }, 1000);
-    });
-  };
-
-  const handleTestConnection = async () => {
-    await runDiagnostics();
-  };
-
-  const handleSync = async () => {
-    if (!connectionTested) {
-      showNotification('Please test connection first', 'error');
-      return;
-    }
-    setIsSyncing(true);
-    // Get all Chrome storage data
-    chrome.storage.local.get(null, (items) => {
-      // Remove backendConfig from sync to avoid circular reference
-      const { backendConfig, ...dataToSync } = items;
-      sendWebSocketMessage('DB_SYNC', { data: dataToSync });
-    });
-  };
-
-  const handleSetActive = () => {
-    if (config.active === 'chrome') {
-      if (!connectionTested) {
-        showNotification('Please test connection first', 'error');
-        return;
-      }
-    }
-    setIsSettingActive(true);
-    sendWebSocketMessage('DB_SET_ACTIVE', { backend: config.active });
-  };
-
-  const updatePostgresConfig = (field: keyof BackendConfig['postgres'], value: any) => {
-    if (!config.postgres) return;
+  const updatePostgresConfig = (
+    field: 'host' | 'port' | 'database' | 'user' | 'password' | 'ssl' | 'schema',
+    value: string | number | boolean
+  ) => {
+    if (!config.postgres?.config) return;
     const newConfig = {
       ...config,
       postgres: {
         ...config.postgres,
-        [field]: value,
+        config: {
+          ...config.postgres.config,
+          [field]: value,
+        },
       },
     };
     setConfig(newConfig);
     chrome.storage.local.set({ backendConfig: newConfig });
   };
 
-  const bgColor = theme === 'default' ? 'rgba(118,75,162,0.5)' : theme === 'dark' ? 'rgba(255,255,255,0.12)' : 'rgba(15,23,42,0.08)';
-  const borderColor = theme === 'default' ? 'rgba(255,255,255,0.15)' : theme === 'dark' ? 'rgba(255,255,255,0.2)' : 'rgba(15,23,42,0.3)';
+  const handleTestConnection = async () => {
+    if (!config.postgres?.config) return;
+
+    setIsTesting(true);
+    const logSteps: any[] = [];
+    
+    try {
+      logSteps.push({ step: 'Starting connection test', timestamp: new Date().toISOString(), config: config.postgres.config });
+      console.log('[BackendSwitcher] Starting connection test:', config.postgres.config);
+      
+      const response = await fetch('http://127.0.0.1:51248/api/db/test-connection', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(config.postgres.config),
+        signal: AbortSignal.timeout(10000), // 10 second timeout
+      });
+
+      logSteps.push({ step: 'Received response', status: response.status, statusText: response.statusText, ok: response.ok });
+      console.log('[BackendSwitcher] Response received:', { status: response.status, statusText: response.statusText, ok: response.ok });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        logSteps.push({ step: 'HTTP error', errorText });
+        console.error('[BackendSwitcher] HTTP error:', errorText);
+        throw new Error(`HTTP ${response.status}: ${response.statusText} - ${errorText}`);
+      }
+
+      const result = await response.json();
+      logSteps.push({ step: 'Parsed JSON result', result });
+      console.log('[BackendSwitcher] Connection test result:', result);
+      
+      if (result.ok) {
+        // Connection successful - set enabled to true
+        const newConfig = { ...config, postgres: { enabled: true, config: config.postgres.config } };
+        setConfig(newConfig);
+        chrome.storage.local.set({ backendConfig: newConfig });
+        logSteps.push({ step: 'Success - config saved', enabled: true });
+        console.log('[BackendSwitcher] ✅ Connection successful, config saved');
+        setNotification({ message: 'Connected successfully', type: 'success' });
+      } else {
+        // Connection failed - ensure enabled is false
+        const newConfig = { ...config, postgres: { enabled: false, config: config.postgres.config } };
+        setConfig(newConfig);
+        chrome.storage.local.set({ backendConfig: newConfig });
+        logSteps.push({ step: 'Connection failed', message: result.message, details: result.details });
+        console.error('[BackendSwitcher] ❌ Connection failed:', result);
+        console.log('[BackendSwitcher] Full error log:', JSON.stringify({ logSteps, result }, null, 2));
+        setNotification({ 
+          message: result.message || result.details?.error || 'Connection failed', 
+          type: 'error' 
+        });
+      }
+    } catch (error: any) {
+      // Connection error - ensure enabled is false
+      const newConfig = { ...config, postgres: { enabled: false, config: config.postgres.config } };
+      setConfig(newConfig);
+      chrome.storage.local.set({ backendConfig: newConfig });
+      
+      let errorMessage = 'Connection failed';
+      
+      if (error.name === 'AbortError' || error.name === 'TimeoutError') {
+        errorMessage = 'Connection timeout - Please ensure Electron app is running';
+        logSteps.push({ step: 'Timeout error', errorName: error.name });
+      } else if (error.message?.includes('Failed to fetch') || error.message?.includes('NetworkError')) {
+        errorMessage = 'Cannot reach Electron app - Please start the desktop application';
+        logSteps.push({ step: 'Network error', errorMessage: error.message });
+      } else if (error.message) {
+        errorMessage = error.message;
+        logSteps.push({ step: 'Generic error', errorMessage: error.message, errorStack: error.stack });
+      }
+      
+      console.error('[BackendSwitcher] ❌ Exception caught:', error);
+      console.log('[BackendSwitcher] Full error log:', JSON.stringify({ logSteps, error: { name: error.name, message: error.message, stack: error.stack } }, null, 2));
+      setNotification({ message: errorMessage, type: 'error' });
+    } finally {
+      setIsTesting(false);
+      setTimeout(() => setNotification(null), 5000);
+    }
+  };
+
+  // Match Quick Actions section styling
+  const bgColor = theme === 'default' 
+    ? 'rgba(118,75,162,0.5)' 
+    : 'rgba(255,255,255,0.12)';
+  const borderColor = 'rgba(255,255,255,0.15)';
   const textColor = theme === 'default' ? '#fff' : theme === 'dark' ? '#fff' : '#0f172a';
 
   return (
-    <div style={{
-      background: bgColor,
-      padding: '16px',
-      borderRadius: '10px',
-      marginBottom: '16px',
-      border: `1px solid ${borderColor}`,
-    }}>
-      <h3 style={{
-        margin: '0 0 14px 0',
-        fontSize: '13px',
-        fontWeight: '700',
-        textTransform: 'uppercase',
-        letterSpacing: '0.5px',
-        opacity: 0.95,
-        color: textColor,
+    <>
+      <div style={{
+        background: bgColor,
+        padding: '16px',
+        borderRadius: '10px',
+        marginBottom: '28px',
+        border: `1px solid ${borderColor}`,
       }}>
-        🔌 Backend Switcher
-      </h3>
-
-      {/* Backend Selection */}
-      <div style={{ marginBottom: '16px' }}>
-        <div style={{ display: 'flex', gap: '8px', marginBottom: '12px' }}>
-          <button
-            onClick={() => handleBackendChange('chrome')}
-            style={{
-              flex: 1,
-              padding: '8px',
-              background: config.active === 'chrome' 
-                ? (theme === 'default' ? '#2196F3' : '#3b82f6')
-                : 'rgba(255,255,255,0.1)',
-              border: `1px solid ${config.active === 'chrome' ? '#2196F3' : borderColor}`,
-              color: config.active === 'chrome' ? '#fff' : textColor,
-              borderRadius: '6px',
-              cursor: 'pointer',
-              fontSize: '12px',
-              fontWeight: config.active === 'chrome' ? '600' : '400',
-            }}
-          >
-            Chrome Storage
-          </button>
-          <button
-            onClick={() => handleBackendChange('postgres')}
-            style={{
-              flex: 1,
-              padding: '8px',
-              background: config.active === 'postgres'
-                ? (theme === 'default' ? '#2196F3' : '#3b82f6')
-                : 'rgba(255,255,255,0.1)',
-              border: `1px solid ${config.active === 'postgres' ? '#2196F3' : borderColor}`,
-              color: config.active === 'postgres' ? '#fff' : textColor,
-              borderRadius: '6px',
-              cursor: 'pointer',
-              fontSize: '12px',
-              fontWeight: config.active === 'postgres' ? '600' : '400',
-            }}
-          >
-            PostgreSQL
-          </button>
-        </div>
-      </div>
-
-      {/* PostgreSQL Config Form */}
-      {config.active === 'postgres' && config.postgres && (
-        <div style={{ marginBottom: '16px' }}>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '8px' }}>
-            <div>
-              <label style={{ display: 'block', fontSize: '11px', marginBottom: '4px', color: textColor, opacity: 0.9 }}>Host</label>
-              <input
-                type="text"
-                value={config.postgres.host}
-                onChange={(e) => updatePostgresConfig('host', e.target.value)}
-                style={{
-                  width: '100%',
-                  padding: '6px',
-                  background: 'rgba(0,0,0,0.2)',
-                  border: `1px solid ${borderColor}`,
-                  color: textColor,
-                  borderRadius: '4px',
-                  fontSize: '11px',
-                }}
-              />
-            </div>
-            <div>
-              <label style={{ display: 'block', fontSize: '11px', marginBottom: '4px', color: textColor, opacity: 0.9 }}>Port</label>
-              <input
-                type="number"
-                value={config.postgres.port}
-                onChange={(e) => updatePostgresConfig('port', parseInt(e.target.value) || 5432)}
-                style={{
-                  width: '100%',
-                  padding: '6px',
-                  background: 'rgba(0,0,0,0.2)',
-                  border: `1px solid ${borderColor}`,
-                  color: textColor,
-                  borderRadius: '4px',
-                  fontSize: '11px',
-                }}
-              />
-            </div>
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '8px' }}>
-            <div>
-              <label style={{ display: 'block', fontSize: '11px', marginBottom: '4px', color: textColor, opacity: 0.9 }}>Database</label>
-              <input
-                type="text"
-                value={config.postgres.database}
-                onChange={(e) => updatePostgresConfig('database', e.target.value)}
-                style={{
-                  width: '100%',
-                  padding: '6px',
-                  background: 'rgba(0,0,0,0.2)',
-                  border: `1px solid ${borderColor}`,
-                  color: textColor,
-                  borderRadius: '4px',
-                  fontSize: '11px',
-                }}
-              />
-            </div>
-            <div>
-              <label style={{ display: 'block', fontSize: '11px', marginBottom: '4px', color: textColor, opacity: 0.9 }}>User</label>
-              <input
-                type="text"
-                value={config.postgres.user}
-                onChange={(e) => updatePostgresConfig('user', e.target.value)}
-                style={{
-                  width: '100%',
-                  padding: '6px',
-                  background: 'rgba(0,0,0,0.2)',
-                  border: `1px solid ${borderColor}`,
-                  color: textColor,
-                  borderRadius: '4px',
-                  fontSize: '11px',
-                }}
-              />
-            </div>
-          </div>
-          <div style={{ marginBottom: '8px' }}>
-            <label style={{ display: 'block', fontSize: '11px', marginBottom: '4px', color: textColor, opacity: 0.9 }}>Password</label>
-            <input
-              type="password"
-              value={config.postgres.password}
-              onChange={(e) => updatePostgresConfig('password', e.target.value)}
-              style={{
-                width: '100%',
-                padding: '6px',
-                background: 'rgba(0,0,0,0.2)',
-                border: `1px solid ${borderColor}`,
-                color: textColor,
-                borderRadius: '4px',
-                fontSize: '11px',
-              }}
-            />
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '8px' }}>
-            <div>
-              <label style={{ display: 'block', fontSize: '11px', marginBottom: '4px', color: textColor, opacity: 0.9 }}>Schema</label>
-              <input
-                type="text"
-                value={config.postgres.schema}
-                onChange={(e) => updatePostgresConfig('schema', e.target.value)}
-                style={{
-                  width: '100%',
-                  padding: '6px',
-                  background: 'rgba(0,0,0,0.2)',
-                  border: `1px solid ${borderColor}`,
-                  color: textColor,
-                  borderRadius: '4px',
-                  fontSize: '11px',
-                }}
-              />
-            </div>
-            <div style={{ display: 'flex', alignItems: 'flex-end' }}>
-              <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', color: textColor, opacity: 0.9 }}>
-                <input
-                  type="checkbox"
-                  checked={config.postgres.ssl}
-                  onChange={(e) => updatePostgresConfig('ssl', e.target.checked)}
-                  style={{ margin: 0 }}
-                />
-                SSL
-              </label>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* WebSocket Connection Status */}
-      {config.active === 'postgres' && (
+        {/* Header */}
         <div style={{
-          marginBottom: '12px',
-          padding: '8px',
-          background: wsConnected ? 'rgba(34, 197, 94, 0.1)' : 'rgba(239, 68, 68, 0.1)',
-          border: `1px solid ${wsConnected ? 'rgba(34, 197, 94, 0.3)' : 'rgba(239, 68, 68, 0.3)'}`,
-          borderRadius: '6px',
           display: 'flex',
+          justifyContent: 'space-between',
           alignItems: 'center',
-          gap: '8px',
-        }}>
-          <span style={{
-            width: '8px',
-            height: '8px',
-            borderRadius: '50%',
-            background: wsConnected ? '#22c55e' : '#ef4444',
-            display: 'inline-block',
-          }}></span>
-          <span style={{
-            fontSize: '11px',
+          marginBottom: '14px',
+          cursor: 'pointer',
+        }} onClick={() => setIsExpanded(!isExpanded)}>
+          <h3 style={{
+            margin: 0,
+            fontSize: '13px',
+            fontWeight: '700',
+            textTransform: 'uppercase',
+            letterSpacing: '0.5px',
+            opacity: 0.95,
             color: textColor,
-            fontWeight: '500',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '6px',
           }}>
-            {wsConnected ? '✅ Electron app connected' : '❌ Electron app not connected - Start the Electron app first'}
+            ⚙️ Backend Configuration
+          </h3>
+          <span style={{
+            fontSize: '12px',
+            color: textColor,
+            opacity: 0.7,
+            transition: 'transform 0.2s',
+            transform: isExpanded ? 'rotate(180deg)' : 'rotate(0deg)',
+          }}>
+            ▼
           </span>
         </div>
-      )}
 
-      {/* Action Buttons */}
-      {config.active === 'postgres' && (
-        <>
-          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '12px' }}>
-            <button
-              onClick={handleTestConnection}
-              disabled={isTesting || !wsConnected}
-              style={{
-                flex: 1,
-                minWidth: '100px',
-                padding: '8px 12px',
-                background: isTesting || !wsConnected ? 'rgba(255,255,255,0.2)' : '#2196F3',
-                border: 'none',
-                color: '#fff',
-                borderRadius: '6px',
-                cursor: isTesting || !wsConnected ? 'not-allowed' : 'pointer',
-                fontSize: '12px',
-                fontWeight: '600',
-                opacity: isTesting || !wsConnected ? 0.6 : 1,
-              }}
-            >
-              {isTesting ? 'Testing...' : !wsConnected ? 'Connect Electron App First' : 'Test Connection'}
-            </button>
-            <button
-              onClick={handleSync}
-              disabled={isSyncing || !connectionTested}
-              style={{
-                flex: 1,
-                minWidth: '100px',
-                padding: '8px 12px',
-                background: isSyncing || !connectionTested ? 'rgba(255,255,255,0.2)' : '#22c55e',
-                border: 'none',
-                color: '#fff',
-                borderRadius: '6px',
-                cursor: isSyncing || !connectionTested ? 'not-allowed' : 'pointer',
-                fontSize: '12px',
-                fontWeight: '600',
-                opacity: isSyncing || !connectionTested ? 0.6 : 1,
-              }}
-            >
-              {isSyncing ? 'Syncing...' : 'Sync Now'}
-            </button>
-            <button
-              onClick={handleSetActive}
-              disabled={isSettingActive || (config.active === 'postgres' && !connectionTested)}
-              style={{
-                flex: 1,
-                minWidth: '100px',
-                padding: '8px 12px',
-                background: isSettingActive || (config.active === 'postgres' && !connectionTested) ? 'rgba(255,255,255,0.2)' : '#f59e0b',
-                border: 'none',
-                color: '#fff',
-                borderRadius: '6px',
-                cursor: isSettingActive || (config.active === 'postgres' && !connectionTested) ? 'not-allowed' : 'pointer',
-                fontSize: '12px',
-                fontWeight: '600',
-                opacity: isSettingActive || (config.active === 'postgres' && !connectionTested) ? 0.6 : 1,
-              }}
-            >
-              {isSettingActive ? 'Setting...' : 'Set as Active'}
-            </button>
-          </div>
-
-          {/* Diagnostic Results Display */}
-          {showDiagnostics && diagnosticResults && (
+        {/* Content */}
+        {isExpanded && (
+          <>
+            {/* Tabs */}
             <div style={{
-              marginTop: '12px',
-              padding: '12px',
-              background: diagnosticResults.messageFlowTest ? 'rgba(34, 197, 94, 0.1)' : 'rgba(239, 68, 68, 0.1)',
-              border: `1px solid ${diagnosticResults.messageFlowTest ? 'rgba(34, 197, 94, 0.3)' : 'rgba(239, 68, 68, 0.3)'}`,
-              borderRadius: '6px',
+              display: 'flex',
+              gap: '6px',
+              marginBottom: '14px',
             }}>
-              <div style={{
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center',
-                marginBottom: '12px',
-              }}>
-                <label style={{
-                  fontSize: '11px',
-                  fontWeight: '600',
-                  color: diagnosticResults.messageFlowTest ? '#22c55e' : '#ef4444',
-                  textTransform: 'uppercase',
-                  letterSpacing: '0.5px',
-                }}>
-                  {diagnosticResults.messageFlowTest ? '✅ Diagnostic Results' : '🔴 Diagnostic Results'}
-                </label>
+              {(['localdb', 'vectordb', 'llm', 'automation'] as const).map((tab) => (
                 <button
-                  onClick={() => {
-                    const report = JSON.stringify({
-                      timestamp: new Date().toISOString(),
-                      ...diagnosticResults,
-                      config: {
-                        host: config.postgres?.host,
-                        port: config.postgres?.port,
-                        database: config.postgres?.database,
-                        user: config.postgres?.user,
-                        schema: config.postgres?.schema,
-                        ssl: config.postgres?.ssl,
-                      }
-                    }, null, 2);
-                    navigator.clipboard.writeText(report).then(() => {
-                      showNotification('Diagnostic report copied to clipboard', 'success');
-                    }).catch(() => {
-                      showNotification('Failed to copy report', 'error');
-                    });
-                  }}
+                  key={tab}
+                  onClick={() => setActiveTab(tab)}
+                  disabled={tab !== 'localdb'}
                   style={{
-                    padding: '4px 8px',
-                    background: diagnosticResults.messageFlowTest ? '#22c55e' : '#ef4444',
+                    flex: 1,
+                    padding: '8px 10px',
+                    background: activeTab === tab ? 'rgba(255,255,255,0.15)' : 'rgba(255,255,255,0.05)',
                     border: 'none',
-                    color: '#fff',
-                    borderRadius: '4px',
-                    cursor: 'pointer',
-                    fontSize: '10px',
-                    fontWeight: '600',
-                  }}
-                >
-                  📋 Copy Report
-                </button>
-              </div>
-              
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <span style={{ fontSize: '12px', width: '20px' }}>
-                    {diagnosticResults.electronRunning ? '✅' : '❌'}
-                  </span>
-                  <span style={{ fontSize: '11px', color: textColor }}>
-                    Electron app {diagnosticResults.electronRunning ? 'running' : 'not running'}
-                  </span>
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <span style={{ fontSize: '12px', width: '20px' }}>
-                    {diagnosticResults.websocketServerListening ? '✅' : '❌'}
-                  </span>
-                  <span style={{ fontSize: '11px', color: textColor }}>
-                    WebSocket server {diagnosticResults.websocketServerListening ? 'listening' : 'not listening'} on port 51247
-                  </span>
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <span style={{ fontSize: '12px', width: '20px' }}>
-                    {diagnosticResults.websocketConnection ? '✅' : '❌'}
-                  </span>
-                  <span style={{ fontSize: '11px', color: textColor }}>
-                    WebSocket connection {diagnosticResults.websocketConnection ? 'established' : 'failed'}
-                  </span>
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <span style={{ fontSize: '12px', width: '20px' }}>
-                    {diagnosticResults.pingPongTest ? '✅' : '⏳'}
-                  </span>
-                  <span style={{ fontSize: '11px', color: textColor }}>
-                    Ping/Pong test {diagnosticResults.pingPongTest ? 'successful' : 'pending'}
-                  </span>
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <span style={{ fontSize: '12px', width: '20px' }}>
-                    {diagnosticResults.messageFlowTest ? '✅' : diagnosticResults.messageFlowTest === false ? '❌' : '⏳'}
-                  </span>
-                  <span style={{ fontSize: '11px', color: textColor }}>
-                    Database connection test {diagnosticResults.messageFlowTest ? 'successful' : diagnosticResults.messageFlowTest === false ? 'failed' : 'in progress...'}
-                  </span>
-                </div>
-              </div>
-
-              {diagnosticResults.errors.length > 0 && (
-                <div style={{ marginTop: '12px', paddingTop: '12px', borderTop: `1px solid ${borderColor}` }}>
-                  <div style={{ fontSize: '11px', fontWeight: '600', color: '#ef4444', marginBottom: '8px' }}>
-                    Errors:
-                  </div>
-                  {diagnosticResults.errors.map((error, index) => (
-                    <div key={index} style={{ fontSize: '10px', color: textColor, marginBottom: '4px', paddingLeft: '12px' }}>
-                      • {error}
-                    </div>
-                  ))}
-                  {diagnosticResults.errors.some(e => e.includes('timeout')) && (
-                    <div style={{ marginTop: '8px', padding: '8px', background: 'rgba(59, 130, 246, 0.1)', borderRadius: '4px', fontSize: '10px', color: textColor }}>
-                      <strong>💡 Troubleshooting:</strong><br/>
-                      Check Electron console (terminal) for:<br/>
-                      • <code>[MAIN] ===== RAW WEBSOCKET MESSAGE RECEIVED =====</code><br/>
-                      • <code>[MAIN] ===== DB_TEST_CONNECTION HANDLER STARTED =====</code><br/>
-                      If these don't appear, Electron isn't receiving the message.
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {diagnosticResults.details.messageFlowTest?.response && (
-                <div style={{ marginTop: '12px', paddingTop: '12px', borderTop: `1px solid ${borderColor}` }}>
-                  <div style={{ fontSize: '11px', fontWeight: '600', color: textColor, marginBottom: '8px' }}>
-                    Database Response:
-                  </div>
-                  <div style={{ fontSize: '10px', color: textColor, paddingLeft: '12px' }}>
-                    {diagnosticResults.details.messageFlowTest.response.message}
-                  </div>
-                </div>
-              )}
-
-              {/* Electron Logs Display */}
-              {electronLogs.length > 0 && (
-                <div style={{ marginTop: '12px', paddingTop: '12px', borderTop: `1px solid ${borderColor}` }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                    <div style={{ fontSize: '11px', fontWeight: '600', color: textColor }}>
-                      📋 Electron Logs ({electronLogs.length})
-                    </div>
-                    <button
-                      onClick={() => {
-                        const logsText = electronLogs.join('\n\n');
-                        navigator.clipboard.writeText(logsText).then(() => {
-                          showNotification('Electron logs copied to clipboard', 'success');
-                        }).catch(() => {
-                          showNotification('Failed to copy logs', 'error');
-                        });
-                      }}
-                      style={{
-                        padding: '4px 8px',
-                        background: '#3b82f6',
-                        border: 'none',
-                        color: '#fff',
-                        borderRadius: '4px',
-                        cursor: 'pointer',
-                        fontSize: '10px',
-                        fontWeight: '600',
-                      }}
-                    >
-                      📋 Copy Logs
-                    </button>
-                  </div>
-                  <div style={{
-                    maxHeight: '200px',
-                    overflowY: 'auto',
-                    padding: '8px',
-                    background: 'rgba(0, 0, 0, 0.2)',
-                    border: `1px solid ${borderColor}`,
-                    borderRadius: '4px',
-                    fontSize: '10px',
-                    fontFamily: 'monospace',
+                    borderRadius: '6px',
                     color: textColor,
-                    whiteSpace: 'pre-wrap',
-                    wordBreak: 'break-word',
-                  }}>
-                    {electronLogs.map((log, index) => (
-                      <div key={index} style={{ marginBottom: index < electronLogs.length - 1 ? '8px' : '0', paddingBottom: index < electronLogs.length - 1 ? '8px' : '0', borderBottom: index < electronLogs.length - 1 ? `1px solid ${borderColor}` : 'none' }}>
-                        {log}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Error Log Display */}
-          {errorLog && (
-            <div style={{
-              marginTop: '12px',
-              padding: '12px',
-              background: 'rgba(239, 68, 68, 0.1)',
-              border: `1px solid rgba(239, 68, 68, 0.3)`,
-              borderRadius: '6px',
-            }}>
-              <div style={{
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center',
-                marginBottom: '8px',
-              }}>
-                <label style={{
-                  fontSize: '11px',
-                  fontWeight: '600',
-                  color: '#ef4444',
-                  textTransform: 'uppercase',
-                  letterSpacing: '0.5px',
-                }}>
-                  🔴 Detailed Error Log
-                </label>
-                <button
-                  onClick={() => {
-                    navigator.clipboard.writeText(errorLog).then(() => {
-                      showNotification('Error log copied to clipboard', 'success');
-                    }).catch(() => {
-                      showNotification('Failed to copy error log', 'error');
-                    });
-                  }}
-                  style={{
-                    padding: '4px 8px',
-                    background: '#ef4444',
-                    border: 'none',
-                    color: '#fff',
-                    borderRadius: '4px',
-                    cursor: 'pointer',
-                    fontSize: '10px',
-                    fontWeight: '600',
+                    fontSize: '11px',
+                    fontWeight: activeTab === tab ? '600' : '500',
+                    cursor: tab === 'localdb' ? 'pointer' : 'not-allowed',
+                    opacity: tab === 'localdb' ? 1 : 0.5,
+                    transition: 'all 0.2s',
                   }}
                 >
-                  📋 Copy Log
+                  {tab === 'localdb' && `Local DB ${config.postgres?.enabled ? '✓' : ''}`}
+                  {tab === 'vectordb' && 'Vector DB'}
+                  {tab === 'llm' && 'LLM'}
+                  {tab === 'automation' && 'Automation'}
                 </button>
-              </div>
-              <pre style={{
-                margin: 0,
-                padding: '8px',
-                background: 'rgba(0, 0, 0, 0.2)',
-                border: `1px solid ${borderColor}`,
-                borderRadius: '4px',
-                fontSize: '10px',
-                color: textColor,
-                overflow: 'auto',
-                maxHeight: '200px',
-                whiteSpace: 'pre-wrap',
-                wordBreak: 'break-word',
-                fontFamily: 'monospace',
-              }}>
-                {errorLog}
-              </pre>
+              ))}
             </div>
-          )}
-        </>
-      )}
 
-      {/* Notification Toast */}
+            {/* Local DB Tab */}
+            {activeTab === 'localdb' && config.postgres?.config && (
+              <>
+                {/* Form */}
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '8px' }}>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '11px', marginBottom: '4px', color: textColor, opacity: 0.8 }}>Host</label>
+                    <input
+                      type="text"
+                      value={config.postgres.config.host}
+                      onChange={(e) => updatePostgresConfig('host', e.target.value)}
+                      style={{
+                        width: '100%',
+                        padding: '8px',
+                        background: 'rgba(0,0,0,0.3)',
+                        border: '1px solid rgba(255,255,255,0.2)',
+                        color: textColor,
+                        borderRadius: '6px',
+                        fontSize: '12px',
+                      }}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '11px', marginBottom: '4px', color: textColor, opacity: 0.8 }}>Port</label>
+                    <input
+                      type="number"
+                      value={config.postgres.config.port}
+                      onChange={(e) => updatePostgresConfig('port', parseInt(e.target.value) || 5432)}
+                      style={{
+                        width: '100%',
+                        padding: '8px',
+                        background: 'rgba(0,0,0,0.3)',
+                        border: '1px solid rgba(255,255,255,0.2)',
+                        color: textColor,
+                        borderRadius: '6px',
+                        fontSize: '12px',
+                      }}
+                    />
+                  </div>
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '8px' }}>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '11px', marginBottom: '4px', color: textColor, opacity: 0.8 }}>Database</label>
+                    <input
+                      type="text"
+                      value={config.postgres.config.database}
+                      onChange={(e) => updatePostgresConfig('database', e.target.value)}
+                      style={{
+                        width: '100%',
+                        padding: '8px',
+                        background: 'rgba(0,0,0,0.3)',
+                        border: '1px solid rgba(255,255,255,0.2)',
+                        color: textColor,
+                        borderRadius: '6px',
+                        fontSize: '12px',
+                      }}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '11px', marginBottom: '4px', color: textColor, opacity: 0.8 }}>User</label>
+                    <input
+                      type="text"
+                      value={config.postgres.config.user}
+                      onChange={(e) => updatePostgresConfig('user', e.target.value)}
+                      style={{
+                        width: '100%',
+                        padding: '8px',
+                        background: 'rgba(0,0,0,0.3)',
+                        border: '1px solid rgba(255,255,255,0.2)',
+                        color: textColor,
+                        borderRadius: '6px',
+                        fontSize: '12px',
+                      }}
+                    />
+                  </div>
+                </div>
+                <div style={{ marginBottom: '8px' }}>
+                  <label style={{ display: 'block', fontSize: '11px', marginBottom: '4px', color: textColor, opacity: 0.8 }}>Password</label>
+                  <input
+                    type="password"
+                    value={config.postgres.config.password}
+                    onChange={(e) => updatePostgresConfig('password', e.target.value)}
+                    style={{
+                      width: '100%',
+                      padding: '8px',
+                      background: 'rgba(0,0,0,0.3)',
+                      border: '1px solid rgba(255,255,255,0.2)',
+                      color: textColor,
+                      borderRadius: '6px',
+                      fontSize: '12px',
+                    }}
+                  />
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '12px' }}>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '11px', marginBottom: '4px', color: textColor, opacity: 0.8 }}>Schema</label>
+                    <input
+                      type="text"
+                      value={config.postgres.config.schema}
+                      onChange={(e) => updatePostgresConfig('schema', e.target.value)}
+                      style={{
+                        width: '100%',
+                        padding: '8px',
+                        background: 'rgba(0,0,0,0.3)',
+                        border: '1px solid rgba(255,255,255,0.2)',
+                        color: textColor,
+                        borderRadius: '6px',
+                        fontSize: '12px',
+                      }}
+                    />
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'flex-end' }}>
+                    <label style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      fontSize: '11px',
+                      color: textColor,
+                      cursor: 'pointer',
+                    }}>
+                      <input
+                        type="checkbox"
+                        checked={config.postgres.config.ssl}
+                        onChange={(e) => updatePostgresConfig('ssl', e.target.checked)}
+                      />
+                      SSL
+                    </label>
+                  </div>
+                </div>
+
+                {/* Button */}
+                <button
+                  onClick={handleTestConnection}
+                  disabled={isTesting}
+                  style={{
+                    width: '100%',
+                    padding: '12px',
+                    background: config.postgres?.enabled ? '#4CAF50' : '#2196F3',
+                    border: 'none',
+                    borderRadius: '8px',
+                    color: 'white',
+                    fontSize: '13px',
+                    fontWeight: '600',
+                    cursor: isTesting ? 'wait' : 'pointer',
+                    transition: 'all 0.2s',
+                    opacity: isTesting ? 0.7 : 1,
+                  }}
+                >
+                  {isTesting ? (
+                    'Connecting...'
+                  ) : config.postgres?.enabled ? (
+                    <>
+                      <span style={{ marginRight: '6px' }}>✓</span>
+                      PostgreSQL Connected
+                    </>
+                  ) : (
+                    'Connect Local PostgreSQL'
+                  )}
+                </button>
+              </>
+            )}
+
+            {/* Other Tabs */}
+            {activeTab !== 'localdb' && (
+              <div style={{ padding: '20px', textAlign: 'center', color: textColor, opacity: 0.6, fontSize: '11px' }}>
+                {activeTab === 'vectordb' && 'Vector Database configuration coming soon'}
+                {activeTab === 'llm' && 'Local LLM configuration coming soon'}
+                {activeTab === 'automation' && 'Automation platform configuration coming soon'}
+              </div>
+            )}
+          </>
+        )}
+      </div>
+
+      {/* Notification */}
       {notification && (
         <div style={{
           position: 'fixed',
-          bottom: '20px',
+          top: '20px',
           right: '20px',
           padding: '12px 16px',
-          background: notification.type === 'success' ? '#22c55e' : notification.type === 'error' ? '#ef4444' : '#3b82f6',
+          background: notification.type === 'success' ? 'rgba(34, 197, 94, 0.9)' : 'rgba(239, 68, 68, 0.9)',
+          border: `1px solid ${notification.type === 'success' ? '#22c55e' : '#ef4444'}`,
+          borderRadius: '6px',
           color: '#fff',
-          borderRadius: '8px',
           fontSize: '12px',
-          boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
+          fontWeight: '500',
           zIndex: 10000,
-          maxWidth: '300px',
+          boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
         }}>
           {notification.message}
         </div>
       )}
-    </div>
+    </>
   );
 }
 

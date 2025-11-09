@@ -50,31 +50,35 @@ function SidepanelOrchestrator() {
   const chatRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   
-  // Load pinned state from localStorage
+  // Load pinned state from storage
   useEffect(() => {
-    chrome.storage.local.get(['commandChatPinned'], (result) => {
-      if (result.commandChatPinned !== undefined) {
-        setIsCommandChatPinned(result.commandChatPinned)
-        
-        // If pinned, ensure docked chat is created on the page
-        if (result.commandChatPinned) {
-          chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-            if (tabs[0]?.id) {
-              chrome.tabs.sendMessage(tabs[0].id, { type: 'CREATE_DOCKED_CHAT' })
-            }
-          })
+    import('./storage/storageWrapper').then(({ storageGet }) => {
+      storageGet(['commandChatPinned'], (result) => {
+        if (result.commandChatPinned !== undefined) {
+          setIsCommandChatPinned(result.commandChatPinned)
+          
+          // If pinned, ensure docked chat is created on the page
+          if (result.commandChatPinned) {
+            chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+              if (tabs[0]?.id) {
+                chrome.tabs.sendMessage(tabs[0].id, { type: 'CREATE_DOCKED_CHAT' })
+              }
+            })
+          }
         }
-      }
-    })
+      });
+    });
   }, [])
 
   // Load and listen for theme changes
   useEffect(() => {
     // Load initial theme
-    chrome.storage.local.get(['optimando-ui-theme'], (result) => {
-      const savedTheme = result['optimando-ui-theme'] || 'default'
-      setTheme(savedTheme as 'default' | 'dark' | 'professional')
-    })
+    import('./storage/storageWrapper').then(({ storageGet }) => {
+      storageGet(['optimando-ui-theme'], (result) => {
+        const savedTheme = result['optimando-ui-theme'] || 'default'
+        setTheme(savedTheme as 'default' | 'dark' | 'professional')
+      });
+    });
 
     // Listen for theme changes
     const handleStorageChange = (changes: any, namespace: string) => {
@@ -260,9 +264,10 @@ function SidepanelOrchestrator() {
   // Load session data immediately on mount and when sidebar becomes visible
   useEffect(() => {
     const loadSessionDataFromStorage = () => {
-      // First, try to get the current session key from chrome.storage
+      // First, try to get the current session key from storage
       // Check for a global active session marker
-      chrome.storage.local.get(null, (allData) => {
+      import('./storage/storageWrapper').then(({ storageGet }) => {
+        storageGet(null, (allData) => {
         // Look for session keys (they start with 'session_')
         const sessionKeys = Object.keys(allData).filter(key => key.startsWith('session_'))
         
@@ -312,9 +317,10 @@ function SidepanelOrchestrator() {
             setSessionKey('')
           }
         }
-      })
+      });
+      });
     }
-    
+
     const loadSessionDataFromContentScript = () => {
       chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
         if (tabs[0]?.id) {
@@ -502,7 +508,9 @@ function SidepanelOrchestrator() {
       setResizingBoxId(null)
       // Save to storage
       const finalHeight = agentBoxHeights[boxId] || 120
-      chrome.storage.local.set({ agentBoxHeights: { ...agentBoxHeights, [boxId]: finalHeight } })
+      import('./storage/storageWrapper').then(({ storageSet }) => {
+        storageSet({ agentBoxHeights: { ...agentBoxHeights, [boxId]: finalHeight } })
+      })
       
       document.removeEventListener('mousemove', handleMouseMove)
       document.removeEventListener('mouseup', handleMouseUp)

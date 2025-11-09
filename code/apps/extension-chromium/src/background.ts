@@ -1,7 +1,7 @@
 let ws: WebSocket | null = null;
 let isConnecting = false;
-let autoConnectInterval: NodeJS.Timeout | null = null;
-let heartbeatInterval: NodeJS.Timeout | null = null;
+let autoConnectInterval: ReturnType<typeof setInterval> | null = null;
+let heartbeatInterval: ReturnType<typeof setInterval> | null = null;
 // Feature flag to completely disable WebSocket auto-connection
 const WS_ENABLED = true;
 // Track sidebar visibility per tab
@@ -57,13 +57,6 @@ function connectToWebSocketServer() {
             // Forward Electron logs to console and UI for debugging
             console.log('[BG] 📋 Electron Log:', data.message, data.rawMessage || data.parsedMessage || '')
             try { chrome.runtime.sendMessage({ type: 'ELECTRON_LOG', data }) } catch {}
-          } else if (data.type === 'DB_TEST_CONNECTION_RESULT') {
-            console.log('[BG] ===== DB_TEST_CONNECTION_RESULT RECEIVED FROM ELECTRON =====');
-            console.log('[BG] Result:', JSON.stringify(data, null, 2));
-            // Forward to extension
-            try { chrome.runtime.sendMessage(data) } catch (forwardErr) {
-              console.error('[BG] Error forwarding DB_TEST_CONNECTION_RESULT:', forwardErr)
-            }
           } else if (data.type === 'SELECTION_RESULT' || data.type === 'SELECTION_RESULT_IMAGE' || data.type === 'SELECTION_RESULT_VIDEO') {
             const kind = data.kind || (data.type.includes('VIDEO') ? 'video' : 'image')
             const dataUrl = data.dataUrl || data.url || null
@@ -78,9 +71,6 @@ function connectToWebSocketServer() {
             try { chrome.runtime.sendMessage({ type: 'ELECTRON_SELECTION_RESULT', kind, dataUrl }) } catch {}
           } else if (data.type === 'TRIGGERS_UPDATED') {
             try { chrome.runtime.sendMessage({ type: 'TRIGGERS_UPDATED' }) } catch {}
-          } else if (data.type === 'DB_TEST_CONNECTION_RESULT' || data.type === 'DB_SYNC_RESULT' || data.type === 'DB_SET_ACTIVE_RESULT' || data.type === 'DB_GET_CONFIG_RESULT' || data.type === 'DB_GET_RESULT' || data.type === 'DB_SET_RESULT' || data.type === 'DB_GET_ALL_RESULT' || data.type === 'DB_SET_ALL_RESULT') {
-            // Forward DB operation results to extension
-            try { chrome.runtime.sendMessage(data) } catch {}
           } else if (data.type === 'SHOW_TRIGGER_PROMPT') {
             // Forward trigger prompt request to popup AND content script
             console.log('📝 Received SHOW_TRIGGER_PROMPT from Electron:', data)
@@ -515,51 +505,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       return true
     }
     
-    case 'DB_WEBSOCKET_MESSAGE': {
-      try {
-        console.log('[BG] DB_WEBSOCKET_MESSAGE received:', {
-          wsType: msg.wsType,
-          dataKeys: msg.data ? Object.keys(msg.data) : [],
-          wsEnabled: WS_ENABLED,
-          wsExists: !!ws,
-          wsReadyState: ws ? ws.readyState : null,
-          wsOpen: ws && ws.readyState === WebSocket.OPEN
-        });
-        
-        if (WS_ENABLED && ws && ws.readyState === WebSocket.OPEN) {
-          const payload = {
-            type: msg.wsType,
-            ...(msg.data || {})
-          }
-          console.log('[BG] Sending WebSocket payload:', {
-            type: payload.type,
-            hasConfig: !!payload.config,
-            configKeys: payload.config ? Object.keys(payload.config) : [],
-            fullPayload: JSON.stringify(payload, null, 2)
-          });
-          try { 
-            const payloadStr = JSON.stringify(payload);
-            console.log('[BG] WebSocket payload string:', payloadStr);
-            ws.send(payloadStr);
-            console.log('[BG] WebSocket message sent successfully');
-          } catch (sendErr) {
-            console.error('[BG] Error sending WebSocket message:', sendErr);
-            try { sendResponse({ success: false, error: `Send error: ${String(sendErr)}` }) } catch {}
-          }
-          try { sendResponse({ success: true }) } catch {}
-        } else {
-          const errorMsg = !WS_ENABLED ? 'WebSocket disabled' : 
-                          !ws ? 'WebSocket not initialized' : 
-                          `WebSocket not open (readyState: ${ws.readyState})`;
-          console.error('[BG] WebSocket not ready:', errorMsg);
-          try { sendResponse({ success: false, error: errorMsg }) } catch {}
-        }
-      } catch (e: any) {
-        console.error('[BG] Exception in DB_WEBSOCKET_MESSAGE:', e);
-        try { sendResponse({ success: false, error: String(e) }) } catch {}
-      }
-      return true
-    }
+    // Removed DB_WEBSOCKET_MESSAGE handler - database operations now use HTTP API directly
     
     case 'GRID_SAVE': {
       console.log('📥 BG: Received GRID_SAVE message:', msg)
@@ -574,8 +520,9 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         break
       }
       
-      // Load current session
-      chrome.storage.local.get([payload.sessionKey], (result) => {
+      // Load current session using storage wrapper
+      import('./storage/storageWrapper').then(({ storageGet, storageSet }) => {
+        storageGet([payload.sessionKey], (result: any) => {
         const session = result[payload.sessionKey] || {}
         
         console.log('📋 BG: Loaded session:', JSON.stringify(session, null, 2))
@@ -630,18 +577,14 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         console.log('💾 BG: Saving session with', session.agentBoxes.length, 'total agent boxes')
         console.log('📊 BG: Full grid entry:', JSON.stringify(gridEntry, null, 2))
         
-        // Save updated session
-        chrome.storage.local.set({ [payload.sessionKey]: session }, () => {
-          if (chrome.runtime.lastError) {
-            console.error('❌ BG: Failed to save session:', chrome.runtime.lastError)
-            try { sendResponse({ success: false, error: chrome.runtime.lastError.message }) } catch {}
-          } else {
-            console.log('✅ BG: Session saved with grid config and agent boxes!')
-            console.log('✅ BG: Total agent boxes in session:', session.agentBoxes.length)
-            try { sendResponse({ success: true }) } catch {}
-          }
+        // Save updated session using storage wrapper
+        storageSet({ [payload.sessionKey]: session }, () => {
+          console.log('✅ BG: Session saved with grid config and agent boxes!')
+          console.log('✅ BG: Total agent boxes in session:', session.agentBoxes.length)
+          try { sendResponse({ success: true }) } catch {}
         })
-      })
+      });
+      });
       
       return true  // Keep message channel open for async response
     }
