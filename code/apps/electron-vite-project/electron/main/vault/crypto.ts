@@ -6,12 +6,19 @@
  * - Secure buffer zeroization
  */
 
-import { hash, argon2id, verify } from 'argon2'
+import { argon2id } from 'argon2'
 import { randomBytes, createCipheriv, createDecipheriv, hkdfSync } from 'crypto'
 import sodium from 'libsodium-wrappers'
 
-// Ensure libsodium is ready
-await sodium.ready
+// Initialize libsodium (called in async functions)
+let sodiumReady: Promise<void> | null = null
+
+function ensureSodiumReady(): Promise<void> {
+  if (!sodiumReady) {
+    sodiumReady = sodium.ready
+  }
+  return sodiumReady
+}
 
 /**
  * KDF parameters for Argon2id
@@ -43,14 +50,19 @@ export async function deriveKEK(
   salt: Buffer,
   params: KDFParams = DEFAULT_KDF_PARAMS
 ): Promise<Buffer> {
-  const hash = await argon2id({
+  // Ensure libsodium is ready
+  await ensureSodiumReady()
+  
+  const hashResult = await argon2id(Buffer.from(password, 'utf-8'), {
     raw: true,
     hashLength: 32,
     salt,
-    ...params,
-  })(Buffer.from(password, 'utf-8'))
+    memoryCost: params.memoryCost,
+    timeCost: params.timeCost,
+    parallelism: params.parallelism,
+  })
   
-  return Buffer.from(hash)
+  return Buffer.from(hashResult)
 }
 
 /**
@@ -112,7 +124,8 @@ export async function unwrapDEK(wrappedDEK: Buffer, kek: Buffer): Promise<Buffer
  * @returns 32-byte field key
  */
 export function deriveFieldKey(dek: Buffer, context: string, info: string): Buffer {
-  return hkdfSync('sha256', dek, Buffer.from(context), Buffer.from(info), 32)
+  const result = hkdfSync('sha256', dek, Buffer.from(context), Buffer.from(info), 32)
+  return Buffer.from(result)
 }
 
 /**
@@ -122,6 +135,7 @@ export function deriveFieldKey(dek: Buffer, context: string, info: string): Buff
  * @returns Base64-encoded JSON: { nonce, ciphertext, tag }
  */
 export function encryptField(plaintext: string, fieldKey: Buffer): string {
+  // Ensure sodium is initialized (synchronous check - should already be ready)
   const nonce = sodium.randombytes_buf(sodium.crypto_aead_xchacha20poly1305_ietf_NPUBBYTES)
   const message = Buffer.from(plaintext, 'utf-8')
   

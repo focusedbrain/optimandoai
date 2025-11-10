@@ -32,11 +32,11 @@ export function vaultExists(): boolean {
 /**
  * Create new encrypted vault database with SQLCipher
  */
-export function createVaultDB(dek: Buffer): Database.Database {
+export function createVaultDB(dek: Buffer): any {
   const vaultPath = getVaultPath()
   
   // Create database
-  const db = new Database(vaultPath)
+  const db = new (Database as any)(vaultPath)
   
   // Set SQLCipher key (uses the DEK as the encryption key)
   const hexKey = dek.toString('hex')
@@ -63,7 +63,7 @@ export function createVaultDB(dek: Buffer): Database.Database {
 /**
  * Open existing encrypted vault database
  */
-export function openVaultDB(dek: Buffer): Database.Database {
+export function openVaultDB(dek: Buffer): any {
   const vaultPath = getVaultPath()
   
   if (!existsSync(vaultPath)) {
@@ -71,7 +71,7 @@ export function openVaultDB(dek: Buffer): Database.Database {
   }
   
   try {
-    const db = new Database(vaultPath)
+    const db = new (Database as any)(vaultPath)
     
     // Set SQLCipher key
     const hexKey = dek.toString('hex')
@@ -107,7 +107,7 @@ export function openVaultDB(dek: Buffer): Database.Database {
 /**
  * Close database
  */
-export function closeVaultDB(db: Database.Database): void {
+export function closeVaultDB(db: any): void {
   db.close()
   console.log('[VAULT DB] Closed vault database')
 }
@@ -115,7 +115,7 @@ export function closeVaultDB(db: Database.Database): void {
 /**
  * Create database schema
  */
-function createSchema(db: Database.Database): void {
+function createSchema(db: any): void {
   // Vault metadata table
   db.exec(`
     CREATE TABLE IF NOT EXISTS vault_meta (

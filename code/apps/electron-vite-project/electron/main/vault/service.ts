@@ -3,7 +3,6 @@
  * Handles unlock, lock, CRUD operations, session management, and autolock
  */
 
-import type Database from '@journeyapps/sqlcipher'
 import { randomBytes } from 'crypto'
 import type { Container, VaultItem, VaultSession, VaultStatus, VaultSettings, Field } from './types'
 import {
@@ -30,7 +29,7 @@ import {
 import { readFileSync, writeFileSync } from 'fs'
 
 export class VaultService {
-  private db: Database.Database | null = null
+  private db: any | null = null
   private session: VaultSession | null = null
   private autoLockTimer: NodeJS.Timeout | null = null
   private settings: VaultSettings = {
@@ -39,8 +38,6 @@ export class VaultService {
   
   // Rate limiting
   private unlockAttempts: number[] = [] // Timestamps
-  private rpcCallCount: number = 0
-  private rpcResetTimer: NodeJS.Timeout | null = null
 
   constructor() {
     console.log('[VAULT] VaultService initialized')
@@ -283,7 +280,7 @@ export class VaultService {
     this.ensureUnlocked()
     this.updateActivity()
 
-    const rows = this.db!.prepare('SELECT * FROM containers ORDER BY name ASC').all()
+    const rows = this.db!.prepare('SELECT * FROM containers ORDER BY name ASC').all() as any[]
 
     return rows.map((row: any) => ({
       id: row.id,
@@ -463,7 +460,7 @@ export class VaultService {
       params.push(filters.offset)
     }
 
-    const rows = this.db!.prepare(query).all(...params)
+    const rows = this.db!.prepare(query).all(...params) as any[]
 
     return rows.map((row: any) => ({
       id: row.id,
@@ -496,7 +493,7 @@ export class VaultService {
 
     sql += ' ORDER BY title ASC'
 
-    const rows = this.db!.prepare(sql).all(...params)
+    const rows = this.db!.prepare(sql).all(...params) as any[]
 
     return rows.map((row: any) => ({
       id: row.id,
@@ -523,7 +520,7 @@ export class VaultService {
 
     const rows = this.db!.prepare(
       'SELECT * FROM vault_items WHERE category = ? AND domain LIKE ? ORDER BY title ASC'
-    ).all('password', `%${normalized}%`)
+    ).all('password', `%${normalized}%`) as any[]
 
     return rows.map((row: any) => {
       const item: VaultItem = {
