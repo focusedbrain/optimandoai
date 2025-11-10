@@ -10,6 +10,7 @@ import { beginOverlay, closeAllOverlays, showStreamTriggerOverlay } from './lmgt
 import { captureScreenshot, startRegionStream } from './lmgtfy/capture'
 import { loadPresets, upsertRegion } from './lmgtfy/presets'
 import { registerDbHandlers, testConnection, syncChromeDataToPostgres, getConfig, getPostgresAdapter } from './ipc/db.js'
+import { handleVaultRPC } from './main/vault/rpc.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -623,6 +624,29 @@ app.whenReady().then(async () => {
                 OPEN: socket.OPEN,
                 isOpen: socket.readyState === socket.OPEN
               })
+            }
+            
+            // ===== VAULT RPC HANDLING =====
+            // Check if this is a vault RPC call
+            if (msg.method && msg.method.startsWith('vault.')) {
+              console.log('[MAIN] Processing vault RPC:', msg.method)
+              try {
+                const response = await handleVaultRPC(msg.method, msg.params)
+                const reply = {
+                  id: msg.id,
+                  ...response
+                }
+                socket.send(JSON.stringify(reply))
+                console.log('[MAIN] ✅ Vault RPC response sent:', msg.method)
+              } catch (error: any) {
+                console.error('[MAIN] ❌ Vault RPC error:', error)
+                socket.send(JSON.stringify({
+                  id: msg.id,
+                  success: false,
+                  error: error.message || 'Unknown error'
+                }))
+              }
+              return // Don't process further handlers
             }
             
             if (msg.type === 'ping') { 
