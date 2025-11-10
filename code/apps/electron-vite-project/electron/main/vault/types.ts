@@ -5,12 +5,12 @@
 /**
  * Container types for organizational grouping
  */
-export type ContainerType = 'company' | 'identity'
+export type ContainerType = 'person' | 'company' | 'business'
 
 /**
  * Item categories
  */
-export type ItemCategory = 'password' | 'address' | 'payment' | 'tax_id' | 'notice'
+export type ItemCategory = 'password' | 'address' | 'payment' | 'email' | 'phone' | 'tax_id' | 'vat_number' | 'custom'
 
 /**
  * Field types for dynamic form rendering
@@ -37,6 +37,7 @@ export interface Field {
   value: string        // plain or encrypted JSON string
   encrypted: boolean   // true for passwords, card numbers, etc.
   type: FieldType      // for UI rendering
+  explanation?: string // Optional explanation for AI autofill context
 }
 
 /**
@@ -69,7 +70,10 @@ export interface VaultSession {
 export interface VaultStatus {
   exists: boolean
   locked: boolean
+  isUnlocked?: boolean
   autoLockMinutes: number
+  currentVaultId?: string
+  availableVaults?: Array<{ id: string, name: string, created: number }>
 }
 
 /**

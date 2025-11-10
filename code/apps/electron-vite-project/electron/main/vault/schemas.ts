@@ -7,7 +7,7 @@ import { z } from 'zod'
 /**
  * Container schemas
  */
-export const ContainerTypeSchema = z.enum(['company', 'identity'])
+export const ContainerTypeSchema = z.enum(['person', 'company', 'business'])
 
 export const ContainerSchema = z.object({
   id: z.string(),
@@ -40,12 +40,13 @@ export const FieldSchema = z.object({
   value: z.string(),
   encrypted: z.boolean(),
   type: FieldTypeSchema,
+  explanation: z.string().optional(),
 })
 
 /**
  * Item schemas
  */
-export const ItemCategorySchema = z.enum(['password', 'address', 'payment', 'tax_id', 'notice'])
+export const ItemCategorySchema = z.enum(['password', 'address', 'payment', 'email', 'phone', 'tax_id', 'vat_number', 'custom'])
 
 export const VaultItemSchema = z.object({
   id: z.string(),
@@ -81,10 +82,13 @@ export const UpdateItemSchema = z.object({
  */
 export const CreateVaultRequestSchema = z.object({
   masterPassword: z.string().min(8).max(128),
+  vaultName: z.string().min(1).max(200).optional(),
+  vaultId: z.string().optional(),
 })
 
 export const UnlockVaultRequestSchema = z.object({
   masterPassword: z.string(),
+  vaultId: z.string().optional(),
 })
 
 export const GetItemRequestSchema = z.object({

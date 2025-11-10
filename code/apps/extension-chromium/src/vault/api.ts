@@ -1,7 +1,6 @@
 /**
- * WebSocket RPC client for vault communication
- * Uses chrome.runtime messaging to communicate through background script
- * (Content scripts can't directly open WebSockets due to CSP restrictions)
+ * HTTP API client for vault communication
+ * Uses chrome.runtime.sendMessage to relay through background script (bypasses CSP)
  */
 
 import type {
@@ -14,79 +13,134 @@ import type {
   VaultSettings,
 } from './types'
 
-const RPC_TIMEOUT = 30000 // 30 seconds
-
-let pendingCalls = new Map<string, { resolve: (value: any) => void; reject: (error: any) => void; timer: number }>()
+const API_TIMEOUT = 30000 // 30 seconds
 
 /**
- * Connect to vault through background script
+ * Make HTTP API call to vault via background script
+ */
+// Global log storage for UI debugging
+const debugLogs: Array<{time: string, level: string, message: string, data?: any}> = []
+
+function addLog(level: string, message: string, data?: any) {
+  const log = {
+    time: new Date().toISOString(),
+    level,
+    message,
+    data: data ? JSON.stringify(data, null, 2) : undefined
+  }
+  debugLogs.push(log)
+  console.log(`[VAULT API ${level}]`, message, data || '')
+  
+  // Store in window for UI access
+  if (typeof window !== 'undefined') {
+    (window as any).vaultDebugLogs = debugLogs
+  }
+  
+  // Limit log size
+  if (debugLogs.length > 100) {
+    debugLogs.shift()
+  }
+}
+
+async function apiCall(endpoint: string, body?: any): Promise<any> {
+  addLog('INFO', `Calling ${endpoint}`, body)
+  
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      addLog('ERROR', `Timeout calling ${endpoint}`)
+      reject(new Error(`API call timeout after ${API_TIMEOUT}ms`))
+    }, API_TIMEOUT)
+    
+    addLog('INFO', `Sending message to background script`, { type: 'VAULT_HTTP_API', endpoint, body })
+    
+    // Retry wrapper for service worker suspension issues
+    const attemptCall = (retryCount = 0): void => {
+      try {
+        chrome.runtime.sendMessage(
+          {
+            type: 'VAULT_HTTP_API',
+            endpoint,
+            body,
+          },
+          (response) => {
+            clearTimeout(timeout)
+            
+            // Check for chrome.runtime.lastError first
+            if (chrome.runtime.lastError) {
+              const errorMsg = chrome.runtime.lastError.message || 'Unknown chrome.runtime error'
+              addLog('ERROR', `chrome.runtime.lastError`, { message: errorMsg, endpoint, retryCount })
+              
+              // Retry if service worker might be suspended (max 2 retries)
+              if (retryCount < 2 && (errorMsg.includes('message port closed') || errorMsg.includes('Extension context invalidated'))) {
+                addLog('INFO', `Retrying due to service worker issue (attempt ${retryCount + 1})`)
+                setTimeout(() => attemptCall(retryCount + 1), 500 * (retryCount + 1))
+                return
+              }
+              
+              reject(new Error(`Background script error: ${errorMsg}`))
+              return
+            }
+            
+            addLog('INFO', `Received response from background`, response)
+            
+            if (!response) {
+              // Retry if no response (might be service worker suspension)
+              if (retryCount < 2) {
+                addLog('INFO', `No response, retrying (attempt ${retryCount + 1})`)
+                setTimeout(() => attemptCall(retryCount + 1), 500 * (retryCount + 1))
+                return
+              }
+              addLog('ERROR', `No response from background script after retries`, { endpoint })
+              reject(new Error('No response from background script - check if background script is running'))
+              return
+            }
+            
+            if (!response.success) {
+              addLog('ERROR', `API call failed`, { endpoint, error: response.error })
+              reject(new Error(response.error || 'API call failed'))
+              return
+            }
+            
+            addLog('SUCCESS', `API call succeeded`, { endpoint, data: response.data })
+            resolve(response.data)
+          }
+        )
+      } catch (error: any) {
+        clearTimeout(timeout)
+        addLog('ERROR', `Exception sending message`, { endpoint, error: error.message, stack: error.stack })
+        reject(new Error(`Failed to send message: ${error.message}`))
+      }
+    }
+    
+    attemptCall()
+  })
+}
+
+/**
+ * Health check - lightweight endpoint to verify server is running
+ */
+export async function checkHealth(): Promise<boolean> {
+  try {
+    const result = await apiCall('/health')
+    return result?.status === 'ok'
+  } catch (error) {
+    console.error('[VAULT API] Health check failed:', error)
+    return false
+  }
+}
+
+/**
+ * Connect to vault (no-op for HTTP, kept for compatibility)
  */
 export function connectVault(): Promise<void> {
-  return new Promise((resolve, reject) => {
-    console.log('[VAULT API] Using chrome.runtime messaging (background script WebSocket)')
-    // No actual connection needed - background script manages WebSocket
-    resolve()
-  })
+  console.log('[VAULT API] Using HTTP API via background script')
+  return Promise.resolve()
 }
 
 /**
- * Call RPC method through background script
- */
-function rpcCall(method: string, params?: any): Promise<any> {
-  return new Promise((resolve, reject) => {
-    const id = `${Date.now()}_${Math.random().toString(36).substring(7)}`
-    const message = {
-      id,
-      method,
-      params: params || {},
-    }
-
-    console.log('[VAULT API] RPC call via background:', method, params)
-
-    // Set timeout
-    const timer = window.setTimeout(() => {
-      pendingCalls.delete(id)
-      reject(new Error(`RPC timeout: ${method}`))
-    }, RPC_TIMEOUT)
-
-    pendingCalls.set(id, { resolve, reject, timer })
-
-    // Send to background script which will forward to WebSocket
-    chrome.runtime.sendMessage({ 
-      type: 'VAULT_RPC',
-      id,
-      method,
-      params 
-    }, (response) => {
-      if (chrome.runtime.lastError) {
-        const { resolve: res, reject: rej, timer: t } = pendingCalls.get(id) || {}
-        if (t) clearTimeout(t)
-        pendingCalls.delete(id)
-        rej?.(new Error(chrome.runtime.lastError.message))
-        return
-      }
-
-      const { resolve: res, reject: rej, timer: t } = pendingCalls.get(id) || {}
-      if (!res || !rej) return // Already resolved/rejected
-      
-      clearTimeout(t)
-      pendingCalls.delete(id)
-
-      if (response && response.success) {
-        res(response)
-      } else {
-        rej(new Error(response?.error || 'Unknown error'))
-      }
-    })
-  })
-}
-
-/**
- * Disconnect from vault
+ * Disconnect from vault (no-op for HTTP, kept for compatibility)
  */
 export function disconnectVault(): void {
-  // Clear pending calls
-  pendingCalls.clear()
   console.log('[VAULT API] Disconnected')
 }
 
@@ -94,22 +148,25 @@ export function disconnectVault(): void {
 // Vault Management
 // ==========================================================================
 
-export async function createVault(masterPassword: string): Promise<void> {
-  await rpcCall('vault.create', { masterPassword })
+export async function createVault(masterPassword: string, vaultName: string, vaultId?: string): Promise<{ vaultId: string }> {
+  const result = await apiCall('/create', { password: masterPassword, vaultName, vaultId })
+  return result.data || { vaultId: result.vaultId }
 }
 
-export async function unlockVault(masterPassword: string): Promise<string> {
-  const response = await rpcCall('vault.unlock', { masterPassword })
-  return response.token
+export async function deleteVault(vaultId?: string): Promise<void> {
+  await apiCall('/delete', { vaultId })
+}
+
+export async function unlockVault(masterPassword: string, vaultId: string = 'default'): Promise<void> {
+  await apiCall('/unlock', { password: masterPassword, vaultId })
 }
 
 export async function lockVault(): Promise<void> {
-  await rpcCall('vault.lock')
+  await apiCall('/lock')
 }
 
 export async function getVaultStatus(): Promise<VaultStatus> {
-  const response = await rpcCall('vault.getStatus')
-  return response.status
+  return await apiCall('/status')
 }
 
 // ==========================================================================
@@ -117,22 +174,19 @@ export async function getVaultStatus(): Promise<VaultStatus> {
 // ==========================================================================
 
 export async function createContainer(type: ContainerType, name: string, favorite: boolean = false): Promise<Container> {
-  const response = await rpcCall('vault.createContainer', { type, name, favorite })
-  return response.container
+  return await apiCall('/container/create', { type, name, favorite })
 }
 
 export async function updateContainer(id: string, updates: Partial<Pick<Container, 'name' | 'favorite'>>): Promise<Container> {
-  const response = await rpcCall('vault.updateContainer', { id, ...updates })
-  return response.container
+  return await apiCall('/container/update', { id, ...updates })
 }
 
 export async function deleteContainer(id: string): Promise<void> {
-  await rpcCall('vault.deleteContainer', { id })
+  await apiCall('/container/delete', { id })
 }
 
 export async function listContainers(): Promise<Container[]> {
-  const response = await rpcCall('vault.listContainers')
-  return response.containers
+  return await apiCall('/containers')
 }
 
 // ==========================================================================
@@ -147,22 +201,20 @@ export async function createItem(item: {
   domain?: string
   favorite?: boolean
 }): Promise<VaultItem> {
-  const response = await rpcCall('vault.createItem', item)
-  return response.item
+  return await apiCall('/item/create', item)
 }
 
 export async function updateItem(id: string, updates: Partial<Pick<VaultItem, 'title' | 'fields' | 'domain' | 'favorite'>>): Promise<VaultItem> {
-  const response = await rpcCall('vault.updateItem', { id, ...updates })
-  return response.item
+  return await apiCall('/item/update', { id, updates })
 }
 
 export async function deleteItem(id: string): Promise<void> {
-  await rpcCall('vault.deleteItem', { id })
+  await apiCall('/item/delete', { id })
 }
 
 export async function getItem(id: string): Promise<VaultItem> {
-  const response = await rpcCall('vault.getItem', { id })
-  return response.item
+  // Not yet implemented in HTTP endpoints, but keeping for API compatibility
+  throw new Error('getItem not yet implemented')
 }
 
 export async function listItems(filters?: {
@@ -172,18 +224,17 @@ export async function listItems(filters?: {
   limit?: number
   offset?: number
 }): Promise<VaultItem[]> {
-  const response = await rpcCall('vault.listItems', filters)
-  return response.items
+  return await apiCall('/items', filters)
 }
 
 export async function searchItems(query: string, category?: ItemCategory): Promise<VaultItem[]> {
-  const response = await rpcCall('vault.search', { query, category })
-  return response.items
+  // Not yet implemented in HTTP endpoints, but keeping for API compatibility
+  throw new Error('searchItems not yet implemented')
 }
 
 export async function getAutofillCandidates(domain: string): Promise<VaultItem[]> {
-  const response = await rpcCall('vault.getAutofillCandidates', { domain })
-  return response.items
+  // Not yet implemented in HTTP endpoints, but keeping for API compatibility
+  throw new Error('getAutofillCandidates not yet implemented')
 }
 
 // ==========================================================================
@@ -191,21 +242,19 @@ export async function getAutofillCandidates(domain: string): Promise<VaultItem[]
 // ==========================================================================
 
 export async function updateSettings(updates: Partial<VaultSettings>): Promise<VaultSettings> {
-  const response = await rpcCall('vault.updateSettings', updates)
-  return response.settings
+  return await apiCall('/settings/update', updates)
 }
 
 export async function getSettings(): Promise<VaultSettings> {
-  const response = await rpcCall('vault.getSettings')
-  return response.settings
+  return await apiCall('/settings/get')
 }
 
 export async function exportCSV(): Promise<string> {
-  const response = await rpcCall('vault.exportCSV')
-  return response.csv
+  // Not yet implemented in HTTP endpoints, but keeping for API compatibility
+  throw new Error('exportCSV not yet implemented')
 }
 
 export async function importCSV(csvData: string): Promise<void> {
-  await rpcCall('vault.importCSV', { csvData })
+  // Not yet implemented in HTTP endpoints, but keeping for API compatibility
+  throw new Error('importCSV not yet implemented')
 }
-

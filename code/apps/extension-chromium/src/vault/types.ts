@@ -2,8 +2,8 @@
  * Type definitions for vault entities (shared with Electron)
  */
 
-export type ContainerType = 'company' | 'identity'
-export type ItemCategory = 'password' | 'address' | 'payment' | 'tax_id' | 'notice'
+export type ContainerType = 'person' | 'company' | 'business'
+export type ItemCategory = 'password' | 'address' | 'payment' | 'email' | 'phone' | 'tax_id' | 'vat_number' | 'custom'
 export type FieldType = 'text' | 'password' | 'email' | 'url' | 'number' | 'textarea'
 
 export interface Container {
@@ -20,6 +20,7 @@ export interface Field {
   value: string
   encrypted: boolean
   type: FieldType
+  explanation?: string // Optional explanation for AI autofill context
 }
 
 export interface VaultItem {

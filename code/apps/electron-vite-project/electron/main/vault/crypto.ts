@@ -6,18 +6,22 @@
  * - Secure buffer zeroization
  */
 
-import argon2 from 'argon2'
-import { randomBytes, createCipheriv, createDecipheriv, hkdfSync } from 'crypto'
+import { randomBytes, createCipheriv, createDecipheriv, hkdfSync, scrypt } from 'crypto'
+import { promisify } from 'util'
 import sodium from 'libsodium-wrappers'
 
-// Initialize libsodium (called in async functions)
-let sodiumReady: Promise<void> | null = null
+// Promisify scrypt for async/await usage
+const scryptAsync = promisify(scrypt) as (password: string | Buffer, salt: string | Buffer, keylen: number, options: { N: number, r: number, p: number }) => Promise<Buffer>
 
-function ensureSodiumReady(): Promise<void> {
-  if (!sodiumReady) {
-    sodiumReady = sodium.ready
+// Initialize libsodium (libsodium-wrappers auto-initializes on first use)
+// For safety, we ensure it's ready before field encryption operations
+let sodiumInitialized = false
+
+async function ensureSodiumReady(): Promise<void> {
+  if (!sodiumInitialized) {
+    await sodium.ready
+    sodiumInitialized = true
   }
-  return sodiumReady
 }
 
 /**
@@ -30,19 +34,23 @@ export interface KDFParams {
 }
 
 /**
- * Default KDF params: 256 MB memory, 3 iterations, 1 parallelism
+ * Default KDF params: Using scrypt instead of Argon2 (no native compilation needed)
+ * scrypt params: N (CPU/memory cost), r (block size), p (parallelism)
+ * Memory usage = 128 * N * r bytes
+ * Reduced N to avoid OpenSSL MEMORY_LIMIT_EXCEEDED error
  */
 export const DEFAULT_KDF_PARAMS: KDFParams = {
-  memoryCost: 256 * 1024, // 256 MB
-  timeCost: 3,
-  parallelism: 1,
+  memoryCost: 16384, // N parameter for scrypt (2^14) - reduced from 32768 to avoid memory limit
+  timeCost: 8, // r parameter (block size)
+  parallelism: 1, // p parameter
 }
 
 /**
- * Derive Key Encryption Key (KEK) from master password using Argon2id
+ * Derive Key Encryption Key (KEK) from master password using scrypt
+ * scrypt is built into Node.js and doesn't require native compilation
  * @param password Master password
  * @param salt 32-byte salt
- * @param params KDF parameters
+ * @param params KDF parameters (memoryCost = N, timeCost = r, parallelism = p)
  * @returns 32-byte KEK
  */
 export async function deriveKEK(
@@ -50,20 +58,23 @@ export async function deriveKEK(
   salt: Buffer,
   params: KDFParams = DEFAULT_KDF_PARAMS
 ): Promise<Buffer> {
-  // Ensure libsodium is ready
-  await ensureSodiumReady()
+  // scrypt parameters:
+  // N = memoryCost (CPU/memory cost factor, must be power of 2)
+  // r = timeCost (block size, typically 8)
+  // p = parallelism (parallelization factor, typically 1)
+  // Memory usage = 128 * N * r bytes
+  // Limit N to avoid OpenSSL MEMORY_LIMIT_EXCEEDED (max ~16384 for safety)
+  const maxN = 16384 // Maximum safe N value
+  const requestedN = Math.pow(2, Math.floor(Math.log2(params.memoryCost)))
+  const N = Math.min(maxN, Math.max(16384, requestedN)) // Clamp between 16384 and maxN
+  const r = params.timeCost || 8
+  const p = params.parallelism || 1
   
-  const hashResult = await argon2.hash(Buffer.from(password, 'utf-8'), {
-    type: argon2.argon2id,
-    raw: true,
-    hashLength: 32,
-    salt,
-    memoryCost: params.memoryCost,
-    timeCost: params.timeCost,
-    parallelism: params.parallelism,
-  })
+  console.log(`[CRYPTO] scrypt params: N=${N}, r=${r}, p=${p}, memory=${128 * N * r} bytes`)
   
-  return Buffer.from(hashResult)
+  // scrypt(password, salt, keylen, options, callback)
+  const key = await scryptAsync(password, salt, 32, { N, r, p })
+  return key
 }
 
 /**
@@ -135,8 +146,11 @@ export function deriveFieldKey(dek: Buffer, context: string, info: string): Buff
  * @param fieldKey 32-byte field key
  * @returns Base64-encoded JSON: { nonce, ciphertext, tag }
  */
-export function encryptField(plaintext: string, fieldKey: Buffer): string {
-  // Ensure sodium is initialized (synchronous check - should already be ready)
+export async function encryptField(plaintext: string, fieldKey: Buffer): Promise<string> {
+  await ensureSodiumReady()
+  if (!sodiumInitialized) {
+    throw new Error('libsodium not initialized')
+  }
   const nonce = sodium.randombytes_buf(sodium.crypto_aead_xchacha20poly1305_ietf_NPUBBYTES)
   const message = Buffer.from(plaintext, 'utf-8')
   
@@ -161,7 +175,11 @@ export function encryptField(plaintext: string, fieldKey: Buffer): string {
  * @returns Plain text value
  * @throws Error if decryption fails
  */
-export function decryptField(encrypted: string, fieldKey: Buffer): string {
+export async function decryptField(encrypted: string, fieldKey: Buffer): Promise<string> {
+  await ensureSodiumReady()
+  if (!sodiumInitialized) {
+    throw new Error('libsodium not initialized')
+  }
   const { nonce, ciphertext } = JSON.parse(encrypted)
   
   const nonceBytes = Buffer.from(nonce, 'base64')

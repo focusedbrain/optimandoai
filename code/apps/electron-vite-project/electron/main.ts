@@ -2,6 +2,7 @@ import { app, BrowserWindow, globalShortcut, Tray, Menu, Notification, screen } 
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 import os from 'node:os'
+import { exec } from 'node:child_process'
 import { WebSocketServer } from 'ws'
 import express from 'express'
 // WS bridge removed to avoid port conflicts; extension fallback/deep-link is used
@@ -1664,7 +1665,6 @@ app.whenReady().then(async () => {
         const fs = await import('fs');
         const os = await import('os');
         const https = await import('https');
-        const http = await import('http');
         
         // Find DBeaver workspace directory
         const appDataPath = process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming');
@@ -1905,9 +1905,9 @@ app.whenReady().then(async () => {
           const { getConfig } = await import('./ipc/db.js')
           const configResult = await getConfig()
           
-          if (configResult.ok && configResult.data?.postgres?.config) {
+          if (configResult.ok && configResult.details?.postgres?.config) {
             const { testConnection } = await import('./ipc/db.js')
-            const testResult = await testConnection(configResult.data.postgres.config)
+            const testResult = await testConnection(configResult.details.postgres.config)
             if (testResult.ok) {
               adapter = getPostgresAdapter()
               console.log('[HTTP] Successfully initialized adapter from config')
@@ -1958,14 +1958,258 @@ app.whenReady().then(async () => {
       }
     })
 
-    const HTTP_PORT = 51248
-    httpApp.listen(HTTP_PORT, '127.0.0.1', () => {
-      console.log(`[MAIN] ✅ HTTP API server listening on http://127.0.0.1:${HTTP_PORT}`)
+    // ===== VAULT HTTP API ENDPOINTS (SQLCipher) =====
+    // These are separate from PostgreSQL and use SQLCipher for encryption
+    
+    // GET /api/vault/health - Health check (lightweight, no vault service import)
+    httpApp.get('/api/vault/health', (_req, res) => {
+      res.json({ status: 'ok', timestamp: Date.now() })
     })
+    
+    // POST /api/vault/status - Get vault status
+    httpApp.post('/api/vault/status', async (_req, res) => {
+      try {
+        console.log('[HTTP-VAULT] POST /api/vault/status')
+        const { vaultService } = await import('./main/vault/rpc.js')
+        console.log('[HTTP-VAULT] Vault service imported successfully')
+        const status = await vaultService.getStatus()
+        console.log('[HTTP-VAULT] Status retrieved:', { exists: status.exists, locked: status.locked })
+        res.json({ success: true, data: status })
+      } catch (error: any) {
+        console.error('[HTTP-VAULT] Error in status:', error)
+        console.error('[HTTP-VAULT] Error stack:', error?.stack)
+        res.status(500).json({ success: false, error: error.message || 'Failed to get status', details: error?.stack })
+      }
+    })
+
+    // POST /api/vault/create - Create new vault
+    httpApp.post('/api/vault/create', async (req, res) => {
+      try {
+        console.log('[HTTP-VAULT] POST /api/vault/create', { vaultName: req.body.vaultName })
+        const { vaultService } = await import('./main/vault/rpc.js')
+        const vaultId = await vaultService.createVault(req.body.password, req.body.vaultName || 'My Vault', req.body.vaultId)
+        res.json({ success: true, data: { vaultId } })
+      } catch (error: any) {
+        console.error('[HTTP-VAULT] Error in create:', error)
+        console.error('[HTTP-VAULT] Error message:', error?.message)
+        console.error('[HTTP-VAULT] Error stack:', error?.stack)
+        res.status(500).json({ success: false, error: error?.message || error?.toString() || 'Failed to create vault' })
+      }
+    })
+
+    // POST /api/vault/delete - Delete vault (must be unlocked)
+    httpApp.post('/api/vault/delete', async (req, res) => {
+      try {
+        console.log('[HTTP-VAULT] POST /api/vault/delete', { vaultId: req.body.vaultId })
+        const { vaultService } = await import('./main/vault/rpc.js')
+        await vaultService.deleteVault(req.body.vaultId)
+        res.json({ success: true })
+      } catch (error: any) {
+        console.error('[HTTP-VAULT] Error in delete:', error)
+        res.status(500).json({ success: false, error: error.message || 'Failed to delete vault' })
+      }
+    })
+
+    // POST /api/vault/unlock - Unlock vault
+    httpApp.post('/api/vault/unlock', async (req, res) => {
+      try {
+        console.log('[HTTP-VAULT] POST /api/vault/unlock', { vaultId: req.body.vaultId })
+        const { vaultService } = await import('./main/vault/rpc.js')
+        await vaultService.unlock(req.body.password, req.body.vaultId || 'default')
+        res.json({ success: true })
+      } catch (error: any) {
+        console.error('[HTTP-VAULT] Error in unlock:', error)
+        res.status(500).json({ success: false, error: error.message || 'Failed to unlock vault' })
+      }
+    })
+
+    // POST /api/vault/lock - Lock vault
+    httpApp.post('/api/vault/lock', async (_req, res) => {
+      try {
+        console.log('[HTTP-VAULT] POST /api/vault/lock')
+        const { vaultService } = await import('./main/vault/rpc.js')
+        await vaultService.lock()
+        res.json({ success: true })
+      } catch (error: any) {
+        console.error('[HTTP-VAULT] Error in lock:', error)
+        res.status(500).json({ success: false, error: error.message || 'Failed to lock vault' })
+      }
+    })
+
+    // POST /api/vault/items - List items
+    httpApp.post('/api/vault/items', async (req, res) => {
+      try {
+        console.log('[HTTP-VAULT] POST /api/vault/items')
+        const { vaultService } = await import('./main/vault/rpc.js')
+        const items = await vaultService.listItems(req.body.containerId)
+        res.json({ success: true, data: items })
+      } catch (error: any) {
+        console.error('[HTTP-VAULT] Error in items:', error)
+        res.status(500).json({ success: false, error: error.message || 'Failed to list items' })
+      }
+    })
+
+    // POST /api/vault/item/create - Create item
+    httpApp.post('/api/vault/item/create', async (req, res) => {
+      try {
+        console.log('[HTTP-VAULT] POST /api/vault/item/create')
+        const { vaultService } = await import('./main/vault/rpc.js')
+        const item = await vaultService.createItem(req.body)
+        res.json({ success: true, data: item })
+      } catch (error: any) {
+        console.error('[HTTP-VAULT] Error in create item:', error)
+        res.status(500).json({ success: false, error: error.message || 'Failed to create item' })
+      }
+    })
+
+    // POST /api/vault/item/update - Update item
+    httpApp.post('/api/vault/item/update', async (req, res) => {
+      try {
+        console.log('[HTTP-VAULT] POST /api/vault/item/update')
+        const { vaultService } = await import('./main/vault/rpc.js')
+        const item = await vaultService.updateItem(req.body.id, req.body.updates)
+        res.json({ success: true, data: item })
+      } catch (error: any) {
+        console.error('[HTTP-VAULT] Error in update item:', error)
+        res.status(500).json({ success: false, error: error.message || 'Failed to update item' })
+      }
+    })
+
+    // POST /api/vault/item/delete - Delete item
+    httpApp.post('/api/vault/item/delete', async (req, res) => {
+      try {
+        console.log('[HTTP-VAULT] POST /api/vault/item/delete')
+        const { vaultService } = await import('./main/vault/rpc.js')
+        await vaultService.deleteItem(req.body.id)
+        res.json({ success: true })
+      } catch (error: any) {
+        console.error('[HTTP-VAULT] Error in delete item:', error)
+        res.status(500).json({ success: false, error: error.message || 'Failed to delete item' })
+      }
+    })
+
+    // POST /api/vault/containers - List containers
+    httpApp.post('/api/vault/containers', async (_req, res) => {
+      try {
+        console.log('[HTTP-VAULT] POST /api/vault/containers')
+        const { vaultService } = await import('./main/vault/rpc.js')
+        const containers = await vaultService.listContainers()
+        res.json({ success: true, data: containers })
+      } catch (error: any) {
+        console.error('[HTTP-VAULT] Error in containers:', error)
+        res.status(500).json({ success: false, error: error.message || 'Failed to list containers' })
+      }
+    })
+
+    // POST /api/vault/container/create - Create container
+    httpApp.post('/api/vault/container/create', async (req, res) => {
+      try {
+        console.log('[HTTP-VAULT] POST /api/vault/container/create')
+        const { vaultService } = await import('./main/vault/rpc.js')
+        const { type, name, favorite } = req.body
+        const container = vaultService.createContainer(type, name, favorite || false)
+        res.json({ success: true, data: container })
+      } catch (error: any) {
+        console.error('[HTTP-VAULT] Error in create container:', error)
+        res.status(500).json({ success: false, error: error.message || 'Failed to create container' })
+      }
+    })
+
+    // POST /api/vault/settings - Get settings
+    httpApp.post('/api/vault/settings/get', async (_req, res) => {
+      try {
+        console.log('[HTTP-VAULT] POST /api/vault/settings/get')
+        const { vaultService } = await import('./main/vault/rpc.js')
+        const settings = await vaultService.getSettings()
+        res.json({ success: true, data: settings })
+      } catch (error: any) {
+        console.error('[HTTP-VAULT] Error in get settings:', error)
+        res.status(500).json({ success: false, error: error.message || 'Failed to get settings' })
+      }
+    })
+
+    // POST /api/vault/settings/update - Update settings
+    httpApp.post('/api/vault/settings/update', async (req, res) => {
+      try {
+        console.log('[HTTP-VAULT] POST /api/vault/settings/update')
+        const { vaultService } = await import('./main/vault/rpc.js')
+        const settings = await vaultService.updateSettings(req.body)
+        res.json({ success: true, data: settings })
+      } catch (error: any) {
+        console.error('[HTTP-VAULT] Error in update settings:', error)
+        res.status(500).json({ success: false, error: error.message || 'Failed to update settings' })
+      }
+    })
+
+    const HTTP_PORT = 51248
+    
+    // Simple function to start HTTP server with error handling
+    const startHttpServer = (port: number, attempt = 1): void => {
+      console.log(`[MAIN] Starting HTTP API server on port ${port} (attempt ${attempt})...`)
+      
+      const server = httpApp.listen(port, '127.0.0.1', () => {
+        console.log(`[MAIN] ✅ HTTP API server listening on http://127.0.0.1:${port}`)
+        console.log(`[MAIN] HTTP server is now listening on port ${port}`)
+      })
+      
+      server.on('error', (err: any) => {
+        if (err.code === 'EADDRINUSE') {
+          console.error(`[MAIN] Port ${port} is already in use`)
+          
+          // Try to free the port on Windows
+          if (process.platform === 'win32' && attempt === 1) {
+            console.log(`[MAIN] Attempting to free port ${port}...`)
+            exec(`netstat -ano | findstr :${port}`, (_error: any, stdout: string) => {
+              if (stdout) {
+                const lines = stdout.trim().split('\n')
+                const pids = new Set<string>()
+                lines.forEach(line => {
+                  const parts = line.trim().split(/\s+/)
+                  if (parts.length > 0) {
+                    const pid = parts[parts.length - 1]
+                    if (pid && pid !== '0') pids.add(pid)
+                  }
+                })
+                if (pids.size > 0) {
+                  console.log(`[MAIN] Found processes using port ${port}: ${Array.from(pids).join(', ')}`)
+                  pids.forEach(pid => {
+                    exec(`taskkill /F /PID ${pid}`, () => {})
+                  })
+                  // Wait and retry
+                  setTimeout(() => {
+                    console.log(`[MAIN] Retrying after cleanup...`)
+                    startHttpServer(port, attempt + 1)
+                  }, 2000)
+                  return
+                }
+              }
+              // If cleanup didn't work, try alternative port
+              console.log(`[MAIN] Trying alternative port ${port + 1}...`)
+              startHttpServer(port + 1, 1)
+            })
+          } else {
+            // Try alternative port
+            if (attempt < 3) {
+              console.log(`[MAIN] Trying alternative port ${port + 1}...`)
+              startHttpServer(port + 1, attempt + 1)
+            } else {
+              console.error(`[MAIN] ❌ Failed to start HTTP server after ${attempt} attempts`)
+            }
+          }
+        } else {
+          console.error('[MAIN] HTTP server error:', err.message, err.stack)
+        }
+      })
+    }
+    
+    // Start the server
+    startHttpServer(HTTP_PORT)
 
     // Error handling is done via try-catch and httpApp.listen callback
   } catch (err) {
     console.error('[MAIN] Error in HTTP API setup:', err)
+    console.error('[MAIN] Error details:', err instanceof Error ? err.message : String(err))
+    console.error('[MAIN] Error stack:', err instanceof Error ? err.stack : 'No stack trace')
   }
   } catch (err) {
     console.error('[MAIN] Error in app.whenReady:', err)

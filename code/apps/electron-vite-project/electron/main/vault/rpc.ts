@@ -4,6 +4,9 @@
  */
 
 import { vaultService } from './service'
+
+// Export vaultService for HTTP API handlers
+export { vaultService }
 import {
   CreateVaultRequestSchema,
   UnlockVaultRequestSchema,
@@ -35,14 +38,14 @@ export async function handleVaultRPC(method: string, params: any): Promise<any> 
       // ==============================================
 
       case 'vault.create': {
-        const { masterPassword } = CreateVaultRequestSchema.parse(params)
-        await vaultService.createVault(masterPassword)
-        return { success: true, message: 'Vault created successfully' }
+        const parsed = CreateVaultRequestSchema.parse(params)
+        const vaultId = await vaultService.createVault(parsed.masterPassword, parsed.vaultName || 'My Vault', parsed.vaultId)
+        return { success: true, message: 'Vault created successfully', vaultId }
       }
 
       case 'vault.unlock': {
-        const { masterPassword } = UnlockVaultRequestSchema.parse(params)
-        const token = await vaultService.unlock(masterPassword)
+        const parsed = UnlockVaultRequestSchema.parse(params)
+        const token = await vaultService.unlock(parsed.masterPassword, parsed.vaultId || 'default')
         return { success: true, token }
       }
 
@@ -89,13 +92,13 @@ export async function handleVaultRPC(method: string, params: any): Promise<any> 
 
       case 'vault.createItem': {
         const data = CreateItemSchema.parse(params)
-        const item = vaultService.createItem(data)
+        const item = await vaultService.createItem(data)
         return { success: true, item }
       }
 
       case 'vault.updateItem': {
         const { id, ...updates } = UpdateItemSchema.parse(params)
-        const item = vaultService.updateItem(id, updates)
+        const item = await vaultService.updateItem(id, updates)
         return { success: true, item }
       }
 
@@ -107,7 +110,7 @@ export async function handleVaultRPC(method: string, params: any): Promise<any> 
 
       case 'vault.getItem': {
         const { id } = GetItemRequestSchema.parse(params)
-        const item = vaultService.getItem(id)
+        const item = await vaultService.getItem(id)
         return { success: true, item }
       }
 
@@ -125,7 +128,7 @@ export async function handleVaultRPC(method: string, params: any): Promise<any> 
 
       case 'vault.getAutofillCandidates': {
         const { domain } = GetAutofillCandidatesRequestSchema.parse(params)
-        const items = vaultService.getAutofillCandidates(domain)
+        const items = await vaultService.getAutofillCandidates(domain)
         return { success: true, items }
       }
 
@@ -169,14 +172,4 @@ export async function handleVaultRPC(method: string, params: any): Promise<any> 
       error: error?.message || error?.toString() || 'Unknown error occurred',
     }
   }
-}
-
-/**
- * Register vault RPC handlers with WebSocket message handler
- * Call this from main.ts after WebSocket server is created
- */
-export function registerVaultHandlers(wsMessageHandler: (socket: any, message: any) => void) {
-  console.log('[VAULT RPC] Vault handlers registered')
-  // The actual registration happens in main.ts by checking message.method
-  // This function is mainly for documentation and initialization
 }

@@ -330,6 +330,143 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   console.log(`📨 Nachricht erhalten: ${msg.type}`);
 
   switch (msg.type) {
+    case 'VAULT_HTTP_API': {
+      // Relay vault HTTP API calls from content scripts (bypasses CSP)
+      const { endpoint, body } = msg
+      console.log('[BG] Relaying vault HTTP API call:', endpoint)
+      console.log('[BG] Request body:', body)
+      
+      const VAULT_API_URL = 'http://127.0.0.1:51248/api/vault'
+      const fullUrl = `${VAULT_API_URL}${endpoint}`
+      
+      // Retry function with exponential backoff
+      const retryFetch = async (url: string, options: RequestInit, retries = 3, delay = 500): Promise<Response> => {
+        for (let i = 0; i < retries; i++) {
+          try {
+            console.log(`[BG] Fetch attempt ${i + 1}/${retries}:`, url)
+            const response = await fetch(url, options)
+            // If successful, return immediately
+            if (response.ok || i === retries - 1) {
+              return response
+            }
+            // If not ok and not last retry, wait and retry
+            if (i < retries - 1) {
+              await new Promise(resolve => setTimeout(resolve, delay * Math.pow(2, i)))
+            }
+          } catch (error: any) {
+            console.error(`[BG] Fetch attempt ${i + 1} failed:`, error.name, error.message)
+            // Only retry network errors (TypeError, AbortError)
+            if ((error.name === 'TypeError' || error.name === 'AbortError') && i < retries - 1) {
+              await new Promise(resolve => setTimeout(resolve, delay * Math.pow(2, i)))
+              continue
+            }
+            // For other errors or last retry, throw
+            throw error
+          }
+        }
+        throw new Error('Max retries exceeded')
+      }
+      
+      // Determine HTTP method based on endpoint
+      // Only /health uses GET, all others use POST
+      const isGetRequest = endpoint === '/health'
+      const method = isGetRequest ? 'GET' : 'POST'
+      
+      console.log('[BG] Fetching:', fullUrl, 'Method:', method)
+      
+      // Create abort controller for timeout
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), 15000) // 15 second timeout
+      
+      const fetchOptions: RequestInit = {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        signal: controller.signal,
+      }
+      
+      if (body !== undefined && body !== null && method === 'POST') {
+        fetchOptions.body = JSON.stringify(body)
+      }
+      
+      // Use retry logic
+      retryFetch(fullUrl, fetchOptions)
+        .then(response => {
+          clearTimeout(timeoutId) // Clear timeout on successful response
+          console.log('[BG] Vault API response status:', response.status, response.statusText)
+          if (!response.ok) {
+            return response.text().then(text => {
+              console.error('[BG] Vault API error response:', text)
+              throw new Error(`HTTP ${response.status}: ${text}`)
+            })
+          }
+          return response.json()
+        })
+        .then(data => {
+          console.log('[BG] Vault API response data:', data)
+          // Check if sendResponse is still valid (service worker might have suspended)
+          try {
+            // Store response in chrome.storage as fallback
+            chrome.storage.local.set({ [`vault_response_${Date.now()}`]: data }).catch(() => {})
+            sendResponse(data)
+          } catch (e: any) {
+            console.error('[BG] Error sending response (service worker may have suspended):', e)
+            // If sendResponse fails, try to notify via storage event
+            chrome.storage.local.set({ 
+              vault_last_error: { 
+                error: 'Service worker suspended', 
+                endpoint,
+                timestamp: Date.now()
+              }
+            }).catch(() => {})
+            // Try one more time
+            try {
+              sendResponse({ success: false, error: 'Service worker suspended - please retry', endpoint })
+            } catch {}
+          }
+        })
+        .catch(error => {
+          clearTimeout(timeoutId) // Clear timeout on error
+          console.error('[BG] Vault API fetch error after retries:', error)
+          console.error('[BG] Error name:', error.name)
+          console.error('[BG] Error message:', error.message)
+          
+          // Check if it's a network error
+          if (error.name === 'TypeError' || error.message.includes('Failed to fetch') || error.name === 'AbortError') {
+            console.error('[BG] Network error - server may not be running on port 51248')
+            // Update connection state
+            chrome.storage.local.set({ 
+              vault_connection_state: { 
+                connected: false, 
+                last_error: error.message,
+                timestamp: Date.now()
+              }
+            }).catch(() => {})
+          }
+          
+          try {
+            sendResponse({ 
+              success: false, 
+              error: error.name === 'AbortError' ? 'Request timeout - server may not be responding' : (error.message || String(error)),
+              errorType: error.name,
+              details: error.stack
+            })
+          } catch (e) {
+            console.error('[BG] Error sending error response:', e)
+            // Last resort: store in chrome.storage
+            chrome.storage.local.set({ 
+              vault_last_error: { 
+                success: false,
+                error: error.message || String(error),
+                endpoint,
+                timestamp: Date.now()
+              }
+            }).catch(() => {})
+          }
+        })
+      
+      return true // Keep channel open for async response
+    }
+    
     case 'CAPTURE_VISIBLE_TAB': {
       try {
         chrome.tabs.captureVisibleTab({ format: 'png' }, (dataUrl) => {

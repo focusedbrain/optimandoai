@@ -25,12 +25,17 @@ import {
   vaultExists,
   getVaultPath,
   getVaultMetaPath,
+  listVaults,
+  registerVault,
+  unregisterVault,
 } from './db'
-import { readFileSync, writeFileSync } from 'fs'
+import { readFileSync, writeFileSync, unlinkSync, existsSync as fsExistsSync, mkdirSync } from 'fs'
+import { dirname } from 'path'
 
 export class VaultService {
   private db: any | null = null
   private session: VaultSession | null = null
+  private currentVaultId: string = 'default' // Currently active vault
   private autoLockTimer: NodeJS.Timeout | null = null
   private settings: VaultSettings = {
     autoLockMinutes: 30, // Default: 30 minutes
@@ -51,12 +56,18 @@ export class VaultService {
   /**
    * Create a new vault with master password
    */
-  async createVault(masterPassword: string): Promise<void> {
-    if (vaultExists()) {
-      throw new Error('Vault already exists')
+  async createVault(masterPassword: string, vaultName: string, vaultId?: string): Promise<string> {
+    // Generate unique vault ID if not provided
+    if (!vaultId) {
+      vaultId = `vault_${Date.now()}_${randomBytes(4).toString('hex')}`
     }
 
-    console.log('[VAULT] Creating new vault...')
+    // Check if vault already exists
+    if (vaultExists(vaultId)) {
+      throw new Error(`Vault with ID "${vaultId}" already exists`)
+    }
+
+    console.log('[VAULT] Creating new vault:', vaultId, vaultName)
 
     // Generate salt and DEK
     const salt = generateSalt()
@@ -72,15 +83,17 @@ export class VaultService {
     zeroize(kek)
 
     // Create database
-    this.db = createVaultDB(dek)
+    this.db = await createVaultDB(dek, vaultId)
+    this.currentVaultId = vaultId
 
     // Store vault metadata
-    this.saveVaultMeta(salt, wrappedDEK, DEFAULT_KDF_PARAMS)
+    this.saveVaultMeta(salt, wrappedDEK, DEFAULT_KDF_PARAMS, vaultId)
+
+    // Register vault in registry
+    registerVault(vaultId, vaultName)
 
     // Store settings
     this.saveSettings()
-
-    // Database is automatically saved by SQLCipher (no need to manually save)
 
     // Create session
     this.session = {
@@ -91,16 +104,19 @@ export class VaultService {
 
     this.startAutoLockTimer()
 
-    console.log('[VAULT] ✅ Vault created successfully')
+    console.log('[VAULT] ✅ Vault created successfully:', vaultId)
+    return vaultId
   }
 
   /**
    * Unlock existing vault with master password
    */
-  async unlock(masterPassword: string): Promise<string> {
-    if (!vaultExists()) {
-      throw new Error('Vault does not exist')
+  async unlock(masterPassword: string, vaultId: string = 'default'): Promise<string> {
+    if (!vaultExists(vaultId)) {
+      throw new Error(`Vault does not exist: ${vaultId}`)
     }
+
+    this.currentVaultId = vaultId
 
     if (this.session) {
       throw new Error('Vault is already unlocked')
@@ -117,7 +133,7 @@ export class VaultService {
     console.log('[VAULT] Unlocking vault...')
 
     // Load metadata (without opening DB)
-    const { salt, wrappedDEK, kdfParams } = this.loadVaultMetaRaw()
+    const { salt, wrappedDEK, kdfParams } = this.loadVaultMetaRaw(vaultId)
 
     // Derive KEK
     const kek = await deriveKEK(masterPassword, salt, kdfParams)
@@ -135,7 +151,7 @@ export class VaultService {
 
     // Open database
     try {
-      this.db = openVaultDB(dek)
+      this.db = await openVaultDB(dek, vaultId)
     } catch (error) {
       zeroize(dek)
       throw new Error('Failed to open vault database')
@@ -144,17 +160,68 @@ export class VaultService {
     // Load settings
     this.loadSettings()
 
-    // Create session
-    this.session = {
+      // Create session
+      this.session = {
       vmk: dek,
       extensionToken: this.generateToken(),
-      lastActivity: Date.now(),
+        lastActivity: Date.now(),
     }
 
     this.startAutoLockTimer()
 
     console.log('[VAULT] ✅ Vault unlocked successfully')
     return this.session.extensionToken
+  }
+
+  /**
+   * Delete vault (remove database and metadata files)
+   * Can only delete when vault is unlocked (for security)
+   */
+  async deleteVault(vaultId?: string): Promise<void> {
+    // Use current vault if not specified
+    const targetVaultId = vaultId || this.currentVaultId
+
+    // Must be unlocked to delete (security measure)
+    if (!this.session || this.currentVaultId !== targetVaultId) {
+      throw new Error('Vault must be unlocked to delete it')
+    }
+
+    console.log('[VAULT] Deleting vault:', targetVaultId)
+
+    const vaultPath = getVaultPath(targetVaultId)
+    const metaPath = getVaultMetaPath(targetVaultId)
+
+    // Lock vault first
+    this.lock()
+
+    try {
+      // Delete database file
+      if (fsExistsSync(vaultPath)) {
+        unlinkSync(vaultPath)
+        console.log('[VAULT] Deleted vault database:', vaultPath)
+      }
+
+      // Delete metadata file
+      if (fsExistsSync(metaPath)) {
+        unlinkSync(metaPath)
+        console.log('[VAULT] Deleted vault metadata:', metaPath)
+      }
+
+      // Unregister from registry
+      unregisterVault(targetVaultId)
+
+      console.log('[VAULT] ✅ Vault deleted successfully:', targetVaultId)
+    } catch (error: any) {
+      console.error('[VAULT] Error deleting vault:', error)
+      throw new Error(`Failed to delete vault: ${error.message}`)
+    }
+  }
+
+  /**
+   * List all available vaults
+   */
+  getAvailableVaults(): Array<{ id: string, name: string, created: number }> {
+    return listVaults()
   }
 
   /**
@@ -194,11 +261,17 @@ export class VaultService {
   /**
    * Get vault status
    */
-  getStatus(): VaultStatus {
+  getStatus(vaultId?: string): VaultStatus {
+    const targetVaultId = vaultId || this.currentVaultId
+    const exists = vaultExists(targetVaultId)
+    const isCurrentVault = targetVaultId === this.currentVaultId
     return {
-      exists: vaultExists(),
-      locked: !this.session,
+      exists,
+      locked: !isCurrentVault || !this.session,
+      isUnlocked: isCurrentVault && !!this.session,
       autoLockMinutes: this.settings.autoLockMinutes,
+      currentVaultId: this.currentVaultId,
+      availableVaults: this.getAvailableVaults(),
     }
   }
 
@@ -319,7 +392,7 @@ export class VaultService {
   /**
    * Create a vault item
    */
-  createItem(item: Omit<VaultItem, 'id' | 'created_at' | 'updated_at'>): VaultItem {
+  async createItem(item: Omit<VaultItem, 'id' | 'created_at' | 'updated_at'>): Promise<VaultItem> {
     this.ensureUnlocked()
     this.updateActivity()
 
@@ -332,7 +405,7 @@ export class VaultService {
     }
 
     // Encrypt sensitive fields
-    const encryptedFields = this.encryptItemFields(newItem.id, newItem.fields)
+    const encryptedFields = await this.encryptItemFields(newItem.id, newItem.fields)
 
     this.db!.prepare(
       'INSERT INTO vault_items (id, container_id, category, title, domain, fields_json, favorite, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
@@ -355,7 +428,7 @@ export class VaultService {
   /**
    * Update a vault item
    */
-  updateItem(id: string, updates: Partial<Pick<VaultItem, 'title' | 'fields' | 'domain' | 'favorite'>>): VaultItem {
+  async updateItem(id: string, updates: Partial<Pick<VaultItem, 'title' | 'fields' | 'domain' | 'favorite'>>): Promise<VaultItem> {
     this.ensureUnlocked()
     this.updateActivity()
 
@@ -371,7 +444,7 @@ export class VaultService {
     }
 
     // Encrypt sensitive fields if provided
-    const fieldsToSave = updates.fields ? this.encryptItemFields(id, updates.fields) : existing.fields
+    const fieldsToSave = updates.fields ? await this.encryptItemFields(id, updates.fields) : existing.fields
 
     this.db!.prepare(
       'UPDATE vault_items SET title = ?, domain = ?, fields_json = ?, favorite = ?, updated_at = ? WHERE id = ?'
@@ -403,7 +476,7 @@ export class VaultService {
   /**
    * Get a single item (decrypts fields)
    */
-  getItem(id: string): VaultItem {
+  async getItem(id: string): Promise<VaultItem> {
     this.ensureUnlocked()
     this.updateActivity()
 
@@ -413,7 +486,7 @@ export class VaultService {
     }
 
     // Decrypt fields
-    item.fields = this.decryptItemFields(id, item.fields)
+    item.fields = await this.decryptItemFields(id, item.fields)
 
     return item
   }
@@ -511,7 +584,7 @@ export class VaultService {
   /**
    * Get autofill candidates for a domain
    */
-  getAutofillCandidates(domain: string): VaultItem[] {
+  async getAutofillCandidates(domain: string): Promise<VaultItem[]> {
     this.ensureUnlocked()
     this.updateActivity()
 
@@ -522,7 +595,7 @@ export class VaultService {
       'SELECT * FROM vault_items WHERE category = ? AND domain LIKE ? ORDER BY title ASC'
     ).all('password', `%${normalized}%`) as any[]
 
-    return rows.map((row: any) => {
+    const items = await Promise.all(rows.map(async (row: any) => {
       const item: VaultItem = {
         id: row.id,
         container_id: row.container_id || undefined,
@@ -536,10 +609,11 @@ export class VaultService {
       }
 
       // Decrypt fields for autofill
-      item.fields = this.decryptItemFields(item.id, item.fields)
+      item.fields = await this.decryptItemFields(item.id, item.fields)
 
       return item
-    })
+    }))
+    return items
   }
 
   /**
@@ -603,7 +677,7 @@ export class VaultService {
   /**
    * Export vault data to CSV
    */
-  exportCSV(): string {
+  async exportCSV(): Promise<string> {
     this.ensureUnlocked()
     this.updateActivity()
 
@@ -622,24 +696,26 @@ export class VaultService {
     fieldKeys.forEach((key) => csv += `,${key}`)
     csv += '\n'
 
-    // Add items
-    items.forEach((item) => {
+    // Add items (await all decryptions)
+    const rows = await Promise.all(items.map(async (item) => {
       const container = item.container_id
         ? containers.find((c) => c.id === item.container_id)?.name || ''
         : ''
 
-      const decryptedItem = this.getItem(item.id)
+      const decryptedItem = await this.getItem(item.id)
 
       let row = `"${item.category}","${container}","${item.title}","${item.domain || ''}","${item.category}"`
 
       fieldKeys.forEach((key) => {
-        const field = decryptedItem.fields.find((f) => f.key === key)
+        const field = decryptedItem.fields.find((f: Field) => f.key === key)
         const value = field ? field.value.replace(/"/g, '""') : ''
         row += `,"${value}"`
       })
 
-      csv += row + '\n'
-    })
+      return row
+    }))
+
+    csv += rows.join('\n') + '\n'
 
     console.log('[VAULT] Exported CSV')
     return csv
@@ -765,39 +841,33 @@ export class VaultService {
   }
 
   /**
-   * Save database to disk (no-op for SQLCipher, handled automatically)
-   */
-  private saveDB(): void {
-    // SQLCipher handles writes automatically, no manual save needed
-  }
-
-  /**
    * Encrypt item fields (only encrypt fields marked as encrypted)
    */
-  private encryptItemFields(itemId: string, fields: Field[]): Field[] {
-    return fields.map((field) => {
+  private async encryptItemFields(itemId: string, fields: Field[]): Promise<Field[]> {
+    const encryptedFields = await Promise.all(fields.map(async (field) => {
       if (field.encrypted && this.session?.vmk) {
         const fieldKey = deriveFieldKey(this.session.vmk, 'field-encryption', itemId)
         return {
           ...field,
-          value: encryptField(field.value, fieldKey),
+          value: await encryptField(field.value, fieldKey),
         }
       }
       return field
-    })
+    }))
+    return encryptedFields
   }
 
   /**
    * Decrypt item fields
    */
-  private decryptItemFields(itemId: string, fields: Field[]): Field[] {
-    return fields.map((field) => {
+  private async decryptItemFields(itemId: string, fields: Field[]): Promise<Field[]> {
+    const decryptedFields = await Promise.all(fields.map(async (field) => {
       if (field.encrypted && this.session?.vmk) {
         try {
           const fieldKey = deriveFieldKey(this.session.vmk, 'field-encryption', itemId)
           return {
             ...field,
-            value: decryptField(field.value, fieldKey),
+            value: await decryptField(field.value, fieldKey),
           }
         } catch (error) {
           console.error('[VAULT] Failed to decrypt field:', error)
@@ -805,32 +875,50 @@ export class VaultService {
         }
       }
       return field
-    })
+    }))
+    return decryptedFields
   }
 
   /**
    * Load vault metadata from database (raw, without DEK)
+   * Falls back to reading from database if file doesn't exist
    */
-  private loadVaultMetaRaw(): {
+  private loadVaultMetaRaw(vaultId: string = 'default'): {
     salt: Buffer
     wrappedDEK: Buffer
     kdfParams: KDFParams
   } {
-    const metaPath = getVaultMetaPath()
-    const metaData = JSON.parse(readFileSync(metaPath, 'utf-8'))
-
-    return {
-      salt: Buffer.from(metaData.salt, 'base64'),
-      wrappedDEK: Buffer.from(metaData.wrappedDEK, 'base64'),
-      kdfParams: metaData.kdfParams,
+    const metaPath = getVaultMetaPath(vaultId)
+    
+    // Try to read from file first
+    if (fsExistsSync(metaPath)) {
+      try {
+        const metaData = JSON.parse(readFileSync(metaPath, 'utf-8'))
+        return {
+          salt: Buffer.from(metaData.salt, 'base64'),
+          wrappedDEK: Buffer.from(metaData.wrappedDEK, 'base64'),
+          kdfParams: metaData.kdfParams,
+        }
+      } catch (error) {
+        console.warn('[VAULT] Failed to read metadata file, will try database:', error)
+      }
     }
+    
+    // File doesn't exist - this is a critical error
+    // We cannot read encrypted metadata from the database without the key,
+    // and we need the metadata to derive the key. This is a circular dependency.
+    console.error('[VAULT] CRITICAL: Metadata file not found:', metaPath)
+    console.error('[VAULT] This vault was created but metadata file was not saved.')
+    console.error('[VAULT] The vault database exists but cannot be unlocked without metadata.')
+    
+    throw new Error('Vault metadata file is missing. The vault was created but the metadata file was not saved properly. Please delete the vault database and create a new vault. Location: ' + metaPath)
   }
 
   /**
    * Save vault metadata
    */
-  private saveVaultMeta(salt: Buffer, wrappedDEK: Buffer, kdfParams: KDFParams): void {
-    const metaPath = getVaultMetaPath()
+  private saveVaultMeta(salt: Buffer, wrappedDEK: Buffer, kdfParams: KDFParams, vaultId: string = 'default'): void {
+    const metaPath = getVaultMetaPath(vaultId)
 
     const metaData = {
       salt: salt.toString('base64'),
@@ -838,7 +926,20 @@ export class VaultService {
       kdfParams,
     }
 
-    writeFileSync(metaPath, JSON.stringify(metaData, null, 2))
+    // Ensure directory exists
+    try {
+      mkdirSync(dirname(metaPath), { recursive: true })
+    } catch (error) {
+      // Directory might already exist, ignore
+    }
+
+    try {
+      writeFileSync(metaPath, JSON.stringify(metaData, null, 2))
+      console.log('[VAULT] Saved vault metadata to:', metaPath)
+    } catch (error) {
+      console.error('[VAULT] Failed to save metadata file:', error)
+      // Continue - metadata is also in database
+    }
 
     // Also store in database for redundancy
     const now = Date.now()

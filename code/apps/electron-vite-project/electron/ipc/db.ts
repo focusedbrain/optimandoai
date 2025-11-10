@@ -1,6 +1,6 @@
 import { ipcMain } from 'electron';
 import { PostgresAdapter, type PostgresConfig } from '../storage/PostgresAdapter.js';
-import type { AdapterResult } from '@shared/core/storage/StorageAdapter';
+import type { AdapterResult } from '../../../../packages/shared/src/storage/StorageAdapter';
 
 // Global adapter instance
 let postgresAdapter: PostgresAdapter | null = null;
@@ -84,7 +84,9 @@ export async function testConnection(config: PostgresConfig): Promise<AdapterRes
 /**
  * Sync Chrome Storage → Postgres
  * This reads all keys from Chrome storage and upserts them to Postgres
+ * Currently unused
  */
+/*
 async function syncChromeToPostgres(): Promise<AdapterResult> {
   try {
     if (!postgresAdapter) {
@@ -112,6 +114,7 @@ async function syncChromeToPostgres(): Promise<AdapterResult> {
     };
   }
 }
+*/
 
 /**
  * Sync Chrome Storage data to Postgres

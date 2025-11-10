@@ -8,14 +8,14 @@
     "build": "tsc && vite build && electron-builder",
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
     "preview": "vite preview",
-    "diagnose": "node scripts/diagnose-websocket.js"
+    "diagnose": "node scripts/diagnose-websocket.js",
+    "postinstall": "electron-rebuild -f -w"
   },
   "dependencies": {
     "@journeyapps/sqlcipher": "^5.3.1",
     "@types/express": "^5.0.5",
     "@types/fluent-ffmpeg": "^2.1.27",
     "@types/ws": "^8.18.1",
-    "argon2": "^0.31.0",
     "express": "^5.1.0",
     "ffmpeg-static": "^5.2.0",
     "fluent-ffmpeg": "^2.1.3",
