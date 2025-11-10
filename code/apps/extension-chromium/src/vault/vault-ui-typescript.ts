@@ -661,8 +661,16 @@ function renderVaultDashboard(container: HTMLElement) {
         <div id="vault-categories" style="display:flex;flex-direction:column;gap:4px;flex:1;overflow-y:auto;">
           <div class="vault-category-btn" data-category="all" data-selected="true" style="padding:12px;background:rgba(139, 92, 246,0.2);border-radius:8px;cursor:pointer;font-size:14px;font-weight:600;border:1px solid rgba(139, 92, 246,0.4);transition:all 0.2s;">🗂️ All Items</div>
           
-          <!-- Passwords (standalone) -->
-          <div class="vault-category-btn" data-category="password" style="padding:12px;background:rgba(255,255,255,0.05);border-radius:8px;cursor:pointer;font-size:14px;border:1px solid rgba(255,255,255,0.1);transition:all 0.2s;">🔑 Passwords</div>
+          <!-- Passwords (with tree) -->
+          <div class="vault-category-main" data-category="password" style="border-radius:8px;overflow:hidden;">
+            <div class="vault-category-btn vault-category-toggle" data-category="password" style="padding:12px;background:rgba(255,255,255,0.05);cursor:pointer;font-size:14px;border:1px solid rgba(255,255,255,0.1);transition:all 0.2s;display:flex;align-items:center;justify-content:space-between;">
+              <span>🔑 Passwords</span>
+              <span class="toggle-icon" style="font-size:10px;transition:transform 0.2s;">▶</span>
+            </div>
+            <div class="vault-subcategories" data-parent="password" style="display:none;padding-left:16px;padding-top:4px;padding-bottom:4px;">
+              <div class="vault-subcategory-btn" data-action="add-password" style="padding:8px 12px;background:rgba(139,92,246,0.1);border-radius:6px;cursor:pointer;font-size:13px;margin-top:4px;border:1px solid rgba(139,92,246,0.2);transition:all 0.2s;">+ Add Password</div>
+            </div>
+          </div>
           
           <!-- Private Data (with tree) -->
           <div class="vault-category-main" data-container="person" style="border-radius:8px;overflow:hidden;">
@@ -697,6 +705,18 @@ function renderVaultDashboard(container: HTMLElement) {
             <div class="vault-subcategories" data-parent="business" style="display:none;padding-left:16px;padding-top:4px;padding-bottom:4px;">
               <div class="vault-subcategory-btn" data-action="add-business" style="padding:8px 12px;background:rgba(139,92,246,0.1);border-radius:6px;cursor:pointer;font-size:13px;margin-top:4px;border:1px solid rgba(139,92,246,0.2);transition:all 0.2s;">+ Add Business</div>
               <div id="business-containers" style="margin-top:4px;"></div>
+            </div>
+          </div>
+          
+          <!-- Custom Data (with tree) -->
+          <div class="vault-category-main" data-category="custom" style="border-radius:8px;overflow:hidden;">
+            <div class="vault-category-btn vault-category-toggle" data-category="custom" style="padding:12px;background:rgba(255,255,255,0.05);cursor:pointer;font-size:14px;border:1px solid rgba(255,255,255,0.1);transition:all 0.2s;display:flex;align-items:center;justify-content:space-between;">
+              <span>📝 Custom Data</span>
+              <span class="toggle-icon" style="font-size:10px;transition:transform 0.2s;">▶</span>
+            </div>
+            <div class="vault-subcategories" data-parent="custom" style="display:none;padding-left:16px;padding-top:4px;padding-bottom:4px;">
+              <div class="vault-subcategory-btn" data-action="add-custom" style="padding:8px 12px;background:rgba(139,92,246,0.1);border-radius:6px;cursor:pointer;font-size:13px;margin-top:4px;border:1px solid rgba(139,92,246,0.2);transition:all 0.2s;">+ Add Data</div>
+              <div id="custom-containers" style="margin-top:4px;"></div>
             </div>
           </div>
         </div>
@@ -766,7 +786,9 @@ function renderVaultDashboard(container: HTMLElement) {
     btn.addEventListener('click', (e) => {
       e.stopPropagation()
       const containerType = (btn as HTMLElement).getAttribute('data-container')
-      const subcategories = container.querySelector(`.vault-subcategories[data-parent="${containerType}"]`) as HTMLElement
+      const categoryType = (btn as HTMLElement).getAttribute('data-category')
+      const parentType = containerType || categoryType
+      const subcategories = container.querySelector(`.vault-subcategories[data-parent="${parentType}"]`) as HTMLElement
       const toggleIcon = btn.querySelector('.toggle-icon') as HTMLElement
       
       if (subcategories) {
@@ -776,7 +798,7 @@ function renderVaultDashboard(container: HTMLElement) {
           toggleIcon.style.transform = isExpanded ? 'rotate(0deg)' : 'rotate(90deg)'
         }
         
-        // If expanding, refresh containers list
+        // If expanding, refresh containers/items list
         if (!isExpanded) {
           loadContainersIntoTree(container)
         }
@@ -784,17 +806,21 @@ function renderVaultDashboard(container: HTMLElement) {
     })
   })
 
-  // Add Identity/Company/Business buttons
+  // Add Password/Identity/Company/Business/Custom buttons
   container.querySelectorAll('.vault-subcategory-btn[data-action]').forEach((btn) => {
     btn.addEventListener('click', (e) => {
       e.stopPropagation()
       const action = (btn as HTMLElement).getAttribute('data-action')
-      if (action === 'add-identity') {
+      if (action === 'add-password') {
+        renderAddDataDialog(container, 'password')
+      } else if (action === 'add-identity') {
         renderAddDataDialog(container, 'identity')
       } else if (action === 'add-company') {
         renderAddDataDialog(container, 'company')
       } else if (action === 'add-business') {
         renderAddDataDialog(container, 'business')
+      } else if (action === 'add-custom') {
+        renderAddDataDialog(container, 'custom')
       }
     })
   })
@@ -835,9 +861,9 @@ function renderVaultDashboard(container: HTMLElement) {
     renderUnlockScreen(container)
   })
 
-  // Add data button
+  // Add data button - default to password form
   container.querySelector('#vault-add-btn')?.addEventListener('click', () => {
-    renderAddDataDialog(container)
+    renderAddDataDialog(container, 'password')
   })
 
   // Settings button
@@ -987,6 +1013,29 @@ async function loadContainersIntoTree(container: HTMLElement) {
         })
       })
     }
+    
+    // Load custom data items (no containers, just items with category='custom')
+    const customDiv = container.querySelector('#custom-containers') as HTMLElement
+    if (customDiv) {
+      try {
+        const customItems = await vaultAPI.listItems({ category: 'custom' } as any)
+        if (Array.isArray(customItems) && customItems.length > 0) {
+          customDiv.innerHTML = customItems.map((item: VaultItem) => `
+            <div class="vault-container-item" data-item-id="${item.id}" style="padding:8px 12px;background:rgba(255,255,255,0.03);border-radius:6px;cursor:pointer;font-size:13px;margin-top:4px;border:1px solid rgba(255,255,255,0.05);transition:all 0.2s;" onmouseenter="this.style.background='rgba(139,92,246,0.1)';this.style.border='1px solid rgba(139,92,246,0.3)'" onmouseleave="this.style.background='rgba(255,255,255,0.03)';this.style.border='1px solid rgba(255,255,255,0.05)'">
+              📝 ${escapeHtml(item.title)}
+            </div>
+          `).join('')
+          
+          customDiv.querySelectorAll('.vault-container-item').forEach((item) => {
+            item.addEventListener('click', () => {
+              loadVaultItems(container, 'custom')
+            })
+          })
+        }
+      } catch (err) {
+        console.error('[VAULT UI] Error loading custom items:', err)
+      }
+    }
   } catch (err) {
     console.error('[VAULT UI] Error loading containers:', err)
   }
@@ -1045,7 +1094,6 @@ function renderItemCard(item: VaultItem): string {
         <div style="font-size:14px;color:#fff;word-break:break-word;">
           ${value}
         </div>
-        ${field.explanation ? `<div style="font-size:11px;color:rgba(255,255,255,0.4);margin-top:2px;font-style:italic;">${escapeHtml(field.explanation)}</div>` : ''}
       </div>
     `
   }).join('')
@@ -1095,7 +1143,7 @@ function renderItemCard(item: VaultItem): string {
 }
 
 // Render Add Data Dialog
-function renderAddDataDialog(container: HTMLElement, preselectedCategory?: 'password' | 'identity' | 'company' | 'business') {
+function renderAddDataDialog(container: HTMLElement, preselectedCategory?: 'password' | 'identity' | 'company' | 'business' | 'custom') {
   const overlay = document.createElement('div')
   overlay.id = 'vault-add-data-overlay'
   overlay.style.cssText = `
@@ -1127,6 +1175,7 @@ function renderAddDataDialog(container: HTMLElement, preselectedCategory?: 'pass
     { value: 'identity', label: '👤 Identity (Private Data)', icon: '👤' },
     { value: 'company', label: '🏢 Company', icon: '🏢' },
     { value: 'business', label: '💼 Business', icon: '💼' },
+    { value: 'custom', label: '📝 Custom Data', icon: '📝' },
   ]
   
   dialog.innerHTML = `
@@ -1149,18 +1198,30 @@ function renderAddDataDialog(container: HTMLElement, preselectedCategory?: 'pass
       </div>
       
       <div style="margin-bottom:24px;">
-        <label style="display:block;font-size:13px;font-weight:600;margin-bottom:8px;color:rgba(255,255,255,0.9);">Select Category</label>
-        <select id="vault-add-category" style="
+        <label style="display:block;font-size:13px;font-weight:600;margin-bottom:8px;color:rgba(255,255,255,0.9);">Select Category *</label>
+        <select id="vault-add-category" required style="
           width:100%;
+          min-height:44px;
           padding:12px 16px;
+          padding-right:40px;
           border:1px solid rgba(139, 92, 246,0.4);
           border-radius:8px;
           background:rgba(0,0,0,0.4);
           color:#fff;
           font-size:14px;
           cursor:pointer;
+          box-sizing:border-box;
+          display:block;
+          visibility:visible;
+          opacity:1;
+          appearance:none;
+          -webkit-appearance:none;
+          -moz-appearance:none;
+          background-image:url('data:image/svg+xml;utf8,<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"12\" height=\"12\" viewBox=\"0 0 12 12\"><path fill=\"white\" d=\"M6 9L1 4h10z\"/></svg>');
+          background-repeat:no-repeat;
+          background-position:right 12px center;
         ">
-          ${categoryOptions.map(opt => `<option value="${opt.value}" ${preselectedCategory === opt.value ? 'selected' : ''}>${opt.label}</option>`).join('')}
+          <option value="">Loading categories...</option>
         </select>
       </div>
       
@@ -1168,10 +1229,9 @@ function renderAddDataDialog(container: HTMLElement, preselectedCategory?: 'pass
         <!-- Form will be dynamically generated based on category -->
       </div>
       
-      <div style="display:flex;gap:12px;margin-top:24px;padding-top:24px;border-top:1px solid rgba(255,255,255,0.1);">
+      <div style="display:flex;gap:12px;margin-top:24px;padding-top:24px;border-top:1px solid rgba(255,255,255,0.1);justify-content:flex-end;">
         <button id="vault-add-data-cancel" style="
-          flex:1;
-          padding:14px;
+          padding:14px 24px;
           background:rgba(255,255,255,0.1);
           border:1px solid rgba(255,255,255,0.2);
           border-radius:8px;
@@ -1182,8 +1242,7 @@ function renderAddDataDialog(container: HTMLElement, preselectedCategory?: 'pass
           transition:all 0.2s;
         ">Cancel</button>
         <button id="vault-add-data-save" style="
-          flex:1;
-          padding:14px;
+          padding:14px 24px;
           background:linear-gradient(135deg, #8b5cf6 0%, #6d28d9 100%);
           border:none;
           border-radius:8px;
@@ -1200,13 +1259,40 @@ function renderAddDataDialog(container: HTMLElement, preselectedCategory?: 'pass
   overlay.appendChild(dialog)
   document.body.appendChild(overlay)
   
-  // Generate form based on selected category
+  // Populate select options programmatically AFTER dialog is in DOM
   const categorySelect = dialog.querySelector('#vault-add-category') as HTMLSelectElement
+  const defaultCategory = preselectedCategory || 'password'
+  
+  if (!categorySelect) {
+    console.error('[VAULT] Category select element not found!')
+    return
+  }
+  
+  // Clear any existing options first
+  categorySelect.innerHTML = ''
+  
+  categoryOptions.forEach(opt => {
+    const option = document.createElement('option')
+    option.value = opt.value
+    option.textContent = opt.label
+    if (opt.value === defaultCategory) {
+      option.selected = true
+    }
+    categorySelect.appendChild(option)
+  })
+  
+  // Ensure selectbox is visible
+  categorySelect.style.display = 'block'
+  categorySelect.style.visibility = 'visible'
+  categorySelect.style.opacity = '1'
+  
+  // Get references after dialog is added to DOM
   const formContainer = dialog.querySelector('#vault-add-form-container') as HTMLElement
   
   const generateForm = (category: string) => {
     let standardFields: StandardFieldDef[] = []
     let titleLabel = 'Title'
+    let isCustomData = false
     
     if (category === 'password') {
       standardFields = PASSWORD_STANDARD_FIELDS
@@ -1220,9 +1306,130 @@ function renderAddDataDialog(container: HTMLElement, preselectedCategory?: 'pass
     } else if (category === 'business') {
       standardFields = BUSINESS_STANDARD_FIELDS
       titleLabel = 'Business Name'
+    } else if (category === 'custom') {
+      isCustomData = true
+      titleLabel = 'Data Group Name'
     }
     
+    if (isCustomData) {
+      // Custom Data form - multiple field groups
+      formContainer.innerHTML = `
+        <div style="margin-bottom:20px;">
+          <label style="display:block;font-size:13px;font-weight:600;margin-bottom:8px;color:rgba(255,255,255,0.9);">${titleLabel} *</label>
+          <input type="text" id="vault-add-title" placeholder="Enter ${titleLabel.toLowerCase()}" style="
+            width:100%;
+            padding:12px 16px;
+            border:1px solid rgba(139, 92, 246,0.4);
+            border-radius:8px;
+            background:rgba(0,0,0,0.4);
+            color:#fff;
+            font-size:14px;
+            box-sizing:border-box;
+          "/>
+        </div>
+        
+        <div style="margin-bottom:20px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+            <label style="font-size:13px;font-weight:600;color:rgba(255,255,255,0.9);">Data Fields</label>
+            <button type="button" id="vault-add-custom-field-group" style="
+              padding:6px 12px;
+              background:rgba(139,92,246,0.2);
+              border:1px solid rgba(139,92,246,0.4);
+              border-radius:6px;
+              color:#a78bfa;
+              font-size:12px;
+              cursor:pointer;
+            ">+ Add Field</button>
+          </div>
+          <div id="vault-custom-field-groups" style="display:flex;flex-direction:column;gap:16px;">
+            <!-- Field groups will be added here -->
+          </div>
+        </div>
+      `
+      
+      // Add first field group for custom data
+      const customFieldGroupsContainer = dialog.querySelector('#vault-custom-field-groups') as HTMLElement
+      const addCustomFieldGroupBtn = dialog.querySelector('#vault-add-custom-field-group')
+      
+      const addCustomFieldGroup = () => {
+        const fieldGroupDiv = document.createElement('div')
+        fieldGroupDiv.style.cssText = 'background:rgba(139,92,246,0.05);border:1px solid rgba(139,92,246,0.2);border-radius:8px;padding:16px;'
+        fieldGroupDiv.innerHTML = `
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+            <span style="font-size:12px;font-weight:600;color:rgba(255,255,255,0.8);">Field</span>
+            <button type="button" class="remove-custom-field-group" style="
+              background:rgba(255,59,48,0.2);
+              border:1px solid rgba(255,59,48,0.4);
+              padding:4px 8px;
+              border-radius:4px;
+              color:#ff3b30;
+              font-size:11px;
+              cursor:pointer;
+            ">Remove</button>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:12px;">
+            <div>
+              <label style="display:block;font-size:11px;font-weight:600;margin-bottom:4px;color:rgba(255,255,255,0.7);">Field Name *</label>
+              <input type="text" class="custom-field-name" placeholder="e.g., License Number" style="
+                width:100%;
+                padding:10px 12px;
+                border:1px solid rgba(139, 92, 246,0.3);
+                border-radius:6px;
+                background:rgba(0,0,0,0.3);
+                color:#fff;
+                font-size:13px;
+                box-sizing:border-box;
+              "/>
+            </div>
+            <div>
+              <label style="display:block;font-size:11px;font-weight:600;margin-bottom:4px;color:rgba(255,255,255,0.7);">Field Value *</label>
+              <input type="text" class="custom-field-value" placeholder="Enter the value" style="
+                width:100%;
+                padding:10px 12px;
+                border:1px solid rgba(139, 92, 246,0.3);
+                border-radius:6px;
+                background:rgba(0,0,0,0.3);
+                color:#fff;
+                font-size:13px;
+                box-sizing:border-box;
+              "/>
+            </div>
+            <div>
+              <label style="display:block;font-size:11px;font-weight:600;margin-bottom:4px;color:rgba(255,255,255,0.7);">Additional Info</label>
+              <div style="font-size:10px;color:rgba(255,255,255,0.5);margin-bottom:4px;font-style:italic;">💡 This information helps AI autofill match this data to forms more accurately</div>
+              <textarea class="custom-field-additional-info" placeholder="Additional context or notes..." style="
+                width:100%;
+                padding:10px 12px;
+                border:1px solid rgba(139, 92, 246,0.3);
+                border-radius:6px;
+                background:rgba(0,0,0,0.3);
+                color:#fff;
+                font-size:13px;
+                min-height:60px;
+                resize:vertical;
+                font-family:inherit;
+                box-sizing:border-box;
+              "></textarea>
+            </div>
+          </div>
+        `
+        customFieldGroupsContainer.appendChild(fieldGroupDiv)
+        
+        fieldGroupDiv.querySelector('.remove-custom-field-group')?.addEventListener('click', () => {
+          fieldGroupDiv.remove()
+        })
+      }
+      
+      // Add initial field group
+      addCustomFieldGroup()
+      
+      addCustomFieldGroupBtn?.addEventListener('click', addCustomFieldGroup)
+      return
+    }
+    
+    // Standard form for password/identity/company/business
     formContainer.innerHTML = `
+      ${category !== 'identity' ? `
       <div style="margin-bottom:20px;">
         <label style="display:block;font-size:13px;font-weight:600;margin-bottom:8px;color:rgba(255,255,255,0.9);">${titleLabel} *</label>
         <input type="text" id="vault-add-title" placeholder="Enter ${titleLabel.toLowerCase()}" style="
@@ -1236,50 +1443,173 @@ function renderAddDataDialog(container: HTMLElement, preselectedCategory?: 'pass
           box-sizing:border-box;
         "/>
       </div>
+      ` : ''}
       
       <div style="margin-bottom:20px;">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
           <label style="font-size:13px;font-weight:600;color:rgba(255,255,255,0.9);">Standard Fields</label>
         </div>
         <div id="vault-standard-fields" style="display:flex;flex-direction:column;gap:16px;">
-          ${standardFields.map(field => `
-            <div>
-              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
-                <label style="font-size:12px;font-weight:600;color:rgba(255,255,255,0.8);">${escapeHtml(field.label)}${field.required ? ' *' : ''}</label>
-                ${field.explanation ? `<span style="font-size:10px;color:rgba(255,255,255,0.4);font-style:italic;">${escapeHtml(field.explanation)}</span>` : ''}
-              </div>
-              ${field.type === 'textarea' ? `
-                <textarea id="field-${field.key}" placeholder="Enter ${field.label.toLowerCase()}" style="
-                  width:100%;
-                  padding:12px 16px;
-                  border:1px solid rgba(139, 92, 246,0.4);
-                  border-radius:8px;
-                  background:rgba(0,0,0,0.4);
-                  color:#fff;
-                  font-size:14px;
-                  min-height:80px;
-                  resize:vertical;
-                  font-family:inherit;
-                  box-sizing:border-box;
-                "></textarea>
-              ` : `
-                <input type="${field.type === 'password' ? 'password' : field.type === 'email' ? 'email' : field.type === 'url' ? 'url' : 'text'}" 
-                  id="field-${field.key}" 
-                  placeholder="Enter ${field.label.toLowerCase()}" 
-                  ${field.required ? 'required' : ''}
-                  style="
-                    width:100%;
-                    padding:12px 16px;
-                    border:1px solid rgba(139, 92, 246,0.4);
-                    border-radius:8px;
-                    background:rgba(0,0,0,0.4);
-                    color:#fff;
-                    font-size:14px;
-                    box-sizing:border-box;
-                  "/>
-              `}
-            </div>
-          `).join('')}
+          ${(() => {
+            let fieldsHtml = ''
+            let i = 0
+            while (i < standardFields.length) {
+              const field = standardFields[i]
+              
+              // Check if this is CEO first name and next is CEO surname - render them side by side
+              if (field.key === 'ceo_first_name' && i + 1 < standardFields.length && standardFields[i + 1].key === 'ceo_surname') {
+                const ceoFirstNameField = field
+                const ceoSurnameField = standardFields[i + 1]
+                fieldsHtml += `
+                  <div>
+                    <div style="display:flex;gap:12px;align-items:flex-start;">
+                      <div style="flex:1;">
+                        <div style="margin-bottom:6px;">
+                          <label style="font-size:12px;font-weight:600;color:rgba(255,255,255,0.8);">${escapeHtml(ceoFirstNameField.label)}${ceoFirstNameField.required ? ' *' : ''}</label>
+                          ${ceoFirstNameField.explanation ? `<div style="font-size:10px;color:rgba(255,255,255,0.4);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(ceoFirstNameField.explanation)}</div>` : '<div style="height:14px;"></div>'}
+                        </div>
+                        <input type="text" 
+                          id="field-${ceoFirstNameField.key}" 
+                          placeholder="Enter ${ceoFirstNameField.label.toLowerCase()}" 
+                          ${ceoFirstNameField.required ? 'required' : ''}
+                          style="
+                            width:100%;
+                            padding:12px 16px;
+                            border:1px solid rgba(139, 92, 246,0.4);
+                            border-radius:8px;
+                            background:rgba(0,0,0,0.4);
+                            color:#fff;
+                            font-size:14px;
+                            box-sizing:border-box;
+                          "/>
+                      </div>
+                      <div style="flex:1;">
+                        <div style="margin-bottom:6px;">
+                          <label style="font-size:12px;font-weight:600;color:rgba(255,255,255,0.8);">${escapeHtml(ceoSurnameField.label)}${ceoSurnameField.required ? ' *' : ''}</label>
+                          ${ceoSurnameField.explanation ? `<div style="font-size:10px;color:rgba(255,255,255,0.4);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(ceoSurnameField.explanation)}</div>` : '<div style="height:14px;"></div>'}
+                        </div>
+                        <input type="text" 
+                          id="field-${ceoSurnameField.key}" 
+                          placeholder="Enter ${ceoSurnameField.label.toLowerCase()}" 
+                          ${ceoSurnameField.required ? 'required' : ''}
+                          style="
+                            width:100%;
+                            padding:12px 16px;
+                            border:1px solid rgba(139, 92, 246,0.4);
+                            border-radius:8px;
+                            background:rgba(0,0,0,0.4);
+                            color:#fff;
+                            font-size:14px;
+                            box-sizing:border-box;
+                          "/>
+                      </div>
+                    </div>
+                  </div>
+                `
+                i += 2 // Skip both fields
+                continue
+              }
+              
+              // Check if this is street field and next is street_number - render them side by side
+              if (field.key === 'street' && i + 1 < standardFields.length && standardFields[i + 1].key === 'street_number') {
+                const streetField = field
+                const numberField = standardFields[i + 1]
+                fieldsHtml += `
+                  <div>
+                    <div style="display:flex;gap:12px;align-items:flex-start;">
+                      <div style="flex:2;">
+                        <div style="margin-bottom:6px;">
+                          <label style="font-size:12px;font-weight:600;color:rgba(255,255,255,0.8);">${escapeHtml(streetField.label)}${streetField.required ? ' *' : ''}</label>
+                          ${streetField.explanation ? `<div style="font-size:10px;color:rgba(255,255,255,0.4);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(streetField.explanation)}</div>` : '<div style="height:14px;"></div>'}
+                        </div>
+                        <input type="text" 
+                          id="field-${streetField.key}" 
+                          placeholder="Enter ${streetField.label.toLowerCase()}" 
+                          ${streetField.required ? 'required' : ''}
+                          style="
+                            width:100%;
+                            padding:12px 16px;
+                            border:1px solid rgba(139, 92, 246,0.4);
+                            border-radius:8px;
+                            background:rgba(0,0,0,0.4);
+                            color:#fff;
+                            font-size:14px;
+                            box-sizing:border-box;
+                          "/>
+                      </div>
+                      <div style="flex:1;">
+                        <div style="margin-bottom:6px;">
+                          <label style="font-size:12px;font-weight:600;color:rgba(255,255,255,0.8);">${escapeHtml(numberField.label)}${numberField.required ? ' *' : ''}</label>
+                          ${numberField.explanation ? `<div style="font-size:10px;color:rgba(255,255,255,0.4);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(numberField.explanation)}</div>` : '<div style="height:14px;"></div>'}
+                        </div>
+                        <input type="text" 
+                          id="field-${numberField.key}" 
+                          placeholder="Enter ${numberField.label.toLowerCase()}" 
+                          ${numberField.required ? 'required' : ''}
+                          style="
+                            width:100%;
+                            padding:12px 16px;
+                            border:1px solid rgba(139, 92, 246,0.4);
+                            border-radius:8px;
+                            background:rgba(0,0,0,0.4);
+                            color:#fff;
+                            font-size:14px;
+                            box-sizing:border-box;
+                          "/>
+                      </div>
+                    </div>
+                  </div>
+                `
+                i += 2 // Skip both fields
+                continue
+              }
+              
+              // Regular field rendering
+              fieldsHtml += `
+                <div>
+                  <div style="margin-bottom:6px;">
+                    <label style="font-size:12px;font-weight:600;color:rgba(255,255,255,0.8);">${escapeHtml(field.label)}${field.required ? ' *' : ''}</label>
+                    ${field.explanation && field.key !== 'additional_info' ? `<div style="font-size:10px;color:rgba(255,255,255,0.4);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(field.explanation)}</div>` : ''}
+                  </div>
+                  ${field.key === 'additional_info' ? `
+                    <div style="font-size:10px;color:rgba(255,255,255,0.5);margin-bottom:4px;font-style:italic;">💡 This information helps AI autofill match this data to forms more accurately</div>
+                  ` : ''}
+                  ${field.type === 'textarea' ? `
+                    <textarea id="field-${field.key}" placeholder="Enter ${field.label.toLowerCase()}" style="
+                      width:100%;
+                      padding:12px 16px;
+                      border:1px solid rgba(139, 92, 246,0.4);
+                      border-radius:8px;
+                      background:rgba(0,0,0,0.4);
+                      color:#fff;
+                      font-size:14px;
+                      min-height:80px;
+                      resize:vertical;
+                      font-family:inherit;
+                      box-sizing:border-box;
+                    "></textarea>
+                  ` : `
+                    <input type="${field.type === 'password' ? 'password' : field.type === 'email' ? 'email' : field.type === 'url' ? 'url' : 'text'}" 
+                      id="field-${field.key}" 
+                      placeholder="Enter ${field.label.toLowerCase()}" 
+                      ${field.required ? 'required' : ''}
+                      style="
+                        width:100%;
+                        padding:12px 16px;
+                        border:1px solid rgba(139, 92, 246,0.4);
+                        border-radius:8px;
+                        background:rgba(0,0,0,0.4);
+                        color:#fff;
+                        font-size:14px;
+                        box-sizing:border-box;
+                      "/>
+                  `}
+                </div>
+              `
+              i++
+            }
+            return fieldsHtml
+          })()}
         </div>
       </div>
       
@@ -1343,7 +1673,10 @@ function renderAddDataDialog(container: HTMLElement, preselectedCategory?: 'pass
             font-size:13px;
             box-sizing:border-box;
           "/>
-          <textarea class="custom-field-explanation" placeholder="Explanation (for AI autofill)" style="
+          <div>
+            <label style="display:block;font-size:11px;font-weight:600;margin-bottom:4px;color:rgba(255,255,255,0.7);">Additional Info</label>
+            <div style="font-size:10px;color:rgba(255,255,255,0.5);margin-bottom:4px;font-style:italic;">💡 This information helps AI autofill match this data to forms more accurately</div>
+            <textarea class="custom-field-explanation" placeholder="Additional context or notes..." style="
             width:100%;
             padding:10px 12px;
             border:1px solid rgba(139, 92, 246,0.3);
@@ -1356,6 +1689,7 @@ function renderAddDataDialog(container: HTMLElement, preselectedCategory?: 'pass
             font-family:inherit;
             box-sizing:border-box;
           "></textarea>
+          </div>
         </div>
       `
       customFieldsContainer.appendChild(customFieldDiv)
@@ -1366,10 +1700,17 @@ function renderAddDataDialog(container: HTMLElement, preselectedCategory?: 'pass
     })
   }
   
-  generateForm(preselectedCategory || categorySelect.value)
+  // Generate form - default to password if no preselected category
+  generateForm(defaultCategory)
+  
+  // Update category select to match default
+  categorySelect.value = defaultCategory
   
   categorySelect.addEventListener('change', () => {
-    generateForm(categorySelect.value)
+    const selectedCategory = categorySelect.value
+    if (selectedCategory) {
+      generateForm(selectedCategory)
+    }
   })
   
   // Close handlers
@@ -1383,54 +1724,99 @@ function renderAddDataDialog(container: HTMLElement, preselectedCategory?: 'pass
   // Save handler
   dialog.querySelector('#vault-add-data-save')?.addEventListener('click', async () => {
     const category = categorySelect.value
-    const title = (dialog.querySelector('#vault-add-title') as HTMLInputElement)?.value.trim()
     
-    if (!title) {
-      alert('Please enter a title')
+    if (!category) {
+      alert('Please select a category')
       return
     }
     
-    try {
-      // Get standard fields
-      let standardFields: StandardFieldDef[] = []
-      if (category === 'password') standardFields = PASSWORD_STANDARD_FIELDS
-      else if (category === 'identity') standardFields = IDENTITY_STANDARD_FIELDS
-      else if (category === 'company') standardFields = COMPANY_STANDARD_FIELDS
-      else if (category === 'business') standardFields = BUSINESS_STANDARD_FIELDS
+    let title: string
+    
+    if (category === 'identity') {
+      // For identity, generate title from first_name + surname
+      const firstName = (dialog.querySelector('#field-first_name') as HTMLInputElement)?.value.trim()
+      const surname = (dialog.querySelector('#field-surname') as HTMLInputElement)?.value.trim()
       
+      if (!firstName || !surname) {
+        alert('Please enter both first name and surname')
+        return
+      }
+      
+      title = `${firstName} ${surname}`
+    } else {
+      title = (dialog.querySelector('#vault-add-title') as HTMLInputElement)?.value.trim()
+      
+      if (!title) {
+        alert(`Please enter a ${titleLabel.toLowerCase()}`)
+        return
+      }
+    }
+    
+    try {
       const fields: any[] = []
       
-      // Collect standard field values
-      standardFields.forEach(field => {
-        const input = dialog.querySelector(`#field-${field.key}`) as HTMLInputElement | HTMLTextAreaElement
-        if (input && input.value.trim()) {
-          fields.push({
-            key: field.key,
-            value: input.value.trim(),
-            encrypted: field.type === 'password',
-            type: field.type,
-            explanation: field.explanation
-          })
-        }
-      })
-      
-      // Collect custom fields
-      customFieldsContainer.querySelectorAll('.remove-custom-field').forEach((btn) => {
-        const fieldDiv = btn.parentElement?.parentElement
-        const nameInput = fieldDiv?.querySelector('.custom-field-name') as HTMLInputElement
-        const valueInput = fieldDiv?.querySelector('.custom-field-value') as HTMLInputElement
-        const explanationInput = fieldDiv?.querySelector('.custom-field-explanation') as HTMLTextAreaElement
+      if (category === 'custom') {
+        // Custom Data: collect from field groups
+        const customFieldGroupsContainer = dialog.querySelector('#vault-custom-field-groups') as HTMLElement
+        customFieldGroupsContainer.querySelectorAll('.remove-custom-field-group').forEach((btn) => {
+          const fieldGroupDiv = btn.parentElement?.parentElement
+          const nameInput = fieldGroupDiv?.querySelector('.custom-field-name') as HTMLInputElement
+          const valueInput = fieldGroupDiv?.querySelector('.custom-field-value') as HTMLInputElement
+          const additionalInfoInput = fieldGroupDiv?.querySelector('.custom-field-additional-info') as HTMLTextAreaElement
+          
+          if (nameInput?.value.trim() && valueInput?.value.trim()) {
+            fields.push({
+              key: nameInput.value.trim(),
+              value: valueInput.value.trim(),
+              encrypted: false,
+              type: 'text',
+              explanation: additionalInfoInput?.value.trim() || undefined
+            })
+          }
+        })
+      } else {
+        // Standard categories: collect standard fields and custom fields
+        let standardFields: StandardFieldDef[] = []
+        if (category === 'password') standardFields = PASSWORD_STANDARD_FIELDS
+        else if (category === 'identity') standardFields = IDENTITY_STANDARD_FIELDS
+        else if (category === 'company') standardFields = COMPANY_STANDARD_FIELDS
+        else if (category === 'business') standardFields = BUSINESS_STANDARD_FIELDS
         
-        if (nameInput?.value.trim() && valueInput?.value.trim()) {
-          fields.push({
-            key: nameInput.value.trim(),
-            value: valueInput.value.trim(),
-            encrypted: false,
-            type: 'text',
-            explanation: explanationInput?.value.trim() || undefined
+        // Collect standard field values
+        standardFields.forEach(field => {
+          const input = dialog.querySelector(`#field-${field.key}`) as HTMLInputElement | HTMLTextAreaElement
+          if (input && input.value.trim()) {
+            fields.push({
+              key: field.key,
+              value: input.value.trim(),
+              encrypted: field.type === 'password',
+              type: field.type,
+              explanation: field.explanation
+            })
+          }
+        })
+        
+        // Collect custom fields
+        const customFieldsContainer = dialog.querySelector('#vault-custom-fields') as HTMLElement
+        if (customFieldsContainer) {
+          customFieldsContainer.querySelectorAll('.remove-custom-field').forEach((btn) => {
+            const fieldDiv = btn.parentElement?.parentElement
+            const nameInput = fieldDiv?.querySelector('.custom-field-name') as HTMLInputElement
+            const valueInput = fieldDiv?.querySelector('.custom-field-value') as HTMLInputElement
+            const explanationInput = fieldDiv?.querySelector('.custom-field-explanation') as HTMLTextAreaElement
+            
+            if (nameInput?.value.trim() && valueInput?.value.trim()) {
+              fields.push({
+                key: nameInput.value.trim(),
+                value: valueInput.value.trim(),
+                encrypted: false,
+                type: 'text',
+                explanation: explanationInput?.value.trim() || undefined
+              })
+            }
           })
         }
-      })
+      }
       
       if (fields.length === 0) {
         alert('Please fill in at least one field')
@@ -1438,7 +1824,7 @@ function renderAddDataDialog(container: HTMLElement, preselectedCategory?: 'pass
       }
       
       // For identity/company/business: Create container first, then item with container_id
-      // For password: Create item directly without container
+      // For password/custom: Create item directly without container
       let containerId: string | undefined
       if (category === 'identity' || category === 'company' || category === 'business') {
         const containerType = category === 'identity' ? 'person' : category === 'company' ? 'company' : 'business'
