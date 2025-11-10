@@ -46,7 +46,7 @@ export const FieldSchema = z.object({
 /**
  * Item schemas
  */
-export const ItemCategorySchema = z.enum(['password', 'address', 'payment', 'email', 'phone', 'tax_id', 'vat_number', 'custom'])
+export const ItemCategorySchema = z.enum(['password', 'identity', 'company', 'business'])
 
 export const VaultItemSchema = z.object({
   id: z.string(),

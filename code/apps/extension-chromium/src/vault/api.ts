@@ -186,7 +186,13 @@ export async function deleteContainer(id: string): Promise<void> {
 }
 
 export async function listContainers(): Promise<Container[]> {
-  return await apiCall('/containers')
+  const result = await apiCall('/containers')
+  // Ensure result is an array
+  if (!Array.isArray(result)) {
+    console.error('[VAULT API] listContainers did not return an array:', result)
+    return []
+  }
+  return result
 }
 
 // ==========================================================================
@@ -224,7 +230,15 @@ export async function listItems(filters?: {
   limit?: number
   offset?: number
 }): Promise<VaultItem[]> {
-  return await apiCall('/items', filters)
+  // Backend expects containerId (not container_id)
+  const body = filters ? { containerId: filters.container_id, category: filters.category } : {}
+  const result = await apiCall('/items', body)
+  // Ensure result is an array
+  if (!Array.isArray(result)) {
+    console.error('[VAULT API] listItems did not return an array:', result)
+    return []
+  }
+  return result
 }
 
 export async function searchItems(query: string, category?: ItemCategory): Promise<VaultItem[]> {

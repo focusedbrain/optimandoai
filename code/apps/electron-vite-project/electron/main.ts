@@ -2039,9 +2039,13 @@ app.whenReady().then(async () => {
     // POST /api/vault/items - List items
     httpApp.post('/api/vault/items', async (req, res) => {
       try {
-        console.log('[HTTP-VAULT] POST /api/vault/items')
+        console.log('[HTTP-VAULT] POST /api/vault/items', req.body)
         const { vaultService } = await import('./main/vault/rpc.js')
-        const items = await vaultService.listItems(req.body.containerId)
+        const filters = {
+          container_id: req.body.containerId,
+          category: req.body.category
+        }
+        const items = await vaultService.listItems(filters)
         res.json({ success: true, data: items })
       } catch (error: any) {
         console.error('[HTTP-VAULT] Error in items:', error)

@@ -4,7 +4,8 @@
  */
 
 import * as vaultAPI from './api'
-import type { VaultItem, VaultStatus } from './types'
+import type { VaultItem, VaultStatus, Container, CategoryNode, StandardFieldDef } from './types'
+import { IDENTITY_STANDARD_FIELDS, COMPANY_STANDARD_FIELDS, BUSINESS_STANDARD_FIELDS, PASSWORD_STANDARD_FIELDS } from './types'
 
 // Connect to vault on module load
 let connectionPromise: Promise<void> | null = null
@@ -655,21 +656,49 @@ function renderVaultDashboard(container: HTMLElement) {
   container.innerHTML = `
     <div style="display:flex;height:100%;gap:24px;">
       <!-- Sidebar -->
-      <div style="width:240px;background:rgba(0,0,0,0.3);border-radius:12px;padding:20px;border:1px solid rgba(139, 92, 246,0.2);display:flex;flex-direction:column;">
+      <div style="width:260px;background:rgba(0,0,0,0.3);border-radius:12px;padding:20px;border:1px solid rgba(139, 92, 246,0.2);display:flex;flex-direction:column;">
         <h3 style="font-size:14px;font-weight:700;color:rgba(255,255,255,0.5);text-transform:uppercase;letter-spacing:1px;margin-bottom:16px;">Categories</h3>
-        <div id="vault-categories" style="display:flex;flex-direction:column;gap:8px;flex:1;overflow-y:auto;">
-          <div class="vault-category-btn" data-category="all" style="padding:12px;background:rgba(139, 92, 246,0.2);border-radius:8px;cursor:pointer;font-size:14px;font-weight:600;border:1px solid rgba(139, 92, 246,0.4);transition:all 0.2s;">🗂️ All Items</div>
+        <div id="vault-categories" style="display:flex;flex-direction:column;gap:4px;flex:1;overflow-y:auto;">
+          <div class="vault-category-btn" data-category="all" data-selected="true" style="padding:12px;background:rgba(139, 92, 246,0.2);border-radius:8px;cursor:pointer;font-size:14px;font-weight:600;border:1px solid rgba(139, 92, 246,0.4);transition:all 0.2s;">🗂️ All Items</div>
+          
+          <!-- Passwords (standalone) -->
           <div class="vault-category-btn" data-category="password" style="padding:12px;background:rgba(255,255,255,0.05);border-radius:8px;cursor:pointer;font-size:14px;border:1px solid rgba(255,255,255,0.1);transition:all 0.2s;">🔑 Passwords</div>
-          <div class="vault-category-btn" data-container="person" style="padding:12px;background:rgba(255,255,255,0.05);border-radius:8px;cursor:pointer;font-size:14px;border:1px solid rgba(255,255,255,0.1);transition:all 0.2s;">👤 Private Data</div>
-          <div class="vault-category-btn" data-container="company" style="padding:12px;background:rgba(255,255,255,0.05);border-radius:8px;cursor:pointer;font-size:14px;border:1px solid rgba(255,255,255,0.1);transition:all 0.2s;">🏢 Company Data</div>
-          <div class="vault-category-btn" data-container="business" style="padding:12px;background:rgba(255,255,255,0.05);border-radius:8px;cursor:pointer;font-size:14px;border:1px solid rgba(255,255,255,0.1);transition:all 0.2s;">💼 Business Data</div>
-          <div class="vault-category-btn" data-category="address" style="padding:12px;background:rgba(255,255,255,0.05);border-radius:8px;cursor:pointer;font-size:14px;border:1px solid rgba(255,255,255,0.1);transition:all 0.2s;">📍 Addresses</div>
-          <div class="vault-category-btn" data-category="payment" style="padding:12px;background:rgba(255,255,255,0.05);border-radius:8px;cursor:pointer;font-size:14px;border:1px solid rgba(255,255,255,0.1);transition:all 0.2s;">💳 Payment Methods</div>
-          <div class="vault-category-btn" data-category="email" style="padding:12px;background:rgba(255,255,255,0.05);border-radius:8px;cursor:pointer;font-size:14px;border:1px solid rgba(255,255,255,0.1);transition:all 0.2s;">📧 Emails</div>
-          <div class="vault-category-btn" data-category="phone" style="padding:12px;background:rgba(255,255,255,0.05);border-radius:8px;cursor:pointer;font-size:14px;border:1px solid rgba(255,255,255,0.1);transition:all 0.2s;">📞 Phone Numbers</div>
-          <div class="vault-category-btn" data-category="tax_id" style="padding:12px;background:rgba(255,255,255,0.05);border-radius:8px;cursor:pointer;font-size:14px;border:1px solid rgba(255,255,255,0.1);transition:all 0.2s;">🆔 Tax IDs</div>
-          <div class="vault-category-btn" data-category="vat_number" style="padding:12px;background:rgba(255,255,255,0.05);border-radius:8px;cursor:pointer;font-size:14px;border:1px solid rgba(255,255,255,0.1);transition:all 0.2s;">📋 VAT Numbers</div>
-          <div class="vault-category-btn" data-category="custom" style="padding:12px;background:rgba(255,255,255,0.05);border-radius:8px;cursor:pointer;font-size:14px;border:1px solid rgba(255,255,255,0.1);transition:all 0.2s;">📝 Custom Data</div>
+          
+          <!-- Private Data (with tree) -->
+          <div class="vault-category-main" data-container="person" style="border-radius:8px;overflow:hidden;">
+            <div class="vault-category-btn vault-category-toggle" data-container="person" style="padding:12px;background:rgba(255,255,255,0.05);cursor:pointer;font-size:14px;border:1px solid rgba(255,255,255,0.1);transition:all 0.2s;display:flex;align-items:center;justify-content:space-between;">
+              <span>👤 Private Data</span>
+              <span class="toggle-icon" style="font-size:10px;transition:transform 0.2s;">▶</span>
+            </div>
+            <div class="vault-subcategories" data-parent="person" style="display:none;padding-left:16px;padding-top:4px;padding-bottom:4px;">
+              <div class="vault-subcategory-btn" data-action="add-identity" style="padding:8px 12px;background:rgba(139,92,246,0.1);border-radius:6px;cursor:pointer;font-size:13px;margin-top:4px;border:1px solid rgba(139,92,246,0.2);transition:all 0.2s;">+ Add Identity</div>
+              <div id="person-containers" style="margin-top:4px;"></div>
+            </div>
+          </div>
+          
+          <!-- Company Data (with tree) -->
+          <div class="vault-category-main" data-container="company" style="border-radius:8px;overflow:hidden;">
+            <div class="vault-category-btn vault-category-toggle" data-container="company" style="padding:12px;background:rgba(255,255,255,0.05);cursor:pointer;font-size:14px;border:1px solid rgba(255,255,255,0.1);transition:all 0.2s;display:flex;align-items:center;justify-content:space-between;">
+              <span>🏢 Company Data</span>
+              <span class="toggle-icon" style="font-size:10px;transition:transform 0.2s;">▶</span>
+            </div>
+            <div class="vault-subcategories" data-parent="company" style="display:none;padding-left:16px;padding-top:4px;padding-bottom:4px;">
+              <div class="vault-subcategory-btn" data-action="add-company" style="padding:8px 12px;background:rgba(139,92,246,0.1);border-radius:6px;cursor:pointer;font-size:13px;margin-top:4px;border:1px solid rgba(139,92,246,0.2);transition:all 0.2s;">+ Add Company</div>
+              <div id="company-containers" style="margin-top:4px;"></div>
+            </div>
+          </div>
+          
+          <!-- Business Data (with tree) -->
+          <div class="vault-category-main" data-container="business" style="border-radius:8px;overflow:hidden;">
+            <div class="vault-category-btn vault-category-toggle" data-container="business" style="padding:12px;background:rgba(255,255,255,0.05);cursor:pointer;font-size:14px;border:1px solid rgba(255,255,255,0.1);transition:all 0.2s;display:flex;align-items:center;justify-content:space-between;">
+              <span>💼 Business Data</span>
+              <span class="toggle-icon" style="font-size:10px;transition:transform 0.2s;">▶</span>
+            </div>
+            <div class="vault-subcategories" data-parent="business" style="display:none;padding-left:16px;padding-top:4px;padding-bottom:4px;">
+              <div class="vault-subcategory-btn" data-action="add-business" style="padding:8px 12px;background:rgba(139,92,246,0.1);border-radius:6px;cursor:pointer;font-size:13px;margin-top:4px;border:1px solid rgba(139,92,246,0.2);transition:all 0.2s;">+ Add Business</div>
+              <div id="business-containers" style="margin-top:4px;"></div>
+            </div>
+          </div>
         </div>
         
         <div style="margin-top:auto;padding-top:24px;border-top:1px solid rgba(255,255,255,0.1);">
@@ -701,7 +730,7 @@ function renderVaultDashboard(container: HTMLElement) {
             font-weight:600;
             cursor:pointer;
             transition:all 0.2s;
-          ">+ Add Item</button>
+          ">+ Add Data</button>
         </div>
         
         <div id="vault-items-list" style="flex:1;overflow-y:auto;background:rgba(0,0,0,0.2);border:1px solid rgba(139, 92, 246,0.2);border-radius:12px;padding:16px;">
@@ -728,28 +757,74 @@ function renderVaultDashboard(container: HTMLElement) {
     })
   })
 
-  // Load items
+  // Load items and containers
   loadVaultItems(container, 'all')
+  loadContainersIntoTree(container)
+
+  // Tree toggle functionality - clicking main category expands/collapses tree
+  container.querySelectorAll('.vault-category-toggle').forEach((btn) => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation()
+      const containerType = (btn as HTMLElement).getAttribute('data-container')
+      const subcategories = container.querySelector(`.vault-subcategories[data-parent="${containerType}"]`) as HTMLElement
+      const toggleIcon = btn.querySelector('.toggle-icon') as HTMLElement
+      
+      if (subcategories) {
+        const isExpanded = subcategories.style.display !== 'none'
+        subcategories.style.display = isExpanded ? 'none' : 'block'
+        if (toggleIcon) {
+          toggleIcon.style.transform = isExpanded ? 'rotate(0deg)' : 'rotate(90deg)'
+        }
+        
+        // If expanding, refresh containers list
+        if (!isExpanded) {
+          loadContainersIntoTree(container)
+        }
+      }
+    })
+  })
+
+  // Add Identity/Company/Business buttons
+  container.querySelectorAll('.vault-subcategory-btn[data-action]').forEach((btn) => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation()
+      const action = (btn as HTMLElement).getAttribute('data-action')
+      if (action === 'add-identity') {
+        renderAddDataDialog(container, 'identity')
+      } else if (action === 'add-company') {
+        renderAddDataDialog(container, 'company')
+      } else if (action === 'add-business') {
+        renderAddDataDialog(container, 'business')
+      }
+    })
+  })
 
   // Category buttons
-  container.querySelectorAll('.vault-category-btn').forEach((btn) => {
+  container.querySelectorAll('.vault-category-btn:not(.vault-category-toggle)').forEach((btn) => {
     btn.addEventListener('click', () => {
       const category = (btn as HTMLElement).getAttribute('data-category')
-      const containerType = (btn as HTMLElement).getAttribute('data-container')
-      const filter = category || containerType || 'all'
+      const containerId = (btn as HTMLElement).getAttribute('data-container-id')
       
+      // Update selection styling
       container.querySelectorAll('.vault-category-btn').forEach((b) => {
-        ;(b as HTMLElement).style.background = 'rgba(255,255,255,0.05)'
-        ;(b as HTMLElement).style.border = '1px solid rgba(255,255,255,0.1)'
+        const isSelected = (b as HTMLElement).getAttribute('data-selected') === 'true'
+        if (!isSelected) {
+          ;(b as HTMLElement).style.background = 'rgba(255,255,255,0.05)'
+          ;(b as HTMLElement).style.border = '1px solid rgba(255,255,255,0.1)'
+          ;(b as HTMLElement).removeAttribute('data-selected')
+        }
       })
       ;(btn as HTMLElement).style.background = 'rgba(139, 92, 246,0.2)'
       ;(btn as HTMLElement).style.border = '1px solid rgba(139, 92, 246,0.4)'
+      ;(btn as HTMLElement).setAttribute('data-selected', 'true')
       
-      if (containerType) {
-        // Filter by container type
-        loadVaultItemsByContainer(container, containerType)
+      if (containerId) {
+        // Load items for specific container
+        loadContainerItems(container, containerId)
+      } else if (category) {
+        loadVaultItems(container, category)
       } else {
-        loadVaultItems(container, category || 'all')
+        loadVaultItems(container, 'all')
       }
     })
   })
@@ -760,9 +835,9 @@ function renderVaultDashboard(container: HTMLElement) {
     renderUnlockScreen(container)
   })
 
-  // Add item button
+  // Add data button
   container.querySelector('#vault-add-btn')?.addEventListener('click', () => {
-    alert('Add item dialog - TODO: Will be implemented next')
+    renderAddDataDialog(container)
   })
 
   // Settings button
@@ -779,61 +854,35 @@ async function loadVaultItemsByContainer(container: HTMLElement, containerType: 
     listDiv.innerHTML = '<div style="text-align:center;padding:40px;color:rgba(255,255,255,0.5);">Loading...</div>'
     // Get containers first, then items for each container
     const containers = await vaultAPI.listContainers()
-    const filteredContainers = containers.filter((c: any) => c.type === containerType)
+    const filteredContainers = containers.filter((c: Container) => c.type === containerType)
     
     if (filteredContainers.length === 0) {
-      listDiv.innerHTML = `<div style="text-align:center;padding:40px;color:rgba(255,255,255,0.5);">No ${containerType} containers found. Click "+ Add Item" to create your first ${containerType}.</div>`
+      listDiv.innerHTML = `<div style="text-align:center;padding:40px;color:rgba(255,255,255,0.5);">No ${containerType} containers found. Click "+ Add Data" to create your first ${containerType}.</div>`
       return
     }
     
     // Load items for all containers of this type
-    const allItems: any[] = []
+    const allItems: VaultItem[] = []
     for (const cont of filteredContainers) {
-      const items = await vaultAPI.listItems(cont.id)
+      const items = await vaultAPI.listItems({ container_id: cont.id } as any)
       allItems.push(...items)
     }
     
     if (allItems.length === 0) {
-      listDiv.innerHTML = `<div style="text-align:center;padding:40px;color:rgba(255,255,255,0.5);">No items found in ${containerType} containers. Click "+ Add Item" to create your first entry.</div>`
+      listDiv.innerHTML = `<div style="text-align:center;padding:40px;color:rgba(255,255,255,0.5);">No data found in ${containerType} containers. Click "+ Add Data" to create your first entry.</div>`
       return
     }
     
-    renderItemsList(listDiv, allItems)
+    renderContainerData(listDiv, allItems)
   } catch (err: any) {
     console.error('[VAULT UI] Error loading items by container:', err)
     listDiv.innerHTML = `<div style="text-align:center;padding:40px;color:#ff3b30;">Error loading items: ${err.message || err}</div>`
   }
 }
 
+// Legacy function - now uses renderContainerData for consistency
 function renderItemsList(listDiv: HTMLElement, items: any[]) {
-  listDiv.innerHTML = items.map((item: any) => `
-      <div style="
-        background:rgba(139, 92, 246,0.08);
-        border:1px solid rgba(139, 92, 246,0.2);
-        border-radius:8px;
-        padding:16px;
-        margin-bottom:12px;
-        cursor:pointer;
-        transition:all 0.2s;
-      " class="vault-item" onmouseenter="this.style.background='rgba(139, 92, 246,0.15)';this.style.border='1px solid rgba(139, 92, 246,0.4)'" onmouseleave="this.style.background='rgba(139, 92, 246,0.08)';this.style.border='1px solid rgba(139, 92, 246,0.2)'">
-        <div style="display:flex;justify-content:space-between;align-items:start;">
-          <div>
-            <div style="font-size:16px;font-weight:600;margin-bottom:4px;">${escapeHtml(item.title || 'Untitled')}</div>
-            <div style="font-size:12px;color:rgba(255,255,255,0.6);text-transform:capitalize;">${escapeHtml(item.category || 'uncategorized')}</div>
-          </div>
-          <button style="
-            background:rgba(139, 92, 246,0.3);
-            border:1px solid rgba(139, 92, 246,0.5);
-            padding:6px 12px;
-            border-radius:6px;
-            color:#fff;
-            font-size:12px;
-            cursor:pointer;
-            transition:all 0.2s;
-          " onclick="event.stopPropagation();" onmouseenter="this.style.background='rgba(139, 92, 246,0.5)'" onmouseleave="this.style.background='rgba(139, 92, 246,0.3)'">View</button>
-        </div>
-      </div>
-    `).join('')
+  renderContainerData(listDiv, items)
 }
 
 async function loadVaultItems(container: HTMLElement, category: string) {
@@ -842,18 +891,604 @@ async function loadVaultItems(container: HTMLElement, category: string) {
 
   try {
     listDiv.innerHTML = '<div style="text-align:center;padding:40px;color:rgba(255,255,255,0.5);">Loading...</div>'
-    const items = await vaultAPI.listItems(category === 'all' ? undefined : category)
+    const filters = category === 'all' ? undefined : { category: category as any }
+    const items = await vaultAPI.listItems(filters)
+    
+    // Ensure items is an array
+    if (!Array.isArray(items)) {
+      console.error('[VAULT UI] listItems did not return an array:', items)
+      listDiv.innerHTML = '<div style="text-align:center;padding:40px;color:#ff3b30;">Error: Invalid response from server</div>'
+      return
+    }
     
     if (items.length === 0) {
-      listDiv.innerHTML = '<div style="text-align:center;padding:40px;color:rgba(255,255,255,0.5);">No items found. Click "+ Add Item" to create your first entry.</div>'
+      listDiv.innerHTML = '<div style="text-align:center;padding:40px;color:rgba(255,255,255,0.5);">No items found. Click "+ Add Data" to create your first entry.</div>'
       return
     }
 
-    renderItemsList(listDiv, items)
-  } catch (err) {
+    // Use professional rendering for all items
+    renderContainerData(listDiv, items)
+  } catch (err: any) {
     console.error('[VAULT] Error loading items:', err)
-    listDiv.innerHTML = '<div style="text-align:center;padding:40px;color:#ff3b30;">Error loading items. Please try again.</div>'
+    listDiv.innerHTML = `<div style="text-align:center;padding:40px;color:#ff3b30;">Error loading items: ${err.message || err}. Please try again.</div>`
   }
+}
+
+// Load containers into tree structure
+async function loadContainersIntoTree(container: HTMLElement) {
+  try {
+    const containers = await vaultAPI.listContainers()
+    
+    // Ensure containers is an array
+    if (!Array.isArray(containers)) {
+      console.error('[VAULT UI] listContainers did not return an array:', containers)
+      return
+    }
+    
+    // Group containers by type
+    const personContainers = containers.filter((c: Container) => c.type === 'person')
+    const companyContainers = containers.filter((c: Container) => c.type === 'company')
+    const businessContainers = containers.filter((c: Container) => c.type === 'business')
+    
+    // Render person containers
+    const personDiv = container.querySelector('#person-containers') as HTMLElement
+    if (personDiv) {
+      personDiv.innerHTML = personContainers.map((c: Container) => `
+        <div class="vault-container-item" data-container-id="${c.id}" style="padding:8px 12px;background:rgba(255,255,255,0.03);border-radius:6px;cursor:pointer;font-size:13px;margin-top:4px;border:1px solid rgba(255,255,255,0.05);transition:all 0.2s;" onmouseenter="this.style.background='rgba(139,92,246,0.1)';this.style.border='1px solid rgba(139,92,246,0.3)'" onmouseleave="this.style.background='rgba(255,255,255,0.03)';this.style.border='1px solid rgba(255,255,255,0.05)'">
+          👤 ${escapeHtml(c.name)}
+        </div>
+      `).join('')
+      
+      // Add click handlers
+      personDiv.querySelectorAll('.vault-container-item').forEach((item) => {
+        item.addEventListener('click', () => {
+          const containerId = (item as HTMLElement).getAttribute('data-container-id')
+          if (containerId) {
+            loadContainerItems(container, containerId)
+          }
+        })
+      })
+    }
+    
+    // Render company containers
+    const companyDiv = container.querySelector('#company-containers') as HTMLElement
+    if (companyDiv) {
+      companyDiv.innerHTML = companyContainers.map((c: Container) => `
+        <div class="vault-container-item" data-container-id="${c.id}" style="padding:8px 12px;background:rgba(255,255,255,0.03);border-radius:6px;cursor:pointer;font-size:13px;margin-top:4px;border:1px solid rgba(255,255,255,0.05);transition:all 0.2s;" onmouseenter="this.style.background='rgba(139,92,246,0.1)';this.style.border='1px solid rgba(139,92,246,0.3)'" onmouseleave="this.style.background='rgba(255,255,255,0.03)';this.style.border='1px solid rgba(255,255,255,0.05)'">
+          🏢 ${escapeHtml(c.name)}
+        </div>
+      `).join('')
+      
+      companyDiv.querySelectorAll('.vault-container-item').forEach((item) => {
+        item.addEventListener('click', () => {
+          const containerId = (item as HTMLElement).getAttribute('data-container-id')
+          if (containerId) {
+            loadContainerItems(container, containerId)
+          }
+        })
+      })
+    }
+    
+    // Render business containers
+    const businessDiv = container.querySelector('#business-containers') as HTMLElement
+    if (businessDiv) {
+      businessDiv.innerHTML = businessContainers.map((c: Container) => `
+        <div class="vault-container-item" data-container-id="${c.id}" style="padding:8px 12px;background:rgba(255,255,255,0.03);border-radius:6px;cursor:pointer;font-size:13px;margin-top:4px;border:1px solid rgba(255,255,255,0.05);transition:all 0.2s;" onmouseenter="this.style.background='rgba(139,92,246,0.1)';this.style.border='1px solid rgba(139,92,246,0.3)'" onmouseleave="this.style.background='rgba(255,255,255,0.03)';this.style.border='1px solid rgba(255,255,255,0.05)'">
+          💼 ${escapeHtml(c.name)}
+        </div>
+      `).join('')
+      
+      businessDiv.querySelectorAll('.vault-container-item').forEach((item) => {
+        item.addEventListener('click', () => {
+          const containerId = (item as HTMLElement).getAttribute('data-container-id')
+          if (containerId) {
+            loadContainerItems(container, containerId)
+          }
+        })
+      })
+    }
+  } catch (err) {
+    console.error('[VAULT UI] Error loading containers:', err)
+  }
+}
+
+// Load items for a specific container
+async function loadContainerItems(container: HTMLElement, containerId: string) {
+  const listDiv = container.querySelector('#vault-items-list') as HTMLElement
+  if (!listDiv) return
+  
+  try {
+    listDiv.innerHTML = '<div style="text-align:center;padding:40px;color:rgba(255,255,255,0.5);">Loading...</div>'
+    const items = await vaultAPI.listItems({ container_id: containerId } as any)
+    
+    if (items.length === 0) {
+      listDiv.innerHTML = '<div style="text-align:center;padding:40px;color:rgba(255,255,255,0.5);">No data found in this container. Add fields using the form below.</div>'
+      return
+    }
+    
+    renderContainerData(listDiv, items)
+  } catch (err: any) {
+    console.error('[VAULT UI] Error loading container items:', err)
+    listDiv.innerHTML = `<div style="text-align:center;padding:40px;color:#ff3b30;">Error loading data: ${err.message || err}</div>`
+  }
+}
+
+// Render container data professionally
+function renderContainerData(listDiv: HTMLElement, items: VaultItem[]) {
+  // Group items by category for better display
+  const grouped: Record<string, VaultItem[]> = {}
+  items.forEach(item => {
+    const cat = item.category || 'other'
+    if (!grouped[cat]) grouped[cat] = []
+    grouped[cat].push(item)
+  })
+  
+  listDiv.innerHTML = Object.entries(grouped).map(([category, categoryItems]) => `
+    <div style="margin-bottom:24px;">
+      <h4 style="font-size:13px;font-weight:600;color:rgba(255,255,255,0.7);text-transform:uppercase;letter-spacing:1px;margin-bottom:12px;padding-bottom:8px;border-bottom:1px solid rgba(139,92,246,0.2);">
+        ${escapeHtml(category)}
+      </h4>
+      ${categoryItems.map(item => renderItemCard(item)).join('')}
+    </div>
+  `).join('')
+}
+
+// Render a single item card professionally
+function renderItemCard(item: VaultItem): string {
+  const fieldsHtml = item.fields.map(field => {
+    const value = field.encrypted ? '••••••••' : escapeHtml(field.value || '')
+    return `
+      <div style="margin-bottom:12px;">
+        <div style="font-size:11px;color:rgba(255,255,255,0.5);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;">
+          ${escapeHtml(field.key)}
+        </div>
+        <div style="font-size:14px;color:#fff;word-break:break-word;">
+          ${value}
+        </div>
+        ${field.explanation ? `<div style="font-size:11px;color:rgba(255,255,255,0.4);margin-top:2px;font-style:italic;">${escapeHtml(field.explanation)}</div>` : ''}
+      </div>
+    `
+  }).join('')
+  
+  return `
+    <div style="
+      background:rgba(139, 92, 246,0.08);
+      border:1px solid rgba(139, 92, 246,0.2);
+      border-radius:10px;
+      padding:20px;
+      margin-bottom:16px;
+      transition:all 0.2s;
+    " class="vault-item-card" onmouseenter="this.style.background='rgba(139, 92, 246,0.12)';this.style.border='1px solid rgba(139, 92, 246,0.3)'" onmouseleave="this.style.background='rgba(139, 92, 246,0.08)';this.style.border='1px solid rgba(139, 92, 246,0.2)'">
+      <div style="display:flex;justify-content:space-between;align-items:start;margin-bottom:16px;">
+        <div>
+          <div style="font-size:18px;font-weight:600;margin-bottom:4px;color:#fff;">${escapeHtml(item.title || 'Untitled')}</div>
+          ${item.domain ? `<div style="font-size:12px;color:rgba(255,255,255,0.6);">${escapeHtml(item.domain)}</div>` : ''}
+        </div>
+        <div style="display:flex;gap:8px;">
+          <button style="
+            background:rgba(139, 92, 246,0.3);
+            border:1px solid rgba(139, 92, 246,0.5);
+            padding:6px 14px;
+            border-radius:6px;
+            color:#fff;
+            font-size:12px;
+            cursor:pointer;
+            transition:all 0.2s;
+          " onmouseenter="this.style.background='rgba(139, 92, 246,0.5)'" onmouseleave="this.style.background='rgba(139, 92, 246,0.3)'">Edit</button>
+          <button style="
+            background:rgba(255,59,48,0.2);
+            border:1px solid rgba(255,59,48,0.4);
+            padding:6px 14px;
+            border-radius:6px;
+            color:#ff3b30;
+            font-size:12px;
+            cursor:pointer;
+            transition:all 0.2s;
+          " onmouseenter="this.style.background='rgba(255,59,48,0.3)'" onmouseleave="this.style.background='rgba(255,59,48,0.2)'">Delete</button>
+        </div>
+      </div>
+      <div style="border-top:1px solid rgba(139,92,246,0.2);padding-top:16px;">
+        ${fieldsHtml}
+      </div>
+    </div>
+  `
+}
+
+// Render Add Data Dialog
+function renderAddDataDialog(container: HTMLElement, preselectedCategory?: 'password' | 'identity' | 'company' | 'business') {
+  const overlay = document.createElement('div')
+  overlay.id = 'vault-add-data-overlay'
+  overlay.style.cssText = `
+    position:fixed;
+    inset:0;
+    background:rgba(0,0,0,0.9);
+    z-index:2147483650;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    backdrop-filter:blur(8px);
+  `
+  
+  const dialog = document.createElement('div')
+  dialog.style.cssText = `
+    background:linear-gradient(135deg, #0a0a0a 0%, #1a1a2e 100%);
+    border-radius:16px;
+    width:90vw;
+    max-width:700px;
+    max-height:90vh;
+    overflow-y:auto;
+    color:white;
+    box-shadow:0 25px 50px rgba(139, 92, 246, 0.4);
+    border:1px solid rgba(139, 92, 246, 0.4);
+  `
+  
+  const categoryOptions = [
+    { value: 'password', label: '🔑 Password', icon: '🔑' },
+    { value: 'identity', label: '👤 Identity (Private Data)', icon: '👤' },
+    { value: 'company', label: '🏢 Company', icon: '🏢' },
+    { value: 'business', label: '💼 Business', icon: '💼' },
+  ]
+  
+  dialog.innerHTML = `
+    <div style="padding:32px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:24px;">
+        <h2 style="font-size:24px;font-weight:700;color:#fff;">Add Data</h2>
+        <button id="vault-add-data-close" style="
+          background:rgba(255,255,255,0.1);
+          border:1px solid rgba(255,255,255,0.2);
+          width:32px;
+          height:32px;
+          border-radius:8px;
+          color:#fff;
+          font-size:20px;
+          cursor:pointer;
+          display:flex;
+          align-items:center;
+          justify-content:center;
+        ">×</button>
+      </div>
+      
+      <div style="margin-bottom:24px;">
+        <label style="display:block;font-size:13px;font-weight:600;margin-bottom:8px;color:rgba(255,255,255,0.9);">Select Category</label>
+        <select id="vault-add-category" style="
+          width:100%;
+          padding:12px 16px;
+          border:1px solid rgba(139, 92, 246,0.4);
+          border-radius:8px;
+          background:rgba(0,0,0,0.4);
+          color:#fff;
+          font-size:14px;
+          cursor:pointer;
+        ">
+          ${categoryOptions.map(opt => `<option value="${opt.value}" ${preselectedCategory === opt.value ? 'selected' : ''}>${opt.label}</option>`).join('')}
+        </select>
+      </div>
+      
+      <div id="vault-add-form-container">
+        <!-- Form will be dynamically generated based on category -->
+      </div>
+      
+      <div style="display:flex;gap:12px;margin-top:24px;padding-top:24px;border-top:1px solid rgba(255,255,255,0.1);">
+        <button id="vault-add-data-cancel" style="
+          flex:1;
+          padding:14px;
+          background:rgba(255,255,255,0.1);
+          border:1px solid rgba(255,255,255,0.2);
+          border-radius:8px;
+          color:#fff;
+          font-size:14px;
+          font-weight:600;
+          cursor:pointer;
+          transition:all 0.2s;
+        ">Cancel</button>
+        <button id="vault-add-data-save" style="
+          flex:1;
+          padding:14px;
+          background:linear-gradient(135deg, #8b5cf6 0%, #6d28d9 100%);
+          border:none;
+          border-radius:8px;
+          color:#fff;
+          font-size:14px;
+          font-weight:600;
+          cursor:pointer;
+          transition:all 0.2s;
+        ">Save Data</button>
+      </div>
+    </div>
+  `
+  
+  overlay.appendChild(dialog)
+  document.body.appendChild(overlay)
+  
+  // Generate form based on selected category
+  const categorySelect = dialog.querySelector('#vault-add-category') as HTMLSelectElement
+  const formContainer = dialog.querySelector('#vault-add-form-container') as HTMLElement
+  
+  const generateForm = (category: string) => {
+    let standardFields: StandardFieldDef[] = []
+    let titleLabel = 'Title'
+    
+    if (category === 'password') {
+      standardFields = PASSWORD_STANDARD_FIELDS
+      titleLabel = 'Service Name'
+    } else if (category === 'identity') {
+      standardFields = IDENTITY_STANDARD_FIELDS
+      titleLabel = 'Identity Name'
+    } else if (category === 'company') {
+      standardFields = COMPANY_STANDARD_FIELDS
+      titleLabel = 'Company Name'
+    } else if (category === 'business') {
+      standardFields = BUSINESS_STANDARD_FIELDS
+      titleLabel = 'Business Name'
+    }
+    
+    formContainer.innerHTML = `
+      <div style="margin-bottom:20px;">
+        <label style="display:block;font-size:13px;font-weight:600;margin-bottom:8px;color:rgba(255,255,255,0.9);">${titleLabel} *</label>
+        <input type="text" id="vault-add-title" placeholder="Enter ${titleLabel.toLowerCase()}" style="
+          width:100%;
+          padding:12px 16px;
+          border:1px solid rgba(139, 92, 246,0.4);
+          border-radius:8px;
+          background:rgba(0,0,0,0.4);
+          color:#fff;
+          font-size:14px;
+          box-sizing:border-box;
+        "/>
+      </div>
+      
+      <div style="margin-bottom:20px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+          <label style="font-size:13px;font-weight:600;color:rgba(255,255,255,0.9);">Standard Fields</label>
+        </div>
+        <div id="vault-standard-fields" style="display:flex;flex-direction:column;gap:16px;">
+          ${standardFields.map(field => `
+            <div>
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+                <label style="font-size:12px;font-weight:600;color:rgba(255,255,255,0.8);">${escapeHtml(field.label)}${field.required ? ' *' : ''}</label>
+                ${field.explanation ? `<span style="font-size:10px;color:rgba(255,255,255,0.4);font-style:italic;">${escapeHtml(field.explanation)}</span>` : ''}
+              </div>
+              ${field.type === 'textarea' ? `
+                <textarea id="field-${field.key}" placeholder="Enter ${field.label.toLowerCase()}" style="
+                  width:100%;
+                  padding:12px 16px;
+                  border:1px solid rgba(139, 92, 246,0.4);
+                  border-radius:8px;
+                  background:rgba(0,0,0,0.4);
+                  color:#fff;
+                  font-size:14px;
+                  min-height:80px;
+                  resize:vertical;
+                  font-family:inherit;
+                  box-sizing:border-box;
+                "></textarea>
+              ` : `
+                <input type="${field.type === 'password' ? 'password' : field.type === 'email' ? 'email' : field.type === 'url' ? 'url' : 'text'}" 
+                  id="field-${field.key}" 
+                  placeholder="Enter ${field.label.toLowerCase()}" 
+                  ${field.required ? 'required' : ''}
+                  style="
+                    width:100%;
+                    padding:12px 16px;
+                    border:1px solid rgba(139, 92, 246,0.4);
+                    border-radius:8px;
+                    background:rgba(0,0,0,0.4);
+                    color:#fff;
+                    font-size:14px;
+                    box-sizing:border-box;
+                  "/>
+              `}
+            </div>
+          `).join('')}
+        </div>
+      </div>
+      
+      <div style="margin-bottom:20px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+          <label style="font-size:13px;font-weight:600;color:rgba(255,255,255,0.9);">Custom Fields</label>
+          <button type="button" id="vault-add-custom-field" style="
+            padding:6px 12px;
+            background:rgba(139,92,246,0.2);
+            border:1px solid rgba(139,92,246,0.4);
+            border-radius:6px;
+            color:#a78bfa;
+            font-size:12px;
+            cursor:pointer;
+          ">+ Add Custom Field</button>
+        </div>
+        <div id="vault-custom-fields" style="display:flex;flex-direction:column;gap:16px;">
+          <!-- Custom fields will be added here -->
+        </div>
+      </div>
+    `
+    
+    // Add custom field functionality
+    const addCustomFieldBtn = dialog.querySelector('#vault-add-custom-field')
+    const customFieldsContainer = dialog.querySelector('#vault-custom-fields') as HTMLElement
+    
+    addCustomFieldBtn?.addEventListener('click', () => {
+      const customFieldDiv = document.createElement('div')
+      customFieldDiv.style.cssText = 'background:rgba(139,92,246,0.05);border:1px solid rgba(139,92,246,0.2);border-radius:8px;padding:16px;'
+      customFieldDiv.innerHTML = `
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+          <span style="font-size:12px;font-weight:600;color:rgba(255,255,255,0.8);">Custom Field</span>
+          <button type="button" class="remove-custom-field" style="
+            background:rgba(255,59,48,0.2);
+            border:1px solid rgba(255,59,48,0.4);
+            padding:4px 8px;
+            border-radius:4px;
+            color:#ff3b30;
+            font-size:11px;
+            cursor:pointer;
+          ">Remove</button>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:12px;">
+          <input type="text" class="custom-field-name" placeholder="Field Name" style="
+            width:100%;
+            padding:10px 12px;
+            border:1px solid rgba(139, 92, 246,0.3);
+            border-radius:6px;
+            background:rgba(0,0,0,0.3);
+            color:#fff;
+            font-size:13px;
+            box-sizing:border-box;
+          "/>
+          <input type="text" class="custom-field-value" placeholder="Field Value" style="
+            width:100%;
+            padding:10px 12px;
+            border:1px solid rgba(139, 92, 246,0.3);
+            border-radius:6px;
+            background:rgba(0,0,0,0.3);
+            color:#fff;
+            font-size:13px;
+            box-sizing:border-box;
+          "/>
+          <textarea class="custom-field-explanation" placeholder="Explanation (for AI autofill)" style="
+            width:100%;
+            padding:10px 12px;
+            border:1px solid rgba(139, 92, 246,0.3);
+            border-radius:6px;
+            background:rgba(0,0,0,0.3);
+            color:#fff;
+            font-size:13px;
+            min-height:60px;
+            resize:vertical;
+            font-family:inherit;
+            box-sizing:border-box;
+          "></textarea>
+        </div>
+      `
+      customFieldsContainer.appendChild(customFieldDiv)
+      
+      customFieldDiv.querySelector('.remove-custom-field')?.addEventListener('click', () => {
+        customFieldDiv.remove()
+      })
+    })
+  }
+  
+  generateForm(preselectedCategory || categorySelect.value)
+  
+  categorySelect.addEventListener('change', () => {
+    generateForm(categorySelect.value)
+  })
+  
+  // Close handlers
+  const closeDialog = () => {
+    overlay.remove()
+  }
+  
+  dialog.querySelector('#vault-add-data-close')?.addEventListener('click', closeDialog)
+  dialog.querySelector('#vault-add-data-cancel')?.addEventListener('click', closeDialog)
+  
+  // Save handler
+  dialog.querySelector('#vault-add-data-save')?.addEventListener('click', async () => {
+    const category = categorySelect.value
+    const title = (dialog.querySelector('#vault-add-title') as HTMLInputElement)?.value.trim()
+    
+    if (!title) {
+      alert('Please enter a title')
+      return
+    }
+    
+    try {
+      // Get standard fields
+      let standardFields: StandardFieldDef[] = []
+      if (category === 'password') standardFields = PASSWORD_STANDARD_FIELDS
+      else if (category === 'identity') standardFields = IDENTITY_STANDARD_FIELDS
+      else if (category === 'company') standardFields = COMPANY_STANDARD_FIELDS
+      else if (category === 'business') standardFields = BUSINESS_STANDARD_FIELDS
+      
+      const fields: any[] = []
+      
+      // Collect standard field values
+      standardFields.forEach(field => {
+        const input = dialog.querySelector(`#field-${field.key}`) as HTMLInputElement | HTMLTextAreaElement
+        if (input && input.value.trim()) {
+          fields.push({
+            key: field.key,
+            value: input.value.trim(),
+            encrypted: field.type === 'password',
+            type: field.type,
+            explanation: field.explanation
+          })
+        }
+      })
+      
+      // Collect custom fields
+      customFieldsContainer.querySelectorAll('.remove-custom-field').forEach((btn) => {
+        const fieldDiv = btn.parentElement?.parentElement
+        const nameInput = fieldDiv?.querySelector('.custom-field-name') as HTMLInputElement
+        const valueInput = fieldDiv?.querySelector('.custom-field-value') as HTMLInputElement
+        const explanationInput = fieldDiv?.querySelector('.custom-field-explanation') as HTMLTextAreaElement
+        
+        if (nameInput?.value.trim() && valueInput?.value.trim()) {
+          fields.push({
+            key: nameInput.value.trim(),
+            value: valueInput.value.trim(),
+            encrypted: false,
+            type: 'text',
+            explanation: explanationInput?.value.trim() || undefined
+          })
+        }
+      })
+      
+      if (fields.length === 0) {
+        alert('Please fill in at least one field')
+        return
+      }
+      
+      // For identity/company/business: Create container first, then item with container_id
+      // For password: Create item directly without container
+      let containerId: string | undefined
+      if (category === 'identity' || category === 'company' || category === 'business') {
+        const containerType = category === 'identity' ? 'person' : category === 'company' ? 'company' : 'business'
+        try {
+          const container = await vaultAPI.createContainer(containerType, title, false)
+          containerId = container.id
+        } catch (err: any) {
+          console.error('[VAULT UI] Error creating container:', err)
+          alert(`Error creating ${category}: ${err.message || err}`)
+          return
+        }
+      }
+      
+      // Create item with fields
+      try {
+        await vaultAPI.createItem({
+          container_id: containerId,
+          category: category as any,
+          title,
+          fields,
+          domain: category === 'password' ? (dialog.querySelector('#field-url') as HTMLInputElement)?.value.trim() : undefined,
+          favorite: false
+        })
+      } catch (err: any) {
+        console.error('[VAULT UI] Error creating item:', err)
+        alert(`Error saving data: ${err.message || err}`)
+        return
+      }
+      
+      closeDialog()
+      renderVaultDashboard(container) // Refresh dashboard
+    } catch (err: any) {
+      alert(`Error saving data: ${err.message || err}`)
+      console.error('[VAULT UI] Error saving data:', err)
+    }
+  })
+  
+  // Click outside to close
+  overlay.addEventListener('click', (e) => {
+    if (e.target === overlay) {
+      closeDialog()
+    }
+  })
+}
+
+// Helper function to escape HTML
+function escapeHtml(text: string): string {
+  const div = document.createElement('div')
+  div.textContent = text
+  return div.innerHTML
 }
 
 function renderSettingsScreen(container: HTMLElement) {
@@ -914,11 +1549,5 @@ function renderSettingsScreen(container: HTMLElement) {
       }
     }
   })
-}
-
-function escapeHtml(text: string): string {
-  const div = document.createElement('div')
-  div.textContent = text
-  return div.innerHTML
 }
 

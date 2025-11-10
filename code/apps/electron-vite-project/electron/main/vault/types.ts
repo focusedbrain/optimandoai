@@ -10,7 +10,7 @@ export type ContainerType = 'person' | 'company' | 'business'
 /**
  * Item categories
  */
-export type ItemCategory = 'password' | 'address' | 'payment' | 'email' | 'phone' | 'tax_id' | 'vat_number' | 'custom'
+export type ItemCategory = 'password' | 'identity' | 'company' | 'business'
 
 /**
  * Field types for dynamic form rendering
