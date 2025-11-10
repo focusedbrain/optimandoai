@@ -588,19 +588,42 @@ app.whenReady().then(async () => {
               socket.send(JSON.stringify({ 
                 type: 'ELECTRON_LOG', 
                 message: '[MAIN] Parsed message',
-                parsedMessage: { type: msg.type, hasConfig: !!msg.config }
+                parsedMessage: { type: msg.type, method: msg.method, hasConfig: !!msg.config }
               }))
               console.log('[MAIN] ✅ ELECTRON_LOG sent for parsed message')
             } catch (logErr) {
               console.error('[MAIN] ❌ FAILED to send parsed message log:', logErr)
             }
             
+            // ===== VAULT RPC HANDLING (BEFORE type check!) =====
+            // Check if this is a vault RPC call - these have 'method' instead of 'type'
+            if (msg.method && msg.method.startsWith('vault.')) {
+              console.log('[MAIN] Processing vault RPC:', msg.method)
+              try {
+                const response = await handleVaultRPC(msg.method, msg.params)
+                const reply = {
+                  id: msg.id,
+                  ...response
+                }
+                socket.send(JSON.stringify(reply))
+                console.log('[MAIN] ✅ Vault RPC response sent:', msg.method)
+              } catch (error: any) {
+                console.error('[MAIN] ❌ Vault RPC error:', error)
+                socket.send(JSON.stringify({
+                  id: msg.id,
+                  success: false,
+                  error: error.message || 'Unknown error'
+                }))
+              }
+              return // Don't process further handlers
+            }
+            
             if (!msg || !msg.type) {
-              console.warn('[MAIN] Message has no type, ignoring:', msg)
+              console.warn('[MAIN] Message has no type or method, ignoring:', msg)
               try {
                 socket.send(JSON.stringify({ 
                   type: 'ELECTRON_LOG', 
-                  message: '[MAIN] ⚠️ Message has no type, ignoring'
+                  message: '[MAIN] ⚠️ Message has no type or method, ignoring'
                 }))
               } catch {}
               return
@@ -624,29 +647,6 @@ app.whenReady().then(async () => {
                 OPEN: socket.OPEN,
                 isOpen: socket.readyState === socket.OPEN
               })
-            }
-            
-            // ===== VAULT RPC HANDLING =====
-            // Check if this is a vault RPC call
-            if (msg.method && msg.method.startsWith('vault.')) {
-              console.log('[MAIN] Processing vault RPC:', msg.method)
-              try {
-                const response = await handleVaultRPC(msg.method, msg.params)
-                const reply = {
-                  id: msg.id,
-                  ...response
-                }
-                socket.send(JSON.stringify(reply))
-                console.log('[MAIN] ✅ Vault RPC response sent:', msg.method)
-              } catch (error: any) {
-                console.error('[MAIN] ❌ Vault RPC error:', error)
-                socket.send(JSON.stringify({
-                  id: msg.id,
-                  success: false,
-                  error: error.message || 'Unknown error'
-                }))
-              }
-              return // Don't process further handlers
             }
             
             if (msg.type === 'ping') { 

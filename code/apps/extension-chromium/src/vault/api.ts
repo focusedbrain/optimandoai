@@ -1,6 +1,7 @@
 /**
  * WebSocket RPC client for vault communication
- * Wraps WebSocket calls with typed methods
+ * Uses chrome.runtime messaging to communicate through background script
+ * (Content scripts can't directly open WebSockets due to CSP restrictions)
  */
 
 import type {
@@ -13,82 +14,26 @@ import type {
   VaultSettings,
 } from './types'
 
-const WS_URL = 'ws://127.0.0.1:51247'
 const RPC_TIMEOUT = 30000 // 30 seconds
 
-let ws: WebSocket | null = null
-let connected = false
 let pendingCalls = new Map<string, { resolve: (value: any) => void; reject: (error: any) => void; timer: number }>()
 
 /**
- * Connect to Electron vault WebSocket
+ * Connect to vault through background script
  */
 export function connectVault(): Promise<void> {
   return new Promise((resolve, reject) => {
-    if (ws && connected) {
-      resolve()
-      return
-    }
-
-    console.log('[VAULT API] Connecting to', WS_URL)
-
-    ws = new WebSocket(WS_URL)
-
-    ws.onopen = () => {
-      connected = true
-      console.log('[VAULT API] ✅ Connected to vault')
-      resolve()
-    }
-
-    ws.onerror = (error) => {
-      console.error('[VAULT API] ❌ Connection error:', error)
-      reject(new Error('Failed to connect to vault'))
-    }
-
-    ws.onclose = () => {
-      connected = false
-      console.log('[VAULT API] Connection closed')
-    }
-
-    ws.onmessage = (event) => {
-      try {
-        const response = JSON.parse(event.data)
-
-        // Ignore ELECTRON_LOG messages
-        if (response.type === 'ELECTRON_LOG') {
-          return
-        }
-
-        console.log('[VAULT API] Response received:', response)
-
-        if (response.id && pendingCalls.has(response.id)) {
-          const { resolve, reject, timer } = pendingCalls.get(response.id)!
-          clearTimeout(timer)
-          pendingCalls.delete(response.id)
-
-          if (response.success) {
-            resolve(response)
-          } else {
-            reject(new Error(response.error || 'Unknown error'))
-          }
-        }
-      } catch (error) {
-        console.error('[VAULT API] Error parsing response:', error)
-      }
-    }
+    console.log('[VAULT API] Using chrome.runtime messaging (background script WebSocket)')
+    // No actual connection needed - background script manages WebSocket
+    resolve()
   })
 }
 
 /**
- * Call RPC method
+ * Call RPC method through background script
  */
 function rpcCall(method: string, params?: any): Promise<any> {
   return new Promise((resolve, reject) => {
-    if (!ws || !connected) {
-      reject(new Error('Not connected to vault'))
-      return
-    }
-
     const id = `${Date.now()}_${Math.random().toString(36).substring(7)}`
     const message = {
       id,
@@ -96,7 +41,7 @@ function rpcCall(method: string, params?: any): Promise<any> {
       params: params || {},
     }
 
-    console.log('[VAULT API] RPC call:', method, params)
+    console.log('[VAULT API] RPC call via background:', method, params)
 
     // Set timeout
     const timer = window.setTimeout(() => {
@@ -106,7 +51,33 @@ function rpcCall(method: string, params?: any): Promise<any> {
 
     pendingCalls.set(id, { resolve, reject, timer })
 
-    ws!.send(JSON.stringify(message))
+    // Send to background script which will forward to WebSocket
+    chrome.runtime.sendMessage({ 
+      type: 'VAULT_RPC',
+      id,
+      method,
+      params 
+    }, (response) => {
+      if (chrome.runtime.lastError) {
+        const { resolve: res, reject: rej, timer: t } = pendingCalls.get(id) || {}
+        if (t) clearTimeout(t)
+        pendingCalls.delete(id)
+        rej?.(new Error(chrome.runtime.lastError.message))
+        return
+      }
+
+      const { resolve: res, reject: rej, timer: t } = pendingCalls.get(id) || {}
+      if (!res || !rej) return // Already resolved/rejected
+      
+      clearTimeout(t)
+      pendingCalls.delete(id)
+
+      if (response && response.success) {
+        res(response)
+      } else {
+        rej(new Error(response?.error || 'Unknown error'))
+      }
+    })
   })
 }
 
@@ -114,11 +85,9 @@ function rpcCall(method: string, params?: any): Promise<any> {
  * Disconnect from vault
  */
 export function disconnectVault(): void {
-  if (ws) {
-    ws.close()
-    ws = null
-    connected = false
-  }
+  // Clear pending calls
+  pendingCalls.clear()
+  console.log('[VAULT API] Disconnected')
 }
 
 // ==========================================================================

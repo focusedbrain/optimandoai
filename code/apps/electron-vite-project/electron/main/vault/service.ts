@@ -72,7 +72,7 @@ export class VaultService {
     zeroize(kek)
 
     // Create database
-    this.db = await createVaultDB(dek)
+    this.db = createVaultDB(dek)
 
     // Store vault metadata
     this.saveVaultMeta(salt, wrappedDEK, DEFAULT_KDF_PARAMS)
@@ -135,7 +135,7 @@ export class VaultService {
 
     // Open database
     try {
-      this.db = await openVaultDB(dek)
+      this.db = openVaultDB(dek)
     } catch (error) {
       zeroize(dek)
       throw new Error('Failed to open vault database')

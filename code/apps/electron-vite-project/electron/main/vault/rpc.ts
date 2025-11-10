@@ -160,9 +160,13 @@ export async function handleVaultRPC(method: string, params: any): Promise<any> 
     }
   } catch (error: any) {
     console.error(`[VAULT RPC] Error in ${method}:`, error)
+    console.error(`[VAULT RPC] Error type:`, typeof error)
+    console.error(`[VAULT RPC] Error message:`, error?.message)
+    console.error(`[VAULT RPC] Error stack:`, error?.stack)
+    console.error(`[VAULT RPC] Error stringified:`, JSON.stringify(error, Object.getOwnPropertyNames(error)))
     return {
       success: false,
-      error: error.message || 'Unknown error occurred',
+      error: error?.message || error?.toString() || 'Unknown error occurred',
     }
   }
 }

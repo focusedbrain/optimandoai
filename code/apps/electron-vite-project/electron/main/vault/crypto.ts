@@ -6,7 +6,7 @@
  * - Secure buffer zeroization
  */
 
-import { argon2id } from 'argon2'
+import argon2 from 'argon2'
 import { randomBytes, createCipheriv, createDecipheriv, hkdfSync } from 'crypto'
 import sodium from 'libsodium-wrappers'
 
@@ -53,7 +53,8 @@ export async function deriveKEK(
   // Ensure libsodium is ready
   await ensureSodiumReady()
   
-  const hashResult = await argon2id(Buffer.from(password, 'utf-8'), {
+  const hashResult = await argon2.hash(Buffer.from(password, 'utf-8'), {
+    type: argon2.argon2id,
     raw: true,
     hashLength: 32,
     salt,

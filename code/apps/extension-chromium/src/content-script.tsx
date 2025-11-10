@@ -19917,21 +19917,13 @@ ${pageText}
 
     safeAppendToBody(overlay)
 
-    // Mount React component
-    import('./vault/VaultUI').then(({ VaultUI }) => {
-      const React = (window as any).React
-      const ReactDOM = (window as any).ReactDOM
-
-      if (React && ReactDOM) {
-        const root = ReactDOM.createRoot(reactRoot)
-        root.render(React.createElement(VaultUI))
-        console.log('[VAULT] ✅ React VaultUI mounted')
-      } else {
-        console.error('[VAULT] React not available')
-        reactRoot.innerHTML = '<div style="padding: 40px; text-align: center; color: rgba(255,255,255,0.6);">Error: React not loaded</div>'
-      }
+    // Initialize vault UI (pure TypeScript, no React)
+    import('./vault/vault-ui-typescript').then(({ openVaultLightbox: initVaultUI }) => {
+      // Remove the placeholder and re-init with the full UI
+      overlay.remove()
+      initVaultUI()
     }).catch((error) => {
-      console.error('[VAULT] Error loading VaultUI:', error)
+      console.error('[VAULT] Error loading vault UI:', error)
       reactRoot.innerHTML = '<div style="padding: 40px; text-align: center; color: rgba(255,255,255,0.6);">Error loading vault UI. Please check console.</div>'
     })
 

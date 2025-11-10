@@ -3,10 +3,10 @@
  * Uses @journeyapps/sqlcipher for hardware-accelerated encryption
  */
 
-import Database from '@journeyapps/sqlcipher'
 import { app } from 'electron'
 import { join } from 'path'
 import { existsSync } from 'fs'
+import Database from '@journeyapps/sqlcipher'
 
 /**
  * Get vault database file path

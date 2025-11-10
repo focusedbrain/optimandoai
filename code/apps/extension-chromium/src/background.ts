@@ -45,6 +45,16 @@ function connectToWebSocketServer() {
         console.log(`[BG] 📨 Raw payload: ${payload}`)
         const data = JSON.parse(payload)
         console.log(`[BG] Parsed data:`, JSON.stringify(data, null, 2))
+        
+        // Check if this is a vault RPC response
+        if (data.id && globalThis.vaultRpcCallbacks && globalThis.vaultRpcCallbacks.has(data.id)) {
+          console.log('[BG] Vault RPC response received for ID:', data.id)
+          const callback = globalThis.vaultRpcCallbacks.get(data.id)
+          globalThis.vaultRpcCallbacks.delete(data.id)
+          callback(data) // Send response back to content script
+          return
+        }
+        
         if (data && data.type) {
           console.log(`[BG] Message type: ${data.type}`);
           if (data.type === 'pong') {
@@ -280,6 +290,41 @@ chrome.tabs.onActivated.addListener((activeInfo) => {
 
 // Handle messages from content script
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  // Check if this is a vault RPC message (has type: 'VAULT_RPC')
+  if (msg && msg.type === 'VAULT_RPC') {
+    console.log('[BG] Received VAULT_RPC:', msg.method)
+    
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+      console.error('[BG] WebSocket not connected for vault RPC')
+      sendResponse({ success: false, error: 'Not connected to Electron app' })
+      return true
+    }
+    
+    // Forward the RPC call to Electron via WebSocket
+    try {
+      const rpcMessage = {
+        id: msg.id,
+        method: msg.method,
+        params: msg.params || {}
+      }
+      
+      console.log('[BG] Forwarding to WebSocket:', rpcMessage)
+      ws.send(JSON.stringify(rpcMessage))
+      
+      // Store the sendResponse callback to call it when response arrives
+      if (!globalThis.vaultRpcCallbacks) {
+        globalThis.vaultRpcCallbacks = new Map()
+      }
+      globalThis.vaultRpcCallbacks.set(msg.id, sendResponse)
+      
+      return true // Keep channel open for async response
+    } catch (error: any) {
+      console.error('[BG] Error sending vault RPC:', error)
+      sendResponse({ success: false, error: error.message })
+      return true
+    }
+  }
+  
   if (!msg || !msg.type) return true;
 
   console.log(`📨 Nachricht erhalten: ${msg.type}`);
@@ -670,5 +715,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       return true  // Keep message channel open for async response
     }
   }
+  
   return true;
 });
