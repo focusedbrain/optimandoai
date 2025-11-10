@@ -19870,113 +19870,70 @@ ${pageText}
 
 
 
-  // WRVault Lightbox
+  // WRVault Lightbox - Now with real SQLCipher vault!
 
   function openWRVaultLightbox() {
 
     const overlay = document.createElement('div')
 
-    overlay.style.cssText = `position:fixed;inset:0;background:rgba(0,0,0,0.8);z-index:2147483649;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(5px)`
+    overlay.id = 'wrvault-overlay'
 
-    overlay.innerHTML = `
+    overlay.style.cssText = `position:fixed;inset:0;background:rgba(0,0,0,0.9);z-index:2147483649;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(5px)`
 
-      <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 16px; width: 85vw; max-width: 900px; height: 80vh; color: white; overflow: hidden; box-shadow: 0 20px 40px rgba(0,0,0,0.4); display: flex; flex-direction: column;">
+    const container = document.createElement('div')
 
-        <div style="padding: 16px 20px; border-bottom: 1px solid rgba(255,255,255,0.3); display:flex; align-items:center; justify-content:space-between;">
+    container.id = 'wrvault-container'
 
-          <div style="display:flex;align-items:center;gap:8px;font-size:18px;font-weight:700">🔒 WRVault – Secure Data Vault</div>
+    container.style.cssText = `background: linear-gradient(135deg, #0a0a0a 0%, #1a1a1a 100%); border-radius: 16px; width: 85vw; max-width: 900px; height: 80vh; color: white; overflow: hidden; box-shadow: 0 20px 40px rgba(0,0,0,0.6); display: flex; flex-direction: column; border: 1px solid rgba(139, 92, 246, 0.3);`
 
-          <button id="wrv-close" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 30px; height: 30px; border-radius: 50%; cursor: pointer; font-size: 16px;">×</button>
+    const header = document.createElement('div')
 
-        </div>
+    header.style.cssText = `padding: 16px 20px; border-bottom: 1px solid rgba(255,255,255,0.1); display:flex; align-items:center; justify-content:space-between;`
 
-        <div style="padding:10px 20px; background: rgba(255,255,255,0.06); border-bottom:1px solid rgba(255,255,255,0.2); font-size:12px;">
-
-          ⚠️ This is a UI prototype only. Real encryption, storage, and access control must be implemented by security experts.
-
-        </div>
-
-        <div style="flex:1; display:flex; flex-direction:column; padding: 16px 20px; overflow:auto;">
-
-          <div style="display:flex; gap:8px; border-bottom:1px solid rgba(255,255,255,0.25); margin-bottom:12px;">
-
-            <button class="wrv-tab" data-k="pw" style="padding:8px 12px; background: rgba(255,255,255,0.2); border:0; color:white; border-radius:8px 8px 0 0; cursor:pointer">Passwords</button>
-
-            <button class="wrv-tab" data-k="pii" style="padding:8px 12px; background: rgba(255,255,255,0.1); border:0; color:white; border-radius:8px 8px 0 0; cursor:pointer">PII</button>
-
-            <button class="wrv-tab" data-k="bucket" style="padding:8px 12px; background: rgba(255,255,255,0.1); border:0; color:white; border-radius:8px 8px 0 0; cursor:pointer">Sensitive Bucket</button>
-
-            <button class="wrv-tab" data-k="pay" style="padding:8px 12px; background: rgba(255,255,255,0.1); border:0; color:white; border-radius:8px 8px 0 0; cursor:pointer">Payment Methods</button>
-
-          </div>
-
-          <div id="wrv-content"></div>
-
-        </div>
-
-      </div>
-
+    header.innerHTML = `
+      <div style="display:flex;align-items:center;gap:8px;font-size:18px;font-weight:700">🔒 WRVault – Password Manager</div>
+      <button id="wrv-close" style="background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); color: white; width: 32px; height: 32px; border-radius: 50%; cursor: pointer; font-size: 18px;">×</button>
     `
 
-    const root = overlay.querySelector('#wrv-content') as HTMLElement
+    const reactRoot = document.createElement('div')
 
-    function render(kind:'pw'|'pii'|'bucket'|'pay'){
+    reactRoot.id = 'wrvault-react-root'
 
-      const mkRow = (label:string, valueMask:string) => `
+    reactRoot.style.cssText = `flex: 1; overflow: hidden;`
 
-        <div style="display:grid; grid-template-columns: 1fr 1fr auto; gap:8px; align-items:center; background: rgba(0,0,0,0.12); padding:8px; border-radius:8px; border:1px solid rgba(255,255,255,0.18)">
+    container.appendChild(header)
 
-          <div>${label}</div>
+    container.appendChild(reactRoot)
 
-          <div style="opacity:.8">${valueMask}</div>
+    overlay.appendChild(container)
 
-          <div style="display:flex; gap:6px;">
+    const closeBtn = header.querySelector('#wrv-close')
 
-            <button disabled style="opacity:.6; cursor:not-allowed; padding:4px 8px; background: rgba(255,255,255,0.15); border:1px solid rgba(255,255,255,0.2); color:white; border-radius:6px;">Reveal 🔒</button>
-
-            <button disabled style="opacity:.6; cursor:not-allowed; padding:4px 8px; background: rgba(255,255,255,0.15); border:1px solid rgba(255,255,255,0.2); color:white; border-radius:6px;">Copy 🔒</button>
-
-            <button disabled style="opacity:.6; cursor:not-allowed; padding:4px 8px; background: rgba(255,255,255,0.15); border:1px solid rgba(255,255,255,0.2); color:white; border-radius:6px;">Use in Workflow 🔒</button>
-
-          </div>
-
-        </div>`
-
-      const addBtn = `<button id="wrv-add" style="margin-bottom:10px;padding:6px 10px;background:rgba(255,255,255,0.15);border:1px solid rgba(255,255,255,0.3);color:white;border-radius:6px;cursor:pointer">${kind==='pay'?'+ Add Payment Method':'+ Add New'}</button>`
-
-      if (kind==='pw') root.innerHTML = addBtn + [mkRow('GitHub Login','••••••••'), mkRow('Email – Work','••••••••')].join('<div style="height:8px"></div>')
-
-      else if (kind==='pii') root.innerHTML = addBtn + [mkRow('Home Address','Hidden until unlock'), mkRow('Government ID','Hidden until unlock')].join('<div style="height:8px"></div>')
-
-      else if (kind==='bucket') root.innerHTML = addBtn + [mkRow('SSH Notes','Hidden until unlock'), mkRow('Production access notes','Hidden until unlock')].join('<div style="height:8px"></div>')
-
-      else root.innerHTML = addBtn + [mkRow('Visa **** 1234','••/••'), mkRow('PayPal – masked','Hidden until unlock')].join('<div style="height:8px"></div>')
-
+    if (closeBtn) {
+      closeBtn.addEventListener('click', () => {
+        overlay.remove()
+      })
     }
 
-    ;['pw','pii','bucket','pay'].forEach((k,idx)=>{
-
-      const btn = overlay.querySelector(`.wrv-tab[data-k="${k}"]`) as HTMLButtonElement
-
-      btn?.addEventListener('click', ()=>{
-
-        overlay.querySelectorAll('.wrv-tab').forEach(b=> (b as HTMLButtonElement).style.background='rgba(255,255,255,0.1)')
-
-        btn.style.background = 'rgba(255,255,255,0.2)'
-
-        render(k as any)
-
-      })
-
-      if (idx===0) btn?.click()
-
-    })
-
-    overlay.querySelector('#wrv-close')?.addEventListener('click', ()=> overlay.remove())
-
-    overlay.addEventListener('click', (e)=>{ if (e.target === overlay) overlay.remove() })
-
     safeAppendToBody(overlay)
+
+    // Mount React component
+    import('./vault/VaultUI').then(({ VaultUI }) => {
+      const React = (window as any).React
+      const ReactDOM = (window as any).ReactDOM
+
+      if (React && ReactDOM) {
+        const root = ReactDOM.createRoot(reactRoot)
+        root.render(React.createElement(VaultUI))
+        console.log('[VAULT] ✅ React VaultUI mounted')
+      } else {
+        console.error('[VAULT] React not available')
+        reactRoot.innerHTML = '<div style="padding: 40px; text-align: center; color: rgba(255,255,255,0.6);">Error: React not loaded</div>'
+      }
+    }).catch((error) => {
+      console.error('[VAULT] Error loading VaultUI:', error)
+      reactRoot.innerHTML = '<div style="padding: 40px; text-align: center; color: rgba(255,255,255,0.6);">Error loading vault UI. Please check console.</div>'
+    })
 
   }
 
