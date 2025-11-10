@@ -1,12 +1,34 @@
--- Create kv_store table for key-value storage
-CREATE TABLE IF NOT EXISTS kv_store (
-  k TEXT PRIMARY KEY,
-  v JSONB NOT NULL,
-  updated_at TIMESTAMPTZ DEFAULT now()
+-- Key-Value Store Schema for Chrome Storage API compatibility
+-- This table stores data in a simple key-value format with JSON values
+
+-- Drop existing objects if they exist (clean slate)
+DROP TRIGGER IF EXISTS update_kv_store_updated_at ON kv_store;
+DROP FUNCTION IF EXISTS update_updated_at_column() CASCADE;
+DROP INDEX IF EXISTS idx_kv_store_created_at;
+DROP INDEX IF EXISTS idx_kv_store_updated_at;
+DROP TABLE IF EXISTS kv_store;
+
+-- Create table with all columns
+CREATE TABLE kv_store (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- Create index on updated_at for potential queries
-CREATE INDEX IF NOT EXISTS idx_kv_store_updated_at ON kv_store(updated_at);
+-- Create indexes on the columns
+CREATE INDEX idx_kv_store_created_at ON kv_store(created_at);
+CREATE INDEX idx_kv_store_updated_at ON kv_store(updated_at);
 
+-- Create function for auto-updating updated_at
+CREATE OR REPLACE FUNCTION update_updated_at_column()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.updated_at = CURRENT_TIMESTAMP;
+    RETURN NEW;
+END;
+$$ language 'plpgsql';
 
-
+-- Create trigger to call the function
+CREATE TRIGGER update_kv_store_updated_at BEFORE UPDATE ON kv_store
+FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
