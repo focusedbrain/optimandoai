@@ -1,60 +1,12 @@
 /**
- * Database management with sql.js and application-level encryption
- * Uses DEK to encrypt the entire database file
+ * Database management with native SQLCipher
+ * Uses @journeyapps/sqlcipher for hardware-accelerated encryption
  */
 
-import initSqlJs, { Database } from 'sql.js'
+import Database from '@journeyapps/sqlcipher'
 import { app } from 'electron'
 import { join } from 'path'
-import { readFileSync, writeFileSync, existsSync } from 'fs'
-import { createCipheriv, createDecipheriv, randomBytes } from 'crypto'
-
-let SQL: any = null
-
-/**
- * Initialize sql.js
- */
-async function initSQL() {
-  if (!SQL) {
-    SQL = await initSqlJs()
-  }
-  return SQL
-}
-
-/**
- * Encrypt database buffer with DEK using AES-256-GCM
- */
-function encryptDB(data: Buffer, dek: Buffer): Buffer {
-  const nonce = randomBytes(12)
-  const cipher = createCipheriv('aes-256-gcm', dek, nonce)
-  
-  const encrypted = Buffer.concat([
-    cipher.update(data),
-    cipher.final(),
-  ])
-  
-  const authTag = cipher.getAuthTag()
-  
-  // Format: nonce (12) + encrypted data + authTag (16)
-  return Buffer.concat([nonce, encrypted, authTag])
-}
-
-/**
- * Decrypt database buffer with DEK
- */
-function decryptDB(encryptedData: Buffer, dek: Buffer): Buffer {
-  const nonce = encryptedData.subarray(0, 12)
-  const authTag = encryptedData.subarray(encryptedData.length - 16)
-  const ciphertext = encryptedData.subarray(12, encryptedData.length - 16)
-  
-  const decipher = createDecipheriv('aes-256-gcm', dek, nonce)
-  decipher.setAuthTag(authTag)
-  
-  return Buffer.concat([
-    decipher.update(ciphertext),
-    decipher.final(),
-  ])
-}
+import { existsSync } from 'fs'
 
 /**
  * Get vault database file path
@@ -78,29 +30,40 @@ export function vaultExists(): boolean {
 }
 
 /**
- * Create new encrypted vault database
+ * Create new encrypted vault database with SQLCipher
  */
-export async function createVaultDB(dek: Buffer): Promise<Database> {
-  await initSQL()
+export function createVaultDB(dek: Buffer): Database.Database {
+  const vaultPath = getVaultPath()
   
-  const db = new SQL.Database()
+  // Create database
+  const db = new Database(vaultPath)
+  
+  // Set SQLCipher key (uses the DEK as the encryption key)
+  const hexKey = dek.toString('hex')
+  db.pragma(`key = "x'${hexKey}'"`)
+  
+  // SQLCipher configuration for maximum security
+  db.pragma('cipher_page_size = 4096')
+  db.pragma('kdf_iter = 256000')
+  db.pragma('cipher_hmac_algorithm = HMAC_SHA512')
+  db.pragma('cipher_kdf_algorithm = PBKDF2_HMAC_SHA512')
+  
+  // Performance and durability settings
+  db.pragma('journal_mode = WAL')
+  db.pragma('synchronous = FULL')
+  db.pragma('foreign_keys = ON')
   
   // Create schema
   createSchema(db)
   
-  // Save encrypted database
-  saveVaultDB(db, dek)
-  
-  console.log('[VAULT DB] Created new vault database')
+  console.log('[VAULT DB] Created new SQLCipher vault database')
   return db
 }
 
 /**
  * Open existing encrypted vault database
  */
-export async function openVaultDB(dek: Buffer): Promise<Database> {
-  await initSQL()
-  
+export function openVaultDB(dek: Buffer): Database.Database {
   const vaultPath = getVaultPath()
   
   if (!existsSync(vaultPath)) {
@@ -108,12 +71,32 @@ export async function openVaultDB(dek: Buffer): Promise<Database> {
   }
   
   try {
-    const encryptedData = readFileSync(vaultPath)
-    const decryptedData = decryptDB(encryptedData, dek)
+    const db = new Database(vaultPath)
     
-    const db = new SQL.Database(decryptedData)
+    // Set SQLCipher key
+    const hexKey = dek.toString('hex')
+    db.pragma(`key = "x'${hexKey}'"`)
     
-    console.log('[VAULT DB] Opened vault database')
+    // SQLCipher configuration
+    db.pragma('cipher_page_size = 4096')
+    db.pragma('kdf_iter = 256000')
+    db.pragma('cipher_hmac_algorithm = HMAC_SHA512')
+    db.pragma('cipher_kdf_algorithm = PBKDF2_HMAC_SHA512')
+    
+    // Performance settings
+    db.pragma('journal_mode = WAL')
+    db.pragma('synchronous = FULL')
+    db.pragma('foreign_keys = ON')
+    
+    // Test that the key is correct by running a query
+    try {
+      db.prepare('SELECT count(*) FROM sqlite_master').get()
+    } catch (error) {
+      db.close()
+      throw new Error('Failed to decrypt vault - incorrect password')
+    }
+    
+    console.log('[VAULT DB] Opened SQLCipher vault database')
     return db
   } catch (error) {
     console.error('[VAULT DB] Failed to open vault:', error)
@@ -122,25 +105,19 @@ export async function openVaultDB(dek: Buffer): Promise<Database> {
 }
 
 /**
- * Save vault database (encrypt and write to disk)
+ * Close database
  */
-export function saveVaultDB(db: Database, dek: Buffer): void {
-  const data = db.export()
-  const buffer = Buffer.from(data)
-  const encrypted = encryptDB(buffer, dek)
-  
-  const vaultPath = getVaultPath()
-  writeFileSync(vaultPath, encrypted)
-  
-  console.log('[VAULT DB] Saved vault database')
+export function closeVaultDB(db: Database.Database): void {
+  db.close()
+  console.log('[VAULT DB] Closed vault database')
 }
 
 /**
  * Create database schema
  */
-function createSchema(db: Database): void {
+function createSchema(db: Database.Database): void {
   // Vault metadata table
-  db.run(`
+  db.exec(`
     CREATE TABLE IF NOT EXISTS vault_meta (
       key TEXT PRIMARY KEY,
       value BLOB NOT NULL,
@@ -149,7 +126,7 @@ function createSchema(db: Database): void {
   `)
   
   // Containers table
-  db.run(`
+  db.exec(`
     CREATE TABLE IF NOT EXISTS containers (
       id TEXT PRIMARY KEY,
       type TEXT NOT NULL,
@@ -161,7 +138,7 @@ function createSchema(db: Database): void {
   `)
   
   // Vault items table
-  db.run(`
+  db.exec(`
     CREATE TABLE IF NOT EXISTS vault_items (
       id TEXT PRIMARY KEY,
       container_id TEXT,
@@ -177,19 +154,10 @@ function createSchema(db: Database): void {
   `)
   
   // Indexes for performance
-  db.run('CREATE INDEX IF NOT EXISTS idx_items_container ON vault_items(container_id)')
-  db.run('CREATE INDEX IF NOT EXISTS idx_items_domain ON vault_items(domain)')
-  db.run('CREATE INDEX IF NOT EXISTS idx_items_category ON vault_items(category)')
-  db.run('CREATE INDEX IF NOT EXISTS idx_items_favorite ON vault_items(favorite)')
+  db.exec('CREATE INDEX IF NOT EXISTS idx_items_container ON vault_items(container_id)')
+  db.exec('CREATE INDEX IF NOT EXISTS idx_items_domain ON vault_items(domain)')
+  db.exec('CREATE INDEX IF NOT EXISTS idx_items_category ON vault_items(category)')
+  db.exec('CREATE INDEX IF NOT EXISTS idx_items_favorite ON vault_items(favorite)')
   
   console.log('[VAULT DB] Schema created')
 }
-
-/**
- * Close database (doesn't apply to sql.js, but kept for API compatibility)
- */
-export function closeVaultDB(db: Database): void {
-  db.close()
-  console.log('[VAULT DB] Closed vault database')
-}
-

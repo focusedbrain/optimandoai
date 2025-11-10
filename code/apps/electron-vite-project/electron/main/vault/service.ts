@@ -3,7 +3,7 @@
  * Handles unlock, lock, CRUD operations, session management, and autolock
  */
 
-import { Database } from 'sql.js'
+import type Database from '@journeyapps/sqlcipher'
 import { randomBytes } from 'crypto'
 import type { Container, VaultItem, VaultSession, VaultStatus, VaultSettings, Field } from './types'
 import {
@@ -22,7 +22,6 @@ import {
 import {
   createVaultDB,
   openVaultDB,
-  saveVaultDB,
   closeVaultDB,
   vaultExists,
   getVaultPath,
@@ -31,7 +30,7 @@ import {
 import { readFileSync, writeFileSync } from 'fs'
 
 export class VaultService {
-  private db: Database | null = null
+  private db: Database.Database | null = null
   private session: VaultSession | null = null
   private autoLockTimer: NodeJS.Timeout | null = null
   private settings: VaultSettings = {
@@ -84,8 +83,7 @@ export class VaultService {
     // Store settings
     this.saveSettings()
 
-    // Save database
-    saveVaultDB(this.db, dek)
+    // Database is automatically saved by SQLCipher (no need to manually save)
 
     // Create session
     this.session = {
@@ -173,15 +171,6 @@ export class VaultService {
 
     console.log('[VAULT] Locking vault...')
 
-    // Save database before closing
-    if (this.db && this.session.vmk) {
-      try {
-        saveVaultDB(this.db, this.session.vmk)
-      } catch (error) {
-        console.error('[VAULT] Error saving database:', error)
-      }
-    }
-
     // Close database
     if (this.db) {
       closeVaultDB(this.db)
@@ -237,12 +226,9 @@ export class VaultService {
       updated_at: now,
     }
 
-    this.db!.run(
-      'INSERT INTO containers (id, type, name, favorite, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)',
-      [container.id, container.type, container.name, container.favorite ? 1 : 0, container.created_at, container.updated_at]
-    )
-
-    this.saveDB()
+    this.db!.prepare(
+      'INSERT INTO containers (id, type, name, favorite, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)'
+    ).run(container.id, container.type, container.name, container.favorite ? 1 : 0, container.created_at, container.updated_at)
 
     console.log('[VAULT] Created container:', container.id)
     return container
@@ -266,12 +252,9 @@ export class VaultService {
       updated_at: Date.now(),
     }
 
-    this.db!.run(
-      'UPDATE containers SET name = ?, favorite = ?, updated_at = ? WHERE id = ?',
-      [updated.name, updated.favorite ? 1 : 0, updated.updated_at, id]
-    )
-
-    this.saveDB()
+    this.db!.prepare(
+      'UPDATE containers SET name = ?, favorite = ?, updated_at = ? WHERE id = ?'
+    ).run(updated.name, updated.favorite ? 1 : 0, updated.updated_at, id)
 
     console.log('[VAULT] Updated container:', id)
     return updated
@@ -285,12 +268,10 @@ export class VaultService {
     this.updateActivity()
 
     // Delete associated items first
-    this.db!.run('DELETE FROM vault_items WHERE container_id = ?', [id])
+    this.db!.prepare('DELETE FROM vault_items WHERE container_id = ?').run(id)
 
     // Delete container
-    this.db!.run('DELETE FROM containers WHERE id = ?', [id])
-
-    this.saveDB()
+    this.db!.prepare('DELETE FROM containers WHERE id = ?').run(id)
 
     console.log('[VAULT] Deleted container:', id)
   }
@@ -302,19 +283,15 @@ export class VaultService {
     this.ensureUnlocked()
     this.updateActivity()
 
-    const rows = this.db!.exec('SELECT * FROM containers ORDER BY name ASC')
+    const rows = this.db!.prepare('SELECT * FROM containers ORDER BY name ASC').all()
 
-    if (!rows.length || !rows[0].values.length) {
-      return []
-    }
-
-    return rows[0].values.map((row: any) => ({
-      id: row[0],
-      type: row[1],
-      name: row[2],
-      favorite: row[3] === 1,
-      created_at: row[4],
-      updated_at: row[5],
+    return rows.map((row: any) => ({
+      id: row.id,
+      type: row.type,
+      name: row.name,
+      favorite: row.favorite === 1,
+      created_at: row.created_at,
+      updated_at: row.updated_at,
     }))
   }
 
@@ -322,20 +299,19 @@ export class VaultService {
    * Get container by ID
    */
   private getContainerById(id: string): Container | null {
-    const rows = this.db!.exec('SELECT * FROM containers WHERE id = ?', [id])
+    const row = this.db!.prepare('SELECT * FROM containers WHERE id = ?').get(id) as any
 
-    if (!rows.length || !rows[0].values.length) {
+    if (!row) {
       return null
     }
 
-    const row = rows[0].values[0]
     return {
-      id: row[0],
-      type: row[1],
-      name: row[2],
-      favorite: row[3] === 1,
-      created_at: row[4],
-      updated_at: row[5],
+      id: row.id,
+      type: row.type,
+      name: row.name,
+      favorite: row.favorite === 1,
+      created_at: row.created_at,
+      updated_at: row.updated_at,
     }
   }
 
@@ -361,22 +337,19 @@ export class VaultService {
     // Encrypt sensitive fields
     const encryptedFields = this.encryptItemFields(newItem.id, newItem.fields)
 
-    this.db!.run(
-      'INSERT INTO vault_items (id, container_id, category, title, domain, fields_json, favorite, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
-      [
-        newItem.id,
-        newItem.container_id || null,
-        newItem.category,
-        newItem.title,
-        newItem.domain || null,
-        JSON.stringify(encryptedFields),
-        newItem.favorite ? 1 : 0,
-        newItem.created_at,
-        newItem.updated_at,
-      ]
+    this.db!.prepare(
+      'INSERT INTO vault_items (id, container_id, category, title, domain, fields_json, favorite, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
+    ).run(
+      newItem.id,
+      newItem.container_id || null,
+      newItem.category,
+      newItem.title,
+      newItem.domain || null,
+      JSON.stringify(encryptedFields),
+      newItem.favorite ? 1 : 0,
+      newItem.created_at,
+      newItem.updated_at
     )
-
-    this.saveDB()
 
     console.log('[VAULT] Created item:', newItem.id)
     return newItem
@@ -403,19 +376,16 @@ export class VaultService {
     // Encrypt sensitive fields if provided
     const fieldsToSave = updates.fields ? this.encryptItemFields(id, updates.fields) : existing.fields
 
-    this.db!.run(
-      'UPDATE vault_items SET title = ?, domain = ?, fields_json = ?, favorite = ?, updated_at = ? WHERE id = ?',
-      [
-        updated.title,
-        updated.domain || null,
-        JSON.stringify(fieldsToSave),
-        updated.favorite ? 1 : 0,
-        updated.updated_at,
-        id,
-      ]
+    this.db!.prepare(
+      'UPDATE vault_items SET title = ?, domain = ?, fields_json = ?, favorite = ?, updated_at = ? WHERE id = ?'
+    ).run(
+      updated.title,
+      updated.domain || null,
+      JSON.stringify(fieldsToSave),
+      updated.favorite ? 1 : 0,
+      updated.updated_at,
+      id
     )
-
-    this.saveDB()
 
     console.log('[VAULT] Updated item:', id)
     return updated
@@ -428,9 +398,7 @@ export class VaultService {
     this.ensureUnlocked()
     this.updateActivity()
 
-    this.db!.run('DELETE FROM vault_items WHERE id = ?', [id])
-
-    this.saveDB()
+    this.db!.prepare('DELETE FROM vault_items WHERE id = ?').run(id)
 
     console.log('[VAULT] Deleted item:', id)
   }
@@ -495,28 +463,19 @@ export class VaultService {
       params.push(filters.offset)
     }
 
-    const rows = this.db!.exec(query, params)
+    const rows = this.db!.prepare(query).all(...params)
 
-    if (!rows.length || !rows[0].values.length) {
-      return []
-    }
-
-    return rows[0].values.map((row: any) => {
-      const item: VaultItem = {
-        id: row[0],
-        container_id: row[1] || undefined,
-        category: row[2],
-        title: row[3],
-        domain: row[4] || undefined,
-        fields: JSON.parse(row[5]),
-        favorite: row[6] === 1,
-        created_at: row[7],
-        updated_at: row[8],
-      }
-
-      // Don't decrypt fields in list view for performance
-      return item
-    })
+    return rows.map((row: any) => ({
+      id: row.id,
+      container_id: row.container_id || undefined,
+      category: row.category,
+      title: row.title,
+      domain: row.domain || undefined,
+      fields: JSON.parse(row.fields_json),
+      favorite: row.favorite === 1,
+      created_at: row.created_at,
+      updated_at: row.updated_at,
+    }))
   }
 
   /**
@@ -537,22 +496,18 @@ export class VaultService {
 
     sql += ' ORDER BY title ASC'
 
-    const rows = this.db!.exec(sql, params)
+    const rows = this.db!.prepare(sql).all(...params)
 
-    if (!rows.length || !rows[0].values.length) {
-      return []
-    }
-
-    return rows[0].values.map((row: any) => ({
-      id: row[0],
-      container_id: row[1] || undefined,
-      category: row[2],
-      title: row[3],
-      domain: row[4] || undefined,
-      fields: JSON.parse(row[5]),
-      favorite: row[6] === 1,
-      created_at: row[7],
-      updated_at: row[8],
+    return rows.map((row: any) => ({
+      id: row.id,
+      container_id: row.container_id || undefined,
+      category: row.category,
+      title: row.title,
+      domain: row.domain || undefined,
+      fields: JSON.parse(row.fields_json),
+      favorite: row.favorite === 1,
+      created_at: row.created_at,
+      updated_at: row.updated_at,
     }))
   }
 
@@ -566,26 +521,21 @@ export class VaultService {
     // Normalize domain (remove www., protocol, etc.)
     const normalized = domain.replace(/^(https?:\/\/)?(www\.)?/, '').split('/')[0]
 
-    const rows = this.db!.exec(
-      'SELECT * FROM vault_items WHERE category = ? AND domain LIKE ? ORDER BY title ASC',
-      ['password', `%${normalized}%`]
-    )
+    const rows = this.db!.prepare(
+      'SELECT * FROM vault_items WHERE category = ? AND domain LIKE ? ORDER BY title ASC'
+    ).all('password', `%${normalized}%`)
 
-    if (!rows.length || !rows[0].values.length) {
-      return []
-    }
-
-    return rows[0].values.map((row: any) => {
+    return rows.map((row: any) => {
       const item: VaultItem = {
-        id: row[0],
-        container_id: row[1] || undefined,
-        category: row[2],
-        title: row[3],
-        domain: row[4] || undefined,
-        fields: JSON.parse(row[5]),
-        favorite: row[6] === 1,
-        created_at: row[7],
-        updated_at: row[8],
+        id: row.id,
+        container_id: row.container_id || undefined,
+        category: row.category,
+        title: row.title,
+        domain: row.domain || undefined,
+        fields: JSON.parse(row.fields_json),
+        favorite: row.favorite === 1,
+        created_at: row.created_at,
+        updated_at: row.updated_at,
       }
 
       // Decrypt fields for autofill
@@ -599,23 +549,22 @@ export class VaultService {
    * Get item by ID (internal, doesn't decrypt)
    */
   private getItemById(id: string): VaultItem | null {
-    const rows = this.db!.exec('SELECT * FROM vault_items WHERE id = ?', [id])
+    const row = this.db!.prepare('SELECT * FROM vault_items WHERE id = ?').get(id) as any
 
-    if (!rows.length || !rows[0].values.length) {
+    if (!row) {
       return null
     }
 
-    const row = rows[0].values[0]
     return {
-      id: row[0],
-      container_id: row[1] || undefined,
-      category: row[2],
-      title: row[3],
-      domain: row[4] || undefined,
-      fields: JSON.parse(row[5]),
-      favorite: row[6] === 1,
-      created_at: row[7],
-      updated_at: row[8],
+      id: row.id,
+      container_id: row.container_id || undefined,
+      category: row.category,
+      title: row.title,
+      domain: row.domain || undefined,
+      fields: JSON.parse(row.fields_json),
+      favorite: row.favorite === 1,
+      created_at: row.created_at,
+      updated_at: row.updated_at,
     }
   }
 
@@ -819,12 +768,10 @@ export class VaultService {
   }
 
   /**
-   * Save database to disk
+   * Save database to disk (no-op for SQLCipher, handled automatically)
    */
   private saveDB(): void {
-    if (this.db && this.session?.vmk) {
-      saveVaultDB(this.db, this.session.vmk)
-    }
+    // SQLCipher handles writes automatically, no manual save needed
   }
 
   /**
@@ -899,20 +846,17 @@ export class VaultService {
     // Also store in database for redundancy
     const now = Date.now()
 
-    this.db!.run(
-      'INSERT OR REPLACE INTO vault_meta (key, value, updated_at) VALUES (?, ?, ?)',
-      ['salt', salt, now]
-    )
+    this.db!.prepare(
+      'INSERT OR REPLACE INTO vault_meta (key, value, updated_at) VALUES (?, ?, ?)'
+    ).run('salt', salt, now)
 
-    this.db!.run(
-      'INSERT OR REPLACE INTO vault_meta (key, value, updated_at) VALUES (?, ?, ?)',
-      ['wrapped_dek', wrappedDEK, now]
-    )
+    this.db!.prepare(
+      'INSERT OR REPLACE INTO vault_meta (key, value, updated_at) VALUES (?, ?, ?)'
+    ).run('wrapped_dek', wrappedDEK, now)
 
-    this.db!.run(
-      'INSERT OR REPLACE INTO vault_meta (key, value, updated_at) VALUES (?, ?, ?)',
-      ['kdf_params', Buffer.from(JSON.stringify(kdfParams)), now]
-    )
+    this.db!.prepare(
+      'INSERT OR REPLACE INTO vault_meta (key, value, updated_at) VALUES (?, ?, ?)'
+    ).run('kdf_params', Buffer.from(JSON.stringify(kdfParams)), now)
   }
 
   /**
@@ -920,11 +864,10 @@ export class VaultService {
    */
   private loadSettings(): void {
     try {
-      const rows = this.db!.exec('SELECT value FROM vault_meta WHERE key = ?', ['settings'])
+      const row = this.db!.prepare('SELECT value FROM vault_meta WHERE key = ?').get('settings') as any
 
-      if (rows.length && rows[0].values.length) {
-        const settingsData = rows[0].values[0][0]
-        this.settings = JSON.parse(Buffer.from(settingsData).toString('utf-8'))
+      if (row) {
+        this.settings = JSON.parse(Buffer.from(row.value).toString('utf-8'))
       }
     } catch (error) {
       // Use defaults if not found
@@ -937,11 +880,9 @@ export class VaultService {
    */
   private saveSettings(): void {
     const now = Date.now()
-    this.db!.run(
-      'INSERT OR REPLACE INTO vault_meta (key, value, updated_at) VALUES (?, ?, ?)',
-      ['settings', Buffer.from(JSON.stringify(this.settings)), now]
-    )
-    this.saveDB()
+    this.db!.prepare(
+      'INSERT OR REPLACE INTO vault_meta (key, value, updated_at) VALUES (?, ?, ?)'
+    ).run('settings', Buffer.from(JSON.stringify(this.settings)), now)
   }
 
   /**
