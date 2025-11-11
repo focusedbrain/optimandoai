@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { createRoot } from 'react-dom/client'
 import { BackendSwitcher } from './components/BackendSwitcher'
+import { BackendSwitcherInline } from './components/BackendSwitcherInline'
 
 interface ConnectionStatus {
   isConnected: boolean
@@ -1033,90 +1034,8 @@ function SidepanelOrchestrator() {
         </div>
       </div>
 
-      {/* WR Login Section */}
-      <div style={{
-        borderBottom: '1px solid rgba(255,255,255,0.2)',
-        background: theme === 'default' ? 'rgba(118,75,162,0.5)' : 'rgba(0,0,0,0.05)'
-      }}>
-        <div 
-          onClick={() => setIsWRLoginCollapsed(!isWRLoginCollapsed)}
-          style={{
-            padding: '16px 20px',
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            cursor: 'pointer',
-            userSelect: 'none'
-          }}
-        >
-          <div style={{ fontSize: '14px', fontWeight: '700', opacity: 0.95, display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <span style={{ fontSize: '18px' }}>🔐</span> WR Login
-          </div>
-          <div style={{ 
-            fontSize: '16px', 
-            opacity: 0.7,
-            transition: 'transform 0.2s ease',
-            transform: isWRLoginCollapsed ? 'rotate(-90deg)' : 'rotate(0deg)'
-          }}>
-            ▼
-          </div>
-        </div>
-        {!isWRLoginCollapsed && (
-          <div style={{
-            padding: '16px 20px 24px 20px',
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            gap: '16px'
-          }}>
-            <div style={{
-              width: '150px',
-              height: '150px',
-              background: 'white',
-              borderRadius: '10px',
-              padding: '12px',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              boxShadow: '0 4px 12px rgba(0,0,0,0.15)'
-            }}>
-              <div style={{
-                width: '100%',
-                height: '100%',
-                background: 'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' viewBox=\'0 0 100 100\'%3E%3Crect fill=\'%23000\' x=\'0\' y=\'0\' width=\'20\' height=\'20\'/%3E%3Crect fill=\'%23000\' x=\'0\' y=\'80\' width=\'20\' height=\'20\'/%3E%3Crect fill=\'%23000\' x=\'80\' y=\'0\' width=\'20\' height=\'20\'/%3E%3Crect fill=\'%23000\' x=\'10\' y=\'10\' width=\'5\' height=\'5\'/%3E%3Crect fill=\'%23000\' x=\'10\' y=\'85\' width=\'5\' height=\'5\'/%3E%3Crect fill=\'%23000\' x=\'85\' y=\'10\' width=\'5\' height=\'5\'/%3E%3Cpath fill=\'%23000\' d=\'M30,30 h5 v5 h-5 v-5 M40,30 h5 v5 h-5 v-5 M50,30 h5 v5 h-5 v-5 M60,30 h5 v5 h-5 v-5 M30,40 h5 v5 h-5 v-5 M40,40 h5 v5 h-5 v-5 M50,40 h5 v5 h-5 v-5 M60,40 h5 v5 h-5 v-5 M30,50 h5 v5 h-5 v-5 M40,50 h5 v5 h-5 v-5 M50,50 h5 v5 h-5 v-5 M60,50 h5 v5 h-5 v-5 M30,60 h5 v5 h-5 v-5 M40,60 h5 v5 h-5 v-5 M50,60 h5 v5 h-5 v-5 M60,60 h5 v5 h-5 v-5\'/%3E%3C/svg%3E") center/contain no-repeat'
-              }}></div>
-            </div>
-            <div style={{ fontSize: '12px', opacity: 0.75, textAlign: 'center', lineHeight: '1.5' }}>
-              Scan to connect your WR account
-            </div>
-            <button 
-              style={wrButtonStyle()}
-            onMouseEnter={(e) => {
-                if (theme === 'professional') {
-                  e.currentTarget.style.background = 'rgba(15,23,42,0.12)'
-                } else if (theme === 'dark') {
-              e.currentTarget.style.background = 'rgba(255,255,255,0.25)'
-                } else {
-                  e.currentTarget.style.background = 'rgba(118,75,162,0.5)'
-                }
-              e.currentTarget.style.transform = 'translateY(-1px)'
-            }}
-            onMouseLeave={(e) => {
-                if (theme === 'professional') {
-                  e.currentTarget.style.background = 'rgba(15,23,42,0.08)'
-                } else if (theme === 'dark') {
-              e.currentTarget.style.background = 'rgba(255,255,255,0.15)'
-                } else {
-                  e.currentTarget.style.background = 'rgba(102,126,234,0.25)'
-                }
-              e.currentTarget.style.transform = 'translateY(0)'
-              }}
-            >
-              <span>🔗</span> WR Login
-            </button>
-          </div>
-        )}
-      </div>
+      {/* WR Login / Backend Switcher Section */}
+      <BackendSwitcherInline theme={theme} />
 
       {/* Docked Command Chat - Full Featured (Only when pinned) */}
       {isCommandChatPinned && (

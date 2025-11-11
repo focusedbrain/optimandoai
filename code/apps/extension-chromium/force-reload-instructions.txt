@@ -1,0 +1,48 @@
+═══════════════════════════════════════════════════════════════
+  FORCE RELOAD CHROME EXTENSION - Step by Step
+═══════════════════════════════════════════════════════════════
+
+The extension HAS been built successfully with the new layout!
+The problem is Chrome is not reloading it properly.
+
+OPTION 1: Hard Reload (Recommended)
+────────────────────────────────────────────────────────────────
+1. Open Chrome and go to: chrome://extensions
+2. Find "OpenGiraffe" or "WRVault" extension
+3. Toggle it OFF (disable switch)
+4. Wait 2 seconds
+5. Toggle it ON again
+6. Click the reload icon (🔄)
+7. Close ANY open WRVault tabs/panels
+8. Open WRVault fresh
+
+OPTION 2: Complete Reinstall
+────────────────────────────────────────────────────────────────
+1. Go to: chrome://extensions
+2. Click "Remove" on the extension
+3. Click "Load unpacked"
+4. Navigate to and select:
+   C:\Users\oscar\Documents\dev\optimandoai\code_clean\code\apps\extension-chromium\dist
+5. Open WRVault
+
+OPTION 3: Chrome Restart
+────────────────────────────────────────────────────────────────
+1. Close ALL Chrome windows completely
+2. Reopen Chrome
+3. Go to chrome://extensions
+4. Verify extension is loaded
+5. Open WRVault
+
+═══════════════════════════════════════════════════════════════
+WHAT TO EXPECT:
+The password list should now show in a horizontal flexbox layout with:
+- Icon & Title on the left (250px width)
+- Website link in the middle (180px)
+- Password with reveal button (200px)
+- Copy button (📋)
+- Edit and Delete buttons on the right
+
+If you still see the crushed/broken layout after trying all options,
+take a screenshot and let me know.
+═══════════════════════════════════════════════════════════════
+

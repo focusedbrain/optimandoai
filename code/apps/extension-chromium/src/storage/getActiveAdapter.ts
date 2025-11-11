@@ -1,28 +1,43 @@
 import { ChromeStorageAdapter } from '@shared-extension/storage/ChromeStorageAdapter';
 import type { StorageAdapter } from '@shared/core/storage/StorageAdapter';
 import type { BackendConfig } from '@shared/core/storage/StorageAdapter';
+import { OrchestratorSQLiteAdapter } from './OrchestratorSQLiteAdapter';
 
 /**
- * Get the PostgreSQL adapter for enhanced features
- * Returns a proxy adapter that routes through Electron via HTTP API
- * Chrome Storage is always used for UI state (handled by storageWrapper)
+ * Get the active storage adapter based on configuration
+ * Priority: Orchestrator SQLite > PostgreSQL > Chrome Storage
  */
 export async function getActiveAdapter(): Promise<StorageAdapter> {
   return new Promise((resolve) => {
-    chrome.storage.local.get(['backendConfig'], (result) => {
+    chrome.storage.local.get(['backendConfig', 'orchestratorConfig'], (result) => {
       const config: BackendConfig | any = result.backendConfig || {};
+      const orchestratorConfig: any = result.orchestratorConfig || {};
       
-      // Check if PostgreSQL is enabled (new hybrid format)
+      // PRIORITY 1: Check if Orchestrator SQLite is enabled (highest priority)
+      if (orchestratorConfig.sqliteEnabled === true) {
+        console.log('[getActiveAdapter] Using Orchestrator SQLite adapter')
+        const adapter = new OrchestratorSQLiteAdapter();
+        // Auto-connect in the background
+        adapter.connect().catch(err => {
+          console.error('[getActiveAdapter] Failed to connect to Orchestrator SQLite:', err)
+        });
+        resolve(adapter);
+        return;
+      }
+      
+      // PRIORITY 2: Check if PostgreSQL is enabled (hybrid format)
       const postgresEnabled = config.postgres?.enabled || 
                              (config.active === 'postgres'); // Support old format
       
       if (postgresEnabled) {
-        // Return PostgreSQL proxy adapter
+        console.log('[getActiveAdapter] Using PostgreSQL proxy adapter')
         resolve(createPostgresProxyAdapter());
-      } else {
-        // Fallback to Chrome Storage adapter (shouldn't normally be used with hybrid approach)
-        resolve(new ChromeStorageAdapter());
+        return;
       }
+      
+      // PRIORITY 3: Fallback to Chrome Storage adapter
+      console.log('[getActiveAdapter] Using Chrome Storage adapter (fallback)')
+      resolve(new ChromeStorageAdapter());
     });
   });
 }

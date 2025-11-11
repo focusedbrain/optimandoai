@@ -2178,6 +2178,157 @@ app.whenReady().then(async () => {
       }
     })
 
+    // ===== ORCHESTRATOR HTTP API ENDPOINTS (Encrypted SQLite Backend) =====
+    // These endpoints provide encrypted storage for all orchestrator data
+    
+    // POST /api/orchestrator/connect - Connect to orchestrator database (auto-creates if doesn't exist)
+    httpApp.post('/api/orchestrator/connect', async (_req, res) => {
+      try {
+        console.log('[HTTP-ORCHESTRATOR] POST /api/orchestrator/connect')
+        const { getOrchestratorService } = await import('./main/orchestrator-db/service.js')
+        const service = getOrchestratorService()
+        await service.connect()
+        const status = service.getStatus()
+        res.json({ success: true, data: status })
+      } catch (error: any) {
+        console.error('[HTTP-ORCHESTRATOR] Error in connect:', error)
+        res.status(500).json({ success: false, error: error.message || 'Failed to connect' })
+      }
+    })
+
+    // GET /api/orchestrator/status - Get connection status
+    httpApp.get('/api/orchestrator/status', async (_req, res) => {
+      try {
+        console.log('[HTTP-ORCHESTRATOR] GET /api/orchestrator/status')
+        const { getOrchestratorService } = await import('./main/orchestrator-db/service.js')
+        const service = getOrchestratorService()
+        const status = service.getStatus()
+        res.json({ success: true, data: status })
+      } catch (error: any) {
+        console.error('[HTTP-ORCHESTRATOR] Error in status:', error)
+        res.status(500).json({ success: false, error: error.message || 'Failed to get status' })
+      }
+    })
+
+    // GET /api/orchestrator/get - Get value by key
+    httpApp.get('/api/orchestrator/get', async (req, res) => {
+      try {
+        const key = req.query.key as string
+        console.log('[HTTP-ORCHESTRATOR] GET /api/orchestrator/get', { key })
+        const { getOrchestratorService } = await import('./main/orchestrator-db/service.js')
+        const service = getOrchestratorService()
+        const value = await service.get(key)
+        res.json({ success: true, data: value })
+      } catch (error: any) {
+        console.error('[HTTP-ORCHESTRATOR] Error in get:', error)
+        res.status(500).json({ success: false, error: error.message || 'Failed to get value' })
+      }
+    })
+
+    // POST /api/orchestrator/set - Set value by key
+    httpApp.post('/api/orchestrator/set', async (req, res) => {
+      try {
+        const { key, value } = req.body
+        console.log('[HTTP-ORCHESTRATOR] POST /api/orchestrator/set', { key })
+        const { getOrchestratorService } = await import('./main/orchestrator-db/service.js')
+        const service = getOrchestratorService()
+        await service.set(key, value)
+        res.json({ success: true })
+      } catch (error: any) {
+        console.error('[HTTP-ORCHESTRATOR] Error in set:', error)
+        res.status(500).json({ success: false, error: error.message || 'Failed to set value' })
+      }
+    })
+
+    // GET /api/orchestrator/get-all - Get all key-value pairs
+    httpApp.get('/api/orchestrator/get-all', async (_req, res) => {
+      try {
+        console.log('[HTTP-ORCHESTRATOR] GET /api/orchestrator/get-all')
+        const { getOrchestratorService } = await import('./main/orchestrator-db/service.js')
+        const service = getOrchestratorService()
+        const data = await service.getAll()
+        res.json({ success: true, data })
+      } catch (error: any) {
+        console.error('[HTTP-ORCHESTRATOR] Error in get-all:', error)
+        res.status(500).json({ success: false, error: error.message || 'Failed to get all data' })
+      }
+    })
+
+    // POST /api/orchestrator/set-all - Set multiple key-value pairs
+    httpApp.post('/api/orchestrator/set-all', async (req, res) => {
+      try {
+        const { data } = req.body
+        console.log('[HTTP-ORCHESTRATOR] POST /api/orchestrator/set-all', { keyCount: Object.keys(data || {}).length })
+        const { getOrchestratorService } = await import('./main/orchestrator-db/service.js')
+        const service = getOrchestratorService()
+        await service.setAll(data)
+        res.json({ success: true })
+      } catch (error: any) {
+        console.error('[HTTP-ORCHESTRATOR] Error in set-all:', error)
+        res.status(500).json({ success: false, error: error.message || 'Failed to set all data' })
+      }
+    })
+
+    // POST /api/orchestrator/remove - Remove key(s)
+    httpApp.post('/api/orchestrator/remove', async (req, res) => {
+      try {
+        const { keys } = req.body
+        console.log('[HTTP-ORCHESTRATOR] POST /api/orchestrator/remove', { keys })
+        const { getOrchestratorService } = await import('./main/orchestrator-db/service.js')
+        const service = getOrchestratorService()
+        await service.remove(keys)
+        res.json({ success: true })
+      } catch (error: any) {
+        console.error('[HTTP-ORCHESTRATOR] Error in remove:', error)
+        res.status(500).json({ success: false, error: error.message || 'Failed to remove keys' })
+      }
+    })
+
+    // POST /api/orchestrator/migrate - Migrate data from Chrome storage
+    httpApp.post('/api/orchestrator/migrate', async (req, res) => {
+      try {
+        const { chromeData } = req.body
+        console.log('[HTTP-ORCHESTRATOR] POST /api/orchestrator/migrate', { keyCount: Object.keys(chromeData || {}).length })
+        const { getOrchestratorService } = await import('./main/orchestrator-db/service.js')
+        const service = getOrchestratorService()
+        await service.migrateFromChromeStorage(chromeData)
+        res.json({ success: true })
+      } catch (error: any) {
+        console.error('[HTTP-ORCHESTRATOR] Error in migrate:', error)
+        res.status(500).json({ success: false, error: error.message || 'Failed to migrate data' })
+      }
+    })
+
+    // POST /api/orchestrator/export - Export data (future-ready for JSON/YAML/MD)
+    httpApp.post('/api/orchestrator/export', async (req, res) => {
+      try {
+        const options = req.body
+        console.log('[HTTP-ORCHESTRATOR] POST /api/orchestrator/export', { format: options.format })
+        const { getOrchestratorService } = await import('./main/orchestrator-db/service.js')
+        const service = getOrchestratorService()
+        const exportData = await service.exportData(options)
+        res.json({ success: true, data: exportData })
+      } catch (error: any) {
+        console.error('[HTTP-ORCHESTRATOR] Error in export:', error)
+        res.status(500).json({ success: false, error: error.message || 'Failed to export data' })
+      }
+    })
+
+    // POST /api/orchestrator/import - Import data (future-ready for JSON/YAML/MD)
+    httpApp.post('/api/orchestrator/import', async (req, res) => {
+      try {
+        const { data } = req.body
+        console.log('[HTTP-ORCHESTRATOR] POST /api/orchestrator/import')
+        const { getOrchestratorService } = await import('./main/orchestrator-db/service.js')
+        const service = getOrchestratorService()
+        await service.importData(data)
+        res.json({ success: true })
+      } catch (error: any) {
+        console.error('[HTTP-ORCHESTRATOR] Error in import:', error)
+        res.status(500).json({ success: false, error: error.message || 'Failed to import data' })
+      }
+    })
+
     const HTTP_PORT = 51248
     
     // Simple function to start HTTP server with error handling
