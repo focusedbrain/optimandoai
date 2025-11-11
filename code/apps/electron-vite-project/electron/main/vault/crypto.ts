@@ -8,7 +8,11 @@
 
 import { randomBytes, createCipheriv, createDecipheriv, hkdfSync, scrypt } from 'crypto'
 import { promisify } from 'util'
-import sodium from 'libsodium-wrappers'
+import { createRequire } from 'module'
+
+// Use createRequire to load libsodium-wrappers (native module)
+const require = createRequire(import.meta.url)
+let sodium: any = null
 
 // Promisify scrypt for async/await usage
 const scryptAsync = promisify(scrypt) as (password: string | Buffer, salt: string | Buffer, keylen: number, options: { N: number, r: number, p: number }) => Promise<Buffer>
@@ -19,8 +23,16 @@ let sodiumInitialized = false
 
 async function ensureSodiumReady(): Promise<void> {
   if (!sodiumInitialized) {
-    await sodium.ready
-    sodiumInitialized = true
+    try {
+      if (!sodium) {
+        sodium = require('libsodium-wrappers')
+      }
+      await sodium.ready
+      sodiumInitialized = true
+    } catch (error: any) {
+      console.error('[VAULT CRYPTO] Failed to load libsodium:', error)
+      throw new Error(`Failed to initialize libsodium: ${error?.message || error}`)
+    }
   }
 }
 

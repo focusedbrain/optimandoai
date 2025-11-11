@@ -219,8 +219,7 @@ export async function deleteItem(id: string): Promise<void> {
 }
 
 export async function getItem(id: string): Promise<VaultItem> {
-  // Not yet implemented in HTTP endpoints, but keeping for API compatibility
-  throw new Error('getItem not yet implemented')
+  return await apiCall('/item/get', { id })
 }
 
 export async function listItems(filters?: {

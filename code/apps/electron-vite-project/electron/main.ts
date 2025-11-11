@@ -2046,6 +2046,7 @@ app.whenReady().then(async () => {
           category: req.body.category
         }
         const items = await vaultService.listItems(filters)
+        console.log(`[HTTP-VAULT] Returning ${items.length} items`)
         res.json({ success: true, data: items })
       } catch (error: any) {
         console.error('[HTTP-VAULT] Error in items:', error)
@@ -2057,12 +2058,44 @@ app.whenReady().then(async () => {
     httpApp.post('/api/vault/item/create', async (req, res) => {
       try {
         console.log('[HTTP-VAULT] POST /api/vault/item/create')
+        console.log('[HTTP-VAULT] Request body:', JSON.stringify(req.body, null, 2))
         const { vaultService } = await import('./main/vault/rpc.js')
         const item = await vaultService.createItem(req.body)
+        console.log('[HTTP-VAULT] ✅ Item created successfully:', item.id, 'category:', item.category)
+        
+        // Immediately verify the item can be retrieved
+        try {
+          const verifyItems = await vaultService.listItems({ category: item.category })
+          const found = verifyItems.find(i => i.id === item.id)
+          if (found) {
+            console.log('[HTTP-VAULT] ✅ Verified: Item can be retrieved immediately after creation')
+          } else {
+            console.error('[HTTP-VAULT] ⚠️ WARNING: Item created but NOT found in listItems query!')
+            console.error('[HTTP-VAULT] Created item ID:', item.id)
+            console.error('[HTTP-VAULT] Items returned:', verifyItems.map(i => ({ id: i.id, title: i.title })))
+          }
+        } catch (verifyError: any) {
+          console.error('[HTTP-VAULT] ⚠️ Verification query failed:', verifyError?.message)
+        }
+        
         res.json({ success: true, data: item })
       } catch (error: any) {
-        console.error('[HTTP-VAULT] Error in create item:', error)
+        console.error('[HTTP-VAULT] ❌ Error in create item:', error)
+        console.error('[HTTP-VAULT] Error stack:', error?.stack)
         res.status(500).json({ success: false, error: error.message || 'Failed to create item' })
+      }
+    })
+
+    // POST /api/vault/item/get - Get item by ID
+    httpApp.post('/api/vault/item/get', async (req, res) => {
+      try {
+        console.log('[HTTP-VAULT] POST /api/vault/item/get')
+        const { vaultService } = await import('./main/vault/rpc.js')
+        const item = await vaultService.getItem(req.body.id)
+        res.json({ success: true, data: item })
+      } catch (error: any) {
+        console.error('[HTTP-VAULT] Error in get item:', error)
+        res.status(500).json({ success: false, error: error.message || 'Failed to get item' })
       }
     })
 

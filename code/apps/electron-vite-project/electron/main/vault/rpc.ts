@@ -116,7 +116,7 @@ export async function handleVaultRPC(method: string, params: any): Promise<any> 
 
       case 'vault.listItems': {
         const filters = ListItemsRequestSchema.parse(params || {})
-        const items = vaultService.listItems(filters)
+        const items = await vaultService.listItems(filters)
         return { success: true, items }
       }
 

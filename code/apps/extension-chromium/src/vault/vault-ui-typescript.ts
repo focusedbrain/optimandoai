@@ -114,10 +114,12 @@ async function initVaultUI(container: HTMLElement) {
     console.log('[VAULT UI] Connected! Getting vault status...')
     const status = await vaultAPI.getVaultStatus()
     console.log('[VAULT UI] Status received:', status)
+    console.log('[VAULT UI] Available vaults:', status.availableVaults)
 
     if (status.isUnlocked) {
       renderVaultDashboard(container)
-    } else if (status.exists) {
+    } else if (status.exists || (status.availableVaults && status.availableVaults.length > 0)) {
+      // Show unlock screen if vault exists OR if there are any available vaults
       await renderUnlockScreen(container)
     } else {
       renderCreateVaultScreen(container)
@@ -174,8 +176,9 @@ async function initVaultUI(container: HTMLElement) {
     const retryBtn = container.querySelector('#vault-retry-connection')
     if (retryBtn) {
       retryBtn.addEventListener('click', async () => {
-        retryBtn.textContent = '🔄 Retrying...'
-        retryBtn.disabled = true
+        const btn = retryBtn as HTMLButtonElement
+        btn.textContent = '🔄 Retrying...'
+        btn.disabled = true
         try {
           // Check health first
           const isHealthy = await vaultAPI.checkHealth()
@@ -187,10 +190,10 @@ async function initVaultUI(container: HTMLElement) {
           }
         } catch (retryErr: any) {
           console.error('[VAULT UI] Retry failed:', retryErr)
-          retryBtn.textContent = `❌ Retry Failed: ${retryErr.message}`
+          btn.textContent = `❌ Retry Failed: ${retryErr.message}`
           setTimeout(() => {
-            retryBtn.textContent = '🔄 Retry Connection'
-            retryBtn.disabled = false
+            btn.textContent = '🔄 Retry Connection'
+            btn.disabled = false
           }, 3000)
         }
       })
@@ -668,6 +671,7 @@ function renderVaultDashboard(container: HTMLElement) {
               <span class="toggle-icon" style="font-size:10px;transition:transform 0.2s;">▶</span>
             </div>
             <div class="vault-subcategories" data-parent="password" style="display:none;padding-left:16px;padding-top:4px;padding-bottom:4px;">
+              <div class="vault-subcategory-btn" data-action="view-passwords" data-category="password" style="padding:8px 12px;background:rgba(139,92,246,0.1);border-radius:6px;cursor:pointer;font-size:13px;margin-top:4px;border:1px solid rgba(139,92,246,0.2);transition:all 0.2s;">View Passwords</div>
               <div class="vault-subcategory-btn" data-action="add-password" style="padding:8px 12px;background:rgba(139,92,246,0.1);border-radius:6px;cursor:pointer;font-size:13px;margin-top:4px;border:1px solid rgba(139,92,246,0.2);transition:all 0.2s;">+ Add Password</div>
             </div>
           </div>
@@ -679,6 +683,7 @@ function renderVaultDashboard(container: HTMLElement) {
               <span class="toggle-icon" style="font-size:10px;transition:transform 0.2s;">▶</span>
             </div>
             <div class="vault-subcategories" data-parent="person" style="display:none;padding-left:16px;padding-top:4px;padding-bottom:4px;">
+              <div class="vault-subcategory-btn" data-action="view-identities" data-category="identity" style="padding:8px 12px;background:rgba(139,92,246,0.1);border-radius:6px;cursor:pointer;font-size:13px;margin-top:4px;border:1px solid rgba(139,92,246,0.2);transition:all 0.2s;">View Identities</div>
               <div class="vault-subcategory-btn" data-action="add-identity" style="padding:8px 12px;background:rgba(139,92,246,0.1);border-radius:6px;cursor:pointer;font-size:13px;margin-top:4px;border:1px solid rgba(139,92,246,0.2);transition:all 0.2s;">+ Add Identity</div>
               <div id="person-containers" style="margin-top:4px;"></div>
             </div>
@@ -691,6 +696,7 @@ function renderVaultDashboard(container: HTMLElement) {
               <span class="toggle-icon" style="font-size:10px;transition:transform 0.2s;">▶</span>
             </div>
             <div class="vault-subcategories" data-parent="company" style="display:none;padding-left:16px;padding-top:4px;padding-bottom:4px;">
+              <div class="vault-subcategory-btn" data-action="view-companies" data-category="company" style="padding:8px 12px;background:rgba(139,92,246,0.1);border-radius:6px;cursor:pointer;font-size:13px;margin-top:4px;border:1px solid rgba(139,92,246,0.2);transition:all 0.2s;">View Companies</div>
               <div class="vault-subcategory-btn" data-action="add-company" style="padding:8px 12px;background:rgba(139,92,246,0.1);border-radius:6px;cursor:pointer;font-size:13px;margin-top:4px;border:1px solid rgba(139,92,246,0.2);transition:all 0.2s;">+ Add Company</div>
               <div id="company-containers" style="margin-top:4px;"></div>
             </div>
@@ -703,6 +709,7 @@ function renderVaultDashboard(container: HTMLElement) {
               <span class="toggle-icon" style="font-size:10px;transition:transform 0.2s;">▶</span>
             </div>
             <div class="vault-subcategories" data-parent="business" style="display:none;padding-left:16px;padding-top:4px;padding-bottom:4px;">
+              <div class="vault-subcategory-btn" data-action="view-businesses" data-category="business" style="padding:8px 12px;background:rgba(139,92,246,0.1);border-radius:6px;cursor:pointer;font-size:13px;margin-top:4px;border:1px solid rgba(139,92,246,0.2);transition:all 0.2s;">View Businesses</div>
               <div class="vault-subcategory-btn" data-action="add-business" style="padding:8px 12px;background:rgba(139,92,246,0.1);border-radius:6px;cursor:pointer;font-size:13px;margin-top:4px;border:1px solid rgba(139,92,246,0.2);transition:all 0.2s;">+ Add Business</div>
               <div id="business-containers" style="margin-top:4px;"></div>
             </div>
@@ -715,6 +722,7 @@ function renderVaultDashboard(container: HTMLElement) {
               <span class="toggle-icon" style="font-size:10px;transition:transform 0.2s;">▶</span>
             </div>
             <div class="vault-subcategories" data-parent="custom" style="display:none;padding-left:16px;padding-top:4px;padding-bottom:4px;">
+              <div class="vault-subcategory-btn" data-action="view-data" data-category="custom" style="padding:8px 12px;background:rgba(139,92,246,0.1);border-radius:6px;cursor:pointer;font-size:13px;margin-top:4px;border:1px solid rgba(139,92,246,0.2);transition:all 0.2s;">View Data</div>
               <div class="vault-subcategory-btn" data-action="add-custom" style="padding:8px 12px;background:rgba(139,92,246,0.1);border-radius:6px;cursor:pointer;font-size:13px;margin-top:4px;border:1px solid rgba(139,92,246,0.2);transition:all 0.2s;">+ Add Data</div>
               <div id="custom-containers" style="margin-top:4px;"></div>
             </div>
@@ -811,7 +819,19 @@ function renderVaultDashboard(container: HTMLElement) {
     btn.addEventListener('click', (e) => {
       e.stopPropagation()
       const action = (btn as HTMLElement).getAttribute('data-action')
-      if (action === 'add-password') {
+      const category = (btn as HTMLElement).getAttribute('data-category')
+      
+      if (action === 'view-passwords') {
+        loadVaultItems(container, 'password')
+      } else if (action === 'view-identities') {
+        loadVaultItems(container, 'identity')
+      } else if (action === 'view-companies') {
+        loadVaultItems(container, 'company')
+      } else if (action === 'view-businesses') {
+        loadVaultItems(container, 'business')
+      } else if (action === 'view-data') {
+        loadVaultItems(container, 'custom')
+      } else if (action === 'add-password') {
         renderAddDataDialog(container, 'password')
       } else if (action === 'add-identity') {
         renderAddDataDialog(container, 'identity')
@@ -914,6 +934,9 @@ function renderItemsList(listDiv: HTMLElement, items: any[]) {
 async function loadVaultItems(container: HTMLElement, category: string) {
   const listDiv = container.querySelector('#vault-items-list') as HTMLElement
   if (!listDiv) return
+
+  // Store current category for refresh after save
+  listDiv.setAttribute('data-current-category', category)
 
   try {
     listDiv.innerHTML = '<div style="text-align:center;padding:40px;color:rgba(255,255,255,0.5);">Loading...</div>'
@@ -1062,24 +1085,281 @@ async function loadContainerItems(container: HTMLElement, containerId: string) {
   }
 }
 
-// Render container data professionally
+// Render container data professionally - Password Manager Style List View
 function renderContainerData(listDiv: HTMLElement, items: VaultItem[]) {
-  // Group items by category for better display
-  const grouped: Record<string, VaultItem[]> = {}
-  items.forEach(item => {
-    const cat = item.category || 'other'
-    if (!grouped[cat]) grouped[cat] = []
-    grouped[cat].push(item)
+  if (items.length === 0) {
+    listDiv.innerHTML = '<div style="text-align:center;padding:60px 20px;color:rgba(255,255,255,0.5);"><div style="font-size:48px;margin-bottom:16px;">📭</div><div style="font-size:16px;margin-bottom:8px;">No entries found</div><div style="font-size:13px;">Click "+ Add" to create your first entry</div></div>'
+    return
+  }
+  
+  // Password manager style: Compact list with view/edit buttons
+  listDiv.innerHTML = `
+    <div style="background:rgba(0,0,0,0.2);border-radius:12px;overflow:hidden;border:1px solid rgba(139,92,246,0.2);">
+      <div style="display:grid;grid-template-columns:1fr auto auto;gap:16px;padding:16px;background:rgba(139,92,246,0.1);border-bottom:1px solid rgba(139,92,246,0.2);font-size:12px;font-weight:600;color:rgba(255,255,255,0.7);text-transform:uppercase;letter-spacing:0.5px;">
+        <div>Entry</div>
+        <div style="text-align:center;width:80px;">Actions</div>
+        <div style="text-align:center;width:80px;">Options</div>
+      </div>
+      ${items.map(item => renderListItemRow(item)).join('')}
+    </div>
+  `
+  
+  // Add event handlers
+  listDiv.querySelectorAll('.vault-list-item').forEach((row) => {
+    const itemId = (row as HTMLElement).getAttribute('data-item-id')
+    if (!itemId) return
+    
+    // View button - shows details in a modal
+    const viewBtn = row.querySelector('.vault-item-view-btn')
+    viewBtn?.addEventListener('click', async () => {
+      try {
+        const item = await vaultAPI.getItem(itemId)
+        renderItemViewModal(item)
+      } catch (err: any) {
+        alert(`Error loading item: ${err.message || err}`)
+      }
+    })
+    
+    // Edit button
+    const editBtn = row.querySelector('.vault-item-edit-btn')
+    editBtn?.addEventListener('click', async () => {
+      try {
+        const item = await vaultAPI.getItem(itemId)
+        const container = listDiv.closest('#wrvault-container') || document.querySelector('#wrvault-container')
+        if (container) {
+          renderEditDataDialog(container as HTMLElement, item)
+        }
+      } catch (err: any) {
+        alert(`Error loading item: ${err.message || err}`)
+      }
+    })
+    
+    // Delete button
+    const deleteBtn = row.querySelector('.vault-item-delete-btn')
+    deleteBtn?.addEventListener('click', async () => {
+      const title = (row.querySelector('.vault-item-title') as HTMLElement)?.textContent || 'this item'
+      if (confirm(`Are you sure you want to delete "${title}"?`)) {
+        try {
+          await vaultAPI.deleteItem(itemId)
+          // Refresh the view
+          const containerId = (row as HTMLElement).getAttribute('data-container-id')
+          const category = (row as HTMLElement).getAttribute('data-category')
+          const container = listDiv.closest('#wrvault-container') as HTMLElement
+          
+          if (containerId) {
+            loadContainerItems(container, containerId)
+          } else if (category) {
+            loadVaultItems(container, category)
+          } else {
+            loadVaultItems(container, 'all')
+          }
+          loadContainersIntoTree(container)
+        } catch (err: any) {
+          alert(`Error deleting item: ${err.message || err}`)
+        }
+      }
+    })
+  })
+}
+
+// Render a single list item row (Password Manager Style)
+function renderListItemRow(item: VaultItem): string {
+  // Get primary field value for preview (username for passwords, first field for others)
+  let previewValue = ''
+  if (item.category === 'password') {
+    const usernameField = item.fields.find(f => f.key === 'username' || f.key === 'email')
+    previewValue = usernameField ? (usernameField.encrypted ? '••••••••' : usernameField.value) : ''
+  } else if (item.fields.length > 0) {
+    const firstField = item.fields[0]
+    previewValue = firstField.encrypted ? '••••••••' : (firstField.value || '').substring(0, 30)
+  }
+  
+  const categoryIcon = {
+    password: '🔑',
+    identity: '👤',
+    company: '🏢',
+    business: '💼',
+    custom: '📝'
+  }[item.category] || '📄'
+  
+  return `
+    <div class="vault-list-item" data-item-id="${item.id}" data-container-id="${item.container_id || ''}" data-category="${item.category}" style="
+      display:grid;
+      grid-template-columns:1fr auto auto;
+      gap:16px;
+      padding:16px;
+      border-bottom:1px solid rgba(139,92,246,0.1);
+      transition:all 0.2s;
+      cursor:pointer;
+    " onmouseenter="this.style.background='rgba(139,92,246,0.08)'" onmouseleave="this.style.background='transparent'">
+      <div style="display:flex;align-items:center;gap:12px;min-width:0;">
+        <div style="font-size:20px;flex-shrink:0;">${categoryIcon}</div>
+        <div style="flex:1;min-width:0;">
+          <div class="vault-item-title" style="font-size:15px;font-weight:600;color:#fff;margin-bottom:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(item.title || 'Untitled')}</div>
+          ${previewValue ? `<div style="font-size:13px;color:rgba(255,255,255,0.6);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(previewValue)}</div>` : ''}
+          ${item.domain ? `<div style="font-size:12px;color:rgba(255,255,255,0.5);margin-top:2px;">${escapeHtml(item.domain)}</div>` : ''}
+        </div>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center;width:80px;justify-content:center;">
+        <button class="vault-item-view-btn" style="
+          background:rgba(139,92,246,0.2);
+          border:1px solid rgba(139,92,246,0.4);
+          padding:6px 12px;
+          border-radius:6px;
+          color:#a78bfa;
+          font-size:12px;
+          cursor:pointer;
+          transition:all 0.2s;
+          white-space:nowrap;
+        " onmouseenter="this.style.background='rgba(139,92,246,0.3)'" onmouseleave="this.style.background='rgba(139,92,246,0.2)'">View</button>
+        <button class="vault-item-edit-btn" style="
+          background:rgba(139,92,246,0.2);
+          border:1px solid rgba(139,92,246,0.4);
+          padding:6px 12px;
+          border-radius:6px;
+          color:#a78bfa;
+          font-size:12px;
+          cursor:pointer;
+          transition:all 0.2s;
+          white-space:nowrap;
+        " onmouseenter="this.style.background='rgba(139,92,246,0.3)'" onmouseleave="this.style.background='rgba(139,92,246,0.2)'">Edit</button>
+      </div>
+      <div style="display:flex;align-items:center;justify-content:center;width:80px;">
+        <button class="vault-item-delete-btn" style="
+          background:rgba(255,59,48,0.1);
+          border:1px solid rgba(255,59,48,0.3);
+          padding:6px 10px;
+          border-radius:6px;
+          color:#ff3b30;
+          font-size:12px;
+          cursor:pointer;
+          transition:all 0.2s;
+        " onmouseenter="this.style.background='rgba(255,59,48,0.2)'" onmouseleave="this.style.background='rgba(255,59,48,0.1)'" title="Delete">🗑️</button>
+      </div>
+    </div>
+  `
+}
+
+// Render item view modal (Password Manager Style)
+function renderItemViewModal(item: VaultItem) {
+  const overlay = document.createElement('div')
+  overlay.style.cssText = `
+    position:fixed;
+    inset:0;
+    background:rgba(0,0,0,0.9);
+    z-index:2147483651;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    backdrop-filter:blur(8px);
+  `
+  
+  const fieldsHtml = item.fields.map((field, index) => {
+    const value = field.encrypted ? '••••••••' : escapeHtml(field.value || '')
+    const actualValue = field.value || ''
+    const fieldId = `vault-field-${item.id}-${index}`
+    return `
+      <div style="margin-bottom:20px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+          <div style="font-size:11px;color:rgba(255,255,255,0.5);text-transform:uppercase;letter-spacing:0.5px;">
+            ${escapeHtml(field.key)}
+          </div>
+          ${!field.encrypted && actualValue ? `<button class="vault-copy-btn" data-field-id="${fieldId}" data-value="${escapeHtml(actualValue)}" style="
+            background:rgba(139,92,246,0.2);
+            border:1px solid rgba(139,92,246,0.4);
+            padding:4px 10px;
+            border-radius:6px;
+            color:#a78bfa;
+            font-size:11px;
+            cursor:pointer;
+            transition:all 0.2s;
+            white-space:nowrap;
+          " onmouseenter="this.style.background='rgba(139,92,246,0.3)'" onmouseleave="this.style.background='rgba(139,92,246,0.2)'">📋 Copy</button>` : ''}
+        </div>
+        <div id="${fieldId}" style="font-size:15px;color:#fff;word-break:break-word;background:rgba(0,0,0,0.3);padding:12px;border-radius:8px;border:1px solid rgba(139,92,246,0.2);position:relative;">
+          ${value}
+        </div>
+        ${field.explanation ? `<div style="font-size:12px;color:rgba(255,255,255,0.5);margin-top:6px;font-style:italic;">${escapeHtml(field.explanation)}</div>` : ''}
+      </div>
+    `
+  }).join('')
+  
+  overlay.innerHTML = `
+    <div style="
+      background:linear-gradient(135deg, #0a0a0a 0%, #1a1a2e 100%);
+      border-radius:16px;
+      width:90vw;
+      max-width:600px;
+      max-height:90vh;
+      overflow-y:auto;
+      color:white;
+      box-shadow:0 25px 50px rgba(139, 92, 246, 0.4);
+      border:1px solid rgba(139, 92, 246, 0.4);
+    ">
+      <div style="padding:32px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:24px;">
+          <h2 style="font-size:24px;font-weight:700;color:#fff;">${escapeHtml(item.title || 'Untitled')}</h2>
+          <button id="vault-view-close" style="
+            background:rgba(255,255,255,0.1);
+            border:1px solid rgba(255,255,255,0.2);
+            width:32px;
+            height:32px;
+            border-radius:8px;
+            color:#fff;
+            font-size:20px;
+            cursor:pointer;
+            display:flex;
+            align-items:center;
+            justify-content:center;
+          ">×</button>
+        </div>
+        ${item.domain ? `<div style="margin-bottom:20px;padding:12px;background:rgba(139,92,246,0.1);border-radius:8px;border:1px solid rgba(139,92,246,0.2);"><div style="font-size:11px;color:rgba(255,255,255,0.5);margin-bottom:4px;">Domain</div><div style="font-size:14px;color:#fff;">${escapeHtml(item.domain)}</div></div>` : ''}
+        <div style="border-top:1px solid rgba(139,92,246,0.2);padding-top:20px;">
+          ${fieldsHtml}
+        </div>
+      </div>
+    </div>
+  `
+  
+  document.body.appendChild(overlay)
+  
+  // Copy to clipboard functionality
+  overlay.querySelectorAll('.vault-copy-btn').forEach((btn) => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation()
+      const button = btn as HTMLButtonElement
+      const value = button.getAttribute('data-value')
+      const fieldId = button.getAttribute('data-field-id')
+      
+      if (value) {
+        try {
+          await navigator.clipboard.writeText(value)
+          
+          // Visual feedback
+          const originalText = button.textContent
+          button.textContent = '✓ Copied!'
+          button.style.background = 'rgba(34,197,94,0.3)'
+          button.style.borderColor = 'rgba(34,197,94,0.5)'
+          button.style.color = '#4ade80'
+          
+          setTimeout(() => {
+            button.textContent = originalText
+            button.style.background = 'rgba(139,92,246,0.2)'
+            button.style.borderColor = 'rgba(139,92,246,0.4)'
+            button.style.color = '#a78bfa'
+          }, 2000)
+        } catch (err) {
+          console.error('[VAULT UI] Failed to copy to clipboard:', err)
+          alert('Failed to copy to clipboard. Please try again.')
+        }
+      }
+    })
   })
   
-  listDiv.innerHTML = Object.entries(grouped).map(([category, categoryItems]) => `
-    <div style="margin-bottom:24px;">
-      <h4 style="font-size:13px;font-weight:600;color:rgba(255,255,255,0.7);text-transform:uppercase;letter-spacing:1px;margin-bottom:12px;padding-bottom:8px;border-bottom:1px solid rgba(139,92,246,0.2);">
-        ${escapeHtml(category)}
-      </h4>
-      ${categoryItems.map(item => renderItemCard(item)).join('')}
-    </div>
-  `).join('')
+  overlay.querySelector('#vault-view-close')?.addEventListener('click', () => overlay.remove())
+  overlay.addEventListener('click', (e) => {
+    if (e.target === overlay) overlay.remove()
+  })
 }
 
 // Render a single item card professionally
@@ -1106,14 +1386,14 @@ function renderItemCard(item: VaultItem): string {
       padding:20px;
       margin-bottom:16px;
       transition:all 0.2s;
-    " class="vault-item-card" onmouseenter="this.style.background='rgba(139, 92, 246,0.12)';this.style.border='1px solid rgba(139, 92, 246,0.3)'" onmouseleave="this.style.background='rgba(139, 92, 246,0.08)';this.style.border='1px solid rgba(139, 92, 246,0.2)'">
+    " class="vault-item-card" data-item-id="${item.id}" data-container-id="${item.container_id || ''}" data-category="${item.category}" onmouseenter="this.style.background='rgba(139, 92, 246,0.12)';this.style.border='1px solid rgba(139, 92, 246,0.3)'" onmouseleave="this.style.background='rgba(139, 92, 246,0.08)';this.style.border='1px solid rgba(139, 92, 246,0.2)'">
       <div style="display:flex;justify-content:space-between;align-items:start;margin-bottom:16px;">
         <div>
-          <div style="font-size:18px;font-weight:600;margin-bottom:4px;color:#fff;">${escapeHtml(item.title || 'Untitled')}</div>
+          <div class="vault-item-title" style="font-size:18px;font-weight:600;margin-bottom:4px;color:#fff;">${escapeHtml(item.title || 'Untitled')}</div>
           ${item.domain ? `<div style="font-size:12px;color:rgba(255,255,255,0.6);">${escapeHtml(item.domain)}</div>` : ''}
         </div>
         <div style="display:flex;gap:8px;">
-          <button style="
+          <button class="vault-item-edit-btn" style="
             background:rgba(139, 92, 246,0.3);
             border:1px solid rgba(139, 92, 246,0.5);
             padding:6px 14px;
@@ -1123,7 +1403,7 @@ function renderItemCard(item: VaultItem): string {
             cursor:pointer;
             transition:all 0.2s;
           " onmouseenter="this.style.background='rgba(139, 92, 246,0.5)'" onmouseleave="this.style.background='rgba(139, 92, 246,0.3)'">Edit</button>
-          <button style="
+          <button class="vault-item-delete-btn" style="
             background:rgba(255,59,48,0.2);
             border:1px solid rgba(255,59,48,0.4);
             padding:6px 14px;
@@ -1723,36 +2003,75 @@ function renderAddDataDialog(container: HTMLElement, preselectedCategory?: 'pass
   
   // Save handler
   dialog.querySelector('#vault-add-data-save')?.addEventListener('click', async () => {
-    const category = categorySelect.value
+    const saveBtn = dialog.querySelector('#vault-add-data-save') as HTMLButtonElement
+    const originalBtnText = saveBtn.textContent
     
-    if (!category) {
-      alert('Please select a category')
-      return
-    }
-    
-    let title: string
-    
-    if (category === 'identity') {
-      // For identity, generate title from first_name + surname
-      const firstName = (dialog.querySelector('#field-first_name') as HTMLInputElement)?.value.trim()
-      const surname = (dialog.querySelector('#field-surname') as HTMLInputElement)?.value.trim()
-      
-      if (!firstName || !surname) {
-        alert('Please enter both first name and surname')
-        return
-      }
-      
-      title = `${firstName} ${surname}`
-    } else {
-      title = (dialog.querySelector('#vault-add-title') as HTMLInputElement)?.value.trim()
-      
-      if (!title) {
-        alert(`Please enter a ${titleLabel.toLowerCase()}`)
-        return
-      }
-    }
+    // Disable button during save
+    saveBtn.disabled = true
+    saveBtn.style.opacity = '0.6'
+    saveBtn.style.cursor = 'not-allowed'
+    saveBtn.textContent = 'Saving...'
     
     try {
+      // Check vault status before attempting to save
+      const status = await vaultAPI.getVaultStatus()
+      if (!status.isUnlocked) {
+        alert('Vault is locked. Please unlock your vault first.')
+        saveBtn.disabled = false
+        saveBtn.style.opacity = '1'
+        saveBtn.style.cursor = 'pointer'
+        saveBtn.textContent = originalBtnText
+        return
+      }
+      
+      const category = categorySelect.value
+      
+      if (!category) {
+        alert('Please select a category')
+        saveBtn.disabled = false
+        saveBtn.style.opacity = '1'
+        saveBtn.style.cursor = 'pointer'
+        saveBtn.textContent = originalBtnText
+        return
+      }
+      
+      let title: string
+      
+      if (category === 'identity') {
+        // For identity, generate title from first_name + surname
+        const firstName = (dialog.querySelector('#field-first_name') as HTMLInputElement)?.value.trim()
+        const surname = (dialog.querySelector('#field-surname') as HTMLInputElement)?.value.trim()
+        
+        if (!firstName || !surname) {
+          alert('Please enter both first name and surname')
+          saveBtn.disabled = false
+          saveBtn.style.opacity = '1'
+          saveBtn.style.cursor = 'pointer'
+          saveBtn.textContent = originalBtnText
+          return
+        }
+        
+        title = `${firstName} ${surname}`
+      } else {
+        title = (dialog.querySelector('#vault-add-title') as HTMLInputElement)?.value.trim()
+        
+        if (!title) {
+          const categoryLabels: Record<string, string> = {
+            password: 'service name',
+            identity: 'identity name',
+            company: 'company name',
+            business: 'business name',
+            custom: 'data group name'
+          }
+          alert(`Please enter a ${categoryLabels[category] || 'title'}`)
+          saveBtn.disabled = false
+          saveBtn.style.opacity = '1'
+          saveBtn.style.cursor = 'pointer'
+          saveBtn.textContent = originalBtnText
+          return
+        }
+      }
+      
       const fields: any[] = []
       
       if (category === 'custom') {
@@ -1820,6 +2139,10 @@ function renderAddDataDialog(container: HTMLElement, preselectedCategory?: 'pass
       
       if (fields.length === 0) {
         alert('Please fill in at least one field')
+        saveBtn.disabled = false
+        saveBtn.style.opacity = '1'
+        saveBtn.style.cursor = 'pointer'
+        saveBtn.textContent = originalBtnText
         return
       }
       
@@ -1829,18 +2152,26 @@ function renderAddDataDialog(container: HTMLElement, preselectedCategory?: 'pass
       if (category === 'identity' || category === 'company' || category === 'business') {
         const containerType = category === 'identity' ? 'person' : category === 'company' ? 'company' : 'business'
         try {
+          console.log('[VAULT UI] Creating container:', containerType, title)
           const container = await vaultAPI.createContainer(containerType, title, false)
           containerId = container.id
+          console.log('[VAULT UI] Container created successfully:', containerId)
         } catch (err: any) {
           console.error('[VAULT UI] Error creating container:', err)
+          console.error('[VAULT UI] Error stack:', err.stack)
           alert(`Error creating ${category}: ${err.message || err}`)
+          saveBtn.disabled = false
+          saveBtn.style.opacity = '1'
+          saveBtn.style.cursor = 'pointer'
+          saveBtn.textContent = originalBtnText
           return
         }
       }
       
       // Create item with fields
       try {
-        await vaultAPI.createItem({
+        console.log('[VAULT UI] Creating item:', { category, title, fieldsCount: fields.length, containerId })
+        const createdItem = await vaultAPI.createItem({
           container_id: containerId,
           category: category as any,
           title,
@@ -1848,17 +2179,50 @@ function renderAddDataDialog(container: HTMLElement, preselectedCategory?: 'pass
           domain: category === 'password' ? (dialog.querySelector('#field-url') as HTMLInputElement)?.value.trim() : undefined,
           favorite: false
         })
+        console.log('[VAULT UI] Item created successfully:', createdItem.id)
       } catch (err: any) {
         console.error('[VAULT UI] Error creating item:', err)
+        console.error('[VAULT UI] Error stack:', err.stack)
         alert(`Error saving data: ${err.message || err}`)
+        saveBtn.disabled = false
+        saveBtn.style.opacity = '1'
+        saveBtn.style.cursor = 'pointer'
+        saveBtn.textContent = originalBtnText
         return
       }
       
+      // Success - close dialog and show notification
       closeDialog()
-      renderVaultDashboard(container) // Refresh dashboard
+      
+      // Show success notification
+      showSuccessNotification(`Successfully saved ${category === 'password' ? 'password' : category === 'identity' ? 'identity' : category === 'company' ? 'company' : category === 'business' ? 'business' : 'data'}!`)
+      
+      // Store current category view to refresh it
+      const listDiv = container.querySelector('#vault-items-list') as HTMLElement
+      const currentCategory = listDiv?.getAttribute('data-current-category') || category
+      
+      // Refresh dashboard and reload containers into tree
+      renderVaultDashboard(container)
+      
+      // Small delay to ensure DOM is ready, then refresh items list
+      setTimeout(() => {
+        loadContainersIntoTree(container)
+        // Refresh the items list with the current category
+        loadVaultItems(container, currentCategory)
+        // Store current category for next refresh
+        const newListDiv = container.querySelector('#vault-items-list') as HTMLElement
+        if (newListDiv) {
+          newListDiv.setAttribute('data-current-category', category)
+        }
+      }, 200)
     } catch (err: any) {
+      console.error('[VAULT UI] Unexpected error saving data:', err)
+      console.error('[VAULT UI] Error stack:', err.stack)
       alert(`Error saving data: ${err.message || err}`)
-      console.error('[VAULT UI] Error saving data:', err)
+      saveBtn.disabled = false
+      saveBtn.style.opacity = '1'
+      saveBtn.style.cursor = 'pointer'
+      saveBtn.textContent = originalBtnText
     }
   })
   
@@ -1870,11 +2234,213 @@ function renderAddDataDialog(container: HTMLElement, preselectedCategory?: 'pass
   })
 }
 
+// Render Edit Data Dialog (similar to Add Data Dialog but pre-filled)
+function renderEditDataDialog(container: HTMLElement, item: VaultItem) {
+  // Reuse the add dialog function but with pre-filled data
+  renderAddDataDialog(container, item.category as any)
+  
+  // Wait for dialog to be rendered, then fill in the data
+  setTimeout(() => {
+    const overlay = document.querySelector('#vault-add-data-overlay')
+    const dialog = overlay?.querySelector('div') as HTMLElement
+    if (!dialog) return
+    
+    // Set category (should already be set, but ensure it)
+    const categorySelect = dialog.querySelector('#vault-add-category') as HTMLSelectElement
+    if (categorySelect) {
+      categorySelect.value = item.category
+      categorySelect.dispatchEvent(new Event('change'))
+    }
+    
+    // Fill in title (except for identity which generates from name fields)
+    if (item.category !== 'identity') {
+      const titleInput = dialog.querySelector('#vault-add-title') as HTMLInputElement
+      if (titleInput) {
+        titleInput.value = item.title
+      }
+    }
+    
+    // Fill in fields
+    item.fields.forEach(field => {
+      const input = dialog.querySelector(`#field-${field.key}`) as HTMLInputElement | HTMLTextAreaElement
+      if (input) {
+        input.value = field.value || ''
+      }
+    })
+    
+    // Update save button to say "Update" and change handler
+    const saveBtn = dialog.querySelector('#vault-add-data-save') as HTMLElement
+    if (saveBtn) {
+      saveBtn.textContent = 'Update Data'
+      
+      // Remove old click handler and add new one for update
+      const newSaveBtn = saveBtn.cloneNode(true) as HTMLElement
+      saveBtn.parentNode?.replaceChild(newSaveBtn, saveBtn)
+      
+      newSaveBtn.addEventListener('click', async () => {
+        const category = categorySelect.value
+        
+        let title: string
+        if (category === 'identity') {
+          const firstName = (dialog.querySelector('#field-first_name') as HTMLInputElement)?.value.trim()
+          const surname = (dialog.querySelector('#field-surname') as HTMLInputElement)?.value.trim()
+          if (!firstName || !surname) {
+            alert('Please enter both first name and surname')
+            return
+          }
+          title = `${firstName} ${surname}`
+        } else {
+          title = (dialog.querySelector('#vault-add-title') as HTMLInputElement)?.value.trim()
+          if (!title) {
+            alert('Please enter a title')
+            return
+          }
+        }
+        
+        try {
+          const fields: any[] = []
+          
+          // Collect standard fields
+          let standardFields: StandardFieldDef[] = []
+          if (category === 'password') standardFields = PASSWORD_STANDARD_FIELDS
+          else if (category === 'identity') standardFields = IDENTITY_STANDARD_FIELDS
+          else if (category === 'company') standardFields = COMPANY_STANDARD_FIELDS
+          else if (category === 'business') standardFields = BUSINESS_STANDARD_FIELDS
+          
+          standardFields.forEach(field => {
+            const input = dialog.querySelector(`#field-${field.key}`) as HTMLInputElement | HTMLTextAreaElement
+            if (input && input.value.trim()) {
+              fields.push({
+                key: field.key,
+                value: input.value.trim(),
+                encrypted: field.type === 'password',
+                type: field.type,
+                explanation: field.explanation
+              })
+            }
+          })
+          
+          // Collect custom fields
+          const customFieldsContainer = dialog.querySelector('#vault-custom-fields') as HTMLElement
+          if (customFieldsContainer) {
+            customFieldsContainer.querySelectorAll('.remove-custom-field').forEach((btn) => {
+              const fieldDiv = btn.parentElement?.parentElement
+              const nameInput = fieldDiv?.querySelector('.custom-field-name') as HTMLInputElement
+              const valueInput = fieldDiv?.querySelector('.custom-field-value') as HTMLInputElement
+              const explanationInput = fieldDiv?.querySelector('.custom-field-explanation') as HTMLTextAreaElement
+              
+              if (nameInput?.value.trim() && valueInput?.value.trim()) {
+                fields.push({
+                  key: nameInput.value.trim(),
+                  value: valueInput.value.trim(),
+                  encrypted: false,
+                  type: 'text',
+                  explanation: explanationInput?.value.trim() || undefined
+                })
+              }
+            })
+          }
+          
+          if (fields.length === 0) {
+            alert('Please fill in at least one field')
+            return
+          }
+          
+          // Update item
+          await vaultAPI.updateItem(item.id, {
+            title,
+            fields,
+            domain: category === 'password' ? (dialog.querySelector('#field-url') as HTMLInputElement)?.value.trim() : undefined
+          })
+          
+          // Close dialog and refresh
+          overlay?.remove()
+          
+          // Refresh the view
+          if (item.container_id) {
+            loadContainerItems(container, item.container_id)
+          } else {
+            loadVaultItems(container, item.category)
+          }
+          loadContainersIntoTree(container)
+        } catch (err: any) {
+          alert(`Error updating data: ${err.message || err}`)
+          console.error('[VAULT UI] Error updating data:', err)
+        }
+      })
+    }
+  }, 100)
+}
+
 // Helper function to escape HTML
 function escapeHtml(text: string): string {
   const div = document.createElement('div')
   div.textContent = text
   return div.innerHTML
+}
+
+// Show success notification
+function showSuccessNotification(message: string) {
+  const notification = document.createElement('div')
+  notification.style.cssText = `
+    position:fixed;
+    top:20px;
+    right:20px;
+    background:linear-gradient(135deg, rgba(34,197,94,0.95) 0%, rgba(22,163,74,0.95) 100%);
+    color:#fff;
+    padding:16px 24px;
+    border-radius:12px;
+    box-shadow:0 10px 30px rgba(34,197,94,0.4);
+    z-index:2147483652;
+    font-size:14px;
+    font-weight:600;
+    display:flex;
+    align-items:center;
+    gap:12px;
+    animation:slideIn 0.3s ease-out;
+    border:1px solid rgba(34,197,94,0.5);
+  `
+  notification.innerHTML = `
+    <span style="font-size:20px;">✓</span>
+    <span>${escapeHtml(message)}</span>
+  `
+  
+  // Add animation
+  const style = document.createElement('style')
+  style.textContent = `
+    @keyframes slideIn {
+      from {
+        transform: translateX(100%);
+        opacity: 0;
+      }
+      to {
+        transform: translateX(0);
+        opacity: 1;
+      }
+    }
+    @keyframes slideOut {
+      from {
+        transform: translateX(0);
+        opacity: 1;
+      }
+      to {
+        transform: translateX(100%);
+        opacity: 0;
+      }
+    }
+  `
+  document.head.appendChild(style)
+  
+  document.body.appendChild(notification)
+  
+  // Auto-remove after 3 seconds
+  setTimeout(() => {
+    notification.style.animation = 'slideOut 0.3s ease-out'
+    setTimeout(() => {
+      notification.remove()
+      style.remove()
+    }, 300)
+  }, 3000)
 }
 
 function renderSettingsScreen(container: HTMLElement) {
@@ -1949,22 +2515,22 @@ function renderSettingsScreen(container: HTMLElement) {
     }
     
     loadAutolockSettings()
+    
+    // Save autolock settings when changed
+    select.addEventListener('change', async (e) => {
+      const selectEl = e.target as HTMLSelectElement
+      const minutes = parseInt(selectEl.value, 10)
+      try {
+        await vaultAPI.updateSettings({ autoLockMinutes: minutes })
+        console.log('[VAULT] Autolock settings updated:', minutes === 0 ? 'Never' : `${minutes} minutes`)
+      } catch (err: any) {
+        console.error('[VAULT] Error updating autolock settings:', err)
+        alert(`Failed to save autolock settings: ${err.message || err}`)
+        // Revert selection
+        await loadAutolockSettings()
+      }
+    })
   }
-
-  // Save autolock settings when changed
-  container.querySelector('#autolock-select')?.addEventListener('change', async (e) => {
-    const select = e.target as HTMLSelectElement
-    const minutes = parseInt(select.value, 10)
-    try {
-      await vaultAPI.updateSettings({ autoLockMinutes: minutes })
-      console.log('[VAULT] Autolock settings updated:', minutes === 0 ? 'Never' : `${minutes} minutes`)
-    } catch (err: any) {
-      console.error('[VAULT] Error updating autolock settings:', err)
-      alert(`Failed to save autolock settings: ${err.message || err}`)
-      // Revert selection
-      await loadAutolockSettings()
-    }
-  })
 
   container.querySelector('#export-btn')?.addEventListener('click', async () => {
     alert('Export functionality - TODO: Will export vault data to CSV')

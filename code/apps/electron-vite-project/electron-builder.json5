@@ -4,22 +4,26 @@
   "appId": "com.opengiraffe.desktop",
   "asar": true,
   "asarUnpack": [
-    "**/node_modules/ffmpeg-static/**/*"
+    "**/node_modules/ffmpeg-static/**/*",
+    "**/node_modules/better-sqlite3/**/*",
+    "**/node_modules/better-sqlite3/**"
   ],
   "productName": "OpenGiraffe",
   "directories": {
     "output": "release/${version}"
   },
   "files": [
-    "dist",
     "dist-electron",
-    "package.json"
+    "dist",
+    "node_modules/@types",
+    "node_modules/ffmpeg-static",
+    "node_modules/better-sqlite3"
   ],
   "mac": {
+    "artifactName": "${productName}-${version}-${arch}.${ext}",
     "target": [
       "dmg"
-    ],
-    "artifactName": "${productName}-Mac-${version}-Installer.${ext}"
+    ]
   },
   "win": {
     "target": [
@@ -30,22 +34,13 @@
         ]
       }
     ],
-    "artifactName": "${productName}-Windows-${version}-Setup.${ext}",
-    "executableName": "opengiraffe"
+    "artifactName": "${productName}-${version}-${arch}.${ext}"
   },
   "nsis": {
-    "oneClick": true,
+    "oneClick": false,
     "perMachine": false,
-    "allowToChangeInstallationDirectory": false,
-    "deleteAppDataOnUninstall": false,
-    "createDesktopShortcut": true,
-    "createStartMenuShortcut": true,
-    "shortcutName": "OpenGiraffe"
+    "allowToChangeInstallationDirectory": true,
+    "deleteAppDataOnUninstall": false
   },
-  "linux": {
-    "target": [
-      "AppImage"
-    ],
-    "artifactName": "${productName}-Linux-${version}.${ext}"
-  }
+  "executableName": "opengiraffe"
 }
