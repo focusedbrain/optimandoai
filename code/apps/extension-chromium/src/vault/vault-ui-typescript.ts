@@ -1166,9 +1166,15 @@ function renderContainerData(listDiv: HTMLElement, items: VaultItem[]) {
 function renderListItemRow(item: VaultItem): string {
   // Get primary field value for preview (username for passwords, first field for others)
   let previewValue = ''
+  let passwordValue = ''
+  
   if (item.category === 'password') {
     const usernameField = item.fields.find(f => f.key === 'username' || f.key === 'email')
-    previewValue = usernameField ? (usernameField.encrypted ? '••••••••' : usernameField.value) : ''
+    previewValue = usernameField ? usernameField.value : ''
+    
+    // Get password for quick copy
+    const passwordField = item.fields.find(f => f.key === 'password')
+    passwordValue = passwordField ? passwordField.value : ''
   } else if (item.fields.length > 0) {
     const firstField = item.fields[0]
     previewValue = firstField.encrypted ? '••••••••' : (firstField.value || '').substring(0, 30)
@@ -1197,21 +1203,26 @@ function renderListItemRow(item: VaultItem): string {
         <div style="flex:1;min-width:0;">
           <div class="vault-item-title" style="font-size:15px;font-weight:600;color:#fff;margin-bottom:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(item.title || 'Untitled')}</div>
           ${previewValue ? `<div style="font-size:13px;color:rgba(255,255,255,0.6);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(previewValue)}</div>` : ''}
+          ${item.category === 'password' && passwordValue ? `
+            <div style="display:flex;align-items:center;gap:8px;margin-top:4px;">
+              <div style="font-size:13px;color:rgba(255,255,255,0.5);font-family:monospace;">••••••••</div>
+              <button class="vault-quick-copy-btn" data-password="${escapeHtml(passwordValue)}" style="
+                background:rgba(139,92,246,0.2);
+                border:1px solid rgba(139,92,246,0.4);
+                padding:2px 8px;
+                border-radius:4px;
+                color:#a78bfa;
+                font-size:10px;
+                cursor:pointer;
+                transition:all 0.2s;
+                white-space:nowrap;
+              " onclick="event.stopPropagation()" onmouseenter="this.style.background='rgba(139,92,246,0.3)'" onmouseleave="this.style.background='rgba(139,92,246,0.2)'">📋 Copy</button>
+            </div>
+          ` : ''}
           ${item.domain ? `<div style="font-size:12px;color:rgba(255,255,255,0.5);margin-top:2px;">${escapeHtml(item.domain)}</div>` : ''}
         </div>
       </div>
-      <div style="display:flex;gap:8px;align-items:center;width:80px;justify-content:center;">
-        <button class="vault-item-view-btn" style="
-          background:rgba(139,92,246,0.2);
-          border:1px solid rgba(139,92,246,0.4);
-          padding:6px 12px;
-          border-radius:6px;
-          color:#a78bfa;
-          font-size:12px;
-          cursor:pointer;
-          transition:all 0.2s;
-          white-space:nowrap;
-        " onmouseenter="this.style.background='rgba(139,92,246,0.3)'" onmouseleave="this.style.background='rgba(139,92,246,0.2)'">View</button>
+      <div style="display:flex;gap:8px;align-items:center;justify-content:center;">
         <button class="vault-item-edit-btn" style="
           background:rgba(139,92,246,0.2);
           border:1px solid rgba(139,92,246,0.4);
@@ -1224,7 +1235,7 @@ function renderListItemRow(item: VaultItem): string {
           white-space:nowrap;
         " onmouseenter="this.style.background='rgba(139,92,246,0.3)'" onmouseleave="this.style.background='rgba(139,92,246,0.2)'">Edit</button>
       </div>
-      <div style="display:flex;align-items:center;justify-content:center;width:80px;">
+      <div style="display:flex;align-items:center;justify-content:center;width:40px;">
         <button class="vault-item-delete-btn" style="
           background:rgba(255,59,48,0.1);
           border:1px solid rgba(255,59,48,0.3);
