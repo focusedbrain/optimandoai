@@ -2185,7 +2185,7 @@ app.whenReady().then(async () => {
     httpApp.post('/api/orchestrator/connect', async (_req, res) => {
       try {
         console.log('[HTTP-ORCHESTRATOR] POST /api/orchestrator/connect')
-        const { getOrchestratorService } = await import('./main/orchestrator-db/service.js')
+        const { getOrchestratorService } = await import('./orchestrator-db/service.js')
         const service = getOrchestratorService()
         await service.connect()
         const status = service.getStatus()
@@ -2200,7 +2200,7 @@ app.whenReady().then(async () => {
     httpApp.get('/api/orchestrator/status', async (_req, res) => {
       try {
         console.log('[HTTP-ORCHESTRATOR] GET /api/orchestrator/status')
-        const { getOrchestratorService } = await import('./main/orchestrator-db/service.js')
+        const { getOrchestratorService } = await import('./orchestrator-db/service.js')
         const service = getOrchestratorService()
         const status = service.getStatus()
         res.json({ success: true, data: status })
@@ -2215,7 +2215,7 @@ app.whenReady().then(async () => {
       try {
         const key = req.query.key as string
         console.log('[HTTP-ORCHESTRATOR] GET /api/orchestrator/get', { key })
-        const { getOrchestratorService } = await import('./main/orchestrator-db/service.js')
+        const { getOrchestratorService } = await import('./orchestrator-db/service.js')
         const service = getOrchestratorService()
         const value = await service.get(key)
         res.json({ success: true, data: value })
@@ -2230,7 +2230,7 @@ app.whenReady().then(async () => {
       try {
         const { key, value } = req.body
         console.log('[HTTP-ORCHESTRATOR] POST /api/orchestrator/set', { key })
-        const { getOrchestratorService } = await import('./main/orchestrator-db/service.js')
+        const { getOrchestratorService } = await import('./orchestrator-db/service.js')
         const service = getOrchestratorService()
         await service.set(key, value)
         res.json({ success: true })
@@ -2244,7 +2244,7 @@ app.whenReady().then(async () => {
     httpApp.get('/api/orchestrator/get-all', async (_req, res) => {
       try {
         console.log('[HTTP-ORCHESTRATOR] GET /api/orchestrator/get-all')
-        const { getOrchestratorService } = await import('./main/orchestrator-db/service.js')
+        const { getOrchestratorService } = await import('./orchestrator-db/service.js')
         const service = getOrchestratorService()
         const data = await service.getAll()
         res.json({ success: true, data })
@@ -2259,7 +2259,7 @@ app.whenReady().then(async () => {
       try {
         const { data } = req.body
         console.log('[HTTP-ORCHESTRATOR] POST /api/orchestrator/set-all', { keyCount: Object.keys(data || {}).length })
-        const { getOrchestratorService } = await import('./main/orchestrator-db/service.js')
+        const { getOrchestratorService } = await import('./orchestrator-db/service.js')
         const service = getOrchestratorService()
         await service.setAll(data)
         res.json({ success: true })
@@ -2274,7 +2274,7 @@ app.whenReady().then(async () => {
       try {
         const { keys } = req.body
         console.log('[HTTP-ORCHESTRATOR] POST /api/orchestrator/remove', { keys })
-        const { getOrchestratorService } = await import('./main/orchestrator-db/service.js')
+        const { getOrchestratorService } = await import('./orchestrator-db/service.js')
         const service = getOrchestratorService()
         await service.remove(keys)
         res.json({ success: true })
@@ -2289,7 +2289,7 @@ app.whenReady().then(async () => {
       try {
         const { chromeData } = req.body
         console.log('[HTTP-ORCHESTRATOR] POST /api/orchestrator/migrate', { keyCount: Object.keys(chromeData || {}).length })
-        const { getOrchestratorService } = await import('./main/orchestrator-db/service.js')
+        const { getOrchestratorService } = await import('./orchestrator-db/service.js')
         const service = getOrchestratorService()
         await service.migrateFromChromeStorage(chromeData)
         res.json({ success: true })
@@ -2304,7 +2304,7 @@ app.whenReady().then(async () => {
       try {
         const options = req.body
         console.log('[HTTP-ORCHESTRATOR] POST /api/orchestrator/export', { format: options.format })
-        const { getOrchestratorService } = await import('./main/orchestrator-db/service.js')
+        const { getOrchestratorService } = await import('./orchestrator-db/service.js')
         const service = getOrchestratorService()
         const exportData = await service.exportData(options)
         res.json({ success: true, data: exportData })
@@ -2319,7 +2319,7 @@ app.whenReady().then(async () => {
       try {
         const { data } = req.body
         console.log('[HTTP-ORCHESTRATOR] POST /api/orchestrator/import')
-        const { getOrchestratorService } = await import('./main/orchestrator-db/service.js')
+        const { getOrchestratorService } = await import('./orchestrator-db/service.js')
         const service = getOrchestratorService()
         await service.importData(data)
         res.json({ success: true })
