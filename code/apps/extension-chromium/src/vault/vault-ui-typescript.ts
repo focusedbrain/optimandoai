@@ -1255,29 +1255,48 @@ function renderItemViewModal(item: VaultItem) {
   `
   
   const fieldsHtml = item.fields.map((field, index) => {
-    const value = field.encrypted ? '••••••••' : escapeHtml(field.value || '')
     const actualValue = field.value || ''
+    const isPassword = field.encrypted || field.type === 'password' || field.key === 'password'
     const fieldId = `vault-field-${item.id}-${index}`
+    const maskedValue = '••••••••'
+    
     return `
       <div style="margin-bottom:20px;">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
           <div style="font-size:11px;color:rgba(255,255,255,0.5);text-transform:uppercase;letter-spacing:0.5px;">
             ${escapeHtml(field.key)}
           </div>
-          ${!field.encrypted && actualValue ? `<button class="vault-copy-btn" data-field-id="${fieldId}" data-value="${escapeHtml(actualValue)}" style="
-            background:rgba(139,92,246,0.2);
-            border:1px solid rgba(139,92,246,0.4);
-            padding:4px 10px;
-            border-radius:6px;
-            color:#a78bfa;
-            font-size:11px;
-            cursor:pointer;
-            transition:all 0.2s;
-            white-space:nowrap;
-          " onmouseenter="this.style.background='rgba(139,92,246,0.3)'" onmouseleave="this.style.background='rgba(139,92,246,0.2)'">📋 Copy</button>` : ''}
+          <div style="display:flex;gap:8px;">
+            ${isPassword && actualValue ? `
+              <button class="vault-reveal-btn" data-field-id="${fieldId}" style="
+                background:rgba(139,92,246,0.2);
+                border:1px solid rgba(139,92,246,0.4);
+                padding:4px 10px;
+                border-radius:6px;
+                color:#a78bfa;
+                font-size:11px;
+                cursor:pointer;
+                transition:all 0.2s;
+                white-space:nowrap;
+              " onmouseenter="this.style.background='rgba(139,92,246,0.3)'" onmouseleave="this.style.background='rgba(139,92,246,0.2)'">👁️ Reveal</button>
+            ` : ''}
+            ${actualValue ? `
+              <button class="vault-copy-btn" data-field-id="${fieldId}" data-value="${escapeHtml(actualValue)}" style="
+                background:rgba(139,92,246,0.2);
+                border:1px solid rgba(139,92,246,0.4);
+                padding:4px 10px;
+                border-radius:6px;
+                color:#a78bfa;
+                font-size:11px;
+                cursor:pointer;
+                transition:all 0.2s;
+                white-space:nowrap;
+              " onmouseenter="this.style.background='rgba(139,92,246,0.3)'" onmouseleave="this.style.background='rgba(139,92,246,0.2)'">📋 Copy</button>
+            ` : ''}
+          </div>
         </div>
-        <div id="${fieldId}" style="font-size:15px;color:#fff;word-break:break-word;background:rgba(0,0,0,0.3);padding:12px;border-radius:8px;border:1px solid rgba(139,92,246,0.2);position:relative;">
-          ${value}
+        <div id="${fieldId}" data-actual-value="${escapeHtml(actualValue)}" data-is-revealed="false" style="font-size:15px;color:#fff;word-break:break-word;background:rgba(0,0,0,0.3);padding:12px;border-radius:8px;border:1px solid rgba(139,92,246,0.2);position:relative;font-family:monospace;">
+          ${isPassword ? maskedValue : escapeHtml(actualValue)}
         </div>
         ${field.explanation ? `<div style="font-size:12px;color:rgba(255,255,255,0.5);margin-top:6px;font-style:italic;">${escapeHtml(field.explanation)}</div>` : ''}
       </div>
@@ -1322,6 +1341,30 @@ function renderItemViewModal(item: VaultItem) {
   `
   
   document.body.appendChild(overlay)
+  
+  // Reveal/Hide password functionality
+  overlay.querySelectorAll('.vault-reveal-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const fieldId = (btn as HTMLElement).getAttribute('data-field-id')
+      const fieldDiv = overlay.querySelector(`#${fieldId}`) as HTMLElement
+      if (!fieldDiv) return
+      
+      const isRevealed = fieldDiv.getAttribute('data-is-revealed') === 'true'
+      const actualValue = fieldDiv.getAttribute('data-actual-value') || ''
+      
+      if (isRevealed) {
+        // Hide password
+        fieldDiv.textContent = '••••••••'
+        fieldDiv.setAttribute('data-is-revealed', 'false')
+        ;(btn as HTMLElement).innerHTML = '👁️ Reveal'
+      } else {
+        // Reveal password
+        fieldDiv.textContent = actualValue
+        fieldDiv.setAttribute('data-is-revealed', 'true')
+        ;(btn as HTMLElement).innerHTML = '🙈 Hide'
+      }
+    })
+  })
   
   // Copy to clipboard functionality
   overlay.querySelectorAll('.vault-copy-btn').forEach((btn) => {

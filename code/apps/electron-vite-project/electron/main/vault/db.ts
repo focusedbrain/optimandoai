@@ -3,7 +3,6 @@
  * Uses @journeyapps/sqlcipher for hardware-accelerated encryption
  */
 
-import { app } from 'electron'
 import { join, dirname } from 'path'
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs'
 import { createRequire } from 'module'
@@ -77,27 +76,38 @@ async function loadSQLCipher(): Promise<any> {
  * Get vault database file path
  */
 export function getVaultPath(vaultId: string = 'default'): string {
-  if (vaultId === 'default') {
-    return join(app.getPath('userData'), 'vault.db')
+  // Use .opengiraffe/electron-data directory for vault storage (consistent location)
+  const vaultDataDir = join(homedir(), '.opengiraffe', 'electron-data')
+  
+  // Ensure directory exists
+  if (!existsSync(vaultDataDir)) {
+    mkdirSync(vaultDataDir, { recursive: true })
   }
-  return join(app.getPath('userData'), `vault_${vaultId}.db`)
+  
+  if (vaultId === 'default') {
+    return join(vaultDataDir, 'vault.db')
+  }
+  return join(vaultDataDir, `vault_${vaultId}.db`)
 }
 
 /**
  * Get vault metadata file path (stores unencrypted metadata)
  */
 export function getVaultMetaPath(vaultId: string = 'default'): string {
+  const vaultDataDir = join(homedir(), '.opengiraffe', 'electron-data')
+  
   if (vaultId === 'default') {
-    return join(app.getPath('userData'), 'vault.meta.json')
+    return join(vaultDataDir, 'vault.meta.json')
   }
-  return join(app.getPath('userData'), `vault_${vaultId}.meta.json`)
+  return join(vaultDataDir, `vault_${vaultId}.meta.json`)
 }
 
 /**
  * Get vault registry path (stores list of all vaults)
  */
 export function getVaultRegistryPath(): string {
-  return join(app.getPath('userData'), 'vaults.json')
+  const vaultDataDir = join(homedir(), '.opengiraffe', 'electron-data')
+  return join(vaultDataDir, 'vaults.json')
 }
 
 /**
@@ -134,50 +144,43 @@ export function listVaults(): Array<{ id: string, name: string, created: number 
     }
   }
   
-  // Also scan directory for vault database files to catch any that aren't in registry
-  // Check both userData directory and electron-data subdirectory
-  const directoriesToScan = [
-    app.getPath('userData'), // Main userData directory
-    join(app.getPath('userData'), 'electron-data'), // electron-data subdirectory
-    join(homedir(), '.opengiraffe', 'electron-data') // Legacy path
-  ]
+  // Scan the vault directory for database files
+  const vaultDataDir = join(homedir(), '.opengiraffe', 'electron-data')
   
-  for (const vaultDataDir of directoriesToScan) {
-    try {
-      if (existsSync(vaultDataDir)) {
-        const files = require('fs').readdirSync(vaultDataDir)
-        const dbFiles = files.filter((f: string) => f.startsWith('vault_') && f.endsWith('.db'))
-        
-        for (const dbFile of dbFiles) {
-          // Extract vault ID from filename: vault_vault_1234567890_abc123.db
-          const match = dbFile.match(/^vault_(vault_\d+_[a-f0-9]+)\.db$/)
-          if (match) {
-            const vaultId = match[1]
-            if (!vaultMap.has(vaultId)) {
-              // Try to get name from meta file
-              let vaultName = vaultId
-              const metaPath = getVaultMetaPath(vaultId)
-              if (existsSync(metaPath)) {
-                try {
-                  const meta = JSON.parse(readFileSync(metaPath, 'utf-8'))
-                  vaultName = meta.name || vaultId
-                } catch (e) {
-                  // Use ID as name if meta file can't be read
-                }
+  try {
+    if (existsSync(vaultDataDir)) {
+      const files = require('fs').readdirSync(vaultDataDir)
+      const dbFiles = files.filter((f: string) => f.startsWith('vault_') && f.endsWith('.db'))
+      
+      for (const dbFile of dbFiles) {
+        // Extract vault ID from filename: vault_vault_1234567890_abc123.db
+        const match = dbFile.match(/^vault_(vault_\d+_[a-f0-9]+)\.db$/)
+        if (match) {
+          const vaultId = match[1]
+          if (!vaultMap.has(vaultId)) {
+            // Try to get name from meta file
+            let vaultName = vaultId
+            const metaPath = getVaultMetaPath(vaultId)
+            if (existsSync(metaPath)) {
+              try {
+                const meta = JSON.parse(readFileSync(metaPath, 'utf-8'))
+                vaultName = meta.name || vaultId
+              } catch (e) {
+                // Use ID as name if meta file can't be read
               }
-              
-              vaultMap.set(vaultId, {
-                id: vaultId,
-                name: vaultName,
-                created: 0 // Unknown creation time
-              })
             }
+            
+            vaultMap.set(vaultId, {
+              id: vaultId,
+              name: vaultName,
+              created: 0 // Unknown creation time
+            })
           }
         }
       }
-    } catch (error) {
-      console.warn(`[VAULT DB] Failed to scan directory ${vaultDataDir}:`, error)
     }
+  } catch (error) {
+    console.warn(`[VAULT DB] Failed to scan directory ${vaultDataDir}:`, error)
   }
   
   // Fallback: check for default vault if no vaults found
@@ -185,6 +188,7 @@ export function listVaults(): Array<{ id: string, name: string, created: number 
     vaultMap.set('default', { id: 'default', name: 'Default Vault', created: 0 })
   }
   
+  console.log('[VAULT DB] Found', vaultMap.size, 'vaults:', Array.from(vaultMap.values()))
   return Array.from(vaultMap.values())
 }
 
