@@ -1888,12 +1888,8 @@ function renderSettingsScreen(container: HTMLElement) {
       <div style="background:rgba(139, 92, 246,0.05);border:1px solid rgba(139, 92, 246,0.2);border-radius:12px;padding:24px;margin-bottom:16px;">
         <h3 style="font-size:16px;font-weight:600;margin-bottom:16px;color:#fff;">Autolock Settings</h3>
         <label style="display:block;font-size:13px;color:rgba(255,255,255,0.7);margin-bottom:8px;">Lock vault after inactivity:</label>
-        <select id="autolock-select" style="width:100%;padding:12px;background:rgba(0,0,0,0.4);border:1px solid rgba(139, 92, 246,0.4);border-radius:8px;color:#fff;font-size:14px;">
-          <option value="15">15 minutes</option>
-          <option value="30" selected>30 minutes (default)</option>
-          <option value="60">1 hour</option>
-          <option value="1440">1 day</option>
-          <option value="0">Never</option>
+        <select id="autolock-select" style="width:100%;min-height:44px;padding:12px 16px;padding-right:40px;background:rgba(0,0,0,0.4);border:1px solid rgba(139, 92, 246,0.4);border-radius:8px;color:#fff;font-size:14px;cursor:pointer;box-sizing:border-box;display:block;visibility:visible;opacity:1;appearance:none;-webkit-appearance:none;-moz-appearance:none;background-image:url('data:image/svg+xml;utf8,<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"12\" height=\"12\" viewBox=\"0 0 12 12\"><path fill=\"white\" d=\"M6 9L1 4h10z\"/></svg>');background-repeat:no-repeat;background-position:right 12px center;">
+          <option value="0">Loading...</option>
         </select>
       </div>
 
@@ -1913,6 +1909,61 @@ function renderSettingsScreen(container: HTMLElement) {
 
   container.querySelector('#settings-back-btn')?.addEventListener('click', () => {
     renderVaultDashboard(container)
+  })
+
+  // Populate autolock select options and load current settings
+  const select = container.querySelector('#autolock-select') as HTMLSelectElement
+  if (select) {
+    // Clear loading option and populate with all options
+    select.innerHTML = ''
+    const options = [
+      { value: '0', label: 'Never' },
+      { value: '15', label: '15 minutes' },
+      { value: '30', label: '30 minutes' },
+      { value: '60', label: '1 hour' },
+      { value: '180', label: '3 hours' },
+      { value: '720', label: '12 hours' },
+      { value: '1440', label: '24 hours' },
+      { value: '10080', label: '1 week' },
+      { value: '43200', label: '1 month' },
+    ]
+    
+    options.forEach(opt => {
+      const option = document.createElement('option')
+      option.value = opt.value
+      option.textContent = opt.label
+      select.appendChild(option)
+    })
+    
+    // Load current settings
+    const loadAutolockSettings = async () => {
+      try {
+        const settings = await vaultAPI.getSettings()
+        const currentMinutes = settings.autoLockMinutes || 0
+        select.value = currentMinutes.toString()
+      } catch (err) {
+        console.error('[VAULT] Error loading autolock settings:', err)
+        // Default to "Never" if settings can't be loaded
+        select.value = '0'
+      }
+    }
+    
+    loadAutolockSettings()
+  }
+
+  // Save autolock settings when changed
+  container.querySelector('#autolock-select')?.addEventListener('change', async (e) => {
+    const select = e.target as HTMLSelectElement
+    const minutes = parseInt(select.value, 10)
+    try {
+      await vaultAPI.updateSettings({ autoLockMinutes: minutes })
+      console.log('[VAULT] Autolock settings updated:', minutes === 0 ? 'Never' : `${minutes} minutes`)
+    } catch (err: any) {
+      console.error('[VAULT] Error updating autolock settings:', err)
+      alert(`Failed to save autolock settings: ${err.message || err}`)
+      // Revert selection
+      await loadAutolockSettings()
+    }
   })
 
   container.querySelector('#export-btn')?.addEventListener('click', async () => {
