@@ -33,7 +33,6 @@ export const IDENTITY_STANDARD_FIELDS: StandardFieldDef[] = [
 
 // Standard fields for Company
 export const COMPANY_STANDARD_FIELDS: StandardFieldDef[] = [
-  { key: 'company_name', label: 'Company Name', type: 'text', required: true, explanation: 'Legal company name' },
   { key: 'ceo_first_name', label: 'CEO First Name', type: 'text', required: false, explanation: 'Chief Executive Officer first name' },
   { key: 'ceo_surname', label: 'CEO Surname', type: 'text', required: false, explanation: 'Chief Executive Officer surname or last name' },
   { key: 'street', label: 'Street', type: 'text', required: false, explanation: 'Street name' },

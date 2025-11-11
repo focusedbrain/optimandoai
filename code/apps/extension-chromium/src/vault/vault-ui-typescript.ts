@@ -672,7 +672,6 @@ function renderVaultDashboard(container: HTMLElement) {
             </div>
             <div class="vault-subcategories" data-parent="password" style="display:none;padding-left:16px;padding-top:4px;padding-bottom:4px;">
               <div class="vault-subcategory-btn" data-action="view-passwords" data-category="password" style="padding:8px 12px;background:rgba(139,92,246,0.1);border-radius:6px;cursor:pointer;font-size:13px;margin-top:4px;border:1px solid rgba(139,92,246,0.2);transition:all 0.2s;">View Passwords</div>
-              <div class="vault-subcategory-btn" data-action="add-password" style="padding:8px 12px;background:rgba(139,92,246,0.1);border-radius:6px;cursor:pointer;font-size:13px;margin-top:4px;border:1px solid rgba(139,92,246,0.2);transition:all 0.2s;">+ Add Password</div>
             </div>
           </div>
           
@@ -684,7 +683,6 @@ function renderVaultDashboard(container: HTMLElement) {
             </div>
             <div class="vault-subcategories" data-parent="person" style="display:none;padding-left:16px;padding-top:4px;padding-bottom:4px;">
               <div class="vault-subcategory-btn" data-action="view-identities" data-category="identity" style="padding:8px 12px;background:rgba(139,92,246,0.1);border-radius:6px;cursor:pointer;font-size:13px;margin-top:4px;border:1px solid rgba(139,92,246,0.2);transition:all 0.2s;">View Identities</div>
-              <div class="vault-subcategory-btn" data-action="add-identity" style="padding:8px 12px;background:rgba(139,92,246,0.1);border-radius:6px;cursor:pointer;font-size:13px;margin-top:4px;border:1px solid rgba(139,92,246,0.2);transition:all 0.2s;">+ Add Identity</div>
               <div id="person-containers" style="margin-top:4px;"></div>
             </div>
           </div>
@@ -697,7 +695,6 @@ function renderVaultDashboard(container: HTMLElement) {
             </div>
             <div class="vault-subcategories" data-parent="company" style="display:none;padding-left:16px;padding-top:4px;padding-bottom:4px;">
               <div class="vault-subcategory-btn" data-action="view-companies" data-category="company" style="padding:8px 12px;background:rgba(139,92,246,0.1);border-radius:6px;cursor:pointer;font-size:13px;margin-top:4px;border:1px solid rgba(139,92,246,0.2);transition:all 0.2s;">View Companies</div>
-              <div class="vault-subcategory-btn" data-action="add-company" style="padding:8px 12px;background:rgba(139,92,246,0.1);border-radius:6px;cursor:pointer;font-size:13px;margin-top:4px;border:1px solid rgba(139,92,246,0.2);transition:all 0.2s;">+ Add Company</div>
               <div id="company-containers" style="margin-top:4px;"></div>
             </div>
           </div>
@@ -710,7 +707,6 @@ function renderVaultDashboard(container: HTMLElement) {
             </div>
             <div class="vault-subcategories" data-parent="business" style="display:none;padding-left:16px;padding-top:4px;padding-bottom:4px;">
               <div class="vault-subcategory-btn" data-action="view-businesses" data-category="business" style="padding:8px 12px;background:rgba(139,92,246,0.1);border-radius:6px;cursor:pointer;font-size:13px;margin-top:4px;border:1px solid rgba(139,92,246,0.2);transition:all 0.2s;">View Businesses</div>
-              <div class="vault-subcategory-btn" data-action="add-business" style="padding:8px 12px;background:rgba(139,92,246,0.1);border-radius:6px;cursor:pointer;font-size:13px;margin-top:4px;border:1px solid rgba(139,92,246,0.2);transition:all 0.2s;">+ Add Business</div>
               <div id="business-containers" style="margin-top:4px;"></div>
             </div>
           </div>
@@ -723,7 +719,6 @@ function renderVaultDashboard(container: HTMLElement) {
             </div>
             <div class="vault-subcategories" data-parent="custom" style="display:none;padding-left:16px;padding-top:4px;padding-bottom:4px;">
               <div class="vault-subcategory-btn" data-action="view-data" data-category="custom" style="padding:8px 12px;background:rgba(139,92,246,0.1);border-radius:6px;cursor:pointer;font-size:13px;margin-top:4px;border:1px solid rgba(139,92,246,0.2);transition:all 0.2s;">View Data</div>
-              <div class="vault-subcategory-btn" data-action="add-custom" style="padding:8px 12px;background:rgba(139,92,246,0.1);border-radius:6px;cursor:pointer;font-size:13px;margin-top:4px;border:1px solid rgba(139,92,246,0.2);transition:all 0.2s;">+ Add Data</div>
               <div id="custom-containers" style="margin-top:4px;"></div>
             </div>
           </div>
@@ -761,7 +756,7 @@ function renderVaultDashboard(container: HTMLElement) {
           ">+ Add Data</button>
         </div>
         
-        <div id="vault-items-list" style="flex:1;overflow-y:auto;background:rgba(0,0,0,0.2);border:1px solid rgba(139, 92, 246,0.2);border-radius:12px;padding:16px;">
+        <div id="vault-items-list" style="flex:1;overflow-y:auto;background:rgba(0,0,0,0.2);border:1px solid rgba(139, 92, 246,0.2);border-radius:12px;padding:16px;min-width:0;">
           <div style="text-align:center;padding:40px;color:rgba(255,255,255,0.5);">
             Loading items...
           </div>
@@ -788,6 +783,7 @@ function renderVaultDashboard(container: HTMLElement) {
   // Load items and containers
   loadVaultItems(container, 'all')
   loadContainersIntoTree(container)
+  addAddButtonsToTree(container)
 
   // Tree toggle functionality - clicking main category expands/collapses tree
   container.querySelectorAll('.vault-category-toggle').forEach((btn) => {
@@ -809,40 +805,43 @@ function renderVaultDashboard(container: HTMLElement) {
         // If expanding, refresh containers/items list
         if (!isExpanded) {
           loadContainersIntoTree(container)
+          addAddButtonsToTree(container)
         }
       }
     })
   })
 
-  // Add Password/Identity/Company/Business/Custom buttons
-  container.querySelectorAll('.vault-subcategory-btn[data-action]').forEach((btn) => {
-    btn.addEventListener('click', (e) => {
-      e.stopPropagation()
-      const action = (btn as HTMLElement).getAttribute('data-action')
-      const category = (btn as HTMLElement).getAttribute('data-category')
-      
-      if (action === 'view-passwords') {
-        loadVaultItems(container, 'password')
-      } else if (action === 'view-identities') {
-        loadVaultItems(container, 'identity')
-      } else if (action === 'view-companies') {
-        loadVaultItems(container, 'company')
-      } else if (action === 'view-businesses') {
-        loadVaultItems(container, 'business')
-      } else if (action === 'view-data') {
-        loadVaultItems(container, 'custom')
-      } else if (action === 'add-password') {
-        renderAddDataDialog(container, 'password')
-      } else if (action === 'add-identity') {
-        renderAddDataDialog(container, 'identity')
-      } else if (action === 'add-company') {
-        renderAddDataDialog(container, 'company')
-      } else if (action === 'add-business') {
-        renderAddDataDialog(container, 'business')
-      } else if (action === 'add-custom') {
-        renderAddDataDialog(container, 'custom')
-      }
-    })
+  // Add Password/Identity/Company/Business/Custom buttons (using event delegation for dynamically added buttons)
+  container.addEventListener('click', (e) => {
+    const target = e.target as HTMLElement
+    const btn = target.closest('.vault-subcategory-btn[data-action]') as HTMLElement
+    if (!btn) return
+    
+    e.stopPropagation()
+    const action = btn.getAttribute('data-action')
+    const category = btn.getAttribute('data-category')
+    
+    if (action === 'view-passwords') {
+      loadVaultItems(container, 'password')
+    } else if (action === 'view-identities') {
+      loadVaultItems(container, 'identity')
+    } else if (action === 'view-companies') {
+      loadVaultItems(container, 'company')
+    } else if (action === 'view-businesses') {
+      loadVaultItems(container, 'business')
+    } else if (action === 'view-data') {
+      loadVaultItems(container, 'custom')
+    } else if (action === 'add-password') {
+      renderAddDataDialog(container, 'password')
+    } else if (action === 'add-identity') {
+      renderAddDataDialog(container, 'identity')
+    } else if (action === 'add-company') {
+      renderAddDataDialog(container, 'company')
+    } else if (action === 'add-business') {
+      renderAddDataDialog(container, 'business')
+    } else if (action === 'add-custom') {
+      renderAddDataDialog(container, 'custom')
+    }
   })
 
   // Category buttons
@@ -963,6 +962,65 @@ async function loadVaultItems(container: HTMLElement, category: string) {
   }
 }
 
+// Add "+ Add" buttons dynamically to tree structure
+function addAddButtonsToTree(container: HTMLElement) {
+  // Password category
+  const passwordSubcategories = container.querySelector('.vault-subcategories[data-parent="password"]')
+  if (passwordSubcategories && !passwordSubcategories.querySelector('[data-action="add-password"]')) {
+    const addPasswordBtn = document.createElement('div')
+    addPasswordBtn.className = 'vault-subcategory-btn'
+    addPasswordBtn.setAttribute('data-action', 'add-password')
+    addPasswordBtn.style.cssText = 'padding:8px 12px;background:rgba(139,92,246,0.1);border-radius:6px;cursor:pointer;font-size:13px;margin-top:4px;border:1px solid rgba(139,92,246,0.2);transition:all 0.2s;'
+    addPasswordBtn.textContent = '+ Add Password'
+    passwordSubcategories.appendChild(addPasswordBtn)
+  }
+  
+  // Private Data category
+  const personSubcategories = container.querySelector('.vault-subcategories[data-parent="person"]')
+  if (personSubcategories && !personSubcategories.querySelector('[data-action="add-identity"]')) {
+    const addIdentityBtn = document.createElement('div')
+    addIdentityBtn.className = 'vault-subcategory-btn'
+    addIdentityBtn.setAttribute('data-action', 'add-identity')
+    addIdentityBtn.style.cssText = 'padding:8px 12px;background:rgba(139,92,246,0.1);border-radius:6px;cursor:pointer;font-size:13px;margin-top:4px;border:1px solid rgba(139,92,246,0.2);transition:all 0.2s;'
+    addIdentityBtn.textContent = '+ Add Identity'
+    personSubcategories.insertBefore(addIdentityBtn, personSubcategories.querySelector('#person-containers'))
+  }
+  
+  // Company category
+  const companySubcategories = container.querySelector('.vault-subcategories[data-parent="company"]')
+  if (companySubcategories && !companySubcategories.querySelector('[data-action="add-company"]')) {
+    const addCompanyBtn = document.createElement('div')
+    addCompanyBtn.className = 'vault-subcategory-btn'
+    addCompanyBtn.setAttribute('data-action', 'add-company')
+    addCompanyBtn.style.cssText = 'padding:8px 12px;background:rgba(139,92,246,0.1);border-radius:6px;cursor:pointer;font-size:13px;margin-top:4px;border:1px solid rgba(139,92,246,0.2);transition:all 0.2s;'
+    addCompanyBtn.textContent = '+ Add Company'
+    companySubcategories.insertBefore(addCompanyBtn, companySubcategories.querySelector('#company-containers'))
+  }
+  
+  // Business category
+  const businessSubcategories = container.querySelector('.vault-subcategories[data-parent="business"]')
+  if (businessSubcategories && !businessSubcategories.querySelector('[data-action="add-business"]')) {
+    const addBusinessBtn = document.createElement('div')
+    addBusinessBtn.className = 'vault-subcategory-btn'
+    addBusinessBtn.setAttribute('data-action', 'add-business')
+    addBusinessBtn.style.cssText = 'padding:8px 12px;background:rgba(139,92,246,0.1);border-radius:6px;cursor:pointer;font-size:13px;margin-top:4px;border:1px solid rgba(139,92,246,0.2);transition:all 0.2s;'
+    addBusinessBtn.textContent = '+ Add Business'
+    businessSubcategories.insertBefore(addBusinessBtn, businessSubcategories.querySelector('#business-containers'))
+  }
+  
+  // Custom category
+  const customSubcategories = container.querySelector('.vault-subcategories[data-parent="custom"]')
+  if (customSubcategories && !customSubcategories.querySelector('[data-action="add-custom"]')) {
+    const addCustomBtn = document.createElement('div')
+    addCustomBtn.className = 'vault-subcategory-btn'
+    addCustomBtn.setAttribute('data-action', 'add-custom')
+    addCustomBtn.style.cssText = 'padding:8px 12px;background:rgba(139,92,246,0.1);border-radius:6px;cursor:pointer;font-size:13px;margin-top:4px;border:1px solid rgba(139,92,246,0.2);transition:all 0.2s;'
+    addCustomBtn.textContent = '+ Add Data'
+    customSubcategories.insertBefore(addCustomBtn, customSubcategories.querySelector('#custom-containers'))
+  }
+  
+}
+
 // Load containers into tree structure
 async function loadContainersIntoTree(container: HTMLElement) {
   try {
@@ -974,90 +1032,26 @@ async function loadContainersIntoTree(container: HTMLElement) {
       return
     }
     
-    // Group containers by type
-    const personContainers = containers.filter((c: Container) => c.type === 'person')
-    const companyContainers = containers.filter((c: Container) => c.type === 'company')
-    const businessContainers = containers.filter((c: Container) => c.type === 'business')
-    
-    // Render person containers
+    // Don't render individual containers/items in navigation tree to avoid performance issues
+    // Users can use "View" buttons to see all entries in the main content area
     const personDiv = container.querySelector('#person-containers') as HTMLElement
     if (personDiv) {
-      personDiv.innerHTML = personContainers.map((c: Container) => `
-        <div class="vault-container-item" data-container-id="${c.id}" style="padding:8px 12px;background:rgba(255,255,255,0.03);border-radius:6px;cursor:pointer;font-size:13px;margin-top:4px;border:1px solid rgba(255,255,255,0.05);transition:all 0.2s;" onmouseenter="this.style.background='rgba(139,92,246,0.1)';this.style.border='1px solid rgba(139,92,246,0.3)'" onmouseleave="this.style.background='rgba(255,255,255,0.03)';this.style.border='1px solid rgba(255,255,255,0.05)'">
-          👤 ${escapeHtml(c.name)}
-        </div>
-      `).join('')
-      
-      // Add click handlers
-      personDiv.querySelectorAll('.vault-container-item').forEach((item) => {
-        item.addEventListener('click', () => {
-          const containerId = (item as HTMLElement).getAttribute('data-container-id')
-          if (containerId) {
-            loadContainerItems(container, containerId)
-          }
-        })
-      })
+      personDiv.innerHTML = ''
     }
     
-    // Render company containers
     const companyDiv = container.querySelector('#company-containers') as HTMLElement
     if (companyDiv) {
-      companyDiv.innerHTML = companyContainers.map((c: Container) => `
-        <div class="vault-container-item" data-container-id="${c.id}" style="padding:8px 12px;background:rgba(255,255,255,0.03);border-radius:6px;cursor:pointer;font-size:13px;margin-top:4px;border:1px solid rgba(255,255,255,0.05);transition:all 0.2s;" onmouseenter="this.style.background='rgba(139,92,246,0.1)';this.style.border='1px solid rgba(139,92,246,0.3)'" onmouseleave="this.style.background='rgba(255,255,255,0.03)';this.style.border='1px solid rgba(255,255,255,0.05)'">
-          🏢 ${escapeHtml(c.name)}
-        </div>
-      `).join('')
-      
-      companyDiv.querySelectorAll('.vault-container-item').forEach((item) => {
-        item.addEventListener('click', () => {
-          const containerId = (item as HTMLElement).getAttribute('data-container-id')
-          if (containerId) {
-            loadContainerItems(container, containerId)
-          }
-        })
-      })
+      companyDiv.innerHTML = ''
     }
     
-    // Render business containers
     const businessDiv = container.querySelector('#business-containers') as HTMLElement
     if (businessDiv) {
-      businessDiv.innerHTML = businessContainers.map((c: Container) => `
-        <div class="vault-container-item" data-container-id="${c.id}" style="padding:8px 12px;background:rgba(255,255,255,0.03);border-radius:6px;cursor:pointer;font-size:13px;margin-top:4px;border:1px solid rgba(255,255,255,0.05);transition:all 0.2s;" onmouseenter="this.style.background='rgba(139,92,246,0.1)';this.style.border='1px solid rgba(139,92,246,0.3)'" onmouseleave="this.style.background='rgba(255,255,255,0.03)';this.style.border='1px solid rgba(255,255,255,0.05)'">
-          💼 ${escapeHtml(c.name)}
-        </div>
-      `).join('')
-      
-      businessDiv.querySelectorAll('.vault-container-item').forEach((item) => {
-        item.addEventListener('click', () => {
-          const containerId = (item as HTMLElement).getAttribute('data-container-id')
-          if (containerId) {
-            loadContainerItems(container, containerId)
-          }
-        })
-      })
+      businessDiv.innerHTML = ''
     }
     
-    // Load custom data items (no containers, just items with category='custom')
     const customDiv = container.querySelector('#custom-containers') as HTMLElement
     if (customDiv) {
-      try {
-        const customItems = await vaultAPI.listItems({ category: 'custom' } as any)
-        if (Array.isArray(customItems) && customItems.length > 0) {
-          customDiv.innerHTML = customItems.map((item: VaultItem) => `
-            <div class="vault-container-item" data-item-id="${item.id}" style="padding:8px 12px;background:rgba(255,255,255,0.03);border-radius:6px;cursor:pointer;font-size:13px;margin-top:4px;border:1px solid rgba(255,255,255,0.05);transition:all 0.2s;" onmouseenter="this.style.background='rgba(139,92,246,0.1)';this.style.border='1px solid rgba(139,92,246,0.3)'" onmouseleave="this.style.background='rgba(255,255,255,0.03)';this.style.border='1px solid rgba(255,255,255,0.05)'">
-              📝 ${escapeHtml(item.title)}
-            </div>
-          `).join('')
-          
-          customDiv.querySelectorAll('.vault-container-item').forEach((item) => {
-            item.addEventListener('click', () => {
-              loadVaultItems(container, 'custom')
-            })
-          })
-        }
-      } catch (err) {
-        console.error('[VAULT UI] Error loading custom items:', err)
-      }
+      customDiv.innerHTML = ''
     }
   } catch (err) {
     console.error('[VAULT UI] Error loading containers:', err)
@@ -1094,12 +1088,7 @@ function renderContainerData(listDiv: HTMLElement, items: VaultItem[]) {
   
   // Password manager style: Compact list with view/edit buttons
   listDiv.innerHTML = `
-    <div style="background:rgba(0,0,0,0.2);border-radius:12px;overflow:hidden;border:1px solid rgba(139,92,246,0.2);">
-      <div style="display:grid;grid-template-columns:1fr auto auto;gap:16px;padding:16px;background:rgba(139,92,246,0.1);border-bottom:1px solid rgba(139,92,246,0.2);font-size:12px;font-weight:600;color:rgba(255,255,255,0.7);text-transform:uppercase;letter-spacing:0.5px;">
-        <div>Entry</div>
-        <div style="text-align:center;width:80px;">Actions</div>
-        <div style="text-align:center;width:80px;">Options</div>
-      </div>
+    <div style="padding:4px;">
       ${items.map(item => renderListItemRow(item)).join('')}
     </div>
   `
@@ -1109,20 +1098,57 @@ function renderContainerData(listDiv: HTMLElement, items: VaultItem[]) {
     const itemId = (row as HTMLElement).getAttribute('data-item-id')
     if (!itemId) return
     
-    // View button - shows details in a modal
-    const viewBtn = row.querySelector('.vault-item-view-btn')
-    viewBtn?.addEventListener('click', async () => {
-      try {
-        const item = await vaultAPI.getItem(itemId)
-        renderItemViewModal(item)
-      } catch (err: any) {
-        alert(`Error loading item: ${err.message || err}`)
+    // Copy username button
+    const copyUsernameBtn = row.querySelector('.vault-copy-username-btn')
+    copyUsernameBtn?.addEventListener('click', async (e) => {
+      e.stopPropagation()
+      await copyToClipboard(copyUsernameBtn as HTMLButtonElement)
+    })
+    
+    // Copy password button
+    const copyPasswordBtn = row.querySelector('.vault-copy-password-btn')
+    copyPasswordBtn?.addEventListener('click', async (e) => {
+      e.stopPropagation()
+      await copyToClipboard(copyPasswordBtn as HTMLButtonElement)
+    })
+    
+    // Copy field buttons (for non-password items)
+    row.querySelectorAll('.vault-copy-field-btn').forEach((btn) => {
+      btn.addEventListener('click', async (e) => {
+        e.stopPropagation()
+        await copyToClipboard(btn as HTMLButtonElement)
+      })
+    })
+    
+    // Reveal password button
+    const revealPasswordBtn = row.querySelector('.vault-reveal-password-btn')
+    revealPasswordBtn?.addEventListener('click', (e) => {
+      e.stopPropagation()
+      const passwordDisplay = row.querySelector('.password-display') as HTMLElement
+      if (!passwordDisplay) return
+      
+      const isRevealed = passwordDisplay.getAttribute('data-revealed') === 'true'
+      const password = passwordDisplay.getAttribute('data-password') || ''
+      
+      if (isRevealed) {
+        // Hide password
+        passwordDisplay.textContent = '••••••••'
+        passwordDisplay.setAttribute('data-revealed', 'false')
+        ;(revealPasswordBtn as HTMLElement).innerHTML = '👁️'
+        ;(revealPasswordBtn as HTMLElement).title = 'Reveal password'
+      } else {
+        // Reveal password
+        passwordDisplay.textContent = password
+        passwordDisplay.setAttribute('data-revealed', 'true')
+        ;(revealPasswordBtn as HTMLElement).innerHTML = '🙈'
+        ;(revealPasswordBtn as HTMLElement).title = 'Hide password'
       }
     })
     
     // Edit button
     const editBtn = row.querySelector('.vault-item-edit-btn')
-    editBtn?.addEventListener('click', async () => {
+    editBtn?.addEventListener('click', async (e) => {
+      e.stopPropagation()
       try {
         const item = await vaultAPI.getItem(itemId)
         const container = listDiv.closest('#wrvault-container') || document.querySelector('#wrvault-container')
@@ -1136,7 +1162,8 @@ function renderContainerData(listDiv: HTMLElement, items: VaultItem[]) {
     
     // Delete button
     const deleteBtn = row.querySelector('.vault-item-delete-btn')
-    deleteBtn?.addEventListener('click', async () => {
+    deleteBtn?.addEventListener('click', async (e) => {
+      e.stopPropagation()
       const title = (row.querySelector('.vault-item-title') as HTMLElement)?.textContent || 'this item'
       if (confirm(`Are you sure you want to delete "${title}"?`)) {
         try {
@@ -1154,6 +1181,7 @@ function renderContainerData(listDiv: HTMLElement, items: VaultItem[]) {
             loadVaultItems(container, 'all')
           }
           loadContainersIntoTree(container)
+          addAddButtonsToTree(container)
         } catch (err: any) {
           alert(`Error deleting item: ${err.message || err}`)
         }
@@ -1162,22 +1190,49 @@ function renderContainerData(listDiv: HTMLElement, items: VaultItem[]) {
   })
 }
 
+// Helper function for copy to clipboard with visual feedback
+async function copyToClipboard(button: HTMLButtonElement) {
+  const value = button.getAttribute('data-value')
+  if (!value) return
+  
+  try {
+    await navigator.clipboard.writeText(value)
+    
+    // Visual feedback
+    const originalText = button.textContent
+    button.textContent = '✓'
+    button.style.background = 'rgba(34,197,94,0.3)'
+    button.style.borderColor = 'rgba(34,197,94,0.5)'
+    button.style.color = '#4ade80'
+    
+    setTimeout(() => {
+      button.textContent = originalText
+      button.style.background = 'rgba(139,92,246,0.15)'
+      button.style.borderColor = 'rgba(139,92,246,0.3)'
+      button.style.color = '#a78bfa'
+    }, 1500)
+  } catch (err) {
+    console.error('[VAULT UI] Failed to copy:', err)
+    alert('Failed to copy. Please try again.')
+  }
+}
+
 // Render a single list item row (Password Manager Style)
 function renderListItemRow(item: VaultItem): string {
-  // Get primary field value for preview (username for passwords, first field for others)
-  let previewValue = ''
-  let passwordValue = ''
+  // Extract key fields for password items
+  let username = ''
+  let website = ''
+  let password = ''
   
   if (item.category === 'password') {
     const usernameField = item.fields.find(f => f.key === 'username' || f.key === 'email')
-    previewValue = usernameField ? usernameField.value : ''
+    username = usernameField ? usernameField.value : ''
     
-    // Get password for quick copy
+    const urlField = item.fields.find(f => f.key === 'url' || f.key === 'website')
+    website = urlField ? urlField.value : (item.domain || '')
+    
     const passwordField = item.fields.find(f => f.key === 'password')
-    passwordValue = passwordField ? passwordField.value : ''
-  } else if (item.fields.length > 0) {
-    const firstField = item.fields[0]
-    previewValue = firstField.encrypted ? '••••••••' : (firstField.value || '').substring(0, 30)
+    password = passwordField ? passwordField.value : ''
   }
   
   const categoryIcon = {
@@ -1188,64 +1243,218 @@ function renderListItemRow(item: VaultItem): string {
     custom: '📝'
   }[item.category] || '📄'
   
-  return `
-    <div class="vault-list-item" data-item-id="${item.id}" data-container-id="${item.container_id || ''}" data-category="${item.category}" style="
-      display:grid;
-      grid-template-columns:1fr auto auto;
-      gap:16px;
-      padding:16px;
-      border-bottom:1px solid rgba(139,92,246,0.1);
-      transition:all 0.2s;
-      cursor:pointer;
-    " onmouseenter="this.style.background='rgba(139,92,246,0.08)'" onmouseleave="this.style.background='transparent'">
-      <div style="display:flex;align-items:center;gap:12px;min-width:0;">
-        <div style="font-size:20px;flex-shrink:0;">${categoryIcon}</div>
-        <div style="flex:1;min-width:0;">
-          <div class="vault-item-title" style="font-size:15px;font-weight:600;color:#fff;margin-bottom:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(item.title || 'Untitled')}</div>
-          ${previewValue ? `<div style="font-size:13px;color:rgba(255,255,255,0.6);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(previewValue)}</div>` : ''}
-          ${item.category === 'password' && passwordValue ? `
-            <div style="display:flex;align-items:center;gap:8px;margin-top:4px;">
-              <div style="font-size:13px;color:rgba(255,255,255,0.5);font-family:monospace;">••••••••</div>
-              <button class="vault-quick-copy-btn" data-password="${escapeHtml(passwordValue)}" style="
-                background:rgba(139,92,246,0.2);
-                border:1px solid rgba(139,92,246,0.4);
-                padding:2px 8px;
-                border-radius:4px;
-                color:#a78bfa;
-                font-size:10px;
-                cursor:pointer;
-                transition:all 0.2s;
-                white-space:nowrap;
-              " onclick="event.stopPropagation()" onmouseenter="this.style.background='rgba(139,92,246,0.3)'" onmouseleave="this.style.background='rgba(139,92,246,0.2)'">📋 Copy</button>
+  // For non-password items, show minimal view with field names
+  if (item.category !== 'password') {
+    // Show up to 3 fields with their names
+    const displayFields = item.fields.slice(0, 3)
+    const hasMoreFields = item.fields.length > 3
+    
+    return `
+      <div class="vault-list-item" data-item-id="${item.id}" data-container-id="${item.container_id || ''}" data-category="${item.category}" style="
+        background:rgba(255,255,255,0.03);
+        border:1px solid rgba(139,92,246,0.15);
+        border-radius:12px;
+        padding:16px 20px;
+        margin-bottom:12px;
+        transition:all 0.2s;
+        box-shadow:0 2px 8px rgba(0,0,0,0.1);
+      " onmouseenter="this.style.background='rgba(255,255,255,0.05)';this.style.borderColor='rgba(139,92,246,0.25)';this.style.boxShadow='0 4px 12px rgba(139,92,246,0.15)'" onmouseleave="this.style.background='rgba(255,255,255,0.03)';this.style.borderColor='rgba(139,92,246,0.15)';this.style.boxShadow='0 2px 8px rgba(0,0,0,0.1)'">
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px;">
+          <div style="display:flex;align-items:flex-start;gap:12px;flex:1;min-width:0;">
+            <div style="font-size:24px;flex-shrink:0;margin-top:2px;">${categoryIcon}</div>
+            <div style="flex:1;min-width:0;">
+              <div class="vault-item-title" style="font-size:15px;font-weight:600;color:#fff;margin-bottom:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(item.title || 'Untitled')}</div>
+              ${displayFields.length > 0 ? `
+                <div style="display:flex;flex-direction:column;gap:8px;">
+                  ${displayFields.map(field => {
+                    const fieldLabel = field.key.split('_').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ')
+                    const displayValue = field.encrypted ? '••••••••' : (field.value || 'Not set')
+                    const truncatedValue = field.encrypted ? displayValue : (displayValue.length > 40 ? displayValue.substring(0, 40) + '...' : displayValue)
+                    
+                    return `
+                      <div style="display:flex;align-items:center;gap:8px;">
+                        <div style="font-size:11px;color:rgba(255,255,255,0.5);text-transform:uppercase;letter-spacing:0.5px;font-weight:600;min-width:120px;flex-shrink:0;">${escapeHtml(fieldLabel)}:</div>
+                        <div style="font-size:13px;color:rgba(255,255,255,0.7);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1;${field.encrypted ? 'font-family:monospace;letter-spacing:1px;' : ''}" title="${field.encrypted ? '' : escapeHtml(field.value)}">${escapeHtml(truncatedValue)}</div>
+                      </div>
+                    `
+                  }).join('')}
+                  ${hasMoreFields ? `
+                    <div style="font-size:11px;color:rgba(255,255,255,0.4);margin-top:4px;font-style:italic;">
+                      + ${item.fields.length - 3} more field${item.fields.length - 3 > 1 ? 's' : ''} (click Edit to view all)
+                    </div>
+                  ` : ''}
+                </div>
+              ` : '<div style="font-size:13px;color:rgba(255,255,255,0.4);">No fields</div>'}
             </div>
-          ` : ''}
-          ${item.domain ? `<div style="font-size:12px;color:rgba(255,255,255,0.5);margin-top:2px;">${escapeHtml(item.domain)}</div>` : ''}
+          </div>
+          <div style="display:flex;gap:8px;align-items:flex-start;flex-shrink:0;padding-top:2px;">
+            <button class="vault-item-edit-btn" style="
+              background:rgba(139,92,246,0.2);
+              border:1px solid rgba(139,92,246,0.4);
+              padding:8px 20px;
+              border-radius:8px;
+              color:#a78bfa;
+              font-size:13px;
+              font-weight:500;
+              cursor:pointer;
+              transition:all 0.2s;
+              white-space:nowrap;
+            " onmouseenter="this.style.background='rgba(139,92,246,0.3)';this.style.borderColor='rgba(139,92,246,0.5)'" onmouseleave="this.style.background='rgba(139,92,246,0.2)';this.style.borderColor='rgba(139,92,246,0.4)'">Edit</button>
+            <button class="vault-item-delete-btn" style="
+              background:rgba(255,59,48,0.1);
+              border:1px solid rgba(255,59,48,0.3);
+              padding:8px 20px;
+              border-radius:8px;
+              color:#ff3b30;
+              font-size:13px;
+              font-weight:500;
+              cursor:pointer;
+              transition:all 0.2s;
+              white-space:nowrap;
+            " onmouseenter="this.style.background='rgba(255,59,48,0.2)';this.style.borderColor='rgba(255,59,48,0.4)'" onmouseleave="this.style.background='rgba(255,59,48,0.1)';this.style.borderColor='rgba(255,59,48,0.3)'">Delete</button>
+          </div>
         </div>
       </div>
-      <div style="display:flex;gap:8px;align-items:center;justify-content:center;">
-        <button class="vault-item-edit-btn" style="
-          background:rgba(139,92,246,0.2);
-          border:1px solid rgba(139,92,246,0.4);
-          padding:6px 12px;
-          border-radius:6px;
-          color:#a78bfa;
-          font-size:12px;
-          cursor:pointer;
-          transition:all 0.2s;
-          white-space:nowrap;
-        " onmouseenter="this.style.background='rgba(139,92,246,0.3)'" onmouseleave="this.style.background='rgba(139,92,246,0.2)'">Edit</button>
+    `
+  }
+  
+  // Professional password item view with username, website, password
+  return `
+    <div class="vault-list-item" data-item-id="${item.id}" data-container-id="${item.container_id || ''}" data-category="${item.category}" style="
+      background:rgba(255,255,255,0.03);
+      border:1px solid rgba(139,92,246,0.15);
+      border-radius:12px;
+      padding:20px;
+      margin-bottom:12px;
+      transition:all 0.2s;
+      box-shadow:0 2px 8px rgba(0,0,0,0.1);
+    " onmouseenter="this.style.background='rgba(255,255,255,0.05)';this.style.borderColor='rgba(139,92,246,0.25)';this.style.boxShadow='0 4px 12px rgba(139,92,246,0.15)'" onmouseleave="this.style.background='rgba(255,255,255,0.03)';this.style.borderColor='rgba(139,92,246,0.15)';this.style.boxShadow='0 2px 8px rgba(0,0,0,0.1)'">
+      
+      <!-- Header: Icon, Title, Actions -->
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;padding-bottom:16px;border-bottom:1px solid rgba(139,92,246,0.1);">
+        <div style="display:flex;align-items:center;gap:12px;flex:1;min-width:0;">
+          <div style="font-size:28px;flex-shrink:0;">${categoryIcon}</div>
+          <div class="vault-item-title" style="font-size:17px;font-weight:600;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(item.title || 'Untitled')}</div>
+        </div>
+        <div style="display:flex;gap:8px;flex-shrink:0;">
+          <button class="vault-item-edit-btn" style="
+            background:rgba(139,92,246,0.2);
+            border:1px solid rgba(139,92,246,0.4);
+            padding:8px 20px;
+            border-radius:8px;
+            color:#a78bfa;
+            font-size:13px;
+            font-weight:500;
+            cursor:pointer;
+            transition:all 0.2s;
+            white-space:nowrap;
+          " onmouseenter="this.style.background='rgba(139,92,246,0.3)';this.style.borderColor='rgba(139,92,246,0.5)'" onmouseleave="this.style.background='rgba(139,92,246,0.2)';this.style.borderColor='rgba(139,92,246,0.4)'">Edit</button>
+          <button class="vault-item-delete-btn" style="
+            background:rgba(255,59,48,0.1);
+            border:1px solid rgba(255,59,48,0.3);
+            padding:8px 20px;
+            border-radius:8px;
+            color:#ff3b30;
+            font-size:13px;
+            font-weight:500;
+            cursor:pointer;
+            transition:all 0.2s;
+            white-space:nowrap;
+          " onmouseenter="this.style.background='rgba(255,59,48,0.2)';this.style.borderColor='rgba(255,59,48,0.4)'" onmouseleave="this.style.background='rgba(255,59,48,0.1)';this.style.borderColor='rgba(255,59,48,0.3)'">Delete</button>
+        </div>
       </div>
-      <div style="display:flex;align-items:center;justify-content:center;width:40px;">
-        <button class="vault-item-delete-btn" style="
-          background:rgba(255,59,48,0.1);
-          border:1px solid rgba(255,59,48,0.3);
-          padding:6px 10px;
-          border-radius:6px;
-          color:#ff3b30;
-          font-size:12px;
-          cursor:pointer;
-          transition:all 0.2s;
-        " onmouseenter="this.style.background='rgba(255,59,48,0.2)'" onmouseleave="this.style.background='rgba(255,59,48,0.1)'" title="Delete">🗑️</button>
+      
+      <!-- Fields Grid -->
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;">
+        
+        <!-- Username Field -->
+        <div>
+          <div style="font-size:11px;color:rgba(255,255,255,0.5);text-transform:uppercase;letter-spacing:0.8px;font-weight:600;margin-bottom:8px;">Username</div>
+          <div style="display:flex;align-items:center;gap:8px;background:rgba(0,0,0,0.2);border:1px solid rgba(139,92,246,0.1);border-radius:8px;padding:10px 12px;">
+            <div style="font-size:14px;color:rgba(255,255,255,0.9);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1;font-weight:500;" title="${escapeHtml(username)}">${username ? escapeHtml(username) : '<span style="color:rgba(255,255,255,0.4);font-weight:400;">Not set</span>'}</div>
+            ${username ? `
+              <button class="vault-copy-username-btn" data-value="${escapeHtml(username)}" style="
+                background:rgba(139,92,246,0.2);
+                border:none;
+                padding:6px 10px;
+                border-radius:6px;
+                color:#a78bfa;
+                font-size:16px;
+                cursor:pointer;
+                transition:all 0.2s;
+                flex-shrink:0;
+                line-height:1;
+              " onclick="event.stopPropagation()" onmouseenter="this.style.background='rgba(139,92,246,0.3)'" onmouseleave="this.style.background='rgba(139,92,246,0.2)'" title="Copy username">📋</button>
+            ` : ''}
+          </div>
+        </div>
+        
+        <!-- Website Field -->
+        <div>
+          <div style="font-size:11px;color:rgba(255,255,255,0.5);text-transform:uppercase;letter-spacing:0.8px;font-weight:600;margin-bottom:8px;">Website</div>
+          <div style="display:flex;align-items:center;gap:8px;background:rgba(0,0,0,0.2);border:1px solid rgba(139,92,246,0.1);border-radius:8px;padding:10px 12px;">
+            ${website ? `
+              <a href="${escapeHtml(website)}" target="_blank" rel="noopener noreferrer" style="
+                font-size:14px;
+                color:#a78bfa;
+                text-decoration:none;
+                white-space:nowrap;
+                overflow:hidden;
+                text-overflow:ellipsis;
+                display:flex;
+                align-items:center;
+                gap:8px;
+                flex:1;
+                font-weight:500;
+              " onclick="event.stopPropagation()" onmouseenter="this.style.color='#c4b5fd'" onmouseleave="this.style.color='#a78bfa'" title="${escapeHtml(website)}">
+                <span style="font-size:16px;">🔗</span>
+                <span style="overflow:hidden;text-overflow:ellipsis;">${escapeHtml(website.replace(/^https?:\/\//i, ''))}</span>
+              </a>
+            ` : '<span style="font-size:14px;color:rgba(255,255,255,0.4);font-weight:400;">Not set</span>'}
+          </div>
+        </div>
+        
+        <!-- Password Field -->
+        <div style="grid-column:span 2;">
+          <div style="font-size:11px;color:rgba(255,255,255,0.5);text-transform:uppercase;letter-spacing:0.8px;font-weight:600;margin-bottom:8px;">Password</div>
+          <div style="display:flex;align-items:center;gap:10px;background:rgba(0,0,0,0.3);border:1px solid rgba(139,92,246,0.2);border-radius:8px;padding:12px 14px;">
+            <div class="password-display" data-password="${escapeHtml(password)}" data-revealed="false" style="
+              font-family:'Courier New',monospace;
+              font-size:15px;
+              color:rgba(255,255,255,0.85);
+              flex:1;
+              font-weight:500;
+              letter-spacing:2px;
+            ">${password ? '••••••••••••' : '<span style="color:rgba(255,255,255,0.4);font-weight:400;letter-spacing:0;">Not set</span>'}</div>
+            ${password ? `
+              <button class="vault-reveal-password-btn" style="
+                background:rgba(139,92,246,0.2);
+                border:none;
+                padding:8px 12px;
+                border-radius:8px;
+                color:#a78bfa;
+                font-size:18px;
+                cursor:pointer;
+                transition:all 0.2s;
+                flex-shrink:0;
+                line-height:1;
+              " onclick="event.stopPropagation()" onmouseenter="this.style.background='rgba(139,92,246,0.3)'" onmouseleave="this.style.background='rgba(139,92,246,0.2)'" title="Reveal password">👁️</button>
+              <button class="vault-copy-password-btn" data-value="${escapeHtml(password)}" style="
+                background:rgba(139,92,246,0.2);
+                border:none;
+                padding:8px 12px;
+                border-radius:8px;
+                color:#a78bfa;
+                font-size:18px;
+                cursor:pointer;
+                transition:all 0.2s;
+                flex-shrink:0;
+                line-height:1;
+              " onclick="event.stopPropagation()" onmouseenter="this.style.background='rgba(139,92,246,0.3)'" onmouseleave="this.style.background='rgba(139,92,246,0.2)'" title="Copy password">📋</button>
+            ` : ''}
+          </div>
+        </div>
+        
       </div>
     </div>
   `
@@ -1764,26 +1973,26 @@ function renderAddDataDialog(container: HTMLElement, preselectedCategory?: 'pass
     // Standard form for password/identity/company/business
     formContainer.innerHTML = `
       ${category !== 'identity' ? `
-      <div style="margin-bottom:20px;">
-        <label style="display:block;font-size:13px;font-weight:600;margin-bottom:8px;color:rgba(255,255,255,0.9);">${titleLabel} *</label>
+      <div style="margin-bottom:24px;">
+        <div style="font-size:11px;color:rgba(255,255,255,0.5);text-transform:uppercase;letter-spacing:0.8px;font-weight:600;margin-bottom:8px;">${titleLabel}</div>
         <input type="text" id="vault-add-title" placeholder="Enter ${titleLabel.toLowerCase()}" style="
           width:100%;
-          padding:12px 16px;
-          border:1px solid rgba(139, 92, 246,0.4);
+          padding:12px 14px;
+          border:1px solid rgba(139,92,246,0.2);
           border-radius:8px;
-          background:rgba(0,0,0,0.4);
-          color:#fff;
+          background:rgba(0,0,0,0.2);
+          color:rgba(255,255,255,0.9);
           font-size:14px;
+          font-weight:500;
           box-sizing:border-box;
-        "/>
+          transition:all 0.2s;
+        " onfocus="this.style.borderColor='rgba(139,92,246,0.4)';this.style.background='rgba(0,0,0,0.3)'" onblur="this.style.borderColor='rgba(139,92,246,0.2)';this.style.background='rgba(0,0,0,0.2)'"/>
       </div>
       ` : ''}
       
       <div style="margin-bottom:20px;">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
-          <label style="font-size:13px;font-weight:600;color:rgba(255,255,255,0.9);">Standard Fields</label>
-        </div>
-        <div id="vault-standard-fields" style="display:flex;flex-direction:column;gap:16px;">
+        <div style="font-size:11px;color:rgba(255,255,255,0.5);text-transform:uppercase;letter-spacing:0.8px;font-weight:600;margin-bottom:16px;">Standard Fields</div>
+        <div id="vault-standard-fields" style="display:grid;grid-template-columns:1fr 1fr;gap:20px;">
           ${(() => {
             let fieldsHtml = ''
             let i = 0
@@ -1796,48 +2005,42 @@ function renderAddDataDialog(container: HTMLElement, preselectedCategory?: 'pass
                 const ceoSurnameField = standardFields[i + 1]
                 fieldsHtml += `
                   <div>
-                    <div style="display:flex;gap:12px;align-items:flex-start;">
-                      <div style="flex:1;">
-                        <div style="margin-bottom:6px;">
-                          <label style="font-size:12px;font-weight:600;color:rgba(255,255,255,0.8);">${escapeHtml(ceoFirstNameField.label)}${ceoFirstNameField.required ? ' *' : ''}</label>
-                          ${ceoFirstNameField.explanation ? `<div style="font-size:10px;color:rgba(255,255,255,0.4);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(ceoFirstNameField.explanation)}</div>` : '<div style="height:14px;"></div>'}
-                        </div>
-                        <input type="text" 
-                          id="field-${ceoFirstNameField.key}" 
-                          placeholder="Enter ${ceoFirstNameField.label.toLowerCase()}" 
-                          ${ceoFirstNameField.required ? 'required' : ''}
-                          style="
-                            width:100%;
-                            padding:12px 16px;
-                            border:1px solid rgba(139, 92, 246,0.4);
-                            border-radius:8px;
-                            background:rgba(0,0,0,0.4);
-                            color:#fff;
-                            font-size:14px;
-                            box-sizing:border-box;
-                          "/>
-                      </div>
-                      <div style="flex:1;">
-                        <div style="margin-bottom:6px;">
-                          <label style="font-size:12px;font-weight:600;color:rgba(255,255,255,0.8);">${escapeHtml(ceoSurnameField.label)}${ceoSurnameField.required ? ' *' : ''}</label>
-                          ${ceoSurnameField.explanation ? `<div style="font-size:10px;color:rgba(255,255,255,0.4);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(ceoSurnameField.explanation)}</div>` : '<div style="height:14px;"></div>'}
-                        </div>
-                        <input type="text" 
-                          id="field-${ceoSurnameField.key}" 
-                          placeholder="Enter ${ceoSurnameField.label.toLowerCase()}" 
-                          ${ceoSurnameField.required ? 'required' : ''}
-                          style="
-                            width:100%;
-                            padding:12px 16px;
-                            border:1px solid rgba(139, 92, 246,0.4);
-                            border-radius:8px;
-                            background:rgba(0,0,0,0.4);
-                            color:#fff;
-                            font-size:14px;
-                            box-sizing:border-box;
-                          "/>
-                      </div>
-                    </div>
+                    <div style="font-size:11px;color:rgba(255,255,255,0.5);text-transform:uppercase;letter-spacing:0.8px;font-weight:600;margin-bottom:8px;">${escapeHtml(ceoFirstNameField.label)}${ceoFirstNameField.required ? ' *' : ''}</div>
+                    <input type="text" 
+                      id="field-${ceoFirstNameField.key}" 
+                      placeholder="Enter ${ceoFirstNameField.label.toLowerCase()}" 
+                      ${ceoFirstNameField.required ? 'required' : ''}
+                      style="
+                        width:100%;
+                        padding:12px 14px;
+                        border:1px solid rgba(139,92,246,0.2);
+                        border-radius:8px;
+                        background:rgba(0,0,0,0.2);
+                        color:rgba(255,255,255,0.9);
+                        font-size:14px;
+                        font-weight:500;
+                        box-sizing:border-box;
+                        transition:all 0.2s;
+                      " onfocus="this.style.borderColor='rgba(139,92,246,0.4)';this.style.background='rgba(0,0,0,0.3)'" onblur="this.style.borderColor='rgba(139,92,246,0.2)';this.style.background='rgba(0,0,0,0.2)'"/>
+                  </div>
+                  <div>
+                    <div style="font-size:11px;color:rgba(255,255,255,0.5);text-transform:uppercase;letter-spacing:0.8px;font-weight:600;margin-bottom:8px;">${escapeHtml(ceoSurnameField.label)}${ceoSurnameField.required ? ' *' : ''}</div>
+                    <input type="text" 
+                      id="field-${ceoSurnameField.key}" 
+                      placeholder="Enter ${ceoSurnameField.label.toLowerCase()}" 
+                      ${ceoSurnameField.required ? 'required' : ''}
+                      style="
+                        width:100%;
+                        padding:12px 14px;
+                        border:1px solid rgba(139,92,246,0.2);
+                        border-radius:8px;
+                        background:rgba(0,0,0,0.2);
+                        color:rgba(255,255,255,0.9);
+                        font-size:14px;
+                        font-weight:500;
+                        box-sizing:border-box;
+                        transition:all 0.2s;
+                      " onfocus="this.style.borderColor='rgba(139,92,246,0.4)';this.style.background='rgba(0,0,0,0.3)'" onblur="this.style.borderColor='rgba(139,92,246,0.2)';this.style.background='rgba(0,0,0,0.2)'"/>
                   </div>
                 `
                 i += 2 // Skip both fields
@@ -1850,48 +2053,42 @@ function renderAddDataDialog(container: HTMLElement, preselectedCategory?: 'pass
                 const numberField = standardFields[i + 1]
                 fieldsHtml += `
                   <div>
-                    <div style="display:flex;gap:12px;align-items:flex-start;">
-                      <div style="flex:2;">
-                        <div style="margin-bottom:6px;">
-                          <label style="font-size:12px;font-weight:600;color:rgba(255,255,255,0.8);">${escapeHtml(streetField.label)}${streetField.required ? ' *' : ''}</label>
-                          ${streetField.explanation ? `<div style="font-size:10px;color:rgba(255,255,255,0.4);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(streetField.explanation)}</div>` : '<div style="height:14px;"></div>'}
-                        </div>
-                        <input type="text" 
-                          id="field-${streetField.key}" 
-                          placeholder="Enter ${streetField.label.toLowerCase()}" 
-                          ${streetField.required ? 'required' : ''}
-                          style="
-                            width:100%;
-                            padding:12px 16px;
-                            border:1px solid rgba(139, 92, 246,0.4);
-                            border-radius:8px;
-                            background:rgba(0,0,0,0.4);
-                            color:#fff;
-                            font-size:14px;
-                            box-sizing:border-box;
-                          "/>
-                      </div>
-                      <div style="flex:1;">
-                        <div style="margin-bottom:6px;">
-                          <label style="font-size:12px;font-weight:600;color:rgba(255,255,255,0.8);">${escapeHtml(numberField.label)}${numberField.required ? ' *' : ''}</label>
-                          ${numberField.explanation ? `<div style="font-size:10px;color:rgba(255,255,255,0.4);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(numberField.explanation)}</div>` : '<div style="height:14px;"></div>'}
-                        </div>
-                        <input type="text" 
-                          id="field-${numberField.key}" 
-                          placeholder="Enter ${numberField.label.toLowerCase()}" 
-                          ${numberField.required ? 'required' : ''}
-                          style="
-                            width:100%;
-                            padding:12px 16px;
-                            border:1px solid rgba(139, 92, 246,0.4);
-                            border-radius:8px;
-                            background:rgba(0,0,0,0.4);
-                            color:#fff;
-                            font-size:14px;
-                            box-sizing:border-box;
-                          "/>
-                      </div>
-                    </div>
+                    <div style="font-size:11px;color:rgba(255,255,255,0.5);text-transform:uppercase;letter-spacing:0.8px;font-weight:600;margin-bottom:8px;">${escapeHtml(streetField.label)}${streetField.required ? ' *' : ''}</div>
+                    <input type="text" 
+                      id="field-${streetField.key}" 
+                      placeholder="Enter ${streetField.label.toLowerCase()}" 
+                      ${streetField.required ? 'required' : ''}
+                      style="
+                        width:100%;
+                        padding:12px 14px;
+                        border:1px solid rgba(139,92,246,0.2);
+                        border-radius:8px;
+                        background:rgba(0,0,0,0.2);
+                        color:rgba(255,255,255,0.9);
+                        font-size:14px;
+                        font-weight:500;
+                        box-sizing:border-box;
+                        transition:all 0.2s;
+                      " onfocus="this.style.borderColor='rgba(139,92,246,0.4)';this.style.background='rgba(0,0,0,0.3)'" onblur="this.style.borderColor='rgba(139,92,246,0.2)';this.style.background='rgba(0,0,0,0.2)'"/>
+                  </div>
+                  <div>
+                    <div style="font-size:11px;color:rgba(255,255,255,0.5);text-transform:uppercase;letter-spacing:0.8px;font-weight:600;margin-bottom:8px;">${escapeHtml(numberField.label)}${numberField.required ? ' *' : ''}</div>
+                    <input type="text" 
+                      id="field-${numberField.key}" 
+                      placeholder="Enter ${numberField.label.toLowerCase()}" 
+                      ${numberField.required ? 'required' : ''}
+                      style="
+                        width:100%;
+                        padding:12px 14px;
+                        border:1px solid rgba(139,92,246,0.2);
+                        border-radius:8px;
+                        background:rgba(0,0,0,0.2);
+                        color:rgba(255,255,255,0.9);
+                        font-size:14px;
+                        font-weight:500;
+                        box-sizing:border-box;
+                        transition:all 0.2s;
+                      " onfocus="this.style.borderColor='rgba(139,92,246,0.4)';this.style.background='rgba(0,0,0,0.3)'" onblur="this.style.borderColor='rgba(139,92,246,0.2)';this.style.background='rgba(0,0,0,0.2)'"/>
                   </div>
                 `
                 i += 2 // Skip both fields
@@ -1899,29 +2096,29 @@ function renderAddDataDialog(container: HTMLElement, preselectedCategory?: 'pass
               }
               
               // Regular field rendering
+              const isFullWidth = field.key === 'additional_info' || field.type === 'textarea'
               fieldsHtml += `
-                <div>
-                  <div style="margin-bottom:6px;">
-                    <label style="font-size:12px;font-weight:600;color:rgba(255,255,255,0.8);">${escapeHtml(field.label)}${field.required ? ' *' : ''}</label>
-                    ${field.explanation && field.key !== 'additional_info' ? `<div style="font-size:10px;color:rgba(255,255,255,0.4);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(field.explanation)}</div>` : ''}
-                  </div>
+                <div style="${isFullWidth ? 'grid-column:span 2;' : ''}">
+                  <div style="font-size:11px;color:rgba(255,255,255,0.5);text-transform:uppercase;letter-spacing:0.8px;font-weight:600;margin-bottom:8px;">${escapeHtml(field.label)}${field.required ? ' *' : ''}</div>
                   ${field.key === 'additional_info' ? `
-                    <div style="font-size:10px;color:rgba(255,255,255,0.5);margin-bottom:4px;font-style:italic;">💡 This information helps AI autofill match this data to forms more accurately</div>
+                    <div style="font-size:10px;color:rgba(255,255,255,0.4);margin-bottom:8px;font-style:italic;">💡 This information helps AI autofill match this data to forms more accurately</div>
                   ` : ''}
                   ${field.type === 'textarea' ? `
                     <textarea id="field-${field.key}" placeholder="Enter ${field.label.toLowerCase()}" style="
                       width:100%;
-                      padding:12px 16px;
-                      border:1px solid rgba(139, 92, 246,0.4);
+                      padding:12px 14px;
+                      border:1px solid rgba(139,92,246,0.2);
                       border-radius:8px;
-                      background:rgba(0,0,0,0.4);
-                      color:#fff;
+                      background:rgba(0,0,0,0.2);
+                      color:rgba(255,255,255,0.9);
                       font-size:14px;
-                      min-height:80px;
+                      font-weight:500;
+                      min-height:100px;
                       resize:vertical;
                       font-family:inherit;
                       box-sizing:border-box;
-                    "></textarea>
+                      transition:all 0.2s;
+                    " onfocus="this.style.borderColor='rgba(139,92,246,0.4)';this.style.background='rgba(0,0,0,0.3)'" onblur="this.style.borderColor='rgba(139,92,246,0.2)';this.style.background='rgba(0,0,0,0.2)'"></textarea>
                   ` : `
                     <input type="${field.type === 'password' ? 'password' : field.type === 'email' ? 'email' : field.type === 'url' ? 'url' : 'text'}" 
                       id="field-${field.key}" 
@@ -1929,14 +2126,16 @@ function renderAddDataDialog(container: HTMLElement, preselectedCategory?: 'pass
                       ${field.required ? 'required' : ''}
                       style="
                         width:100%;
-                        padding:12px 16px;
-                        border:1px solid rgba(139, 92, 246,0.4);
+                        padding:12px 14px;
+                        border:1px solid rgba(139,92,246,0.2);
                         border-radius:8px;
-                        background:rgba(0,0,0,0.4);
-                        color:#fff;
+                        background:rgba(0,0,0,0.2);
+                        color:rgba(255,255,255,0.9);
                         font-size:14px;
+                        font-weight:500;
                         box-sizing:border-box;
-                      "/>
+                        transition:all 0.2s;
+                      " onfocus="this.style.borderColor='rgba(139,92,246,0.4)';this.style.background='rgba(0,0,0,0.3)'" onblur="this.style.borderColor='rgba(139,92,246,0.2)';this.style.background='rgba(0,0,0,0.2)'"/>
                   `}
                 </div>
               `
@@ -1948,19 +2147,21 @@ function renderAddDataDialog(container: HTMLElement, preselectedCategory?: 'pass
       </div>
       
       <div style="margin-bottom:20px;">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
-          <label style="font-size:13px;font-weight:600;color:rgba(255,255,255,0.9);">Custom Fields</label>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+          <div style="font-size:11px;color:rgba(255,255,255,0.5);text-transform:uppercase;letter-spacing:0.8px;font-weight:600;">Custom Fields</div>
           <button type="button" id="vault-add-custom-field" style="
-            padding:6px 12px;
+            padding:8px 16px;
             background:rgba(139,92,246,0.2);
             border:1px solid rgba(139,92,246,0.4);
-            border-radius:6px;
+            border-radius:8px;
             color:#a78bfa;
             font-size:12px;
+            font-weight:500;
             cursor:pointer;
-          ">+ Add Custom Field</button>
+            transition:all 0.2s;
+          " onmouseenter="this.style.background='rgba(139,92,246,0.3)';this.style.borderColor='rgba(139,92,246,0.5)'" onmouseleave="this.style.background='rgba(139,92,246,0.2)';this.style.borderColor='rgba(139,92,246,0.4)'">+ Add Custom Field</button>
         </div>
-        <div id="vault-custom-fields" style="display:flex;flex-direction:column;gap:16px;">
+        <div id="vault-custom-fields" style="display:grid;grid-template-columns:1fr 1fr;gap:20px;">
           <!-- Custom fields will be added here -->
         </div>
       </div>
@@ -1972,57 +2173,71 @@ function renderAddDataDialog(container: HTMLElement, preselectedCategory?: 'pass
     
     addCustomFieldBtn?.addEventListener('click', () => {
       const customFieldDiv = document.createElement('div')
-      customFieldDiv.style.cssText = 'background:rgba(139,92,246,0.05);border:1px solid rgba(139,92,246,0.2);border-radius:8px;padding:16px;'
+      customFieldDiv.style.cssText = 'grid-column:span 2;background:rgba(139,92,246,0.05);border:1px solid rgba(139,92,246,0.2);border-radius:8px;padding:16px;'
       customFieldDiv.innerHTML = `
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
-          <span style="font-size:12px;font-weight:600;color:rgba(255,255,255,0.8);">Custom Field</span>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+          <span style="font-size:11px;color:rgba(255,255,255,0.5);text-transform:uppercase;letter-spacing:0.8px;font-weight:600;">Custom Field</span>
           <button type="button" class="remove-custom-field" style="
-            background:rgba(255,59,48,0.2);
-            border:1px solid rgba(255,59,48,0.4);
-            padding:4px 8px;
-            border-radius:4px;
+            background:rgba(255,59,48,0.1);
+            border:1px solid rgba(255,59,48,0.3);
+            padding:6px 12px;
+            border-radius:6px;
             color:#ff3b30;
-            font-size:11px;
+            font-size:12px;
+            font-weight:500;
             cursor:pointer;
-          ">Remove</button>
+            transition:all 0.2s;
+          " onmouseenter="this.style.background='rgba(255,59,48,0.2)';this.style.borderColor='rgba(255,59,48,0.4)'" onmouseleave="this.style.background='rgba(255,59,48,0.1)';this.style.borderColor='rgba(255,59,48,0.3)'">Remove</button>
         </div>
-        <div style="display:flex;flex-direction:column;gap:12px;">
-          <input type="text" class="custom-field-name" placeholder="Field Name" style="
-            width:100%;
-            padding:10px 12px;
-            border:1px solid rgba(139, 92, 246,0.3);
-            border-radius:6px;
-            background:rgba(0,0,0,0.3);
-            color:#fff;
-            font-size:13px;
-            box-sizing:border-box;
-          "/>
-          <input type="text" class="custom-field-value" placeholder="Field Value" style="
-            width:100%;
-            padding:10px 12px;
-            border:1px solid rgba(139, 92, 246,0.3);
-            border-radius:6px;
-            background:rgba(0,0,0,0.3);
-            color:#fff;
-            font-size:13px;
-            box-sizing:border-box;
-          "/>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
           <div>
-            <label style="display:block;font-size:11px;font-weight:600;margin-bottom:4px;color:rgba(255,255,255,0.7);">Additional Info</label>
-            <div style="font-size:10px;color:rgba(255,255,255,0.5);margin-bottom:4px;font-style:italic;">💡 This information helps AI autofill match this data to forms more accurately</div>
+            <div style="font-size:11px;color:rgba(255,255,255,0.5);text-transform:uppercase;letter-spacing:0.8px;font-weight:600;margin-bottom:8px;">Field Name *</div>
+            <input type="text" class="custom-field-name" placeholder="e.g., License Number" style="
+              width:100%;
+              padding:12px 14px;
+              border:1px solid rgba(139,92,246,0.2);
+              border-radius:8px;
+              background:rgba(0,0,0,0.2);
+              color:rgba(255,255,255,0.9);
+              font-size:14px;
+              font-weight:500;
+              box-sizing:border-box;
+              transition:all 0.2s;
+            " onfocus="this.style.borderColor='rgba(139,92,246,0.4)';this.style.background='rgba(0,0,0,0.3)'" onblur="this.style.borderColor='rgba(139,92,246,0.2)';this.style.background='rgba(0,0,0,0.2)'"/>
+          </div>
+          <div>
+            <div style="font-size:11px;color:rgba(255,255,255,0.5);text-transform:uppercase;letter-spacing:0.8px;font-weight:600;margin-bottom:8px;">Field Value *</div>
+            <input type="text" class="custom-field-value" placeholder="Enter the value" style="
+              width:100%;
+              padding:12px 14px;
+              border:1px solid rgba(139,92,246,0.2);
+              border-radius:8px;
+              background:rgba(0,0,0,0.2);
+              color:rgba(255,255,255,0.9);
+              font-size:14px;
+              font-weight:500;
+              box-sizing:border-box;
+              transition:all 0.2s;
+            " onfocus="this.style.borderColor='rgba(139,92,246,0.4)';this.style.background='rgba(0,0,0,0.3)'" onblur="this.style.borderColor='rgba(139,92,246,0.2)';this.style.background='rgba(0,0,0,0.2)'"/>
+          </div>
+          <div style="grid-column:span 2;">
+            <div style="font-size:11px;color:rgba(255,255,255,0.5);text-transform:uppercase;letter-spacing:0.8px;font-weight:600;margin-bottom:8px;">Additional Info</div>
+            <div style="font-size:10px;color:rgba(255,255,255,0.4);margin-bottom:8px;font-style:italic;">💡 This information helps AI autofill match this data to forms more accurately</div>
             <textarea class="custom-field-explanation" placeholder="Additional context or notes..." style="
-            width:100%;
-            padding:10px 12px;
-            border:1px solid rgba(139, 92, 246,0.3);
-            border-radius:6px;
-            background:rgba(0,0,0,0.3);
-            color:#fff;
-            font-size:13px;
-            min-height:60px;
-            resize:vertical;
-            font-family:inherit;
-            box-sizing:border-box;
-          "></textarea>
+              width:100%;
+              padding:12px 14px;
+              border:1px solid rgba(139,92,246,0.2);
+              border-radius:8px;
+              background:rgba(0,0,0,0.2);
+              color:rgba(255,255,255,0.9);
+              font-size:14px;
+              font-weight:500;
+              min-height:80px;
+              resize:vertical;
+              font-family:inherit;
+              box-sizing:border-box;
+              transition:all 0.2s;
+            " onfocus="this.style.borderColor='rgba(139,92,246,0.4)';this.style.background='rgba(0,0,0,0.3)'" onblur="this.style.borderColor='rgba(139,92,246,0.2)';this.style.background='rgba(0,0,0,0.2)'"></textarea>
           </div>
         </div>
       `
@@ -2261,6 +2476,7 @@ function renderAddDataDialog(container: HTMLElement, preselectedCategory?: 'pass
       // Small delay to ensure DOM is ready, then refresh items list
       setTimeout(() => {
         loadContainersIntoTree(container)
+        addAddButtonsToTree(container)
         // Refresh the items list with the current category
         loadVaultItems(container, currentCategory)
         // Store current category for next refresh
@@ -2417,6 +2633,7 @@ function renderEditDataDialog(container: HTMLElement, item: VaultItem) {
             loadVaultItems(container, item.category)
           }
           loadContainersIntoTree(container)
+          addAddButtonsToTree(container)
         } catch (err: any) {
           alert(`Error updating data: ${err.message || err}`)
           console.error('[VAULT UI] Error updating data:', err)
