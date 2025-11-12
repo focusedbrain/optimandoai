@@ -982,76 +982,6 @@ function SidepanelOrchestrator() {
           </button>
         </div>
         
-        {/* Add Mini App Button */}
-        <div style={{
-          flex: 1,
-          padding: '40px 20px',
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'center',
-          justifyContent: 'center'
-        }}>
-          <button
-            onClick={addMiniApp}
-            style={{
-              width: '100%',
-              maxWidth: '300px',
-              padding: '20px 24px',
-              ...(theme === 'professional' ? {
-                background: 'rgba(15,23,42,0.08)',
-                border: '2px dashed rgba(15,23,42,0.3)',
-                color: '#0f172a'
-              } : theme === 'dark' ? {
-                background: 'rgba(255,255,255,0.1)',
-                border: '2px dashed rgba(255,255,255,0.3)',
-                color: '#f1f5f9'
-              } : {
-                background: 'rgba(118,75,162,0.3)',
-                border: '2px dashed rgba(255,255,255,0.5)',
-                color: 'white'
-              }),
-              borderRadius: '12px',
-              cursor: 'pointer',
-              fontSize: '16px',
-              fontWeight: '700',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: '10px',
-              transition: 'all 0.2s ease',
-              boxShadow: 'none'
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.transform = 'translateY(-2px)'
-              if (theme === 'professional') {
-                e.currentTarget.style.background = 'rgba(15,23,42,0.12)'
-                e.currentTarget.style.borderColor = 'rgba(15,23,42,0.4)'
-              } else if (theme === 'dark') {
-                e.currentTarget.style.background = 'rgba(255,255,255,0.15)'
-                e.currentTarget.style.borderColor = 'rgba(255,255,255,0.4)'
-              } else {
-                e.currentTarget.style.background = 'rgba(118,75,162,0.55)'
-                e.currentTarget.style.borderColor = 'rgba(255,255,255,0.7)'
-              }
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.transform = 'translateY(0)'
-              if (theme === 'professional') {
-                e.currentTarget.style.background = 'rgba(15,23,42,0.08)'
-                e.currentTarget.style.borderColor = 'rgba(15,23,42,0.3)'
-              } else if (theme === 'dark') {
-                e.currentTarget.style.background = 'rgba(255,255,255,0.1)'
-                e.currentTarget.style.borderColor = 'rgba(255,255,255,0.3)'
-              } else {
-                e.currentTarget.style.background = 'rgba(118,75,162,0.3)'
-                e.currentTarget.style.borderColor = 'rgba(255,255,255,0.5)'
-              }
-            }}
-          >
-            ➕ Add Mini App
-          </button>
-        </div>
-        
         {/* Docked Command Chat - Full Featured (Only when pinned) */}
         {isCommandChatPinned && (
           <>
@@ -1729,6 +1659,76 @@ function SidepanelOrchestrator() {
           )}
         </>
         )}
+        
+        {/* Add Mini App Button */}
+        <div style={{
+          flex: 1,
+          padding: '40px 20px',
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center'
+        }}>
+          <button
+            onClick={addMiniApp}
+            style={{
+              width: '100%',
+              maxWidth: '300px',
+              padding: '20px 24px',
+              ...(theme === 'professional' ? {
+                background: 'rgba(15,23,42,0.08)',
+                border: '2px dashed rgba(15,23,42,0.3)',
+                color: '#0f172a'
+              } : theme === 'dark' ? {
+                background: 'rgba(255,255,255,0.1)',
+                border: '2px dashed rgba(255,255,255,0.3)',
+                color: '#f1f5f9'
+              } : {
+                background: 'rgba(118,75,162,0.3)',
+                border: '2px dashed rgba(255,255,255,0.5)',
+                color: 'white'
+              }),
+              borderRadius: '12px',
+              cursor: 'pointer',
+              fontSize: '16px',
+              fontWeight: '700',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '10px',
+              transition: 'all 0.2s ease',
+              boxShadow: 'none'
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.transform = 'translateY(-2px)'
+              if (theme === 'professional') {
+                e.currentTarget.style.background = 'rgba(15,23,42,0.12)'
+                e.currentTarget.style.borderColor = 'rgba(15,23,42,0.4)'
+              } else if (theme === 'dark') {
+                e.currentTarget.style.background = 'rgba(255,255,255,0.15)'
+                e.currentTarget.style.borderColor = 'rgba(255,255,255,0.4)'
+              } else {
+                e.currentTarget.style.background = 'rgba(118,75,162,0.55)'
+                e.currentTarget.style.borderColor = 'rgba(255,255,255,0.7)'
+              }
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.transform = 'translateY(0)'
+              if (theme === 'professional') {
+                e.currentTarget.style.background = 'rgba(15,23,42,0.08)'
+                e.currentTarget.style.borderColor = 'rgba(15,23,42,0.3)'
+              } else if (theme === 'dark') {
+                e.currentTarget.style.background = 'rgba(255,255,255,0.1)'
+                e.currentTarget.style.borderColor = 'rgba(255,255,255,0.3)'
+              } else {
+                e.currentTarget.style.background = 'rgba(118,75,162,0.3)'
+                e.currentTarget.style.borderColor = 'rgba(255,255,255,0.5)'
+              }
+            }}
+          >
+            ➕ Add Mini App
+          </button>
+        </div>
         
         {/* Notification Toast */}
         {notification && (
