@@ -247,6 +247,8 @@ chrome.runtime.onInstalled.addListener(() => {
 // Track if display grids are active per tab
 const tabDisplayGridsActive = new Map<number, boolean>();
 
+// Remove sidepanel disabling - we'll show minimal UI instead
+
 // Handle extension icon click: open the side panel
 chrome.action.onClicked.addListener(async (tab) => {
   try {
@@ -614,43 +616,52 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       break;
 
     case 'DISPLAY_GRIDS_OPENED': {
-      // Display grids were opened - hide sidepanel
-      if (sender.tab?.id) {
+      // Display grids were opened - minimize sidepanel (only on display grid tabs, not master tabs)
+      if (sender.tab?.id && sender.tab?.url) {
         const tabId = sender.tab.id;
-        tabDisplayGridsActive.set(tabId, true);
-        console.log(`🚫 Display grids active for tab ${tabId} - closing sidepanel`);
         
-        // Close sidepanel for this tab
-        if (chrome.sidePanel) {
-          chrome.sidePanel.setOptions({ 
-            tabId: tabId,
-            enabled: false 
-          }).catch((e) => {
-            console.error('Failed to disable sidepanel:', e);
-          });
+        // Check if this is a master tab (has hybrid_master_id in URL)
+        try {
+          const url = new URL(sender.tab.url);
+          const hybridMasterId = url.searchParams.get('hybrid_master_id');
+          
+          if (hybridMasterId !== null) {
+            // This is a master tab - DO NOT disable sidepanel
+            console.log(`🖥️ Master tab detected (ID: ${hybridMasterId}) - keeping sidepanel enabled`);
+            try { sendResponse({ success: true, isMasterTab: true }) } catch {}
+            break;
+          }
+        } catch (e) {
+          console.error('Error checking if tab is master tab:', e);
         }
+        
+        // This is a display grid tab - just track it (sidepanel controls its own width now)
+        tabDisplayGridsActive.set(tabId, true);
+        console.log(`📱 Display grid tab ${tabId} - sidepanel will adjust width to 0`);
       }
       try { sendResponse({ success: true }) } catch {}
       break;
     }
     case 'DISPLAY_GRIDS_CLOSED': {
-      // Display grids were closed - allow sidepanel again
+      // Display grids were closed - sidepanel will auto-adjust width
       if (sender.tab?.id) {
         const tabId = sender.tab.id;
         tabDisplayGridsActive.set(tabId, false);
-        console.log(`✅ Display grids closed for tab ${tabId} - sidepanel enabled`);
-        
-        // Re-enable sidepanel for this tab
-        if (chrome.sidePanel) {
-          chrome.sidePanel.setOptions({ 
-            tabId: tabId,
-            enabled: true 
-          }).catch((e) => {
-            console.error('Failed to enable sidepanel:', e);
-          });
-        }
+        console.log(`✅ Display grids closed for tab ${tabId} - sidepanel will adjust width`);
       }
       try { sendResponse({ success: true }) } catch {}
+      break;
+    }
+    case 'REOPEN_SIDEPANEL': {
+      // Expand sidepanel (sidepanel will adjust width automatically)
+      if (sender.tab?.id) {
+        const tabId = sender.tab.id;
+        console.log(`🔓 Expanding sidepanel for tab ${tabId} - width will auto-adjust`);
+        tabDisplayGridsActive.set(tabId, false);
+        try { sendResponse({ success: true }) } catch {}
+      } else {
+        try { sendResponse({ success: false, error: 'No tab ID' }) } catch {}
+      }
       break;
     }
     case 'LAUNCH_DBEAVER': {

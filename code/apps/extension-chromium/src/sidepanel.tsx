@@ -31,6 +31,7 @@ function SidepanelOrchestrator() {
   const [resizingBoxId, setResizingBoxId] = useState<string | null>(null)
   const [isWRLoginCollapsed, setIsWRLoginCollapsed] = useState(false)
   const [isCommandChatPinned, setIsCommandChatPinned] = useState(false)
+  const [showMinimalUI, setShowMinimalUI] = useState(false) // Show minimal UI on display grids and Edge startpage
   
   // Command chat state
   const [chatMessages, setChatMessages] = useState<Array<{role: 'user' | 'assistant', text: string}>>([])
@@ -97,45 +98,84 @@ function SidepanelOrchestrator() {
     }
   }, [])
 
-  // Detect if this is a Master Tab and get its ID
+  // Detect if this is a Master Tab and get its ID, and check if we should show minimal UI
   useEffect(() => {
-    const checkMasterTabId = () => {
+    const checkTabType = () => {
       chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-        if (tabs[0]?.url) {
+        if (tabs[0]?.id && tabs[0]?.url) {
+          const tabId = tabs[0].id
+          const storageKey = `masterTabId_${tabId}`
+          
           try {
             const url = new URL(tabs[0].url)
             const hybridMasterId = url.searchParams.get('hybrid_master_id')
-            if (hybridMasterId) {
-              // Convert hybrid_master_id to display format (Master Tab 02, 03, etc.)
-              const displayId = String(parseInt(hybridMasterId) + 1).padStart(2, '0')
-              setMasterTabId(displayId)
-              console.log('🖥️ Detected Master Tab ID:', displayId)
-            } else {
-              // No hybrid_master_id, this is the main master tab
-              setMasterTabId(null)
-            }
+            const isDisplayGrid = url.pathname.includes('grid-display.html')
+            const isEdgeStartpage = url.hostname === 'www.msn.com' || url.hostname === 'msn.com' || url.protocol === 'edge:'
+            
+            // Check if we should show minimal UI (display grid without master ID, or Edge startpage)
+            const shouldShowMinimal = (isDisplayGrid && hybridMasterId === null) || isEdgeStartpage
+            setShowMinimalUI(shouldShowMinimal)
+            
+            // First, check if we have a stored master tab ID for this tab (persists across page refreshes)
+            chrome.storage.local.get([storageKey], (result) => {
+              const storedMasterTabId = result[storageKey]
+              
+              if (hybridMasterId) {
+                // Convert hybrid_master_id to display format (Master Tab 02, 03, etc.)
+                const displayId = String(parseInt(hybridMasterId) + 1).padStart(2, '0')
+                setMasterTabId(displayId)
+                // Store it for this tab so it persists across page refreshes
+                chrome.storage.local.set({ [storageKey]: displayId })
+                console.log('🖥️ Detected Master Tab ID:', displayId, '(stored for tab', tabId, ')')
+              } else if (storedMasterTabId) {
+                // No hybrid_master_id in URL, but we have a stored value (page refreshed)
+                setMasterTabId(storedMasterTabId)
+                console.log('🖥️ Using stored Master Tab ID:', storedMasterTabId, '(tab', tabId, ')')
+              } else {
+                // No hybrid_master_id and no stored value - this is the main master tab
+                setMasterTabId(null)
+                // Clear any stored value for this tab (in case it was previously a hybrid master tab)
+                chrome.storage.local.remove(storageKey)
+                console.log('🖥️ Main master tab (ADMIN) - tab', tabId)
+              }
+              
+              if (shouldShowMinimal) {
+                console.log('📱 Showing minimal UI - Display grid or Edge startpage')
+              }
+            })
           } catch (e) {
-            console.error('Error parsing tab URL for master tab detection:', e)
+            console.error('Error parsing tab URL:', e)
+            setShowMinimalUI(false)
+            // On error, try to use stored master tab ID
+            chrome.storage.local.get([storageKey], (result) => {
+              const storedMasterTabId = result[storageKey]
+              if (storedMasterTabId) {
+                setMasterTabId(storedMasterTabId)
+                console.log('🖥️ Using stored Master Tab ID after error:', storedMasterTabId)
+              } else {
+                setMasterTabId(null)
+              }
+            })
           }
         }
       })
     }
 
     // Check initially
-    checkMasterTabId()
+    checkTabType()
 
     // Listen for tab updates (URL changes)
     const handleTabUpdate = (tabId: number, changeInfo: chrome.tabs.TabChangeInfo, tab: chrome.tabs.Tab) => {
-      if (changeInfo.url) {
-        console.log('🔄 Tab URL changed, rechecking master tab ID')
-        checkMasterTabId()
+      if (changeInfo.url || changeInfo.status === 'complete') {
+        console.log('🔄 Tab URL changed, rechecking tab type')
+        checkTabType()
       }
     }
 
     // Listen for when user switches tabs
     const handleTabActivated = (activeInfo: chrome.tabs.TabActiveInfo) => {
-      console.log('🔄 Tab activated, rechecking master tab ID')
-      checkMasterTabId()
+      console.log('🔄 Tab activated, rechecking tab type')
+      checkTabType()
     }
 
     chrome.tabs.onUpdated.addListener(handleTabUpdate)
@@ -878,6 +918,848 @@ function SidepanelOrchestrator() {
     transition: 'all 0.2s ease'
   })
 
+  const addMiniApp = () => {
+    console.log('🎯 Opening Add Mini App dialog...')
+    // TODO: Implement mini-app installation dialog
+    showNotification('Mini-app installation coming soon!', 'info')
+  }
+
+  // Minimal UI for display grids and Edge startpage
+  if (showMinimalUI) {
+    return (
+      <div style={{
+        width: '100%',
+        minHeight: '100vh',
+        fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
+        background: themeColors.background,
+        color: themeColors.text,
+        padding: '0',
+        margin: '0',
+        boxSizing: 'border-box',
+        display: 'flex',
+        flexDirection: 'column',
+        overflowX: 'hidden'
+      }}>
+        {/* Top Bar: 2 Small Icons */}
+        <div style={{ 
+          padding: '8px 12px',
+          borderBottom: '1px solid rgba(255,255,255,0.2)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: '12px',
+          background: theme === 'default' ? 'rgba(118,75,162,0.6)' : 'rgba(0,0,0,0.15)'
+        }}>
+          <button
+            onClick={openPopupChat}
+            style={{
+              width: '32px',
+              height: '32px',
+              ...actionButtonStyle('rgba(255,255,255,0.1)'),
+              fontSize: '14px',
+              padding: 0
+            }}
+            title="Open Popup Chat"
+          >
+            💬
+          </button>
+          <button
+            onClick={toggleCommandChatPin}
+            style={{
+              width: '32px',
+              height: '32px',
+              ...actionButtonStyle(isCommandChatPinned ? 'rgba(76,175,80,0.4)' : 'rgba(255,255,255,0.1)'),
+              fontSize: '14px',
+              padding: 0,
+              ...(isCommandChatPinned && theme === 'default' ? {
+                background: 'rgba(76,175,80,0.4)',
+                border: '1px solid rgba(76,175,80,0.6)'
+              } : {})
+            }}
+            title={isCommandChatPinned ? "Unpin Command Chat" : "Pin Command Chat"}
+          >
+            📌
+          </button>
+        </div>
+        
+        {/* Add Mini App Button */}
+        <div style={{
+          flex: 1,
+          padding: '40px 20px',
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center'
+        }}>
+          <button
+            onClick={addMiniApp}
+            style={{
+              width: '100%',
+              maxWidth: '300px',
+              padding: '20px 24px',
+              ...(theme === 'professional' ? {
+                background: 'rgba(15,23,42,0.08)',
+                border: '2px dashed rgba(15,23,42,0.3)',
+                color: '#0f172a'
+              } : theme === 'dark' ? {
+                background: 'rgba(255,255,255,0.1)',
+                border: '2px dashed rgba(255,255,255,0.3)',
+                color: '#f1f5f9'
+              } : {
+                background: 'rgba(118,75,162,0.3)',
+                border: '2px dashed rgba(255,255,255,0.5)',
+                color: 'white'
+              }),
+              borderRadius: '12px',
+              cursor: 'pointer',
+              fontSize: '16px',
+              fontWeight: '700',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '10px',
+              transition: 'all 0.2s ease',
+              boxShadow: 'none'
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.transform = 'translateY(-2px)'
+              if (theme === 'professional') {
+                e.currentTarget.style.background = 'rgba(15,23,42,0.12)'
+                e.currentTarget.style.borderColor = 'rgba(15,23,42,0.4)'
+              } else if (theme === 'dark') {
+                e.currentTarget.style.background = 'rgba(255,255,255,0.15)'
+                e.currentTarget.style.borderColor = 'rgba(255,255,255,0.4)'
+              } else {
+                e.currentTarget.style.background = 'rgba(118,75,162,0.55)'
+                e.currentTarget.style.borderColor = 'rgba(255,255,255,0.7)'
+              }
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.transform = 'translateY(0)'
+              if (theme === 'professional') {
+                e.currentTarget.style.background = 'rgba(15,23,42,0.08)'
+                e.currentTarget.style.borderColor = 'rgba(15,23,42,0.3)'
+              } else if (theme === 'dark') {
+                e.currentTarget.style.background = 'rgba(255,255,255,0.1)'
+                e.currentTarget.style.borderColor = 'rgba(255,255,255,0.3)'
+              } else {
+                e.currentTarget.style.background = 'rgba(118,75,162,0.3)'
+                e.currentTarget.style.borderColor = 'rgba(255,255,255,0.5)'
+              }
+            }}
+          >
+            ➕ Add Mini App
+          </button>
+        </div>
+        
+        {/* Docked Command Chat - Full Featured (Only when pinned) */}
+        {isCommandChatPinned && (
+          <>
+            <div 
+              style={{
+                borderBottom: '1px solid rgba(255,255,255,0.2)',
+                background: theme === 'default' ? 'rgba(118,75,162,0.4)' : 'rgba(255,255,255,0.10)',
+                border: '1px solid rgba(255,255,255,0.20)',
+                margin: '12px 16px',
+                borderRadius: '8px',
+                overflow: 'hidden',
+                position: 'relative',
+                boxShadow: '0 4px 12px rgba(0,0,0,0.1)'
+              }}
+              onDragOver={(e) => e.preventDefault()}
+              onDrop={handleChatDrop}
+            >
+              {/* Header */}
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                padding: '10px 14px',
+                background: themeColors.background,
+                borderBottom: '1px solid rgba(255,255,255,0.20)',
+                color: themeColors.text
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <div style={{ fontSize: '13px', fontWeight: '700' }}>💬 Command Chat</div>
+                  <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                    <button 
+                      onClick={handleBucketClick}
+                      title="Context Bucket: Embed context directly into the session"
+                      style={{
+                        height: '32px',
+                        minWidth: '32px',
+                        ...chatControlButtonStyle(),
+                        borderRadius: '6px',
+                        padding: '0 10px',
+                        fontSize: '14px',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        transition: 'all 0.2s ease'
+                      }}
+                      onMouseEnter={(e) => {
+                        if (theme === 'professional') {
+                          e.currentTarget.style.background = 'rgba(15,23,42,0.12)'
+                        } else if (theme === 'dark') {
+                          e.currentTarget.style.background = 'rgba(255,255,255,0.2)'
+                        } else {
+                          e.currentTarget.style.background = 'rgba(118,75,162,0.6)'
+                        }
+                      }}
+                      onMouseLeave={(e) => {
+                        if (theme === 'professional') {
+                          e.currentTarget.style.background = 'rgba(15,23,42,0.08)'
+                        } else if (theme === 'dark') {
+                          e.currentTarget.style.background = 'rgba(255,255,255,0.12)'
+                        } else {
+                          e.currentTarget.style.background = 'rgba(118,75,162,0.35)'
+                        }
+                      }}
+                    >
+                      🪣
+                    </button>
+                    <button 
+                      onClick={handleScreenSelect}
+                      title="LmGTFY - Capture a screen area as screenshot or stream"
+                      style={{
+                        ...chatControlButtonStyle(),
+                        borderRadius: '6px',
+                        padding: '0 10px',
+                        height: '32px',
+                        minWidth: '32px',
+                        fontSize: '14px',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        transition: 'all 0.2s ease'
+                      }}
+                      onMouseEnter={(e) => {
+                        if (theme === 'professional') {
+                          e.currentTarget.style.background = 'rgba(15,23,42,0.12)'
+                        } else if (theme === 'dark') {
+                          e.currentTarget.style.background = 'rgba(255,255,255,0.25)'
+                        } else {
+                          e.currentTarget.style.background = 'rgba(118,75,162,0.6)'
+                        }
+                      }}
+                      onMouseLeave={(e) => {
+                        if (theme === 'professional') {
+                          e.currentTarget.style.background = 'rgba(15,23,42,0.08)'
+                        } else if (theme === 'dark') {
+                          e.currentTarget.style.background = 'rgba(255,255,255,0.15)'
+                        } else {
+                          e.currentTarget.style.background = 'rgba(118,75,162,0.35)'
+                        }
+                      }}
+                    >
+                      ✎
+                    </button>
+                    <div style={{ position: 'relative' }}>
+                      <button 
+                        onClick={() => setShowTagsMenu(!showTagsMenu)}
+                        title="Tags - Quick access to saved triggers"
+                        style={{
+                          ...chatControlButtonStyle(),
+                          borderRadius: '6px',
+                          padding: '0 12px',
+                          height: '32px',
+                          fontSize: '13px',
+                          cursor: 'pointer',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '6px',
+                          transition: 'all 0.2s ease'
+                        }}
+                        onMouseEnter={(e) => {
+                          if (theme === 'professional') {
+                            e.currentTarget.style.background = 'rgba(15,23,42,0.12)'
+                          } else if (theme === 'dark') {
+                            e.currentTarget.style.background = 'rgba(255,255,255,0.2)'
+                          } else {
+                            e.currentTarget.style.background = 'rgba(118,75,162,0.6)'
+                          }
+                        }}
+                        onMouseLeave={(e) => {
+                          if (theme === 'professional') {
+                            e.currentTarget.style.background = 'rgba(15,23,42,0.08)'
+                          } else if (theme === 'dark') {
+                            e.currentTarget.style.background = 'rgba(255,255,255,0.12)'
+                          } else {
+                            e.currentTarget.style.background = 'rgba(118,75,162,0.35)'
+                          }
+                        }}
+                      >
+                        Tags <span style={{ fontSize: '11px', opacity: 0.9 }}>▾</span>
+                      </button>
+                      
+                      {/* Tags Dropdown Menu */}
+                      {showTagsMenu && (
+                        <div 
+                          style={{
+                            position: 'absolute',
+                            top: '100%',
+                            right: 0,
+                            minWidth: '180px',
+                            width: '240px',
+                            maxHeight: '300px',
+                            overflowY: 'auto',
+                            zIndex: 2147483647,
+                            background: '#111827',
+                            color: 'white',
+                            border: '1px solid rgba(255,255,255,0.20)',
+                            borderRadius: '8px',
+                            boxShadow: '0 10px 22px rgba(0,0,0,0.35)',
+                            marginTop: '4px'
+                          }}
+                        >
+                          {triggers.length === 0 ? (
+                            <div style={{ padding: '8px 10px', fontSize: '12px', opacity: 0.8 }}>
+                              No tags yet
+                            </div>
+                          ) : (
+                            triggers.map((trigger, i) => (
+                              <div 
+                                key={i}
+                                style={{
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'space-between',
+                                  padding: '6px 8px',
+                                  borderBottom: '1px solid rgba(255,255,255,0.20)',
+                                  cursor: 'pointer'
+                                }}
+                                onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.06)'}
+                                onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                              >
+                                <button
+                                  onClick={() => handleTriggerClick(trigger)}
+                                  style={{
+                                    flex: 1,
+                                    textAlign: 'left',
+                                    padding: 0,
+                                    fontSize: '12px',
+                                    background: 'transparent',
+                                    border: 0,
+                                    color: 'inherit',
+                                    cursor: 'pointer',
+                                    whiteSpace: 'nowrap',
+                                    overflow: 'hidden',
+                                    textOverflow: 'ellipsis',
+                                    minWidth: 0
+                                  }}
+                                >
+                                  {trigger.name || `Trigger ${i + 1}`}
+                                </button>
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    handleDeleteTrigger(i)
+                                  }}
+                                  style={{
+                                    width: '20px',
+                                    height: '20px',
+                                    border: 'none',
+                                    background: 'rgba(239,68,68,0.2)',
+                                    color: '#ef4444',
+                                    borderRadius: '4px',
+                                    cursor: 'pointer',
+                                    fontSize: '16px',
+                                    lineHeight: 1,
+                                    padding: 0,
+                                    marginLeft: '8px',
+                                    flexShrink: 0
+                                  }}
+                                  onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(239,68,68,0.4)'}
+                                  onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(239,68,68,0.2)'}
+                                >
+                                  ×
+                                </button>
+                              </div>
+                            ))
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+                <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                  <button 
+                    onClick={toggleCommandChatPin}
+                    title="Unpin from sidepanel"
+                    style={{
+                      ...chatControlButtonStyle(),
+                      borderRadius: '6px',
+                      padding: '4px 6px',
+                      fontSize: '10px',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    ↗
+                  </button>
+                </div>
+              </div>
+
+              {/* Messages Area */}
+              <div 
+                id="ccd-messages-sidepanel"
+                ref={chatRef}
+                style={{
+                  height: `${chatHeight}px`,
+                  overflowY: 'auto',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '10px',
+                  background: theme === 'default' ? 'rgba(118,75,162,0.25)' : 'rgba(255,255,255,0.06)',
+                  borderBottom: '1px solid rgba(255,255,255,0.20)',
+                  padding: '14px'
+                }}
+              >
+                {chatMessages.length === 0 ? (
+                  <div style={{ fontSize: '13px', opacity: 0.6, textAlign: 'center', padding: '32px 20px' }}>
+                    Start a conversation...
+                  </div>
+                ) : (
+                  chatMessages.map((msg: any, i) => (
+                    <div 
+                      key={i} 
+                      style={{
+                        display: 'flex',
+                        justifyContent: msg.role === 'user' ? 'flex-end' : 'flex-start'
+                      }}
+                    >
+                      <div style={{
+                        maxWidth: '80%',
+                        padding: '10px 14px',
+                        borderRadius: '12px',
+                        fontSize: '13px',
+                        lineHeight: '1.5',
+                        background: msg.role === 'user' ? 'rgba(34,197,94,0.15)' : 'rgba(255,255,255,0.12)',
+                        border: msg.role === 'user' ? '1px solid rgba(34,197,94,0.5)' : '1px solid rgba(255,255,255,0.25)'
+                      }}>
+                        {msg.imageUrl ? (
+                          <img 
+                            src={msg.imageUrl} 
+                            alt="Screenshot" 
+                            style={{ 
+                              maxWidth: '260px', 
+                              height: 'auto', 
+                              borderRadius: '8px',
+                              display: 'block'
+                            }} 
+                          />
+                        ) : (
+                          msg.text
+                        )}
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+
+              {/* Resize Handle */}
+              <div 
+                onMouseDown={(e) => {
+                  e.preventDefault()
+                  setIsResizingChat(true)
+                }}
+                style={{
+                  height: '4px',
+                  background: 'rgba(255,255,255,0.15)',
+                  cursor: 'ns-resize',
+                  borderTop: '1px solid rgba(255,255,255,0.10)',
+                  borderBottom: '1px solid rgba(255,255,255,0.10)'
+                }}
+              />
+
+              {/* Compose Area */}
+              <div 
+                id="ccd-compose-sidepanel"
+                style={{
+                display: 'grid',
+                gridTemplateColumns: '1fr 40px 40px 72px',
+                gap: '8px',
+                alignItems: 'center',
+                padding: '12px 14px'
+              }}>
+                <textarea
+                  value={chatInput}
+                  onChange={(e) => setChatInput(e.target.value)}
+                  onKeyDown={handleChatKeyDown}
+                  placeholder="Type your message..."
+                  style={{
+                    boxSizing: 'border-box',
+                    height: '40px',
+                    minHeight: '40px',
+                    resize: 'vertical',
+                    background: 'rgba(255,255,255,0.08)',
+                    border: '1px solid rgba(255,255,255,0.20)',
+                    color: 'white',
+                    borderRadius: '8px',
+                    padding: '10px 12px',
+                    fontSize: '13px',
+                    fontFamily: 'inherit',
+                    lineHeight: '1.5'
+                  }}
+                />
+              <input
+                  ref={fileInputRef}
+                  type="file" 
+                  multiple 
+                  style={{ display: 'none' }} 
+                  onChange={handleFileChange}
+                />
+                <button 
+                  onClick={handleBucketClick}
+                  title="Attach" 
+                  style={{
+                    height: '40px',
+                    background: 'rgba(255,255,255,0.15)',
+                    border: '1px solid rgba(255,255,255,0.25)',
+                    color: 'white',
+                    borderRadius: '8px',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    fontSize: '18px',
+                    transition: 'all 0.2s ease'
+                  }}
+                  onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.25)'}
+                  onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.15)'}
+                >
+                  📎
+                </button>
+                <button 
+                  title="Voice" 
+                  style={{
+                    height: '40px',
+                    background: 'rgba(255,255,255,0.15)',
+                    border: '1px solid rgba(255,255,255,0.25)',
+                    color: 'white',
+                    borderRadius: '8px',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    fontSize: '18px',
+                    transition: 'all 0.2s ease'
+                  }}
+                  onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.25)'}
+                  onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.15)'}
+                >
+                  🎙️
+                </button>
+                <button
+                  onClick={handleSendMessage}
+                  style={{
+                    height: '40px',
+                    background: '#22c55e',
+                    border: '1px solid #16a34a',
+                    color: '#0b1e12',
+                    borderRadius: '8px',
+                    fontWeight: '700',
+                    cursor: 'pointer',
+                    fontSize: '13px',
+                    transition: 'all 0.2s ease'
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.background = '#16a34a'
+                    e.currentTarget.style.transform = 'translateY(-1px)'
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = '#22c55e'
+                    e.currentTarget.style.transform = 'translateY(0)'
+                  }}
+                >
+                  Send
+                </button>
+          </div>
+
+            {/* Trigger Creation UI */}
+            {showTriggerPrompt && (
+              <div style={{
+                padding: '12px 14px',
+                background: 'rgba(255,255,255,0.08)',
+                borderTop: '1px solid rgba(255,255,255,0.20)'
+              }}>
+                <div style={{ marginBottom: '8px', fontSize: '12px', fontWeight: '700', opacity: 0.85 }}>
+                  {showTriggerPrompt.mode === 'screenshot' ? '📸 Screenshot' : '🎥 Stream'}
+                </div>
+                {showTriggerPrompt.createTrigger && (
+                  <input
+                    type="text"
+                    placeholder="Trigger Name"
+                    value={showTriggerPrompt.name || ''}
+                    onChange={(e) => setShowTriggerPrompt({ ...showTriggerPrompt, name: e.target.value })}
+                    style={{
+                      width: '100%',
+                      boxSizing: 'border-box',
+                      padding: '8px 10px',
+                      background: 'rgba(255,255,255,0.08)',
+                      border: '1px solid rgba(255,255,255,0.20)',
+                      color: 'white',
+                      borderRadius: '6px',
+                      fontSize: '12px',
+                      marginBottom: '8px'
+                    }}
+                  />
+                )}
+                {showTriggerPrompt.addCommand && (
+                  <textarea
+                    placeholder="Optional Command"
+                    value={showTriggerPrompt.command || ''}
+                    onChange={(e) => setShowTriggerPrompt({ ...showTriggerPrompt, command: e.target.value })}
+                    style={{
+                      width: '100%',
+                      boxSizing: 'border-box',
+                      padding: '8px 10px',
+                      background: 'rgba(255,255,255,0.08)',
+                      border: '1px solid rgba(255,255,255,0.20)',
+                      color: 'white',
+                      borderRadius: '6px',
+                      fontSize: '12px',
+                      minHeight: '60px',
+                      marginBottom: '8px',
+                      resize: 'vertical',
+                      fontFamily: 'inherit'
+                    }}
+                  />
+                )}
+                <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+                  <button
+                    onClick={() => setShowTriggerPrompt(null)}
+                    style={{
+                      padding: '6px 12px',
+                      background: 'rgba(255,255,255,0.15)',
+                      border: '1px solid rgba(255,255,255,0.25)',
+                      color: 'white',
+                      borderRadius: '6px',
+                      cursor: 'pointer',
+                      fontSize: '12px'
+                    }}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={async () => {
+                      const name = showTriggerPrompt.name?.trim() || ''
+                      const command = showTriggerPrompt.command?.trim() || ''
+                      
+                      // If createTrigger is checked, save the trigger
+                      if (showTriggerPrompt.createTrigger) {
+                        if (!name) {
+                          alert('Please enter a trigger name')
+                          return
+                        }
+                        
+                        const triggerData = {
+                          name,
+                          command,
+                          at: Date.now(),
+                          rect: showTriggerPrompt.rect,
+                          bounds: showTriggerPrompt.bounds,
+                          mode: showTriggerPrompt.mode
+                        }
+                        
+                        // Save to chrome.storage for dropdown
+                        chrome.storage.local.get(['optimando-tagged-triggers'], (result) => {
+                          const triggers = result['optimando-tagged-triggers'] || []
+                          triggers.push(triggerData)
+                          chrome.storage.local.set({ 'optimando-tagged-triggers': triggers }, () => {
+                            console.log('✅ Trigger saved to storage:', triggerData)
+                            setTriggers(triggers)
+                            // Notify other contexts
+                            try { chrome.runtime?.sendMessage({ type:'TRIGGERS_UPDATED' }) } catch {}
+                          })
+                        })
+                        
+                        // Send trigger to Electron
+                        try {
+                          chrome.runtime?.sendMessage({
+                            type: 'ELECTRON_SAVE_TRIGGER',
+                            name,
+                            mode: showTriggerPrompt.mode,
+                            rect: showTriggerPrompt.rect,
+                            displayId: 0, // Main display for sidepanel
+                            imageUrl: showTriggerPrompt.imageUrl,
+                            videoUrl: showTriggerPrompt.videoUrl,
+                            command: command || undefined
+                          })
+                        } catch (err) {
+                          console.error('Error sending trigger to Electron:', err)
+                        }
+                      }
+                      
+                      // Post the screenshot to chat
+                      if (showTriggerPrompt.imageUrl) {
+                        const imageMessage = {
+                          role: 'user' as const,
+                          text: `![Screenshot](${showTriggerPrompt.imageUrl})`,
+                          imageUrl: showTriggerPrompt.imageUrl
+                        }
+                        setChatMessages(prev => [...prev, imageMessage])
+                        // Scroll to bottom
+                        setTimeout(() => {
+                          if (chatRef.current) {
+                            chatRef.current.scrollTop = chatRef.current.scrollHeight
+                          }
+                        }, 100)
+                      }
+                      
+                      // If addCommand is checked and command exists, add it to chat
+                      if (showTriggerPrompt.addCommand && command) {
+                        const commandMessage = {
+                          role: 'user' as const,
+                          text: `📝 Command: ${command}`
+                        }
+                        setChatMessages(prev => [...prev, commandMessage])
+                      }
+                      
+                      // Clear the prompt
+                      setShowTriggerPrompt(null)
+                      // Reset checkboxes
+                      setCreateTriggerChecked(false)
+                      setAddCommandChecked(false)
+                    }}
+                    style={{
+                      padding: '6px 12px',
+                      background: '#22c55e',
+                      border: '1px solid #16a34a',
+                      color: '#0b1e12',
+                      borderRadius: '6px',
+                      cursor: 'pointer',
+                      fontSize: '12px',
+                      fontWeight: '700'
+                    }}
+                  >
+                    Save
+                  </button>
+                </div>
+              </div>
+            )}
+      </div>
+
+          {/* Embed Dialog */}
+          {showEmbedDialog && (
+            <div style={{
+              position: 'fixed',
+              inset: 0,
+              background: 'rgba(0,0,0,0.6)',
+              zIndex: 2147483651,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              backdropFilter: 'blur(4px)'
+            }}>
+              <div style={{
+                width: '420px',
+                background: 'linear-gradient(135deg,#c084fc 0%,#a855f7 50%,#9333ea 100%)',
+                color: 'white',
+                borderRadius: '12px',
+                border: '1px solid rgba(255,255,255,0.25)',
+                boxShadow: '0 12px 30px rgba(0,0,0,0.4)',
+                overflow: 'hidden'
+              }}>
+                <div style={{
+                  padding: '14px 16px',
+                  borderBottom: '1px solid rgba(255,255,255,0.25)',
+                  fontWeight: 700
+                }}>
+                  Where to embed?
+                </div>
+                <div style={{ padding: '14px 16px', fontSize: '12px' }}>
+                  <label style={{ display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '8px' }}>
+            <input
+                      type="radio" 
+                      checked={embedTarget === 'session'}
+                      onChange={() => setEmbedTarget('session')}
+                    />
+                    <span>Session Memory (this session only)</span>
+          </label>
+                  <label style={{ display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '8px' }}>
+            <input
+                      type="radio" 
+                      checked={embedTarget === 'account'}
+                      onChange={() => setEmbedTarget('account')}
+                    />
+                    <span>Account Memory (account-wide, long term)</span>
+          </label>
+                  <div style={{ marginTop: '10px', opacity: 0.9 }}>
+                    Content will be processed (OCR/ASR/Parsing), chunked, and embedded locally.
+                  </div>
+                </div>
+                <div style={{
+                  padding: '12px 16px',
+                  background: 'rgba(255,255,255,0.08)',
+                  display: 'flex',
+                  gap: '8px',
+                  justifyContent: 'flex-end'
+                }}>
+                  <button 
+                    onClick={() => setShowEmbedDialog(false)}
+                    style={{
+                      padding: '6px 10px',
+                      border: 0,
+                      borderRadius: '6px',
+                      background: 'rgba(255,255,255,0.18)',
+                      color: 'white',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    Cancel
+                  </button>
+                  <button 
+                    onClick={handleEmbedConfirm}
+                    style={{
+                      padding: '6px 10px',
+                      border: 0,
+                      borderRadius: '6px',
+                      background: '#22c55e',
+                      color: '#0b1e12',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    Embed
+                  </button>
+                </div>
+        </div>
+      </div>
+          )}
+        </>
+        )}
+        
+        {/* Notification Toast */}
+        {notification && (
+          <div style={{
+            position: 'fixed',
+            top: '20px',
+            right: '20px',
+            left: '20px',
+            background: notification.type === 'success' ? 'rgba(76, 175, 80, 0.95)' : 
+                        notification.type === 'error' ? 'rgba(244, 67, 54, 0.95)' : 
+                        'rgba(33, 150, 243, 0.95)',
+            color: 'white',
+            padding: '12px 16px',
+            borderRadius: '8px',
+            fontSize: '13px',
+            fontWeight: '600',
+            zIndex: 10000,
+            boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
+            animation: 'slideInDown 0.3s ease',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px'
+          }}>
+            <span>{notification.message}</span>
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  // Full UI for master tabs
   return (
     <div style={{
       width: '100%',

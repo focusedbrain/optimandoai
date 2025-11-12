@@ -370,6 +370,64 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   // Handle ADD AGENT BOX request from side panel - use the REAL function
 
+  else if (message.type === 'CREATE_AGENT_BOX_FROM_SIDEPANEL') {
+    try {
+      const { agentBox, sessionKey: providedSessionKey } = message.data || {}
+      
+      if (!agentBox) {
+        console.error('❌ No agent box data provided')
+        sendResponse({ success: false, error: 'No agent box data' })
+        return
+      }
+      
+      const currentSessionKey = providedSessionKey || getCurrentSessionKey()
+      
+      if (!currentSessionKey) {
+        console.error('❌ No session key available')
+        sendResponse({ success: false, error: 'No session key' })
+        return
+      }
+      
+      // Set tab URL for the agent box
+      agentBox.tabUrl = window.location.href
+      
+      // Add to current tab data
+      if (!currentTabData.agentBoxes) {
+        currentTabData.agentBoxes = []
+      }
+      currentTabData.agentBoxes.push(agentBox)
+      saveTabDataToStorage()
+      
+      // Also save to session storage
+      storageGet([currentSessionKey], (result) => {
+        const session = result[currentSessionKey] || {}
+        
+        if (!session.agentBoxes) {
+          session.agentBoxes = []
+        }
+        
+        // Remove duplicate if exists (by identifier)
+        session.agentBoxes = session.agentBoxes.filter((b: any) => b.identifier !== agentBox.identifier)
+        session.agentBoxes.push(agentBox)
+        
+        storageSet({ [currentSessionKey]: session }, () => {
+          console.log('✅ Agent box saved to session:', agentBox.identifier)
+          
+          // Notify sidepanel
+          chrome.runtime.sendMessage({
+            type: 'UPDATE_AGENT_BOXES',
+            data: currentTabData.agentBoxes
+          })
+          
+          sendResponse({ success: true, identifier: agentBox.identifier })
+        })
+      })
+      
+    } catch (e) {
+      console.error('❌ Error creating agent box from sidepanel:', e)
+      sendResponse({ success: false, error: String(e) })
+    }
+  }
   else if (message.type === 'ADD_AGENT_BOX') {
 
     try {
@@ -4213,14 +4271,109 @@ function initializeExtension() {
 
   loadTabDataFromStorage()
   
-  // Check if display grids are active and hide sidepanel if so
+  // Check if display grids are active and hide sidepanel if so (only on display grid tabs)
   setTimeout(() => {
     if (currentTabData.displayGrids && currentTabData.displayGrids.length > 0) {
-      chrome.runtime.sendMessage({ type: 'DISPLAY_GRIDS_OPENED' }, (response) => {
-        console.log('🚫 Page loaded with display grids active - sidepanel should be hidden')
-      })
+      // Check if this is a display grid tab (not master) before notifying
+      try {
+        const url = new URL(window.location.href)
+        const hybridMasterId = url.searchParams.get('hybrid_master_id')
+        const isDisplayGrid = url.pathname.includes('grid-display.html')
+        
+        console.log(`🔍 Page load check: isDisplayGrid=${isDisplayGrid}, hybridMasterId=${hybridMasterId}, has ${currentTabData.displayGrids.length} grids`)
+        
+        // Only notify if this is a display grid tab (not a master tab)
+        if (isDisplayGrid && hybridMasterId === null) {
+          console.log('📱 Display grid tab on load - hiding sidepanel')
+          chrome.runtime.sendMessage({ type: 'DISPLAY_GRIDS_OPENED' }, (response) => {
+            console.log('🚫 Page loaded with display grids active on display grid tab - sidepanel should hide')
+            
+            // Add floating expand button for display grid tabs
+            addSidepanelExpandButton()
+          })
+        } else {
+          console.log(`🖥️ Master tab on load (hybridMasterId=${hybridMasterId}) - sidepanel stays visible`)
+        }
+      } catch (e) {
+        console.error('Error checking tab type:', e)
+      }
     }
-  }, 1000) // Wait a bit for storage to fully load
+  }, 1500) // Longer delay to ensure everything is loaded
+
+  // Function to add floating sidepanel expand button (shows sidepanel)
+  function addSidepanelExpandButton() {
+    // Remove existing button if any
+    const existingBtn = document.getElementById('sidepanel-expand-button')
+    if (existingBtn) {
+      existingBtn.remove()
+    }
+    
+    // Check if this is a master tab - don't add button on master tabs
+    try {
+      const url = new URL(window.location.href)
+      const hybridMasterId = url.searchParams.get('hybrid_master_id')
+      if (hybridMasterId !== null) {
+        return // Don't add button on master tabs
+      }
+    } catch (e) {
+      // Continue if URL parsing fails
+    }
+    
+    const button = document.createElement('div')
+    button.id = 'sidepanel-expand-button'
+    button.innerHTML = '◀'
+    button.title = 'Show Sidepanel'
+    button.style.cssText = `
+      position: fixed;
+      right: 0;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 50px;
+      height: 100px;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      z-index: 2147483648;
+      border-radius: 12px 0 0 12px;
+      box-shadow: -4px 0 12px rgba(0,0,0,0.4);
+      transition: all 0.3s ease;
+      font-size: 24px;
+      font-weight: bold;
+    `
+    
+    // Hover effect
+    button.addEventListener('mouseenter', () => {
+      button.style.width = '60px'
+      button.style.background = 'linear-gradient(135deg, #764ba2 0%, #667eea 100%)'
+      button.style.boxShadow = '-6px 0 16px rgba(0,0,0,0.5)'
+    })
+    
+    button.addEventListener('mouseleave', () => {
+      button.style.width = '50px'
+      button.style.background = 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)'
+      button.style.boxShadow = '-4px 0 12px rgba(0,0,0,0.4)'
+    })
+    
+    // Click handler - show sidepanel
+    button.addEventListener('click', () => {
+      // Send message to background script to show sidepanel
+      chrome.runtime.sendMessage({ 
+        type: 'REOPEN_SIDEPANEL' 
+      }, (response) => {
+        if (response && response.success) {
+          console.log('✅ Sidepanel shown')
+          // Don't remove button - user might want to hide it again
+        } else {
+          console.error('Failed to show sidepanel:', response?.error)
+        }
+      })
+    })
+    
+    document.body.appendChild(button)
+  }
 
 
 
@@ -24985,14 +25138,34 @@ ${pageText}
 
       })
       
-      // Notify background script that display grids are active - hide sidepanel
+      // Notify background script that display grids are active - hide sidepanel on THIS tab only
       if (newGridsToOpen.length > 0) {
-        // Wait for all grids to be opened before notifying
-        setTimeout(() => {
-          chrome.runtime.sendMessage({ type: 'DISPLAY_GRIDS_OPENED' }, (response) => {
-            console.log('🚫 Notified background: display grids opened, sidepanel should be hidden')
-          })
-        }, newGridsToOpen.length * 300 + 100)
+        // Check if this is a display grid tab (not master) before notifying
+        try {
+          const url = new URL(window.location.href)
+          const hybridMasterId = url.searchParams.get('hybrid_master_id')
+          const isDisplayGrid = url.pathname.includes('grid-display.html')
+          
+          console.log(`🔍 Grid opened: isDisplayGrid=${isDisplayGrid}, hybridMasterId=${hybridMasterId}, url=${url.pathname}`)
+          
+          // Only notify if this is a display grid tab (not a master tab)
+          if (isDisplayGrid && hybridMasterId === null) {
+            // Wait for all grids to be opened before notifying
+            setTimeout(() => {
+              console.log('📱 This is a display grid tab - notifying to hide sidepanel')
+              chrome.runtime.sendMessage({ type: 'DISPLAY_GRIDS_OPENED' }, (response) => {
+                console.log('🚫 Notified background: display grids opened on display grid tab, sidepanel should hide')
+                
+                // Add floating expand button for display grid tabs
+                addSidepanelExpandButton()
+              })
+            }, newGridsToOpen.length * 300 + 200) // Slightly longer delay
+          } else {
+            console.log(`🖥️ This is a master tab (hybridMasterId=${hybridMasterId}) - sidepanel stays visible`)
+          }
+        } catch (e) {
+          console.error('Error checking tab type:', e)
+        }
       }
 
       
