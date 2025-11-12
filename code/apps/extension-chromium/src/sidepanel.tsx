@@ -32,6 +32,8 @@ function SidepanelOrchestrator() {
   const [isWRLoginCollapsed, setIsWRLoginCollapsed] = useState(false)
   const [isCommandChatPinned, setIsCommandChatPinned] = useState(false)
   const [showMinimalUI, setShowMinimalUI] = useState(false) // Show minimal UI on display grids and Edge startpage
+  const [viewMode, setViewMode] = useState<'app' | 'admin'>('admin') // Toggle between app and admin view
+  const [isAdminDisabled, setIsAdminDisabled] = useState(false) // Track if admin is disabled (Edge startpage/display grids)
   
   // Command chat state
   const [chatMessages, setChatMessages] = useState<Array<{role: 'user' | 'assistant', text: string}>>([])
@@ -52,10 +54,10 @@ function SidepanelOrchestrator() {
   const chatRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   
-  // Load pinned state from storage
+  // Load pinned state and view mode from storage
   useEffect(() => {
     import('./storage/storageWrapper').then(({ storageGet }) => {
-      storageGet(['commandChatPinned'], (result) => {
+      storageGet(['commandChatPinned', 'viewMode'], (result) => {
         if (result.commandChatPinned !== undefined) {
           setIsCommandChatPinned(result.commandChatPinned)
           
@@ -68,9 +70,13 @@ function SidepanelOrchestrator() {
             })
           }
         }
+        // Load view mode preference (only if not on disabled page)
+        if (!isAdminDisabled && result.viewMode) {
+          setViewMode(result.viewMode as 'app' | 'admin')
+        }
       });
     });
-  }, [])
+  }, [isAdminDisabled])
 
   // Load and listen for theme changes
   useEffect(() => {
@@ -116,6 +122,14 @@ function SidepanelOrchestrator() {
             const shouldShowMinimal = (isDisplayGrid && hybridMasterId === null) || isEdgeStartpage
             setShowMinimalUI(shouldShowMinimal)
             
+            // Admin interface is disabled on display grids and Edge startpage
+            setIsAdminDisabled(shouldShowMinimal)
+            
+            // Set initial view mode to 'app' when on disabled pages (forced minimal)
+            if (shouldShowMinimal) {
+              setViewMode('app')
+            }
+            
             // First, check if we have a stored master tab ID for this tab (persists across page refreshes)
             chrome.storage.local.get([storageKey], (result) => {
               const storedMasterTabId = result[storageKey]
@@ -146,6 +160,7 @@ function SidepanelOrchestrator() {
           } catch (e) {
             console.error('Error parsing tab URL:', e)
             setShowMinimalUI(false)
+            setIsAdminDisabled(false)
             // On error, try to use stored master tab ID
             chrome.storage.local.get([storageKey], (result) => {
               const storedMasterTabId = result[storageKey]
@@ -924,8 +939,22 @@ function SidepanelOrchestrator() {
     showNotification('Mini-app installation coming soon!', 'info')
   }
 
-  // Minimal UI for display grids and Edge startpage
-  if (showMinimalUI) {
+  // Toggle between App and Admin view
+  const toggleViewMode = () => {
+    if (isAdminDisabled && viewMode === 'app') {
+      // Show feedback when admin is disabled (Edge startpage/display grids)
+      showNotification('Open a website for viewing the admin panel', 'info')
+      return
+    }
+    // Toggle between app and admin view
+    const newMode = viewMode === 'app' ? 'admin' : 'app'
+    setViewMode(newMode)
+    // Save preference
+    chrome.storage.local.set({ viewMode: newMode })
+  }
+
+  // Show minimal UI when showMinimalUI is true (forced on Edge startpage/display grids) or when viewMode is 'app'
+  if (showMinimalUI || viewMode === 'app') {
     return (
       <div style={{
         width: '100%',
@@ -940,46 +969,102 @@ function SidepanelOrchestrator() {
         flexDirection: 'column',
         overflowX: 'hidden'
       }}>
-        {/* Top Bar: 2 Small Icons */}
+        {/* Top Bar: 2 Small Icons + Toggle */}
         <div style={{ 
           padding: '8px 12px',
           borderBottom: '1px solid rgba(255,255,255,0.2)',
           display: 'flex',
           alignItems: 'center',
-          justifyContent: 'center',
+          justifyContent: 'space-between',
           gap: '12px',
           background: theme === 'default' ? 'rgba(118,75,162,0.6)' : 'rgba(0,0,0,0.15)'
         }}>
-          <button
-            onClick={openPopupChat}
-            style={{
-              width: '32px',
-              height: '32px',
-              ...actionButtonStyle('rgba(255,255,255,0.1)'),
-              fontSize: '14px',
-              padding: 0
-            }}
-            title="Open Popup Chat"
-          >
-            💬
-          </button>
-          <button
-            onClick={toggleCommandChatPin}
-            style={{
-              width: '32px',
-              height: '32px',
-              ...actionButtonStyle(isCommandChatPinned ? 'rgba(76,175,80,0.4)' : 'rgba(255,255,255,0.1)'),
-              fontSize: '14px',
-              padding: 0,
-              ...(isCommandChatPinned && theme === 'default' ? {
-                background: 'rgba(76,175,80,0.4)',
-                border: '1px solid rgba(76,175,80,0.6)'
-              } : {})
-            }}
-            title={isCommandChatPinned ? "Unpin Command Chat" : "Pin Command Chat"}
-          >
-            📌
-          </button>
+          <div style={{ flex: 1 }} />
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <button
+              onClick={openPopupChat}
+              style={{
+                width: '32px',
+                height: '32px',
+                ...actionButtonStyle('rgba(255,255,255,0.1)'),
+                fontSize: '14px',
+                padding: 0
+              }}
+              title="Open Popup Chat"
+            >
+              💬
+            </button>
+            <button
+              onClick={toggleCommandChatPin}
+              style={{
+                width: '32px',
+                height: '32px',
+                ...actionButtonStyle(isCommandChatPinned ? 'rgba(76,175,80,0.4)' : 'rgba(255,255,255,0.1)'),
+                fontSize: '14px',
+                padding: 0,
+                ...(isCommandChatPinned && theme === 'default' ? {
+                  background: 'rgba(76,175,80,0.4)',
+                  border: '1px solid rgba(76,175,80,0.6)'
+                } : {})
+              }}
+              title={isCommandChatPinned ? "Unpin Command Chat" : "Pin Command Chat"}
+            >
+              📌
+            </button>
+            <div
+              onClick={toggleViewMode}
+              style={{
+                cursor: isAdminDisabled ? 'not-allowed' : 'pointer',
+                opacity: isAdminDisabled ? 0.6 : 1
+              }}
+              title={isAdminDisabled ? 'Open a website for viewing the admin panel' : `Switch to ${viewMode === 'app' ? 'Admin' : 'App'} view`}
+            >
+              <div style={{
+                position: 'relative',
+                width: '50px',
+                height: '20px',
+                background: viewMode === 'app' 
+                  ? (theme === 'default' ? 'rgba(76,175,80,0.9)' : theme === 'dark' ? 'rgba(76,175,80,0.9)' : 'rgba(34,197,94,0.9)')
+                  : (theme === 'default' ? 'rgba(255,255,255,0.2)' : theme === 'dark' ? 'rgba(255,255,255,0.2)' : 'rgba(15,23,42,0.2)'),
+                borderRadius: '10px',
+                transition: 'background 0.2s',
+                border: theme === 'default' ? '1px solid rgba(255,255,255,0.3)' : theme === 'dark' ? '1px solid rgba(255,255,255,0.3)' : '1px solid rgba(15,23,42,0.3)',
+                overflow: 'hidden'
+              }}>
+                <span style={{
+                  position: 'absolute',
+                  left: viewMode === 'app' ? '8px' : 'auto',
+                  right: viewMode === 'app' ? 'auto' : '8px',
+                  top: '50%',
+                  transform: 'translateY(-50%)',
+                  fontSize: '9px',
+                  fontWeight: '700',
+                  color: viewMode === 'app' 
+                    ? 'rgba(255,255,255,0.95)' 
+                    : (theme === 'default' ? 'rgba(255,255,255,0.5)' : theme === 'dark' ? 'rgba(255,255,255,0.5)' : 'rgba(15,23,42,0.5)'),
+                  transition: 'all 0.2s',
+                  userSelect: 'none',
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.5px',
+                  zIndex: 1,
+                  whiteSpace: 'nowrap',
+                  lineHeight: '1'
+                }}>App</span>
+                <div style={{
+                  position: 'absolute',
+                  top: '3px',
+                  left: viewMode === 'app' ? '32px' : '3px',
+                  width: '14px',
+                  height: '14px',
+                  background: theme === 'default' ? 'rgba(255,255,255,0.95)' : theme === 'dark' ? 'rgba(255,255,255,0.95)' : 'rgba(255,255,255,0.95)',
+                  borderRadius: '50%',
+                  transition: 'left 0.2s',
+                  boxShadow: '0 1px 3px rgba(0,0,0,0.3)',
+                  zIndex: 2
+                }} />
+              </div>
+            </div>
+          </div>
         </div>
         
         {/* Docked Command Chat - Full Featured (Only when pinned) */}
@@ -2838,11 +2923,70 @@ function SidepanelOrchestrator() {
           textTransform: 'uppercase',
           letterSpacing: '0.5px',
           opacity: 0.95,
-          display: 'flex',
-          alignItems: 'center',
-          gap: '6px'
+          display: 'grid',
+          gridTemplateColumns: '1fr 1fr',
+          gap: '10px',
+          alignItems: 'center'
         }}>
-          ⚡ Quick Actions
+          <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            ⚡ Quick Actions
+          </span>
+          <div
+            onClick={toggleViewMode}
+            style={{
+              cursor: isAdminDisabled ? 'not-allowed' : 'pointer',
+              opacity: isAdminDisabled ? 0.6 : 1,
+              display: 'flex',
+              justifyContent: 'flex-end',
+              paddingRight: '5px'
+            }}
+            title={isAdminDisabled ? 'Open a website for viewing the admin panel' : `Switch to ${viewMode === 'app' ? 'Admin' : 'App'} view`}
+          >
+            <div style={{
+              position: 'relative',
+              width: '50px',
+              height: '20px',
+              background: viewMode === 'app' 
+                ? (theme === 'default' ? 'rgba(76,175,80,0.9)' : theme === 'dark' ? 'rgba(76,175,80,0.9)' : 'rgba(34,197,94,0.9)')
+                : (theme === 'default' ? 'rgba(255,255,255,0.2)' : theme === 'dark' ? 'rgba(255,255,255,0.2)' : 'rgba(15,23,42,0.2)'),
+              borderRadius: '10px',
+              transition: 'background 0.2s',
+              border: theme === 'default' ? '1px solid rgba(255,255,255,0.3)' : theme === 'dark' ? '1px solid rgba(255,255,255,0.3)' : '1px solid rgba(15,23,42,0.3)',
+              overflow: 'hidden'
+            }}>
+              <span style={{
+                position: 'absolute',
+                left: viewMode === 'app' ? '8px' : 'auto',
+                right: viewMode === 'app' ? 'auto' : '8px',
+                top: '50%',
+                transform: 'translateY(-50%)',
+                fontSize: '9px',
+                fontWeight: '700',
+                color: viewMode === 'app' 
+                  ? 'rgba(255,255,255,0.95)' 
+                  : (theme === 'default' ? 'rgba(255,255,255,0.5)' : theme === 'dark' ? 'rgba(255,255,255,0.5)' : 'rgba(15,23,42,0.5)'),
+                transition: 'all 0.2s',
+                userSelect: 'none',
+                textTransform: 'uppercase',
+                letterSpacing: '0.5px',
+                zIndex: 1,
+                whiteSpace: 'nowrap',
+                lineHeight: '1'
+              }}>App</span>
+              <div style={{
+                position: 'absolute',
+                top: '3px',
+                left: viewMode === 'app' ? '32px' : '3px',
+                width: '14px',
+                height: '14px',
+                background: theme === 'default' ? 'rgba(255,255,255,0.95)' : theme === 'dark' ? 'rgba(255,255,255,0.95)' : 'rgba(255,255,255,0.95)',
+                borderRadius: '50%',
+                transition: 'left 0.2s',
+                boxShadow: '0 1px 3px rgba(0,0,0,0.3)',
+                zIndex: 2
+              }} />
+            </div>
+          </div>
         </h3>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
           <button
