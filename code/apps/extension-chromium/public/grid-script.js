@@ -148,7 +148,7 @@ if (window.gridScriptLoaded) {
         '<input id="gs-title" type="text" placeholder="Enter a title for this agent box" value="' + (cfg.title || ('Display Port ' + slotId)).replace(/"/g, '&quot;') + '" style="width:100%;padding:12px;border:2px solid #ddd;border-radius:8px;font-size:14px;transition:border-color 0.2s">' +
       '</div>' +
       '<div style="margin:6px 0 8px 0;display:flex;align-items:center;gap:8px">' +
-        '<button id="gs-add-tool" style="background:transparent;border:0;color:#2563eb;text-decoration:underline;cursor:pointer;padding:0;font-size:12px">+ Tool</button>' +
+        '<button id="gs-add-tool" style="background:transparent;border:0;color:#2563eb;text-decoration:underline;cursor:pointer;padding:0;font-size:12px">+ Mini App</button>' +
         '<span style="font-size:12px;color:#64748b">(optional)</span>' +
       '</div>' +
       '<div id="gs-tools" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px"></div>' +
@@ -232,7 +232,7 @@ if (window.gridScriptLoaded) {
       p.style.cssText = 'width:560px;max-width:92vw;max-height:60vh;overflow:auto;background:#0b1220;color:#e5e7eb;border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,.4)';
       p.innerHTML = ''+
         '<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 12px;border-bottom:1px solid rgba(255,255,255,.08)">'+
-          '<div style="font-weight:700">Tool Catalog</div>'+
+          '<div style="font-weight:700">Mini App Catalog</div>'+
           '<button id="gc-close" style="padding:6px 10px;background:#475569;border:none;color:#e2e8f0;border-radius:6px;cursor:pointer">Close</button>'+
         '</div>'+
         '<div style="padding:10px 12px;display:flex;gap:8px;align-items:center">'+
@@ -640,7 +640,7 @@ if (window.gridScriptLoaded) {
     panel.style.cssText = 'width:620px;max-width:92vw;max-height:70vh;overflow:auto;background:#0b1220;color:#e5e7eb;border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,.4)';
     panel.innerHTML = ''+
       '<div style="display:flex;align-items:center;justify-content:space-between;padding:12px 14px;border-bottom:1px solid rgba(255,255,255,.08)">' +
-        '<div style="font-weight:700">Tool Catalog</div>' +
+        '<div style="font-weight:700">Mini App Catalog</div>' +
         '<button id="tc-close" style="padding:6px 10px;background:#475569;border:none;color:#e2e8f0;border-radius:6px;cursor:pointer">Close</button>' +
       '</div>' +
       '<div style="padding:12px 14px;display:flex;gap:10px;align-items:center">' +

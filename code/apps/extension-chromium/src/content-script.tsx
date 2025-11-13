@@ -5006,7 +5006,7 @@ function initializeExtension() {
 
         <div style="margin: 6px 0 8px 0; display: flex; align-items: center; gap: 8px;">
 
-          <button id="add-tool-btn" style="background: transparent; border: 0; color: #2563eb; text-decoration: underline; cursor: pointer; padding: 0; font-size: 12px;">+ Tool</button>
+          <button id="add-tool-btn" style="background: transparent; border: 0; color: #2563eb; text-decoration: underline; cursor: pointer; padding: 0; font-size: 12px;">+ Mini App</button>
 
           <span style="font-size: 12px; color: #64748b;">(optional)</span>
 
@@ -5214,7 +5214,7 @@ function initializeExtension() {
 
     overlay.querySelector('#add-tool-btn')?.addEventListener('click', () => {
 
-      const toolName = prompt('Enter tool name:')
+      const toolName = prompt('Enter mini app name:')
 
       if (toolName && toolName.trim()) {
 
@@ -29725,7 +29725,7 @@ ${pageText}
 
       overlay.innerHTML = `
 
-        <div style="background: linear-gradient(135deg, #1f2937 0%, #111827 100%); border-radius: 16px; width: 90vw; max-width: 900px; max-height: 85vh; overflow: hidden; color: white; box-shadow: 0 20px 40px rgba(0,0,0,0.4); display: flex; flex-direction: column;">
+        <div style="background: linear-gradient(135deg, #1f2937 0%, #111827 100%); border-radius: 16px; width: 95vw; max-width: 1200px; max-height: 85vh; overflow: hidden; color: white; box-shadow: 0 20px 40px rgba(0,0,0,0.4); display: flex; flex-direction: column;">
 
           <div style="padding: 20px; border-bottom: 1px solid rgba(255,255,255,0.2); display: flex; justify-content: space-between; align-items: center;">
 
@@ -29781,7 +29781,7 @@ ${pageText}
 
                 <div>Location</div>
 
-                <div>Tools</div>
+                <div>Mini Apps</div>
 
               </div>
 
