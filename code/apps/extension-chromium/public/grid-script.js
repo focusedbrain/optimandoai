@@ -725,14 +725,13 @@ if (window.gridScriptLoaded) {
     editButtons.forEach(function(btn) {
       const slotId = btn.getAttribute('data-slot-id') || btn.getAttribute('data-slot-num');
       
-      // Remove any existing listener to avoid duplicates
-      btn.replaceWith(btn.cloneNode(true));
+      if (!slotId) {
+        console.warn('⚠️ Edit button found without slot ID');
+        return;
+      }
       
-      // Get the new button reference
-      const newBtn = document.querySelector('[data-slot-id="' + slotId + '"]');
-      if (!newBtn) return;
-      
-      newBtn.addEventListener('click', function(e) {
+      // Add click listener directly
+      btn.addEventListener('click', function(e) {
         e.preventDefault();
         e.stopPropagation();
         console.log('✏️ Edit button clicked for slot:', slotId);
