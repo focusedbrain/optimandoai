@@ -4077,6 +4077,38 @@ function initializeExtension() {
 
           if (sessionData) {
 
+            console.log('🔍 MASTER TAB LOAD: Full session data:', sessionData)
+
+            console.log('🔍 MASTER TAB LOAD: agentBoxes array:', sessionData.agentBoxes)
+
+            
+
+            // ENHANCED DEBUG: Show detailed breakdown
+
+            if (sessionData.agentBoxes && Array.isArray(sessionData.agentBoxes)) {
+
+              console.log(`📊 MASTER TAB LOAD: Total agent boxes: ${sessionData.agentBoxes.length}`)
+
+              const masterBoxes = sessionData.agentBoxes.filter((b: any) => b.source === 'master_tab')
+
+              const gridBoxes = sessionData.agentBoxes.filter((b: any) => b.source === 'display_grid')
+
+              console.log(`  ✓ Master tab boxes: ${masterBoxes.length}`)
+
+              console.log(`  ✓ Display grid boxes: ${gridBoxes.length}`)
+
+              
+
+              sessionData.agentBoxes.forEach((box: any, idx: number) => {
+
+                console.log(`  [${idx}] ${box.identifier} | source: ${box.source || 'none'}`)
+
+              })
+
+            }
+
+            
+
             // Load ALL session data including agentBoxes
 
             currentTabData = {
@@ -29372,6 +29404,42 @@ ${pageText}
       console.log('🔍 Overview: session.agentBoxes:', session?.agentBoxes)
 
       console.log('🔍 Overview: session.displayGrids:', session?.displayGrids)
+
+      
+
+      // ENHANCED DEBUG: Show detailed breakdown of boxes by source
+
+      if (session?.agentBoxes && Array.isArray(session.agentBoxes)) {
+
+        console.log(`📊 Overview: Total agent boxes in session: ${session.agentBoxes.length}`)
+
+        const masterBoxes = session.agentBoxes.filter((b: any) => b.source === 'master_tab')
+
+        const gridBoxes = session.agentBoxes.filter((b: any) => b.source === 'display_grid')
+
+        const unknownBoxes = session.agentBoxes.filter((b: any) => !b.source)
+
+        console.log(`  ✓ Master tab boxes: ${masterBoxes.length}`)
+
+        console.log(`  ✓ Display grid boxes: ${gridBoxes.length}`)
+
+        console.log(`  ✓ Unknown source boxes: ${unknownBoxes.length}`)
+
+        
+
+        // Log each box's essential info
+
+        session.agentBoxes.forEach((box: any, idx: number) => {
+
+          console.log(`  [${idx}] ${box.identifier} | ${box.title} | source: ${box.source || 'none'} | boxNumber: ${box.boxNumber}`)
+
+        })
+
+      } else {
+
+        console.log('⚠️ Overview: No agent boxes found in session!')
+
+      }
 
       
 
