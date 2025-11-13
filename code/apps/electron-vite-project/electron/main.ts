@@ -10,8 +10,8 @@ import { registerHandler, LmgtfyChannels, emitCapture } from './lmgtfy/ipc'
 import { beginOverlay, closeAllOverlays, showStreamTriggerOverlay } from './lmgtfy/overlay'
 import { captureScreenshot, startRegionStream } from './lmgtfy/capture'
 import { loadPresets, upsertRegion } from './lmgtfy/presets'
-import { registerDbHandlers, testConnection, syncChromeDataToPostgres, getConfig, getPostgresAdapter } from './ipc/db.js'
-import { handleVaultRPC } from './main/vault/rpc.js'
+import { registerDbHandlers, testConnection, syncChromeDataToPostgres, getConfig, getPostgresAdapter } from './ipc/db'
+import { handleVaultRPC } from './main/vault/rpc'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -666,7 +666,24 @@ app.whenReady().then(async () => {
                 const os = require('os')
                 fs.appendFileSync(path.join(os.homedir(), '.opengiraffe', 'main-debug.log'), '\n[MAIN] START_SELECTION received at ' + new Date().toISOString() + '\n')
               } catch {}
-              beginOverlay()
+              try {
+                // Close any existing overlays first
+                console.log('[MAIN] Closing existing overlays before creating new ones')
+                closeAllOverlays()
+                console.log('[MAIN] Calling beginOverlay()...')
+                beginOverlay()
+                console.log('[MAIN] ✅ beginOverlay() completed successfully')
+              } catch (overlayErr: any) {
+                console.error('[MAIN] ❌ ERROR in beginOverlay():', overlayErr)
+                console.error('[MAIN] Error stack:', overlayErr?.stack)
+                try {
+                  socket.send(JSON.stringify({
+                    type: 'ELECTRON_LOG',
+                    message: `[MAIN] ❌ ERROR launching overlay: ${overlayErr?.message || 'Unknown error'}`,
+                    error: overlayErr?.message || 'Unknown error'
+                  }))
+                } catch {}
+              }
             }
             if (msg.type === 'SAVE_TRIGGER') {
               // Extension sends back trigger to save in Electron's presets
@@ -760,7 +777,7 @@ app.whenReady().then(async () => {
                 console.error('[MAIN] Socket readyState:', socket.readyState)
               }
               try {
-                const { testConnection } = await import('./ipc/db.js')
+                const { testConnection } = await import('./ipc/db')
                 console.log('[MAIN] testConnection function imported successfully')
                 
                 // Support both msg.config and msg.data.config for compatibility
@@ -847,7 +864,7 @@ app.whenReady().then(async () => {
             }
             if (msg.type === 'DB_SYNC') {
               try {
-                const { syncChromeDataToPostgres } = await import('./ipc/db.js')
+                const { syncChromeDataToPostgres } = await import('./ipc/db')
                 const result = await syncChromeDataToPostgres(msg.data || {})
                 try { socket.send(JSON.stringify({ type: 'DB_SYNC_RESULT', ...result })) } catch {}
               } catch (err: any) {
@@ -867,7 +884,7 @@ app.whenReady().then(async () => {
             }
             if (msg.type === 'DB_GET_CONFIG') {
               try {
-                const { getConfig } = await import('./ipc/db.js')
+                const { getConfig } = await import('./ipc/db')
                 const result = await getConfig()
                 try { socket.send(JSON.stringify({ type: 'DB_GET_CONFIG_RESULT', ...result })) } catch {}
               } catch (err: any) {
@@ -877,7 +894,7 @@ app.whenReady().then(async () => {
             }
             if (msg.type === 'DB_GET') {
               try {
-                const { getPostgresAdapter } = await import('./ipc/db.js')
+                const { getPostgresAdapter } = await import('./ipc/db')
                 const adapter = getPostgresAdapter()
                 if (!adapter) {
                   try { socket.send(JSON.stringify({ type: 'DB_GET_RESULT', ok: false, message: 'Postgres adapter not initialized' })) } catch {}
@@ -892,7 +909,7 @@ app.whenReady().then(async () => {
             }
             if (msg.type === 'DB_SET') {
               try {
-                const { getPostgresAdapter } = await import('./ipc/db.js')
+                const { getPostgresAdapter } = await import('./ipc/db')
                 const adapter = getPostgresAdapter()
                 if (!adapter) {
                   try { socket.send(JSON.stringify({ type: 'DB_SET_RESULT', ok: false, message: 'Postgres adapter not initialized' })) } catch {}
@@ -907,7 +924,7 @@ app.whenReady().then(async () => {
             }
             if (msg.type === 'DB_GET_ALL') {
               try {
-                const { getPostgresAdapter } = await import('./ipc/db.js')
+                const { getPostgresAdapter } = await import('./ipc/db')
                 const adapter = getPostgresAdapter()
                 if (!adapter) {
                   try { socket.send(JSON.stringify({ type: 'DB_GET_ALL_RESULT', ok: false, message: 'Postgres adapter not initialized' })) } catch {}
@@ -974,7 +991,7 @@ app.whenReady().then(async () => {
             }
             if (msg.type === 'DB_SET_ALL') {
               try {
-                const { getPostgresAdapter } = await import('./ipc/db.js')
+                const { getPostgresAdapter } = await import('./ipc/db')
                 const adapter = getPostgresAdapter()
                 if (!adapter) {
                   try { socket.send(JSON.stringify({ type: 'DB_SET_ALL_RESULT', ok: false, message: 'Postgres adapter not initialized' })) } catch {}
@@ -1104,7 +1121,7 @@ app.whenReady().then(async () => {
         const payload = req.body.payload || req.body
         const keyCount = Object.keys(payload).length
         console.log('[HTTP] POST /api/db/set-all', keyCount, 'keys')
-        const { getPostgresAdapter } = await import('./ipc/db.js')
+        const { getPostgresAdapter } = await import('./ipc/db')
         const adapter = getPostgresAdapter()
         if (!adapter) {
           res.status(500).json({ ok: false, message: 'Postgres adapter not initialized' })
@@ -1164,7 +1181,7 @@ app.whenReady().then(async () => {
           
           if (postgresConfig) {
             console.log('[HTTP] Using config from request body')
-            const { testConnection } = await import('./ipc/db.js')
+            const { testConnection } = await import('./ipc/db')
             const testResult = await testConnection(postgresConfig)
             if (testResult.ok) {
               adapter = getPostgresAdapter()
@@ -1902,11 +1919,11 @@ app.whenReady().then(async () => {
         // If adapter not initialized, try to initialize it from config
         if (!adapter) {
           console.log('[HTTP] Adapter not initialized, attempting to initialize from config...')
-          const { getConfig } = await import('./ipc/db.js')
+          const { getConfig } = await import('./ipc/db')
           const configResult = await getConfig()
           
           if (configResult.ok && configResult.details?.postgres?.config) {
-            const { testConnection } = await import('./ipc/db.js')
+            const { testConnection } = await import('./ipc/db')
             const testResult = await testConnection(configResult.details.postgres.config)
             if (testResult.ok) {
               adapter = getPostgresAdapter()
@@ -1970,7 +1987,7 @@ app.whenReady().then(async () => {
     httpApp.post('/api/vault/status', async (_req, res) => {
       try {
         console.log('[HTTP-VAULT] POST /api/vault/status')
-        const { vaultService } = await import('./main/vault/rpc.js')
+        const { vaultService } = await import('./main/vault/rpc')
         console.log('[HTTP-VAULT] Vault service imported successfully')
         const status = await vaultService.getStatus()
         console.log('[HTTP-VAULT] Status retrieved:', { exists: status.exists, locked: status.locked })
@@ -1986,7 +2003,7 @@ app.whenReady().then(async () => {
     httpApp.post('/api/vault/create', async (req, res) => {
       try {
         console.log('[HTTP-VAULT] POST /api/vault/create', { vaultName: req.body.vaultName })
-        const { vaultService } = await import('./main/vault/rpc.js')
+        const { vaultService } = await import('./main/vault/rpc')
         const vaultId = await vaultService.createVault(req.body.password, req.body.vaultName || 'My Vault', req.body.vaultId)
         res.json({ success: true, data: { vaultId } })
       } catch (error: any) {
@@ -2001,7 +2018,7 @@ app.whenReady().then(async () => {
     httpApp.post('/api/vault/delete', async (req, res) => {
       try {
         console.log('[HTTP-VAULT] POST /api/vault/delete', { vaultId: req.body.vaultId })
-        const { vaultService } = await import('./main/vault/rpc.js')
+        const { vaultService } = await import('./main/vault/rpc')
         await vaultService.deleteVault(req.body.vaultId)
         res.json({ success: true })
       } catch (error: any) {
@@ -2014,7 +2031,7 @@ app.whenReady().then(async () => {
     httpApp.post('/api/vault/unlock', async (req, res) => {
       try {
         console.log('[HTTP-VAULT] POST /api/vault/unlock', { vaultId: req.body.vaultId })
-        const { vaultService } = await import('./main/vault/rpc.js')
+        const { vaultService } = await import('./main/vault/rpc')
         await vaultService.unlock(req.body.password, req.body.vaultId || 'default')
         res.json({ success: true })
       } catch (error: any) {
@@ -2027,7 +2044,7 @@ app.whenReady().then(async () => {
     httpApp.post('/api/vault/lock', async (_req, res) => {
       try {
         console.log('[HTTP-VAULT] POST /api/vault/lock')
-        const { vaultService } = await import('./main/vault/rpc.js')
+        const { vaultService } = await import('./main/vault/rpc')
         await vaultService.lock()
         res.json({ success: true })
       } catch (error: any) {
@@ -2040,7 +2057,7 @@ app.whenReady().then(async () => {
     httpApp.post('/api/vault/items', async (req, res) => {
       try {
         console.log('[HTTP-VAULT] POST /api/vault/items', req.body)
-        const { vaultService } = await import('./main/vault/rpc.js')
+        const { vaultService } = await import('./main/vault/rpc')
         const filters = {
           container_id: req.body.containerId,
           category: req.body.category
@@ -2059,7 +2076,7 @@ app.whenReady().then(async () => {
       try {
         console.log('[HTTP-VAULT] POST /api/vault/item/create')
         console.log('[HTTP-VAULT] Request body:', JSON.stringify(req.body, null, 2))
-        const { vaultService } = await import('./main/vault/rpc.js')
+        const { vaultService } = await import('./main/vault/rpc')
         const item = await vaultService.createItem(req.body)
         console.log('[HTTP-VAULT] ✅ Item created successfully:', item.id, 'category:', item.category)
         
@@ -2090,7 +2107,7 @@ app.whenReady().then(async () => {
     httpApp.post('/api/vault/item/get', async (req, res) => {
       try {
         console.log('[HTTP-VAULT] POST /api/vault/item/get')
-        const { vaultService } = await import('./main/vault/rpc.js')
+        const { vaultService } = await import('./main/vault/rpc')
         const item = await vaultService.getItem(req.body.id)
         res.json({ success: true, data: item })
       } catch (error: any) {
@@ -2103,7 +2120,7 @@ app.whenReady().then(async () => {
     httpApp.post('/api/vault/item/update', async (req, res) => {
       try {
         console.log('[HTTP-VAULT] POST /api/vault/item/update')
-        const { vaultService } = await import('./main/vault/rpc.js')
+        const { vaultService } = await import('./main/vault/rpc')
         const item = await vaultService.updateItem(req.body.id, req.body.updates)
         res.json({ success: true, data: item })
       } catch (error: any) {
@@ -2116,7 +2133,7 @@ app.whenReady().then(async () => {
     httpApp.post('/api/vault/item/delete', async (req, res) => {
       try {
         console.log('[HTTP-VAULT] POST /api/vault/item/delete')
-        const { vaultService } = await import('./main/vault/rpc.js')
+        const { vaultService } = await import('./main/vault/rpc')
         await vaultService.deleteItem(req.body.id)
         res.json({ success: true })
       } catch (error: any) {
@@ -2129,7 +2146,7 @@ app.whenReady().then(async () => {
     httpApp.post('/api/vault/containers', async (_req, res) => {
       try {
         console.log('[HTTP-VAULT] POST /api/vault/containers')
-        const { vaultService } = await import('./main/vault/rpc.js')
+        const { vaultService } = await import('./main/vault/rpc')
         const containers = await vaultService.listContainers()
         res.json({ success: true, data: containers })
       } catch (error: any) {
@@ -2142,7 +2159,7 @@ app.whenReady().then(async () => {
     httpApp.post('/api/vault/container/create', async (req, res) => {
       try {
         console.log('[HTTP-VAULT] POST /api/vault/container/create')
-        const { vaultService } = await import('./main/vault/rpc.js')
+        const { vaultService } = await import('./main/vault/rpc')
         const { type, name, favorite } = req.body
         const container = vaultService.createContainer(type, name, favorite || false)
         res.json({ success: true, data: container })
@@ -2156,7 +2173,7 @@ app.whenReady().then(async () => {
     httpApp.post('/api/vault/settings/get', async (_req, res) => {
       try {
         console.log('[HTTP-VAULT] POST /api/vault/settings/get')
-        const { vaultService } = await import('./main/vault/rpc.js')
+        const { vaultService } = await import('./main/vault/rpc')
         const settings = await vaultService.getSettings()
         res.json({ success: true, data: settings })
       } catch (error: any) {
@@ -2169,7 +2186,7 @@ app.whenReady().then(async () => {
     httpApp.post('/api/vault/settings/update', async (req, res) => {
       try {
         console.log('[HTTP-VAULT] POST /api/vault/settings/update')
-        const { vaultService } = await import('./main/vault/rpc.js')
+        const { vaultService } = await import('./main/vault/rpc')
         const settings = await vaultService.updateSettings(req.body)
         res.json({ success: true, data: settings })
       } catch (error: any) {
@@ -2185,7 +2202,7 @@ app.whenReady().then(async () => {
     httpApp.post('/api/orchestrator/connect', async (_req, res) => {
       try {
         console.log('[HTTP-ORCHESTRATOR] POST /api/orchestrator/connect')
-        const { getOrchestratorService } = await import('./main/orchestrator-db/service.js')
+        const { getOrchestratorService } = await import('./main/orchestrator-db/service')
         const service = getOrchestratorService()
         await service.connect()
         const status = service.getStatus()
@@ -2200,7 +2217,7 @@ app.whenReady().then(async () => {
     httpApp.get('/api/orchestrator/status', async (_req, res) => {
       try {
         console.log('[HTTP-ORCHESTRATOR] GET /api/orchestrator/status')
-        const { getOrchestratorService } = await import('./main/orchestrator-db/service.js')
+        const { getOrchestratorService } = await import('./main/orchestrator-db/service')
         const service = getOrchestratorService()
         const status = service.getStatus()
         res.json({ success: true, data: status })
@@ -2215,7 +2232,7 @@ app.whenReady().then(async () => {
       try {
         const key = req.query.key as string
         console.log('[HTTP-ORCHESTRATOR] GET /api/orchestrator/get', { key })
-        const { getOrchestratorService } = await import('./main/orchestrator-db/service.js')
+        const { getOrchestratorService } = await import('./main/orchestrator-db/service')
         const service = getOrchestratorService()
         const value = await service.get(key)
         res.json({ success: true, data: value })
@@ -2230,7 +2247,7 @@ app.whenReady().then(async () => {
       try {
         const { key, value } = req.body
         console.log('[HTTP-ORCHESTRATOR] POST /api/orchestrator/set', { key })
-        const { getOrchestratorService } = await import('./main/orchestrator-db/service.js')
+        const { getOrchestratorService } = await import('./main/orchestrator-db/service')
         const service = getOrchestratorService()
         await service.set(key, value)
         res.json({ success: true })
@@ -2244,7 +2261,7 @@ app.whenReady().then(async () => {
     httpApp.get('/api/orchestrator/get-all', async (_req, res) => {
       try {
         console.log('[HTTP-ORCHESTRATOR] GET /api/orchestrator/get-all')
-        const { getOrchestratorService } = await import('./main/orchestrator-db/service.js')
+        const { getOrchestratorService } = await import('./main/orchestrator-db/service')
         const service = getOrchestratorService()
         const data = await service.getAll()
         res.json({ success: true, data })
@@ -2259,7 +2276,7 @@ app.whenReady().then(async () => {
       try {
         const { data } = req.body
         console.log('[HTTP-ORCHESTRATOR] POST /api/orchestrator/set-all', { keyCount: Object.keys(data || {}).length })
-        const { getOrchestratorService } = await import('./main/orchestrator-db/service.js')
+        const { getOrchestratorService } = await import('./main/orchestrator-db/service')
         const service = getOrchestratorService()
         await service.setAll(data)
         res.json({ success: true })
@@ -2274,7 +2291,7 @@ app.whenReady().then(async () => {
       try {
         const { keys } = req.body
         console.log('[HTTP-ORCHESTRATOR] POST /api/orchestrator/remove', { keys })
-        const { getOrchestratorService } = await import('./main/orchestrator-db/service.js')
+        const { getOrchestratorService } = await import('./main/orchestrator-db/service')
         const service = getOrchestratorService()
         await service.remove(keys)
         res.json({ success: true })
@@ -2289,7 +2306,7 @@ app.whenReady().then(async () => {
       try {
         const { chromeData } = req.body
         console.log('[HTTP-ORCHESTRATOR] POST /api/orchestrator/migrate', { keyCount: Object.keys(chromeData || {}).length })
-        const { getOrchestratorService } = await import('./main/orchestrator-db/service.js')
+        const { getOrchestratorService } = await import('./main/orchestrator-db/service')
         const service = getOrchestratorService()
         await service.migrateFromChromeStorage(chromeData)
         res.json({ success: true })
@@ -2304,7 +2321,7 @@ app.whenReady().then(async () => {
       try {
         const options = req.body
         console.log('[HTTP-ORCHESTRATOR] POST /api/orchestrator/export', { format: options.format })
-        const { getOrchestratorService } = await import('./main/orchestrator-db/service.js')
+        const { getOrchestratorService } = await import('./main/orchestrator-db/service')
         const service = getOrchestratorService()
         const exportData = await service.exportData(options)
         res.json({ success: true, data: exportData })
@@ -2319,7 +2336,7 @@ app.whenReady().then(async () => {
       try {
         const { data } = req.body
         console.log('[HTTP-ORCHESTRATOR] POST /api/orchestrator/import')
-        const { getOrchestratorService } = await import('./main/orchestrator-db/service.js')
+        const { getOrchestratorService } = await import('./main/orchestrator-db/service')
         const service = getOrchestratorService()
         await service.importData(data)
         res.json({ success: true })

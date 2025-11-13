@@ -1,6 +1,6 @@
 import { Pool, PoolClient } from 'pg';
 import type { StorageAdapter } from '../../../../packages/shared/src/storage/StorageAdapter';
-import { runMigrations } from './migrations.js';
+import { runMigrations } from './migrations';
 
 export interface PostgresConfig {
   host: string;

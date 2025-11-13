@@ -4,25 +4,48 @@ import type { BackendConfig } from '@shared/core/storage/StorageAdapter';
 import { OrchestratorSQLiteAdapter } from './OrchestratorSQLiteAdapter';
 
 /**
+ * Check if Electron backend is available
+ */
+async function checkElectronAvailability(): Promise<boolean> {
+  try {
+    const response = await fetch('http://127.0.0.1:51248/api/orchestrator/status', {
+      method: 'GET',
+      signal: AbortSignal.timeout(1000) // 1 second timeout
+    });
+    return response.ok;
+  } catch (error) {
+    return false;
+  }
+}
+
+/**
  * Get the active storage adapter based on configuration
- * Priority: Orchestrator SQLite > PostgreSQL > Chrome Storage
+ * Priority: Orchestrator SQLite (if Electron available) > PostgreSQL > Chrome Storage
  */
 export async function getActiveAdapter(): Promise<StorageAdapter> {
   return new Promise((resolve) => {
-    chrome.storage.local.get(['backendConfig', 'orchestratorConfig'], (result) => {
+    chrome.storage.local.get(['backendConfig', 'orchestratorConfig'], async (result) => {
       const config: BackendConfig | any = result.backendConfig || {};
       const orchestratorConfig: any = result.orchestratorConfig || {};
       
-      // PRIORITY 1: Check if Orchestrator SQLite is enabled (highest priority)
-      if (orchestratorConfig.sqliteEnabled === true) {
-        console.log('[getActiveAdapter] Using Orchestrator SQLite adapter')
-        const adapter = new OrchestratorSQLiteAdapter();
-        // Auto-connect in the background
-        adapter.connect().catch(err => {
-          console.error('[getActiveAdapter] Failed to connect to Orchestrator SQLite:', err)
-        });
-        resolve(adapter);
-        return;
+      // PRIORITY 1: Use SQLite if Electron is available (unless explicitly disabled)
+      const sqliteExplicitlyDisabled = orchestratorConfig.sqliteEnabled === false;
+      
+      if (!sqliteExplicitlyDisabled) {
+        const electronAvailable = await checkElectronAvailability();
+        
+        if (electronAvailable) {
+          console.log('[getActiveAdapter] Using Orchestrator SQLite adapter (Electron available)')
+          const adapter = new OrchestratorSQLiteAdapter();
+          // Auto-connect in the background
+          adapter.connect().catch(err => {
+            console.error('[getActiveAdapter] Failed to connect to Orchestrator SQLite:', err)
+          });
+          resolve(adapter);
+          return;
+        } else {
+          console.log('[getActiveAdapter] Electron backend not available, checking alternatives')
+        }
       }
       
       // PRIORITY 2: Check if PostgreSQL is enabled (hybrid format)

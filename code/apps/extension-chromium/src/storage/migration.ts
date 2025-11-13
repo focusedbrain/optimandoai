@@ -5,10 +5,35 @@
 import { OrchestratorSQLiteAdapter } from './OrchestratorSQLiteAdapter'
 
 /**
+ * Filter Chrome storage data for session-relevant keys
+ */
+function filterSessionData(chromeData: Record<string, any>): Record<string, any> {
+  const sessionData: Record<string, any> = {};
+  
+  Object.entries(chromeData).forEach(([key, value]) => {
+    // Include session keys, settings, UI state, agent data
+    if (
+      key.startsWith('session_') ||
+      key.startsWith('optimando-') ||
+      key === 'currentSessionKey' ||
+      key === 'viewMode' ||
+      key === 'accountAgents' ||
+      key === 'orchestratorConfig' ||
+      key === 'backendConfig'
+    ) {
+      sessionData[key] = value;
+    }
+  });
+  
+  return sessionData;
+}
+
+/**
  * Migrate all data from Chrome storage to encrypted SQLite
+ * @param filterOnly If true, only migrate session-related data
  * @returns Promise that resolves when migration is complete
  */
-export async function migrateToSQLite(): Promise<{
+export async function migrateToSQLite(filterOnly: boolean = false): Promise<{
   success: boolean
   message: string
   keyCount?: number
@@ -18,14 +43,20 @@ export async function migrateToSQLite(): Promise<{
 
     // Step 1: Get all data from Chrome storage
     console.log('[Migration] Reading all data from Chrome storage...')
-    const chromeData = await new Promise<Record<string, any>>((resolve) => {
+    let chromeData = await new Promise<Record<string, any>>((resolve) => {
       chrome.storage.local.get(null, (items) => {
         resolve(items || {})
       })
     })
 
+    // Filter for session data if requested
+    if (filterOnly) {
+      console.log('[Migration] Filtering for session-relevant data only...')
+      chromeData = filterSessionData(chromeData);
+    }
+
     const keyCount = Object.keys(chromeData).length
-    console.log(`[Migration] Found ${keyCount} keys in Chrome storage`)
+    console.log(`[Migration] Found ${keyCount} keys to migrate`)
 
     if (keyCount === 0) {
       return {
@@ -71,6 +102,82 @@ export async function migrateToSQLite(): Promise<{
       message: `Migration failed: ${error?.message || error}`,
     }
   }
+}
+
+/**
+ * Auto-migrate to SQLite on first startup (if Electron is available)
+ * This will be called from content-script.tsx initialization
+ */
+export async function autoMigrateIfNeeded(): Promise<void> {
+  try {
+    // Check if already migrated
+    const status = await getMigrationStatus();
+    if (status.migrated) {
+      console.log('[AutoMigration] Already migrated, skipping');
+      return;
+    }
+
+    // Check if Electron is available
+    const available = await checkSQLiteAvailability();
+    if (!available) {
+      console.log('[AutoMigration] Electron not available, skipping auto-migration');
+      return;
+    }
+
+    console.log('[AutoMigration] Electron available, starting automatic migration...');
+    
+    // Perform migration (filter for session data only)
+    const result = await migrateToSQLite(true);
+    
+    if (result.success) {
+      // Mark as migrated
+      await setMigrationStatus(true, true);
+      console.log(`[AutoMigration] ✅ Successfully migrated ${result.keyCount} keys`);
+      
+      // Show notification to user
+      showMigrationNotification(result.keyCount || 0);
+    } else {
+      console.error('[AutoMigration] Migration failed:', result.message);
+    }
+  } catch (error) {
+    console.error('[AutoMigration] Error during auto-migration:', error);
+  }
+}
+
+/**
+ * Show a notification to the user about the migration
+ */
+function showMigrationNotification(keyCount: number): void {
+  const notification = document.createElement('div');
+  notification.style.cssText = `
+    position: fixed;
+    top: 60px;
+    right: 20px;
+    background: rgba(34, 197, 94, 0.95);
+    color: white;
+    padding: 16px 20px;
+    border-radius: 8px;
+    font-size: 13px;
+    z-index: 2147483647;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    max-width: 400px;
+    animation: slideIn 0.3s ease;
+  `;
+  notification.innerHTML = `
+    <div style="font-weight: 600; margin-bottom: 6px;">
+      🔐 Data Migrated to Encrypted Storage
+    </div>
+    <div style="font-size: 12px; opacity: 0.95;">
+      ${keyCount} items moved to secure SQLite database. Your data is now encrypted at rest.
+    </div>
+  `;
+  
+  document.body.appendChild(notification);
+  
+  setTimeout(() => {
+    notification.style.animation = 'slideOut 0.3s ease';
+    setTimeout(() => notification.remove(), 300);
+  }, 5000);
 }
 
 /**

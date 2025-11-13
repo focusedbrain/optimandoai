@@ -34,7 +34,11 @@ export function closeAllOverlays() {
 // Fire-and-forget interactive overlay that stays open until closed or stopped (for popup parity)
 export function beginOverlay(_expectedMode?: 'screenshot' | 'stream'): void {
   try {
+    console.log('[OVERLAY] beginOverlay() called')
+    // Close any existing overlays first
+    closeAllOverlays()
     const displays = screen.getAllDisplays()
+    console.log(`[OVERLAY] Found ${displays.length} display(s)`)
     const overlays: BrowserWindow[] = []
     let finished = false
 
@@ -49,6 +53,7 @@ export function beginOverlay(_expectedMode?: 'screenshot' | 'stream'): void {
     }
 
     for (const d of displays){
+      console.log(`[OVERLAY] Creating overlay for display ${d.id} at ${d.bounds.x},${d.bounds.y} size ${d.bounds.width}x${d.bounds.height}`)
       const overlay = new BrowserWindow({
         x: d.bounds.x,
         y: d.bounds.y,
@@ -66,6 +71,7 @@ export function beginOverlay(_expectedMode?: 'screenshot' | 'stream'): void {
         backgroundColor: '#00000000',
         titleBarStyle: 'hidden',
         fullscreenable: false,
+        show: false, // Don't show until loaded to prevent flicker
         webPreferences: { 
           nodeIntegration: true, 
           contextIsolation: false, 
@@ -77,16 +83,20 @@ export function beginOverlay(_expectedMode?: 'screenshot' | 'stream'): void {
       })
       overlays.push(overlay)
       activeOverlays.push(overlay)  // Track globally for main.ts to close
-      overlay.setAlwaysOnTop(true, 'pop-up-menu')
+      console.log(`[OVERLAY] BrowserWindow created for display ${d.id}`)
+      overlay.setAlwaysOnTop(true, 'screen-saver')
       overlay.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
       try { overlay.setIgnoreMouseEvents(false, { forward: false } as any) } catch { try { overlay.setIgnoreMouseEvents(false) } catch {} }
+      // Ensure window can receive focus and mouse events
+      overlay.setFocusable(true)
+      console.log(`[OVERLAY] Display ${d.id} configured with screen-saver level z-order`)
       overlay.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(`
       <!DOCTYPE html>
       <html><head><meta charset="utf-8"/>
       <style>
-        html,body{margin:0;height:100%;cursor:crosshair;-webkit-user-select:none;user-select:none}
+        html,body{margin:0;height:100%;cursor:crosshair;-webkit-user-select:none;user-select:none;background:rgba(0,0,0,0.25)}
         #lay{position:fixed;inset:0;touch-action:none}
-        #box{position:fixed;border:2px dashed #0ea5e9;background:rgba(14,165,233,0.08);pointer-events:none;display:none}
+        #box{position:fixed;border:2px dashed #0ea5e9;background:rgba(14,165,233,0.15);pointer-events:none;display:none}
         .tb{position:fixed;display:none;gap:8px;background:rgba(17,24,39,0.95);color:#fff;padding:6px 8px;border-radius:8px;border:1px solid rgba(255,255,255,0.25);font-size:12px;pointer-events:auto;z-index:2147483648}
         .btn{background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.25);color:#fff;padding:4px 8px;border-radius:6px;cursor:pointer}
         .btn.primary{background:#10b981;border-color:#10b981}
@@ -110,6 +120,7 @@ export function beginOverlay(_expectedMode?: 'screenshot' | 'stream'): void {
         <script>
           const DISPLAY_ID = ${d.id};
           const { ipcRenderer, desktopCapturer } = require('electron');
+          console.log('[OVERLAY-SCRIPT] Overlay script loaded for display', DISPLAY_ID);
           const lay=document.getElementById('lay');
           const box=document.getElementById('box');
           let sx=0,sy=0,ex=0,ey=0,drag=false,locked=false,tbX=0,tbY=0
@@ -135,12 +146,13 @@ export function beginOverlay(_expectedMode?: 'screenshot' | 'stream'): void {
             tb.style.top=top+'px';
             tb.style.display='flex'
           }
-          function onDown(e){ try{ e.preventDefault(); e.stopPropagation() }catch{}; try{ if (tb && (e.target && tb.contains(e.target))) return }catch{}; if (locked) return; drag=true; sx=e.clientX; sy=e.clientY; ex=sx; ey=sy; box.style.left=sx+'px'; box.style.top=sy+'px'; box.style.width='0px'; box.style.height='0px'; box.style.display='block'; try{ document.body.style.cursor='crosshair' }catch{} }
+          function onDown(e){ console.log('[OVERLAY-SCRIPT] Mouse down at', e.clientX, e.clientY); try{ e.preventDefault(); e.stopPropagation() }catch{}; try{ if (tb && (e.target && tb.contains(e.target))) return }catch{}; if (locked) return; drag=true; sx=e.clientX; sy=e.clientY; ex=sx; ey=sy; box.style.left=sx+'px'; box.style.top=sy+'px'; box.style.width='0px'; box.style.height='0px'; box.style.display='block'; try{ document.body.style.cursor='crosshair' }catch{} }
           function onMove(e){ if(!drag) return; try{ e.preventDefault(); e.stopPropagation() }catch{}; ex=e.clientX; ey=e.clientY; const x=Math.min(sx,ex), y=Math.min(sy,ey), w=Math.abs(ex-sx), h=Math.abs(ey-sy); box.style.left=x+'px'; box.style.top=y+'px'; box.style.width=w+'px'; box.style.height=h+'px' }
-          function onUp(e){ try{ e.preventDefault(); e.stopPropagation() }catch{}; drag=false; ex=e.clientX; ey=e.clientY; placeToolbar(); locked=true; try{ document.body.style.cursor='default' }catch{} }
+          function onUp(e){ console.log('[OVERLAY-SCRIPT] Mouse up at', e.clientX, e.clientY); try{ e.preventDefault(); e.stopPropagation() }catch{}; drag=false; ex=e.clientX; ey=e.clientY; placeToolbar(); locked=true; try{ document.body.style.cursor='default' }catch{} }
           window.addEventListener('mousedown', onDown, true)
           window.addEventListener('mousemove', onMove, true)
           window.addEventListener('mouseup', onUp, true)
+          console.log('[OVERLAY-SCRIPT] Mouse event listeners attached')
           function confirmRect(){ const boxRect = box.getBoundingClientRect(); return {x:Math.round(boxRect.left),y:Math.round(boxRect.top),w:Math.round(boxRect.width),h:Math.round(boxRect.height)} }
           btnShot.addEventListener('click',(e)=>{ try{ e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation && e.stopImmediatePropagation() }catch{}; if(locked){ tb.style.left=tbX+'px'; tb.style.top=tbY+'px' } const r=confirmRect(); const createTrig=!!cbTrig.checked; const addCommand=!!cbCommand.checked; ipcRenderer.send('overlay-cmd',{ action:'shot', rect:r, displayId: DISPLAY_ID, createTrigger: createTrig, addCommand: addCommand, closeOverlay: true }) })
           btnStream.addEventListener('click',(e)=>{ 
@@ -178,12 +190,40 @@ export function beginOverlay(_expectedMode?: 'screenshot' | 'stream'): void {
       </body></html>
       `))
       wire(overlay)
-      try { overlay.once('ready-to-show', () => { try{ overlay.show(); overlay.focus() }catch{} }) } catch {}
-      try { overlay.show(); overlay.focus() } catch {}
+      
+      // Show and focus after content loads
+      overlay.webContents.once('did-finish-load', () => {
+        console.log(`[OVERLAY] Display ${d.id} overlay finished loading`)
+        try {
+          overlay.show()
+          overlay.focus()
+          overlay.moveTop()
+          console.log(`[OVERLAY] ✅ Display ${d.id} overlay shown, focused, and moved to top`)
+        } catch (showErr: any) {
+          console.error(`[OVERLAY] ❌ Error showing overlay for display ${d.id}:`, showErr)
+        }
+      })
+      
+      overlay.webContents.on('did-fail-load', (_event, errorCode, errorDescription) => {
+        console.error(`[OVERLAY] ❌ Display ${d.id} overlay failed to load:`, errorCode, errorDescription)
+      })
+      
+      // Log when window receives/loses focus
+      overlay.on('focus', () => {
+        console.log(`[OVERLAY] Display ${d.id} overlay received focus`)
+      })
+      overlay.on('blur', () => {
+        console.log(`[OVERLAY] Display ${d.id} overlay lost focus`)
+      })
     }
 
     activeState = { overlays, finished: false, resolve: null }
-  } catch {}
+    console.log(`[OVERLAY] ✅ beginOverlay() completed - ${overlays.length} overlay(s) created`)
+  } catch (err: any) {
+    console.error('[OVERLAY] ❌ FATAL ERROR in beginOverlay():', err)
+    console.error('[OVERLAY] Error stack:', err?.stack)
+    throw err // Re-throw so main.ts can catch it
+  }
 }
 
 // Show pre-positioned overlay for stream trigger execution (visible recording)

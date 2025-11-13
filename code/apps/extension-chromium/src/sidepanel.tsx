@@ -2578,14 +2578,14 @@ function SidepanelOrchestrator() {
         </button>
         <button
           onClick={() => {
-            console.log('💾 Save/Export session...')
-            sendToContentScript('SAVE_SESSION')
+            console.log('📤 Export session...')
+            sendToContentScript('EXPORT_SESSION')
           }}
           style={{
               ...actionButtonStyle('rgba(76, 175, 80, 0.8)'),
               fontSize: '14px'
             }}
-          title="Save/Export Session"
+          title="Export Session (JSON/YAML/MD)"
         >
           💾
         </button>

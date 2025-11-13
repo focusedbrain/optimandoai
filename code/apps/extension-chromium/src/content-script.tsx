@@ -132,6 +132,44 @@ const globalLightboxFunctions: {
 
 
 
+// ============================================================
+// EXTENSION RELOAD DETECTION & AUTO-RECONNECT
+// ============================================================
+
+// Detect when extension is reloaded and automatically reinitialize
+let extensionInvalidated = false
+
+// Test if extension context is still valid
+function testExtensionConnection(): boolean {
+  try {
+    // Try to access extension API - will throw if extension reloaded
+    chrome.runtime.getURL('/')
+    return true
+  } catch (e) {
+    return false
+  }
+}
+
+// Set up periodic connection check (every 2 seconds)
+const connectionCheckInterval = setInterval(() => {
+  if (!testExtensionConnection() && !extensionInvalidated) {
+    console.log('🔌 Extension context invalidated (extension was reloaded) - Auto-refreshing page...')
+    extensionInvalidated = true
+    
+    // Auto-refresh immediately (no notification badge)
+    window.location.reload()
+  }
+}, 2000)
+
+// Clean up interval when page unloads
+window.addEventListener('beforeunload', () => {
+  clearInterval(connectionCheckInterval)
+})
+
+// ============================================================
+
+
+
 // Check if extension was previously activated for this URL OR if dedicated
 
 const savedState = localStorage.getItem(extensionStateKey)
@@ -299,6 +337,24 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     } catch (e) {
 
       console.error('❌ Error opening context:', e)
+
+      sendResponse({ success: false, error: String(e) })
+
+    }
+
+  }
+
+  else if (message.type === 'SAVE_SESSION') {
+
+    try {
+
+      saveCurrentSession()
+
+      sendResponse({ success: true })
+
+    } catch (e) {
+
+      console.error('❌ Error saving session:', e)
 
       sendResponse({ success: false, error: String(e) })
 
@@ -1863,6 +1919,11 @@ async function storageSet(items: { [key: string]: any }, callback?: () => void) 
   wrapper.storageSet(items, callback);
 }
 
+async function storageRemove(keys: string | string[], callback?: () => void) {
+  const wrapper = await getStorageWrapper();
+  wrapper.storageRemove(keys, callback);
+}
+
 function initializeExtension() {
 
   try {
@@ -1945,9 +2006,9 @@ function initializeExtension() {
 
       } else if (msg.type === 'EXPORT_SESSION') {
 
-        // Call existing exportSession function
+        // Open export format dialog (NEW: JSON/YAML/MD selection)
 
-        exportSession()
+        openExportFormatDialog()
 
         sendResponse({ success: true })
 
@@ -9754,6 +9815,14 @@ function initializeExtension() {
 
     
 
+    // CRITICAL: Track if this is the first render to prevent premature data sync
+
+    // Must be declared here (outer scope) so it's accessible in both try/catch and continueDialogSetup
+
+    let isFirstRender = true
+
+    
+
     storageGet([draftKey], (draftResult) => {
 
       console.log(`🔍 Checked for draft with key: ${draftKey}`)
@@ -9837,12 +9906,6 @@ function initializeExtension() {
     
 
     function continueDialogSetup() {
-
-      
-
-    // CRITICAL: Track if this is the first render to prevent premature data sync
-
-    let isFirstRender = true
 
       
 
@@ -28005,6 +28068,22 @@ ${pageText}
 
                 ` : ''}
 
+                ${session.agents && session.agents.length > 0 ? `
+
+                  <div style=\"background: rgba(255,255,255,0.2); border: 1px solid rgba(255,255,255,0.25); border-radius: 8px; padding: 10px; margin: 8px 0;\">
+
+                    <span style=\"font-size: 11px; font-weight: bold; color: #90EE90;\">🤖 AI Agents (${session.agents.length})</span>
+
+                    <div style=\"display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px;\">
+
+                      ${session.agents.map(agent => `<span style=\\\"background: rgba(144,238,144,0.25); color: white; border: 1px solid rgba(144,238,144,0.5); padding: 3px 8px; border-radius: 4px; font-size: 10px; font-weight: 500;\\\" title=\\\"${agent.name}\\\">${agent.name}</span>`).join('')}
+
+                    </div>
+
+                  </div>
+
+                ` : ''}
+
 
 
                 ${session.hybridAgentBoxes && session.hybridAgentBoxes.length > 0 ? `
@@ -28318,6 +28397,16 @@ ${pageText}
             console.log('🔧 DEBUG: currentTabData.displayGrids:', currentTabData.displayGrids)
 
             console.log('✅ Session restored with agents:', sessionData.agents?.length || 0)
+
+            
+
+            // Restore agent configurations to localStorage
+
+            if (sessionData.agents && sessionData.agents.length > 0) {
+
+              restoreAgentConfigs(sessionData.agents);
+
+            }
 
 
 
@@ -29098,8 +29187,10 @@ ${pageText}
 
           if (confirm('Are you sure you want to delete this session?')) {
 
-            // Note: storageRemove not implemented yet, using storageSet with undefined
-            storageSet({ [sessionId]: undefined }, () => {
+            // Use storageRemove to delete from SQLite
+            storageRemove([sessionId], () => {
+
+              console.log('🗑️ Session deleted from SQLite:', sessionId)
 
               // Refresh the sessions list
 
@@ -29117,98 +29208,72 @@ ${pageText}
 
       
 
-      // Clear all sessions
-
-      document.getElementById('clear-all-sessions').onclick = () => {
-
-        console.log('🗑️ CLEAR ALL SESSIONS - Starting complete cleanup')
-
-        if (confirm('⚠️ This will delete ALL session history permanently.\n\nThis includes:\n• All master tab configurations\n• All display grid configurations\n• All web sources\n• All saved contexts\n\nAre you sure?')) {
-
+      // Clear All Sessions handler
+      const clearAllBtn = document.getElementById('clear-all-sessions')
+      if (clearAllBtn) {
+        clearAllBtn.addEventListener('click', (e) => {
+          e.stopPropagation()
           
-
-          // NUCLEAR OPTION: Clear everything
-
-          console.log('🚀 NUCLEAR CLEAR: Removing all Optimando data')
-
-          
-
-          // Clear ALL storage
-          storageGet(null, (allData) => {
-            const keys = Object.keys(allData);
-            const itemsToRemove: { [key: string]: any } = {};
-            keys.forEach(key => { itemsToRemove[key] = undefined; });
-            storageSet(itemsToRemove, () => {
-              console.log('✅ ALL storage cleared');
-
+          if (confirm(`⚠️ Are you sure you want to delete ALL sessions?\n\nThis will delete ${sessions.length} session(s) from SQLite.\n\nThis action cannot be undone!`)) {
+            const sessionKeys = sessions.map(s => s.id)
+            
+            console.log('🗑️ Clearing all sessions from SQLite:', sessionKeys.length)
+            
+            // Show loading notification
+            const notification = document.createElement('div')
+            notification.style.cssText = `
+              position: fixed;
+              top: 60px;
+              right: 20px;
+              background: rgba(244, 67, 54, 0.9);
+              color: white;
+              padding: 12px 20px;
+              border-radius: 8px;
+              font-size: 14px;
+              font-weight: 500;
+              z-index: 2147483650;
+              box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+            `
+            notification.innerHTML = `⏳ Deleting ${sessionKeys.length} sessions...`
+            document.body.appendChild(notification)
+            
+            // Delete all sessions from SQLite
+            storageRemove(sessionKeys, () => {
+              console.log('✅ All sessions cleared from SQLite')
               
-
-              // Clear localStorage
-
-              const localKeys = Object.keys(localStorage).filter(key => key.toLowerCase().includes('optimando'))
-
-              localKeys.forEach(key => localStorage.removeItem(key))
-
-              console.log('✅ Cleared', localKeys.length, 'localStorage items')
-
+              notification.remove()
               
-
-              // Clear sessionStorage
-
-              const sessionKeys = Object.keys(sessionStorage).filter(key => key.toLowerCase().includes('optimando'))
-
-              sessionKeys.forEach(key => sessionStorage.removeItem(key))
-
-              console.log('✅ Cleared', sessionKeys.length, 'sessionStorage items')
-
+              // Show success notification
+              const successNotification = document.createElement('div')
+              successNotification.style.cssText = `
+                position: fixed;
+                top: 60px;
+                right: 20px;
+                background: rgba(76, 175, 80, 0.9);
+                color: white;
+                padding: 12px 20px;
+                border-radius: 8px;
+                font-size: 14px;
+                font-weight: 500;
+                z-index: 2147483650;
+                box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+              `
+              successNotification.innerHTML = `✅ All sessions cleared!`
+              document.body.appendChild(successNotification)
               
-
-              // Reset currentTabData
-
-              if (typeof currentTabData !== 'undefined') {
-
-                currentTabData.displayGrids = []
-
-                currentTabData.helperTabs = null
-
-                currentTabData.isLocked = false
-
-              }
-
+              setTimeout(() => successNotification.remove(), 3000)
               
-
+              // Refresh the sessions list
               overlay.remove()
-
-              
-
-              // Show success message
-
-              const successNote = document.createElement('div')
-
-              successNote.textContent = '🎯 ALL SESSIONS CLEARED - Complete cleanup done!'
-
-              successNote.style.cssText = `position:fixed;top:20px;right:20px;z-index:2147483650;background:#4CAF50;color:#fff;padding:12px 16px;border-radius:8px;font-size:13px;font-weight:bold;box-shadow:0 4px 12px rgba(0,0,0,0.3)`
-
-              document.body.appendChild(successNote)
-
-              setTimeout(() => {
-                successNote.remove()
-
-                // Suggest reload
-                const reloadNote = document.createElement('div')
-                reloadNote.textContent = '💡 Reload the page to start fresh'
-                reloadNote.style.cssText = `position:fixed;top:20px;right:20px;z-index:2147483650;background:#2196F3;color:#fff;padding:10px 14px;border-radius:8px;font-size:12px;box-shadow:0 4px 12px rgba(0,0,0,0.3)`
-                document.body.appendChild(reloadNote)
-                setTimeout(() => reloadNote.remove(), 5000)
-              }, 3000)
+              openSessionsLightbox()
             })
-          })
-
-        }
-
+          }
+        })
       }
 
-    })
+      
+
+    }) // End of storageGet
 
   }
 
@@ -30648,6 +30713,133 @@ ${pageText}
 
   // Quick action functions
 
+  /**
+   * Collect all agent configurations from localStorage
+   * Returns a structured array of agent configs
+   */
+  function collectAgentConfigs() {
+    const agents: any[] = [];
+    const processedAgents = new Set<string>();
+    
+    try {
+      // Scan localStorage for agent-related keys
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (!key) continue;
+        
+        // Match agent_model_v2_* pattern
+        const modelMatch = key.match(/^agent_model_v2_(.+)$/);
+        if (modelMatch) {
+          const agentName = modelMatch[1];
+          if (processedAgents.has(agentName)) continue;
+          processedAgents.add(agentName);
+          
+          // Collect all properties for this agent
+          const agentConfig: any = {
+            name: agentName,
+            model: null,
+            context: null,
+            memory: null,
+            source: null,
+            persist: null,
+            priority: null,
+            autostart: null,
+            autorespond: null,
+            delay: null
+          };
+          
+          // Get model config
+          try {
+            const modelStr = localStorage.getItem(`agent_model_v2_${agentName}`);
+            if (modelStr) {
+              agentConfig.model = JSON.parse(modelStr);
+            }
+          } catch (e) {
+            console.warn(`Failed to parse model for agent ${agentName}:`, e);
+          }
+          
+          // Get other properties
+          agentConfig.context = localStorage.getItem(`agent_${agentName}_context`) || null;
+          agentConfig.memory = localStorage.getItem(`agent_${agentName}_memory`) || null;
+          agentConfig.source = localStorage.getItem(`agent_${agentName}_source`) || null;
+          agentConfig.persist = localStorage.getItem(`agent_${agentName}_persist`) || null;
+          agentConfig.priority = localStorage.getItem(`agent_${agentName}_priority`) || null;
+          agentConfig.autostart = localStorage.getItem(`agent_${agentName}_autostart`) || null;
+          agentConfig.autorespond = localStorage.getItem(`agent_${agentName}_autorespond`) || null;
+          agentConfig.delay = localStorage.getItem(`agent_${agentName}_delay`) || null;
+          
+          agents.push(agentConfig);
+        }
+      }
+      
+      console.log(`[collectAgentConfigs] Collected ${agents.length} agent configurations`);
+      return agents;
+    } catch (error) {
+      console.error('[collectAgentConfigs] Error collecting agent configs:', error);
+      return [];
+    }
+  }
+
+  /**
+   * Restore agent configurations to localStorage from agents array
+   * @param agents Array of agent config objects
+   */
+  function restoreAgentConfigs(agents: any[]) {
+    if (!agents || agents.length === 0) {
+      console.log('[restoreAgentConfigs] No agents to restore');
+      return;
+    }
+
+    try {
+      console.log(`[restoreAgentConfigs] Restoring ${agents.length} agent configurations`);
+      
+      agents.forEach((agentConfig) => {
+        const agentName = agentConfig.name;
+        if (!agentName) {
+          console.warn('[restoreAgentConfigs] Skipping agent with no name:', agentConfig);
+          return;
+        }
+
+        // Restore model config
+        if (agentConfig.model) {
+          localStorage.setItem(`agent_model_v2_${agentName}`, JSON.stringify(agentConfig.model));
+        }
+
+        // Restore other properties (only if they have a value)
+        if (agentConfig.context) {
+          localStorage.setItem(`agent_${agentName}_context`, agentConfig.context);
+        }
+        if (agentConfig.memory) {
+          localStorage.setItem(`agent_${agentName}_memory`, agentConfig.memory);
+        }
+        if (agentConfig.source) {
+          localStorage.setItem(`agent_${agentName}_source`, agentConfig.source);
+        }
+        if (agentConfig.persist) {
+          localStorage.setItem(`agent_${agentName}_persist`, agentConfig.persist);
+        }
+        if (agentConfig.priority) {
+          localStorage.setItem(`agent_${agentName}_priority`, agentConfig.priority);
+        }
+        if (agentConfig.autostart) {
+          localStorage.setItem(`agent_${agentName}_autostart`, agentConfig.autostart);
+        }
+        if (agentConfig.autorespond) {
+          localStorage.setItem(`agent_${agentName}_autorespond`, agentConfig.autorespond);
+        }
+        if (agentConfig.delay) {
+          localStorage.setItem(`agent_${agentName}_delay`, agentConfig.delay);
+        }
+
+        console.log(`[restoreAgentConfigs] Restored agent: ${agentName}`);
+      });
+
+      console.log('[restoreAgentConfigs] ✅ All agents restored successfully');
+    } catch (error) {
+      console.error('[restoreAgentConfigs] Error restoring agent configs:', error);
+    }
+  }
+
   function saveCurrentSession() {
 
         if (currentTabData.isLocked) {
@@ -30659,6 +30851,10 @@ ${pageText}
     }
 
     
+
+    // Collect agent configurations from localStorage
+
+    const agents = collectAgentConfigs();
 
     // Save current session to chrome.storage.local
 
@@ -30678,7 +30874,9 @@ ${pageText}
 
       url: window.location.href,
 
-      isLocked: true
+      isLocked: true,
+
+      agents: agents  // Include agent configurations
 
     }
 
@@ -30740,6 +30938,631 @@ ${pageText}
 
     // Placeholder for sync functionality
 
+  }
+
+  // ============================================================
+  // EXPORT / IMPORT FUNCTIONALITY
+  // ============================================================
+
+  /**
+   * Open export format dialog
+   * Allows user to choose between JSON, YAML, or MD format
+   */
+  function openExportFormatDialog() {
+    console.log('📤 Opening export format dialog')
+    
+    const overlay = document.createElement('div')
+    overlay.style.cssText = `
+      position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+      background: rgba(0,0,0,0.8); z-index: 2147483649;
+      display: flex; align-items: center; justify-content: center;
+      backdrop-filter: blur(5px);
+    `
+    
+    overlay.innerHTML = `
+      <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 16px; width: 90vw; max-width: 650px; color: white; padding: 30px; box-shadow: 0 20px 40px rgba(0,0,0,0.3);">
+        <h2 style="margin: 0 0 10px 0; font-size: 24px; font-weight: 600;">📤 Export Session</h2>
+        <p style="margin: 0 0 20px 0; font-size: 14px; opacity: 0.9;">Choose what to export and select a format:</p>
+        
+        <!-- Quick Export Presets -->
+        <div style="background: rgba(0,0,0,0.2); border-radius: 8px; padding: 15px; margin-bottom: 15px;">
+          <div style="font-size: 13px; font-weight: 600; margin-bottom: 10px; opacity: 0.9;">⚡ Quick Export</div>
+          <button class="export-preset-btn" data-preset="complete" style="
+            width: 100%;
+            background: rgba(255, 215, 0, 0.2);
+            border: 2px solid rgba(255, 215, 0, 0.5);
+            color: white;
+            padding: 12px 15px;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+            margin-bottom: 8px;
+            text-align: left;
+          " onmouseover="this.style.background='rgba(255, 215, 0, 0.3)'; this.style.borderColor='rgba(255, 215, 0, 0.7)'" onmouseout="this.style.background='rgba(255, 215, 0, 0.2)'; this.style.borderColor='rgba(255, 215, 0, 0.5)'">
+            <div style="font-size: 16px; margin-bottom: 3px;">⭐ Complete Session (Recommended)</div>
+            <div style="font-size: 11px; opacity: 0.85;">Configuration + Memory + Context - Everything!</div>
+          </button>
+          <button class="export-preset-btn" data-preset="config-only" style="
+            width: 100%;
+            background: rgba(255,255,255,0.1);
+            border: 2px solid rgba(255,255,255,0.25);
+            color: white;
+            padding: 10px 15px;
+            border-radius: 8px;
+            font-size: 13px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+            text-align: left;
+          " onmouseover="this.style.background='rgba(255,255,255,0.15)'; this.style.borderColor='rgba(255,255,255,0.35)'" onmouseout="this.style.background='rgba(255,255,255,0.1)'; this.style.borderColor='rgba(255,255,255,0.25)'">
+            <div style="font-size: 14px;">📋 Configuration Only</div>
+            <div style="font-size: 10px; opacity: 0.8;">Agent Boxes, Agents, UI State (no memory/context)</div>
+          </button>
+        </div>
+        
+        <!-- Detailed Export Options -->
+        <div style="background: rgba(0,0,0,0.2); border-radius: 8px; padding: 15px; margin-bottom: 15px;">
+          <div style="font-size: 13px; font-weight: 600; margin-bottom: 10px; opacity: 0.9;">🎛️ Custom Export (Select Components)</div>
+          <label style="display: flex; align-items: center; margin-bottom: 8px; cursor: pointer; font-size: 13px;">
+            <input type="checkbox" id="export-session-data" checked style="margin-right: 8px; cursor: pointer; width: 16px; height: 16px;">
+            <span>✅ Session Configuration (Agent Boxes, Agents, UI State)</span>
+          </label>
+          <label style="display: flex; align-items: center; margin-bottom: 8px; cursor: pointer; font-size: 13px;">
+            <input type="checkbox" id="export-memory" style="margin-right: 8px; cursor: pointer; width: 16px; height: 16px;">
+            <span>🧠 Memory Data (AI agent memory, conversation history)</span>
+          </label>
+          <label style="display: flex; align-items: center; cursor: pointer; font-size: 13px;">
+            <input type="checkbox" id="export-context" style="margin-right: 8px; cursor: pointer; width: 16px; height: 16px;">
+            <span>📄 Context Data (Documents, embeddings, knowledge base)</span>
+          </label>
+          <div style="margin-top: 10px; padding: 10px; background: rgba(255,193,7,0.15); border-radius: 6px; font-size: 11px; opacity: 0.9;">
+            💡 <strong>Tip:</strong> Use "Complete Session" for full backup. Use custom selection for sharing sessions without private data.
+          </div>
+        </div>
+        
+        <!-- Format Selection -->
+        <div style="font-size: 13px; font-weight: 600; margin-bottom: 10px; opacity: 0.9;">📋 Select Format</div>
+        <div style="display: flex; flex-direction: column; gap: 10px; margin-bottom: 20px;">
+          <button class="export-format-btn" data-format="json" style="
+            background: rgba(255,255,255,0.15);
+            border: 2px solid rgba(255,255,255,0.3);
+            color: white;
+            padding: 12px 15px;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+            text-align: left;
+          " onmouseover="this.style.background='rgba(255,255,255,0.25)'; this.style.borderColor='rgba(255,255,255,0.5)'" onmouseout="this.style.background='rgba(255,255,255,0.15)'; this.style.borderColor='rgba(255,255,255,0.3)'">
+            <div style="font-size: 16px; margin-bottom: 3px;">📄 JSON</div>
+            <div style="font-size: 11px; opacity: 0.8;">Machine-readable, best for programmatic use</div>
+          </button>
+          
+          <button class="export-format-btn" data-format="yaml" style="
+            background: rgba(255,255,255,0.15);
+            border: 2px solid rgba(255,255,255,0.3);
+            color: white;
+            padding: 12px 15px;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+            text-align: left;
+          " onmouseover="this.style.background='rgba(255,255,255,0.25)'; this.style.borderColor='rgba(255,255,255,0.5)'" onmouseout="this.style.background='rgba(255,255,255,0.15)'; this.style.borderColor='rgba(255,255,255,0.3)'">
+            <div style="font-size: 16px; margin-bottom: 3px;">📋 YAML</div>
+            <div style="font-size: 11px; opacity: 0.8;">Human-readable, best for sharing and reviewing</div>
+          </button>
+          
+          <button class="export-format-btn" data-format="md" style="
+            background: rgba(255,255,255,0.15);
+            border: 2px solid rgba(255,255,255,0.3);
+            color: white;
+            padding: 12px 15px;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+            text-align: left;
+          " onmouseover="this.style.background='rgba(255,255,255,0.25)'; this.style.borderColor='rgba(255,255,255,0.5)'" onmouseout="this.style.background='rgba(255,255,255,0.15)'; this.style.borderColor='rgba(255,255,255,0.3)'">
+            <div style="font-size: 16px; margin-bottom: 3px;">📝 Markdown</div>
+            <div style="font-size: 11px; opacity: 0.8;">Documentation format, best for wrcode.org</div>
+          </button>
+        </div>
+        
+        <button class="export-cancel-btn" style="
+          background: rgba(255,255,255,0.1);
+          border: 1px solid rgba(255,255,255,0.3);
+          color: white;
+          padding: 10px 20px;
+          border-radius: 8px;
+          font-size: 14px;
+          cursor: pointer;
+          width: 100%;
+        " onmouseover="this.style.background='rgba(255,255,255,0.15)'" onmouseout="this.style.background='rgba(255,255,255,0.1)'">
+          Cancel
+        </button>
+      </div>
+    `
+    
+    document.body.appendChild(overlay)
+    
+    // Handle preset buttons
+    overlay.querySelectorAll('.export-preset-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const preset = btn.getAttribute('data-preset')
+        
+        // Update checkboxes based on preset
+        const sessionCheckbox = overlay.querySelector('#export-session-data') as HTMLInputElement
+        const memoryCheckbox = overlay.querySelector('#export-memory') as HTMLInputElement
+        const contextCheckbox = overlay.querySelector('#export-context') as HTMLInputElement
+        
+        if (preset === 'complete') {
+          sessionCheckbox.checked = true
+          memoryCheckbox.checked = true
+          contextCheckbox.checked = true
+        } else if (preset === 'config-only') {
+          sessionCheckbox.checked = true
+          memoryCheckbox.checked = false
+          contextCheckbox.checked = false
+        }
+      })
+    })
+    
+    // Handle format selection
+    overlay.querySelectorAll('.export-format-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const format = btn.getAttribute('data-format') as 'json' | 'yaml' | 'md'
+        
+        // Get selected export options
+        const includeSession = (overlay.querySelector('#export-session-data') as HTMLInputElement)?.checked || false
+        const includeMemory = (overlay.querySelector('#export-memory') as HTMLInputElement)?.checked || false
+        const includeContext = (overlay.querySelector('#export-context') as HTMLInputElement)?.checked || false
+        
+        overlay.remove()
+        exportCurrentSession(format, { includeSession, includeMemory, includeContext })
+      })
+    })
+    
+    // Handle cancel
+    overlay.querySelector('.export-cancel-btn')?.addEventListener('click', () => {
+      overlay.remove()
+    })
+    
+    // Handle background click
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay) {
+        overlay.remove()
+      }
+    })
+  }
+
+  /**
+   * Export current session from SQLite storage
+   * This will fetch the session data from SQLite and download it in the specified format
+   */
+  async function exportCurrentSession(format: 'json' | 'yaml' | 'md', options: { includeSession: boolean, includeMemory: boolean, includeContext: boolean } = { includeSession: true, includeMemory: false, includeContext: false }) {
+    console.log(`📤 Exporting current session in ${format.toUpperCase()} format with options:`, options)
+    
+    const sessionKey = getCurrentSessionKey()
+    
+    if (!sessionKey) {
+      showNotification('⚠️ No active session to export', 'error')
+      return
+    }
+    
+    // Show loading notification
+    const loadingNotification = showNotification('⏳ Loading session data from SQLite...', 'info', 0)
+    
+    try {
+      // Fetch session data from storage (SQLite)
+      storageGet([sessionKey], async (result) => {
+        if (loadingNotification) loadingNotification.remove()
+        
+        if (!result[sessionKey]) {
+          showNotification('❌ Session not found in storage', 'error')
+          return
+        }
+        
+        const sessionData = result[sessionKey]
+        
+        console.log('📦 Session data loaded from SQLite:', sessionData)
+        console.log('  - Session key:', sessionKey)
+        console.log('  - Session name:', sessionData.tabName)
+        console.log('  - Agent boxes:', sessionData.agentBoxes?.length || 0)
+        console.log('  - Agents:', sessionData.agents?.length || 0)
+        console.log('  - Timestamp:', sessionData.timestamp)
+        console.log('  - Export options:', options)
+        
+        // Collect memory data if requested
+        let memoryData: any = null
+        if (options.includeMemory) {
+          memoryData = await collectMemoryData(sessionKey, sessionData)
+          console.log('  - Memory entries:', Object.keys(memoryData || {}).length)
+        }
+        
+        // Collect context data if requested
+        let contextData: any = null
+        if (options.includeContext) {
+          contextData = await collectContextData(sessionKey, sessionData)
+          console.log('  - Context entries:', Object.keys(contextData || {}).length)
+        }
+        
+        // Prepare export data
+        const exportData: any = {
+          version: '1.0.0',
+          exportDate: new Date().toISOString(),
+          sessionKey: sessionKey,
+          sessionName: sessionData.tabName || 'Unnamed Session',
+          timestamp: sessionData.timestamp,
+          url: sessionData.url || window.location.href,
+          isLocked: sessionData.isLocked || false,
+          
+          // Export options metadata
+          exportOptions: {
+            includeSession: options.includeSession,
+            includeMemory: options.includeMemory,
+            includeContext: options.includeContext
+          }
+        }
+        
+        // Include session configuration if requested
+        if (options.includeSession) {
+          exportData.tabId = sessionData.tabId
+          exportData.goals = sessionData.goals || null
+          exportData.userIntentDetection = sessionData.userIntentDetection || null
+          exportData.uiConfig = sessionData.uiConfig || null
+          exportData.helperTabs = sessionData.helperTabs || null
+          exportData.displayGrids = sessionData.displayGrids || null
+          exportData.agentBoxes = sessionData.agentBoxes || []
+          exportData.agents = sessionData.agents || []
+          
+          exportData.uiState = {
+            agentBoxHeights: sessionData.agentBoxHeights || {},
+            customAgentLayout: sessionData.customAgentLayout || null,
+            customAgentOrder: sessionData.customAgentOrder || null,
+            displayGridActiveTab: sessionData.displayGridActiveTab || null,
+            hybridViews: sessionData.hybridViews || []
+          }
+          
+          // Include any other fields that might be in the session data
+          const excludedFields = [
+            'tabId', 'tabName', 'timestamp', 'url', 'isLocked',
+            'goals', 'userIntentDetection', 'uiConfig', 'helperTabs', 'displayGrids',
+            'agentBoxes', 'agents', 'agentBoxHeights', 'customAgentLayout',
+            'customAgentOrder', 'displayGridActiveTab', 'hybridViews'
+          ]
+          Object.keys(sessionData).forEach(key => {
+            if (!excludedFields.includes(key)) {
+              exportData[key] = sessionData[key]
+            }
+          })
+        }
+        
+        // Include memory data if collected
+        if (options.includeMemory) {
+          exportData.memory = memoryData
+        } else {
+          exportData.memory = null
+        }
+        
+        // Include context data if collected
+        if (options.includeContext) {
+          exportData.context = contextData
+        } else {
+          exportData.context = null
+        }
+        
+        let fileContent: string
+        let fileName: string
+        let mimeType: string
+        
+        // Build filename suffix based on what's included
+        let suffix = ''
+        if (options.includeMemory && options.includeContext) {
+          suffix = '_complete'
+        } else if (options.includeMemory) {
+          suffix = '_with_memory'
+        } else if (options.includeContext) {
+          suffix = '_with_context'
+        }
+        
+        // Convert to selected format
+        if (format === 'json') {
+          fileContent = JSON.stringify(exportData, null, 2)
+          fileName = `${sanitizeFilename(sessionData.tabName || sessionKey)}${suffix}.json`
+          mimeType = 'application/json'
+        } else if (format === 'yaml') {
+          fileContent = convertToYAML(exportData)
+          fileName = `${sanitizeFilename(sessionData.tabName || sessionKey)}${suffix}.yaml`
+          mimeType = 'application/x-yaml'
+        } else {
+          // Markdown format
+          fileContent = convertToMarkdown(exportData)
+          fileName = `${sanitizeFilename(sessionData.tabName || sessionKey)}${suffix}.md`
+          mimeType = 'text/markdown'
+        }
+        
+        // Create download
+        const blob = new Blob([fileContent], { type: mimeType })
+        const url = URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = url
+        a.download = fileName
+        a.click()
+        URL.revokeObjectURL(url)
+        
+        const exportType = options.includeMemory && options.includeContext ? 'Complete Session' : 
+                          options.includeMemory ? 'Session + Memory' :
+                          options.includeContext ? 'Session + Context' : 'Configuration'
+        showNotification(`✅ ${exportType} exported as ${format.toUpperCase()}`, 'success')
+        console.log('✅ Session exported successfully:', fileName)
+      })
+    } catch (error) {
+      if (loadingNotification) loadingNotification.remove()
+      console.error('❌ Export failed:', error)
+      showNotification('❌ Export failed: ' + error, 'error')
+    }
+  }
+
+  /**
+   * Collect memory data for export
+   * This includes agent memory, conversation history, and any cached data
+   */
+  async function collectMemoryData(sessionKey: string, sessionData: any): Promise<any> {
+    console.log('🧠 Collecting memory data...')
+    
+    const memoryData: any = {
+      agentMemories: {},
+      conversationHistory: [],
+      cachedResponses: {},
+      timestamp: new Date().toISOString()
+    }
+    
+    try {
+      // Collect agent-specific memory from localStorage
+      if (sessionData.agents && sessionData.agents.length > 0) {
+        sessionData.agents.forEach((agent: any) => {
+          const agentName = agent.name
+          if (agentName) {
+            // Get memory content for this agent
+            const memoryContent = localStorage.getItem(`agent_${agentName}_memory`)
+            if (memoryContent) {
+              memoryData.agentMemories[agentName] = memoryContent
+            }
+          }
+        })
+      }
+      
+      // TODO: Collect conversation history from storage
+      // This would fetch from a conversations table or cache
+      
+      // TODO: Collect cached responses
+      // This would fetch any cached AI responses associated with this session
+      
+      console.log('🧠 Memory data collected:', Object.keys(memoryData.agentMemories).length, 'agent memories')
+      return memoryData
+      
+    } catch (error) {
+      console.error('❌ Failed to collect memory data:', error)
+      return null
+    }
+  }
+
+  /**
+   * Collect context data for export
+   * This includes documents, embeddings, and knowledge base entries
+   */
+  async function collectContextData(sessionKey: string, sessionData: any): Promise<any> {
+    console.log('📄 Collecting context data...')
+    
+    const contextData: any = {
+      documents: [],
+      embeddings: [],
+      knowledgeBase: {},
+      timestamp: new Date().toISOString()
+    }
+    
+    try {
+      // Collect agent-specific context from localStorage
+      if (sessionData.agents && sessionData.agents.length > 0) {
+        sessionData.agents.forEach((agent: any) => {
+          const agentName = agent.name
+          if (agentName) {
+            // Get context content for this agent
+            const contextContent = localStorage.getItem(`agent_${agentName}_context`)
+            if (contextContent) {
+              contextData.knowledgeBase[agentName] = contextContent
+            }
+          }
+        })
+      }
+      
+      // TODO: Collect documents from storage
+      // This would fetch document references or content
+      
+      // TODO: Collect embeddings
+      // This would fetch vector embeddings if stored
+      
+      console.log('📄 Context data collected:', Object.keys(contextData.knowledgeBase).length, 'agent contexts')
+      return contextData
+      
+    } catch (error) {
+      console.error('❌ Failed to collect context data:', error)
+      return null
+    }
+  }
+
+  /**
+   * Helper function to sanitize filename
+   */
+  function sanitizeFilename(name: string): string {
+    return name.replace(/[^a-z0-9_\-]/gi, '_').substring(0, 100)
+  }
+
+  /**
+   * Convert export data to YAML format
+   */
+  function convertToYAML(data: any): string {
+    const yaml: string[] = []
+    
+    const addLine = (line: string, indent = 0) => {
+      yaml.push('  '.repeat(indent) + line)
+    }
+    
+    const addValue = (key: string, value: any, indent = 0) => {
+      if (value === null || value === undefined) {
+        addLine(`${key}: null`, indent)
+      } else if (typeof value === 'string') {
+        // Escape strings with special characters
+        const needsQuotes = /[:\n\r\t]/.test(value) || value.includes('#')
+        addLine(`${key}: ${needsQuotes ? `"${value.replace(/"/g, '\\"')}"` : value}`, indent)
+      } else if (typeof value === 'boolean' || typeof value === 'number') {
+        addLine(`${key}: ${value}`, indent)
+      } else if (Array.isArray(value)) {
+        if (value.length === 0) {
+          addLine(`${key}: []`, indent)
+        } else {
+          addLine(`${key}:`, indent)
+          value.forEach((item, idx) => {
+            if (typeof item === 'object' && item !== null) {
+              addLine(`- # Item ${idx}`, indent + 1)
+              Object.entries(item).forEach(([k, v]) => {
+                addValue(k, v, indent + 2)
+              })
+            } else {
+              addLine(`- ${item}`, indent + 1)
+            }
+          })
+        }
+      } else if (typeof value === 'object') {
+        addLine(`${key}:`, indent)
+        Object.entries(value).forEach(([k, v]) => {
+          addValue(k, v, indent + 1)
+        })
+      }
+    }
+    
+    // Build YAML
+    addLine('# WRCode Session Export')
+    addLine('# Generated by OpenGiraffe Extension')
+    addLine('')
+    
+    Object.entries(data).forEach(([key, value]) => {
+      addValue(key, value)
+    })
+    
+    return yaml.join('\n')
+  }
+
+  /**
+   * Convert export data to Markdown format
+   */
+  function convertToMarkdown(data: any): string {
+    const md: string[] = []
+    
+    md.push('# WRCode Session Export')
+    md.push('')
+    md.push(`**Session Name:** ${data.sessionName}`)
+    md.push(`**Export Date:** ${data.exportDate}`)
+    md.push(`**Session Key:** ${data.sessionKey}`)
+    md.push(`**Created:** ${data.timestamp}`)
+    md.push(`**URL:** ${data.url}`)
+    md.push(`**Version:** ${data.version}`)
+    md.push('')
+    
+    md.push('## 📦 Agent Boxes')
+    md.push('')
+    if (data.agentBoxes && data.agentBoxes.length > 0) {
+      data.agentBoxes.forEach((box: any, idx: number) => {
+        md.push(`### Agent Box ${idx + 1}`)
+        md.push(`- **ID:** ${box.id || 'N/A'}`)
+        md.push(`- **Type:** ${box.type || 'N/A'}`)
+        md.push(`- **Height:** ${box.height || 'auto'}`)
+        md.push('')
+      })
+    } else {
+      md.push('*No agent boxes configured*')
+      md.push('')
+    }
+    
+    md.push('## 🤖 Agents')
+    md.push('')
+    if (data.agents && data.agents.length > 0) {
+      data.agents.forEach((agent: any, idx: number) => {
+        md.push(`### ${idx + 1}. ${agent.name || 'Unnamed Agent'}`)
+        md.push(`- **Model:** ${agent.model?.label || agent.model?.provider || 'N/A'}`)
+        md.push(`- **Context:** ${agent.context ? 'Yes' : 'No'}`)
+        md.push(`- **Memory:** ${agent.memory ? 'Yes' : 'No'}`)
+        md.push(`- **Autostart:** ${agent.autostart || 'No'}`)
+        md.push(`- **Priority:** ${agent.priority || 'N/A'}`)
+        md.push('')
+      })
+    } else {
+      md.push('*No agents configured*')
+      md.push('')
+    }
+    
+    md.push('## 🎨 UI State')
+    md.push('')
+    md.push(`- **Hybrid Views:** ${data.uiState?.hybridViews?.length || 0}`)
+    md.push(`- **Custom Layout:** ${data.uiState?.customAgentLayout ? 'Yes' : 'No'}`)
+    md.push('')
+    
+    md.push('## 📋 Full Data (JSON)')
+    md.push('')
+    md.push('```json')
+    md.push(JSON.stringify(data, null, 2))
+    md.push('```')
+    md.push('')
+    
+    md.push('---')
+    md.push('*Exported from OpenGiraffe Extension*')
+    
+    return md.join('\n')
+  }
+
+  /**
+   * Show notification helper
+   */
+  function showNotification(message: string, type: 'success' | 'error' | 'info', duration = 3000): HTMLDivElement | null {
+    const colors = {
+      success: 'rgba(76, 175, 80, 0.9)',
+      error: 'rgba(244, 67, 54, 0.9)',
+      info: 'rgba(33, 150, 243, 0.9)'
+    }
+    
+    const notification = document.createElement('div')
+    notification.style.cssText = `
+      position: fixed;
+      top: 60px;
+      right: 20px;
+      background: ${colors[type]};
+      color: white;
+      padding: 12px 20px;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 500;
+      z-index: 2147483650;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+      animation: slideIn 0.3s ease-out;
+    `
+    notification.innerHTML = message
+    document.body.appendChild(notification)
+    
+    if (duration > 0) {
+      setTimeout(() => {
+        notification.style.animation = 'slideOut 0.3s ease-out'
+        setTimeout(() => notification.remove(), 300)
+      }, duration)
+      return null
+    }
+    
+    return notification
   }
 
 
@@ -31064,102 +31887,502 @@ ${pageText}
 
 
 
+  /**
+   * Import session from file
+   * Supports JSON, YAML, and MD formats with automatic detection
+   */
   function importSession() {
-
+    console.log('📥 Opening file picker for session import')
+    
     const input = document.createElement('input')
-
     input.type = 'file'
-
-    input.accept = '.json'
-
+    input.accept = '.json,.yaml,.yml,.md'
     
-
-    input.onchange = (e) => {
-
-      const file = e.target.files[0]
-
-      if (file) {
-
+    input.onchange = async (e: any) => {
+      const file = e.target?.files?.[0]
+      if (!file) return
+      
+      console.log('📥 File selected:', file.name, 'Type:', file.type, 'Size:', file.size)
+      
+      const loadingNotification = showNotification('⏳ Importing session...', 'info', 0)
+      
+      try {
         const reader = new FileReader()
-
-        reader.onload = (e) => {
-
+        
+        reader.onload = async (e: any) => {
           try {
-
-            const sessionData = JSON.parse(e.target.result)
-
+            const fileContent = e.target?.result as string
             
-
-            // Save imported session
-
-            const sessionKey = `session_${Date.now()}`
-
-            storageSet({ [sessionKey]: sessionData }, () => {
-
-              console.log('📥 Session imported:', sessionData.tabName)
-
-              
-
-              // Show notification
-
-              const notification = document.createElement('div')
-
-              notification.style.cssText = `
-
-                position: fixed;
-
-                top: 60px;
-
-                right: 20px;
-
-                background: rgba(76, 175, 80, 0.9);
-
-                color: white;
-
-                padding: 10px 15px;
-
-                border-radius: 5px;
-
-                font-size: 12px;
-
-                z-index: 2147483648;
-
-              `
-
-              notification.innerHTML = `📥 Session "${sessionData.tabName || 'unnamed'}" imported!`
-
-              document.body.appendChild(notification)
-
-              
-
-              setTimeout(() => {
-
-                notification.remove()
-
-              }, 3000)
-
-            })
-
-          } catch (error) {
-
-            console.error('❌ Failed to import session:', error)
-
-            alert('Failed to import session. Please check the file format.')
-
+            // Detect format from filename
+            const fileName = file.name.toLowerCase()
+            let importData: any
+            
+            if (fileName.endsWith('.json')) {
+              console.log('📥 Parsing JSON file')
+              importData = JSON.parse(fileContent)
+            } else if (fileName.endsWith('.yaml') || fileName.endsWith('.yml')) {
+              console.log('📥 Parsing YAML file')
+              importData = parseYAML(fileContent)
+            } else if (fileName.endsWith('.md')) {
+              console.log('📥 Parsing Markdown file')
+              importData = parseMarkdownExport(fileContent)
+            } else {
+              throw new Error('Unsupported file format. Please use .json, .yaml, or .md files.')
+            }
+            
+            if (loadingNotification) loadingNotification.remove()
+            
+            // Process and validate the import
+            await processSessionImport(importData)
+            
+          } catch (error: any) {
+            if (loadingNotification) loadingNotification.remove()
+            console.error('❌ Failed to parse import file:', error)
+            showNotification(`❌ Import failed: ${error.message || error}`, 'error')
           }
-
         }
-
+        
+        reader.onerror = () => {
+          if (loadingNotification) loadingNotification.remove()
+          console.error('❌ Failed to read file')
+          showNotification('❌ Failed to read file', 'error')
+        }
+        
         reader.readAsText(file)
-
+        
+      } catch (error: any) {
+        if (loadingNotification) loadingNotification.remove()
+        console.error('❌ Import error:', error)
+        showNotification(`❌ Import failed: ${error.message || error}`, 'error')
       }
-
     }
-
     
-
     input.click()
+  }
 
+  /**
+   * Parse YAML content (simple parser for our export format)
+   */
+  function parseYAML(yamlContent: string): any {
+    const result: any = {}
+    const lines = yamlContent.split('\n')
+    let currentKey: string | null = null
+    let currentObject: any = null
+    let indentStack: any[] = [result]
+    let keyStack: string[] = []
+    
+    for (const line of lines) {
+      // Skip comments and empty lines
+      if (line.trim().startsWith('#') || line.trim() === '') continue
+      
+      const indent = line.search(/\S/)
+      const content = line.trim()
+      
+      // Key-value pair
+      if (content.includes(':')) {
+        const [key, ...valueParts] = content.split(':')
+        const value = valueParts.join(':').trim()
+        
+        if (value === '' || value === 'null') {
+          result[key.trim()] = null
+        } else if (value === 'true') {
+          result[key.trim()] = true
+        } else if (value === 'false') {
+          result[key.trim()] = false
+        } else if (value === '[]') {
+          result[key.trim()] = []
+        } else if (value === '{}') {
+          result[key.trim()] = {}
+        } else if (!isNaN(Number(value))) {
+          result[key.trim()] = Number(value)
+        } else if (value.startsWith('"') && value.endsWith('"')) {
+          result[key.trim()] = value.slice(1, -1).replace(/\\"/g, '"')
+        } else if (value) {
+          result[key.trim()] = value
+        }
+      }
+    }
+    
+    return result
+  }
+
+  /**
+   * Parse Markdown export (extract JSON from code block)
+   */
+  function parseMarkdownExport(mdContent: string): any {
+    // Find JSON code block
+    const jsonMatch = mdContent.match(/```json\n([\s\S]*?)\n```/)
+    if (!jsonMatch) {
+      throw new Error('No JSON data found in Markdown file')
+    }
+    
+    return JSON.parse(jsonMatch[1])
+  }
+
+  /**
+   * Process and validate imported session data
+   * Then save it to storage and optionally load it
+   */
+  async function processSessionImport(importData: any) {
+    console.log('📥 Processing import data:', importData)
+    
+    // Validate import data
+    if (!importData || typeof importData !== 'object') {
+      throw new Error('Invalid import data: not an object')
+    }
+    
+    // Check if this is our export format (has version field)
+    const isExportFormat = importData.version === '1.0.0'
+    
+    let sessionData: any
+    
+    if (isExportFormat) {
+      console.log('📥 Import format detected: Export v1.0.0')
+      
+      // Extract session data from export format
+      sessionData = {
+        tabId: importData.tabId,
+        tabName: importData.sessionName || importData.tabName || 'Imported Session',
+        timestamp: importData.timestamp || new Date().toISOString(),
+        url: importData.url || window.location.href,
+        isLocked: true, // Lock imported sessions
+        
+        // Session configuration
+        goals: importData.goals || { shortTerm: '', midTerm: '', longTerm: '' },
+        userIntentDetection: importData.userIntentDetection || null,
+        uiConfig: importData.uiConfig || { leftSidebarWidth: 350, rightSidebarWidth: 450, bottomSidebarHeight: 45 },
+        helperTabs: importData.helperTabs || null,
+        displayGrids: importData.displayGrids || null,
+        
+        // Agent configuration
+        agentBoxes: importData.agentBoxes || [],
+        agents: importData.agents || [],
+        agentBoxHeights: importData.uiState?.agentBoxHeights || {},
+        
+        // UI State
+        customAgentLayout: importData.uiState?.customAgentLayout || null,
+        customAgentOrder: importData.uiState?.customAgentOrder || null,
+        displayGridActiveTab: importData.uiState?.displayGridActiveTab || null,
+        hybridViews: importData.uiState?.hybridViews || [],
+        
+        // Additional fields
+        customAgents: importData.customAgents || [],
+        hiddenBuiltins: importData.hiddenBuiltins || [],
+        numberMap: importData.numberMap || {},
+        nextNumber: importData.nextNumber || 1
+      }
+      
+      console.log('📦 Extracted session data:', sessionData)
+      console.log('  - Name:', sessionData.tabName)
+      console.log('  - Agent boxes:', sessionData.agentBoxes?.length || 0)
+      console.log('  - Agents:', sessionData.agents?.length || 0)
+      console.log('  - Display grids:', sessionData.displayGrids?.length || 0)
+      console.log('  - Has memory data:', !!importData.memory)
+      console.log('  - Has context data:', !!importData.context)
+      
+      // Store memory and context data separately for restoration
+      sessionData._importedMemory = importData.memory || null
+      sessionData._importedContext = importData.context || null
+      
+    } else {
+      console.log('📥 Import format detected: Raw session data')
+      // Raw session data (old format)
+      sessionData = {
+        ...importData,
+        isLocked: true, // Lock imported sessions
+        timestamp: importData.timestamp || new Date().toISOString()
+      }
+    }
+    
+    // Generate new session key
+    const sessionKey = `session_${Date.now()}`
+    
+    // Save to storage (SQLite)
+    storageSet({ [sessionKey]: sessionData }, () => {
+      console.log('✅ Session imported and saved to SQLite:', sessionKey)
+      
+      // Ask user if they want to load the imported session now
+      const overlay = document.createElement('div')
+      overlay.style.cssText = `
+        position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+        background: rgba(0,0,0,0.8); z-index: 2147483649;
+        display: flex; align-items: center; justify-content: center;
+        backdrop-filter: blur(5px);
+      `
+      
+      overlay.innerHTML = `
+        <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 16px; width: 90vw; max-width: 500px; color: white; padding: 30px; box-shadow: 0 20px 40px rgba(0,0,0,0.3); text-align: center;">
+          <div style="font-size: 48px; margin-bottom: 15px;">✅</div>
+          <h2 style="margin: 0 0 10px 0; font-size: 22px; font-weight: 600;">Session Imported!</h2>
+          <p style="margin: 0 0 10px 0; font-size: 14px; opacity: 0.9;">"${sessionData.tabName}"</p>
+          <p style="margin: 0 0 15px 0; font-size: 13px; opacity: 0.8;">
+            ${sessionData.agentBoxes?.length || 0} agent boxes • 
+            ${sessionData.agents?.length || 0} agents • 
+            ${sessionData.displayGrids?.length || 0} display grids
+          </p>
+          ${sessionData._importedMemory ? '<p style="margin: 0 0 15px 0; font-size: 12px; color: rgba(255,215,0,1);">🧠 Includes Memory Data</p>' : ''}
+          ${sessionData._importedContext ? '<p style="margin: 0 0 15px 0; font-size: 12px; color: rgba(100,200,255,1);">📄 Includes Context Data</p>' : ''}
+          
+          <div style="display: flex; gap: 10px; margin-bottom: 10px;">
+            <button class="import-load-btn" style="
+              flex: 1;
+              background: rgba(76, 175, 80, 0.3);
+              border: 2px solid rgba(76, 175, 80, 0.6);
+              color: white;
+              padding: 12px 20px;
+              border-radius: 8px;
+              font-size: 15px;
+              font-weight: 600;
+              cursor: pointer;
+              transition: all 0.2s;
+            " onmouseover="this.style.background='rgba(76, 175, 80, 0.5)'" onmouseout="this.style.background='rgba(76, 175, 80, 0.3)'">
+              ✓ Load Now
+            </button>
+            <button class="import-close-btn" style="
+              flex: 1;
+              background: rgba(255,255,255,0.1);
+              border: 2px solid rgba(255,255,255,0.3);
+              color: white;
+              padding: 12px 20px;
+              border-radius: 8px;
+              font-size: 15px;
+              font-weight: 600;
+              cursor: pointer;
+              transition: all 0.2s;
+            " onmouseover="this.style.background='rgba(255,255,255,0.2)'" onmouseout="this.style.background='rgba(255,255,255,0.1)'">
+              Load Later
+            </button>
+          </div>
+          
+          <p style="margin: 0; font-size: 11px; opacity: 0.7;">
+            You can load this session anytime from Sessions History
+          </p>
+        </div>
+      `
+      
+      document.body.appendChild(overlay)
+      
+      // Handle Load Now
+      overlay.querySelector('.import-load-btn')?.addEventListener('click', () => {
+        overlay.remove()
+        
+        // Load the imported session
+        loadImportedSession(sessionKey, sessionData)
+      })
+      
+      // Handle Load Later
+      overlay.querySelector('.import-close-btn')?.addEventListener('click', () => {
+        overlay.remove()
+        showNotification('✅ Session saved. Open Sessions History to load it.', 'success')
+      })
+      
+      // Handle background click
+      overlay.addEventListener('click', (e) => {
+        if (e.target === overlay) {
+          overlay.remove()
+          showNotification('✅ Session saved. Open Sessions History to load it.', 'success')
+        }
+      })
+    })
+  }
+
+  /**
+   * Load imported session into current tab
+   */
+  function loadImportedSession(sessionKey: string, sessionData: any) {
+    console.log('📥 Loading imported session:', sessionKey)
+    
+    // Restore agent configurations to localStorage
+    if (sessionData.agents && sessionData.agents.length > 0) {
+      restoreAgentConfigs(sessionData.agents)
+    }
+    
+    // Restore memory data if included
+    if (sessionData._importedMemory) {
+      restoreMemoryData(sessionData._importedMemory, sessionData)
+    }
+    
+    // Restore context data if included
+    if (sessionData._importedContext) {
+      restoreContextData(sessionData._importedContext, sessionData)
+    }
+    
+    // Clean up temporary import data fields
+    delete sessionData._importedMemory
+    delete sessionData._importedContext
+    
+    // Update current tab data
+    currentTabData = {
+      ...currentTabData,
+      ...sessionData,
+      tabId: currentTabData.tabId, // Keep current tab ID
+      isLocked: true
+    }
+    
+    // Set current session key
+    setCurrentSessionKey(sessionKey)
+    
+    // Save to storage
+    saveTabDataToStorage()
+    
+    // Re-render everything
+    if (sessionData.agentBoxes && sessionData.agentBoxes.length > 0) {
+      renderAgentBoxes()
+    }
+    
+    // Open helper tabs if they exist
+    if (sessionData.helperTabs && sessionData.helperTabs.urls && sessionData.helperTabs.urls.length > 0) {
+      console.log('🔧 Opening', sessionData.helperTabs.urls.length, 'helper tabs from imported session')
+      
+      sessionData.helperTabs.urls.forEach((url: string, index: number) => {
+        const agentId = index + 1
+        const sessionId = Date.now()
+        const urlWithParams = url + (url.includes('?') ? '&' : '?') + 
+          `optimando_extension=disabled&session_id=${sessionId}&agent_id=${agentId}`
+        
+        const newTab = window.open(urlWithParams, `helper-tab-${index}`)
+        if (!newTab) {
+          console.error(`❌ Failed to open helper tab ${index + 1} - popup blocked:`, url)
+        } else {
+          console.log(`✅ Successfully opened helper tab ${index + 1}:`, url)
+        }
+      })
+    }
+    
+    // Open master tabs (hybrid views) if they exist
+    if (sessionData.hybridAgentBoxes && sessionData.hybridAgentBoxes.length > 0) {
+      console.log('🔧 Opening', sessionData.hybridAgentBoxes.length, 'master tabs from imported session')
+      
+      setTimeout(() => {
+        sessionData.hybridAgentBoxes.forEach((hybridBox: any, index: number) => {
+          const hybridId = hybridBox.id || String(index + 1)
+          let hybridUrl = hybridBox.url || sessionData.url || window.location.href
+          
+          try {
+            const url = new URL(hybridUrl)
+            url.searchParams.delete('optimando_extension')
+            url.searchParams.set('hybrid_master_id', hybridId)
+            url.searchParams.set('optimando_session_key', sessionKey)
+            
+            const currentTheme = localStorage.getItem('optimando-ui-theme')
+            if (currentTheme && currentTheme !== 'default') {
+              url.searchParams.set('optimando_theme', currentTheme)
+            }
+            
+            console.log(`🔧 Opening master tab ${hybridId} with URL:`, url.toString())
+            const hybridTab = window.open(url.toString(), `hybrid-master-${hybridId}`)
+            
+            if (!hybridTab) {
+              console.error(`❌ Failed to open master tab ${hybridId} - popup blocked`)
+            } else {
+              console.log(`✅ Successfully opened master tab ${hybridId}`)
+            }
+          } catch (error) {
+            console.error(`❌ Invalid URL for hybrid view ${hybridId}:`, hybridUrl, error)
+          }
+        })
+      }, 300) // Small delay after helper tabs
+    }
+    
+    // Open display grids if they exist
+    if (sessionData.displayGrids && sessionData.displayGrids.length > 0) {
+      console.log('🔧 Opening', sessionData.displayGrids.length, 'display grids from imported session')
+      
+      // Ensure currentTabData has the display grids
+      if (!currentTabData.displayGrids) currentTabData.displayGrids = []
+      
+      sessionData.displayGrids.forEach((grid: any, index: number) => {
+        console.log('🔧 Opening display grid ' + (index + 1) + ':', grid.layout)
+        
+        // Add grid to currentTabData if not already there
+        let existingEntry = currentTabData.displayGrids.find((g: any) => g.layout === grid.layout)
+        
+        if (!existingEntry) {
+          currentTabData.displayGrids.push({
+            ...grid,
+            config: grid.config
+          })
+          console.log('✅ Added grid entry to currentTabData:', grid.layout)
+        } else if (!existingEntry.config && grid.config) {
+          existingEntry.config = grid.config
+          console.log('✅ Updated existing grid entry with config:', grid.layout)
+        }
+        
+        // Open the grid with delay
+        setTimeout(() => {
+          try {
+            openGridFromSession(grid.layout, grid.sessionId)
+            console.log(`✅ Successfully opened display grid ${index + 1}:`, grid.layout)
+            
+            // Notify background script on the last grid
+            if (index === sessionData.displayGrids.length - 1) {
+              setTimeout(() => {
+                chrome.runtime.sendMessage({ type: 'DISPLAY_GRIDS_OPENED' }, (response) => {
+                  console.log('✅ Notified background: display grids restored from imported session')
+                })
+              }, 500)
+            }
+          } catch (error) {
+            console.error(`❌ Failed to open display grid ${index + 1}:`, error)
+          }
+        }, 400 + (index * 100)) // Start after master tabs + stagger between grids
+      })
+    }
+    
+    // Show success notification (no page reload needed)
+    showNotification('✅ Session loaded successfully!', 'success', 3000)
+    
+    console.log('✅ Imported session fully loaded with all tabs and grids')
+  }
+
+  /**
+   * Restore memory data from import
+   */
+  function restoreMemoryData(memoryData: any, sessionData: any) {
+    console.log('🧠 Restoring memory data...')
+    
+    try {
+      if (memoryData.agentMemories) {
+        Object.entries(memoryData.agentMemories).forEach(([agentName, memoryContent]) => {
+          if (memoryContent) {
+            localStorage.setItem(`agent_${agentName}_memory`, memoryContent as string)
+            console.log(`  - Restored memory for agent: ${agentName}`)
+          }
+        })
+      }
+      
+      // TODO: Restore conversation history
+      // TODO: Restore cached responses
+      
+      console.log('✅ Memory data restored successfully')
+    } catch (error) {
+      console.error('❌ Failed to restore memory data:', error)
+    }
+  }
+
+  /**
+   * Restore context data from import
+   */
+  function restoreContextData(contextData: any, sessionData: any) {
+    console.log('📄 Restoring context data...')
+    
+    try {
+      if (contextData.knowledgeBase) {
+        Object.entries(contextData.knowledgeBase).forEach(([agentName, contextContent]) => {
+          if (contextContent) {
+            localStorage.setItem(`agent_${agentName}_context`, contextContent as string)
+            console.log(`  - Restored context for agent: ${agentName}`)
+          }
+        })
+      }
+      
+      // TODO: Restore documents
+      // TODO: Restore embeddings
+      
+      console.log('✅ Context data restored successfully')
+    } catch (error) {
+      console.error('❌ Failed to restore context data:', error)
+    }
   }
 
 
@@ -33646,6 +34869,17 @@ console.log('🔧 Registering lightbox functions...')
 
 initializeExtension()
 
+// Auto-migrate to SQLite if Electron is available and not yet migrated
+// TEMPORARILY DISABLED TO DEBUG AGENT CONFIG ISSUE
+/*
+import('./storage/migration').then(({ autoMigrateIfNeeded }) => {
+  autoMigrateIfNeeded().catch(err => {
+    console.error('[Init] Auto-migration check failed:', err);
+  });
+}).catch(err => {
+  console.error('[Init] Failed to load migration module:', err);
+});
+*/
 
 
 if (isExtensionActive) {

@@ -1,5 +1,5 @@
 import { ipcMain } from 'electron';
-import { PostgresAdapter, type PostgresConfig } from '../storage/PostgresAdapter.js';
+import { PostgresAdapter, type PostgresConfig } from '../storage/PostgresAdapter';
 import type { AdapterResult } from '../../../../packages/shared/src/storage/StorageAdapter';
 
 // Global adapter instance
