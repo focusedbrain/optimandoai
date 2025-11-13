@@ -68,6 +68,13 @@ if (window.gridScriptLoaded) {
     const currentProvider = cfg.provider || '';
     const models = currentProvider ? modelOptions(currentProvider) : [];
     
+    // Defensive check: ensure providers array exists
+    if (!providers || !Array.isArray(providers) || providers.length === 0) {
+      console.error('❌ POPUP: Providers array is invalid!', providers);
+    }
+    
+    console.log('📋 POPUP: Providers:', providers, '| Current:', currentProvider, '| Models:', models);
+    
     console.log('📋 POPUP: Form will show:', {
       title: cfg.title || ('Display Port ' + slotId),
       agent: cfg.agent ? String(cfg.agent).replace('agent', '') : '',
@@ -101,9 +108,19 @@ if (window.gridScriptLoaded) {
         type: 'GET_SESSION_FROM_SQLITE',
         sessionKey: parentSessionKey
       }, function(response) {
+        if (chrome.runtime.lastError) {
+          console.error('❌ Error getting session:', chrome.runtime.lastError.message);
+          // Try to use existing window.nextBoxNumber if available
+          var fallbackNumber = (typeof window.nextBoxNumber !== 'undefined' && window.nextBoxNumber > 1) ? window.nextBoxNumber : 1;
+          console.log('⚠️ Using fallback box number:', fallbackNumber);
+          callback(fallbackNumber);
+          return;
+        }
+        
         if (!response || !response.success || !response.session) {
           console.log('⚠️ No session found, using fallback');
-          callback(1);
+          var fallbackNumber = (typeof window.nextBoxNumber !== 'undefined' && window.nextBoxNumber > 1) ? window.nextBoxNumber : 1;
+          callback(fallbackNumber);
           return;
         }
         
@@ -116,7 +133,7 @@ if (window.gridScriptLoaded) {
             var boxNum = box.boxNumber || box.number || 0;
             if (boxNum > maxBoxNumber) maxBoxNumber = boxNum;
           });
-          console.log('  ✓ Checked', session.agentBoxes.length, 'agent boxes from SQLite');
+          console.log('  ✓ Checked', session.agentBoxes.length, 'agent boxes from SQLite, max:', maxBoxNumber);
         }
         
         // Check all display grid slots (backup check)
@@ -204,6 +221,78 @@ if (window.gridScriptLoaded) {
     
     console.log('✅ POPUP: Added to DOM');
     
+    // Verify selects exist and recreate if missing
+    setTimeout(function() {
+      var providerSelect = document.getElementById('gs-provider');
+      var modelSelect = document.getElementById('gs-model');
+      
+      if (!providerSelect || providerSelect.tagName !== 'SELECT') {
+        console.error('❌ POPUP: Provider select missing or wrong type! Found:', providerSelect);
+        // Try to recreate it
+        var providerLabel = dialog.querySelector('label[for="gs-provider"], label:has(+ #gs-provider)');
+        if (providerLabel && providerLabel.nextElementSibling) {
+          var providerDiv = providerLabel.parentElement;
+          var newSelect = document.createElement('select');
+          newSelect.id = 'gs-provider';
+          newSelect.style.cssText = 'width:100%;padding:12px;border:2px solid #ddd;border-radius:8px;font-size:14px;cursor:pointer;transition:border-color 0.2s';
+          newSelect.innerHTML = '<option value=""' + (currentProvider ? '' : ' selected') + ' disabled>Select LLM</option>' +
+            providers.map(function(p) { return '<option value="'+p+'"' + (p === currentProvider ? ' selected' : '') + '>' + p + '</option>'; }).join('');
+          if (providerLabel.nextElementSibling) {
+            providerLabel.nextElementSibling.replaceWith(newSelect);
+          } else {
+            providerLabel.parentElement.appendChild(newSelect);
+          }
+          console.log('✅ POPUP: Recreated provider select');
+        }
+      }
+      
+      if (!modelSelect || modelSelect.tagName !== 'SELECT') {
+        console.error('❌ POPUP: Model select missing or wrong type! Found:', modelSelect);
+        // Try to recreate it
+        var modelLabel = dialog.querySelector('label[for="gs-model"], label:has(+ #gs-model)');
+        if (modelLabel && modelLabel.nextElementSibling) {
+          var modelDiv = modelLabel.parentElement;
+          var newSelect = document.createElement('select');
+          newSelect.id = 'gs-model';
+          newSelect.style.cssText = 'width:100%;padding:12px;border:2px solid #ddd;border-radius:8px;font-size:14px;cursor:pointer;transition:border-color 0.2s';
+          if (currentProvider) {
+            var modelOpts = modelOptions(currentProvider);
+            newSelect.innerHTML = modelOpts.map(function(m) { return '<option' + ((cfg.model || '') === m ? ' selected' : '') + '>' + m + '</option>'; }).join('');
+          } else {
+            newSelect.innerHTML = '<option selected disabled>Select provider first</option>';
+            newSelect.disabled = true;
+          }
+          if (modelLabel.nextElementSibling) {
+            modelLabel.nextElementSibling.replaceWith(newSelect);
+          } else {
+            modelLabel.parentElement.appendChild(newSelect);
+          }
+          console.log('✅ POPUP: Recreated model select');
+        }
+      } else {
+        console.log('✅ POPUP: Both selects verified:', providerSelect.tagName, modelSelect.tagName);
+      }
+      
+      // Attach provider change handler (works with original or recreated selects)
+      var finalProviderSelect = document.getElementById('gs-provider');
+      var finalModelSelect = document.getElementById('gs-model');
+      if (finalProviderSelect) {
+        finalProviderSelect.onchange = function() {
+          var provider = this.value;
+          var modelSelect = document.getElementById('gs-model');
+          if (modelSelect) {
+            var newModels = modelOptions(provider);
+            modelSelect.innerHTML = newModels.map(function(m) { 
+              return '<option>' + m + '</option>'; 
+            }).join('');
+            modelSelect.disabled = false;
+            console.log('🔄 POPUP: Updated models for provider:', provider);
+          }
+        };
+        console.log('✅ POPUP: Provider change handler attached');
+      }
+    }, 100);
+    
     // Calculate and update the box number field
     calculateNextBoxNumber(function(calculatedNumber) {
       nextBoxNumber = calculatedNumber;
@@ -266,16 +355,7 @@ if (window.gridScriptLoaded) {
       }
     }, 0);
     
-    // Handle provider change to update models
-    document.getElementById('gs-provider').onchange = function() {
-      var provider = this.value;
-      var modelSelect = document.getElementById('gs-model');
-      var newModels = modelOptions(provider);
-      modelSelect.innerHTML = newModels.map(function(m) { 
-        return '<option>' + m + '</option>'; 
-      }).join('');
-      console.log('🔄 POPUP: Updated models for provider:', provider);
-    };
+    // Provider change handler is now attached in the verification timeout (line ~280)
 
     // Finetune feedback
     document.getElementById('gs-finetune').onclick = function(){
@@ -424,9 +504,16 @@ if (window.gridScriptLoaded) {
           timestamp: new Date().toISOString()
         }
       }, function(response) {
+        if (chrome.runtime.lastError) {
+          console.error('❌ SQLITE SAVE: Chrome runtime error:', chrome.runtime.lastError.message);
+          // Don't show popup - just log and close dialog
+          overlay.remove();
+          return;
+        }
+        
         if (!response || !response.success) {
           console.error('❌ SQLITE SAVE: Failed:', response ? response.error : 'No response');
-          alert('❌ Save failed: ' + (response ? response.error : 'No response from background'));
+          // Don't show popup - just log and close dialog
           overlay.remove();
           return;
         }

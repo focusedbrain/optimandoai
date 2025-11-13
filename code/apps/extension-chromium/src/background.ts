@@ -876,15 +876,23 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       
       if (!msg.sessionKey) {
         console.error('❌ BG: No sessionKey provided')
-        try { sendResponse({ success: false, error: 'No session key' }) } catch {}
-        break
+        try { sendResponse({ success: false, error: 'No session key' }) } catch (e) {
+          console.error('❌ BG: Failed to send error response:', e)
+        }
+        return true
       }
       
-      // Load session using storage wrapper (SQLite)
-      import('./storage/storageWrapper').then(({ storageGet }) => {
-        storageGet([msg.sessionKey], (result: any) => {
-          const session = result[msg.sessionKey] || null
-          console.log('✅ BG: Loaded session from SQLite:', session ? 'Found' : 'Not found')
+      // Use direct HTTP API call to avoid document access issues
+      fetch(`http://127.0.0.1:51248/api/orchestrator/get?keys=${encodeURIComponent(msg.sessionKey)}`)
+        .then(response => {
+          if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`)
+          }
+          return response.json()
+        })
+        .then((result: any) => {
+          const session = result.data?.[msg.sessionKey] || null
+          console.log('✅ BG: Loaded session from SQLite via HTTP:', session ? 'Found' : 'Not found')
           try { 
             sendResponse({ 
               success: true, 
@@ -894,7 +902,19 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             console.error('❌ BG: Failed to send response:', e)
           }
         })
-      })
+        .catch((error: any) => {
+          console.error('❌ BG: Error loading session via HTTP:', error)
+          // Fallback to Chrome Storage
+          chrome.storage.local.get([msg.sessionKey], (result: any) => {
+            const session = result[msg.sessionKey] || null
+            console.log('⚠️ BG: Fallback to Chrome Storage:', session ? 'Found' : 'Not found')
+            try {
+              sendResponse({ success: true, session: session })
+            } catch (e) {
+              console.error('❌ BG: Failed to send fallback response:', e)
+            }
+          })
+        })
       
       return true  // Keep message channel open for async response
     }
@@ -906,16 +926,24 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       
       if (!msg.sessionKey || !msg.agentBox) {
         console.error('❌ BG: Missing sessionKey or agentBox')
-        try { sendResponse({ success: false, error: 'Missing required data' }) } catch {}
-        break
+        try { sendResponse({ success: false, error: 'Missing required data' }) } catch (e) {
+          console.error('❌ BG: Failed to send error response:', e)
+        }
+        return true
       }
       
-      // Load current session using storage wrapper (SQLite)
-      import('./storage/storageWrapper').then(({ storageGet, storageSet }) => {
-        storageGet([msg.sessionKey], (result: any) => {
-          const session = result[msg.sessionKey] || {}
+      // Use direct HTTP API call to avoid document access issues
+      fetch(`http://127.0.0.1:51248/api/orchestrator/get?keys=${encodeURIComponent(msg.sessionKey)}`)
+        .then(response => {
+          if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`)
+          }
+          return response.json()
+        })
+        .then((result: any) => {
+          const session = result.data?.[msg.sessionKey] || {}
           
-          console.log('📋 BG: Loaded session from SQLite')
+          console.log('📋 BG: Loaded session from SQLite via HTTP')
           
           // Initialize arrays if needed
           if (!session.agentBoxes) session.agentBoxes = []
@@ -950,20 +978,45 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           
           console.log('💾 BG: Saving to SQLite with', session.agentBoxes.length, 'agent boxes')
           
-          // Save updated session using storage wrapper (SQLite)
-          storageSet({ [msg.sessionKey]: session }, () => {
-            console.log('✅ BG: Session saved to SQLite!')
-            try { 
-              sendResponse({ 
-                success: true, 
-                totalBoxes: session.agentBoxes.length 
-              }) 
-            } catch (e) {
-              console.error('❌ BG: Failed to send response:', e)
-            }
+          // Save updated session using direct HTTP API
+          return fetch('http://127.0.0.1:51248/api/orchestrator/set', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ [msg.sessionKey]: session })
           })
         })
-      })
+        .then(response => {
+          if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`)
+          }
+          return response.json()
+        })
+        .then((result: any) => {
+          console.log('✅ BG: Session saved to SQLite via HTTP!')
+          // Get updated session to count boxes
+          return fetch(`http://127.0.0.1:51248/api/orchestrator/get?keys=${encodeURIComponent(msg.sessionKey)}`)
+        })
+        .then(response => response.json())
+        .then((result: any) => {
+          const session = result.data?.[msg.sessionKey] || {}
+          const totalBoxes = session.agentBoxes?.length || 0
+          try { 
+            sendResponse({ 
+              success: true, 
+              totalBoxes: totalBoxes
+            }) 
+          } catch (e) {
+            console.error('❌ BG: Failed to send response:', e)
+          }
+        })
+        .catch((error: any) => {
+          console.error('❌ BG: Error saving via HTTP:', error)
+          try {
+            sendResponse({ success: false, error: 'Failed to save: ' + String(error) })
+          } catch (e) {
+            console.error('❌ BG: Failed to send error response:', e)
+          }
+        })
       
       return true  // Keep message channel open for async response
     }

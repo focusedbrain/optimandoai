@@ -597,7 +597,7 @@ function SidepanelOrchestrator() {
     
     const handleMouseMove = (moveEvent: MouseEvent) => {
       const deltaY = moveEvent.clientY - startY
-      const newHeight = Math.max(80, Math.min(400, startHeight + deltaY))
+      const newHeight = Math.max(80, Math.min(800, startHeight + deltaY))
       setAgentBoxHeights(prev => ({ ...prev, [boxId]: newHeight }))
     }
     
@@ -3352,9 +3352,17 @@ function SidepanelOrchestrator() {
       )}
       
       {/* Agent Boxes Display */}
-      {agentBoxes.length > 0 && (
+      {agentBoxes.filter(box => {
+        // Filter out display grid boxes (same logic as content script)
+        const isDisplayGrid = box.source === 'display_grid' || box.gridSessionId
+        return !isDisplayGrid
+      }).length > 0 && (
         <div style={{ marginBottom: '20px' }}>
-          {agentBoxes.map(box => {
+          {agentBoxes.filter(box => {
+            // Filter out display grid boxes (same logic as content script)
+            const isDisplayGrid = box.source === 'display_grid' || box.gridSessionId
+            return !isDisplayGrid
+          }).map(box => {
             const currentHeight = agentBoxHeights[box.id] || 120
             return (
               <div key={box.id} style={{
@@ -3367,24 +3375,24 @@ function SidepanelOrchestrator() {
               }}>
       <div style={{ 
                   background: box.color || '#4CAF50',
-                  padding: '12px 16px',
+                  padding: '4px 8px',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'space-between'
                 }}>
-                  <span style={{ fontSize: '14px', fontWeight: '700' }}>{box.title || 'Agent Box'}</span>
-                  <div style={{ display: 'flex', gap: '8px' }}>
+                  <span style={{ fontSize: '12px', fontWeight: '700' }}>{box.title || 'Agent Box'}</span>
+                  <div style={{ display: 'flex', gap: '4px' }}>
                     <button
                       onClick={() => editAgentBox(box.id)}
                       style={{
                         background: 'rgba(255,255,255,0.2)',
                         border: 'none',
                         color: 'white',
-                        minWidth: '32px',
-                        height: '32px',
-                        borderRadius: '6px',
+                        minWidth: '20px',
+                        height: '20px',
+                        borderRadius: '3px',
                         cursor: 'pointer',
-                        fontSize: '14px',
+                        fontSize: '11px',
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'center',
@@ -3411,11 +3419,11 @@ function SidepanelOrchestrator() {
                         background: 'rgba(244,67,54,0.9)',
                         border: 'none',
                         color: 'white',
-                        minWidth: '32px',
-                        height: '32px',
-                        borderRadius: '6px',
+                        minWidth: '20px',
+                        height: '20px',
+                        borderRadius: '3px',
                         cursor: 'pointer',
-                        fontSize: '16px',
+                        fontSize: '12px',
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'center',
@@ -3441,20 +3449,20 @@ function SidepanelOrchestrator() {
                 </div>
                 <div 
                   style={{
-                    background: 'rgba(255,255,255,0.96)',
-                    color: '#1e293b',
+                    background: theme === 'dark' ? 'rgba(15,23,42,0.95)' : 'rgba(255,255,255,0.96)',
+                    color: theme === 'dark' ? '#f1f5f9' : '#1e293b',
                     borderRadius: '0 0 10px 10px',
                     padding: '16px',
                     minHeight: `${currentHeight}px`,
                     height: `${currentHeight}px`,
-                    border: '1px solid rgba(0,0,0,0.1)',
+                    border: theme === 'dark' ? '1px solid rgba(255,255,255,0.1)' : '1px solid rgba(0,0,0,0.1)',
                     boxShadow: '0 2px 6px rgba(0,0,0,0.08)',
                     position: 'relative',
                     overflow: 'auto'
                   }}
                 >
-                  <div style={{ fontSize: '13px', color: '#1e293b', lineHeight: '1.6' }}>
-                    {box.output || <span style={{ opacity: 0.5, color: '#64748b' }}>Ready for {box.title?.replace(/[📝🔍🎯🧮]/g, '').trim()}...</span>}
+                  <div style={{ fontSize: '13px', color: theme === 'dark' ? '#f1f5f9' : '#1e293b', lineHeight: '1.6' }}>
+                    {box.output || <span style={{ opacity: 0.5, color: theme === 'dark' ? '#94a3b8' : '#64748b' }}>Ready for {box.title?.replace(/[📝🔍🎯🧮]/g, '').trim()}...</span>}
                   </div>
                   <div 
                     style={{

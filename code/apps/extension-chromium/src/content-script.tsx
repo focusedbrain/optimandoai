@@ -28614,6 +28614,25 @@ ${pageText}
 
                 
 
+                // CRITICAL: Notify sidepanel of restored agent boxes
+                chrome.runtime.sendMessage({ 
+                  type: 'UPDATE_AGENT_BOXES', 
+                  data: currentTabData.agentBoxes || []
+                })
+                
+                // Also send full session data update
+                chrome.runtime.sendMessage({
+                  type: 'UPDATE_SESSION_DATA',
+                  data: {
+                    sessionName: currentTabData.tabName,
+                    sessionKey: sessionId,
+                    isLocked: currentTabData.isLocked,
+                    agentBoxes: currentTabData.agentBoxes || []
+                  }
+                })
+
+                
+
                 // CRITICAL: Re-render agents grid to show agents from restored session
 
                 if (rightSidebar) {
@@ -32348,6 +32367,23 @@ ${pageText}
     // Re-render everything
     if (sessionData.agentBoxes && sessionData.agentBoxes.length > 0) {
       renderAgentBoxes()
+      
+      // Notify sidepanel of restored agent boxes
+      chrome.runtime.sendMessage({ 
+        type: 'UPDATE_AGENT_BOXES', 
+        data: currentTabData.agentBoxes || []
+      })
+      
+      // Also send full session data update
+      chrome.runtime.sendMessage({
+        type: 'UPDATE_SESSION_DATA',
+        data: {
+          sessionName: currentTabData.tabName,
+          sessionKey: sessionKey,
+          isLocked: currentTabData.isLocked,
+          agentBoxes: currentTabData.agentBoxes || []
+        }
+      })
     }
     
     // Open helper tabs if they exist

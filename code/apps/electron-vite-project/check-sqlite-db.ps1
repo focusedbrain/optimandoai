@@ -43,3 +43,5 @@ if (Test-Path $dbDir) {
     Write-Host "Directory not found: $dbDir" -ForegroundColor Red
 }
 
+
+
