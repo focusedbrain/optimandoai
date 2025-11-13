@@ -3975,9 +3975,19 @@ function initializeExtension() {
 
           session.agentBoxHeights = { ...(session.agentBoxHeights || {}), ...currentTabData.agentBoxHeights }
 
-        } else if (!session.agentBoxes) {
+        }
+
+        // Initialize agentBoxes array if it doesn't exist (but don't overwrite existing boxes!)
+
+        if (!session.agentBoxes) {
 
           session.agentBoxes = []
+
+        }
+
+        // Initialize agentBoxHeights if it doesn't exist
+
+        if (!session.agentBoxHeights) {
 
           session.agentBoxHeights = {}
 
