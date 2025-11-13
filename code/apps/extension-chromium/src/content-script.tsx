@@ -1125,12 +1125,40 @@ function showTriggerPromptInChat(mode: string, rect: any, displayId: number, ima
     console.log('[CONTENT] showTriggerPromptInChat called:', { mode, rect, displayId, createTrigger, addCommand })
 
     
+// Check if we're on a restricted page (display grid or MSN)
+    const isRestrictedPage = window.location.href.includes('/grid-display') || 
+                              window.location.href.includes('msn.com/') ||
+                              window.location.href.startsWith('edge://') ||
+                              window.location.pathname.includes('grid-display')
+    
+    console.log('[CONTENT] Is restricted page:', isRestrictedPage, 'URL:', window.location.href)
+    
+    // On restricted pages, don't show modal - the inline version will be used instead
+    if (isRestrictedPage) {
+      console.log('[CONTENT] Skipping modal on restricted page - inline version will be shown')
+      return
+    }
 
     // If neither is checked, don't show anything
 
     if (!createTrigger && !addCommand) return
 
     
+
+    // Detect theme for styling
+    let theme: 'default'|'dark'|'professional' = 'default'
+    try { 
+      const t = localStorage.getItem('optimando-ui-theme')
+      console.log('[CONTENT] Modal theme detection - localStorage value:', t)
+      if (t === 'professional' || t === 'dark') theme = t as any 
+    } catch (e) {
+      console.log('[CONTENT] Modal theme detection - error:', e)
+    }
+    
+    console.log('[CONTENT] Modal theme selected:', theme)
+    const saveBtnColor = theme === 'professional' ? '#3b82f6' : '#10b981'
+    const saveBtnHoverColor = theme === 'professional' ? '#2563eb' : '#059669'
+    console.log('[CONTENT] Save button colors:', { saveBtnColor, saveBtnHoverColor })
 
     // Remove existing prompt if any
 
@@ -1172,9 +1200,9 @@ function showTriggerPromptInChat(mode: string, rect: any, displayId: number, ima
 
     card.style.cssText = `
 
-      background: #1f2937;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
 
-      border: 1px solid #374151;
+      border: 1px solid rgba(255,255,255,0.3);
 
       border-radius: 8px;
 
@@ -1200,9 +1228,9 @@ function showTriggerPromptInChat(mode: string, rect: any, displayId: number, ima
 
     const title = document.createElement('div')
 
-    title.style.cssText = 'font-size: 16px; font-weight: 600; color: #f9fafb;'
+    title.style.cssText = 'font-size: 16px; font-weight: 600; color: #ffffff;'
 
-    title.textContent = (mode === 'screenshot' ? '📸 Screenshot' : '🎥 Stream')
+    title.textContent = '📸 Create Trigger'
 
     
 
@@ -1230,7 +1258,7 @@ function showTriggerPromptInChat(mode: string, rect: any, displayId: number, ima
 
       triggerLabel.textContent = 'Trigger Name'
 
-      triggerLabel.style.cssText = 'font-size: 13px; font-weight: 600; color: #9ca3af;'
+      triggerLabel.style.cssText = 'font-size: 13px; font-weight: 600; color: #ffffff;'
 
       
 
@@ -1246,13 +1274,13 @@ function showTriggerPromptInChat(mode: string, rect: any, displayId: number, ima
 
         padding: 10px 12px;
 
-        background: #111827;
+        background: rgba(255,255,255,0.98);
 
-        border: 1px solid #374151;
+        border: 1px solid rgba(255,255,255,0.3);
 
         border-radius: 6px;
 
-        color: #f9fafb;
+        color: #000000;
 
         font-size: 14px;
 
@@ -1262,9 +1290,23 @@ function showTriggerPromptInChat(mode: string, rect: any, displayId: number, ima
 
       `
 
-      nameInput.addEventListener('focus', () => { nameInput!.style.borderColor = '#3b82f6' })
+      // Add placeholder styling
+      const style = document.createElement('style')
+      style.textContent = `
+        #og-trigger-modal input::placeholder,
+        #og-trigger-modal textarea::placeholder {
+          color: #6b7280 !important;
+          opacity: 1;
+        }
+      `
+      if (!document.getElementById('og-trigger-placeholder-style')) {
+        style.id = 'og-trigger-placeholder-style'
+        document.head.appendChild(style)
+      }
 
-      nameInput.addEventListener('blur', () => { nameInput!.style.borderColor = '#374151' })
+      nameInput.addEventListener('focus', () => { nameInput!.style.borderColor = '#ffffff'; nameInput!.style.background = '#ffffff'; nameInput!.style.color = '#000000' })
+
+      nameInput.addEventListener('blur', () => { nameInput!.style.borderColor = 'rgba(255,255,255,0.3)'; nameInput!.style.background = 'rgba(255,255,255,0.98)'; nameInput!.style.color = '#000000' })
 
       
 
@@ -1292,9 +1334,9 @@ function showTriggerPromptInChat(mode: string, rect: any, displayId: number, ima
 
       const commandLabel = document.createElement('span')
 
-      commandLabel.textContent = 'Command'
+      commandLabel.textContent = 'Optional Command'
 
-      commandLabel.style.cssText = 'font-size: 13px; font-weight: 600; color: #9ca3af;'
+      commandLabel.style.cssText = 'font-size: 13px; font-weight: 600; color: #ffffff;'
 
       
 
@@ -1310,13 +1352,13 @@ function showTriggerPromptInChat(mode: string, rect: any, displayId: number, ima
 
         padding: 10px 12px;
 
-        background: #111827;
+        background: rgba(255,255,255,0.98);
 
-        border: 1px solid #374151;
+        border: 1px solid rgba(255,255,255,0.3);
 
         border-radius: 6px;
 
-        color: #f9fafb;
+        color: #000000;
 
         font-size: 14px;
 
@@ -1332,9 +1374,9 @@ function showTriggerPromptInChat(mode: string, rect: any, displayId: number, ima
 
       `
 
-      commandInput.addEventListener('focus', () => { commandInput!.style.borderColor = '#3b82f6' })
+      commandInput.addEventListener('focus', () => { commandInput!.style.borderColor = '#ffffff'; commandInput!.style.background = '#ffffff'; commandInput!.style.color = '#000000' })
 
-      commandInput.addEventListener('blur', () => { commandInput!.style.borderColor = '#374151' })
+      commandInput.addEventListener('blur', () => { commandInput!.style.borderColor = 'rgba(255,255,255,0.3)'; commandInput!.style.background = 'rgba(255,255,255,0.98)'; commandInput!.style.color = '#000000' })
 
       
 
@@ -1362,9 +1404,9 @@ function showTriggerPromptInChat(mode: string, rect: any, displayId: number, ima
 
       padding: 8px 16px;
 
-      background: #374151;
+      background: rgba(255,255,255,0.2);
 
-      color: #f9fafb;
+      color: #ffffff;
 
       border: none;
 
@@ -1378,9 +1420,9 @@ function showTriggerPromptInChat(mode: string, rect: any, displayId: number, ima
 
     `
 
-    cancelBtn.addEventListener('mouseenter', () => { cancelBtn.style.background = '#4b5563' })
+    cancelBtn.addEventListener('mouseenter', () => { cancelBtn.style.background = 'rgba(255,255,255,0.3)' })
 
-    cancelBtn.addEventListener('mouseleave', () => { cancelBtn.style.background = '#374151' })
+    cancelBtn.addEventListener('mouseleave', () => { cancelBtn.style.background = 'rgba(255,255,255,0.2)' })
 
     
 
@@ -1392,7 +1434,7 @@ function showTriggerPromptInChat(mode: string, rect: any, displayId: number, ima
 
       padding: 8px 16px;
 
-      background: #3b82f6;
+      background: ${saveBtnColor};
 
       color: white;
 
@@ -1408,9 +1450,9 @@ function showTriggerPromptInChat(mode: string, rect: any, displayId: number, ima
 
     `
 
-    saveBtn.addEventListener('mouseenter', () => { saveBtn.style.background = '#2563eb' })
+    saveBtn.addEventListener('mouseenter', () => { saveBtn.style.background = saveBtnHoverColor })
 
-    saveBtn.addEventListener('mouseleave', () => { saveBtn.style.background = '#3b82f6' })
+    saveBtn.addEventListener('mouseleave', () => { saveBtn.style.background = saveBtnColor })
 
     
 
@@ -1502,13 +1544,29 @@ function showTriggerPromptInChat(mode: string, rect: any, displayId: number, ima
 
       
 
-      // If only command is checked (no trigger), send command to chat
+      // Post command to chat if addCommand is checked (regardless of createTrigger)
 
-      if (addCommand && command && !createTrigger) {
+      if (addCommand && command) {
+
+        console.log('[CONTENT] Posting command to chat:', command)
 
         try {
 
-          const msgs = (document.getElementById('ccf-messages') || document.getElementById('ccd-messages')) as HTMLElement | null
+          // Try to find chat container - check popup first (ccf), then docked, then sidepanel
+
+          const ccfChat = document.getElementById('ccf-messages')
+          const ccdChat = document.getElementById('ccd-messages')
+          const sideChat = document.getElementById('ccd-messages-sidepanel')
+          
+          console.log('[CONTENT] Chat containers check:', {
+            'ccf-messages (popup)': !!ccfChat,
+            'ccd-messages (docked)': !!ccdChat,
+            'ccd-messages-sidepanel (sidepanel)': !!sideChat
+          })
+
+          const msgs = (ccfChat || ccdChat || sideChat) as HTMLElement | null
+
+          console.log('[CONTENT] Selected chat container:', msgs ? msgs.id : 'none')
 
           if (msgs) {
 
@@ -1542,9 +1600,39 @@ function showTriggerPromptInChat(mode: string, rect: any, displayId: number, ima
 
             msgs.scrollTop = msgs.scrollHeight
 
+            console.log('[CONTENT] ✅ Command posted to chat container:', msgs.id)
+
+          }
+          
+          // ALWAYS also send via runtime message to ensure it reaches somewhere
+          console.log('[CONTENT] Also sending command via runtime message as backup')
+          try {
+
+            chrome.runtime?.sendMessage({ 
+
+              type: 'COMMAND_POPUP_APPEND', 
+
+              kind: 'text', 
+
+              text: `📝 Command: ${command}`,
+
+              command: command
+
+            })
+
+            console.log('[CONTENT] ✅ Command sent via runtime message to sidepanel')
+
+          } catch (e) {
+
+            console.log('[CONTENT] ❌ Failed to send command via message:', e)
+
           }
 
-        } catch {}
+        } catch (e) {
+
+          console.log('[CONTENT] ❌ Error posting command:', e)
+
+        }
 
       }
 
@@ -20444,6 +20532,36 @@ ${pageText}
 
           
 
+          // Check if we're on a restricted page (display grid or MSN)
+
+          // On regular pages, the modal popup will be used instead
+
+          const isRestrictedPage = window.location.href.includes('/grid-display') || 
+
+                                    window.location.href.includes('msn.com/') ||
+
+                                    window.location.href.startsWith('edge://') ||
+
+                                    window.location.pathname.includes('grid-display')
+
+          
+
+          console.log('[CONTENT] renderTriggerPrompt - Is restricted page:', isRestrictedPage)
+
+          
+
+          // On regular pages, don't show inline version - the modal will be shown instead
+
+          if (!isRestrictedPage) {
+
+            console.log('[CONTENT] Skipping inline prompt on regular page - modal will be shown')
+
+            return
+
+          }
+
+          
+
           const composer = (document.getElementById('ccd-compose-sidepanel') || document.getElementById('ccd-compose') || document.getElementById('ccf-compose')) as HTMLElement | null
 
           if (!composer) return
@@ -20456,7 +20574,7 @@ ${pageText}
 
           bar.id = 'og-trigger-savebar'
 
-          bar.style.cssText = 'grid-column:1 / -1; display:flex; flex-direction:column; gap:8px; padding:8px; background:rgba(2,6,23,0.85); color:#e5e7eb; border:1px solid rgba(255,255,255,0.15); border-radius:6px;'
+          bar.style.cssText = 'grid-column:1 / -1; display:flex; flex-direction:column; gap:12px; padding:16px; background:linear-gradient(135deg, #667eea 0%, #764ba2 100%); color:#ffffff; border:1px solid rgba(255,255,255,0.3); border-radius:8px;'
 
           
 
@@ -20468,11 +20586,25 @@ ${pageText}
 
             const triggerRow = document.createElement('div')
 
-            triggerRow.style.cssText = 'display:flex; align-items:center; gap:8px;'
+            triggerRow.style.cssText = 'display:flex; flex-direction:column; gap:6px;'
 
-            const label = document.createElement('span'); label.textContent='Trigger name:'; label.style.cssText='min-width:90px;'
+            const label = document.createElement('span'); label.textContent='Create Trigger'; label.style.cssText='font-size:14px; font-weight:600; color:#ffffff;'
 
-            nameIn = document.createElement('input'); nameIn.type='text'; nameIn.placeholder='Enter trigger name'; nameIn.style.cssText='flex:1; padding:4px 6px; border:1px solid #e5e7eb; border-radius:6px; font-size:12px; background:#0b1220; color:#e5e7eb'
+            nameIn = document.createElement('input'); nameIn.type='text'; nameIn.placeholder='Enter trigger name...'; nameIn.style.cssText='flex:1; padding:10px 12px; border:1px solid rgba(255,255,255,0.3); border-radius:6px; font-size:13px; background:rgba(255,255,255,0.98); color:#000000; outline:none;'
+            
+            // Style placeholder text
+            const placeholderStyle = document.createElement('style')
+            placeholderStyle.textContent = `
+              #og-trigger-savebar input::placeholder,
+              #og-trigger-savebar textarea::placeholder {
+                color: #6b7280 !important;
+                opacity: 1 !important;
+              }
+            `
+            if (!document.getElementById('og-trigger-placeholder-style-inline')) {
+              placeholderStyle.id = 'og-trigger-placeholder-style-inline'
+              document.head.appendChild(placeholderStyle)
+            }
 
             triggerRow.append(label, nameIn)
 
@@ -20492,9 +20624,9 @@ ${pageText}
 
             commandRow.style.cssText = 'display:flex; flex-direction:column; gap:4px;'
 
-            const label = document.createElement('span'); label.textContent='Command:'
+            const label = document.createElement('span'); label.textContent='Optional Command'; label.style.cssText='font-size:14px; font-weight:600; color:#ffffff;'
 
-            commandIn = document.createElement('textarea'); commandIn.placeholder='Quickly enhance the agent\'s default behaviour...'; commandIn.style.cssText='width:100%; min-height:60px; padding:4px 6px; border:1px solid #e5e7eb; border-radius:6px; font-size:12px; background:#0b1220; color:#e5e7eb; resize:vertical; box-sizing:border-box;'
+            commandIn = document.createElement('textarea'); commandIn.placeholder='Quickly enhance the agent\'s default behaviour...'; commandIn.style.cssText='width:100%; min-height:70px; padding:10px 12px; border:1px solid rgba(255,255,255,0.3); border-radius:6px; font-size:13px; background:rgba(255,255,255,0.98); color:#000000; resize:vertical; box-sizing:border-box; line-height:1.5; font-family:inherit; outline:none;'
 
             commandRow.append(label, commandIn)
 
@@ -20510,9 +20642,14 @@ ${pageText}
 
           buttonRow.style.cssText = 'display:flex; gap:8px; justify-content:flex-end;'
 
-          const save = document.createElement('button'); save.textContent='Save'; save.style.cssText='background:#2563eb;border:0;color:white;padding:4px 10px;border-radius:6px;cursor:pointer;font-size:12px'
+          // Detect theme for Save button color
+          let btnTheme: 'default'|'dark'|'professional' = 'default'
+          try { const t = localStorage.getItem('optimando-ui-theme'); if (t === 'professional' || t === 'dark') btnTheme = t as any } catch {}
+          const saveBtnColor = btnTheme === 'professional' ? '#3b82f6' : '#10b981'
 
-          const cancel = document.createElement('button'); cancel.textContent='Cancel'; cancel.style.cssText='background:rgba(255,255,255,0.12);border:0;color:#e5e7eb;padding:4px 10px;border-radius:6px;cursor:pointer;font-size:12px'
+          const save = document.createElement('button'); save.textContent='💾 Save'; save.style.cssText=`background:${saveBtnColor};border:0;color:white;padding:8px 16px;border-radius:6px;cursor:pointer;font-size:13px; font-weight:500;`
+
+          const cancel = document.createElement('button'); cancel.textContent='Cancel'; cancel.style.cssText='background:rgba(255,255,255,0.2);border:0;color:#ffffff;padding:8px 16px;border-radius:6px;cursor:pointer;font-size:13px; font-weight:500;'
 
           buttonRow.append(cancel, save)
 
@@ -20596,9 +20733,9 @@ ${pageText}
 
             
 
-            // If only command is checked (no trigger), send command to chat
+            // Post command to chat if command is checked (regardless of trigger checkbox)
 
-            if (isCommandChecked && command && !isTriggerChecked) {
+            if (isCommandChecked && command) {
 
               try {
 
@@ -24420,7 +24557,7 @@ ${pageText}
 
     overlay.innerHTML = `
 
-      <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 16px; width: 98vw; height: 95vh; max-height: 95vh; color: white; overflow: hidden; display: flex; flex-direction: column;">
+      <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 16px; width: 96vw; max-width: 1400px; height: 95vh; max-height: 95vh; color: white; overflow: hidden; display: flex; flex-direction: column; margin: 0 auto;">
 
         <div style="padding: 20px; border-bottom: 1px solid rgba(255,255,255,0.3); display: flex; justify-content: space-between; align-items: center; flex-shrink: 0;">
 
@@ -24464,6 +24601,20 @@ ${pageText}
 
               <p style="margin: 0; font-size: 12px; opacity: 0.7;">Main + Secondary</p>
 
+              <select id="select-2-slot" style="width: 100%; padding: 8px 10px; margin-top: 10px; background: rgba(255,215,0,0.3); border: 2px solid #FFD700; border-radius: 6px; color: #000; font-size: 13px; font-weight: bold; cursor: pointer; text-align: center; appearance: none; -webkit-appearance: none; -moz-appearance: none; display: block;">
+                <option value="0" style="background: rgba(255,215,0,0.9); color: #000;">0 instances</option>
+                <option value="1" style="background: rgba(255,215,0,0.9); color: #000;">1 instance</option>
+                <option value="2" style="background: rgba(255,215,0,0.9); color: #000;">2 instances</option>
+                <option value="3" style="background: rgba(255,215,0,0.9); color: #000;">3 instances</option>
+                <option value="4" style="background: rgba(255,215,0,0.9); color: #000;">4 instances</option>
+                <option value="5" style="background: rgba(255,215,0,0.9); color: #000;">5 instances</option>
+                <option value="6" style="background: rgba(255,215,0,0.9); color: #000;">6 instances</option>
+                <option value="7" style="background: rgba(255,215,0,0.9); color: #000;">7 instances</option>
+                <option value="8" style="background: rgba(255,215,0,0.9); color: #000;">8 instances</option>
+                <option value="9" style="background: rgba(255,215,0,0.9); color: #000;">9 instances</option>
+                <option value="10" style="background: rgba(255,215,0,0.9); color: #000;">10 instances</option>
+              </select>
+
           </div>
 
           
@@ -24493,6 +24644,20 @@ ${pageText}
               </div>
 
               <p style="margin: 0; font-size: 12px; opacity: 0.7;">Primary + Dual</p>
+
+              <select id="select-3-slot" style="width: 100%; padding: 8px 10px; margin-top: 10px; background: rgba(255,215,0,0.3); border: 2px solid #FFD700; border-radius: 6px; color: #000; font-size: 13px; font-weight: bold; cursor: pointer; text-align: center; appearance: none; -webkit-appearance: none; -moz-appearance: none; display: block;">
+                <option value="0" style="background: rgba(255,215,0,0.9); color: #000;">0 instances</option>
+                <option value="1" style="background: rgba(255,215,0,0.9); color: #000;">1 instance</option>
+                <option value="2" style="background: rgba(255,215,0,0.9); color: #000;">2 instances</option>
+                <option value="3" style="background: rgba(255,215,0,0.9); color: #000;">3 instances</option>
+                <option value="4" style="background: rgba(255,215,0,0.9); color: #000;">4 instances</option>
+                <option value="5" style="background: rgba(255,215,0,0.9); color: #000;">5 instances</option>
+                <option value="6" style="background: rgba(255,215,0,0.9); color: #000;">6 instances</option>
+                <option value="7" style="background: rgba(255,215,0,0.9); color: #000;">7 instances</option>
+                <option value="8" style="background: rgba(255,215,0,0.9); color: #000;">8 instances</option>
+                <option value="9" style="background: rgba(255,215,0,0.9); color: #000;">9 instances</option>
+                <option value="10" style="background: rgba(255,215,0,0.9); color: #000;">10 instances</option>
+              </select>
 
             </div>
 
@@ -24525,6 +24690,20 @@ ${pageText}
               </div>
 
               <p style="margin: 0; font-size: 12px; opacity: 0.7;">2x2 Grid</p>
+
+              <select id="select-4-slot" style="width: 100%; padding: 8px 10px; margin-top: 10px; background: rgba(255,215,0,0.3); border: 2px solid #FFD700; border-radius: 6px; color: #000; font-size: 13px; font-weight: bold; cursor: pointer; text-align: center; appearance: none; -webkit-appearance: none; -moz-appearance: none; display: block;">
+                <option value="0" style="background: rgba(255,215,0,0.9); color: #000;">0 instances</option>
+                <option value="1" style="background: rgba(255,215,0,0.9); color: #000;">1 instance</option>
+                <option value="2" style="background: rgba(255,215,0,0.9); color: #000;">2 instances</option>
+                <option value="3" style="background: rgba(255,215,0,0.9); color: #000;">3 instances</option>
+                <option value="4" style="background: rgba(255,215,0,0.9); color: #000;">4 instances</option>
+                <option value="5" style="background: rgba(255,215,0,0.9); color: #000;">5 instances</option>
+                <option value="6" style="background: rgba(255,215,0,0.9); color: #000;">6 instances</option>
+                <option value="7" style="background: rgba(255,215,0,0.9); color: #000;">7 instances</option>
+                <option value="8" style="background: rgba(255,215,0,0.9); color: #000;">8 instances</option>
+                <option value="9" style="background: rgba(255,215,0,0.9); color: #000;">9 instances</option>
+                <option value="10" style="background: rgba(255,215,0,0.9); color: #000;">10 instances</option>
+              </select>
 
             </div>
 
@@ -24562,6 +24741,20 @@ ${pageText}
 
               <p style="margin: 0; font-size: 12px; opacity: 0.7;">Main + Side</p>
 
+              <select id="select-5-slot" style="width: 100%; padding: 8px 10px; margin-top: 10px; background: rgba(255,215,0,0.3); border: 2px solid #FFD700; border-radius: 6px; color: #000; font-size: 13px; font-weight: bold; cursor: pointer; text-align: center; appearance: none; -webkit-appearance: none; -moz-appearance: none; display: block;">
+                <option value="0" style="background: rgba(255,215,0,0.9); color: #000;">0 instances</option>
+                <option value="1" style="background: rgba(255,215,0,0.9); color: #000;">1 instance</option>
+                <option value="2" style="background: rgba(255,215,0,0.9); color: #000;">2 instances</option>
+                <option value="3" style="background: rgba(255,215,0,0.9); color: #000;">3 instances</option>
+                <option value="4" style="background: rgba(255,215,0,0.9); color: #000;">4 instances</option>
+                <option value="5" style="background: rgba(255,215,0,0.9); color: #000;">5 instances</option>
+                <option value="6" style="background: rgba(255,215,0,0.9); color: #000;">6 instances</option>
+                <option value="7" style="background: rgba(255,215,0,0.9); color: #000;">7 instances</option>
+                <option value="8" style="background: rgba(255,215,0,0.9); color: #000;">8 instances</option>
+                <option value="9" style="background: rgba(255,215,0,0.9); color: #000;">9 instances</option>
+                <option value="10" style="background: rgba(255,215,0,0.9); color: #000;">10 instances</option>
+              </select>
+
             </div>
 
             <div id="btn-6-slot" style="background: rgba(255,255,255,0.1); border-radius: 12px; padding: 15px; cursor: pointer; text-align: center; border: 2px solid transparent; position: relative;">
@@ -24595,6 +24788,20 @@ ${pageText}
               </div>
 
               <p style="margin: 0; font-size: 12px; opacity: 0.7;">3x2 Grid</p>
+
+              <select id="select-6-slot" style="width: 100%; padding: 8px 10px; margin-top: 10px; background: rgba(255,215,0,0.3); border: 2px solid #FFD700; border-radius: 6px; color: #000; font-size: 13px; font-weight: bold; cursor: pointer; text-align: center; appearance: none; -webkit-appearance: none; -moz-appearance: none; display: block;">
+                <option value="0" style="background: rgba(255,215,0,0.9); color: #000;">0 instances</option>
+                <option value="1" style="background: rgba(255,215,0,0.9); color: #000;">1 instance</option>
+                <option value="2" style="background: rgba(255,215,0,0.9); color: #000;">2 instances</option>
+                <option value="3" style="background: rgba(255,215,0,0.9); color: #000;">3 instances</option>
+                <option value="4" style="background: rgba(255,215,0,0.9); color: #000;">4 instances</option>
+                <option value="5" style="background: rgba(255,215,0,0.9); color: #000;">5 instances</option>
+                <option value="6" style="background: rgba(255,215,0,0.9); color: #000;">6 instances</option>
+                <option value="7" style="background: rgba(255,215,0,0.9); color: #000;">7 instances</option>
+                <option value="8" style="background: rgba(255,215,0,0.9); color: #000;">8 instances</option>
+                <option value="9" style="background: rgba(255,215,0,0.9); color: #000;">9 instances</option>
+                <option value="10" style="background: rgba(255,215,0,0.9); color: #000;">10 instances</option>
+              </select>
 
             </div>
 
@@ -24633,6 +24840,20 @@ ${pageText}
               </div>
 
               <p style="margin: 0; font-size: 12px; opacity: 0.7;">Main + Grid</p>
+
+              <select id="select-7-slot" style="width: 100%; padding: 8px 10px; margin-top: 10px; background: rgba(255,215,0,0.3); border: 2px solid #FFD700; border-radius: 6px; color: #000; font-size: 13px; font-weight: bold; cursor: pointer; text-align: center; appearance: none; -webkit-appearance: none; -moz-appearance: none; display: block;">
+                <option value="0" style="background: rgba(255,215,0,0.9); color: #000;">0 instances</option>
+                <option value="1" style="background: rgba(255,215,0,0.9); color: #000;">1 instance</option>
+                <option value="2" style="background: rgba(255,215,0,0.9); color: #000;">2 instances</option>
+                <option value="3" style="background: rgba(255,215,0,0.9); color: #000;">3 instances</option>
+                <option value="4" style="background: rgba(255,215,0,0.9); color: #000;">4 instances</option>
+                <option value="5" style="background: rgba(255,215,0,0.9); color: #000;">5 instances</option>
+                <option value="6" style="background: rgba(255,215,0,0.9); color: #000;">6 instances</option>
+                <option value="7" style="background: rgba(255,215,0,0.9); color: #000;">7 instances</option>
+                <option value="8" style="background: rgba(255,215,0,0.9); color: #000;">8 instances</option>
+                <option value="9" style="background: rgba(255,215,0,0.9); color: #000;">9 instances</option>
+                <option value="10" style="background: rgba(255,215,0,0.9); color: #000;">10 instances</option>
+              </select>
 
             </div>
 
@@ -24676,6 +24897,20 @@ ${pageText}
 
               <p style="margin: 0; font-size: 12px; opacity: 0.7;">4x2 Grid</p>
 
+              <select id="select-8-slot" style="width: 100%; padding: 8px 10px; margin-top: 10px; background: rgba(255,215,0,0.3); border: 2px solid #FFD700; border-radius: 6px; color: #000; font-size: 13px; font-weight: bold; cursor: pointer; text-align: center; appearance: none; -webkit-appearance: none; -moz-appearance: none; display: block;">
+                <option value="0" style="background: rgba(255,215,0,0.9); color: #000;">0 instances</option>
+                <option value="1" style="background: rgba(255,215,0,0.9); color: #000;">1 instance</option>
+                <option value="2" style="background: rgba(255,215,0,0.9); color: #000;">2 instances</option>
+                <option value="3" style="background: rgba(255,215,0,0.9); color: #000;">3 instances</option>
+                <option value="4" style="background: rgba(255,215,0,0.9); color: #000;">4 instances</option>
+                <option value="5" style="background: rgba(255,215,0,0.9); color: #000;">5 instances</option>
+                <option value="6" style="background: rgba(255,215,0,0.9); color: #000;">6 instances</option>
+                <option value="7" style="background: rgba(255,215,0,0.9); color: #000;">7 instances</option>
+                <option value="8" style="background: rgba(255,215,0,0.9); color: #000;">8 instances</option>
+                <option value="9" style="background: rgba(255,215,0,0.9); color: #000;">9 instances</option>
+                <option value="10" style="background: rgba(255,215,0,0.9); color: #000;">10 instances</option>
+              </select>
+
           </div>
 
           
@@ -24717,6 +24952,20 @@ ${pageText}
               </div>
 
               <p style="margin: 0; font-size: 12px; opacity: 0.7;">3x3 Grid</p>
+
+              <select id="select-9-slot" style="width: 100%; padding: 8px 10px; margin-top: 10px; background: rgba(255,215,0,0.3); border: 2px solid #FFD700; border-radius: 6px; color: #000; font-size: 13px; font-weight: bold; cursor: pointer; text-align: center; appearance: none; -webkit-appearance: none; -moz-appearance: none; display: block;">
+                <option value="0" style="background: rgba(255,215,0,0.9); color: #000;">0 instances</option>
+                <option value="1" style="background: rgba(255,215,0,0.9); color: #000;">1 instance</option>
+                <option value="2" style="background: rgba(255,215,0,0.9); color: #000;">2 instances</option>
+                <option value="3" style="background: rgba(255,215,0,0.9); color: #000;">3 instances</option>
+                <option value="4" style="background: rgba(255,215,0,0.9); color: #000;">4 instances</option>
+                <option value="5" style="background: rgba(255,215,0,0.9); color: #000;">5 instances</option>
+                <option value="6" style="background: rgba(255,215,0,0.9); color: #000;">6 instances</option>
+                <option value="7" style="background: rgba(255,215,0,0.9); color: #000;">7 instances</option>
+                <option value="8" style="background: rgba(255,215,0,0.9); color: #000;">8 instances</option>
+                <option value="9" style="background: rgba(255,215,0,0.9); color: #000;">9 instances</option>
+                <option value="10" style="background: rgba(255,215,0,0.9); color: #000;">10 instances</option>
+              </select>
 
             </div>
 
@@ -24761,6 +25010,20 @@ ${pageText}
               </div>
 
               <p style="margin: 0; font-size: 12px; opacity: 0.7;">5x2 Grid</p>
+
+              <select id="select-10-slot" style="width: 100%; padding: 8px 10px; margin-top: 10px; background: rgba(255,215,0,0.3); border: 2px solid #FFD700; border-radius: 6px; color: #000; font-size: 13px; font-weight: bold; cursor: pointer; text-align: center; appearance: none; -webkit-appearance: none; -moz-appearance: none; display: block;">
+                <option value="0" style="background: rgba(255,215,0,0.9); color: #000;">0 instances</option>
+                <option value="1" style="background: rgba(255,215,0,0.9); color: #000;">1 instance</option>
+                <option value="2" style="background: rgba(255,215,0,0.9); color: #000;">2 instances</option>
+                <option value="3" style="background: rgba(255,215,0,0.9); color: #000;">3 instances</option>
+                <option value="4" style="background: rgba(255,215,0,0.9); color: #000;">4 instances</option>
+                <option value="5" style="background: rgba(255,215,0,0.9); color: #000;">5 instances</option>
+                <option value="6" style="background: rgba(255,215,0,0.9); color: #000;">6 instances</option>
+                <option value="7" style="background: rgba(255,215,0,0.9); color: #000;">7 instances</option>
+                <option value="8" style="background: rgba(255,215,0,0.9); color: #000;">8 instances</option>
+                <option value="9" style="background: rgba(255,215,0,0.9); color: #000;">9 instances</option>
+                <option value="10" style="background: rgba(255,215,0,0.9); color: #000;">10 instances</option>
+              </select>
 
             </div>
 
@@ -24835,17 +25098,38 @@ ${pageText}
       console.log('🔧 APPLYING SELECTIONS:', Array.from(activeGridLayouts))
 
       
+      // Count instances per layout from currentTabData.displayGrids
+      const layoutCounts: { [key: string]: number } = {}
+      
+      if (currentTabData.displayGrids && Array.isArray(currentTabData.displayGrids)) {
+        currentTabData.displayGrids.forEach((grid: any) => {
+          const layout = grid.layout
+          layoutCounts[layout] = (layoutCounts[layout] || 0) + 1
+        })
+      }
 
       Object.keys(layoutMapping).forEach(checkboxId => {
 
         const checkbox = document.getElementById(checkboxId) as HTMLInputElement
+
+        const selectId = checkboxId.replace('check-', 'select-')
+
+        const select = document.getElementById(selectId) as HTMLSelectElement
 
         const card = document.getElementById(checkboxId.replace('check-', 'btn-'))
 
         const layout = layoutMapping[checkboxId as keyof typeof layoutMapping]
 
         
+        // Set selectbox value based on existing grid count
+        if (select) {
+          const count = layoutCounts[layout] || 0
+          const value = Math.min(count, 10).toString()
+          select.value = value
+          console.log(`✅ SETTING ${selectId} to ${value} for ${layout}`)
+        }
 
+        // Set checkbox based on activeGridLayouts (for visual feedback)
         if (checkbox && activeGridLayouts.has(layout)) {
 
           console.log(`✅ CHECKING ${checkboxId} for ${layout}`)
@@ -24872,7 +25156,7 @@ ${pageText}
 
     
 
-    // Checkbox change handlers
+    // Checkbox change handlers (for visual feedback only)
 
     const checkboxes = ['check-2-slot', 'check-3-slot', 'check-4-slot', 'check-5-slot', 'check-6-slot', 'check-7-slot', 'check-8-slot', 'check-9-slot', 'check-10-slot']
 
@@ -24902,26 +25186,6 @@ ${pageText}
 
         updateSaveButton()
 
-        
-
-        // IMMEDIATE SAVE: Save current selection to localStorage on every change
-
-        const currentlySelected = checkboxes
-
-          .filter(id => document.getElementById(id)?.checked)
-
-          .map(id => layoutMapping[id as keyof typeof layoutMapping])
-
-        
-
-        const currentUrl = window.location.href.split('?')[0]
-
-        const activeGridsKey = `active-grids-${btoa(currentUrl).substring(0, 20)}`
-
-        localStorage.setItem(activeGridsKey, JSON.stringify(currentlySelected))
-
-        console.log('💾 IMMEDIATE SAVE:', currentlySelected)
-
       }
 
       
@@ -24930,7 +25194,7 @@ ${pageText}
 
       card.onclick = (e) => {
 
-        if (e.target !== checkbox) {
+        if (e.target !== checkbox && e.target !== card.querySelector('select')) {
 
           checkbox.checked = !checkbox.checked
 
@@ -24942,21 +25206,96 @@ ${pageText}
 
     })
 
+    
+    // Selectbox change handlers (for instance count)
+
+    const selectboxes = ['select-2-slot', 'select-3-slot', 'select-4-slot', 'select-5-slot', 'select-6-slot', 'select-7-slot', 'select-8-slot', 'select-9-slot', 'select-10-slot']
+
+    selectboxes.forEach(id => {
+
+      const select = document.getElementById(id) as HTMLSelectElement
+
+      const card = document.getElementById(id.replace('select-', 'btn-'))
+
+      
+
+      select.onchange = () => {
+
+        const value = parseInt(select.value)
+
+        // Update card styling based on selectbox value
+
+        if (value > 0) {
+
+          card.style.borderColor = '#4CAF50'
+
+          card.style.background = 'rgba(76,175,80,0.2)'
+
+          // Also check the checkbox for visual consistency
+
+          const checkboxId = id.replace('select-', 'check-')
+
+          const checkbox = document.getElementById(checkboxId) as HTMLInputElement
+
+          if (checkbox) checkbox.checked = true
+
+        } else {
+
+          card.style.borderColor = 'transparent'
+
+          card.style.background = 'rgba(255,255,255,0.1)'
+
+          // Uncheck checkbox if count is 0
+
+          const checkboxId = id.replace('select-', 'check-')
+
+          const checkbox = document.getElementById(checkboxId) as HTMLInputElement
+
+          if (checkbox) checkbox.checked = false
+
+        }
+
+        updateSaveButton()
+
+      }
+
+    })
+
     // Save & Open button handler
 
     document.getElementById('save-open-grids').onclick = () => {
 
-      const selectedLayouts = checkboxes
+      // Collect all layouts with their instance counts from selectboxes
 
-        .filter(id => document.getElementById(id).checked)
-
-        .map(id => layoutMapping[id as keyof typeof layoutMapping])
+      const selectedLayoutsWithCounts: { layout: string; count: number }[] = []
 
       
 
-      if (selectedLayouts.length === 0) {
+      selectboxes.forEach(id => {
 
-        alert('Please select at least one grid layout.')
+        const select = document.getElementById(id) as HTMLSelectElement
+
+        if (select) {
+
+          const count = parseInt(select.value) || 0
+
+          if (count > 0) {
+
+            const layout = layoutMapping[id.replace('select-', 'check-') as keyof typeof layoutMapping]
+
+            selectedLayoutsWithCounts.push({ layout, count })
+
+          }
+
+        }
+
+      })
+
+      
+
+      if (selectedLayoutsWithCounts.length === 0) {
+
+        alert('Please select at least one grid instance.')
 
         return
 
@@ -24964,7 +25303,7 @@ ${pageText}
 
       
 
-      console.log('🗂️ Saving and opening selected grids:', selectedLayouts)
+      console.log('🗂️ Saving and opening selected grids:', selectedLayoutsWithCounts)
 
       
 
@@ -24984,41 +25323,95 @@ ${pageText}
 
       
 
-      // Only add new grids for selected layouts that don't already exist
+      // Count existing instances per layout
 
-      selectedLayouts.forEach(layout => {
+      const existingCounts: { [key: string]: number } = {}
 
-        // Check if this layout already exists
+      currentTabData.displayGrids.forEach((grid: any) => {
 
-        const existingGrid = currentTabData.displayGrids.find(grid => grid.layout === layout)
+        const layout = grid.layout
+
+        existingCounts[layout] = (existingCounts[layout] || 0) + 1
+
+      })
+
+      
+
+      // Create grid entries for each layout based on selected count
+
+      selectedLayoutsWithCounts.forEach(({ layout, count }) => {
+
+        const existingCount = existingCounts[layout] || 0
+
+        const instancesToAdd = count - existingCount
 
         
 
-        if (!existingGrid) {
+        if (instancesToAdd > 0) {
 
-          const gridSessionId = `grid_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`
+          // Add new instances
 
-          const newGrid = {
+          for (let i = 0; i < instancesToAdd; i++) {
 
-            layout: layout,
+            // Use unique timestamp + random + index to ensure unique sessionIds
 
-            sessionId: gridSessionId,
+            const baseTime = Date.now()
 
-            url: 'about:blank',
+            const gridSessionId = `grid_${baseTime}_${Math.random().toString(36).substr(2, 9)}_${i + existingCount + 1}`
 
-            timestamp: new Date().toISOString()
+            const newGrid = {
+
+              layout: layout,
+
+              sessionId: gridSessionId,
+
+              url: 'about:blank',
+
+              timestamp: new Date().toISOString(),
+
+              instanceIndex: existingCount + i + 1
+
+            }
+
+            currentTabData.displayGrids.push(newGrid)
+
+            newGridsToOpen.push(newGrid)
+
+            console.log(`✅ Added new grid instance ${i + 1}/${instancesToAdd} for ${layout} with sessionId:`, gridSessionId)
 
           }
 
-          currentTabData.displayGrids.push(newGrid)
+        } else if (instancesToAdd < 0) {
 
-          newGridsToOpen.push(newGrid)
+          // Remove excess instances (keep only the selected count)
 
-          console.log('✅ Added new grid:', layout, 'with sessionId:', gridSessionId)
+          const instancesToRemove = Math.abs(instancesToAdd)
+
+          const gridsToRemove = currentTabData.displayGrids
+
+            .filter((grid: any) => grid.layout === layout)
+
+            .slice(count) // Keep first 'count' instances, remove the rest
+
+          
+
+          gridsToRemove.forEach((grid: any) => {
+
+            const index = currentTabData.displayGrids.indexOf(grid)
+
+            if (index > -1) {
+
+              currentTabData.displayGrids.splice(index, 1)
+
+              console.log(`🗑️ Removed excess grid instance for ${layout}:`, grid.sessionId)
+
+            }
+
+          })
 
         } else {
 
-          console.log('⚠️ Grid already exists for layout:', layout, '- skipping')
+          console.log(`⚠️ Grid count already matches for layout: ${layout} (${count} instances) - no changes needed`)
 
         }
 
@@ -25106,6 +25499,64 @@ ${pageText}
 
             setTimeout(() => note.remove(), 3000)
 
+            
+
+            // Open all new grids AFTER session is saved
+
+            if (newGridsToOpen.length > 0) {
+
+              console.log(`🚀 Opening ${newGridsToOpen.length} new grid(s) after session save...`)
+
+              
+
+              newGridsToOpen.forEach((grid, index) => {
+
+                setTimeout(() => {
+
+                  console.log(`🔓 Opening grid ${index + 1}/${newGridsToOpen.length}:`, grid.layout, grid.sessionId)
+
+                  openGridFromSession(grid.layout, grid.sessionId)
+
+                }, index * 300)
+
+              })
+
+              
+
+              // Notify background script that display grids are active - hide sidepanel on THIS tab only
+              // Check if this is a display grid tab (not master) before notifying
+              try {
+                const url = new URL(window.location.href)
+                const hybridMasterId = url.searchParams.get('hybrid_master_id')
+                const isDisplayGrid = url.pathname.includes('grid-display.html')
+                
+                console.log(`🔍 Grid opened: isDisplayGrid=${isDisplayGrid}, hybridMasterId=${hybridMasterId}, url=${url.pathname}`)
+                
+                // Only notify if this is a display grid tab (not a master tab)
+                if (isDisplayGrid && hybridMasterId === null) {
+                  // Wait for all grids to be opened before notifying
+                  setTimeout(() => {
+                    console.log('📱 This is a display grid tab - notifying to hide sidepanel')
+                    chrome.runtime.sendMessage({ type: 'DISPLAY_GRIDS_OPENED' }, (response) => {
+                      console.log('🚫 Notified background: display grids opened on display grid tab, sidepanel should hide')
+                      
+                      // Add floating expand button for display grid tabs
+                      addSidepanelExpandButton()
+                    })
+                  }, newGridsToOpen.length * 300 + 200) // Slightly longer delay
+                } else {
+                  console.log(`🖥️ This is a master tab (hybridMasterId=${hybridMasterId}) - sidepanel stays visible`)
+                }
+              } catch (e) {
+                console.error('Error checking tab type:', e)
+              }
+
+            } else {
+
+              console.log('⚠️ No new grids to open (all selected grids already exist)')
+
+            }
+
           }
 
         })
@@ -25120,53 +25571,11 @@ ${pageText}
 
       const activeGridsKey = `active-grids-${btoa(currentUrl).substring(0, 20)}`
 
+      const selectedLayouts = selectedLayoutsWithCounts.map(({ layout }) => layout)
+
       localStorage.setItem(activeGridsKey, JSON.stringify(selectedLayouts))
 
       console.log('💾 BACKUP: Saved active grids to localStorage:', selectedLayouts)
-
-      
-
-      // Open only the new grids that were actually added
-
-      newGridsToOpen.forEach((grid, index) => {
-
-        setTimeout(() => {
-
-          openGridFromSession(grid.layout, grid.sessionId)  // ← Back to V1
-
-        }, index * 300)
-
-      })
-      
-      // Notify background script that display grids are active - hide sidepanel on THIS tab only
-      if (newGridsToOpen.length > 0) {
-        // Check if this is a display grid tab (not master) before notifying
-        try {
-          const url = new URL(window.location.href)
-          const hybridMasterId = url.searchParams.get('hybrid_master_id')
-          const isDisplayGrid = url.pathname.includes('grid-display.html')
-          
-          console.log(`🔍 Grid opened: isDisplayGrid=${isDisplayGrid}, hybridMasterId=${hybridMasterId}, url=${url.pathname}`)
-          
-          // Only notify if this is a display grid tab (not a master tab)
-          if (isDisplayGrid && hybridMasterId === null) {
-            // Wait for all grids to be opened before notifying
-            setTimeout(() => {
-              console.log('📱 This is a display grid tab - notifying to hide sidepanel')
-              chrome.runtime.sendMessage({ type: 'DISPLAY_GRIDS_OPENED' }, (response) => {
-                console.log('🚫 Notified background: display grids opened on display grid tab, sidepanel should hide')
-                
-                // Add floating expand button for display grid tabs
-                addSidepanelExpandButton()
-              })
-            }, newGridsToOpen.length * 300 + 200) // Slightly longer delay
-          } else {
-            console.log(`🖥️ This is a master tab (hybridMasterId=${hybridMasterId}) - sidepanel stays visible`)
-          }
-        } catch (e) {
-          console.error('Error checking tab type:', e)
-        }
-      }
 
       
 
@@ -25200,15 +25609,27 @@ ${pageText}
 
     function updateSaveButton() {
 
-      const selectedCount = checkboxes.filter(id => document.getElementById(id).checked).length
+      let totalInstances = 0
+
+      selectboxes.forEach(id => {
+
+        const select = document.getElementById(id) as HTMLSelectElement
+
+        if (select) {
+
+          totalInstances += parseInt(select.value) || 0
+
+        }
+
+      })
 
       const saveBtn = document.getElementById('save-open-grids')
 
       
 
-      if (selectedCount > 0) {
+      if (totalInstances > 0) {
 
-        saveBtn.innerHTML = `🚀 Save & Open ${selectedCount} Grid${selectedCount > 1 ? 's' : ''}`
+        saveBtn.innerHTML = `🚀 Save & Open ${totalInstances} Grid Instance${totalInstances > 1 ? 's' : ''}`
 
         saveBtn.style.background = '#4CAF50'
 
@@ -32072,6 +32493,11 @@ ${pageText}
                   ddDropdown.appendChild(item)
 
                 })
+
+                // Scroll to bottom to show the newest trigger
+                setTimeout(() => {
+                  ddDropdown.scrollTop = ddDropdown.scrollHeight
+                }, 0)
 
               }catch{}
 

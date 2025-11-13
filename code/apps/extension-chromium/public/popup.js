@@ -253,7 +253,7 @@ function showTriggerPromptUI(mode, rect, displayId, imageUrl, videoUrl, createTr
       nameIn = document.createElement('input')
       nameIn.type = 'text'
       nameIn.placeholder = 'Enter trigger name...'
-      nameIn.style.cssText = 'width:100%; padding:6px 8px; border:1px solid rgba(255,255,255,0.2); border-radius:4px; font-size:12px; background:rgba(11,18,32,0.6); color:#e5e7eb; outline:none; box-sizing:border-box;'
+      nameIn.style.cssText = 'width:100%; padding:6px 8px; border:1px solid rgba(255,255,255,0.2); border-radius:4px; font-size:12px; background:rgba(255,255,255,0.98); color:#000000; outline:none; box-sizing:border-box;'
       nameIn.addEventListener('focus', () => { nameIn.style.borderColor = 'rgba(37,99,235,0.5)' })
       nameIn.addEventListener('blur', () => { nameIn.style.borderColor = 'rgba(255,255,255,0.2)' })
       
@@ -274,7 +274,7 @@ function showTriggerPromptUI(mode, rect, displayId, imageUrl, videoUrl, createTr
       
       commandIn = document.createElement('textarea')
       commandIn.placeholder = 'Quickly enhance the agent\'s default behaviour...'
-      commandIn.style.cssText = 'width:100%; min-height:60px; padding:6px 8px; border:1px solid rgba(255,255,255,0.2); border-radius:4px; font-size:12px; background:rgba(11,18,32,0.6); color:#e5e7eb; resize:vertical; box-sizing:border-box; line-height:1.4; font-family:inherit; outline:none;'
+      commandIn.style.cssText = 'width:100%; min-height:60px; padding:6px 8px; border:1px solid rgba(255,255,255,0.2); border-radius:4px; font-size:12px; background:rgba(255,255,255,0.98); color:#000000; resize:vertical; box-sizing:border-box; line-height:1.4; font-family:inherit; outline:none;'
       commandIn.addEventListener('focus', () => { commandIn.style.borderColor = 'rgba(37,99,235,0.5)' })
       commandIn.addEventListener('blur', () => { commandIn.style.borderColor = 'rgba(255,255,255,0.2)' })
       
@@ -286,11 +286,21 @@ function showTriggerPromptUI(mode, rect, displayId, imageUrl, videoUrl, createTr
     const buttonRow = document.createElement('div')
     buttonRow.style.cssText = 'display:flex; gap:6px;'
     
+    // Detect theme for Save button styling
+    let btnTheme = 'default'
+    try {
+      const t = document.body.className
+      if (t.includes('professional')) btnTheme = 'professional'
+      else if (t.includes('dark')) btnTheme = 'dark'
+    } catch {}
+    const saveBtnColor = btnTheme === 'professional' ? '#3b82f6' : '#10b981'
+    const saveBtnHoverColor = btnTheme === 'professional' ? '#2563eb' : '#059669'
+    
     const save = document.createElement('button')
     save.textContent = '💾 Save'
-    save.style.cssText = 'flex:1; background:#2563eb;border:0;color:white;padding:6px 10px;border-radius:4px;cursor:pointer;font-size:11px;font-weight:600;'
-    save.addEventListener('mouseenter', () => { save.style.background = '#1d4ed8' })
-    save.addEventListener('mouseleave', () => { save.style.background = '#2563eb' })
+    save.style.cssText = `flex:1; background:${saveBtnColor};border:0;color:white;padding:6px 10px;border-radius:4px;cursor:pointer;font-size:11px;font-weight:600;`
+    save.addEventListener('mouseenter', () => { save.style.background = saveBtnHoverColor })
+    save.addEventListener('mouseleave', () => { save.style.background = saveBtnColor })
     
     const cancel = document.createElement('button')
     cancel.textContent = '✕ Cancel'
@@ -347,8 +357,8 @@ function showTriggerPromptUI(mode, rect, displayId, imageUrl, videoUrl, createTr
         }catch{}
       }
       
-      // If only command is checked (no trigger), send command to chat
-      if (addCommand && command && !createTrigger) {
+      // Post command to chat if addCommand is checked (regardless of createTrigger)
+      if (addCommand && command) {
         row('user', `📝 Command: ${command}`)
       }
       bar.remove()

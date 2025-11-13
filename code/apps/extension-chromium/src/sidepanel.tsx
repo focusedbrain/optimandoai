@@ -32,8 +32,8 @@ function SidepanelOrchestrator() {
   const [isWRLoginCollapsed, setIsWRLoginCollapsed] = useState(false)
   const [isCommandChatPinned, setIsCommandChatPinned] = useState(false)
   const [showMinimalUI, setShowMinimalUI] = useState(false) // Show minimal UI on display grids and Edge startpage
-  const [viewMode, setViewMode] = useState<'app' | 'admin'>('admin') // Toggle between app and admin view
-  const [isAdminDisabled, setIsAdminDisabled] = useState(false) // Track if admin is disabled (Edge startpage/display grids)
+  const [viewMode, setViewMode] = useState<'app' | 'admin'>('app') // App or Admin view
+  const [isAdminDisabled, setIsAdminDisabled] = useState(false) // Disable admin on display grids and Edge startpage
   
   // Command chat state
   const [chatMessages, setChatMessages] = useState<Array<{role: 'user' | 'assistant', text: string}>>([])
@@ -54,7 +54,7 @@ function SidepanelOrchestrator() {
   const chatRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   
-  // Load pinned state and view mode from storage
+  // Load pinned state and viewMode from storage
   useEffect(() => {
     import('./storage/storageWrapper').then(({ storageGet }) => {
       storageGet(['commandChatPinned', 'viewMode'], (result) => {
@@ -70,13 +70,12 @@ function SidepanelOrchestrator() {
             })
           }
         }
-        // Load view mode preference (only if not on disabled page)
-        if (!isAdminDisabled && result.viewMode) {
+        if (result.viewMode) {
           setViewMode(result.viewMode as 'app' | 'admin')
         }
       });
     });
-  }, [isAdminDisabled])
+  }, [])
 
   // Load and listen for theme changes
   useEffect(() => {
@@ -122,13 +121,8 @@ function SidepanelOrchestrator() {
             const shouldShowMinimal = (isDisplayGrid && hybridMasterId === null) || isEdgeStartpage
             setShowMinimalUI(shouldShowMinimal)
             
-            // Admin interface is disabled on display grids and Edge startpage
+            // Admin is disabled on display grids and Edge startpage
             setIsAdminDisabled(shouldShowMinimal)
-            
-            // Set initial view mode to 'app' when on disabled pages (forced minimal)
-            if (shouldShowMinimal) {
-              setViewMode('app')
-            }
             
             // First, check if we have a stored master tab ID for this tab (persists across page refreshes)
             chrome.storage.local.get([storageKey], (result) => {
@@ -160,7 +154,6 @@ function SidepanelOrchestrator() {
           } catch (e) {
             console.error('Error parsing tab URL:', e)
             setShowMinimalUI(false)
-            setIsAdminDisabled(false)
             // On error, try to use stored master tab ID
             chrome.storage.local.get([storageKey], (result) => {
               const storedMasterTabId = result[storageKey]
@@ -281,6 +274,23 @@ function SidepanelOrchestrator() {
       // Listen for trigger prompt from Electron
       else if (message.type === 'SHOW_TRIGGER_PROMPT') {
         console.log('📝 Sidepanel received trigger prompt from Electron:', message)
+        
+        // Check if we're on a restricted page (display grid or MSN)
+        const tabUrl = message.tabUrl || ''
+        const isRestrictedPage = tabUrl.includes('/grid-display') || 
+                                  tabUrl.includes('msn.com/') ||
+                                  tabUrl.startsWith('edge://') ||
+                                  tabUrl.includes('/grid-display')
+        
+        console.log('[SIDEPANEL] Is restricted page:', isRestrictedPage, 'URL:', tabUrl)
+        
+        // Only show inline form on restricted pages
+        // On regular pages, the content script will show a modal instead
+        if (!isRestrictedPage) {
+          console.log('[SIDEPANEL] Skipping inline form on regular page - modal will be shown')
+          return
+        }
+        
         setShowTriggerPrompt({
           mode: message.mode,
           rect: message.rect,
@@ -300,6 +310,20 @@ function SidepanelOrchestrator() {
           const list = Array.isArray(data?.['optimando-tagged-triggers']) ? data['optimando-tagged-triggers'] : []
           setTriggers(list)
         })
+      }
+      // Listen for command append from modal
+      else if (message.type === 'COMMAND_POPUP_APPEND') {
+        console.log('📝 Sidepanel received command append:', message)
+        if (message.command || message.text) {
+          const commandText = message.command || message.text
+          // Add command message to chat
+          const commandMessage = {
+            role: 'user' as const,
+            text: typeof commandText === 'string' ? commandText : `📝 Command: ${commandText}`
+          }
+          setChatMessages(prev => [...prev, commandMessage])
+          console.log('📝 Command appended to chat:', commandText)
+        }
       }
     }
 
@@ -497,6 +521,23 @@ function SidepanelOrchestrator() {
 
   const openPopupChat = () => {
     chrome.runtime.sendMessage({ type: 'OPEN_COMMAND_CENTER_POPUP', theme: theme })
+  }
+
+  const toggleViewMode = () => {
+    if (isAdminDisabled) {
+      showNotification('Open a website for viewing the admin panel', 'info')
+      return
+    }
+    
+    const newMode = viewMode === 'app' ? 'admin' : 'app'
+    setViewMode(newMode)
+    
+    // Save to storage
+    import('./storage/storageWrapper').then(({ storageSet }) => {
+      storageSet({ viewMode: newMode }, () => {
+        console.log('✅ View mode saved:', newMode)
+      })
+    })
   }
 
 
@@ -939,22 +980,8 @@ function SidepanelOrchestrator() {
     showNotification('Mini-app installation coming soon!', 'info')
   }
 
-  // Toggle between App and Admin view
-  const toggleViewMode = () => {
-    if (isAdminDisabled && viewMode === 'app') {
-      // Show feedback when admin is disabled (Edge startpage/display grids)
-      showNotification('Open a website for viewing the admin panel', 'info')
-      return
-    }
-    // Toggle between app and admin view
-    const newMode = viewMode === 'app' ? 'admin' : 'app'
-    setViewMode(newMode)
-    // Save preference
-    chrome.storage.local.set({ viewMode: newMode })
-  }
-
-  // Show minimal UI when showMinimalUI is true (forced on Edge startpage/display grids) or when viewMode is 'app'
-  if (showMinimalUI || viewMode === 'app') {
+  // Minimal UI for display grids and Edge startpage
+  if (showMinimalUI) {
     return (
       <div style={{
         width: '100%',
@@ -975,94 +1002,92 @@ function SidepanelOrchestrator() {
           borderBottom: '1px solid rgba(255,255,255,0.2)',
           display: 'flex',
           alignItems: 'center',
-          justifyContent: 'space-between',
+          justifyContent: 'center',
           gap: '12px',
           background: theme === 'default' ? 'rgba(118,75,162,0.6)' : 'rgba(0,0,0,0.15)'
         }}>
-          <div style={{ flex: 1 }} />
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-            <button
-              onClick={openPopupChat}
-              style={{
-                width: '32px',
-                height: '32px',
-                ...actionButtonStyle('rgba(255,255,255,0.1)'),
-                fontSize: '14px',
-                padding: 0
-              }}
-              title="Open Popup Chat"
-            >
-              💬
-            </button>
-            <button
-              onClick={toggleCommandChatPin}
-              style={{
-                width: '32px',
-                height: '32px',
-                ...actionButtonStyle(isCommandChatPinned ? 'rgba(76,175,80,0.4)' : 'rgba(255,255,255,0.1)'),
-                fontSize: '14px',
-                padding: 0,
-                ...(isCommandChatPinned && theme === 'default' ? {
-                  background: 'rgba(76,175,80,0.4)',
-                  border: '1px solid rgba(76,175,80,0.6)'
-                } : {})
-              }}
-              title={isCommandChatPinned ? "Unpin Command Chat" : "Pin Command Chat"}
-            >
-              📌
-            </button>
-            <div
-              onClick={toggleViewMode}
-              style={{
-                cursor: isAdminDisabled ? 'not-allowed' : 'pointer',
-                opacity: isAdminDisabled ? 0.6 : 1
-              }}
-              title={isAdminDisabled ? 'Open a website for viewing the admin panel' : `Switch to ${viewMode === 'app' ? 'Admin' : 'App'} view`}
-            >
+          <button
+            onClick={openPopupChat}
+            style={{
+              width: '32px',
+              height: '32px',
+              ...actionButtonStyle('rgba(255,255,255,0.1)'),
+              fontSize: '14px',
+              padding: 0
+            }}
+            title="Open Popup Chat"
+          >
+            💬
+          </button>
+          <button
+            onClick={toggleCommandChatPin}
+            style={{
+              width: '32px',
+              height: '32px',
+              ...actionButtonStyle(isCommandChatPinned ? 'rgba(76,175,80,0.4)' : 'rgba(255,255,255,0.1)'),
+              fontSize: '14px',
+              padding: 0,
+              ...(isCommandChatPinned && theme === 'default' ? {
+                background: 'rgba(76,175,80,0.4)',
+                border: '1px solid rgba(76,175,80,0.6)'
+              } : {})
+            }}
+            title={isCommandChatPinned ? "Unpin Command Chat" : "Pin Command Chat"}
+          >
+            📌
+          </button>
+          <div
+            onClick={toggleViewMode}
+            style={{
+              cursor: isAdminDisabled ? 'not-allowed' : 'pointer',
+              opacity: isAdminDisabled ? 0.6 : 1,
+              marginLeft: 'auto'
+            }}
+            title={isAdminDisabled ? 'Open a website for viewing the admin panel' : `Switch to ${viewMode === 'app' ? 'Admin' : 'App'} view`}
+          >
+            <div style={{
+              position: 'relative',
+              width: '50px',
+              height: '20px',
+              background: viewMode === 'app'
+                ? (theme === 'default' ? 'rgba(76,175,80,0.9)' : theme === 'dark' ? 'rgba(76,175,80,0.9)' : 'rgba(34,197,94,0.9)')
+                : (theme === 'default' ? 'rgba(255,255,255,0.2)' : theme === 'dark' ? 'rgba(255,255,255,0.2)' : 'rgba(15,23,42,0.2)'),
+              borderRadius: '10px',
+              transition: 'background 0.2s',
+              border: theme === 'default' ? '1px solid rgba(255,255,255,0.3)' : theme === 'dark' ? '1px solid rgba(255,255,255,0.3)' : '1px solid rgba(15,23,42,0.3)',
+              overflow: 'hidden'
+            }}>
+              <span style={{
+                position: 'absolute',
+                left: viewMode === 'app' ? '8px' : 'auto',
+                right: viewMode === 'app' ? 'auto' : '8px',
+                top: '50%',
+                transform: 'translateY(-50%)',
+                fontSize: '9px',
+                fontWeight: '700',
+                color: viewMode === 'app'
+                  ? 'rgba(255,255,255,0.95)'
+                  : (theme === 'default' ? 'rgba(255,255,255,0.5)' : theme === 'dark' ? 'rgba(255,255,255,0.5)' : 'rgba(15,23,42,0.5)'),
+                transition: 'all 0.2s',
+                userSelect: 'none',
+                textTransform: 'uppercase',
+                letterSpacing: '0.5px',
+                zIndex: 1,
+                whiteSpace: 'nowrap',
+                lineHeight: '1'
+              }}>App</span>
               <div style={{
-                position: 'relative',
-                width: '50px',
-                height: '20px',
-                background: viewMode === 'app' 
-                  ? (theme === 'default' ? 'rgba(76,175,80,0.9)' : theme === 'dark' ? 'rgba(76,175,80,0.9)' : 'rgba(34,197,94,0.9)')
-                  : (theme === 'default' ? 'rgba(255,255,255,0.2)' : theme === 'dark' ? 'rgba(255,255,255,0.2)' : 'rgba(15,23,42,0.2)'),
-                borderRadius: '10px',
-                transition: 'background 0.2s',
-                border: theme === 'default' ? '1px solid rgba(255,255,255,0.3)' : theme === 'dark' ? '1px solid rgba(255,255,255,0.3)' : '1px solid rgba(15,23,42,0.3)',
-                overflow: 'hidden'
-              }}>
-                <span style={{
-                  position: 'absolute',
-                  left: viewMode === 'app' ? '8px' : 'auto',
-                  right: viewMode === 'app' ? 'auto' : '8px',
-                  top: '50%',
-                  transform: 'translateY(-50%)',
-                  fontSize: '9px',
-                  fontWeight: '700',
-                  color: viewMode === 'app' 
-                    ? 'rgba(255,255,255,0.95)' 
-                    : (theme === 'default' ? 'rgba(255,255,255,0.5)' : theme === 'dark' ? 'rgba(255,255,255,0.5)' : 'rgba(15,23,42,0.5)'),
-                  transition: 'all 0.2s',
-                  userSelect: 'none',
-                  textTransform: 'uppercase',
-                  letterSpacing: '0.5px',
-                  zIndex: 1,
-                  whiteSpace: 'nowrap',
-                  lineHeight: '1'
-                }}>App</span>
-                <div style={{
-                  position: 'absolute',
-                  top: '3px',
-                  left: viewMode === 'app' ? '32px' : '3px',
-                  width: '14px',
-                  height: '14px',
-                  background: theme === 'default' ? 'rgba(255,255,255,0.95)' : theme === 'dark' ? 'rgba(255,255,255,0.95)' : 'rgba(255,255,255,0.95)',
-                  borderRadius: '50%',
-                  transition: 'left 0.2s',
-                  boxShadow: '0 1px 3px rgba(0,0,0,0.3)',
-                  zIndex: 2
-                }} />
-              </div>
+                position: 'absolute',
+                top: '3px',
+                left: viewMode === 'app' ? '32px' : '3px',
+                width: '14px',
+                height: '14px',
+                background: theme === 'default' ? 'rgba(255,255,255,0.95)' : theme === 'dark' ? 'rgba(255,255,255,0.95)' : 'rgba(255,255,255,0.95)',
+                borderRadius: '50%',
+                transition: 'left 0.2s',
+                boxShadow: '0 1px 3px rgba(0,0,0,0.3)',
+                zIndex: 2
+              }} />
             </div>
           </div>
         </div>
@@ -1844,7 +1869,619 @@ function SidepanelOrchestrator() {
     )
   }
 
-  // Full UI for master tabs
+  // Mini App View (simplified)
+  if (viewMode === 'app') {
+    return (
+      <div style={{
+        width: '100%',
+        minHeight: '100vh',
+        fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
+        background: themeColors.background,
+        color: themeColors.text,
+        padding: '0',
+        margin: '0',
+        boxSizing: 'border-box',
+        display: 'flex',
+        flexDirection: 'column',
+        overflowX: 'hidden'
+      }}>
+        {/* Top Bar: Icons + Toggle */}
+        <div style={{ 
+          padding: '8px 12px',
+          borderBottom: '1px solid rgba(255,255,255,0.2)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: '12px',
+          background: theme === 'default' ? 'rgba(118,75,162,0.6)' : 'rgba(0,0,0,0.15)'
+        }}>
+          <button
+            onClick={openPopupChat}
+            style={{
+              width: '32px',
+              height: '32px',
+              ...actionButtonStyle('rgba(255,255,255,0.1)'),
+              fontSize: '14px',
+              padding: 0
+            }}
+            title="Open Popup Chat"
+          >
+            💬
+          </button>
+          <button
+            onClick={toggleCommandChatPin}
+            style={{
+              width: '32px',
+              height: '32px',
+              ...actionButtonStyle(isCommandChatPinned ? 'rgba(76,175,80,0.4)' : 'rgba(255,255,255,0.1)'),
+              fontSize: '14px',
+              padding: 0,
+              ...(isCommandChatPinned && theme === 'default' ? {
+                background: 'rgba(76,175,80,0.4)',
+                border: '1px solid rgba(76,175,80,0.6)'
+              } : {})
+            }}
+            title={isCommandChatPinned ? "Unpin Command Chat" : "Pin Command Chat"}
+          >
+            📌
+          </button>
+          <div
+            onClick={toggleViewMode}
+            style={{
+              cursor: 'pointer',
+              marginLeft: 'auto'
+            }}
+            title={`Switch to Admin view`}
+          >
+            <div style={{
+              position: 'relative',
+              width: '50px',
+              height: '20px',
+              background: viewMode === 'app'
+                ? (theme === 'default' ? 'rgba(76,175,80,0.9)' : theme === 'dark' ? 'rgba(76,175,80,0.9)' : 'rgba(34,197,94,0.9)')
+                : (theme === 'default' ? 'rgba(255,255,255,0.2)' : theme === 'dark' ? 'rgba(255,255,255,0.2)' : 'rgba(15,23,42,0.2)'),
+              borderRadius: '10px',
+              transition: 'background 0.2s',
+              border: theme === 'default' ? '1px solid rgba(255,255,255,0.3)' : theme === 'dark' ? '1px solid rgba(255,255,255,0.3)' : '1px solid rgba(15,23,42,0.3)',
+              overflow: 'hidden'
+            }}>
+              <span style={{
+                position: 'absolute',
+                left: viewMode === 'app' ? '8px' : 'auto',
+                right: viewMode === 'app' ? 'auto' : '8px',
+                top: '50%',
+                transform: 'translateY(-50%)',
+                fontSize: '9px',
+                fontWeight: '700',
+                color: viewMode === 'app'
+                  ? 'rgba(255,255,255,0.95)'
+                  : (theme === 'default' ? 'rgba(255,255,255,0.5)' : theme === 'dark' ? 'rgba(255,255,255,0.5)' : 'rgba(15,23,42,0.5)'),
+                transition: 'all 0.2s',
+                userSelect: 'none',
+                textTransform: 'uppercase',
+                letterSpacing: '0.5px',
+                zIndex: 1,
+                whiteSpace: 'nowrap',
+                lineHeight: '1'
+              }}>App</span>
+              <div style={{
+                position: 'absolute',
+                top: '3px',
+                left: viewMode === 'app' ? '32px' : '3px',
+                width: '14px',
+                height: '14px',
+                background: theme === 'default' ? 'rgba(255,255,255,0.95)' : theme === 'dark' ? 'rgba(255,255,255,0.95)' : 'rgba(255,255,255,0.95)',
+                borderRadius: '50%',
+                transition: 'left 0.2s',
+                boxShadow: '0 1px 3px rgba(0,0,0,0.3)',
+                zIndex: 2
+              }} />
+            </div>
+          </div>
+        </div>
+        
+      {/* Docked Command Chat - Full Featured (Only when pinned) */}
+      {isCommandChatPinned && (
+        <>
+          <div 
+            style={{
+              borderBottom: '1px solid rgba(255,255,255,0.2)',
+              background: theme === 'default' ? 'rgba(118,75,162,0.4)' : 'rgba(255,255,255,0.10)',
+              border: '1px solid rgba(255,255,255,0.20)',
+              margin: '12px 16px',
+              borderRadius: '8px',
+              overflow: 'hidden',
+              position: 'relative',
+              boxShadow: '0 4px 12px rgba(0,0,0,0.1)'
+            }}
+            onDragOver={(e) => e.preventDefault()}
+            onDrop={handleChatDrop}
+          >
+            {/* Header */}
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              padding: '10px 14px',
+              background: themeColors.background,
+              borderBottom: '1px solid rgba(255,255,255,0.20)',
+              color: themeColors.text
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <div style={{ fontSize: '13px', fontWeight: '700' }}>💬 Command Chat</div>
+                <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                  <button 
+                    onClick={handleBucketClick}
+                    title="Context Bucket: Embed context directly into the session"
+                    style={{
+                      height: '32px',
+                      minWidth: '32px',
+                      ...chatControlButtonStyle(),
+                      borderRadius: '6px',
+                      padding: '0 10px',
+                      fontSize: '14px',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      transition: 'all 0.2s ease'
+                    }}
+                    onMouseEnter={(e) => {
+                      if (theme === 'professional') {
+                        e.currentTarget.style.background = 'rgba(15,23,42,0.12)'
+                      } else if (theme === 'dark') {
+                        e.currentTarget.style.background = 'rgba(255,255,255,0.2)'
+                      } else {
+                        e.currentTarget.style.background = 'rgba(118,75,162,0.6)'
+                      }
+                    }}
+                    onMouseLeave={(e) => {
+                      if (theme === 'professional') {
+                        e.currentTarget.style.background = 'rgba(15,23,42,0.08)'
+                      } else if (theme === 'dark') {
+                        e.currentTarget.style.background = 'rgba(255,255,255,0.12)'
+                      } else {
+                        e.currentTarget.style.background = 'rgba(118,75,162,0.35)'
+                      }
+                    }}
+                  >
+                    🪣
+                  </button>
+                  <button 
+                    onClick={handleScreenSelect}
+                    title="LmGTFY - Capture a screen area as screenshot or stream"
+                    style={{
+                      ...chatControlButtonStyle(),
+                      borderRadius: '6px',
+                      padding: '0 10px',
+                      height: '32px',
+                      minWidth: '32px',
+                      fontSize: '14px',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      transition: 'all 0.2s ease'
+                    }}
+                    onMouseEnter={(e) => {
+                      if (theme === 'professional') {
+                        e.currentTarget.style.background = 'rgba(15,23,42,0.12)'
+                      } else if (theme === 'dark') {
+                        e.currentTarget.style.background = 'rgba(255,255,255,0.25)'
+                      } else {
+                        e.currentTarget.style.background = 'rgba(118,75,162,0.6)'
+                      }
+                    }}
+                    onMouseLeave={(e) => {
+                      if (theme === 'professional') {
+                        e.currentTarget.style.background = 'rgba(15,23,42,0.08)'
+                      } else if (theme === 'dark') {
+                        e.currentTarget.style.background = 'rgba(255,255,255,0.15)'
+                      } else {
+                        e.currentTarget.style.background = 'rgba(118,75,162,0.35)'
+                      }
+                    }}
+                  >
+                    ✎
+                  </button>
+                  <div style={{ position: 'relative' }}>
+                    <button 
+                      onClick={() => setShowTagsMenu(!showTagsMenu)}
+                      title="Tags - Quick access to saved triggers"
+                      style={{
+                        ...chatControlButtonStyle(),
+                        borderRadius: '6px',
+                        padding: '0 12px',
+                        height: '32px',
+                        fontSize: '13px',
+                        cursor: 'pointer',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        transition: 'all 0.2s ease'
+                      }}
+                      onMouseEnter={(e) => {
+                        if (theme === 'professional') {
+                          e.currentTarget.style.background = 'rgba(15,23,42,0.12)'
+                        } else if (theme === 'dark') {
+                          e.currentTarget.style.background = 'rgba(255,255,255,0.2)'
+                        } else {
+                          e.currentTarget.style.background = 'rgba(118,75,162,0.6)'
+                        }
+                      }}
+                      onMouseLeave={(e) => {
+                        if (theme === 'professional') {
+                          e.currentTarget.style.background = 'rgba(15,23,42,0.08)'
+                        } else if (theme === 'dark') {
+                          e.currentTarget.style.background = 'rgba(255,255,255,0.12)'
+                        } else {
+                          e.currentTarget.style.background = 'rgba(118,75,162,0.35)'
+                        }
+                      }}
+                    >
+                      Tags <span style={{ fontSize: '11px', opacity: 0.9 }}>▾</span>
+                    </button>
+                    
+                    {/* Tags Dropdown Menu */}
+                    {showTagsMenu && (
+                      <div 
+                        style={{
+                          position: 'absolute',
+                          top: '100%',
+                          right: 0,
+                          minWidth: '180px',
+                          width: '240px',
+                          maxHeight: '300px',
+                          overflowY: 'auto',
+                          zIndex: 2147483647,
+                          background: '#111827',
+                          color: 'white',
+                          border: '1px solid rgba(255,255,255,0.20)',
+                          borderRadius: '8px',
+                          boxShadow: '0 10px 22px rgba(0,0,0,0.35)',
+                          marginTop: '4px'
+                        }}
+                      >
+                        {triggers.length === 0 ? (
+                          <div style={{ padding: '8px 10px', fontSize: '12px', opacity: 0.8 }}>
+                            No tags yet
+                          </div>
+                        ) : (
+                          triggers.map((trigger, i) => (
+                            <div 
+                              key={i}
+                              style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'space-between',
+                                padding: '6px 8px',
+                                borderBottom: '1px solid rgba(255,255,255,0.20)',
+                                cursor: 'pointer'
+                              }}
+                              onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.06)'}
+                              onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                            >
+                              <button
+                                onClick={() => handleTriggerClick(trigger)}
+                                style={{
+                                  flex: 1,
+                                  textAlign: 'left',
+                                  padding: 0,
+                                  fontSize: '12px',
+                                  background: 'transparent',
+                                  border: 0,
+                                  color: 'inherit',
+                                  cursor: 'pointer',
+                                  whiteSpace: 'nowrap',
+                                  overflow: 'hidden',
+                                  textOverflow: 'ellipsis',
+                                  minWidth: 0
+                                }}
+                              >
+                                {trigger.name || `Trigger ${i + 1}`}
+                              </button>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  handleDeleteTrigger(i)
+                                }}
+                                style={{
+                                  width: '20px',
+                                  height: '20px',
+                                  border: 'none',
+                                  background: 'rgba(239,68,68,0.2)',
+                                  color: '#ef4444',
+                                  borderRadius: '4px',
+                                  cursor: 'pointer',
+                                  fontSize: '16px',
+                                  lineHeight: 1,
+                                  padding: 0,
+                                  marginLeft: '8px',
+                                  flexShrink: 0
+                                }}
+                                onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(239,68,68,0.4)'}
+                                onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(239,68,68,0.2)'}
+                              >
+                                ×
+                              </button>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                <button 
+                  onClick={toggleCommandChatPin}
+                  title="Unpin from sidepanel"
+                  style={{
+                    ...chatControlButtonStyle(),
+                    borderRadius: '6px',
+                    padding: '4px 6px',
+                    fontSize: '10px',
+                    cursor: 'pointer'
+                  }}
+                >
+                  ↗
+                </button>
+              </div>
+            </div>
+
+            {/* Messages Area */}
+            <div 
+              id="ccd-messages-sidepanel"
+              ref={chatRef}
+              style={{
+                height: `${chatHeight}px`,
+                overflowY: 'auto',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '10px',
+                background: theme === 'default' ? 'rgba(118,75,162,0.25)' : 'rgba(255,255,255,0.06)',
+                borderBottom: '1px solid rgba(255,255,255,0.20)',
+                padding: '14px'
+              }}
+            >
+              {chatMessages.length === 0 ? (
+                <div style={{ fontSize: '13px', opacity: 0.6, textAlign: 'center', padding: '32px 20px' }}>
+                  Start a conversation...
+                </div>
+              ) : (
+                chatMessages.map((msg: any, i) => (
+                  <div 
+                    key={i} 
+                    style={{
+                      display: 'flex',
+                      justifyContent: msg.role === 'user' ? 'flex-end' : 'flex-start'
+                    }}
+                  >
+                    <div style={{
+                      maxWidth: '80%',
+                      padding: '10px 14px',
+                      borderRadius: '12px',
+                      fontSize: '13px',
+                      lineHeight: '1.5',
+                      background: msg.role === 'user' ? 'rgba(34,197,94,0.15)' : 'rgba(255,255,255,0.12)',
+                      border: msg.role === 'user' ? '1px solid rgba(34,197,94,0.5)' : '1px solid rgba(255,255,255,0.25)'
+                    }}>
+                      {msg.imageUrl ? (
+                        <img 
+                          src={msg.imageUrl} 
+                          alt="Screenshot" 
+                          style={{ 
+                            maxWidth: '260px', 
+                            height: 'auto', 
+                            borderRadius: '8px',
+                            display: 'block'
+                          }} 
+                        />
+                      ) : (
+                        msg.text
+                      )}
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+
+            {/* Resize Handle */}
+            <div 
+              onMouseDown={(e) => {
+                e.preventDefault()
+                setIsResizingChat(true)
+              }}
+              style={{
+                height: '4px',
+                background: 'rgba(255,255,255,0.15)',
+                cursor: 'ns-resize',
+                borderTop: '1px solid rgba(255,255,255,0.10)',
+                borderBottom: '1px solid rgba(255,255,255,0.10)'
+              }}
+            />
+
+            {/* Compose Area */}
+            <div 
+              id="ccd-compose-sidepanel"
+              style={{
+              display: 'grid',
+              gridTemplateColumns: '1fr 40px 40px 72px',
+              gap: '8px',
+              alignItems: 'center',
+              padding: '12px 14px'
+            }}>
+              <textarea
+                value={chatInput}
+                onChange={(e) => setChatInput(e.target.value)}
+                onKeyDown={handleChatKeyDown}
+                placeholder="Type your message..."
+                style={{
+                  boxSizing: 'border-box',
+                  height: '40px',
+                  minHeight: '40px',
+                  resize: 'vertical',
+                  background: 'rgba(255,255,255,0.08)',
+                  border: '1px solid rgba(255,255,255,0.20)',
+                  color: 'white',
+                  borderRadius: '8px',
+                  padding: '10px 12px',
+                  fontSize: '13px',
+                  fontFamily: 'inherit',
+                  lineHeight: '1.5'
+                }}
+              />
+            <input
+                ref={fileInputRef}
+                type="file" 
+                multiple 
+                style={{ display: 'none' }} 
+                onChange={handleFileChange}
+              />
+              <button 
+                onClick={handleBucketClick}
+                title="Attach" 
+                style={{
+                  height: '40px',
+                  background: 'rgba(255,255,255,0.15)',
+                  border: '1px solid rgba(255,255,255,0.25)',
+                  color: 'white',
+                  borderRadius: '8px',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontSize: '18px',
+                  transition: 'all 0.2s ease'
+                }}
+                onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.25)'}
+                onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.15)'}
+              >
+                📎
+              </button>
+              <button 
+                title="Voice" 
+                style={{
+                  height: '40px',
+                  background: 'rgba(255,255,255,0.15)',
+                  border: '1px solid rgba(255,255,255,0.25)',
+                  color: 'white',
+                  borderRadius: '8px',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontSize: '18px',
+                  transition: 'all 0.2s ease'
+                }}
+                onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.25)'}
+                onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.15)'}
+              >
+                🎙️
+              </button>
+              <button
+                onClick={handleSendMessage}
+                style={{
+                  height: '40px',
+                  background: '#22c55e',
+                  border: '1px solid #16a34a',
+                  color: '#0b1e12',
+                  borderRadius: '8px',
+                  fontWeight: '700',
+                  cursor: 'pointer',
+                  fontSize: '13px',
+                  transition: 'all 0.2s ease'
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = '#16a34a'
+                  e.currentTarget.style.transform = 'translateY(-1px)'
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = '#22c55e'
+                  e.currentTarget.style.transform = 'translateY(0)'
+                }}
+              >
+                Send
+              </button>
+            </div>
+          </div>
+        </>
+      )}
+      
+      {/* Add Mini App Button - Always visible */}
+      <div style={{
+        flex: 1,
+        padding: '40px 20px',
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center'
+      }}>
+        <button
+            onClick={addMiniApp}
+            style={{
+              width: '100%',
+              maxWidth: '300px',
+              padding: '20px 24px',
+              ...(theme === 'professional' ? {
+                background: 'rgba(15,23,42,0.08)',
+                border: '2px dashed rgba(15,23,42,0.3)',
+                color: '#0f172a'
+              } : theme === 'dark' ? {
+                background: 'rgba(255,255,255,0.1)',
+                border: '2px dashed rgba(255,255,255,0.3)',
+                color: '#f1f5f9'
+              } : {
+                background: 'rgba(118,75,162,0.3)',
+                border: '2px dashed rgba(255,255,255,0.5)',
+                color: 'white'
+              }),
+              borderRadius: '12px',
+              cursor: 'pointer',
+              fontSize: '16px',
+              fontWeight: '700',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '10px',
+              transition: 'all 0.2s ease',
+              boxShadow: 'none'
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.transform = 'translateY(-2px)'
+              if (theme === 'professional') {
+                e.currentTarget.style.background = 'rgba(15,23,42,0.12)'
+                e.currentTarget.style.borderColor = 'rgba(15,23,42,0.4)'
+              } else if (theme === 'dark') {
+                e.currentTarget.style.background = 'rgba(255,255,255,0.15)'
+                e.currentTarget.style.borderColor = 'rgba(255,255,255,0.4)'
+              } else {
+                e.currentTarget.style.background = 'rgba(118,75,162,0.55)'
+                e.currentTarget.style.borderColor = 'rgba(255,255,255,0.7)'
+              }
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.transform = 'translateY(0)'
+              if (theme === 'professional') {
+                e.currentTarget.style.background = 'rgba(15,23,42,0.08)'
+                e.currentTarget.style.borderColor = 'rgba(15,23,42,0.3)'
+              } else if (theme === 'dark') {
+                e.currentTarget.style.background = 'rgba(255,255,255,0.1)'
+                e.currentTarget.style.borderColor = 'rgba(255,255,255,0.3)'
+              } else {
+                e.currentTarget.style.background = 'rgba(118,75,162,0.3)'
+                e.currentTarget.style.borderColor = 'rgba(255,255,255,0.5)'
+              }
+            }}
+          >
+            ➕ Add Mini App
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  // Full Admin/Control Panel UI for master tabs
   return (
     <div style={{
       width: '100%',
@@ -2946,7 +3583,7 @@ function SidepanelOrchestrator() {
               position: 'relative',
               width: '50px',
               height: '20px',
-              background: viewMode === 'app' 
+              background: viewMode === 'app'
                 ? (theme === 'default' ? 'rgba(76,175,80,0.9)' : theme === 'dark' ? 'rgba(76,175,80,0.9)' : 'rgba(34,197,94,0.9)')
                 : (theme === 'default' ? 'rgba(255,255,255,0.2)' : theme === 'dark' ? 'rgba(255,255,255,0.2)' : 'rgba(15,23,42,0.2)'),
               borderRadius: '10px',
@@ -2962,8 +3599,8 @@ function SidepanelOrchestrator() {
                 transform: 'translateY(-50%)',
                 fontSize: '9px',
                 fontWeight: '700',
-                color: viewMode === 'app' 
-                  ? 'rgba(255,255,255,0.95)' 
+                color: viewMode === 'app'
+                  ? 'rgba(255,255,255,0.95)'
                   : (theme === 'default' ? 'rgba(255,255,255,0.5)' : theme === 'dark' ? 'rgba(255,255,255,0.5)' : 'rgba(15,23,42,0.5)'),
                 transition: 'all 0.2s',
                 userSelect: 'none',

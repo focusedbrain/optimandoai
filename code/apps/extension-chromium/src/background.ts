@@ -82,28 +82,36 @@ function connectToWebSocketServer() {
           } else if (data.type === 'TRIGGERS_UPDATED') {
             try { chrome.runtime.sendMessage({ type: 'TRIGGERS_UPDATED' }) } catch {}
           } else if (data.type === 'SHOW_TRIGGER_PROMPT') {
-            // Forward trigger prompt request to popup AND content script
+            // Forward trigger prompt request to content script and sidepanel
+            // Include the tab URL so they can decide whether to show modal or inline
             console.log('📝 Received SHOW_TRIGGER_PROMPT from Electron:', data)
-            // Send to popup
-            try { chrome.runtime.sendMessage({ type: 'SHOW_TRIGGER_PROMPT', mode: data.mode, rect: data.rect, displayId: data.displayId, imageUrl: data.imageUrl, videoUrl: data.videoUrl, createTrigger: data.createTrigger, addCommand: data.addCommand }) } catch {}
-            // Send to active tab's content script (for docked chat)
+            // Get active tab info
             chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
               const tabId = tabs[0]?.id
+              const tabUrl = tabs[0]?.url || ''
               if (!tabId) return
+              
+              const message = { 
+                type: 'SHOW_TRIGGER_PROMPT', 
+                mode: data.mode, 
+                rect: data.rect, 
+                displayId: data.displayId, 
+                imageUrl: data.imageUrl, 
+                videoUrl: data.videoUrl,
+                createTrigger: data.createTrigger,
+                addCommand: data.addCommand,
+                tabUrl: tabUrl // Include tab URL for restricted page detection
+              }
+              
+              // Send to content script
               try { 
-                chrome.tabs.sendMessage(tabId, { 
-                  type: 'SHOW_TRIGGER_PROMPT', 
-                  mode: data.mode, 
-                  rect: data.rect, 
-                  displayId: data.displayId, 
-                  imageUrl: data.imageUrl, 
-                  videoUrl: data.videoUrl,
-                  createTrigger: data.createTrigger,
-                  addCommand: data.addCommand
-                }) 
+                chrome.tabs.sendMessage(tabId, message) 
               } catch (e) {
                 console.log('❌ Failed to send SHOW_TRIGGER_PROMPT to content script:', e)
               }
+              
+              // Send to sidepanel/popup
+              try { chrome.runtime.sendMessage(message) } catch {}
             })
           }
         }
