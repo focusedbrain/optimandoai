@@ -4220,7 +4220,7 @@ function initializeExtension() {
 
     if (isFreshBrowserSession) {
 
-      console.log('🆕 CREATING NEW SESSION - Main master tab with no existing session')
+      console.log('🔧 Fresh browser session detected - session will be created on first user action')
 
       
 
@@ -4314,43 +4314,13 @@ function initializeExtension() {
 
       
 
-      // Create a brand-new session entry in Sessions History
-
-      try {
-
-        const sessionKey = `session_${Date.now()}`
-
-        const sessionData = {
-
-          ...currentTabData,
-
-          timestamp: new Date().toISOString(),
-
-          url: window.location.href,
-
-          helperTabs: null,
-
-          displayGrids: null
-
-        }
-
-        storageSet({ [sessionKey]: sessionData }, () => {
-
-          console.log('🆕 Fresh browser session added to history:', sessionKey)
-
-          setCurrentSessionKey(sessionKey)
-
-        })
-
-      } catch (e) {
-
-        console.error('❌ Failed to create fresh session entry:', e)
-
-      }
+      // DON'T create session entry yet - wait for user action
+      // Mark that we need to create session on first save
+      sessionStorage.setItem('optimando-pending-session-creation', 'true')
 
       
 
-      console.log('🔧 DEBUG: Starting fresh session:', currentTabData.tabName)
+      console.log('🔧 DEBUG: Session creation pending - will be created on first user action')
 
       return // Skip loading old data for fresh session
 
@@ -4820,13 +4790,31 @@ function initializeExtension() {
 
     
 
-    // Function to find max box number across entire session
+    /**
+
+     * Find max box number across entire session
+
+     * This ensures chronological numbering regardless of where boxes are created
+
+     * Checks:
+
+     * 1. session.agentBoxes[] - All agent boxes (master tab + display grid)
+
+     * 2. session.displayGrids[].config.slots - Backup check for display grid slots
+
+     * 3. session.helperTabs.agentBoxes[] - Helper tab boxes
+
+     * Returns: The highest box number found, or 0 if none exist
+
+     */
 
     const findMaxBoxNumber = (session: any): number => {
 
       let maxBoxNumber = 0
 
       
+
+      console.log('🔍 Finding max box number in session...')
 
       // Check all agent boxes in master tabs
 
@@ -4897,6 +4885,8 @@ function initializeExtension() {
       }
 
       
+
+      console.log(`✅ Max box number found: ${maxBoxNumber}`)
 
       return maxBoxNumber
 
@@ -5422,7 +5412,9 @@ function initializeExtension() {
 
           tabIndex: tabIndex,  // ← Add tab index for location tracking
 
-          tabUrl: window.location.href  // ← Store tab URL to identify unique tabs
+          tabUrl: window.location.href,  // ← Store tab URL to identify unique tabs
+
+          source: 'master_tab'  // ← Identify this as a master tab box
 
       }
 
@@ -29549,47 +29541,83 @@ ${pageText}
 
             } else {
 
-              // Master tab - assign tab number based on unique URL (normalized)
+              // Master tab - determine location based on source and tabIndex
 
-              if (box.tabUrl) {
+              if (box.source === 'master_tab') {
 
-                // Normalize URL to remove query parameters and hash
+                // Check if this is a hybrid master tab (tabIndex > 1) or main master tab
 
-                const normalizedUrl = normalizeUrl(box.tabUrl)
+                const tabIdx = box.tabIndex || 1
 
                 
 
-                // Get or assign tab index for this normalized URL
+                if (tabIdx === 1) {
 
-                if (!tabUrlToIndex.has(normalizedUrl)) {
+                  // Main master tab - no number needed
 
-                  tabUrlToIndex.set(normalizedUrl, nextTabIndex)
-
-                  nextTabIndex++
-
-                }
-
-                const tabNum = tabUrlToIndex.get(normalizedUrl)
-
-                if (tabNum && tabNum > 1) {
-
-                  location = `Master Tab (${tabNum})`
-
-                  // Add side panel information for Master Tab (2) and onwards
-
-                  if (box.side === 'left') {
-
-                    location = `Master Tab (${tabNum}), SPL`
-
-                  } else if (box.side === 'right') {
-
-                    location = `Master Tab (${tabNum}), SPR`
-
-                  }
+                  location = 'Master Tab'
 
                 } else {
 
-                  location = 'Master Tab'  // First tab doesn't need number
+                  // Hybrid master tab - show tab number and side
+
+                  location = `Master Tab (${tabIdx})`
+
+                  if (box.side === 'left') {
+
+                    location = `Master Tab (${tabIdx}), SPL`
+
+                  } else if (box.side === 'right') {
+
+                    location = `Master Tab (${tabIdx}), SPR`
+
+                  }
+
+                }
+
+              } else {
+
+                // Legacy logic: assign tab number based on unique URL (normalized)
+
+                if (box.tabUrl) {
+
+                  const normalizedUrl = normalizeUrl(box.tabUrl)
+
+                  
+
+                  // Get or assign tab index for this normalized URL
+
+                  if (!tabUrlToIndex.has(normalizedUrl)) {
+
+                    tabUrlToIndex.set(normalizedUrl, nextTabIndex)
+
+                    nextTabIndex++
+
+                  }
+
+                  const tabNum = tabUrlToIndex.get(normalizedUrl)
+
+                  if (tabNum && tabNum > 1) {
+
+                    location = `Master Tab (${tabNum})`
+
+                    // Add side panel information for Master Tab (2) and onwards
+
+                    if (box.side === 'left') {
+
+                      location = `Master Tab (${tabNum}), SPL`
+
+                    } else if (box.side === 'right') {
+
+                      location = `Master Tab (${tabNum}), SPR`
+
+                    }
+
+                  } else {
+
+                    location = 'Master Tab'  // First tab doesn't need number
+
+                  }
 
                 }
 
@@ -29613,7 +29641,9 @@ ${pageText}
 
               provider: box.provider,
 
-              model: box.model
+              model: box.model,
+
+              tools: box.tools || []  // ← Add tools array
 
             })
 
@@ -29629,125 +29659,11 @@ ${pageText}
 
       
 
-      // Add display grid slots that are set up
+      // NOTE: Display grid boxes are now stored directly in session.agentBoxes
 
-      console.log('📊 Overview: Checking session.displayGrids:', session.displayGrids)
+      // They are processed above with source: 'display_grid'
 
-      
-
-      if (session.displayGrids && Array.isArray(session.displayGrids)) {
-
-        console.log(`📊 Overview: Processing ${session.displayGrids.length} display grids`)
-
-        
-
-        session.displayGrids.forEach((grid: any, gridIndex: number) => {
-
-          console.log(`📊 Overview: Grid ${gridIndex}:`, JSON.stringify(grid, null, 2))
-
-          
-
-          if (grid.config && grid.config.slots) {
-
-            const slotCount = Object.keys(grid.config.slots).length
-
-            console.log(`📊 Overview: Grid ${gridIndex} has ${slotCount} slots`)
-
-            
-
-            Object.entries(grid.config.slots).forEach(([slotId, slotData]: [string, any]) => {
-
-              console.log(`📦 Overview: Slot ${slotId}:`, JSON.stringify(slotData, null, 2))
-
-              
-
-              if (slotData && (slotData.title || slotData.agent || slotData.model || slotData.provider)) {
-
-                // Get box number
-
-                const boxNumber = slotData.boxNumber || parseInt(slotId) || 0
-
-                
-
-                // Extract agent number
-
-                let agentNumber = 0
-
-                if (slotData.agentNumber) {
-
-                  agentNumber = slotData.agentNumber
-
-                } else if (slotData.agent && String(slotData.agent).match(/\d+/)) {
-
-                  const match = String(slotData.agent).match(/\d+/)
-
-                  agentNumber = parseInt(match[0])
-
-                }
-
-                
-
-                // Generate identifier
-
-                const identifier = slotData.identifier || `AB${String(boxNumber).padStart(2, '0')}${String(agentNumber).padStart(2, '0')}`
-
-                
-
-                console.log(`✅ Overview: INCLUDING Display Grid Box: boxNum=${boxNumber}, agentNum=${agentNumber}, identifier=${identifier}`)
-
-                
-
-                // Calculate the actual slot position within this grid
-
-                // Slots are numbered starting from 6 internally (6,7,8...), so we need to calculate the position
-
-                // Get all slots from this grid and find the index
-
-                const allSlotIds = Object.keys(grid.config.slots).sort((a, b) => parseInt(a) - parseInt(b))
-
-                const slotPosition = allSlotIds.indexOf(slotId) + 1 // +1 to start from 1
-
-                
-
-                registeredBoxes.push({
-
-                  boxNumber: boxNumber,
-
-                  agentNumber: agentNumber,
-
-                  identifier: identifier,
-
-                  title: slotData.title || `Display Port ${slotId}`,
-
-                  location: `${grid.layout} Display Grid, Slot ${slotPosition}`,
-
-                  provider: slotData.provider,
-
-                  model: slotData.model
-
-                })
-
-              } else {
-
-                console.log(`❌ Overview: EXCLUDING Slot ${slotId}: no title/agent/model/provider`)
-
-              }
-
-            })
-
-          } else {
-
-            console.log(`⚠️ Overview: Grid ${gridIndex} has no config.slots`)
-
-          }
-
-        })
-
-      } else {
-
-        console.log('⚠️ Overview: No displayGrids array in session')
-
-      }
+      // No need for duplicate processing from session.displayGrids
 
       
 
@@ -29777,9 +29693,19 @@ ${pageText}
 
         
 
+        // Get tools info
+
+        const toolsInfo = box.tools && Array.isArray(box.tools) && box.tools.length > 0
+
+          ? box.tools.join(', ')
+
+          : '-'
+
+        
+
         return `
 
-          <div style="background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.2); border-radius: 10px; padding: 12px; margin: 8px 0; display: grid; grid-template-columns: 110px 1fr 1fr 140px; gap: 12px; align-items: center;">
+          <div style="background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.2); border-radius: 10px; padding: 12px; margin: 8px 0; display: grid; grid-template-columns: 110px 1fr 1fr 140px 150px; gap: 12px; align-items: center;">
 
             <div style="font-family: monospace; font-weight: 700; color: #fbbf24; font-size: 16px;">${identifier}</div>
 
@@ -29788,6 +29714,8 @@ ${pageText}
             <div style="font-size: 13px; opacity: 0.9;">${llmInfo}</div>
 
             <div style="font-size: 12px; opacity: 0.8;">${box.location}</div>
+
+            <div style="font-size: 11px; opacity: 0.8;">${toolsInfo}</div>
 
           </div>
 
@@ -29843,7 +29771,7 @@ ${pageText}
 
             <div style="background: rgba(255,255,255,0.05); padding: 10px; border-radius: 8px; margin-bottom: 15px;">
 
-              <div style="display: grid; grid-template-columns: 110px 1fr 1fr 140px; gap: 12px; font-size: 11px; font-weight: 600; color: rgba(255,255,255,0.6); text-transform: uppercase;">
+              <div style="display: grid; grid-template-columns: 110px 1fr 1fr 140px 150px; gap: 12px; font-size: 11px; font-weight: 600; color: rgba(255,255,255,0.6); text-transform: uppercase;">
 
                 <div>Identifier</div>
 
@@ -29852,6 +29780,8 @@ ${pageText}
                 <div>Selected LLM</div>
 
                 <div>Location</div>
+
+                <div>Tools</div>
 
               </div>
 
@@ -30848,6 +30778,16 @@ ${pageText}
 
       return
 
+    }
+
+    
+
+    // Check if this is the first save after pending session creation
+    const isPendingSessionCreation = sessionStorage.getItem('optimando-pending-session-creation') === 'true'
+    
+    if (isPendingSessionCreation) {
+      console.log('🆕 Creating session on first user action')
+      sessionStorage.removeItem('optimando-pending-session-creation')
     }
 
     
@@ -32662,74 +32602,6 @@ ${pageText}
   setTimeout(() => {
 
     renderAgentBoxes()
-
-    
-
-    // Show new session notification if this was a fresh browser session
-
-    const browserSessionMarker = sessionStorage.getItem('optimando-browser-session')
-
-    const sessionStartTime = sessionStorage.getItem('optimando-session-start-time')
-
-    
-
-    if (browserSessionMarker && !sessionStartTime) {
-
-      // Mark that we've shown the notification for this browser session
-
-      sessionStorage.setItem('optimando-session-start-time', Date.now().toString())
-
-      
-
-      // Show fresh session notification
-
-      setTimeout(() => {
-
-        const notification = document.createElement('div')
-
-        notification.style.cssText = `
-
-          position: fixed;
-
-          top: 60px;
-
-          right: 20px;
-
-          background: rgba(33, 150, 243, 0.9);
-
-          color: white;
-
-          padding: 10px 15px;
-
-          border-radius: 5px;
-
-          font-size: 12px;
-
-          z-index: 2147483648;
-
-          animation: slideIn 0.3s ease;
-
-        `
-
-        notification.innerHTML = `🆕 Fresh browser session - New session started: "${currentTabData.tabName}"`
-
-        document.body.appendChild(notification)
-
-        
-
-        setTimeout(() => {
-
-          notification.remove()
-
-        }, 4000)
-
-        
-
-        console.log('🆕 Fresh browser session notification shown')
-
-      }, 1000) // Delay to ensure UI is ready
-
-    }
 
   }, 100)
 

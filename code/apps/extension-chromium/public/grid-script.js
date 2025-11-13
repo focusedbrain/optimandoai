@@ -78,13 +78,23 @@ if (window.gridScriptLoaded) {
     // Get parent session key from global config
     var parentSessionKey = (window.GRID_CONFIG && window.GRID_CONFIG.sessionKey) || '';
     
-    // Function to calculate next box number from session
+    /**
+     * Calculate next box number from session storage
+     * This ensures chronological numbering regardless of where boxes are created
+     * Checks:
+     * 1. session.agentBoxes[] - All agent boxes (master tab + display grid)
+     * 2. session.displayGrids[].config.slots - Backup check for display grid slots
+     * Returns: The next box number (max + 1), or 1 if none exist
+     */
     function calculateNextBoxNumber(callback) {
       if (!parentSessionKey || typeof chrome === 'undefined' || !chrome.storage || !chrome.storage.local) {
         var fallbackNumber = (typeof window.nextBoxNumber !== 'undefined') ? window.nextBoxNumber : 1;
+        console.log('⚠️ Using fallback box number:', fallbackNumber);
         callback(fallbackNumber);
         return;
       }
+      
+      console.log('🔍 Calculating next box number from session...');
       
       chrome.storage.local.get([parentSessionKey], function(result) {
         var session = result[parentSessionKey] || {};
@@ -96,9 +106,10 @@ if (window.gridScriptLoaded) {
             var boxNum = box.boxNumber || box.number || 0;
             if (boxNum > maxBoxNumber) maxBoxNumber = boxNum;
           });
+          console.log('  ✓ Checked', session.agentBoxes.length, 'agent boxes');
         }
         
-        // Check all display grid slots
+        // Check all display grid slots (backup check)
         if (session.displayGrids && Array.isArray(session.displayGrids)) {
           session.displayGrids.forEach(function(grid) {
             if (grid.config && grid.config.slots) {
@@ -108,10 +119,11 @@ if (window.gridScriptLoaded) {
               });
             }
           });
+          console.log('  ✓ Checked', session.displayGrids.length, 'display grids');
         }
         
         var nextNum = maxBoxNumber + 1;
-        console.log('📦 Calculated next box number:', nextNum, 'from max:', maxBoxNumber);
+        console.log('✅ Calculated next box number:', nextNum, 'from max:', maxBoxNumber);
         callback(nextNum);
       });
     }
@@ -341,14 +353,36 @@ if (window.gridScriptLoaded) {
         tools: newConfig.tools || [],
         locationId: newConfig.locationId,
         locationLabel: newConfig.locationLabel,
-        source: 'display_grid',
+        source: 'display_grid',  // Explicitly mark as display grid
         gridSessionId: newConfig.gridSessionId,
         gridLayout: newConfig.gridLayout,
         slotId: newConfig.slotId,
         timestamp: new Date().toISOString()
       };
       
-      console.log('📦 DIRECT SAVE: Agent box to save:', agentBox);
+      // Field validation
+      if (!agentBox.boxNumber) {
+        console.error('❌ VALIDATION ERROR: boxNumber is missing!');
+        alert('❌ Error: Box number is missing. Cannot save agent box.');
+        overlay.remove();
+        return;
+      }
+      
+      if (!agentBox.identifier) {
+        console.error('❌ VALIDATION ERROR: identifier is missing!');
+        alert('❌ Error: Identifier is missing. Cannot save agent box.');
+        overlay.remove();
+        return;
+      }
+      
+      console.log('📦 DIRECT SAVE: Agent box to save:', JSON.stringify(agentBox, null, 2));
+      console.log('✅ Field validation passed:', {
+        hasBoxNumber: !!agentBox.boxNumber,
+        hasIdentifier: !!agentBox.identifier,
+        hasTitle: !!agentBox.title,
+        hasSource: agentBox.source === 'display_grid',
+        hasGridInfo: !!agentBox.gridSessionId && !!agentBox.gridLayout
+      });
       
       // Load session, add agent box, save back
       if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
@@ -373,6 +407,12 @@ if (window.gridScriptLoaded) {
             session.agentBoxes.push(agentBox);
             console.log('🆕 DIRECT SAVE: Added new agent box, total now:', session.agentBoxes.length);
           }
+          
+          // Log all agent boxes with their sources
+          console.log('📊 DIRECT SAVE: Current agent boxes in session:');
+          session.agentBoxes.forEach(function(box, idx) {
+            console.log(`  [${idx}] ${box.identifier} - ${box.title} (source: ${box.source || 'unknown'})`);
+          });
           
           // Collect all slot configurations for grid metadata
       var payload = {
