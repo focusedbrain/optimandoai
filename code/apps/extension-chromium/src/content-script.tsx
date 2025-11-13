@@ -4582,7 +4582,9 @@ function initializeExtension() {
 
       currentTabData.agentBoxes = []
 
-      saveTabDataToStorage()
+      // DON'T save here! This would wipe out boxes from other tabs/grids on page refresh
+
+      // saveTabDataToStorage() is only called when user actually makes changes
 
     }
 
