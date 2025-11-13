@@ -5610,7 +5610,7 @@ function initializeExtension() {
 
         <div style="margin: 10px 0;display:flex;align-items:center;gap:6px;">
 
-          <button id="agent-tools-open" data-agent-id="${agentId}" style="background:transparent;border:none;color:#3b82f6;text-decoration:underline;cursor:pointer;font-size:12px;padding:0">+ Tool</button>
+          <button id="agent-tools-open" data-agent-id="${agentId}" style="background:transparent;border:none;color:#3b82f6;text-decoration:underline;cursor:pointer;font-size:12px;padding:0">+ Mini App</button>
 
           <span style="font-size:12px;color:#64748b">(optional)</span>
 
