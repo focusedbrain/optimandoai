@@ -1008,6 +1008,42 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   }
 
+  // Handle ADD AGENT BOX request from sidepanel
+
+  else if (message.type === 'ADD_AGENT_BOX') {
+
+    console.log('📨 Received ADD_AGENT_BOX message')
+
+    try {
+
+      if (globalLightboxFunctions.openAddAgentBoxDialog) {
+
+        console.log('✅ Calling openAddAgentBoxDialog()...')
+
+        globalLightboxFunctions.openAddAgentBoxDialog()
+
+        console.log('✅ Add Agent Box dialog opened successfully')
+
+        sendResponse({ success: true })
+
+      } else {
+
+        console.warn('⚠️ openAddAgentBoxDialog function not available')
+
+        sendResponse({ success: false, error: 'Function not available' })
+
+      }
+
+    } catch (e) {
+
+      console.error('❌ Error opening add agent box dialog:', e)
+
+      sendResponse({ success: false, error: String(e) })
+
+    }
+
+  }
+
   // Handle SYNC SESSION request from sidepanel
 
   else if (message.type === 'SYNC_SESSION') {
