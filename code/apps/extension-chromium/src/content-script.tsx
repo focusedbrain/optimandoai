@@ -29365,6 +29365,14 @@ ${pageText}
 
       const session = result[sessionKey]
 
+      console.log('🔍 Overview: Loaded session data:', session)
+
+      console.log('🔍 Overview: session.agentBoxes:', session?.agentBoxes)
+
+      console.log('🔍 Overview: session.displayGrids:', session?.displayGrids)
+
+      
+
       if (!session) {
 
         overlay.innerHTML = `
