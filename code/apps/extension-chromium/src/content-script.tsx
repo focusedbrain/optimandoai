@@ -3103,6 +3103,60 @@ function initializeExtension() {
 
         
 
+        // 🆕 ALSO include agents from agentBoxes (display grid, hybrid agents, etc.)
+
+        const agentBoxes = session.agentBoxes || []
+
+        const agentBoxAgents = agentBoxes.map((box: any) => {
+
+          // Convert agent box to agent format
+
+          return {
+
+            key: box.identifier || `agent_${box.boxNumber}_${box.agentNumber}`,
+
+            name: box.title || `Agent ${box.agentNumber}`,
+
+            icon: '📊', // Display grid icon
+
+            number: box.agentNumber || box.boxNumber,
+
+            scope: 'session',
+
+            kind: 'custom',
+
+            source: box.source || 'display_grid',
+
+            provider: box.provider,
+
+            model: box.model,
+
+            locationLabel: box.locationLabel,
+
+            locationId: box.locationId,
+
+            gridSessionId: box.gridSessionId,
+
+            slotId: box.slotId
+
+          }
+
+        })
+
+        
+
+        agentBoxAgents.forEach((a: any) => {
+
+          if (!agentMap.has(a.key)) {
+
+            agentMap.set(a.key, a)
+
+          }
+
+        })
+
+        
+
         // Then, add account agents ONLY if they don't already exist in the map
 
         accountAgents.forEach((a: any) => {
@@ -3125,13 +3179,15 @@ function initializeExtension() {
 
         
 
-        console.log(`🔄 getAllAgentsForSession: Merging ${accountAgents.length} account + ${sessionAgents.length} session agents`)
+        console.log(`🔄 getAllAgentsForSession: Merging ${accountAgents.length} account + ${sessionAgents.length} session + ${agentBoxAgents.length} agentBox agents`)
 
         console.log(`   Account agents:`, accountAgents.map((a: any) => `${a.name} (${a.key}, scope: ${a.scope})`))
 
         console.log(`   Session agents:`, sessionAgents.map((a: any) => `${a.name} (${a.key}, scope: ${a.scope})`))
 
-        console.log(`   Duplicates found and removed: ${(accountAgents.length + sessionAgents.length) - allAgents.length}`)
+        console.log(`   AgentBox agents:`, agentBoxAgents.map((a: any) => `${a.name} (${a.key}, source: ${a.source})`))
+
+        console.log(`   Duplicates found and removed: ${(accountAgents.length + sessionAgents.length + agentBoxAgents.length) - allAgents.length}`)
 
         console.log(`   Final unique agents (${allAgents.length}):`, allAgents.map((a: any) => `${a.name} (${a.key}, scope: ${a.scope})`))
 

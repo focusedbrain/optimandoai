@@ -146,8 +146,15 @@ export async function autoMigrateIfNeeded(): Promise<void> {
 
 /**
  * Show a notification to the user about the migration
+ * Note: Only works in content script context (not background service worker)
  */
 function showMigrationNotification(keyCount: number): void {
+  // Check if we're in a DOM context (content script) vs background worker
+  if (typeof document === 'undefined' || !document.body) {
+    console.log(`✅ [Migration] ${keyCount} items migrated to SQLite (notification skipped - no DOM context)`);
+    return;
+  }
+  
   const notification = document.createElement('div');
   notification.style.cssText = `
     position: fixed;
