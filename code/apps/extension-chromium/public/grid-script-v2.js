@@ -225,6 +225,22 @@ if (window.gridScriptV2Loaded) {
         tools: (cfg.tools || []) 
       };
       
+      // 🆕 Create full agent box object for SQLite storage
+      var agentBox = {
+        identifier: newConfig.identifier,
+        boxNumber: nextBoxNumber,
+        title: title,
+        agentNumber: agentNum ? parseInt(agentNum) : 0,
+        provider: provider || 'auto',
+        model: model || 'auto',
+        tools: (cfg.tools || []),
+        source: 'display_grid',
+        gridLayout: window.gridLayout,
+        gridSessionId: window.gridSessionId,
+        slotId: slotId,
+        timestamp: new Date().toISOString()
+      };
+      
       slot.setAttribute('data-slot-config', JSON.stringify(newConfig));
       
       // Update visual display
@@ -263,22 +279,29 @@ if (window.gridScriptV2Loaded) {
       });
       
       console.log('📦 POPUP V2: Full payload:', payload);
+      console.log('📦 POPUP V2: Agent box:', agentBox);
       
-      // 🆕 KEY FIX: Use chrome.runtime.sendMessage to background script
+      // 🆕 KEY FIX: Use SAVE_AGENT_BOX_TO_SQLITE instead of GRID_SAVE
       if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
-        console.log('📤 V2: Sending GRID_SAVE via chrome.runtime.sendMessage...');
+        console.log('📤 V2: Sending SAVE_AGENT_BOX_TO_SQLITE via chrome.runtime.sendMessage...');
         
         chrome.runtime.sendMessage({
-          type: 'GRID_SAVE',
-          payload: payload,
+          type: 'SAVE_AGENT_BOX_TO_SQLITE',
           sessionKey: sessionKey,
-          timestamp: Date.now()
+          agentBox: agentBox,
+          gridMetadata: {
+            layout: window.gridLayout,
+            sessionId: window.gridSessionId,
+            config: payload,
+            timestamp: new Date().toISOString()
+          }
         }, function(response) {
           if (chrome.runtime.lastError) {
             console.error('❌ V2: chrome.runtime.sendMessage failed:', chrome.runtime.lastError);
             alert('Failed to save grid configuration: ' + chrome.runtime.lastError.message);
           } else if (response && response.success) {
-            console.log('✅ V2: Save successful via background script!');
+            console.log('✅ V2: Save successful via background script to SQLite!');
+            console.log('📦 V2: Total boxes in session:', response.totalBoxes);
             
             // Show success notification
             alert('✅ Grid configuration saved successfully!\n\nAgent Box: ' + newConfig.identifier);

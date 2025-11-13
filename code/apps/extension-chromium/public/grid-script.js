@@ -87,17 +87,27 @@ if (window.gridScriptLoaded) {
      * Returns: The next box number (max + 1), or 1 if none exist
      */
     function calculateNextBoxNumber(callback) {
-      if (!parentSessionKey || typeof chrome === 'undefined' || !chrome.storage || !chrome.storage.local) {
+      if (!parentSessionKey) {
         var fallbackNumber = (typeof window.nextBoxNumber !== 'undefined') ? window.nextBoxNumber : 1;
         console.log('⚠️ Using fallback box number:', fallbackNumber);
         callback(fallbackNumber);
         return;
       }
       
-      console.log('🔍 Calculating next box number from session...');
+      console.log('🔍 Calculating next box number from SQLite via background...');
       
-      chrome.storage.local.get([parentSessionKey], function(result) {
-        var session = result[parentSessionKey] || {};
+      // Use message passing to get session from SQLite
+      chrome.runtime.sendMessage({
+        type: 'GET_SESSION_FROM_SQLITE',
+        sessionKey: parentSessionKey
+      }, function(response) {
+        if (!response || !response.success || !response.session) {
+          console.log('⚠️ No session found, using fallback');
+          callback(1);
+          return;
+        }
+        
+        var session = response.session;
         var maxBoxNumber = 0;
         
         // Check all agent boxes
@@ -106,7 +116,7 @@ if (window.gridScriptLoaded) {
             var boxNum = box.boxNumber || box.number || 0;
             if (boxNum > maxBoxNumber) maxBoxNumber = boxNum;
           });
-          console.log('  ✓ Checked', session.agentBoxes.length, 'agent boxes');
+          console.log('  ✓ Checked', session.agentBoxes.length, 'agent boxes from SQLite');
         }
         
         // Check all display grid slots (backup check)
@@ -119,11 +129,11 @@ if (window.gridScriptLoaded) {
               });
             }
           });
-          console.log('  ✓ Checked', session.displayGrids.length, 'display grids');
+          console.log('  ✓ Checked', session.displayGrids.length, 'display grids from SQLite');
         }
         
         var nextNum = maxBoxNumber + 1;
-        console.log('✅ Calculated next box number:', nextNum, 'from max:', maxBoxNumber);
+        console.log('✅ Calculated next box number from SQLite:', nextNum, 'from max:', maxBoxNumber);
         callback(nextNum);
       });
     }
@@ -384,37 +394,7 @@ if (window.gridScriptLoaded) {
         hasGridInfo: !!agentBox.gridSessionId && !!agentBox.gridLayout
       });
       
-      // Load session, add agent box, save back
-      if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
-        chrome.storage.local.get([parentSessionKey], function(result) {
-          var session = result[parentSessionKey] || {};
-          
-          console.log('📋 DIRECT SAVE: Loaded session:', session);
-          
-          // Initialize arrays
-          if (!session.agentBoxes) session.agentBoxes = [];
-          if (!session.displayGrids) session.displayGrids = [];
-          
-          // Add or update agent box
-          var existingIndex = session.agentBoxes.findIndex(function(b) {
-            return b.identifier === agentBox.identifier;
-          });
-          
-          if (existingIndex !== -1) {
-            session.agentBoxes[existingIndex] = agentBox;
-            console.log('♻️ DIRECT SAVE: Updated existing agent box at index', existingIndex);
-          } else {
-            session.agentBoxes.push(agentBox);
-            console.log('🆕 DIRECT SAVE: Added new agent box, total now:', session.agentBoxes.length);
-          }
-          
-          // Log all agent boxes with their sources
-          console.log('📊 DIRECT SAVE: Current agent boxes in session:');
-          session.agentBoxes.forEach(function(box, idx) {
-            console.log(`  [${idx}] ${box.identifier} - ${box.title} (source: ${box.source || 'unknown'})`);
-          });
-          
-          // Collect all slot configurations for grid metadata
+      // Collect all slot configurations for grid metadata
       var payload = {
         layout: window.gridLayout,
         sessionId: window.gridSessionId,
@@ -431,52 +411,36 @@ if (window.gridScriptLoaded) {
         }
       });
       
-          // Update or add grid metadata
-          var gridIndex = session.displayGrids.findIndex(function(g) {
-            return g.sessionId === window.gridSessionId;
-          });
-          
-          if (gridIndex !== -1) {
-            session.displayGrids[gridIndex].config = payload;
-            session.displayGrids[gridIndex].timestamp = new Date().toISOString();
-            console.log('♻️ DIRECT SAVE: Updated existing grid metadata');
-          } else {
-            session.displayGrids.push({
-              layout: window.gridLayout,
-              sessionId: window.gridSessionId,
-              config: payload,
-              timestamp: new Date().toISOString()
-            });
-            console.log('🆕 DIRECT SAVE: Added new grid metadata');
-          }
-          
-          console.log('💾 DIRECT SAVE: Saving session with', session.agentBoxes.length, 'agent boxes');
-          
-          // Save back to storage
-          var saveData = {};
-          saveData[parentSessionKey] = session;
-          
-          chrome.storage.local.set(saveData, function() {
-            if (chrome.runtime.lastError) {
-              console.error('❌ DIRECT SAVE: Failed:', chrome.runtime.lastError);
-              alert('❌ Save failed: ' + chrome.runtime.lastError.message);
-            } else {
-              console.log('✅ DIRECT SAVE: Success! Agent box saved to session.');
-              console.log('📦 Saved agent box:', agentBox.identifier, '| Total boxes in session:', session.agentBoxes.length);
-              
-              // ✅ INCREMENT nextBoxNumber for next save
-              window.nextBoxNumber++;
-              console.log('📦 Incremented nextBoxNumber to:', window.nextBoxNumber);
-              
-              // Close dialog silently (no popup needed)
-              overlay.remove();
-            }
-          });
-        });
-      } else {
-        console.error('❌ chrome.storage.local not available!');
-        alert('❌ Cannot save: Chrome storage API not available');
-      }
+      // Save via background script to SQLite
+      console.log('💾 Saving via background script to SQLite...');
+      chrome.runtime.sendMessage({
+        type: 'SAVE_AGENT_BOX_TO_SQLITE',
+        sessionKey: parentSessionKey,
+        agentBox: agentBox,
+        gridMetadata: {
+          layout: window.gridLayout,
+          sessionId: window.gridSessionId,
+          config: payload,
+          timestamp: new Date().toISOString()
+        }
+      }, function(response) {
+        if (!response || !response.success) {
+          console.error('❌ SQLITE SAVE: Failed:', response ? response.error : 'No response');
+          alert('❌ Save failed: ' + (response ? response.error : 'No response from background'));
+          overlay.remove();
+          return;
+        }
+        
+        console.log('✅ SQLITE SAVE: Success! Agent box saved to SQLite.');
+        console.log('📦 Saved agent box:', agentBox.identifier, '| Total boxes in session:', response.totalBoxes);
+        
+        // ✅ INCREMENT nextBoxNumber for next save
+        window.nextBoxNumber++;
+        console.log('📦 Incremented nextBoxNumber to:', window.nextBoxNumber);
+        
+        // Close dialog silently (no popup needed)
+        overlay.remove();
+      });
       
       // Old code removed - we're using direct storage access now
       return;

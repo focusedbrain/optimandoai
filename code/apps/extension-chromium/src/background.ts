@@ -870,6 +870,103 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       
       return true  // Keep message channel open for async response
     }
+    
+    case 'GET_SESSION_FROM_SQLITE': {
+      console.log('📥 BG: GET_SESSION_FROM_SQLITE for key:', msg.sessionKey)
+      
+      if (!msg.sessionKey) {
+        console.error('❌ BG: No sessionKey provided')
+        try { sendResponse({ success: false, error: 'No session key' }) } catch {}
+        break
+      }
+      
+      // Load session using storage wrapper (SQLite)
+      import('./storage/storageWrapper').then(({ storageGet }) => {
+        storageGet([msg.sessionKey], (result: any) => {
+          const session = result[msg.sessionKey] || null
+          console.log('✅ BG: Loaded session from SQLite:', session ? 'Found' : 'Not found')
+          try { 
+            sendResponse({ 
+              success: true, 
+              session: session 
+            }) 
+          } catch (e) {
+            console.error('❌ BG: Failed to send response:', e)
+          }
+        })
+      })
+      
+      return true  // Keep message channel open for async response
+    }
+    
+    case 'SAVE_AGENT_BOX_TO_SQLITE': {
+      console.log('📥 BG: SAVE_AGENT_BOX_TO_SQLITE')
+      console.log('📦 BG: Agent box:', msg.agentBox)
+      console.log('🔑 BG: Session key:', msg.sessionKey)
+      
+      if (!msg.sessionKey || !msg.agentBox) {
+        console.error('❌ BG: Missing sessionKey or agentBox')
+        try { sendResponse({ success: false, error: 'Missing required data' }) } catch {}
+        break
+      }
+      
+      // Load current session using storage wrapper (SQLite)
+      import('./storage/storageWrapper').then(({ storageGet, storageSet }) => {
+        storageGet([msg.sessionKey], (result: any) => {
+          const session = result[msg.sessionKey] || {}
+          
+          console.log('📋 BG: Loaded session from SQLite')
+          
+          // Initialize arrays if needed
+          if (!session.agentBoxes) session.agentBoxes = []
+          if (!session.displayGrids) session.displayGrids = []
+          
+          // Add or update agent box
+          const existingIndex = session.agentBoxes.findIndex(
+            (b: any) => b.identifier === msg.agentBox.identifier
+          )
+          
+          if (existingIndex !== -1) {
+            session.agentBoxes[existingIndex] = msg.agentBox
+            console.log('♻️ BG: Updated existing agent box:', msg.agentBox.identifier)
+          } else {
+            session.agentBoxes.push(msg.agentBox)
+            console.log('🆕 BG: Added new agent box:', msg.agentBox.identifier)
+          }
+          
+          // Update or add grid metadata if provided
+          if (msg.gridMetadata) {
+            const gridIndex = session.displayGrids.findIndex(
+              (g: any) => g.sessionId === msg.gridMetadata.sessionId
+            )
+            if (gridIndex !== -1) {
+              session.displayGrids[gridIndex] = msg.gridMetadata
+              console.log('♻️ BG: Updated grid metadata')
+            } else {
+              session.displayGrids.push(msg.gridMetadata)
+              console.log('🆕 BG: Added grid metadata')
+            }
+          }
+          
+          console.log('💾 BG: Saving to SQLite with', session.agentBoxes.length, 'agent boxes')
+          
+          // Save updated session using storage wrapper (SQLite)
+          storageSet({ [msg.sessionKey]: session }, () => {
+            console.log('✅ BG: Session saved to SQLite!')
+            try { 
+              sendResponse({ 
+                success: true, 
+                totalBoxes: session.agentBoxes.length 
+              }) 
+            } catch (e) {
+              console.error('❌ BG: Failed to send response:', e)
+            }
+          })
+        })
+      })
+      
+      return true  // Keep message channel open for async response
+    }
   }
   
   return true;
