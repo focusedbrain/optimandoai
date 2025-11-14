@@ -213,7 +213,13 @@ if (window.gridScriptV2Loaded) {
       
       console.log('💾 POPUP V2: Saving slot config:', { title, agent, provider, model, boxNumber: nextBoxNumber });
       
-      // 🆕 Include box number in config
+      // Generate locationId and locationLabel for this slot
+      var gridSessionId = window.gridSessionId || 'unknown';
+      var gridLayout = window.gridLayout || 'unknown';
+      var locationId = 'grid_' + gridSessionId + '_' + gridLayout + '_slot' + slotId;
+      var locationLabel = gridLayout + ' Display Grid - Slot ' + slotId;
+      
+      // 🆕 Include box number and location in config
       var newConfig = { 
         title: title, 
         agent: agent, 
@@ -222,22 +228,30 @@ if (window.gridScriptV2Loaded) {
         boxNumber: nextBoxNumber,  // ← KEY FIX: Store the box number
         agentNumber: agentNum ? parseInt(agentNum) : 0,
         identifier: 'AB' + String(nextBoxNumber).padStart(2, '0') + (agentNum ? String(agentNum).padStart(2, '0') : '00'),
-        tools: (cfg.tools || []) 
+        tools: (cfg.tools || []),
+        locationId: locationId,
+        locationLabel: locationLabel,
+        gridSessionId: gridSessionId,
+        gridLayout: gridLayout,
+        slotId: slotId,
+        source: 'display_grid'
       };
       
       // 🆕 Create full agent box object for SQLite storage
       var agentBox = {
         identifier: newConfig.identifier,
-        boxNumber: nextBoxNumber,
-        title: title,
-        agentNumber: agentNum ? parseInt(agentNum) : 0,
-        provider: provider || 'auto',
-        model: model || 'auto',
-        tools: (cfg.tools || []),
-        source: 'display_grid',
-        gridLayout: window.gridLayout,
-        gridSessionId: window.gridSessionId,
-        slotId: slotId,
+        boxNumber: newConfig.boxNumber,
+        title: newConfig.title,
+        agentNumber: newConfig.agentNumber,
+        provider: newConfig.provider || 'auto',
+        model: newConfig.model || 'auto',
+        tools: newConfig.tools || [],
+        locationId: newConfig.locationId,
+        locationLabel: newConfig.locationLabel,
+        source: newConfig.source,
+        gridLayout: newConfig.gridLayout,
+        gridSessionId: newConfig.gridSessionId,
+        slotId: newConfig.slotId,
         timestamp: new Date().toISOString()
       };
       

@@ -882,8 +882,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         return true
       }
       
-      // Use direct HTTP API call to avoid document access issues
-      fetch(`http://127.0.0.1:51248/api/orchestrator/get?keys=${encodeURIComponent(msg.sessionKey)}`)
+      // Use direct HTTP API call to avoid document access issues (correct format: ?key= not ?keys=)
+      fetch(`http://127.0.0.1:51248/api/orchestrator/get?key=${encodeURIComponent(msg.sessionKey)}`)
         .then(response => {
           if (!response.ok) {
             throw new Error(`HTTP ${response.status}`)
@@ -891,7 +891,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           return response.json()
         })
         .then((result: any) => {
-          const session = result.data?.[msg.sessionKey] || null
+          const session = result.data || null
           console.log('✅ BG: Loaded session from SQLite via HTTP:', session ? 'Found' : 'Not found')
           try { 
             sendResponse({ 
@@ -932,8 +932,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         return true
       }
       
-      // Use direct HTTP API call to avoid document access issues
-      fetch(`http://127.0.0.1:51248/api/orchestrator/get?keys=${encodeURIComponent(msg.sessionKey)}`)
+      // Use direct HTTP API call to avoid document access issues (correct format: ?key= not ?keys=)
+      fetch(`http://127.0.0.1:51248/api/orchestrator/get?key=${encodeURIComponent(msg.sessionKey)}`)
         .then(response => {
           if (!response.ok) {
             throw new Error(`HTTP ${response.status}`)
@@ -941,9 +941,15 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           return response.json()
         })
         .then((result: any) => {
-          const session = result.data?.[msg.sessionKey] || {}
+          const session = result.data || {}
           
-          console.log('📋 BG: Loaded session from SQLite via HTTP')
+          console.log('📋 BG: Loaded session from SQLite via HTTP:', session ? 'Found' : 'Not found')
+          console.log('📊 BG: Session before save:', {
+            hasAgentBoxes: !!session.agentBoxes,
+            agentBoxesCount: session.agentBoxes?.length || 0,
+            hasDisplayGrids: !!session.displayGrids,
+            displayGridsCount: session.displayGrids?.length || 0
+          })
           
           // Initialize arrays if needed
           if (!session.agentBoxes) session.agentBoxes = []
@@ -962,6 +968,15 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             console.log('🆕 BG: Added new agent box:', msg.agentBox.identifier)
           }
           
+          // 🔍 DEBUG: Log the agentBox being saved
+          console.log('📦 BG: AgentBox details:', {
+            identifier: msg.agentBox.identifier,
+            locationId: msg.agentBox.locationId,
+            boxNumber: msg.agentBox.boxNumber,
+            title: msg.agentBox.title,
+            source: msg.agentBox.source
+          })
+          
           // Update or add grid metadata if provided
           if (msg.gridMetadata) {
             const gridIndex = session.displayGrids.findIndex(
@@ -978,16 +993,25 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           
           console.log('💾 BG: Saving to SQLite with', session.agentBoxes.length, 'agent boxes')
           
-          // Save updated session using direct HTTP API
+          // 🔍 DEBUG: Log all agentBoxes being saved
+          session.agentBoxes.forEach((box: any, index: number) => {
+            console.log(`  [${index}] ${box.identifier}: locationId=${box.locationId || 'MISSING'}`)
+          })
+          
+          // Save updated session using direct HTTP API (correct format: {key, value})
           return fetch('http://127.0.0.1:51248/api/orchestrator/set', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ [msg.sessionKey]: session })
+            body: JSON.stringify({ key: msg.sessionKey, value: session })
           })
         })
         .then(response => {
           if (!response.ok) {
-            throw new Error(`HTTP ${response.status}`)
+            // Get error details from response
+            return response.text().then(errorText => {
+              console.error('❌ BG: SQLite HTTP error:', response.status, errorText)
+              throw new Error(`HTTP ${response.status}: ${errorText}`)
+            })
           }
           return response.json()
         })
@@ -1000,6 +1024,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         .then((result: any) => {
           const session = result.data?.[msg.sessionKey] || {}
           const totalBoxes = session.agentBoxes?.length || 0
+          
+          console.log('✅ BG: Session saved to SQLite successfully!')
+          console.log('📦 BG: Session now has', totalBoxes, 'agentBoxes')
+          
           try { 
             sendResponse({ 
               success: true, 
@@ -1010,9 +1038,12 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           }
         })
         .catch((error: any) => {
-          console.error('❌ BG: Error saving via HTTP:', error)
+          console.error('❌ BG: Error saving to SQLite via HTTP:', error)
+          console.error('❌ BG: Error details:', error.message)
+          console.error('❌ BG: SQLite is the only backend - fix the Electron app!')
+          
           try {
-            sendResponse({ success: false, error: 'Failed to save: ' + String(error) })
+            sendResponse({ success: false, error: 'Failed to save to SQLite: ' + String(error) })
           } catch (e) {
             console.error('❌ BG: Failed to send error response:', e)
           }

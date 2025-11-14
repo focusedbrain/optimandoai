@@ -85,36 +85,81 @@ const gridDiv = document.createElement('div');
 gridDiv.className = 'grid-container layout-' + layout;
 
 /**
- * Load saved configurations from chrome.storage and create slots
+ * Load saved configurations from SQLite via background script
  * Uses locationId pattern: grid_{sessionId}_{layout}_slot{N}
  */
-if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local && sessionKey) {
-    chrome.storage.local.get([sessionKey], function(result) {
-        const session = result[sessionKey] || {};
+if (typeof chrome !== 'undefined' && chrome.runtime && sessionKey) {
+    console.log('📥 Loading grid configurations from SQLite for session:', sessionKey);
+    
+    // Request session from SQLite via background script (same as grid-script.js does)
+    chrome.runtime.sendMessage({
+        type: 'GET_SESSION_FROM_SQLITE',
+        sessionKey: sessionKey
+    }, function(response) {
+        if (chrome.runtime.lastError) {
+            console.error('❌ Error loading session from SQLite:', chrome.runtime.lastError.message);
+            console.error('❌ SQLite is required - check Electron app!');
+            // Create empty slots on error
+            createSlots(config.slots, {});
+            return;
+        }
+        
+        if (!response || !response.success || !response.session) {
+            console.log('⚠️ No session data found in SQLite, creating empty slots');
+            createSlots(config.slots, {});
+            return;
+        }
+        
+        const session = response.session;
         const savedSlotsByLocation = {};
+        
+        // 🔍 DEBUG: Log what we received
+        console.log('📥 Received session from SQLite:', {
+            hasAgentBoxes: !!session.agentBoxes,
+            agentBoxesCount: session.agentBoxes?.length || 0,
+            sessionKey: sessionKey,
+            gridSessionId: sessionId,
+            gridLayout: layout
+        });
         
         // Map agent boxes to slots by locationId
         if (session.agentBoxes && Array.isArray(session.agentBoxes)) {
             const gridPrefix = 'grid_' + sessionId + '_' + layout;
+            
+            console.log('🔍 GRID LOAD: Searching for boxes with prefix:', gridPrefix);
+            console.log('🔍 GRID LOAD: This grid sessionId:', sessionId);
+            console.log('🔍 GRID LOAD: This grid layout:', layout);
+            console.log('📦 Total agentBoxes in session:', session.agentBoxes.length);
+            
+            // 🔍 DEBUG: Log all agentBoxes to see what we have
+            session.agentBoxes.forEach((box, index) => {
+                console.log(`  [${index}] ${box.identifier}: locationId="${box.locationId || 'MISSING'}", source="${box.source || 'none'}"`);
+            });
             
             session.agentBoxes.forEach(box => {
                 if (box.locationId && box.locationId.startsWith(gridPrefix)) {
                     const match = box.locationId.match(/_slot(\d+)$/)
                     if (match) {
                         savedSlotsByLocation[match[1]] = box
+                        console.log('✅ Found saved config for slot', match[1], ':', box.identifier);
                     }
                 }
             })
             
             const configuredCount = Object.keys(savedSlotsByLocation).length;
             if (configuredCount > 0) {
-                console.log('✅ Loaded', configuredCount, 'slot configuration(s) from session');
+                console.log('✅ Loaded', configuredCount, 'slot configuration(s) from SQLite');
+            } else {
+                console.log('⚠️ No matching slot configurations found for this grid');
             }
+        } else {
+            console.log('⚠️ Session has no agentBoxes array');
         }
         
         createSlots(config.slots, savedSlotsByLocation)
     });
 } else {
+    console.log('⚠️ Chrome runtime not available or no sessionKey, creating empty slots');
     // No storage available, create empty slots
     createSlots(config.slots, {});
 }

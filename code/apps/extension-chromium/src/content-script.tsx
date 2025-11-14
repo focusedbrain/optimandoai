@@ -4524,6 +4524,47 @@ function initializeExtension() {
 
   loadTabDataFromStorage()
   
+  // 🔑 CRITICAL FIX: Also load the current session from chrome.storage.local on page load
+  // This restores agentBoxes and other session data after page refresh
+  setTimeout(() => {
+    const sessionKey = getCurrentSessionKey()
+    if (sessionKey) {
+      console.log('📥 Loading active session on page load:', sessionKey)
+      storageGet([sessionKey], (result) => {
+        const sessionData = result[sessionKey]
+        if (sessionData) {
+          console.log('✅ Found session data:', {
+            tabName: sessionData.tabName,
+            agentBoxes: sessionData.agentBoxes?.length || 0,
+            displayGrids: sessionData.displayGrids?.length || 0
+          })
+          
+          // Merge session data into currentTabData (preserving tabId)
+          currentTabData = {
+            ...currentTabData,
+            ...sessionData,
+            tabId: currentTabData.tabId
+          }
+          
+          console.log('✅ Restored session data on page load:', {
+            sessionKey,
+            agentBoxes: currentTabData.agentBoxes?.length || 0
+          })
+          
+          // Re-render agent boxes if any exist
+          if (currentTabData.agentBoxes && currentTabData.agentBoxes.length > 0) {
+            console.log('📦 Rendering', currentTabData.agentBoxes.length, 'restored agent boxes')
+            renderAgentBoxes()
+          }
+        } else {
+          console.log('⚠️ Session key exists but no session data found:', sessionKey)
+        }
+      })
+    } else {
+      console.log('⚠️ No active session key found on page load')
+    }
+  }, 500) // Give time for storage wrapper to load
+  
   // Check if display grids are active and hide sidepanel if so (only on display grid tabs)
   setTimeout(() => {
     if (currentTabData.displayGrids && currentTabData.displayGrids.length > 0) {
@@ -5561,6 +5602,76 @@ function initializeExtension() {
       saveTabDataToStorage()
 
       renderAgentBoxes()
+
+      
+
+      // Sync to SQLite session if session is active (MUST load existing session first!)
+
+      const sessionKey = getCurrentSessionKey()
+
+      if (sessionKey) {
+
+        console.log('🔄 Syncing master tab agentBox to SQLite session:', newBox.identifier)
+
+        storageGet([sessionKey], (result) => {
+
+          const session = result[sessionKey] || {}
+
+          console.log('📋 Loaded existing session:', {
+
+            hasAgentBoxes: !!session.agentBoxes,
+
+            currentCount: session.agentBoxes?.length || 0
+
+          })
+
+          
+
+          // CRITICAL: Merge master tab boxes into existing session boxes (don't replace!)
+
+          if (!session.agentBoxes) session.agentBoxes = []
+
+          
+
+          // Check if this box already exists
+
+          const existingIndex = session.agentBoxes.findIndex(
+
+            (b: any) => b.identifier === newBox.identifier
+
+          )
+
+          
+
+          if (existingIndex !== -1) {
+
+            session.agentBoxes[existingIndex] = newBox
+
+            console.log('♻️ Updated existing master tab box in session')
+
+          } else {
+
+            session.agentBoxes.push(newBox)
+
+            console.log('🆕 Added new master tab box to session')
+
+          }
+
+          
+
+          console.log('💾 Saving session with', session.agentBoxes.length, 'total agent boxes')
+
+          
+
+          storageSet({ [sessionKey]: session }, () => {
+
+            console.log('✅ Synced master tab agentBox to SQLite session:', newBox.identifier)
+
+          })
+
+        })
+
+      }
 
       
 
