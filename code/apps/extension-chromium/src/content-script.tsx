@@ -3193,8 +3193,7 @@ function initializeExtension() {
 
         
 
-        // Then, add account agents ONLY if they don't already exist in the map
-
+        // Then, add/update account agents - PREFER account scope version if agent exists in both
         accountAgents.forEach((a: any) => {
 
           if (!agentMap.has(a.key)) {
@@ -3203,7 +3202,14 @@ function initializeExtension() {
 
           } else {
 
-            console.warn(`⚠️ Agent "${a.key}" exists in BOTH session and account storage - using session version`)
+            // Agent exists in both - use the one with correct scope='account'
+            const existing = agentMap.get(a.key)
+            if (a.scope === 'account' && existing.scope !== 'account') {
+              console.log(`✅ Using account-scoped version of agent "${a.key}" instead of session version`)
+              agentMap.set(a.key, a)
+            } else {
+              console.warn(`⚠️ Agent "${a.key}" exists in BOTH session and account storage - keeping existing version`)
+            }
 
           }
 
