@@ -3393,23 +3393,13 @@ function SidepanelOrchestrator() {
                         cursor: 'pointer'
                       }}
                       title={isEnabled ? 'Click to disable this agent' : 'Click to enable this agent'}
-                      onClick={() => {
-                        // Toggle the agent box
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        // Simply toggle the visual state
                         const updatedBoxes = agentBoxes.map(b => 
                           b.id === box.id ? { ...b, enabled: !isEnabled } : b
                         )
                         setAgentBoxes(updatedBoxes)
-                        
-                        // Send message to content script to update
-                        chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-                          if (tabs[0]?.id) {
-                            chrome.tabs.sendMessage(tabs[0].id, {
-                              type: 'TOGGLE_AGENT_BOX',
-                              agentId: box.id,
-                              enabled: !isEnabled
-                            })
-                          }
-                        })
                       }}
                     >
                       <input type="checkbox" checked={isEnabled} readOnly style={{ opacity: 0, width: 0, height: 0 }} />
