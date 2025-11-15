@@ -3781,7 +3781,7 @@ function initializeExtension() {
 
             <h4 style="margin: 0 0 8px 0; font-size: 12px; color: #FFFFFF; font-weight: bold;">Agent ${num} — ${a.name || 'Agent'}</h4>
 
-              <button class="agent-toggle" style="padding: 4px 8px; background: #f44336; border: none; color: white; border-radius: 3px; cursor: pointer; font-size: 9px; margin-bottom: 4px;">OFF</button>
+              <button class="agent-toggle" data-agent-key="${a.key}" style="padding: 4px 8px; background: #f44336; border: none; color: white; border-radius: 3px; cursor: pointer; font-size: 9px; margin-bottom: 4px;">OFF</button>
 
               
 
@@ -4871,9 +4871,9 @@ function initializeExtension() {
 
           <span style="opacity: ${isEnabled ? '1' : '0.5'};">${box.title}</span>
 
-          <div style="display: flex; gap: 6px; align-items: center;">
+          <div style="display: flex; gap: 6px; align-items: center; position: relative; z-index: 10;">
 
-            <label class="agent-box-toggle" data-agent-id="${box.id}" style="position: relative; display: inline-block; width: 36px; height: 20px; cursor: pointer;" title="${isEnabled ? 'Click to disable this agent' : 'Click to enable this agent'}">
+            <label class="agent-box-toggle" data-agent-id="${box.id}" style="position: relative; display: inline-block; width: 36px; height: 20px; cursor: pointer; z-index: 1;" title="${isEnabled ? 'Click to disable this agent' : 'Click to enable this agent'}">
 
               <input type="checkbox" ${isEnabled ? 'checked' : ''} style="opacity: 0; width: 0; height: 0;">
 
@@ -4883,13 +4883,13 @@ function initializeExtension() {
 
             </label>
 
-            <button class="edit-agent-box" data-agent-id="${box.id}" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 20px; height: 20px; border-radius: 50%; cursor: pointer; font-size: 10px; font-weight: bold; display: flex; align-items: center; justify-content: center; transition: all 0.2s ease; opacity: 0.7;" title="Edit this agent box">
+            <button class="edit-agent-box" data-agent-id="${box.id}" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 20px; height: 20px; border-radius: 50%; cursor: pointer; font-size: 10px; font-weight: bold; display: flex; align-items: center; justify-content: center; transition: all 0.2s ease; opacity: 0.7; position: relative; z-index: 2;" title="Edit this agent box">
 
               ✏️
 
             </button>
 
-            <button class="delete-agent-box" data-agent-id="${box.id}" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 20px; height: 20px; border-radius: 50%; cursor: pointer; font-size: 12px; font-weight: bold; display: flex; align-items: center; justify-content: center; transition: all 0.2s ease; opacity: 0.7;" title="Delete this agent box">
+            <button class="delete-agent-box" data-agent-id="${box.id}" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 20px; height: 20px; border-radius: 50%; cursor: pointer; font-size: 12px; font-weight: bold; display: flex; align-items: center; justify-content: center; transition: all 0.2s ease; opacity: 0.7; position: relative; z-index: 2;" title="Delete this agent box">
 
               ✕
 
@@ -5609,7 +5609,7 @@ function initializeExtension() {
 
           source: 'master_tab',  // ← Identify this as a master tab box
 
-          enabled: true  // ← Default to enabled when created
+          enabled: false  // ← Default to disabled until AI Instructions are configured
 
       }
 
@@ -17532,6 +17532,23 @@ function initializeExtension() {
         showSaveNotification(dataToSave)
 
         console.log(`✅ SAVED ${type} for agent ${agentName} to ${agentScope}`)
+
+        
+        // If saving AI Instructions, automatically enable the agent toggle
+        if (type === 'instructions') {
+          console.log(`🔄 Auto-enabling agent toggle for ${agentName}`)
+          // Find and update the agent toggle button in the agents grid
+          const toggleButtons = document.querySelectorAll('.agent-toggle')
+          toggleButtons.forEach((btn) => {
+            const btnElement = btn as HTMLElement
+            const agentKey = btnElement.getAttribute('data-agent-key')
+            if (agentKey === agentName) {
+              btnElement.textContent = 'ON'
+              btnElement.style.background = '#4CAF50'
+              console.log(`✅ Agent toggle enabled for ${agentName}`)
+            }
+          })
+        }
 
         
 

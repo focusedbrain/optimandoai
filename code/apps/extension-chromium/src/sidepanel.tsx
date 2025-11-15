@@ -3395,6 +3395,7 @@ function SidepanelOrchestrator() {
                       title={isEnabled ? 'Click to disable this agent' : 'Click to enable this agent'}
                       onClick={(e) => {
                         e.stopPropagation()
+                        e.preventDefault()
                         // Simply toggle the visual state
                         const updatedBoxes = agentBoxes.map(b => 
                           b.id === box.id ? { ...b, enabled: !isEnabled } : b
