@@ -81,6 +81,30 @@ if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.onChanged)
 
 // Create grid container
 const container = document.getElementById('grid-root');
+
+// Add master toggle bar at the top
+const masterToggleBar = document.createElement('div');
+masterToggleBar.style.cssText = `
+    background: ${headerColor};
+    padding: 12px 16px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+`;
+masterToggleBar.innerHTML = `
+    <div style="display: flex; align-items: center; gap: 12px; color: ${textColor};">
+        <span style="font-weight: bold; font-size: 13px;">Display Grid: ${layout}</span>
+        <span style="font-size: 11px; opacity: 0.8;">Master Control</span>
+    </div>
+    <label id="master-grid-toggle" style="position: relative; display: inline-block; width: 44px; height: 24px; cursor: pointer;" title="Toggle all agents in this grid">
+        <input type="checkbox" checked style="opacity: 0; width: 0; height: 0;">
+        <span style="position: absolute; top: 0; left: 0; right: 0; bottom: 0; background-color: #4CAF50; border-radius: 24px; transition: 0.3s;"></span>
+        <span style="position: absolute; content: ''; height: 18px; width: 18px; left: 23px; bottom: 3px; background-color: white; border-radius: 50%; transition: 0.3s; box-shadow: 0 1px 3px rgba(0,0,0,0.3);"></span>
+    </label>
+`;
+container.appendChild(masterToggleBar);
+
 const gridDiv = document.createElement('div');
 gridDiv.className = 'grid-container layout-' + layout;
 
@@ -250,7 +274,12 @@ function createSlots(slotCount, savedSlots) {
                 <span style="margin-right: 4px;">🖥️</span>
                 <span class="slot-display-text" style="flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 2px 6px;">${displayText}</span>
             </div>
-            <div style="display: flex; align-items: center; flex-shrink: 0; gap: 4px;">
+            <div style="display: flex; align-items: center; flex-shrink: 0; gap: 6px;">
+                <label class="slot-toggle" data-slot-id="${slotNum}" style="position: relative; display: inline-block; width: 32px; height: 18px; cursor: pointer;" title="Toggle agent on/off">
+                    <input type="checkbox" checked style="opacity: 0; width: 0; height: 0;">
+                    <span style="position: absolute; top: 0; left: 0; right: 0; bottom: 0; background-color: #4CAF50; border-radius: 18px; transition: 0.3s;"></span>
+                    <span style="position: absolute; content: ''; height: 12px; width: 12px; left: 17px; bottom: 3px; background-color: white; border-radius: 50%; transition: 0.3s; box-shadow: 0 1px 2px rgba(0,0,0,0.3);"></span>
+                </label>
                 <button class="edit-slot" data-slot-id="${slotNum}" style="background: ${theme === 'professional' ? 'rgba(0,0,0,0.1)' : 'rgba(255,255,255,0.2)'}; border: none; color: ${textColor}; width: 20px; height: 20px; border-radius: 50%; cursor: pointer; font-size: 11px; display: flex; align-items: center; justify-content: center; transition: all 0.2s ease;">✏️</button>
             </div>
         `;

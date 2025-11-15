@@ -801,10 +801,101 @@ if (window.gridScriptLoaded) {
   // Attach listeners after a short delay to ensure DOM is ready
   setTimeout(function() {
     attachEditButtonListeners();
+    attachToggleListeners();
   }, 200);
   
   // Also expose the function globally in case we need to reattach
   window.attachEditButtonListeners = attachEditButtonListeners;
+  
+  // Function to attach toggle listeners
+  function attachToggleListeners() {
+    console.log('🔄 Attaching toggle listeners...');
+    
+    // Master toggle for entire grid
+    var masterToggle = document.getElementById('master-grid-toggle');
+    if (masterToggle) {
+      var masterCheckbox = masterToggle.querySelector('input[type="checkbox"]');
+      var masterSlider = masterToggle.querySelectorAll('span')[0];
+      var masterKnob = masterToggle.querySelectorAll('span')[1];
+      
+      masterToggle.addEventListener('click', function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        
+        masterCheckbox.checked = !masterCheckbox.checked;
+        var isEnabled = masterCheckbox.checked;
+        
+        // Update visual state
+        masterSlider.style.backgroundColor = isEnabled ? '#4CAF50' : '#ccc';
+        masterKnob.style.left = isEnabled ? '23px' : '3px';
+        
+        // Toggle all slot toggles
+        document.querySelectorAll('.slot-toggle').forEach(function(toggle) {
+          var checkbox = toggle.querySelector('input[type="checkbox"]');
+          var slider = toggle.querySelectorAll('span')[0];
+          var knob = toggle.querySelectorAll('span')[1];
+          var slotId = toggle.getAttribute('data-slot-id');
+          
+          checkbox.checked = isEnabled;
+          slider.style.backgroundColor = isEnabled ? '#4CAF50' : '#ccc';
+          knob.style.left = isEnabled ? '17px' : '3px';
+          
+          // Update slot visual state
+          var slot = document.querySelector('[data-slot-id="' + slotId + '"]');
+          if (slot) {
+            var content = slot.querySelector('.slot-content-area');
+            if (content) {
+              content.style.opacity = isEnabled ? '1' : '0.5';
+              content.style.pointerEvents = isEnabled ? 'auto' : 'none';
+            }
+          }
+        });
+        
+        console.log('✅ Master toggle: All slots ' + (isEnabled ? 'enabled' : 'disabled'));
+      });
+    }
+    
+    // Individual slot toggles
+    document.querySelectorAll('.slot-toggle').forEach(function(toggle) {
+      var checkbox = toggle.querySelector('input[type="checkbox"]');
+      var slider = toggle.querySelectorAll('span')[0];
+      var knob = toggle.querySelectorAll('span')[1];
+      var slotId = toggle.getAttribute('data-slot-id');
+      
+      if (!slotId) {
+        console.warn('⚠️ Toggle found without slot ID');
+        return;
+      }
+      
+      toggle.addEventListener('click', function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        
+        checkbox.checked = !checkbox.checked;
+        var isEnabled = checkbox.checked;
+        
+        // Update visual state
+        slider.style.backgroundColor = isEnabled ? '#4CAF50' : '#ccc';
+        knob.style.left = isEnabled ? '17px' : '3px';
+        
+        // Update slot content visual state
+        var slot = document.querySelector('[data-slot-id="' + slotId + '"]');
+        if (slot) {
+          var content = slot.querySelector('.slot-content-area');
+          if (content) {
+            content.style.opacity = isEnabled ? '1' : '0.5';
+            content.style.pointerEvents = isEnabled ? 'auto' : 'none';
+          }
+        }
+        
+        console.log('✅ Slot ' + slotId + ' toggle: ' + (isEnabled ? 'enabled' : 'disabled'));
+      });
+    });
+    
+    console.log('✅ Toggle listeners attached');
+  }
+  
+  window.attachToggleListeners = attachToggleListeners;
   
   console.log('✅ All grid functions loaded and available');
 }

@@ -4861,13 +4861,27 @@ function initializeExtension() {
 
       
 
+      const isEnabled = box.enabled !== false; // Default to true if not specified
+
+      
+
       agentDiv.innerHTML = `
 
         <div style="background: ${box.color}; color: white; text-shadow: 1px 1px 2px rgba(0,0,0,0.5); padding: 8px 12px; border-radius: 6px 6px 0 0; font-size: 13px; font-weight: bold; margin-bottom: 0; position: relative; display: flex; justify-content: space-between; align-items: center;">
 
-          <span>${box.title}</span>
+          <span style="opacity: ${isEnabled ? '1' : '0.5'};">${box.title}</span>
 
-          <div style="display: flex; gap: 5px;">
+          <div style="display: flex; gap: 6px; align-items: center;">
+
+            <label class="agent-box-toggle" data-agent-id="${box.id}" style="position: relative; display: inline-block; width: 36px; height: 20px; cursor: pointer;" title="${isEnabled ? 'Click to disable this agent' : 'Click to enable this agent'}">
+
+              <input type="checkbox" ${isEnabled ? 'checked' : ''} style="opacity: 0; width: 0; height: 0;">
+
+              <span style="position: absolute; top: 0; left: 0; right: 0; bottom: 0; background-color: ${isEnabled ? '#4CAF50' : '#ccc'}; border-radius: 20px; transition: 0.3s;"></span>
+
+              <span style="position: absolute; content: ''; height: 14px; width: 14px; left: ${isEnabled ? '19px' : '3px'}; bottom: 3px; background-color: white; border-radius: 50%; transition: 0.3s; box-shadow: 0 1px 3px rgba(0,0,0,0.3);"></span>
+
+            </label>
 
             <button class="edit-agent-box" data-agent-id="${box.id}" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 20px; height: 20px; border-radius: 50%; cursor: pointer; font-size: 10px; font-weight: bold; display: flex; align-items: center; justify-content: center; transition: all 0.2s ease; opacity: 0.7;" title="Edit this agent box">
 
@@ -4885,11 +4899,11 @@ function initializeExtension() {
 
         </div>
 
-        <div class="resizable-agent-box" data-agent="${box.id}" style="background: rgba(255,255,255,0.95); color: black; border-radius: 0 0 8px 8px; padding: 12px; min-height: ${savedHeight}px; height: ${savedHeight}px; border: 1px solid rgba(0,0,0,0.1); box-shadow: 0 2px 4px rgba(0,0,0,0.1); position: relative; resize: vertical; overflow: auto;">
+        <div class="resizable-agent-box" data-agent="${box.id}" style="background: rgba(255,255,255,0.95); color: black; border-radius: 0 0 8px 8px; padding: 12px; min-height: ${savedHeight}px; height: ${savedHeight}px; border: 1px solid rgba(0,0,0,0.1); box-shadow: 0 2px 4px rgba(0,0,0,0.1); position: relative; resize: vertical; overflow: auto; ${isEnabled ? '' : 'opacity: 0.5; pointer-events: none;'}">
 
           <div style="font-size: 12px; color: #333; line-height: 1.4;">
 
-            <div id="${box.outputId}">Ready for ${box.title.replace(/[📝🔍🎯🧮]/g, '').trim()}...</div>
+            <div id="${box.outputId}">${isEnabled ? `Ready for ${box.title.replace(/[📝🔍🎯🧮]/g, '').trim()}...` : `Agent disabled - toggle On to activate`}</div>
 
           </div>
 
@@ -4914,6 +4928,8 @@ function initializeExtension() {
     attachDeleteButtonListeners()
 
     attachEditButtonListeners()
+
+    attachAgentBoxToggleListeners()
 
     
 
@@ -5591,7 +5607,9 @@ function initializeExtension() {
 
           tabUrl: window.location.href,  // ← Store tab URL to identify unique tabs
 
-          source: 'master_tab'  // ← Identify this as a master tab box
+          source: 'master_tab',  // ← Identify this as a master tab box
+
+          enabled: true  // ← Default to enabled when created
 
       }
 
@@ -6626,6 +6644,118 @@ function initializeExtension() {
         (btn as HTMLElement).style.opacity = '0.7'
 
         ;(btn as HTMLElement).style.background = 'rgba(255,255,255,0.2)'
+
+      })
+
+    })
+
+  }
+
+
+
+  function attachAgentBoxToggleListeners() {
+
+    document.querySelectorAll('.agent-box-toggle').forEach(toggle => {
+
+      const checkbox = toggle.querySelector('input[type="checkbox"]') as HTMLInputElement
+
+      const agentId = toggle.getAttribute('data-agent-id')
+
+      
+
+      if (!checkbox || !agentId) return
+
+      
+
+      toggle.addEventListener('click', (e) => {
+
+        e.stopPropagation()
+
+        
+
+        // Toggle the checkbox
+
+        checkbox.checked = !checkbox.checked
+
+        const isEnabled = checkbox.checked
+
+        
+
+        // Find and update the agent box
+
+        const box = currentTabData.agentBoxes.find((b: any) => b.id === agentId)
+
+        if (box) {
+
+          box.enabled = isEnabled
+
+          
+
+          // Save to storage
+
+          saveTabDataToStorage()
+
+          
+
+          // Also update in chrome.storage.local for session persistence
+
+          const sessionKey = getCurrentSessionKey()
+
+          if (sessionKey) {
+
+            storageGet([sessionKey], (result) => {
+
+              const session = result[sessionKey]
+
+              if (session && session.agentBoxes) {
+
+                const sessionBox = session.agentBoxes.find((b: any) => b.id === agentId)
+
+                if (sessionBox) {
+
+                  sessionBox.enabled = isEnabled
+
+                  storageSet({ [sessionKey]: session }, () => {
+
+                    console.log(`✅ Agent box ${agentId} ${isEnabled ? 'enabled' : 'disabled'}`)
+
+                  })
+
+                }
+
+              }
+
+            })
+
+          }
+
+          
+
+          // Re-render to show the updated state
+
+          renderAgentBoxes()
+
+          
+
+          // Show feedback notification
+
+          const notification = document.createElement('div')
+
+          notification.textContent = `${box.title} ${isEnabled ? 'enabled' : 'disabled'} ✓`
+
+          notification.style.cssText = `position:fixed;top:20px;right:20px;z-index:2147483650;background:${isEnabled ? '#4CAF50' : '#666'};color:#fff;padding:10px 14px;border-radius:8px;font-size:12px;box-shadow:0 4px 12px rgba(0,0,0,0.3);transition:opacity 0.3s;`
+
+          document.body.appendChild(notification)
+
+          setTimeout(() => {
+
+            notification.style.opacity = '0'
+
+            setTimeout(() => notification.remove(), 300)
+
+          }, 2000)
+
+        }
 
       })
 
@@ -28654,6 +28784,14 @@ ${pageText}
             // Instead, store the target URL and navigate after opening helper tabs
 
             const targetUrl = sessionData.url
+
+            
+
+            // Determine if we need to navigate to a different URL
+
+            const shouldNavigate = targetUrl && targetUrl !== window.location.href && 
+
+              !window.location.href.includes(targetUrl.split('?')[0])
 
             
 
