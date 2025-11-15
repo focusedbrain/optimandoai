@@ -81,30 +81,6 @@ if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.onChanged)
 
 // Create grid container
 const container = document.getElementById('grid-root');
-
-// Add master toggle bar at the top
-const masterToggleBar = document.createElement('div');
-masterToggleBar.style.cssText = `
-    background: ${headerColor};
-    padding: 12px 16px;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-`;
-masterToggleBar.innerHTML = `
-    <div style="display: flex; align-items: center; gap: 12px; color: ${textColor};">
-        <span style="font-weight: bold; font-size: 13px;">Display Grid: ${layout}</span>
-        <span style="font-size: 11px; opacity: 0.8;">Master Control</span>
-    </div>
-    <label id="master-grid-toggle" style="position: relative; display: inline-block; width: 44px; height: 24px; cursor: pointer;" title="Toggle all agents in this grid">
-        <input type="checkbox" checked style="opacity: 0; width: 0; height: 0;">
-        <span style="position: absolute; top: 0; left: 0; right: 0; bottom: 0; background-color: #4CAF50; border-radius: 24px; transition: 0.3s;"></span>
-        <span style="position: absolute; content: ''; height: 18px; width: 18px; left: 23px; bottom: 3px; background-color: white; border-radius: 50%; transition: 0.3s; box-shadow: 0 1px 3px rgba(0,0,0,0.3);"></span>
-    </label>
-`;
-container.appendChild(masterToggleBar);
-
 const gridDiv = document.createElement('div');
 gridDiv.className = 'grid-container layout-' + layout;
 
@@ -369,9 +345,56 @@ function addFullscreenButton() {
     document.body.appendChild(fullscreenBtn);
 }
 
-// Add fullscreen button after DOM is ready
+/**
+ * Add master grid toggle next to fullscreen button
+ */
+function addMasterGridToggle() {
+    const masterToggle = document.createElement('label');
+    masterToggle.id = 'master-grid-toggle';
+    masterToggle.title = 'Toggle all agents in this grid';
+    masterToggle.style.cssText = `
+        position: fixed;
+        bottom: 20px;
+        right: 80px;
+        width: 48px;
+        height: 48px;
+        border-radius: 50%;
+        background: rgba(255,255,255,0.9);
+        border: 2px solid rgba(0,0,0,0.1);
+        box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        cursor: pointer;
+        z-index: 10000;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        transition: all 0.2s ease;
+    `;
+    
+    masterToggle.innerHTML = `
+        <input type="checkbox" checked style="opacity: 0; width: 0; height: 0; position: absolute;">
+        <div style="position: relative; display: inline-block; width: 36px; height: 20px;">
+            <span style="position: absolute; top: 0; left: 0; right: 0; bottom: 0; background-color: #4CAF50; border-radius: 20px; transition: 0.3s;"></span>
+            <span style="position: absolute; content: ''; height: 16px; width: 16px; left: 18px; bottom: 2px; background-color: white; border-radius: 50%; transition: 0.3s; box-shadow: 0 1px 3px rgba(0,0,0,0.3);"></span>
+        </div>
+    `;
+    
+    masterToggle.addEventListener('mouseenter', function() {
+        masterToggle.style.transform = 'scale(1.1)';
+        masterToggle.style.boxShadow = '0 6px 16px rgba(0,0,0,0.2)';
+    });
+    
+    masterToggle.addEventListener('mouseleave', function() {
+        masterToggle.style.transform = 'scale(1)';
+        masterToggle.style.boxShadow = '0 4px 12px rgba(0,0,0,0.15)';
+    });
+    
+    document.body.appendChild(masterToggle);
+}
+
+// Add fullscreen button and master toggle after DOM is ready
 window.addEventListener('DOMContentLoaded', function() {
     addFullscreenButton();
+    addMasterGridToggle();
 });
 
 })(); // End of IIFE
