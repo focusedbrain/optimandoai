@@ -3,7 +3,6 @@ import React, { useState, useEffect, useRef } from 'react'
 import { createRoot } from 'react-dom/client'
 import { BackendSwitcher } from './components/BackendSwitcher'
 import { BackendSwitcherInline } from './components/BackendSwitcherInline'
-import { DevTools } from './components/DevTools'
 
 interface ConnectionStatus {
   isConnected: boolean
@@ -326,6 +325,11 @@ function SidepanelOrchestrator() {
           console.log('📝 Command appended to chat:', commandText)
         }
       }
+      // Listen for reload request after deletion
+      else if (message.type === 'RELOAD_SESSION_FROM_SQLITE') {
+        console.log('🔄 Sidepanel: Reloading session from SQLite after deletion')
+        loadSessionDataFromStorage()
+      }
     }
 
     chrome.runtime.onMessage.addListener(handleMessage)
@@ -345,15 +349,17 @@ function SidepanelOrchestrator() {
   // Load session data immediately on mount and when sidebar becomes visible
   useEffect(() => {
     const loadSessionDataFromStorage = () => {
-      // First, try to get the current session key from storage
-      // Check for a global active session marker
-      import('./storage/storageWrapper').then(({ storageGet }) => {
-        storageGet(null, (allData) => {
-        // Look for session keys (they start with 'session_')
-        const sessionKeys = Object.keys(allData).filter(key => key.startsWith('session_'))
+      // Load session data from SQLite (single source of truth)
+      chrome.runtime.sendMessage({ type: 'GET_ALL_SESSIONS_FROM_SQLITE' }, (response) => {
+        if (chrome.runtime.lastError) {
+          console.error('❌ Error loading sessions from SQLite:', chrome.runtime.lastError.message)
+          setSessionName('No Session')
+          setSessionKey('')
+          return
+        }
         
-        if (sessionKeys.length === 0) {
-          console.log('⚠️ No sessions found in storage')
+        if (!response || !response.success || !response.sessions || response.sessions.length === 0) {
+          console.log('⚠️ No sessions found in SQLite')
           setSessionName('No Session')
           setSessionKey('')
           return
@@ -364,8 +370,7 @@ function SidepanelOrchestrator() {
         let mostRecentKey: string = ''
         let mostRecentTime = 0
         
-        sessionKeys.forEach(key => {
-          const session = allData[key]
+        Object.entries(response.sessions).forEach(([key, session]: [string, any]) => {
           if (session && session.timestamp) {
             const sessionTime = new Date(session.timestamp).getTime()
             if (sessionTime > mostRecentTime) {
@@ -378,28 +383,16 @@ function SidepanelOrchestrator() {
         
         // If we found a session, use it
         if (mostRecentSession && mostRecentKey) {
-          console.log('✅ Loaded session from storage:', mostRecentKey, mostRecentSession.tabName)
+          console.log('✅ Loaded session from SQLite:', mostRecentKey, mostRecentSession.tabName)
           setSessionName(mostRecentSession.tabName || 'Unnamed Session')
           setSessionKey(mostRecentKey)
           setIsLocked(mostRecentSession.isLocked || false)
           setAgentBoxes(mostRecentSession.agentBoxes || [])
         } else {
-          // Fallback: use the first session found
-          const firstKey = sessionKeys[0]
-          const firstSession = allData[firstKey]
-          if (firstSession) {
-            console.log('✅ Loaded first session from storage:', firstKey, firstSession.tabName)
-            setSessionName(firstSession.tabName || 'Unnamed Session')
-            setSessionKey(firstKey)
-            setIsLocked(firstSession.isLocked || false)
-            setAgentBoxes(firstSession.agentBoxes || [])
-          } else {
-            setSessionName('No Session')
-            setSessionKey('')
-          }
+          setSessionName('No Session')
+          setSessionKey('')
         }
-      });
-      });
+      })
     }
 
     const loadSessionDataFromContentScript = () => {
@@ -2646,9 +2639,6 @@ function SidepanelOrchestrator() {
 
       {/* WR Login / Backend Switcher Section */}
       <BackendSwitcherInline theme={theme} />
-
-      {/* Dev Tools Section */}
-      <DevTools theme={theme} />
 
       {/* Docked Command Chat - Full Featured (Only when pinned) */}
       {isCommandChatPinned && (

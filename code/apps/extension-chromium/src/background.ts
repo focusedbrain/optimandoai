@@ -1070,6 +1070,66 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       return true  // Keep message channel open for async response
     }
     
+    case 'GET_ALL_SESSIONS_FROM_SQLITE': {
+      console.log('📥 BG: GET_ALL_SESSIONS_FROM_SQLITE')
+      
+      // Get all session keys from SQLite
+      fetch('http://127.0.0.1:51248/api/orchestrator/keys')
+        .then(response => {
+          if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`)
+          }
+          return response.json()
+        })
+        .then((result: any) => {
+          const sessionKeys = (result.data || []).filter((key: string) => key.startsWith('session_'))
+          console.log('✅ BG: Found session keys:', sessionKeys.length)
+          
+          if (sessionKeys.length === 0) {
+            try {
+              sendResponse({ success: true, sessions: {} })
+            } catch (e) {
+              console.error('❌ BG: Failed to send response:', e)
+            }
+            return
+          }
+          
+          // Fetch all sessions
+          const fetchPromises = sessionKeys.map((key: string) => 
+            fetch(`http://127.0.0.1:51248/api/orchestrator/get?key=${encodeURIComponent(key)}`)
+              .then(r => r.json())
+              .then(result => ({ key, data: result.data }))
+          )
+          
+          return Promise.all(fetchPromises)
+        })
+        .then((sessions: any[]) => {
+          const sessionsMap: Record<string, any> = {}
+          sessions.forEach(({ key, data }) => {
+            if (data) {
+              sessionsMap[key] = data
+            }
+          })
+          
+          console.log('✅ BG: Loaded all sessions from SQLite:', Object.keys(sessionsMap).length)
+          try {
+            sendResponse({ success: true, sessions: sessionsMap })
+          } catch (e) {
+            console.error('❌ BG: Failed to send response:', e)
+          }
+        })
+        .catch((error: any) => {
+          console.error('❌ BG: Error loading all sessions from SQLite:', error)
+          try {
+            sendResponse({ success: false, error: String(error) })
+          } catch (e) {
+            console.error('❌ BG: Failed to send error response:', e)
+          }
+        })
+      
+      return true  // Keep message channel open for async response
+    }
+    
     case 'SAVE_AGENT_BOX_TO_SQLITE': {
       console.log('📥 BG: SAVE_AGENT_BOX_TO_SQLITE')
       console.log('📦 BG: Agent box:', msg.agentBox)
