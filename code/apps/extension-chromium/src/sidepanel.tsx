@@ -3364,6 +3364,7 @@ function SidepanelOrchestrator() {
             return !isDisplayGrid
           }).map(box => {
             const currentHeight = agentBoxHeights[box.id] || 120
+            const isEnabled = box.enabled !== false // Default to true
             return (
               <div key={box.id} style={{
                 background: 'rgba(255,255,255,0.12)',
@@ -3371,7 +3372,8 @@ function SidepanelOrchestrator() {
                 overflow: 'hidden',
                 marginBottom: '16px',
                 border: '1px solid rgba(255,255,255,0.15)',
-                boxShadow: '0 4px 12px rgba(0,0,0,0.1)'
+                boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
+                opacity: isEnabled ? 1 : 0.6
               }}>
       <div style={{ 
                   background: box.color || '#4CAF50',
@@ -3380,8 +3382,59 @@ function SidepanelOrchestrator() {
                   alignItems: 'center',
                   justifyContent: 'space-between'
                 }}>
-                  <span style={{ fontSize: '12px', fontWeight: '700' }}>{box.title || 'Agent Box'}</span>
-                  <div style={{ display: 'flex', gap: '4px' }}>
+                  <span style={{ fontSize: '12px', fontWeight: '700', opacity: isEnabled ? 1 : 0.5 }}>{box.title || 'Agent Box'}</span>
+                  <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                    <label
+                      style={{
+                        position: 'relative',
+                        display: 'inline-block',
+                        width: '36px',
+                        height: '20px',
+                        cursor: 'pointer'
+                      }}
+                      title={isEnabled ? 'Click to disable this agent' : 'Click to enable this agent'}
+                      onClick={() => {
+                        // Toggle the agent box
+                        const updatedBoxes = agentBoxes.map(b => 
+                          b.id === box.id ? { ...b, enabled: !isEnabled } : b
+                        )
+                        setAgentBoxes(updatedBoxes)
+                        
+                        // Send message to content script to update
+                        chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+                          if (tabs[0]?.id) {
+                            chrome.tabs.sendMessage(tabs[0].id, {
+                              type: 'TOGGLE_AGENT_BOX',
+                              agentId: box.id,
+                              enabled: !isEnabled
+                            })
+                          }
+                        })
+                      }}
+                    >
+                      <input type="checkbox" checked={isEnabled} readOnly style={{ opacity: 0, width: 0, height: 0 }} />
+                      <span style={{
+                        position: 'absolute',
+                        top: 0,
+                        left: 0,
+                        right: 0,
+                        bottom: 0,
+                        backgroundColor: isEnabled ? '#4CAF50' : '#ccc',
+                        borderRadius: '20px',
+                        transition: '0.3s'
+                      }}></span>
+                      <span style={{
+                        position: 'absolute',
+                        height: '14px',
+                        width: '14px',
+                        left: isEnabled ? '19px' : '3px',
+                        bottom: '3px',
+                        backgroundColor: 'white',
+                        borderRadius: '50%',
+                        transition: '0.3s',
+                        boxShadow: '0 1px 3px rgba(0,0,0,0.3)'
+                      }}></span>
+                    </label>
                     <button
                       onClick={() => editAgentBox(box.id)}
                       style={{
@@ -3458,11 +3511,17 @@ function SidepanelOrchestrator() {
                     border: theme === 'dark' ? '1px solid rgba(255,255,255,0.1)' : '1px solid rgba(0,0,0,0.1)',
                     boxShadow: '0 2px 6px rgba(0,0,0,0.08)',
                     position: 'relative',
-                    overflow: 'auto'
+                    overflow: 'auto',
+                    opacity: isEnabled ? 1 : 0.5,
+                    pointerEvents: isEnabled ? 'auto' : 'none'
                   }}
                 >
                   <div style={{ fontSize: '13px', color: theme === 'dark' ? '#f1f5f9' : '#1e293b', lineHeight: '1.6' }}>
-                    {box.output || <span style={{ opacity: 0.5, color: theme === 'dark' ? '#94a3b8' : '#64748b' }}>Ready for {box.title?.replace(/[📝🔍🎯🧮]/g, '').trim()}...</span>}
+                    {isEnabled ? (
+                      box.output || <span style={{ opacity: 0.5, color: theme === 'dark' ? '#94a3b8' : '#64748b' }}>Ready for {box.title?.replace(/[📝🔍🎯🧮]/g, '').trim()}...</span>
+                    ) : (
+                      <span style={{ opacity: 0.7, color: theme === 'dark' ? '#94a3b8' : '#64748b', fontStyle: 'italic' }}>Agent disabled - toggle On to activate</span>
+                    )}
                   </div>
                   <div 
                     style={{
