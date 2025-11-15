@@ -660,6 +660,157 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       try { sendResponse({ success: true }) } catch {}
       break;
     }
+    case 'DELETE_DISPLAY_GRID_AGENT_BOX': {
+      // Delete agent box from display grid - remove from SQLite database
+      const { sessionKey, identifier } = msg;
+      console.log('🗑️ BG: Deleting display grid agent box:', identifier, 'from session:', sessionKey);
+      
+      if (!sessionKey || !identifier) {
+        console.error('❌ BG: Missing sessionKey or identifier');
+        try { sendResponse({ success: false, error: 'Missing sessionKey or identifier' }) } catch {}
+        break;
+      }
+      
+      // Use HTTP API to get session from SQLite
+      fetch(`http://127.0.0.1:51248/api/orchestrator/get?key=${encodeURIComponent(sessionKey)}`)
+        .then(response => {
+          if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`)
+          }
+          return response.json()
+        })
+        .then((result: any) => {
+          const session = result.data || {}
+          
+          if (session.agentBoxes && Array.isArray(session.agentBoxes)) {
+            const beforeCount = session.agentBoxes.length;
+            session.agentBoxes = session.agentBoxes.filter((box: any) => box.identifier !== identifier);
+            const afterCount = session.agentBoxes.length;
+            
+            console.log(`🗑️ BG: Removed ${beforeCount - afterCount} agent box(es) from SQLite, ${afterCount} remaining`);
+            
+            // Save back to SQLite
+            return fetch('http://127.0.0.1:51248/api/orchestrator/set', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ key: sessionKey, value: session })
+            })
+          } else {
+            console.warn('⚠️ BG: No agentBoxes array in session');
+            throw new Error('No agentBoxes in session')
+          }
+        })
+        .then(response => {
+          if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`)
+          }
+          return response.json()
+        })
+        .then(() => {
+          console.log('✅ BG: Agent box deleted from SQLite database');
+          try { sendResponse({ success: true }) } catch {}
+        })
+        .catch(error => {
+          console.error('❌ BG: Error deleting from SQLite:', error);
+          try { sendResponse({ success: false, error: String(error) }) } catch {}
+        })
+      
+      return true; // Keep channel open for async response
+    }
+    
+    case 'DELETE_AGENT_BOX_FROM_SQLITE': {
+      // Delete agent box from master tab - remove from SQLite database
+      const { sessionKey, agentId, identifier } = msg;
+      console.log('🗑️ BG: DELETE_AGENT_BOX_FROM_SQLITE');
+      console.log('🔑 BG: Session key:', sessionKey);
+      console.log('🆔 BG: Agent ID:', agentId);
+      console.log('🏷️ BG: Identifier:', identifier);
+      
+      if (!sessionKey) {
+        console.error('❌ BG: Missing sessionKey');
+        try { sendResponse({ success: false, error: 'Missing sessionKey' }) } catch {}
+        return true;
+      }
+      
+      if (!agentId && !identifier) {
+        console.error('❌ BG: Missing both agentId and identifier');
+        try { sendResponse({ success: false, error: 'Missing both agentId and identifier' }) } catch {}
+        return true;
+      }
+      
+      // Use HTTP API to get session from SQLite
+      fetch(`http://127.0.0.1:51248/api/orchestrator/get?key=${encodeURIComponent(sessionKey)}`)
+        .then(response => {
+          if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`)
+          }
+          return response.json()
+        })
+        .then((result: any) => {
+          const session = result.data || {}
+          
+          console.log('📋 BG: Loaded session from SQLite');
+          console.log('📊 BG: Agent boxes before deletion:', session.agentBoxes?.length || 0);
+          
+          if (session.agentBoxes && Array.isArray(session.agentBoxes)) {
+            const beforeCount = session.agentBoxes.length;
+            
+            // Log all agent boxes for debugging
+            console.log('🔍 BG: All agent boxes in session:');
+            session.agentBoxes.forEach((box: any, index: number) => {
+              console.log(`  [${index}] id=${box.id}, identifier=${box.identifier}`);
+            });
+            
+            // Remove by EITHER identifier OR id (master tab boxes use 'id', display grid boxes use 'identifier')
+            session.agentBoxes = session.agentBoxes.filter((box: any) => {
+              const matchesIdentifier = identifier && box.identifier === identifier;
+              const matchesId = agentId && box.id === agentId;
+              const shouldRemove = matchesIdentifier || matchesId;
+              
+              if (shouldRemove) {
+                console.log(`🗑️ BG: Removing box: id=${box.id}, identifier=${box.identifier}`);
+              }
+              
+              return !shouldRemove;
+            });
+            
+            const afterCount = session.agentBoxes.length;
+            const removedCount = beforeCount - afterCount;
+            
+            console.log(`🗑️ BG: Removed ${removedCount} agent box(es) from SQLite, ${afterCount} remaining`);
+            
+            if (removedCount === 0) {
+              console.warn('⚠️ BG: No agent boxes were removed! Check if id/identifier match.');
+            }
+            
+            // Save back to SQLite
+            return fetch('http://127.0.0.1:51248/api/orchestrator/set', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ key: sessionKey, value: session })
+            })
+          } else {
+            console.warn('⚠️ BG: No agentBoxes array in session');
+            throw new Error('No agentBoxes in session')
+          }
+        })
+        .then(response => {
+          if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`)
+          }
+          return response.json()
+        })
+        .then(() => {
+          console.log('✅ BG: Agent box deleted from SQLite database');
+          try { sendResponse({ success: true }) } catch {}
+        })
+        .catch(error => {
+          console.error('❌ BG: Error deleting from SQLite:', error);
+          try { sendResponse({ success: false, error: String(error) }) } catch {}
+        })
+      
+      return true; // Keep channel open for async response
+    }
     case 'REOPEN_SIDEPANEL': {
       // Expand sidepanel (sidepanel will adjust width automatically)
       if (sender.tab?.id) {

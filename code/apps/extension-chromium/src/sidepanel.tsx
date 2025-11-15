@@ -3,6 +3,7 @@ import React, { useState, useEffect, useRef } from 'react'
 import { createRoot } from 'react-dom/client'
 import { BackendSwitcher } from './components/BackendSwitcher'
 import { BackendSwitcherInline } from './components/BackendSwitcherInline'
+import { DevTools } from './components/DevTools'
 
 interface ConnectionStatus {
   isConnected: boolean
@@ -574,11 +575,16 @@ function SidepanelOrchestrator() {
   }
 
   const removeAgentBox = (id: string) => {
+    // Show confirmation dialog
+    if (!confirm('Do you want to delete this agent box?')) {
+      return
+    }
+    
+    // Update local state for immediate UI feedback
     const updated = agentBoxes.filter(box => box.id !== id)
     setAgentBoxes(updated)
-    chrome.storage.local.set({ agentBoxes: updated })
     
-    // Also notify content script to delete the box
+    // Notify content script to delete the box (which will handle SQLite deletion)
     sendToContentScript('DELETE_AGENT_BOX', { agentId: id })
   }
 
@@ -2640,6 +2646,9 @@ function SidepanelOrchestrator() {
 
       {/* WR Login / Backend Switcher Section */}
       <BackendSwitcherInline theme={theme} />
+
+      {/* Dev Tools Section */}
+      <DevTools theme={theme} />
 
       {/* Docked Command Chat - Full Featured (Only when pinned) */}
       {isCommandChatPinned && (

@@ -848,6 +848,119 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   }
 
+  // Handle DELETE AGENT BOX request from sidepanel
+
+  else if (message.type === 'DELETE_AGENT_BOX') {
+
+    try {
+
+      const agentId = message.data?.agentId
+
+      if (!agentId) {
+
+        console.error('❌ No agent ID provided for deletion')
+
+        sendResponse({ success: false, error: 'No agent ID provided' })
+
+        return
+
+      }
+
+      console.log('🗑️ Deleting agent box:', agentId)
+
+      // Remove from currentTabData
+
+      const boxIndex = currentTabData.agentBoxes.findIndex((box: any) => box.id === agentId)
+
+      if (boxIndex === -1) {
+
+        console.warn('⚠️ Agent box not found in currentTabData:', agentId)
+
+        sendResponse({ success: false, error: 'Agent box not found' })
+
+        return
+
+      }
+
+      const deletedBox = currentTabData.agentBoxes[boxIndex]
+
+      console.log('🔍 Deleted box details:', {
+        id: deletedBox.id,
+        identifier: deletedBox.identifier,
+        boxNumber: deletedBox.boxNumber,
+        title: deletedBox.title
+      })
+
+      currentTabData.agentBoxes.splice(boxIndex, 1)
+
+      console.log('✅ Removed from currentTabData, remaining:', currentTabData.agentBoxes.length)
+
+      // Save to localStorage for immediate UI persistence
+
+      localStorage.setItem(`optimando-tab-${tabId}`, JSON.stringify(currentTabData))
+
+      // Get session key and delete from SQLite
+
+      const sessionKey = getCurrentSessionKey()
+
+      if (sessionKey) {
+
+        console.log('🗑️ Deleting from SQLite database, session:', sessionKey)
+
+        console.log('🗑️ Agent box identifier:', deletedBox.identifier)
+
+        
+
+        // Send to background script to delete from SQLite
+
+        chrome.runtime.sendMessage({
+
+          type: 'DELETE_AGENT_BOX_FROM_SQLITE',
+
+          sessionKey: sessionKey,
+
+          agentId: agentId,
+
+          identifier: deletedBox.identifier
+
+        }, (response) => {
+
+          if (response && response.success) {
+
+            console.log('✅ Agent box deleted from SQLite database')
+
+          } else {
+
+            console.error('❌ Failed to delete from SQLite:', response?.error)
+
+          }
+
+        })
+
+      }
+
+      // Notify sidepanel to update its list
+
+      chrome.runtime.sendMessage({
+
+        type: 'UPDATE_AGENT_BOXES',
+
+        data: currentTabData.agentBoxes || []
+
+      })
+
+      sendResponse({ success: true })
+
+    } catch (e) {
+
+      console.error('❌ Error deleting agent box:', e)
+
+      sendResponse({ success: false, error: String(e) })
+
+    }
+
+  }
+
   // Handle CREATE NEW SESSION request from sidepanel - use the ORIGINAL startNewSession function
 
   else if (message.type === 'CREATE_NEW_SESSION') {
@@ -4023,6 +4136,7 @@ function initializeExtension() {
 
   function saveTabDataToStorage() {
 
+    // Save to localStorage for immediate UI persistence across page reloads
     localStorage.setItem(`optimando-tab-${tabId}`, JSON.stringify(currentTabData))
 
     
@@ -4043,81 +4157,15 @@ function initializeExtension() {
 
     }))
 
-    console.log('🔧 DEBUG: Saved agent boxes to URL-based storage:', urlKey)
+    console.log('🔧 Saved agent boxes to localStorage for UI persistence')
 
     
 
-    // ✅ SYNC TO SESSION: Also update the session's agentBoxes array
-
-    const sessionKey = getCurrentSessionKey()
-
-    if (sessionKey && chrome?.storage?.local) {
-
-      storageGet([sessionKey], (result) => {
-
-        const session = result[sessionKey] || {}
-
-        
-
-        // Merge agent boxes from currentTabData (master tab boxes)
-
-        if (currentTabData.agentBoxes && currentTabData.agentBoxes.length > 0) {
-
-          session.agentBoxes = [...(session.agentBoxes || []), ...currentTabData.agentBoxes]
-
-            .filter((box, index, self) => 
-
-              index === self.findIndex(b => b.identifier === box.identifier)
-
-            ) // Remove duplicates by identifier
-
-          session.agentBoxHeights = { ...(session.agentBoxHeights || {}), ...currentTabData.agentBoxHeights }
-
-        }
-
-        // Initialize agentBoxes array if it doesn't exist (but don't overwrite existing boxes!)
-
-        if (!session.agentBoxes) {
-
-          session.agentBoxes = []
-
-        }
-
-        // Initialize agentBoxHeights if it doesn't exist
-
-        if (!session.agentBoxHeights) {
-
-          session.agentBoxHeights = {}
-
-        }
-
-        
-
-        // Save displayGrids metadata to session
-
-        if (currentTabData.displayGrids && currentTabData.displayGrids.length > 0) {
-
-          session.displayGrids = currentTabData.displayGrids
-
-        } else if (!session.displayGrids) {
-
-          session.displayGrids = []
-
-        }
-
-        
-
-        storageSet({ [sessionKey]: session }, () => {
-
-          console.log('✅ Synced agent boxes to session:', sessionKey, session.agentBoxes?.length || 0, 'boxes')
-
-          console.log('✅ Synced display grids to session:', sessionKey, currentTabData.displayGrids?.length || 0, 'grids')
-
-        })
-
-      })
-
-    }
+    // NOTE: SQLite sync is NOT done here automatically
+    // SQLite is only updated through explicit operations:
+    // - SAVE_AGENT_BOX_TO_SQLITE (when creating/updating individual boxes)
+    // - DELETE_AGENT_BOX_FROM_SQLITE (when deleting boxes)
+    // This prevents stale data from being re-synced to SQLite
 
   }
 
@@ -4280,17 +4328,45 @@ function initializeExtension() {
 
           const sessionData = result[existingSessionKey]
 
-          if (sessionData && sessionData.tabName) {
+          if (sessionData) {
 
-            currentTabData.tabName = sessionData.tabName
+            // Load FULL session data including agentBoxes
 
-            console.log('✅ Restored session name after refresh:', currentTabData.tabName)
+            currentTabData = {
+
+              ...currentTabData,
+
+              ...sessionData,
+
+              tabId: currentTabData.tabId  // Keep current tab ID
+
+            }
+
+            console.log('✅ Restored FULL session data after refresh:', currentTabData.tabName)
+
+            console.log('📦 Restored agent boxes:', currentTabData.agentBoxes?.length || 0)
 
             // Update UI
 
             setTimeout(() => {
               // Use centralized sync to ensure name and ID are displayed correctly
               syncSessionName(currentTabData.tabName || 'New Session', 'topbar')
+
+              // Re-render agent boxes after loading session data
+
+              renderAgentBoxes()
+
+              
+
+              // Notify sidepanel of restored agent boxes
+
+              chrome.runtime.sendMessage({ 
+
+                type: 'UPDATE_AGENT_BOXES', 
+
+                data: currentTabData.agentBoxes || []
+
+              })
             }, 100)
 
           }
@@ -4327,17 +4403,45 @@ function initializeExtension() {
 
           const sessionData = result[globalActiveSession]
 
-          if (sessionData && sessionData.tabName) {
+          if (sessionData) {
 
-            currentTabData.tabName = sessionData.tabName
+            // Load FULL session data including agentBoxes
 
-            console.log('✅ Restored session name from global storage:', currentTabData.tabName)
+            currentTabData = {
+
+              ...currentTabData,
+
+              ...sessionData,
+
+              tabId: currentTabData.tabId  // Keep current tab ID
+
+            }
+
+            console.log('✅ Restored FULL session data from global storage:', currentTabData.tabName)
+
+            console.log('📦 Restored agent boxes:', currentTabData.agentBoxes?.length || 0)
 
             // Update UI
 
             setTimeout(() => {
               // Use centralized sync to ensure name and ID are displayed correctly
               syncSessionName(currentTabData.tabName || 'New Session', 'topbar')
+
+              // Re-render agent boxes after loading session data
+
+              renderAgentBoxes()
+
+              
+
+              // Notify sidepanel of restored agent boxes
+
+              chrome.runtime.sendMessage({ 
+
+                type: 'UPDATE_AGENT_BOXES', 
+
+                data: currentTabData.agentBoxes || []
+
+              })
             }, 100)
 
           }
@@ -4530,40 +4634,52 @@ function initializeExtension() {
 
   loadTabDataFromStorage()
   
-  // 🔑 CRITICAL FIX: Also load the current session from chrome.storage.local on page load
+  // 🔑 CRITICAL: Load current session from SQLite (single source of truth) on page load
   // This restores agentBoxes and other session data after page refresh
   setTimeout(() => {
     const sessionKey = getCurrentSessionKey()
     if (sessionKey) {
-      console.log('📥 Loading active session on page load:', sessionKey)
-      storageGet([sessionKey], (result) => {
-        const sessionData = result[sessionKey]
-        if (sessionData) {
-          console.log('✅ Found session data:', {
-            tabName: sessionData.tabName,
-            agentBoxes: sessionData.agentBoxes?.length || 0,
-            displayGrids: sessionData.displayGrids?.length || 0
-          })
-          
-          // Merge session data into currentTabData (preserving tabId)
-          currentTabData = {
-            ...currentTabData,
-            ...sessionData,
-            tabId: currentTabData.tabId
-          }
-          
-          console.log('✅ Restored session data on page load:', {
-            sessionKey,
-            agentBoxes: currentTabData.agentBoxes?.length || 0
-          })
-          
-          // Re-render agent boxes if any exist
-          if (currentTabData.agentBoxes && currentTabData.agentBoxes.length > 0) {
-            console.log('📦 Rendering', currentTabData.agentBoxes.length, 'restored agent boxes')
-            renderAgentBoxes()
-          }
-        } else {
-          console.log('⚠️ Session key exists but no session data found:', sessionKey)
+      console.log('📥 Loading active session from SQLite on page load:', sessionKey)
+      
+      // Load from SQLite via background script
+      chrome.runtime.sendMessage({
+        type: 'GET_SESSION_FROM_SQLITE',
+        sessionKey: sessionKey
+      }, (response) => {
+        if (chrome.runtime.lastError) {
+          console.error('❌ Error loading session from SQLite:', chrome.runtime.lastError.message)
+          return
+        }
+        
+        if (!response || !response.success || !response.session) {
+          console.log('⚠️ No session data found in SQLite for:', sessionKey)
+          return
+        }
+        
+        const sessionData = response.session
+        
+        console.log('✅ Found session data from SQLite:', {
+          tabName: sessionData.tabName,
+          agentBoxes: sessionData.agentBoxes?.length || 0,
+          displayGrids: sessionData.displayGrids?.length || 0
+        })
+        
+        // Merge session data into currentTabData (preserving tabId)
+        currentTabData = {
+          ...currentTabData,
+          ...sessionData,
+          tabId: currentTabData.tabId
+        }
+        
+        console.log('✅ Restored session data from SQLite on page load:', {
+          sessionKey,
+          agentBoxes: currentTabData.agentBoxes?.length || 0
+        })
+        
+        // Re-render agent boxes if any exist
+        if (currentTabData.agentBoxes && currentTabData.agentBoxes.length > 0) {
+          console.log('📦 Rendering', currentTabData.agentBoxes.length, 'restored agent boxes')
+          renderAgentBoxes()
         }
       })
     } else {
@@ -4955,7 +5071,29 @@ function initializeExtension() {
 
   function deleteAgentBox(agentId: string) {
 
+    console.log('🗑️ deleteAgentBox called for:', agentId)
+
+    // Find the box before removing it so we can get its identifier
+    const boxIndex = currentTabData.agentBoxes.findIndex((box: any) => box.id === agentId)
+
+    if (boxIndex === -1) {
+      console.warn('⚠️ Agent box not found in currentTabData:', agentId)
+      return
+    }
+
+    const deletedBox = currentTabData.agentBoxes[boxIndex]
+
+    console.log('🔍 Deleted box details:', {
+      id: deletedBox.id,
+      identifier: deletedBox.identifier,
+      boxNumber: deletedBox.boxNumber,
+      title: deletedBox.title
+    })
+
+    // Remove from local memory
     currentTabData.agentBoxes = currentTabData.agentBoxes.filter((box: any) => box.id !== agentId)
+
+    console.log('✅ Removed from currentTabData, remaining:', currentTabData.agentBoxes.length)
 
     
 
@@ -4969,9 +5107,52 @@ function initializeExtension() {
 
     
 
-    saveTabDataToStorage()
+    // Save to localStorage for immediate UI persistence
+    localStorage.setItem(`optimando-tab-${tabId}`, JSON.stringify(currentTabData))
 
     renderAgentBoxes()
+
+    // Delete from SQLite database (single source of truth)
+
+    const sessionKey = getCurrentSessionKey()
+
+    if (sessionKey) {
+
+      console.log('🗑️ Deleting from SQLite database, session:', sessionKey)
+
+      console.log('🗑️ Agent box identifier:', deletedBox.identifier)
+
+      
+
+      // Send to background script to delete from SQLite
+
+      chrome.runtime.sendMessage({
+
+        type: 'DELETE_AGENT_BOX_FROM_SQLITE',
+
+        sessionKey: sessionKey,
+
+        agentId: agentId,
+
+        identifier: deletedBox.identifier
+
+      }, (response) => {
+
+        if (response && response.success) {
+
+          console.log('✅ Agent box deleted from SQLite database')
+
+        } else {
+
+          console.error('❌ Failed to delete from SQLite:', response?.error)
+
+        }
+
+      })
+
+    } else {
+      console.warn('⚠️ No session key found, cannot delete from SQLite')
+    }
 
   }
 
@@ -5185,9 +5366,9 @@ function initializeExtension() {
 
           <label style="display: block; margin-bottom: 8px; color: #555; font-weight: bold;">Agent Number:</label>
 
-            <input id="agent-number" type="number" value="1" min="1" max="99" placeholder="e.g., 5" style="width: 100%; padding: 10px; border: 2px solid #ddd; border-radius: 6px; font-size: 14px;">
+            <input id="agent-number" type="number" value="${nextBoxNumber}" min="1" max="99" placeholder="e.g., 5" style="width: 100%; padding: 10px; border: 2px solid #ddd; border-radius: 6px; font-size: 14px;">
 
-            <div style="font-size: 11px; color: #888; margin-top: 4px;">Which agent to allocate to this box</div>
+            <div style="font-size: 11px; color: #888; margin-top: 4px;">Which agent to allocate to this box (defaults to box number)</div>
 
         </div>
 
@@ -5221,7 +5402,7 @@ function initializeExtension() {
 
             <label style="display: block; margin-bottom: 8px; color: #555; font-weight: bold;">Provider:</label>
 
-            <select id="agent-provider" style="width: 100%; padding: 10px; border: 2px solid #ddd; border-radius: 6px; font-size: 14px; background: white;">
+            <select id="agent-provider" style="width: 100%; padding: 10px; border: 2px solid #ddd; border-radius: 6px; font-size: 14px; background: white; height: auto; min-height: 42px;">
 
               <option value="" selected disabled>Select LLM</option>
 
@@ -5241,7 +5422,7 @@ function initializeExtension() {
 
             <label style="display: block; margin-bottom: 8px; color: #555; font-weight: bold;">Model:</label>
 
-            <select id="agent-model" style="width: 100%; padding: 10px; border: 2px solid #ddd; border-radius: 6px; font-size: 14px; background: white;" disabled>
+            <select id="agent-model" style="width: 100%; padding: 10px; border: 2px solid #ddd; border-radius: 6px; font-size: 14px; background: white; height: auto; min-height: 42px;" disabled>
 
               <option value="" selected disabled>Select provider first</option>
 
@@ -5615,7 +5796,7 @@ function initializeExtension() {
 
           source: 'master_tab',  // ← Identify this as a master tab box
 
-          enabled: false  // ← Default to disabled until AI Instructions are configured
+          enabled: true  // ← Default to enabled so box is active immediately
 
       }
 
@@ -5623,77 +5804,56 @@ function initializeExtension() {
 
       currentTabData.agentBoxes.push(newBox)
 
-      saveTabDataToStorage()
+      // Save to localStorage for immediate UI persistence
+      localStorage.setItem(`optimando-tab-${tabId}`, JSON.stringify(currentTabData))
 
       renderAgentBoxes()
 
       
 
-      // Sync to SQLite session if session is active (MUST load existing session first!)
+      // Save to SQLite database (single source of truth)
 
       const sessionKey = getCurrentSessionKey()
 
       if (sessionKey) {
 
-        console.log('🔄 Syncing master tab agentBox to SQLite session:', newBox.identifier)
+        console.log('🔄 Saving master tab agentBox to SQLite session:', newBox.identifier)
 
-        storageGet([sessionKey], (result) => {
+        
 
-          const session = result[sessionKey] || {}
+        // Use SAVE_AGENT_BOX_TO_SQLITE message to persist to SQLite
 
-          console.log('📋 Loaded existing session:', {
+        chrome.runtime.sendMessage({
 
-            hasAgentBoxes: !!session.agentBoxes,
+          type: 'SAVE_AGENT_BOX_TO_SQLITE',
 
-            currentCount: session.agentBoxes?.length || 0
+          sessionKey: sessionKey,
 
-          })
+          agentBox: newBox
 
-          
+        }, (response) => {
 
-          // CRITICAL: Merge master tab boxes into existing session boxes (don't replace!)
+          if (chrome.runtime.lastError) {
 
-          if (!session.agentBoxes) session.agentBoxes = []
+            console.error('❌ Failed to save master tab box to SQLite:', chrome.runtime.lastError.message)
 
-          
+          } else if (response && response.success) {
 
-          // Check if this box already exists
+            console.log('✅ Master tab agent box saved to SQLite:', newBox.identifier)
 
-          const existingIndex = session.agentBoxes.findIndex(
-
-            (b: any) => b.identifier === newBox.identifier
-
-          )
-
-          
-
-          if (existingIndex !== -1) {
-
-            session.agentBoxes[existingIndex] = newBox
-
-            console.log('♻️ Updated existing master tab box in session')
+            console.log('📦 Total boxes in session:', response.totalBoxes)
 
           } else {
 
-            session.agentBoxes.push(newBox)
-
-            console.log('🆕 Added new master tab box to session')
+            console.error('❌ Failed to save to SQLite:', response?.error)
 
           }
 
-          
-
-          console.log('💾 Saving session with', session.agentBoxes.length, 'total agent boxes')
-
-          
-
-          storageSet({ [sessionKey]: session }, () => {
-
-            console.log('✅ Synced master tab agentBox to SQLite session:', newBox.identifier)
-
-          })
-
         })
+
+      } else {
+
+        console.warn('⚠️ No session key found, cannot save to SQLite')
 
       }
 
@@ -6351,37 +6511,9 @@ function initializeExtension() {
 
     
 
-    // Save to storage and re-render
+    // Save to storage and re-render (saveTabDataToStorage handles SQLite sync)
 
     saveTabDataToStorage()
-
-    // Also persist to current chrome.storage.local session so overview reflects changes immediately
-
-    try {
-
-      const sessionKey = getCurrentSessionKey()
-
-      if (sessionKey && chrome?.storage?.local) {
-
-        storageGet([sessionKey], (result) => {
-
-          const session = result[sessionKey] || {}
-
-          session.agentBoxes = currentTabData.agentBoxes
-
-          session.timestamp = new Date().toISOString()
-
-          storageSet({ [sessionKey]: session }, () => {
-
-            console.log('✅ Persisted updated agentBoxes to session:', sessionKey)
-
-          })
-
-        })
-
-      }
-
-    } catch {}
 
     renderAgentBoxes()
 
