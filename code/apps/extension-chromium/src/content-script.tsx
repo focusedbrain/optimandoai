@@ -31951,12 +31951,36 @@ ${pageText}
           exportData.agentBoxes = sessionData.agentBoxes || []
           exportData.agents = sessionData.agents || []
           
+          // Derive hybridViews from agent boxes
+          // Find all unique masterTabId values (excluding "01" which is the main tab)
+          const hybridMasterTabIds = new Set<string>()
+          if (sessionData.agentBoxes && Array.isArray(sessionData.agentBoxes)) {
+            sessionData.agentBoxes.forEach((box: any) => {
+              if (box.masterTabId && box.masterTabId !== "01") {
+                hybridMasterTabIds.add(box.masterTabId)
+              }
+            })
+          }
+          
+          // Convert masterTabIds to hybridViews array
+          // masterTabId "02" → hybrid_master_id 0, "03" → 1, etc.
+          const derivedHybridViews = Array.from(hybridMasterTabIds)
+            .sort() // Sort to maintain order
+            .map(tabId => ({
+              id: String(parseInt(tabId) - 2), // "02" → "0", "03" → "1"
+              masterTabId: tabId,
+              url: sessionData.url || window.location.href,
+              timestamp: new Date().toISOString()
+            }))
+          
+          console.log('📦 Derived hybrid views from agent boxes:', derivedHybridViews)
+          
           exportData.uiState = {
             agentBoxHeights: sessionData.agentBoxHeights || {},
             customAgentLayout: sessionData.customAgentLayout || null,
             customAgentOrder: sessionData.customAgentOrder || null,
             displayGridActiveTab: sessionData.displayGridActiveTab || null,
-            hybridViews: sessionData.hybridViews || []
+            hybridViews: derivedHybridViews.length > 0 ? derivedHybridViews : (sessionData.hybridViews || [])
           }
           
           // Include any other fields that might be in the session data
