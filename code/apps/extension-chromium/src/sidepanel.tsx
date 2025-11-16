@@ -130,8 +130,9 @@ function SidepanelOrchestrator() {
               
               if (hybridMasterId) {
                 // Convert hybrid_master_id to display format (Master Tab 01, 02, 03, etc.)
-                // hybrid_master_id 0 = Master Tab 01, 1 = Master Tab 02, etc.
-                const displayId = String(parseInt(hybridMasterId) + 1).padStart(2, '0')
+                // Main tab (no hybrid_master_id) = Master Tab 01
+                // hybrid_master_id 0 = Master Tab 02, 1 = Master Tab 03, etc.
+                const displayId = String(parseInt(hybridMasterId) + 2).padStart(2, '0')
                 setMasterTabId(displayId)
                 // Store it for this tab so it persists across page refreshes
                 chrome.storage.local.set({ [storageKey]: displayId })

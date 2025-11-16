@@ -4951,7 +4951,7 @@ function initializeExtension() {
 
       if (hybridId) {
 
-        currentHybridId = parseInt(hybridId) + 1 // +1 because hybrid_master_id starts from 0, but tabIndex starts from 1
+        currentHybridId = parseInt(hybridId) + 2 // +2 because hybrid_master_id 0 = Master Tab (02), 1 = Master Tab (03)
 
       }
 
@@ -5927,9 +5927,9 @@ function initializeExtension() {
 
           if (hybridId) {
 
-            tabIndex = parseInt(hybridId) + 1 // +1 because hybrid_master_id starts from 0 but tabIndex starts from 1
+            tabIndex = parseInt(hybridId) + 2 // +2 because hybrid_master_id 0 = Master Tab (02), 1 = Master Tab (03)
 
-            masterTabId = String(parseInt(hybridId) + 1).padStart(2, '0')  // hybrid_id 0 → 01, 1 → 02, etc.
+            masterTabId = String(parseInt(hybridId) + 2).padStart(2, '0')  // hybrid_id 0 → 02, 1 → 03, etc.
 
           }
 
