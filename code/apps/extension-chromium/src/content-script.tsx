@@ -30353,27 +30353,25 @@ ${pageText}
 
             } else {
 
-              // Master tab - determine location based on source and tabIndex
-
+              // Master tab - determine location based on source and masterTabId
+              
               if (box.source === 'master_tab') {
 
-                // Check if this is a hybrid master tab (tabIndex > 1) or main master tab
-
-                const tabIdx = box.tabIndex || 1
-
+                // Use masterTabId for consistent display (NEW: proper field)
                 
+                const masterTabId = box.masterTabId || "01"
+                
+                if (masterTabId === "01") {
 
-                if (tabIdx === 1) {
+                  // Main master tab (01)
 
-                  // Main master tab - no number needed
-
-                  location = 'Master Tab'
+                  location = 'Master Tab (01)'
 
               } else {
 
-                // Hybrid master tab - show tab number only
+                // Hybrid master tab - show the masterTabId directly
 
-                location = `Master Tab (${tabIdx})`
+                location = `Master Tab (${masterTabId})`
 
               }
 
