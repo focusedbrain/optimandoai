@@ -4737,6 +4737,48 @@ function initializeExtension() {
     }
   }, 500) // Give time for storage wrapper to load
   
+  // Add visibility change handler to reload agent boxes when returning to tab
+  let lastVisibilityChange = 0
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) {
+      // Debounce to avoid multiple rapid reloads
+      const now = Date.now()
+      if (now - lastVisibilityChange < 2000) {
+        console.log('👁️ Tab visibility change ignored (debounced)')
+        return
+      }
+      lastVisibilityChange = now
+      
+      console.log('👁️ Tab became visible - reloading agent boxes from SQLite')
+      
+      const sessionKey = getCurrentSessionKey()
+      if (sessionKey && chrome?.runtime) {
+        chrome.runtime.sendMessage({
+          type: 'GET_SESSION_FROM_SQLITE',
+          sessionKey: sessionKey
+        }, (response) => {
+          if (chrome.runtime.lastError) {
+            console.error('❌ Error reloading session:', chrome.runtime.lastError.message)
+            return
+          }
+          
+          if (response && response.success && response.session) {
+            console.log('✅ Reloaded session data from SQLite:', response.session.tabName)
+            
+            // Update agent boxes in currentTabData
+            if (response.session.agentBoxes) {
+              currentTabData.agentBoxes = response.session.agentBoxes
+              console.log('📦 Restored', response.session.agentBoxes.length, 'agent boxes')
+              
+              // Re-render agent boxes
+              renderAgentBoxes()
+            }
+          }
+        })
+      }
+    }
+  })
+  
   // Check if display grids are active and hide sidepanel if so (only on display grid tabs)
   setTimeout(() => {
     if (currentTabData.displayGrids && currentTabData.displayGrids.length > 0) {
@@ -4953,6 +4995,16 @@ function initializeExtension() {
 
     let boxesToRender = currentTabData.agentBoxes
 
+    
+    // DEBUG: Log all boxes before filtering
+    console.log('🔍 ALL BOXES before filtering:', currentTabData.agentBoxes.map((b: any) => ({
+      identifier: b.identifier,
+      tabIndex: b.tabIndex,
+      source: b.source,
+      masterTabId: b.masterTabId,
+      gridSessionId: b.gridSessionId
+    })))
+
     if (currentHybridId > 1) {
 
       // This is a hybrid master tab (Master Tab 2, 3, etc.) - only show boxes for this tab
@@ -4965,7 +5017,10 @@ function initializeExtension() {
 
         const isDisplayGrid = box.source === 'display_grid' || box.gridSessionId
 
-        return boxTabIndex === currentHybridId && !isDisplayGrid
+        const shouldShow = boxTabIndex === currentHybridId && !isDisplayGrid
+        console.log(`🔍 Box ${box.identifier}: tabIndex=${boxTabIndex}, currentHybridId=${currentHybridId}, isDisplayGrid=${isDisplayGrid}, shouldShow=${shouldShow}`)
+        
+        return shouldShow
 
       })
 
@@ -4983,9 +5038,12 @@ function initializeExtension() {
 
         const isDisplayGrid = box.source === 'display_grid' || box.gridSessionId
 
+        const shouldShow = boxTabIndex === 1 && !isDisplayGrid
+        console.log(`🔍 Box ${box.identifier}: tabIndex=${boxTabIndex}, source=${box.source}, gridSessionId=${box.gridSessionId}, isDisplayGrid=${isDisplayGrid}, shouldShow=${shouldShow}`)
+
         // Main tab shows: boxes with tabIndex 1 but NOT display grid boxes
 
-        return boxTabIndex === 1 && !isDisplayGrid
+        return shouldShow
 
       })
 
@@ -5228,6 +5286,77 @@ function initializeExtension() {
       console.error('❌❌❌ This is a CRITICAL error - box will not be deleted from database!')
     }
 
+  }
+
+  // Delete display grid agent box (uses identifier instead of id)
+  function deleteDisplayGridAgentBox(identifier: string, slotId: string) {
+    console.log('🗑️🗑️🗑️ deleteDisplayGridAgentBox called for:', identifier, 'slotId:', slotId)
+    console.log('🗑️🗑️🗑️ Current agent boxes BEFORE delete:', JSON.stringify(currentTabData.agentBoxes, null, 2))
+
+    // Find the box by identifier (display grid boxes use identifier, not id)
+    const boxIndex = currentTabData.agentBoxes.findIndex((box: any) => 
+      box.identifier === identifier || box.slotId === slotId
+    )
+
+    if (boxIndex === -1) {
+      console.error('❌❌❌ Display grid agent box not found:', identifier)
+      console.error('❌❌❌ Available identifiers:', currentTabData.agentBoxes.map((b: any) => b.identifier))
+      return
+    }
+
+    const deletedBox = currentTabData.agentBoxes[boxIndex]
+
+    console.log('🔍🔍🔍 Deleted display grid box details:', {
+      identifier: deletedBox.identifier,
+      boxNumber: deletedBox.boxNumber,
+      title: deletedBox.title,
+      source: deletedBox.source,
+      slotId: deletedBox.slotId
+    })
+
+    // Remove from local memory
+    currentTabData.agentBoxes = currentTabData.agentBoxes.filter((box: any) => 
+      box.identifier !== identifier && box.slotId !== slotId
+    )
+
+    console.log('✅✅✅ Removed from currentTabData, remaining:', currentTabData.agentBoxes.length)
+
+    // Save to localStorage
+    localStorage.setItem(`optimando-tab-${tabId}`, JSON.stringify(currentTabData))
+    console.log('💾💾💾 Saved to localStorage')
+
+    // Delete from SQLite database
+    const sessionKey = getCurrentSessionKey()
+    console.log('🔑🔑🔑 Session key:', sessionKey)
+
+    if (sessionKey) {
+      console.log('🗑️🗑️🗑️ Deleting display grid box from SQLite:', identifier)
+
+      chrome.runtime.sendMessage({
+        type: 'DELETE_DISPLAY_GRID_AGENT_BOX',
+        sessionKey: sessionKey,
+        identifier: identifier,
+        slotId: slotId,
+        gridSessionId: deletedBox.gridSessionId,
+        gridLayout: deletedBox.gridLayout
+      }, (response) => {
+        console.log('📨📨📨 Response from background:', JSON.stringify(response, null, 2))
+
+        if (response && response.success) {
+          console.log('✅✅✅ Display grid agent box deleted from SQLite')
+
+          // Notify sidepanel to reload
+          chrome.runtime.sendMessage({
+            type: 'RELOAD_SESSION_FROM_SQLITE',
+            sessionKey: sessionKey
+          })
+        } else {
+          console.error('❌❌❌ Failed to delete from SQLite:', response?.error)
+        }
+      })
+    } else {
+      console.error('❌❌❌ No session key found, cannot delete from SQLite')
+    }
   }
 
 
@@ -6200,12 +6329,16 @@ function initializeExtension() {
         </div>
 
         
+        
+        <div style="padding: 20px 30px; border-top: 1px solid #eee; flex-shrink: 0; display: flex; gap: 10px; justify-content: space-between;">
 
-        <div style="padding: 20px 30px; border-top: 1px solid #eee; flex-shrink: 0; display: flex; gap: 10px; justify-content: flex-end;">
+          <button id="delete-agent-box" style="padding: 10px 20px; background: #f44336; border: none; color: white; border-radius: 6px; cursor: pointer; font-size: 14px; font-weight: bold;">Delete</button>
 
-          <button id="cancel-edit-agent" style="padding: 10px 20px; background: #ccc; border: none; color: #333; border-radius: 6px; cursor: pointer; font-size: 14px;">Cancel</button>
+          <div style="display: flex; gap: 10px;">
+            <button id="cancel-edit-agent" style="padding: 10px 20px; background: #ccc; border: none; color: #333; border-radius: 6px; cursor: pointer; font-size: 14px;">Cancel</button>
 
-          <button id="confirm-edit-agent" style="padding: 10px 20px; background: #2196F3; border: none; color: white; border-radius: 6px; cursor: pointer; font-size: 14px; font-weight: bold;">Save Changes</button>
+            <button id="confirm-edit-agent" style="padding: 10px 20px; background: #2196F3; border: none; color: white; border-radius: 6px; cursor: pointer; font-size: 14px; font-weight: bold;">Save Changes</button>
+          </div>
 
         </div>
 
@@ -6382,12 +6515,34 @@ function initializeExtension() {
     }
 
 
-
+    
     // Handle cancel
 
     overlay.querySelector('#cancel-edit-agent')?.addEventListener('click', () => {
 
       overlay.remove()
+
+    })
+
+    
+    // Handle delete
+
+    overlay.querySelector('#delete-agent-box')?.addEventListener('click', () => {
+
+      // Show confirmation dialog
+      const confirmDelete = confirm('Are you sure you want to delete this agent box?')
+
+      if (confirmDelete) {
+
+        console.log('🗑️ Deleting agent box from setup dialog:', agentId)
+
+        // Close the dialog
+        overlay.remove()
+
+        // Delete the agent box
+        deleteAgentBox(agentId)
+
+      }
 
     })
 
@@ -30463,7 +30618,7 @@ ${pageText}
       `
 
       
-
+      
       // Event handlers
 
       document.getElementById('close-agentbox-overview')?.addEventListener('click', () => overlay.remove())

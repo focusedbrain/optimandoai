@@ -115,9 +115,12 @@ if (window.gridScriptV2Loaded) {
         '<strong>Note:</strong> If no agent or LLM is selected, this box will use the global "Setup AI Agent" settings as fallback.' +
       '</div>' +
       '</div>' +
-      '<div style="padding:16px 20px;border-top:1px solid #eee;flex-shrink:0;display:flex;justify-content:flex-end;gap:10px">' +
-        '<button id="gs-cancel" style="padding:12px 24px;border:0;border-radius:8px;background:#f0f0f0;color:#333;cursor:pointer;font-size:14px;transition:background 0.2s">Cancel</button>' +
-        '<button id="gs-save" style="padding:12px 24px;border:0;border-radius:8px;background:#2196F3;color:#fff;cursor:pointer;font-weight:600;font-size:14px;transition:background 0.2s">Save</button>' +
+      '<div style="padding:16px 20px;border-top:1px solid #eee;flex-shrink:0;display:flex;justify-content:space-between;gap:10px">' +
+        '<button id="gs-delete" style="padding:12px 24px;border:0;border-radius:8px;background:#f44336;color:#fff;cursor:pointer;font-weight:600;font-size:14px;transition:background 0.2s">Delete</button>' +
+        '<div style="display:flex;gap:10px">' +
+          '<button id="gs-cancel" style="padding:12px 24px;border:0;border-radius:8px;background:#f0f0f0;color:#333;cursor:pointer;font-size:14px;transition:background 0.2s">Cancel</button>' +
+          '<button id="gs-save" style="padding:12px 24px;border:0;border-radius:8px;background:#2196F3;color:#fff;cursor:pointer;font-weight:600;font-size:14px;transition:background 0.2s">Save</button>' +
+        '</div>' +
       '</div>';
     
     console.log('✅ POPUP V2: Form HTML created with box number:', displayBoxNumber);
@@ -125,6 +128,15 @@ if (window.gridScriptV2Loaded) {
     // Add dialog to overlay and overlay to document
     overlay.appendChild(dialog);
     document.body.appendChild(overlay);
+    
+    // Set default agent number to match box number (if not already set)
+    setTimeout(function() {
+      var agentInput = document.getElementById('gs-agent');
+      if (agentInput && !agentInput.value) {
+        agentInput.value = String(nextBoxNumber);
+        console.log('✅ V2: Set default agent number to match box number:', nextBoxNumber);
+      }
+    }, 50);
     
     console.log('✅ POPUP V2: Added to DOM');
     
@@ -200,6 +212,69 @@ if (window.gridScriptV2Loaded) {
     document.getElementById('gs-cancel').onclick = function() {
       console.log('❌ POPUP V2: Cancelled');
       overlay.remove();
+    };
+    
+    // Delete button
+    document.getElementById('gs-delete').onclick = function() {
+      // Show confirmation dialog
+      if (confirm('Are you sure you want to delete this agent box?')) {
+        console.log('🗑️ POPUP V2: Deleting slot', slotId);
+        
+        // IMPORTANT: Save the identifier BEFORE clearing the config
+        var boxIdentifier = cfg.identifier || '';
+        var boxGridSessionId = cfg.gridSessionId || window.gridSessionId || 'unknown';
+        var boxGridLayout = cfg.gridLayout || window.gridLayout || layout;
+        
+        console.log('🔍 POPUP V2: Box to delete:', {
+          identifier: boxIdentifier,
+          slotId: slotId,
+          gridSessionId: boxGridSessionId,
+          gridLayout: boxGridLayout
+        });
+        
+        // Clear the slot's data attribute with empty config
+        try {
+          slot.setAttribute('data-slot-config', JSON.stringify({}));
+          
+          // Update visual display to empty state
+          var abEl = slot.querySelector('span[style*="font-family: monospace"]');
+          if (abEl) abEl.textContent = '';
+          
+          var dispEl = slot.querySelector('.slot-display-text');
+          if (dispEl) dispEl.textContent = '';
+          
+          console.log('✅ POPUP V2: Slot display cleared');
+        } catch (e) {
+          console.error('❌ V2 Error updating slot display:', e);
+        }
+        
+        // Close dialog IMMEDIATELY (don't wait for background response)
+        overlay.remove();
+        console.log('✅ POPUP V2: Dialog closed');
+        
+        // Get parent session key and send delete message (but don't wait for response)
+        try {
+          var parentSessionKey = (window.GRID_CONFIG && window.GRID_CONFIG.sessionKey) || '';
+          
+          if (parentSessionKey && boxIdentifier) {
+            // Send message to delete agent box from SQLite (fire and forget)
+            chrome.runtime.sendMessage({
+              type: 'DELETE_DISPLAY_GRID_AGENT_BOX',
+              sessionKey: parentSessionKey,
+              identifier: boxIdentifier,
+              slotId: slotId,
+              gridSessionId: boxGridSessionId,
+              gridLayout: boxGridLayout
+            });
+            console.log('📤 V2 Delete message sent to background with identifier:', boxIdentifier);
+          } else {
+            console.log('⚠️ V2 No session key or identifier, skipping database deletion');
+            console.log('   V2 parentSessionKey:', parentSessionKey, 'identifier:', boxIdentifier);
+          }
+        } catch (e) {
+          console.error('❌ V2 Error sending delete message:', e);
+        }
+      }
     };
     
     // 🆕 KEY FIX: Save with chrome.runtime.sendMessage to background script
