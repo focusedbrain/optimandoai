@@ -554,36 +554,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   }
 
-  // Handle DELETE AGENT BOX request from side panel
-
-  else if (message.type === 'DELETE_AGENT_BOX') {
-
-    try {
-
-      if (globalLightboxFunctions.deleteAgentBox) {
-
-        globalLightboxFunctions.deleteAgentBox(message.data?.agentId)
-
-        sendResponse({ success: true })
-
-      } else {
-
-        console.warn('⚠️ deleteAgentBox not available yet')
-
-        sendResponse({ success: false, error: 'Function not available' })
-
-      }
-
-    } catch (e) {
-
-      console.error('❌ Error deleting agent box:', e)
-
-      sendResponse({ success: false, error: String(e) })
-
-    }
-
-  }
-
   // Handle SCREENSHOT request from side panel - use the REAL function
 
   else if (message.type === 'BEGIN_SCREEN_SELECT') {
