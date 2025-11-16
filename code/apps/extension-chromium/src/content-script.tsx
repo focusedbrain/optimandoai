@@ -30244,23 +30244,13 @@ ${pageText}
 
                   location = 'Master Tab'
 
-                } else {
+              } else {
 
-                  // Hybrid master tab - show tab number and side
+                // Hybrid master tab - show tab number only
 
-                  location = `Master Tab (${tabIdx})`
+                location = `Master Tab (${tabIdx})`
 
-                  if (box.side === 'left') {
-
-                    location = `Master Tab (${tabIdx}), SPL`
-
-                  } else if (box.side === 'right') {
-
-                    location = `Master Tab (${tabIdx}), SPR`
-
-                  }
-
-                }
+              }
 
               } else {
 
@@ -30282,25 +30272,13 @@ ${pageText}
 
                   }
 
-                  const tabNum = tabUrlToIndex.get(normalizedUrl)
+                const tabNum = tabUrlToIndex.get(normalizedUrl)
 
-                  if (tabNum && tabNum > 1) {
+                if (tabNum && tabNum > 1) {
 
-                    location = `Master Tab (${tabNum})`
+                  location = `Master Tab (${tabNum})`
 
-                    // Add side panel information for Master Tab (2) and onwards
-
-                    if (box.side === 'left') {
-
-                      location = `Master Tab (${tabNum}), SPL`
-
-                    } else if (box.side === 'right') {
-
-                      location = `Master Tab (${tabNum}), SPR`
-
-                    }
-
-                  } else {
+                } else {
 
                     location = 'Master Tab'  // First tab doesn't need number
 
