@@ -32998,6 +32998,11 @@ ${pageText}
    */
   function loadImportedSession(sessionKey: string, sessionData: any) {
     console.log('📥 Loading imported session:', sessionKey)
+    console.log('🔍 DEBUG loadImportedSession - Full sessionData:', sessionData)
+    console.log('🔍 DEBUG loadImportedSession - sessionData.hybridViews:', sessionData.hybridViews)
+    console.log('🔍 DEBUG loadImportedSession - sessionData.agentBoxes:', sessionData.agentBoxes)
+    console.log('🔍 DEBUG loadImportedSession - Agent box masterTabIds:', 
+      sessionData.agentBoxes?.map((b: any) => ({ id: b.identifier, masterTabId: b.masterTabId })))
     
     // Restore agent configurations to localStorage
     if (sessionData.agents && sessionData.agents.length > 0) {
