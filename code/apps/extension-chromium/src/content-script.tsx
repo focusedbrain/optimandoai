@@ -33052,6 +33052,12 @@ ${pageText}
     // Open master tabs (hybrid views) if they exist
     // Support both new format (hybridViews) and old format (hybridAgentBoxes)
     const hybridTabs = sessionData.hybridViews || sessionData.hybridAgentBoxes || []
+    console.log('🔍 DEBUG: Checking for hybrid tabs...')
+    console.log('  - sessionData.hybridViews:', sessionData.hybridViews)
+    console.log('  - sessionData.hybridAgentBoxes:', sessionData.hybridAgentBoxes)
+    console.log('  - hybridTabs:', hybridTabs)
+    console.log('  - hybridTabs.length:', hybridTabs?.length)
+    
     if (hybridTabs && hybridTabs.length > 0) {
       console.log('🔧 Opening', hybridTabs.length, 'hybrid master tabs from imported session')
       
@@ -33061,6 +33067,8 @@ ${pageText}
           // This maps to Master Tab (02), Master Tab (03), etc. in the UI
           const hybridId = String(index)
           let hybridUrl = hybridItem.url || sessionData.url || window.location.href
+          
+          console.log(`🔍 DEBUG: Processing hybrid tab ${index}:`, { hybridId, hybridItem, hybridUrl })
           
           try {
             const url = new URL(hybridUrl)
@@ -33087,6 +33095,8 @@ ${pageText}
           }
         })
       }, 300) // Small delay after helper tabs
+    } else {
+      console.log('⚠️ No hybrid master tabs to open (hybridTabs is empty or null)')
     }
     
     // Open display grids if they exist
