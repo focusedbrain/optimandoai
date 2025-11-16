@@ -5818,6 +5818,8 @@ function initializeExtension() {
 
         let tabIndex = 1  // Default to 1 for the first/main master tab
 
+        let masterTabId = "01"  // Default to Master Tab (01)
+
         if (isHybridMaster) {
 
           const hybridId = urlParams.get('hybrid_master_id') || 
@@ -5828,9 +5830,15 @@ function initializeExtension() {
 
             tabIndex = parseInt(hybridId) + 1 // +1 because hybrid_master_id starts from 0 but tabIndex starts from 1
 
+            masterTabId = String(parseInt(hybridId) + 1).padStart(2, '0')  // hybrid_id 0 → 01, 1 → 02, etc.
+
           }
 
-          console.log('📍 Creating box on Hybrid Master Tab with hybridId:', hybridId, '→ tabIndex:', tabIndex)
+          console.log('📍 Creating box on Hybrid Master Tab with hybridId:', hybridId, '→ tabIndex:', tabIndex, '→ masterTabId:', masterTabId)
+
+        } else {
+
+          console.log('📍 Creating box on Master Tab (01) → masterTabId:', masterTabId)
 
         }
 
@@ -5865,6 +5873,8 @@ function initializeExtension() {
           side: clickSide,  // ← Add side info for hybrid tabs
 
           tabIndex: tabIndex,  // ← Add tab index for location tracking
+
+          masterTabId: masterTabId,  // ← Add master tab ID for filtering ("01", "02", "03", etc.)
 
           tabUrl: window.location.href,  // ← Store tab URL to identify unique tabs
 

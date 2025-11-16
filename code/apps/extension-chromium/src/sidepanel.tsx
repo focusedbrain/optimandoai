@@ -47,7 +47,7 @@ function SidepanelOrchestrator() {
   const [embedTarget, setEmbedTarget] = useState<'session' | 'account'>('session')
   const [notification, setNotification] = useState<{message: string, type: 'success' | 'error' | 'info'} | null>(null)
   const [theme, setTheme] = useState<'default' | 'dark' | 'professional'>('default')
-  const [masterTabId, setMasterTabId] = useState<string | null>(null) // For Master Tab (02), (03), etc.
+  const [masterTabId, setMasterTabId] = useState<string | null>(null) // For Master Tab (01), (02), (03), etc. (01 = first tab, doesn't show title in UI)
   const [showTriggerPrompt, setShowTriggerPrompt] = useState<{mode: string, rect: any, imageUrl: string, videoUrl?: string, createTrigger: boolean, addCommand: boolean, name?: string, command?: string, bounds?: any} | null>(null)
   const [createTriggerChecked, setCreateTriggerChecked] = useState(false)
   const [addCommandChecked, setAddCommandChecked] = useState(false)
@@ -129,7 +129,8 @@ function SidepanelOrchestrator() {
               const storedMasterTabId = result[storageKey]
               
               if (hybridMasterId) {
-                // Convert hybrid_master_id to display format (Master Tab 02, 03, etc.)
+                // Convert hybrid_master_id to display format (Master Tab 01, 02, 03, etc.)
+                // hybrid_master_id 0 = Master Tab 01, 1 = Master Tab 02, etc.
                 const displayId = String(parseInt(hybridMasterId) + 1).padStart(2, '0')
                 setMasterTabId(displayId)
                 // Store it for this tab so it persists across page refreshes
@@ -140,11 +141,11 @@ function SidepanelOrchestrator() {
                 setMasterTabId(storedMasterTabId)
                 console.log('🖥️ Using stored Master Tab ID:', storedMasterTabId, '(tab', tabId, ')')
               } else {
-                // No hybrid_master_id and no stored value - this is the main master tab
-                setMasterTabId(null)
-                // Clear any stored value for this tab (in case it was previously a hybrid master tab)
-                chrome.storage.local.remove(storageKey)
-                console.log('🖥️ Main master tab (ADMIN) - tab', tabId)
+                // No hybrid_master_id and no stored value - this is Master Tab (01)
+                setMasterTabId("01")
+                // Store it for this tab so it persists across page refreshes
+                chrome.storage.local.set({ [storageKey]: "01" })
+                console.log('🖥️ Main master tab - Master Tab (01)')
               }
               
               if (shouldShowMinimal) {
@@ -2627,7 +2628,7 @@ function SidepanelOrchestrator() {
             lineHeight: masterTabId ? '1.1' : 'normal',
             whiteSpace: masterTabId ? 'normal' : 'nowrap'
           }}>
-            {masterTabId ? `Master Tab (${masterTabId})` : 'Admin'}
+            {masterTabId && masterTabId !== "01" ? `Master Tab (${masterTabId})` : 'ADMIN'}
           </div>
           <div style={{ flex: 1 }} />
           <button onClick={openUnifiedAdmin} title="Admin Configuration (Agents, Context, Memory)" style={adminIconStyle}>⚙️</button>
@@ -3329,7 +3330,7 @@ function SidepanelOrchestrator() {
       } as React.CSSProperties}>
       
       {/* Master Tab Title */}
-      {masterTabId && (
+      {masterTabId && masterTabId !== "01" && (
         <div style={{
           background: 'rgba(118,75,162,0.25)',
           borderRadius: '10px',
@@ -3354,13 +3355,23 @@ function SidepanelOrchestrator() {
       {agentBoxes.filter(box => {
         // Filter out display grid boxes (same logic as content script)
         const isDisplayGrid = box.source === 'display_grid' || box.gridSessionId
-        return !isDisplayGrid
+        if (isDisplayGrid) return false
+        
+        // Filter by master tab ID - only show boxes created on this tab
+        const boxMasterTabId = box.masterTabId || "01"  // Default to "01" for legacy boxes
+        const currentMasterTabId = masterTabId || "01"  // Current tab's ID
+        return boxMasterTabId === currentMasterTabId
       }).length > 0 && (
         <div style={{ marginBottom: '20px' }}>
           {agentBoxes.filter(box => {
             // Filter out display grid boxes (same logic as content script)
             const isDisplayGrid = box.source === 'display_grid' || box.gridSessionId
-            return !isDisplayGrid
+            if (isDisplayGrid) return false
+            
+            // Filter by master tab ID - only show boxes created on this tab
+            const boxMasterTabId = box.masterTabId || "01"  // Default to "01" for legacy boxes
+            const currentMasterTabId = masterTabId || "01"  // Current tab's ID
+            return boxMasterTabId === currentMasterTabId
           }).map(box => {
             const currentHeight = agentBoxHeights[box.id] || 120
             const isEnabled = box.enabled !== false // Default to true
