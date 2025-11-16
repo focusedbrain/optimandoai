@@ -32691,49 +32691,100 @@ ${pageText}
   }
 
   /**
-   * Parse YAML content (simple parser for our export format)
+   * Parse YAML content (handles nested objects and arrays)
    */
   function parseYAML(yamlContent: string): any {
-    const result: any = {}
     const lines = yamlContent.split('\n')
-    let currentKey: string | null = null
-    let currentObject: any = null
-    let indentStack: any[] = [result]
-    let keyStack: string[] = []
+    const result: any = {}
+    const stack: any[] = [{ obj: result, indent: -2, isArray: false }]
     
-    for (const line of lines) {
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i]
+      
       // Skip comments and empty lines
       if (line.trim().startsWith('#') || line.trim() === '') continue
       
+      // Calculate indentation
       const indent = line.search(/\S/)
       const content = line.trim()
       
+      // Pop stack until we find the right parent
+      while (stack.length > 1 && indent <= stack[stack.length - 1].indent) {
+        stack.pop()
+      }
+      
+      const parent = stack[stack.length - 1]
+      
+      // Array item
+      if (content.startsWith('- ')) {
+        const value = content.substring(2).trim()
+        
+        if (value.startsWith('#')) {
+          // Array of objects - next lines will be object properties
+          const newObj: any = {}
+          if (!Array.isArray(parent.obj)) {
+            parent.obj = []
+          }
+          parent.obj.push(newObj)
+          stack.push({ obj: newObj, indent: indent, isArray: false })
+        } else if (value) {
+          // Simple array item
+          if (!Array.isArray(parent.obj)) {
+            parent.obj = []
+          }
+          parent.obj.push(parseValue(value))
+        }
+      }
       // Key-value pair
-      if (content.includes(':')) {
-        const [key, ...valueParts] = content.split(':')
-        const value = valueParts.join(':').trim()
+      else if (content.includes(':')) {
+        const colonIndex = content.indexOf(':')
+        const key = content.substring(0, colonIndex).trim()
+        const value = content.substring(colonIndex + 1).trim()
         
         if (value === '' || value === 'null') {
-          result[key.trim()] = null
-        } else if (value === 'true') {
-          result[key.trim()] = true
-        } else if (value === 'false') {
-          result[key.trim()] = false
+          parent.obj[key] = null
         } else if (value === '[]') {
-          result[key.trim()] = []
+          parent.obj[key] = []
         } else if (value === '{}') {
-          result[key.trim()] = {}
-        } else if (!isNaN(Number(value))) {
-          result[key.trim()] = Number(value)
-        } else if (value.startsWith('"') && value.endsWith('"')) {
-          result[key.trim()] = value.slice(1, -1).replace(/\\"/g, '"')
+          parent.obj[key] = {}
         } else if (value) {
-          result[key.trim()] = value
+          // Simple value
+          parent.obj[key] = parseValue(value)
+        } else {
+          // Check if next line is indented (nested object or array)
+          if (i + 1 < lines.length) {
+            const nextLine = lines[i + 1]
+            const nextIndent = nextLine.search(/\S/)
+            const nextContent = nextLine.trim()
+            
+            if (nextIndent > indent && nextContent) {
+              if (nextContent.startsWith('-')) {
+                // Array coming
+                parent.obj[key] = []
+                stack.push({ obj: parent.obj[key], indent: indent, isArray: true })
+              } else {
+                // Object coming
+                parent.obj[key] = {}
+                stack.push({ obj: parent.obj[key], indent: indent, isArray: false })
+              }
+            }
+          }
         }
       }
     }
     
     return result
+    
+    function parseValue(value: string): any {
+      if (value === 'null') return null
+      if (value === 'true') return true
+      if (value === 'false') return false
+      if (!isNaN(Number(value))) return Number(value)
+      if (value.startsWith('"') && value.endsWith('"')) {
+        return value.slice(1, -1).replace(/\\"/g, '"')
+      }
+      return value
+    }
   }
 
   /**
@@ -32806,6 +32857,7 @@ ${pageText}
       console.log('  - Name:', sessionData.tabName)
       console.log('  - Agent boxes:', sessionData.agentBoxes?.length || 0)
       console.log('  - Agents:', sessionData.agents?.length || 0)
+      console.log('  - Hybrid master tabs:', sessionData.hybridViews?.length || 0)
       console.log('  - Display grids:', sessionData.displayGrids?.length || 0)
       console.log('  - Has memory data:', !!importData.memory)
       console.log('  - Has context data:', !!importData.context)
@@ -32848,6 +32900,7 @@ ${pageText}
           <p style="margin: 0 0 15px 0; font-size: 13px; opacity: 0.8;">
             ${sessionData.agentBoxes?.length || 0} agent boxes • 
             ${sessionData.agents?.length || 0} agents • 
+            ${sessionData.hybridViews?.length || 0} hybrid tabs • 
             ${sessionData.displayGrids?.length || 0} display grids
           </p>
           ${sessionData._importedMemory ? '<p style="margin: 0 0 15px 0; font-size: 12px; color: rgba(255,215,0,1);">🧠 Includes Memory Data</p>' : ''}
@@ -32997,13 +33050,17 @@ ${pageText}
     }
     
     // Open master tabs (hybrid views) if they exist
-    if (sessionData.hybridAgentBoxes && sessionData.hybridAgentBoxes.length > 0) {
-      console.log('🔧 Opening', sessionData.hybridAgentBoxes.length, 'master tabs from imported session')
+    // Support both new format (hybridViews) and old format (hybridAgentBoxes)
+    const hybridTabs = sessionData.hybridViews || sessionData.hybridAgentBoxes || []
+    if (hybridTabs && hybridTabs.length > 0) {
+      console.log('🔧 Opening', hybridTabs.length, 'hybrid master tabs from imported session')
       
       setTimeout(() => {
-        sessionData.hybridAgentBoxes.forEach((hybridBox: any, index: number) => {
-          const hybridId = hybridBox.id || String(index + 1)
-          let hybridUrl = hybridBox.url || sessionData.url || window.location.href
+        hybridTabs.forEach((hybridItem: any, index: number) => {
+          // Use array index as hybrid_master_id (0, 1, 2, etc.)
+          // This maps to Master Tab (02), Master Tab (03), etc. in the UI
+          const hybridId = String(index)
+          let hybridUrl = hybridItem.url || sessionData.url || window.location.href
           
           try {
             const url = new URL(hybridUrl)
@@ -33016,13 +33073,14 @@ ${pageText}
               url.searchParams.set('optimando_theme', currentTheme)
             }
             
-            console.log(`🔧 Opening master tab ${hybridId} with URL:`, url.toString())
+            const displayTabNumber = String(parseInt(hybridId) + 2).padStart(2, '0') // 0 → 02, 1 → 03, etc.
+            console.log(`🔧 Opening Master Tab (${displayTabNumber}) with hybrid_master_id=${hybridId}, URL:`, url.toString())
             const hybridTab = window.open(url.toString(), `hybrid-master-${hybridId}`)
             
             if (!hybridTab) {
-              console.error(`❌ Failed to open master tab ${hybridId} - popup blocked`)
+              console.error(`❌ Failed to open Master Tab (${displayTabNumber}) - popup blocked`)
             } else {
-              console.log(`✅ Successfully opened master tab ${hybridId}`)
+              console.log(`✅ Successfully opened Master Tab (${displayTabNumber})`)
             }
           } catch (error) {
             console.error(`❌ Invalid URL for hybrid view ${hybridId}:`, hybridUrl, error)
