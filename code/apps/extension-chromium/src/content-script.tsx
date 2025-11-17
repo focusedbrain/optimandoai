@@ -25167,9 +25167,9 @@ ${pageText}
 
         // Open master tabs with their respective URLs
 
-        for (let i = 1; i <= count; i++) {
+        for (let i = 0; i < count; i++) {
 
-        let targetUrl = hybridUrls[i - 1]
+        let targetUrl = hybridUrls[i]
 
         
 
@@ -25207,7 +25207,7 @@ ${pageText}
 
           window.open(url.toString(), `hybrid-master-${i}`)
 
-          console.log(`🧩 Opened master tab ${i} with session key:`, activeSessionKey)
+          console.log(`🧩 Opened hybrid master tab with hybrid_master_id=${i} (displays as Master Tab ${String(i + 2).padStart(2, '0')})`)
 
         } catch (error) {
 
