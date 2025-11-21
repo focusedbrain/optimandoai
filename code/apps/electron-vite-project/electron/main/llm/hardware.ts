@@ -19,7 +19,6 @@ export class HardwareCheckService {
     const osType = this.detectOS()
     
     // Use free RAM for more accurate assessment
-    const effectiveRamGb = freeRamGb + 2  // Assume 2GB can be freed
     const ramTier = this.determineRamTier(totalRamGb, freeRamGb)
     
     // More conservative check: need 4GB free for quantized, 8GB for full model
@@ -108,11 +107,6 @@ export class HardwareCheckService {
     // Excellent hardware
     return 'mistral:7b'  // Full model
   }
-  
-  /**
-   * Generate user-friendly warnings based on hardware
-   */
-  private generateWarnings(totalRamGb: number, freeRamGb: number, cores: number): string[] {
     const warnings: string[] = []
     
     if (freeRamGb < 2) {

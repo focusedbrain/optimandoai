@@ -1142,7 +1142,7 @@ app.whenReady().then(async () => {
     })
     
     // GET /api/llm/models - Get detailed model information
-    httpApp.get('/api/llm/models', async (req, res) => {
+    httpApp.get('/api/llm/models', async (_req, res) => {
       try {
         console.log('[HTTP] GET /api/llm/models')
         const { ollamaManager } = await import('./main/llm/ollama-manager')
