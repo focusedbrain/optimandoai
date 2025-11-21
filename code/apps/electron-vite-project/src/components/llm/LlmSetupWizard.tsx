@@ -73,15 +73,46 @@ export function LlmSetupWizard({ onComplete, onSkip }: LlmSetupWizardProps) {
   const [progress, setProgress] = useState(0)
   const [status, setStatus] = useState('')
   const [error, setError] = useState<string | null>(null)
+  const [downloadDetails, setDownloadDetails] = useState<{
+    completed?: number
+    total?: number
+    speed?: number
+    lastUpdate?: number
+  }>({})
+  const [isDownloading, setIsDownloading] = useState(false)
 
   useEffect(() => {
     // Listen for download progress
     const llm = (window as any).llm
     llm?.onDownloadProgress((data: any) => {
+      console.log('[WIZARD] Download progress:', data)
+      setIsDownloading(true)
       setProgress(data.progress || 0)
       setStatus(data.status || 'downloading')
+      
+      // Calculate download speed
+      if (data.completed && data.total) {
+        const now = Date.now()
+        if (downloadDetails.lastUpdate && downloadDetails.completed) {
+          const timeDiff = (now - downloadDetails.lastUpdate) / 1000 // seconds
+          const bytesDiff = data.completed - downloadDetails.completed
+          const speed = bytesDiff / timeDiff // bytes per second
+          setDownloadDetails({
+            completed: data.completed,
+            total: data.total,
+            speed,
+            lastUpdate: now
+          })
+        } else {
+          setDownloadDetails({
+            completed: data.completed,
+            total: data.total,
+            lastUpdate: now
+          })
+        }
+      }
     })
-  }, [])
+  }, [downloadDetails])
 
   const checkHardware = async () => {
     try {
@@ -156,20 +187,25 @@ export function LlmSetupWizard({ onComplete, onSkip }: LlmSetupWizardProps) {
     setError(null)
     setProgress(0)
     setStatus('Initializing...')
+    setDownloadDetails({})
+    setIsDownloading(false)
     setStep('download')
 
     try {
       // Start Ollama server
       setStatus('Starting Ollama server...')
+      setProgress(5)
       await (window as any).llm?.startOllama()
       setProgress(10)
 
       // Download selected model
       setStatus(`Downloading ${selectedModel}...`)
+      setIsDownloading(true)
       await (window as any).llm?.downloadModel(selectedModel)
 
       setProgress(100)
       setStatus('✓ Installation complete!')
+      setIsDownloading(false)
       
       // Save config
       await (window as any).llm?.updateConfig({
@@ -181,9 +217,10 @@ export function LlmSetupWizard({ onComplete, onSkip }: LlmSetupWizardProps) {
       
       setTimeout(() => {
         setStep('complete')
-      }, 1000)
+      }, 1500)
     } catch (err: any) {
       setError(`Installation failed: ${err.message}`)
+      setIsDownloading(false)
     }
   }
 
@@ -532,50 +569,136 @@ export function LlmSetupWizard({ onComplete, onSkip }: LlmSetupWizardProps) {
 
   // Download & Installation Step
   if (step === 'download') {
+    const formatBytes = (bytes: number) => {
+      if (bytes === 0) return '0 B'
+      const k = 1024
+      const sizes = ['B', 'KB', 'MB', 'GB']
+      const i = Math.floor(Math.log(bytes) / Math.log(k))
+      return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i]
+    }
+
+    const formatSpeed = (bytesPerSecond: number) => {
+      return formatBytes(bytesPerSecond) + '/s'
+    }
+
     return (
       <div className="modal-overlay" style={{ zIndex: 10000 }}>
         <div className="modal" style={{ maxWidth: 600 }}>
           <div className="modal-header">
-            <div className="modal-title">⚡ Installing</div>
+            <div className="modal-title">
+              {progress < 100 ? '⚡ Downloading...' : '✅ Installation Complete!'}
+            </div>
           </div>
           <div className="modal-body">
-            <h3 style={{ marginTop: 0 }}>
-              {progress < 100 ? 'Downloading Model...' : 'Installation Complete!'}
+            <h3 style={{ marginTop: 0, marginBottom: 8 }}>
+              {MODEL_OPTIONS.find(m => m.id === selectedModel)?.name}
             </h3>
+            <p style={{ fontSize: 13, opacity: 0.8, marginBottom: 20 }}>
+              {progress < 100 ? 'Please wait while we download the model...' : 'Model downloaded successfully!'}
+            </p>
             
             <div style={{
-              padding: 16,
+              padding: 20,
               background: 'rgba(255,255,255,0.05)',
               borderRadius: 8,
-              marginBottom: 16,
-              textAlign: 'center'
+              marginBottom: 16
             }}>
-              <div style={{ fontSize: 48, marginBottom: 12 }}>
-                {progress < 100 ? '⏳' : '✅'}
-              </div>
-              <div style={{ fontSize: 14, marginBottom: 16, opacity: 0.9 }}>
-                {status}
+              {/* Animated Icon */}
+              <div style={{ 
+                fontSize: 64, 
+                marginBottom: 16, 
+                textAlign: 'center',
+                animation: progress < 100 && isDownloading ? 'pulse 2s ease-in-out infinite' : 'none'
+              }}>
+                {progress === 0 ? '🔄' : progress < 100 ? '📥' : '✅'}
               </div>
               
+              {/* Status Message */}
+              <div style={{ 
+                fontSize: 14, 
+                marginBottom: 12, 
+                textAlign: 'center',
+                fontWeight: 600,
+                color: isDownloading ? '#3b82f6' : '#94a3b8'
+              }}>
+                {status || 'Initializing...'}
+                {isDownloading && progress < 100 && (
+                  <span style={{ marginLeft: 8, animation: 'blink 1s linear infinite' }}>●</span>
+                )}
+              </div>
+              
+              {/* Progress Bar */}
               <div style={{
                 width: '100%',
-                height: 8,
+                height: 12,
                 background: 'rgba(255,255,255,0.1)',
-                borderRadius: 4,
+                borderRadius: 6,
                 overflow: 'hidden',
-                marginBottom: 8
+                marginBottom: 12,
+                position: 'relative'
               }}>
                 <div style={{
                   width: `${progress}%`,
                   height: '100%',
-                  background: 'linear-gradient(90deg, #2563eb, #3b82f6)',
-                  transition: 'width 0.3s ease'
+                  background: progress < 100 ? 'linear-gradient(90deg, #2563eb, #3b82f6, #2563eb)' : '#059669',
+                  backgroundSize: progress < 100 ? '200% 100%' : '100% 100%',
+                  animation: progress < 100 ? 'gradient 2s ease infinite' : 'none',
+                  transition: 'width 0.5s ease',
+                  boxShadow: progress > 0 ? '0 0 10px rgba(59, 130, 246, 0.5)' : 'none'
                 }} />
               </div>
               
-              <div style={{ fontSize: 13, opacity: 0.7 }}>
+              {/* Progress Percentage */}
+              <div style={{ 
+                fontSize: 24, 
+                fontWeight: 'bold',
+                textAlign: 'center',
+                marginBottom: 16,
+                color: progress < 100 ? '#3b82f6' : '#059669'
+              }}>
                 {Math.round(progress)}%
               </div>
+
+              {/* Download Details */}
+              {downloadDetails.completed && downloadDetails.total && (
+                <div style={{
+                  display: 'grid',
+                  gridTemplateColumns: '1fr 1fr',
+                  gap: 12,
+                  padding: 12,
+                  background: 'rgba(0,0,0,0.2)',
+                  borderRadius: 6,
+                  fontSize: 12
+                }}>
+                  <div>
+                    <div style={{ opacity: 0.7, marginBottom: 4 }}>Downloaded:</div>
+                    <div style={{ fontWeight: 600 }}>
+                      {formatBytes(downloadDetails.completed)} / {formatBytes(downloadDetails.total)}
+                    </div>
+                  </div>
+                  {downloadDetails.speed && downloadDetails.speed > 0 && (
+                    <div>
+                      <div style={{ opacity: 0.7, marginBottom: 4 }}>Speed:</div>
+                      <div style={{ fontWeight: 600, color: '#3b82f6' }}>
+                        {formatSpeed(downloadDetails.speed)}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Activity Indicator */}
+              {progress < 100 && progress > 0 && (
+                <div style={{
+                  marginTop: 12,
+                  fontSize: 11,
+                  textAlign: 'center',
+                  opacity: 0.6,
+                  fontStyle: 'italic'
+                }}>
+                  {isDownloading ? '⚡ Download in progress...' : '⏸ Waiting for data...'}
+                </div>
+              )}
             </div>
 
             {error && (
@@ -587,18 +710,50 @@ export function LlmSetupWizard({ onComplete, onSkip }: LlmSetupWizardProps) {
                 color: '#ef4444',
                 fontSize: 13
               }}>
-                {error}
+                <strong>❌ Error:</strong> {error}
                 <button 
                   className="btn" 
                   onClick={handleStartDownload}
                   style={{ marginTop: 12, width: '100%', background: '#ef4444' }}
                 >
-                  Retry
+                  🔄 Retry Download
                 </button>
+              </div>
+            )}
+
+            {/* Info Box */}
+            {progress < 100 && !error && (
+              <div style={{
+                padding: 12,
+                background: 'rgba(59,130,246,0.1)',
+                border: '1px solid rgba(59,130,246,0.3)',
+                borderRadius: 6,
+                fontSize: 12,
+                opacity: 0.8
+              }}>
+                <strong>💡 Tip:</strong> This may take several minutes depending on your internet connection. 
+                The window will update automatically when complete.
               </div>
             )}
           </div>
         </div>
+        
+        {/* Add CSS Animations */}
+        <style>{`
+          @keyframes pulse {
+            0%, 100% { transform: scale(1); opacity: 1; }
+            50% { transform: scale(1.1); opacity: 0.8; }
+          }
+          @keyframes blink {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.3; }
+          }
+          @keyframes gradient {
+            0% { background-position: 0% 50%; }
+            50% { background-position: 100% 50%; }
+            100% { background-position: 0% 50%; }
+          }
+        `}</style>
       </div>
     )
   }
