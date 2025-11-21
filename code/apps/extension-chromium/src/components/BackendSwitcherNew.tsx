@@ -506,10 +506,10 @@ export function BackendSwitcher({ theme = 'default' }: BackendSwitcherProps) {
             {activeTab === 'llm' && (
               <div>
                 <h4 style={{ margin: '0 0 12px 0', fontSize: '12px', fontWeight: '600', color: textColor }}>
-                  Local LLM (Ollama + Mistral 7B)
+                  Local LLM (Ollama)
                 </h4>
 
-                {/* Hardware Info */}
+                {/* Hardware Info with Recommendations */}
                 {hardware && (
                   <div style={{
                     padding: '10px',
@@ -520,64 +520,154 @@ export function BackendSwitcher({ theme = 'default' }: BackendSwitcherProps) {
                     color: textColor,
                   }}>
                     <div style={{ fontWeight: '600', marginBottom: '6px', fontSize: '10px', opacity: 0.8 }}>SYSTEM INFO</div>
-                    <div style={{ display: 'grid', gridTemplateColumns: '80px 1fr', gap: '4px', fontSize: '10px' }}>
-                      <span style={{ opacity: 0.7 }}>RAM:</span>
-                      <span>{hardware.totalRamGb} GB ({hardware.recommendedTier})</span>
+                    <div style={{ display: 'grid', gridTemplateColumns: '100px 1fr', gap: '4px', fontSize: '10px' }}>
+                      <span style={{ opacity: 0.7 }}>Total RAM:</span>
+                      <span>{hardware.totalRamGb} GB</span>
+                      <span style={{ opacity: 0.7 }}>Free RAM:</span>
+                      <span style={{ color: hardware.freeRamGb < 4 ? '#f59e0b' : '#22c55e' }}>
+                        {hardware.freeRamGb} GB
+                      </span>
                       <span style={{ opacity: 0.7 }}>CPU:</span>
                       <span>{hardware.cpuCores} cores</span>
-                      <span style={{ opacity: 0.7 }}>Status:</span>
-                      <span style={{ color: hardware.canRunMistral7B ? '#22c55e' : '#f59e0b' }}>
-                        {hardware.canRunMistral7B ? '✓ Compatible' : '⚠ Limited'}
-                      </span>
+                      <span style={{ opacity: 0.7 }}>Recommended:</span>
+                      <span style={{ fontWeight: '600', color: '#60a5fa' }}>{hardware.recommendedModel}</span>
                     </div>
+                    {hardware.warnings && hardware.warnings.length > 0 && (
+                      <div style={{ marginTop: '6px', padding: '6px', background: 'rgba(239,68,68,0.1)', borderRadius: '4px', fontSize: '9px' }}>
+                        {hardware.warnings.map((w: string, i: number) => (
+                          <div key={i}>{w}</div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 )}
 
-                {/* Status */}
+                {/* Ollama Status */}
                 {llmStatus && (
                   <div style={{
                     padding: '10px',
-                    background: llmStatus.isReady ? 'rgba(34,197,94,0.1)' : 'rgba(59,130,246,0.1)',
-                    border: `1px solid ${llmStatus.isReady ? 'rgba(34,197,94,0.3)' : 'rgba(59,130,246,0.3)'}`,
+                    background: llmStatus.ollamaInstalled ? 'rgba(34,197,94,0.1)' : 'rgba(239,68,68,0.1)',
+                    border: `1px solid ${llmStatus.ollamaInstalled ? 'rgba(34,197,94,0.3)' : 'rgba(239,68,68,0.3)'}`,
                     borderRadius: '6px',
                     marginBottom: '12px',
                     fontSize: '11px',
                     color: textColor,
                   }}>
-                    <div style={{ fontWeight: '600', marginBottom: '6px', fontSize: '10px' }}>
-                      {llmStatus.isReady ? '✓ READY' : 'NOT INSTALLED'}
+                    <div style={{ fontWeight: '600', marginBottom: '4px', fontSize: '10px' }}>
+                      {llmStatus.ollamaInstalled ? '✓ Ollama Installed' : '✗ Ollama Not Found'}
                     </div>
-                    <div style={{ display: 'grid', gridTemplateColumns: '80px 1fr', gap: '4px', fontSize: '10px' }}>
-                      <span style={{ opacity: 0.7 }}>Ollama:</span>
-                      <span>{llmStatus.ollamaInstalled ? '✓ Installed' : '✗ Not found'}</span>
-                      <span style={{ opacity: 0.7 }}>Model:</span>
-                      <span>{llmStatus.modelAvailable ? `✓ ${llmStatus.modelName}` : '✗ Not downloaded'}</span>
-                    </div>
+                    {!llmStatus.ollamaInstalled && (
+                      <div style={{ fontSize: '10px', opacity: 0.9 }}>
+                        Install from <a href="https://ollama.ai" target="_blank" rel="noopener" style={{ color: '#60a5fa' }}>ollama.ai</a>
+                      </div>
+                    )}
                   </div>
                 )}
 
-                {/* Installation */}
-                {!llmStatus?.isReady && (
+                {/* Installed Models */}
+                {installedModels.length > 0 && (
+                  <div style={{
+                    marginBottom: '12px',
+                  }}>
+                    <div style={{ fontWeight: '600', marginBottom: '6px', fontSize: '10px', opacity: 0.8, color: textColor }}>
+                      INSTALLED MODELS ({installedModels.length})
+                    </div>
+                    {installedModels.map((model: any) => (
+                      <div key={model.name} style={{
+                        padding: '8px',
+                        background: 'rgba(255,255,255,0.05)',
+                        borderRadius: '4px',
+                        marginBottom: '4px',
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        fontSize: '10px',
+                        color: textColor,
+                      }}>
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontWeight: '600', marginBottom: '2px' }}>{model.name}</div>
+                          <div style={{ opacity: 0.7 }}>
+                            {(model.size / (1024**3)).toFixed(2)} GB
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => handleDeleteModel(model.name)}
+                          disabled={deleting === model.name}
+                          style={{
+                            padding: '4px 8px',
+                            background: 'rgba(239,68,68,0.2)',
+                            border: '1px solid rgba(239,68,68,0.4)',
+                            borderRadius: '3px',
+                            color: '#ef4444',
+                            fontSize: '9px',
+                            cursor: deleting === model.name ? 'not-allowed' : 'pointer',
+                            opacity: deleting === model.name ? 0.5 : 1,
+                          }}
+                        >
+                          {deleting === model.name ? '...' : '🗑 Delete'}
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Model Selection */}
+                {llmStatus?.ollamaInstalled && (
                   <div style={{
                     padding: '10px',
                     background: 'rgba(255,255,255,0.05)',
                     borderRadius: '6px',
                     marginBottom: '8px',
                   }}>
-                    {!llmStatus?.ollamaInstalled && (
-                      <div style={{
+                    <div style={{ fontWeight: '600', marginBottom: '8px', fontSize: '10px', opacity: 0.8, color: textColor }}>
+                      INSTALL NEW MODEL
+                    </div>
+
+                    {/* Model Dropdown */}
+                    <select
+                      value={selectedModel}
+                      onChange={(e) => setSelectedModel(e.target.value)}
+                      disabled={installing}
+                      style={{
+                        width: '100%',
                         padding: '8px',
-                        background: 'rgba(239,68,68,0.1)',
-                        border: '1px solid rgba(239,68,68,0.3)',
+                        background: 'rgba(0,0,0,0.3)',
+                        border: '1px solid rgba(255,255,255,0.1)',
                         borderRadius: '4px',
+                        color: textColor,
                         fontSize: '10px',
                         marginBottom: '8px',
+                        cursor: installing ? 'not-allowed' : 'pointer',
+                      }}
+                    >
+                      <option value="">-- Select a model --</option>
+                      {availableModels.map(m => {
+                        const isInstalled = installedModels.some((im: any) => im.name.startsWith(m.id));
+                        const isRecommended = hardware?.recommendedModel === m.id;
+                        return (
+                          <option key={m.id} value={m.id}>
+                            {m.name} ({m.ram} RAM, {m.size}) {isRecommended ? '⭐ RECOMMENDED' : ''} {isInstalled ? '✓ Installed' : ''}
+                          </option>
+                        );
+                      })}
+                    </select>
+
+                    {/* Selected Model Info */}
+                    {selectedModel && (
+                      <div style={{
+                        padding: '8px',
+                        background: 'rgba(59,130,246,0.1)',
+                        border: '1px solid rgba(59,130,246,0.3)',
+                        borderRadius: '4px',
+                        marginBottom: '8px',
+                        fontSize: '9px',
                         color: textColor,
                       }}>
-                        ⚠ Ollama not found. Install from <a href="https://ollama.ai" target="_blank" rel="noopener" style={{ color: '#60a5fa' }}>ollama.ai</a>
+                        {availableModels.find(m => m.id === selectedModel)?.desc}
                       </div>
                     )}
 
+                    {/* Installation Progress */}
                     {installing && (
                       <div style={{ 
                         marginBottom: '10px',
@@ -586,7 +676,6 @@ export function BackendSwitcher({ theme = 'default' }: BackendSwitcherProps) {
                         border: '1px solid rgba(59,130,246,0.3)',
                         borderRadius: '6px'
                       }}>
-                        {/* Status Message */}
                         <div style={{ 
                           fontSize: '11px', 
                           marginBottom: '8px', 
@@ -603,7 +692,6 @@ export function BackendSwitcher({ theme = 'default' }: BackendSwitcherProps) {
                           {installStatus}
                         </div>
                         
-                        {/* Progress Bar */}
                         <div style={{
                           width: '100%',
                           height: '8px',
@@ -622,7 +710,6 @@ export function BackendSwitcher({ theme = 'default' }: BackendSwitcherProps) {
                           }} />
                         </div>
                         
-                        {/* Progress Percentage */}
                         <div style={{ 
                           fontSize: '18px', 
                           fontWeight: 'bold',
@@ -633,7 +720,6 @@ export function BackendSwitcher({ theme = 'default' }: BackendSwitcherProps) {
                           {Math.round(installProgress)}%
                         </div>
 
-                        {/* Download Details */}
                         {downloadDetails.completed && downloadDetails.total && (
                           <div style={{
                             fontSize: '10px',
@@ -644,18 +730,6 @@ export function BackendSwitcher({ theme = 'default' }: BackendSwitcherProps) {
                             {(downloadDetails.completed / (1024**3)).toFixed(2)} GB / {(downloadDetails.total / (1024**3)).toFixed(2)} GB
                           </div>
                         )}
-
-                        {/* Activity Indicator */}
-                        <div style={{
-                          fontSize: '10px',
-                          textAlign: 'center',
-                          opacity: 0.6,
-                          marginTop: '6px',
-                          fontStyle: 'italic',
-                          color: textColor
-                        }}>
-                          {installProgress > 0 && installProgress < 100 ? '⚡ Download in progress...' : ''}
-                        </div>
                       </div>
                     )}
 
@@ -672,8 +746,12 @@ export function BackendSwitcher({ theme = 'default' }: BackendSwitcherProps) {
                     `}</style>
 
                     <button
-                      onClick={handleAutoInstallLlm}
-                      disabled={installing || !llmStatus?.ollamaInstalled}
+                      onClick={() => {
+                        if (selectedModel) {
+                          handleInstallModel(selectedModel);
+                        }
+                      }}
+                      disabled={installing || !selectedModel}
                       style={{
                         width: '100%',
                         padding: '8px 12px',
@@ -683,45 +761,12 @@ export function BackendSwitcher({ theme = 'default' }: BackendSwitcherProps) {
                         color: '#fff',
                         fontSize: '11px',
                         fontWeight: '600',
-                        cursor: (installing || !llmStatus?.ollamaInstalled) ? 'not-allowed' : 'pointer',
-                        opacity: (installing || !llmStatus?.ollamaInstalled) ? 0.5 : 1,
+                        cursor: (installing || !selectedModel) ? 'not-allowed' : 'pointer',
+                        opacity: (installing || !selectedModel) ? 0.5 : 1,
                         transition: 'all 0.2s',
                       }}
                     >
-                      {installing ? 'Installing...' : '⚡ Auto-Install Mistral 7B'}
-                    </button>
-                  </div>
-                )}
-
-                {/* Ready State */}
-                {llmStatus?.isReady && (
-                  <div style={{
-                    padding: '10px',
-                    background: 'rgba(34,197,94,0.1)',
-                    border: '1px solid rgba(34,197,94,0.3)',
-                    borderRadius: '6px',
-                    fontSize: '11px',
-                    color: textColor,
-                  }}>
-                    <div style={{ marginBottom: '6px', fontWeight: '600', fontSize: '10px' }}>
-                      ✓ LOCAL LLM READY
-                    </div>
-                    <div style={{ fontSize: '10px', opacity: 0.9, marginBottom: '8px' }}>
-                      Mistral 7B is available for AI features
-                    </div>
-                    <button
-                      onClick={loadLlmStatus}
-                      style={{
-                        padding: '6px 10px',
-                        background: 'rgba(34,197,94,0.2)',
-                        border: '1px solid rgba(34,197,94,0.4)',
-                        borderRadius: '4px',
-                        color: textColor,
-                        fontSize: '10px',
-                        cursor: 'pointer',
-                      }}
-                    >
-                      Refresh Status
+                      {installing ? 'Installing...' : '⚡ Install Selected Model'}
                     </button>
                   </div>
                 )}
