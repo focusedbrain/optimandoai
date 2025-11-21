@@ -90,35 +90,55 @@ function SidepanelOrchestrator() {
           console.log('[Command Chat] Auto-selected model:', firstModel)
           setLlmError(null)
         } else {
-          // No models installed - try to auto-install phi3-low (requires manual creation first)
+          // No models installed - try to auto-install the lightest possible model
           console.log('[Command Chat] No models installed, attempting auto-install...')
-          setLlmError('No model detected. Setting up TinyLlama (0.6GB)...')
+          setLlmError('No model detected. Setting up Qwen2 0.5B (0.4GB - smallest available)...')
           
           try {
-            // First try to use phi3-low if it exists, otherwise fall back to tinyllama
+            // First check if any custom optimized models exist
             const modelsResponse = await fetch(`${baseUrl}/api/llm/models`)
             const modelsResult = await modelsResponse.json()
             
-            let modelToInstall = 'tinyllama'
-            let modelSize = '0.6GB'
+            let modelToInstall = 'qwen2:0.5b'
+            let modelSize = '0.4GB'
+            let modelName = 'Qwen2 0.5B'
             
-            // Check if phi3-low already exists (created manually)
-            if (modelsResult.ok && modelsResult.data?.some((m: any) => m.name === 'phi3-low')) {
-              modelToInstall = 'phi3-low'
-              modelSize = '2.3GB'
-              setActiveLlmModel('phi3-low')
-              setLlmError(null)
-              console.log('[Command Chat] Using existing phi3-low model')
+            // Check for custom optimized models first
+            if (modelsResult.ok && modelsResult.data) {
+              const existingModels = modelsResult.data.map((m: any) => m.name)
               
-              setChatMessages([{
-                role: 'assistant' as const,
-                text: '✅ Using phi3-low (optimized for low-spec systems)! This custom model has reduced context and batch sizes for better performance.'
-              }])
-              return
+              if (existingModels.includes('phi3-low')) {
+                setActiveLlmModel('phi3-low')
+                setLlmError(null)
+                console.log('[Command Chat] Using existing phi3-low model')
+                setChatMessages([{
+                  role: 'assistant' as const,
+                  text: '✅ Using phi3-low (custom optimized)! This model has reduced context and batch sizes for maximum performance on low-spec systems.'
+                }])
+                return
+              } else if (existingModels.includes('qwen-ultralight')) {
+                setActiveLlmModel('qwen-ultralight')
+                setLlmError(null)
+                console.log('[Command Chat] Using existing qwen-ultralight model')
+                setChatMessages([{
+                  role: 'assistant' as const,
+                  text: '✅ Using qwen-ultralight! This is the smallest optimized model available.'
+                }])
+                return
+              } else if (existingModels.includes('gemma-low')) {
+                setActiveLlmModel('gemma-low')
+                setLlmError(null)
+                console.log('[Command Chat] Using existing gemma-low model')
+                setChatMessages([{
+                  role: 'assistant' as const,
+                  text: '✅ Using gemma-low (optimized 2B)! Good balance of speed and quality.'
+                }])
+                return
+              }
             }
             
-            // Install tinyllama as fallback
-            setLlmError(`Installing TinyLlama (${modelSize})... This should only take 1-2 minutes.`)
+            // Install smallest model available: Qwen2 0.5B
+            setLlmError(`Installing ${modelName} (${modelSize})... This should only take 1 minute.`)
             
             const installResponse = await fetch(`${baseUrl}/api/llm/models/install`, {
               method: 'POST',
@@ -136,7 +156,7 @@ function SidepanelOrchestrator() {
               // Add a system message to chat
               setChatMessages([{
                 role: 'assistant' as const,
-                text: `✅ ${modelToInstall === 'tinyllama' ? 'TinyLlama' : 'phi3-low'} installed successfully! ${modelToInstall === 'tinyllama' ? 'This ultra-lightweight model (0.6GB) is optimized for speed and works on any hardware.' : 'This custom-optimized model uses minimal resources.'} You can now start chatting!\n\n💡 Tip: For even better performance on low-spec systems, create phi3-low model (see Admin > LLM Settings for instructions).`
+                text: `✅ ${modelName} installed successfully! This is the smallest LLM available (only 0.5B parameters, ${modelSize}). Ultra-fast and works on any hardware!\n\n💡 Weitere sehr leichte Modelle in Admin > LLM Settings:\n• TinyLlama 1.1B (0.6GB)\n• Gemma 2B Q2_K (0.9GB)\n• StableLM 1.6B (1.0GB)`
               }])
             } else {
               throw new Error(installResult.error || 'Installation failed')
@@ -841,7 +861,7 @@ function SidepanelOrchestrator() {
     if (!activeLlmModel) {
       setChatMessages([...chatMessages, {
         role: 'assistant' as const,
-        text: `⚠️ No LLM model available. Please:\n\n1. Go to Admin panel (toggle at top)\n2. Open LLM Settings\n3. Install "TinyLlama" (0.6GB) - Ultra-fast and lightweight!\n4. Come back and try again!`
+        text: `⚠️ Kein LLM-Modell verfügbar. Bitte:\n\n1. Gehe zu Admin Panel (Toggle oben)\n2. Öffne LLM Settings\n3. Installiere ein ultra-leichtes Modell:\n   • Qwen2 0.5B (0.4GB) - Kleinste & Schnellste\n   • TinyLlama 1.1B (0.6GB) - Bewährt\n   • Gemma 2B Q2_K (0.9GB) - Google Qualität\n4. Komm zurück und versuche es erneut!`
       }])
       setTimeout(() => {
         if (chatRef.current) chatRef.current.scrollTop = chatRef.current.scrollHeight
@@ -904,9 +924,9 @@ function SidepanelOrchestrator() {
       
       // Check if it's a "no models installed" error
       if (errorMsg.includes('No models installed') || errorMsg.includes('Please go to LLM Settings')) {
-        errorMsg = `⚠️ No LLM model installed yet!\n\nTo get started:\n1. Click the Admin toggle at the top\n2. Go to LLM Settings\n3. Install a lightweight model:\n   • TinyLlama (0.6GB) - Ultra-fast, recommended\n   • Phi-3 Mini (2.3GB) - Better quality\n\nThen come back and chat!`
+        errorMsg = `⚠️ Kein LLM-Modell installiert!\n\nUm zu starten:\n1. Admin Toggle oben klicken\n2. Zu LLM Settings gehen\n3. Ultra-leichte Modelle installieren:\n   • Qwen2 0.5B (0.4GB) - Empfohlen\n   • TinyLlama (0.6GB) - Sehr schnell\n   • Gemma 2B Q2_K (0.9GB) - Gute Qualität\n\nDann zurückkommen und chatten!`
       } else {
-        errorMsg = `⚠️ Error: ${errorMsg}\n\nTip: Make sure Ollama is running and a model is installed in LLM Settings.`
+        errorMsg = `⚠️ Fehler: ${errorMsg}\n\nTipp: Stelle sicher, dass Ollama läuft und ein Modell in LLM Settings installiert ist.`
       }
       
       // Add error message

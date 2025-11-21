@@ -10,39 +10,107 @@ import { LlmModelConfig, LlmConfig, ModelTier } from './types'
  * Sorted by tier and resource requirements
  */
 export const MODEL_CATALOG: LlmModelConfig[] = [
-  // Lightweight models (1-3GB RAM)
+  // Ultra-Lightweight models (0.5-2GB RAM) - Heavily Quantized
   {
     id: 'tinyllama',
-    displayName: 'TinyLlama 1.1B',
+    displayName: 'TinyLlama 1.1B (Q4)',
     provider: 'TinyLlama',
     tier: 'lightweight',
     minRamGb: 1,
     recommendedRamGb: 2,
     diskSizeGb: 0.6,
     contextWindow: 2048,
-    description: 'Ultra-fast, best for very old hardware. Good for simple tasks.'
+    description: 'Ultra-fast, 4-bit quantized. Best for very old hardware. Good for simple tasks.'
+  },
+  {
+    id: 'qwen2:0.5b',
+    displayName: 'Qwen2 0.5B (Q4)',
+    provider: 'Alibaba',
+    tier: 'lightweight',
+    minRamGb: 0.5,
+    recommendedRamGb: 1,
+    diskSizeGb: 0.4,
+    contextWindow: 32768,
+    description: 'Smallest model available. 4-bit quantized. 0.5B params. Huge context window. Ultra-fast.'
+  },
+  {
+    id: 'stablelm2:1.6b',
+    displayName: 'StableLM 2 1.6B (Q4)',
+    provider: 'Stability AI',
+    tier: 'lightweight',
+    minRamGb: 1,
+    recommendedRamGb: 1.5,
+    diskSizeGb: 1.0,
+    contextWindow: 4096,
+    description: '4-bit quantized. 1.6B params. Very fast, good quality for size.'
   },
   {
     id: 'phi3-low',
-    displayName: 'Phi-3 Low-Spec (Custom)',
+    displayName: 'Phi-3 Low-Spec 3.8B (Custom Q4)',
     provider: 'Microsoft',
     tier: 'lightweight',
     minRamGb: 1.5,
     recommendedRamGb: 2,
     diskSizeGb: 2.3,
     contextWindow: 1024,
-    description: 'Custom optimized Phi-3 for very low-spec systems. Reduced context, batch size, and threads.'
+    description: 'Custom optimized 4-bit quantized. Reduced context (1024), batch (16), threads (4). Best performance/quality balance for low-spec.'
+  },
+  
+  // Lightweight models (2-3GB RAM) - 2B-3B params
+  {
+    id: 'gemma:2b',
+    displayName: 'Gemma 2B (Q4_0)',
+    provider: 'Google',
+    tier: 'lightweight',
+    minRamGb: 1.5,
+    recommendedRamGb: 2,
+    diskSizeGb: 1.4,
+    contextWindow: 8192,
+    description: '4-bit Q4_0 quantized. 2B params. Google quality, very efficient.'
+  },
+  {
+    id: 'gemma:2b-q2_K',
+    displayName: 'Gemma 2B (Q2_K - Ultra Compressed)',
+    provider: 'Google',
+    tier: 'lightweight',
+    minRamGb: 1,
+    recommendedRamGb: 1.5,
+    diskSizeGb: 0.9,
+    contextWindow: 8192,
+    description: '2-bit Q2_K quantized. 2B params. Extreme compression, slight quality loss. Fastest option.'
+  },
+  {
+    id: 'phi:2.7b',
+    displayName: 'Phi-2 2.7B (Q4)',
+    provider: 'Microsoft',
+    tier: 'lightweight',
+    minRamGb: 1.5,
+    recommendedRamGb: 2,
+    diskSizeGb: 1.6,
+    contextWindow: 2048,
+    description: '4-bit quantized. 2.7B params. Excellent for coding and reasoning despite small size.'
   },
   {
     id: 'phi3:mini',
-    displayName: 'Phi-3 Mini 3.8B',
+    displayName: 'Phi-3 Mini 3.8B (Q4)',
     provider: 'Microsoft',
     tier: 'lightweight',
     minRamGb: 2,
     recommendedRamGb: 3,
     diskSizeGb: 2.3,
     contextWindow: 4096,
-    description: 'Very fast and capable. Recommended for low-end PCs.'
+    description: '4-bit quantized. 3.8B params. Very fast and capable for low-end PCs.'
+  },
+  {
+    id: 'phi3:3.8b-q2_K',
+    displayName: 'Phi-3 Mini 3.8B (Q2_K - Ultra Light)',
+    provider: 'Microsoft',
+    tier: 'lightweight',
+    minRamGb: 1.5,
+    recommendedRamGb: 2,
+    diskSizeGb: 1.5,
+    contextWindow: 4096,
+    description: '2-bit Q2_K quantized. 3.8B params. Extreme compression for weak hardware.'
   },
   
   // Balanced models (3-8GB RAM)
