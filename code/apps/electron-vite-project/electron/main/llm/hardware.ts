@@ -107,6 +107,11 @@ export class HardwareCheckService {
     // Excellent hardware
     return 'mistral:7b'  // Full model
   }
+  
+  /**
+   * Generate user-friendly warnings based on hardware
+   */
+  private generateWarnings(totalRamGb: number, freeRamGb: number, cores: number): string[] {
     const warnings: string[] = []
     
     if (freeRamGb < 2) {
