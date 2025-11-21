@@ -46,6 +46,11 @@ export function BackendSwitcher({ theme = 'default' }: BackendSwitcherProps) {
   const [installing, setInstalling] = useState(false);
   const [installProgress, setInstallProgress] = useState(0);
   const [installStatus, setInstallStatus] = useState('');
+  const [downloadDetails, setDownloadDetails] = useState<{
+    completed?: number
+    total?: number
+    speed?: number
+  }>({});
 
   // Load config on mount
   useEffect(() => {
@@ -135,20 +140,48 @@ export function BackendSwitcher({ theme = 'default' }: BackendSwitcherProps) {
     setInstalling(true);
     setInstallProgress(0);
     setInstallStatus('Starting installation...');
+    setDownloadDetails({});
 
     try {
       // Start Ollama
       setInstallStatus('Starting Ollama server...');
       await fetch('http://127.0.0.1:51248/api/llm/start', { method: 'POST' });
-      setInstallProgress(25);
+      setInstallProgress(5);
 
-      // Download model
+      // Start download (non-blocking)
       setInstallStatus('Downloading Mistral 7B...');
-      const response = await fetch('http://127.0.0.1:51248/api/llm/download-model', {
+      const downloadPromise = fetch('http://127.0.0.1:51248/api/llm/download-model', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ modelName: 'mistral:7b' })
       });
+
+      // Poll for progress while downloading
+      const pollInterval = setInterval(async () => {
+        try {
+          const statusRes = await fetch('http://127.0.0.1:51248/api/llm/status');
+          const status = await statusRes.json();
+          
+          if (status.ok && status.data.downloadProgress) {
+            const prog = status.data.downloadProgress;
+            setInstallProgress(Math.round(prog.progress || 0));
+            setInstallStatus(prog.status || 'Downloading...');
+            
+            if (prog.completed && prog.total) {
+              setDownloadDetails({
+                completed: prog.completed,
+                total: prog.total
+              });
+            }
+          }
+        } catch (err) {
+          console.error('Progress poll error:', err);
+        }
+      }, 500); // Poll every 500ms
+
+      // Wait for download to complete
+      const response = await downloadPromise;
+      clearInterval(pollInterval);
 
       if (!response.ok) {
         throw new Error('Download failed');
@@ -498,26 +531,97 @@ export function BackendSwitcher({ theme = 'default' }: BackendSwitcherProps) {
                     )}
 
                     {installing && (
-                      <div style={{ marginBottom: '8px' }}>
-                        <div style={{ fontSize: '10px', marginBottom: '4px', opacity: 0.8, color: textColor }}>
+                      <div style={{ 
+                        marginBottom: '10px',
+                        padding: '10px',
+                        background: 'rgba(59,130,246,0.1)',
+                        border: '1px solid rgba(59,130,246,0.3)',
+                        borderRadius: '6px'
+                      }}>
+                        {/* Status Message */}
+                        <div style={{ 
+                          fontSize: '11px', 
+                          marginBottom: '8px', 
+                          fontWeight: '600',
+                          color: textColor,
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '6px'
+                        }}>
+                          <span style={{ 
+                            animation: 'pulse 2s ease-in-out infinite',
+                            display: 'inline-block'
+                          }}>📥</span>
                           {installStatus}
                         </div>
+                        
+                        {/* Progress Bar */}
                         <div style={{
                           width: '100%',
-                          height: '4px',
+                          height: '8px',
                           background: 'rgba(255,255,255,0.1)',
-                          borderRadius: '2px',
+                          borderRadius: '4px',
                           overflow: 'hidden',
+                          marginBottom: '8px'
                         }}>
                           <div style={{
                             width: `${installProgress}%`,
                             height: '100%',
-                            background: '#2563eb',
-                            transition: 'width 0.3s ease',
+                            background: installProgress < 100 ? 'linear-gradient(90deg, #2563eb, #3b82f6, #2563eb)' : '#059669',
+                            backgroundSize: '200% 100%',
+                            animation: installProgress < 100 ? 'gradient 2s ease infinite' : 'none',
+                            transition: 'width 0.5s ease'
                           }} />
+                        </div>
+                        
+                        {/* Progress Percentage */}
+                        <div style={{ 
+                          fontSize: '18px', 
+                          fontWeight: 'bold',
+                          color: installProgress < 100 ? '#3b82f6' : '#059669',
+                          textAlign: 'center',
+                          marginBottom: '8px'
+                        }}>
+                          {Math.round(installProgress)}%
+                        </div>
+
+                        {/* Download Details */}
+                        {downloadDetails.completed && downloadDetails.total && (
+                          <div style={{
+                            fontSize: '10px',
+                            opacity: 0.8,
+                            textAlign: 'center',
+                            color: textColor
+                          }}>
+                            {(downloadDetails.completed / (1024**3)).toFixed(2)} GB / {(downloadDetails.total / (1024**3)).toFixed(2)} GB
+                          </div>
+                        )}
+
+                        {/* Activity Indicator */}
+                        <div style={{
+                          fontSize: '10px',
+                          textAlign: 'center',
+                          opacity: 0.6,
+                          marginTop: '6px',
+                          fontStyle: 'italic',
+                          color: textColor
+                        }}>
+                          {installProgress > 0 && installProgress < 100 ? '⚡ Download in progress...' : ''}
                         </div>
                       </div>
                     )}
+
+                    <style>{`
+                      @keyframes pulse {
+                        0%, 100% { transform: scale(1); opacity: 1; }
+                        50% { transform: scale(1.2); opacity: 0.7; }
+                      }
+                      @keyframes gradient {
+                        0% { background-position: 0% 50%; }
+                        50% { background-position: 100% 50%; }
+                        100% { background-position: 0% 50%; }
+                      }
+                    `}</style>
 
                     <button
                       onClick={handleAutoInstallLlm}
