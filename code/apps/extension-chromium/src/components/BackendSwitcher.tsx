@@ -63,6 +63,10 @@ export function BackendSwitcher({ theme = 'default' }: BackendSwitcherProps) {
     { id: 'mistral:7b-instruct-q5_K_M', name: 'Mistral 7B Q5 (Balanced)', ram: '5GB', size: '3.2GB', desc: 'Better quality' },
     { id: 'mistral:7b', name: 'Mistral 7B (Best Quality)', ram: '8GB', size: '4.1GB', desc: 'High-end hardware only' },
     { id: 'llama3:8b', name: 'Llama 3 8B', ram: '8GB', size: '4.7GB', desc: 'Alternative to Mistral' },
+    { id: 'llama3.1:8b', name: 'Llama 3.1 8B', ram: '8GB', size: '4.7GB', desc: 'Latest Llama 3.1 version' },
+    { id: 'mixtral:8x7b', name: 'Mixtral 8x7B (MoE)', ram: '32GB', size: '26GB', desc: 'High-end: Mixture of Experts' },
+    { id: 'llama3.1:70b', name: 'Llama 3.1 70B', ram: '64GB', size: '40GB', desc: 'High-end: Enterprise grade' },
+    { id: 'qwen2:72b', name: 'Qwen 2 72B', ram: '64GB', size: '41GB', desc: 'High-end: Advanced reasoning' },
   ];
 
   // Load config on mount
@@ -648,7 +652,7 @@ export function BackendSwitcher({ theme = 'default' }: BackendSwitcherProps) {
                             )}
                             <button
                               onClick={() => handleDeleteModel(model.name)}
-                              disabled={deleting === model.name || isActive}
+                              disabled={deleting === model.name}
                               style={{
                                 padding: '4px 8px',
                                 background: 'rgba(239,68,68,0.2)',
@@ -656,10 +660,10 @@ export function BackendSwitcher({ theme = 'default' }: BackendSwitcherProps) {
                                 borderRadius: '3px',
                                 color: '#ef4444',
                                 fontSize: '9px',
-                                cursor: (deleting === model.name || isActive) ? 'not-allowed' : 'pointer',
-                                opacity: (deleting === model.name || isActive) ? 0.5 : 1,
+                                cursor: deleting === model.name ? 'not-allowed' : 'pointer',
+                                opacity: deleting === model.name ? 0.5 : 1,
                               }}
-                              title={isActive ? 'Cannot delete active model' : ''}
+                              title="Delete this model to free disk space"
                             >
                               {deleting === model.name ? '...' : '🗑'}
                             </button>

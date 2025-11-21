@@ -77,6 +77,38 @@ const MODEL_OPTIONS: ModelOption[] = [
     ramRequired: 8,
     recommended: false,
     description: 'Alternative high-quality model'
+  },
+  {
+    id: 'llama3.1:8b',
+    name: 'Llama 3.1 8B',
+    size: '~4.7 GB',
+    ramRequired: 8,
+    recommended: false,
+    description: 'Latest Llama 3.1 version with improvements'
+  },
+  {
+    id: 'mixtral:8x7b',
+    name: 'Mixtral 8x7B (MoE)',
+    size: '~26 GB',
+    ramRequired: 32,
+    recommended: false,
+    description: 'High-end: Mixture of Experts for advanced tasks'
+  },
+  {
+    id: 'llama3.1:70b',
+    name: 'Llama 3.1 70B',
+    size: '~40 GB',
+    ramRequired: 64,
+    recommended: false,
+    description: 'High-end: Enterprise-grade performance'
+  },
+  {
+    id: 'qwen2:72b',
+    name: 'Qwen 2 72B',
+    size: '~41 GB',
+    ramRequired: 64,
+    recommended: false,
+    description: 'High-end: Advanced reasoning capabilities'
   }
 ]
 

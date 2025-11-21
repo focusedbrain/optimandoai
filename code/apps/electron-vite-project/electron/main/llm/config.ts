@@ -82,7 +82,7 @@ export const MODEL_CONFIGS = {
     contextWindow: 2048,
     isQuantized: false
   },
-  // Other popular models
+  // Standard 8B models
   'llama3:8b': {
     id: 'llama3:8b',
     displayName: 'Llama 3 8B',
@@ -91,6 +91,47 @@ export const MODEL_CONFIGS = {
     recommendedRamGb: 12,
     diskSizeGb: 4.7,
     contextWindow: 8192,
+    isQuantized: false
+  },
+  'llama3.1:8b': {
+    id: 'llama3.1:8b',
+    displayName: 'Llama 3.1 8B',
+    provider: 'ollama' as const,
+    minRamGb: 8,
+    recommendedRamGb: 12,
+    diskSizeGb: 4.7,
+    contextWindow: 8192,
+    isQuantized: false
+  },
+  // High-end models
+  'mixtral:8x7b': {
+    id: 'mixtral:8x7b',
+    displayName: 'Mixtral 8x7B (MoE)',
+    provider: 'ollama' as const,
+    minRamGb: 32,
+    recommendedRamGb: 48,
+    diskSizeGb: 26,
+    contextWindow: 32768,
+    isQuantized: false
+  },
+  'llama3.1:70b': {
+    id: 'llama3.1:70b',
+    displayName: 'Llama 3.1 70B',
+    provider: 'ollama' as const,
+    minRamGb: 64,
+    recommendedRamGb: 80,
+    diskSizeGb: 40,
+    contextWindow: 8192,
+    isQuantized: false
+  },
+  'qwen2:72b': {
+    id: 'qwen2:72b',
+    displayName: 'Qwen 2 72B',
+    provider: 'ollama' as const,
+    minRamGb: 64,
+    recommendedRamGb: 80,
+    diskSizeGb: 41,
+    contextWindow: 32768,
     isQuantized: false
   }
 }
