@@ -149,29 +149,38 @@ export class InputCoordinator {
   
   /**
    * Find agents without listener sections (always-on agents)
-   * These are agents with only reasoning and execution capabilities
+   * These are agents with Reasoning + Execution sections enabled
    */
   private async findAgentsWithoutListeners(): Promise<AgentConfig[]> {
     try {
-      console.log('[InputCoordinator] Loading agents without listener sections')
+      console.log('[InputCoordinator] Loading agents with Reasoning+Execution enabled (no listener section)')
       
-      // TODO: Load all agents from SQLite
-      // For now, try to load common agent numbers (01-10)
       const alwaysOnAgents: AgentConfig[] = []
       
       for (let i = 1; i <= 10; i++) {
         const agentName = `agent${String(i).padStart(2, '0')}`
         const agent = await this.loadAgentConfig(agentName)
         
-        if (agent && !agent.isSystemAgent && agent.capabilities.includes('reasoning')) {
-          // Check if it doesn't have an enabled listener section
-          if (!agent.listenerSection || !agent.listenerSection.enabled) {
-            console.log('[InputCoordinator] Found always-on agent:', agentName)
-            alwaysOnAgents.push(agent)
-          }
+        if (!agent || agent.isSystemAgent) continue
+        
+        // Check if Reasoning and Execution sections are active
+        const hasReasoning = agent.capabilities?.includes('reasoning')
+        const hasExecution = agent.capabilities?.includes('execution')
+        
+        // Check if listener section is disabled or not configured
+        const listenerDisabled = !agent.listenerSection || !agent.listenerSection.enabled
+        
+        if (hasReasoning && hasExecution && listenerDisabled) {
+          console.log('[InputCoordinator] Found always-on agent (Reasoning+Execution):', agentName, {
+            hasReasoning,
+            hasExecution,
+            listenerDisabled
+          })
+          alwaysOnAgents.push(agent)
         }
       }
       
+      console.log('[InputCoordinator] Total always-on agents found:', alwaysOnAgents.length)
       return alwaysOnAgents
     } catch (error: any) {
       console.error('[InputCoordinator] Failed to find agents without listeners:', error)
