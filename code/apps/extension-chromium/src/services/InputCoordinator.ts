@@ -46,12 +46,40 @@ export class InputCoordinator {
         return await this.executeAgents(alwaysOnAgents, input)
       }
       
-      // 3. No matches and no always-on agents - do not forward
-      console.log('[InputCoordinator] No matching agents and no always-on agents - input not forwarded')
-      return null
+      // 3. No agents at all - use direct LLM response (standard model response, no agent rules)
+      console.log('[InputCoordinator] No agents available - using direct LLM response')
+      return await this.directLlmResponse(input)
     } catch (error: any) {
       console.error('[InputCoordinator] Failed to handle input event:', error)
       throw error
+    }
+  }
+  
+  /**
+   * Direct LLM response without agent instructions
+   * Used when no agents are configured - gives standard model response
+   */
+  private async directLlmResponse(input: InputEventPayload): Promise<string> {
+    try {
+      console.log('[InputCoordinator] Calling LLM directly without agent instructions')
+      
+      const { sendLlmRequest } = await import('./llm/LlmClient')
+      
+      const response = await sendLlmRequest({
+        modelId: 'mistral:7b',
+        messages: [
+          { role: 'user', content: input.text || 'Hello' }
+        ]
+      })
+      
+      if (response.success) {
+        return response.content
+      } else {
+        return `Error: ${response.error}`
+      }
+    } catch (error: any) {
+      console.error('[InputCoordinator] Direct LLM call failed:', error)
+      return `Error: ${error.message}`
     }
   }
   
@@ -126,30 +154,26 @@ export class InputCoordinator {
    */
   private async findAgentsWithoutListeners(): Promise<AgentConfig[]> {
     try {
+      console.log('[InputCoordinator] Loading agents without listener sections')
+      
       // TODO: Load all agents from SQLite
-      console.log('[InputCoordinator] TODO: Load all agents without listener sections')
+      // For now, try to load common agent numbers (01-10)
+      const alwaysOnAgents: AgentConfig[] = []
       
-      // Expected logic:
-      // const agents = await this.loadAllAgents()
-      // return agents.filter(agent => {
-      //   // Skip system agents
-      //   if (agent.isSystemAgent) return false
-      //   // Must have reasoning capability
-      //   if (!agent.capabilities.includes('reasoning')) return false
-      //   // Must NOT have enabled listener section
-      //   return !agent.listenerSection?.enabled
-      // })
-      
-      // For now, try to load agent01 as always-on fallback
-      const agent01 = await this.loadAgentConfig('agent01')
-      if (agent01 && !agent01.isSystemAgent && agent01.capabilities.includes('reasoning')) {
-        // Check if it doesn't have an enabled listener section
-        if (!agent01.listenerSection?.enabled) {
-          return [agent01]
+      for (let i = 1; i <= 10; i++) {
+        const agentName = `agent${String(i).padStart(2, '0')}`
+        const agent = await this.loadAgentConfig(agentName)
+        
+        if (agent && !agent.isSystemAgent && agent.capabilities.includes('reasoning')) {
+          // Check if it doesn't have an enabled listener section
+          if (!agent.listenerSection || !agent.listenerSection.enabled) {
+            console.log('[InputCoordinator] Found always-on agent:', agentName)
+            alwaysOnAgents.push(agent)
+          }
         }
       }
       
-      return []
+      return alwaysOnAgents
     } catch (error: any) {
       console.error('[InputCoordinator] Failed to find agents without listeners:', error)
       return []
