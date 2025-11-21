@@ -115,27 +115,74 @@ export class OutputCoordinator {
       // No explicit target - use default behavior (same agent's box)
       console.log('[OutputCoordinator] No explicit target, using default (same agent box)')
       
-      // TODO: Load session data from SQLite to find agent boxes
-      console.log('[OutputCoordinator] TODO: Load session agent boxes from SQLite for session:', sessionId)
+      // Load session data from SQLite to find agent boxes
+      const sessionData = await this.loadSessionData(sessionId)
+      if (!sessionData || !sessionData.agentBoxes) {
+        console.warn('[OutputCoordinator] No session data or agent boxes found')
+        return null
+      }
       
-      // Expected logic:
-      // const sessionData = await this.loadSessionData(sessionId)
-      // const agentBoxes = sessionData.agentBoxes || []
-      // 
-      // // Priority 1: Find box with matching agent number (default)
-      // const agentNumStr = typeof agentNumber === 'number' ? String(agentNumber).padStart(2, '0') : agentNumber
-      // const matchingBox = agentBoxes.find((box: any) => {
-      //   const boxAgentNum = box.agent?.replace('agent', '')
-      //   return boxAgentNum === agentNumStr
-      // })
-      // if (matchingBox) return matchingBox.id
-      // 
-      // // Priority 2: First available box (fallback)
-      // if (agentBoxes.length > 0) return agentBoxes[0].id
+      const agentBoxes = sessionData.agentBoxes || []
       
+      // Normalize agent number to string (e.g., "01", "02")
+      const agentNumStr = typeof agentNumber === 'number' 
+        ? String(agentNumber).padStart(2, '0') 
+        : String(agentNumber).replace('agent', '')
+      
+      // Priority 1: Find box with matching agent number (default)
+      const matchingBox = agentBoxes.find((box: any) => {
+        const boxAgentNum = box.agent?.replace('agent', '')
+        console.log('[OutputCoordinator] Checking box:', { boxId: box.id, boxAgent: box.agent, boxAgentNum, targetAgentNum: agentNumStr })
+        return boxAgentNum === agentNumStr
+      })
+      
+      if (matchingBox) {
+        console.log('[OutputCoordinator] Found matching box for agent:', matchingBox.id)
+        return matchingBox.id
+      }
+      
+      // Priority 2: First available box (fallback)
+      if (agentBoxes.length > 0) {
+        console.log('[OutputCoordinator] No matching box, using first available:', agentBoxes[0].id)
+        return agentBoxes[0].id
+      }
+      
+      console.warn('[OutputCoordinator] No agent boxes available in session')
       return null
     } catch (error: any) {
       console.error('[OutputCoordinator] Failed to resolve target agent box:', error)
+      return null
+    }
+  }
+  
+  /**
+   * Load session data from SQLite via Electron HTTP API
+   */
+  private async loadSessionData(sessionId: string): Promise<any> {
+    try {
+      const response = await fetch(`http://127.0.0.1:51248/api/orchestrator/get?key=${encodeURIComponent(sessionId)}`, {
+        signal: AbortSignal.timeout(5000)
+      })
+      
+      if (!response.ok) {
+        console.error('[OutputCoordinator] Failed to load session, status:', response.status)
+        return null
+      }
+      
+      const result = await response.json()
+      if (!result.success || !result.data) {
+        console.warn('[OutputCoordinator] No session data returned')
+        return null
+      }
+      
+      const sessionData = typeof result.data === 'string' ? JSON.parse(result.data) : result.data
+      console.log('[OutputCoordinator] Loaded session data:', { 
+        sessionId, 
+        agentBoxCount: sessionData.agentBoxes?.length || 0 
+      })
+      return sessionData
+    } catch (error: any) {
+      console.error('[OutputCoordinator] Failed to load session data:', error)
       return null
     }
   }
@@ -156,16 +203,31 @@ export class OutputCoordinator {
         contentLength: content.length
       })
       
-      // TODO: Load session data, update agent box, save back to SQLite
-      // TODO: Emit event to refresh UI
-      console.log('[OutputCoordinator] TODO: Update agent box in session data and emit UI refresh event')
+      // Send message to background script to update agent box
+      // The background script or content script will handle:
+      // 1. Loading the session
+      // 2. Finding the agent box
+      // 3. Updating the output
+      // 4. Saving back to SQLite
+      // 5. Refreshing the UI
       
-      // Expected logic:
-      // 1. Load session that contains this box
-      // 2. Find the box in session.agentBoxes
-      // 3. Update box.output based on mode (append or replace)
-      // 4. Save session back to SQLite
-      // 5. Emit event: chrome.runtime.sendMessage({ type: 'AGENT_BOX_UPDATED', boxId, content })
+      chrome.runtime.sendMessage({
+        type: 'AGENT_BOX_OUTPUT_UPDATE',
+        boxId,
+        content,
+        mode
+      }, (response) => {
+        if (chrome.runtime.lastError) {
+          console.error('[OutputCoordinator] Failed to send agent box update:', chrome.runtime.lastError)
+          return
+        }
+        
+        if (response?.success) {
+          console.log('[OutputCoordinator] Agent box updated successfully')
+        } else {
+          console.error('[OutputCoordinator] Agent box update failed:', response?.error)
+        }
+      })
     } catch (error: any) {
       console.error('[OutputCoordinator] Failed to append to agent box:', error)
       throw error
