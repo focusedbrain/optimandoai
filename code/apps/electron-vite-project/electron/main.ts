@@ -1127,6 +1127,19 @@ app.whenReady().then(async () => {
       }
     })
 
+    // POST /api/llm/chat - Chat completion
+    httpApp.post('/api/llm/chat', async (req, res) => {
+      try {
+        console.log('[HTTP] POST /api/llm/chat')
+        const { llmClientService } = await import('./main/llm/client')
+        const result = await llmClientService.chat(req.body)
+        res.json({ ok: true, data: result })
+      } catch (error: any) {
+        console.error('[HTTP] Error in llm/chat:', error)
+        res.status(500).json({ ok: false, message: error.message })
+      }
+    })
+
     // GET /api/db/get?keys=key1,key2 - Get specific keys
     httpApp.get('/api/db/get', async (req, res) => {
       try {
