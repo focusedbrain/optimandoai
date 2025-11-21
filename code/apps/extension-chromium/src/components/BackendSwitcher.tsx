@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { LlmSettings } from './LlmSettings';
 
 interface PostgresConnectionConfig {
   postgres?: {
@@ -650,11 +651,15 @@ export function BackendSwitcher({ theme = 'default' }: BackendSwitcherProps) {
               </>
             )}
 
+            {/* LLM Tab */}
+            {activeTab === 'llm' && (
+              <LlmSettings theme={theme} bridge="http" />
+            )}
+
             {/* Other Tabs */}
-            {activeTab !== 'localdb' && (
+            {activeTab !== 'localdb' && activeTab !== 'llm' && (
               <div style={{ padding: '20px', textAlign: 'center', color: textColor, opacity: 0.6, fontSize: '11px' }}>
                 {activeTab === 'vectordb' && 'Vector Database configuration coming soon'}
-                {activeTab === 'llm' && 'Local LLM configuration coming soon'}
                 {activeTab === 'automation' && 'Automation platform configuration coming soon'}
               </div>
             )}

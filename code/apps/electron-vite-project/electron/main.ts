@@ -525,6 +525,36 @@ app.whenReady().then(async () => {
   createTray()
   console.log('[MAIN] Window and tray created')
   
+  // Initialize LLM services
+  try {
+    console.log('[MAIN] ===== INITIALIZING LLM SERVICES =====')
+    const { registerLlmHandlers } = await import('./main/llm/ipc')
+    const { ollamaManager } = await import('./main/llm/ollama-manager')
+    
+    // Register IPC handlers
+    registerLlmHandlers()
+    console.log('[MAIN] LLM IPC handlers registered')
+    
+    // Check if Ollama is installed and auto-start if configured
+    const installed = await ollamaManager.checkInstalled()
+    console.log('[MAIN] Ollama installed:', installed)
+    
+    if (installed) {
+      try {
+        await ollamaManager.start()
+        console.log('[MAIN] Ollama started successfully')
+      } catch (error) {
+        console.warn('[MAIN] Failed to auto-start Ollama:', error)
+        // Not critical, user can start manually
+      }
+    } else {
+      console.warn('[MAIN] Ollama not found - repair flow will be needed')
+    }
+  } catch (error) {
+    console.error('[MAIN] Error initializing LLM services:', error)
+    // Continue app startup even if LLM init fails
+  }
+  
   // WS bridge for extension (127.0.0.1:51247) with safe startup
   try {
     console.log('[MAIN] ===== ATTEMPTING TO START WEBSOCKET SERVER =====')
@@ -2343,6 +2373,178 @@ app.whenReady().then(async () => {
       } catch (error: any) {
         console.error('[HTTP-ORCHESTRATOR] Error in import:', error)
         res.status(500).json({ success: false, error: error.message || 'Failed to import data' })
+      }
+    })
+
+    // ==================== LLM API ENDPOINTS ====================
+    
+    // GET /api/llm/hardware - Get hardware information
+    httpApp.get('/api/llm/hardware', async (_req, res) => {
+      try {
+        const { hardwareService } = await import('./main/llm/hardware')
+        const hardware = await hardwareService.detect()
+        res.json({ ok: true, data: hardware })
+      } catch (error: any) {
+        console.error('[HTTP-LLM] Error in hardware detection:', error)
+        res.status(500).json({ ok: false, error: error.message })
+      }
+    })
+    
+    // GET /api/llm/status - Get Ollama status
+    httpApp.get('/api/llm/status', async (_req, res) => {
+      try {
+        const { ollamaManager } = await import('./main/llm/ollama-manager')
+        const status = await ollamaManager.getStatus()
+        res.json({ ok: true, data: status })
+      } catch (error: any) {
+        console.error('[HTTP-LLM] Error in get status:', error)
+        res.status(500).json({ ok: false, error: error.message })
+      }
+    })
+    
+    // POST /api/llm/start - Start Ollama server
+    httpApp.post('/api/llm/start', async (_req, res) => {
+      try {
+        const { ollamaManager } = await import('./main/llm/ollama-manager')
+        await ollamaManager.start()
+        res.json({ ok: true })
+      } catch (error: any) {
+        console.error('[HTTP-LLM] Error starting Ollama:', error)
+        res.status(500).json({ ok: false, error: error.message })
+      }
+    })
+    
+    // POST /api/llm/stop - Stop Ollama server
+    httpApp.post('/api/llm/stop', async (_req, res) => {
+      try {
+        const { ollamaManager } = await import('./main/llm/ollama-manager')
+        await ollamaManager.stop()
+        res.json({ ok: true })
+      } catch (error: any) {
+        console.error('[HTTP-LLM] Error stopping Ollama:', error)
+        res.status(500).json({ ok: false, error: error.message })
+      }
+    })
+    
+    // GET /api/llm/models - List installed models
+    httpApp.get('/api/llm/models', async (_req, res) => {
+      try {
+        const { ollamaManager } = await import('./main/llm/ollama-manager')
+        const models = await ollamaManager.listModels()
+        res.json({ ok: true, data: models })
+      } catch (error: any) {
+        console.error('[HTTP-LLM] Error listing models:', error)
+        res.status(500).json({ ok: false, error: error.message })
+      }
+    })
+    
+    // GET /api/llm/catalog - Get model catalog
+    httpApp.get('/api/llm/catalog', async (_req, res) => {
+      try {
+        const { MODEL_CATALOG } = await import('./main/llm/config')
+        res.json({ ok: true, data: MODEL_CATALOG })
+      } catch (error: any) {
+        console.error('[HTTP-LLM] Error getting catalog:', error)
+        res.status(500).json({ ok: false, error: error.message })
+      }
+    })
+    
+    // POST /api/llm/models/install - Install a model
+    httpApp.post('/api/llm/models/install', async (req, res) => {
+      try {
+        const { modelId } = req.body
+        if (!modelId) {
+          res.status(400).json({ ok: false, error: 'modelId is required' })
+          return
+        }
+        
+        const { ollamaManager } = await import('./main/llm/ollama-manager')
+        
+        // Start async installation
+        ollamaManager.pullModel(modelId, (progress) => {
+          // Progress updates could be sent via WebSocket if needed
+          console.log('[HTTP-LLM] Install progress:', progress)
+        }).catch((error) => {
+          console.error('[HTTP-LLM] Model installation failed:', error)
+        })
+        
+        res.json({ ok: true, message: 'Installation started' })
+      } catch (error: any) {
+        console.error('[HTTP-LLM] Error installing model:', error)
+        res.status(500).json({ ok: false, error: error.message })
+      }
+    })
+    
+    // DELETE /api/llm/models/:modelId - Delete a model
+    httpApp.delete('/api/llm/models/:modelId', async (req, res) => {
+      try {
+        const { modelId } = req.params
+        const { ollamaManager } = await import('./main/llm/ollama-manager')
+        await ollamaManager.deleteModel(modelId)
+        res.json({ ok: true })
+      } catch (error: any) {
+        console.error('[HTTP-LLM] Error deleting model:', error)
+        res.status(500).json({ ok: false, error: error.message })
+      }
+    })
+    
+    // POST /api/llm/models/activate - Set active model
+    httpApp.post('/api/llm/models/activate', async (req, res) => {
+      try {
+        const { modelId } = req.body
+        if (!modelId) {
+          res.status(400).json({ ok: false, error: 'modelId is required' })
+          return
+        }
+        
+        // TODO: Store in config
+        console.log('[HTTP-LLM] Set active model:', modelId)
+        res.json({ ok: true })
+      } catch (error: any) {
+        console.error('[HTTP-LLM] Error setting active model:', error)
+        res.status(500).json({ ok: false, error: error.message })
+      }
+    })
+    
+    // POST /api/llm/chat - Chat with model
+    httpApp.post('/api/llm/chat', async (req, res) => {
+      try {
+        const { modelId, messages } = req.body
+        if (!messages || !Array.isArray(messages)) {
+          res.status(400).json({ ok: false, error: 'messages array is required' })
+          return
+        }
+        
+        const { ollamaManager } = await import('./main/llm/ollama-manager')
+        const activeModelId = modelId || 'mistral:7b-instruct-q4_0'
+        const response = await ollamaManager.chat(activeModelId, messages)
+        res.json({ ok: true, data: response })
+      } catch (error: any) {
+        console.error('[HTTP-LLM] Error in chat:', error)
+        res.status(500).json({ ok: false, error: error.message })
+      }
+    })
+    
+    // GET /api/llm/performance/:modelId - Get performance estimate for model
+    httpApp.get('/api/llm/performance/:modelId', async (req, res) => {
+      try {
+        const { modelId } = req.params
+        const { hardwareService } = await import('./main/llm/hardware')
+        const { getModelConfig } = await import('./main/llm/config')
+        
+        const hardware = await hardwareService.detect()
+        const modelConfig = getModelConfig(modelId)
+        
+        if (!modelConfig) {
+          res.status(404).json({ ok: false, error: 'Model not found in catalog' })
+          return
+        }
+        
+        const estimate = hardwareService.estimatePerformance(modelConfig, hardware)
+        res.json({ ok: true, data: estimate })
+      } catch (error: any) {
+        console.error('[HTTP-LLM] Error getting performance estimate:', error)
+        res.status(500).json({ ok: false, error: error.message })
       }
     })
 
