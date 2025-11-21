@@ -5577,17 +5577,21 @@ function initializeExtension() {
 
             <select id="agent-provider" style="width: 100%; padding: 10px; border: 2px solid #ddd; border-radius: 6px; font-size: 14px; background: white; height: auto; min-height: 42px;">
 
-              <option value="" selected disabled>Select LLM</option>
+              <option value="" selected disabled>Select Provider</option>
 
-              <option value="Ollama">Ollama (Local)</option>
+              <option value="Mistral">Mistral</option>
+
+              <option value="Meta">Meta</option>
+
+              <option value="Microsoft">Microsoft</option>
 
               <option value="OpenAI">OpenAI</option>
 
-              <option value="Claude">Claude</option>
+              <option value="Anthropic">Anthropic</option>
 
-              <option value="Gemini">Gemini</option>
+              <option value="Google">Google</option>
 
-              <option value="Grok">Grok</option>
+              <option value="xAI">xAI</option>
 
             </select>
 
@@ -5673,17 +5677,21 @@ function initializeExtension() {
 
       switch ((provider || '').toLowerCase()) {
 
-        case 'ollama': return ['mistral:7b', 'llama3:8b', 'phi3:mini', 'mistral:14b']
+        case 'mistral': return ['7b', '14b']
 
-        case 'openai': return ['auto', 'gpt-4o-mini', 'gpt-4o']
+        case 'meta': return ['llama-3-8b', 'llama-3-70b']
 
-        case 'claude': return ['auto', 'claude-3-5-sonnet', 'claude-3-opus']
+        case 'microsoft': return ['phi-3-mini', 'phi-3-medium']
 
-        case 'gemini': return ['auto', 'gemini-1.5-flash', 'gemini-1.5-pro']
+        case 'openai': return ['gpt-4o-mini', 'gpt-4o']
 
-        case 'grok': return ['auto', 'grok-2-mini', 'grok-2']
+        case 'anthropic': return ['claude-3-5-sonnet', 'claude-3-opus']
 
-        default: return ['auto']
+        case 'google': return ['gemini-1.5-flash', 'gemini-1.5-pro']
+
+        case 'xai': return ['grok-2-mini', 'grok-2']
+
+        default: return []
 
       }
 

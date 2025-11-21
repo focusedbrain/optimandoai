@@ -307,20 +307,26 @@ export class AgentExecutor {
   private async callLLM(settings: LLMSettings, prompt: { system: string, user: string }): Promise<AgentExecutionResult> {
     const provider = (settings.provider || '').toLowerCase()
     
-    // Handle Ollama (local LLM)
-    if (provider === 'ollama' || !settings.provider) {
-      return await this.callOllamaViaElectron(settings.model, prompt)
-    }
+    // Determine runtime based on provider
+    // Mistral, Meta, Microsoft → Use Ollama locally
+    // OpenAI, Anthropic, Google, xAI → Use their respective APIs
     
-    // For other providers (OpenAI, Claude, etc.), throw error for now
-    // These will be implemented later
-    throw new Error(`Provider "${settings.provider}" is not yet implemented. Please use Ollama for local LLM support.`)
+    if (provider === 'mistral' || provider === 'meta' || provider === 'microsoft') {
+      // Use Ollama for local models
+      return await this.callOllamaViaElectron(settings.provider, settings.model, prompt)
+    } else if (provider === 'openai' || provider === 'anthropic' || provider === 'google' || provider === 'xai') {
+      // For cloud providers, throw error for now (will be implemented later)
+      throw new Error(`Provider "${settings.provider}" API integration is not yet implemented. Only local models (Mistral, Meta, Microsoft) are currently supported via Ollama.`)
+    } else {
+      throw new Error(`Unknown provider: "${settings.provider}". Please select a valid provider (Mistral, Meta, Microsoft, OpenAI, Anthropic, Google, xAI).`)
+    }
   }
   
   /**
    * Call Ollama via Electron app's HTTP API
+   * Used for local models from Mistral, Meta, and Microsoft
    */
-  private async callOllamaViaElectron(model: string, prompt: { system: string, user: string }): Promise<AgentExecutionResult> {
+  private async callOllamaViaElectron(provider: string, model: string, prompt: { system: string, user: string }): Promise<AgentExecutionResult> {
     try {
       // Check if Electron app is running
       const isElectronRunning = await this.checkElectronConnection()
@@ -334,8 +340,13 @@ export class AgentExecutor {
         throw new Error('Ollama is not running. Please start Ollama or check LLM settings in the Backend Configuration.')
       }
       
+      // Map provider + model to Ollama model name
+      const ollamaModel = this.getOllamaModelName(provider, model)
+      
       console.log('[AgentExecutor] Calling Ollama via Electron API:', {
-        model: model || 'mistral:7b',
+        provider,
+        model,
+        ollamaModel,
         endpoint: 'http://127.0.0.1:51248/api/llm/chat'
       })
       
@@ -343,7 +354,7 @@ export class AgentExecutor {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          modelId: model || 'mistral:7b',
+          modelId: ollamaModel,
           messages: [
             { role: 'system', content: prompt.system },
             { role: 'user', content: prompt.user }
@@ -382,6 +393,39 @@ export class AgentExecutor {
       
       throw error
     }
+  }
+  
+  /**
+   * Map provider + model to Ollama model name
+   * E.g. Mistral + 7b → mistral:7b
+   */
+  private getOllamaModelName(provider: string, model: string): string {
+    const p = provider.toLowerCase()
+    const m = model.toLowerCase()
+    
+    // Mistral models
+    if (p === 'mistral') {
+      if (m === '7b') return 'mistral:7b'
+      if (m === '14b') return 'mistral:14b'
+      return `mistral:${m}`
+    }
+    
+    // Meta models (Llama)
+    if (p === 'meta') {
+      if (m === 'llama-3-8b') return 'llama3:8b'
+      if (m === 'llama-3-70b') return 'llama3:70b'
+      return `llama3:${m}`
+    }
+    
+    // Microsoft models (Phi)
+    if (p === 'microsoft') {
+      if (m === 'phi-3-mini') return 'phi3:mini'
+      if (m === 'phi-3-medium') return 'phi3:medium'
+      return `phi3:${m}`
+    }
+    
+    // Fallback: use provider:model format
+    return `${p}:${m}`
   }
   
   /**
