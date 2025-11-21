@@ -54,6 +54,82 @@ function SidepanelOrchestrator() {
   const chatRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   
+  // LLM state
+  const [activeLlmModel, setActiveLlmModel] = useState<string>('')
+  const [isLlmLoading, setIsLlmLoading] = useState(false)
+  const [llmError, setLlmError] = useState<string | null>(null)
+  
+  // Auto-detect first available LLM model on mount
+  useEffect(() => {
+    const fetchFirstAvailableModel = async () => {
+      try {
+        const baseUrl = 'http://127.0.0.1:51248'
+        
+        // Check status first
+        const statusResponse = await fetch(`${baseUrl}/api/llm/status`)
+        const statusResult = await statusResponse.json()
+        
+        if (!statusResult.ok || !statusResult.data) {
+          setLlmError('LLM service not available')
+          return
+        }
+        
+        const status = statusResult.data
+        console.log('[Command Chat] LLM Status:', status)
+        
+        // If Ollama is not installed or not running
+        if (!status.installed || !status.running) {
+          setLlmError('Ollama not running. Please start it from LLM Settings.')
+          return
+        }
+        
+        // Check if any models are installed
+        if (status.modelsInstalled && status.modelsInstalled.length > 0) {
+          const firstModel = status.modelsInstalled[0].name
+          setActiveLlmModel(firstModel)
+          console.log('[Command Chat] Auto-selected model:', firstModel)
+          setLlmError(null)
+        } else {
+          // No models installed - try to auto-install a lightweight one
+          console.log('[Command Chat] No models installed, attempting auto-install...')
+          setLlmError('Installing lightweight model (Phi-3 Mini)... This may take a few minutes.')
+          
+          try {
+            const installResponse = await fetch(`${baseUrl}/api/llm/models/install`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ modelId: 'phi3:mini' })
+            })
+            
+            const installResult = await installResponse.json()
+            
+            if (installResult.ok) {
+              setActiveLlmModel('phi3:mini')
+              setLlmError(null)
+              console.log('[Command Chat] Auto-installed phi3:mini successfully')
+              
+              // Add a system message to chat
+              setChatMessages([{
+                role: 'assistant' as const,
+                text: '✅ Phi-3 Mini model installed successfully! You can now start chatting. This model is fast and works well on most hardware.'
+              }])
+            } else {
+              throw new Error(installResult.error || 'Installation failed')
+            }
+          } catch (installError: any) {
+            console.error('[Command Chat] Auto-install failed:', installError)
+            setLlmError('No models installed. Please install one from LLM Settings.')
+          }
+        }
+      } catch (error: any) {
+        console.error('[Command Chat] Failed to fetch available models:', error)
+        setLlmError('Failed to connect to LLM service')
+      }
+    }
+    
+    fetchFirstAvailableModel()
+  }, [])
+  
   // Load pinned state and viewMode from storage
   useEffect(() => {
     import('./storage/storageWrapper').then(({ storageGet }) => {
@@ -732,19 +808,95 @@ function SidepanelOrchestrator() {
     })
   }
 
-  const handleSendMessage = () => {
+  const handleSendMessage = async () => {
     const text = chatInput.trim()
-    if (!text) return
+    if (!text || isLlmLoading) return
     
-    setChatMessages([...chatMessages, 
-      { role: 'user', text },
-      { role: 'assistant', text: `Acknowledged: ${text}` }
-    ])
+    // Check if model is available
+    if (!activeLlmModel) {
+      setChatMessages([...chatMessages, {
+        role: 'assistant' as const,
+        text: `⚠️ No LLM model available. Please:\n\n1. Go to Admin panel (toggle at top)\n2. Open LLM Settings\n3. Install a lightweight model like "Phi-3 Mini" (2.3GB) or "TinyLlama" (0.6GB)\n4. Come back and try again!`
+      }])
+      setTimeout(() => {
+        if (chatRef.current) chatRef.current.scrollTop = chatRef.current.scrollHeight
+      }, 0)
+      return
+    }
+    
+    // Add user message
+    const newMessages = [...chatMessages, { role: 'user' as const, text }]
+    setChatMessages(newMessages)
     setChatInput('')
+    setIsLlmLoading(true)
     
+    // Scroll to bottom after user message
     setTimeout(() => {
       if (chatRef.current) chatRef.current.scrollTop = chatRef.current.scrollHeight
     }, 0)
+    
+    try {
+      // Call Ollama API
+      const baseUrl = 'http://127.0.0.1:51248'
+      const response = await fetch(`${baseUrl}/api/llm/chat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          modelId: activeLlmModel,
+          messages: newMessages.map(msg => ({
+            role: msg.role,
+            content: msg.text
+          }))
+        })
+      })
+      
+      if (!response.ok) {
+        const result = await response.json()
+        throw new Error(result.error || `API request failed: ${response.statusText}`)
+      }
+      
+      const result = await response.json()
+      
+      if (result.ok && result.data?.content) {
+        // Add assistant response
+        setChatMessages([...newMessages, {
+          role: 'assistant' as const,
+          text: result.data.content
+        }])
+        
+        // Scroll to bottom after assistant response
+        setTimeout(() => {
+          if (chatRef.current) chatRef.current.scrollTop = chatRef.current.scrollHeight
+        }, 0)
+      } else {
+        throw new Error(result.error || 'No response from LLM')
+      }
+    } catch (error: any) {
+      console.error('[Command Chat] LLM error:', error)
+      
+      // Provide helpful error messages
+      let errorMsg = error.message || 'Failed to get response from LLM'
+      
+      // Check if it's a "no models installed" error
+      if (errorMsg.includes('No models installed') || errorMsg.includes('Please go to LLM Settings')) {
+        errorMsg = `⚠️ No LLM model installed yet!\n\nTo get started:\n1. Click the Admin toggle at the top\n2. Go to LLM Settings\n3. Install a lightweight model:\n   • Phi-3 Mini (2.3GB) - Recommended\n   • TinyLlama (0.6GB) - Fastest\n\nThen come back and chat!`
+      } else {
+        errorMsg = `⚠️ Error: ${errorMsg}\n\nTip: Make sure Ollama is running and a model is installed in LLM Settings.`
+      }
+      
+      // Add error message
+      setChatMessages([...newMessages, {
+        role: 'assistant' as const,
+        text: errorMsg
+      }])
+      
+      // Scroll to bottom after error message
+      setTimeout(() => {
+        if (chatRef.current) chatRef.current.scrollTop = chatRef.current.scrollHeight
+      }, 0)
+    } finally {
+      setIsLlmLoading(false)
+    }
   }
 
   const handleChatKeyDown = (e: React.KeyboardEvent) => {
@@ -1494,27 +1646,33 @@ function SidepanelOrchestrator() {
                 </button>
                 <button
                   onClick={handleSendMessage}
+                  disabled={isLlmLoading || !chatInput.trim()}
                   style={{
                     height: '40px',
-                    background: '#22c55e',
-                    border: '1px solid #16a34a',
-                    color: '#0b1e12',
+                    background: isLlmLoading ? '#9ca3af' : '#22c55e',
+                    border: isLlmLoading ? '1px solid #6b7280' : '1px solid #16a34a',
+                    color: isLlmLoading ? '#4b5563' : '#0b1e12',
                     borderRadius: '8px',
                     fontWeight: '700',
-                    cursor: 'pointer',
+                    cursor: isLlmLoading ? 'not-allowed' : 'pointer',
                     fontSize: '13px',
-                    transition: 'all 0.2s ease'
+                    transition: 'all 0.2s ease',
+                    opacity: isLlmLoading || !chatInput.trim() ? 0.6 : 1
                   }}
                   onMouseEnter={(e) => {
-                    e.currentTarget.style.background = '#16a34a'
-                    e.currentTarget.style.transform = 'translateY(-1px)'
+                    if (!isLlmLoading) {
+                      e.currentTarget.style.background = '#16a34a'
+                      e.currentTarget.style.transform = 'translateY(-1px)'
+                    }
                   }}
                   onMouseLeave={(e) => {
-                    e.currentTarget.style.background = '#22c55e'
-                    e.currentTarget.style.transform = 'translateY(0)'
+                    if (!isLlmLoading) {
+                      e.currentTarget.style.background = '#22c55e'
+                      e.currentTarget.style.transform = 'translateY(0)'
+                    }
                   }}
                 >
-                  Send
+                  {isLlmLoading ? '⏳ Thinking...' : 'Send'}
                 </button>
           </div>
 
@@ -2382,27 +2540,33 @@ function SidepanelOrchestrator() {
               </button>
               <button
                 onClick={handleSendMessage}
+                disabled={isLlmLoading || !chatInput.trim()}
                 style={{
                   height: '40px',
-                  background: '#22c55e',
-                  border: '1px solid #16a34a',
-                  color: '#0b1e12',
+                  background: isLlmLoading ? '#9ca3af' : '#22c55e',
+                  border: isLlmLoading ? '1px solid #6b7280' : '1px solid #16a34a',
+                  color: isLlmLoading ? '#4b5563' : '#0b1e12',
                   borderRadius: '8px',
                   fontWeight: '700',
-                  cursor: 'pointer',
+                  cursor: isLlmLoading ? 'not-allowed' : 'pointer',
                   fontSize: '13px',
-                  transition: 'all 0.2s ease'
+                  transition: 'all 0.2s ease',
+                  opacity: isLlmLoading || !chatInput.trim() ? 0.6 : 1
                 }}
                 onMouseEnter={(e) => {
-                  e.currentTarget.style.background = '#16a34a'
-                  e.currentTarget.style.transform = 'translateY(-1px)'
+                  if (!isLlmLoading) {
+                    e.currentTarget.style.background = '#16a34a'
+                    e.currentTarget.style.transform = 'translateY(-1px)'
+                  }
                 }}
                 onMouseLeave={(e) => {
-                  e.currentTarget.style.background = '#22c55e'
-                  e.currentTarget.style.transform = 'translateY(0)'
+                  if (!isLlmLoading) {
+                    e.currentTarget.style.background = '#22c55e'
+                    e.currentTarget.style.transform = 'translateY(0)'
+                  }
                 }}
               >
-                Send
+                {isLlmLoading ? '⏳ Thinking...' : 'Send'}
               </button>
             </div>
           </div>
@@ -3043,27 +3207,33 @@ function SidepanelOrchestrator() {
               </button>
               <button
                 onClick={handleSendMessage}
+                disabled={isLlmLoading || !chatInput.trim()}
                 style={{
                   height: '40px',
-                  background: '#22c55e',
-                  border: '1px solid #16a34a',
-                  color: '#0b1e12',
+                  background: isLlmLoading ? '#9ca3af' : '#22c55e',
+                  border: isLlmLoading ? '1px solid #6b7280' : '1px solid #16a34a',
+                  color: isLlmLoading ? '#4b5563' : '#0b1e12',
                   borderRadius: '8px',
                   fontWeight: '700',
-                  cursor: 'pointer',
+                  cursor: isLlmLoading ? 'not-allowed' : 'pointer',
                   fontSize: '13px',
-                  transition: 'all 0.2s ease'
+                  transition: 'all 0.2s ease',
+                  opacity: isLlmLoading || !chatInput.trim() ? 0.6 : 1
                 }}
                 onMouseEnter={(e) => {
-                  e.currentTarget.style.background = '#16a34a'
-                  e.currentTarget.style.transform = 'translateY(-1px)'
+                  if (!isLlmLoading) {
+                    e.currentTarget.style.background = '#16a34a'
+                    e.currentTarget.style.transform = 'translateY(-1px)'
+                  }
                 }}
                 onMouseLeave={(e) => {
-                  e.currentTarget.style.background = '#22c55e'
-                  e.currentTarget.style.transform = 'translateY(0)'
+                  if (!isLlmLoading) {
+                    e.currentTarget.style.background = '#22c55e'
+                    e.currentTarget.style.transform = 'translateY(0)'
+                  }
                 }}
               >
-                Send
+                {isLlmLoading ? '⏳ Thinking...' : 'Send'}
               </button>
         </div>
 
