@@ -1,8 +1,11 @@
 /**
- * Agent Executor Service
+ * Agent Execution Service
  * Handles execution of AI agents with LLM integration
  * Loads agent configurations from SQLite (default database)
  */
+
+import type { ListenerSectionConfig, ExecutionSectionConfig, InputEventPayload, AgentExecutionResult as CoordAgentExecutionResult } from '../types/coordination'
+import { sendLlmRequest } from './llm/LlmClient'
 
 interface AgentExecutionRequest {
   agentNumber: string | number
@@ -26,6 +29,10 @@ interface AgentConfig {
   name: string
   icon: string
   capabilities: string[]
+  listenerSection?: ListenerSectionConfig
+  executionSection?: ExecutionSectionConfig
+  isSystemAgent?: boolean
+  systemAgentType?: "input_coordinator" | "output_coordinator"
   reasoning?: {
     goals: string
     role: string
@@ -55,6 +62,122 @@ interface LLMSettings {
 }
 
 export class AgentExecutor {
+  /**
+   * Execute an agent with given input event
+   * Used by InputCoordinator to run matched agents
+   */
+  async runAgentExecution(agentNumber: string | number, input: InputEventPayload): Promise<CoordAgentExecutionResult> {
+    try {
+      console.log('[AgentExecutionService] Running agent execution:', {
+        agentNumber,
+        source: input.source,
+        text: input.text?.substring(0, 100)
+      })
+      
+      // 1. Load agent configuration
+      const agentConfig = await this.loadAgentConfig(agentNumber)
+      
+      if (!agentConfig) {
+        throw new Error(`Agent ${agentNumber} not found`)
+      }
+      
+      // Check if reasoning capability is enabled
+      if (!agentConfig.capabilities.includes('reasoning')) {
+        throw new Error(`Agent ${agentNumber} does not have reasoning capability enabled`)
+      }
+      
+      if (!agentConfig.reasoning) {
+        throw new Error(`Agent ${agentNumber} has no reasoning configuration`)
+      }
+      
+      // 2. Load LLM settings from agent config
+      const llmSettings = await this.loadGlobalLLMSettings(agentConfig)
+      
+      console.log('[AgentExecutionService] Using LLM settings:', llmSettings)
+      
+      // 3. Build prompt from agent's reasoning section + input
+      const prompt = this.buildPromptFromInput(agentConfig, input)
+      
+      console.log('[AgentExecutionService] Generated prompt:', {
+        systemLength: prompt.system.length,
+        userLength: prompt.user.length
+      })
+      
+      // 4. Map provider+model to Ollama format if needed
+      const ollamaModel = this.getOllamaModelName(llmSettings.provider, llmSettings.model)
+      
+      // 5. Call LLM via LlmClient
+      const llmResponse = await sendLlmRequest({
+        modelId: ollamaModel,
+        messages: [
+          { role: 'system', content: prompt.system },
+          { role: 'user', content: prompt.user }
+        ]
+      })
+      
+      if (!llmResponse.success) {
+        throw new Error(llmResponse.error || 'LLM call failed')
+      }
+      
+      console.log('[AgentExecutionService] LLM response received:', {
+        contentLength: llmResponse.content.length,
+        tokensUsed: llmResponse.tokensUsed
+      })
+      
+      return {
+        success: true,
+        content: llmResponse.content,
+        tokensUsed: llmResponse.tokensUsed,
+        agentNumber
+      }
+    } catch (error: any) {
+      console.error('[AgentExecutionService] Execution failed:', error)
+      return {
+        success: false,
+        content: '',
+        error: error.message || 'Unknown error',
+        agentNumber
+      }
+    }
+  }
+  
+  /**
+   * Build prompt from agent config and input event
+   */
+  private buildPromptFromInput(agentConfig: AgentConfig, input: InputEventPayload): { system: string, user: string } {
+    const reasoning = agentConfig.reasoning!
+    
+    // Build system message from agent's reasoning configuration
+    const systemParts: string[] = []
+    
+    if (reasoning.role) {
+      systemParts.push(`Role: ${reasoning.role}`)
+    }
+    
+    if (reasoning.goals) {
+      systemParts.push(`\nGoals:\n${reasoning.goals}`)
+    }
+    
+    if (reasoning.rules) {
+      systemParts.push(`\nRules and Constraints:\n${reasoning.rules}`)
+    }
+    
+    // Add input metadata as context
+    if (input.metadata) {
+      systemParts.push(`\n\nContext:\n${JSON.stringify(input.metadata, null, 2)}`)
+    }
+    
+    const systemMessage = systemParts.join('\n')
+    
+    // User message is the actual input text
+    const userMessage = input.text || 'Process the provided context and respond according to your goals and role.'
+    
+    return {
+      system: systemMessage,
+      user: userMessage
+    }
+  }
+  
   /**
    * Execute an agent with given context
    */

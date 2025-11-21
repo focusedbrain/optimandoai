@@ -4,6 +4,7 @@ import { createRoot } from 'react-dom/client'
 import { BackendSwitcher } from './components/BackendSwitcher'
 import { BackendSwitcherInline } from './components/BackendSwitcherInline'
 import { agentExecutor } from './services/AgentExecutor'
+import { inputCoordinator } from './services/InputCoordinator'
 
 interface ConnectionStatus {
   isConnected: boolean
@@ -349,6 +350,77 @@ function SidepanelOrchestrator() {
     }
   }, [])
 
+  // Create system agents for a session if they don't exist
+  const ensureSystemAgents = async (sessionId: string) => {
+    if (!sessionId) return
+    
+    try {
+      console.log('[Sidepanel] Ensuring system agents exist for session:', sessionId)
+      
+      // Check if input coordinator exists
+      const inputCoordKey = 'agent_system_input_coordinator_instructions'
+      const outputCoordKey = 'agent_system_output_coordinator_instructions'
+      
+      const inputCoordResponse = await fetch(`http://127.0.0.1:51248/api/orchestrator/get?key=${encodeURIComponent(inputCoordKey)}`, {
+        signal: AbortSignal.timeout(5000)
+      })
+      
+      if (!inputCoordResponse.ok || !(await inputCoordResponse.json()).success) {
+        // Create input coordinator
+        console.log('[Sidepanel] Creating Input Coordinator system agent')
+        const inputCoordinator = {
+          name: 'Input Coordinator',
+          icon: '📥',
+          capabilities: ['listening'],
+          isSystemAgent: true,
+          systemAgentType: 'input_coordinator',
+          reasoning: {
+            goals: 'Route incoming user input to the appropriate agents based on patterns and context',
+            role: 'You are the Input Coordinator responsible for understanding user intent and directing input to relevant agents',
+            rules: 'Always analyze input carefully. Match patterns accurately. Fallback to default agent if no matches found.'
+          }
+        }
+        
+        await fetch('http://127.0.0.1:51248/api/orchestrator/set', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ key: inputCoordKey, value: inputCoordinator })
+        })
+      }
+      
+      const outputCoordResponse = await fetch(`http://127.0.0.1:51248/api/orchestrator/get?key=${encodeURIComponent(outputCoordKey)}`, {
+        signal: AbortSignal.timeout(5000)
+      })
+      
+      if (!outputCoordResponse.ok || !(await outputCoordResponse.json()).success) {
+        // Create output coordinator
+        console.log('[Sidepanel] Creating Output Coordinator system agent')
+        const outputCoordinator = {
+          name: 'Output Coordinator',
+          icon: '📤',
+          capabilities: [],
+          isSystemAgent: true,
+          systemAgentType: 'output_coordinator',
+          reasoning: {
+            goals: 'Route agent LLM output to the correct display location (agent box, chat, notification)',
+            role: 'You are the Output Coordinator responsible for directing agent responses to appropriate UI components',
+            rules: 'Respect agent execution section configuration. Use fallback displays when target not specified.'
+          }
+        }
+        
+        await fetch('http://127.0.0.1:51248/api/orchestrator/set', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ key: outputCoordKey, value: outputCoordinator })
+        })
+      }
+      
+      console.log('[Sidepanel] System agents ensured')
+    } catch (error: any) {
+      console.error('[Sidepanel] Failed to ensure system agents:', error)
+    }
+  }
+
   // Load session data immediately on mount and when sidebar becomes visible
   useEffect(() => {
     const loadSessionDataFromStorage = () => {
@@ -391,6 +463,9 @@ function SidepanelOrchestrator() {
           setSessionKey(mostRecentKey)
           setIsLocked(mostRecentSession.isLocked || false)
           setAgentBoxes(mostRecentSession.agentBoxes || [])
+          
+          // Ensure system agents exist for this session
+          ensureSystemAgents(mostRecentKey)
         } else {
           setSessionName('No Session')
           setSessionKey('')
@@ -733,19 +808,43 @@ function SidepanelOrchestrator() {
     })
   }
 
-  const handleSendMessage = () => {
+  const handleSendMessage = async () => {
     const text = chatInput.trim()
     if (!text) return
     
+    // Add user message to chat
     setChatMessages([...chatMessages, 
-      { role: 'user', text },
-      { role: 'assistant', text: `Acknowledged: ${text}` }
+      { role: 'user', text }
     ])
     setChatInput('')
     
+    // Scroll chat to bottom
     setTimeout(() => {
       if (chatRef.current) chatRef.current.scrollTop = chatRef.current.scrollHeight
     }, 0)
+    
+    // Route input through InputCoordinator
+    try {
+      await inputCoordinator.handleInputEvent({
+        sessionId: sessionKey || 'default',
+        source: 'command',
+        text,
+        inputType: 'text'
+      })
+      
+      // Note: Response will be routed to agent box by OutputCoordinator
+      // For now, add a placeholder assistant message
+      setTimeout(() => {
+        setChatMessages(prev => [...prev, 
+          { role: 'assistant', text: 'Processing via agent...' }
+        ])
+      }, 500)
+    } catch (error: any) {
+      console.error('[Sidepanel] Failed to handle input:', error)
+      setChatMessages(prev => [...prev, 
+        { role: 'assistant', text: `Error: ${error.message}` }
+      ])
+    }
   }
 
   const handleChatKeyDown = (e: React.KeyboardEvent) => {
