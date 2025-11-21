@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import './App.css'
 import LETmeGIRAFFETHATFORYOUIcons from './components/LETmeGIRAFFETHATFORYOUIcons'
+import { FirstRunWizard } from './components/llm/FirstRunWizard'
 
 type ThemePreference = 'dark' | 'professional' | 'auto'
 
@@ -51,8 +52,23 @@ function App() {
   const [captures, setCaptures] = useState<any[]>([])
   const [triggerPrompt, setTriggerPrompt] = useState<{ mode: 'screenshot'|'stream', rect: any, displayId: number } | null>(null)
   const [triggerName, setTriggerName] = useState('')
+  const [showLlmWizard, setShowLlmWizard] = useState(false)
 
   useEffect(() => {
+    // Check if LLM setup has been completed before
+    const checkLlmSetup = async () => {
+      try {
+        const config = await (window as any).llm?.getConfig()
+        // If no config exists or user hasn't completed setup, show wizard
+        if (!config || !localStorage.getItem('llm-setup-complete')) {
+          setShowLlmWizard(true)
+        }
+      } catch (error) {
+        console.error('Failed to check LLM setup:', error)
+      }
+    }
+    checkLlmSetup()
+
     // @ts-ignore
     window.lmgtfy?.onCapture((payload: any) => setCaptures((c) => [...c, payload]))
     // @ts-ignore
@@ -114,8 +130,29 @@ function App() {
     setTriggerPrompt(null)
     setTriggerName('')
   }
+
+  const handleLlmWizardComplete = () => {
+    localStorage.setItem('llm-setup-complete', 'true')
+    setShowLlmWizard(false)
+  }
+
+  const handleLlmWizardSkip = () => {
+    localStorage.setItem('llm-setup-complete', 'skipped')
+    setShowLlmWizard(false)
+  }
+
+  const handleReopenLlmSetup = () => {
+    setShowLlmWizard(true)
+  }
+
   return (
     <div className="app-root">
+      {showLlmWizard && (
+        <FirstRunWizard 
+          onComplete={handleLlmWizardComplete}
+          onSkip={handleLlmWizardSkip}
+        />
+      )}
       <div className="topbar">
         <div className="brand">OpenGiraffe</div>
         <div style={{ flex: 1 }} />
@@ -159,6 +196,15 @@ function App() {
             </div>
             <div className="modal-body">
               <ThemeSwitcher />
+              <div style={{ marginTop: 16 }}>
+                <button 
+                  className="btn" 
+                  onClick={handleReopenLlmSetup}
+                  style={{ fontSize: 13 }}
+                >
+                  Configure Local LLM
+                </button>
+              </div>
             </div>
           </div>
         </div>

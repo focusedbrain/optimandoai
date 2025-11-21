@@ -53,3 +53,19 @@ contextBridge.exposeInMainWorld('db', {
   sync: (data: Record<string, any>) => ipcRenderer.invoke('db:sync', data),
   getConfig: () => ipcRenderer.invoke('db:getConfig'),
 })
+
+// LLM API
+contextBridge.exposeInMainWorld('llm', {
+  checkHardware: () => ipcRenderer.invoke('llm:checkHardware'),
+  getStatus: () => ipcRenderer.invoke('llm:getStatus'),
+  startOllama: () => ipcRenderer.invoke('llm:startOllama'),
+  stopOllama: () => ipcRenderer.invoke('llm:stopOllama'),
+  downloadModel: (modelName: string) => ipcRenderer.invoke('llm:downloadModel', modelName),
+  listModels: () => ipcRenderer.invoke('llm:listModels'),
+  chat: (request: any) => ipcRenderer.invoke('llm:chat', request),
+  isReady: () => ipcRenderer.invoke('llm:isReady'),
+  getConfig: () => ipcRenderer.invoke('llm:getConfig'),
+  updateConfig: (updates: any) => ipcRenderer.invoke('llm:updateConfig', updates),
+  onDownloadProgress: (cb: (data: any) => void) => 
+    ipcRenderer.on('llm:downloadProgress', (_e, d) => cb(d))
+})

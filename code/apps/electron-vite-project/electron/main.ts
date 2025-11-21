@@ -12,6 +12,10 @@ import { captureScreenshot, startRegionStream } from './lmgtfy/capture'
 import { loadPresets, upsertRegion } from './lmgtfy/presets'
 import { registerDbHandlers, testConnection, syncChromeDataToPostgres, getConfig, getPostgresAdapter } from './ipc/db'
 import { handleVaultRPC } from './main/vault/rpc'
+import { registerLlmHandlers } from './main/llm/ipc'
+import { llmConfigService } from './main/llm/config'
+import { ollamaManager } from './main/llm/ollama-manager'
+import { llmClientService } from './main/llm/client'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -524,6 +528,30 @@ app.whenReady().then(async () => {
   createWindow()
   createTray()
   console.log('[MAIN] Window and tray created')
+  
+  // Initialize LLM services
+  try {
+    console.log('[MAIN] Initializing LLM services...')
+    const config = await llmConfigService.load()
+    llmClientService.setClient(config)
+    
+    // Auto-start Ollama if configured
+    if (config.autoStartOllama) {
+      console.log('[MAIN] Auto-starting Ollama...')
+      ollamaManager.startOllama().catch((err: any) => {
+        console.error('[MAIN] Failed to start Ollama:', err)
+      })
+    }
+    
+    // Register LLM IPC handlers
+    if (win) {
+      registerLlmHandlers(win)
+    }
+    
+    console.log('[MAIN] LLM services initialized')
+  } catch (error) {
+    console.error('[MAIN] Error initializing LLM services:', error)
+  }
   
   // WS bridge for extension (127.0.0.1:51247) with safe startup
   try {
