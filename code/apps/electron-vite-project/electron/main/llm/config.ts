@@ -23,6 +23,17 @@ export const MODEL_CATALOG: LlmModelConfig[] = [
     description: 'Ultra-fast, best for very old hardware. Good for simple tasks.'
   },
   {
+    id: 'phi3-low',
+    displayName: 'Phi-3 Low-Spec (Custom)',
+    provider: 'Microsoft',
+    tier: 'lightweight',
+    minRamGb: 1.5,
+    recommendedRamGb: 2,
+    diskSizeGb: 2.3,
+    contextWindow: 1024,
+    description: 'Custom optimized Phi-3 for very low-spec systems. Reduced context, batch size, and threads.'
+  },
+  {
     id: 'phi3:mini',
     displayName: 'Phi-3 Mini 3.8B',
     provider: 'Microsoft',

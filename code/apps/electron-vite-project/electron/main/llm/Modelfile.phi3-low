@@ -1,0 +1,9 @@
+FROM phi3:3.8b-q4_K_M
+
+PARAMETER num_ctx 1024
+PARAMETER num_batch 16
+PARAMETER num_threads 4
+PARAMETER temperature 0.7
+
+SYSTEM You are a helpful AI assistant optimized for low-resource systems.
+

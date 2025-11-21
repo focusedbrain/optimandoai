@@ -90,28 +90,53 @@ function SidepanelOrchestrator() {
           console.log('[Command Chat] Auto-selected model:', firstModel)
           setLlmError(null)
         } else {
-          // No models installed - try to auto-install a lightweight one
+          // No models installed - try to auto-install phi3-low (requires manual creation first)
           console.log('[Command Chat] No models installed, attempting auto-install...')
-          setLlmError('Installing ultra-lightweight model (TinyLlama 0.6GB)... This should only take 1-2 minutes.')
+          setLlmError('No model detected. Setting up TinyLlama (0.6GB)...')
           
           try {
+            // First try to use phi3-low if it exists, otherwise fall back to tinyllama
+            const modelsResponse = await fetch(`${baseUrl}/api/llm/models`)
+            const modelsResult = await modelsResponse.json()
+            
+            let modelToInstall = 'tinyllama'
+            let modelSize = '0.6GB'
+            
+            // Check if phi3-low already exists (created manually)
+            if (modelsResult.ok && modelsResult.data?.some((m: any) => m.name === 'phi3-low')) {
+              modelToInstall = 'phi3-low'
+              modelSize = '2.3GB'
+              setActiveLlmModel('phi3-low')
+              setLlmError(null)
+              console.log('[Command Chat] Using existing phi3-low model')
+              
+              setChatMessages([{
+                role: 'assistant' as const,
+                text: '✅ Using phi3-low (optimized for low-spec systems)! This custom model has reduced context and batch sizes for better performance.'
+              }])
+              return
+            }
+            
+            // Install tinyllama as fallback
+            setLlmError(`Installing TinyLlama (${modelSize})... This should only take 1-2 minutes.`)
+            
             const installResponse = await fetch(`${baseUrl}/api/llm/models/install`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ modelId: 'tinyllama' })
+              body: JSON.stringify({ modelId: modelToInstall })
             })
             
             const installResult = await installResponse.json()
             
             if (installResult.ok) {
-              setActiveLlmModel('tinyllama')
+              setActiveLlmModel(modelToInstall)
               setLlmError(null)
-              console.log('[Command Chat] Auto-installed tinyllama successfully')
+              console.log(`[Command Chat] Auto-installed ${modelToInstall} successfully`)
               
               // Add a system message to chat
               setChatMessages([{
                 role: 'assistant' as const,
-                text: '✅ TinyLlama installed successfully! This ultra-lightweight model (0.6GB) is optimized for speed and works on any hardware. You can now start chatting!'
+                text: `✅ ${modelToInstall === 'tinyllama' ? 'TinyLlama' : 'phi3-low'} installed successfully! ${modelToInstall === 'tinyllama' ? 'This ultra-lightweight model (0.6GB) is optimized for speed and works on any hardware.' : 'This custom-optimized model uses minimal resources.'} You can now start chatting!\n\n💡 Tip: For even better performance on low-spec systems, create phi3-low model (see Admin > LLM Settings for instructions).`
               }])
             } else {
               throw new Error(installResult.error || 'Installation failed')
