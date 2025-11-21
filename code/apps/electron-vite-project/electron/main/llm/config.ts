@@ -12,17 +12,6 @@ import { LlmModelConfig, LlmConfig, ModelTier } from './types'
 export const MODEL_CATALOG: LlmModelConfig[] = [
   // Ultra-Lightweight models (0.5-2GB RAM) - Heavily Quantized
   {
-    id: 'qwen2:0.5b',
-    displayName: 'Qwen2 0.5B (Q4)',
-    provider: 'Alibaba',
-    tier: 'lightweight',
-    minRamGb: 0.5,
-    recommendedRamGb: 1,
-    diskSizeGb: 0.4,
-    contextWindow: 32768,
-    description: 'Smallest model available. 4-bit quantized. 0.5B params. Huge context window. Ultra-fast.'
-  },
-  {
     id: 'tinyllama',
     displayName: 'TinyLlama 1.1B (Q4)',
     provider: 'TinyLlama',
@@ -229,61 +218,6 @@ export const MODEL_CATALOG: LlmModelConfig[] = [
   
   // High-end models (16GB+ RAM)
   {
-    id: 'llama3.2:3b',
-    displayName: 'Llama 3.2 3B (Q4)',
-    provider: 'Meta',
-    tier: 'balanced',
-    minRamGb: 2,
-    recommendedRamGb: 3,
-    diskSizeGb: 2.0,
-    contextWindow: 131072,
-    description: '4-bit quantized. Latest Llama 3.2 with 128K context. Excellent for 2-3GB RAM systems.'
-  },
-  {
-    id: 'llama3.1:8b',
-    displayName: 'Llama 3.1 8B (Q4)',
-    provider: 'Meta',
-    tier: 'performance',
-    minRamGb: 6,
-    recommendedRamGb: 8,
-    diskSizeGb: 4.7,
-    contextWindow: 131072,
-    description: '4-bit quantized. Latest Llama 3.1 with 128K context window. Improved performance.'
-  },
-  {
-    id: 'gemma2:9b',
-    displayName: 'Gemma 2 9B (Q4)',
-    provider: 'Google',
-    tier: 'performance',
-    minRamGb: 7,
-    recommendedRamGb: 9,
-    diskSizeGb: 5.4,
-    contextWindow: 8192,
-    description: '4-bit quantized. 9B params. Google latest generation with excellent quality.'
-  },
-  {
-    id: 'mistral-nemo:12b',
-    displayName: 'Mistral Nemo 12B (Q4)',
-    provider: 'Mistral',
-    tier: 'performance',
-    minRamGb: 8,
-    recommendedRamGb: 10,
-    diskSizeGb: 7.1,
-    contextWindow: 128000,
-    description: '4-bit quantized. 12B params. 128K context. Excellent for complex tasks.'
-  },
-  {
-    id: 'qwen2.5:14b',
-    displayName: 'Qwen 2.5 14B (Q4)',
-    provider: 'Alibaba',
-    tier: 'performance',
-    minRamGb: 10,
-    recommendedRamGb: 12,
-    diskSizeGb: 8.5,
-    contextWindow: 32768,
-    description: '4-bit quantized. 14B params. Latest Qwen with multilingual excellence.'
-  },
-  {
     id: 'mixtral:8x7b',
     displayName: 'Mixtral 8x7B MoE (Q4)',
     provider: 'Mistral',
@@ -295,28 +229,6 @@ export const MODEL_CATALOG: LlmModelConfig[] = [
     description: '4-bit quantized. Mixture of Experts model. Excellent reasoning and coding.'
   },
   {
-    id: 'deepseek-coder:6.7b',
-    displayName: 'DeepSeek Coder 6.7B (Q4)',
-    provider: 'DeepSeek',
-    tier: 'performance',
-    minRamGb: 5,
-    recommendedRamGb: 7,
-    diskSizeGb: 3.8,
-    contextWindow: 16384,
-    description: '4-bit quantized. 6.7B params. Specialized for coding tasks.'
-  },
-  {
-    id: 'codellama:13b',
-    displayName: 'Code Llama 13B (Q4)',
-    provider: 'Meta',
-    tier: 'performance',
-    minRamGb: 10,
-    recommendedRamGb: 13,
-    diskSizeGb: 7.4,
-    contextWindow: 16384,
-    description: '4-bit quantized. 13B params. Meta specialized coding model.'
-  },
-  {
     id: 'llama3.1:70b',
     displayName: 'Llama 3.1 70B (Q4)',
     provider: 'Meta',
@@ -326,17 +238,6 @@ export const MODEL_CATALOG: LlmModelConfig[] = [
     diskSizeGb: 40,
     contextWindow: 131072,
     description: '4-bit quantized. 70B params. Enterprise-grade. Powerful capabilities, requires high-end hardware.'
-  },
-  {
-    id: 'qwen2.5:72b',
-    displayName: 'Qwen 2.5 72B (Q4)',
-    provider: 'Alibaba',
-    tier: 'high-end',
-    minRamGb: 48,
-    recommendedRamGb: 64,
-    diskSizeGb: 41,
-    contextWindow: 32768,
-    description: '4-bit quantized. 72B params. Advanced reasoning and multilingual support. Top-tier performance.'
   },
   {
     id: 'llama3.1:405b-q2_K',

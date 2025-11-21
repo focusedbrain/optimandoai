@@ -90,18 +90,18 @@ function SidepanelOrchestrator() {
           console.log('[Command Chat] Auto-selected model:', firstModel)
           setLlmError(null)
         } else {
-          // No models installed - try to auto-install the lightest possible model
+          // No models installed - try to auto-install the lightest trusted model
           console.log('[Command Chat] No models installed, attempting auto-install...')
-          setLlmError('No model detected. Setting up Qwen2 0.5B (0.4GB - smallest available)...')
+          setLlmError('No model detected. Setting up TinyLlama (0.6GB - smallest trusted model)...')
           
           try {
             // First check if any custom optimized models exist
             const modelsResponse = await fetch(`${baseUrl}/api/llm/models`)
             const modelsResult = await modelsResponse.json()
             
-            let modelToInstall = 'qwen2:0.5b'
-            let modelSize = '0.4GB'
-            let modelName = 'Qwen2 0.5B'
+            let modelToInstall = 'tinyllama'
+            let modelSize = '0.6GB'
+            let modelName = 'TinyLlama'
             
             // Check for custom optimized models first
             if (modelsResult.ok && modelsResult.data) {
@@ -116,15 +116,6 @@ function SidepanelOrchestrator() {
                   text: '✅ Using phi3-low (custom optimized)! This model has reduced context and batch sizes for maximum performance on low-spec systems.'
                 }])
                 return
-              } else if (existingModels.includes('qwen-ultralight')) {
-                setActiveLlmModel('qwen-ultralight')
-                setLlmError(null)
-                console.log('[Command Chat] Using existing qwen-ultralight model')
-                setChatMessages([{
-                  role: 'assistant' as const,
-                  text: '✅ Using qwen-ultralight! This is the smallest optimized model available.'
-                }])
-                return
               } else if (existingModels.includes('gemma-low')) {
                 setActiveLlmModel('gemma-low')
                 setLlmError(null)
@@ -137,8 +128,8 @@ function SidepanelOrchestrator() {
               }
             }
             
-            // Install smallest model available: Qwen2 0.5B
-            setLlmError(`Installing ${modelName} (${modelSize})... This should only take 1 minute.`)
+            // Install TinyLlama - smallest trusted model
+            setLlmError(`Installing ${modelName} (${modelSize})... This should only take 1-2 minutes.`)
             
             const installResponse = await fetch(`${baseUrl}/api/llm/models/install`, {
               method: 'POST',
@@ -156,7 +147,7 @@ function SidepanelOrchestrator() {
               // Add a system message to chat
               setChatMessages([{
                 role: 'assistant' as const,
-                text: `✅ ${modelName} installed successfully! This is the smallest LLM available (only 0.5B parameters, ${modelSize}). Ultra-fast and works on any hardware!\n\n💡 Weitere sehr leichte Modelle in Admin > LLM Settings:\n• TinyLlama 1.1B (0.6GB)\n• Gemma 2B Q2_K (0.9GB)\n• StableLM 1.6B (1.0GB)`
+                text: `✅ ${modelName} installed successfully! This is a trusted ultra-lightweight model (${modelSize}). Ultra-fast and works on any hardware!\n\n💡 More trusted lightweight models in Admin > LLM Settings:\n• TinyDolphin 1.1B (0.6GB)\n• Gemma 2B Q2_K (0.9GB) - Google\n• StableLM 1.6B (1.0GB) - Stability AI`
               }])
             } else {
               throw new Error(installResult.error || 'Installation failed')
@@ -861,7 +852,7 @@ function SidepanelOrchestrator() {
     if (!activeLlmModel) {
       setChatMessages([...chatMessages, {
         role: 'assistant' as const,
-        text: `⚠️ Kein LLM-Modell verfügbar. Bitte:\n\n1. Gehe zu Admin Panel (Toggle oben)\n2. Öffne LLM Settings\n3. Installiere ein ultra-leichtes Modell:\n   • Qwen2 0.5B (0.4GB) - Kleinste & Schnellste\n   • TinyLlama 1.1B (0.6GB) - Bewährt\n   • Gemma 2B Q2_K (0.9GB) - Google Qualität\n4. Komm zurück und versuche es erneut!`
+        text: `⚠️ No LLM model available. Please:\n\n1. Go to Admin panel (toggle at top)\n2. Open LLM Settings\n3. Install a trusted ultra-lightweight model:\n   • TinyLlama 1.1B (0.6GB) - Recommended\n   • Gemma 2B Q2_K (0.9GB) - Google\n   • StableLM 1.6B (1.0GB) - Stability AI\n4. Come back and try again!`
       }])
       setTimeout(() => {
         if (chatRef.current) chatRef.current.scrollTop = chatRef.current.scrollHeight
@@ -924,9 +915,9 @@ function SidepanelOrchestrator() {
       
       // Check if it's a "no models installed" error
       if (errorMsg.includes('No models installed') || errorMsg.includes('Please go to LLM Settings')) {
-        errorMsg = `⚠️ Kein LLM-Modell installiert!\n\nUm zu starten:\n1. Admin Toggle oben klicken\n2. Zu LLM Settings gehen\n3. Ultra-leichte Modelle installieren:\n   • Qwen2 0.5B (0.4GB) - Empfohlen\n   • TinyLlama (0.6GB) - Sehr schnell\n   • Gemma 2B Q2_K (0.9GB) - Gute Qualität\n\nDann zurückkommen und chatten!`
+        errorMsg = `⚠️ No LLM model installed!\n\nTo get started:\n1. Click Admin toggle at top\n2. Go to LLM Settings\n3. Install a trusted lightweight model:\n   • TinyLlama (0.6GB) - Recommended\n   • Gemma 2B Q2_K (0.9GB) - Google\n   • StableLM (1.0GB) - Stability AI\n\nThen come back and chat!`
       } else {
-        errorMsg = `⚠️ Fehler: ${errorMsg}\n\nTipp: Stelle sicher, dass Ollama läuft und ein Modell in LLM Settings installiert ist.`
+        errorMsg = `⚠️ Error: ${errorMsg}\n\nTip: Make sure Ollama is running and a trusted model is installed in LLM Settings.`
       }
       
       // Add error message
