@@ -6,6 +6,7 @@
 import type { InputEventPayload, ListenerSectionConfig } from '../types/coordination'
 import { agentExecutor } from './AgentExecutor'
 import { outputCoordinator } from './OutputCoordinator'
+import { sendLlmRequest } from './llm/LlmClient'
 
 interface AgentConfig {
   name: string
@@ -62,8 +63,6 @@ export class InputCoordinator {
   private async directLlmResponse(input: InputEventPayload): Promise<string> {
     try {
       console.log('[InputCoordinator] Calling LLM directly without agent instructions')
-      
-      const { sendLlmRequest } = await import('./llm/LlmClient')
       
       const response = await sendLlmRequest({
         modelId: 'mistral:7b',
