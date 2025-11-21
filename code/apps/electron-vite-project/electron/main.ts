@@ -1074,6 +1074,59 @@ app.whenReady().then(async () => {
       }
     })
 
+    // GET /api/llm/status - Get LLM status
+    httpApp.get('/api/llm/status', async (req, res) => {
+      try {
+        console.log('[HTTP] GET /api/llm/status')
+        const { ollamaManager } = await import('./main/llm/ollama-manager')
+        const status = await ollamaManager.getStatus()
+        res.json(status)
+      } catch (error: any) {
+        console.error('[HTTP] Error in llm/status:', error)
+        res.status(500).json({ error: error.message })
+      }
+    })
+
+    // GET /api/llm/hardware - Get hardware info
+    httpApp.get('/api/llm/hardware', async (req, res) => {
+      try {
+        console.log('[HTTP] GET /api/llm/hardware')
+        const { hardwareService } = await import('./main/llm/hardware')
+        const hardware = await hardwareService.checkHardware()
+        res.json(hardware)
+      } catch (error: any) {
+        console.error('[HTTP] Error in llm/hardware:', error)
+        res.status(500).json({ error: error.message })
+      }
+    })
+
+    // POST /api/llm/start - Start Ollama server
+    httpApp.post('/api/llm/start', async (req, res) => {
+      try {
+        console.log('[HTTP] POST /api/llm/start')
+        const { ollamaManager } = await import('./main/llm/ollama-manager')
+        await ollamaManager.startOllama()
+        res.json({ ok: true })
+      } catch (error: any) {
+        console.error('[HTTP] Error in llm/start:', error)
+        res.status(500).json({ ok: false, error: error.message })
+      }
+    })
+
+    // POST /api/llm/download-model - Download a model
+    httpApp.post('/api/llm/download-model', async (req, res) => {
+      try {
+        const { modelName } = req.body
+        console.log('[HTTP] POST /api/llm/download-model', modelName)
+        const { ollamaManager } = await import('./main/llm/ollama-manager')
+        await ollamaManager.pullModel(modelName)
+        res.json({ ok: true })
+      } catch (error: any) {
+        console.error('[HTTP] Error in llm/download-model:', error)
+        res.status(500).json({ ok: false, error: error.message })
+      }
+    })
+
     // GET /api/db/get?keys=key1,key2 - Get specific keys
     httpApp.get('/api/db/get', async (req, res) => {
       try {
