@@ -68,7 +68,9 @@ export class InputCoordinator {
         modelId: 'mistral:7b',
         messages: [
           { role: 'user', content: input.text || 'Hello' }
-        ]
+        ],
+        temperature: 0.3,  // Lower = faster
+        maxTokens: 500     // Limit for speed
       })
       
       if (response.success) {

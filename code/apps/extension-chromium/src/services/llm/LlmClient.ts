@@ -21,7 +21,7 @@ export async function sendLlmRequest(request: ChatCompletionRequest): Promise<Ch
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(request),
-      signal: AbortSignal.timeout(120000) // 120 second timeout (2 minutes)
+      signal: AbortSignal.timeout(60000) // 60 second timeout (reduced from 120s)
     })
     
     if (!response.ok) {

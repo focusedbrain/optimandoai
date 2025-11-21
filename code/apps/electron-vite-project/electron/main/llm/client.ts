@@ -41,11 +41,16 @@ export class OllamaLlmClient implements ILlmClient {
           messages: request.messages,
           stream: false, // Non-streaming for now
           options: {
-            temperature: request.temperature ?? 0.7,
-            num_predict: request.maxTokens ?? 2048
+            temperature: request.temperature ?? 0.3,      // Lower = faster, more deterministic
+            num_predict: request.maxTokens ?? 500,        // Limit tokens for speed
+            num_ctx: 2048,                                 // Context window (lower = faster)
+            num_thread: 4,                                 // Limit CPU threads
+            top_k: 20,                                     // Lower = faster sampling
+            top_p: 0.9,                                    // Focused sampling
+            repeat_penalty: 1.1                            // Prevent repetition
           }
         }),
-        signal: AbortSignal.timeout(120000) // 2 minute timeout
+        signal: AbortSignal.timeout(60000) // 1 minute timeout (was 2 minutes)
       })
       
       if (!response.ok) {

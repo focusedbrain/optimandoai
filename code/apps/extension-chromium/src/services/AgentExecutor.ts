@@ -108,15 +108,15 @@ export class AgentExecutor {
       
       console.log('[AgentExecutionService] Calling LLM with model:', ollamaModel)
       
-      // 5. Call LLM via LlmClient
+      // 5. Call LLM via LlmClient with optimized settings for low-end hardware
       const llmResponse = await sendLlmRequest({
         modelId: ollamaModel,
         messages: [
           { role: 'system', content: prompt.system },
           { role: 'user', content: prompt.user }
         ],
-        temperature: 0.7,
-        maxTokens: 2000
+        temperature: 0.3,  // Lower = faster, more focused
+        maxTokens: 500     // Drastically reduced for speed (was 2000)
       })
       
       if (!llmResponse.success) {
