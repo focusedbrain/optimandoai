@@ -63,16 +63,30 @@ interface LlmSettingsProps {
 
 // Hardcoded fallback catalog in case API is unavailable
 const FALLBACK_CATALOG: LlmModelConfig[] = [
-  { id: 'tinyllama', displayName: 'TinyLlama 1.1B', provider: 'TinyLlama', tier: 'lightweight', minRamGb: 1, recommendedRamGb: 2, diskSizeGb: 0.6, contextWindow: 2048, description: 'Ultra-fast, best for very old hardware. Good for simple tasks.' },
-  { id: 'phi3:mini', displayName: 'Phi-3 Mini 3.8B', provider: 'Microsoft', tier: 'lightweight', minRamGb: 2, recommendedRamGb: 3, diskSizeGb: 2.3, contextWindow: 4096, description: 'Very fast and capable. Recommended for low-end PCs.' },
-  { id: 'mistral:7b-instruct-q4_0', displayName: 'Mistral 7B Q4 (Quantized)', provider: 'Mistral', tier: 'balanced', minRamGb: 3, recommendedRamGb: 4, diskSizeGb: 2.6, contextWindow: 8192, description: 'Default model. Excellent balance of speed and quality.' },
-  { id: 'mistral:7b-instruct-q5_K_M', displayName: 'Mistral 7B Q5 (Quantized)', provider: 'Mistral', tier: 'balanced', minRamGb: 4, recommendedRamGb: 5, diskSizeGb: 3.2, contextWindow: 8192, description: 'Better quality than Q4, slightly more RAM required.' },
-  { id: 'llama3:8b', displayName: 'Llama 3 8B', provider: 'Meta', tier: 'balanced', minRamGb: 5, recommendedRamGb: 6, diskSizeGb: 4.7, contextWindow: 8192, description: 'High-quality responses, good reasoning capabilities.' },
-  { id: 'mistral:7b', displayName: 'Mistral 7B (Full Precision)', provider: 'Mistral', tier: 'performance', minRamGb: 7, recommendedRamGb: 8, diskSizeGb: 4.1, contextWindow: 8192, description: 'Full quality Mistral, no quantization. Requires more RAM.' },
-  { id: 'llama3.1:8b', displayName: 'Llama 3.1 8B', provider: 'Meta', tier: 'performance', minRamGb: 6, recommendedRamGb: 8, diskSizeGb: 4.7, contextWindow: 131072, description: 'Latest Llama version with 128K context window. Improved performance.' },
-  { id: 'mixtral:8x7b', displayName: 'Mixtral 8x7B (MoE)', provider: 'Mistral', tier: 'high-end', minRamGb: 24, recommendedRamGb: 32, diskSizeGb: 26, contextWindow: 32768, description: 'Mixture of Experts model. Excellent reasoning and coding.' },
-  { id: 'llama3.1:70b', displayName: 'Llama 3.1 70B', provider: 'Meta', tier: 'high-end', minRamGb: 48, recommendedRamGb: 64, diskSizeGb: 40, contextWindow: 131072, description: 'Enterprise-grade model. Powerful capabilities, requires high-end hardware.' },
-  { id: 'qwen2:72b', displayName: 'Qwen 2 72B', provider: 'Alibaba', tier: 'high-end', minRamGb: 48, recommendedRamGb: 64, diskSizeGb: 41, contextWindow: 32768, description: 'Advanced reasoning and multilingual support. Top-tier performance.' }
+  { id: 'tinyllama', displayName: 'TinyLlama 1.1B (Q4)', provider: 'TinyLlama', tier: 'lightweight', minRamGb: 1, recommendedRamGb: 2, diskSizeGb: 0.6, contextWindow: 2048, description: 'Ultra-fast, 4-bit quantized.' },
+  { id: 'tinydolphin', displayName: 'TinyDolphin 1.1B (Q4)', provider: 'Cognitive Computations', tier: 'lightweight', minRamGb: 1, recommendedRamGb: 2, diskSizeGb: 0.6, contextWindow: 2048, description: 'TinyLlama fine-tuned.' },
+  { id: 'all-minilm', displayName: 'All-MiniLM-L6 (Embedding)', provider: 'Microsoft', tier: 'lightweight', minRamGb: 0.3, recommendedRamGb: 0.5, diskSizeGb: 0.09, contextWindow: 512, description: 'Ultra-tiny embeddings.' },
+  { id: 'stablelm2:1.6b', displayName: 'StableLM 2 1.6B (Q4)', provider: 'Stability AI', tier: 'lightweight', minRamGb: 1, recommendedRamGb: 1.5, diskSizeGb: 1.0, contextWindow: 4096, description: 'Very fast.' },
+  { id: 'stablelm-zephyr:3b', displayName: 'StableLM Zephyr 3B (Q4)', provider: 'Stability AI', tier: 'lightweight', minRamGb: 1.5, recommendedRamGb: 2.5, diskSizeGb: 1.6, contextWindow: 4096, description: 'Chat-optimized.' },
+  { id: 'phi3-low', displayName: 'Phi-3 Low-Spec 3.8B (Custom Q4)', provider: 'Microsoft', tier: 'lightweight', minRamGb: 1.5, recommendedRamGb: 2, diskSizeGb: 2.3, contextWindow: 1024, description: 'Custom optimized.' },
+  { id: 'gemma:2b', displayName: 'Gemma 2B (Q4_0)', provider: 'Google', tier: 'lightweight', minRamGb: 1.5, recommendedRamGb: 2, diskSizeGb: 1.4, contextWindow: 8192, description: 'Google quality.' },
+  { id: 'gemma:2b-q2_K', displayName: 'Gemma 2B (Q2_K)', provider: 'Google', tier: 'lightweight', minRamGb: 1, recommendedRamGb: 1.5, diskSizeGb: 0.9, contextWindow: 8192, description: 'Ultra compressed.' },
+  { id: 'phi:2.7b', displayName: 'Phi-2 2.7B (Q4)', provider: 'Microsoft', tier: 'lightweight', minRamGb: 1.5, recommendedRamGb: 2, diskSizeGb: 1.6, contextWindow: 2048, description: 'Excellent for coding.' },
+  { id: 'orca-mini', displayName: 'Orca Mini 3B (Q4)', provider: 'Microsoft', tier: 'lightweight', minRamGb: 1.5, recommendedRamGb: 2.5, diskSizeGb: 1.9, contextWindow: 2048, description: 'Good reasoning.' },
+  { id: 'openhermes:2.5-mistral-7b-q2_K', displayName: 'OpenHermes 2.5 Mistral (Q2_K)', provider: 'Teknium', tier: 'lightweight', minRamGb: 1.5, recommendedRamGb: 2.5, diskSizeGb: 1.8, contextWindow: 8192, description: 'Ultra-compressed.' },
+  { id: 'phi3:mini', displayName: 'Phi-3 Mini 3.8B (Q4)', provider: 'Microsoft', tier: 'lightweight', minRamGb: 2, recommendedRamGb: 3, diskSizeGb: 2.3, contextWindow: 4096, description: 'Very fast.' },
+  { id: 'phi3:3.8b-q2_K', displayName: 'Phi-3 Mini 3.8B (Q2_K)', provider: 'Microsoft', tier: 'lightweight', minRamGb: 1.5, recommendedRamGb: 2, diskSizeGb: 1.5, contextWindow: 4096, description: 'Extreme compression.' },
+  { id: 'mistral:7b-instruct-q4_0', displayName: 'Mistral 7B Q4', provider: 'Mistral', tier: 'balanced', minRamGb: 3, recommendedRamGb: 4, diskSizeGb: 2.6, contextWindow: 8192, description: 'Balanced.' },
+  { id: 'mistral:7b-instruct-q5_K_M', displayName: 'Mistral 7B Q5', provider: 'Mistral', tier: 'balanced', minRamGb: 4, recommendedRamGb: 5, diskSizeGb: 3.2, contextWindow: 8192, description: 'Better quality.' },
+  { id: 'llama3:8b', displayName: 'Llama 3 8B (Q4)', provider: 'Meta', tier: 'balanced', minRamGb: 5, recommendedRamGb: 6, diskSizeGb: 4.7, contextWindow: 8192, description: 'High quality.' },
+  { id: 'mistral:7b', displayName: 'Mistral 7B Full', provider: 'Mistral', tier: 'performance', minRamGb: 7, recommendedRamGb: 8, diskSizeGb: 4.1, contextWindow: 8192, description: 'Full precision.' },
+  { id: 'llama3.1:8b', displayName: 'Llama 3.1 8B (Q4)', provider: 'Meta', tier: 'performance', minRamGb: 6, recommendedRamGb: 8, diskSizeGb: 4.7, contextWindow: 131072, description: '128K context.' },
+  { id: 'gemma2:9b', displayName: 'Gemma 2 9B (Q4)', provider: 'Google', tier: 'performance', minRamGb: 7, recommendedRamGb: 9, diskSizeGb: 5.4, contextWindow: 8192, description: 'Latest Google.' },
+  { id: 'mistral-nemo:12b', displayName: 'Mistral Nemo 12B (Q4)', provider: 'Mistral', tier: 'performance', minRamGb: 8, recommendedRamGb: 10, diskSizeGb: 7.1, contextWindow: 128000, description: '128K context.' },
+  { id: 'codellama:13b', displayName: 'Code Llama 13B (Q4)', provider: 'Meta', tier: 'performance', minRamGb: 10, recommendedRamGb: 13, diskSizeGb: 7.4, contextWindow: 16384, description: 'Coding specialist.' },
+  { id: 'mixtral:8x7b', displayName: 'Mixtral 8x7B MoE (Q4)', provider: 'Mistral', tier: 'high-end', minRamGb: 24, recommendedRamGb: 32, diskSizeGb: 26, contextWindow: 32768, description: 'Mixture of Experts.' },
+  { id: 'llama3.1:70b', displayName: 'Llama 3.1 70B (Q4)', provider: 'Meta', tier: 'high-end', minRamGb: 48, recommendedRamGb: 64, diskSizeGb: 40, contextWindow: 131072, description: 'Enterprise-grade.' },
+  { id: 'llama3.1:405b-q2_K', displayName: 'Llama 3.1 405B (Q2_K)', provider: 'Meta', tier: 'high-end', minRamGb: 128, recommendedRamGb: 192, diskSizeGb: 136, contextWindow: 131072, description: 'Largest Llama.' }
 ]
 
 export function LlmSettings({ theme = 'default', bridge }: LlmSettingsProps) {
