@@ -724,7 +724,9 @@ export function LlmSettings({ theme = 'default', bridge }: LlmSettingsProps) {
             }}
           >
             <option value="">-- Select a model --</option>
-            {modelCatalog.map((model) => {
+            {modelCatalog
+              .filter(model => model.id !== 'qwen2:0.5b') // Hide ultra-small auto-install model
+              .map((model) => {
               const isInstalled = status?.modelsInstalled.some(m => m.name === model.id)
               const estimate = getEstimateForModel(model.id)
               const indicator = estimate ? 
