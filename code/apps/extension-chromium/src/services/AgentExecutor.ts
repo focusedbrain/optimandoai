@@ -1,9 +1,8 @@
 /**
  * Agent Executor Service
  * Handles execution of AI agents with LLM integration
+ * Loads agent configurations from SQLite (default database)
  */
-
-import { storageGet } from '../storage/storageWrapper'
 
 interface AgentExecutionRequest {
   agentNumber: string | number
@@ -108,10 +107,10 @@ export class AgentExecutor {
   }
   
   /**
-   * Load agent configuration from storage
+   * Load agent configuration from SQLite (default database)
    */
   private async loadAgentConfig(agentNumber: string | number): Promise<AgentConfig | null> {
-    return new Promise((resolve) => {
+    try {
       // Convert agent number to name format
       const agentName = typeof agentNumber === 'number' 
         ? `agent${String(agentNumber).padStart(2, '0')}`
@@ -119,46 +118,99 @@ export class AgentExecutor {
       
       const storageKey = `agent_${agentName}_instructions`
       
-      storageGet([storageKey], (result) => {
-        const configData = result[storageKey]
-        if (configData) {
-          try {
-            const config = typeof configData === 'string' ? JSON.parse(configData) : configData
-            resolve(config as AgentConfig)
-          } catch (e) {
-            console.error('[AgentExecutor] Failed to parse agent config:', e)
-            resolve(null)
-          }
-        } else {
-          resolve(null)
-        }
+      console.log('[AgentExecutor] Loading agent config from SQLite:', storageKey)
+      
+      // Load from SQLite via Electron app HTTP API
+      const response = await fetch(`http://127.0.0.1:51248/api/orchestrator/get?key=${encodeURIComponent(storageKey)}`, {
+        signal: AbortSignal.timeout(5000)
       })
-    })
+      
+      if (!response.ok) {
+        console.warn('[AgentExecutor] Failed to load agent config from SQLite:', response.statusText)
+        return null
+      }
+      
+      const result = await response.json()
+      
+      if (!result.success || !result.data) {
+        console.warn('[AgentExecutor] No agent config found in SQLite for key:', storageKey)
+        return null
+      }
+      
+      const configData = result.data
+      const config = typeof configData === 'string' ? JSON.parse(configData) : configData
+      
+      console.log('[AgentExecutor] Loaded agent config:', {
+        agent: agentName,
+        hasReasoning: !!config.reasoning,
+        capabilities: config.capabilities
+      })
+      
+      return config as AgentConfig
+    } catch (error: any) {
+      console.error('[AgentExecutor] Failed to load agent config:', error)
+      return null
+    }
   }
   
   /**
-   * Load agent box LLM settings from storage
+   * Load agent box LLM settings from SQLite
    */
   private async loadAgentBoxLLMSettings(boxId: string): Promise<LLMSettings> {
-    return new Promise((resolve) => {
-      const storageKey = `agentBox_${boxId}`
+    try {
+      console.log('[AgentExecutor] Loading agent box LLM settings from SQLite:', boxId)
       
-      storageGet([storageKey], (result) => {
-        const boxConfig = result[storageKey]
-        if (boxConfig && boxConfig.provider && boxConfig.model) {
-          resolve({
-            provider: boxConfig.provider,
-            model: boxConfig.model
-          })
-        } else {
-          // Fallback to Ollama default
-          resolve({
-            provider: 'Ollama',
-            model: 'mistral:7b'
-          })
-        }
+      // Agent boxes are stored in session data in SQLite
+      // We need to find the session that contains this box
+      const keysResponse = await fetch('http://127.0.0.1:51248/api/orchestrator/keys', {
+        signal: AbortSignal.timeout(5000)
       })
-    })
+      
+      if (!keysResponse.ok) {
+        console.warn('[AgentExecutor] Failed to get session keys from SQLite')
+        return { provider: 'Ollama', model: 'mistral:7b' }
+      }
+      
+      const keysResult = await keysResponse.json()
+      const sessionKeys = keysResult.data || []
+      
+      // Search through sessions for the agent box
+      for (const key of sessionKeys) {
+        const sessionResponse = await fetch(`http://127.0.0.1:51248/api/orchestrator/get?key=${encodeURIComponent(key)}`, {
+          signal: AbortSignal.timeout(5000)
+        })
+        
+        if (!sessionResponse.ok) continue
+        
+        const sessionResult = await sessionResponse.json()
+        if (!sessionResult.success || !sessionResult.data) continue
+        
+        const sessionData = typeof sessionResult.data === 'string' 
+          ? JSON.parse(sessionResult.data) 
+          : sessionResult.data
+        
+        // Check if this session has our agent box
+        if (sessionData.agentBoxes && Array.isArray(sessionData.agentBoxes)) {
+          const box = sessionData.agentBoxes.find((b: any) => b.id === boxId)
+          if (box && box.provider && box.model) {
+            console.log('[AgentExecutor] Found agent box settings:', {
+              provider: box.provider,
+              model: box.model
+            })
+            return {
+              provider: box.provider,
+              model: box.model
+            }
+          }
+        }
+      }
+      
+      console.warn('[AgentExecutor] Agent box not found in SQLite, using default')
+      return { provider: 'Ollama', model: 'mistral:7b' }
+    } catch (error: any) {
+      console.error('[AgentExecutor] Failed to load agent box settings:', error)
+      return { provider: 'Ollama', model: 'mistral:7b' }
+    }
   }
   
   /**
@@ -173,24 +225,33 @@ export class AgentExecutor {
       }
     }
     
-    // Check for global settings
-    return new Promise((resolve) => {
-      storageGet(['globalLLMSettings'], (result) => {
-        const settings = result.globalLLMSettings
-        if (settings && settings.provider && settings.model) {
-          resolve({
-            provider: settings.provider,
-            model: settings.model
-          })
-        } else {
-          // Default to Ollama with Mistral 7B
-          resolve({
-            provider: 'Ollama',
-            model: 'mistral:7b'
-          })
-        }
+    // Check for global settings in SQLite
+    try {
+      const response = await fetch('http://127.0.0.1:51248/api/orchestrator/get?key=globalLLMSettings', {
+        signal: AbortSignal.timeout(5000)
       })
-    })
+      
+      if (response.ok) {
+        const result = await response.json()
+        if (result.success && result.data) {
+          const settings = typeof result.data === 'string' ? JSON.parse(result.data) : result.data
+          if (settings.provider && settings.model) {
+            return {
+              provider: settings.provider,
+              model: settings.model
+            }
+          }
+        }
+      }
+    } catch (error: any) {
+      console.warn('[AgentExecutor] Failed to load global LLM settings:', error)
+    }
+    
+    // Default to Ollama with Mistral 7B
+    return {
+      provider: 'Ollama',
+      model: 'mistral:7b'
+    }
   }
   
   /**
