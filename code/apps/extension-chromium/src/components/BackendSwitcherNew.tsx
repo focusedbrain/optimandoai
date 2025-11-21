@@ -51,6 +51,19 @@ export function BackendSwitcher({ theme = 'default' }: BackendSwitcherProps) {
     total?: number
     speed?: number
   }>({});
+  const [installedModels, setInstalledModels] = useState<any[]>([]);
+  const [selectedModel, setSelectedModel] = useState('');
+  const [deleting, setDeleting] = useState<string | null>(null);
+
+  // Available opensource models
+  const availableModels = [
+    { id: 'tinyllama', name: 'TinyLlama (Ultra Fast)', ram: '1GB', size: '0.6GB', desc: 'Best for very old hardware' },
+    { id: 'phi3:mini', name: 'Phi-3 Mini (Very Fast)', ram: '2-3GB', size: '2.3GB', desc: 'Recommended for low-end PCs' },
+    { id: 'mistral:7b-instruct-q4_0', name: 'Mistral 7B Q4 (Fast)', ram: '4GB', size: '2.6GB', desc: 'Default - Good balance' },
+    { id: 'mistral:7b-instruct-q5_K_M', name: 'Mistral 7B Q5 (Balanced)', ram: '5GB', size: '3.2GB', desc: 'Better quality' },
+    { id: 'mistral:7b', name: 'Mistral 7B (Best Quality)', ram: '8GB', size: '4.1GB', desc: 'High-end hardware only' },
+    { id: 'llama3:8b', name: 'Llama 3 8B', ram: '8GB', size: '4.7GB', desc: 'Alternative to Mistral' },
+  ];
 
   // Load config on mount
   useEffect(() => {
@@ -117,9 +130,10 @@ export function BackendSwitcher({ theme = 'default' }: BackendSwitcherProps) {
   const loadLlmStatus = async () => {
     try {
       // Fetch from Electron app's HTTP API
-      const [statusRes, hardwareRes] = await Promise.all([
+      const [statusRes, hardwareRes, modelsRes] = await Promise.all([
         fetch('http://127.0.0.1:51248/api/llm/status'),
-        fetch('http://127.0.0.1:51248/api/llm/hardware')
+        fetch('http://127.0.0.1:51248/api/llm/hardware'),
+        fetch('http://127.0.0.1:51248/api/llm/models')
       ]);
       
       if (statusRes.ok) {
@@ -131,75 +145,109 @@ export function BackendSwitcher({ theme = 'default' }: BackendSwitcherProps) {
         const hw = await hardwareRes.json();
         setHardware(hw);
       }
+      
+      if (modelsRes.ok) {
+        const models = await modelsRes.json();
+        if (models.ok && models.data) {
+          setInstalledModels(models.data);
+        }
+      }
     } catch (error) {
       console.error('Failed to load LLM status:', error);
     }
   };
-
-  const handleAutoInstallLlm = async () => {
+  
+  const handleDeleteModel = async (modelName: string) => {
+    if (!confirm(`Delete model "${modelName}"? This will free up disk space but you'll need to download it again if you want to use it.`)) {
+      return;
+    }
+    
+    setDeleting(modelName);
+    try {
+      const response = await fetch('http://127.0.0.1:51248/api/llm/model', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ modelName })
+      });
+      
+      const result = await response.json();
+      if (result.ok) {
+        setNotification({ message: `Model deleted successfully`, type: 'success' });
+        await loadLlmStatus();  // Refresh
+      } else {
+        setNotification({ message: result.error || 'Deletion failed', type: 'error' });
+      }
+    } catch (error: any) {
+      setNotification({ message: 'Failed to delete model', type: 'error' });
+    } finally {
+      setDeleting(null);
+      setTimeout(() => setNotification(null), 3000);
+    }
+  };
+  
+  const handleInstallModel = async (modelId: string) => {
     setInstalling(true);
     setInstallProgress(0);
-    setInstallStatus('Starting installation...');
+    setInstallStatus(`Installing ${modelId}...`);
     setDownloadDetails({});
 
     try {
-      // Start Ollama
-      setInstallStatus('Starting Ollama server...');
-      await fetch('http://127.0.0.1:51248/api/llm/start', { method: 'POST' });
-      setInstallProgress(5);
-
-      // Start download (non-blocking)
-      setInstallStatus('Downloading Mistral 7B...');
-      const downloadPromise = fetch('http://127.0.0.1:51248/api/llm/download-model', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ modelName: 'mistral:7b' })
-      });
-
-      // Poll for progress while downloading
+      // Poll for progress
       const pollInterval = setInterval(async () => {
         try {
           const statusRes = await fetch('http://127.0.0.1:51248/api/llm/status');
-          const status = await statusRes.json();
-          
-          if (status.ok && status.data.downloadProgress) {
-            const prog = status.data.downloadProgress;
-            setInstallProgress(Math.round(prog.progress || 0));
-            setInstallStatus(prog.status || 'Downloading...');
-            
-            if (prog.completed && prog.total) {
-              setDownloadDetails({
-                completed: prog.completed,
-                total: prog.total
-              });
+          if (statusRes.ok) {
+            const status = await statusRes.json();
+            if (status.downloadProgress) {
+              setInstallProgress(status.downloadProgress.progress || 0);
+              setInstallStatus(status.downloadProgress.status || 'Downloading...');
+              
+              if (status.downloadProgress.completed && status.downloadProgress.total) {
+                setDownloadDetails({
+                  completed: status.downloadProgress.completed,
+                  total: status.downloadProgress.total
+                });
+              }
             }
           }
-        } catch (err) {
-          console.error('Progress poll error:', err);
+        } catch (e) {
+          console.error('Poll error:', e);
         }
-      }, 500); // Poll every 500ms
+      }, 500);
 
-      // Wait for download to complete
-      const response = await downloadPromise;
+      // Start installation
+      const response = await fetch('http://127.0.0.1:51248/api/llm/download-model', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ modelName: modelId })
+      });
+
       clearInterval(pollInterval);
 
-      if (!response.ok) {
-        throw new Error('Download failed');
+      if (response.ok) {
+        setInstallProgress(100);
+        setInstallStatus('Installation complete!');
+        setNotification({ message: 'Model installed successfully!', type: 'success' });
+        setTimeout(() => {
+          setInstalling(false);
+          loadLlmStatus();
+        }, 2000);
+      } else {
+        throw new Error('Installation failed');
       }
-
-      setInstallProgress(100);
-      setInstallStatus('✓ Installation complete!');
-      setNotification({ message: 'LLM installed successfully', type: 'success' });
-      
-      // Reload status
-      setTimeout(() => loadLlmStatus(), 1000);
     } catch (error: any) {
       setInstallStatus('Installation failed');
       setNotification({ message: error.message || 'Installation failed', type: 'error' });
+      setTimeout(() => setInstalling(false), 2000);
     } finally {
-      setInstalling(false);
       setTimeout(() => setNotification(null), 3000);
     }
+  };
+
+  const handleAutoInstallLlm = async () => {
+    // Default to recommended model if none selected
+    const modelToInstall = selectedModel || hardware?.recommendedModel || 'mistral:7b-instruct-q4_0';
+    await handleInstallModel(modelToInstall);
   };
 
   const bgColor = theme === 'default' ? 'rgba(17, 24, 39, 0.8)' : theme === 'dark' ? 'rgba(0, 0, 0, 0.8)' : 'rgba(248, 250, 252, 0.95)';
