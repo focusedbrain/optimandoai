@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { LlmSettings } from './LlmSettings';
 
 interface PostgresConnectionConfig {
   postgres?: {
@@ -245,11 +246,13 @@ export function BackendSwitcher({ theme = 'default' }: BackendSwitcherProps) {
               gap: '6px',
               marginBottom: '14px',
             }}>
-              {(['localdb', 'vectordb', 'llm', 'automation'] as const).map((tab) => (
+              {(['localdb', 'vectordb', 'llm', 'automation'] as const).map((tab) => {
+                const isEnabled = tab === 'localdb' || tab === 'llm';
+                return (
                 <button
                   key={tab}
                   onClick={() => setActiveTab(tab)}
-                  disabled={tab !== 'localdb'}
+                  disabled={!isEnabled}
                   style={{
                     flex: 1,
                     padding: '8px 10px',
@@ -259,8 +262,8 @@ export function BackendSwitcher({ theme = 'default' }: BackendSwitcherProps) {
                     color: textColor,
                     fontSize: '11px',
                     fontWeight: activeTab === tab ? '600' : '500',
-                    cursor: tab === 'localdb' ? 'pointer' : 'not-allowed',
-                    opacity: tab === 'localdb' ? 1 : 0.5,
+                    cursor: isEnabled ? 'pointer' : 'not-allowed',
+                    opacity: isEnabled ? 1 : 0.5,
                     transition: 'all 0.2s',
                   }}
                 >
@@ -269,7 +272,8 @@ export function BackendSwitcher({ theme = 'default' }: BackendSwitcherProps) {
                   {tab === 'llm' && 'LLM'}
                   {tab === 'automation' && 'Automation'}
                 </button>
-              ))}
+              );
+              })}
             </div>
 
             {/* Local DB Tab */}
@@ -650,11 +654,15 @@ export function BackendSwitcher({ theme = 'default' }: BackendSwitcherProps) {
               </>
             )}
 
+            {/* LLM Tab */}
+            {activeTab === 'llm' && (
+              <LlmSettings theme={theme} bridge="http" />
+            )}
+
             {/* Other Tabs */}
-            {activeTab !== 'localdb' && (
+            {activeTab !== 'localdb' && activeTab !== 'llm' && (
               <div style={{ padding: '20px', textAlign: 'center', color: textColor, opacity: 0.6, fontSize: '11px' }}>
                 {activeTab === 'vectordb' && 'Vector Database configuration coming soon'}
-                {activeTab === 'llm' && 'Local LLM configuration coming soon'}
                 {activeTab === 'automation' && 'Automation platform configuration coming soon'}
               </div>
             )}
