@@ -3,6 +3,7 @@ import React, { useState, useEffect, useRef } from 'react'
 import { createRoot } from 'react-dom/client'
 import { BackendSwitcher } from './components/BackendSwitcher'
 import { BackendSwitcherInline } from './components/BackendSwitcherInline'
+import { agentExecutor } from './services/AgentExecutor'
 
 interface ConnectionStatus {
   isConnected: boolean
@@ -3437,6 +3438,73 @@ function SidepanelOrchestrator() {
                         boxShadow: '0 1px 3px rgba(0,0,0,0.3)'
                       }}></span>
                     </label>
+                    <button
+                      onClick={async () => {
+                        if (!box.agent) {
+                          setNotification({ message: 'No agent configured for this box', type: 'error' })
+                          setTimeout(() => setNotification(null), 3000)
+                          return
+                        }
+                        
+                        try {
+                          setNotification({ message: `Executing agent ${box.agent}...`, type: 'info' })
+                          
+                          const result = await agentExecutor.executeAgent({
+                            agentNumber: box.agent,
+                            context: {
+                              userInput: 'Process current page context',
+                              pageContent: document.body.innerText.slice(0, 5000) // Send page content
+                            },
+                            agentBoxId: box.id
+                          })
+                          
+                          if (result.success) {
+                            // Update agent box output
+                            const updatedBoxes = agentBoxes.map(b => 
+                              b.id === box.id ? { ...b, output: result.content } : b
+                            )
+                            setAgentBoxes(updatedBoxes)
+                            setNotification({ message: 'Agent execution completed!', type: 'success' })
+                            setTimeout(() => setNotification(null), 3000)
+                          } else {
+                            setNotification({ message: `Error: ${result.error}`, type: 'error' })
+                            setTimeout(() => setNotification(null), 5000)
+                          }
+                        } catch (error: any) {
+                          console.error('[Sidepanel] Agent execution failed:', error)
+                          setNotification({ message: `Execution failed: ${error.message}`, type: 'error' })
+                          setTimeout(() => setNotification(null), 5000)
+                        }
+                      }}
+                      style={{
+                        background: 'rgba(76, 175, 80, 0.9)',
+                        border: 'none',
+                        color: 'white',
+                        minWidth: '20px',
+                        height: '20px',
+                        borderRadius: '3px',
+                        cursor: 'pointer',
+                        fontSize: '11px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        transition: 'all 0.2s ease',
+                        opacity: 0.85
+                      }}
+                      title="Execute agent"
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.opacity = '1'
+                        e.currentTarget.style.background = 'rgba(56, 142, 60, 1)'
+                        e.currentTarget.style.transform = 'scale(1.05)'
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.opacity = '0.85'
+                        e.currentTarget.style.background = 'rgba(76, 175, 80, 0.9)'
+                        e.currentTarget.style.transform = 'scale(1)'
+                      }}
+                    >
+                      ▶
+                    </button>
                     <button
                       onClick={() => editAgentBox(box.id)}
                       style={{

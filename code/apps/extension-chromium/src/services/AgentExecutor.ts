@@ -261,6 +261,18 @@ export class AgentExecutor {
    */
   private async callOllamaViaElectron(model: string, prompt: { system: string, user: string }): Promise<AgentExecutionResult> {
     try {
+      // Check if Electron app is running
+      const isElectronRunning = await this.checkElectronConnection()
+      if (!isElectronRunning) {
+        throw new Error('Cannot connect to Electron app. Please ensure the OpenGiraffe desktop app is running.')
+      }
+      
+      // Check if Ollama is running
+      const isOllamaReady = await this.checkOllamaRunning()
+      if (!isOllamaReady) {
+        throw new Error('Ollama is not running. Please start Ollama or check LLM settings in the Backend Configuration.')
+      }
+      
       console.log('[AgentExecutor] Calling Ollama via Electron API:', {
         model: model || 'mistral:7b',
         endpoint: 'http://127.0.0.1:51248/api/llm/chat'
@@ -275,7 +287,8 @@ export class AgentExecutor {
             { role: 'system', content: prompt.system },
             { role: 'user', content: prompt.user }
           ]
-        })
+        }),
+        signal: AbortSignal.timeout(60000) // 60 second timeout
       })
       
       if (!response.ok) {
@@ -302,7 +315,43 @@ export class AgentExecutor {
         throw new Error('Cannot connect to Electron app. Please ensure the OpenGiraffe desktop app is running.')
       }
       
+      if (error.name === 'AbortError' || error.message.includes('timeout')) {
+        throw new Error('LLM request timed out. The model might be too large or the system is under heavy load.')
+      }
+      
       throw error
+    }
+  }
+  
+  /**
+   * Check if Electron app is running and reachable
+   */
+  private async checkElectronConnection(): Promise<boolean> {
+    try {
+      const response = await fetch('http://127.0.0.1:51248/api/llm/status', {
+        signal: AbortSignal.timeout(2000)
+      })
+      return response.ok
+    } catch {
+      return false
+    }
+  }
+  
+  /**
+   * Check if Ollama is running and ready
+   */
+  private async checkOllamaRunning(): Promise<boolean> {
+    try {
+      const response = await fetch('http://127.0.0.1:51248/api/llm/status', {
+        signal: AbortSignal.timeout(2000)
+      })
+      if (response.ok) {
+        const data = await response.json()
+        return data.ok && data.data?.ollamaRunning === true
+      }
+      return false
+    } catch {
+      return false
     }
   }
 }
