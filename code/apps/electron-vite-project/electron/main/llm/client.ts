@@ -44,7 +44,8 @@ export class OllamaLlmClient implements ILlmClient {
             temperature: request.temperature ?? 0.7,
             num_predict: request.maxTokens ?? 2048
           }
-        })
+        }),
+        signal: AbortSignal.timeout(120000) // 2 minute timeout
       })
       
       if (!response.ok) {

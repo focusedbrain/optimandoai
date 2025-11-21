@@ -1130,9 +1130,27 @@ app.whenReady().then(async () => {
     // POST /api/llm/chat - Chat completion
     httpApp.post('/api/llm/chat', async (req, res) => {
       try {
-        console.log('[HTTP] POST /api/llm/chat')
-        const { llmClientService } = await import('./main/llm/client')
+        console.log('[HTTP] POST /api/llm/chat', {
+          modelId: req.body.modelId,
+          messageCount: req.body.messages?.length
+        })
+        
+        // Ensure client is initialized with current config
+        const config = await llmConfigService.load()
+        llmClientService.setClient(config)
+        
+        // Check if Ollama is ready
+        const ready = await llmClientService.isReady()
+        if (!ready) {
+          console.error('[HTTP] Ollama is not ready')
+          return res.status(503).json({ 
+            ok: false, 
+            message: 'Ollama server is not running or not ready. Please start Ollama first.' 
+          })
+        }
+        
         const result = await llmClientService.chat(req.body)
+        console.log('[HTTP] LLM response:', { contentLength: result.content.length })
         res.json({ ok: true, data: result })
       } catch (error: any) {
         console.error('[HTTP] Error in llm/chat:', error)

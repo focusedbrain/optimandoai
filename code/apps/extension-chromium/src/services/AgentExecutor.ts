@@ -106,16 +106,21 @@ export class AgentExecutor {
       // 4. Map provider+model to Ollama format if needed
       const ollamaModel = this.getOllamaModelName(llmSettings.provider, llmSettings.model)
       
+      console.log('[AgentExecutionService] Calling LLM with model:', ollamaModel)
+      
       // 5. Call LLM via LlmClient
       const llmResponse = await sendLlmRequest({
         modelId: ollamaModel,
         messages: [
           { role: 'system', content: prompt.system },
           { role: 'user', content: prompt.user }
-        ]
+        ],
+        temperature: 0.7,
+        maxTokens: 2000
       })
       
       if (!llmResponse.success) {
+        console.error('[AgentExecutionService] LLM call failed:', llmResponse.error)
         throw new Error(llmResponse.error || 'LLM call failed')
       }
       
