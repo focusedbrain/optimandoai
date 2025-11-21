@@ -823,22 +823,31 @@ function SidepanelOrchestrator() {
       if (chatRef.current) chatRef.current.scrollTop = chatRef.current.scrollHeight
     }, 0)
     
-    // Route input through InputCoordinator
+    // Route input through InputCoordinator and get response
     try {
-      await inputCoordinator.handleInputEvent({
+      const response = await inputCoordinator.handleInputEvent({
         sessionId: sessionKey || 'default',
         source: 'command',
         text,
         inputType: 'text'
       })
       
-      // Note: Response will be routed to agent box by OutputCoordinator
-      // For now, add a placeholder assistant message
-      setTimeout(() => {
+      // Display response in chat
+      if (response) {
         setChatMessages(prev => [...prev, 
-          { role: 'assistant', text: 'Processing via agent...' }
+          { role: 'assistant', text: response }
         ])
-      }, 500)
+      } else {
+        // No agents processed the input
+        setChatMessages(prev => [...prev, 
+          { role: 'assistant', text: 'No agents available to process this request.' }
+        ])
+      }
+      
+      // Scroll to show response
+      setTimeout(() => {
+        if (chatRef.current) chatRef.current.scrollTop = chatRef.current.scrollHeight
+      }, 100)
     } catch (error: any) {
       console.error('[Sidepanel] Failed to handle input:', error)
       setChatMessages(prev => [...prev, 

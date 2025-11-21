@@ -18,8 +18,9 @@ interface AgentConfig {
 export class InputCoordinator {
   /**
    * Handle input event and route to matching agents
+   * Returns aggregated results for display
    */
-  async handleInputEvent(input: InputEventPayload): Promise<void> {
+  async handleInputEvent(input: InputEventPayload): Promise<string | null> {
     try {
       console.log('[InputCoordinator] Handling input event:', {
         sessionId: input.sessionId,
@@ -33,8 +34,7 @@ export class InputCoordinator {
       
       if (matchingAgents.length > 0) {
         console.log('[InputCoordinator] Found matching agents with listeners:', matchingAgents.map(a => a.name))
-        await this.executeAgents(matchingAgents, input)
-        return
+        return await this.executeAgents(matchingAgents, input)
       }
       
       // 2. No matches - check for agents without listener sections (reasoning/execution only)
@@ -43,21 +43,25 @@ export class InputCoordinator {
       
       if (alwaysOnAgents.length > 0) {
         console.log('[InputCoordinator] Found agents without listeners (always-on):', alwaysOnAgents.map(a => a.name))
-        await this.executeAgents(alwaysOnAgents, input)
-        return
+        return await this.executeAgents(alwaysOnAgents, input)
       }
       
       // 3. No matches and no always-on agents - do not forward
       console.log('[InputCoordinator] No matching agents and no always-on agents - input not forwarded')
+      return null
     } catch (error: any) {
       console.error('[InputCoordinator] Failed to handle input event:', error)
+      throw error
     }
   }
   
   /**
    * Execute a list of agents with the input
+   * Returns the combined response for chat display
    */
-  private async executeAgents(agents: AgentConfig[], input: InputEventPayload): Promise<void> {
+  private async executeAgents(agents: AgentConfig[], input: InputEventPayload): Promise<string> {
+    const responses: string[] = []
+    
     for (const agent of agents) {
       try {
         // Extract agent number from name (e.g., "agent01" -> 1)
@@ -70,12 +74,24 @@ export class InputCoordinator {
         // Execute agent via AgentExecutor
         const result = await agentExecutor.runAgentExecution(agentNumber, input)
         
-        // Route output via OutputCoordinator
+        if (result.success && result.content) {
+          // Add to responses for chat display
+          responses.push(result.content)
+        }
+        
+        // Route output via OutputCoordinator (for agent box display)
         await outputCoordinator.routeOutput(agentNumber, result, input)
       } catch (error: any) {
         console.error('[InputCoordinator] Failed to execute agent:', agent.name, error)
       }
     }
+    
+    // Return combined responses or default message
+    if (responses.length > 0) {
+      return responses.join('\n\n---\n\n')
+    }
+    
+    return 'Agent executed but no response generated.'
   }
   
   /**
