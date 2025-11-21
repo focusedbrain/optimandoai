@@ -676,63 +676,29 @@ function SidepanelOrchestrator() {
     console.log('[Sidepanel] Handling agent box output update:', { boxId, mode, contentLength: content.length })
     
     try {
-      // Load current session from SQLite
-      const response = await fetch(`http://127.0.0.1:51248/api/orchestrator/get?key=${encodeURIComponent(sessionKey)}`, {
-        signal: AbortSignal.timeout(5000)
+      // Update local state first (optimistic update)
+      setAgentBoxes(prevBoxes => {
+        const updatedBoxes = prevBoxes.map(box => {
+          if (box.id === boxId) {
+            const newOutput = mode === 'replace' 
+              ? content 
+              : (box.output || '') + '\n\n' + content
+            return { ...box, output: newOutput }
+          }
+          return box
+        })
+        return updatedBoxes
       })
       
-      if (!response.ok) {
-        console.error('[Sidepanel] Failed to load session for agent box update')
-        return
-      }
+      // Update the visual display in content script immediately
+      sendToContentScript('UPDATE_AGENT_BOX_OUTPUT', { boxId, content })
       
-      const result = await response.json()
-      if (!result.success || !result.data) {
-        console.error('[Sidepanel] No session data found')
-        return
-      }
+      console.log('[Sidepanel] Agent box output updated in UI:', boxId)
       
-      const sessionData = typeof result.data === 'string' ? JSON.parse(result.data) : result.data
-      
-      // Find and update the agent box
-      const boxes = sessionData.agentBoxes || []
-      const boxIndex = boxes.findIndex((box: any) => box.id === boxId)
-      
-      if (boxIndex === -1) {
-        console.error('[Sidepanel] Agent box not found:', boxId)
-        return
-      }
-      
-      // Update output based on mode
-      if (mode === 'replace') {
-        boxes[boxIndex].output = content
-      } else {
-        // Append mode
-        boxes[boxIndex].output = (boxes[boxIndex].output || '') + '\n\n' + content
-      }
-      
-      sessionData.agentBoxes = boxes
-      
-      // Save back to SQLite
-      const saveResponse = await fetch('http://127.0.0.1:51248/api/orchestrator/set', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ key: sessionKey, value: sessionData }),
-        signal: AbortSignal.timeout(5000)
-      })
-      
-      if (!saveResponse.ok) {
-        console.error('[Sidepanel] Failed to save session with updated agent box')
-        return
-      }
-      
-      // Update local state
-      setAgentBoxes(boxes)
-      
-      // Update the visual display in content script
-      sendToContentScript('UPDATE_AGENT_BOX_OUTPUT', { boxId, content: boxes[boxIndex].output })
-      
-      console.log('[Sidepanel] Agent box output updated successfully:', boxId)
+      // Note: We don't save to SQLite here because:
+      // 1. Agent box outputs are ephemeral (cleared on page reload by design)
+      // 2. Saving after every LLM response would cause unnecessary DB writes
+      // 3. The session is auto-saved when user makes structural changes (add/remove/move boxes)
     } catch (error: any) {
       console.error('[Sidepanel] Error updating agent box output:', error)
     }
