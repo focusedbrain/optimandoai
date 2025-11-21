@@ -16,6 +16,7 @@ interface AgentConfig {
 export class OutputCoordinator {
   /**
    * Route LLM output to correct Agent Box
+   * Always routes output - if no target specified, uses default (same agent's box)
    */
   async routeOutput(
     agentNumber: string | number,
@@ -36,19 +37,21 @@ export class OutputCoordinator {
         return
       }
       
-      // 1. Load agent configuration to get execution section
+      // 1. Load agent configuration to get execution section (if configured)
       const agentConfig = await this.loadAgentConfig(agentNumber)
       
       // 2. Determine target agent box
+      // If no explicit target configured, defaults to same agent's box
       const targetBoxId = await this.resolveTargetAgentBox(agentConfig, input.sessionId, agentNumber)
       
       if (!targetBoxId) {
-        console.warn('[OutputCoordinator] No target agent box found, using default display')
+        console.warn('[OutputCoordinator] No target agent box found - TODO: implement agent box loading from session')
         // TODO: Display in command chat or default location
+        // For now, response is already shown in chat via InputCoordinator
         return
       }
       
-      // 3. Get append mode
+      // 3. Get append mode (default to append if not specified)
       const appendMode = agentConfig?.executionSection?.appendMode || 'append'
       
       // 4. Append content to agent box
@@ -91,9 +94,11 @@ export class OutputCoordinator {
   /**
    * Resolve target agent box ID
    * Priority:
-   * 1. Agent's executionSection.targetOutputAgentBoxId
-   * 2. Agent box with same agent number in session
-   * 3. First available agent box in session
+   * 1. Agent's executionSection.targetOutputAgentBoxId (if explicitly set)
+   * 2. Agent box with same agent number in session (default behavior)
+   * 3. First available agent box in session (fallback)
+   * 
+   * Note: Even if executionSection is not configured, we still route to default (same agent's box)
    */
   private async resolveTargetAgentBox(
     agentConfig: AgentConfig | null,
@@ -101,25 +106,31 @@ export class OutputCoordinator {
     agentNumber: string | number
   ): Promise<string | null> {
     try {
-      // Check if agent has explicit target
+      // Check if agent has explicit target (user wants non-default behavior)
       if (agentConfig?.executionSection?.targetOutputAgentBoxId) {
         console.log('[OutputCoordinator] Using explicit target:', agentConfig.executionSection.targetOutputAgentBoxId)
         return agentConfig.executionSection.targetOutputAgentBoxId
       }
       
+      // No explicit target - use default behavior (same agent's box)
+      console.log('[OutputCoordinator] No explicit target, using default (same agent box)')
+      
       // TODO: Load session data from SQLite to find agent boxes
-      // For now, return null and let caller handle default display
       console.log('[OutputCoordinator] TODO: Load session agent boxes from SQLite for session:', sessionId)
       
       // Expected logic:
       // const sessionData = await this.loadSessionData(sessionId)
       // const agentBoxes = sessionData.agentBoxes || []
       // 
-      // // Find box with matching agent number
-      // const matchingBox = agentBoxes.find((box: any) => box.agent === agentNumber)
+      // // Priority 1: Find box with matching agent number (default)
+      // const agentNumStr = typeof agentNumber === 'number' ? String(agentNumber).padStart(2, '0') : agentNumber
+      // const matchingBox = agentBoxes.find((box: any) => {
+      //   const boxAgentNum = box.agent?.replace('agent', '')
+      //   return boxAgentNum === agentNumStr
+      // })
       // if (matchingBox) return matchingBox.id
       // 
-      // // Fallback to first box
+      // // Priority 2: First available box (fallback)
       // if (agentBoxes.length > 0) return agentBoxes[0].id
       
       return null
