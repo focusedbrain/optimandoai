@@ -9,10 +9,13 @@ type WizardStep = 'welcome' | 'hardware' | 'ollama' | 'model-select' | 'download
 
 interface HardwareInfo {
   totalRamGb: number
+  freeRamGb?: number
   cpuCores: number
   osType: string
   canRunMistral7B: boolean
   canRunMistral14B: boolean
+  canRunQuantized?: boolean
+  recommendedModel?: string
   recommendedTier: string
   warnings?: string[]
 }
@@ -28,20 +31,44 @@ interface ModelOption {
 
 const MODEL_OPTIONS: ModelOption[] = [
   {
+    id: 'tinyllama',
+    name: 'TinyLlama',
+    size: '~0.6 GB',
+    ramRequired: 1,
+    recommended: false,
+    description: 'Ultra-fast, minimal model for very limited hardware'
+  },
+  {
     id: 'phi3:mini',
     name: 'Phi-3 Mini',
     size: '~2.3 GB',
-    ramRequired: 4,
+    ramRequired: 2,
     recommended: false,
-    description: 'Lightweight model for systems with limited resources'
+    description: 'Lightweight and fast, good for low-end systems'
+  },
+  {
+    id: 'mistral:7b-instruct-q4_0',
+    name: 'Mistral 7B Q4 (Quantized)',
+    size: '~2.6 GB',
+    ramRequired: 4,
+    recommended: true,
+    description: 'Recommended: Fast and efficient, works on most systems'
+  },
+  {
+    id: 'mistral:7b-instruct-q5_K_M',
+    name: 'Mistral 7B Q5 (Quantized)',
+    size: '~3.2 GB',
+    ramRequired: 5,
+    recommended: false,
+    description: 'Better quality than Q4, still efficient'
   },
   {
     id: 'mistral:7b',
-    name: 'Mistral 7B',
-    size: '~4 GB',
+    name: 'Mistral 7B (Full)',
+    size: '~4.1 GB',
     ramRequired: 8,
-    recommended: true,
-    description: 'Balanced performance and resource usage (Recommended)'
+    recommended: false,
+    description: 'Full precision model for high-end systems'
   },
   {
     id: 'llama3:8b',
@@ -49,15 +76,7 @@ const MODEL_OPTIONS: ModelOption[] = [
     size: '~4.7 GB',
     ramRequired: 8,
     recommended: false,
-    description: 'High-quality responses with good performance'
-  },
-  {
-    id: 'mistral:14b',
-    name: 'Mistral 14B',
-    size: '~8 GB',
-    ramRequired: 16,
-    recommended: false,
-    description: 'Advanced model for powerful systems'
+    description: 'Alternative high-quality model'
   }
 ]
 
@@ -69,7 +88,7 @@ interface LlmSetupWizardProps {
 export function LlmSetupWizard({ onComplete, onSkip }: LlmSetupWizardProps) {
   const [step, setStep] = useState<WizardStep>('welcome')
   const [hardware, setHardware] = useState<HardwareInfo | null>(null)
-  const [selectedModel, setSelectedModel] = useState('mistral:7b')
+  const [selectedModel, setSelectedModel] = useState('mistral:7b-instruct-q4_0')
   const [progress, setProgress] = useState(0)
   const [status, setStatus] = useState('')
   const [error, setError] = useState<string | null>(null)
@@ -225,13 +244,51 @@ export function LlmSetupWizard({ onComplete, onSkip }: LlmSetupWizardProps) {
   }
 
   const getRecommendedModels = () => {
-    if (!hardware) return MODEL_OPTIONS
+    if (!hardware) return MODEL_OPTIONS.map(m => ({ ...m, status: 'unknown' as const }))
     
-    return MODEL_OPTIONS.map(model => ({
-      ...model,
-      recommended: model.id === 'mistral:7b' && hardware.canRunMistral7B,
-      disabled: hardware.totalRamGb < model.ramRequired
-    }))
+    const freeRam = hardware.freeRamGb || hardware.totalRamGb * 0.5 // estimate if not available
+    
+    return MODEL_OPTIONS.map(model => {
+      let status: 'good' | 'okay' | 'poor' = 'good'
+      let statusText = ''
+      let advisoryMessage = ''
+      
+      // Determine compatibility status
+      if (freeRam >= model.ramRequired * 1.5) {
+        status = 'good'
+        statusText = '🟢 Works Well'
+        advisoryMessage = 'This model should run smoothly on your system.'
+      } else if (freeRam >= model.ramRequired) {
+        status = 'okay'
+        statusText = '🟡 May Be Slow'
+        advisoryMessage = 'This model will work but might be slower. Close other applications for better performance.'
+      } else {
+        status = 'poor'
+        statusText = '🔴 Not Recommended'
+        advisoryMessage = 'Your system may struggle with this model. Consider a lighter option.'
+      }
+      
+      // Override recommendation based on hardware
+      let isRecommended = false
+      if (freeRam < 3) {
+        isRecommended = model.id === 'tinyllama' || model.id === 'phi3:mini'
+      } else if (freeRam < 5) {
+        isRecommended = model.id === 'phi3:mini' || model.id === 'mistral:7b-instruct-q4_0'
+      } else if (freeRam < 7) {
+        isRecommended = model.id === 'mistral:7b-instruct-q4_0' || model.id === 'mistral:7b-instruct-q5_K_M'
+      } else {
+        isRecommended = model.id === 'mistral:7b-instruct-q5_K_M' || model.id === 'mistral:7b'
+      }
+      
+      return {
+        ...model,
+        status,
+        statusText,
+        advisoryMessage,
+        recommended: isRecommended,
+        disabled: false  // Never disable, just advise
+      }
+    })
   }
 
   // Welcome Step
@@ -489,21 +546,29 @@ export function LlmSetupWizard({ onComplete, onSkip }: LlmSetupWizardProps) {
               {models.map((model: any) => (
                 <div
                   key={model.id}
-                  onClick={() => !model.disabled && handleModelSelect(model.id)}
+                  onClick={() => handleModelSelect(model.id)}
                   style={{
                     padding: 16,
                     background: selectedModel === model.id ? 'rgba(59,130,246,0.2)' : 'rgba(255,255,255,0.05)',
-                    border: `2px solid ${selectedModel === model.id ? 'rgba(59,130,246,0.5)' : 'rgba(255,255,255,0.1)'}`,
+                    border: `2px solid ${
+                      selectedModel === model.id 
+                        ? 'rgba(59,130,246,0.5)' 
+                        : model.status === 'good' 
+                          ? 'rgba(34,197,94,0.3)' 
+                          : model.status === 'okay' 
+                            ? 'rgba(251,191,36,0.3)' 
+                            : 'rgba(239,68,68,0.3)'
+                    }`,
                     borderRadius: 8,
-                    cursor: model.disabled ? 'not-allowed' : 'pointer',
-                    opacity: model.disabled ? 0.5 : 1,
+                    cursor: 'pointer',
+                    opacity: 1,
                     transition: 'all 0.2s'
                   }}
                 >
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', marginBottom: 8 }}>
                     <div>
                       <strong style={{ fontSize: 15 }}>{model.name}</strong>
-                      {model.recommended && !model.disabled && (
+                      {model.recommended && (
                         <span style={{
                           marginLeft: 8,
                           padding: '2px 8px',
@@ -512,19 +577,16 @@ export function LlmSetupWizard({ onComplete, onSkip }: LlmSetupWizardProps) {
                           fontSize: 11,
                           fontWeight: 600
                         }}>
-                          RECOMMENDED
+                          ⭐ RECOMMENDED
                         </span>
                       )}
-                      {model.disabled && (
+                      {model.statusText && (
                         <span style={{
                           marginLeft: 8,
-                          padding: '2px 8px',
-                          background: '#ef4444',
-                          borderRadius: 4,
-                          fontSize: 11,
-                          fontWeight: 600
+                          fontSize: 12,
+                          opacity: 0.9
                         }}>
-                          INSUFFICIENT RAM
+                          {model.statusText}
                         </span>
                       )}
                     </div>
@@ -532,11 +594,21 @@ export function LlmSetupWizard({ onComplete, onSkip }: LlmSetupWizardProps) {
                       {model.size}
                     </div>
                   </div>
-                  <div style={{ fontSize: 13, opacity: 0.9 }}>
+                  <div style={{ fontSize: 13, opacity: 0.9, marginBottom: 6 }}>
                     {model.description}
                   </div>
+                  {model.advisoryMessage && (
+                    <div style={{ 
+                      fontSize: 11, 
+                      opacity: 0.8, 
+                      fontStyle: 'italic',
+                      color: model.status === 'good' ? '#22c55e' : model.status === 'okay' ? '#fbbf24' : '#ef4444'
+                    }}>
+                      💡 {model.advisoryMessage}
+                    </div>
+                  )}
                   <div style={{ fontSize: 12, opacity: 0.7, marginTop: 8 }}>
-                    Requires: {model.ramRequired} GB RAM
+                    Requires: {model.ramRequired} GB RAM minimum
                   </div>
                 </div>
               ))}

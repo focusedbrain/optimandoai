@@ -185,6 +185,29 @@ export function BackendSwitcher({ theme = 'default' }: BackendSwitcherProps) {
     }
   };
   
+  const handleSwitchModel = async (modelName: string) => {
+    try {
+      // Update orchestrator config to use this model
+      const response = await fetch('http://127.0.0.1:51248/api/llm/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ modelId: modelName })
+      });
+      
+      const result = await response.json();
+      if (result.ok) {
+        setNotification({ message: `Switched to ${modelName}`, type: 'success' });
+        await loadLlmStatus();  // Refresh
+      } else {
+        setNotification({ message: result.error || 'Failed to switch model', type: 'error' });
+      }
+    } catch (error: any) {
+      setNotification({ message: 'Failed to switch model', type: 'error' });
+    } finally {
+      setTimeout(() => setNotification(null), 3000);
+    }
+  };
+  
   const handleInstallModel = async (modelId: string) => {
     setInstalling(true);
     setInstallProgress(0);
@@ -572,42 +595,78 @@ export function BackendSwitcher({ theme = 'default' }: BackendSwitcherProps) {
                     <div style={{ fontWeight: '600', marginBottom: '6px', fontSize: '10px', opacity: 0.8, color: textColor }}>
                       INSTALLED MODELS ({installedModels.length})
                     </div>
-                    {installedModels.map((model: any) => (
-                      <div key={model.name} style={{
-                        padding: '8px',
-                        background: 'rgba(255,255,255,0.05)',
-                        borderRadius: '4px',
-                        marginBottom: '4px',
-                        display: 'flex',
-                        justifyContent: 'space-between',
-                        alignItems: 'center',
-                        fontSize: '10px',
-                        color: textColor,
-                      }}>
-                        <div style={{ flex: 1 }}>
-                          <div style={{ fontWeight: '600', marginBottom: '2px' }}>{model.name}</div>
-                          <div style={{ opacity: 0.7 }}>
-                            {(model.size / (1024**3)).toFixed(2)} GB
+                    {installedModels.map((model: any) => {
+                      const isActive = llmStatus?.modelName === model.name;
+                      return (
+                        <div key={model.name} style={{
+                          padding: '8px',
+                          background: isActive ? 'rgba(34,197,94,0.1)' : 'rgba(255,255,255,0.05)',
+                          border: isActive ? '1px solid rgba(34,197,94,0.3)' : '1px solid transparent',
+                          borderRadius: '4px',
+                          marginBottom: '4px',
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                          fontSize: '10px',
+                          color: textColor,
+                        }}>
+                          <div style={{ flex: 1 }}>
+                            <div style={{ fontWeight: '600', marginBottom: '2px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                              {model.name}
+                              {isActive && (
+                                <span style={{
+                                  padding: '2px 6px',
+                                  background: '#059669',
+                                  borderRadius: '3px',
+                                  fontSize: '8px',
+                                  fontWeight: '600'
+                                }}>
+                                  ✓ ACTIVE
+                                </span>
+                              )}
+                            </div>
+                            <div style={{ opacity: 0.7 }}>
+                              {(model.size / (1024**3)).toFixed(2)} GB
+                            </div>
+                          </div>
+                          <div style={{ display: 'flex', gap: '4px' }}>
+                            {!isActive && (
+                              <button
+                                onClick={() => handleSwitchModel(model.name)}
+                                style={{
+                                  padding: '4px 8px',
+                                  background: 'rgba(59,130,246,0.2)',
+                                  border: '1px solid rgba(59,130,246,0.4)',
+                                  borderRadius: '3px',
+                                  color: '#60a5fa',
+                                  fontSize: '9px',
+                                  cursor: 'pointer',
+                                }}
+                              >
+                                ⚡ Use This
+                              </button>
+                            )}
+                            <button
+                              onClick={() => handleDeleteModel(model.name)}
+                              disabled={deleting === model.name || isActive}
+                              style={{
+                                padding: '4px 8px',
+                                background: 'rgba(239,68,68,0.2)',
+                                border: '1px solid rgba(239,68,68,0.4)',
+                                borderRadius: '3px',
+                                color: '#ef4444',
+                                fontSize: '9px',
+                                cursor: (deleting === model.name || isActive) ? 'not-allowed' : 'pointer',
+                                opacity: (deleting === model.name || isActive) ? 0.5 : 1,
+                              }}
+                              title={isActive ? 'Cannot delete active model' : ''}
+                            >
+                              {deleting === model.name ? '...' : '🗑'}
+                            </button>
                           </div>
                         </div>
-                        <button
-                          onClick={() => handleDeleteModel(model.name)}
-                          disabled={deleting === model.name}
-                          style={{
-                            padding: '4px 8px',
-                            background: 'rgba(239,68,68,0.2)',
-                            border: '1px solid rgba(239,68,68,0.4)',
-                            borderRadius: '3px',
-                            color: '#ef4444',
-                            fontSize: '9px',
-                            cursor: deleting === model.name ? 'not-allowed' : 'pointer',
-                            opacity: deleting === model.name ? 0.5 : 1,
-                          }}
-                        >
-                          {deleting === model.name ? '...' : '🗑 Delete'}
-                        </button>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
 

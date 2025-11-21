@@ -1184,6 +1184,26 @@ app.whenReady().then(async () => {
         res.status(500).json({ ok: false, message: error.message })
       }
     })
+    
+    // POST /api/llm/config - Update LLM configuration
+    httpApp.post('/api/llm/config', async (req, res) => {
+      try {
+        const { modelId } = req.body
+        console.log('[HTTP] POST /api/llm/config', { modelId })
+        
+        // Update config
+        await llmConfigService.update({ modelId })
+        
+        // Reload client with new config
+        const config = await llmConfigService.load()
+        llmClientService.setClient(config)
+        
+        res.json({ ok: true, message: `Switched to model: ${modelId}` })
+      } catch (error: any) {
+        console.error('[HTTP] Error updating LLM config:', error)
+        res.status(500).json({ ok: false, error: error.message })
+      }
+    })
 
     // GET /api/db/get?keys=key1,key2 - Get specific keys
     httpApp.get('/api/db/get', async (req, res) => {
