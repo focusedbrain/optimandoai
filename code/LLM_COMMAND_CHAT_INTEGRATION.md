@@ -17,7 +17,7 @@ On first load, the Command Chat:
 
 ### 2. **Automatic Model Installation** (NEW!)
 If no models are installed, the system will:
-- **Automatically install Phi-3 Mini (2.3GB)** - A lightweight, fast model
+- **Automatically install TinyLlama (0.6GB)** - Ultra-lightweight, fastest model
 - Show progress message to the user
 - Enable chat functionality once installation completes
 - Display a success message when ready
@@ -90,25 +90,25 @@ Error messages now include:
 ### First Launch (No Models Installed)
 1. User opens Command Chat
 2. System detects no models
-3. **Automatically begins installing Phi-3 Mini**
-4. Shows: "Installing lightweight model (Phi-3 Mini)... This may take a few minutes."
-5. Once complete: "✅ Phi-3 Mini model installed successfully! You can now start chatting."
+3. **Automatically begins installing TinyLlama**
+4. Shows: "Installing ultra-lightweight model (TinyLlama 0.6GB)... This should only take 1-2 minutes."
+5. Once complete: "✅ TinyLlama installed successfully! This ultra-lightweight model (0.6GB) is optimized for speed and works on any hardware."
 
 ### Subsequent Launches
 1. System auto-detects installed model
 2. Chat is immediately ready to use
 3. No user intervention required
 
-## Why Phi-3 Mini?
+## Why TinyLlama?
 
-**Phi-3 Mini** was chosen as the default auto-install model because:
-- ✅ **Small size**: Only 2.3GB (vs 4-5GB for larger models)
-- ✅ **Fast**: Works well on older hardware
-- ✅ **Capable**: Surprisingly good quality from Microsoft
-- ✅ **Low RAM**: Only requires 2-3GB RAM
-- ✅ **Good balance**: Speed + quality for most tasks
+**TinyLlama** was chosen as the default auto-install model because:
+- ✅ **Ultra-small size**: Only 0.6GB (smallest available)
+- ✅ **Ultra-fast**: Optimized for very old hardware
+- ✅ **Minimal RAM**: Only requires 1-2GB RAM
+- ✅ **Quick download**: Installs in 1-2 minutes
+- ✅ **Best compatibility**: Works on any hardware
 
-Users can still install other models (TinyLlama, Mistral, etc.) through LLM Settings.
+Users can upgrade to larger models (Phi-3 Mini, Mistral, etc.) through LLM Settings for better quality.
 
 ## Testing
 
@@ -134,7 +134,7 @@ The system gracefully handles:
 
 | Scenario | Behavior |
 |----------|----------|
-| No models installed | Auto-installs Phi-3 Mini |
+| No models installed | Auto-installs TinyLlama (0.6GB) |
 | Ollama not running | Shows instructions to start it |
 | Network error | Provides troubleshooting tips |
 | Model installation fails | Guides user to manual installation |

@@ -2518,6 +2518,24 @@ app.whenReady().then(async () => {
       }
     })
     
+    // GET /api/llm/first-available - Get first available installed model
+    httpApp.get('/api/llm/first-available', async (req, res) => {
+      try {
+        const { ollamaManager } = await import('./main/llm/ollama-manager')
+        const models = await ollamaManager.listModels()
+        
+        if (models.length === 0) {
+          res.json({ ok: false, error: 'No models installed. Please install a model first.' })
+          return
+        }
+        
+        res.json({ ok: true, data: { modelId: models[0].name } })
+      } catch (error: any) {
+        console.error('[HTTP-LLM] Error getting first available model:', error)
+        res.status(500).json({ ok: false, error: error.message })
+      }
+    })
+    
     // POST /api/llm/chat - Chat with model
     httpApp.post('/api/llm/chat', async (req, res) => {
       try {
@@ -2528,7 +2546,22 @@ app.whenReady().then(async () => {
         }
         
         const { ollamaManager } = await import('./main/llm/ollama-manager')
-        const activeModelId = modelId || 'mistral:7b-instruct-q4_0'
+        
+        // If no modelId specified, try to use first available model
+        let activeModelId = modelId
+        if (!activeModelId) {
+          const models = await ollamaManager.listModels()
+          if (models.length === 0) {
+            res.status(400).json({ 
+              ok: false, 
+              error: 'No models installed. Please go to LLM Settings (Admin panel) and install a model first.' 
+            })
+            return
+          }
+          activeModelId = models[0].name
+          console.log('[HTTP-LLM] Auto-selected first available model:', activeModelId)
+        }
+        
         const response = await ollamaManager.chat(activeModelId, messages)
         res.json({ ok: true, data: response })
       } catch (error: any) {

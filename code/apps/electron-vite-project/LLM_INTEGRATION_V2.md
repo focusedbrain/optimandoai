@@ -483,3 +483,4 @@ No new dependencies required! Uses built-in Node.js modules:
 - ✨ Auto-start Ollama on app launch
 - ✨ Health check + repair flow
 
+

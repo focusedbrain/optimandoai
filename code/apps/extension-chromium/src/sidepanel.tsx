@@ -92,26 +92,26 @@ function SidepanelOrchestrator() {
         } else {
           // No models installed - try to auto-install a lightweight one
           console.log('[Command Chat] No models installed, attempting auto-install...')
-          setLlmError('Installing lightweight model (Phi-3 Mini)... This may take a few minutes.')
+          setLlmError('Installing ultra-lightweight model (TinyLlama 0.6GB)... This should only take 1-2 minutes.')
           
           try {
             const installResponse = await fetch(`${baseUrl}/api/llm/models/install`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ modelId: 'phi3:mini' })
+              body: JSON.stringify({ modelId: 'tinyllama' })
             })
             
             const installResult = await installResponse.json()
             
             if (installResult.ok) {
-              setActiveLlmModel('phi3:mini')
+              setActiveLlmModel('tinyllama')
               setLlmError(null)
-              console.log('[Command Chat] Auto-installed phi3:mini successfully')
+              console.log('[Command Chat] Auto-installed tinyllama successfully')
               
               // Add a system message to chat
               setChatMessages([{
                 role: 'assistant' as const,
-                text: '✅ Phi-3 Mini model installed successfully! You can now start chatting. This model is fast and works well on most hardware.'
+                text: '✅ TinyLlama installed successfully! This ultra-lightweight model (0.6GB) is optimized for speed and works on any hardware. You can now start chatting!'
               }])
             } else {
               throw new Error(installResult.error || 'Installation failed')
@@ -816,7 +816,7 @@ function SidepanelOrchestrator() {
     if (!activeLlmModel) {
       setChatMessages([...chatMessages, {
         role: 'assistant' as const,
-        text: `⚠️ No LLM model available. Please:\n\n1. Go to Admin panel (toggle at top)\n2. Open LLM Settings\n3. Install a lightweight model like "Phi-3 Mini" (2.3GB) or "TinyLlama" (0.6GB)\n4. Come back and try again!`
+        text: `⚠️ No LLM model available. Please:\n\n1. Go to Admin panel (toggle at top)\n2. Open LLM Settings\n3. Install "TinyLlama" (0.6GB) - Ultra-fast and lightweight!\n4. Come back and try again!`
       }])
       setTimeout(() => {
         if (chatRef.current) chatRef.current.scrollTop = chatRef.current.scrollHeight
@@ -879,7 +879,7 @@ function SidepanelOrchestrator() {
       
       // Check if it's a "no models installed" error
       if (errorMsg.includes('No models installed') || errorMsg.includes('Please go to LLM Settings')) {
-        errorMsg = `⚠️ No LLM model installed yet!\n\nTo get started:\n1. Click the Admin toggle at the top\n2. Go to LLM Settings\n3. Install a lightweight model:\n   • Phi-3 Mini (2.3GB) - Recommended\n   • TinyLlama (0.6GB) - Fastest\n\nThen come back and chat!`
+        errorMsg = `⚠️ No LLM model installed yet!\n\nTo get started:\n1. Click the Admin toggle at the top\n2. Go to LLM Settings\n3. Install a lightweight model:\n   • TinyLlama (0.6GB) - Ultra-fast, recommended\n   • Phi-3 Mini (2.3GB) - Better quality\n\nThen come back and chat!`
       } else {
         errorMsg = `⚠️ Error: ${errorMsg}\n\nTip: Make sure Ollama is running and a model is installed in LLM Settings.`
       }
