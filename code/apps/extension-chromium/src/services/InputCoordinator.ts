@@ -28,48 +28,59 @@ export class InputCoordinator {
         inputType: input.inputType
       })
       
-      // 1. Find all agents with enabled listeners
+      // 1. Find all agents with enabled listeners that match
       const matchingAgents = await this.findMatchingAgents(input)
       
-      if (matchingAgents.length === 0) {
-        console.warn('[InputCoordinator] No matching agents found, using default')
-        const defaultAgent = await this.getDefaultAgent()
-        if (defaultAgent) {
-          matchingAgents.push(defaultAgent)
-        } else {
-          console.error('[InputCoordinator] No default agent available')
-          return
-        }
+      if (matchingAgents.length > 0) {
+        console.log('[InputCoordinator] Found matching agents with listeners:', matchingAgents.map(a => a.name))
+        await this.executeAgents(matchingAgents, input)
+        return
       }
       
-      console.log('[InputCoordinator] Found matching agents:', matchingAgents.map(a => a.name))
+      // 2. No matches - check for agents without listener sections (reasoning/execution only)
+      console.log('[InputCoordinator] No matching listeners, checking for agents without listener sections')
+      const alwaysOnAgents = await this.findAgentsWithoutListeners()
       
-      // 2. Execute each matched agent
-      for (const agent of matchingAgents) {
-        try {
-          // Extract agent number from name (e.g., "agent01" -> 1)
-          const agentNumber = this.extractAgentNumber(agent.name)
-          if (!agentNumber) {
-            console.warn('[InputCoordinator] Could not extract agent number from:', agent.name)
-            continue
-          }
-          
-          // Execute agent via AgentExecutor
-          const result = await agentExecutor.runAgentExecution(agentNumber, input)
-          
-          // Route output via OutputCoordinator
-          await outputCoordinator.routeOutput(agentNumber, result, input)
-        } catch (error: any) {
-          console.error('[InputCoordinator] Failed to execute agent:', agent.name, error)
-        }
+      if (alwaysOnAgents.length > 0) {
+        console.log('[InputCoordinator] Found agents without listeners (always-on):', alwaysOnAgents.map(a => a.name))
+        await this.executeAgents(alwaysOnAgents, input)
+        return
       }
+      
+      // 3. No matches and no always-on agents - do not forward
+      console.log('[InputCoordinator] No matching agents and no always-on agents - input not forwarded')
     } catch (error: any) {
       console.error('[InputCoordinator] Failed to handle input event:', error)
     }
   }
   
   /**
+   * Execute a list of agents with the input
+   */
+  private async executeAgents(agents: AgentConfig[], input: InputEventPayload): Promise<void> {
+    for (const agent of agents) {
+      try {
+        // Extract agent number from name (e.g., "agent01" -> 1)
+        const agentNumber = this.extractAgentNumber(agent.name)
+        if (!agentNumber) {
+          console.warn('[InputCoordinator] Could not extract agent number from:', agent.name)
+          continue
+        }
+        
+        // Execute agent via AgentExecutor
+        const result = await agentExecutor.runAgentExecution(agentNumber, input)
+        
+        // Route output via OutputCoordinator
+        await outputCoordinator.routeOutput(agentNumber, result, input)
+      } catch (error: any) {
+        console.error('[InputCoordinator] Failed to execute agent:', agent.name, error)
+      }
+    }
+  }
+  
+  /**
    * Find all agents that match the input event
+   * Only returns agents with enabled listener sections that match patterns
    */
   private async findMatchingAgents(input: InputEventPayload): Promise<AgentConfig[]> {
     try {
@@ -78,9 +89,14 @@ export class InputCoordinator {
       
       // Expected logic:
       // const agents = await this.loadAllAgents(input.sessionId)
-      // return agents.filter(agent => this.matchesPattern(agent, input))
+      // return agents.filter(agent => {
+      //   // Must have enabled listener section
+      //   if (!agent.listenerSection?.enabled) return false
+      //   // Must match pattern
+      //   return this.matchesPattern(agent, input)
+      // })
       
-      // For now, return empty array to trigger default agent fallback
+      // For now, return empty array (no matches)
       return []
     } catch (error: any) {
       console.error('[InputCoordinator] Failed to find matching agents:', error)
@@ -89,7 +105,44 @@ export class InputCoordinator {
   }
   
   /**
+   * Find agents without listener sections (always-on agents)
+   * These are agents with only reasoning and execution capabilities
+   */
+  private async findAgentsWithoutListeners(): Promise<AgentConfig[]> {
+    try {
+      // TODO: Load all agents from SQLite
+      console.log('[InputCoordinator] TODO: Load all agents without listener sections')
+      
+      // Expected logic:
+      // const agents = await this.loadAllAgents()
+      // return agents.filter(agent => {
+      //   // Skip system agents
+      //   if (agent.isSystemAgent) return false
+      //   // Must have reasoning capability
+      //   if (!agent.capabilities.includes('reasoning')) return false
+      //   // Must NOT have enabled listener section
+      //   return !agent.listenerSection?.enabled
+      // })
+      
+      // For now, try to load agent01 as always-on fallback
+      const agent01 = await this.loadAgentConfig('agent01')
+      if (agent01 && !agent01.isSystemAgent && agent01.capabilities.includes('reasoning')) {
+        // Check if it doesn't have an enabled listener section
+        if (!agent01.listenerSection?.enabled) {
+          return [agent01]
+        }
+      }
+      
+      return []
+    } catch (error: any) {
+      console.error('[InputCoordinator] Failed to find agents without listeners:', error)
+      return []
+    }
+  }
+  
+  /**
    * Check if agent matches input pattern
+   * Only called for agents with enabled listener sections
    */
   private matchesPattern(agent: AgentConfig, input: InputEventPayload): boolean {
     // Skip system agents
@@ -97,7 +150,7 @@ export class InputCoordinator {
       return false
     }
     
-    // Check if listener is enabled
+    // Must have enabled listener section (redundant check for safety)
     if (!agent.listenerSection?.enabled) {
       return false
     }
@@ -130,26 +183,6 @@ export class InputCoordinator {
     }
     
     return true
-  }
-  
-  /**
-   * Get default agent when no matches found
-   * Returns the first agent with reasoning capability
-   */
-  private async getDefaultAgent(): Promise<AgentConfig | null> {
-    try {
-      console.log('[InputCoordinator] TODO: Load default agent (first agent with reasoning capability)')
-      
-      // Expected logic:
-      // const agents = await this.loadAllAgents()
-      // return agents.find(a => !a.isSystemAgent && a.capabilities.includes('reasoning'))
-      
-      // For now, try to load agent01 as default
-      return await this.loadAgentConfig('agent01')
-    } catch (error: any) {
-      console.error('[InputCoordinator] Failed to get default agent:', error)
-      return null
-    }
   }
   
   /**
