@@ -525,6 +525,34 @@ app.whenReady().then(async () => {
     createTray()
     console.log('[MAIN] Window and tray created')
 
+    // Initialize LLM services
+    try {
+      console.log('[MAIN] ===== INITIALIZING LLM SERVICES =====')
+      const { registerLlmHandlers } = await import('./main/llm/ipc')
+      const { ollamaManager } = await import('./main/llm/ollama-manager')
+
+      // Register IPC handlers
+      registerLlmHandlers()
+      console.log('[MAIN] LLM IPC handlers registered')
+
+      // Check if Ollama is installed and auto-start if configured
+      const installed = await ollamaManager.checkInstalled()
+      console.log('[MAIN] Ollama installed:', installed)
+
+      if (installed) {
+        try {
+          await ollamaManager.start()
+          console.log('[MAIN] Ollama started successfully')
+        } catch (error) {
+          console.warn('[MAIN] Failed to auto-start Ollama:', error)
+        }
+      } else {
+        console.warn('[MAIN] Ollama not found - repair flow will be needed')
+      }
+    } catch (error) {
+      console.error('[MAIN] Error initializing LLM services:', error)
+    }
+
     // WS bridge for extension (127.0.0.1:51247) with safe startup
     try {
       console.log('[MAIN] ===== ATTEMPTING TO START WEBSOCKET SERVER =====')
@@ -542,6 +570,7 @@ app.whenReady().then(async () => {
             if (msg.includes('EADDRINUSE')) { try { wss.close() } catch { } }
           } catch { }
         })
+
 
         // Initialize Services
         let fileWatcher: any = null;
@@ -681,6 +710,56 @@ app.whenReady().then(async () => {
                   console.error('[MAIN] Error sending pong:', e)
                 }
                 return // Don't process further handlers for ping
+              }
+
+              if (msg.type === 'START_WATCHING') {
+                console.log('[MAIN] Received START_WATCHING:', msg.payload);
+                if (fileWatcher) {
+                  fileWatcher.startWatching(msg.payload);
+                  // Notify client that watching started
+                  try {
+                    socket.send(JSON.stringify({
+                      type: 'WATCHING_STARTED',
+                      payload: msg.payload
+                    }));
+                  } catch (e) {
+                    console.error('[MAIN] Error sending WATCHING_STARTED:', e);
+                  }
+                }
+              }
+
+              if (msg.type === 'STOP_WATCHING') {
+                console.log('[MAIN] Received STOP_WATCHING');
+                if (fileWatcher) {
+                  fileWatcher.stopWatching();
+                  // Notify client that watching stopped
+                  try {
+                    socket.send(JSON.stringify({
+                      type: 'WATCHING_STOPPED'
+                    }));
+                  } catch (e) {
+                    console.error('[MAIN] Error sending WATCHING_STOPPED:', e);
+                  }
+                }
+              }
+
+              if (msg.type === 'GET_DIFF') {
+                console.log('[MAIN] Received GET_DIFF:', msg.payload);
+                if (diffService) {
+                  try {
+                    const diff = await diffService.getDiff(msg.payload);
+                    socket.send(JSON.stringify({
+                      type: 'DIFF_RESULT',
+                      payload: diff
+                    }));
+                  } catch (e: any) {
+                    console.error('[MAIN] Error getting diff:', e);
+                    socket.send(JSON.stringify({
+                      type: 'DIFF_ERROR',
+                      payload: e.message
+                    }));
+                  }
+                }
               }
               if (msg.type === 'START_SELECTION') {
                 // Open full-featured overlay with all controls
@@ -2400,6 +2479,540 @@ app.whenReady().then(async () => {
         }
       })
 
+
+
+
+      // POST /api/vault/create - Create new vault
+      httpApp.post('/api/vault/create', async (req, res) => {
+        try {
+          console.log('[HTTP-VAULT] POST /api/vault/create', { vaultName: req.body.vaultName })
+          const { vaultService } = await import('./main/vault/rpc')
+          const vaultId = await vaultService.createVault(req.body.password, req.body.vaultName || 'My Vault', req.body.vaultId)
+          res.json({ success: true, data: { vaultId } })
+        } catch (error: any) {
+          console.error('[HTTP-VAULT] Error in create:', error)
+          console.error('[HTTP-VAULT] Error message:', error?.message)
+          console.error('[HTTP-VAULT] Error stack:', error?.stack)
+          res.status(500).json({ success: false, error: error?.message || error?.toString() || 'Failed to create vault' })
+        }
+      })
+
+      // POST /api/vault/delete - Delete vault (must be unlocked)
+      httpApp.post('/api/vault/delete', async (req, res) => {
+        try {
+          console.log('[HTTP-VAULT] POST /api/vault/delete', { vaultId: req.body.vaultId })
+          const { vaultService } = await import('./main/vault/rpc')
+          await vaultService.deleteVault(req.body.vaultId)
+          res.json({ success: true })
+        } catch (error: any) {
+          console.error('[HTTP-VAULT] Error in delete:', error)
+          res.status(500).json({ success: false, error: error.message || 'Failed to delete vault' })
+        }
+      })
+
+      // POST /api/vault/unlock - Unlock vault
+      httpApp.post('/api/vault/unlock', async (req, res) => {
+        try {
+          console.log('[HTTP-VAULT] POST /api/vault/unlock', { vaultId: req.body.vaultId })
+          const { vaultService } = await import('./main/vault/rpc')
+          await vaultService.unlock(req.body.password, req.body.vaultId || 'default')
+          res.json({ success: true })
+        } catch (error: any) {
+          console.error('[HTTP-VAULT] Error in unlock:', error)
+          res.status(500).json({ success: false, error: error.message || 'Failed to unlock vault' })
+        }
+      })
+
+      // POST /api/vault/lock - Lock vault
+      httpApp.post('/api/vault/lock', async (_req, res) => {
+        try {
+          console.log('[HTTP-VAULT] POST /api/vault/lock')
+          const { vaultService } = await import('./main/vault/rpc')
+          await vaultService.lock()
+          res.json({ success: true })
+        } catch (error: any) {
+          console.error('[HTTP-VAULT] Error in lock:', error)
+          res.status(500).json({ success: false, error: error.message || 'Failed to lock vault' })
+        }
+      })
+
+      // POST /api/vault/items - List items
+      httpApp.post('/api/vault/items', async (req, res) => {
+        try {
+          console.log('[HTTP-VAULT] POST /api/vault/items', req.body)
+          const { vaultService } = await import('./main/vault/rpc')
+          const filters = {
+            container_id: req.body.containerId,
+            category: req.body.category
+          }
+          const items = await vaultService.listItems(filters)
+          console.log(`[HTTP-VAULT] Returning ${items.length} items`)
+          res.json({ success: true, data: items })
+        } catch (error: any) {
+          console.error('[HTTP-VAULT] Error in items:', error)
+          res.status(500).json({ success: false, error: error.message || 'Failed to list items' })
+        }
+      })
+
+      // POST /api/vault/item/create - Create item
+      httpApp.post('/api/vault/item/create', async (req, res) => {
+        try {
+          console.log('[HTTP-VAULT] POST /api/vault/item/create')
+          console.log('[HTTP-VAULT] Request body:', JSON.stringify(req.body, null, 2))
+          const { vaultService } = await import('./main/vault/rpc')
+          const item = await vaultService.createItem(req.body)
+          console.log('[HTTP-VAULT] ✅ Item created successfully:', item.id, 'category:', item.category)
+
+          // Immediately verify the item can be retrieved
+          try {
+            const verifyItems = await vaultService.listItems({ category: item.category })
+            const found = verifyItems.find(i => i.id === item.id)
+            if (found) {
+              console.log('[HTTP-VAULT] ✅ Verified: Item can be retrieved immediately after creation')
+            } else {
+              console.error('[HTTP-VAULT] ⚠️ WARNING: Item created but NOT found in listItems query!')
+              console.error('[HTTP-VAULT] Created item ID:', item.id)
+              console.error('[HTTP-VAULT] Items returned:', verifyItems.map(i => ({ id: i.id, title: i.title })))
+            }
+          } catch (verifyError: any) {
+            console.error('[HTTP-VAULT] ⚠️ Verification query failed:', verifyError?.message)
+          }
+
+          res.json({ success: true, data: item })
+        } catch (error: any) {
+          console.error('[HTTP-VAULT] ❌ Error in create item:', error)
+          console.error('[HTTP-VAULT] Error stack:', error?.stack)
+          res.status(500).json({ success: false, error: error.message || 'Failed to create item' })
+        }
+      })
+
+      // POST /api/vault/item/get - Get item by ID
+      httpApp.post('/api/vault/item/get', async (req, res) => {
+        try {
+          console.log('[HTTP-VAULT] POST /api/vault/item/get')
+          const { vaultService } = await import('./main/vault/rpc')
+          const item = await vaultService.getItem(req.body.id)
+          res.json({ success: true, data: item })
+        } catch (error: any) {
+          console.error('[HTTP-VAULT] Error in get item:', error)
+          res.status(500).json({ success: false, error: error.message || 'Failed to get item' })
+        }
+      })
+
+      // POST /api/vault/item/update - Update item
+      httpApp.post('/api/vault/item/update', async (req, res) => {
+        try {
+          console.log('[HTTP-VAULT] POST /api/vault/item/update')
+          const { vaultService } = await import('./main/vault/rpc')
+          const item = await vaultService.updateItem(req.body.id, req.body.updates)
+          res.json({ success: true, data: item })
+        } catch (error: any) {
+          console.error('[HTTP-VAULT] Error in update item:', error)
+          res.status(500).json({ success: false, error: error.message || 'Failed to update item' })
+        }
+      })
+
+      // POST /api/vault/item/delete - Delete item
+      httpApp.post('/api/vault/item/delete', async (req, res) => {
+        try {
+          console.log('[HTTP-VAULT] POST /api/vault/item/delete')
+          const { vaultService } = await import('./main/vault/rpc')
+          await vaultService.deleteItem(req.body.id)
+          res.json({ success: true })
+        } catch (error: any) {
+          console.error('[HTTP-VAULT] Error in delete item:', error)
+          res.status(500).json({ success: false, error: error.message || 'Failed to delete item' })
+        }
+      })
+
+      // POST /api/vault/containers - List containers
+      httpApp.post('/api/vault/containers', async (_req, res) => {
+        try {
+          console.log('[HTTP-VAULT] POST /api/vault/containers')
+          const { vaultService } = await import('./main/vault/rpc')
+          const containers = await vaultService.listContainers()
+          res.json({ success: true, data: containers })
+        } catch (error: any) {
+          console.error('[HTTP-VAULT] Error in containers:', error)
+          res.status(500).json({ success: false, error: error.message || 'Failed to list containers' })
+        }
+      })
+
+      // POST /api/vault/container/create - Create container
+      httpApp.post('/api/vault/container/create', async (req, res) => {
+        try {
+          console.log('[HTTP-VAULT] POST /api/vault/container/create')
+          const { vaultService } = await import('./main/vault/rpc')
+          const { type, name, favorite } = req.body
+          const container = vaultService.createContainer(type, name, favorite || false)
+          res.json({ success: true, data: container })
+        } catch (error: any) {
+          console.error('[HTTP-VAULT] Error in create container:', error)
+          res.status(500).json({ success: false, error: error.message || 'Failed to create container' })
+        }
+      })
+
+      // POST /api/vault/settings - Get settings
+      httpApp.post('/api/vault/settings/get', async (_req, res) => {
+        try {
+          console.log('[HTTP-VAULT] POST /api/vault/settings/get')
+          const { vaultService } = await import('./main/vault/rpc')
+          const settings = await vaultService.getSettings()
+          res.json({ success: true, data: settings })
+        } catch (error: any) {
+          console.error('[HTTP-VAULT] Error in get settings:', error)
+          res.status(500).json({ success: false, error: error.message || 'Failed to get settings' })
+        }
+      })
+
+      // POST /api/vault/settings/update - Update settings
+      httpApp.post('/api/vault/settings/update', async (req, res) => {
+        try {
+          console.log('[HTTP-VAULT] POST /api/vault/settings/update')
+          const { vaultService } = await import('./main/vault/rpc')
+          const settings = await vaultService.updateSettings(req.body)
+          res.json({ success: true, data: settings })
+        } catch (error: any) {
+          console.error('[HTTP-VAULT] Error in update settings:', error)
+          res.status(500).json({ success: false, error: error.message || 'Failed to update settings' })
+        }
+      })
+
+      // ===== ORCHESTRATOR HTTP API ENDPOINTS (Encrypted SQLite Backend) =====
+      // These endpoints provide encrypted storage for all orchestrator data
+
+      // POST /api/orchestrator/connect - Connect to orchestrator database (auto-creates if doesn't exist)
+      httpApp.post('/api/orchestrator/connect', async (_req, res) => {
+        try {
+          console.log('[HTTP-ORCHESTRATOR] POST /api/orchestrator/connect')
+          const { getOrchestratorService } = await import('./main/orchestrator-db/service')
+          const service = getOrchestratorService()
+          await service.connect()
+          const status = service.getStatus()
+          res.json({ success: true, data: status })
+        } catch (error: any) {
+          console.error('[HTTP-ORCHESTRATOR] Error in connect:', error)
+          res.status(500).json({ success: false, error: error.message || 'Failed to connect' })
+        }
+      })
+
+      // GET /api/orchestrator/status - Get connection status
+      httpApp.get('/api/orchestrator/status', async (_req, res) => {
+        try {
+          console.log('[HTTP-ORCHESTRATOR] GET /api/orchestrator/status')
+          const { getOrchestratorService } = await import('./main/orchestrator-db/service')
+          const service = getOrchestratorService()
+          const status = service.getStatus()
+          res.json({ success: true, data: status })
+        } catch (error: any) {
+          console.error('[HTTP-ORCHESTRATOR] Error in status:', error)
+          res.status(500).json({ success: false, error: error.message || 'Failed to get status' })
+        }
+      })
+
+      // GET /api/orchestrator/get - Get value by key
+      httpApp.get('/api/orchestrator/get', async (req, res) => {
+        try {
+          const key = req.query.key as string
+          console.log('[HTTP-ORCHESTRATOR] GET /api/orchestrator/get', { key })
+          const { getOrchestratorService } = await import('./main/orchestrator-db/service')
+          const service = getOrchestratorService()
+          const value = await service.get(key)
+          res.json({ success: true, data: value })
+        } catch (error: any) {
+          console.error('[HTTP-ORCHESTRATOR] Error in get:', error)
+          res.status(500).json({ success: false, error: error.message || 'Failed to get value' })
+        }
+      })
+
+      // POST /api/orchestrator/set - Set value by key
+      httpApp.post('/api/orchestrator/set', async (req, res) => {
+        try {
+          const { key, value } = req.body
+          console.log('[HTTP-ORCHESTRATOR] POST /api/orchestrator/set', { key })
+          const { getOrchestratorService } = await import('./main/orchestrator-db/service')
+          const service = getOrchestratorService()
+          await service.set(key, value)
+          res.json({ success: true })
+        } catch (error: any) {
+          console.error('[HTTP-ORCHESTRATOR] Error in set:', error)
+          res.status(500).json({ success: false, error: error.message || 'Failed to set value' })
+        }
+      })
+
+      // GET /api/orchestrator/get-all - Get all key-value pairs
+      httpApp.get('/api/orchestrator/get-all', async (_req, res) => {
+        try {
+          console.log('[HTTP-ORCHESTRATOR] GET /api/orchestrator/get-all')
+          const { getOrchestratorService } = await import('./main/orchestrator-db/service')
+          const service = getOrchestratorService()
+          const data = await service.getAll()
+          res.json({ success: true, data })
+        } catch (error: any) {
+          console.error('[HTTP-ORCHESTRATOR] Error in get-all:', error)
+          res.status(500).json({ success: false, error: error.message || 'Failed to get all data' })
+        }
+      })
+
+      // POST /api/orchestrator/set-all - Set multiple key-value pairs
+      httpApp.post('/api/orchestrator/set-all', async (req, res) => {
+        try {
+          const { data } = req.body
+          console.log('[HTTP-ORCHESTRATOR] POST /api/orchestrator/set-all', { keyCount: Object.keys(data || {}).length })
+          const { getOrchestratorService } = await import('./main/orchestrator-db/service')
+          const service = getOrchestratorService()
+          await service.setAll(data)
+          res.json({ success: true })
+        } catch (error: any) {
+          console.error('[HTTP-ORCHESTRATOR] Error in set-all:', error)
+          res.status(500).json({ success: false, error: error.message || 'Failed to set all data' })
+        }
+      })
+
+      // POST /api/orchestrator/remove - Remove key(s)
+      httpApp.post('/api/orchestrator/remove', async (req, res) => {
+        try {
+          const { keys } = req.body
+          console.log('[HTTP-ORCHESTRATOR] POST /api/orchestrator/remove', { keys })
+          const { getOrchestratorService } = await import('./main/orchestrator-db/service')
+          const service = getOrchestratorService()
+          await service.remove(keys)
+          res.json({ success: true })
+        } catch (error: any) {
+          console.error('[HTTP-ORCHESTRATOR] Error in remove:', error)
+          res.status(500).json({ success: false, error: error.message || 'Failed to remove keys' })
+        }
+      })
+
+      // POST /api/orchestrator/migrate - Migrate data from Chrome storage
+      httpApp.post('/api/orchestrator/migrate', async (req, res) => {
+        try {
+          const { chromeData } = req.body
+          console.log('[HTTP-ORCHESTRATOR] POST /api/orchestrator/migrate', { keyCount: Object.keys(chromeData || {}).length })
+          const { getOrchestratorService } = await import('./main/orchestrator-db/service')
+          const service = getOrchestratorService()
+          await service.migrateFromChromeStorage(chromeData)
+          res.json({ success: true })
+        } catch (error: any) {
+          console.error('[HTTP-ORCHESTRATOR] Error in migrate:', error)
+          res.status(500).json({ success: false, error: error.message || 'Failed to migrate data' })
+        }
+      })
+
+      // POST /api/orchestrator/export - Export data (future-ready for JSON/YAML/MD)
+      httpApp.post('/api/orchestrator/export', async (req, res) => {
+        try {
+          const options = req.body
+          console.log('[HTTP-ORCHESTRATOR] POST /api/orchestrator/export', { format: options.format })
+          const { getOrchestratorService } = await import('./main/orchestrator-db/service')
+          const service = getOrchestratorService()
+          const exportData = await service.exportData(options)
+          res.json({ success: true, data: exportData })
+        } catch (error: any) {
+          console.error('[HTTP-ORCHESTRATOR] Error in export:', error)
+          res.status(500).json({ success: false, error: error.message || 'Failed to export data' })
+        }
+      })
+
+      // POST /api/orchestrator/import - Import data (future-ready for JSON/YAML/MD)
+      httpApp.post('/api/orchestrator/import', async (req, res) => {
+        try {
+          const { data } = req.body
+          console.log('[HTTP-ORCHESTRATOR] POST /api/orchestrator/import')
+          const { getOrchestratorService } = await import('./main/orchestrator-db/service')
+          const service = getOrchestratorService()
+          await service.importData(data)
+          res.json({ success: true })
+        } catch (error: any) {
+          console.error('[HTTP-ORCHESTRATOR] Error in import:', error)
+          res.status(500).json({ success: false, error: error.message || 'Failed to import data' })
+        }
+      })
+
+      // ==================== LLM API ENDPOINTS ====================
+
+      // GET /api/llm/hardware - Get hardware information
+      httpApp.get('/api/llm/hardware', async (_req, res) => {
+        try {
+          const { hardwareService } = await import('./main/llm/hardware')
+          const hardware = await hardwareService.detect()
+          res.json({ ok: true, data: hardware })
+        } catch (error: any) {
+          console.error('[HTTP-LLM] Error in hardware detection:', error)
+          res.status(500).json({ ok: false, error: error.message })
+        }
+      })
+
+      // GET /api/llm/status - Get Ollama status
+      httpApp.get('/api/llm/status', async (_req, res) => {
+        try {
+          const { ollamaManager } = await import('./main/llm/ollama-manager')
+          const status = await ollamaManager.getStatus()
+          res.json({ ok: true, data: status })
+        } catch (error: any) {
+          console.error('[HTTP-LLM] Error in get status:', error)
+          res.status(500).json({ ok: false, error: error.message })
+        }
+      })
+
+      // POST /api/llm/start - Start Ollama server
+      httpApp.post('/api/llm/start', async (_req, res) => {
+        try {
+          const { ollamaManager } = await import('./main/llm/ollama-manager')
+          await ollamaManager.start()
+          res.json({ ok: true })
+        } catch (error: any) {
+          console.error('[HTTP-LLM] Error starting Ollama:', error)
+          res.status(500).json({ ok: false, error: error.message })
+        }
+      })
+
+      // POST /api/llm/stop - Stop Ollama server
+      httpApp.post('/api/llm/stop', async (_req, res) => {
+        try {
+          const { ollamaManager } = await import('./main/llm/ollama-manager')
+          await ollamaManager.stop()
+          res.json({ ok: true })
+        } catch (error: any) {
+          console.error('[HTTP-LLM] Error stopping Ollama:', error)
+          res.status(500).json({ ok: false, error: error.message })
+        }
+      })
+
+      // GET /api/llm/models - List installed models
+      httpApp.get('/api/llm/models', async (_req, res) => {
+        try {
+          const { ollamaManager } = await import('./main/llm/ollama-manager')
+          const models = await ollamaManager.listModels()
+          res.json({ ok: true, data: models })
+        } catch (error: any) {
+          console.error('[HTTP-LLM] Error listing models:', error)
+          res.status(500).json({ ok: false, error: error.message })
+        }
+      })
+
+      // GET /api/llm/catalog - Get model catalog
+      httpApp.get('/api/llm/catalog', async (_req, res) => {
+        try {
+          const { MODEL_CATALOG } = await import('./main/llm/config')
+          res.json({ ok: true, data: MODEL_CATALOG })
+        } catch (error: any) {
+          console.error('[HTTP-LLM] Error getting catalog:', error)
+          res.status(500).json({ ok: false, error: error.message })
+        }
+      })
+
+      // POST /api/llm/models/install - Install a model
+      httpApp.post('/api/llm/models/install', async (req, res) => {
+        try {
+          const { modelId } = req.body
+          if (!modelId) {
+            res.status(400).json({ ok: false, error: 'modelId is required' })
+            return
+          }
+
+          const { ollamaManager } = await import('./main/llm/ollama-manager')
+
+          // Start async installation
+          ollamaManager.pullModel(modelId, (progress) => {
+            console.log('[HTTP-LLM] Install progress:', progress)
+            // Progress is now stored in ollamaManager.downloadProgress
+          }).catch((error) => {
+            console.error('[HTTP-LLM] Model installation failed:', error)
+          })
+
+          res.json({ ok: true, message: 'Installation started' })
+        } catch (error: any) {
+          console.error('[HTTP-LLM] Error installing model:', error)
+          res.status(500).json({ ok: false, error: error.message })
+        }
+      })
+
+      // GET /api/llm/install-progress - Get current installation progress
+      httpApp.get('/api/llm/install-progress', async (_req, res) => {
+        try {
+          const { ollamaManager } = await import('./main/llm/ollama-manager')
+          const progress = ollamaManager.getDownloadProgress()
+          res.json({ ok: true, progress })
+        } catch (error: any) {
+          console.error('[HTTP-LLM] Error getting install progress:', error)
+          res.status(500).json({ ok: false, error: error.message })
+        }
+      })
+
+      // DELETE /api/llm/models/:modelId - Delete a model
+      httpApp.delete('/api/llm/models/:modelId', async (req, res) => {
+        try {
+          const { modelId } = req.params
+          const { ollamaManager } = await import('./main/llm/ollama-manager')
+          await ollamaManager.deleteModel(modelId)
+          res.json({ ok: true })
+        } catch (error: any) {
+          console.error('[HTTP-LLM] Error deleting model:', error)
+          res.status(500).json({ ok: false, error: error.message })
+        }
+      })
+
+      // POST /api/llm/models/activate - Set active model
+      httpApp.post('/api/llm/models/activate', async (req, res) => {
+        try {
+          const { modelId } = req.body
+          if (!modelId) {
+            res.status(400).json({ ok: false, error: 'modelId is required' })
+            return
+          }
+
+          // TODO: Store in config
+          console.log('[HTTP-LLM] Set active model:', modelId)
+          res.json({ ok: true })
+        } catch (error: any) {
+          console.error('[HTTP-LLM] Error setting active model:', error)
+          res.status(500).json({ ok: false, error: error.message })
+        }
+      })
+
+      // POST /api/llm/chat - Chat with model
+      httpApp.post('/api/llm/chat', async (req, res) => {
+        try {
+          const { modelId, messages } = req.body
+          if (!messages || !Array.isArray(messages)) {
+            res.status(400).json({ ok: false, error: 'messages array is required' })
+            return
+          }
+
+          const { ollamaManager } = await import('./main/llm/ollama-manager')
+          const activeModelId = modelId || 'mistral:7b-instruct-q4_0'
+          const response = await ollamaManager.chat(activeModelId, messages)
+          res.json({ ok: true, data: response })
+        } catch (error: any) {
+          console.error('[HTTP-LLM] Error in chat:', error)
+          res.status(500).json({ ok: false, error: error.message })
+        }
+      })
+
+      // GET /api/llm/performance/:modelId - Get performance estimate for model
+      httpApp.get('/api/llm/performance/:modelId', async (req, res) => {
+        try {
+          const { modelId } = req.params
+          const { hardwareService } = await import('./main/llm/hardware')
+          const { getModelConfig } = await import('./main/llm/config')
+
+          const hardware = await hardwareService.detect()
+          const modelConfig = getModelConfig(modelId)
+
+          if (!modelConfig) {
+            res.status(404).json({ ok: false, error: 'Model not found in catalog' })
+            return
+          }
+
+          const estimate = hardwareService.estimatePerformance(modelConfig, hardware)
+          res.json({ ok: true, data: estimate })
+        } catch (error: any) {
+          console.error('[HTTP-LLM] Error getting performance estimate:', error)
+          res.status(500).json({ ok: false, error: error.message })
+        }
+      })
+
       const HTTP_PORT = 51248
 
       // Simple function to start HTTP server with error handling
@@ -2459,16 +3072,13 @@ app.whenReady().then(async () => {
             console.error('[MAIN] HTTP server error:', err.message, err.stack)
           }
         })
+
       }
 
       // Start the server
       startHttpServer(HTTP_PORT)
-
-      // Error handling is done via try-catch and httpApp.listen callback
     } catch (err) {
       console.error('[MAIN] Error in HTTP API setup:', err)
-      console.error('[MAIN] Error details:', err instanceof Error ? err.message : String(err))
-      console.error('[MAIN] Error stack:', err instanceof Error ? err.stack : 'No stack trace')
     }
   } catch (err) {
     console.error('[MAIN] Error in app.whenReady:', err)

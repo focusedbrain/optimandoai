@@ -113,54 +113,54 @@ function connectToWebSocketServer() {
               // Send to sidepanel/popup
               try { chrome.runtime.sendMessage(message) } catch { }
             })
+
+          } else if (data.type === 'FILE_CHANGED' || data.type === 'WATCHING_STARTED' || data.type === 'WATCHING_STOPPED' || data.type === 'DIFF_RESULT' || data.type === 'DIFF_ERROR') {
+            // Forward file watching events to sidepanel
+            try { chrome.runtime.sendMessage(data) } catch { }
           }
-        } else if (data.type === 'FILE_CHANGED' || data.type === 'WATCHING_STARTED' || data.type === 'WATCHING_STOPPED' || data.type === 'DIFF_RESULT' || data.type === 'DIFF_ERROR') {
-          // Forward file watching events to sidepanel
-          try { chrome.runtime.sendMessage(data) } catch { }
         }
-      }
       } catch (error) {
-      // ignore
-    }
-  });
-
-  ws.addEventListener('error', (error) => {
-    console.log(`❌ WebSocket-Fehler: ${error}`);
-    isConnecting = false;
-
-    // Update extension badge
-    chrome.action.setBadgeText({ text: 'OFF' });
-    chrome.action.setBadgeBackgroundColor({ color: '#FF0000' });
-  });
-
-  ws.addEventListener('close', (event) => {
-    console.log(`🔌 WebSocket-Verbindung geschlossen (Code: ${event.code}, Reason: ${event.reason})`);
-    ws = null;
-    isConnecting = false;
-
-    // Stop heartbeat
-    stopHeartbeat();
-
-    // Update extension badge
-    chrome.action.setBadgeText({ text: 'OFF' });
-    chrome.action.setBadgeBackgroundColor({ color: '#FF0000' });
-
-    // Try to reconnect after a short delay
-    setTimeout(() => {
-      if (!ws || ws.readyState !== WebSocket.OPEN) {
-        console.log('🔄 Versuche automatische Wiederverbindung...');
-        connectToWebSocketServer();
+        // ignore
       }
-    }, 2000);
-  });
+    });
 
-} catch (error) {
-  console.log(`❌ Fehler beim Verbinden: ${error}`);
-  isConnecting = false;
+    ws.addEventListener('error', (error) => {
+      console.log(`❌ WebSocket-Fehler: ${error}`);
+      isConnecting = false;
 
-  // Update extension badge
-  chrome.action.setBadgeBackgroundColor({ color: '#FF0000' });
-}
+      // Update extension badge
+      chrome.action.setBadgeText({ text: 'OFF' });
+      chrome.action.setBadgeBackgroundColor({ color: '#FF0000' });
+    });
+
+    ws.addEventListener('close', (event) => {
+      console.log(`🔌 WebSocket-Verbindung geschlossen (Code: ${event.code}, Reason: ${event.reason})`);
+      ws = null;
+      isConnecting = false;
+
+      // Stop heartbeat
+      stopHeartbeat();
+
+      // Update extension badge
+      chrome.action.setBadgeText({ text: 'OFF' });
+      chrome.action.setBadgeBackgroundColor({ color: '#FF0000' });
+
+      // Try to reconnect after a short delay
+      setTimeout(() => {
+        if (!ws || ws.readyState !== WebSocket.OPEN) {
+          console.log('🔄 Versuche automatische Wiederverbindung...');
+          connectToWebSocketServer();
+        }
+      }, 2000);
+    });
+
+  } catch (error) {
+    console.log(`❌ Fehler beim Verbinden: ${error}`);
+    isConnecting = false;
+
+    // Update extension badge
+    chrome.action.setBadgeBackgroundColor({ color: '#FF0000' });
+  }
 }
 
 // Start heartbeat to keep connection alive
