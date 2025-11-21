@@ -61,10 +61,24 @@ interface LlmSettingsProps {
   bridge: 'ipc' | 'http'  // IPC for Electron, HTTP for Extension
 }
 
+// Hardcoded fallback catalog in case API is unavailable
+const FALLBACK_CATALOG: LlmModelConfig[] = [
+  { id: 'tinyllama', displayName: 'TinyLlama 1.1B', provider: 'TinyLlama', tier: 'lightweight', minRamGb: 1, recommendedRamGb: 2, diskSizeGb: 0.6, contextWindow: 2048, description: 'Ultra-fast, best for very old hardware. Good for simple tasks.' },
+  { id: 'phi3:mini', displayName: 'Phi-3 Mini 3.8B', provider: 'Microsoft', tier: 'lightweight', minRamGb: 2, recommendedRamGb: 3, diskSizeGb: 2.3, contextWindow: 4096, description: 'Very fast and capable. Recommended for low-end PCs.' },
+  { id: 'mistral:7b-instruct-q4_0', displayName: 'Mistral 7B Q4 (Quantized)', provider: 'Mistral', tier: 'balanced', minRamGb: 3, recommendedRamGb: 4, diskSizeGb: 2.6, contextWindow: 8192, description: 'Default model. Excellent balance of speed and quality.' },
+  { id: 'mistral:7b-instruct-q5_K_M', displayName: 'Mistral 7B Q5 (Quantized)', provider: 'Mistral', tier: 'balanced', minRamGb: 4, recommendedRamGb: 5, diskSizeGb: 3.2, contextWindow: 8192, description: 'Better quality than Q4, slightly more RAM required.' },
+  { id: 'llama3:8b', displayName: 'Llama 3 8B', provider: 'Meta', tier: 'balanced', minRamGb: 5, recommendedRamGb: 6, diskSizeGb: 4.7, contextWindow: 8192, description: 'High-quality responses, good reasoning capabilities.' },
+  { id: 'mistral:7b', displayName: 'Mistral 7B (Full Precision)', provider: 'Mistral', tier: 'performance', minRamGb: 7, recommendedRamGb: 8, diskSizeGb: 4.1, contextWindow: 8192, description: 'Full quality Mistral, no quantization. Requires more RAM.' },
+  { id: 'llama3.1:8b', displayName: 'Llama 3.1 8B', provider: 'Meta', tier: 'performance', minRamGb: 6, recommendedRamGb: 8, diskSizeGb: 4.7, contextWindow: 131072, description: 'Latest Llama version with 128K context window. Improved performance.' },
+  { id: 'mixtral:8x7b', displayName: 'Mixtral 8x7B (MoE)', provider: 'Mistral', tier: 'high-end', minRamGb: 24, recommendedRamGb: 32, diskSizeGb: 26, contextWindow: 32768, description: 'Mixture of Experts model. Excellent reasoning and coding.' },
+  { id: 'llama3.1:70b', displayName: 'Llama 3.1 70B', provider: 'Meta', tier: 'high-end', minRamGb: 48, recommendedRamGb: 64, diskSizeGb: 40, contextWindow: 131072, description: 'Enterprise-grade model. Powerful capabilities, requires high-end hardware.' },
+  { id: 'qwen2:72b', displayName: 'Qwen 2 72B', provider: 'Alibaba', tier: 'high-end', minRamGb: 48, recommendedRamGb: 64, diskSizeGb: 41, contextWindow: 32768, description: 'Advanced reasoning and multilingual support. Top-tier performance.' }
+]
+
 export function LlmSettings({ theme = 'default', bridge }: LlmSettingsProps) {
   const [hardware, setHardware] = useState<HardwareInfo | null>(null)
   const [status, setStatus] = useState<OllamaStatus | null>(null)
-  const [modelCatalog, setModelCatalog] = useState<LlmModelConfig[]>([])
+  const [modelCatalog, setModelCatalog] = useState<LlmModelConfig[]>(FALLBACK_CATALOG)
   const [selectedModel, setSelectedModel] = useState('')
   const [installing, setInstalling] = useState<string | null>(null)
   const [installProgress, setInstallProgress] = useState(0)
@@ -72,6 +86,8 @@ export function LlmSettings({ theme = 'default', bridge }: LlmSettingsProps) {
   const [deleting, setDeleting] = useState<string | null>(null)
   const [notification, setNotification] = useState<{ message: string; type: 'success' | 'error' } | null>(null)
   const [performanceEstimates, setPerformanceEstimates] = useState<Map<string, PerformanceEstimate>>(new Map())
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
   
   // Bridge-agnostic API
   const api = useMemo(() => {
@@ -90,25 +106,43 @@ export function LlmSettings({ theme = 'default', bridge }: LlmSettingsProps) {
     } else {
       // HTTP bridge for Extension
       const baseUrl = 'http://127.0.0.1:51248'
+      
+      const safeFetch = async (url: string, options?: RequestInit) => {
+        try {
+          const response = await fetch(url, options)
+          const contentType = response.headers.get('content-type')
+          
+          // Check if response is JSON
+          if (!contentType || !contentType.includes('application/json')) {
+            throw new Error(`Server returned ${response.status}: ${response.statusText}`)
+          }
+          
+          return response.json()
+        } catch (err: any) {
+          console.error('[LlmSettings] Fetch error:', err)
+          throw err
+        }
+      }
+      
       return {
-        getHardware: () => fetch(`${baseUrl}/api/llm/hardware`).then(r => r.json()),
-        getStatus: () => fetch(`${baseUrl}/api/llm/status`).then(r => r.json()),
-        getCatalog: () => fetch(`${baseUrl}/api/llm/catalog`).then(r => r.json()),
-        startOllama: () => fetch(`${baseUrl}/api/llm/start`, { method: 'POST' }).then(r => r.json()),
-        installModel: (modelId: string) => fetch(`${baseUrl}/api/llm/models/install`, {
+        getHardware: () => safeFetch(`${baseUrl}/api/llm/hardware`),
+        getStatus: () => safeFetch(`${baseUrl}/api/llm/status`),
+        getCatalog: () => safeFetch(`${baseUrl}/api/llm/catalog`),
+        startOllama: () => safeFetch(`${baseUrl}/api/llm/start`, { method: 'POST' }),
+        installModel: (modelId: string) => safeFetch(`${baseUrl}/api/llm/models/install`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ modelId })
-        }).then(r => r.json()),
-        deleteModel: (modelId: string) => fetch(`${baseUrl}/api/llm/models/${encodeURIComponent(modelId)}`, {
+        }),
+        deleteModel: (modelId: string) => safeFetch(`${baseUrl}/api/llm/models/${encodeURIComponent(modelId)}`, {
           method: 'DELETE'
-        }).then(r => r.json()),
-        setActiveModel: (modelId: string) => fetch(`${baseUrl}/api/llm/models/activate`, {
+        }),
+        setActiveModel: (modelId: string) => safeFetch(`${baseUrl}/api/llm/models/activate`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ modelId })
-        }).then(r => r.json()),
-        getPerformanceEstimate: (modelId: string) => fetch(`${baseUrl}/api/llm/performance/${encodeURIComponent(modelId)}`).then(r => r.json())
+        }),
+        getPerformanceEstimate: (modelId: string) => safeFetch(`${baseUrl}/api/llm/performance/${encodeURIComponent(modelId)}`)
       }
     }
   }, [bridge])
@@ -140,17 +174,40 @@ export function LlmSettings({ theme = 'default', bridge }: LlmSettingsProps) {
   
   const loadData = async () => {
     try {
+      setLoading(true)
+      setError(null)
+      
+      // Try to fetch data, but don't block on errors
       const [hwRes, statusRes, catalogRes] = await Promise.all([
-        api.getHardware(),
-        api.getStatus(),
-        api.getCatalog()
+        api.getHardware().catch(e => {
+          console.warn('[LlmSettings] Hardware API failed:', e.message)
+          return { ok: false, error: e.message }
+        }),
+        api.getStatus().catch(e => {
+          console.warn('[LlmSettings] Status API failed:', e.message)
+          return { ok: false, error: e.message }
+        }),
+        api.getCatalog().catch(e => {
+          console.warn('[LlmSettings] Catalog API failed:', e.message)
+          return { ok: false, error: e.message }
+        })
       ])
       
       if (hwRes.ok) setHardware(hwRes.data)
       if (statusRes.ok) setStatus(statusRes.data)
-      if (catalogRes.ok) setModelCatalog(catalogRes.data)
-    } catch (error) {
-      console.error('[LlmSettings] Failed to load data:', error)
+      if (catalogRes.ok && catalogRes.data) setModelCatalog(catalogRes.data)
+      // else keep FALLBACK_CATALOG
+      
+      // If all APIs failed, show connection error but still allow UI to work
+      if (!hwRes.ok && !statusRes.ok && !catalogRes.ok) {
+        setError('Cannot connect to Electron app. Using offline mode.')
+      }
+      
+      setLoading(false)
+    } catch (err: any) {
+      console.error('[LlmSettings] Failed to load data:', err)
+      setError('Electron app not reachable. Using offline mode.')
+      setLoading(false)
     }
   }
   
@@ -181,27 +238,34 @@ export function LlmSettings({ theme = 'default', bridge }: LlmSettingsProps) {
         // Poll for progress if using HTTP (no real-time updates)
         if (bridge === 'http') {
           const pollInterval = setInterval(async () => {
-            const statusRes = await api.getStatus()
-            if (statusRes.ok) {
-              // Installation complete when model appears in list
-              const installed = statusRes.data.modelsInstalled.find((m: InstalledModel) => 
-                m.name === selectedModel
-              )
-              if (installed) {
-                clearInterval(pollInterval)
-                setInstallProgress(100)
-                setInstallStatus('Installation complete!')
-                showNotification('Model installed successfully!', 'success')
-                setTimeout(() => {
-                  setInstalling(null)
-                  loadData()
-                }, 2000)
+            try {
+              // Poll the new progress endpoint
+              const progressRes = await fetch('http://127.0.0.1:51248/api/llm/install-progress')
+              if (progressRes.ok) {
+                const { progress } = await progressRes.json()
+                if (progress) {
+                  setInstallProgress(progress.progress || 0)
+                  setInstallStatus(progress.status || 'Downloading...')
+                  
+                  // Stop polling when complete
+                  if (progress.status === 'success' || progress.progress >= 100) {
+                    clearInterval(pollInterval)
+                    showNotification('Model installed successfully!', 'success')
+                    setTimeout(() => {
+                      setInstalling(null)
+                      loadData()
+                    }, 1000)
+                  }
+                }
               }
+            } catch (pollError) {
+              // Silently continue polling on error
+              console.warn('[LlmSettings] Poll error:', pollError)
             }
-          }, 2000)
+          }, 1000) // Poll every second
           
-          // Timeout after 5 minutes
-          setTimeout(() => clearInterval(pollInterval), 300000)
+          // Safety timeout
+          setTimeout(() => clearInterval(pollInterval), 1800000) // 30 min
         }
       } else {
         showNotification(res.error || 'Installation failed', 'error')
@@ -288,8 +352,82 @@ export function LlmSettings({ theme = 'default', bridge }: LlmSettingsProps) {
         Local LLM (Ollama)
       </h4>
       
+      {/* Loading State */}
+      {loading && (
+        <div style={{
+          padding: '20px',
+          textAlign: 'center',
+          fontSize: '12px',
+          opacity: 0.7
+        }}>
+          Loading LLM configuration...
+        </div>
+      )}
+      
+      {/* Error State - Non-blocking */}
+      {error && !loading && (
+        <div style={{
+          padding: '10px',
+          background: 'rgba(255, 193, 7, 0.1)',
+          border: '1px solid rgba(255, 193, 7, 0.3)',
+          borderRadius: '6px',
+          marginBottom: '12px',
+          fontSize: '10px'
+        }}>
+          <div style={{ fontWeight: '600', marginBottom: '4px', color: '#f59e0b' }}>
+            ⚠️ Offline Mode
+          </div>
+          <div style={{ opacity: 0.9, marginBottom: '6px' }}>{error}</div>
+          <div style={{ fontSize: '9px', opacity: 0.7, marginBottom: '8px' }}>
+            You can still browse models. Start the Electron app to install them.
+          </div>
+          <div style={{ display: 'flex', gap: '6px' }}>
+            <button
+              onClick={async () => {
+                try {
+                  await api.startOllama()
+                  showNotification('Attempting to start Ollama...', 'success')
+                  setTimeout(() => loadData(), 3000)
+                } catch (e: any) {
+                  showNotification('Failed to start Ollama', 'error')
+                }
+              }}
+              style={{
+                flex: 1,
+                padding: '6px 10px',
+                background: '#22c55e',
+                border: 'none',
+                borderRadius: '4px',
+                color: '#fff',
+                fontSize: '10px',
+                fontWeight: '600',
+                cursor: 'pointer'
+              }}
+            >
+              Start Ollama
+            </button>
+            <button
+              onClick={loadData}
+              style={{
+                flex: 1,
+                padding: '6px 10px',
+                background: '#2563eb',
+                border: 'none',
+                borderRadius: '4px',
+                color: '#fff',
+                fontSize: '10px',
+                fontWeight: '600',
+                cursor: 'pointer'
+              }}
+            >
+              Retry Connection
+            </button>
+          </div>
+        </div>
+      )}
+      
       {/* Hardware Info */}
-      {hardware && (
+      {!loading && hardware && (
         <div style={{
           padding: '10px',
           background: bgPrimary,
@@ -491,21 +629,87 @@ export function LlmSettings({ theme = 'default', bridge }: LlmSettingsProps) {
         </div>
       )}
       
-      {/* Install New Model */}
-      {status?.running && (
+      {/* Install New Model - Always show */}
+      {!loading && (
         <div style={{
           padding: '10px',
           background: bgPrimary,
-          borderRadius: '6px'
+          borderRadius: '6px',
+          marginTop: '12px'
         }}>
           <div style={{ fontWeight: '600', marginBottom: '8px', fontSize: '10px', opacity: 0.8 }}>
             INSTALL NEW MODEL
           </div>
           
+          {status && !status.installed && (
+            <div style={{
+              padding: '10px',
+              background: 'rgba(239, 68, 68, 0.1)',
+              border: '1px solid rgba(239, 68, 68, 0.3)',
+              borderRadius: '4px',
+              fontSize: '10px',
+              marginBottom: '8px'
+            }}>
+              <div style={{ fontWeight: '600', marginBottom: '6px' }}>
+                ⚠️ Ollama Not Installed
+              </div>
+              <div style={{ marginBottom: '8px', opacity: 0.9 }}>
+                Ollama is required to run local LLMs. Please install it to continue.
+              </div>
+              <a 
+                href="https://ollama.ai/download" 
+                target="_blank" 
+                rel="noopener noreferrer"
+                style={{
+                  display: 'inline-block',
+                  padding: '6px 12px',
+                  background: '#2563eb',
+                  color: '#fff',
+                  textDecoration: 'none',
+                  borderRadius: '4px',
+                  fontSize: '10px',
+                  fontWeight: '600'
+                }}
+              >
+                Download Ollama
+              </a>
+            </div>
+          )}
+          
+          {status && status.installed && !status.running && (
+            <div style={{
+              padding: '8px',
+              background: 'rgba(239, 68, 68, 0.1)',
+              border: '1px solid rgba(239, 68, 68, 0.3)',
+              borderRadius: '4px',
+              fontSize: '10px',
+              marginBottom: '8px'
+            }}>
+              ⚠️ Ollama is not running. Start Ollama to install models.
+              <button
+                onClick={handleStartOllama}
+                style={{
+                  marginTop: '6px',
+                  padding: '4px 8px',
+                  background: '#2563eb',
+                  border: 'none',
+                  borderRadius: '4px',
+                  color: '#fff',
+                  fontSize: '10px',
+                  fontWeight: '600',
+                  cursor: 'pointer',
+                  display: 'block'
+                }}
+              >
+                Start Ollama
+              </button>
+            </div>
+          )}
+          
           <select
             value={selectedModel}
             onChange={(e) => setSelectedModel(e.target.value)}
-            disabled={!!installing}
+            disabled={!!installing || (status && (!status.installed || !status.running))}
             style={{
               width: '100%',
               padding: '8px',
@@ -515,12 +719,13 @@ export function LlmSettings({ theme = 'default', bridge }: LlmSettingsProps) {
               color: textColor,
               fontSize: '10px',
               marginBottom: '8px',
-              cursor: installing ? 'not-allowed' : 'pointer'
+              cursor: (installing || (status && (!status.installed || !status.running))) ? 'not-allowed' : 'pointer',
+              opacity: (status && status.installed && status.running) ? 1 : 0.6
             }}
           >
             <option value="">-- Select a model --</option>
             {modelCatalog.map((model) => {
-              const isInstalled = status.modelsInstalled.some(m => m.name === model.id)
+              const isInstalled = status?.modelsInstalled.some(m => m.name === model.id)
               const estimate = getEstimateForModel(model.id)
               const indicator = estimate ? 
                 (estimate.estimate === 'fast' ? '🟢' :
@@ -582,7 +787,7 @@ export function LlmSettings({ theme = 'default', bridge }: LlmSettingsProps) {
           
           <button
             onClick={handleInstallModel}
-            disabled={!selectedModel || !!installing}
+            disabled={!selectedModel || !!installing || (status && (!status.installed || !status.running))}
             style={{
               width: '100%',
               padding: '10px 12px',
@@ -592,8 +797,8 @@ export function LlmSettings({ theme = 'default', bridge }: LlmSettingsProps) {
               color: '#fff',
               fontSize: '12px',
               fontWeight: '600',
-              cursor: (!selectedModel || installing) ? 'not-allowed' : 'pointer',
-              opacity: (!selectedModel || installing) ? 0.5 : 1
+              cursor: (!selectedModel || installing || (status && (!status.installed || !status.running))) ? 'not-allowed' : 'pointer',
+              opacity: (!selectedModel || installing || (status && (!status.installed || !status.running))) ? 0.5 : 1
             }}
           >
             {installing ? 'Installing...' : '⚡ Install Selected Model'}

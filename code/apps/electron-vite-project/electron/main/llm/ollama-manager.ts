@@ -17,6 +17,7 @@ export class OllamaManager {
   private ollamaPort: number = 11434
   private process: ChildProcess | null = null
   private baseUrl: string = ''
+  private downloadProgress: any = null
   
   constructor() {
     this.ollamaPort = 11434
@@ -29,8 +30,6 @@ export class OllamaManager {
    */
   private initializeOllamaPath() {
     try {
-      // Try bundled Ollama first
-      const resourcesPath = process.resourcesPath || app.getAppPath()
       const platform = process.platform
       
       let binaryName = 'ollama'
@@ -38,6 +37,8 @@ export class OllamaManager {
         binaryName = 'ollama.exe'
       }
       
+      // 1. Try bundled Ollama first
+      const resourcesPath = process.resourcesPath || app.getAppPath()
       const bundledPath = path.join(resourcesPath, 'ollama', binaryName)
       
       if (fs.existsSync(bundledPath)) {
@@ -46,7 +47,29 @@ export class OllamaManager {
         return
       }
       
-      // Fallback: assume Ollama is in system PATH
+      // 2. Try standard Windows installation path
+      if (platform === 'win32') {
+        const localAppData = process.env.LOCALAPPDATA || path.join(process.env.USERPROFILE || '', 'AppData', 'Local')
+        const windowsPath = path.join(localAppData, 'Programs', 'Ollama', 'ollama.exe')
+        
+        if (fs.existsSync(windowsPath)) {
+          this.ollamaPath = windowsPath
+          console.log('[Ollama] Using Windows installation:', windowsPath)
+          return
+        }
+      }
+      
+      // 3. Try standard macOS installation path
+      if (platform === 'darwin') {
+        const macPath = '/usr/local/bin/ollama'
+        if (fs.existsSync(macPath)) {
+          this.ollamaPath = macPath
+          console.log('[Ollama] Using macOS installation:', macPath)
+          return
+        }
+      }
+      
+      // 4. Fallback: assume Ollama is in system PATH
       this.ollamaPath = 'ollama'
       console.log('[Ollama] Using system Ollama from PATH')
     } catch (error) {
@@ -284,6 +307,7 @@ export class OllamaManager {
                 total: json.total,
                 digest: json.digest
               }
+              this.downloadProgress = progress // Store for polling
               onProgress(progress)
             }
             
@@ -363,6 +387,13 @@ export class OllamaManager {
       console.error('[Ollama] Chat failed:', error)
       throw error
     }
+  }
+  
+  /**
+   * Get current download progress (for polling)
+   */
+  getDownloadProgress(): any {
+    return this.downloadProgress
   }
 }
 

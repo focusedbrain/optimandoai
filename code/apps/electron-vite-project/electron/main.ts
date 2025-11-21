@@ -2462,8 +2462,8 @@ app.whenReady().then(async () => {
         
         // Start async installation
         ollamaManager.pullModel(modelId, (progress) => {
-          // Progress updates could be sent via WebSocket if needed
           console.log('[HTTP-LLM] Install progress:', progress)
+          // Progress is now stored in ollamaManager.downloadProgress
         }).catch((error) => {
           console.error('[HTTP-LLM] Model installation failed:', error)
         })
@@ -2471,6 +2471,18 @@ app.whenReady().then(async () => {
         res.json({ ok: true, message: 'Installation started' })
       } catch (error: any) {
         console.error('[HTTP-LLM] Error installing model:', error)
+        res.status(500).json({ ok: false, error: error.message })
+      }
+    })
+    
+    // GET /api/llm/install-progress - Get current installation progress
+    httpApp.get('/api/llm/install-progress', async (_req, res) => {
+      try {
+        const { ollamaManager } = await import('./main/llm/ollama-manager')
+        const progress = ollamaManager.getDownloadProgress()
+        res.json({ ok: true, progress })
+      } catch (error: any) {
+        console.error('[HTTP-LLM] Error getting install progress:', error)
         res.status(500).json({ ok: false, error: error.message })
       }
     })

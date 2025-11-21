@@ -246,11 +246,13 @@ export function BackendSwitcher({ theme = 'default' }: BackendSwitcherProps) {
               gap: '6px',
               marginBottom: '14px',
             }}>
-              {(['localdb', 'vectordb', 'llm', 'automation'] as const).map((tab) => (
+              {(['localdb', 'vectordb', 'llm', 'automation'] as const).map((tab) => {
+                const isEnabled = tab === 'localdb' || tab === 'llm';
+                return (
                 <button
                   key={tab}
                   onClick={() => setActiveTab(tab)}
-                  disabled={tab !== 'localdb'}
+                  disabled={!isEnabled}
                   style={{
                     flex: 1,
                     padding: '8px 10px',
@@ -260,8 +262,8 @@ export function BackendSwitcher({ theme = 'default' }: BackendSwitcherProps) {
                     color: textColor,
                     fontSize: '11px',
                     fontWeight: activeTab === tab ? '600' : '500',
-                    cursor: tab === 'localdb' ? 'pointer' : 'not-allowed',
-                    opacity: tab === 'localdb' ? 1 : 0.5,
+                    cursor: isEnabled ? 'pointer' : 'not-allowed',
+                    opacity: isEnabled ? 1 : 0.5,
                     transition: 'all 0.2s',
                   }}
                 >
@@ -270,7 +272,8 @@ export function BackendSwitcher({ theme = 'default' }: BackendSwitcherProps) {
                   {tab === 'llm' && 'LLM'}
                   {tab === 'automation' && 'Automation'}
                 </button>
-              ))}
+              );
+              })}
             </div>
 
             {/* Local DB Tab */}
