@@ -57,6 +57,7 @@ if (window.gridScriptLoaded) {
     
     function modelOptions(p) {
       p = (p || '').toLowerCase();
+      if (p === 'ollama') return ['mistral:7b', 'llama3:8b', 'phi3:mini', 'mistral:14b'];
       if (p === 'openai') return ['auto', 'gpt-4o-mini', 'gpt-4o'];
       if (p === 'claude') return ['auto', 'claude-3-5-sonnet', 'claude-3-opus'];
       if (p === 'gemini') return ['auto', 'gemini-1.5-flash', 'gemini-1.5-pro'];
@@ -64,7 +65,7 @@ if (window.gridScriptLoaded) {
       return ['auto'];
     }
     
-    const providers = ['OpenAI', 'Claude', 'Gemini', 'Grok'];
+    const providers = ['Ollama', 'OpenAI', 'Claude', 'Gemini', 'Grok'];
     const currentProvider = cfg.provider || '';
     const models = currentProvider ? modelOptions(currentProvider) : [];
     

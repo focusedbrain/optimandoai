@@ -5579,6 +5579,8 @@ function initializeExtension() {
 
               <option value="" selected disabled>Select LLM</option>
 
+              <option value="Ollama">Ollama (Local)</option>
+
               <option value="OpenAI">OpenAI</option>
 
               <option value="Claude">Claude</option>
@@ -5664,12 +5666,14 @@ function initializeExtension() {
     safeAppendToBody(overlay)
 
     
-
+    
     let selectedColor = colors[0]
 
     const getPlaceholderModels = (provider: string) => {
 
       switch ((provider || '').toLowerCase()) {
+
+        case 'ollama': return ['mistral:7b', 'llama3:8b', 'phi3:mini', 'mistral:14b']
 
         case 'openai': return ['auto', 'gpt-4o-mini', 'gpt-4o']
 
