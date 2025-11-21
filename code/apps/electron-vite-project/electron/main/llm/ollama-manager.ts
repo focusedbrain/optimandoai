@@ -52,12 +52,43 @@ export class OllamaManagerService {
    */
   async checkInstallation(): Promise<boolean> {
     try {
-      // Try to get version - if this works, Ollama is available
+      // Method 1: Try to get version from the configured path
       const version = await this.getVersion()
-      return version !== null
-    } catch {
-      return false
+      if (version !== null) {
+        console.log('[OLLAMA] Found Ollama at configured path:', this.ollamaPath, 'Version:', version)
+        return true
+      }
+    } catch (error) {
+      console.log('[OLLAMA] Configured path not working, trying system PATH...')
     }
+    
+    try {
+      // Method 2: Try system PATH (for Windows/Mac/Linux installations)
+      const { stdout } = await execAsync('ollama --version')
+      if (stdout.trim()) {
+        console.log('[OLLAMA] Found Ollama in system PATH, Version:', stdout.trim())
+        // Update path to use system ollama
+        this.ollamaPath = 'ollama'
+        return true
+      }
+    } catch (error) {
+      console.log('[OLLAMA] Not found in system PATH either')
+    }
+    
+    try {
+      // Method 3: Check if Ollama server is already running
+      const response = await fetch(`http://127.0.0.1:${this.OLLAMA_PORT}/api/tags`, {
+        signal: AbortSignal.timeout(2000)
+      })
+      if (response.ok) {
+        console.log('[OLLAMA] Server already running at port', this.OLLAMA_PORT)
+        return true
+      }
+    } catch {
+      console.log('[OLLAMA] No server running at port', this.OLLAMA_PORT)
+    }
+    
+    return false
   }
   
   /**
@@ -65,7 +96,10 @@ export class OllamaManagerService {
    */
   async getVersion(): Promise<string | null> {
     try {
-      const { stdout } = await execAsync(`"${this.ollamaPath}" --version`)
+      const cmd = this.ollamaPath.includes(' ') || this.ollamaPath.includes('\\') 
+        ? `"${this.ollamaPath}" --version` 
+        : `${this.ollamaPath} --version`
+      const { stdout } = await execAsync(cmd)
       return stdout.trim()
     } catch (error) {
       console.warn('[OLLAMA] Version check failed:', error)
@@ -77,21 +111,38 @@ export class OllamaManagerService {
    * Start Ollama server process
    */
   async startOllama(): Promise<void> {
+    // First check if Ollama server is already running
+    try {
+      const response = await fetch(`http://127.0.0.1:${this.OLLAMA_PORT}/api/tags`, {
+        signal: AbortSignal.timeout(2000)
+      })
+      if (response.ok) {
+        console.log('[OLLAMA] Server already running')
+        return
+      }
+    } catch {
+      // Server not running, we'll start it
+    }
+    
     if (this.ollamaProcess) {
-      console.log('[OLLAMA] Already running')
+      console.log('[OLLAMA] Process already spawned')
       return
     }
     
     console.log('[OLLAMA] Starting Ollama server...')
     
     try {
-      this.ollamaProcess = spawn(this.ollamaPath, ['serve'], {
+      // Use 'ollama' command directly if it's in PATH
+      const command = this.ollamaPath === 'ollama' ? 'ollama' : this.ollamaPath
+      
+      this.ollamaProcess = spawn(command, ['serve'], {
         env: { 
           ...process.env, 
           OLLAMA_HOST: `127.0.0.1:${this.OLLAMA_PORT}`,
           OLLAMA_ORIGINS: '*' // Allow all origins for local development
         },
-        stdio: ['ignore', 'pipe', 'pipe']
+        stdio: ['ignore', 'pipe', 'pipe'],
+        shell: true // Use shell to resolve PATH on Windows
       })
       
       this.ollamaProcess.stdout?.on('data', (data: Buffer) => {
