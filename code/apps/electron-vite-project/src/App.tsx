@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import './App.css'
 import LETmeGIRAFFETHATFORYOUIcons from './components/LETmeGIRAFFETHATFORYOUIcons'
 import { BackendConfiguration } from './components/BackendConfiguration'
+import { LlmSetupWizard } from './components/llm/LlmSetupWizard'
 
 type ThemePreference = 'dark' | 'professional' | 'auto'
 
@@ -52,8 +53,15 @@ function App() {
   const [captures, setCaptures] = useState<any[]>([])
   const [triggerPrompt, setTriggerPrompt] = useState<{ mode: 'screenshot'|'stream', rect: any, displayId: number } | null>(null)
   const [triggerName, setTriggerName] = useState('')
+  const [showWizard, setShowWizard] = useState(false)
 
   useEffect(() => {
+    // Check if first run - show wizard
+    const setupComplete = localStorage.getItem('llm-setup-complete')
+    if (!setupComplete) {
+      setShowWizard(true)
+    }
+
     // @ts-ignore
     window.lmgtfy?.onCapture((payload: any) => setCaptures((c) => [...c, payload]))
     // @ts-ignore
@@ -116,8 +124,28 @@ function App() {
     setTriggerName('')
   }
 
+  const handleWizardComplete = () => {
+    setShowWizard(false)
+  }
+
+  const handleWizardSkip = () => {
+    localStorage.setItem('llm-setup-complete', 'skipped')
+    setShowWizard(false)
+  }
+
+  const handleReopenWizard = () => {
+    localStorage.removeItem('llm-setup-complete')
+    setShowWizard(true)
+  }
+
   return (
     <div className="app-root">
+      {showWizard && (
+        <LlmSetupWizard 
+          onComplete={handleWizardComplete}
+          onSkip={handleWizardSkip}
+        />
+      )}
       <div className="topbar">
         <div className="brand">OpenGiraffe</div>
         <div style={{ flex: 1 }} />
@@ -162,6 +190,15 @@ function App() {
             <div className="modal-body">
               <ThemeSwitcher />
               <BackendConfiguration />
+              <div style={{ marginTop: 16, padding: 12, borderTop: '1px solid rgba(255,255,255,0.1)' }}>
+                <button 
+                  className="btn" 
+                  onClick={handleReopenWizard}
+                  style={{ width: '100%', fontSize: 13 }}
+                >
+                  🔄 Re-run LLM Setup Wizard
+                </button>
+              </div>
             </div>
           </div>
         </div>
