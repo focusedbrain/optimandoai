@@ -57,28 +57,6 @@ export function BackendSwitcher({ theme = 'default' }: BackendSwitcherProps) {
   const [installing, setInstalling] = useState(false);
   const [installProgress, setInstallProgress] = useState(0);
   const [installStatus, setInstallStatus] = useState('');
-  const [downloadDetails, setDownloadDetails] = useState<{
-    completed?: number
-    total?: number
-    speed?: number
-  }>({});
-  const [installedModels, setInstalledModels] = useState<any[]>([]);
-  const [selectedModel, setSelectedModel] = useState('');
-  const [deleting, setDeleting] = useState<string | null>(null);
-
-  // Available opensource models
-  const availableModels = [
-    { id: 'tinyllama', name: 'TinyLlama (Ultra Fast)', ram: '1GB', size: '0.6GB', desc: 'Best for very old hardware' },
-    { id: 'phi3:mini', name: 'Phi-3 Mini (Very Fast)', ram: '2-3GB', size: '2.3GB', desc: 'Recommended for low-end PCs' },
-    { id: 'mistral:7b-instruct-q4_0', name: 'Mistral 7B Q4 (Fast)', ram: '4GB', size: '2.6GB', desc: 'Default - Good balance' },
-    { id: 'mistral:7b-instruct-q5_K_M', name: 'Mistral 7B Q5 (Balanced)', ram: '5GB', size: '3.2GB', desc: 'Better quality' },
-    { id: 'mistral:7b', name: 'Mistral 7B (Best Quality)', ram: '8GB', size: '4.1GB', desc: 'High-end hardware only' },
-    { id: 'llama3:8b', name: 'Llama 3 8B', ram: '8GB', size: '4.7GB', desc: 'Alternative to Mistral' },
-    { id: 'llama3.1:8b', name: 'Llama 3.1 8B', ram: '8GB', size: '4.7GB', desc: 'Latest Llama 3.1 version' },
-    { id: 'mixtral:8x7b', name: 'Mixtral 8x7B (MoE)', ram: '32GB', size: '26GB', desc: 'High-end: Mixture of Experts' },
-    { id: 'llama3.1:70b', name: 'Llama 3.1 70B', ram: '64GB', size: '40GB', desc: 'High-end: Enterprise grade' },
-    { id: 'qwen2:72b', name: 'Qwen 2 72B', ram: '64GB', size: '41GB', desc: 'High-end: Advanced reasoning' },
-  ];
 
   // Load config on mount
   useEffect(() => {
@@ -143,10 +121,9 @@ export function BackendSwitcher({ theme = 'default' }: BackendSwitcherProps) {
 
   const loadLlmStatus = async () => {
     try {
-      const [statusRes, hardwareRes, modelsRes] = await Promise.all([
+      const [statusRes, hardwareRes] = await Promise.all([
         fetch('http://127.0.0.1:51248/api/llm/status'),
-        fetch('http://127.0.0.1:51248/api/llm/hardware'),
-        fetch('http://127.0.0.1:51248/api/llm/models')
+        fetch('http://127.0.0.1:51248/api/llm/hardware')
       ]);
       
       if (statusRes.ok) {
@@ -158,132 +135,44 @@ export function BackendSwitcher({ theme = 'default' }: BackendSwitcherProps) {
         const hw = await hardwareRes.json();
         setHardware(hw);
       }
-      
-      if (modelsRes.ok) {
-        const models = await modelsRes.json();
-        if (models.ok && models.data) {
-          setInstalledModels(models.data);
-        }
-      }
     } catch (error) {
       console.error('Failed to load LLM status:', error);
     }
   };
-  
-  const handleDeleteModel = async (modelName: string) => {
-    if (!confirm(`Delete model "${modelName}"? This will free up disk space but you'll need to download it again if you want to use it.`)) {
-      return;
-    }
-    
-    setDeleting(modelName);
-    try {
-      const response = await fetch('http://127.0.0.1:51248/api/llm/model', {
-        method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ modelName })
-      });
-      
-      const result = await response.json();
-      if (result.ok) {
-        setNotification({ message: `Model deleted successfully`, type: 'success' });
-        await loadLlmStatus();  // Refresh
-      } else {
-        setNotification({ message: result.error || 'Deletion failed', type: 'error' });
-      }
-    } catch (error: any) {
-      setNotification({ message: 'Failed to delete model', type: 'error' });
-    } finally {
-      setDeleting(null);
-      setTimeout(() => setNotification(null), 3000);
-    }
-  };
-  
-  const handleSwitchModel = async (modelName: string) => {
-    try {
-      // Update orchestrator config to use this model
-      const response = await fetch('http://127.0.0.1:51248/api/llm/config', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ modelId: modelName })
-      });
-      
-      const result = await response.json();
-      if (result.ok) {
-        setNotification({ message: `Switched to ${modelName}`, type: 'success' });
-        await loadLlmStatus();  // Refresh
-      } else {
-        setNotification({ message: result.error || 'Failed to switch model', type: 'error' });
-      }
-    } catch (error: any) {
-      setNotification({ message: 'Failed to switch model', type: 'error' });
-    } finally {
-      setTimeout(() => setNotification(null), 3000);
-    }
-  };
-  
-  const handleInstallModel = async (modelId: string) => {
+
+  const handleAutoInstallLlm = async () => {
     setInstalling(true);
     setInstallProgress(0);
-    setInstallStatus(`Installing ${modelId}...`);
-    setDownloadDetails({});
+    setInstallStatus('Starting installation...');
 
     try {
-      // Poll for progress
-      const pollInterval = setInterval(async () => {
-        try {
-          const statusRes = await fetch('http://127.0.0.1:51248/api/llm/status');
-          if (statusRes.ok) {
-            const status = await statusRes.json();
-            if (status.downloadProgress) {
-              setInstallProgress(status.downloadProgress.progress || 0);
-              setInstallStatus(status.downloadProgress.status || 'Downloading...');
-              
-              if (status.downloadProgress.completed && status.downloadProgress.total) {
-                setDownloadDetails({
-                  completed: status.downloadProgress.completed,
-                  total: status.downloadProgress.total
-                });
-              }
-            }
-          }
-        } catch (e) {
-          console.error('Poll error:', e);
-        }
-      }, 500);
+      setInstallStatus('Starting Ollama server...');
+      await fetch('http://127.0.0.1:51248/api/llm/start', { method: 'POST' });
+      setInstallProgress(25);
 
-      // Start installation
+      setInstallStatus('Downloading Mistral 7B...');
       const response = await fetch('http://127.0.0.1:51248/api/llm/download-model', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ modelName: modelId })
+        body: JSON.stringify({ modelName: 'mistral:7b' })
       });
 
-      clearInterval(pollInterval);
-
-      if (response.ok) {
-        setInstallProgress(100);
-        setInstallStatus('Installation complete!');
-        setNotification({ message: 'Model installed successfully!', type: 'success' });
-        setTimeout(() => {
-          setInstalling(false);
-          loadLlmStatus();
-        }, 2000);
-      } else {
-        throw new Error('Installation failed');
+      if (!response.ok) {
+        throw new Error('Download failed');
       }
+
+      setInstallProgress(100);
+      setInstallStatus('Ô£ô Installation complete!');
+      setNotification({ message: 'LLM installed successfully', type: 'success' });
+      
+      setTimeout(() => loadLlmStatus(), 1000);
     } catch (error: any) {
       setInstallStatus('Installation failed');
       setNotification({ message: error.message || 'Installation failed', type: 'error' });
-      setTimeout(() => setInstalling(false), 2000);
     } finally {
-      setTimeout(() => setNotification(null), 3000);
+      setInstalling(false);
+      setTimeout(() => setNotification(null), 5000);
     }
-  };
-
-  const handleAutoInstallLlm = async () => {
-    // Default to recommended model if none selected
-    const modelToInstall = selectedModel || hardware?.recommendedModel || 'mistral:7b-instruct-q4_0';
-    await handleInstallModel(modelToInstall);
   };
 
   const handleTestConnection = async () => {
@@ -833,7 +722,7 @@ export function BackendSwitcher({ theme = 'default' }: BackendSwitcherProps) {
             {activeTab === 'llm' && (
               <div>
                 <h4 style={{ margin: '0 0 10px 0', fontSize: '12px', fontWeight: '600', color: textColor }}>
-                  Local LLM (Ollama)
+                  Local LLM (Ollama + Mistral 7B)
                 </h4>
 
                 {/* Hardware Info */}
@@ -847,44 +736,16 @@ export function BackendSwitcher({ theme = 'default' }: BackendSwitcherProps) {
                     color: textColor,
                   }}>
                     <div style={{ fontWeight: '600', marginBottom: '6px', fontSize: '10px', opacity: 0.8 }}>SYSTEM INFO</div>
-                    <div style={{ display: 'grid', gridTemplateColumns: '100px 1fr', gap: '4px', fontSize: '10px' }}>
-                      <span style={{ opacity: 0.7 }}>Total RAM:</span>
-                      <span style={{ fontWeight: '600' }}>{hardware.totalRamGb} GB</span>
-                      
-                      <span style={{ opacity: 0.7 }}>FREE RAM:</span>
-                      <span style={{ 
-                        fontWeight: '600',
-                        color: hardware.freeRamGb >= 8 ? '#22c55e' : hardware.freeRamGb >= 4 ? '#f59e0b' : '#ef4444'
-                      }}>
-                        {hardware.freeRamGb} GB {hardware.freeRamGb >= 8 ? '🟢' : hardware.freeRamGb >= 4 ? '🟡' : '🔴'}
-                      </span>
-                      
+                    <div style={{ display: 'grid', gridTemplateColumns: '80px 1fr', gap: '4px', fontSize: '10px' }}>
+                      <span style={{ opacity: 0.7 }}>RAM:</span>
+                      <span>{hardware.totalRamGb} GB ({hardware.recommendedTier})</span>
                       <span style={{ opacity: 0.7 }}>CPU:</span>
                       <span>{hardware.cpuCores} cores</span>
-                      
-                      {hardware.recommendedModel && (
-                        <>
-                          <span style={{ opacity: 0.7 }}>Recommended:</span>
-                          <span style={{ fontWeight: '600', color: '#60a5fa' }}>{hardware.recommendedModel}</span>
-                        </>
-                      )}
+                      <span style={{ opacity: 0.7 }}>Status:</span>
+                      <span style={{ color: hardware.canRunMistral7B ? '#22c55e' : '#f59e0b' }}>
+                        {hardware.canRunMistral7B ? 'Ô£ô Compatible' : 'ÔÜá Limited'}
+                      </span>
                     </div>
-                    
-                    {hardware.warnings && hardware.warnings.length > 0 && (
-                      <div style={{
-                        marginTop: '8px',
-                        padding: '6px',
-                        background: 'rgba(239,68,68,0.1)',
-                        border: '1px solid rgba(239,68,68,0.3)',
-                        borderRadius: '4px',
-                        fontSize: '9px',
-                        lineHeight: '1.4'
-                      }}>
-                        {hardware.warnings.map((w: string, i: number) => (
-                          <div key={i}>{w}</div>
-                        ))}
-                      </div>
-                    )}
                   </div>
                 )}
 
@@ -900,169 +761,36 @@ export function BackendSwitcher({ theme = 'default' }: BackendSwitcherProps) {
                     color: textColor,
                   }}>
                     <div style={{ fontWeight: '600', marginBottom: '6px', fontSize: '10px' }}>
-                      {llmStatus.isReady ? '✅ READY' : 'NOT INSTALLED'}
+                      {llmStatus.isReady ? 'Ô£ô READY' : 'NOT INSTALLED'}
                     </div>
                     <div style={{ display: 'grid', gridTemplateColumns: '80px 1fr', gap: '4px', fontSize: '10px' }}>
                       <span style={{ opacity: 0.7 }}>Ollama:</span>
-                      <span>{llmStatus.ollamaInstalled ? '✅ Installed' : '❌ Not found'}</span>
+                      <span>{llmStatus.ollamaInstalled ? 'Ô£ô Installed' : 'Ô£ù Not found'}</span>
                       <span style={{ opacity: 0.7 }}>Model:</span>
-                      <span>{llmStatus.modelAvailable ? `✅ ${llmStatus.modelName}` : '❌ Not downloaded'}</span>
+                      <span>{llmStatus.modelAvailable ? `Ô£ô ${llmStatus.modelName}` : 'Ô£ù Not downloaded'}</span>
                     </div>
                   </div>
                 )}
 
-                {/* Installed Models List */}
-                {installedModels.length > 0 && (
-                  <div style={{
-                    marginBottom: '12px',
-                  }}>
-                    <div style={{ fontWeight: '600', marginBottom: '6px', fontSize: '10px', opacity: 0.8, color: textColor }}>
-                      INSTALLED MODELS ({installedModels.length})
-                    </div>
-                    {installedModels.map((model: any) => {
-                      const isActive = llmStatus?.modelName === model.name;
-                      return (
-                        <div key={model.name} style={{
-                          padding: '8px',
-                          background: isActive ? 'rgba(34,197,94,0.1)' : 'rgba(255,255,255,0.05)',
-                          border: isActive ? '1px solid rgba(34,197,94,0.3)' : '1px solid transparent',
-                          borderRadius: '4px',
-                          marginBottom: '4px',
-                          display: 'flex',
-                          justifyContent: 'space-between',
-                          alignItems: 'center',
-                          fontSize: '10px',
-                          color: textColor,
-                        }}>
-                          <div style={{ flex: 1 }}>
-                            <div style={{ fontWeight: '600', marginBottom: '2px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                              {model.name}
-                              {isActive && (
-                                <span style={{
-                                  padding: '2px 6px',
-                                  background: '#059669',
-                                  borderRadius: '3px',
-                                  fontSize: '8px',
-                                  fontWeight: '600'
-                                }}>
-                                  ✓ ACTIVE
-                                </span>
-                              )}
-                            </div>
-                            <div style={{ opacity: 0.7 }}>
-                              {(model.size / (1024**3)).toFixed(2)} GB
-                            </div>
-                          </div>
-                          <div style={{ display: 'flex', gap: '4px' }}>
-                            {!isActive && (
-                              <button
-                                onClick={() => handleSwitchModel(model.name)}
-                                style={{
-                                  padding: '4px 8px',
-                                  background: 'rgba(59,130,246,0.2)',
-                                  border: '1px solid rgba(59,130,246,0.4)',
-                                  borderRadius: '3px',
-                                  color: '#60a5fa',
-                                  fontSize: '9px',
-                                  cursor: 'pointer',
-                                }}
-                              >
-                                ⚡ Use This
-                              </button>
-                            )}
-                            <button
-                              onClick={() => handleDeleteModel(model.name)}
-                              disabled={deleting === model.name}
-                              style={{
-                                padding: '4px 8px',
-                                background: 'rgba(239,68,68,0.2)',
-                                border: '1px solid rgba(239,68,68,0.4)',
-                                borderRadius: '3px',
-                                color: '#ef4444',
-                                fontSize: '9px',
-                                cursor: deleting === model.name ? 'not-allowed' : 'pointer',
-                                opacity: deleting === model.name ? 0.5 : 1,
-                              }}
-                              title={deleting === model.name ? 'Deleting...' : 'Delete this model'}
-                            >
-                              {deleting === model.name ? '...' : '🗑'}
-                            </button>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-
-                {/* Installation Section */}
-                {!llmStatus?.ollamaInstalled && (
-                  <div style={{
-                    padding: '8px',
-                    background: 'rgba(239,68,68,0.2)',
-                    border: '1px solid rgba(239,68,68,0.4)',
-                    borderRadius: '4px',
-                    fontSize: '10px',
-                    marginBottom: '8px',
-                    color: textColor,
-                  }}>
-                    ⚠️ Ollama not found. Install from <a href="https://ollama.ai" target="_blank" rel="noopener" style={{ color: '#60a5fa' }}>ollama.ai</a>
-                  </div>
-                )}
-
-                {/* Model Selection Dropdown */}
-                {llmStatus?.ollamaInstalled && (
+                {/* Installation */}
+                {!llmStatus?.isReady && (
                   <div style={{
                     padding: '10px',
                     background: 'rgba(255,255,255,0.08)',
                     borderRadius: '6px',
                     marginBottom: '8px',
                   }}>
-                    <div style={{ fontWeight: '600', marginBottom: '6px', fontSize: '10px', opacity: 0.8, color: textColor }}>
-                      INSTALL NEW MODEL
-                    </div>
-                    
-                    <select
-                      value={selectedModel}
-                      onChange={(e) => setSelectedModel(e.target.value)}
-                      disabled={installing}
-                      style={{
-                        width: '100%',
+                    {!llmStatus?.ollamaInstalled && (
+                      <div style={{
                         padding: '8px',
-                        background: 'rgba(255,255,255,0.1)',
-                        border: '1px solid rgba(255,255,255,0.2)',
+                        background: 'rgba(239,68,68,0.2)',
+                        border: '1px solid rgba(239,68,68,0.4)',
                         borderRadius: '4px',
-                        color: textColor,
                         fontSize: '10px',
                         marginBottom: '8px',
-                        cursor: installing ? 'not-allowed' : 'pointer',
-                      }}
-                    >
-                      <option value="">-- Select a model --</option>
-                      {availableModels.map((model) => {
-                        const isInstalled = installedModels.some((m: any) => m.name === model.id);
-                        const isCompatible = hardware && hardware.freeRamGb >= parseFloat(model.ram);
-                        const compat = isCompatible ? '🟢' : '🔴';
-                        return (
-                          <option key={model.id} value={model.id}>
-                            {compat} {model.name} - {model.size} ({model.ram} RAM) {isInstalled ? '[INSTALLED]' : ''}
-                          </option>
-                        );
-                      })}
-                    </select>
-
-                    {selectedModel && (
-                      <div style={{
-                        fontSize: '9px',
-                        marginBottom: '8px',
-                        padding: '6px',
-                        background: 'rgba(59,130,246,0.1)',
-                        border: '1px solid rgba(59,130,246,0.3)',
-                        borderRadius: '4px',
                         color: textColor,
                       }}>
-                        <strong>{availableModels.find(m => m.id === selectedModel)?.name}</strong>
-                        <br/>
-                        {availableModels.find(m => m.id === selectedModel)?.desc}
+                        ÔÜá Ollama not found. Install from <a href="https://ollama.ai" target="_blank" rel="noopener" style={{ color: '#60a5fa' }}>ollama.ai</a>
                       </div>
                     )}
 
@@ -1071,34 +799,26 @@ export function BackendSwitcher({ theme = 'default' }: BackendSwitcherProps) {
                         <div style={{ fontSize: '10px', marginBottom: '4px', opacity: 0.8, color: textColor }}>
                           {installStatus}
                         </div>
-                        {downloadDetails.completed && downloadDetails.total && (
-                          <div style={{ fontSize: '9px', marginBottom: '4px', opacity: 0.7, color: textColor }}>
-                            {(downloadDetails.completed / (1024**3)).toFixed(2)} GB / {(downloadDetails.total / (1024**3)).toFixed(2)} GB
-                          </div>
-                        )}
                         <div style={{
                           width: '100%',
-                          height: '6px',
+                          height: '4px',
                           background: 'rgba(255,255,255,0.1)',
-                          borderRadius: '3px',
+                          borderRadius: '2px',
                           overflow: 'hidden',
                         }}>
                           <div style={{
                             width: `${installProgress}%`,
                             height: '100%',
-                            background: 'linear-gradient(90deg, #2563eb, #60a5fa)',
+                            background: '#2563eb',
                             transition: 'width 0.3s ease',
                           }} />
-                        </div>
-                        <div style={{ fontSize: '9px', marginTop: '2px', textAlign: 'right', opacity: 0.8, color: textColor }}>
-                          {installProgress.toFixed(0)}%
                         </div>
                       </div>
                     )}
 
                     <button
                       onClick={handleAutoInstallLlm}
-                      disabled={installing || !selectedModel}
+                      disabled={installing || !llmStatus?.ollamaInstalled}
                       style={{
                         width: '100%',
                         padding: '10px 12px',
@@ -1108,17 +828,17 @@ export function BackendSwitcher({ theme = 'default' }: BackendSwitcherProps) {
                         color: '#fff',
                         fontSize: '12px',
                         fontWeight: '600',
-                        cursor: (installing || !selectedModel) ? 'not-allowed' : 'pointer',
-                        opacity: (installing || !selectedModel) ? 0.5 : 1,
+                        cursor: (installing || !llmStatus?.ollamaInstalled) ? 'not-allowed' : 'pointer',
+                        opacity: (installing || !llmStatus?.ollamaInstalled) ? 0.5 : 1,
                         transition: 'all 0.2s',
                       }}
                     >
-                      {installing ? 'Installing...' : '⚡ Install Selected Model'}
+                      {installing ? 'Installing...' : 'ÔÜí Auto-Install Mistral 7B'}
                     </button>
                   </div>
                 )}
 
-                {/* Ready State Actions */}
+                {/* Ready State */}
                 {llmStatus?.isReady && (
                   <div style={{
                     padding: '10px',
@@ -1129,10 +849,10 @@ export function BackendSwitcher({ theme = 'default' }: BackendSwitcherProps) {
                     color: textColor,
                   }}>
                     <div style={{ marginBottom: '6px', fontWeight: '600', fontSize: '10px' }}>
-                      ✅ LOCAL LLM READY
+                      Ô£ô LOCAL LLM READY
                     </div>
                     <div style={{ fontSize: '10px', opacity: 0.9, marginBottom: '8px' }}>
-                      {llmStatus.modelName} is available for AI features
+                      Mistral 7B is available for AI features
                     </div>
                     <button
                       onClick={loadLlmStatus}
@@ -1147,7 +867,7 @@ export function BackendSwitcher({ theme = 'default' }: BackendSwitcherProps) {
                         cursor: 'pointer',
                       }}
                     >
-                      🔄 Refresh Status
+                      Refresh Status
                     </button>
                   </div>
                 )}
