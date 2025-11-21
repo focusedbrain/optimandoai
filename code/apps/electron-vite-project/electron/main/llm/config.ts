@@ -12,10 +12,11 @@ import type { LlmConfig } from './types'
 /**
  * Default LLM configuration
  * Used when no config file exists (first run)
+ * Uses quantized model by default for broader hardware compatibility
  */
 export const DEFAULT_LLM_CONFIG: LlmConfig = {
   provider: 'ollama',
-  modelId: 'mistral:7b',
+  modelId: 'mistral:7b-instruct-q4_0',  // Quantized 4-bit for low-end hardware
   endpointUrl: 'http://127.0.0.1:11434',
   ramTier: 'recommended',
   autoStartOllama: true
@@ -23,17 +24,65 @@ export const DEFAULT_LLM_CONFIG: LlmConfig = {
 
 /**
  * Predefined model configurations for reference
+ * All opensource models compatible with Ollama
  */
 export const MODEL_CONFIGS = {
+  // Quantized Mistral models (recommended for most users)
+  'mistral:7b-instruct-q4_0': {
+    id: 'mistral:7b-instruct-q4_0',
+    displayName: 'Mistral 7B Q4 (Fast)',
+    provider: 'ollama' as const,
+    minRamGb: 4,
+    recommendedRamGb: 6,
+    diskSizeGb: 2.6,
+    contextWindow: 8192,
+    isQuantized: true,
+    quantization: 'Q4_0'
+  },
+  'mistral:7b-instruct-q5_K_M': {
+    id: 'mistral:7b-instruct-q5_K_M',
+    displayName: 'Mistral 7B Q5 (Balanced)',
+    provider: 'ollama' as const,
+    minRamGb: 5,
+    recommendedRamGb: 7,
+    diskSizeGb: 3.2,
+    contextWindow: 8192,
+    isQuantized: true,
+    quantization: 'Q5_K_M'
+  },
+  // Full precision Mistral (for high-end hardware only)
   'mistral:7b': {
     id: 'mistral:7b',
-    displayName: 'Mistral 7B',
+    displayName: 'Mistral 7B (Best Quality)',
     provider: 'ollama' as const,
     minRamGb: 8,
     recommendedRamGb: 12,
     diskSizeGb: 4.1,
-    contextWindow: 8192
+    contextWindow: 8192,
+    isQuantized: false
   },
+  // Smaller models for low-end hardware
+  'phi3:mini': {
+    id: 'phi3:mini',
+    displayName: 'Phi-3 Mini (Very Fast)',
+    provider: 'ollama' as const,
+    minRamGb: 2,
+    recommendedRamGb: 4,
+    diskSizeGb: 2.3,
+    contextWindow: 4096,
+    isQuantized: false
+  },
+  'tinyllama': {
+    id: 'tinyllama',
+    displayName: 'TinyLlama (Ultra Fast)',
+    provider: 'ollama' as const,
+    minRamGb: 1,
+    recommendedRamGb: 2,
+    diskSizeGb: 0.6,
+    contextWindow: 2048,
+    isQuantized: false
+  },
+  // Other popular models
   'llama3:8b': {
     id: 'llama3:8b',
     displayName: 'Llama 3 8B',
@@ -41,16 +90,8 @@ export const MODEL_CONFIGS = {
     minRamGb: 8,
     recommendedRamGb: 12,
     diskSizeGb: 4.7,
-    contextWindow: 8192
-  },
-  'phi3:mini': {
-    id: 'phi3:mini',
-    displayName: 'Phi-3 Mini',
-    provider: 'ollama' as const,
-    minRamGb: 4,
-    recommendedRamGb: 6,
-    diskSizeGb: 2.3,
-    contextWindow: 4096
+    contextWindow: 8192,
+    isQuantized: false
   }
 }
 

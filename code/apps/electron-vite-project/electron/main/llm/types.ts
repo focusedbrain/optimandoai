@@ -11,10 +11,13 @@ export type RamTier = 'insufficient' | 'minimal' | 'recommended' | 'excellent'
  */
 export interface HardwareInfo {
   totalRamGb: number
+  freeRamGb?: number
   cpuCores: number
   osType: 'windows' | 'macos' | 'linux'
   recommendedTier: RamTier
   canRunMistral7B: boolean
+  canRunQuantized?: boolean
+  recommendedModel?: string
   warnings?: string[]
 }
 
@@ -29,6 +32,8 @@ export interface LlmModelConfig {
   recommendedRamGb: number
   diskSizeGb: number
   contextWindow: number
+  isQuantized?: boolean
+  quantization?: string   // e.g., "Q4_0", "Q5_K_M"
 }
 
 /**
@@ -94,5 +99,17 @@ export interface ModelDownloadProgress {
   status: string          // 'downloading', 'pulling', 'verifying', etc.
   completed?: number      // bytes completed
   total?: number          // total bytes
+}
+
+/**
+ * Detailed information about an installed model
+ */
+export interface ModelInfo {
+  name: string
+  size: number           // bytes
+  modified: string       // ISO timestamp
+  displayName?: string
+  isQuantized?: boolean
+  quantization?: string  // e.g., "Q4_0", "Q5_K_M"
 }
 

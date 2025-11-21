@@ -12,28 +12,43 @@ export class HardwareCheckService {
    */
   async checkHardware(): Promise<HardwareInfo> {
     const totalRamBytes = os.totalmem()
+    const freeRamBytes = os.freemem()
     const totalRamGb = totalRamBytes / (1024 ** 3)
+    const freeRamGb = freeRamBytes / (1024 ** 3)
     const cpuCores = os.cpus().length
     const osType = this.detectOS()
     
-    const ramTier = this.determineRamTier(totalRamGb)
-    const canRunMistral7B = totalRamGb >= 8
-    const warnings = this.generateWarnings(totalRamGb, cpuCores)
+    // Use free RAM for more accurate assessment
+    const effectiveRamGb = freeRamGb + 2  // Assume 2GB can be freed
+    const ramTier = this.determineRamTier(totalRamGb, freeRamGb)
+    
+    // More conservative check: need 4GB free for quantized, 8GB for full model
+    const canRunQuantized = freeRamGb >= 3
+    const canRunFull = freeRamGb >= 6
+    
+    const warnings = this.generateWarnings(totalRamGb, freeRamGb, cpuCores)
+    const recommendedModel = this.recommendModel(totalRamGb, freeRamGb, cpuCores)
     
     console.log('[HARDWARE] Detected:', {
       totalRamGb: Math.round(totalRamGb * 10) / 10,
+      freeRamGb: Math.round(freeRamGb * 10) / 10,
       cpuCores,
       osType,
       ramTier,
-      canRunMistral7B
+      canRunQuantized,
+      canRunFull,
+      recommendedModel
     })
     
     return {
       totalRamGb: Math.round(totalRamGb * 10) / 10,
+      freeRamGb: Math.round(freeRamGb * 10) / 10,
       cpuCores,
       osType,
       recommendedTier: ramTier,
-      canRunMistral7B,
+      canRunMistral7B: canRunFull,
+      canRunQuantized,
+      recommendedModel,
       warnings
     }
   }
@@ -50,34 +65,70 @@ export class HardwareCheckService {
   
   /**
    * Determine recommended RAM tier based on available memory
+   * Now considers both total and free RAM
    * 
-   * Thresholds:
-   * - < 8 GB: insufficient (cannot run Mistral 7B)
-   * - 8-12 GB: minimal (can run but may be slow)
-   * - 12-20 GB: recommended (good performance)
-   * - >= 20 GB: excellent (can run larger models)
+   * Thresholds (based on FREE RAM):
+   * - < 3 GB free: insufficient (cannot run quantized models)
+   * - 3-6 GB free: minimal (can run quantized 4-bit models)
+   * - 6-10 GB free: recommended (can run full 7B models)
+   * - >= 10 GB free: excellent (can run larger models)
    */
-  private determineRamTier(ramGb: number): RamTier {
-    if (ramGb < 8) return 'insufficient'
-    if (ramGb < 12) return 'minimal'
-    if (ramGb < 20) return 'recommended'
+  private determineRamTier(totalRamGb: number, freeRamGb: number): RamTier {
+    // Prioritize free RAM over total
+    if (freeRamGb < 3) return 'insufficient'
+    if (freeRamGb < 6) return 'minimal'
+    if (freeRamGb < 10) return 'recommended'
     return 'excellent'
+  }
+  
+  /**
+   * Recommend the best model based on hardware
+   */
+  private recommendModel(totalRamGb: number, freeRamGb: number, cores: number): string {
+    // Very limited hardware
+    if (freeRamGb < 2 || cores < 2) {
+      return 'tinyllama'  // 1.1B params, ~1GB RAM
+    }
+    
+    // Low-end hardware  
+    if (freeRamGb < 4 || totalRamGb < 6) {
+      return 'phi3:mini'  // 3B params, ~2-3GB RAM
+    }
+    
+    // Mid-range hardware
+    if (freeRamGb < 6 || totalRamGb < 10) {
+      return 'mistral:7b-instruct-q4_0'  // 7B quantized, ~4GB RAM
+    }
+    
+    // Good hardware
+    if (freeRamGb >= 6 && totalRamGb >= 10) {
+      return 'mistral:7b-instruct-q5_K_M'  // 7B better quantization, ~5GB RAM
+    }
+    
+    // Excellent hardware
+    return 'mistral:7b'  // Full model
   }
   
   /**
    * Generate user-friendly warnings based on hardware
    */
-  private generateWarnings(ramGb: number, cores: number): string[] {
+  private generateWarnings(totalRamGb: number, freeRamGb: number, cores: number): string[] {
     const warnings: string[] = []
     
-    if (ramGb < 8) {
-      warnings.push('Mistral 7B requires at least 8GB RAM. Consider using a remote provider or smaller model.')
-    } else if (ramGb < 12) {
-      warnings.push('Limited RAM detected. Local model may run slowly. Close other applications for better performance.')
+    if (freeRamGb < 2) {
+      warnings.push('⚠️ Critical: Less than 2GB free RAM. Local models will not work. Use remote API instead.')
+    } else if (freeRamGb < 4) {
+      warnings.push('⚠️ Limited RAM: Only lightweight models (Phi-3 Mini, TinyLlama) recommended.')
+    } else if (freeRamGb < 6) {
+      warnings.push('ℹ️ Moderate RAM: Quantized models (Q4, Q5) recommended for best performance.')
+    }
+    
+    if (totalRamGb < 6) {
+      warnings.push('ℹ️ Low total RAM: Close other applications before using local models.')
     }
     
     if (cores < 4) {
-      warnings.push('Fewer than 4 CPU cores detected. Model inference may be slow.')
+      warnings.push('ℹ️ Limited CPU cores: Inference will be slower. Consider using 2 threads max.')
     }
     
     return warnings

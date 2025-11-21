@@ -1127,6 +1127,33 @@ app.whenReady().then(async () => {
       }
     })
 
+    // DELETE /api/llm/model - Delete a model
+    httpApp.delete('/api/llm/model', async (req, res) => {
+      try {
+        const { modelName } = req.body
+        console.log('[HTTP] DELETE /api/llm/model', modelName)
+        const { ollamaManager } = await import('./main/llm/ollama-manager')
+        await ollamaManager.deleteModel(modelName)
+        res.json({ ok: true, message: `Model ${modelName} deleted successfully` })
+      } catch (error: any) {
+        console.error('[HTTP] Error in llm/delete-model:', error)
+        res.status(500).json({ ok: false, error: error.message })
+      }
+    })
+    
+    // GET /api/llm/models - Get detailed model information
+    httpApp.get('/api/llm/models', async (req, res) => {
+      try {
+        console.log('[HTTP] GET /api/llm/models')
+        const { ollamaManager } = await import('./main/llm/ollama-manager')
+        const models = await ollamaManager.getModelDetails()
+        res.json({ ok: true, data: models })
+      } catch (error: any) {
+        console.error('[HTTP] Error in llm/models:', error)
+        res.status(500).json({ ok: false, error: error.message })
+      }
+    })
+
     // POST /api/llm/chat - Chat completion
     httpApp.post('/api/llm/chat', async (req, res) => {
       try {

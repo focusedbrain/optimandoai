@@ -103,6 +103,32 @@ export function registerLlmHandlers(win: BrowserWindow) {
   })
   
   /**
+   * Get detailed model information
+   */
+  ipcMain.handle('llm:getModelDetails', async () => {
+    try {
+      return await ollamaManager.getModelDetails()
+    } catch (error: any) {
+      console.error('[LLM IPC] Failed to get model details:', error)
+      throw error
+    }
+  })
+  
+  /**
+   * Delete a model
+   */
+  ipcMain.handle('llm:deleteModel', async (_event, modelName: string) => {
+    try {
+      console.log('[LLM IPC] Deleting model:', modelName)
+      await ollamaManager.deleteModel(modelName)
+      return { success: true, modelName }
+    } catch (error: any) {
+      console.error('[LLM IPC] Model deletion failed:', error)
+      throw error
+    }
+  })
+  
+  /**
    * Send a chat completion request
    */
   ipcMain.handle('llm:chat', async (_event, request: ChatCompletionRequest) => {

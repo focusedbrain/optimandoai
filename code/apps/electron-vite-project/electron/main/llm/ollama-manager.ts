@@ -295,6 +295,53 @@ export class OllamaManagerService {
   }
   
   /**
+   * Delete a model from Ollama
+   * @param modelName Model identifier (e.g., "mistral:7b")
+   */
+  async deleteModel(modelName: string): Promise<void> {
+    console.log('[OLLAMA] Deleting model:', modelName)
+    
+    try {
+      const response = await fetch(`http://127.0.0.1:${this.OLLAMA_PORT}/api/delete`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: modelName })
+      })
+      
+      if (!response.ok) {
+        const errorText = await response.text()
+        throw new Error(`Failed to delete model: ${response.statusText} - ${errorText}`)
+      }
+      
+      console.log('[OLLAMA] Model deleted successfully:', modelName)
+    } catch (error) {
+      console.error('[OLLAMA] Model deletion failed:', error)
+      throw error
+    }
+  }
+  
+  /**
+   * Get detailed information about installed models
+   */
+  async getModelDetails(): Promise<Array<{name: string, size: number, modified: string}>> {
+    try {
+      const response = await fetch(`http://127.0.0.1:${this.OLLAMA_PORT}/api/tags`)
+      if (!response.ok) {
+        return []
+      }
+      const data = await response.json()
+      return data.models?.map((m: any) => ({
+        name: m.name,
+        size: m.size || 0,
+        modified: m.modified_at || new Date().toISOString()
+      })) || []
+    } catch (error) {
+      console.warn('[OLLAMA] Error getting model details:', error)
+      return []
+    }
+  }
+  
+  /**
    * Get current runtime status
    */
   async getStatus(): Promise<LlmRuntimeStatus> {
