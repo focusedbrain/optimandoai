@@ -1075,7 +1075,7 @@ app.whenReady().then(async () => {
     })
 
     // GET /api/llm/status - Get LLM status
-    httpApp.get('/api/llm/status', async (req, res) => {
+    httpApp.get('/api/llm/status', async (_req, res) => {
       try {
         console.log('[HTTP] GET /api/llm/status')
         const { ollamaManager } = await import('./main/llm/ollama-manager')
@@ -1088,7 +1088,7 @@ app.whenReady().then(async () => {
     })
 
     // GET /api/llm/hardware - Get hardware info
-    httpApp.get('/api/llm/hardware', async (req, res) => {
+    httpApp.get('/api/llm/hardware', async (_req, res) => {
       try {
         console.log('[HTTP] GET /api/llm/hardware')
         const { hardwareService } = await import('./main/llm/hardware')
@@ -1101,7 +1101,7 @@ app.whenReady().then(async () => {
     })
 
     // POST /api/llm/start - Start Ollama server
-    httpApp.post('/api/llm/start', async (req, res) => {
+    httpApp.post('/api/llm/start', async (_req, res) => {
       try {
         console.log('[HTTP] POST /api/llm/start')
         const { ollamaManager } = await import('./main/llm/ollama-manager')

@@ -7,7 +7,6 @@ import { spawn, exec } from 'node:child_process'
 import { promisify } from 'node:util'
 import path from 'node:path'
 import { app } from 'electron'
-import fs from 'node:fs/promises'
 import type { LlmRuntimeStatus } from './types'
 
 const execAsync = promisify(exec)
