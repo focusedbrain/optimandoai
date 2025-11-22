@@ -259,7 +259,9 @@ export function LlmSettings({ theme = 'default', bridge }: LlmSettingsProps) {
               // Poll the new progress endpoint
               const progressRes = await fetch('http://127.0.0.1:51248/api/llm/install-progress')
               if (progressRes.ok) {
-                const { progress } = await progressRes.json()
+                const data = await progressRes.json()
+                console.log('[LlmSettings] Poll response:', data)
+                const progress = data.progress
                 if (progress) {
                   setInstallProgress(progress.progress || 0)
                   setInstallStatus(progress.status || 'Downloading...')
@@ -286,6 +288,8 @@ export function LlmSettings({ theme = 'default', bridge }: LlmSettingsProps) {
                       loadData()
                     }, 1000)
                   }
+                } else {
+                  console.log('[LlmSettings] No progress data yet')
                 }
               }
             } catch (pollError) {

@@ -2453,12 +2453,17 @@ app.whenReady().then(async () => {
     httpApp.post('/api/llm/models/install', async (req, res) => {
       try {
         const { modelId } = req.body
+        console.log('[HTTP-LLM] Install request received - modelId:', modelId)
+        console.log('[HTTP-LLM] Full request body:', req.body)
+        
         if (!modelId) {
           res.status(400).json({ ok: false, error: 'modelId is required' })
           return
         }
         
         const { ollamaManager } = await import('./main/llm/ollama-manager')
+        
+        console.log('[HTTP-LLM] Starting model pull for:', modelId)
         
         // Start async installation
         ollamaManager.pullModel(modelId, (progress) => {
@@ -2480,6 +2485,7 @@ app.whenReady().then(async () => {
       try {
         const { ollamaManager } = await import('./main/llm/ollama-manager')
         const progress = ollamaManager.getDownloadProgress()
+        console.log('[HTTP-LLM] Returning progress:', progress)
         res.json({ ok: true, progress })
       } catch (error: any) {
         console.error('[HTTP-LLM] Error getting install progress:', error)

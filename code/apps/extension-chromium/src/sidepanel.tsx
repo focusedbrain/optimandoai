@@ -112,72 +112,9 @@ function SidepanelOrchestrator() {
           console.log('[Command Chat] Auto-selected model:', firstModel)
           setLlmError(null)
         } else {
-          // No models installed - try to auto-install the lightest trusted model
-          console.log('[Command Chat] No models installed, attempting auto-install...')
-          setLlmError('No model detected. Setting up TinyLlama (0.6GB - smallest trusted model)...')
-          
-          try {
-            // First check if any custom optimized models exist
-            const modelsResponse = await fetch(`${baseUrl}/api/llm/models`)
-            const modelsResult = await modelsResponse.json()
-            
-            let modelToInstall = 'tinyllama'
-            let modelSize = '0.6GB'
-            let modelName = 'TinyLlama'
-            
-            // Check for custom optimized models first
-            if (modelsResult.ok && modelsResult.data) {
-              const existingModels = modelsResult.data.map((m: any) => m.name)
-              
-              if (existingModels.includes('phi3-low')) {
-                setActiveLlmModel('phi3-low')
-                setLlmError(null)
-                console.log('[Command Chat] Using existing phi3-low model')
-                setChatMessages([{
-                  role: 'assistant' as const,
-                  text: '✅ Using phi3-low (custom optimized)! This model has reduced context and batch sizes for maximum performance on low-spec systems.'
-                }])
-                return
-              } else if (existingModels.includes('gemma-low')) {
-                setActiveLlmModel('gemma-low')
-                setLlmError(null)
-                console.log('[Command Chat] Using existing gemma-low model')
-                setChatMessages([{
-                  role: 'assistant' as const,
-                  text: '✅ Using gemma-low (optimized 2B)! Good balance of speed and quality.'
-                }])
-                return
-              }
-            }
-            
-            // Install TinyLlama - smallest trusted model
-            setLlmError(`Installing ${modelName} (${modelSize})... This should only take 1-2 minutes.`)
-            
-            const installResponse = await fetch(`${baseUrl}/api/llm/models/install`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ modelId: modelToInstall })
-            })
-            
-            const installResult = await installResponse.json()
-            
-            if (installResult.ok) {
-              setActiveLlmModel(modelToInstall)
-              setLlmError(null)
-              console.log(`[Command Chat] Auto-installed ${modelToInstall} successfully`)
-              
-              // Add a system message to chat
-              setChatMessages([{
-                role: 'assistant' as const,
-                text: `✅ ${modelName} installed successfully! This is a trusted ultra-lightweight model (${modelSize}). Ultra-fast and works on any hardware!\n\n💡 More trusted lightweight models in Admin > LLM Settings:\n• TinyDolphin 1.1B (0.6GB)\n• Gemma 2B Q2_K (0.9GB) - Google\n• StableLM 1.6B (1.0GB) - Stability AI`
-              }])
-            } else {
-              throw new Error(installResult.error || 'Installation failed')
-            }
-          } catch (installError: any) {
-            console.error('[Command Chat] Auto-install failed:', installError)
-            setLlmError('No models installed. Please install one from LLM Settings.')
-          }
+          // No models installed - show message but DON'T auto-install
+          console.log('[Command Chat] No models installed. User should install from LLM Settings.')
+          setLlmError('No models installed. Please go to Backend Configuration → LLM tab to install a model.')
         }
       } catch (error: any) {
         console.error('[Command Chat] Failed to fetch available models:', error)
