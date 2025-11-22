@@ -67,3 +67,5 @@ curl http://127.0.0.1:11434/api/chat -d '{
 - Response quality may be slightly lower but much faster
 - Works well on systems with 4GB RAM or less
 
+
+

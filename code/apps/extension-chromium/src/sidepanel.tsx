@@ -58,8 +58,30 @@ function SidepanelOrchestrator() {
   const [activeLlmModel, setActiveLlmModel] = useState<string>('')
   const [isLlmLoading, setIsLlmLoading] = useState(false)
   const [llmError, setLlmError] = useState<string | null>(null)
+  const [llmRefreshTrigger, setLlmRefreshTrigger] = useState(0)
   
-  // Auto-detect first available LLM model on mount
+  // Function to refresh available models
+  const refreshAvailableModels = async () => {
+    try {
+      const baseUrl = 'http://127.0.0.1:51248'
+      const statusResponse = await fetch(`${baseUrl}/api/llm/status`)
+      const statusResult = await statusResponse.json()
+      
+      if (statusResult.ok && statusResult.data?.modelsInstalled?.length > 0) {
+        const firstModel = statusResult.data.modelsInstalled[0].name
+        setActiveLlmModel(firstModel)
+        setLlmError(null)
+        console.log('[Command Chat] Refreshed and selected model:', firstModel)
+        return true
+      }
+      return false
+    } catch (error) {
+      console.error('[Command Chat] Failed to refresh models:', error)
+      return false
+    }
+  }
+  
+  // Auto-detect first available LLM model on mount and when triggered
   useEffect(() => {
     const fetchFirstAvailableModel = async () => {
       try {
@@ -164,6 +186,31 @@ function SidepanelOrchestrator() {
     }
     
     fetchFirstAvailableModel()
+  }, [llmRefreshTrigger])
+  
+  // Periodic check for newly installed models (every 10 seconds)
+  useEffect(() => {
+    const interval = setInterval(() => {
+      refreshAvailableModels()
+    }, 10000) // Check every 10 seconds
+    
+    return () => clearInterval(interval)
+  }, [])
+  
+  // Listen for model installation events from LLM Settings
+  useEffect(() => {
+    const handleStorageChange = (changes: any, namespace: string) => {
+      if (namespace === 'local' && changes['llm-model-installed']) {
+        console.log('[Command Chat] Model installation detected, refreshing...')
+        setLlmRefreshTrigger(prev => prev + 1)
+      }
+    }
+    
+    chrome.storage?.onChanged?.addListener(handleStorageChange)
+    
+    return () => {
+      chrome.storage?.onChanged?.removeListener(handleStorageChange)
+    }
   }, [])
   
   // Load pinned state and viewMode from storage
