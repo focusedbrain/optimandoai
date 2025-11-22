@@ -14,7 +14,7 @@ export default defineConfig({
         vite: {
           build: {
             rollupOptions: {
-              external: ['ws', 'bufferutil', 'utf-8-validate', 'fluent-ffmpeg', 'ffmpeg-static', 'pg', 'express', 'libsodium-wrappers', '@journeyapps/sqlcipher']
+              external: ['ws', 'bufferutil', 'utf-8-validate', 'fluent-ffmpeg', 'ffmpeg-static', 'pg', 'express', 'libsodium-wrappers', '@journeyapps/sqlcipher', 'simple-git', 'chokidar']
             }
           }
         }

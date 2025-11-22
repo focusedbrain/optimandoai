@@ -114,8 +114,9 @@ function connectToWebSocketServer() {
               try { chrome.runtime.sendMessage(message) } catch { }
             })
 
-          } else if (data.type === 'FILE_CHANGED' || data.type === 'WATCHING_STARTED' || data.type === 'WATCHING_STOPPED' || data.type === 'DIFF_RESULT' || data.type === 'DIFF_ERROR') {
+          } else if (data.type === 'FILE_CHANGED' || data.type === 'WATCHING_STARTED' || data.type === 'WATCHING_STOPPED' || data.type === 'DIFF_RESULT' || data.type === 'DIFF_ERROR' || data.type === 'WATCHING_ERROR') {
             // Forward file watching events to sidepanel
+            console.log('[BG] Forwarding file watching event to sidepanel:', data.type);
             try { chrome.runtime.sendMessage(data) } catch { }
           }
         }
@@ -588,13 +589,19 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     case 'STOP_WATCHING':
     case 'GET_DIFF': {
       try {
+        console.log('[BG] Received glassdoor message:', msg.type, 'WS_ENABLED:', WS_ENABLED, 'ws state:', ws?.readyState);
         if (WS_ENABLED && ws && ws.readyState === WebSocket.OPEN) {
+          console.log('[BG] Sending to Electron:', JSON.stringify(msg));
           ws.send(JSON.stringify(msg))
           try { sendResponse({ success: true }) } catch { }
         } else {
+          console.log('[BG] WebSocket not connected!');
           try { sendResponse({ success: false, error: 'WS not connected' }) } catch { }
         }
-      } catch { try { sendResponse({ success: false }) } catch { } }
+      } catch (err) { 
+        console.log('[BG] Error handling glassdoor message:', err);
+        try { sendResponse({ success: false }) } catch { } 
+      }
       break
     }
     case 'REQUEST_START_SELECTION_POPUP': {
@@ -638,6 +645,13 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
       sendResponse({ success: true, data: status });
       chrome.runtime.sendMessage({ type: 'STATUS_UPDATE', data: status });
+      break;
+
+    case 'GET_WS_STATUS':
+      sendResponse({ 
+        connected: ws && ws.readyState === WebSocket.OPEN,
+        readyState: ws ? ws.readyState : null
+      });
       break;
 
     case 'DISPLAY_GRIDS_OPENED': {

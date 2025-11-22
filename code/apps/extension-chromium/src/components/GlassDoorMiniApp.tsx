@@ -11,18 +11,33 @@ export const GlassDoorMiniApp: React.FC = () => {
 	const [selectedFile, setSelectedFile] = useState<string | undefined>(undefined);
 	const [diff, setDiff] = useState('');
 	const [error, setError] = useState<string | null>(null);
+	const [isConnected, setIsConnected] = useState(false);
 
 	useEffect(() => {
+		// Check connection status on mount
+		chrome.runtime.sendMessage({ type: 'GET_WS_STATUS' }, (response) => {
+			setIsConnected(response?.connected || false);
+		});
+
 		const handleMessage = (message: any) => {
+			console.log('[GlassDoor] Received message:', message);
+			
 			if (message.type === 'WATCHING_STARTED') {
+				console.log('[GlassDoor] ✅ Watching started successfully');
 				setIsWatching(true);
 				setError(null);
 			}
 			if (message.type === 'WATCHING_STOPPED') {
+				console.log('[GlassDoor] Watching stopped');
 				setIsWatching(false);
 				setChangedFiles([]);
 				setSelectedFile(undefined);
 				setDiff('');
+			}
+			if (message.type === 'WATCHING_ERROR') {
+				console.error('[GlassDoor] ❌ Watching error:', message.error);
+				setError(message.error || 'Failed to start watching');
+				setIsWatching(false);
 			}
 			if (message.type === 'FILE_CHANGED') {
 				// Ideally we should re-fetch the list of changed files or update it incrementally
@@ -45,7 +60,13 @@ export const GlassDoorMiniApp: React.FC = () => {
 
 	const handleStartWatching = () => {
 		if (!projectPath) return;
-		chrome.runtime.sendMessage({ type: 'START_WATCHING', path: projectPath });
+		console.log('[GlassDoor] Sending START_WATCHING message with path:', projectPath);
+		chrome.runtime.sendMessage({ type: 'START_WATCHING', path: projectPath }, (response) => {
+			console.log('[GlassDoor] START_WATCHING response:', response);
+			if (response && !response.success) {
+				setError(response.error || 'Failed to start watching');
+			}
+		});
 	};
 
 	const handleStopWatching = () => {
@@ -53,13 +74,23 @@ export const GlassDoorMiniApp: React.FC = () => {
 	};
 
 	const handleSelectFile = (file: string) => {
+		console.log('[GlassDoor] File selected:', file);
+		console.log('[GlassDoor] Project root:', projectPath);
 		setSelectedFile(file);
-		chrome.runtime.sendMessage({ type: 'GET_DIFF', filePath: file, projectRoot: projectPath });
+		setDiff('Loading diff...');
+		chrome.runtime.sendMessage({ type: 'GET_DIFF', filePath: file, projectRoot: projectPath }, (response) => {
+			console.log('[GlassDoor] GET_DIFF response:', response);
+		});
 	};
 
 	return (
 		<MiniAppContainer title="WR-Code-GlassDoor">
 			<div className="space-y-4">
+				{/* Connection Status */}
+				<div className={`px-2 py-1 text-xs rounded ${isConnected ? 'bg-green-100 text-green-700 dark:bg-green-900/20 dark:text-green-400' : 'bg-red-100 text-red-700 dark:bg-red-900/20 dark:text-red-400'}`}>
+					{isConnected ? '✓ Connected to Orchestrator' : '✗ Not connected to Orchestrator'}
+				</div>
+
 				{!isWatching ? (
 					<div className="space-y-2">
 						<label className="block text-xs font-medium text-slate-700 dark:text-slate-300">

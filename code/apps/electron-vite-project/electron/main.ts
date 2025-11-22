@@ -712,55 +712,9 @@ app.whenReady().then(async () => {
                 return // Don't process further handlers for ping
               }
 
-              if (msg.type === 'START_WATCHING') {
-                console.log('[MAIN] Received START_WATCHING:', msg.payload);
-                if (fileWatcher) {
-                  fileWatcher.startWatching(msg.payload);
-                  // Notify client that watching started
-                  try {
-                    socket.send(JSON.stringify({
-                      type: 'WATCHING_STARTED',
-                      payload: msg.payload
-                    }));
-                  } catch (e) {
-                    console.error('[MAIN] Error sending WATCHING_STARTED:', e);
-                  }
-                }
-              }
+              // File watching handlers moved to line ~863 with proper error handling
+              // GET_DIFF handler also moved there
 
-              if (msg.type === 'STOP_WATCHING') {
-                console.log('[MAIN] Received STOP_WATCHING');
-                if (fileWatcher) {
-                  fileWatcher.stopWatching();
-                  // Notify client that watching stopped
-                  try {
-                    socket.send(JSON.stringify({
-                      type: 'WATCHING_STOPPED'
-                    }));
-                  } catch (e) {
-                    console.error('[MAIN] Error sending WATCHING_STOPPED:', e);
-                  }
-                }
-              }
-
-              if (msg.type === 'GET_DIFF') {
-                console.log('[MAIN] Received GET_DIFF:', msg.payload);
-                if (diffService) {
-                  try {
-                    const diff = await diffService.getDiff(msg.payload);
-                    socket.send(JSON.stringify({
-                      type: 'DIFF_RESULT',
-                      payload: diff
-                    }));
-                  } catch (e: any) {
-                    console.error('[MAIN] Error getting diff:', e);
-                    socket.send(JSON.stringify({
-                      type: 'DIFF_ERROR',
-                      payload: e.message
-                    }));
-                  }
-                }
-              }
               if (msg.type === 'START_SELECTION') {
                 // Open full-featured overlay with all controls
                 console.log('[MAIN] ===== RECEIVED START_SELECTION, LAUNCHING FULL OVERLAY =====')
@@ -862,9 +816,19 @@ app.whenReady().then(async () => {
               }
               if (msg.type === 'START_WATCHING') {
                 console.log('[MAIN] START_WATCHING received:', msg.path);
+                console.log('[MAIN] fileWatcher exists?', !!fileWatcher);
                 if (fileWatcher) {
-                  fileWatcher.startWatching(msg.path);
-                  socket.send(JSON.stringify({ type: 'WATCHING_STARTED', path: msg.path }));
+                  try {
+                    fileWatcher.startWatching(msg.path);
+                    socket.send(JSON.stringify({ type: 'WATCHING_STARTED', path: msg.path }));
+                    console.log('[MAIN] WATCHING_STARTED sent to client');
+                  } catch (err) {
+                    console.error('[MAIN] Error starting file watcher:', err);
+                    socket.send(JSON.stringify({ type: 'WATCHING_ERROR', error: String(err) }));
+                  }
+                } else {
+                  console.error('[MAIN] FileWatcher service not initialized yet!');
+                  socket.send(JSON.stringify({ type: 'WATCHING_ERROR', error: 'FileWatcher service not ready' }));
                 }
               }
 
@@ -877,15 +841,21 @@ app.whenReady().then(async () => {
               }
 
               if (msg.type === 'GET_DIFF') {
-                console.log('[MAIN] GET_DIFF received:', msg.filePath);
+                console.log('[MAIN] GET_DIFF received:', msg.filePath, 'projectRoot:', msg.projectRoot);
+                console.log('[MAIN] diffService exists?', !!diffService);
                 if (diffService) {
                   try {
                     const diff = await diffService.getDiff(msg.filePath, msg.projectRoot);
+                    console.log('[MAIN] Diff generated, length:', diff.length);
                     socket.send(JSON.stringify({ type: 'DIFF_RESULT', filePath: msg.filePath, diff }));
+                    console.log('[MAIN] DIFF_RESULT sent to client');
                   } catch (err) {
                     console.error('[MAIN] Error getting diff:', err);
                     socket.send(JSON.stringify({ type: 'DIFF_ERROR', filePath: msg.filePath, error: String(err) }));
                   }
+                } else {
+                  console.error('[MAIN] DiffService not initialized yet!');
+                  socket.send(JSON.stringify({ type: 'DIFF_ERROR', filePath: msg.filePath, error: 'DiffService not ready' }));
                 }
               }
 
