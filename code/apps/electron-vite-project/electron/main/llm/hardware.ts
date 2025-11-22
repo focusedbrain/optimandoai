@@ -4,6 +4,7 @@
  */
 
 import os from 'os'
+import fs from 'fs'
 import { exec } from 'child_process'
 import { promisify } from 'util'
 import { HardwareInfo, OsType, PerformanceEstimate, LlmModelConfig, ModelPerformanceEstimate } from './types'
@@ -20,6 +21,10 @@ export class HardwareService {
     const cpus = os.cpus()
     const cpuCores = cpus.length
     
+    // Detect CPU capabilities (AVX2/FMA)
+    const cpuCapabilities = await this.detectCpuCapabilities()
+    console.log('[Hardware] detectCpuCapabilities returned:', cpuCapabilities)
+    
     // Detect GPU (optional, best-effort)
     const gpu = await this.detectGpu()
     
@@ -34,17 +39,26 @@ export class HardwareService {
     const freeRamGb = Math.round(freeRamBytes / (1024**3) * 10) / 10
     const diskFreeGb = Math.round(diskFree / (1024**3) * 10) / 10
     
-    // Generate warnings based on hardware
-    const warnings = this.generateWarnings(totalRamGb, freeRamGb, cpuCores, diskFreeGb)
+    // Generate warnings based on hardware (including CPU capabilities)
+    const warnings = this.generateWarnings(
+      totalRamGb, 
+      freeRamGb, 
+      cpuCores, 
+      diskFreeGb,
+      cpuCapabilities.hasAVX2
+    )
     
     // Get recommended models for this hardware
     const recommendedModels = this.getRecommendedModels(freeRamGb)
     
-    return {
+    const result = {
       totalRamGb,
       freeRamGb,
       cpuCores,
       cpuThreads: cpuCores, // Simplified: assume threads = cores
+      cpuName: cpuCapabilities?.name || 'Unknown',
+      cpuHasAVX2: cpuCapabilities?.hasAVX2 || false,
+      cpuHasFMA: cpuCapabilities?.hasFMA || false,
       gpuAvailable: gpu.available,
       gpuVramGb: gpu.vramGb,
       diskFreeGb,
@@ -52,6 +66,8 @@ export class HardwareService {
       warnings,
       recommendedModels
     }
+    console.log('[Hardware] Returning result:', JSON.stringify(result, null, 2))
+    return result
   }
   
   /**
@@ -62,6 +78,111 @@ export class HardwareService {
     if (platform === 'win32') return 'windows'
     if (platform === 'darwin') return 'macos'
     return 'linux'
+  }
+  
+  /**
+   * Detect CPU capabilities including AVX2/FMA instruction sets
+   * Critical for local LLM performance
+   */
+  private async detectCpuCapabilities(): Promise<{ 
+    name: string; 
+    hasAVX2: boolean; 
+    hasFMA: boolean 
+  }> {
+    const cpus = os.cpus()
+    const name = cpus[0]?.model || 'Unknown CPU'
+    let hasAVX2 = false
+    let hasFMA = false
+    
+    try {
+      const platform = os.platform()
+      
+      if (platform === 'win32') {
+        // Windows: Detect via PowerShell and CPU name heuristics
+        try {
+          const lowerName = name.toLowerCase()
+          
+          // Intel detection
+          if (lowerName.includes('intel')) {
+            // Extract generation (e.g., "i5-7200U" -> 7th Gen)
+            const genMatch = name.match(/i[3579]-(\d+)\d{2,3}/)
+            if (genMatch) {
+              const gen = parseInt(genMatch[1])
+              // AVX2/FMA support: Intel 4th gen (Haswell 2013) and newer
+              hasAVX2 = gen >= 4
+              hasFMA = gen >= 4
+            }
+            
+            // Old/budget CPUs lack AVX2
+            if (lowerName.includes('pentium') || lowerName.includes('celeron') || lowerName.includes('atom')) {
+              hasAVX2 = false
+              hasFMA = false
+            }
+          }
+          
+          // AMD detection
+          if (lowerName.includes('amd') || lowerName.includes('ryzen')) {
+            if (lowerName.includes('ryzen')) {
+              // All Ryzen CPUs (2017+) have AVX2/FMA
+              hasAVX2 = true
+              hasFMA = true
+            } else if (lowerName.includes('fx')) {
+              // AMD FX: Some have FMA, but not AVX2
+              hasFMA = true
+              hasAVX2 = false
+            } else if (lowerName.includes('athlon')) {
+              // Old Athlon: No AVX2/FMA
+              hasAVX2 = false
+              hasFMA = false
+            }
+          }
+        } catch (error) {
+          console.warn('[Hardware] CPU capability detection failed:', error)
+        }
+        
+      } else if (platform === 'linux') {
+        // Linux: Read /proc/cpuinfo flags
+        try {
+          const cpuinfo = fs.readFileSync('/proc/cpuinfo', 'utf8')
+          const flags = cpuinfo.match(/flags\s*:\s*(.+)/i)
+          
+          if (flags && flags[1]) {
+            const flagList = flags[1].toLowerCase()
+            hasAVX2 = flagList.includes('avx2')
+            hasFMA = flagList.includes('fma')
+          }
+        } catch (error) {
+          console.warn('[Hardware] Failed to read /proc/cpuinfo:', error)
+        }
+        
+      } else if (platform === 'darwin') {
+        // macOS: Use sysctl
+        try {
+          const { stdout } = await execAsync('sysctl -a | grep machdep.cpu.features')
+          const features = stdout.toLowerCase()
+          hasAVX2 = features.includes('avx2.0') || features.includes('avx2')
+          hasFMA = features.includes('fma')
+          
+          // Apple Silicon: All M-series have modern SIMD
+          if (name.includes('Apple M')) {
+            hasAVX2 = true  // Equivalent NEON performance
+            hasFMA = true
+          }
+        } catch (error) {
+          // Fallback for Apple Silicon
+          if (name.includes('Apple')) {
+            hasAVX2 = true
+            hasFMA = true
+          }
+        }
+      }
+    } catch (error) {
+      console.warn('[Hardware] CPU capability detection error:', error)
+    }
+    
+    console.log(`[Hardware] CPU: ${name}, AVX2: ${hasAVX2}, FMA: ${hasFMA}`)
+    
+    return { name, hasAVX2, hasFMA }
   }
   
   /**
@@ -142,8 +263,17 @@ export class HardwareService {
   /**
    * Generate hardware warnings
    */
-  private generateWarnings(totalRamGb: number, freeRamGb: number, cpuCores: number, diskFreeGb: number): string[] {
+  private generateWarnings(
+    totalRamGb: number, 
+    freeRamGb: number, 
+    cpuCores: number, 
+    diskFreeGb: number,
+    _hasAVX2: boolean  // Prefixed with _ to indicate intentionally unused (AVX2 warning shown in dedicated UI box)
+  ): string[] {
     const warnings: string[] = []
+    
+    // Note: AVX2 warning is NOT added here because it's shown in a dedicated UI box
+    // The UI component shows a prominent red warning box when cpuHasAVX2 === false
     
     // RAM warnings
     if (freeRamGb < 2) {

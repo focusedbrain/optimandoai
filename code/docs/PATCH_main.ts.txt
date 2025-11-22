@@ -1,0 +1,96 @@
+// PATCH FOR: apps/electron-vite-project/electron/main.ts
+// Apply these changes to integrate the enhanced Ollama manager
+
+// ============================================
+// CHANGE 1: Update the import (around line 532)
+// ============================================
+
+// OLD:
+const { ollamaManager } = await import('./main/llm/ollama-manager')
+
+// NEW:
+const { ollamaManager } = await import('./main/llm/ollama-manager-enhanced')
+
+// ============================================
+// CHANGE 2: Add initialization call (around line 536)
+// ============================================
+
+// OLD:
+registerLlmHandlers()
+console.log('[MAIN] LLM IPC handlers registered')
+
+// Check if Ollama is installed...
+
+// NEW:
+registerLlmHandlers()
+console.log('[MAIN] LLM IPC handlers registered')
+
+// Run hardware diagnostics first
+await ollamaManager.initialize()
+console.log('[MAIN] Hardware diagnostics complete')
+
+// Check if Ollama is installed...
+
+// ============================================
+// CHANGE 3: Add health status logging (around line 545)
+// ============================================
+
+// OLD:
+if (installed) {
+  try {
+    await ollamaManager.start()
+    console.log('[MAIN] Ollama started successfully')
+  } catch (error) {
+    console.warn('[MAIN] Failed to auto-start Ollama:', error)
+  }
+}
+
+// NEW:
+if (installed) {
+  try {
+    await ollamaManager.start()
+    console.log('[MAIN] Ollama started successfully')
+    
+    // Log health status
+    const health = ollamaManager.getHealthStatus()
+    console.log('[MAIN] Ollama health:', {
+      cpuFallbackMode: health.cpuFallbackMode,
+      healthCheckPassed: health.healthCheckPassed,
+      logPath: health.logPath
+    })
+  } catch (error) {
+    console.warn('[MAIN] Failed to auto-start Ollama:', error)
+  }
+}
+
+// ============================================
+// CHANGE 4: Add health API endpoint (add to your HTTP router)
+// ============================================
+
+// Find your existing router (search for "/api/llm/") and add:
+
+router.get('/api/llm/health', async (req, res) => {
+  try {
+    const { ollamaManager } = await import('./main/llm/ollama-manager-enhanced')
+    const health = ollamaManager.getHealthStatus()
+    res.json({ 
+      ok: true, 
+      cpuFallbackMode: health.cpuFallbackMode,
+      healthCheckPassed: health.healthCheckPassed,
+      logPath: health.logPath,
+      diagnostics: health.diagnostics
+    })
+  } catch (error: any) {
+    res.status(500).json({ 
+      ok: false, 
+      error: error.message 
+    })
+  }
+})
+
+// ============================================
+// That's it! Rebuild and test.
+// ============================================
+
+
+

@@ -15,6 +15,9 @@ export interface HardwareInfo {
   freeRamGb: number
   cpuCores: number
   cpuThreads: number
+  cpuName?: string  // CPU model name
+  cpuHasAVX2?: boolean  // AVX2 instruction set support (critical for LLMs)
+  cpuHasFMA?: boolean  // FMA instruction set support (often bundled with AVX2)
   gpuAvailable: boolean
   gpuVramGb?: number
   diskFreeGb: number

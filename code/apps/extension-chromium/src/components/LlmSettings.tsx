@@ -11,6 +11,9 @@ interface HardwareInfo {
   freeRamGb: number
   cpuCores: number
   cpuThreads: number
+  cpuName?: string
+  cpuHasAVX2?: boolean
+  cpuHasFMA?: boolean
   gpuAvailable: boolean
   gpuVramGb?: number
   diskFreeGb: number
@@ -265,6 +268,19 @@ export function LlmSettings({ theme = 'default', bridge }: LlmSettingsProps) {
                   if (progress.status === 'success' || progress.progress >= 100) {
                     clearInterval(pollInterval)
                     showNotification('Model installed successfully!', 'success')
+                    
+                    // Notify Command Chat that a model was installed
+                    try {
+                      chrome.storage?.local?.set({ 
+                        'llm-model-installed': { 
+                          modelId: selectedModel, 
+                          timestamp: Date.now() 
+                        } 
+                      })
+                    } catch (e) {
+                      console.warn('[LlmSettings] Failed to notify model installation:', e)
+                    }
+                    
                     setTimeout(() => {
                       setInstalling(null)
                       loadData()
@@ -465,7 +481,29 @@ export function LlmSettings({ theme = 'default', bridge }: LlmSettingsProps) {
             </span>
             
             <span style={{ opacity: 0.7 }}>CPU:</span>
-            <span>{hardware.cpuCores} cores</span>
+            <span>
+              {hardware.cpuCores} cores
+              {hardware.cpuName && (
+                <div style={{ fontSize: '9px', opacity: 0.6, marginTop: '2px' }}>
+                  {hardware.cpuName.length > 40 ? hardware.cpuName.substring(0, 40) + '...' : hardware.cpuName}
+                </div>
+              )}
+            </span>
+            
+            {/* CPU Capabilities - Critical Info */}
+            {(hardware.cpuHasAVX2 !== undefined || hardware.cpuHasFMA !== undefined) && (
+              <>
+                <span style={{ opacity: 0.7 }}>CPU Support:</span>
+                <span style={{ 
+                  fontWeight: '600',
+                  color: hardware.cpuHasAVX2 ? '#22c55e' : '#ef4444'
+                }}>
+                  AVX2: {hardware.cpuHasAVX2 ? '✅ Yes' : '❌ No'} 
+                  {hardware.cpuHasFMA !== undefined && ` | FMA: ${hardware.cpuHasFMA ? '✅' : '❌'}`}
+                  {!hardware.cpuHasAVX2 && ' 🔴'}
+                </span>
+              </>
+            )}
             
             {hardware.gpuAvailable && (
               <>
@@ -477,6 +515,41 @@ export function LlmSettings({ theme = 'default', bridge }: LlmSettingsProps) {
             <span style={{ opacity: 0.7 }}>Disk Free:</span>
             <span>{hardware.diskFreeGb} GB</span>
           </div>
+          
+          {/* CRITICAL WARNING for old CPUs lacking AVX2 */}
+          {hardware.cpuHasAVX2 === false && (
+            <div style={{
+              marginTop: '10px',
+              padding: '10px',
+              background: 'rgba(220,38,38,0.15)',
+              border: '2px solid rgba(220,38,38,0.5)',
+              borderRadius: '6px',
+              fontSize: '10px',
+              lineHeight: '1.5'
+            }}>
+              <div style={{ 
+                fontWeight: '700', 
+                color: '#dc2626',
+                marginBottom: '6px',
+                fontSize: '11px'
+              }}>
+                🔴 OLD CPU DETECTED - Local AI Won't Work Well
+              </div>
+              <div style={{ marginBottom: '4px' }}>
+                Your CPU lacks modern instruction sets (AVX2/FMA) that are critical for fast local LLM inference. 
+                Local models will run in a <strong>slow fallback mode (~2 tokens/sec)</strong> which makes them nearly unusable.
+              </div>
+              <div style={{ 
+                marginTop: '6px',
+                padding: '6px',
+                background: 'rgba(34,197,94,0.15)',
+                border: '1px solid rgba(34,197,94,0.4)',
+                borderRadius: '4px'
+              }}>
+                ✅ <strong>Cloud AI is NOT affected</strong> and will run at full speed on any hardware.
+              </div>
+            </div>
+          )}
           
           {hardware.warnings.length > 0 && (
             <div style={{
