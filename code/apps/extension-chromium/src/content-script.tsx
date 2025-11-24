@@ -10374,17 +10374,17 @@ function initializeExtension() {
 
       
 
-      // Context Settings
+      // Context Section (Session/Account/Agent)
+
+      text += `[CONTEXT]\n`
 
       const contextSettings = agentData.contextSettings || {}
 
-      text += `[CONTEXT ACCESS]\n`
+      text += `  Session Context: ${contextSettings.sessionContext ? '✓ ENABLED' : '✗ DISABLED'}\n`
 
-      text += `  Session Context: ${contextSettings.sessionContext ? '✓' : '✗'}\n`
+      text += `  Account Context: ${contextSettings.accountContext ? '✓ ENABLED' : '✗ DISABLED'}\n`
 
-      text += `  Account Context: ${contextSettings.accountContext ? '✓' : '✗'}\n`
-
-      text += `  Agent Context: ${contextSettings.agentContext ? '✓' : '✗'}\n\n`
+      text += `  Agent Context: ${contextSettings.agentContext ? '✓ ENABLED' : '✗ DISABLED'}\n\n`
 
       
 
@@ -10405,6 +10405,10 @@ function initializeExtension() {
         text += '\n'
 
       }
+
+      
+
+      text += '\n'
 
       
 
@@ -10510,9 +10514,11 @@ function initializeExtension() {
 
   function generateOutputCoordinatorText(agents: any[]): string {
 
-    let text = '=== OUTPUT COORDINATOR - OUTPUT ROUTING ===\n\n'
+    let text = '=== OUTPUT COORDINATOR - EXECUTION & AGENT BOX ROUTING ===\n\n'
 
-    text += 'Shows how each agent routes its output (reasoning results, responses, etc.).\n\n'
+    text += 'Shows which agents output to which Agent Boxes (display slots).\n'
+
+    text += 'Agent Boxes are the visual display areas where agent outputs appear.\n\n'
 
     
 
@@ -10533,6 +10539,14 @@ function initializeExtension() {
       agentBoxes = session.agentBoxes || []
 
     })
+
+    
+
+    text += `━━━ AGENT → AGENT BOX MAPPINGS ━━━\n\n`
+
+    
+
+    let hasAnyMappings = false
 
     
 
@@ -10560,8 +10574,6 @@ function initializeExtension() {
 
             : agent.config.instructions
 
-          // Merge parsed config into agent data
-
           agentData = { ...agent, ...parsed }
 
         } catch (e) {
@@ -10574,267 +10586,141 @@ function initializeExtension() {
 
       
 
-      text += `\n━━━ Agent ${num}: ${name} ━━━\n`
-
-      text += `Status: ${agentData.enabled ? '✓ ENABLED' : '✗ DISABLED'}\n\n`
-
-      
-
-      // Execution Section - Special Destinations (Agent Boxes)
+      // Check if Execution section exists and has specialDestinations
 
       const hasExecution = agentData.capabilities?.includes('execution') || false
 
-      if (hasExecution) {
+      
 
-        text += `[EXECUTION SECTION - Output Streams]\n`
+      if (!hasExecution) {
 
-        const specialDests = agentData.execution?.specialDestinations || []
-
-        
-
-        if (specialDests.length > 0) {
-
-          specialDests.forEach(dest => {
-
-            if (dest.kind === 'agentBox' || dest.kind === 'agent-box') {
-
-              text += `  Report To: Agent Boxes (Display Slots)\n`
-
-              
-
-              // Find agent boxes allocated to this agent
-
-              const allocatedBoxes = agentBoxes.filter((box: any) => 
-
-                box.agentNumber === agentNumber
-
-              )
-
-              
-
-              if (allocatedBoxes.length > 0) {
-
-                text += `  Connected Display Slots:\n`
-
-                allocatedBoxes.forEach((box: any) => {
-
-                  const boxNum = String(box.boxNumber).padStart(2, '0')
-
-                  const location = box.locationLabel || box.locationId || 'Unknown location'
-
-                  text += `    → Agent ${num} → Agent Box ${boxNum} (${location})\n`
-
-                  if (box.title) text += `       Title: "${box.title}"\n`
-
-                  if (box.slotId) text += `       Slot: ${box.slotId}\n`
-
-                })
-
-              } else {
-
-                text += `  ⚠️ No Agent Boxes allocated to Agent ${num}\n`
-
-                text += `     Output will be queued until an Agent Box is assigned\n`
-
-              }
-
-            } else if (dest.kind === 'agent') {
-
-              text += `  Report To: Specific Agents\n`
-
-              if (dest.agents && dest.agents.length > 0) {
-
-                dest.agents.forEach((targetAgent: string) => {
-
-                  text += `    → Forward to: ${targetAgent}\n`
-
-                })
-
-              }
-
-            } else if (dest.kind === 'workflow') {
-
-              text += `  Report To: Workflow\n`
-
-              text += `    → Trigger workflow execution\n`
-
-            } else if (dest.kind === 'ui') {
-
-              text += `  Report To: UI Overlay\n`
-
-              text += `    → Display in user interface\n`
-
-            }
-
-          })
-
-        } else {
-
-          text += `  Report To: [] (not set)\n`
-
-          text += `  Output Routing: NO EXECUTION DESTINATIONS\n`
-
-          text += `    → Output not routed to any display slots or workflows\n`
-
-        }
+        return // Skip agents without execution capability
 
       }
 
       
 
-      // Reasoning Section - Respond To (reportTo)
+      const specialDests = agentData.execution?.specialDestinations || []
 
-      const hasReasoning = agentData.capabilities?.includes('reasoning') || false
+      
 
-      if (hasReasoning && agentData.reasoning) {
+      // Check if agent is configured to report to Agent Boxes
 
-        text += `\n[REASONING SECTION - Output]\n`
+      const reportsToAgentBoxes = specialDests.some((dest: any) => 
 
-        
+        dest.kind === 'agentBox' || dest.kind === 'agent-box'
 
-        // Apply For
+      )
 
-        const applyFor = agentData.reasoning.applyFor || '__any__'
+      
 
-        text += `  Apply For: ${applyFor === '__any__' ? 'Any Input' : applyFor}\n\n`
+      if (!reportsToAgentBoxes) {
 
-        
-
-        // Respond To (reportTo)
-
-        const reportTo = agentData.reasoning.reportTo || []
-
-        text += `  Respond To (Report To):\n`
-
-        
-
-        if (reportTo.length > 0) {
-
-          reportTo.forEach(dest => {
-
-            text += `    → ${dest}\n`
-
-          })
-
-          text += `  Output Routing: FORWARD TO DESTINATIONS\n`
-
-        } else {
-
-          text += `    [] (not set)\n`
-
-          text += `  Output Routing: INTERNAL PASSTHROUGH\n`
-
-          text += `    → Output stays within this agent (no external forwarding)\n`
-
-        }
-
-        
-
-        text += '\n'
-
-        
-
-        // Goals/Role/Rules (abbreviated)
-
-        if (agentData.reasoning.goals) {
-
-          const goalsPreview = agentData.reasoning.goals.substring(0, 100)
-
-          text += `  Goals: "${goalsPreview}${agentData.reasoning.goals.length > 100 ? '...' : ''}"\n`
-
-        }
-
-        
-
-        if (agentData.reasoning.role) {
-
-          text += `  Role: ${agentData.reasoning.role}\n`
-
-        }
-
-        
-
-        if (agentData.reasoning.rules) {
-
-          const rulesPreview = agentData.reasoning.rules.substring(0, 100)
-
-          text += `  Rules: "${rulesPreview}${agentData.reasoning.rules.length > 100 ? '...' : ''}"\n`
-
-        }
-
-        
-
-      } else if (!hasExecution) {
-
-        text += `\n[REASONING SECTION]\n`
-
-        text += `  State: INACTIVE\n`
-
-        text += `  No output routing configured\n`
+        return // Skip agents not configured for agent boxes
 
       }
 
       
 
-      // Show model info if available
+      // Find agent boxes allocated to this agent
 
-      if (agentData.provider && agentData.model) {
+      const allocatedBoxes = agentBoxes.filter((box: any) => 
 
-        text += `\n[MODEL CONFIG]\n`
+        box.agentNumber === agentNumber
 
-        text += `  Provider/Model: ${agentData.provider}/${agentData.model}\n`
-
-        if (agentData.temperature !== undefined) text += `  Temperature: ${agentData.temperature}\n`
-
-        if (agentData.max_tokens !== undefined) text += `  Max Tokens: ${agentData.max_tokens}\n`
-
-      }
+      )
 
       
 
-      text += '\n'
+      if (allocatedBoxes.length === 0) {
+
+        text += `Agent ${num} (${name}):\n`
+
+        text += `  Execution: Report To = Agent Boxes (Default)\n`
+
+        text += `  ⚠️ No Agent Box allocated\n`
+
+        text += `  → Output will be queued until Agent Box is assigned\n\n`
+
+        hasAnyMappings = true
+
+      } else {
+
+        hasAnyMappings = true
+
+        allocatedBoxes.forEach((box: any) => {
+
+          const boxNum = String(box.boxNumber).padStart(2, '0')
+
+          const location = box.locationLabel || box.locationId || 'Unknown location'
+
+          
+
+          text += `Agent ${num} → Agent Box ${boxNum}\n`
+
+          text += `  Agent: ${name}\n`
+
+          text += `  Box Title: ${box.title || 'Untitled'}\n`
+
+          text += `  Location: ${location}\n`
+
+          if (box.slotId) text += `  Slot ID: ${box.slotId}\n`
+
+          text += `  Execution Setting: Report To = Agent Boxes (Default)\n`
+
+          text += `  ✓ Output will display in this Agent Box\n\n`
+
+        })
+
+      }
 
     })
 
     
 
-    // Summary with agent box connections - need to re-parse all agents
+    if (!hasAnyMappings) {
 
-    const enabledCount = agents.filter(a => a.enabled).length
+      text += `No agents are configured to output to Agent Boxes.\n\n`
 
-    let forwardingCount = 0
+      text += `To enable output routing:\n`
 
-    let executionCount = 0
+      text += `1. Edit an agent's configuration\n`
+
+      text += `2. Enable "Execution" capability\n`
+
+      text += `3. Set "Report To" = "Agent Boxes" (default)\n`
+
+      text += `4. Allocate the agent to an Agent Box in the session\n\n`
+
+    }
 
     
 
-    agents.forEach(agent => {
+    // Summary
 
-      let agentData = agent
+    const agentsWithExecution = agents.filter(a => {
 
-      if (agent.config?.instructions) {
+      let agentData = a
+
+      if (a.config?.instructions) {
 
         try {
 
-          const parsed = typeof agent.config.instructions === 'string' 
+          const parsed = typeof a.config.instructions === 'string' 
 
-            ? JSON.parse(agent.config.instructions) 
+            ? JSON.parse(a.config.instructions) 
 
-            : agent.config.instructions
+            : a.config.instructions
 
-          agentData = { ...agent, ...parsed }
+          agentData = { ...a, ...parsed }
 
         } catch (e) {}
 
       }
 
-      
+      return agentData.capabilities?.includes('execution')
 
-      if ((agentData.reasoning?.reportTo || []).length > 0) forwardingCount++
-
-      if (agentData.capabilities?.includes('execution')) executionCount++
-
-    })
+    }).length
 
     
 
@@ -10848,21 +10734,17 @@ function initializeExtension() {
 
     
 
-    text += '\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n'
+    text += '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n'
 
     text += `SUMMARY:\n`
 
     text += `  Total Agents: ${agents.length}\n`
 
-    text += `  Enabled: ${enabledCount}\n`
-
-    text += `  With Execution Capability: ${executionCount}\n`
+    text += `  With Execution Capability: ${agentsWithExecution}\n`
 
     text += `  Connected to Agent Boxes: ${agentsWithBoxes}\n`
 
     text += `  Total Agent Boxes in Session: ${agentBoxes.length}\n`
-
-    text += `  With Reasoning Forwarding: ${forwardingCount}\n`
 
     
 
