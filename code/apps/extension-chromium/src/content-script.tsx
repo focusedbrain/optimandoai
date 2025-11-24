@@ -12556,7 +12556,7 @@ function initializeExtension() {
 
       let persistedRole = ''
 
-      let persistedPassiveToggle = true
+      let persistedPassiveToggle = false
 
       let persistedActiveToggle = false
 
@@ -13620,7 +13620,7 @@ function initializeExtension() {
 
             <div style="margin:6px 0 8px 0;display:flex;align-items:center;gap:14px">
 
-              <label style="display:flex;align-items:center;gap:6px"><input id="L-toggle-passive" type="checkbox" checked> Passive Listener</label>
+              <label style="display:flex;align-items:center;gap:6px"><input id="L-toggle-passive" type="checkbox"> Passive Listener</label>
 
               <label style="display:flex;align-items:center;gap:6px"><input id="L-toggle-active" type="checkbox"> Active Listener</label>
 
