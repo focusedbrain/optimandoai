@@ -10516,11 +10516,9 @@ function initializeExtension() {
 
     let text = '=== OUTPUT COORDINATOR - AGENT BOX ALLOCATIONS ===\n\n'
 
-    text += 'Shows which agents are allocated to which Agent Boxes (display slots).\n'
+    text += 'Shows all active agents and all agent boxes in the session.\n'
 
-    text += 'Agent Boxes are configured in Display Grids. Each box can be assigned to one agent.\n'
-
-    text += 'When an agent outputs (via Execution → Report To: Agent Boxes), it displays in its allocated box.\n\n'
+    text += 'Connections are displayed when an agent box has an agent allocated to it.\n\n'
 
     
 
@@ -10536,127 +10534,95 @@ function initializeExtension() {
 
     
 
-    if (agentBoxes.length === 0) {
+    // List all active agents
 
-      text += 'No Agent Boxes configured in this session.\n\n'
+    text += `━━━ ACTIVE AGENTS (${agents.length} total) ━━━\n\n`
 
-      text += 'To create Agent Boxes:\n'
+    
 
-      text += '1. Open a Display Grid (2x2, 3x3, or 4x4)\n'
+    if (agents.length === 0) {
 
-      text += '2. Click on a slot to configure it\n'
+      text += 'No agents configured in this session.\n\n'
 
-      text += '3. Enter an Agent Number (e.g., 1, 2, 3) to allocate an agent\n'
+    } else {
 
-      text += '4. Save the configuration\n\n'
+      agents.forEach((agent, idx) => {
 
-      return text
+        const num = String(idx + 1).padStart(2, '0')
+
+        const agentNumber = agent.number || (idx + 1)
+
+        const name = agent.name || agent.key || `Agent${num}`
+
+        const enabled = agent.enabled ? '✓ ENABLED' : '✗ DISABLED'
+
+        
+
+        text += `Agent ${num} (${name})\n`
+
+        text += `  Status: ${enabled}\n`
+
+        text += `  Number: ${agentNumber}\n`
+
+        
+
+        // Check if this agent has any allocated agent boxes
+
+        const allocatedBoxes = agentBoxes.filter((box: any) => box.agentNumber === agentNumber)
+
+        
+
+        if (allocatedBoxes.length > 0) {
+
+          text += `  Connected Agent Boxes: ${allocatedBoxes.length}\n`
+
+          allocatedBoxes.forEach((box: any) => {
+
+            const boxNum = String(box.boxNumber).padStart(2, '0')
+
+            text += `    → Agent Box ${boxNum} (${box.title || 'Untitled'})\n`
+
+          })
+
+        } else {
+
+          text += `  Connected Agent Boxes: None\n`
+
+        }
+
+        
+
+        text += '\n'
+
+      })
 
     }
 
     
 
-    text += `━━━ AGENT BOX ALLOCATIONS (${agentBoxes.length} boxes total) ━━━\n\n`
+    // List all agent boxes
+
+    text += `━━━ AGENT BOXES (${agentBoxes.length} total) ━━━\n\n`
 
     
 
-    // Create a map of agent numbers to agent names for quick lookup
+    if (agentBoxes.length === 0) {
 
-    const agentMap: any = {}
+      text += 'No agent boxes configured in this session.\n\n'
 
-    agents.forEach((agent, idx) => {
+      text += 'To create agent boxes:\n'
 
-      const agentNum = agent.number || (idx + 1)
+      text += '1. Open a Display Grid (2x2, 3x3, or 4x4)\n'
 
-      const name = agent.name || agent.key || `Agent${String(idx + 1).padStart(2, '0')}`
+      text += '2. Click on a slot to configure it\n'
 
-      agentMap[agentNum] = { name, enabled: agent.enabled }
+      text += '3. Enter an Agent Number to allocate an agent\n'
 
-    })
+      text += '4. Save the configuration\n\n'
 
-    
+    } else {
 
-    // Group boxes by agent number for clearer display
-
-    const boxesByAgent: any = {}
-
-    agentBoxes.forEach((box: any) => {
-
-      const agentNum = box.agentNumber
-
-      if (!boxesByAgent[agentNum]) {
-
-        boxesByAgent[agentNum] = []
-
-      }
-
-      boxesByAgent[agentNum].push(box)
-
-    })
-
-    
-
-    // Display allocations grouped by agent
-
-    const sortedAgentNums = Object.keys(boxesByAgent).map(n => parseInt(n)).sort((a, b) => a - b)
-
-    
-
-    sortedAgentNums.forEach(agentNum => {
-
-      const boxes = boxesByAgent[agentNum]
-
-      const agentInfo = agentMap[agentNum]
-
-      
-
-      if (agentNum === 0 || !agentNum) {
-
-        // Unallocated boxes
-
-        text += `⚠️ UNALLOCATED AGENT BOXES (${boxes.length}):\n`
-
-        boxes.forEach((box: any) => {
-
-          const boxNum = String(box.boxNumber).padStart(2, '0')
-
-          const location = box.locationLabel || box.locationId || 'Unknown location'
-
-          text += `  Agent Box ${boxNum}: ${box.title || 'Untitled'}\n`
-
-          text += `    Location: ${location}\n`
-
-          if (box.slotId) text += `    Slot: ${box.slotId}\n`
-
-          text += `    Status: No agent allocated\n\n`
-
-        })
-
-        return
-
-      }
-
-      
-
-      // Allocated boxes
-
-      const agentNumPadded = String(agentNum).padStart(2, '0')
-
-      const agentName = agentInfo ? agentInfo.name : `Agent${agentNumPadded}`
-
-      const agentEnabled = agentInfo ? agentInfo.enabled : false
-
-      
-
-      text += `Agent ${agentNumPadded} → ${boxes.length} Agent Box${boxes.length > 1 ? 'es' : ''}\n`
-
-      text += `  Agent Name: ${agentName}\n`
-
-      text += `  Status: ${agentEnabled ? '✓ ENABLED' : '✗ DISABLED'}\n\n`
-
-      
-
-      boxes.forEach((box: any) => {
+      agentBoxes.forEach((box: any) => {
 
         const boxNum = String(box.boxNumber).padStart(2, '0')
 
@@ -10664,31 +10630,149 @@ function initializeExtension() {
 
         
 
-        text += `  → Agent Box ${boxNum}\n`
+        text += `Agent Box ${boxNum}\n`
 
-        text += `     Title: ${box.title || 'Untitled'}\n`
+        text += `  Title: ${box.title || 'Untitled'}\n`
 
-        text += `     Location: ${location}\n`
+        text += `  Location: ${location}\n`
 
-        if (box.slotId) text += `     Slot: ${box.slotId}\n`
+        if (box.slotId) text += `  Slot: ${box.slotId}\n`
 
-        text += `     Allocation: Agent ${agentNumPadded} → Agent Box ${boxNum}\n`
+        
 
-        text += `     ${agentEnabled ? '✓' : '⚠️'} Output ${agentEnabled ? 'will display' : 'queued (agent disabled)'} in this box\n\n`
+        // Check if this box has an agent allocated
+
+        if (box.agentNumber && box.agentNumber > 0) {
+
+          const agentIdx = agents.findIndex((a: any) => (a.number || 0) === box.agentNumber)
+
+          
+
+          if (agentIdx >= 0) {
+
+            const agent = agents[agentIdx]
+
+            const agentNum = String(agentIdx + 1).padStart(2, '0')
+
+            const agentName = agent.name || agent.key || `Agent${agentNum}`
+
+            
+
+            text += `  Allocated Agent: Agent ${agentNum} (${agentName})\n`
+
+            text += `  Connection: Agent ${agentNum} → Agent Box ${boxNum}\n`
+
+            text += `  ${agent.enabled ? '✓ Active' : '⚠️ Agent disabled'}\n`
+
+          } else {
+
+            text += `  Allocated Agent: Agent ${String(box.agentNumber).padStart(2, '0')} (not found in session)\n`
+
+            text += `  ⚠️ Warning: Agent not found or deleted\n`
+
+          }
+
+        } else {
+
+          text += `  Allocated Agent: None\n`
+
+          text += `  Status: Unallocated\n`
+
+        }
+
+        
+
+        text += '\n'
 
       })
+
+    }
+
+    
+
+    // List all connections
+
+    text += `━━━ CONNECTIONS ━━━\n\n`
+
+    
+
+    const connections: any[] = []
+
+    
+
+    agentBoxes.forEach((box: any) => {
+
+      if (box.agentNumber && box.agentNumber > 0) {
+
+        const agentIdx = agents.findIndex((a: any) => (a.number || 0) === box.agentNumber)
+
+        
+
+        if (agentIdx >= 0) {
+
+          const agent = agents[agentIdx]
+
+          const agentNum = String(agentIdx + 1).padStart(2, '0')
+
+          const boxNum = String(box.boxNumber).padStart(2, '0')
+
+          const agentName = agent.name || agent.key || `Agent${agentNum}`
+
+          
+
+          connections.push({
+
+            agentNum,
+
+            agentName,
+
+            boxNum,
+
+            boxTitle: box.title || 'Untitled',
+
+            enabled: agent.enabled
+
+          })
+
+        }
+
+      }
 
     })
 
     
 
+    if (connections.length === 0) {
+
+      text += 'No connections found.\n'
+
+      text += 'Agents are not allocated to any agent boxes.\n\n'
+
+    } else {
+
+      connections.forEach((conn: any) => {
+
+        text += `Agent ${conn.agentNum} → Agent Box ${conn.boxNum}\n`
+
+        text += `  Agent: ${conn.agentName}\n`
+
+        text += `  Box: ${conn.boxTitle}\n`
+
+        text += `  Status: ${conn.enabled ? '✓ Active - Output will display' : '⚠️ Agent disabled - Output queued'}\n\n`
+
+      })
+
+    }
+
+    
+
     // Summary
 
-    const allocatedBoxes = agentBoxes.filter((box: any) => box.agentNumber && box.agentNumber > 0)
+    const enabledAgents = agents.filter((a: any) => a.enabled).length
 
-    const unallocatedBoxes = agentBoxes.filter((box: any) => !box.agentNumber || box.agentNumber === 0)
+    const allocatedBoxes = agentBoxes.filter((box: any) => box.agentNumber && box.agentNumber > 0).length
 
-    const uniqueAgents = new Set(allocatedBoxes.map((box: any) => box.agentNumber))
+    const unallocatedBoxes = agentBoxes.length - allocatedBoxes
 
     
 
@@ -10696,13 +10780,17 @@ function initializeExtension() {
 
     text += `SUMMARY:\n`
 
+    text += `  Total Agents: ${agents.length}\n`
+
+    text += `  Enabled Agents: ${enabledAgents}\n`
+
     text += `  Total Agent Boxes: ${agentBoxes.length}\n`
 
-    text += `  Allocated Boxes: ${allocatedBoxes.length}\n`
+    text += `  Allocated Boxes: ${allocatedBoxes}\n`
 
-    text += `  Unallocated Boxes: ${unallocatedBoxes.length}\n`
+    text += `  Unallocated Boxes: ${unallocatedBoxes}\n`
 
-    text += `  Agents with Boxes: ${uniqueAgents.size}\n`
+    text += `  Active Connections: ${connections.length}\n`
 
     
 
