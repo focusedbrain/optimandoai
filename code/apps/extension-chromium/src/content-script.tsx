@@ -9990,6 +9990,306 @@ function initializeExtension() {
 
   
 
+  // System Tab Wiring Logic Generators
+
+  function generateInputCoordinatorText(agents: any[]): string {
+
+    let text = '=== INPUT COORDINATOR - MULTIMODAL INPUT ROUTING ===\n\n'
+
+    text += 'Shows how multimodal inputs (DOM, uploads, screenshots, etc.) flow through each agent.\n\n'
+
+    
+
+    if (agents.length === 0) {
+
+      return text + 'No agents configured in this session.\n'
+
+    }
+
+    
+
+    agents.forEach((agent, idx) => {
+
+      const num = String(idx + 1).padStart(2, '0')
+
+      const name = agent.name || agent.key || `Agent${num}`
+
+      
+
+      text += `\n━━━ Agent ${num}: ${name} ━━━\n`
+
+      text += `Status: ${agent.enabled ? '✓ ENABLED' : '✗ DISABLED'}\n\n`
+
+      
+
+      // Listener Section Analysis
+
+      const hasListener = agent.capabilities?.includes('listening') || false
+
+      text += `[LISTENER SECTION]\n`
+
+      
+
+      if (hasListener) {
+
+        text += `  State: ACTIVE\n`
+
+        const listenerReportTo = agent.listening?.reportTo || []
+
+        if (listenerReportTo.length > 0) {
+
+          text += `  Reports findings to: ${listenerReportTo.join(', ')}\n`
+
+        } else {
+
+          text += `  Reports findings to: → REASONING section (internal passthrough)\n`
+
+        }
+
+        text += `  Pattern matching: Filters multimodal input based on listener patterns\n`
+
+      } else {
+
+        text += `  State: INACTIVE\n`
+
+        text += `  All multimodal input passes directly to REASONING section\n`
+
+      }
+
+      
+
+      // Reasoning Section - Listen From (acceptFrom)
+
+      const hasReasoning = agent.capabilities?.includes('reasoning') || false
+
+      if (hasReasoning) {
+
+        text += `\n[REASONING SECTION - Input]\n`
+
+        const acceptFrom = agent.reasoning?.acceptFrom || []
+
+        if (acceptFrom.length > 0) {
+
+          text += `  Listen From: ${acceptFrom.join(', ')}\n`
+
+          text += `  → Only processes input from these sources\n`
+
+        } else {
+
+          text += `  Listen From: [] (not set)\n`
+
+          text += `  → Accepts direct multimodal input (internal passthrough)\n`
+
+        }
+
+      }
+
+      
+
+      text += '\n'
+
+    })
+
+    
+
+    // Summary
+
+    const enabledCount = agents.filter(a => a.enabled).length
+
+    const listenerCount = agents.filter(a => a.capabilities?.includes('listening')).length
+
+    const wiringCount = agents.filter(a => (a.reasoning?.acceptFrom || []).length > 0).length
+
+    
+
+    text += '\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n'
+
+    text += `SUMMARY:\n`
+
+    text += `  Total Agents: ${agents.length}\n`
+
+    text += `  Enabled: ${enabledCount}\n`
+
+    text += `  With Listener: ${listenerCount}\n`
+
+    text += `  With Inter-Agent Wiring: ${wiringCount}\n`
+
+    
+
+    return text
+
+  }
+
+  
+
+  function generateOutputCoordinatorText(agents: any[]): string {
+
+    let text = '=== OUTPUT COORDINATOR - OUTPUT ROUTING ===\n\n'
+
+    text += 'Shows how each agent routes its output (reasoning results, responses, etc.).\n\n'
+
+    
+
+    if (agents.length === 0) {
+
+      return text + 'No agents configured in this session.\n'
+
+    }
+
+    
+
+    agents.forEach((agent, idx) => {
+
+      const num = String(idx + 1).padStart(2, '0')
+
+      const name = agent.name || agent.key || `Agent${num}`
+
+      
+
+      text += `\n━━━ Agent ${num}: ${name} ━━━\n`
+
+      text += `Status: ${agent.enabled ? '✓ ENABLED' : '✗ DISABLED'}\n\n`
+
+      
+
+      // Reasoning Section - Respond To (reportTo)
+
+      const hasReasoning = agent.capabilities?.includes('reasoning') || false
+
+      if (hasReasoning) {
+
+        text += `[REASONING SECTION - Output]\n`
+
+        const reportTo = agent.reasoning?.reportTo || []
+
+        
+
+        if (reportTo.length > 0) {
+
+          text += `  Respond To: ${reportTo.join(', ')}\n`
+
+          text += `  Output Routing:\n`
+
+          reportTo.forEach(dest => {
+
+            text += `    → Forward to: ${dest}\n`
+
+          })
+
+        } else {
+
+          text += `  Respond To: [] (not set)\n`
+
+          text += `  Output Routing: INTERNAL PASSTHROUGH\n`
+
+          text += `    → Output stays within this agent (no external forwarding)\n`
+
+        }
+
+      } else {
+
+        text += `[REASONING SECTION]\n`
+
+        text += `  State: INACTIVE\n`
+
+        text += `  No output routing configured\n`
+
+      }
+
+      
+
+      // Show model info if available
+
+      if (agent.provider && agent.model) {
+
+        text += `\n[MODEL CONFIG]\n`
+
+        text += `  Provider/Model: ${agent.provider}/${agent.model}\n`
+
+        if (agent.temperature !== undefined) text += `  Temperature: ${agent.temperature}\n`
+
+        if (agent.max_tokens !== undefined) text += `  Max Tokens: ${agent.max_tokens}\n`
+
+      }
+
+      
+
+      text += '\n'
+
+    })
+
+    
+
+    // Summary
+
+    const enabledCount = agents.filter(a => a.enabled).length
+
+    const forwardingCount = agents.filter(a => (a.reasoning?.reportTo || []).length > 0).length
+
+    const passthroughCount = agents.filter(a => (a.reasoning?.reportTo || []).length === 0).length
+
+    
+
+    text += '\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n'
+
+    text += `SUMMARY:\n`
+
+    text += `  Total Agents: ${agents.length}\n`
+
+    text += `  Enabled: ${enabledCount}\n`
+
+    text += `  With External Forwarding: ${forwardingCount}\n`
+
+    text += `  With Internal Passthrough: ${passthroughCount}\n`
+
+    
+
+    return text
+
+  }
+
+  
+
+  function getAllAgentsFromSession(callback: (agents: any[]) => void) {
+
+    ensureActiveSession((key, session) => {
+
+      const agents = session.agents || []
+
+      callback(agents)
+
+    })
+
+  }
+
+  
+
+  function loadSystemTabContent() {
+
+    getAllAgentsFromSession((agents) => {
+
+      const inputText = generateInputCoordinatorText(agents)
+
+      const outputText = generateOutputCoordinatorText(agents)
+
+      
+
+      const inputTextarea = document.getElementById('input-coordinator-text') as HTMLTextAreaElement | null
+
+      const outputTextarea = document.getElementById('output-coordinator-text') as HTMLTextAreaElement | null
+
+      
+
+      if (inputTextarea) inputTextarea.value = inputText
+
+      if (outputTextarea) outputTextarea.value = outputText
+
+    })
+
+  }
+
+  
+
   // Store references to original lightbox functions
 
   function openAgentsLightboxOriginal() {
@@ -10152,13 +10452,51 @@ function initializeExtension() {
 
           <!-- Add New Agent Button -->
 
-          <div style="text-align: center; margin-top: 15px;">
+          <div id="add-agent-container" style="text-align: center; margin-top: 15px;">
 
             <button id="add-new-agent" style="padding: 12px 20px; background: #4CAF50; border: none; color: white; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: bold;">
 
               ➕ Add New Agent
 
             </button>
+
+          </div>
+
+          
+
+          <!-- System Tab Content -->
+
+          <div id="system-tab-content" style="display: none;">
+
+            <div style="background:rgba(255,255,255,0.08);padding:20px;border-radius:8px;margin-bottom:20px;">
+
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+
+                <label style="font-size:16px;font-weight:bold;color:#FFD700;">📥 Input Coordinator (System Instructions)</label>
+
+                <button id="reload-input-coordinator" style="padding:8px 16px;background:#4CAF50;border:none;color:white;border-radius:6px;cursor:pointer;font-size:12px;">Set as Default</button>
+
+              </div>
+
+              <textarea id="input-coordinator-text" style="width:100%;height:350px;background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.3);color:white;padding:12px;border-radius:6px;font-size:12px;font-family:'Consolas',monospace;resize:vertical;line-height:1.6;" placeholder="Input coordinator wiring logic will appear here..."></textarea>
+
+            </div>
+
+            
+
+            <div style="background:rgba(255,255,255,0.08);padding:20px;border-radius:8px;">
+
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+
+                <label style="font-size:16px;font-weight:bold;color:#FFD700;">📤 Output Coordinator (System Instructions)</label>
+
+                <button id="reload-output-coordinator" style="padding:8px 16px;background:#4CAF50;border:none;color:white;border-radius:6px;cursor:pointer;font-size:12px;">Set as Default</button>
+
+              </div>
+
+              <textarea id="output-coordinator-text" style="width:100%;height:350px;background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.3);color:white;padding:12px;border-radius:6px;font-size:12px;font-family:'Consolas',monospace;resize:vertical;line-height:1.6;" placeholder="Output coordinator wiring logic will appear here..."></textarea>
+
+            </div>
 
           </div>
 
@@ -10214,13 +10552,111 @@ function initializeExtension() {
 
         })
 
-        // Re-render grid with filter
+        
 
-        renderAgentsGrid(overlay, currentFilter)
+        // Show/hide content based on tab
+
+        const agentsGrid = overlay.querySelector('#agents-grid') as HTMLElement | null
+
+        const addAgentContainer = overlay.querySelector('#add-agent-container') as HTMLElement | null
+
+        const systemTabContent = overlay.querySelector('#system-tab-content') as HTMLElement | null
+
+        
+
+        if (currentFilter === 'system') {
+
+          // Show System tab content, hide agents grid
+
+          if (agentsGrid) agentsGrid.style.display = 'none'
+
+          if (addAgentContainer) addAgentContainer.style.display = 'none'
+
+          if (systemTabContent) systemTabContent.style.display = 'block'
+
+          loadSystemTabContent()
+
+        } else {
+
+          // Show agents grid, hide System tab content
+
+          if (agentsGrid) agentsGrid.style.display = 'grid'
+
+          if (addAgentContainer) addAgentContainer.style.display = 'block'
+
+          if (systemTabContent) systemTabContent.style.display = 'none'
+
+          // Re-render grid with filter
+
+          renderAgentsGrid(overlay, currentFilter)
+
+        }
 
       })
 
     })
+
+    
+
+    // System tab button event handlers
+
+    const reloadInputBtn = overlay.querySelector('#reload-input-coordinator') as HTMLButtonElement | null
+
+    const reloadOutputBtn = overlay.querySelector('#reload-output-coordinator') as HTMLButtonElement | null
+
+    
+
+    function showNotification(message: string, duration: number) {
+
+      const notif = document.createElement('div')
+
+      notif.textContent = message
+
+      notif.style.cssText = `
+
+        position: fixed; top: 20px; right: 20px; z-index: 2147483651;
+
+        background: rgba(76, 175, 80, 0.95); color: white;
+
+        padding: 12px 20px; border-radius: 8px; font-size: 14px;
+
+        box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+
+      `
+
+      document.body.appendChild(notif)
+
+      setTimeout(() => notif.remove(), duration)
+
+    }
+
+    
+
+    if (reloadInputBtn) {
+
+      reloadInputBtn.addEventListener('click', () => {
+
+        loadSystemTabContent()
+
+        showNotification('✅ Input Coordinator reloaded', 2000)
+
+      })
+
+    }
+
+    
+
+    if (reloadOutputBtn) {
+
+      reloadOutputBtn.addEventListener('click', () => {
+
+        loadSystemTabContent()
+
+        showNotification('✅ Output Coordinator reloaded', 2000)
+
+      })
+
+    }
 
     
 
