@@ -466,7 +466,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         session.agentBoxes = session.agentBoxes.filter((b: any) => b.identifier !== agentBox.identifier)
         session.agentBoxes.push(agentBox)
         
-        storageSet({ [currentSessionKey]: session }, () => {
+        ensureSessionInHistory(currentSessionKey, session, () => {
           console.log('✅ Agent box saved to session:', agentBox.identifier)
           
           // Notify sidepanel
@@ -2515,6 +2515,23 @@ function initializeExtension() {
 
           if (!session.timestamp) session.timestamp = new Date().toISOString()
 
+          // CRITICAL: Transform agents from orchestrator format to internal format on load
+          if (session.agents && Array.isArray(session.agents)) {
+            session.agents = session.agents.map((a: any) => {
+              if (a.key) return a; // Already in internal format
+              
+              // Transform from orchestrator format
+              const sanitizedKey = a.name ? a.name.toLowerCase().replace(/[^a-z0-9]/g, '') : `agent${a.number || 1}`;
+              console.log(`[TRACE LOAD] Transforming agent on load: ${a.agent_id || a.name} -> key: ${sanitizedKey}`);
+              
+              return {
+                ...a,
+                key: sanitizedKey,
+                agent_id: undefined
+              };
+            });
+          }
+
           
 
           // CRITICAL: Update currentTabData with session name from main master tab
@@ -2588,6 +2605,23 @@ function initializeExtension() {
 
           if (!session.hiddenBuiltins) session.hiddenBuiltins = []
 
+          // CRITICAL: Transform agents from orchestrator format to internal format on load
+          if (session.agents && Array.isArray(session.agents)) {
+            session.agents = session.agents.map((a: any) => {
+              if (a.key) return a; // Already in internal format
+              
+              // Transform from orchestrator format
+              const sanitizedKey = a.name ? a.name.toLowerCase().replace(/[^a-z0-9]/g, '') : `agent${a.number || 1}`;
+              console.log(`[TRACE LOAD] Transforming agent on load: ${a.agent_id || a.name} -> key: ${sanitizedKey}`);
+              
+              return {
+                ...a,
+                key: sanitizedKey,
+                agent_id: undefined
+              };
+            });
+          }
+
           if (!session.timestamp) session.timestamp = new Date().toISOString()
 
           cb(existingKey, session)
@@ -2647,6 +2681,28 @@ function initializeExtension() {
   function ensureSessionInHistory(sessionKey: string, sessionData: any, callback?: () => void) {
 
     // Ensure the session has all required fields for session history
+    console.log('[TRACE] ensureSessionInHistory called for:', sessionKey);
+    console.log('[TRACE] Input agents:', sessionData.agents);
+
+    // Transform agents from orchestrator format to internal format if needed
+    let transformedAgents = (sessionData.agents || []).map((a: any) => {
+      // Check if agent has a key (internal format)
+      if (a.key) {
+        return a;
+      }
+      
+      // Transform from orchestrator format (agent_id) to internal format (key)
+      const sanitizedKey = a.name ? a.name.toLowerCase().replace(/[^a-z0-9]/g, '') : `agent${a.number || 1}`;
+      console.log(`[TRACE] Transforming agent: ${a.agent_id || a.name} -> key: ${sanitizedKey}`);
+      
+      return {
+        ...a,
+        key: sanitizedKey,
+        agent_id: undefined // Remove orchestrator format field
+      };
+    });
+    
+    console.log('[TRACE] Transformed agents:', transformedAgents);
 
     const completeSessionData = {
 
@@ -2664,11 +2720,17 @@ function initializeExtension() {
 
       customAgents: sessionData.customAgents || [],
 
-      hiddenBuiltins: sessionData.hiddenBuiltins || []
+      hiddenBuiltins: sessionData.hiddenBuiltins || [],
+      
+      agents: transformedAgents // ← CRITICAL: Include transformed agents array
 
     }
 
-    
+    console.log('[TRACE] Complete session data to save:', { 
+      key: sessionKey, 
+      agentCount: completeSessionData.agents.length,
+      agents: completeSessionData.agents.map((a: any) => ({ key: a.key, name: a.name, enabled: a.enabled }))
+    });
 
     storageSet({ [sessionKey]: completeSessionData }, () => {
 
@@ -2679,6 +2741,7 @@ function initializeExtension() {
       } else {
 
         console.log('✅ Session saved to history:', sessionKey, completeSessionData.tabName)
+        console.log('[TRACE] Saved agents:', completeSessionData.agents.length);
 
       }
 
@@ -3368,7 +3431,7 @@ function initializeExtension() {
 
           saveAccountAgents(accountAgents, () => {
 
-            storageSet({ [activeKey]: session }, () => {
+            ensureSessionInHistory(activeKey, session, () => {
 
               console.log('✅ Agent moved to Account scope:', agentKey)
 
@@ -3460,7 +3523,7 @@ function initializeExtension() {
 
           saveAccountAgents(updatedAccountAgents, () => {
 
-              storageSet({ [targetSessionKey]: targetSession }, () => {
+              ensureSessionInHistory(targetSessionKey, targetSession, () => {
 
                 console.log(`✅ Agent moved to Session scope in session: ${targetSessionKey}`)
 
@@ -3534,7 +3597,7 @@ function initializeExtension() {
 
         session.timestamp = new Date().toISOString()
 
-        storageSet({ [activeKey]: session }, () => {
+        ensureSessionInHistory(activeKey, session, () => {
 
           console.log('✅ Platform preference saved for session agent:', agentKey)
 
@@ -3627,6 +3690,10 @@ function initializeExtension() {
           if (!agent.config) agent.config = {}
 
           agent.config[configType] = configData
+          
+          // 🔥 CRITICAL: Enable agent when user saves configuration
+          agent.enabled = true
+          console.log(`✅ Enabled agent "${agentKey}" after configuration save`)
 
           s.timestamp = new Date().toISOString()
 
@@ -3646,7 +3713,7 @@ function initializeExtension() {
 
           
 
-          storageSet({ [activeKey]: s }, () => {
+          ensureSessionInHistory(activeKey, s, () => {
 
             if (chrome.runtime.lastError) {
 
@@ -10357,7 +10424,7 @@ function initializeExtension() {
 
           session.timestamp = new Date().toISOString()
 
-          storageSet({ [activeKey]: session }, ()=>{})
+          ensureSessionInHistory(activeKey, session, () => {})
 
           try { localStorage.setItem('optimando-agent-number-map', JSON.stringify(map)) } catch {}
 

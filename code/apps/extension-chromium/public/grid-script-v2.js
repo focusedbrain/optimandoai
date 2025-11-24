@@ -48,10 +48,11 @@ if (window.gridScriptV2Loaded) {
       if (p === 'claude') return ['auto', 'claude-3-5-sonnet', 'claude-3-opus'];
       if (p === 'gemini') return ['auto', 'gemini-1.5-flash', 'gemini-1.5-pro'];
       if (p === 'grok') return ['auto', 'grok-2-mini', 'grok-2'];
+      if (p === 'local ai') return ['auto', 'llama3.2', 'qwen2.5-coder', 'deepseek-r1'];
       return ['auto'];
     }
     
-    const providers = ['OpenAI', 'Claude', 'Gemini', 'Grok'];
+    const providers = ['OpenAI', 'Claude', 'Gemini', 'Grok', 'Local AI'];
     const currentProvider = cfg.provider || '';
     const models = currentProvider ? modelOptions(currentProvider) : [];
     
