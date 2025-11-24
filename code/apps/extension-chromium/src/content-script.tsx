@@ -10532,30 +10532,6 @@ function initializeExtension() {
 
     
 
-    // Helper function to get agent number from localStorage
-
-    function getAgentNumber(agentKey: string): number {
-
-      try {
-
-        const raw = localStorage.getItem('optimando-agent-number-map')
-
-        const map = raw ? JSON.parse(raw) : {}
-
-        if (map && map[agentKey]) return parseInt(map[agentKey], 10)
-
-        return 0
-
-      } catch {
-
-        return 0
-
-      }
-
-    }
-
-    
-
     // List all active agents
 
     text += `━━━ ACTIVE AGENTS (${agents.length} total) ━━━\n\n`
@@ -10574,7 +10550,7 @@ function initializeExtension() {
 
         const agentKey = agent.key || agent.name || `agent${idx + 1}`
 
-        const agentNumber = getAgentNumber(agentKey)
+        const agentNumber = agent.number || 0  // Use agent.number directly from session
 
         const name = agent.name || agent.key || `Agent${num}`
 
@@ -10670,7 +10646,7 @@ function initializeExtension() {
 
         if (box.agentNumber && box.agentNumber > 0) {
 
-          // Find agent by matching agentNumber with localStorage agent number map
+          // Find agent by matching agentNumber with agent.number
 
           let matchedAgent = null
 
@@ -10680,9 +10656,7 @@ function initializeExtension() {
 
           for (let i = 0; i < agents.length; i++) {
 
-            const agentKey = agents[i].key || agents[i].name || `agent${i + 1}`
-
-            const agentNum = getAgentNumber(agentKey)
+            const agentNum = agents[i].number || 0
 
             if (agentNum === box.agentNumber) {
 
@@ -10752,7 +10726,7 @@ function initializeExtension() {
 
       if (box.agentNumber && box.agentNumber > 0) {
 
-        // Find agent by matching agentNumber with localStorage agent number map
+        // Find agent by matching agentNumber with agent.number
 
         let matchedAgent = null
 
@@ -10762,9 +10736,7 @@ function initializeExtension() {
 
         for (let i = 0; i < agents.length; i++) {
 
-          const agentKey = agents[i].key || agents[i].name || `agent${i + 1}`
-
-          const agentNum = getAgentNumber(agentKey)
+          const agentNum = agents[i].number || 0
 
           if (agentNum === box.agentNumber) {
 
