@@ -5666,6 +5666,8 @@ function initializeExtension() {
 
               <option value="Grok">Grok</option>
 
+              <option value="Local AI">Local AI</option>
+
             </select>
 
           </div>
