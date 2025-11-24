@@ -10138,9 +10138,23 @@ function initializeExtension() {
 
     
 
+    // Get agent boxes from session to show display slot connections
+
+    let agentBoxes: any[] = []
+
+    ensureActiveSession((key, session) => {
+
+      agentBoxes = session.agentBoxes || []
+
+    })
+
+    
+
     agents.forEach((agent, idx) => {
 
       const num = String(idx + 1).padStart(2, '0')
+
+      const agentNumber = agent.number || (idx + 1)
 
       const name = agent.name || agent.key || `Agent${num}`
 
@@ -10152,13 +10166,115 @@ function initializeExtension() {
 
       
 
+      // Execution Section - Special Destinations (Agent Boxes)
+
+      const hasExecution = agent.capabilities?.includes('execution') || false
+
+      if (hasExecution) {
+
+        text += `[EXECUTION SECTION - Output Streams]\n`
+
+        const specialDests = agent.execution?.specialDestinations || []
+
+        
+
+        if (specialDests.length > 0) {
+
+          specialDests.forEach(dest => {
+
+            if (dest.kind === 'agentBox' || dest.kind === 'agent-box') {
+
+              text += `  Report To: Agent Boxes (Display Slots)\n`
+
+              
+
+              // Find agent boxes allocated to this agent
+
+              const allocatedBoxes = agentBoxes.filter((box: any) => 
+
+                box.agentNumber === agentNumber
+
+              )
+
+              
+
+              if (allocatedBoxes.length > 0) {
+
+                text += `  Connected Display Slots:\n`
+
+                allocatedBoxes.forEach((box: any) => {
+
+                  const boxNum = String(box.boxNumber).padStart(2, '0')
+
+                  const location = box.locationLabel || box.locationId || 'Unknown location'
+
+                  text += `    → Agent ${num} → Agent Box ${boxNum} (${location})\n`
+
+                  if (box.title) text += `       Title: "${box.title}"\n`
+
+                  if (box.slotId) text += `       Slot: ${box.slotId}\n`
+
+                })
+
+              } else {
+
+                text += `  ⚠️ No Agent Boxes allocated to Agent ${num}\n`
+
+                text += `     Output will be queued until an Agent Box is assigned\n`
+
+              }
+
+            } else if (dest.kind === 'agent') {
+
+              text += `  Report To: Specific Agents\n`
+
+              if (dest.agents && dest.agents.length > 0) {
+
+                dest.agents.forEach((targetAgent: string) => {
+
+                  text += `    → Forward to: ${targetAgent}\n`
+
+                })
+
+              }
+
+            } else if (dest.kind === 'workflow') {
+
+              text += `  Report To: Workflow\n`
+
+              text += `    → Trigger workflow execution\n`
+
+            } else if (dest.kind === 'ui') {
+
+              text += `  Report To: UI Overlay\n`
+
+              text += `    → Display in user interface\n`
+
+            }
+
+          })
+
+        } else {
+
+          text += `  Report To: [] (not set)\n`
+
+          text += `  Output Routing: NO EXECUTION DESTINATIONS\n`
+
+          text += `    → Output not routed to any display slots or workflows\n`
+
+        }
+
+      }
+
+      
+
       // Reasoning Section - Respond To (reportTo)
 
       const hasReasoning = agent.capabilities?.includes('reasoning') || false
 
       if (hasReasoning) {
 
-        text += `[REASONING SECTION - Output]\n`
+        text += `\n[REASONING SECTION - Output]\n`
 
         const reportTo = agent.reasoning?.reportTo || []
 
@@ -10186,9 +10302,9 @@ function initializeExtension() {
 
         }
 
-      } else {
+      } else if (!hasExecution) {
 
-        text += `[REASONING SECTION]\n`
+        text += `\n[REASONING SECTION]\n`
 
         text += `  State: INACTIVE\n`
 
@@ -10220,13 +10336,21 @@ function initializeExtension() {
 
     
 
-    // Summary
+    // Summary with agent box connections
 
     const enabledCount = agents.filter(a => a.enabled).length
 
     const forwardingCount = agents.filter(a => (a.reasoning?.reportTo || []).length > 0).length
 
-    const passthroughCount = agents.filter(a => (a.reasoning?.reportTo || []).length === 0).length
+    const executionCount = agents.filter(a => a.capabilities?.includes('execution')).length
+
+    const agentsWithBoxes = agents.filter(a => {
+
+      const agentNum = a.number || 0
+
+      return agentBoxes.some((box: any) => box.agentNumber === agentNum)
+
+    }).length
 
     
 
@@ -10238,9 +10362,13 @@ function initializeExtension() {
 
     text += `  Enabled: ${enabledCount}\n`
 
-    text += `  With External Forwarding: ${forwardingCount}\n`
+    text += `  With Execution Capability: ${executionCount}\n`
 
-    text += `  With Internal Passthrough: ${passthroughCount}\n`
+    text += `  Connected to Agent Boxes: ${agentsWithBoxes}\n`
+
+    text += `  Total Agent Boxes in Session: ${agentBoxes.length}\n`
+
+    text += `  With Reasoning Forwarding: ${forwardingCount}\n`
 
     
 
