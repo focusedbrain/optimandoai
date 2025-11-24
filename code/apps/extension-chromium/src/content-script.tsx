@@ -3937,7 +3937,7 @@ function initializeExtension() {
 
             <h4 style="margin: 0 0 8px 0; font-size: 12px; color: #FFFFFF; font-weight: bold;">Agent ${num} — ${a.name || 'Agent'}</h4>
 
-              <button class="agent-toggle" data-agent-key="${a.key}" style="padding: 4px 8px; background: #f44336; border: none; color: white; border-radius: 3px; cursor: pointer; font-size: 9px; margin-bottom: 4px;">OFF</button>
+              <button class="agent-toggle" data-agent-key="${a.key}" style="padding: 4px 8px; background: ${a.enabled ? '#4CAF50' : '#f44336'}; border: none; color: white; border-radius: 3px; cursor: pointer; font-size: 9px; margin-bottom: 4px;">${a.enabled ? 'ON' : 'OFF'}</button>
 
               
 
@@ -4019,17 +4019,29 @@ function initializeExtension() {
 
             
 
-            // ON/OFF toggle
-
+            // ON/OFF toggle with persistence
           const toggle = card.querySelector('.agent-toggle') as HTMLElement | null
 
           toggle?.addEventListener('click', () => {
 
+            const agentKey = toggle.getAttribute('data-agent-key')
             const isOn = toggle.textContent === 'ON'
+            const newEnabled = !isOn
 
-            toggle.textContent = isOn ? 'OFF' : 'ON'
+            // Update UI immediately
+            toggle.textContent = newEnabled ? 'ON' : 'OFF'
+            toggle.style.background = newEnabled ? '#4CAF50' : '#f44336'
 
-            toggle.style.background = isOn ? '#f44336' : '#4CAF50'
+            // Persist to storage
+            ensureActiveSession((activeKey: string, session: any) => {
+              const agent = session.agents?.find((ag: any) => ag.key === agentKey)
+              if (agent) {
+                agent.enabled = newEnabled
+                ensureSessionInHistory(activeKey, session, () => {
+                  console.log(`✅ Agent ${agentKey} ${newEnabled ? 'enabled' : 'disabled'}`)
+                })
+              }
+            })
 
           })
 
@@ -5745,6 +5757,8 @@ function initializeExtension() {
         case 'gemini': return ['auto', 'gemini-1.5-flash', 'gemini-1.5-pro']
 
         case 'grok': return ['auto', 'grok-2-mini', 'grok-2']
+
+        case 'local ai': return ['auto', 'tinyllama', 'tinydolphin', 'stablelm2:1.6b', 'stablelm-zephyr:3b', 'phi3:mini', 'gemma:2b', 'phi:2.7b', 'orca-mini', 'qwen2.5-coder:1.5b', 'deepseek-r1:1.5b', 'mistral:7b-instruct-q4_0', 'llama3.2', 'qwen2.5-coder:7b']
 
         default: return ['auto']
 
