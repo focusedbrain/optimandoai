@@ -10514,6 +10514,16 @@ function initializeExtension() {
 
   function generateOutputCoordinatorText(agents: any[]): string {
 
+    // This function will be called with actual agent boxes data
+
+    return generateOutputCoordinatorTextWithBoxes(agents, [])
+
+  }
+
+
+
+  function generateOutputCoordinatorTextWithBoxes(agents: any[], agentBoxes: any[]): string {
+
     let text = '=== OUTPUT COORDINATOR - AGENT BOX ALLOCATIONS ===\n\n'
 
     text += 'Shows all active agents and all agent boxes in the session.\n'
@@ -10543,18 +10553,6 @@ function initializeExtension() {
       }
 
     }
-
-    
-
-    // Get agent boxes from session
-
-    let agentBoxes: any[] = []
-
-    ensureActiveSession((key, session) => {
-
-      agentBoxes = session.agentBoxes || []
-
-    })
 
     
 
@@ -10892,19 +10890,29 @@ function initializeExtension() {
 
       const inputText = generateInputCoordinatorText(agents)
 
-      const outputText = generateOutputCoordinatorText(agents)
-
       
 
-      const inputTextarea = document.getElementById('input-coordinator-text') as HTMLTextAreaElement | null
+      // Get agent boxes from session
 
-      const outputTextarea = document.getElementById('output-coordinator-text') as HTMLTextAreaElement | null
+      ensureActiveSession((key, session) => {
 
-      
+        const agentBoxes = session.agentBoxes || []
 
-      if (inputTextarea) inputTextarea.value = inputText
+        const outputText = generateOutputCoordinatorTextWithBoxes(agents, agentBoxes)
 
-      if (outputTextarea) outputTextarea.value = outputText
+        
+
+        const inputTextarea = document.getElementById('input-coordinator-text') as HTMLTextAreaElement | null
+
+        const outputTextarea = document.getElementById('output-coordinator-text') as HTMLTextAreaElement | null
+
+        
+
+        if (inputTextarea) inputTextarea.value = inputText
+
+        if (outputTextarea) outputTextarea.value = outputText
+
+      })
 
     })
 
