@@ -12212,7 +12212,7 @@ function initializeExtension() {
 
         const num = getOrAssignAgentNumber(agentName)
 
-        return `AI Instructions - Agent ${num} - ${capitalizeName(agentName)}`
+        return `🤖 AI Instructions - Agent ${num}`
 
       }
 
@@ -12220,11 +12220,11 @@ function initializeExtension() {
 
         const num = getOrAssignAgentNumber(agentName)
 
-        return `Memory Agent ${num} - ${capitalizeName(agentName)}`
+        return `🧠 Memory - Agent ${num}`
 
       }
 
-      return `${typeLabels[type]} - ${agentName}`
+      return `${typeLabels[type]} - ${capitalizeName(agentName)}`
 
     })()
 
