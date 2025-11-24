@@ -10018,23 +10018,51 @@ function initializeExtension() {
 
       
 
+      // Parse agent.config.instructions if it's a string
+
+      let agentData = agent
+
+      if (agent.config?.instructions) {
+
+        try {
+
+          const parsed = typeof agent.config.instructions === 'string' 
+
+            ? JSON.parse(agent.config.instructions) 
+
+            : agent.config.instructions
+
+          // Merge parsed config into agent data
+
+          agentData = { ...agent, ...parsed }
+
+        } catch (e) {
+
+          console.error('Failed to parse agent config:', e)
+
+        }
+
+      }
+
+      
+
       text += `\n━━━ Agent ${num}: ${name} ━━━\n`
 
-      text += `Enabled: ${agent.enabled ? '✓ YES' : '✗ NO'}\n`
+      text += `Enabled: ${agentData.enabled ? '✓ YES' : '✗ NO'}\n`
 
-      text += `Icon: ${agent.icon || '🤖'}\n\n`
+      text += `Icon: ${agentData.icon || '🤖'}\n\n`
 
       
 
       // Listener Section Analysis (COMPLETE)
 
-      const hasListener = agent.capabilities?.includes('listening') || false
+      const hasListener = agentData.capabilities?.includes('listening') || false
 
       text += `[LISTENER SECTION]\n`
 
       
 
-      if (hasListener && agent.listening) {
+      if (hasListener && agentData.listening) {
 
         text += `  State: ✓ ACTIVE\n\n`
 
@@ -10042,9 +10070,9 @@ function initializeExtension() {
 
         // Passive/Active toggles
 
-        const passiveEnabled = agent.listening.passiveEnabled || false
+        const passiveEnabled = agentData.listening.passiveEnabled || false
 
-        const activeEnabled = agent.listening.activeEnabled || false
+        const activeEnabled = agentData.listening.activeEnabled || false
 
         text += `  Modes:\n`
 
@@ -10056,11 +10084,11 @@ function initializeExtension() {
 
         // Expected Context
 
-        if (agent.listening.expectedContext) {
+        if (agentData.listening.expectedContext) {
 
           text += `  Expected Context:\n`
 
-          text += `    "${agent.listening.expectedContext}"\n\n`
+          text += `    "${agentData.listening.expectedContext}"\n\n`
 
         }
 
@@ -10068,7 +10096,7 @@ function initializeExtension() {
 
         // Tags
 
-        const tags = agent.listening.tags || []
+        const tags = agentData.listening.tags || []
 
         if (tags.length > 0) {
 
@@ -10084,7 +10112,7 @@ function initializeExtension() {
 
         // Source
 
-        const source = agent.listening.source || ''
+        const source = agentData.listening.source || ''
 
         if (source) {
 
@@ -10096,9 +10124,9 @@ function initializeExtension() {
 
         // Website
 
-        if (agent.listening.website) {
+        if (agentData.listening.website) {
 
-          text += `  Website Filter: ${agent.listening.website}\n\n`
+          text += `  Website Filter: ${agentData.listening.website}\n\n`
 
         }
 
@@ -10108,7 +10136,7 @@ function initializeExtension() {
 
         if (passiveEnabled) {
 
-          const passiveTriggers = agent.listening.passive?.triggers || []
+          const passiveTriggers = agentData.listening.passive?.triggers || []
 
           text += `  Passive Triggers (${passiveTriggers.length}):\n`
 
@@ -10136,7 +10164,7 @@ function initializeExtension() {
 
         if (activeEnabled) {
 
-          const activeTriggers = agent.listening.active?.triggers || []
+          const activeTriggers = agentData.listening.active?.triggers || []
 
           text += `  Active Triggers (${activeTriggers.length}):\n`
 
@@ -10162,7 +10190,7 @@ function initializeExtension() {
 
         // Example Files
 
-        const exampleFiles = agent.listening.exampleFiles || []
+        const exampleFiles = agentData.listening.exampleFiles || []
 
         if (exampleFiles.length > 0) {
 
@@ -10182,7 +10210,7 @@ function initializeExtension() {
 
         // Report To
 
-        const listenerReportTo = agent.listening.reportTo || []
+        const listenerReportTo = agentData.listening.reportTo || []
 
         text += `  Listener Reports To:\n`
 
@@ -10232,9 +10260,9 @@ function initializeExtension() {
 
       // Reasoning Section - Listen From (acceptFrom)
 
-      const hasReasoning = agent.capabilities?.includes('reasoning') || false
+      const hasReasoning = agentData.capabilities?.includes('reasoning') || false
 
-      if (hasReasoning && agent.reasoning) {
+      if (hasReasoning && agentData.reasoning) {
 
         text += `[REASONING SECTION - Input]\n`
 
@@ -10242,7 +10270,7 @@ function initializeExtension() {
 
         // Apply For
 
-        const applyFor = agent.reasoning.applyFor || '__any__'
+        const applyFor = agentData.reasoning.applyFor || '__any__'
 
         text += `  Apply For: ${applyFor === '__any__' ? 'Any Input' : applyFor}\n\n`
 
@@ -10250,7 +10278,7 @@ function initializeExtension() {
 
         // Accept From (Listen From)
 
-        const acceptFrom = agent.reasoning.acceptFrom || []
+        const acceptFrom = agentData.reasoning.acceptFrom || []
 
         text += `  Listen From (Accept From):\n`
 
@@ -10280,11 +10308,11 @@ function initializeExtension() {
 
         // Goals/Role/Rules
 
-        if (agent.reasoning.goals) {
+        if (agentData.reasoning.goals) {
 
           text += `  Goals:\n`
 
-          const goals = agent.reasoning.goals.split('\n').filter((l: string) => l.trim())
+          const goals = agentData.reasoning.goals.split('\n').filter((l: string) => l.trim())
 
           goals.forEach((line: string) => {
 
@@ -10298,19 +10326,19 @@ function initializeExtension() {
 
         
 
-        if (agent.reasoning.role) {
+        if (agentData.reasoning.role) {
 
-          text += `  Role: ${agent.reasoning.role}\n\n`
+          text += `  Role: ${agentData.reasoning.role}\n\n`
 
         }
 
         
 
-        if (agent.reasoning.rules) {
+        if (agentData.reasoning.rules) {
 
           text += `  Rules:\n`
 
-          const rules = agent.reasoning.rules.split('\n').filter((l: string) => l.trim())
+          const rules = agentData.reasoning.rules.split('\n').filter((l: string) => l.trim())
 
           rules.forEach((line: string) => {
 
@@ -10326,7 +10354,7 @@ function initializeExtension() {
 
         // Custom Fields
 
-        const custom = agent.reasoning.custom || []
+        const custom = agentData.reasoning.custom || []
 
         if (custom.length > 0) {
 
@@ -10348,7 +10376,7 @@ function initializeExtension() {
 
       // Context Settings
 
-      const contextSettings = agent.contextSettings || {}
+      const contextSettings = agentData.contextSettings || {}
 
       text += `[CONTEXT ACCESS]\n`
 
@@ -10362,7 +10390,7 @@ function initializeExtension() {
 
       // Agent Context Files
 
-      const agentContextFiles = agent.agentContextFiles || []
+      const agentContextFiles = agentData.agentContextFiles || []
 
       if (agentContextFiles.length > 0) {
 
@@ -10382,7 +10410,7 @@ function initializeExtension() {
 
       // Memory Settings
 
-      const memSettings = agent.memorySettings || {}
+      const memSettings = agentData.memorySettings || {}
 
       text += `[MEMORY SETTINGS]\n`
 
@@ -10414,15 +10442,47 @@ function initializeExtension() {
 
     
 
-    // Summary
+    // Summary - need to re-parse all agents for statistics
 
     const enabledCount = agents.filter(a => a.enabled).length
 
-    const listenerCount = agents.filter(a => a.capabilities?.includes('listening')).length
+    let listenerCount = 0
 
-    const activeListeners = agents.filter(a => a.listening && (a.listening.passiveEnabled || a.listening.activeEnabled)).length
+    let activeListeners = 0
 
-    const wiringCount = agents.filter(a => (a.reasoning?.acceptFrom || []).length > 0).length
+    let wiringCount = 0
+
+    
+
+    agents.forEach(agent => {
+
+      let agentData = agent
+
+      if (agent.config?.instructions) {
+
+        try {
+
+          const parsed = typeof agent.config.instructions === 'string' 
+
+            ? JSON.parse(agent.config.instructions) 
+
+            : agent.config.instructions
+
+          agentData = { ...agent, ...parsed }
+
+        } catch (e) {}
+
+      }
+
+      
+
+      if (agentData.capabilities?.includes('listening')) listenerCount++
+
+      if (agentData.listening && (agentData.listening.passiveEnabled || agentData.listening.activeEnabled)) activeListeners++
+
+      if ((agentData.reasoning?.acceptFrom || []).length > 0) wiringCount++
+
+    })
 
     
 
@@ -10486,21 +10546,49 @@ function initializeExtension() {
 
       
 
+      // Parse agent.config.instructions if it's a string
+
+      let agentData = agent
+
+      if (agent.config?.instructions) {
+
+        try {
+
+          const parsed = typeof agent.config.instructions === 'string' 
+
+            ? JSON.parse(agent.config.instructions) 
+
+            : agent.config.instructions
+
+          // Merge parsed config into agent data
+
+          agentData = { ...agent, ...parsed }
+
+        } catch (e) {
+
+          console.error('Failed to parse agent config:', e)
+
+        }
+
+      }
+
+      
+
       text += `\n━━━ Agent ${num}: ${name} ━━━\n`
 
-      text += `Status: ${agent.enabled ? '✓ ENABLED' : '✗ DISABLED'}\n\n`
+      text += `Status: ${agentData.enabled ? '✓ ENABLED' : '✗ DISABLED'}\n\n`
 
       
 
       // Execution Section - Special Destinations (Agent Boxes)
 
-      const hasExecution = agent.capabilities?.includes('execution') || false
+      const hasExecution = agentData.capabilities?.includes('execution') || false
 
       if (hasExecution) {
 
         text += `[EXECUTION SECTION - Output Streams]\n`
 
-        const specialDests = agent.execution?.specialDestinations || []
+        const specialDests = agentData.execution?.specialDestinations || []
 
         
 
@@ -10596,9 +10684,9 @@ function initializeExtension() {
 
       // Reasoning Section - Respond To (reportTo)
 
-      const hasReasoning = agent.capabilities?.includes('reasoning') || false
+      const hasReasoning = agentData.capabilities?.includes('reasoning') || false
 
-      if (hasReasoning && agent.reasoning) {
+      if (hasReasoning && agentData.reasoning) {
 
         text += `\n[REASONING SECTION - Output]\n`
 
@@ -10606,7 +10694,7 @@ function initializeExtension() {
 
         // Apply For
 
-        const applyFor = agent.reasoning.applyFor || '__any__'
+        const applyFor = agentData.reasoning.applyFor || '__any__'
 
         text += `  Apply For: ${applyFor === '__any__' ? 'Any Input' : applyFor}\n\n`
 
@@ -10614,7 +10702,7 @@ function initializeExtension() {
 
         // Respond To (reportTo)
 
-        const reportTo = agent.reasoning.reportTo || []
+        const reportTo = agentData.reasoning.reportTo || []
 
         text += `  Respond To (Report To):\n`
 
@@ -10648,29 +10736,29 @@ function initializeExtension() {
 
         // Goals/Role/Rules (abbreviated)
 
-        if (agent.reasoning.goals) {
+        if (agentData.reasoning.goals) {
 
-          const goalsPreview = agent.reasoning.goals.substring(0, 100)
+          const goalsPreview = agentData.reasoning.goals.substring(0, 100)
 
-          text += `  Goals: "${goalsPreview}${agent.reasoning.goals.length > 100 ? '...' : ''}"\n`
-
-        }
-
-        
-
-        if (agent.reasoning.role) {
-
-          text += `  Role: ${agent.reasoning.role}\n`
+          text += `  Goals: "${goalsPreview}${agentData.reasoning.goals.length > 100 ? '...' : ''}"\n`
 
         }
 
         
 
-        if (agent.reasoning.rules) {
+        if (agentData.reasoning.role) {
 
-          const rulesPreview = agent.reasoning.rules.substring(0, 100)
+          text += `  Role: ${agentData.reasoning.role}\n`
 
-          text += `  Rules: "${rulesPreview}${agent.reasoning.rules.length > 100 ? '...' : ''}"\n`
+        }
+
+        
+
+        if (agentData.reasoning.rules) {
+
+          const rulesPreview = agentData.reasoning.rules.substring(0, 100)
+
+          text += `  Rules: "${rulesPreview}${agentData.reasoning.rules.length > 100 ? '...' : ''}"\n`
 
         }
 
@@ -10690,15 +10778,15 @@ function initializeExtension() {
 
       // Show model info if available
 
-      if (agent.provider && agent.model) {
+      if (agentData.provider && agentData.model) {
 
         text += `\n[MODEL CONFIG]\n`
 
-        text += `  Provider/Model: ${agent.provider}/${agent.model}\n`
+        text += `  Provider/Model: ${agentData.provider}/${agentData.model}\n`
 
-        if (agent.temperature !== undefined) text += `  Temperature: ${agent.temperature}\n`
+        if (agentData.temperature !== undefined) text += `  Temperature: ${agentData.temperature}\n`
 
-        if (agent.max_tokens !== undefined) text += `  Max Tokens: ${agent.max_tokens}\n`
+        if (agentData.max_tokens !== undefined) text += `  Max Tokens: ${agentData.max_tokens}\n`
 
       }
 
@@ -10710,13 +10798,45 @@ function initializeExtension() {
 
     
 
-    // Summary with agent box connections
+    // Summary with agent box connections - need to re-parse all agents
 
     const enabledCount = agents.filter(a => a.enabled).length
 
-    const forwardingCount = agents.filter(a => (a.reasoning?.reportTo || []).length > 0).length
+    let forwardingCount = 0
 
-    const executionCount = agents.filter(a => a.capabilities?.includes('execution')).length
+    let executionCount = 0
+
+    
+
+    agents.forEach(agent => {
+
+      let agentData = agent
+
+      if (agent.config?.instructions) {
+
+        try {
+
+          const parsed = typeof agent.config.instructions === 'string' 
+
+            ? JSON.parse(agent.config.instructions) 
+
+            : agent.config.instructions
+
+          agentData = { ...agent, ...parsed }
+
+        } catch (e) {}
+
+      }
+
+      
+
+      if ((agentData.reasoning?.reportTo || []).length > 0) forwardingCount++
+
+      if (agentData.capabilities?.includes('execution')) executionCount++
+
+    })
+
+    
 
     const agentsWithBoxes = agents.filter(a => {
 
