@@ -9996,7 +9996,9 @@ function initializeExtension() {
 
     let text = '=== INPUT COORDINATOR - MULTIMODAL INPUT ROUTING ===\n\n'
 
-    text += 'Shows how multimodal inputs (DOM, uploads, screenshots, etc.) flow through each agent.\n\n'
+    text += 'Shows how multimodal inputs (DOM, uploads, screenshots, etc.) flow through each agent.\n'
+
+    text += 'Displays ALL configured settings from the AI Agent setup forms.\n\n'
 
     
 
@@ -10016,71 +10018,423 @@ function initializeExtension() {
 
       
 
-      text += `\n━━━ Agent ${num}: ${name} ━━━\n`
+      // Parse agent.config.instructions if it's a string
 
-      text += `Status: ${agent.enabled ? '✓ ENABLED' : '✗ DISABLED'}\n\n`
+      let agentData = agent
 
-      
+      if (agent.config?.instructions) {
 
-      // Listener Section Analysis
+        try {
 
-      const hasListener = agent.capabilities?.includes('listening') || false
+          const parsed = typeof agent.config.instructions === 'string' 
 
-      text += `[LISTENER SECTION]\n`
+            ? JSON.parse(agent.config.instructions) 
 
-      
+            : agent.config.instructions
 
-      if (hasListener) {
+          // Merge parsed config into agent data
 
-        text += `  State: ACTIVE\n`
+          agentData = { ...agent, ...parsed }
 
-        const listenerReportTo = agent.listening?.reportTo || []
+        } catch (e) {
 
-        if (listenerReportTo.length > 0) {
-
-          text += `  Reports findings to: ${listenerReportTo.join(', ')}\n`
-
-        } else {
-
-          text += `  Reports findings to: → REASONING section (internal passthrough)\n`
+          console.error('Failed to parse agent config:', e)
 
         }
-
-        text += `  Pattern matching: Filters multimodal input based on listener patterns\n`
-
-      } else {
-
-        text += `  State: INACTIVE\n`
-
-        text += `  All multimodal input passes directly to REASONING section\n`
 
       }
 
       
 
+      text += `\n━━━ Agent ${num}: ${name} ━━━\n`
+
+      text += `Enabled: ${agentData.enabled ? '✓ YES' : '✗ NO'}\n`
+
+      text += `Icon: ${agentData.icon || '🤖'}\n\n`
+
+      
+
+      // Listener Section Analysis (COMPLETE)
+
+      const hasListener = agentData.capabilities?.includes('listening') || false
+
+      text += `[LISTENER SECTION]\n`
+
+      
+
+      if (hasListener && agentData.listening) {
+
+        text += `  State: ✓ ACTIVE\n\n`
+
+        
+
+        // Passive/Active toggles
+
+        const passiveEnabled = agentData.listening.passiveEnabled || false
+
+        const activeEnabled = agentData.listening.activeEnabled || false
+
+        text += `  Modes:\n`
+
+        text += `    Passive Listener: ${passiveEnabled ? '✓ ENABLED' : '✗ DISABLED'}\n`
+
+        text += `    Active Listener: ${activeEnabled ? '✓ ENABLED' : '✗ DISABLED'}\n\n`
+
+        
+
+        // Expected Context
+
+        if (agentData.listening.expectedContext) {
+
+          text += `  Expected Context:\n`
+
+          text += `    "${agentData.listening.expectedContext}"\n\n`
+
+        }
+
+        
+
+        // Tags
+
+        const tags = agentData.listening.tags || []
+
+        if (tags.length > 0) {
+
+          text += `  Tags: [${tags.join(', ')}]\n\n`
+
+        } else {
+
+          text += `  Tags: [] (none selected)\n\n`
+
+        }
+
+        
+
+        // Source
+
+        const source = agentData.listening.source || ''
+
+        if (source) {
+
+          text += `  Source: ${source}\n\n`
+
+        }
+
+        
+
+        // Website
+
+        if (agentData.listening.website) {
+
+          text += `  Website Filter: ${agentData.listening.website}\n\n`
+
+        }
+
+        
+
+        // Passive Triggers
+
+        if (passiveEnabled) {
+
+          const passiveTriggers = agentData.listening.passive?.triggers || []
+
+          text += `  Passive Triggers (${passiveTriggers.length}):\n`
+
+          if (passiveTriggers.length > 0) {
+
+            passiveTriggers.forEach((trigger: any) => {
+
+              text += `    • ${trigger.tag?.name || 'unnamed'} [${trigger.tag?.kind || 'OTHER'}]\n`
+
+            })
+
+          } else {
+
+            text += `    (none configured)\n`
+
+          }
+
+          text += '\n'
+
+        }
+
+        
+
+        // Active Triggers
+
+        if (activeEnabled) {
+
+          const activeTriggers = agentData.listening.active?.triggers || []
+
+          text += `  Active Triggers (${activeTriggers.length}):\n`
+
+          if (activeTriggers.length > 0) {
+
+            activeTriggers.forEach((trigger: any) => {
+
+              text += `    • ${trigger.tag?.name || 'unnamed'} [${trigger.tag?.kind || 'OTHER'}]\n`
+
+            })
+
+          } else {
+
+            text += `    (none configured)\n`
+
+          }
+
+          text += '\n'
+
+        }
+
+        
+
+        // Example Files
+
+        const exampleFiles = agentData.listening.exampleFiles || []
+
+        if (exampleFiles.length > 0) {
+
+          text += `  Example Files (${exampleFiles.length}):\n`
+
+          exampleFiles.forEach((file: any) => {
+
+            text += `    • ${file.name || 'unnamed'} (${(file.size / 1024).toFixed(1)} KB)\n`
+
+          })
+
+          text += '\n'
+
+        }
+
+        
+
+        // Report To
+
+        const listenerReportTo = agentData.listening.reportTo || []
+
+        text += `  Listener Reports To:\n`
+
+        if (listenerReportTo.length > 0) {
+
+          listenerReportTo.forEach((dest: string) => {
+
+            text += `    → ${dest}\n`
+
+          })
+
+        } else {
+
+          text += `    → REASONING section (internal passthrough)\n`
+
+        }
+
+        
+
+        text += `\n  Input Routing Logic:\n`
+
+        text += `    1. Multimodal input arrives (DOM/uploads/screenshots)\n`
+
+        text += `    2. Listener filters by: tags, source, website, expected context\n`
+
+        text += `    3. If match found → Process and report to destinations\n`
+
+        text += `    4. If no match → Skip this agent\n`
+
+        
+
+      } else {
+
+        text += `  State: ✗ INACTIVE\n`
+
+        text += `  All multimodal input passes directly to REASONING section\n`
+
+        text += `  (No filtering applied)\n`
+
+      }
+
+      
+
+      text += '\n'
+
+      
+
       // Reasoning Section - Listen From (acceptFrom)
 
-      const hasReasoning = agent.capabilities?.includes('reasoning') || false
+      const hasReasoning = agentData.capabilities?.includes('reasoning') || false
 
-      if (hasReasoning) {
+      if (hasReasoning && agentData.reasoning) {
 
-        text += `\n[REASONING SECTION - Input]\n`
+        text += `[REASONING SECTION - Input]\n`
 
-        const acceptFrom = agent.reasoning?.acceptFrom || []
+        
+
+        // Apply For
+
+        const applyFor = agentData.reasoning.applyFor || '__any__'
+
+        text += `  Apply For: ${applyFor === '__any__' ? 'Any Input' : applyFor}\n\n`
+
+        
+
+        // Accept From (Listen From)
+
+        const acceptFrom = agentData.reasoning.acceptFrom || []
+
+        text += `  Listen From (Accept From):\n`
 
         if (acceptFrom.length > 0) {
 
-          text += `  Listen From: ${acceptFrom.join(', ')}\n`
+          acceptFrom.forEach((source: string) => {
+
+            text += `    ← ${source}\n`
+
+          })
 
           text += `  → Only processes input from these sources\n`
 
         } else {
 
-          text += `  Listen From: [] (not set)\n`
+          text += `    [] (not set)\n`
 
-          text += `  → Accepts direct multimodal input (internal passthrough)\n`
+          text += `    → Accepts direct multimodal input (internal passthrough)\n`
 
         }
+
+        
+
+        text += '\n'
+
+        
+
+        // Goals/Role/Rules
+
+        if (agentData.reasoning.goals) {
+
+          text += `  Goals:\n`
+
+          const goals = agentData.reasoning.goals.split('\n').filter((l: string) => l.trim())
+
+          goals.forEach((line: string) => {
+
+            text += `    ${line}\n`
+
+          })
+
+          text += '\n'
+
+        }
+
+        
+
+        if (agentData.reasoning.role) {
+
+          text += `  Role: ${agentData.reasoning.role}\n\n`
+
+        }
+
+        
+
+        if (agentData.reasoning.rules) {
+
+          text += `  Rules:\n`
+
+          const rules = agentData.reasoning.rules.split('\n').filter((l: string) => l.trim())
+
+          rules.forEach((line: string) => {
+
+            text += `    ${line}\n`
+
+          })
+
+          text += '\n'
+
+        }
+
+        
+
+        // Custom Fields
+
+        const custom = agentData.reasoning.custom || []
+
+        if (custom.length > 0) {
+
+          text += `  Custom Fields:\n`
+
+          custom.forEach((field: any) => {
+
+            text += `    ${field.key}: ${field.value}\n`
+
+          })
+
+          text += '\n'
+
+        }
+
+      }
+
+      
+
+      // Context Section (Session/Account/Agent)
+
+      text += `[CONTEXT]\n`
+
+      const contextSettings = agentData.contextSettings || {}
+
+      text += `  Session Context: ${contextSettings.sessionContext ? '✓ ENABLED' : '✗ DISABLED'}\n`
+
+      text += `  Account Context: ${contextSettings.accountContext ? '✓ ENABLED' : '✗ DISABLED'}\n`
+
+      text += `  Agent Context: ${contextSettings.agentContext ? '✓ ENABLED' : '✗ DISABLED'}\n\n`
+
+      
+
+      // Agent Context Files
+
+      const agentContextFiles = agentData.agentContextFiles || []
+
+      if (agentContextFiles.length > 0) {
+
+        text += `  Agent Context Files (${agentContextFiles.length}):\n`
+
+        agentContextFiles.forEach((file: any) => {
+
+          text += `    • ${file.name || 'unnamed'} (${(file.size / 1024).toFixed(1)} KB)\n`
+
+        })
+
+        text += '\n'
+
+      }
+
+      
+
+      text += '\n'
+
+      
+
+      // Memory Settings
+
+      const memSettings = agentData.memorySettings || {}
+
+      text += `[MEMORY SETTINGS]\n`
+
+      text += `  Session Memory: ${memSettings.sessionEnabled ? '✓ ENABLED' : '✗ DISABLED'}\n`
+
+      if (memSettings.sessionEnabled) {
+
+        text += `    Read: ${memSettings.sessionRead ? '✓' : '✗'}\n`
+
+        text += `    Write: ${memSettings.sessionWrite ? '✓' : '✗'}\n`
+
+      }
+
+      text += `  Account Memory: ${memSettings.accountEnabled ? '✓ ENABLED' : '✗ DISABLED'}\n`
+
+      if (memSettings.accountEnabled) {
+
+        text += `    Read: ${memSettings.accountRead ? '✓' : '✗'}\n`
+
+        text += `    Write: ${memSettings.accountWrite ? '✓' : '✗'}\n`
 
       }
 
@@ -10092,13 +10446,47 @@ function initializeExtension() {
 
     
 
-    // Summary
+    // Summary - need to re-parse all agents for statistics
 
     const enabledCount = agents.filter(a => a.enabled).length
 
-    const listenerCount = agents.filter(a => a.capabilities?.includes('listening')).length
+    let listenerCount = 0
 
-    const wiringCount = agents.filter(a => (a.reasoning?.acceptFrom || []).length > 0).length
+    let activeListeners = 0
+
+    let wiringCount = 0
+
+    
+
+    agents.forEach(agent => {
+
+      let agentData = agent
+
+      if (agent.config?.instructions) {
+
+        try {
+
+          const parsed = typeof agent.config.instructions === 'string' 
+
+            ? JSON.parse(agent.config.instructions) 
+
+            : agent.config.instructions
+
+          agentData = { ...agent, ...parsed }
+
+        } catch (e) {}
+
+      }
+
+      
+
+      if (agentData.capabilities?.includes('listening')) listenerCount++
+
+      if (agentData.listening && (agentData.listening.passiveEnabled || agentData.listening.activeEnabled)) activeListeners++
+
+      if ((agentData.reasoning?.acceptFrom || []).length > 0) wiringCount++
+
+    })
 
     
 
@@ -10110,7 +10498,9 @@ function initializeExtension() {
 
     text += `  Enabled: ${enabledCount}\n`
 
-    text += `  With Listener: ${listenerCount}\n`
+    text += `  With Listener Capability: ${listenerCount}\n`
+
+    text += `  Active Listeners (Passive/Active): ${activeListeners}\n`
 
     text += `  With Inter-Agent Wiring: ${wiringCount}\n`
 
@@ -10124,123 +10514,325 @@ function initializeExtension() {
 
   function generateOutputCoordinatorText(agents: any[]): string {
 
-    let text = '=== OUTPUT COORDINATOR - OUTPUT ROUTING ===\n\n'
+    // This function will be called with actual agent boxes data
 
-    text += 'Shows how each agent routes its output (reasoning results, responses, etc.).\n\n'
+    return generateOutputCoordinatorTextWithBoxes(agents, [])
+
+  }
+
+
+
+  function generateOutputCoordinatorTextWithBoxes(agents: any[], agentBoxes: any[]): string {
+
+    let text = '=== OUTPUT COORDINATOR - AGENT BOX ALLOCATIONS ===\n\n'
+
+    text += 'Shows all active agents and all agent boxes in the session.\n'
+
+    text += 'Connections are displayed when an agent box has an agent allocated to it.\n\n'
+
+    
+
+    // List all active agents
+
+    text += `━━━ ACTIVE AGENTS (${agents.length} total) ━━━\n\n`
 
     
 
     if (agents.length === 0) {
 
-      return text + 'No agents configured in this session.\n'
+      text += 'No agents configured in this session.\n\n'
 
-    }
+    } else {
 
-    
+      agents.forEach((agent, idx) => {
 
-    agents.forEach((agent, idx) => {
+        const num = String(idx + 1).padStart(2, '0')
 
-      const num = String(idx + 1).padStart(2, '0')
+        const agentKey = agent.key || agent.name || `agent${idx + 1}`
 
-      const name = agent.name || agent.key || `Agent${num}`
+        const agentNumber = agent.number || 0  // Use agent.number directly from session
 
-      
+        const name = agent.name || agent.key || `Agent${num}`
 
-      text += `\n━━━ Agent ${num}: ${name} ━━━\n`
-
-      text += `Status: ${agent.enabled ? '✓ ENABLED' : '✗ DISABLED'}\n\n`
-
-      
-
-      // Reasoning Section - Respond To (reportTo)
-
-      const hasReasoning = agent.capabilities?.includes('reasoning') || false
-
-      if (hasReasoning) {
-
-        text += `[REASONING SECTION - Output]\n`
-
-        const reportTo = agent.reasoning?.reportTo || []
+        const enabled = agent.enabled ? '✓ ENABLED' : '✗ DISABLED'
 
         
 
-        if (reportTo.length > 0) {
+        text += `Agent ${num} (${name})\n`
 
-          text += `  Respond To: ${reportTo.join(', ')}\n`
+        text += `  Status: ${enabled}\n`
 
-          text += `  Output Routing:\n`
+        text += `  Agent Number: ${agentNumber}\n`
 
-          reportTo.forEach(dest => {
+        text += `  Agent Key: ${agentKey}\n`
 
-            text += `    → Forward to: ${dest}\n`
+        
+
+        // Check if this agent has any allocated agent boxes
+
+        const allocatedBoxes = agentBoxes.filter((box: any) => box.agentNumber === agentNumber)
+
+        
+
+        if (allocatedBoxes.length > 0) {
+
+          text += `  Connected Agent Boxes: ${allocatedBoxes.length}\n`
+
+          allocatedBoxes.forEach((box: any) => {
+
+            const boxNum = String(box.boxNumber).padStart(2, '0')
+
+            text += `    → Agent Box ${boxNum} (${box.title || 'Untitled'})\n`
 
           })
 
         } else {
 
-          text += `  Respond To: [] (not set)\n`
-
-          text += `  Output Routing: INTERNAL PASSTHROUGH\n`
-
-          text += `    → Output stays within this agent (no external forwarding)\n`
+          text += `  Connected Agent Boxes: None\n`
 
         }
 
-      } else {
+        
 
-        text += `[REASONING SECTION]\n`
+        text += '\n'
 
-        text += `  State: INACTIVE\n`
+      })
 
-        text += `  No output routing configured\n`
+    }
+
+    
+
+    // List all agent boxes
+
+    text += `━━━ AGENT BOXES (${agentBoxes.length} total) ━━━\n\n`
+
+    
+
+    if (agentBoxes.length === 0) {
+
+      text += 'No agent boxes configured in this session.\n\n'
+
+      text += 'To create agent boxes:\n'
+
+      text += '1. Open a Display Grid (2x2, 3x3, or 4x4)\n'
+
+      text += '2. Click on a slot to configure it\n'
+
+      text += '3. Enter an Agent Number to allocate an agent\n'
+
+      text += '4. Save the configuration\n\n'
+
+    } else {
+
+      agentBoxes.forEach((box: any) => {
+
+        const boxNum = String(box.boxNumber).padStart(2, '0')
+
+        const location = box.locationLabel || box.locationId || 'Unknown location'
+
+        
+
+        text += `Agent Box ${boxNum}\n`
+
+        text += `  Title: ${box.title || 'Untitled'}\n`
+
+        text += `  Location: ${location}\n`
+
+        if (box.slotId) text += `  Slot: ${box.slotId}\n`
+
+        
+
+        // Check if this box has an agent allocated
+
+        if (box.agentNumber && box.agentNumber > 0) {
+
+          // Find agent by matching agentNumber with agent.number
+
+          let matchedAgent = null
+
+          let matchedAgentIdx = -1
+
+          
+
+          for (let i = 0; i < agents.length; i++) {
+
+            const agentNum = agents[i].number || 0
+
+            if (agentNum === box.agentNumber) {
+
+              matchedAgent = agents[i]
+
+              matchedAgentIdx = i
+
+              break
+
+            }
+
+          }
+
+          
+
+          if (matchedAgent) {
+
+            const agentNum = String(matchedAgentIdx + 1).padStart(2, '0')
+
+            const agentName = matchedAgent.name || matchedAgent.key || `Agent${agentNum}`
+
+            
+
+            text += `  Allocated Agent: Agent ${agentNum} (${agentName})\n`
+
+            text += `  Connection: Agent ${agentNum} → Agent Box ${boxNum}\n`
+
+            text += `  ${matchedAgent.enabled ? '✓ Active' : '⚠️ Agent disabled'}\n`
+
+          } else {
+
+            text += `  Allocated Agent: Number ${box.agentNumber} (not found in session)\n`
+
+            text += `  ⚠️ Warning: Agent not found or deleted\n`
+
+          }
+
+        } else {
+
+          text += `  Allocated Agent: None\n`
+
+          text += `  Status: Unallocated\n`
+
+        }
+
+        
+
+        text += '\n'
+
+      })
+
+    }
+
+    
+
+    // List all connections
+
+    text += `━━━ CONNECTIONS ━━━\n\n`
+
+    
+
+    const connections: any[] = []
+
+    
+
+    agentBoxes.forEach((box: any) => {
+
+      if (box.agentNumber && box.agentNumber > 0) {
+
+        // Find agent by matching agentNumber with agent.number
+
+        let matchedAgent = null
+
+        let matchedAgentIdx = -1
+
+        
+
+        for (let i = 0; i < agents.length; i++) {
+
+          const agentNum = agents[i].number || 0
+
+          if (agentNum === box.agentNumber) {
+
+            matchedAgent = agents[i]
+
+            matchedAgentIdx = i
+
+            break
+
+          }
+
+        }
+
+        
+
+        if (matchedAgent) {
+
+          const agentNum = String(matchedAgentIdx + 1).padStart(2, '0')
+
+          const boxNum = String(box.boxNumber).padStart(2, '0')
+
+          const agentName = matchedAgent.name || matchedAgent.key || `Agent${agentNum}`
+
+          
+
+          connections.push({
+
+            agentNum,
+
+            agentName,
+
+            boxNum,
+
+            boxTitle: box.title || 'Untitled',
+
+            enabled: matchedAgent.enabled
+
+          })
+
+        }
 
       }
-
-      
-
-      // Show model info if available
-
-      if (agent.provider && agent.model) {
-
-        text += `\n[MODEL CONFIG]\n`
-
-        text += `  Provider/Model: ${agent.provider}/${agent.model}\n`
-
-        if (agent.temperature !== undefined) text += `  Temperature: ${agent.temperature}\n`
-
-        if (agent.max_tokens !== undefined) text += `  Max Tokens: ${agent.max_tokens}\n`
-
-      }
-
-      
-
-      text += '\n'
 
     })
 
     
 
-    // Summary
+    if (connections.length === 0) {
 
-    const enabledCount = agents.filter(a => a.enabled).length
+      text += 'No connections found.\n'
 
-    const forwardingCount = agents.filter(a => (a.reasoning?.reportTo || []).length > 0).length
+      text += 'Agents are not allocated to any agent boxes.\n\n'
 
-    const passthroughCount = agents.filter(a => (a.reasoning?.reportTo || []).length === 0).length
+    } else {
+
+      connections.forEach((conn: any) => {
+
+        text += `Agent ${conn.agentNum} → Agent Box ${conn.boxNum}\n`
+
+        text += `  Agent: ${conn.agentName}\n`
+
+        text += `  Box: ${conn.boxTitle}\n`
+
+        text += `  Status: ${conn.enabled ? '✓ Active - Output will display' : '⚠️ Agent disabled - Output queued'}\n\n`
+
+      })
+
+    }
 
     
 
-    text += '\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n'
+    // Summary
+
+    const enabledAgents = agents.filter((a: any) => a.enabled).length
+
+    const allocatedBoxes = agentBoxes.filter((box: any) => box.agentNumber && box.agentNumber > 0).length
+
+    const unallocatedBoxes = agentBoxes.length - allocatedBoxes
+
+    
+
+    text += '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n'
 
     text += `SUMMARY:\n`
 
     text += `  Total Agents: ${agents.length}\n`
 
-    text += `  Enabled: ${enabledCount}\n`
+    text += `  Enabled Agents: ${enabledAgents}\n`
 
-    text += `  With External Forwarding: ${forwardingCount}\n`
+    text += `  Total Agent Boxes: ${agentBoxes.length}\n`
 
-    text += `  With Internal Passthrough: ${passthroughCount}\n`
+    text += `  Allocated Boxes: ${allocatedBoxes}\n`
+
+    text += `  Unallocated Boxes: ${unallocatedBoxes}\n`
+
+    text += `  Active Connections: ${connections.length}\n`
 
     
 
@@ -10270,19 +10862,29 @@ function initializeExtension() {
 
       const inputText = generateInputCoordinatorText(agents)
 
-      const outputText = generateOutputCoordinatorText(agents)
-
       
 
-      const inputTextarea = document.getElementById('input-coordinator-text') as HTMLTextAreaElement | null
+      // Get agent boxes from session
 
-      const outputTextarea = document.getElementById('output-coordinator-text') as HTMLTextAreaElement | null
+      ensureActiveSession((key, session) => {
 
-      
+        const agentBoxes = session.agentBoxes || []
 
-      if (inputTextarea) inputTextarea.value = inputText
+        const outputText = generateOutputCoordinatorTextWithBoxes(agents, agentBoxes)
 
-      if (outputTextarea) outputTextarea.value = outputText
+        
+
+        const inputTextarea = document.getElementById('input-coordinator-text') as HTMLTextAreaElement | null
+
+        const outputTextarea = document.getElementById('output-coordinator-text') as HTMLTextAreaElement | null
+
+        
+
+        if (inputTextarea) inputTextarea.value = inputText
+
+        if (outputTextarea) outputTextarea.value = outputText
+
+      })
 
     })
 
@@ -11662,7 +12264,7 @@ function initializeExtension() {
 
         const num = getOrAssignAgentNumber(agentName)
 
-        return `AI Instructions - Agent ${num} - ${capitalizeName(agentName)}`
+        return `🤖 AI Instructions - Agent ${num}`
 
       }
 
@@ -11670,11 +12272,11 @@ function initializeExtension() {
 
         const num = getOrAssignAgentNumber(agentName)
 
-        return `Memory Agent ${num} - ${capitalizeName(agentName)}`
+        return `🧠 Memory - Agent ${num}`
 
       }
 
-      return `${typeLabels[type]} - ${agentName}`
+      return `${typeLabels[type]} - ${capitalizeName(agentName)}`
 
     })()
 
@@ -11954,7 +12556,7 @@ function initializeExtension() {
 
       let persistedRole = ''
 
-      let persistedPassiveToggle = true
+      let persistedPassiveToggle = false
 
       let persistedActiveToggle = false
 
@@ -13018,7 +13620,7 @@ function initializeExtension() {
 
             <div style="margin:6px 0 8px 0;display:flex;align-items:center;gap:14px">
 
-              <label style="display:flex;align-items:center;gap:6px"><input id="L-toggle-passive" type="checkbox" checked> Passive Listener</label>
+              <label style="display:flex;align-items:center;gap:6px"><input id="L-toggle-passive" type="checkbox"> Passive Listener</label>
 
               <label style="display:flex;align-items:center;gap:6px"><input id="L-toggle-active" type="checkbox"> Active Listener</label>
 
@@ -13470,19 +14072,19 @@ function initializeExtension() {
 
             </div>
 
-            <label style="margin-top:8px">Goals (System instructions)
+            <label style="display:block;margin-top:8px">Goals (System instructions)
 
               <textarea id="R-goals" style="width:100%;min-height:90px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.35);color:#fff;padding:8px;border-radius:6px"></textarea>
 
             </label>
 
-            <label>Role (optional)
+            <label style="display:block">Role (optional)
 
               <input id="R-role" style="width:100%;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.35);color:#fff;padding:8px;border-radius:6px">
 
             </label>
 
-            <label>Rules
+            <label style="display:block">Rules
 
               <textarea id="R-rules" style="width:100%;min-height:70px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.35);color:#fff;padding:8px;border-radius:6px"></textarea>
 
