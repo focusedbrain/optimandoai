@@ -9996,7 +9996,9 @@ function initializeExtension() {
 
     let text = '=== INPUT COORDINATOR - MULTIMODAL INPUT ROUTING ===\n\n'
 
-    text += 'Shows how multimodal inputs (DOM, uploads, screenshots, etc.) flow through each agent.\n\n'
+    text += 'Shows how multimodal inputs (DOM, uploads, screenshots, etc.) flow through each agent.\n'
+
+    text += 'Displays ALL configured settings from the AI Agent setup forms.\n\n'
 
     
 
@@ -10018,11 +10020,13 @@ function initializeExtension() {
 
       text += `\n━━━ Agent ${num}: ${name} ━━━\n`
 
-      text += `Status: ${agent.enabled ? '✓ ENABLED' : '✗ DISABLED'}\n\n`
+      text += `Enabled: ${agent.enabled ? '✓ YES' : '✗ NO'}\n`
+
+      text += `Icon: ${agent.icon || '🤖'}\n\n`
 
       
 
-      // Listener Section Analysis
+      // Listener Section Analysis (COMPLETE)
 
       const hasListener = agent.capabilities?.includes('listening') || false
 
@@ -10030,31 +10034,199 @@ function initializeExtension() {
 
       
 
-      if (hasListener) {
+      if (hasListener && agent.listening) {
 
-        text += `  State: ACTIVE\n`
+        text += `  State: ✓ ACTIVE\n\n`
 
-        const listenerReportTo = agent.listening?.reportTo || []
+        
 
-        if (listenerReportTo.length > 0) {
+        // Passive/Active toggles
 
-          text += `  Reports findings to: ${listenerReportTo.join(', ')}\n`
+        const passiveEnabled = agent.listening.passiveEnabled || false
 
-        } else {
+        const activeEnabled = agent.listening.activeEnabled || false
 
-          text += `  Reports findings to: → REASONING section (internal passthrough)\n`
+        text += `  Modes:\n`
+
+        text += `    Passive Listener: ${passiveEnabled ? '✓ ENABLED' : '✗ DISABLED'}\n`
+
+        text += `    Active Listener: ${activeEnabled ? '✓ ENABLED' : '✗ DISABLED'}\n\n`
+
+        
+
+        // Expected Context
+
+        if (agent.listening.expectedContext) {
+
+          text += `  Expected Context:\n`
+
+          text += `    "${agent.listening.expectedContext}"\n\n`
 
         }
 
-        text += `  Pattern matching: Filters multimodal input based on listener patterns\n`
+        
+
+        // Tags
+
+        const tags = agent.listening.tags || []
+
+        if (tags.length > 0) {
+
+          text += `  Tags: [${tags.join(', ')}]\n\n`
+
+        } else {
+
+          text += `  Tags: [] (none selected)\n\n`
+
+        }
+
+        
+
+        // Source
+
+        const source = agent.listening.source || ''
+
+        if (source) {
+
+          text += `  Source: ${source}\n\n`
+
+        }
+
+        
+
+        // Website
+
+        if (agent.listening.website) {
+
+          text += `  Website Filter: ${agent.listening.website}\n\n`
+
+        }
+
+        
+
+        // Passive Triggers
+
+        if (passiveEnabled) {
+
+          const passiveTriggers = agent.listening.passive?.triggers || []
+
+          text += `  Passive Triggers (${passiveTriggers.length}):\n`
+
+          if (passiveTriggers.length > 0) {
+
+            passiveTriggers.forEach((trigger: any) => {
+
+              text += `    • ${trigger.tag?.name || 'unnamed'} [${trigger.tag?.kind || 'OTHER'}]\n`
+
+            })
+
+          } else {
+
+            text += `    (none configured)\n`
+
+          }
+
+          text += '\n'
+
+        }
+
+        
+
+        // Active Triggers
+
+        if (activeEnabled) {
+
+          const activeTriggers = agent.listening.active?.triggers || []
+
+          text += `  Active Triggers (${activeTriggers.length}):\n`
+
+          if (activeTriggers.length > 0) {
+
+            activeTriggers.forEach((trigger: any) => {
+
+              text += `    • ${trigger.tag?.name || 'unnamed'} [${trigger.tag?.kind || 'OTHER'}]\n`
+
+            })
+
+          } else {
+
+            text += `    (none configured)\n`
+
+          }
+
+          text += '\n'
+
+        }
+
+        
+
+        // Example Files
+
+        const exampleFiles = agent.listening.exampleFiles || []
+
+        if (exampleFiles.length > 0) {
+
+          text += `  Example Files (${exampleFiles.length}):\n`
+
+          exampleFiles.forEach((file: any) => {
+
+            text += `    • ${file.name || 'unnamed'} (${(file.size / 1024).toFixed(1)} KB)\n`
+
+          })
+
+          text += '\n'
+
+        }
+
+        
+
+        // Report To
+
+        const listenerReportTo = agent.listening.reportTo || []
+
+        text += `  Listener Reports To:\n`
+
+        if (listenerReportTo.length > 0) {
+
+          listenerReportTo.forEach((dest: string) => {
+
+            text += `    → ${dest}\n`
+
+          })
+
+        } else {
+
+          text += `    → REASONING section (internal passthrough)\n`
+
+        }
+
+        
+
+        text += `\n  Input Routing Logic:\n`
+
+        text += `    1. Multimodal input arrives (DOM/uploads/screenshots)\n`
+
+        text += `    2. Listener filters by: tags, source, website, expected context\n`
+
+        text += `    3. If match found → Process and report to destinations\n`
+
+        text += `    4. If no match → Skip this agent\n`
+
+        
 
       } else {
 
-        text += `  State: INACTIVE\n`
+        text += `  State: ✗ INACTIVE\n`
 
         text += `  All multimodal input passes directly to REASONING section\n`
 
+        text += `  (No filtering applied)\n`
+
       }
+
+      
+
+      text += '\n'
 
       
 
@@ -10062,25 +10234,175 @@ function initializeExtension() {
 
       const hasReasoning = agent.capabilities?.includes('reasoning') || false
 
-      if (hasReasoning) {
+      if (hasReasoning && agent.reasoning) {
 
-        text += `\n[REASONING SECTION - Input]\n`
+        text += `[REASONING SECTION - Input]\n`
 
-        const acceptFrom = agent.reasoning?.acceptFrom || []
+        
+
+        // Apply For
+
+        const applyFor = agent.reasoning.applyFor || '__any__'
+
+        text += `  Apply For: ${applyFor === '__any__' ? 'Any Input' : applyFor}\n\n`
+
+        
+
+        // Accept From (Listen From)
+
+        const acceptFrom = agent.reasoning.acceptFrom || []
+
+        text += `  Listen From (Accept From):\n`
 
         if (acceptFrom.length > 0) {
 
-          text += `  Listen From: ${acceptFrom.join(', ')}\n`
+          acceptFrom.forEach((source: string) => {
+
+            text += `    ← ${source}\n`
+
+          })
 
           text += `  → Only processes input from these sources\n`
 
         } else {
 
-          text += `  Listen From: [] (not set)\n`
+          text += `    [] (not set)\n`
 
-          text += `  → Accepts direct multimodal input (internal passthrough)\n`
+          text += `    → Accepts direct multimodal input (internal passthrough)\n`
 
         }
+
+        
+
+        text += '\n'
+
+        
+
+        // Goals/Role/Rules
+
+        if (agent.reasoning.goals) {
+
+          text += `  Goals:\n`
+
+          const goals = agent.reasoning.goals.split('\n').filter((l: string) => l.trim())
+
+          goals.forEach((line: string) => {
+
+            text += `    ${line}\n`
+
+          })
+
+          text += '\n'
+
+        }
+
+        
+
+        if (agent.reasoning.role) {
+
+          text += `  Role: ${agent.reasoning.role}\n\n`
+
+        }
+
+        
+
+        if (agent.reasoning.rules) {
+
+          text += `  Rules:\n`
+
+          const rules = agent.reasoning.rules.split('\n').filter((l: string) => l.trim())
+
+          rules.forEach((line: string) => {
+
+            text += `    ${line}\n`
+
+          })
+
+          text += '\n'
+
+        }
+
+        
+
+        // Custom Fields
+
+        const custom = agent.reasoning.custom || []
+
+        if (custom.length > 0) {
+
+          text += `  Custom Fields:\n`
+
+          custom.forEach((field: any) => {
+
+            text += `    ${field.key}: ${field.value}\n`
+
+          })
+
+          text += '\n'
+
+        }
+
+      }
+
+      
+
+      // Context Settings
+
+      const contextSettings = agent.contextSettings || {}
+
+      text += `[CONTEXT ACCESS]\n`
+
+      text += `  Session Context: ${contextSettings.sessionContext ? '✓' : '✗'}\n`
+
+      text += `  Account Context: ${contextSettings.accountContext ? '✓' : '✗'}\n`
+
+      text += `  Agent Context: ${contextSettings.agentContext ? '✓' : '✗'}\n\n`
+
+      
+
+      // Agent Context Files
+
+      const agentContextFiles = agent.agentContextFiles || []
+
+      if (agentContextFiles.length > 0) {
+
+        text += `  Agent Context Files (${agentContextFiles.length}):\n`
+
+        agentContextFiles.forEach((file: any) => {
+
+          text += `    • ${file.name || 'unnamed'} (${(file.size / 1024).toFixed(1)} KB)\n`
+
+        })
+
+        text += '\n'
+
+      }
+
+      
+
+      // Memory Settings
+
+      const memSettings = agent.memorySettings || {}
+
+      text += `[MEMORY SETTINGS]\n`
+
+      text += `  Session Memory: ${memSettings.sessionEnabled ? '✓ ENABLED' : '✗ DISABLED'}\n`
+
+      if (memSettings.sessionEnabled) {
+
+        text += `    Read: ${memSettings.sessionRead ? '✓' : '✗'}\n`
+
+        text += `    Write: ${memSettings.sessionWrite ? '✓' : '✗'}\n`
+
+      }
+
+      text += `  Account Memory: ${memSettings.accountEnabled ? '✓ ENABLED' : '✗ DISABLED'}\n`
+
+      if (memSettings.accountEnabled) {
+
+        text += `    Read: ${memSettings.accountRead ? '✓' : '✗'}\n`
+
+        text += `    Write: ${memSettings.accountWrite ? '✓' : '✗'}\n`
 
       }
 
@@ -10098,6 +10420,8 @@ function initializeExtension() {
 
     const listenerCount = agents.filter(a => a.capabilities?.includes('listening')).length
 
+    const activeListeners = agents.filter(a => a.listening && (a.listening.passiveEnabled || a.listening.activeEnabled)).length
+
     const wiringCount = agents.filter(a => (a.reasoning?.acceptFrom || []).length > 0).length
 
     
@@ -10110,7 +10434,9 @@ function initializeExtension() {
 
     text += `  Enabled: ${enabledCount}\n`
 
-    text += `  With Listener: ${listenerCount}\n`
+    text += `  With Listener Capability: ${listenerCount}\n`
+
+    text += `  Active Listeners (Passive/Active): ${activeListeners}\n`
 
     text += `  With Inter-Agent Wiring: ${wiringCount}\n`
 
@@ -10272,35 +10598,83 @@ function initializeExtension() {
 
       const hasReasoning = agent.capabilities?.includes('reasoning') || false
 
-      if (hasReasoning) {
+      if (hasReasoning && agent.reasoning) {
 
         text += `\n[REASONING SECTION - Output]\n`
 
-        const reportTo = agent.reasoning?.reportTo || []
+        
+
+        // Apply For
+
+        const applyFor = agent.reasoning.applyFor || '__any__'
+
+        text += `  Apply For: ${applyFor === '__any__' ? 'Any Input' : applyFor}\n\n`
+
+        
+
+        // Respond To (reportTo)
+
+        const reportTo = agent.reasoning.reportTo || []
+
+        text += `  Respond To (Report To):\n`
 
         
 
         if (reportTo.length > 0) {
 
-          text += `  Respond To: ${reportTo.join(', ')}\n`
-
-          text += `  Output Routing:\n`
-
           reportTo.forEach(dest => {
 
-            text += `    → Forward to: ${dest}\n`
+            text += `    → ${dest}\n`
 
           })
 
+          text += `  Output Routing: FORWARD TO DESTINATIONS\n`
+
         } else {
 
-          text += `  Respond To: [] (not set)\n`
+          text += `    [] (not set)\n`
 
           text += `  Output Routing: INTERNAL PASSTHROUGH\n`
 
           text += `    → Output stays within this agent (no external forwarding)\n`
 
         }
+
+        
+
+        text += '\n'
+
+        
+
+        // Goals/Role/Rules (abbreviated)
+
+        if (agent.reasoning.goals) {
+
+          const goalsPreview = agent.reasoning.goals.substring(0, 100)
+
+          text += `  Goals: "${goalsPreview}${agent.reasoning.goals.length > 100 ? '...' : ''}"\n`
+
+        }
+
+        
+
+        if (agent.reasoning.role) {
+
+          text += `  Role: ${agent.reasoning.role}\n`
+
+        }
+
+        
+
+        if (agent.reasoning.rules) {
+
+          const rulesPreview = agent.reasoning.rules.substring(0, 100)
+
+          text += `  Rules: "${rulesPreview}${agent.reasoning.rules.length > 100 ? '...' : ''}"\n`
+
+        }
+
+        
 
       } else if (!hasExecution) {
 
