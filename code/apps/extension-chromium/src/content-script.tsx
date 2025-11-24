@@ -10524,155 +10524,11 @@ function initializeExtension() {
 
   function generateOutputCoordinatorTextWithBoxes(agents: any[], agentBoxes: any[]): string {
 
-    let text = '=== OUTPUT COORDINATOR - AGENT BOX ALLOCATIONS ===\n\n'
+    let text = '=== OUTPUT COORDINATOR - AGENT BOX CONNECTIONS ===\n\n'
 
-    text += 'Shows all active agents, their output destinations, and agent box connections.\n'
+    text += 'Lists all agent boxes and their connected agents.\n'
 
-    text += 'When an agent is allocated to an agent box:\n'
-
-    text += '  - Output is displayed in the agent box\n'
-
-    text += '  - "Report To" setting determines ADDITIONAL destinations (clipboard, screenshot, etc.)\n\n'
-
-    
-
-    // List all active agents
-
-    text += `━━━ ACTIVE AGENTS (${agents.length} total) ━━━\n\n`
-
-    
-
-    if (agents.length === 0) {
-
-      text += 'No agents configured in this session.\n\n'
-
-    } else {
-
-      agents.forEach((agent, idx) => {
-
-        const num = String(idx + 1).padStart(2, '0')
-
-        const agentKey = agent.key || agent.name || `agent${idx + 1}`
-
-        const agentNumber = agent.number || 0  // Use agent.number directly from session
-
-        const name = agent.name || agent.key || `Agent${num}`
-
-        const enabled = agent.enabled ? '✓ ENABLED' : '✗ DISABLED'
-
-        
-
-        // Parse agent config to get execution settings
-
-        let agentData = agent
-
-        if (agent.config?.instructions) {
-
-          try {
-
-            const parsed = typeof agent.config.instructions === 'string' 
-
-              ? JSON.parse(agent.config.instructions) 
-
-              : agent.config.instructions
-
-            agentData = { ...agent, ...parsed }
-
-          } catch (e) {
-
-            console.error('Failed to parse agent config:', e)
-
-          }
-
-        }
-
-        
-
-        text += `Agent ${num} (${name})\n`
-
-        text += `  Status: ${enabled}\n`
-
-        text += `  Agent Number: ${agentNumber}\n`
-
-        text += `  Agent Key: ${agentKey}\n`
-
-        
-
-        // Check execution Report To setting
-
-        const hasExecution = agentData.capabilities?.includes('execution') || false
-
-        const executionReportTo = agentData.execution?.reportTo || []
-
-        
-
-        if (hasExecution) {
-
-          if (executionReportTo.length > 0) {
-
-            text += `  Report To: ${executionReportTo.join(', ')}\n`
-
-          } else {
-
-            text += `  Report To: Agent Boxes (default)\n`
-
-          }
-
-        } else {
-
-          text += `  Report To: (Execution section not enabled)\n`
-
-        }
-
-        
-
-        // Check if this agent has any allocated agent boxes
-
-        const allocatedBoxes = agentBoxes.filter((box: any) => box.agentNumber === agentNumber)
-
-        
-
-        if (allocatedBoxes.length > 0) {
-
-          text += `  Connected Agent Boxes: ${allocatedBoxes.length}\n`
-
-          allocatedBoxes.forEach((box: any) => {
-
-            const boxNum = String(box.boxNumber).padStart(2, '0')
-
-            text += `    → Agent Box ${boxNum} (${box.title || 'Untitled'})\n`
-
-          })
-
-          
-
-          // Show additional destinations if any
-
-          if (hasExecution && executionReportTo.length > 0) {
-
-            text += `  Additional Output: ${executionReportTo.join(', ')}\n`
-
-          }
-
-        } else {
-
-          text += `  Connected Agent Boxes: None\n`
-
-        }
-
-        
-
-        text += '\n'
-
-      })
-
-    }
-
-    
-
-    // List all agent boxes
-
-    text += `━━━ AGENT BOXES (${agentBoxes.length} total) ━━━\n\n`
+    text += 'Shows Execution section settings and Report To destinations.\n\n'
 
     
 
@@ -10690,111 +10546,41 @@ function initializeExtension() {
 
       text += '4. Save the configuration\n\n'
 
-    } else {
-
-      agentBoxes.forEach((box: any) => {
-
-        const boxNum = String(box.boxNumber).padStart(2, '0')
-
-        const location = box.locationLabel || box.locationId || 'Unknown location'
-
-        
-
-        text += `Agent Box ${boxNum}\n`
-
-        text += `  Title: ${box.title || 'Untitled'}\n`
-
-        text += `  Location: ${location}\n`
-
-        if (box.slotId) text += `  Slot: ${box.slotId}\n`
-
-        
-
-        // Check if this box has an agent allocated
-
-        if (box.agentNumber && box.agentNumber > 0) {
-
-          // Find agent by matching agentNumber with agent.number
-
-          let matchedAgent = null
-
-          let matchedAgentIdx = -1
-
-          
-
-          for (let i = 0; i < agents.length; i++) {
-
-            const agentNum = agents[i].number || 0
-
-            if (agentNum === box.agentNumber) {
-
-              matchedAgent = agents[i]
-
-              matchedAgentIdx = i
-
-              break
-
-            }
-
-          }
-
-          
-
-          if (matchedAgent) {
-
-            const agentNum = String(matchedAgentIdx + 1).padStart(2, '0')
-
-            const agentName = matchedAgent.name || matchedAgent.key || `Agent${agentNum}`
-
-            
-
-            text += `  Allocated Agent: Agent ${agentNum} (${agentName})\n`
-
-            text += `  Connection: Agent ${agentNum} → Agent Box ${boxNum}\n`
-
-            text += `  ${matchedAgent.enabled ? '✓ Active' : '⚠️ Agent disabled'}\n`
-
-          } else {
-
-            text += `  Allocated Agent: Number ${box.agentNumber} (not found in session)\n`
-
-            text += `  ⚠️ Warning: Agent not found or deleted\n`
-
-          }
-
-        } else {
-
-          text += `  Allocated Agent: None\n`
-
-          text += `  Status: Unallocated\n`
-
-        }
-
-        
-
-        text += '\n'
-
-      })
+      return text
 
     }
 
     
 
-    // List all connections
-
-    text += `━━━ CONNECTIONS ━━━\n\n`
+    text += `━━━ AGENT BOXES (${agentBoxes.length} total) ━━━\n\n`
 
     
 
-    const connections: any[] = []
+    let connectedCount = 0
 
     
 
     agentBoxes.forEach((box: any) => {
 
+      const boxNum = String(box.boxNumber).padStart(2, '0')
+
+      const location = box.locationLabel || box.locationId || 'Unknown location'
+
+      
+
+      text += `Agent Box ${boxNum}: ${box.title || 'Untitled'}\n`
+
+      text += `  Location: ${location}\n`
+
+      if (box.slotId) text += `  Slot: ${box.slotId}\n`
+
+      
+
+      // Check if this box has an agent allocated
+
       if (box.agentNumber && box.agentNumber > 0) {
 
-        // Find agent by matching agentNumber with agent.number
+        // Find the matching agent
 
         let matchedAgent = null
 
@@ -10822,7 +10608,23 @@ function initializeExtension() {
 
         if (matchedAgent) {
 
-          // Parse agent config to check Execution settings
+          connectedCount++
+
+          const agentNum = String(matchedAgentIdx + 1).padStart(2, '0')
+
+          const agentName = matchedAgent.name || matchedAgent.key || `Agent${agentNum}`
+
+          
+
+          text += `  Connected Agent: Agent ${agentNum} (${agentName})\n`
+
+          text += `  Connection: Agent ${agentNum} → Agent Box ${boxNum}\n`
+
+          text += `  Status: ${matchedAgent.enabled ? '✓ Active' : '⚠️ Agent disabled'}\n`
+
+          
+
+          // Parse agent config to get execution settings
 
           let agentData = matchedAgent
 
@@ -10848,117 +10650,81 @@ function initializeExtension() {
 
           
 
-          // Check execution settings
+          // Show execution section settings
 
           const hasExecution = agentData.capabilities?.includes('execution') || false
 
-          const executionReportTo = agentData.execution?.reportTo || []
+          
+
+          if (hasExecution) {
+
+            text += `\n  [EXECUTION SECTION]\n`
+
+            
+
+            const executionReportTo = agentData.execution?.reportTo || []
+
+            if (executionReportTo.length > 0) {
+
+              text += `    Report To: ${executionReportTo.join(', ')}\n`
+
+              text += `    Note: Output shows in Agent Box ${boxNum} + additional destination(s)\n`
+
+            } else {
+
+              text += `    Report To: Agent Boxes (default)\n`
+
+              text += `    Note: Output shows only in Agent Box ${boxNum}\n`
+
+            }
+
+            
+
+            // Show any other execution settings if available
+
+            if (agentData.execution?.workflows && agentData.execution.workflows.length > 0) {
+
+              text += `    Workflows: ${agentData.execution.workflows.join(', ')}\n`
+
+            }
+
+          } else {
+
+            text += `\n  [EXECUTION SECTION]\n`
+
+            text += `    Status: ✗ Not enabled\n`
+
+          }
 
           
 
-          const agentNum = String(matchedAgentIdx + 1).padStart(2, '0')
+        } else {
 
-          const boxNum = String(box.boxNumber).padStart(2, '0')
+          text += `  Allocated Agent: Number ${box.agentNumber} (not found in session)\n`
 
-          const agentName = matchedAgent.name || matchedAgent.key || `Agent${agentNum}`
-
-          
-
-          connections.push({
-
-            agentNum,
-
-            agentName,
-
-            boxNum,
-
-            boxTitle: box.title || 'Untitled',
-
-            enabled: matchedAgent.enabled,
-
-            hasExecution,
-
-            reportTo: executionReportTo
-
-          })
+          text += `  ⚠️ Warning: Agent not found or deleted\n`
 
         }
 
+        
+
+      } else {
+
+        text += `  Connected Agent: None\n`
+
+        text += `  Status: Unallocated - No agent assigned\n`
+
       }
+
+      
+
+      text += '\n'
 
     })
 
     
 
-    if (connections.length === 0) {
-
-      text += 'No connections found.\n'
-
-      text += 'Agents are not allocated to any agent boxes.\n\n'
-
-    } else {
-
-      text += `Found ${connections.length} connection(s):\n\n`
-
-      
-
-      connections.forEach((conn: any) => {
-
-        text += `Agent ${conn.agentNum} → Agent Box ${conn.boxNum}\n`
-
-        text += `  Agent: ${conn.agentName}\n`
-
-        text += `  Box: ${conn.boxTitle}\n`
-
-        
-
-        if (!conn.enabled) {
-
-          text += `  Status: ⚠️ Agent disabled - Output queued\n`
-
-        } else if (!conn.hasExecution) {
-
-          text += `  Status: ⚠️ Execution section not enabled\n`
-
-        } else {
-
-          text += `  Status: ✓ Active - Output displays in agent box\n`
-
-        }
-
-        
-
-        // Show Report To destinations
-
-        if (conn.hasExecution) {
-
-          if (conn.reportTo.length > 0) {
-
-            text += `  Report To: ${conn.reportTo.join(', ')}\n`
-
-            text += `  Note: Output shows in agent box + additional destination(s)\n`
-
-          } else {
-
-            text += `  Report To: Agent Boxes (default)\n`
-
-          }
-
-        }
-
-        
-
-        text += '\n'
-
-      })
-
-    }
-
-    
-
     // Summary
-
-    const enabledAgents = agents.filter((a: any) => a.enabled).length
 
     const allocatedBoxes = agentBoxes.filter((box: any) => box.agentNumber && box.agentNumber > 0).length
 
@@ -10970,17 +10736,13 @@ function initializeExtension() {
 
     text += `SUMMARY:\n`
 
-    text += `  Total Agents: ${agents.length}\n`
-
-    text += `  Enabled Agents: ${enabledAgents}\n`
-
     text += `  Total Agent Boxes: ${agentBoxes.length}\n`
 
-    text += `  Allocated Boxes: ${allocatedBoxes}\n`
+    text += `  Connected (with agent): ${connectedCount}\n`
 
-    text += `  Unallocated Boxes: ${unallocatedBoxes}\n`
+    text += `  Allocated (agent not found): ${allocatedBoxes - connectedCount}\n`
 
-    text += `  Active Connections: ${connections.length}\n`
+    text += `  Unallocated: ${unallocatedBoxes}\n`
 
     
 
