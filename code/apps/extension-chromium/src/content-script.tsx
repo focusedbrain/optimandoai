@@ -2497,7 +2497,23 @@ function initializeExtension() {
 
         storageGet([sessionKeyFromUrl], (all:any) => {
 
+          console.log('🔍 DEBUG LOAD FROM URL: Raw storage result:', all)
+
           const session = (all && all[sessionKeyFromUrl]) || {}
+
+          console.log('🔍 DEBUG LOAD FROM URL: Parsed session:', {
+            hasAgents: !!session.agents,
+            agentsCount: session.agents?.length || 0,
+            hasAgentBoxes: !!session.agentBoxes,
+            agentBoxesCount: session.agentBoxes?.length || 0,
+            agents: session.agents?.map((a: any) => ({
+              key: a.key,
+              name: a.name,
+              enabled: a.enabled,
+              hasConfig: !!a.config,
+              configKeys: a.config ? Object.keys(a.config) : []
+            }))
+          })
 
           // Ensure session has all required fields
 
@@ -2531,6 +2547,16 @@ function initializeExtension() {
               };
             });
           }
+
+          console.log('🔍 DEBUG LOAD FROM URL: After transform:', {
+            agentsCount: session.agents?.length || 0,
+            agents: session.agents?.map((a: any) => ({
+              key: a.key,
+              name: a.name,
+              enabled: a.enabled,
+              hasConfig: !!a.config
+            }))
+          })
 
           
 
@@ -2589,7 +2615,31 @@ function initializeExtension() {
 
         storageGet([existingKey], (all:any) => {
 
+          console.log('🔍 DEBUG LOAD EXISTING: Raw storage result:', all)
+
           const session = (all && all[existingKey]) || {}
+
+          console.log('🔍 DEBUG LOAD EXISTING: Parsed session:', {
+            key: existingKey,
+            hasAgents: !!session.agents,
+            agentsCount: session.agents?.length || 0,
+            hasAgentBoxes: !!session.agentBoxes,
+            agentBoxesCount: session.agentBoxes?.length || 0,
+            agents: session.agents?.map((a: any) => ({
+              key: a.key,
+              name: a.name,
+              enabled: a.enabled,
+              number: a.number,
+              hasConfig: !!a.config,
+              configKeys: a.config ? Object.keys(a.config) : [],
+              configInstructions: a.config?.instructions ? (typeof a.config.instructions === 'string' ? 'STRING' : 'OBJECT') : 'NONE'
+            })),
+            agentBoxes: session.agentBoxes?.map((b: any) => ({
+              boxNumber: b.boxNumber,
+              agentNumber: b.agentNumber,
+              title: b.title
+            }))
+          })
 
           // Ensure session has all required fields
 
@@ -2622,7 +2672,22 @@ function initializeExtension() {
             });
           }
 
+          console.log('🔍 DEBUG LOAD EXISTING: After transform:', {
+            agentsCount: session.agents?.length || 0,
+            agents: session.agents?.map((a: any) => ({
+              key: a.key,
+              name: a.name,
+              enabled: a.enabled,
+              hasConfig: !!a.config
+            }))
+          })
+
           if (!session.timestamp) session.timestamp = new Date().toISOString()
+
+          console.log('🔍 DEBUG LOAD EXISTING: Final session before callback:', {
+            agentsCount: session.agents?.length || 0,
+            agentBoxesCount: session.agentBoxes?.length || 0
+          })
 
           cb(existingKey, session)
 
