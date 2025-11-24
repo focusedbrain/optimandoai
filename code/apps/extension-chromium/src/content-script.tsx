@@ -10526,9 +10526,13 @@ function initializeExtension() {
 
     let text = '=== OUTPUT COORDINATOR - AGENT BOX ALLOCATIONS ===\n\n'
 
-    text += 'Shows all active agents and all agent boxes in the session.\n'
+    text += 'Shows all active agents, their "Report To" settings, and agent box connections.\n'
 
-    text += 'Connections are displayed when an agent box has an agent allocated to it.\n\n'
+    text += 'Connections only exist when:\n'
+
+    text += '  1. Agent has "Report To" set to "Agent Boxes" (default)\n'
+
+    text += '  2. An agent box is allocated with the agent\'s number\n\n'
 
     
 
@@ -10558,6 +10562,32 @@ function initializeExtension() {
 
         
 
+        // Parse agent config to get execution settings
+
+        let agentData = agent
+
+        if (agent.config?.instructions) {
+
+          try {
+
+            const parsed = typeof agent.config.instructions === 'string' 
+
+              ? JSON.parse(agent.config.instructions) 
+
+              : agent.config.instructions
+
+            agentData = { ...agent, ...parsed }
+
+          } catch (e) {
+
+            console.error('Failed to parse agent config:', e)
+
+          }
+
+        }
+
+        
+
         text += `Agent ${num} (${name})\n`
 
         text += `  Status: ${enabled}\n`
@@ -10568,13 +10598,33 @@ function initializeExtension() {
 
         
 
-        // Check if this agent has any allocated agent boxes
+        // Check execution Report To setting
+
+        const executionReportTo = agentData.execution?.reportTo || []
+
+        const reportToAgentBoxes = executionReportTo.length === 0 || executionReportTo.includes('agentBox')
+
+        
+
+        if (executionReportTo.length > 0) {
+
+          text += `  Report To: ${executionReportTo.join(', ')}\n`
+
+        } else {
+
+          text += `  Report To: Agent Boxes (default)\n`
+
+        }
+
+        
+
+        // Check if this agent has any allocated agent boxes AND is set to report to agent boxes
 
         const allocatedBoxes = agentBoxes.filter((box: any) => box.agentNumber === agentNumber)
 
         
 
-        if (allocatedBoxes.length > 0) {
+        if (reportToAgentBoxes && allocatedBoxes.length > 0) {
 
           text += `  Connected Agent Boxes: ${allocatedBoxes.length}\n`
 
@@ -10585,6 +10635,12 @@ function initializeExtension() {
             text += `    → Agent Box ${boxNum} (${box.title || 'Untitled'})\n`
 
           })
+
+        } else if (!reportToAgentBoxes && allocatedBoxes.length > 0) {
+
+          text += `  Connected Agent Boxes: None (Report To is not set to Agent Boxes)\n`
+
+          text += `  Note: Agent box allocation exists but output goes to: ${executionReportTo.join(', ')}\n`
 
         } else {
 
@@ -10754,6 +10810,40 @@ function initializeExtension() {
 
         if (matchedAgent) {
 
+          // Parse agent config to check Report To setting
+
+          let agentData = matchedAgent
+
+          if (matchedAgent.config?.instructions) {
+
+            try {
+
+              const parsed = typeof matchedAgent.config.instructions === 'string' 
+
+                ? JSON.parse(matchedAgent.config.instructions) 
+
+                : matchedAgent.config.instructions
+
+              agentData = { ...matchedAgent, ...parsed }
+
+            } catch (e) {
+
+              console.error('Failed to parse agent config:', e)
+
+            }
+
+          }
+
+          
+
+          // Check if agent is set to report to agent boxes
+
+          const executionReportTo = agentData.execution?.reportTo || []
+
+          const reportToAgentBoxes = executionReportTo.length === 0 || executionReportTo.includes('agentBox')
+
+          
+
           const agentNum = String(matchedAgentIdx + 1).padStart(2, '0')
 
           const boxNum = String(box.boxNumber).padStart(2, '0')
@@ -10772,7 +10862,11 @@ function initializeExtension() {
 
             boxTitle: box.title || 'Untitled',
 
-            enabled: matchedAgent.enabled
+            enabled: matchedAgent.enabled,
+
+            reportToAgentBoxes,
+
+            actualReportTo: executionReportTo
 
           })
 
@@ -10792,17 +10886,55 @@ function initializeExtension() {
 
     } else {
 
-      connections.forEach((conn: any) => {
+      const activeConnections = connections.filter(c => c.reportToAgentBoxes)
 
-        text += `Agent ${conn.agentNum} → Agent Box ${conn.boxNum}\n`
+      const inactiveConnections = connections.filter(c => !c.reportToAgentBoxes)
 
-        text += `  Agent: ${conn.agentName}\n`
+      
 
-        text += `  Box: ${conn.boxTitle}\n`
+      if (activeConnections.length > 0) {
 
-        text += `  Status: ${conn.enabled ? '✓ Active - Output will display' : '⚠️ Agent disabled - Output queued'}\n\n`
+        text += `Active Connections (${activeConnections.length}):\n\n`
 
-      })
+        activeConnections.forEach((conn: any) => {
+
+          text += `Agent ${conn.agentNum} → Agent Box ${conn.boxNum}\n`
+
+          text += `  Agent: ${conn.agentName}\n`
+
+          text += `  Box: ${conn.boxTitle}\n`
+
+          text += `  Status: ${conn.enabled ? '✓ Active - Output will display in this box' : '⚠️ Agent disabled - Output queued'}\n\n`
+
+        })
+
+      }
+
+      
+
+      if (inactiveConnections.length > 0) {
+
+        text += `Inactive Allocations (${inactiveConnections.length}):\n`
+
+        text += `(Agent box allocation exists but agent is not reporting to agent boxes)\n\n`
+
+        inactiveConnections.forEach((conn: any) => {
+
+          text += `Agent ${conn.agentNum} ⤍ Agent Box ${conn.boxNum}\n`
+
+          text += `  Agent: ${conn.agentName}\n`
+
+          text += `  Box: ${conn.boxTitle}\n`
+
+          const reportDest = conn.actualReportTo.length > 0 ? conn.actualReportTo.join(', ') : 'Unknown'
+
+          text += `  Output Destination: ${reportDest}\n`
+
+          text += `  Note: Output will NOT display in this agent box\n\n`
+
+        })
+
+      }
 
     }
 
@@ -10815,6 +10947,10 @@ function initializeExtension() {
     const allocatedBoxes = agentBoxes.filter((box: any) => box.agentNumber && box.agentNumber > 0).length
 
     const unallocatedBoxes = agentBoxes.length - allocatedBoxes
+
+    const activeConnections = connections.filter(c => c.reportToAgentBoxes).length
+
+    const inactiveAllocations = connections.filter(c => !c.reportToAgentBoxes).length
 
     
 
@@ -10832,7 +10968,13 @@ function initializeExtension() {
 
     text += `  Unallocated Boxes: ${unallocatedBoxes}\n`
 
-    text += `  Active Connections: ${connections.length}\n`
+    text += `  Active Connections: ${activeConnections}\n`
+
+    if (inactiveAllocations > 0) {
+
+      text += `  Inactive Allocations: ${inactiveAllocations} (agent not reporting to boxes)\n`
+
+    }
 
     
 
