@@ -10514,23 +10514,17 @@ function initializeExtension() {
 
   function generateOutputCoordinatorText(agents: any[]): string {
 
-    let text = '=== OUTPUT COORDINATOR - EXECUTION & AGENT BOX ROUTING ===\n\n'
+    let text = '=== OUTPUT COORDINATOR - AGENT BOX ALLOCATIONS ===\n\n'
 
-    text += 'Shows which agents output to which Agent Boxes (display slots).\n'
+    text += 'Shows which agents are allocated to which Agent Boxes (display slots).\n'
 
-    text += 'Agent Boxes are the visual display areas where agent outputs appear.\n\n'
+    text += 'Agent Boxes are configured in Display Grids. Each box can be assigned to one agent.\n'
 
-    
-
-    if (agents.length === 0) {
-
-      return text + 'No agents configured in this session.\n'
-
-    }
+    text += 'When an agent outputs (via Execution → Report To: Agent Boxes), it displays in its allocated box.\n\n'
 
     
 
-    // Get agent boxes from session to show display slot connections
+    // Get agent boxes from session
 
     let agentBoxes: any[] = []
 
@@ -10542,195 +10536,159 @@ function initializeExtension() {
 
     
 
-    text += `━━━ AGENT → AGENT BOX MAPPINGS ━━━\n\n`
+    if (agentBoxes.length === 0) {
 
-    
+      text += 'No Agent Boxes configured in this session.\n\n'
 
-    let hasAnyMappings = false
+      text += 'To create Agent Boxes:\n'
 
-    
+      text += '1. Open a Display Grid (2x2, 3x3, or 4x4)\n'
 
-    agents.forEach((agent, idx) => {
+      text += '2. Click on a slot to configure it\n'
 
-      const num = String(idx + 1).padStart(2, '0')
+      text += '3. Enter an Agent Number (e.g., 1, 2, 3) to allocate an agent\n'
 
-      const agentNumber = agent.number || (idx + 1)
+      text += '4. Save the configuration\n\n'
 
-      const name = agent.name || agent.key || `Agent${num}`
-
-      
-
-      // Parse agent.config.instructions if it's a string
-
-      let agentData = agent
-
-      if (agent.config?.instructions) {
-
-        try {
-
-          const parsed = typeof agent.config.instructions === 'string' 
-
-            ? JSON.parse(agent.config.instructions) 
-
-            : agent.config.instructions
-
-          agentData = { ...agent, ...parsed }
-
-        } catch (e) {
-
-          console.error('Failed to parse agent config:', e)
-
-        }
-
-      }
-
-      
-
-      // Check if Execution section exists and has specialDestinations
-
-      const hasExecution = agentData.capabilities?.includes('execution') || false
-
-      
-
-      if (!hasExecution) {
-
-        return // Skip agents without execution capability
-
-      }
-
-      
-
-      const specialDests = agentData.execution?.specialDestinations || []
-
-      
-
-      // Check if agent is configured to report to Agent Boxes
-
-      const reportsToAgentBoxes = specialDests.some((dest: any) => 
-
-        dest.kind === 'agentBox' || dest.kind === 'agent-box'
-
-      )
-
-      
-
-      if (!reportsToAgentBoxes) {
-
-        return // Skip agents not configured for agent boxes
-
-      }
-
-      
-
-      // Find agent boxes allocated to this agent
-
-      const allocatedBoxes = agentBoxes.filter((box: any) => 
-
-        box.agentNumber === agentNumber
-
-      )
-
-      
-
-      if (allocatedBoxes.length === 0) {
-
-        text += `Agent ${num} (${name}):\n`
-
-        text += `  Execution: Report To = Agent Boxes (Default)\n`
-
-        text += `  ⚠️ No Agent Box allocated\n`
-
-        text += `  → Output will be queued until Agent Box is assigned\n\n`
-
-        hasAnyMappings = true
-
-      } else {
-
-        hasAnyMappings = true
-
-        allocatedBoxes.forEach((box: any) => {
-
-          const boxNum = String(box.boxNumber).padStart(2, '0')
-
-          const location = box.locationLabel || box.locationId || 'Unknown location'
-
-          
-
-          text += `Agent ${num} → Agent Box ${boxNum}\n`
-
-          text += `  Agent: ${name}\n`
-
-          text += `  Box Title: ${box.title || 'Untitled'}\n`
-
-          text += `  Location: ${location}\n`
-
-          if (box.slotId) text += `  Slot ID: ${box.slotId}\n`
-
-          text += `  Execution Setting: Report To = Agent Boxes (Default)\n`
-
-          text += `  ✓ Output will display in this Agent Box\n\n`
-
-        })
-
-      }
-
-    })
-
-    
-
-    if (!hasAnyMappings) {
-
-      text += `No agents are configured to output to Agent Boxes.\n\n`
-
-      text += `To enable output routing:\n`
-
-      text += `1. Edit an agent's configuration\n`
-
-      text += `2. Enable "Execution" capability\n`
-
-      text += `3. Set "Report To" = "Agent Boxes" (default)\n`
-
-      text += `4. Allocate the agent to an Agent Box in the session\n\n`
+      return text
 
     }
 
     
 
-    // Summary
-
-    const agentsWithExecution = agents.filter(a => {
-
-      let agentData = a
-
-      if (a.config?.instructions) {
-
-        try {
-
-          const parsed = typeof a.config.instructions === 'string' 
-
-            ? JSON.parse(a.config.instructions) 
-
-            : a.config.instructions
-
-          agentData = { ...a, ...parsed }
-
-        } catch (e) {}
-
-      }
-
-      return agentData.capabilities?.includes('execution')
-
-    }).length
+    text += `━━━ AGENT BOX ALLOCATIONS (${agentBoxes.length} boxes total) ━━━\n\n`
 
     
 
-    const agentsWithBoxes = agents.filter(a => {
+    // Create a map of agent numbers to agent names for quick lookup
 
-      const agentNum = a.number || 0
+    const agentMap: any = {}
 
-      return agentBoxes.some((box: any) => box.agentNumber === agentNum)
+    agents.forEach((agent, idx) => {
 
-    }).length
+      const agentNum = agent.number || (idx + 1)
+
+      const name = agent.name || agent.key || `Agent${String(idx + 1).padStart(2, '0')}`
+
+      agentMap[agentNum] = { name, enabled: agent.enabled }
+
+    })
+
+    
+
+    // Group boxes by agent number for clearer display
+
+    const boxesByAgent: any = {}
+
+    agentBoxes.forEach((box: any) => {
+
+      const agentNum = box.agentNumber
+
+      if (!boxesByAgent[agentNum]) {
+
+        boxesByAgent[agentNum] = []
+
+      }
+
+      boxesByAgent[agentNum].push(box)
+
+    })
+
+    
+
+    // Display allocations grouped by agent
+
+    const sortedAgentNums = Object.keys(boxesByAgent).map(n => parseInt(n)).sort((a, b) => a - b)
+
+    
+
+    sortedAgentNums.forEach(agentNum => {
+
+      const boxes = boxesByAgent[agentNum]
+
+      const agentInfo = agentMap[agentNum]
+
+      
+
+      if (agentNum === 0 || !agentNum) {
+
+        // Unallocated boxes
+
+        text += `⚠️ UNALLOCATED AGENT BOXES (${boxes.length}):\n`
+
+        boxes.forEach((box: any) => {
+
+          const boxNum = String(box.boxNumber).padStart(2, '0')
+
+          const location = box.locationLabel || box.locationId || 'Unknown location'
+
+          text += `  Agent Box ${boxNum}: ${box.title || 'Untitled'}\n`
+
+          text += `    Location: ${location}\n`
+
+          if (box.slotId) text += `    Slot: ${box.slotId}\n`
+
+          text += `    Status: No agent allocated\n\n`
+
+        })
+
+        return
+
+      }
+
+      
+
+      // Allocated boxes
+
+      const agentNumPadded = String(agentNum).padStart(2, '0')
+
+      const agentName = agentInfo ? agentInfo.name : `Agent${agentNumPadded}`
+
+      const agentEnabled = agentInfo ? agentInfo.enabled : false
+
+      
+
+      text += `Agent ${agentNumPadded} → ${boxes.length} Agent Box${boxes.length > 1 ? 'es' : ''}\n`
+
+      text += `  Agent Name: ${agentName}\n`
+
+      text += `  Status: ${agentEnabled ? '✓ ENABLED' : '✗ DISABLED'}\n\n`
+
+      
+
+      boxes.forEach((box: any) => {
+
+        const boxNum = String(box.boxNumber).padStart(2, '0')
+
+        const location = box.locationLabel || box.locationId || 'Unknown location'
+
+        
+
+        text += `  → Agent Box ${boxNum}\n`
+
+        text += `     Title: ${box.title || 'Untitled'}\n`
+
+        text += `     Location: ${location}\n`
+
+        if (box.slotId) text += `     Slot: ${box.slotId}\n`
+
+        text += `     Allocation: Agent ${agentNumPadded} → Agent Box ${boxNum}\n`
+
+        text += `     ${agentEnabled ? '✓' : '⚠️'} Output ${agentEnabled ? 'will display' : 'queued (agent disabled)'} in this box\n\n`
+
+      })
+
+    })
+
+    
+
+    // Summary
+
+    const allocatedBoxes = agentBoxes.filter((box: any) => box.agentNumber && box.agentNumber > 0)
+
+    const unallocatedBoxes = agentBoxes.filter((box: any) => !box.agentNumber || box.agentNumber === 0)
+
+    const uniqueAgents = new Set(allocatedBoxes.map((box: any) => box.agentNumber))
 
     
 
@@ -10738,13 +10696,13 @@ function initializeExtension() {
 
     text += `SUMMARY:\n`
 
-    text += `  Total Agents: ${agents.length}\n`
+    text += `  Total Agent Boxes: ${agentBoxes.length}\n`
 
-    text += `  With Execution Capability: ${agentsWithExecution}\n`
+    text += `  Allocated Boxes: ${allocatedBoxes.length}\n`
 
-    text += `  Connected to Agent Boxes: ${agentsWithBoxes}\n`
+    text += `  Unallocated Boxes: ${unallocatedBoxes.length}\n`
 
-    text += `  Total Agent Boxes in Session: ${agentBoxes.length}\n`
+    text += `  Agents with Boxes: ${uniqueAgents.size}\n`
 
     
 
