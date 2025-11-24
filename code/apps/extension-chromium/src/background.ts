@@ -1184,7 +1184,17 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           
           const agentNumber = msg.agentBox.agentNumber || 1
           const agentKey = `agent${agentNumber}`
-          const existingAgent = session.agents.find((a: any) => a.key === agentKey || a.number === agentNumber)
+          
+          console.log(`[TRACE BG] Checking for existing agent: key="${agentKey}", number=${agentNumber}`)
+          console.log(`[TRACE BG] Current agents in session:`, session.agents.map((a: any) => ({ key: a.key, number: a.number, name: a.name })))
+          
+          const existingAgent = session.agents.find((a: any) => {
+            const matches = a.key === agentKey || a.number === agentNumber
+            if (matches) {
+              console.log(`[TRACE BG] Found existing agent match:`, { key: a.key, number: a.number, name: a.name })
+            }
+            return matches
+          })
           
           if (!existingAgent) {
             const newAgent = {
@@ -1200,6 +1210,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             
             session.agents.push(newAgent)
             console.log(`🤖 BG: Auto-created agent shell (disabled) for agent box ${msg.agentBox.identifier}`)
+            console.log(`[TRACE BG] New agent added:`, { key: newAgent.key, number: newAgent.number, name: newAgent.name })
           } else {
             console.log(`🤖 BG: Agent shell already exists for ${agentKey}, skipping auto-creation`)
           }
