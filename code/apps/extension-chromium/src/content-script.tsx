@@ -4085,7 +4085,7 @@ function initializeExtension() {
 
               console.log(`   Full agent object:`, a)
 
-              openAgentConfigDialog(agentKey, t, overlay, agentScope)
+              openAgentConfigDialog(agentKey, t, overlay, agentScope, a.number)
 
             })
 
@@ -11500,9 +11500,9 @@ function initializeExtension() {
 
   }
 
-  function openAgentConfigDialog(agentName, type, parentOverlay, agentScope = 'session') {
+  function openAgentConfigDialog(agentName, type, parentOverlay, agentScope = 'session', agentNumber?) {
 
-    console.log(`🚀 openAgentConfigDialog called - Agent: "${agentName}", Type: "${type}", Scope: "${agentScope}"`)
+    console.log(`🚀 openAgentConfigDialog called - Agent: "${agentName}", Type: "${type}", Scope: "${agentScope}", Number: ${agentNumber}`)
 
     function pad2(n) { try { const num = parseInt(n, 10) || 0; return num < 10 ? `0${num}` : String(num) } catch { return '01' } }
 
@@ -12262,7 +12262,7 @@ function initializeExtension() {
 
       if (type === 'instructions') {
 
-        const num = getOrAssignAgentNumber(agentName)
+        const num = agentNumber ? pad2(agentNumber) : getOrAssignAgentNumber(agentName)
 
         return `🤖 AI Instructions - Agent ${num}`
 
@@ -12270,7 +12270,7 @@ function initializeExtension() {
 
       if (type === 'context') {
 
-        const num = getOrAssignAgentNumber(agentName)
+        const num = agentNumber ? pad2(agentNumber) : getOrAssignAgentNumber(agentName)
 
         return `🧠 Memory - Agent ${num}`
 
