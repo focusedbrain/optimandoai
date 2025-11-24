@@ -10522,6 +10522,30 @@ function initializeExtension() {
 
     
 
+    // Helper function to get agent number from localStorage
+
+    function getAgentNumber(agentKey: string): number {
+
+      try {
+
+        const raw = localStorage.getItem('optimando-agent-number-map')
+
+        const map = raw ? JSON.parse(raw) : {}
+
+        if (map && map[agentKey]) return parseInt(map[agentKey], 10)
+
+        return 0
+
+      } catch {
+
+        return 0
+
+      }
+
+    }
+
+    
+
     // Get agent boxes from session
 
     let agentBoxes: any[] = []
@@ -10550,7 +10574,9 @@ function initializeExtension() {
 
         const num = String(idx + 1).padStart(2, '0')
 
-        const agentNumber = agent.number || (idx + 1)
+        const agentKey = agent.key || agent.name || `agent${idx + 1}`
+
+        const agentNumber = getAgentNumber(agentKey)
 
         const name = agent.name || agent.key || `Agent${num}`
 
@@ -10562,7 +10588,9 @@ function initializeExtension() {
 
         text += `  Status: ${enabled}\n`
 
-        text += `  Number: ${agentNumber}\n`
+        text += `  Agent Number: ${agentNumber}\n`
+
+        text += `  Agent Key: ${agentKey}\n`
 
         
 
@@ -10644,17 +10672,39 @@ function initializeExtension() {
 
         if (box.agentNumber && box.agentNumber > 0) {
 
-          const agentIdx = agents.findIndex((a: any) => (a.number || 0) === box.agentNumber)
+          // Find agent by matching agentNumber with localStorage agent number map
+
+          let matchedAgent = null
+
+          let matchedAgentIdx = -1
 
           
 
-          if (agentIdx >= 0) {
+          for (let i = 0; i < agents.length; i++) {
 
-            const agent = agents[agentIdx]
+            const agentKey = agents[i].key || agents[i].name || `agent${i + 1}`
 
-            const agentNum = String(agentIdx + 1).padStart(2, '0')
+            const agentNum = getAgentNumber(agentKey)
 
-            const agentName = agent.name || agent.key || `Agent${agentNum}`
+            if (agentNum === box.agentNumber) {
+
+              matchedAgent = agents[i]
+
+              matchedAgentIdx = i
+
+              break
+
+            }
+
+          }
+
+          
+
+          if (matchedAgent) {
+
+            const agentNum = String(matchedAgentIdx + 1).padStart(2, '0')
+
+            const agentName = matchedAgent.name || matchedAgent.key || `Agent${agentNum}`
 
             
 
@@ -10662,11 +10712,11 @@ function initializeExtension() {
 
             text += `  Connection: Agent ${agentNum} → Agent Box ${boxNum}\n`
 
-            text += `  ${agent.enabled ? '✓ Active' : '⚠️ Agent disabled'}\n`
+            text += `  ${matchedAgent.enabled ? '✓ Active' : '⚠️ Agent disabled'}\n`
 
           } else {
 
-            text += `  Allocated Agent: Agent ${String(box.agentNumber).padStart(2, '0')} (not found in session)\n`
+            text += `  Allocated Agent: Number ${box.agentNumber} (not found in session)\n`
 
             text += `  ⚠️ Warning: Agent not found or deleted\n`
 
@@ -10704,19 +10754,41 @@ function initializeExtension() {
 
       if (box.agentNumber && box.agentNumber > 0) {
 
-        const agentIdx = agents.findIndex((a: any) => (a.number || 0) === box.agentNumber)
+        // Find agent by matching agentNumber with localStorage agent number map
+
+        let matchedAgent = null
+
+        let matchedAgentIdx = -1
 
         
 
-        if (agentIdx >= 0) {
+        for (let i = 0; i < agents.length; i++) {
 
-          const agent = agents[agentIdx]
+          const agentKey = agents[i].key || agents[i].name || `agent${i + 1}`
 
-          const agentNum = String(agentIdx + 1).padStart(2, '0')
+          const agentNum = getAgentNumber(agentKey)
+
+          if (agentNum === box.agentNumber) {
+
+            matchedAgent = agents[i]
+
+            matchedAgentIdx = i
+
+            break
+
+          }
+
+        }
+
+        
+
+        if (matchedAgent) {
+
+          const agentNum = String(matchedAgentIdx + 1).padStart(2, '0')
 
           const boxNum = String(box.boxNumber).padStart(2, '0')
 
-          const agentName = agent.name || agent.key || `Agent${agentNum}`
+          const agentName = matchedAgent.name || matchedAgent.key || `Agent${agentNum}`
 
           
 
@@ -10730,7 +10802,7 @@ function initializeExtension() {
 
             boxTitle: box.title || 'Untitled',
 
-            enabled: agent.enabled
+            enabled: matchedAgent.enabled
 
           })
 
