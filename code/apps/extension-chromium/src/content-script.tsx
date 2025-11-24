@@ -14072,19 +14072,19 @@ function initializeExtension() {
 
             </div>
 
-            <label style="margin-top:8px">Goals (System instructions)
+            <label style="display:block;margin-top:8px">Goals (System instructions)
 
               <textarea id="R-goals" style="width:100%;min-height:90px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.35);color:#fff;padding:8px;border-radius:6px"></textarea>
 
             </label>
 
-            <label>Role (optional)
+            <label style="display:block">Role (optional)
 
               <input id="R-role" style="width:100%;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.35);color:#fff;padding:8px;border-radius:6px">
 
             </label>
 
-            <label>Rules
+            <label style="display:block">Rules
 
               <textarea id="R-rules" style="width:100%;min-height:70px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.35);color:#fff;padding:8px;border-radius:6px"></textarea>
 
