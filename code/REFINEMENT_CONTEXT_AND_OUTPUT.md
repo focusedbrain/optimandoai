@@ -171,3 +171,5 @@ function generateOutputCoordinatorText(agents: any[]): string {
 5. ✅ Skips agents without Execution or agents not configured for boxes
 6. ✅ Summary shows correct counts
 
+
+

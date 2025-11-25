@@ -4013,7 +4013,7 @@ function initializeExtension() {
 
             <div style="display: flex; justify-content: center; gap: 6px; margin-top: 10px;">
 
-              <button class="lightbox-btn" data-agent="${a.key}" data-scope="${a.scope || 'session'}" data-type="instructions" style="background: rgba(255,255,255,0.2); border: none; color: white; padding: 6px 8px; border-radius: 5px; cursor: pointer; font-size: 10px; display: flex; flex-direction: column; align-items: center; gap: 2px; min-width: 50px;" title="AI Instructions">
+              <button class="lightbox-btn" data-agent="${a.key}" data-scope="${a.scope || 'session'}" data-type="instructions" data-number="${a.number || ''}" style="background: rgba(255,255,255,0.2); border: none; color: white; padding: 6px 8px; border-radius: 5px; cursor: pointer; font-size: 10px; display: flex; flex-direction: column; align-items: center; gap: 2px; min-width: 50px;" title="AI Instructions">
 
                 <span style="font-size: 14px;">📋</span>
 
@@ -4021,7 +4021,7 @@ function initializeExtension() {
 
               </button>
 
-              <button class="memory-btn" data-agent="${a.key}" data-scope="${a.scope || 'session'}" style="background: rgba(255,255,255,0.2); border: none; color: white; padding: 6px 8px; border-radius: 5px; cursor: pointer; font-size: 10px; display: flex; flex-direction: column; align-items: center; gap: 2px; min-width: 50px;" title="Agent Memory">
+              <button class="memory-btn" data-agent="${a.key}" data-scope="${a.scope || 'session'}" data-number="${a.number || ''}" style="background: rgba(255,255,255,0.2); border: none; color: white; padding: 6px 8px; border-radius: 5px; cursor: pointer; font-size: 10px; display: flex; flex-direction: column; align-items: center; gap: 2px; min-width: 50px;" title="Agent Memory">
 
                 <span style="font-size: 14px;">🧠</span>
 
@@ -4029,7 +4029,7 @@ function initializeExtension() {
 
               </button>
 
-              <button class="lightbox-btn" data-agent="${a.key}" data-scope="${a.scope || 'session'}" data-type="settings" style="background: rgba(255,255,255,0.2); border: none; color: white; padding: 6px 8px; border-radius: 5px; cursor: pointer; font-size: 10px; display: flex; flex-direction: column; align-items: center; gap: 2px; min-width: 50px;" title="Agent Settings">
+              <button class="lightbox-btn" data-agent="${a.key}" data-scope="${a.scope || 'session'}" data-type="settings" data-number="${a.number || ''}" style="background: rgba(255,255,255,0.2); border: none; color: white; padding: 6px 8px; border-radius: 5px; cursor: pointer; font-size: 10px; display: flex; flex-direction: column; align-items: center; gap: 2px; min-width: 50px;" title="Agent Settings">
 
                 <span style="font-size: 14px;">⚙️</span>
 
@@ -10598,11 +10598,27 @@ function initializeExtension() {
 
   function generateOutputCoordinatorTextWithBoxes(agents: any[], agentBoxes: any[]): string {
 
+    // Helper to convert kind value to human-readable label
+    const kindToLabel = (kind: string): string => {
+      const labels: Record<string, string> = {
+        'agentBox': 'Agent Boxes (Default)',
+        'agent': 'Specific Agent(s)',
+        'clip-summary': 'Clipboard – Summary',
+        'clip-screenshot': 'Clipboard – Screenshot',
+        'pdf-summary': 'PDF – Summary',
+        'pdf-screenshot': 'PDF – Screenshot',
+        'pdf-both': 'PDF – Summary + Screenshot',
+        'image-screenshot': 'Image – Screenshot (PNG/WebP)',
+        'chat-inline-summary': 'Chat Inline – Summary'
+      }
+      return labels[kind] || kind
+    }
+
     let text = '=== OUTPUT COORDINATOR - AGENT BOX CONNECTIONS ===\n\n'
 
     text += 'Lists all agent boxes and their connected agents.\n'
 
-    text += 'Shows Execution section settings and Report To destinations.\n\n'
+    text += 'Shows COMPLETE Execution section settings and Report To destinations.\n\n'
 
     
 
@@ -10735,31 +10751,72 @@ function initializeExtension() {
             text += `\n  [EXECUTION SECTION]\n`
 
             
-
-            const executionReportTo = agentData.execution?.reportTo || []
-
-            if (executionReportTo.length > 0) {
-
-              text += `    Report To: ${executionReportTo.join(', ')}\n`
-
-              text += `    Note: Output shows in Agent Box ${boxNum} + additional destination(s)\n`
-
-            } else {
-
-              text += `    Report To: Agent Boxes (default)\n`
-
-              text += `    Note: Output shows only in Agent Box ${boxNum}\n`
-
-            }
-
+            // Show Apply For setting
+            const applyFor = agentData.execution?.applyFor || '__any__'
+            text += `    Apply For: ${applyFor === '__any__' ? 'All Content (Default)' : applyFor}\n`
             
-
-            // Show any other execution settings if available
-
+            // Show Special Destinations (Report To) - this is what the user actually selects!
+            const specialDestinations = agentData.execution?.specialDestinations || []
+            if (specialDestinations.length > 0) {
+              text += `    Report To:\n`
+              specialDestinations.forEach((dest: any) => {
+                const label = kindToLabel(dest.kind)
+                if (dest.kind === 'agent' && dest.agents && dest.agents.length > 0) {
+                  text += `      → ${label}: ${dest.agents.join(', ')}\n`
+                } else {
+                  text += `      → ${label}\n`
+                }
+              })
+            } else {
+              text += `    Report To: Agent Boxes (Default)\n`
+            }
+            
+            // Show Accept From (who triggers this execution)
+            const acceptFrom = agentData.execution?.acceptFrom || []
+            if (acceptFrom.length > 0) {
+              text += `    Accept From: ${acceptFrom.join(', ')}\n`
+            }
+            
+            // Show Workflows if any
             if (agentData.execution?.workflows && agentData.execution.workflows.length > 0) {
-
               text += `    Workflows: ${agentData.execution.workflows.join(', ')}\n`
-
+            }
+            
+            // Show Additional Execution Sections if any
+            const executionSections = agentData.execution?.executionSections || []
+            if (executionSections.length > 0) {
+              text += `\n    [ADDITIONAL EXECUTION SECTIONS] (${executionSections.length})\n`
+              executionSections.forEach((sec: any, idx: number) => {
+                text += `      Section ${idx + 1}:\n`
+                text += `        Apply For: ${sec.applyFor === '__any__' ? 'All Content' : sec.applyFor}\n`
+                if (sec.specialDestinations && sec.specialDestinations.length > 0) {
+                  text += `        Report To:\n`
+                  sec.specialDestinations.forEach((dest: any) => {
+                    const label = kindToLabel(dest.kind)
+                    if (dest.kind === 'agent' && dest.agents && dest.agents.length > 0) {
+                      text += `          → ${label}: ${dest.agents.join(', ')}\n`
+                    } else {
+                      text += `          → ${label}\n`
+                    }
+                  })
+                }
+                if (sec.acceptFrom && sec.acceptFrom.length > 0) {
+                  text += `        Accept From: ${sec.acceptFrom.join(', ')}\n`
+                }
+                if (sec.workflows && sec.workflows.length > 0) {
+                  text += `        Workflows: ${sec.workflows.join(', ')}\n`
+                }
+              })
+            }
+            
+            // Summary note about output destination
+            const hasAgentBoxDest = specialDestinations.some((d: any) => d.kind === 'agentBox')
+            if (hasAgentBoxDest || specialDestinations.length === 0) {
+              text += `    ✓ Output will display in Agent Box ${boxNum}\n`
+            }
+            const otherDests = specialDestinations.filter((d: any) => d.kind !== 'agentBox')
+            if (otherDests.length > 0) {
+              text += `    ✓ Output also sent to: ${otherDests.map((d: any) => kindToLabel(d.kind)).join(', ')}\n`
             }
 
           } else {
@@ -11288,9 +11345,13 @@ function initializeExtension() {
 
         const scope = t.getAttribute('data-scope') || 'session'
 
-        console.log(`📂 Opening agent config from delegated handler: "${agentKey}", type: ${type}, scope: ${scope}`)
+        const agentNumberStr = t.getAttribute('data-number') || ''
 
-        openAgentConfigDialog(agentKey, type, overlay, scope)
+        const agentNumber = agentNumberStr ? parseInt(agentNumberStr, 10) : undefined
+
+        console.log(`📂 Opening agent config from delegated handler: "${agentKey}", type: ${type}, scope: ${scope}, number: ${agentNumber}`)
+
+        openAgentConfigDialog(agentKey, type, overlay, scope, agentNumber)
 
         return
 
@@ -11492,28 +11553,21 @@ function initializeExtension() {
 
     function capitalizeName(n) { try { return (n || '').toString().charAt(0).toUpperCase() + (n || '').toString().slice(1) } catch { return n } }
 
-    function getOrAssignAgentNumber(key) {
-
+    // Fallback function for agent number when not provided via parameter
+    // Note: Agent number should be passed via data-number attribute when available
+    function getAgentNumberFallback(key: string): string {
       try {
-
+        // Use localStorage map as fallback
         const raw = localStorage.getItem('optimando-agent-number-map')
-
         const map = raw ? JSON.parse(raw) : {}
-
         if (map && map[key]) return pad2(map[key])
-
-        const used = Object.values(map || {}).map(v => parseInt(v, 10)).filter(v => !isNaN(v))
-
-        const next = used.length > 0 ? Math.max(...used) + 1 : 1
-
+        // Last resort: assign new number
+        const used = Object.values(map || {}).map(v => parseInt(v as any, 10)).filter(v => !isNaN(v))
+        const next = used.length > 0 ? Math.max(...(used as number[])) + 1 : 1
         map[key] = next
-
         localStorage.setItem('optimando-agent-number-map', JSON.stringify(map))
-
         return pad2(next)
-
       } catch { return '01' }
-
     }
 
     // Create agent config dialog
@@ -12246,7 +12300,7 @@ function initializeExtension() {
 
       if (type === 'instructions') {
 
-        const num = agentNumber ? pad2(agentNumber) : getOrAssignAgentNumber(agentName)
+        const num = agentNumber ? pad2(agentNumber) : getAgentNumberFallback(agentName)
 
         return `🤖 AI Instructions - Agent ${num}`
 
@@ -12254,7 +12308,7 @@ function initializeExtension() {
 
       if (type === 'context') {
 
-        const num = agentNumber ? pad2(agentNumber) : getOrAssignAgentNumber(agentName)
+        const num = agentNumber ? pad2(agentNumber) : getAgentNumberFallback(agentName)
 
         return `🧠 Memory - Agent ${num}`
 
