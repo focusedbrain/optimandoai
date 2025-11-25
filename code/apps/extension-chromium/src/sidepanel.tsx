@@ -173,7 +173,7 @@ function SidepanelOrchestrator() {
     });
   }, [])
 
-  // Load and listen for theme changes
+  // Load and listen for theme changes AND session changes
   useEffect(() => {
     // Load initial theme
     import('./storage/storageWrapper').then(({ storageGet }) => {
@@ -183,12 +183,48 @@ function SidepanelOrchestrator() {
       });
     });
 
-    // Listen for theme changes
+    // Listen for theme changes AND active session key changes
     const handleStorageChange = (changes: any, namespace: string) => {
-      if (namespace === 'local' && changes['optimando-ui-theme']) {
-        const newTheme = changes['optimando-ui-theme'].newValue || 'default'
-        console.log('🎨 Sidepanel: Theme changed to:', newTheme)
-        setTheme(newTheme as 'default' | 'dark' | 'professional')
+      if (namespace === 'local') {
+        // Handle theme changes
+        if (changes['optimando-ui-theme']) {
+          const newTheme = changes['optimando-ui-theme'].newValue || 'default'
+          console.log('🎨 Sidepanel: Theme changed to:', newTheme)
+          setTheme(newTheme as 'default' | 'dark' | 'professional')
+        }
+        
+        // Handle active session key changes - reload session data when session changes
+        if (changes['optimando-active-session-key']) {
+          const newSessionKey = changes['optimando-active-session-key'].newValue
+          console.log('🔄 Sidepanel: Active session key changed to:', newSessionKey)
+          
+          if (newSessionKey) {
+            // Reload session data from SQLite
+            chrome.runtime.sendMessage({ type: 'GET_ALL_SESSIONS_FROM_SQLITE' }, (response) => {
+              if (chrome.runtime.lastError) {
+                console.error('❌ Error reloading sessions from SQLite:', chrome.runtime.lastError.message)
+                return
+              }
+              
+              if (!response || !response.success || !response.sessions) {
+                console.log('⚠️ No sessions found in SQLite after session change')
+                return
+              }
+              
+              // Find the session with the new key
+              const session = response.sessions[newSessionKey]
+              if (session) {
+                console.log('✅ Reloaded session after key change:', newSessionKey, session.tabName)
+                setSessionName(session.tabName || 'Unnamed Session')
+                setSessionKey(newSessionKey)
+                setIsLocked(session.isLocked || false)
+                setAgentBoxes(session.agentBoxes || [])
+              } else {
+                console.log('⚠️ Session not found for key:', newSessionKey)
+              }
+            })
+          }
+        }
       }
     }
 

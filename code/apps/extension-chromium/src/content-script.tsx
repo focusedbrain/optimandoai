@@ -2470,6 +2470,15 @@ function initializeExtension() {
     // Persist across navigations
 
     writeOptimandoState({ sessionKey: key })
+    
+    // Also write to chrome.storage.local so sidepanel can listen for session changes
+    try {
+      chrome.storage?.local?.set({ 'optimando-active-session-key': key }, () => {
+        console.log('✅ Active session key saved to chrome.storage:', key)
+      })
+    } catch (e) {
+      console.error('❌ Failed to save session key to chrome.storage:', e)
+    }
 
   }
 
@@ -30572,6 +30581,22 @@ ${pageText}
                 renderAgentBoxes()
 
                 
+                // CRITICAL: Notify sidepanel of restored agent boxes
+                chrome.runtime.sendMessage({ 
+                  type: 'UPDATE_AGENT_BOXES', 
+                  data: currentTabData.agentBoxes || []
+                })
+                
+                // Also send full session data update
+                chrome.runtime.sendMessage({
+                  type: 'UPDATE_SESSION_DATA',
+                  data: {
+                    sessionName: currentTabData.tabName,
+                    sessionKey: sessionId,
+                    isLocked: currentTabData.isLocked,
+                    agentBoxes: currentTabData.agentBoxes || []
+                  }
+                })
 
                 // CRITICAL: Re-render agents grid to show agents from restored session
 
