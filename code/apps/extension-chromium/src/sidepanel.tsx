@@ -36,7 +36,7 @@ function SidepanelOrchestrator() {
   const [isAdminDisabled, setIsAdminDisabled] = useState(false) // Disable admin on display grids and Edge startpage
   
   // Command chat state
-  const [chatMessages, setChatMessages] = useState<Array<{role: 'user' | 'assistant', text: string}>>([])
+  const [chatMessages, setChatMessages] = useState<Array<{role: 'user' | 'assistant', text: string, imageUrl?: string}>>([])
   const [chatInput, setChatInput] = useState('')
   const [chatHeight, setChatHeight] = useState(200)
   const [isResizingChat, setIsResizingChat] = useState(false)
@@ -813,8 +813,41 @@ function SidepanelOrchestrator() {
     e.preventDefault()
     const items = await parseDataTransfer(e.dataTransfer)
     if (!items.length) return
-    setPendingItems(items)
-    setShowEmbedDialog(true)
+    
+    // Check if any item is an image - add directly to chat for LLM vision
+    const imageItems = items.filter(it => it.kind === 'image')
+    if (imageItems.length > 0) {
+      // Convert images to data URLs and add to chat
+      for (const img of imageItems) {
+        if (img.payload instanceof File) {
+          const reader = new FileReader()
+          reader.onload = () => {
+            const dataUrl = reader.result as string
+            const imageMessage = {
+              role: 'user' as const,
+              text: `![Image](${img.name || 'dropped-image'})`,
+              imageUrl: dataUrl
+            }
+            setChatMessages(prev => [...prev, imageMessage])
+            // Scroll to bottom
+            setTimeout(() => {
+              if (chatRef.current) chatRef.current.scrollTop = chatRef.current.scrollHeight
+            }, 0)
+          }
+          reader.readAsDataURL(img.payload)
+        }
+      }
+      // If there are also non-image items, show embed dialog for those
+      const nonImageItems = items.filter(it => it.kind !== 'image')
+      if (nonImageItems.length > 0) {
+        setPendingItems(nonImageItems)
+        setShowEmbedDialog(true)
+      }
+    } else {
+      // No images - show embed dialog for other content types
+      setPendingItems(items)
+      setShowEmbedDialog(true)
+    }
   }
 
   const runEmbed = (items: any[], target: 'session' | 'account') => {
@@ -866,7 +899,9 @@ function SidepanelOrchestrator() {
 
   const handleSendMessage = async () => {
     const text = chatInput.trim()
-    if (!text || isLlmLoading) return
+    // Allow sending with just an image (no text required)
+    const hasImage = chatMessages.some(msg => msg.imageUrl)
+    if ((!text && !hasImage) || isLlmLoading) return
     
     // Check if model is available
     if (!activeLlmModel) {
@@ -880,8 +915,10 @@ function SidepanelOrchestrator() {
       return
     }
     
-    // Add user message
-    const newMessages = [...chatMessages, { role: 'user' as const, text }]
+    // Add user message (only if there's text)
+    const newMessages = text 
+      ? [...chatMessages, { role: 'user' as const, text }]
+      : [...chatMessages]
     setChatMessages(newMessages)
     setChatInput('')
     setIsLlmLoading(true)
@@ -892,17 +929,52 @@ function SidepanelOrchestrator() {
     }, 0)
     
     try {
-      // Call Ollama API
       const baseUrl = 'http://127.0.0.1:51248'
+      
+      // Process images with OCR if any (smart routing: cloud or local)
+      const processedMessages = await Promise.all(newMessages.map(async (msg) => {
+        if (msg.imageUrl && msg.role === 'user') {
+          try {
+            // Call OCR API - it will automatically route to cloud or local
+            const ocrResponse = await fetch(`${baseUrl}/api/ocr/process`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ image: msg.imageUrl })
+            })
+            
+            if (ocrResponse.ok) {
+              const ocrResult = await ocrResponse.json()
+              if (ocrResult.ok && ocrResult.data?.text) {
+                // Include OCR text with the original message
+                const ocrMethod = ocrResult.data.method === 'cloud_vision' ? '🌐 Cloud Vision' : '📝 Local OCR'
+                return {
+                  role: msg.role,
+                  content: `${msg.text || 'Image content:'}\n\n[${ocrMethod} extracted text]:\n${ocrResult.data.text}`
+                }
+              }
+            }
+          } catch (e) {
+            console.warn('[Chat] OCR processing failed:', e)
+          }
+          // Fallback: just describe that there's an image
+          return {
+            role: msg.role,
+            content: msg.text || '[Image attached - OCR unavailable]'
+          }
+        }
+        return {
+          role: msg.role,
+          content: msg.text
+        }
+      }))
+      
+      // Call Ollama API with processed messages
       const response = await fetch(`${baseUrl}/api/llm/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           modelId: activeLlmModel,
-          messages: newMessages.map(msg => ({
-            role: msg.role,
-            content: msg.text
-          }))
+          messages: processedMessages
         })
       })
       
