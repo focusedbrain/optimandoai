@@ -554,7 +554,18 @@ app.whenReady().then(async () => {
     console.error('[MAIN] Error initializing LLM services:', error)
     // Continue app startup even if LLM init fails
   }
-  
+
+  // Initialize OCR services
+  try {
+    console.log('[MAIN] ===== INITIALIZING OCR SERVICES =====')
+    const { registerOCRHandlers } = await import('./main/ocr/ipc')
+    registerOCRHandlers()
+    console.log('[MAIN] OCR IPC handlers registered')
+  } catch (error) {
+    console.error('[MAIN] Error initializing OCR services:', error)
+    // Continue app startup even if OCR init fails
+  }
+
   // WS bridge for extension (127.0.0.1:51247) with safe startup
   try {
     console.log('[MAIN] ===== ATTEMPTING TO START WEBSOCKET SERVER =====')
@@ -2595,6 +2606,92 @@ app.whenReady().then(async () => {
         res.json({ ok: true, data: estimate })
       } catch (error: any) {
         console.error('[HTTP-LLM] Error getting performance estimate:', error)
+        res.status(500).json({ ok: false, error: error.message })
+      }
+    })
+    
+    // ===== OCR API Endpoints =====
+    
+    // GET /api/ocr/status - Get OCR service status
+    httpApp.get('/api/ocr/status', async (_req, res) => {
+      try {
+        const { ocrService } = await import('./main/ocr/ocr-service')
+        const { ocrRouter } = await import('./main/ocr/router')
+        const status = ocrService.getStatus()
+        const availableProviders = ocrRouter.getAvailableProviders()
+        res.json({ 
+          ok: true, 
+          data: { 
+            ...status, 
+            cloudAvailable: availableProviders.length > 0,
+            availableProviders 
+          } 
+        })
+      } catch (error: any) {
+        console.error('[HTTP-OCR] Error getting status:', error)
+        res.status(500).json({ ok: false, error: error.message })
+      }
+    })
+    
+    // GET /api/ocr/languages - Get supported OCR languages
+    httpApp.get('/api/ocr/languages', async (_req, res) => {
+      try {
+        const { ocrService } = await import('./main/ocr/ocr-service')
+        const languages = ocrService.getSupportedLanguages()
+        res.json({ ok: true, data: languages })
+      } catch (error: any) {
+        console.error('[HTTP-OCR] Error getting languages:', error)
+        res.status(500).json({ ok: false, error: error.message })
+      }
+    })
+    
+    // POST /api/ocr/process - Process an image with OCR
+    httpApp.post('/api/ocr/process', async (req, res) => {
+      try {
+        const { image, options } = req.body
+        
+        if (!image) {
+          res.status(400).json({ ok: false, error: 'image is required (base64 or dataUrl)' })
+          return
+        }
+        
+        const { ocrRouter } = await import('./main/ocr/router')
+        
+        // Determine input type
+        const input = image.startsWith('data:') 
+          ? { type: 'dataUrl' as const, dataUrl: image }
+          : { type: 'base64' as const, data: image }
+        
+        const result = await ocrRouter.processImage(input, options)
+        res.json({ ok: true, data: result })
+      } catch (error: any) {
+        console.error('[HTTP-OCR] Error processing image:', error)
+        res.status(500).json({ ok: false, error: error.message })
+      }
+    })
+    
+    // POST /api/ocr/config - Update OCR cloud configuration
+    httpApp.post('/api/ocr/config', async (req, res) => {
+      try {
+        const { ocrRouter } = await import('./main/ocr/router')
+        ocrRouter.setCloudConfig(req.body)
+        res.json({ ok: true })
+      } catch (error: any) {
+        console.error('[HTTP-OCR] Error setting config:', error)
+        res.status(500).json({ ok: false, error: error.message })
+      }
+    })
+    
+    // GET /api/ocr/routing - Check current routing decision
+    httpApp.get('/api/ocr/routing', async (req, res) => {
+      try {
+        const { ocrRouter } = await import('./main/ocr/router')
+        const forceLocal = req.query.forceLocal === 'true'
+        const forceCloud = req.query.forceCloud === 'true'
+        const decision = ocrRouter.shouldUseCloud({ forceLocal, forceCloud })
+        res.json({ ok: true, data: decision })
+      } catch (error: any) {
+        console.error('[HTTP-OCR] Error checking routing:', error)
         res.status(500).json({ ok: false, error: error.message })
       }
     })
