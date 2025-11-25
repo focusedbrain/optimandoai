@@ -108,7 +108,7 @@ export class HardwareCapabilityChecker {
     try {
       if (process.platform === 'win32') {
         // Use WMIC to get CPU features
-        const { stdout } = await execAsync('wmic cpu get Name,NumberOfCores,NumberOfLogicalProcessors /format:list', {
+        const { stdout: _stdout } = await execAsync('wmic cpu get Name,NumberOfCores,NumberOfLogicalProcessors /format:list', {
           timeout: 5000,
           windowsHide: true
         })
@@ -116,7 +116,7 @@ export class HardwareCapabilityChecker {
         // Try to detect instruction sets via registry or feature flags
         // Windows: Check via PowerShell
         try {
-          const { stdout: psOutput } = await execAsync(
+          const { stdout: _psOutput } = await execAsync(
             `powershell -Command "Get-WmiObject Win32_Processor | Select-Object Name, Manufacturer"`,
             { timeout: 5000, windowsHide: true }
           )
@@ -227,9 +227,6 @@ export class HardwareCapabilityChecker {
     let freeSpaceGB = 0
     
     try {
-      // Get free space
-      const stats = fs.statSync(app.getPath('userData'))
-      
       if (process.platform === 'win32') {
         // Windows: Use PowerShell to detect drive type
         const drive = app.getPath('userData').substring(0, 2) // e.g., "C:"

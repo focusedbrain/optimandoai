@@ -2525,7 +2525,7 @@ app.whenReady().then(async () => {
     })
     
     // GET /api/llm/first-available - Get first available installed model
-    httpApp.get('/api/llm/first-available', async (req, res) => {
+    httpApp.get('/api/llm/first-available', async (_req, res) => {
       try {
         const { ollamaManager } = await import('./main/llm/ollama-manager')
         const models = await ollamaManager.listModels()

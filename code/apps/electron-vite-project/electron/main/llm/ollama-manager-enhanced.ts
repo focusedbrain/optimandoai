@@ -549,7 +549,7 @@ export class OllamaManager {
   /**
    * Get safe model options based on hardware diagnostics
    */
-  private getSafeModelOptions(modelId: string, userOptions?: any): any {
+  private getSafeModelOptions(_modelId: string, userOptions?: any): any {
     if (!this.diagnostics) {
       // Conservative defaults if no diagnostics
       return {
