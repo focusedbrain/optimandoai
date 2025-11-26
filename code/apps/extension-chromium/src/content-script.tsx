@@ -35386,8 +35386,8 @@ ${pageText}
               <option value="mailguard" style="background:#1e293b; color:white;">🛡️ WR MailGuard</option>
             </select>
             <div id="ccd-chat-controls" style="display:flex; gap:6px; align-items:center;">
-              <button id="ccd-bucket" title="Context Bucket: Embed context directly into the session" style="height:28px;background:${theme==='professional'?'#e2e8f0':'rgba(255,255,255,0.08)'}; border:1px solid ${br}; color:#ef4444; border-radius:6px; padding:0 8px; font-size:12px; cursor:pointer; display:flex;align-items:center;justify-content:center;">🪣</button>
-              <button id="ccd-lm-one" title="LmGTFY - Capture a screen area as screenshot or stream and send it to your pre-defined automation tasks." style="background:${theme==='professional'?'#e2e8f0':'rgba(255,255,255,0.15)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; padding:2px 6px; font-size:12px; cursor:pointer;">✎</button>
+              <button id="ccd-bucket" title="Context Bucket: Embed context directly into the session" style="height:28px; min-width:28px; background:${theme==='professional'?'#e2e8f0':'rgba(255,255,255,0.08)'}; border:1px solid ${br}; color:#ef4444; border-radius:6px; padding:0 8px; font-size:13px; cursor:pointer; display:flex;align-items:center;justify-content:center;">🪣</button>
+              <button id="ccd-lm-one" title="LmGTFY - Capture a screen area as screenshot or stream and send it to your pre-defined automation tasks." style="height:28px; min-width:28px; background:${theme==='professional'?'#e2e8f0':'rgba(255,255,255,0.15)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; padding:0 8px; font-size:13px; cursor:pointer; display:flex;align-items:center;justify-content:center;">✎</button>
             </div>
           </div>
           <div style="display:flex; gap:6px; align-items:center; flex-shrink:0;">
@@ -35409,6 +35409,12 @@ ${pageText}
 
         <!-- MailGuard View -->
         <div id="ccd-mailguard-view" style="display:none; flex-direction:column; background:${theme==='professional'?'#f8fafc':'rgba(255,255,255,0.04)'};">
+          <style>
+            #ccd-mg-to::placeholder, #ccd-mg-subject::placeholder, #ccd-mg-body::placeholder {
+              color: ${theme==='professional'?'#64748b':'rgba(255,255,255,0.5)'};
+              opacity: 1;
+            }
+          </style>
           <div id="ccd-mailguard-hint" style="padding:12px 14px; font-size:12px; opacity:0.7; font-style:italic; border-bottom:1px solid ${br}; background:${theme==='professional'?'rgba(168,85,247,0.08)':'rgba(168,85,247,0.15)'}; display:flex; align-items:center; gap:8px;">
             <span style="font-size:16px;">✉️</span>
             Compose verified WRGuard-stamped emails with built-in automation.

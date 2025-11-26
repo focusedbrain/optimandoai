@@ -2054,14 +2054,14 @@ function SidepanelOrchestrator() {
                 borderBottom: '1px solid rgba(255,255,255,0.20)',
                 color: themeColors.text
               }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flex: 1, minWidth: 0 }}>
+                <div style={{ display: 'flex', alignItems: 'center' }}>
                   <select
                     value={dockedPanelMode}
                     onChange={(e) => setDockedPanelMode(e.target.value as 'command-chat' | 'mailguard')}
                     style={{
                       fontSize: '11px',
                       fontWeight: '600',
-                      height: '32px',
+                      height: '28px',
                       background: theme === 'professional' ? 'rgba(15,23,42,0.08)' : 'rgba(255,255,255,0.15)',
                       border: theme === 'professional' ? '1px solid rgba(15,23,42,0.2)' : '1px solid rgba(255,255,255,0.25)',
                       color: theme === 'professional' ? '#0f172a' : 'inherit',
@@ -2080,17 +2080,19 @@ function SidepanelOrchestrator() {
                     <option value="command-chat" style={{ background: '#1e293b', color: 'white' }}>💬 WR Chat</option>
                     <option value="mailguard" style={{ background: '#1e293b', color: 'white' }}>🛡️ WR MailGuard</option>
                   </select>
-                  {dockedPanelMode === 'command-chat' && <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                </div>
+                <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexShrink: 0 }}>
+                  {dockedPanelMode === 'command-chat' && <>
                     <button 
                       onClick={handleBucketClick}
                       title="Context Bucket: Embed context directly into the session"
                       style={{
-                        height: '32px',
-                        minWidth: '32px',
+                        height: '28px',
+                        minWidth: '28px',
                         ...chatControlButtonStyle(),
                         borderRadius: '6px',
-                        padding: '0 10px',
-                        fontSize: '14px',
+                        padding: '0 8px',
+                        fontSize: '13px',
                         cursor: 'pointer',
                         display: 'flex',
                         alignItems: 'center',
@@ -2124,10 +2126,10 @@ function SidepanelOrchestrator() {
                       style={{
                         ...chatControlButtonStyle(),
                         borderRadius: '6px',
-                        padding: '0 10px',
-                        height: '32px',
-                        minWidth: '32px',
-                        fontSize: '14px',
+                        padding: '0 8px',
+                        height: '28px',
+                        minWidth: '28px',
+                        fontSize: '13px',
                         cursor: 'pointer',
                         display: 'flex',
                         alignItems: 'center',
@@ -2162,13 +2164,13 @@ function SidepanelOrchestrator() {
                         style={{
                           ...chatControlButtonStyle(),
                           borderRadius: '6px',
-                          padding: '0 12px',
-                          height: '32px',
-                          fontSize: '13px',
+                          padding: '0 10px',
+                          height: '28px',
+                          fontSize: '11px',
                           cursor: 'pointer',
                           display: 'inline-flex',
                           alignItems: 'center',
-                          gap: '6px',
+                          gap: '4px',
                           transition: 'all 0.2s ease'
                         }}
                         onMouseEnter={(e) => {
@@ -2281,18 +2283,21 @@ function SidepanelOrchestrator() {
                         </div>
                       )}
                     </div>
-                  </div>}
-                </div>
-                <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexShrink: 0 }}>
+                  </>}
                   <button 
                     onClick={toggleCommandChatPin}
                     title="Unpin from sidepanel"
                     style={{
                       ...chatControlButtonStyle(),
+                      height: '28px',
+                      minWidth: '28px',
                       borderRadius: '6px',
-                      padding: '4px 6px',
-                      fontSize: '10px',
-                      cursor: 'pointer'
+                      padding: '0 8px',
+                      fontSize: '13px',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center'
                     }}
                   >
                     ↗
@@ -2660,6 +2665,12 @@ function SidepanelOrchestrator() {
               ) : (
                 /* WR MailGuard Email Editor - Section 1 (showMinimalUI) */
                 <div style={{ display: 'flex', flexDirection: 'column', flex: 1, background: theme === 'default' ? 'rgba(118,75,162,0.15)' : (theme === 'professional' ? '#f8fafc' : 'rgba(255,255,255,0.04)') }}>
+                  <style>{`
+                    .mg-input::placeholder, .mg-textarea::placeholder {
+                      color: ${theme === 'professional' ? '#64748b' : 'rgba(255,255,255,0.5)'};
+                      opacity: 1;
+                    }
+                  `}</style>
                   {/* Inline helper text when not composing */}
                   {!mailguardTo && !mailguardSubject && !mailguardBody && mailguardAttachments.length === 0 && (
                     <div style={{ padding: '16px 18px', fontSize: '13px', opacity: 0.7, fontStyle: 'italic', borderBottom: theme === 'professional' ? '1px solid rgba(15,23,42,0.1)' : '1px solid rgba(255,255,255,0.1)', background: theme === 'professional' ? 'rgba(168,85,247,0.08)' : 'rgba(168,85,247,0.15)', display: 'flex', alignItems: 'center', gap: '10px' }}>
@@ -2672,16 +2683,17 @@ function SidepanelOrchestrator() {
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', paddingBottom: '14px', borderBottom: theme === 'professional' ? '1px solid rgba(15,23,42,0.1)' : '1px solid rgba(255,255,255,0.1)' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                         <label style={{ fontSize: '13px', fontWeight: '600', opacity: 0.7, minWidth: '60px' }}>To:</label>
-                        <input type="email" value={mailguardTo} onChange={(e) => setMailguardTo(e.target.value)} placeholder="recipient@example.com" style={{ flex: 1, background: theme === 'professional' ? '#ffffff' : 'rgba(255,255,255,0.08)', border: theme === 'professional' ? '1px solid rgba(15,23,42,0.15)' : '1px solid rgba(255,255,255,0.15)', color: theme === 'professional' ? '#0f172a' : 'white', borderRadius: '6px', padding: '10px 14px', fontSize: '14px', outline: 'none' }} />
+                        <input type="email" className="mg-input" value={mailguardTo} onChange={(e) => setMailguardTo(e.target.value)} placeholder="recipient@example.com" style={{ flex: 1, background: theme === 'professional' ? '#ffffff' : 'rgba(255,255,255,0.08)', border: theme === 'professional' ? '1px solid rgba(15,23,42,0.15)' : '1px solid rgba(255,255,255,0.15)', color: theme === 'professional' ? '#0f172a' : 'white', borderRadius: '6px', padding: '10px 14px', fontSize: '14px', outline: 'none' }} />
                       </div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                         <label style={{ fontSize: '13px', fontWeight: '600', opacity: 0.7, minWidth: '60px' }}>Subject:</label>
-                        <input type="text" value={mailguardSubject} onChange={(e) => setMailguardSubject(e.target.value)} placeholder="Email subject" style={{ flex: 1, background: theme === 'professional' ? '#ffffff' : 'rgba(255,255,255,0.08)', border: theme === 'professional' ? '1px solid rgba(15,23,42,0.15)' : '1px solid rgba(255,255,255,0.15)', color: theme === 'professional' ? '#0f172a' : 'white', borderRadius: '6px', padding: '10px 14px', fontSize: '14px', outline: 'none' }} />
+                        <input type="text" className="mg-input" value={mailguardSubject} onChange={(e) => setMailguardSubject(e.target.value)} placeholder="Email subject" style={{ flex: 1, background: theme === 'professional' ? '#ffffff' : 'rgba(255,255,255,0.08)', border: theme === 'professional' ? '1px solid rgba(15,23,42,0.15)' : '1px solid rgba(255,255,255,0.15)', color: theme === 'professional' ? '#0f172a' : 'white', borderRadius: '6px', padding: '10px 14px', fontSize: '14px', outline: 'none' }} />
                       </div>
                     </div>
                     {/* Email Body - Large Text Area with Resize Handle */}
                     <div style={{ display: 'flex', flexDirection: 'column' }}>
                       <textarea 
+                        className="mg-textarea"
                         value={mailguardBody} 
                         onChange={(e) => setMailguardBody(e.target.value)} 
                         placeholder="Compose your email message here...
@@ -3082,41 +3094,45 @@ Write your message with the confidence that it will be protected by WRGuard encr
               borderBottom: '1px solid rgba(255,255,255,0.20)',
               color: themeColors.text
             }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <div style={{ display: 'flex', alignItems: 'center' }}>
                 <select
                   value={dockedPanelMode}
                   onChange={(e) => setDockedPanelMode(e.target.value as 'command-chat' | 'mailguard')}
                   style={{
                     fontSize: '11px',
                     fontWeight: '600',
+                    height: '28px',
                     background: theme === 'professional' ? 'rgba(15,23,42,0.08)' : 'rgba(255,255,255,0.15)',
                     border: theme === 'professional' ? '1px solid rgba(15,23,42,0.2)' : '1px solid rgba(255,255,255,0.25)',
                     color: theme === 'professional' ? '#0f172a' : 'inherit',
-                    borderRadius: '5px',
-                    padding: '4px 20px 4px 6px',
+                    borderRadius: '6px',
+                    padding: '0 22px 0 8px',
                     cursor: 'pointer',
                     outline: 'none',
                     appearance: 'none',
                     WebkitAppearance: 'none',
+                    flexShrink: 0,
                     backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 12 12'%3E%3Cpath fill='${theme === 'professional' ? '%230f172a' : '%23ffffff'}' d='M3 4.5L6 7.5L9 4.5'/%3E%3C/svg%3E")`,
                     backgroundRepeat: 'no-repeat',
-                    backgroundPosition: 'right 5px center'
+                    backgroundPosition: 'right 6px center'
                   }}
                 >
                   <option value="command-chat" style={{ background: '#1e293b', color: 'white' }}>💬 WR Chat</option>
                   <option value="mailguard" style={{ background: '#1e293b', color: 'white' }}>🛡️ WR MailGuard</option>
                 </select>
-                {dockedPanelMode === 'command-chat' && <div data-controls="app-view" style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+              </div>
+              <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexShrink: 0 }}>
+                {dockedPanelMode === 'command-chat' && <>
                   <button 
                     onClick={handleBucketClick}
                     title="Context Bucket: Embed context directly into the session"
                     style={{
-                      height: '32px',
-                      minWidth: '32px',
+                      height: '28px',
+                      minWidth: '28px',
                       ...chatControlButtonStyle(),
                       borderRadius: '6px',
-                      padding: '0 10px',
-                      fontSize: '14px',
+                      padding: '0 8px',
+                      fontSize: '13px',
                       cursor: 'pointer',
                       display: 'flex',
                       alignItems: 'center',
@@ -3150,10 +3166,10 @@ Write your message with the confidence that it will be protected by WRGuard encr
                     style={{
                       ...chatControlButtonStyle(),
                       borderRadius: '6px',
-                      padding: '0 10px',
-                      height: '32px',
-                      minWidth: '32px',
-                      fontSize: '14px',
+                      padding: '0 8px',
+                      height: '28px',
+                      minWidth: '28px',
+                      fontSize: '13px',
                       cursor: 'pointer',
                       display: 'flex',
                       alignItems: 'center',
@@ -3188,13 +3204,13 @@ Write your message with the confidence that it will be protected by WRGuard encr
                       style={{
                         ...chatControlButtonStyle(),
                         borderRadius: '6px',
-                        padding: '0 12px',
-                        height: '32px',
-                        fontSize: '13px',
+                        padding: '0 10px',
+                        height: '28px',
+                        fontSize: '11px',
                         cursor: 'pointer',
                         display: 'inline-flex',
                         alignItems: 'center',
-                        gap: '6px',
+                        gap: '4px',
                         transition: 'all 0.2s ease'
                       }}
                       onMouseEnter={(e) => {
@@ -3307,18 +3323,21 @@ Write your message with the confidence that it will be protected by WRGuard encr
                       </div>
                     )}
                   </div>
-                </div>}
-              </div>
-              <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                </>}
                 <button 
                   onClick={toggleCommandChatPin}
                   title="Unpin from sidepanel"
                   style={{
                     ...chatControlButtonStyle(),
+                    height: '28px',
+                    minWidth: '28px',
                     borderRadius: '6px',
-                    padding: '4px 6px',
-                    fontSize: '10px',
-                    cursor: 'pointer'
+                    padding: '0 8px',
+                    fontSize: '13px',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center'
                   }}
                 >
                   ↗
@@ -3494,6 +3513,12 @@ Write your message with the confidence that it will be protected by WRGuard encr
             ) : (
               /* WR MailGuard Email Editor - Section 2 (App View) */
               <div style={{ display: 'flex', flexDirection: 'column', flex: 1, background: theme === 'default' ? 'rgba(118,75,162,0.15)' : (theme === 'professional' ? '#f8fafc' : 'rgba(255,255,255,0.04)') }}>
+                <style>{`
+                  .mg-input::placeholder, .mg-textarea::placeholder {
+                    color: ${theme === 'professional' ? '#64748b' : 'rgba(255,255,255,0.5)'};
+                    opacity: 1;
+                  }
+                `}</style>
                 {!mailguardTo && !mailguardSubject && !mailguardBody && mailguardAttachments.length === 0 && (
                   <div style={{ padding: '16px 18px', fontSize: '13px', opacity: 0.7, fontStyle: 'italic', borderBottom: theme === 'professional' ? '1px solid rgba(15,23,42,0.1)' : '1px solid rgba(255,255,255,0.1)', background: theme === 'professional' ? 'rgba(168,85,247,0.08)' : 'rgba(168,85,247,0.15)', display: 'flex', alignItems: 'center', gap: '10px' }}>
                     <span style={{ fontSize: '18px' }}>✉️</span>
@@ -3504,15 +3529,15 @@ Write your message with the confidence that it will be protected by WRGuard encr
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', paddingBottom: '14px', borderBottom: theme === 'professional' ? '1px solid rgba(15,23,42,0.1)' : '1px solid rgba(255,255,255,0.1)' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                       <label style={{ fontSize: '13px', fontWeight: '600', opacity: 0.7, minWidth: '60px' }}>To:</label>
-                      <input type="email" value={mailguardTo} onChange={(e) => setMailguardTo(e.target.value)} placeholder="recipient@example.com" style={{ flex: 1, background: theme === 'professional' ? '#ffffff' : 'rgba(255,255,255,0.08)', border: theme === 'professional' ? '1px solid rgba(15,23,42,0.15)' : '1px solid rgba(255,255,255,0.15)', color: theme === 'professional' ? '#0f172a' : 'white', borderRadius: '6px', padding: '10px 14px', fontSize: '14px', outline: 'none' }} />
+                      <input type="email" className="mg-input" value={mailguardTo} onChange={(e) => setMailguardTo(e.target.value)} placeholder="recipient@example.com" style={{ flex: 1, background: theme === 'professional' ? '#ffffff' : 'rgba(255,255,255,0.08)', border: theme === 'professional' ? '1px solid rgba(15,23,42,0.15)' : '1px solid rgba(255,255,255,0.15)', color: theme === 'professional' ? '#0f172a' : 'white', borderRadius: '6px', padding: '10px 14px', fontSize: '14px', outline: 'none' }} />
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                       <label style={{ fontSize: '13px', fontWeight: '600', opacity: 0.7, minWidth: '60px' }}>Subject:</label>
-                      <input type="text" value={mailguardSubject} onChange={(e) => setMailguardSubject(e.target.value)} placeholder="Email subject" style={{ flex: 1, background: theme === 'professional' ? '#ffffff' : 'rgba(255,255,255,0.08)', border: theme === 'professional' ? '1px solid rgba(15,23,42,0.15)' : '1px solid rgba(255,255,255,0.15)', color: theme === 'professional' ? '#0f172a' : 'white', borderRadius: '6px', padding: '10px 14px', fontSize: '14px', outline: 'none' }} />
+                      <input type="text" className="mg-input" value={mailguardSubject} onChange={(e) => setMailguardSubject(e.target.value)} placeholder="Email subject" style={{ flex: 1, background: theme === 'professional' ? '#ffffff' : 'rgba(255,255,255,0.08)', border: theme === 'professional' ? '1px solid rgba(15,23,42,0.15)' : '1px solid rgba(255,255,255,0.15)', color: theme === 'professional' ? '#0f172a' : 'white', borderRadius: '6px', padding: '10px 14px', fontSize: '14px', outline: 'none' }} />
                     </div>
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column' }}>
-                    <textarea value={mailguardBody} onChange={(e) => setMailguardBody(e.target.value)} placeholder="Compose your email message here..." style={{ background: theme === 'professional' ? '#ffffff' : 'rgba(255,255,255,0.06)', border: theme === 'professional' ? '1px solid rgba(15,23,42,0.15)' : '1px solid rgba(255,255,255,0.12)', color: theme === 'professional' ? '#0f172a' : 'white', borderRadius: '8px', padding: '14px 16px', fontSize: '14px', lineHeight: '1.6', height: `${mailguardBodyHeight}px`, resize: 'none', fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif', outline: 'none' }} />
+                    <textarea className="mg-textarea" value={mailguardBody} onChange={(e) => setMailguardBody(e.target.value)} placeholder="Compose your email message here..." style={{ background: theme === 'professional' ? '#ffffff' : 'rgba(255,255,255,0.06)', border: theme === 'professional' ? '1px solid rgba(15,23,42,0.15)' : '1px solid rgba(255,255,255,0.12)', color: theme === 'professional' ? '#0f172a' : 'white', borderRadius: '8px', padding: '14px 16px', fontSize: '14px', lineHeight: '1.6', height: `${mailguardBodyHeight}px`, resize: 'none', fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif', outline: 'none' }} />
                     <div 
                       onMouseDown={(e) => {
                         e.preventDefault()
@@ -3817,41 +3842,45 @@ Write your message with the confidence that it will be protected by WRGuard encr
               borderBottom: '1px solid rgba(255,255,255,0.20)',
               color: themeColors.text
             }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <div style={{ display: 'flex', alignItems: 'center' }}>
                 <select
                   value={dockedPanelMode}
                   onChange={(e) => setDockedPanelMode(e.target.value as 'command-chat' | 'mailguard')}
                   style={{
                     fontSize: '11px',
                     fontWeight: '600',
+                    height: '28px',
                     background: theme === 'professional' ? 'rgba(15,23,42,0.08)' : 'rgba(255,255,255,0.15)',
                     border: theme === 'professional' ? '1px solid rgba(15,23,42,0.2)' : '1px solid rgba(255,255,255,0.25)',
                     color: theme === 'professional' ? '#0f172a' : 'inherit',
-                    borderRadius: '5px',
-                    padding: '4px 20px 4px 6px',
+                    borderRadius: '6px',
+                    padding: '0 22px 0 8px',
                     cursor: 'pointer',
                     outline: 'none',
                     appearance: 'none',
                     WebkitAppearance: 'none',
+                    flexShrink: 0,
                     backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 12 12'%3E%3Cpath fill='${theme === 'professional' ? '%230f172a' : '%23ffffff'}' d='M3 4.5L6 7.5L9 4.5'/%3E%3C/svg%3E")`,
                     backgroundRepeat: 'no-repeat',
-                    backgroundPosition: 'right 5px center'
+                    backgroundPosition: 'right 6px center'
                   }}
                 >
                   <option value="command-chat" style={{ background: '#1e293b', color: 'white' }}>💬 WR Chat</option>
                   <option value="mailguard" style={{ background: '#1e293b', color: 'white' }}>🛡️ WR MailGuard</option>
                 </select>
-                {dockedPanelMode === 'command-chat' && <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+              </div>
+              <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexShrink: 0 }}>
+                {dockedPanelMode === 'command-chat' && <>
                   <button 
                     onClick={handleBucketClick}
                     title="Context Bucket: Embed context directly into the session"
                     style={{
-                      height: '32px',
-                      minWidth: '32px',
+                      height: '28px',
+                      minWidth: '28px',
                       ...chatControlButtonStyle(),
                       borderRadius: '6px',
-                      padding: '0 10px',
-                      fontSize: '14px',
+                      padding: '0 8px',
+                      fontSize: '13px',
                       cursor: 'pointer',
                       display: 'flex',
                       alignItems: 'center',
@@ -3885,10 +3914,10 @@ Write your message with the confidence that it will be protected by WRGuard encr
                     style={{
                       ...chatControlButtonStyle(),
                       borderRadius: '6px',
-                      padding: '0 10px',
-                      height: '32px',
-                      minWidth: '32px',
-                      fontSize: '14px',
+                      padding: '0 8px',
+                      height: '28px',
+                      minWidth: '28px',
+                      fontSize: '13px',
                       cursor: 'pointer',
                       display: 'flex',
                       alignItems: 'center',
@@ -3923,13 +3952,13 @@ Write your message with the confidence that it will be protected by WRGuard encr
                       style={{
                         ...chatControlButtonStyle(),
                         borderRadius: '6px',
-                        padding: '0 12px',
-                        height: '32px',
-                        fontSize: '13px',
+                        padding: '0 10px',
+                        height: '28px',
+                        fontSize: '11px',
                         cursor: 'pointer',
                         display: 'inline-flex',
                         alignItems: 'center',
-                        gap: '6px',
+                        gap: '4px',
                         transition: 'all 0.2s ease'
                       }}
                       onMouseEnter={(e) => {
@@ -4042,18 +4071,21 @@ Write your message with the confidence that it will be protected by WRGuard encr
                       </div>
                     )}
                   </div>
-                </div>}
-              </div>
-              <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                </>}
                 <button 
                   onClick={toggleCommandChatPin}
                   title="Unpin from sidepanel"
                   style={{
                     ...chatControlButtonStyle(),
+                    height: '28px',
+                    minWidth: '28px',
                     borderRadius: '6px',
-                    padding: '4px 6px',
-                    fontSize: '10px',
-                    cursor: 'pointer'
+                    padding: '0 8px',
+                    fontSize: '13px',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center'
                   }}
                 >
                   ↗
@@ -4229,6 +4261,12 @@ Write your message with the confidence that it will be protected by WRGuard encr
             ) : (
               /* WR MailGuard Email Editor - Section 3 (Admin View) */
               <div style={{ display: 'flex', flexDirection: 'column', flex: 1, background: theme === 'default' ? 'rgba(118,75,162,0.15)' : (theme === 'professional' ? '#f8fafc' : 'rgba(255,255,255,0.04)') }}>
+                <style>{`
+                  .mg-input::placeholder, .mg-textarea::placeholder {
+                    color: ${theme === 'professional' ? '#64748b' : 'rgba(255,255,255,0.5)'};
+                    opacity: 1;
+                  }
+                `}</style>
                 {!mailguardTo && !mailguardSubject && !mailguardBody && mailguardAttachments.length === 0 && (
                   <div style={{ padding: '16px 18px', fontSize: '13px', opacity: 0.7, fontStyle: 'italic', borderBottom: theme === 'professional' ? '1px solid rgba(15,23,42,0.1)' : '1px solid rgba(255,255,255,0.1)', background: theme === 'professional' ? 'rgba(168,85,247,0.08)' : 'rgba(168,85,247,0.15)', display: 'flex', alignItems: 'center', gap: '10px' }}>
                     <span style={{ fontSize: '18px' }}>✉️</span>
@@ -4239,15 +4277,15 @@ Write your message with the confidence that it will be protected by WRGuard encr
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', paddingBottom: '14px', borderBottom: theme === 'professional' ? '1px solid rgba(15,23,42,0.1)' : '1px solid rgba(255,255,255,0.1)' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                       <label style={{ fontSize: '13px', fontWeight: '600', opacity: 0.7, minWidth: '60px' }}>To:</label>
-                      <input type="email" value={mailguardTo} onChange={(e) => setMailguardTo(e.target.value)} placeholder="recipient@example.com" style={{ flex: 1, background: theme === 'professional' ? '#ffffff' : 'rgba(255,255,255,0.08)', border: theme === 'professional' ? '1px solid rgba(15,23,42,0.15)' : '1px solid rgba(255,255,255,0.15)', color: theme === 'professional' ? '#0f172a' : 'white', borderRadius: '6px', padding: '10px 14px', fontSize: '14px', outline: 'none' }} />
+                      <input type="email" className="mg-input" value={mailguardTo} onChange={(e) => setMailguardTo(e.target.value)} placeholder="recipient@example.com" style={{ flex: 1, background: theme === 'professional' ? '#ffffff' : 'rgba(255,255,255,0.08)', border: theme === 'professional' ? '1px solid rgba(15,23,42,0.15)' : '1px solid rgba(255,255,255,0.15)', color: theme === 'professional' ? '#0f172a' : 'white', borderRadius: '6px', padding: '10px 14px', fontSize: '14px', outline: 'none' }} />
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                       <label style={{ fontSize: '13px', fontWeight: '600', opacity: 0.7, minWidth: '60px' }}>Subject:</label>
-                      <input type="text" value={mailguardSubject} onChange={(e) => setMailguardSubject(e.target.value)} placeholder="Email subject" style={{ flex: 1, background: theme === 'professional' ? '#ffffff' : 'rgba(255,255,255,0.08)', border: theme === 'professional' ? '1px solid rgba(15,23,42,0.15)' : '1px solid rgba(255,255,255,0.15)', color: theme === 'professional' ? '#0f172a' : 'white', borderRadius: '6px', padding: '10px 14px', fontSize: '14px', outline: 'none' }} />
+                      <input type="text" className="mg-input" value={mailguardSubject} onChange={(e) => setMailguardSubject(e.target.value)} placeholder="Email subject" style={{ flex: 1, background: theme === 'professional' ? '#ffffff' : 'rgba(255,255,255,0.08)', border: theme === 'professional' ? '1px solid rgba(15,23,42,0.15)' : '1px solid rgba(255,255,255,0.15)', color: theme === 'professional' ? '#0f172a' : 'white', borderRadius: '6px', padding: '10px 14px', fontSize: '14px', outline: 'none' }} />
                     </div>
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column' }}>
-                    <textarea value={mailguardBody} onChange={(e) => setMailguardBody(e.target.value)} placeholder="Compose your email message here..." style={{ background: theme === 'professional' ? '#ffffff' : 'rgba(255,255,255,0.06)', border: theme === 'professional' ? '1px solid rgba(15,23,42,0.15)' : '1px solid rgba(255,255,255,0.12)', color: theme === 'professional' ? '#0f172a' : 'white', borderRadius: '8px', padding: '14px 16px', fontSize: '14px', lineHeight: '1.6', height: `${mailguardBodyHeight}px`, resize: 'none', fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif', outline: 'none' }} />
+                    <textarea className="mg-textarea" value={mailguardBody} onChange={(e) => setMailguardBody(e.target.value)} placeholder="Compose your email message here..." style={{ background: theme === 'professional' ? '#ffffff' : 'rgba(255,255,255,0.06)', border: theme === 'professional' ? '1px solid rgba(15,23,42,0.15)' : '1px solid rgba(255,255,255,0.12)', color: theme === 'professional' ? '#0f172a' : 'white', borderRadius: '8px', padding: '14px 16px', fontSize: '14px', lineHeight: '1.6', height: `${mailguardBodyHeight}px`, resize: 'none', fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif', outline: 'none' }} />
                     <div 
                       onMouseDown={(e) => {
                         e.preventDefault()
