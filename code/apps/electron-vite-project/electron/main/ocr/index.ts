@@ -8,3 +8,6 @@ export { ocrService, OCRService } from './ocr-service'
 export { ocrRouter, OCRRouter } from './router'
 export { registerOCRHandlers, unregisterOCRHandlers } from './ipc'
 
+
+
+

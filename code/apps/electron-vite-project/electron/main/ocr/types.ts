@@ -156,3 +156,6 @@ export interface OCRProgress {
 
 export type OCRProgressCallback = (progress: OCRProgress) => void
 
+
+
+
