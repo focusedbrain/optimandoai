@@ -48,6 +48,7 @@ function SidepanelOrchestrator() {
   const [isAdminDisabled, setIsAdminDisabled] = useState(false) // Disable admin on display grids and Edge startpage
   
   // Command chat state
+  const [dockedPanelMode, setDockedPanelMode] = useState<'command-chat' | 'mailguard'>('command-chat')
   const [chatMessages, setChatMessages] = useState<Array<{role: 'user' | 'assistant', text: string, imageUrl?: string}>>([])
   const [chatInput, setChatInput] = useState('')
   const [chatHeight, setChatHeight] = useState(200)
@@ -59,6 +60,15 @@ function SidepanelOrchestrator() {
   const [embedTarget, setEmbedTarget] = useState<'session' | 'account'>('session')
   const [notification, setNotification] = useState<{message: string, type: 'success' | 'error' | 'info'} | null>(null)
   const [theme, setTheme] = useState<'default' | 'dark' | 'professional'>('default')
+  
+  // WR MailGuard state
+  const [mailguardTo, setMailguardTo] = useState('')
+  const [mailguardSubject, setMailguardSubject] = useState('')
+  const [mailguardBody, setMailguardBody] = useState('')
+  const [mailguardAttachments, setMailguardAttachments] = useState<Array<{name: string, size: number, file: File}>>([])
+  const [mailguardBodyHeight, setMailguardBodyHeight] = useState(200)
+  const [isResizingMailguard, setIsResizingMailguard] = useState(false)
+  const mailguardFileRef = useRef<HTMLInputElement>(null)
   const [masterTabId, setMasterTabId] = useState<string | null>(null) // For Master Tab (01), (02), (03), etc. (01 = first tab, doesn't show title in UI)
   const [showTriggerPrompt, setShowTriggerPrompt] = useState<{mode: string, rect: any, imageUrl: string, videoUrl?: string, createTrigger: boolean, addCommand: boolean, name?: string, command?: string, bounds?: any} | null>(null)
   const [createTriggerChecked, setCreateTriggerChecked] = useState(false)
@@ -869,6 +879,39 @@ function SidepanelOrchestrator() {
       document.removeEventListener('mouseup', handleMouseUp)
     }
   }, [isResizingChat])
+
+  // MailGuard body resize handlers
+  const mailguardResizeStartY = useRef(0)
+  const mailguardResizeStartH = useRef(200)
+  
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!isResizingMailguard) return
+      const dy = e.clientY - mailguardResizeStartY.current
+      const newHeight = Math.max(100, Math.min(500, mailguardResizeStartH.current + dy))
+      setMailguardBodyHeight(newHeight)
+    }
+
+    const handleMouseUp = () => {
+      if (isResizingMailguard) {
+        setIsResizingMailguard(false)
+        document.body.style.cursor = ''
+        document.body.style.userSelect = ''
+      }
+    }
+
+    if (isResizingMailguard) {
+      document.addEventListener('mousemove', handleMouseMove)
+      document.addEventListener('mouseup', handleMouseUp)
+      document.body.style.cursor = 'ns-resize'
+      document.body.style.userSelect = 'none'
+    }
+
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove)
+      document.removeEventListener('mouseup', handleMouseUp)
+    }
+  }, [isResizingMailguard])
 
   const getStatusColor = () => {
     if (isLoading) return '#FFA500'
@@ -2012,8 +2055,31 @@ function SidepanelOrchestrator() {
                 color: themeColors.text
               }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                  <div style={{ fontSize: '13px', fontWeight: '700' }}>💬 Command Chat</div>
-                  <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                  <select
+                    value={dockedPanelMode}
+                    onChange={(e) => setDockedPanelMode(e.target.value as 'command-chat' | 'mailguard')}
+                    style={{
+                      fontSize: '13px',
+                      fontWeight: '700',
+                      background: theme === 'professional' ? 'rgba(15,23,42,0.08)' : 'rgba(255,255,255,0.15)',
+                      border: theme === 'professional' ? '1px solid rgba(15,23,42,0.2)' : '1px solid rgba(255,255,255,0.25)',
+                      color: theme === 'professional' ? '#0f172a' : 'inherit',
+                      borderRadius: '6px',
+                      padding: '6px 10px',
+                      cursor: 'pointer',
+                      outline: 'none',
+                      appearance: 'none',
+                      WebkitAppearance: 'none',
+                      backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='${theme === 'professional' ? '%230f172a' : '%23ffffff'}' d='M3 4.5L6 7.5L9 4.5'/%3E%3C/svg%3E")`,
+                      backgroundRepeat: 'no-repeat',
+                      backgroundPosition: 'right 8px center',
+                      paddingRight: '28px'
+                    }}
+                  >
+                    <option value="command-chat" style={{ background: '#1e293b', color: 'white' }}>💬 Command Chat</option>
+                    <option value="mailguard" style={{ background: '#1e293b', color: 'white' }}>🛡️ WR MailGuard</option>
+                  </select>
+                  {dockedPanelMode === 'command-chat' && <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
                     <button 
                       onClick={handleBucketClick}
                       title="Context Bucket: Embed context directly into the session"
@@ -2214,7 +2280,7 @@ function SidepanelOrchestrator() {
                         </div>
                       )}
                     </div>
-                  </div>
+                  </div>}
                 </div>
                 <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
                   <button 
@@ -2233,6 +2299,9 @@ function SidepanelOrchestrator() {
                 </div>
               </div>
 
+              {/* Command Chat Content - Section 1 (showMinimalUI) */}
+              {dockedPanelMode === 'command-chat' ? (
+              <>
               {/* Messages Area */}
               <div 
                 id="ccd-messages-sidepanel"
@@ -2415,7 +2484,7 @@ function SidepanelOrchestrator() {
                 </button>
           </div>
 
-            {/* Trigger Creation UI */}
+            {/* Trigger Creation UI - Minimal View Section 1 */}
             {showTriggerPrompt && (
               <div style={{
                 padding: '12px 14px',
@@ -2586,6 +2655,104 @@ function SidepanelOrchestrator() {
                 </div>
               </div>
             )}
+              </>
+              ) : (
+                /* WR MailGuard Email Editor - Section 1 (showMinimalUI) */
+                <div style={{ display: 'flex', flexDirection: 'column', flex: 1, background: theme === 'default' ? 'rgba(118,75,162,0.15)' : (theme === 'professional' ? '#f8fafc' : 'rgba(255,255,255,0.04)') }}>
+                  {/* Inline helper text when not composing */}
+                  {!mailguardTo && !mailguardSubject && !mailguardBody && mailguardAttachments.length === 0 && (
+                    <div style={{ padding: '16px 18px', fontSize: '13px', opacity: 0.7, fontStyle: 'italic', borderBottom: theme === 'professional' ? '1px solid rgba(15,23,42,0.1)' : '1px solid rgba(255,255,255,0.1)', background: theme === 'professional' ? 'rgba(168,85,247,0.08)' : 'rgba(168,85,247,0.15)', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                      <span style={{ fontSize: '18px' }}>✉️</span>
+                      Compose verified WRGuard-stamped emails with built-in automation.
+                    </div>
+                  )}
+                  <div style={{ padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: '14px', flex: 1 }}>
+                    {/* Email Header Fields */}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', paddingBottom: '14px', borderBottom: theme === 'professional' ? '1px solid rgba(15,23,42,0.1)' : '1px solid rgba(255,255,255,0.1)' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                        <label style={{ fontSize: '13px', fontWeight: '600', opacity: 0.7, minWidth: '60px' }}>To:</label>
+                        <input type="email" value={mailguardTo} onChange={(e) => setMailguardTo(e.target.value)} placeholder="recipient@example.com" style={{ flex: 1, background: theme === 'professional' ? '#ffffff' : 'rgba(255,255,255,0.08)', border: theme === 'professional' ? '1px solid rgba(15,23,42,0.15)' : '1px solid rgba(255,255,255,0.15)', color: theme === 'professional' ? '#0f172a' : 'white', borderRadius: '6px', padding: '10px 14px', fontSize: '14px', outline: 'none' }} />
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                        <label style={{ fontSize: '13px', fontWeight: '600', opacity: 0.7, minWidth: '60px' }}>Subject:</label>
+                        <input type="text" value={mailguardSubject} onChange={(e) => setMailguardSubject(e.target.value)} placeholder="Email subject" style={{ flex: 1, background: theme === 'professional' ? '#ffffff' : 'rgba(255,255,255,0.08)', border: theme === 'professional' ? '1px solid rgba(15,23,42,0.15)' : '1px solid rgba(255,255,255,0.15)', color: theme === 'professional' ? '#0f172a' : 'white', borderRadius: '6px', padding: '10px 14px', fontSize: '14px', outline: 'none' }} />
+                      </div>
+                    </div>
+                    {/* Email Body - Large Text Area with Resize Handle */}
+                    <div style={{ display: 'flex', flexDirection: 'column' }}>
+                      <textarea 
+                        value={mailguardBody} 
+                        onChange={(e) => setMailguardBody(e.target.value)} 
+                        placeholder="Compose your email message here...
+
+Write your message with the confidence that it will be protected by WRGuard encryption and verification." 
+                        style={{ 
+                          background: theme === 'professional' ? '#ffffff' : 'rgba(255,255,255,0.06)', 
+                          border: theme === 'professional' ? '1px solid rgba(15,23,42,0.15)' : '1px solid rgba(255,255,255,0.12)', 
+                          color: theme === 'professional' ? '#0f172a' : 'white', 
+                          borderRadius: '8px', 
+                          padding: '14px 16px', 
+                          fontSize: '14px', 
+                          lineHeight: '1.6',
+                          height: `${mailguardBodyHeight}px`, 
+                          resize: 'none', 
+                          fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif', 
+                          outline: 'none'
+                        }} 
+                      />
+                      <div 
+                        onMouseDown={(e) => {
+                          e.preventDefault()
+                          mailguardResizeStartY.current = e.clientY
+                          mailguardResizeStartH.current = mailguardBodyHeight
+                          setIsResizingMailguard(true)
+                        }}
+                        style={{ 
+                          height: '12px', 
+                          background: theme === 'professional' ? 'linear-gradient(180deg, #e2e8f0 0%, #cbd5e1 100%)' : 'linear-gradient(180deg, rgba(255,255,255,0.2) 0%, rgba(255,255,255,0.1) 100%)', 
+                          cursor: 'ns-resize', 
+                          borderRadius: '6px', 
+                          margin: '8px 0', 
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          border: theme === 'professional' ? '1px solid rgba(15,23,42,0.1)' : '1px solid rgba(255,255,255,0.15)'
+                        }}
+                        title="Drag to resize editor height"
+                      >
+                        <div style={{ width: '40px', height: '4px', background: theme === 'professional' ? '#94a3b8' : 'rgba(255,255,255,0.4)', borderRadius: '2px' }} />
+                      </div>
+                    </div>
+                    {/* Attachments Section */}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '4px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                        <span style={{ fontSize: '12px', fontWeight: '600', opacity: 0.7, display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          <span>📎</span> Attachments
+                          <span style={{ fontSize: '10px', opacity: 0.6, fontWeight: '400' }}>(WR Stamped PDFs only)</span>
+                        </span>
+                        <input ref={mailguardFileRef} type="file" accept=".pdf" multiple style={{ display: 'none' }} onChange={(e) => { const files = Array.from(e.target.files || []); const pdfFiles = files.filter(f => f.type === 'application/pdf'); if (pdfFiles.length !== files.length) { setNotification({ message: 'Only PDF files are allowed', type: 'error' }); setTimeout(() => setNotification(null), 3000) } if (pdfFiles.length > 0) { setMailguardAttachments(prev => [...prev, ...pdfFiles.map(f => ({ name: f.name, size: f.size, file: f }))]) } if (e.target) e.target.value = '' }} />
+                        <button onClick={() => mailguardFileRef.current?.click()} style={{ background: theme === 'professional' ? '#e2e8f0' : 'rgba(255,255,255,0.12)', border: theme === 'professional' ? '1px solid rgba(15,23,42,0.15)' : '1px solid rgba(255,255,255,0.2)', color: theme === 'professional' ? '#0f172a' : 'white', borderRadius: '6px', padding: '8px 14px', fontSize: '12px', fontWeight: '500', cursor: 'pointer' }}>+ Add PDF</button>
+                      </div>
+                      {mailguardAttachments.length > 0 && (
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', padding: '8px 0' }}>
+                          {mailguardAttachments.map((att, idx) => (
+                            <div key={idx} style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', padding: '6px 10px', background: theme === 'professional' ? 'rgba(34,197,94,0.1)' : 'rgba(34,197,94,0.15)', border: '1px solid rgba(34,197,94,0.3)', borderRadius: '6px', fontSize: '12px' }}>
+                              <span>📄</span>
+                              <span style={{ maxWidth: '140px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{att.name}</span>
+                              <span style={{ opacity: 0.5, fontSize: '11px' }}>({(att.size / 1024).toFixed(0)} KB)</span>
+                              <button onClick={() => setMailguardAttachments(prev => prev.filter((_, i) => i !== idx))} style={{ background: 'transparent', border: 'none', color: theme === 'professional' ? '#64748b' : 'rgba(255,255,255,0.5)', borderRadius: '4px', width: '18px', height: '18px', cursor: 'pointer', fontSize: '14px', lineHeight: '1', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>×</button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                  <div style={{ padding: '14px 18px', borderTop: theme === 'professional' ? '1px solid rgba(15,23,42,0.1)' : '1px solid rgba(255,255,255,0.15)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: theme === 'professional' ? '#f1f5f9' : 'rgba(0,0,0,0.15)' }}>
+                    <button onClick={() => { setMailguardTo(''); setMailguardSubject(''); setMailguardBody(''); setMailguardAttachments([]) }} style={{ background: 'transparent', border: 'none', color: theme === 'professional' ? '#64748b' : 'rgba(255,255,255,0.6)', padding: '8px 12px', fontSize: '13px', cursor: 'pointer', textDecoration: 'underline', textUnderlineOffset: '2px' }}>Discard draft</button>
+                    <button onClick={() => { if (!mailguardTo.trim()) { setNotification({ message: 'Please enter a recipient', type: 'error' }); setTimeout(() => setNotification(null), 3000); return } if (!mailguardSubject.trim()) { setNotification({ message: 'Please enter a subject', type: 'error' }); setTimeout(() => setNotification(null), 3000); return } if (mailguardAttachments.length === 0) { setNotification({ message: 'Attach at least one WR stamped PDF', type: 'error' }); setTimeout(() => setNotification(null), 3000); return } console.log('[WR MailGuard] Sending:', { to: mailguardTo, subject: mailguardSubject, attachments: mailguardAttachments.map(a => a.name) }); setNotification({ message: 'Protected email queued', type: 'success' }); setTimeout(() => setNotification(null), 3000); setMailguardTo(''); setMailguardSubject(''); setMailguardBody(''); setMailguardAttachments([]) }} disabled={!mailguardTo.trim() || !mailguardSubject.trim() || mailguardAttachments.length === 0} style={{ background: (!mailguardTo.trim() || !mailguardSubject.trim() || mailguardAttachments.length === 0) ? (theme === 'professional' ? '#e2e8f0' : '#374151') : '#a855f7', border: 'none', color: (!mailguardTo.trim() || !mailguardSubject.trim() || mailguardAttachments.length === 0) ? (theme === 'professional' ? '#94a3b8' : '#6b7280') : 'white', borderRadius: '8px', padding: '12px 28px', fontSize: '14px', fontWeight: '600', cursor: (!mailguardTo.trim() || !mailguardSubject.trim() || mailguardAttachments.length === 0) ? 'not-allowed' : 'pointer', boxShadow: (!mailguardTo.trim() || !mailguardSubject.trim() || mailguardAttachments.length === 0) ? 'none' : '0 2px 8px rgba(168,85,247,0.4)', display: 'flex', alignItems: 'center', gap: '8px' }}>Send <span style={{ fontSize: '16px' }}>→</span></button>
+                  </div>
+                </div>
+              )}
       </div>
 
           {/* Embed Dialog */}
@@ -2887,7 +3054,7 @@ function SidepanelOrchestrator() {
           </div>
         </div>
         
-      {/* Docked Command Chat - Full Featured (Only when pinned) */}
+      {/* Docked Command Chat - App View */}
       {isCommandChatPinned && (
         <>
           <div 
@@ -2904,7 +3071,7 @@ function SidepanelOrchestrator() {
             onDragOver={(e) => e.preventDefault()}
             onDrop={handleChatDrop}
           >
-            {/* Header */}
+            {/* Header - App View */}
             <div style={{
               display: 'flex',
               alignItems: 'center',
@@ -2915,8 +3082,31 @@ function SidepanelOrchestrator() {
               color: themeColors.text
             }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                <div style={{ fontSize: '13px', fontWeight: '700' }}>💬 Command Chat</div>
-                <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                <select
+                  value={dockedPanelMode}
+                  onChange={(e) => setDockedPanelMode(e.target.value as 'command-chat' | 'mailguard')}
+                  style={{
+                    fontSize: '13px',
+                    fontWeight: '700',
+                    background: theme === 'professional' ? 'rgba(15,23,42,0.08)' : 'rgba(255,255,255,0.15)',
+                    border: theme === 'professional' ? '1px solid rgba(15,23,42,0.2)' : '1px solid rgba(255,255,255,0.25)',
+                    color: theme === 'professional' ? '#0f172a' : 'inherit',
+                    borderRadius: '6px',
+                    padding: '6px 10px',
+                    cursor: 'pointer',
+                    outline: 'none',
+                    appearance: 'none',
+                    WebkitAppearance: 'none',
+                    backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='${theme === 'professional' ? '%230f172a' : '%23ffffff'}' d='M3 4.5L6 7.5L9 4.5'/%3E%3C/svg%3E")`,
+                    backgroundRepeat: 'no-repeat',
+                    backgroundPosition: 'right 8px center',
+                    paddingRight: '28px'
+                  }}
+                >
+                  <option value="command-chat" style={{ background: '#1e293b', color: 'white' }}>💬 Command Chat</option>
+                  <option value="mailguard" style={{ background: '#1e293b', color: 'white' }}>🛡️ WR MailGuard</option>
+                </select>
+                {dockedPanelMode === 'command-chat' && <div data-controls="app-view" style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
                   <button 
                     onClick={handleBucketClick}
                     title="Context Bucket: Embed context directly into the session"
@@ -3029,7 +3219,7 @@ function SidepanelOrchestrator() {
                       Tags <span style={{ fontSize: '11px', opacity: 0.9 }}>▾</span>
                     </button>
                     
-                    {/* Tags Dropdown Menu */}
+                    {/* Tags Dropdown Menu - App View */}
                     {showTagsMenu && (
                       <div 
                         style={{
@@ -3117,7 +3307,7 @@ function SidepanelOrchestrator() {
                       </div>
                     )}
                   </div>
-                </div>
+                </div>}
               </div>
               <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
                 <button 
@@ -3136,187 +3326,232 @@ function SidepanelOrchestrator() {
               </div>
             </div>
 
-            {/* Messages Area */}
-            <div 
-              id="ccd-messages-sidepanel"
-              ref={chatRef}
-              style={{
-                height: `${chatHeight}px`,
-                overflowY: 'auto',
-                display: 'flex',
-                flexDirection: 'column',
-                gap: '10px',
-                background: theme === 'default' ? 'rgba(118,75,162,0.25)' : 'rgba(255,255,255,0.06)',
-                borderBottom: '1px solid rgba(255,255,255,0.20)',
-                padding: '14px'
-              }}
-            >
-              {chatMessages.length === 0 ? (
-                <div style={{ fontSize: '13px', opacity: 0.6, textAlign: 'center', padding: '32px 20px' }}>
-                  Start a conversation...
+            {/* SECTION 2 - Conditional Content based on mode */}
+            {dockedPanelMode === 'command-chat' ? (
+              <>
+                {/* Messages Area */}
+                <div 
+                  id="ccd-messages-sidepanel"
+                  ref={chatRef}
+                  style={{
+                    height: `${chatHeight}px`,
+                    overflowY: 'auto',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '10px',
+                    background: theme === 'default' ? 'rgba(118,75,162,0.25)' : 'rgba(255,255,255,0.06)',
+                    borderBottom: '1px solid rgba(255,255,255,0.20)',
+                    padding: '14px'
+                  }}
+                >
+                  {chatMessages.length === 0 ? (
+                    <div style={{ fontSize: '13px', opacity: 0.6, textAlign: 'center', padding: '32px 20px' }}>
+                      Start a conversation...
+                    </div>
+                  ) : (
+                    chatMessages.map((msg: any, i) => (
+                      <div 
+                        key={i} 
+                        style={{
+                          display: 'flex',
+                          justifyContent: msg.role === 'user' ? 'flex-end' : 'flex-start'
+                        }}
+                      >
+                        <div style={{
+                          maxWidth: '80%',
+                          padding: '10px 14px',
+                          borderRadius: '12px',
+                          fontSize: '13px',
+                          lineHeight: '1.5',
+                          background: msg.role === 'user' ? 'rgba(34,197,94,0.15)' : 'rgba(255,255,255,0.12)',
+                          border: msg.role === 'user' ? '1px solid rgba(34,197,94,0.5)' : '1px solid rgba(255,255,255,0.25)'
+                        }}>
+                          {msg.imageUrl ? (
+                            <img 
+                              src={msg.imageUrl} 
+                              alt="Screenshot" 
+                              style={{ 
+                                maxWidth: '260px', 
+                                height: 'auto', 
+                                borderRadius: '8px',
+                                display: 'block'
+                              }} 
+                            />
+                          ) : (
+                            msg.text
+                          )}
+                        </div>
+                      </div>
+                    ))
+                  )}
                 </div>
-              ) : (
-                chatMessages.map((msg: any, i) => (
-                  <div 
-                    key={i} 
+
+                {/* Resize Handle */}
+                <div 
+                  onMouseDown={(e) => {
+                    e.preventDefault()
+                    setIsResizingChat(true)
+                  }}
+                  style={{
+                    height: '4px',
+                    background: 'rgba(255,255,255,0.15)',
+                    cursor: 'ns-resize',
+                    borderTop: '1px solid rgba(255,255,255,0.10)',
+                    borderBottom: '1px solid rgba(255,255,255,0.10)'
+                  }}
+                />
+
+                {/* Compose Area */}
+                <div 
+                  id="ccd-compose-sidepanel"
+                  style={{
+                  display: 'grid',
+                  gridTemplateColumns: '1fr 40px 72px',
+                  gap: '8px',
+                  alignItems: 'center',
+                  padding: '12px 14px'
+                }}>
+                  <textarea
+                    value={chatInput}
+                    onChange={(e) => setChatInput(e.target.value)}
+                    onKeyDown={handleChatKeyDown}
+                    placeholder="Type your message..."
                     style={{
+                      boxSizing: 'border-box',
+                      height: '40px',
+                      minHeight: '40px',
+                      resize: 'vertical',
+                      background: 'rgba(255,255,255,0.08)',
+                      border: '1px solid rgba(255,255,255,0.20)',
+                      color: 'white',
+                      borderRadius: '8px',
+                      padding: '10px 12px',
+                      fontSize: '13px',
+                      fontFamily: 'inherit',
+                      lineHeight: '1.5'
+                    }}
+                  />
+                <input
+                    ref={fileInputRef}
+                    type="file" 
+                    multiple 
+                    style={{ display: 'none' }} 
+                    onChange={handleFileChange}
+                  />
+                  <button 
+                    onClick={handleBucketClick}
+                    title="Attach" 
+                    style={{
+                      height: '40px',
+                      background: 'rgba(255,255,255,0.15)',
+                      border: '1px solid rgba(255,255,255,0.25)',
+                      color: 'white',
+                      borderRadius: '8px',
+                      cursor: 'pointer',
                       display: 'flex',
-                      justifyContent: msg.role === 'user' ? 'flex-end' : 'flex-start'
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      fontSize: '18px',
+                      transition: 'all 0.2s ease'
+                    }}
+                    onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.25)'}
+                    onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.15)'}
+                  >
+                    📎
+                  </button>
+                  <button
+                    onClick={handleSendMessage}
+                    disabled={isLlmLoading || !chatInput.trim()}
+                    style={{
+                      height: '40px',
+                      background: isLlmLoading ? '#9ca3af' : '#22c55e',
+                      border: isLlmLoading ? '1px solid #6b7280' : '1px solid #16a34a',
+                      color: isLlmLoading ? '#4b5563' : '#0b1e12',
+                      borderRadius: '8px',
+                      fontWeight: '700',
+                      cursor: isLlmLoading ? 'not-allowed' : 'pointer',
+                      fontSize: '13px',
+                      transition: 'all 0.2s ease',
+                      opacity: isLlmLoading || !chatInput.trim() ? 0.6 : 1
+                    }}
+                    onMouseEnter={(e) => {
+                      if (!isLlmLoading) {
+                        e.currentTarget.style.background = '#16a34a'
+                        e.currentTarget.style.transform = 'translateY(-1px)'
+                      }
+                    }}
+                    onMouseLeave={(e) => {
+                      if (!isLlmLoading) {
+                        e.currentTarget.style.background = '#22c55e'
+                        e.currentTarget.style.transform = 'translateY(0)'
+                      }
                     }}
                   >
-                    <div style={{
-                      maxWidth: '80%',
-                      padding: '10px 14px',
-                      borderRadius: '12px',
-                      fontSize: '13px',
-                      lineHeight: '1.5',
-                      background: msg.role === 'user' ? 'rgba(34,197,94,0.15)' : 'rgba(255,255,255,0.12)',
-                      border: msg.role === 'user' ? '1px solid rgba(34,197,94,0.5)' : '1px solid rgba(255,255,255,0.25)'
-                    }}>
-                      {msg.imageUrl ? (
-                        <img 
-                          src={msg.imageUrl} 
-                          alt="Screenshot" 
-                          style={{ 
-                            maxWidth: '260px', 
-                            height: 'auto', 
-                            borderRadius: '8px',
-                            display: 'block'
-                          }} 
-                        />
-                      ) : (
-                        msg.text
-                      )}
+                    {isLlmLoading ? '⏳ Thinking...' : 'Send'}
+                  </button>
+                </div>
+              </>
+            ) : (
+              /* WR MailGuard Email Editor - Section 2 (App View) */
+              <div style={{ display: 'flex', flexDirection: 'column', flex: 1, background: theme === 'default' ? 'rgba(118,75,162,0.15)' : (theme === 'professional' ? '#f8fafc' : 'rgba(255,255,255,0.04)') }}>
+                {!mailguardTo && !mailguardSubject && !mailguardBody && mailguardAttachments.length === 0 && (
+                  <div style={{ padding: '16px 18px', fontSize: '13px', opacity: 0.7, fontStyle: 'italic', borderBottom: theme === 'professional' ? '1px solid rgba(15,23,42,0.1)' : '1px solid rgba(255,255,255,0.1)', background: theme === 'professional' ? 'rgba(168,85,247,0.08)' : 'rgba(168,85,247,0.15)', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <span style={{ fontSize: '18px' }}>✉️</span>
+                    Compose verified WRGuard-stamped emails with built-in automation.
+                  </div>
+                )}
+                <div style={{ padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: '14px', flex: 1 }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', paddingBottom: '14px', borderBottom: theme === 'professional' ? '1px solid rgba(15,23,42,0.1)' : '1px solid rgba(255,255,255,0.1)' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                      <label style={{ fontSize: '13px', fontWeight: '600', opacity: 0.7, minWidth: '60px' }}>To:</label>
+                      <input type="email" value={mailguardTo} onChange={(e) => setMailguardTo(e.target.value)} placeholder="recipient@example.com" style={{ flex: 1, background: theme === 'professional' ? '#ffffff' : 'rgba(255,255,255,0.08)', border: theme === 'professional' ? '1px solid rgba(15,23,42,0.15)' : '1px solid rgba(255,255,255,0.15)', color: theme === 'professional' ? '#0f172a' : 'white', borderRadius: '6px', padding: '10px 14px', fontSize: '14px', outline: 'none' }} />
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                      <label style={{ fontSize: '13px', fontWeight: '600', opacity: 0.7, minWidth: '60px' }}>Subject:</label>
+                      <input type="text" value={mailguardSubject} onChange={(e) => setMailguardSubject(e.target.value)} placeholder="Email subject" style={{ flex: 1, background: theme === 'professional' ? '#ffffff' : 'rgba(255,255,255,0.08)', border: theme === 'professional' ? '1px solid rgba(15,23,42,0.15)' : '1px solid rgba(255,255,255,0.15)', color: theme === 'professional' ? '#0f172a' : 'white', borderRadius: '6px', padding: '10px 14px', fontSize: '14px', outline: 'none' }} />
                     </div>
                   </div>
-                ))
-              )}
-            </div>
-
-            {/* Resize Handle */}
-            <div 
-              onMouseDown={(e) => {
-                e.preventDefault()
-                setIsResizingChat(true)
-              }}
-              style={{
-                height: '4px',
-                background: 'rgba(255,255,255,0.15)',
-                cursor: 'ns-resize',
-                borderTop: '1px solid rgba(255,255,255,0.10)',
-                borderBottom: '1px solid rgba(255,255,255,0.10)'
-              }}
-            />
-
-            {/* Compose Area */}
-            <div 
-              id="ccd-compose-sidepanel"
-              style={{
-              display: 'grid',
-              gridTemplateColumns: '1fr 40px 40px 72px',
-              gap: '8px',
-              alignItems: 'center',
-              padding: '12px 14px'
-            }}>
-              <textarea
-                value={chatInput}
-                onChange={(e) => setChatInput(e.target.value)}
-                onKeyDown={handleChatKeyDown}
-                placeholder="Type your message..."
-                style={{
-                  boxSizing: 'border-box',
-                  height: '40px',
-                  minHeight: '40px',
-                  resize: 'vertical',
-                  background: 'rgba(255,255,255,0.08)',
-                  border: '1px solid rgba(255,255,255,0.20)',
-                  color: 'white',
-                  borderRadius: '8px',
-                  padding: '10px 12px',
-                  fontSize: '13px',
-                  fontFamily: 'inherit',
-                  lineHeight: '1.5'
-                }}
-              />
-            <input
-                ref={fileInputRef}
-                type="file" 
-                multiple 
-                style={{ display: 'none' }} 
-                onChange={handleFileChange}
-              />
-              <button 
-                onClick={handleBucketClick}
-                title="Attach" 
-                style={{
-                  height: '40px',
-                  background: 'rgba(255,255,255,0.15)',
-                  border: '1px solid rgba(255,255,255,0.25)',
-                  color: 'white',
-                  borderRadius: '8px',
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  fontSize: '18px',
-                  transition: 'all 0.2s ease'
-                }}
-                onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.25)'}
-                onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.15)'}
-              >
-                📎
-              </button>
-              <button 
-                title="Voice" 
-                style={{
-                  height: '40px',
-                  background: 'rgba(255,255,255,0.15)',
-                  border: '1px solid rgba(255,255,255,0.25)',
-                  color: 'white',
-                  borderRadius: '8px',
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  fontSize: '18px',
-                  transition: 'all 0.2s ease'
-                }}
-                onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.25)'}
-                onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.15)'}
-              >
-                🎙️
-              </button>
-              <button
-                onClick={handleSendMessage}
-                disabled={isLlmLoading || !chatInput.trim()}
-                style={{
-                  height: '40px',
-                  background: isLlmLoading ? '#9ca3af' : '#22c55e',
-                  border: isLlmLoading ? '1px solid #6b7280' : '1px solid #16a34a',
-                  color: isLlmLoading ? '#4b5563' : '#0b1e12',
-                  borderRadius: '8px',
-                  fontWeight: '700',
-                  cursor: isLlmLoading ? 'not-allowed' : 'pointer',
-                  fontSize: '13px',
-                  transition: 'all 0.2s ease',
-                  opacity: isLlmLoading || !chatInput.trim() ? 0.6 : 1
-                }}
-                onMouseEnter={(e) => {
-                  if (!isLlmLoading) {
-                    e.currentTarget.style.background = '#16a34a'
-                    e.currentTarget.style.transform = 'translateY(-1px)'
-                  }
-                }}
-                onMouseLeave={(e) => {
-                  if (!isLlmLoading) {
-                    e.currentTarget.style.background = '#22c55e'
-                    e.currentTarget.style.transform = 'translateY(0)'
-                  }
-                }}
-              >
-                {isLlmLoading ? '⏳ Thinking...' : 'Send'}
-              </button>
-            </div>
+                  <div style={{ display: 'flex', flexDirection: 'column' }}>
+                    <textarea value={mailguardBody} onChange={(e) => setMailguardBody(e.target.value)} placeholder="Compose your email message here..." style={{ background: theme === 'professional' ? '#ffffff' : 'rgba(255,255,255,0.06)', border: theme === 'professional' ? '1px solid rgba(15,23,42,0.15)' : '1px solid rgba(255,255,255,0.12)', color: theme === 'professional' ? '#0f172a' : 'white', borderRadius: '8px', padding: '14px 16px', fontSize: '14px', lineHeight: '1.6', height: `${mailguardBodyHeight}px`, resize: 'none', fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif', outline: 'none' }} />
+                    <div 
+                      onMouseDown={(e) => {
+                        e.preventDefault()
+                        mailguardResizeStartY.current = e.clientY
+                        mailguardResizeStartH.current = mailguardBodyHeight
+                        setIsResizingMailguard(true)
+                      }}
+                      style={{ height: '8px', background: theme === 'professional' ? '#e2e8f0' : 'rgba(255,255,255,0.15)', cursor: 'ns-resize', borderRadius: '4px', margin: '6px 0', opacity: 0.7 }}
+                      title="Drag to resize"
+                    />
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '4px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <span style={{ fontSize: '12px', fontWeight: '600', opacity: 0.7, display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <span>📎</span> Attachments <span style={{ fontSize: '10px', opacity: 0.6, fontWeight: '400' }}>(WR Stamped PDFs only)</span>
+                      </span>
+                      <input ref={mailguardFileRef} type="file" accept=".pdf" multiple style={{ display: 'none' }} onChange={(e) => { const files = Array.from(e.target.files || []); const pdfFiles = files.filter(f => f.type === 'application/pdf'); if (pdfFiles.length !== files.length) { setNotification({ message: 'Only PDF files are allowed', type: 'error' }); setTimeout(() => setNotification(null), 3000) } if (pdfFiles.length > 0) { setMailguardAttachments(prev => [...prev, ...pdfFiles.map(f => ({ name: f.name, size: f.size, file: f }))]) } if (e.target) e.target.value = '' }} />
+                      <button onClick={() => mailguardFileRef.current?.click()} style={{ background: theme === 'professional' ? '#e2e8f0' : 'rgba(255,255,255,0.12)', border: theme === 'professional' ? '1px solid rgba(15,23,42,0.15)' : '1px solid rgba(255,255,255,0.2)', color: theme === 'professional' ? '#0f172a' : 'white', borderRadius: '6px', padding: '8px 14px', fontSize: '12px', fontWeight: '500', cursor: 'pointer' }}>+ Add PDF</button>
+                    </div>
+                    {mailguardAttachments.length > 0 && (
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', padding: '8px 0' }}>
+                        {mailguardAttachments.map((att, idx) => (
+                          <div key={idx} style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', padding: '6px 10px', background: theme === 'professional' ? 'rgba(34,197,94,0.1)' : 'rgba(34,197,94,0.15)', border: '1px solid rgba(34,197,94,0.3)', borderRadius: '6px', fontSize: '12px' }}>
+                            <span>📄</span>
+                            <span style={{ maxWidth: '140px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{att.name}</span>
+                            <span style={{ opacity: 0.5, fontSize: '11px' }}>({(att.size / 1024).toFixed(0)} KB)</span>
+                            <button onClick={() => setMailguardAttachments(prev => prev.filter((_, i) => i !== idx))} style={{ background: 'transparent', border: 'none', color: theme === 'professional' ? '#64748b' : 'rgba(255,255,255,0.5)', borderRadius: '4px', width: '18px', height: '18px', cursor: 'pointer', fontSize: '14px', lineHeight: '1', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>×</button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+                <div style={{ padding: '14px 18px', borderTop: theme === 'professional' ? '1px solid rgba(15,23,42,0.1)' : '1px solid rgba(255,255,255,0.15)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: theme === 'professional' ? '#f1f5f9' : 'rgba(0,0,0,0.15)' }}>
+                  <button onClick={() => { setMailguardTo(''); setMailguardSubject(''); setMailguardBody(''); setMailguardAttachments([]) }} style={{ background: 'transparent', border: 'none', color: theme === 'professional' ? '#64748b' : 'rgba(255,255,255,0.6)', padding: '8px 12px', fontSize: '13px', cursor: 'pointer', textDecoration: 'underline', textUnderlineOffset: '2px' }}>Discard draft</button>
+                  <button onClick={() => { if (!mailguardTo.trim()) { setNotification({ message: 'Please enter a recipient', type: 'error' }); setTimeout(() => setNotification(null), 3000); return } if (!mailguardSubject.trim()) { setNotification({ message: 'Please enter a subject', type: 'error' }); setTimeout(() => setNotification(null), 3000); return } if (mailguardAttachments.length === 0) { setNotification({ message: 'Attach at least one WR stamped PDF', type: 'error' }); setTimeout(() => setNotification(null), 3000); return } console.log('[WR MailGuard] Sending:', { to: mailguardTo, subject: mailguardSubject, attachments: mailguardAttachments.map(a => a.name) }); setNotification({ message: 'Protected email queued', type: 'success' }); setTimeout(() => setNotification(null), 3000); setMailguardTo(''); setMailguardSubject(''); setMailguardBody(''); setMailguardAttachments([]) }} disabled={!mailguardTo.trim() || !mailguardSubject.trim() || mailguardAttachments.length === 0} style={{ background: (!mailguardTo.trim() || !mailguardSubject.trim() || mailguardAttachments.length === 0) ? (theme === 'professional' ? '#e2e8f0' : '#374151') : '#a855f7', border: 'none', color: (!mailguardTo.trim() || !mailguardSubject.trim() || mailguardAttachments.length === 0) ? (theme === 'professional' ? '#94a3b8' : '#6b7280') : 'white', borderRadius: '8px', padding: '12px 28px', fontSize: '14px', fontWeight: '600', cursor: (!mailguardTo.trim() || !mailguardSubject.trim() || mailguardAttachments.length === 0) ? 'not-allowed' : 'pointer', boxShadow: (!mailguardTo.trim() || !mailguardSubject.trim() || mailguardAttachments.length === 0) ? 'none' : '0 2px 8px rgba(168,85,247,0.4)', display: 'flex', alignItems: 'center', gap: '8px' }}>Send <span style={{ fontSize: '16px' }}>→</span></button>
+                </div>
+              </div>
+            )}
           </div>
         </>
       )}
@@ -3554,10 +3789,11 @@ function SidepanelOrchestrator() {
       {/* WR Login / Backend Switcher Section */}
       <BackendSwitcherInline theme={theme} />
 
-      {/* Docked Command Chat - Full Featured (Only when pinned) */}
+      {/* Docked Command Chat - Admin View */}
       {isCommandChatPinned && (
         <>
           <div 
+            data-section="admin-view"
             style={{
               borderBottom: '1px solid rgba(255,255,255,0.2)',
               background: theme === 'default' ? 'rgba(118,75,162,0.4)' : 'rgba(255,255,255,0.10)',
@@ -3582,8 +3818,31 @@ function SidepanelOrchestrator() {
               color: themeColors.text
             }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                <div style={{ fontSize: '13px', fontWeight: '700' }}>💬 Command Chat</div>
-                <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                <select
+                  value={dockedPanelMode}
+                  onChange={(e) => setDockedPanelMode(e.target.value as 'command-chat' | 'mailguard')}
+                  style={{
+                    fontSize: '13px',
+                    fontWeight: '700',
+                    background: theme === 'professional' ? 'rgba(15,23,42,0.08)' : 'rgba(255,255,255,0.15)',
+                    border: theme === 'professional' ? '1px solid rgba(15,23,42,0.2)' : '1px solid rgba(255,255,255,0.25)',
+                    color: theme === 'professional' ? '#0f172a' : 'inherit',
+                    borderRadius: '6px',
+                    padding: '6px 10px',
+                    cursor: 'pointer',
+                    outline: 'none',
+                    appearance: 'none',
+                    WebkitAppearance: 'none',
+                    backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='${theme === 'professional' ? '%230f172a' : '%23ffffff'}' d='M3 4.5L6 7.5L9 4.5'/%3E%3C/svg%3E")`,
+                    backgroundRepeat: 'no-repeat',
+                    backgroundPosition: 'right 8px center',
+                    paddingRight: '28px'
+                  }}
+                >
+                  <option value="command-chat" style={{ background: '#1e293b', color: 'white' }}>💬 Command Chat</option>
+                  <option value="mailguard" style={{ background: '#1e293b', color: 'white' }}>🛡️ WR MailGuard</option>
+                </select>
+                {dockedPanelMode === 'command-chat' && <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
                   <button 
                     onClick={handleBucketClick}
                     title="Context Bucket: Embed context directly into the session"
@@ -3696,7 +3955,7 @@ function SidepanelOrchestrator() {
                       Tags <span style={{ fontSize: '11px', opacity: 0.9 }}>▾</span>
                     </button>
                     
-                    {/* Tags Dropdown Menu */}
+                    {/* Tags Dropdown Menu - Admin View */}
                     {showTagsMenu && (
                       <div 
                         style={{
@@ -3784,7 +4043,7 @@ function SidepanelOrchestrator() {
                       </div>
                     )}
                   </div>
-                </div>
+                </div>}
               </div>
               <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
                 <button 
@@ -3803,187 +4062,232 @@ function SidepanelOrchestrator() {
               </div>
             </div>
 
-            {/* Messages Area */}
-            <div 
-              id="ccd-messages-sidepanel"
-              ref={chatRef}
-              style={{
-                height: `${chatHeight}px`,
-                overflowY: 'auto',
-                display: 'flex',
-                flexDirection: 'column',
-                gap: '10px',
-                background: theme === 'default' ? 'rgba(118,75,162,0.25)' : 'rgba(255,255,255,0.06)',
-                borderBottom: '1px solid rgba(255,255,255,0.20)',
-                padding: '14px'
-              }}
-            >
-              {chatMessages.length === 0 ? (
-                <div style={{ fontSize: '13px', opacity: 0.6, textAlign: 'center', padding: '32px 20px' }}>
-                  Start a conversation...
+            {/* SECTION 3 - Conditional Content based on mode */}
+            {dockedPanelMode === 'command-chat' ? (
+              <>
+                {/* Messages Area */}
+                <div 
+                  id="ccd-messages-sidepanel"
+                  ref={chatRef}
+                  style={{
+                    height: `${chatHeight}px`,
+                    overflowY: 'auto',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '10px',
+                    background: theme === 'default' ? 'rgba(118,75,162,0.25)' : 'rgba(255,255,255,0.06)',
+                    borderBottom: '1px solid rgba(255,255,255,0.20)',
+                    padding: '14px'
+                  }}
+                >
+                  {chatMessages.length === 0 ? (
+                    <div style={{ fontSize: '13px', opacity: 0.6, textAlign: 'center', padding: '32px 20px' }}>
+                      Start a conversation...
+                    </div>
+                  ) : (
+                    chatMessages.map((msg: any, i) => (
+                      <div 
+                        key={i} 
+                        style={{
+                          display: 'flex',
+                          justifyContent: msg.role === 'user' ? 'flex-end' : 'flex-start'
+                        }}
+                      >
+                        <div style={{
+                          maxWidth: '80%',
+                          padding: '10px 14px',
+                          borderRadius: '12px',
+                          fontSize: '13px',
+                          lineHeight: '1.5',
+                          background: msg.role === 'user' ? 'rgba(34,197,94,0.15)' : 'rgba(255,255,255,0.12)',
+                          border: msg.role === 'user' ? '1px solid rgba(34,197,94,0.5)' : '1px solid rgba(255,255,255,0.25)'
+                        }}>
+                          {msg.imageUrl ? (
+                            <img 
+                              src={msg.imageUrl} 
+                              alt="Screenshot" 
+                              style={{ 
+                                maxWidth: '260px', 
+                                height: 'auto', 
+                                borderRadius: '8px',
+                                display: 'block'
+                              }} 
+                            />
+                          ) : (
+                            msg.text
+                          )}
+                        </div>
+                      </div>
+                    ))
+                  )}
                 </div>
-              ) : (
-                chatMessages.map((msg: any, i) => (
-                  <div 
-                    key={i} 
+
+                {/* Resize Handle */}
+                <div 
+                  onMouseDown={(e) => {
+                    e.preventDefault()
+                    setIsResizingChat(true)
+                  }}
+                  style={{
+                    height: '4px',
+                    background: 'rgba(255,255,255,0.15)',
+                    cursor: 'ns-resize',
+                    borderTop: '1px solid rgba(255,255,255,0.10)',
+                    borderBottom: '1px solid rgba(255,255,255,0.10)'
+                  }}
+                />
+
+                {/* Compose Area */}
+                <div 
+                  id="ccd-compose-sidepanel"
+                  style={{
+                  display: 'grid',
+                  gridTemplateColumns: '1fr 40px 72px',
+                  gap: '8px',
+                  alignItems: 'center',
+                  padding: '12px 14px'
+                }}>
+                  <textarea
+                    value={chatInput}
+                    onChange={(e) => setChatInput(e.target.value)}
+                    onKeyDown={handleChatKeyDown}
+                    placeholder="Type your message..."
                     style={{
+                      boxSizing: 'border-box',
+                      height: '40px',
+                      minHeight: '40px',
+                      resize: 'vertical',
+                      background: 'rgba(255,255,255,0.08)',
+                      border: '1px solid rgba(255,255,255,0.20)',
+                      color: 'white',
+                      borderRadius: '8px',
+                      padding: '10px 12px',
+                      fontSize: '13px',
+                      fontFamily: 'inherit',
+                      lineHeight: '1.5'
+                    }}
+                  />
+                <input
+                    ref={fileInputRef}
+                    type="file" 
+                    multiple 
+                    style={{ display: 'none' }} 
+                    onChange={handleFileChange}
+                  />
+                  <button 
+                    onClick={handleBucketClick}
+                    title="Attach" 
+                    style={{
+                      height: '40px',
+                      background: 'rgba(255,255,255,0.15)',
+                      border: '1px solid rgba(255,255,255,0.25)',
+                      color: 'white',
+                      borderRadius: '8px',
+                      cursor: 'pointer',
                       display: 'flex',
-                      justifyContent: msg.role === 'user' ? 'flex-end' : 'flex-start'
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      fontSize: '18px',
+                      transition: 'all 0.2s ease'
+                    }}
+                    onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.25)'}
+                    onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.15)'}
+                  >
+                    📎
+                  </button>
+                  <button
+                    onClick={handleSendMessage}
+                    disabled={isLlmLoading || !chatInput.trim()}
+                    style={{
+                      height: '40px',
+                      background: isLlmLoading ? '#9ca3af' : '#22c55e',
+                      border: isLlmLoading ? '1px solid #6b7280' : '1px solid #16a34a',
+                      color: isLlmLoading ? '#4b5563' : '#0b1e12',
+                      borderRadius: '8px',
+                      fontWeight: '700',
+                      cursor: isLlmLoading ? 'not-allowed' : 'pointer',
+                      fontSize: '13px',
+                      transition: 'all 0.2s ease',
+                      opacity: isLlmLoading || !chatInput.trim() ? 0.6 : 1
+                    }}
+                    onMouseEnter={(e) => {
+                      if (!isLlmLoading) {
+                        e.currentTarget.style.background = '#16a34a'
+                        e.currentTarget.style.transform = 'translateY(-1px)'
+                      }
+                    }}
+                    onMouseLeave={(e) => {
+                      if (!isLlmLoading) {
+                        e.currentTarget.style.background = '#22c55e'
+                        e.currentTarget.style.transform = 'translateY(0)'
+                      }
                     }}
                   >
-                    <div style={{
-                      maxWidth: '80%',
-                      padding: '10px 14px',
-                      borderRadius: '12px',
-                      fontSize: '13px',
-                      lineHeight: '1.5',
-                      background: msg.role === 'user' ? 'rgba(34,197,94,0.15)' : 'rgba(255,255,255,0.12)',
-                      border: msg.role === 'user' ? '1px solid rgba(34,197,94,0.5)' : '1px solid rgba(255,255,255,0.25)'
-                    }}>
-                      {msg.imageUrl ? (
-                        <img 
-                          src={msg.imageUrl} 
-                          alt="Screenshot" 
-                          style={{ 
-                            maxWidth: '260px', 
-                            height: 'auto', 
-                            borderRadius: '8px',
-                            display: 'block'
-                          }} 
-                        />
-                      ) : (
-                        msg.text
-                      )}
+                    {isLlmLoading ? '⏳ Thinking...' : 'Send'}
+                  </button>
+                </div>
+              </>
+            ) : (
+              /* WR MailGuard Email Editor - Section 3 (Admin View) */
+              <div style={{ display: 'flex', flexDirection: 'column', flex: 1, background: theme === 'default' ? 'rgba(118,75,162,0.15)' : (theme === 'professional' ? '#f8fafc' : 'rgba(255,255,255,0.04)') }}>
+                {!mailguardTo && !mailguardSubject && !mailguardBody && mailguardAttachments.length === 0 && (
+                  <div style={{ padding: '16px 18px', fontSize: '13px', opacity: 0.7, fontStyle: 'italic', borderBottom: theme === 'professional' ? '1px solid rgba(15,23,42,0.1)' : '1px solid rgba(255,255,255,0.1)', background: theme === 'professional' ? 'rgba(168,85,247,0.08)' : 'rgba(168,85,247,0.15)', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <span style={{ fontSize: '18px' }}>✉️</span>
+                    Compose verified WRGuard-stamped emails with built-in automation.
+                  </div>
+                )}
+                <div style={{ padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: '14px', flex: 1 }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', paddingBottom: '14px', borderBottom: theme === 'professional' ? '1px solid rgba(15,23,42,0.1)' : '1px solid rgba(255,255,255,0.1)' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                      <label style={{ fontSize: '13px', fontWeight: '600', opacity: 0.7, minWidth: '60px' }}>To:</label>
+                      <input type="email" value={mailguardTo} onChange={(e) => setMailguardTo(e.target.value)} placeholder="recipient@example.com" style={{ flex: 1, background: theme === 'professional' ? '#ffffff' : 'rgba(255,255,255,0.08)', border: theme === 'professional' ? '1px solid rgba(15,23,42,0.15)' : '1px solid rgba(255,255,255,0.15)', color: theme === 'professional' ? '#0f172a' : 'white', borderRadius: '6px', padding: '10px 14px', fontSize: '14px', outline: 'none' }} />
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                      <label style={{ fontSize: '13px', fontWeight: '600', opacity: 0.7, minWidth: '60px' }}>Subject:</label>
+                      <input type="text" value={mailguardSubject} onChange={(e) => setMailguardSubject(e.target.value)} placeholder="Email subject" style={{ flex: 1, background: theme === 'professional' ? '#ffffff' : 'rgba(255,255,255,0.08)', border: theme === 'professional' ? '1px solid rgba(15,23,42,0.15)' : '1px solid rgba(255,255,255,0.15)', color: theme === 'professional' ? '#0f172a' : 'white', borderRadius: '6px', padding: '10px 14px', fontSize: '14px', outline: 'none' }} />
                     </div>
                   </div>
-                ))
-              )}
-            </div>
-
-            {/* Resize Handle */}
-            <div 
-              onMouseDown={(e) => {
-                e.preventDefault()
-                setIsResizingChat(true)
-              }}
-              style={{
-                height: '4px',
-                background: 'rgba(255,255,255,0.15)',
-                cursor: 'ns-resize',
-                borderTop: '1px solid rgba(255,255,255,0.10)',
-                borderBottom: '1px solid rgba(255,255,255,0.10)'
-              }}
-            />
-
-            {/* Compose Area */}
-            <div 
-              id="ccd-compose-sidepanel"
-              style={{
-              display: 'grid',
-              gridTemplateColumns: '1fr 40px 40px 72px',
-              gap: '8px',
-              alignItems: 'center',
-              padding: '12px 14px'
-            }}>
-              <textarea
-                value={chatInput}
-                onChange={(e) => setChatInput(e.target.value)}
-                onKeyDown={handleChatKeyDown}
-                placeholder="Type your message..."
-                style={{
-                  boxSizing: 'border-box',
-                  height: '40px',
-                  minHeight: '40px',
-                  resize: 'vertical',
-                  background: 'rgba(255,255,255,0.08)',
-                  border: '1px solid rgba(255,255,255,0.20)',
-                  color: 'white',
-                  borderRadius: '8px',
-                  padding: '10px 12px',
-                  fontSize: '13px',
-                  fontFamily: 'inherit',
-                  lineHeight: '1.5'
-                }}
-              />
-            <input
-                ref={fileInputRef}
-                type="file" 
-                multiple 
-                style={{ display: 'none' }} 
-                onChange={handleFileChange}
-              />
-              <button 
-                onClick={handleBucketClick}
-                title="Attach" 
-                style={{
-                  height: '40px',
-                  background: 'rgba(255,255,255,0.15)',
-                  border: '1px solid rgba(255,255,255,0.25)',
-                  color: 'white',
-                  borderRadius: '8px',
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  fontSize: '18px',
-                  transition: 'all 0.2s ease'
-                }}
-                onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.25)'}
-                onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.15)'}
-              >
-                📎
-              </button>
-              <button 
-                title="Voice" 
-                style={{
-                  height: '40px',
-                  background: 'rgba(255,255,255,0.15)',
-                  border: '1px solid rgba(255,255,255,0.25)',
-                  color: 'white',
-                  borderRadius: '8px',
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  fontSize: '18px',
-                  transition: 'all 0.2s ease'
-                }}
-                onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.25)'}
-                onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.15)'}
-              >
-                🎙️
-              </button>
-              <button
-                onClick={handleSendMessage}
-                disabled={isLlmLoading || !chatInput.trim()}
-                style={{
-                  height: '40px',
-                  background: isLlmLoading ? '#9ca3af' : '#22c55e',
-                  border: isLlmLoading ? '1px solid #6b7280' : '1px solid #16a34a',
-                  color: isLlmLoading ? '#4b5563' : '#0b1e12',
-                  borderRadius: '8px',
-                  fontWeight: '700',
-                  cursor: isLlmLoading ? 'not-allowed' : 'pointer',
-                  fontSize: '13px',
-                  transition: 'all 0.2s ease',
-                  opacity: isLlmLoading || !chatInput.trim() ? 0.6 : 1
-                }}
-                onMouseEnter={(e) => {
-                  if (!isLlmLoading) {
-                    e.currentTarget.style.background = '#16a34a'
-                    e.currentTarget.style.transform = 'translateY(-1px)'
-                  }
-                }}
-                onMouseLeave={(e) => {
-                  if (!isLlmLoading) {
-                    e.currentTarget.style.background = '#22c55e'
-                    e.currentTarget.style.transform = 'translateY(0)'
-                  }
-                }}
-              >
-                {isLlmLoading ? '⏳ Thinking...' : 'Send'}
-              </button>
-        </div>
+                  <div style={{ display: 'flex', flexDirection: 'column' }}>
+                    <textarea value={mailguardBody} onChange={(e) => setMailguardBody(e.target.value)} placeholder="Compose your email message here..." style={{ background: theme === 'professional' ? '#ffffff' : 'rgba(255,255,255,0.06)', border: theme === 'professional' ? '1px solid rgba(15,23,42,0.15)' : '1px solid rgba(255,255,255,0.12)', color: theme === 'professional' ? '#0f172a' : 'white', borderRadius: '8px', padding: '14px 16px', fontSize: '14px', lineHeight: '1.6', height: `${mailguardBodyHeight}px`, resize: 'none', fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif', outline: 'none' }} />
+                    <div 
+                      onMouseDown={(e) => {
+                        e.preventDefault()
+                        mailguardResizeStartY.current = e.clientY
+                        mailguardResizeStartH.current = mailguardBodyHeight
+                        setIsResizingMailguard(true)
+                      }}
+                      style={{ height: '8px', background: theme === 'professional' ? '#e2e8f0' : 'rgba(255,255,255,0.15)', cursor: 'ns-resize', borderRadius: '4px', margin: '6px 0', opacity: 0.7 }}
+                      title="Drag to resize"
+                    />
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '4px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <span style={{ fontSize: '12px', fontWeight: '600', opacity: 0.7, display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <span>📎</span> Attachments <span style={{ fontSize: '10px', opacity: 0.6, fontWeight: '400' }}>(WR Stamped PDFs only)</span>
+                      </span>
+                      <input ref={mailguardFileRef} type="file" accept=".pdf" multiple style={{ display: 'none' }} onChange={(e) => { const files = Array.from(e.target.files || []); const pdfFiles = files.filter(f => f.type === 'application/pdf'); if (pdfFiles.length !== files.length) { setNotification({ message: 'Only PDF files are allowed', type: 'error' }); setTimeout(() => setNotification(null), 3000) } if (pdfFiles.length > 0) { setMailguardAttachments(prev => [...prev, ...pdfFiles.map(f => ({ name: f.name, size: f.size, file: f }))]) } if (e.target) e.target.value = '' }} />
+                      <button onClick={() => mailguardFileRef.current?.click()} style={{ background: theme === 'professional' ? '#e2e8f0' : 'rgba(255,255,255,0.12)', border: theme === 'professional' ? '1px solid rgba(15,23,42,0.15)' : '1px solid rgba(255,255,255,0.2)', color: theme === 'professional' ? '#0f172a' : 'white', borderRadius: '6px', padding: '8px 14px', fontSize: '12px', fontWeight: '500', cursor: 'pointer' }}>+ Add PDF</button>
+                    </div>
+                    {mailguardAttachments.length > 0 && (
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', padding: '8px 0' }}>
+                        {mailguardAttachments.map((att, idx) => (
+                          <div key={idx} style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', padding: '6px 10px', background: theme === 'professional' ? 'rgba(34,197,94,0.1)' : 'rgba(34,197,94,0.15)', border: '1px solid rgba(34,197,94,0.3)', borderRadius: '6px', fontSize: '12px' }}>
+                            <span>📄</span>
+                            <span style={{ maxWidth: '140px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{att.name}</span>
+                            <span style={{ opacity: 0.5, fontSize: '11px' }}>({(att.size / 1024).toFixed(0)} KB)</span>
+                            <button onClick={() => setMailguardAttachments(prev => prev.filter((_, i) => i !== idx))} style={{ background: 'transparent', border: 'none', color: theme === 'professional' ? '#64748b' : 'rgba(255,255,255,0.5)', borderRadius: '4px', width: '18px', height: '18px', cursor: 'pointer', fontSize: '14px', lineHeight: '1', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>×</button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+                <div style={{ padding: '14px 18px', borderTop: theme === 'professional' ? '1px solid rgba(15,23,42,0.1)' : '1px solid rgba(255,255,255,0.15)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: theme === 'professional' ? '#f1f5f9' : 'rgba(0,0,0,0.15)' }}>
+                  <button onClick={() => { setMailguardTo(''); setMailguardSubject(''); setMailguardBody(''); setMailguardAttachments([]) }} style={{ background: 'transparent', border: 'none', color: theme === 'professional' ? '#64748b' : 'rgba(255,255,255,0.6)', padding: '8px 12px', fontSize: '13px', cursor: 'pointer', textDecoration: 'underline', textUnderlineOffset: '2px' }}>Discard draft</button>
+                  <button onClick={() => { if (!mailguardTo.trim()) { setNotification({ message: 'Please enter a recipient', type: 'error' }); setTimeout(() => setNotification(null), 3000); return } if (!mailguardSubject.trim()) { setNotification({ message: 'Please enter a subject', type: 'error' }); setTimeout(() => setNotification(null), 3000); return } if (mailguardAttachments.length === 0) { setNotification({ message: 'Attach at least one WR stamped PDF', type: 'error' }); setTimeout(() => setNotification(null), 3000); return } console.log('[WR MailGuard] Sending:', { to: mailguardTo, subject: mailguardSubject, attachments: mailguardAttachments.map(a => a.name) }); setNotification({ message: 'Protected email queued', type: 'success' }); setTimeout(() => setNotification(null), 3000); setMailguardTo(''); setMailguardSubject(''); setMailguardBody(''); setMailguardAttachments([]) }} disabled={!mailguardTo.trim() || !mailguardSubject.trim() || mailguardAttachments.length === 0} style={{ background: (!mailguardTo.trim() || !mailguardSubject.trim() || mailguardAttachments.length === 0) ? (theme === 'professional' ? '#e2e8f0' : '#374151') : '#a855f7', border: 'none', color: (!mailguardTo.trim() || !mailguardSubject.trim() || mailguardAttachments.length === 0) ? (theme === 'professional' ? '#94a3b8' : '#6b7280') : 'white', borderRadius: '8px', padding: '12px 28px', fontSize: '14px', fontWeight: '600', cursor: (!mailguardTo.trim() || !mailguardSubject.trim() || mailguardAttachments.length === 0) ? 'not-allowed' : 'pointer', boxShadow: (!mailguardTo.trim() || !mailguardSubject.trim() || mailguardAttachments.length === 0) ? 'none' : '0 2px 8px rgba(168,85,247,0.4)', display: 'flex', alignItems: 'center', gap: '8px' }}>Send <span style={{ fontSize: '16px' }}>→</span></button>
+                </div>
+              </div>
+            )}
 
             {/* Trigger Creation UI */}
             {showTriggerPrompt && (

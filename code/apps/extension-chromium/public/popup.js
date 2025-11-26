@@ -19,12 +19,177 @@ const msgs = document.getElementById('msgs')
 const ta = document.getElementById('ta')
 const file = document.getElementById('file')
 const up = document.getElementById('up')
-const mic = document.getElementById('mic')
 const send = document.getElementById('send')
 const bucketBtn = document.getElementById('tk-bucket')
 const pencilBtn = document.getElementById('tk-pencil')
 const ddTags = document.getElementById('tk-tags')
 const cancelBtn = null
+
+// Mode switching elements
+const modeSelect = document.getElementById('mode-select')
+const chatView = document.getElementById('chat-view')
+const mailguardView = document.getElementById('mailguard-view')
+const chatControls = document.getElementById('chat-controls')
+
+// MailGuard elements
+const mgTo = document.getElementById('mg-to')
+const mgSubject = document.getElementById('mg-subject')
+const mgBody = document.getElementById('mg-body')
+const mgFile = document.getElementById('mg-file')
+const mgAddPdf = document.getElementById('mg-add-pdf')
+const mgAttachments = document.getElementById('mg-attachments')
+const mgDiscard = document.getElementById('mg-discard')
+const mgSend = document.getElementById('mg-send')
+const mgHint = document.getElementById('mg-hint')
+const mgResize = document.getElementById('mg-resize')
+
+// MailGuard state
+let mgAttachmentsList = []
+
+// Mode switching
+if (modeSelect) {
+  modeSelect.addEventListener('change', () => {
+    const mode = modeSelect.value
+    if (mode === 'command-chat') {
+      chatView.classList.remove('hidden')
+      mailguardView.classList.remove('active')
+      if (chatControls) chatControls.style.display = 'flex'
+    } else {
+      chatView.classList.add('hidden')
+      mailguardView.classList.add('active')
+      if (chatControls) chatControls.style.display = 'none'
+      updateMgHint()
+      updateMgSendBtn()
+    }
+  })
+}
+
+// MailGuard hint visibility
+function updateMgHint() {
+  if (!mgHint) return
+  const hasContent = (mgTo?.value || '').trim() || (mgSubject?.value || '').trim() || (mgBody?.value || '').trim() || mgAttachmentsList.length > 0
+  mgHint.style.display = hasContent ? 'none' : 'flex'
+}
+
+// MailGuard send button state
+function updateMgSendBtn() {
+  if (!mgSend) return
+  const canSend = (mgTo?.value || '').trim() && (mgSubject?.value || '').trim() && mgAttachmentsList.length > 0
+  mgSend.disabled = !canSend
+}
+
+// MailGuard input listeners
+if (mgTo) mgTo.addEventListener('input', () => { updateMgHint(); updateMgSendBtn() })
+if (mgSubject) mgSubject.addEventListener('input', () => { updateMgHint(); updateMgSendBtn() })
+if (mgBody) mgBody.addEventListener('input', updateMgHint)
+
+// MailGuard attachments
+function renderMgAttachments() {
+  if (!mgAttachments) return
+  if (mgAttachmentsList.length === 0) {
+    mgAttachments.innerHTML = ''
+    return
+  }
+  mgAttachments.innerHTML = mgAttachmentsList.map((att, idx) => `
+    <div class="mg-att-chip">
+      <span>📄</span>
+      <span class="mg-att-name">${att.name}</span>
+      <span class="mg-att-size">(${Math.round(att.size/1024)} KB)</span>
+      <button class="mg-att-remove" data-idx="${idx}">×</button>
+    </div>
+  `).join('')
+  mgAttachments.querySelectorAll('.mg-att-remove').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      const idx = parseInt(e.target.getAttribute('data-idx'))
+      mgAttachmentsList = mgAttachmentsList.filter((_, i) => i !== idx)
+      renderMgAttachments()
+      updateMgHint()
+      updateMgSendBtn()
+    })
+  })
+}
+
+if (mgAddPdf && mgFile) {
+  mgAddPdf.addEventListener('click', () => mgFile.click())
+  mgFile.addEventListener('change', () => {
+    const files = Array.from(mgFile.files || [])
+    const pdfFiles = files.filter(f => f.type === 'application/pdf' || f.name.endsWith('.pdf'))
+    if (pdfFiles.length !== files.length) {
+      alert('Only PDF files are allowed')
+    }
+    if (pdfFiles.length > 0) {
+      mgAttachmentsList = [...mgAttachmentsList, ...pdfFiles.map(f => ({ name: f.name, size: f.size }))]
+      renderMgAttachments()
+      updateMgHint()
+      updateMgSendBtn()
+    }
+    mgFile.value = ''
+  })
+}
+
+// MailGuard discard
+if (mgDiscard) {
+  mgDiscard.addEventListener('click', () => {
+    if (mgTo) mgTo.value = ''
+    if (mgSubject) mgSubject.value = ''
+    if (mgBody) mgBody.value = ''
+    mgAttachmentsList = []
+    renderMgAttachments()
+    updateMgHint()
+    updateMgSendBtn()
+  })
+}
+
+// MailGuard send
+if (mgSend) {
+  mgSend.addEventListener('click', () => {
+    const to = (mgTo?.value || '').trim()
+    const subject = (mgSubject?.value || '').trim()
+    const body = (mgBody?.value || '').trim()
+    if (!to) { alert('Please enter a recipient'); return }
+    if (!subject) { alert('Please enter a subject'); return }
+    if (mgAttachmentsList.length === 0) { alert('Please attach at least one WR stamped PDF'); return }
+    console.log('[WR MailGuard] Sending:', { to, subject, body, attachments: mgAttachmentsList.map(a => a.name) })
+    alert('Protected email queued!')
+    if (mgTo) mgTo.value = ''
+    if (mgSubject) mgSubject.value = ''
+    if (mgBody) mgBody.value = ''
+    mgAttachmentsList = []
+    renderMgAttachments()
+    updateMgHint()
+    updateMgSendBtn()
+  })
+}
+
+// MailGuard resize handle for body textarea
+if (mgResize && mgBody) {
+  let isResizing = false
+  let startY = 0
+  let startH = 0
+  
+  mgResize.addEventListener('mousedown', (e) => {
+    e.preventDefault()
+    isResizing = true
+    startY = e.clientY
+    startH = mgBody.offsetHeight
+    document.addEventListener('mousemove', doResize)
+    document.addEventListener('mouseup', stopResize)
+  })
+  
+  function doResize(e) {
+    if (!isResizing) return
+    const dy = e.clientY - startY
+    const newH = Math.max(80, Math.min(400, startH + dy))
+    mgBody.style.height = newH + 'px'
+    mgBody.style.minHeight = newH + 'px'
+  }
+  
+  function stopResize() {
+    isResizing = false
+    document.removeEventListener('mousemove', doResize)
+    document.removeEventListener('mouseup', stopResize)
+  }
+}
 
 function row(role, text){
   const r = document.createElement('div'); r.className = 'row ' + (role === 'user' ? 'user' : 'assistant');
@@ -46,6 +211,7 @@ file.addEventListener('change', ()=>{ const n=(file.files||[]).length; if(n) row
 document.addEventListener('drop', e=>{ const n = (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length) || 0; if(n) row('user', 'Dropped '+n+' file(s).'); });
 
 // Voice input (optional)
+const mic = document.getElementById('mic')
 let recognizing = false; let recognition;
 try {
   const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -59,16 +225,18 @@ try {
       for (let i = event.resultIndex; i < event.results.length; i++) transcript += event.results[i][0].transcript;
       ta.value = transcript.trim();
     };
-    recognition.onend = () => { recognizing = false; mic.disabled = false; };
+    recognition.onend = () => { recognizing = false; if (mic) mic.disabled = false; };
   } else {
-    mic.disabled = true; mic.title = 'Voice not supported in this browser';
+    if (mic) { mic.disabled = true; mic.title = 'Voice not supported in this browser'; }
   }
 } catch {
-  mic.disabled = true; mic.title = 'Voice not supported in this browser';
+  if (mic) { mic.disabled = true; mic.title = 'Voice not supported in this browser'; }
 }
-mic.addEventListener('click', () => {
-  if (!recognition || recognizing) return; recognizing = true; mic.disabled = true; try { recognition.start(); } catch {}
-});
+if (mic) {
+  mic.addEventListener('click', () => {
+    if (!recognition || recognizing) return; recognizing = true; mic.disabled = true; try { recognition.start(); } catch {}
+  });
+}
 
 // Context Bucket + Pencil wiring (CSP-safe)
 const ddTagsBtn = document.getElementById('tk-tags')

@@ -85,26 +85,114 @@
       body.theme-default .send { background: linear-gradient(135deg,#8b5cf6,#764ba2); border:1px solid rgba(255,255,255,0.30); color:#ffffff; }
       body.theme-dark .send { background: linear-gradient(135deg,#334155,#1e293b); border:1px solid rgba(255,255,255,0.20); color:#e5e7eb; }
       body.theme-professional .send { background: linear-gradient(135deg,#ffffff,#f1f5f9); border:1px solid #cbd5e1; color:#0f172a; }
+      
+      /* Mode selector styling */
+      .mode-select { font-size:12px; font-weight:700; background:var(--btn-surface); border:1px solid var(--border); color:var(--text); border-radius:6px; padding:6px 28px 6px 10px; cursor:pointer; outline:none; appearance:none; -webkit-appearance:none; background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23888888' d='M3 4.5L6 7.5L9 4.5'/%3E%3C/svg%3E"); background-repeat:no-repeat; background-position:right 8px center; }
+      body.theme-professional .mode-select { background-color:#e2e8f0; color:#0f172a; }
+      
+      /* Chat view styles */
+      .chat-view { display:flex; flex-direction:column; flex:1; }
+      .chat-view.hidden { display:none; }
+      
+      /* MailGuard styles */
+      .mailguard-view { display:none; flex-direction:column; flex:1; }
+      .mailguard-view.active { display:flex; }
+      .mg-hint { padding:14px; font-size:13px; opacity:0.85; font-style:italic; border-bottom:1px solid var(--border); background:rgba(168,85,247,0.12); display:flex; align-items:center; gap:10px; }
+      .mg-hint-icon { font-size:18px; }
+      .mg-fields { padding:14px; display:flex; flex-direction:column; gap:12px; flex:1; overflow:auto; }
+      .mg-row { display:flex; align-items:center; gap:10px; }
+      .mg-label { font-size:13px; font-weight:600; opacity:0.85; min-width:60px; color:var(--text); }
+      .mg-input { flex:1; background:var(--surface); border:1px solid var(--border); color:var(--text); border-radius:6px; padding:10px 12px; font-size:14px; outline:none; }
+      .mg-input::placeholder { color:var(--muted); opacity:0.7; }
+      body.theme-professional .mg-input::placeholder { color:#64748b; opacity:0.8; }
+      body.theme-dark .mg-input::placeholder { color:rgba(255,255,255,0.5); }
+      body.theme-default .mg-input::placeholder { color:rgba(255,255,255,0.6); }
+      .mg-body { flex:1; min-height:150px; background:var(--surface); border:1px solid var(--border); color:var(--text); border-radius:8px; padding:12px 14px; font-size:14px; line-height:1.6; resize:none; font-family:-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; outline:none; }
+      .mg-body::placeholder { color:var(--muted); opacity:0.7; }
+      body.theme-professional .mg-body::placeholder { color:#64748b; opacity:0.8; }
+      body.theme-dark .mg-body::placeholder { color:rgba(255,255,255,0.5); }
+      body.theme-default .mg-body::placeholder { color:rgba(255,255,255,0.6); }
+      .mg-attach-row { display:flex; align-items:center; justify-content:space-between; margin-top:4px; }
+      .mg-attach-label { font-size:12px; font-weight:600; opacity:0.75; display:flex; align-items:center; gap:6px; }
+      .mg-attach-note { font-size:10px; opacity:0.6; font-weight:400; }
+      .mg-add-btn { background:var(--btn-surface); border:1px solid var(--border); color:var(--text); border-radius:6px; padding:8px 14px; font-size:12px; font-weight:500; cursor:pointer; }
+      .mg-attachments { display:flex; flex-wrap:wrap; gap:8px; padding:8px 0; }
+      .mg-att-chip { display:inline-flex; align-items:center; gap:6px; padding:6px 10px; background:rgba(34,197,94,0.12); border:1px solid rgba(34,197,94,0.35); border-radius:6px; font-size:12px; }
+      .mg-att-name { max-width:120px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+      .mg-att-size { opacity:0.5; font-size:11px; }
+      .mg-att-remove { background:transparent; border:none; color:var(--muted); cursor:pointer; font-size:14px; padding:0 2px; opacity:0.7; }
+      .mg-att-remove:hover { opacity:1; color:#ef4444; }
+      .mg-resize { height:12px; background:linear-gradient(180deg, var(--border) 0%, var(--surface) 100%); cursor:ns-resize; margin:8px 0; border-radius:6px; display:flex; align-items:center; justify-content:center; border:1px solid var(--border); }
+      .mg-resize:hover { background:rgba(168,85,247,0.3); }
+      .mg-resize-handle { width:40px; height:4px; background:var(--muted); border-radius:2px; opacity:0.6; }
+      .mg-resize:hover .mg-resize-handle { opacity:1; background:rgba(168,85,247,0.8); }
+      .mg-footer { padding:12px 14px; border-top:1px solid var(--border); display:flex; justify-content:space-between; align-items:center; background:var(--surface); }
+      .mg-discard { background:transparent; border:none; color:var(--muted); padding:8px 12px; font-size:13px; cursor:pointer; text-decoration:underline; text-underline-offset:2px; }
+      .mg-send { background:#a855f7; border:none; color:white; border-radius:8px; padding:12px 24px; font-size:14px; font-weight:600; cursor:pointer; display:flex; align-items:center; gap:8px; box-shadow:0 2px 8px rgba(168,85,247,0.4); }
+      .mg-send:disabled { background:#6b7280; box-shadow:none; cursor:not-allowed; opacity:0.7; }
+      .mg-send:not(:disabled):hover { background:#9333ea; }
     </style>
   </head>
   <body>
       <div class="wrap">
       <div class="toolkit">
-        <button id="tk-bucket" class="tk-btn tk-bucket" title="Context Bucket: Embed context directly into the session">🪣</button>
-        <button id="tk-pencil" class="tk-btn" title="LmGTFY - Capture a screen area as screenshot or stream and send it to your pre-defined automation tasks.">✎</button>
-        
-        <div id="tk-tags-wrapper" style="position:relative;">
-          <button id="tk-tags" class="tk-btn" title="Saved Tagged Triggers" style="padding-right:18px;">▾ Tags</button>
-          <div id="tk-tags-dropdown" style="display:none;position:absolute;top:100%;left:0;min-width:200px;max-height:300px;overflow-y:auto;background:var(--surface);border:1px solid var(--border);border-radius:6px;margin-top:4px;box-shadow:0 4px 12px rgba(0,0,0,0.3);z-index:1000;"></div>
+        <select id="mode-select" class="mode-select">
+          <option value="command-chat">💬 Command Chat</option>
+          <option value="mailguard">🛡️ WR MailGuard</option>
+        </select>
+        <div id="chat-controls" style="display:flex; gap:8px; align-items:center;">
+          <button id="tk-bucket" class="tk-btn tk-bucket" title="Context Bucket: Embed context directly into the session">🪣</button>
+          <button id="tk-pencil" class="tk-btn" title="LmGTFY - Capture a screen area as screenshot or stream and send it to your pre-defined automation tasks.">✎</button>
+          <div id="tk-tags-wrapper" style="position:relative;">
+            <button id="tk-tags" class="tk-btn" title="Saved Tagged Triggers" style="padding-right:18px;">▾ Tags</button>
+            <div id="tk-tags-dropdown" style="display:none;position:absolute;top:100%;left:0;min-width:200px;max-height:300px;overflow-y:auto;background:var(--surface);border:1px solid var(--border);border-radius:6px;margin-top:4px;box-shadow:0 4px 12px rgba(0,0,0,0.3);z-index:1000;"></div>
+          </div>
         </div>
       </div>
-      <div id="msgs" class="messages"></div>
-      <div class="composer" id="composer">
-        <textarea id="ta" class="ta" placeholder="Type a command for the Orchestrator..."></textarea>
-        <input id="file" type="file" multiple style="display:none" />
-        <button id="up" class="btn" title="Attach">📎</button>
-        <button id="mic" class="btn" title="Voice input">🎙️</button>
-        <button id="send" class="btn send">Send</button>
+      
+      <!-- Command Chat View -->
+      <div id="chat-view" class="chat-view">
+        <div id="msgs" class="messages"></div>
+        <div class="composer" id="composer">
+          <textarea id="ta" class="ta" placeholder="Type a command for the Orchestrator..."></textarea>
+          <input id="file" type="file" multiple style="display:none" />
+          <button id="up" class="btn" title="Attach">📎</button>
+          <button id="mic" class="btn" title="Voice input">🎙️</button>
+          <button id="send" class="btn send">Send</button>
+        </div>
+      </div>
+      
+      <!-- MailGuard View -->
+      <div id="mailguard-view" class="mailguard-view">
+        <div id="mg-hint" class="mg-hint">
+          <span class="mg-hint-icon">✉️</span>
+          Compose verified WRGuard-stamped emails with built-in automation.
+        </div>
+        <div class="mg-fields">
+          <div class="mg-row">
+            <label class="mg-label">To:</label>
+            <input type="email" id="mg-to" class="mg-input" placeholder="Enter recipient email address" />
+          </div>
+          <div class="mg-row">
+            <label class="mg-label">Subject:</label>
+            <input type="text" id="mg-subject" class="mg-input" placeholder="Enter email subject line" />
+          </div>
+          <textarea id="mg-body" class="mg-body" placeholder="Write your email message here...&#10;&#10;Your message will be protected with WRGuard verification and encryption."></textarea>
+          <div id="mg-resize" class="mg-resize" title="Drag to resize editor height"><div class="mg-resize-handle"></div></div>
+          <div class="mg-attach-row">
+            <span class="mg-attach-label">
+              <span>📎</span> Attachments
+              <span class="mg-attach-note">(WR Stamped PDFs only)</span>
+            </span>
+            <input id="mg-file" type="file" accept=".pdf" multiple style="display:none" />
+            <button id="mg-add-pdf" class="mg-add-btn">+ Add PDF</button>
+          </div>
+          <div id="mg-attachments" class="mg-attachments"></div>
+        </div>
+        <div class="mg-footer">
+          <button id="mg-discard" class="mg-discard">Discard draft</button>
+          <button id="mg-send" class="mg-send" disabled>Send <span>→</span></button>
+        </div>
       </div>
     </div>
     <!-- All scripting moved to popup.js to satisfy extension CSP -->

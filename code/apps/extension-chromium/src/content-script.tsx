@@ -35379,22 +35379,64 @@ ${pageText}
 
       container.innerHTML = `
 
-        <div id=\"ccd-header\" style=\"display:flex; align-items:center; justify-content:space-between; padding:6px 8px; background:${hdr}; border-bottom:1px solid ${br};\">\n            <div style=\"display:flex; align-items:center; gap:8px; color:${theme==='professional'?'#0f172a':'white'}\">\n            <div style=\"font-size:12px; font-weight:700;\">💬 Command Chat</div>\n            <div style=\"display:flex; gap:6px; align-items:center;\">\n              <button id=\"ccd-bucket\" title=\"Context Bucket: Embed context directly into the session\" style=\"height:28px;background:${theme==='professional'?'#e2e8f0':'rgba(255,255,255,0.08)'}; border:1px solid ${br}; color:#ef4444; border-radius:6px; padding:0 8px; font-size:12px; cursor:pointer; display:flex;align-items:center;justify-content:center;\">🪣</button>\n              <button id=\"ccd-lm-one\" title=\"LmGTFY - Capture a screen area as screenshot or stream and send it to your pre-defined automation tasks.\" style=\"background:${theme==='professional'?'#e2e8f0':'rgba(255,255,255,0.15)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; padding:2px 6px; font-size:12px; cursor:pointer;\">✎</button>\n            </div>\n          </div>\n          <div style=\"display:flex; gap:6px; align-items:center;\">\n            <button id=\"ccd-undock\" title=\"Undock from sidepanel\" style=\"background:${theme==='professional'?'#e2e8f0':'rgba(255,255,255,0.15)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; padding:4px 6px; font-size:10px; cursor:pointer;\">↗</button>\n          </div>\n        </div>
+        <div id="ccd-header" style="display:flex; align-items:center; justify-content:space-between; padding:6px 8px; background:${hdr}; border-bottom:1px solid ${br};">
+          <div style="display:flex; align-items:center; gap:8px; color:${theme==='professional'?'#0f172a':'white'}">
+            <select id="ccd-mode-select" style="font-size:12px; font-weight:700; background:${theme==='professional'?'rgba(15,23,42,0.08)':'rgba(255,255,255,0.15)'}; border:1px solid ${br}; color:${theme==='professional'?'#0f172a':'inherit'}; border-radius:6px; padding:4px 24px 4px 8px; cursor:pointer; outline:none; appearance:none; -webkit-appearance:none; background-image:url(&quot;data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='${theme==='professional'?'%230f172a':'%23ffffff'}' d='M3 4.5L6 7.5L9 4.5'/%3E%3C/svg%3E&quot;); background-repeat:no-repeat; background-position:right 6px center;">
+              <option value="command-chat" style="background:#1e293b; color:white;">💬 Command Chat</option>
+              <option value="mailguard" style="background:#1e293b; color:white;">🛡️ WR MailGuard</option>
+            </select>
+            <div id="ccd-chat-controls" style="display:flex; gap:6px; align-items:center;">
+              <button id="ccd-bucket" title="Context Bucket: Embed context directly into the session" style="height:28px;background:${theme==='professional'?'#e2e8f0':'rgba(255,255,255,0.08)'}; border:1px solid ${br}; color:#ef4444; border-radius:6px; padding:0 8px; font-size:12px; cursor:pointer; display:flex;align-items:center;justify-content:center;">🪣</button>
+              <button id="ccd-lm-one" title="LmGTFY - Capture a screen area as screenshot or stream and send it to your pre-defined automation tasks." style="background:${theme==='professional'?'#e2e8f0':'rgba(255,255,255,0.15)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; padding:2px 6px; font-size:12px; cursor:pointer;">✎</button>
+            </div>
+          </div>
+          <div style="display:flex; gap:6px; align-items:center;">
+            <button id="ccd-undock" title="Undock from sidepanel" style="background:${theme==='professional'?'#e2e8f0':'rgba(255,255,255,0.15)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; padding:4px 6px; font-size:10px; cursor:pointer;">↗</button>
+          </div>
+        </div>
 
-        <div id="ccd-messages" style="height:160px; overflow:auto; display:flex; flex-direction:column; gap:6px; background:${theme==='professional'?'#f8fafc':'rgba(255,255,255,0.06)'}; border-left:0; border-right:0; border-top:0; border-bottom:1px solid ${br}; padding:8px;"></div>
+        <!-- Command Chat View -->
+        <div id="ccd-chat-view">
+          <div id="ccd-messages" style="height:160px; overflow:auto; display:flex; flex-direction:column; gap:6px; background:${theme==='professional'?'#f8fafc':'rgba(255,255,255,0.06)'}; border-left:0; border-right:0; border-top:0; padding:8px;"></div>
+          <div id="ccd-resize-handle" style="height:5px; background:${theme==='professional'?'#e2e8f0':'rgba(255,255,255,0.15)'}; cursor:ns-resize; border-top:1px solid ${br}; border-bottom:1px solid ${br};"></div>
+          <div id="ccd-compose" style="display:grid; grid-template-columns:1fr 36px 68px; gap:6px; align-items:center; padding:8px;">
+            <textarea id="ccd-input" placeholder="Type..." style="box-sizing:border-box; height:36px; resize:vertical; background:${theme==='professional'?'#ffffff':'rgba(255,255,255,0.08)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; padding:8px; font-size:12px;"></textarea>
+            <input id="ccd-file" type="file" multiple style="display:none" />
+            <button id="ccd-attach" title="Attach" style="height:36px; background:${theme==='professional'?'#e2e8f0':'rgba(255,255,255,0.15)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; cursor:pointer;">📎</button>
+            <button id="ccd-send" class="send-btn">Send</button>
+          </div>
+        </div>
 
-        <div id="ccd-compose" style="display:grid; grid-template-columns:1fr 36px 36px 68px; gap:6px; align-items:center; padding:8px;">
-
-          <textarea id="ccd-input" placeholder="Type..." style="box-sizing:border-box; height:36px; resize:vertical; background:${theme==='professional'?'#ffffff':'rgba(255,255,255,0.08)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; padding:8px; font-size:12px;"></textarea>
-
-          <input id="ccd-file" type="file" multiple style="display:none" />
-
-          <button id="ccd-attach" title="Attach" style="height:36px; background:${theme==='professional'?'#e2e8f0':'rgba(255,255,255,0.15)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; cursor:pointer;">📎</button>
-
-          <button id="ccd-mic" title="Voice" style="height:36px; background:${theme==='professional'?'#e2e8f0':'rgba(255,255,255,0.15)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; cursor:pointer;">🎙️</button>
-
-          <button id="ccd-send" class="send-btn">Send</button>
-
+        <!-- MailGuard View -->
+        <div id="ccd-mailguard-view" style="display:none; flex-direction:column; background:${theme==='professional'?'#f8fafc':'rgba(255,255,255,0.04)'};">
+          <div id="ccd-mailguard-hint" style="padding:12px 14px; font-size:12px; opacity:0.7; font-style:italic; border-bottom:1px solid ${br}; background:${theme==='professional'?'rgba(168,85,247,0.08)':'rgba(168,85,247,0.15)'}; display:flex; align-items:center; gap:8px;">
+            <span style="font-size:16px;">✉️</span>
+            Compose verified WRGuard-stamped emails with built-in automation.
+          </div>
+          <div style="padding:12px; display:flex; flex-direction:column; gap:10px;">
+            <div style="display:flex; align-items:center; gap:10px;">
+              <label style="font-size:12px; font-weight:600; opacity:0.7; min-width:50px;">To:</label>
+              <input type="email" id="ccd-mg-to" placeholder="recipient@example.com" style="flex:1; background:${theme==='professional'?'#ffffff':'rgba(255,255,255,0.08)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; padding:8px 10px; font-size:13px; outline:none;" />
+            </div>
+            <div style="display:flex; align-items:center; gap:10px;">
+              <label style="font-size:12px; font-weight:600; opacity:0.7; min-width:50px;">Subject:</label>
+              <input type="text" id="ccd-mg-subject" placeholder="Email subject" style="flex:1; background:${theme==='professional'?'#ffffff':'rgba(255,255,255,0.08)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; padding:8px 10px; font-size:13px; outline:none;" />
+            </div>
+            <textarea id="ccd-mg-body" placeholder="Compose your email message here..." style="background:${theme==='professional'?'#ffffff':'rgba(255,255,255,0.06)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; padding:10px 12px; font-size:13px; min-height:120px; height:120px; resize:none; font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; line-height:1.5; outline:none;"></textarea>
+            <div id="ccd-mg-resize" style="height:12px; background:${theme==='professional'?'linear-gradient(180deg, #e2e8f0 0%, #cbd5e1 100%)':'linear-gradient(180deg, rgba(255,255,255,0.2) 0%, rgba(255,255,255,0.1) 100%)'}; cursor:ns-resize; border-radius:6px; margin:8px 0; display:flex; align-items:center; justify-content:center; border:1px solid ${theme==='professional'?'rgba(15,23,42,0.1)':'rgba(255,255,255,0.15)'};" title="Drag to resize editor height"><div style="width:40px; height:4px; background:${theme==='professional'?'#94a3b8':'rgba(255,255,255,0.4)'}; border-radius:2px;"></div></div>
+            <div style="display:flex; align-items:center; justify-content:space-between;">
+              <span style="font-size:11px; font-weight:600; opacity:0.7; display:flex; align-items:center; gap:4px;">
+                <span>📎</span> Attachments <span style="font-size:10px; opacity:0.6; font-weight:400;">(WR Stamped PDFs)</span>
+              </span>
+              <input id="ccd-mg-file" type="file" accept=".pdf" multiple style="display:none" />
+              <button id="ccd-mg-add-pdf" style="background:${theme==='professional'?'#e2e8f0':'rgba(255,255,255,0.12)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; padding:6px 10px; font-size:11px; cursor:pointer;">+ Add PDF</button>
+            </div>
+            <div id="ccd-mg-attachments" style="min-height:20px;"></div>
+          </div>
+          <div style="padding:10px 12px; border-top:1px solid ${br}; display:flex; justify-content:space-between; align-items:center; background:${theme==='professional'?'#f1f5f9':'rgba(0,0,0,0.15)'};">
+            <button id="ccd-mg-discard" style="background:transparent; border:none; color:${theme==='professional'?'#64748b':'rgba(255,255,255,0.6)'}; padding:6px 10px; font-size:12px; cursor:pointer; text-decoration:underline;">Discard</button>
+            <button id="ccd-mg-send" style="background:#a855f7; border:none; color:white; border-radius:6px; padding:10px 20px; font-size:13px; font-weight:600; cursor:pointer; display:flex; align-items:center; gap:6px;">Send <span style="font-size:14px;">→</span></button>
+          </div>
         </div>
 
       `
@@ -35450,6 +35492,188 @@ ${pageText}
       file.addEventListener('change', ()=>{ const n=(file.files||[]).length; if(n) addRow('user', `Uploaded ${n} file(s).`) })
 
       undock.addEventListener('click', ()=>{ undockCommandChat() })
+
+      // Resize handle for docked chat messages area
+      const ccdResizeHandle = container.querySelector('#ccd-resize-handle') as HTMLElement | null
+      if (ccdResizeHandle && msgs) {
+        let ccdIsResizing = false
+        let ccdStartY = 0
+        let ccdStartH = 0
+        
+        ccdResizeHandle.addEventListener('mousedown', (e: MouseEvent) => {
+          e.preventDefault()
+          ccdIsResizing = true
+          ccdStartY = e.clientY
+          ccdStartH = msgs.offsetHeight
+          document.addEventListener('mousemove', ccdDoResize)
+          document.addEventListener('mouseup', ccdStopResize)
+        })
+        
+        function ccdDoResize(e: MouseEvent) {
+          if (!ccdIsResizing) return
+          const dy = e.clientY - ccdStartY
+          const newH = Math.max(80, Math.min(400, ccdStartH + dy))
+          msgs.style.height = newH + 'px'
+        }
+        
+        function ccdStopResize() {
+          ccdIsResizing = false
+          document.removeEventListener('mousemove', ccdDoResize)
+          document.removeEventListener('mouseup', ccdStopResize)
+        }
+      }
+
+      // Mode switching between Command Chat and MailGuard (docked)
+      const ccdModeSelect = container.querySelector('#ccd-mode-select') as HTMLSelectElement | null
+      const ccdChatView = container.querySelector('#ccd-chat-view') as HTMLElement | null
+      const ccdMailguardView = container.querySelector('#ccd-mailguard-view') as HTMLElement | null
+      const ccdChatControls = container.querySelector('#ccd-chat-controls') as HTMLElement | null
+      
+      // Docked MailGuard state
+      let ccdMgAttachments: Array<{name: string, size: number}> = []
+      
+      function ccdUpdateMgHint() {
+        const hint = container.querySelector('#ccd-mailguard-hint') as HTMLElement | null
+        const to = (container.querySelector('#ccd-mg-to') as HTMLInputElement)?.value || ''
+        const subject = (container.querySelector('#ccd-mg-subject') as HTMLInputElement)?.value || ''
+        const body = (container.querySelector('#ccd-mg-body') as HTMLTextAreaElement)?.value || ''
+        if (hint) {
+          hint.style.display = (!to && !subject && !body && ccdMgAttachments.length === 0) ? 'flex' : 'none'
+        }
+      }
+      
+      function ccdRenderMgAttachments() {
+        const attachContainer = container.querySelector('#ccd-mg-attachments') as HTMLElement | null
+        if (!attachContainer) return
+        if (ccdMgAttachments.length === 0) {
+          attachContainer.innerHTML = ''
+          return
+        }
+        attachContainer.innerHTML = ccdMgAttachments.map((att, idx) => `
+          <div style="display:inline-flex; align-items:center; gap:6px; padding:4px 8px; margin:2px; background:${theme==='professional'?'rgba(34,197,94,0.1)':'rgba(34,197,94,0.15)'}; border:1px solid rgba(34,197,94,0.3); border-radius:4px; font-size:11px;">
+            <span>📄</span>
+            <span style="max-width:100px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${att.name}</span>
+            <span style="opacity:0.5; font-size:10px;">(${Math.round(att.size/1024)} KB)</span>
+            <button data-idx="${idx}" class="ccd-mg-remove" style="background:transparent; border:none; color:${theme==='professional'?'#64748b':'rgba(255,255,255,0.5)'}; cursor:pointer; font-size:12px; padding:0 2px;">×</button>
+          </div>
+        `).join('')
+        attachContainer.querySelectorAll('.ccd-mg-remove').forEach(btn => {
+          btn.addEventListener('click', (e) => {
+            const idx = parseInt((e.target as HTMLElement).getAttribute('data-idx') || '0')
+            ccdMgAttachments = ccdMgAttachments.filter((_, i) => i !== idx)
+            ccdRenderMgAttachments()
+            ccdUpdateMgHint()
+          })
+        })
+      }
+      
+      if (ccdModeSelect && ccdChatView && ccdMailguardView) {
+        ccdModeSelect.addEventListener('change', () => {
+          const mode = ccdModeSelect.value
+          if (mode === 'command-chat') {
+            ccdChatView.style.display = 'block'
+            ccdMailguardView.style.display = 'none'
+            if (ccdChatControls) ccdChatControls.style.display = 'flex'
+          } else {
+            ccdChatView.style.display = 'none'
+            ccdMailguardView.style.display = 'flex'
+            if (ccdChatControls) ccdChatControls.style.display = 'none'
+            ccdUpdateMgHint()
+          }
+        })
+      }
+      
+      // Docked MailGuard file input
+      const ccdMgFileInput = container.querySelector('#ccd-mg-file') as HTMLInputElement | null
+      const ccdMgAddPdfBtn = container.querySelector('#ccd-mg-add-pdf') as HTMLButtonElement | null
+      if (ccdMgAddPdfBtn && ccdMgFileInput) {
+        ccdMgAddPdfBtn.addEventListener('click', () => ccdMgFileInput.click())
+        ccdMgFileInput.addEventListener('change', () => {
+          const files = Array.from(ccdMgFileInput.files || [])
+          const pdfFiles = files.filter(f => f.type === 'application/pdf')
+          if (pdfFiles.length !== files.length) {
+            console.warn('[WR MailGuard Docked] Only PDF files are allowed')
+          }
+          if (pdfFiles.length > 0) {
+            ccdMgAttachments = [...ccdMgAttachments, ...pdfFiles.map(f => ({ name: f.name, size: f.size }))]
+            ccdRenderMgAttachments()
+            ccdUpdateMgHint()
+          }
+          ccdMgFileInput.value = ''
+        })
+      }
+      
+      // Docked MailGuard input listeners for hint visibility
+      ;['#ccd-mg-to', '#ccd-mg-subject', '#ccd-mg-body'].forEach(sel => {
+        const el = container.querySelector(sel) as HTMLInputElement | HTMLTextAreaElement | null
+        if (el) el.addEventListener('input', ccdUpdateMgHint)
+      })
+      
+      // Docked MailGuard discard
+      const ccdMgDiscardBtn = container.querySelector('#ccd-mg-discard') as HTMLButtonElement | null
+      if (ccdMgDiscardBtn) {
+        ccdMgDiscardBtn.addEventListener('click', () => {
+          ;(container.querySelector('#ccd-mg-to') as HTMLInputElement).value = ''
+          ;(container.querySelector('#ccd-mg-subject') as HTMLInputElement).value = ''
+          ;(container.querySelector('#ccd-mg-body') as HTMLTextAreaElement).value = ''
+          ccdMgAttachments = []
+          ccdRenderMgAttachments()
+          ccdUpdateMgHint()
+        })
+      }
+      
+      // Docked MailGuard send
+      const ccdMgSendBtn = container.querySelector('#ccd-mg-send') as HTMLButtonElement | null
+      if (ccdMgSendBtn) {
+        ccdMgSendBtn.addEventListener('click', () => {
+          const to = (container.querySelector('#ccd-mg-to') as HTMLInputElement)?.value || ''
+          const subject = (container.querySelector('#ccd-mg-subject') as HTMLInputElement)?.value || ''
+          const body = (container.querySelector('#ccd-mg-body') as HTMLTextAreaElement)?.value || ''
+          if (!to.trim()) { alert('Please enter a recipient'); return }
+          if (!subject.trim()) { alert('Please enter a subject'); return }
+          if (ccdMgAttachments.length === 0) { alert('Attach at least one WR stamped PDF'); return }
+          console.log('[WR MailGuard Docked] Sending:', { to, subject, attachments: ccdMgAttachments.map(a => a.name) })
+          alert('Protected email queued!')
+          ;(container.querySelector('#ccd-mg-to') as HTMLInputElement).value = ''
+          ;(container.querySelector('#ccd-mg-subject') as HTMLInputElement).value = ''
+          ;(container.querySelector('#ccd-mg-body') as HTMLTextAreaElement).value = ''
+          ccdMgAttachments = []
+          ccdRenderMgAttachments()
+          ccdUpdateMgHint()
+        })
+      }
+      
+      // Docked MailGuard body textarea resize
+      const ccdMgResize = container.querySelector('#ccd-mg-resize') as HTMLElement | null
+      const ccdMgBody = container.querySelector('#ccd-mg-body') as HTMLTextAreaElement | null
+      if (ccdMgResize && ccdMgBody) {
+        let ccdMgIsResizing = false
+        let ccdMgStartY = 0
+        let ccdMgStartH = 0
+        
+        ccdMgResize.addEventListener('mousedown', (e: MouseEvent) => {
+          e.preventDefault()
+          ccdMgIsResizing = true
+          ccdMgStartY = e.clientY
+          ccdMgStartH = ccdMgBody.offsetHeight
+          document.addEventListener('mousemove', ccdMgDoResize)
+          document.addEventListener('mouseup', ccdMgStopResize)
+        })
+        
+        function ccdMgDoResize(e: MouseEvent) {
+          if (!ccdMgIsResizing) return
+          const dy = e.clientY - ccdMgStartY
+          const newH = Math.max(80, Math.min(400, ccdMgStartH + dy))
+          ccdMgBody.style.height = newH + 'px'
+          ccdMgBody.style.minHeight = newH + 'px'
+        }
+        
+        function ccdMgStopResize() {
+          ccdMgIsResizing = false
+          document.removeEventListener('mousemove', ccdMgDoResize)
+          document.removeEventListener('mouseup', ccdMgStopResize)
+        }
+      }
 
       // Mount context bucket (drag & drop + click-to-pick)
 
@@ -35821,7 +36045,7 @@ ${pageText}
 
       box.id = 'command-chat-float'
 
-      box.style.cssText = 'position:fixed; right:20px; bottom:20px; width:360px; z-index:2147483646; background:'+bg+'; color:'+fg+'; border:1px solid '+br+'; border-radius:10px; overflow:hidden; backdrop-filter: blur(6px); box-shadow: 0 8px 24px rgba(0,0,0,0.35);'
+      box.style.cssText = 'position:fixed; right:20px; bottom:20px; width:360px; min-width:280px; min-height:200px; z-index:2147483646; background:'+bg+'; color:'+fg+'; border:1px solid '+br+'; border-radius:10px; overflow:hidden; backdrop-filter: blur(6px); box-shadow: 0 8px 24px rgba(0,0,0,0.35);'
 
       box.innerHTML = `
 
@@ -35829,9 +36053,12 @@ ${pageText}
 
           <div style="display:flex; align-items:center; gap:8px; color:${theme==='professional'?'#0f172a':'white'}">
 
-            <div style="font-size:12px; font-weight:700;">💬 Command Chat</div>
+            <select id="ccf-mode-select" style="font-size:12px; font-weight:700; background:${theme==='professional'?'rgba(15,23,42,0.08)':'rgba(255,255,255,0.15)'}; border:1px solid ${br}; color:${theme==='professional'?'#0f172a':'inherit'}; border-radius:6px; padding:4px 24px 4px 8px; cursor:pointer; outline:none; appearance:none; -webkit-appearance:none; background-image:url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='${theme==='professional'?'%230f172a':'%23ffffff'}' d='M3 4.5L6 7.5L9 4.5'/%3E%3C/svg%3E\"); background-repeat:no-repeat; background-position:right 6px center;">
+              <option value="command-chat" style="background:#1e293b; color:white;">💬 Command Chat</option>
+              <option value="mailguard" style="background:#1e293b; color:white;">🛡️ WR MailGuard</option>
+            </select>
 
-            <div style="display:flex; gap:6px; align-items:center;">
+            <div id="ccf-chat-controls" style="display:flex; gap:6px; align-items:center;">
 
               <button id="ccf-lm-one" title="LmGTFY - Capture a screen area as screenshot or stream and send it to your pre-defined automation tasks." style="background:${theme==='professional'?'#e2e8f0':'rgba(255,255,255,0.15)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; padding:2px 6px; font-size:12px; cursor:pointer;">✎</button>
 
@@ -35847,21 +36074,172 @@ ${pageText}
 
         </div>
 
-        
-
-        <div id="ccf-messages" style="height:160px; overflow:auto; display:flex; flex-direction:column; gap:6px; background:${theme==='professional'?'#f8fafc':'rgba(255,255,255,0.06)'}; border-left:0; border-right:0; border-top:0; border-bottom:1px solid ${br}; padding:8px;"></div>
-
-        <div id="ccf-compose" style="display:grid; grid-template-columns:1fr 68px; gap:6px; align-items:center; padding:8px;">
-
-          <textarea id="ccf-input" placeholder="Type..." style="box-sizing:border-box; height:36px; resize:vertical; background:${theme==='professional'?'#ffffff':'rgba(255,255,255,0.08)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; padding:8px; font-size:12px;"></textarea>
-
-          <button id="ccf-send" class="send-btn">Send</button>
-
+        <!-- Command Chat View -->
+        <div id="ccf-chat-view">
+          <div id="ccf-messages" style="height:160px; overflow:auto; display:flex; flex-direction:column; gap:6px; background:${theme==='professional'?'#f8fafc':'rgba(255,255,255,0.06)'}; border-left:0; border-right:0; border-top:0; border-bottom:1px solid ${br}; padding:8px;"></div>
+          <div id="ccf-compose" style="display:grid; grid-template-columns:1fr 68px; gap:6px; align-items:center; padding:8px;">
+            <textarea id="ccf-input" placeholder="Type..." style="box-sizing:border-box; height:36px; resize:vertical; background:${theme==='professional'?'#ffffff':'rgba(255,255,255,0.08)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; padding:8px; font-size:12px;"></textarea>
+            <button id="ccf-send" class="send-btn">Send</button>
+          </div>
         </div>
+
+        <!-- MailGuard View -->
+        <div id="ccf-mailguard-view" style="display:none; flex-direction:column; background:${theme==='professional'?'#f8fafc':'rgba(255,255,255,0.04)'};">
+          <div id="ccf-mailguard-hint" style="padding:12px 14px; font-size:12px; opacity:0.7; font-style:italic; border-bottom:1px solid ${br}; background:${theme==='professional'?'rgba(168,85,247,0.08)':'rgba(168,85,247,0.15)'}; display:flex; align-items:center; gap:8px;">
+            <span style="font-size:16px;">✉️</span>
+            Compose verified WRGuard-stamped emails with built-in automation.
+          </div>
+          <div style="padding:12px; display:flex; flex-direction:column; gap:10px;">
+            <div style="display:flex; align-items:center; gap:10px;">
+              <label style="font-size:12px; font-weight:600; opacity:0.7; min-width:50px;">To:</label>
+              <input type="email" id="ccf-mg-to" placeholder="recipient@example.com" style="flex:1; background:${theme==='professional'?'#ffffff':'rgba(255,255,255,0.08)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; padding:8px 10px; font-size:13px; outline:none;" />
+            </div>
+            <div style="display:flex; align-items:center; gap:10px;">
+              <label style="font-size:12px; font-weight:600; opacity:0.7; min-width:50px;">Subject:</label>
+              <input type="text" id="ccf-mg-subject" placeholder="Email subject" style="flex:1; background:${theme==='professional'?'#ffffff':'rgba(255,255,255,0.08)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; padding:8px 10px; font-size:13px; outline:none;" />
+            </div>
+            <textarea id="ccf-mg-body" placeholder="Compose your email message here..." style="background:${theme==='professional'?'#ffffff':'rgba(255,255,255,0.06)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; padding:10px 12px; font-size:13px; min-height:120px; height:120px; resize:none; font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; line-height:1.5; outline:none;"></textarea>
+            <div id="ccf-mg-resize" style="height:12px; background:${theme==='professional'?'linear-gradient(180deg, #e2e8f0 0%, #cbd5e1 100%)':'linear-gradient(180deg, rgba(255,255,255,0.2) 0%, rgba(255,255,255,0.1) 100%)'}; cursor:ns-resize; border-radius:6px; margin:8px 0; display:flex; align-items:center; justify-content:center; border:1px solid ${theme==='professional'?'rgba(15,23,42,0.1)':'rgba(255,255,255,0.15)'};" title="Drag to resize editor height"><div style="width:40px; height:4px; background:${theme==='professional'?'#94a3b8':'rgba(255,255,255,0.4)'}; border-radius:2px;"></div></div>
+            <div style="display:flex; align-items:center; justify-content:space-between;">
+              <span style="font-size:11px; font-weight:600; opacity:0.7; display:flex; align-items:center; gap:4px;">
+                <span>📎</span> Attachments <span style="font-size:10px; opacity:0.6; font-weight:400;">(WR Stamped PDFs)</span>
+              </span>
+              <input id="ccf-mg-file" type="file" accept=".pdf" multiple style="display:none" />
+              <button id="ccf-mg-add-pdf" style="background:${theme==='professional'?'#e2e8f0':'rgba(255,255,255,0.12)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; padding:6px 10px; font-size:11px; cursor:pointer;">+ Add PDF</button>
+            </div>
+            <div id="ccf-mg-attachments" style="min-height:20px;"></div>
+          </div>
+          <div style="padding:10px 12px; border-top:1px solid ${br}; display:flex; justify-content:space-between; align-items:center; background:${theme==='professional'?'#f1f5f9':'rgba(0,0,0,0.15)'};">
+            <button id="ccf-mg-discard" style="background:transparent; border:none; color:${theme==='professional'?'#64748b':'rgba(255,255,255,0.6)'}; padding:6px 10px; font-size:12px; cursor:pointer; text-decoration:underline;">Discard</button>
+            <button id="ccf-mg-send" style="background:#a855f7; border:none; color:white; border-radius:6px; padding:10px 20px; font-size:13px; font-weight:600; cursor:pointer; display:flex; align-items:center; gap:6px;">Send <span style="font-size:14px;">→</span></button>
+          </div>
+        </div>
+
+        <!-- Resize Handles -->
+        <div id="ccf-resize-n" style="position:absolute; top:0; left:10px; right:10px; height:6px; cursor:ns-resize;"></div>
+        <div id="ccf-resize-s" style="position:absolute; bottom:0; left:10px; right:10px; height:6px; cursor:ns-resize;"></div>
+        <div id="ccf-resize-e" style="position:absolute; top:10px; bottom:10px; right:0; width:6px; cursor:ew-resize;"></div>
+        <div id="ccf-resize-w" style="position:absolute; top:10px; bottom:10px; left:0; width:6px; cursor:ew-resize;"></div>
+        <div id="ccf-resize-nw" style="position:absolute; top:0; left:0; width:12px; height:12px; cursor:nw-resize;"></div>
+        <div id="ccf-resize-ne" style="position:absolute; top:0; right:0; width:12px; height:12px; cursor:ne-resize;"></div>
+        <div id="ccf-resize-sw" style="position:absolute; bottom:0; left:0; width:12px; height:12px; cursor:sw-resize;"></div>
+        <div id="ccf-resize-se" style="position:absolute; bottom:0; right:0; width:12px; height:12px; cursor:se-resize;"></div>
 
       `
 
       document.body.appendChild(box)
+      
+      // Resize functionality for popup
+      let isResizing = false
+      let resizeDir = ''
+      let startX = 0, startY = 0, startW = 0, startH = 0, startL = 0, startT = 0
+      
+      function initResize(e: MouseEvent, dir: string) {
+        e.preventDefault()
+        isResizing = true
+        resizeDir = dir
+        startX = e.clientX
+        startY = e.clientY
+        const rect = box.getBoundingClientRect()
+        startW = rect.width
+        startH = rect.height
+        startL = rect.left
+        startT = rect.top
+        document.addEventListener('mousemove', doResize)
+        document.addEventListener('mouseup', stopResize)
+      }
+      
+      function doResize(e: MouseEvent) {
+        if (!isResizing) return
+        const dx = e.clientX - startX
+        const dy = e.clientY - startY
+        const minW = 280, minH = 200
+        
+        if (resizeDir.includes('e')) {
+          const newW = Math.max(minW, startW + dx)
+          box.style.width = newW + 'px'
+        }
+        if (resizeDir.includes('w')) {
+          const newW = Math.max(minW, startW - dx)
+          if (newW > minW || dx < 0) {
+            box.style.width = newW + 'px'
+            box.style.left = (startL + dx) + 'px'
+            box.style.right = 'auto'
+          }
+        }
+        if (resizeDir.includes('s')) {
+          const newH = Math.max(minH, startH + dy)
+          box.style.height = newH + 'px'
+        }
+        if (resizeDir.includes('n')) {
+          const newH = Math.max(minH, startH - dy)
+          if (newH > minH || dy < 0) {
+            box.style.height = newH + 'px'
+            box.style.top = (startT + dy) + 'px'
+            box.style.bottom = 'auto'
+          }
+        }
+        
+        // Update messages area height proportionally
+        const messagesEl = box.querySelector('#ccf-messages') as HTMLElement | null
+        if (messagesEl) {
+          const currentBoxH = box.getBoundingClientRect().height
+          const newMsgH = Math.max(80, currentBoxH - 120) // Leave room for header and compose
+          messagesEl.style.height = newMsgH + 'px'
+        }
+      }
+      
+      function stopResize() {
+        isResizing = false
+        resizeDir = ''
+        document.removeEventListener('mousemove', doResize)
+        document.removeEventListener('mouseup', stopResize)
+      }
+      
+      // Attach resize handlers
+      ;['n','s','e','w','nw','ne','sw','se'].forEach(dir => {
+        const handle = box.querySelector('#ccf-resize-' + dir) as HTMLElement | null
+        if (handle) {
+          handle.addEventListener('mousedown', (e: MouseEvent) => initResize(e, dir))
+        }
+      })
+      
+      // Make header draggable
+      const headerEl = box.querySelector('#ccf-header') as HTMLElement | null
+      if (headerEl) {
+        let isDragging = false
+        let dragStartX = 0, dragStartY = 0, dragStartL = 0, dragStartT = 0
+        
+        headerEl.style.cursor = 'move'
+        headerEl.addEventListener('mousedown', (e: MouseEvent) => {
+          // Don't drag if clicking on buttons or select
+          if ((e.target as HTMLElement).tagName === 'BUTTON' || (e.target as HTMLElement).tagName === 'SELECT') return
+          isDragging = true
+          dragStartX = e.clientX
+          dragStartY = e.clientY
+          const rect = box.getBoundingClientRect()
+          dragStartL = rect.left
+          dragStartT = rect.top
+          document.addEventListener('mousemove', doDrag)
+          document.addEventListener('mouseup', stopDrag)
+        })
+        
+        function doDrag(e: MouseEvent) {
+          if (!isDragging) return
+          const dx = e.clientX - dragStartX
+          const dy = e.clientY - dragStartY
+          box.style.left = (dragStartL + dx) + 'px'
+          box.style.top = (dragStartT + dy) + 'px'
+          box.style.right = 'auto'
+          box.style.bottom = 'auto'
+        }
+        
+        function stopDrag() {
+          isDragging = false
+          document.removeEventListener('mousemove', doDrag)
+          document.removeEventListener('mouseup', stopDrag)
+        }
+      }
 
       // Ensure floating composer has no unused icons. Keep only textarea + Send.
 
@@ -35885,13 +36263,13 @@ ${pageText}
 
         }
 
-        // Extra safety: remove any non-whitelisted buttons anywhere inside floating chat
+        // Extra safety: remove any non-whitelisted buttons anywhere inside floating chat (except mailguard buttons)
 
         box.querySelectorAll('button').forEach(btn => {
 
           const id = (btn as HTMLElement).id || ''
 
-          const allow = id === 'ccf-send' || id === 'ccf-close' || id === 'ccf-lm-one'
+          const allow = id === 'ccf-send' || id === 'ccf-close' || id === 'ccf-lm-one' || id.startsWith('ccf-mg-')
 
           const insideCompose = (btn as HTMLElement).closest('#ccf-compose')
 
@@ -35902,6 +36280,158 @@ ${pageText}
       } catch {}
 
       ;(box.querySelector('#ccf-close') as HTMLButtonElement | null)?.addEventListener('click', ()=> box.remove())
+
+      // Mode switching between Command Chat and MailGuard
+      const modeSelect = box.querySelector('#ccf-mode-select') as HTMLSelectElement | null
+      const chatView = box.querySelector('#ccf-chat-view') as HTMLElement | null
+      const mailguardView = box.querySelector('#ccf-mailguard-view') as HTMLElement | null
+      const chatControls = box.querySelector('#ccf-chat-controls') as HTMLElement | null
+      
+      // MailGuard state
+      let mgAttachments: Array<{name: string, size: number}> = []
+      
+      function updateMgHint() {
+        const hint = box.querySelector('#ccf-mailguard-hint') as HTMLElement | null
+        const to = (box.querySelector('#ccf-mg-to') as HTMLInputElement)?.value || ''
+        const subject = (box.querySelector('#ccf-mg-subject') as HTMLInputElement)?.value || ''
+        const body = (box.querySelector('#ccf-mg-body') as HTMLTextAreaElement)?.value || ''
+        if (hint) {
+          hint.style.display = (!to && !subject && !body && mgAttachments.length === 0) ? 'flex' : 'none'
+        }
+      }
+      
+      function renderMgAttachments() {
+        const container = box.querySelector('#ccf-mg-attachments') as HTMLElement | null
+        if (!container) return
+        if (mgAttachments.length === 0) {
+          container.innerHTML = ''
+          return
+        }
+        container.innerHTML = mgAttachments.map((att, idx) => `
+          <div style="display:inline-flex; align-items:center; gap:6px; padding:4px 8px; margin:2px; background:${theme==='professional'?'rgba(34,197,94,0.1)':'rgba(34,197,94,0.15)'}; border:1px solid rgba(34,197,94,0.3); border-radius:4px; font-size:11px;">
+            <span>📄</span>
+            <span style="max-width:100px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${att.name}</span>
+            <span style="opacity:0.5; font-size:10px;">(${Math.round(att.size/1024)} KB)</span>
+            <button data-idx="${idx}" class="ccf-mg-remove" style="background:transparent; border:none; color:${theme==='professional'?'#64748b':'rgba(255,255,255,0.5)'}; cursor:pointer; font-size:12px; padding:0 2px;">×</button>
+          </div>
+        `).join('')
+        container.querySelectorAll('.ccf-mg-remove').forEach(btn => {
+          btn.addEventListener('click', (e) => {
+            const idx = parseInt((e.target as HTMLElement).getAttribute('data-idx') || '0')
+            mgAttachments = mgAttachments.filter((_, i) => i !== idx)
+            renderMgAttachments()
+            updateMgHint()
+          })
+        })
+      }
+      
+      if (modeSelect && chatView && mailguardView) {
+        modeSelect.addEventListener('change', () => {
+          const mode = modeSelect.value
+          if (mode === 'command-chat') {
+            chatView.style.display = 'block'
+            mailguardView.style.display = 'none'
+            if (chatControls) chatControls.style.display = 'flex'
+          } else {
+            chatView.style.display = 'none'
+            mailguardView.style.display = 'flex'
+            if (chatControls) chatControls.style.display = 'none'
+            updateMgHint()
+          }
+        })
+      }
+      
+      // MailGuard file input
+      const mgFileInput = box.querySelector('#ccf-mg-file') as HTMLInputElement | null
+      const mgAddPdfBtn = box.querySelector('#ccf-mg-add-pdf') as HTMLButtonElement | null
+      if (mgAddPdfBtn && mgFileInput) {
+        mgAddPdfBtn.addEventListener('click', () => mgFileInput.click())
+        mgFileInput.addEventListener('change', () => {
+          const files = Array.from(mgFileInput.files || [])
+          const pdfFiles = files.filter(f => f.type === 'application/pdf')
+          if (pdfFiles.length !== files.length) {
+            console.warn('[WR MailGuard] Only PDF files are allowed')
+          }
+          if (pdfFiles.length > 0) {
+            mgAttachments = [...mgAttachments, ...pdfFiles.map(f => ({ name: f.name, size: f.size }))]
+            renderMgAttachments()
+            updateMgHint()
+          }
+          mgFileInput.value = ''
+        })
+      }
+      
+      // MailGuard input listeners for hint visibility
+      ;['#ccf-mg-to', '#ccf-mg-subject', '#ccf-mg-body'].forEach(sel => {
+        const el = box.querySelector(sel) as HTMLInputElement | HTMLTextAreaElement | null
+        if (el) el.addEventListener('input', updateMgHint)
+      })
+      
+      // MailGuard discard
+      const mgDiscardBtn = box.querySelector('#ccf-mg-discard') as HTMLButtonElement | null
+      if (mgDiscardBtn) {
+        mgDiscardBtn.addEventListener('click', () => {
+          ;(box.querySelector('#ccf-mg-to') as HTMLInputElement).value = ''
+          ;(box.querySelector('#ccf-mg-subject') as HTMLInputElement).value = ''
+          ;(box.querySelector('#ccf-mg-body') as HTMLTextAreaElement).value = ''
+          mgAttachments = []
+          renderMgAttachments()
+          updateMgHint()
+        })
+      }
+      
+      // MailGuard send
+      const mgSendBtn = box.querySelector('#ccf-mg-send') as HTMLButtonElement | null
+      if (mgSendBtn) {
+        mgSendBtn.addEventListener('click', () => {
+          const to = (box.querySelector('#ccf-mg-to') as HTMLInputElement)?.value || ''
+          const subject = (box.querySelector('#ccf-mg-subject') as HTMLInputElement)?.value || ''
+          const body = (box.querySelector('#ccf-mg-body') as HTMLTextAreaElement)?.value || ''
+          if (!to.trim()) { alert('Please enter a recipient'); return }
+          if (!subject.trim()) { alert('Please enter a subject'); return }
+          if (mgAttachments.length === 0) { alert('Attach at least one WR stamped PDF'); return }
+          console.log('[WR MailGuard] Sending:', { to, subject, attachments: mgAttachments.map(a => a.name) })
+          alert('Protected email queued!')
+          ;(box.querySelector('#ccf-mg-to') as HTMLInputElement).value = ''
+          ;(box.querySelector('#ccf-mg-subject') as HTMLInputElement).value = ''
+          ;(box.querySelector('#ccf-mg-body') as HTMLTextAreaElement).value = ''
+          mgAttachments = []
+          renderMgAttachments()
+          updateMgHint()
+        })
+      }
+      
+      // Floating popup MailGuard body textarea resize
+      const ccfMgResize = box.querySelector('#ccf-mg-resize') as HTMLElement | null
+      const ccfMgBody = box.querySelector('#ccf-mg-body') as HTMLTextAreaElement | null
+      if (ccfMgResize && ccfMgBody) {
+        let ccfMgIsResizing = false
+        let ccfMgStartY = 0
+        let ccfMgStartH = 0
+        
+        ccfMgResize.addEventListener('mousedown', (e: MouseEvent) => {
+          e.preventDefault()
+          ccfMgIsResizing = true
+          ccfMgStartY = e.clientY
+          ccfMgStartH = ccfMgBody.offsetHeight
+          document.addEventListener('mousemove', ccfMgDoResize)
+          document.addEventListener('mouseup', ccfMgStopResize)
+        })
+        
+        function ccfMgDoResize(e: MouseEvent) {
+          if (!ccfMgIsResizing) return
+          const dy = e.clientY - ccfMgStartY
+          const newH = Math.max(80, Math.min(400, ccfMgStartH + dy))
+          ccfMgBody.style.height = newH + 'px'
+          ccfMgBody.style.minHeight = newH + 'px'
+        }
+        
+        function ccfMgStopResize() {
+          ccfMgIsResizing = false
+          document.removeEventListener('mousemove', ccfMgDoResize)
+          document.removeEventListener('mouseup', ccfMgStopResize)
+        }
+      }
 
       const headerTools = box.querySelector('#ccf-header > div:first-child > div:last-child') as HTMLElement | null
 
