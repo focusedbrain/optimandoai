@@ -3,6 +3,7 @@ node_modules/
 dist/
 apps/**/dist/**
 apps/**/release/**
+apps/**/release-*/**
 apps/**/win-unpacked/**
 *.log
 .DS_Store

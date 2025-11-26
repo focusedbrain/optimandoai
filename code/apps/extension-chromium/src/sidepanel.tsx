@@ -3,6 +3,18 @@ import React, { useState, useEffect, useRef } from 'react'
 import { createRoot } from 'react-dom/client'
 import { BackendSwitcher } from './components/BackendSwitcher'
 import { BackendSwitcherInline } from './components/BackendSwitcherInline'
+import { 
+  routeInput, 
+  getButlerSystemPrompt, 
+  wrapInputForAgent,
+  loadAgentsFromSession,
+  updateAgentBoxOutput,
+  getAgentById,
+  resolveModelForAgent,
+  type RoutingDecision,
+  type AgentMatch,
+  type AgentBox
+} from './services/processFlow'
 
 interface ConnectionStatus {
   isConnected: boolean
@@ -54,8 +66,28 @@ function SidepanelOrchestrator() {
   const chatRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   
+  // Pending trigger state - for auto-processing after screenshot capture
+  // Using REF instead of state to avoid stale closure issues in message handlers
+  const pendingTriggerRef = useRef<{
+    trigger: any
+    command?: string
+    autoProcess: boolean
+  } | null>(null)
+  
   // LLM state
   const [activeLlmModel, setActiveLlmModel] = useState<string>('')
+  
+  // Refs to store latest values for use in message handlers (avoids stale closure)
+  const activeLlmModelRef = useRef<string>('')
+  const sessionNameRef = useRef<string>('')
+  const connectionStatusRef = useRef<{ isConnected: boolean }>({ isConnected: false })
+  
+  // Keep refs in sync with state (updates on every render)
+  // This ensures message handlers always have access to latest values
+  useEffect(() => {
+    sessionNameRef.current = sessionName
+    connectionStatusRef.current = connectionStatus
+  })
   const [isLlmLoading, setIsLlmLoading] = useState(false)
   const [llmError, setLlmError] = useState<string | null>(null)
   const [llmRefreshTrigger, setLlmRefreshTrigger] = useState(0)
@@ -70,6 +102,7 @@ function SidepanelOrchestrator() {
       if (statusResult.ok && statusResult.data?.modelsInstalled?.length > 0) {
         const firstModel = statusResult.data.modelsInstalled[0].name
         setActiveLlmModel(firstModel)
+        activeLlmModelRef.current = firstModel // Keep ref in sync
         setLlmError(null)
         console.log('[Command Chat] Refreshed and selected model:', firstModel)
         return true
@@ -109,6 +142,7 @@ function SidepanelOrchestrator() {
         if (status.modelsInstalled && status.modelsInstalled.length > 0) {
           const firstModel = status.modelsInstalled[0].name
           setActiveLlmModel(firstModel)
+          activeLlmModelRef.current = firstModel // Keep ref in sync
           console.log('[Command Chat] Auto-selected model:', firstModel)
           setLlmError(null)
         } else {
@@ -149,6 +183,204 @@ function SidepanelOrchestrator() {
       chrome.storage?.onChanged?.removeListener(handleStorageChange)
     }
   }, [])
+  
+  // NOTE: Screenshot trigger processing is now handled directly in the chrome.runtime message listener
+  // This avoids stale closure issues that occurred with the useEffect + custom event pattern
+  
+  // Process screenshot with trigger - uses refs to avoid stale closure issues
+  // This is called from the message listener when a screenshot arrives with a pending trigger
+  const processScreenshotWithTrigger = async (triggerText: string, imageUrl: string) => {
+    console.log('[Sidepanel] processScreenshotWithTrigger called:', { triggerText, hasImage: !!imageUrl })
+    
+    // Use ref value for model to avoid stale closure
+    const currentModel = activeLlmModelRef.current
+    
+    if (!currentModel) {
+      console.warn('[Sidepanel] No LLM model available for trigger processing')
+      setChatMessages(prev => [...prev, {
+        role: 'assistant' as const,
+        text: `⚠️ No LLM model available. Please install a model in LLM Settings.`
+      }])
+      return
+    }
+    
+    setIsLlmLoading(true)
+    
+    try {
+      const baseUrl = 'http://127.0.0.1:51248'
+      
+      // Get current URL for website filtering
+      let currentUrl = ''
+      try {
+        const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
+        currentUrl = tab?.url || ''
+      } catch (e) {}
+      
+      // Import routing functions dynamically to avoid circular deps
+      const { routeInput, loadAgentsFromSession, wrapInputForAgent, updateAgentBoxOutput, getButlerSystemPrompt, resolveModelForAgent } = await import('./services/processFlow')
+      
+      // Use refs for values to avoid stale closures
+      const currentConnectionStatus = connectionStatusRef.current
+      const currentSessionName = sessionNameRef.current
+      
+      // Route the input
+      const routingDecision = await routeInput(
+        triggerText,
+        true, // hasImage = true
+        currentConnectionStatus,
+        currentSessionName,
+        currentModel,
+        currentUrl
+      )
+      
+      console.log('[Sidepanel] Trigger routing decision:', routingDecision)
+      
+      // Process OCR if image provided
+      let ocrText = ''
+      if (imageUrl) {
+        try {
+          const ocrResponse = await fetch(`${baseUrl}/api/ocr/process`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ image: imageUrl })
+          })
+          if (ocrResponse.ok) {
+            const ocrResult = await ocrResponse.json()
+            if (ocrResult.ok && ocrResult.data?.text) {
+              ocrText = ocrResult.data.text
+              console.log('[Sidepanel] OCR extracted text:', ocrText.substring(0, 100) + '...')
+            }
+          }
+        } catch (e) {
+          console.warn('[Sidepanel] OCR failed:', e)
+        }
+      }
+      
+      if (routingDecision.shouldForwardToAgent && routingDecision.matchedAgents.length > 0) {
+        // Show butler confirmation
+        setChatMessages(prev => [...prev, {
+          role: 'assistant' as const,
+          text: routingDecision.butlerResponse
+        }])
+        
+        // Process with each matched agent
+        const agents = await loadAgentsFromSession()
+        
+        for (const match of routingDecision.matchedAgents) {
+          const agent = agents.find(a => a.id === match.agentId)
+          if (!agent) {
+            console.warn('[Sidepanel] Agent not found:', match.agentId)
+            continue
+          }
+          
+          const wrappedInput = wrapInputForAgent(triggerText, agent, ocrText)
+          
+          // Resolve model - use agent box model if configured, otherwise use current model
+          const modelResolution = resolveModelForAgent(
+            match.agentBoxProvider,
+            match.agentBoxModel,
+            currentModel
+          )
+          
+          console.log('[Sidepanel] Processing with agent:', match.agentName, 'model:', modelResolution.model)
+          
+          const processedContent = ocrText 
+            ? `${triggerText}\n\n[Extracted Text]:\n${ocrText}`
+            : triggerText
+          
+          try {
+            const agentResponse = await fetch(`${baseUrl}/api/llm/chat`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                modelId: modelResolution.model || currentModel,
+                messages: [
+                  { role: 'system', content: wrappedInput },
+                  { role: 'user', content: processedContent }
+                ]
+              })
+            })
+            
+            if (agentResponse.ok) {
+              const agentResult = await agentResponse.json()
+              if (agentResult.ok && agentResult.data?.content) {
+                const agentOutput = agentResult.data.content
+                
+                if (match.agentBoxId) {
+                  const reasoningContext = `**Agent:** ${match.agentIcon} ${match.agentName}\n**Match:** ${match.matchDetails}\n**Input:** ${triggerText}`
+                  
+                  await updateAgentBoxOutput(match.agentBoxId, agentOutput, reasoningContext)
+                  
+                  setChatMessages(prev => [...prev, {
+                    role: 'assistant' as const,
+                    text: `✓ ${match.agentIcon} **${match.agentName}** processed your request.\n→ Output displayed in Agent Box ${String(match.agentBoxNumber).padStart(2, '0')}`
+                  }])
+                } else {
+                  setChatMessages(prev => [...prev, {
+                    role: 'assistant' as const,
+                    text: `${match.agentIcon} **${match.agentName}**:\n\n${agentOutput}`
+                  }])
+                }
+              } else {
+                console.error('[Sidepanel] Agent LLM response not ok:', agentResult)
+              }
+            } else {
+              console.error('[Sidepanel] Agent LLM request failed:', agentResponse.status)
+            }
+          } catch (llmError) {
+            console.error('[Sidepanel] Agent LLM error:', llmError)
+          }
+        }
+      } else {
+        // No agent match - use butler response
+        console.log('[Sidepanel] No agent match, using butler response')
+        const agents = await loadAgentsFromSession()
+        const butlerPrompt = getButlerSystemPrompt(
+          currentSessionName,
+          agents.filter(a => a.enabled).length,
+          currentConnectionStatus.isConnected
+        )
+        
+        const processedContent = ocrText 
+          ? `${triggerText}\n\n[Extracted Text from Image]:\n${ocrText}`
+          : triggerText
+        
+        try {
+          const butlerResponse = await fetch(`${baseUrl}/api/llm/chat`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              modelId: currentModel,
+              messages: [
+                { role: 'system', content: butlerPrompt },
+                { role: 'user', content: processedContent }
+              ]
+            })
+          })
+          
+          if (butlerResponse.ok) {
+            const result = await butlerResponse.json()
+            if (result.ok && result.data?.content) {
+              setChatMessages(prev => [...prev, {
+                role: 'assistant' as const,
+                text: result.data.content
+              }])
+            }
+          }
+        } catch (e) {
+          console.error('[Sidepanel] Butler response error:', e)
+        }
+      }
+    } catch (error) {
+      console.error('[Sidepanel] Error processing screenshot with trigger:', error)
+      setChatMessages(prev => [...prev, {
+        role: 'assistant' as const,
+        text: `⚠️ Error processing trigger: ${error instanceof Error ? error.message : 'Unknown error'}`
+      }])
+    } finally {
+      setIsLlmLoading(false)
+    }
+  }
   
   // Load pinned state and viewMode from storage
   useEffect(() => {
@@ -385,6 +617,21 @@ function SidepanelOrchestrator() {
           setAgentBoxes(message.data.agentBoxes)
         }
       }
+      // Listen for agent box OUTPUT updates (from process flow)
+      else if (message.type === 'UPDATE_AGENT_BOX_OUTPUT') {
+        console.log('📤 Agent box output updated:', message.data)
+        if (message.data.allBoxes) {
+          // Update all boxes (includes the updated one)
+          setAgentBoxes(message.data.allBoxes)
+        } else if (message.data.agentBoxId && message.data.output) {
+          // Update specific box output
+          setAgentBoxes(prev => prev.map(box => 
+            box.id === message.data.agentBoxId 
+              ? { ...box, output: message.data.output }
+              : box
+          ))
+        }
+      }
       // Listen for Electron screenshot results
       else if (message.type === 'ELECTRON_SELECTION_RESULT') {
         console.log('📷 Sidepanel received screenshot from Electron:', message.kind)
@@ -403,6 +650,27 @@ function SidepanelOrchestrator() {
               chatRef.current.scrollTop = chatRef.current.scrollHeight
             }
           }, 100)
+          
+          // Check if there's a pending trigger to auto-process
+          // Using REF directly to avoid stale closure issues
+          const pendingTrigger = pendingTriggerRef.current
+          if (pendingTrigger?.autoProcess) {
+            console.log('[Sidepanel] Found pending trigger to auto-process:', pendingTrigger)
+            
+            const command = pendingTrigger.command || pendingTrigger.trigger?.name || ''
+            
+            // Clear pending trigger FIRST
+            pendingTriggerRef.current = null
+            
+            if (command) {
+              const triggerText = command.startsWith('@') ? command : `@${command}`
+              console.log('[Sidepanel] Processing trigger:', triggerText, 'with image:', url.substring(0, 50) + '...')
+              
+              // Process directly using refs to avoid stale closures
+              // This inline processing replaces the problematic useEffect + custom event pattern
+              processScreenshotWithTrigger(triggerText, url)
+            }
+          }
         }
       }
       // Listen for trigger prompt from Electron
@@ -896,6 +1164,196 @@ function SidepanelOrchestrator() {
       addCommand: addCommandChecked
     })
   }
+  
+  // Handle sending message with trigger (auto-process after screenshot)
+  const handleSendMessageWithTrigger = async (triggerText: string, imageUrl?: string) => {
+    console.log('[Sidepanel] handleSendMessageWithTrigger:', { triggerText, hasImage: !!imageUrl })
+    
+    // Use ref for more reliable model access (avoids potential stale closure)
+    const currentModel = activeLlmModelRef.current || activeLlmModel
+    
+    if (!currentModel) {
+      setChatMessages(prev => [...prev, {
+        role: 'assistant' as const,
+        text: `⚠️ No LLM model available. Please install a model in LLM Settings.`
+      }])
+      return
+    }
+    
+    // Build messages including the image if provided
+    const newMessages: Array<{role: 'user' | 'assistant', text: string, imageUrl?: string}> = []
+    
+    // Add the trigger text as user message
+    if (imageUrl) {
+      newMessages.push({
+        role: 'user' as const,
+        text: triggerText,
+        imageUrl
+      })
+    } else {
+      newMessages.push({
+        role: 'user' as const,
+        text: triggerText
+      })
+    }
+    
+    setChatMessages(prev => [...prev, ...newMessages])
+    setChatInput('')
+    setIsLlmLoading(true)
+    
+    try {
+      const baseUrl = 'http://127.0.0.1:51248'
+      
+      // Get current URL for website filtering
+      let currentUrl = ''
+      try {
+        const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
+        currentUrl = tab?.url || ''
+      } catch (e) {}
+      
+      // Route the input
+      const routingDecision = await routeInput(
+        triggerText,
+        !!imageUrl,
+        connectionStatus,
+        sessionName,
+        currentModel,
+        currentUrl
+      )
+      
+      console.log('[Sidepanel] Trigger routing decision:', routingDecision)
+      
+      // Process OCR if image provided
+      let ocrText = ''
+      if (imageUrl) {
+        try {
+          const ocrResponse = await fetch(`${baseUrl}/api/ocr/process`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ image: imageUrl })
+          })
+          if (ocrResponse.ok) {
+            const ocrResult = await ocrResponse.json()
+            if (ocrResult.ok && ocrResult.data?.text) {
+              ocrText = ocrResult.data.text
+            }
+          }
+        } catch (e) {
+          console.warn('[Sidepanel] OCR failed:', e)
+        }
+      }
+      
+      if (routingDecision.shouldForwardToAgent && routingDecision.matchedAgents.length > 0) {
+        // Show butler confirmation
+        setChatMessages(prev => [...prev, {
+          role: 'assistant' as const,
+          text: routingDecision.butlerResponse
+        }])
+        
+        // Process with each matched agent
+        const agents = await loadAgentsFromSession()
+        
+        for (const match of routingDecision.matchedAgents) {
+          const agent = agents.find(a => a.id === match.agentId)
+          if (!agent) continue
+          
+          const wrappedInput = wrapInputForAgent(triggerText, agent, ocrText)
+          
+          // Resolve model
+          const modelResolution = resolveModelForAgent(
+            match.agentBoxProvider,
+            match.agentBoxModel,
+            currentModel
+          )
+          
+          console.log('[Sidepanel] Processing with agent:', match.agentName, 'model:', modelResolution.model)
+          
+          const processedContent = ocrText 
+            ? `${triggerText}\n\n[Extracted Text]:\n${ocrText}`
+            : triggerText
+          
+          const agentResponse = await fetch(`${baseUrl}/api/llm/chat`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              modelId: modelResolution.model || currentModel,
+              messages: [
+                { role: 'system', content: wrappedInput },
+                { role: 'user', content: processedContent }
+              ]
+            })
+          })
+          
+          if (agentResponse.ok) {
+            const agentResult = await agentResponse.json()
+            if (agentResult.ok && agentResult.data?.content) {
+              const agentOutput = agentResult.data.content
+              
+              if (match.agentBoxId) {
+                const reasoningContext = `**Agent:** ${match.agentIcon} ${match.agentName}\n**Match:** ${match.matchDetails}\n**Input:** ${triggerText}`
+                
+                await updateAgentBoxOutput(match.agentBoxId, agentOutput, reasoningContext)
+                
+                setChatMessages(prev => [...prev, {
+                  role: 'assistant' as const,
+                  text: `✓ ${match.agentIcon} **${match.agentName}** processed your request.\n→ Output displayed in Agent Box ${String(match.agentBoxNumber).padStart(2, '0')}`
+                }])
+              } else {
+                setChatMessages(prev => [...prev, {
+                  role: 'assistant' as const,
+                  text: `${match.agentIcon} **${match.agentName}**:\n\n${agentOutput}`
+                }])
+              }
+            }
+          }
+        }
+      } else {
+        // No agent match - use butler response
+        const agents = await loadAgentsFromSession()
+        const butlerPrompt = getButlerSystemPrompt(
+          sessionName,
+          agents.filter(a => a.enabled).length,
+          connectionStatus.isConnected
+        )
+        
+        const response = await fetch(`${baseUrl}/api/llm/chat`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            modelId: currentModel,
+            messages: [
+              { role: 'system', content: butlerPrompt },
+              { role: 'user', content: ocrText ? `${triggerText}\n\n[Image Text]:\n${ocrText}` : triggerText }
+            ]
+          })
+        })
+        
+        if (response.ok) {
+          const result = await response.json()
+          if (result.ok && result.data?.content) {
+            setChatMessages(prev => [...prev, {
+              role: 'assistant' as const,
+              text: result.data.content
+            }])
+          }
+        }
+      }
+      
+      // Scroll to bottom
+      setTimeout(() => {
+        if (chatRef.current) chatRef.current.scrollTop = chatRef.current.scrollHeight
+      }, 0)
+      
+    } catch (error: any) {
+      console.error('[Sidepanel] Error processing trigger:', error)
+      setChatMessages(prev => [...prev, {
+        role: 'assistant' as const,
+        text: `⚠️ Error: ${error.message || 'Failed to process trigger'}`
+      }])
+    } finally {
+      setIsLlmLoading(false)
+    }
+  }
 
   const handleSendMessage = async () => {
     const text = chatInput.trim()
@@ -931,7 +1389,30 @@ function SidepanelOrchestrator() {
     try {
       const baseUrl = 'http://127.0.0.1:51248'
       
+      // === PROCESS FLOW ROUTING ===
+      // Route input through the process flow to determine handling
+      // Get current tab URL for website filtering
+      let currentUrl = ''
+      try {
+        const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
+        currentUrl = tab?.url || ''
+      } catch (e) {
+        console.warn('[Command Chat] Could not get current tab URL:', e)
+      }
+      
+      const routingDecision = await routeInput(
+        text,
+        hasImage,
+        connectionStatus,
+        sessionName,
+        activeLlmModel,
+        currentUrl
+      )
+      
+      console.log('[Command Chat] Routing decision:', routingDecision)
+      
       // Process images with OCR if any (smart routing: cloud or local)
+      let ocrText = ''
       const processedMessages = await Promise.all(newMessages.map(async (msg) => {
         if (msg.imageUrl && msg.role === 'user') {
           try {
@@ -945,6 +1426,7 @@ function SidepanelOrchestrator() {
             if (ocrResponse.ok) {
               const ocrResult = await ocrResponse.json()
               if (ocrResult.ok && ocrResult.data?.text) {
+                ocrText = ocrResult.data.text
                 // Include OCR text with the original message
                 const ocrMethod = ocrResult.data.method === 'cloud_vision' ? '🌐 Cloud Vision' : '📝 Local OCR'
                 return {
@@ -968,37 +1450,154 @@ function SidepanelOrchestrator() {
         }
       }))
       
-      // Call Ollama API with processed messages
-      const response = await fetch(`${baseUrl}/api/llm/chat`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          modelId: activeLlmModel,
-          messages: processedMessages
-        })
-      })
+      // === HANDLE ROUTING DECISION ===
       
-      if (!response.ok) {
-        const result = await response.json()
-        throw new Error(result.error || `API request failed: ${response.statusText}`)
-      }
-      
-      const result = await response.json()
-      
-      if (result.ok && result.data?.content) {
-        // Add assistant response
-        setChatMessages([...newMessages, {
+      if (routingDecision.shouldForwardToAgent && routingDecision.matchedAgents.length > 0) {
+        // === AGENT FORWARDING (Layer 2) ===
+        // First, show butler confirmation
+        const butlerMessages = [...newMessages, {
           role: 'assistant' as const,
-          text: result.data.content
-        }])
+          text: routingDecision.butlerResponse
+        }]
+        setChatMessages(butlerMessages)
         
-        // Scroll to bottom after assistant response
+        // Scroll to show butler response
         setTimeout(() => {
           if (chatRef.current) chatRef.current.scrollTop = chatRef.current.scrollHeight
         }, 0)
+        
+        // Load full agent configs for processing
+        const agents = await loadAgentsFromSession()
+        
+        // Process with each matched agent
+        for (const match of routingDecision.matchedAgents) {
+          const agent = agents.find(a => a.id === match.agentId)
+          if (!agent) continue
+          
+          // Wrap input with agent's reasoning instructions
+          const wrappedInput = wrapInputForAgent(text, agent, ocrText)
+          
+          console.log('[Command Chat] Forwarding to agent:', match.agentName)
+          console.log('[Command Chat] Reasoning context:', wrappedInput)
+          console.log('[Command Chat] Target agent box:', match.agentBoxId)
+          
+          // Resolve which model to use (agent box model if configured, else active local model)
+          const modelResolution = resolveModelForAgent(
+            match.agentBoxProvider,
+            match.agentBoxModel,
+            activeLlmModel
+          )
+          
+          console.log('[Command Chat] Model resolution:', modelResolution)
+          
+          // Send to agent processing via LLM with agent context
+          const agentResponse = await fetch(`${baseUrl}/api/llm/chat`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              modelId: modelResolution.model || activeLlmModel,
+              messages: [
+                { role: 'system', content: wrappedInput },
+                ...processedMessages.slice(-3) // Include recent context
+              ]
+            })
+          })
+          
+          if (agentResponse.ok) {
+            const agentResult = await agentResponse.json()
+            if (agentResult.ok && agentResult.data?.content) {
+              const agentOutput = agentResult.data.content
+              
+              // === ROUTE OUTPUT TO AGENT BOX (if connected) ===
+              if (match.agentBoxId) {
+                // Update agent box with reasoning context + output
+                const reasoningContext = `**Agent:** ${match.agentIcon} ${match.agentName}\n**Match:** ${match.matchDetails}\n**Input:** ${text}`
+                
+                await updateAgentBoxOutput(
+                  match.agentBoxId,
+                  agentOutput,
+                  reasoningContext
+                )
+                
+                // Add brief confirmation to chat (output is in agent box)
+                setChatMessages(prev => [...prev, {
+                  role: 'assistant' as const,
+                  text: `✓ ${match.agentIcon} **${match.agentName}** processed your request.\n→ Output displayed in Agent Box ${String(match.agentBoxNumber).padStart(2, '0')}`
+                }])
+              } else {
+                // No agent box connected - show in chat
+                setChatMessages(prev => [...prev, {
+                  role: 'assistant' as const,
+                  text: `${match.agentIcon} **${match.agentName}**:\n\n${agentOutput}`
+                }])
+              }
+              
+              // Scroll to bottom after agent response
+              setTimeout(() => {
+                if (chatRef.current) chatRef.current.scrollTop = chatRef.current.scrollHeight
+              }, 0)
+            }
+          }
+        }
+        
+      } else if (routingDecision.butlerResponse) {
+        // === SYSTEM STATUS RESPONSE ===
+        // Butler handled this directly (e.g., status query)
+        setChatMessages([...newMessages, {
+          role: 'assistant' as const,
+          text: routingDecision.butlerResponse
+        }])
+        
+        setTimeout(() => {
+          if (chatRef.current) chatRef.current.scrollTop = chatRef.current.scrollHeight
+        }, 0)
+        
       } else {
-        throw new Error(result.error || 'No response from LLM')
+        // === BUTLER LLM RESPONSE (No agent match) ===
+        // Use butler personality for general questions
+        const agents = await loadAgentsFromSession()
+        const butlerPrompt = getButlerSystemPrompt(
+          sessionName,
+          agents.filter(a => a.enabled).length,
+          connectionStatus.isConnected
+        )
+        
+        // Call Ollama API with butler system prompt
+        const response = await fetch(`${baseUrl}/api/llm/chat`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            modelId: activeLlmModel,
+            messages: [
+              { role: 'system', content: butlerPrompt },
+              ...processedMessages
+            ]
+          })
+        })
+        
+        if (!response.ok) {
+          const result = await response.json()
+          throw new Error(result.error || `API request failed: ${response.statusText}`)
+        }
+        
+        const result = await response.json()
+        
+        if (result.ok && result.data?.content) {
+          // Add assistant response
+          setChatMessages([...newMessages, {
+            role: 'assistant' as const,
+            text: result.data.content
+          }])
+          
+          // Scroll to bottom after assistant response
+          setTimeout(() => {
+            if (chatRef.current) chatRef.current.scrollTop = chatRef.current.scrollHeight
+          }, 0)
+        } else {
+          throw new Error(result.error || 'No response from LLM')
+        }
       }
+      
     } catch (error: any) {
       console.error('[Command Chat] LLM error:', error)
       
@@ -1013,7 +1612,7 @@ function SidepanelOrchestrator() {
       }
       
       // Add error message
-      setChatMessages([...newMessages, {
+      setChatMessages(prev => [...prev, {
         role: 'assistant' as const,
         text: errorMsg
       }])
@@ -1036,6 +1635,18 @@ function SidepanelOrchestrator() {
 
   const handleTriggerClick = (trigger: any) => {
     setShowTagsMenu(false)
+    
+    // Set pending trigger for auto-processing when screenshot returns
+    // Using REF to avoid stale closure issues in the message handler
+    pendingTriggerRef.current = {
+      trigger,
+      command: trigger.command || trigger.name, // Use command or trigger name
+      autoProcess: true
+    }
+    
+    console.log('[Sidepanel] Trigger clicked, setting pending process (ref):', pendingTriggerRef.current)
+    
+    // Send to Electron for screenshot capture
     chrome.runtime?.sendMessage({ type: 'ELECTRON_EXECUTE_TRIGGER', trigger })
   }
 
@@ -1919,36 +2530,45 @@ function SidepanelOrchestrator() {
                         }
                       }
                       
-                      // Post the screenshot to chat
-                      if (showTriggerPrompt.imageUrl) {
-                        const imageMessage = {
-                          role: 'user' as const,
-                          text: `![Screenshot](${showTriggerPrompt.imageUrl})`,
-                          imageUrl: showTriggerPrompt.imageUrl
-                        }
-                        setChatMessages(prev => [...prev, imageMessage])
-                        // Scroll to bottom
-                        setTimeout(() => {
-                          if (chatRef.current) {
-                            chatRef.current.scrollTop = chatRef.current.scrollHeight
+                      // Auto-process: If there's a command or trigger name, send to LLM
+                      const triggerNameToUse = name || command
+                      const shouldAutoProcess = showTriggerPrompt.addCommand || (showTriggerPrompt.createTrigger && triggerNameToUse)
+                      
+                      if (shouldAutoProcess && triggerNameToUse && showTriggerPrompt.imageUrl) {
+                        // Use the trigger name as @trigger format for routing
+                        const triggerText = triggerNameToUse.startsWith('@') ? triggerNameToUse : `@${triggerNameToUse}`
+                        
+                        console.log('[Sidepanel] Auto-processing trigger creation:', { triggerText, hasImage: true })
+                        
+                        // Clear the prompt first
+                        setShowTriggerPrompt(null)
+                        setCreateTriggerChecked(false)
+                        setAddCommandChecked(false)
+                        
+                        // Send to LLM for processing
+                        handleSendMessageWithTrigger(triggerText, showTriggerPrompt.imageUrl)
+                      } else {
+                        // Just post the screenshot to chat (no auto-process)
+                        if (showTriggerPrompt.imageUrl) {
+                          const imageMessage = {
+                            role: 'user' as const,
+                            text: `![Screenshot](${showTriggerPrompt.imageUrl})`,
+                            imageUrl: showTriggerPrompt.imageUrl
                           }
-                        }, 100)
-                      }
-                      
-                      // If addCommand is checked and command exists, add it to chat
-                      if (showTriggerPrompt.addCommand && command) {
-                        const commandMessage = {
-                          role: 'user' as const,
-                          text: `📝 Command: ${command}`
+                          setChatMessages(prev => [...prev, imageMessage])
+                          // Scroll to bottom
+                          setTimeout(() => {
+                            if (chatRef.current) {
+                              chatRef.current.scrollTop = chatRef.current.scrollHeight
+                            }
+                          }, 100)
                         }
-                        setChatMessages(prev => [...prev, commandMessage])
+                        
+                        // Clear the prompt
+                        setShowTriggerPrompt(null)
+                        setCreateTriggerChecked(false)
+                        setAddCommandChecked(false)
                       }
-                      
-                      // Clear the prompt
-                      setShowTriggerPrompt(null)
-                      // Reset checkboxes
-                      setCreateTriggerChecked(false)
-                      setAddCommandChecked(false)
                     }}
                     style={{
                       padding: '6px 12px',
@@ -3480,36 +4100,45 @@ function SidepanelOrchestrator() {
                         }
                       }
                       
-                      // Post the screenshot to chat
-                      if (showTriggerPrompt.imageUrl) {
-                        const imageMessage = {
-                          role: 'user' as const,
-                          text: `![Screenshot](${showTriggerPrompt.imageUrl})`,
-                          imageUrl: showTriggerPrompt.imageUrl
-                        }
-                        setChatMessages(prev => [...prev, imageMessage])
-                        // Scroll to bottom
-                        setTimeout(() => {
-                          if (chatRef.current) {
-                            chatRef.current.scrollTop = chatRef.current.scrollHeight
+                      // Auto-process: If there's a command or trigger name, send to LLM
+                      const triggerNameToUse = name || command
+                      const shouldAutoProcess = showTriggerPrompt.addCommand || (showTriggerPrompt.createTrigger && triggerNameToUse)
+                      
+                      if (shouldAutoProcess && triggerNameToUse && showTriggerPrompt.imageUrl) {
+                        // Use the trigger name as @trigger format for routing
+                        const triggerText = triggerNameToUse.startsWith('@') ? triggerNameToUse : `@${triggerNameToUse}`
+                        
+                        console.log('[Sidepanel] Auto-processing trigger creation:', { triggerText, hasImage: true })
+                        
+                        // Clear the prompt first
+                        setShowTriggerPrompt(null)
+                        setCreateTriggerChecked(false)
+                        setAddCommandChecked(false)
+                        
+                        // Send to LLM for processing
+                        handleSendMessageWithTrigger(triggerText, showTriggerPrompt.imageUrl)
+                      } else {
+                        // Just post the screenshot to chat (no auto-process)
+                        if (showTriggerPrompt.imageUrl) {
+                          const imageMessage = {
+                            role: 'user' as const,
+                            text: `![Screenshot](${showTriggerPrompt.imageUrl})`,
+                            imageUrl: showTriggerPrompt.imageUrl
                           }
-                        }, 100)
-                      }
-                      
-                      // If addCommand is checked and command exists, add it to chat
-                      if (showTriggerPrompt.addCommand && command) {
-                        const commandMessage = {
-                          role: 'user' as const,
-                          text: `📝 Command: ${command}`
+                          setChatMessages(prev => [...prev, imageMessage])
+                          // Scroll to bottom
+                          setTimeout(() => {
+                            if (chatRef.current) {
+                              chatRef.current.scrollTop = chatRef.current.scrollHeight
+                            }
+                          }, 100)
                         }
-                        setChatMessages(prev => [...prev, commandMessage])
+                        
+                        // Clear the prompt
+                        setShowTriggerPrompt(null)
+                        setCreateTriggerChecked(false)
+                        setAddCommandChecked(false)
                       }
-                      
-                      // Clear the prompt
-                      setShowTriggerPrompt(null)
-                      // Reset checkboxes
-                      setCreateTriggerChecked(false)
-                      setAddCommandChecked(false)
                     }}
                     style={{
                       padding: '6px 12px',

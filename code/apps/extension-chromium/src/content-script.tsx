@@ -2803,7 +2803,16 @@ function initializeExtension() {
     console.log('[TRACE] Complete session data to save:', { 
       key: sessionKey, 
       agentCount: completeSessionData.agents.length,
-      agents: completeSessionData.agents.map((a: any) => ({ key: a.key, name: a.name, enabled: a.enabled }))
+      agents: completeSessionData.agents.map((a: any) => ({ 
+        key: a.key, 
+        name: a.name, 
+        enabled: a.enabled,
+        hasConfig: !!a.config,
+        configKeys: a.config ? Object.keys(a.config) : [],
+        hasInstructions: !!a.config?.instructions,
+        instructionsType: a.config?.instructions ? typeof a.config.instructions : 'none',
+        instructionsLength: a.config?.instructions ? (typeof a.config.instructions === 'string' ? a.config.instructions.length : JSON.stringify(a.config.instructions).length) : 0
+      }))
     });
 
     storageSet({ [sessionKey]: completeSessionData }, () => {
@@ -11834,57 +11843,105 @@ function initializeExtension() {
 
               const tags = Array.from(document.querySelectorAll('.L-tag')).filter((el:any)=>el.checked).map((el:any)=>el.value)
 
-              const src = (document.getElementById('L-source') as HTMLSelectElement)?.value || ''
+              // Collect multiple trigger sources
+              const sources = Array.from(document.querySelectorAll('.L-source-check')).filter((el:any)=>el.checked).map((el:any)=>el.value)
+              const workflowSources: string[] = []
+              document.querySelectorAll('#L-workflow-sources .workflow-source-row').forEach((row: any) => {
+                const id = row.querySelector('.workflow-source-id')?.value || ''
+                if (id.trim()) workflowSources.push(id.trim())
+              })
+              const agentSources = Array.from(document.querySelectorAll('.L-agent-source')).filter((el:any)=>el.checked).map((el:any)=>el.value)
+              
+              const apiEndpoint = (document.getElementById('L-api-endpoint') as HTMLInputElement)?.value || ''
+              const cronSchedule = (document.getElementById('L-cron-schedule') as HTMLInputElement)?.value || ''
+              const modalities = Array.from(document.querySelectorAll('.L-modality')).filter((el:any)=>el.checked).map((el:any)=>el.value)
+              
+              // Collect conditions
+              const conditionLogic = (document.getElementById('L-condition-logic') as HTMLSelectElement)?.value || 'all'
+              const condRows = document.querySelectorAll('#L-conditions-list .condition-row')
+              const condItems: any[] = []
+              condRows.forEach((row: any) => {
+                const field = row.querySelector('.cond-field')?.value || ''
+                const op = row.querySelector('.cond-op')?.value || 'eq'
+                const value = row.querySelector('.cond-value')?.value || ''
+                if (field.trim()) condItems.push({ field, op, value })
+              })
+              const conditions = condItems.length > 0 ? (conditionLogic === 'all' ? { all: condItems } : { any: condItems }) : null
+              
+              // Collect sensor workflows with conditions
+              const sensorWorkflows: any[] = []
+              document.querySelectorAll('#L-sensor-workflows .sensor-workflow-row').forEach((row: any) => {
+                const id = row.querySelector('.workflow-id')?.value || ''
+                if (id.trim()) {
+                  const sensorConds: any[] = []
+                  row.querySelectorAll('.sensor-cond-row').forEach((cr: any) => {
+                    const f = cr.querySelector('.scond-field')?.value || ''
+                    const o = cr.querySelector('.scond-op')?.value || 'eq'
+                    const v = cr.querySelector('.scond-value')?.value || ''
+                    const a = cr.querySelector('.scond-action')?.value || 'continue'
+                    if (f.trim()) sensorConds.push({ field: f, op: o, value: v, action: a })
+                  })
+                  sensorWorkflows.push({ id: id.trim(), conditions: sensorConds })
+                }
+              })
+              const allowedActions: string[] = []
+              document.querySelectorAll('#L-action-workflows .action-workflow-row').forEach((row: any) => {
+                const id = row.querySelector('.workflow-id')?.value || ''
+                if (id.trim()) allowedActions.push(id.trim())
+              })
 
               const listening:any = {
-
                 passiveEnabled,
-
                 activeEnabled,
-
                 expectedContext: (document.getElementById('L-context') as HTMLTextAreaElement)?.value || '',
-
                 tags,
-
-                source: src,
-
+                sources: sources,
+                workflowSources: workflowSources,
+                agentSources: agentSources,
+                apiEndpoint: apiEndpoint,
+                modalities: modalities,
+                cronSchedule: cronSchedule,
+                conditions: conditions,
+                sensorWorkflows: sensorWorkflows,
+                allowedActions: allowedActions,
                 website: (document.getElementById('L-website') as HTMLInputElement)?.value || '',
-
                 // CRITICAL: Always preserve example files even when capability is toggled
-
                 exampleFiles: previouslySavedData?.listening?.exampleFiles || []
-
               }
 
-              // Collect triggers
+              // Helper to get source value based on source type
+              const getSourceValue = (row: any, source: string) => {
+                if (source === 'agent') return (row.querySelector('.act-agent-select') as HTMLSelectElement)?.value || ''
+                if (source === 'email') {
+                  const tags = row.querySelectorAll('.act-email-tags .email-tag span:first-child')
+                  return Array.from(tags).map((t: any) => t.textContent).join(',')
+                }
+                return (row.querySelector('.act-source-value') as HTMLInputElement)?.value || ''
+              }
 
-              const triggers:any[] = []
-
-              document.querySelectorAll('#L-active-list .act-row').forEach((row:any)=>{
-
-                const name = (row.querySelector('.act-tag') as HTMLInputElement)?.value || ''
-
-                const kind = (row.querySelector('.act-kind') as HTMLSelectElement)?.value || 'OTHER'
-
-                if (name.trim()) triggers.push({ tag: { name, kind } })
-
-              })
-
-              if (triggers.length > 0) listening.active = { triggers }
-
-              const passiveTriggers:any[] = []
-
+              // Collect action triggers (new format with source)
+              const actionTriggers:any[] = []
               document.querySelectorAll('#L-passive-triggers .act-row').forEach((row:any)=>{
-
                 const name = (row.querySelector('.act-tag') as HTMLInputElement)?.value || ''
-
-                const kind = (row.querySelector('.act-kind') as HTMLSelectElement)?.value || 'OTHER'
-
-                if (name.trim()) passiveTriggers.push({ tag: { name, kind } })
-
+                const source = (row.querySelector('.act-source') as HTMLSelectElement)?.value || 'chat'
+                const sourceValue = getSourceValue(row, source)
+                const cronCheck = row.querySelector('.act-cron-enable') as HTMLInputElement
+                const cronSchedule = cronCheck?.checked ? (row.querySelector('.act-cron-schedule') as HTMLInputElement)?.value || '' : ''
+                if (name.trim()) actionTriggers.push({ name, source, sourceValue, cronSchedule })
               })
+              if (actionTriggers.length > 0) listening.triggers = actionTriggers
 
-              if (passiveTriggers.length > 0) listening.passive = { triggers: passiveTriggers }
+              // Active triggers (for backward compatibility)
+              const activeTriggers:any[] = []
+              document.querySelectorAll('#L-active-list .act-row').forEach((row:any)=>{
+                const name = (row.querySelector('.act-tag') as HTMLInputElement)?.value || ''
+                const source = (row.querySelector('.act-source') as HTMLSelectElement)?.value || 'chat'
+                const sourceValue = getSourceValue(row, source)
+                const cronCheck = row.querySelector('.act-cron-enable') as HTMLInputElement
+                const cronSchedule = cronCheck?.checked ? (row.querySelector('.act-cron-schedule') as HTMLInputElement)?.value || '' : ''
+                if (name.trim()) activeTriggers.push({ name, source, sourceValue, cronSchedule })
+              })
+              if (activeTriggers.length > 0) listening.active = { triggers: activeTriggers }
 
               listening.reportTo = Array.from(document.querySelectorAll('#L-report-list .rep-row')).map((row:any)=> {
 
@@ -12700,53 +12757,45 @@ function initializeExtension() {
 
             }
 
-            // Active triggers - CRITICAL: Always save these for "Apply for:" dropdowns
+            // Helper to get source value based on source type
+            const getSourceVal = (row: any, source: string) => {
+              if (source === 'agent') return (row.querySelector('.act-agent-select') as HTMLSelectElement)?.value || ''
+              if (source === 'email') {
+                const tags = row.querySelectorAll('.act-email-tags .email-tag span:first-child')
+                return Array.from(tags).map((t: any) => t.textContent).join(',')
+              }
+              return (row.querySelector('.act-source-value') as HTMLInputElement)?.value || ''
+            }
 
-            const triggers:any[] = []
-
+            // Active triggers (for backward compatibility)
+            const activeTriggers:any[] = []
             document.querySelectorAll('#L-active-list .act-row').forEach((row:any)=>{
-
               const name = (row.querySelector('.act-tag') as HTMLInputElement)?.value || ''
-
-              const kind = (row.querySelector('.act-kind') as HTMLSelectElement)?.value || 'OTHER'
-
-              const extraSel = row.querySelector('.act-extra') as HTMLSelectElement | null
-
-              const extra = extraSel && extraSel.style.display !== 'none' ? (extraSel.value || '') : ''
-
-              if (name.trim()) {  // Only save non-empty trigger names
-
-                triggers.push({ tag: { name, kind, extra } })
-
+              const source = (row.querySelector('.act-source') as HTMLSelectElement)?.value || 'chat'
+              const sourceValue = getSourceVal(row, source)
+              const cronCheck = row.querySelector('.act-cron-enable') as HTMLInputElement
+              const cronSchedule = cronCheck?.checked ? (row.querySelector('.act-cron-schedule') as HTMLInputElement)?.value || '' : ''
+              
+              if (name.trim()) {
+                activeTriggers.push({ name, source, sourceValue, cronSchedule })
               }
-
             })
+            if (activeTriggers.length > 0) listening.active = { triggers: activeTriggers }
 
-            if (triggers.length > 0) listening.active = { triggers }
-
-            // Passive triggers
-
-            const passiveTriggers:any[] = []
-
+            // Action triggers (with source selection)
+            const actionTriggers:any[] = []
             document.querySelectorAll('#L-passive-triggers .act-row').forEach((row:any)=>{
-
               const name = (row.querySelector('.act-tag') as HTMLInputElement)?.value || ''
-
-              const kind = (row.querySelector('.act-kind') as HTMLSelectElement)?.value || 'OTHER'
-
-              const extraSel = row.querySelector('.act-extra') as HTMLSelectElement | null
-
-              const extra = extraSel && extraSel.style.display !== 'none' ? (extraSel.value || '') : ''
-
-              if (name.trim()) {  // Only save non-empty trigger names
-
-                passiveTriggers.push({ tag: { name, kind, extra } })
-
+              const source = (row.querySelector('.act-source') as HTMLSelectElement)?.value || 'chat'
+              const sourceValue = getSourceVal(row, source)
+              const cronCheck = row.querySelector('.act-cron-enable') as HTMLInputElement
+              const cronSchedule = cronCheck?.checked ? (row.querySelector('.act-cron-schedule') as HTMLInputElement)?.value || '' : ''
+              
+              if (name.trim()) {
+                actionTriggers.push({ name, source, sourceValue, cronSchedule })
               }
-
             })
-
-            if (passiveTriggers.length > 0) listening.passive = { triggers: passiveTriggers }
+            if (actionTriggers.length > 0) listening.triggers = actionTriggers
 
             // Report to
 
@@ -13666,93 +13715,42 @@ function initializeExtension() {
 
             <div id="L-passive" style="border:1px solid rgba(255,255,255,.25);border-radius:8px;padding:10px;background:rgba(255,255,255,0.04);margin-bottom:10px">
 
-            <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px">
-
-              <label>Listen on (type)
-
-                <select id="L-source" style="width:100%;background:#fff;color:#0f172a;border:1px solid #cbd5e1;padding:8px;border-radius:6px">
-
-                  <option value="all" selected>All</option>
-
-                  <option value="website">website</option>
-
-                  <option value="api">api</option>
-
-                  <option value="lmgtfy">LmGTFY</option>
-
-                  <option value="agent">Agent</option>
-
-                  <option value="workflow">Workflow</option>
-
-                  <option value="table">Table</option>
-
-                  <option value="diagram">Diagram</option>
-
-                  <option value="picture">Picture</option>
-
-                  <option value="video">Video</option>
-
-                </select>
-
-              </label>
-
-              <label id="L-website-wrap" style="display:none">Website URL
-
-                <input id="L-website" placeholder="https://example.com" style="width:100%;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.35);color:#fff;padding:8px;border-radius:6px">
-
-              </label>
-
-            </div>
-
+            <!-- Action Triggers Section (First) -->
             <div style="margin-bottom:12px;padding-bottom:12px;border-bottom:1px solid rgba(255,255,255,.15)">
+              <div style="font-weight:700;margin-bottom:8px;color:#fff">Action Trigger (with pattern recognition)
+                <span title="Define triggers that activate this listener. Each trigger specifies its source and optional parameters." style="font-size:12px;opacity:0.9;cursor:help;background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.35);padding:0 6px;border-radius:50%;margin-left:4px">?</span>
+              </div>
+              <div style="font-size:12px;opacity:0.8;margin-bottom:10px">Define how this agent can be activated. Multiple triggers enable different activation methods.</div>
 
-              <div style="font-weight:700;margin-bottom:6px">Tagged Trigger (with pattern detection)</div>
+              <div id="L-passive-triggers" style="display:flex;flex-direction:column;gap:12px;margin-bottom:10px"></div>
 
-              <div id="L-passive-triggers" style="display:flex;flex-direction:column;gap:8px;margin-bottom:8px"></div>
-
-              <button id="L-add-passive-trigger" style="background:rgba(255,255,255,.2);border:1px solid rgba(255,255,255,.35);color:#fff;padding:6px 10px;border-radius:6px;cursor:pointer">+ Add Trigger</button>
-
-              <div style="margin-top:8px;font-size:12px;opacity:0.9">Add #tags inside media or along uploads to the command chat. Pattern detection will analyze context automatically.</div>
-
+              <button id="L-add-passive-trigger" style="background:rgba(96,165,250,.3);border:1px solid rgba(96,165,250,.5);color:#fff;padding:8px 14px;border-radius:6px;cursor:pointer;font-weight:500">+ Add Action Trigger</button>
             </div>
 
-            <label style="display:flex;align-items:center;gap:6px">Expected Context
+            <!-- Sensor Workflows Section (Second) -->
+            <div style="margin-bottom:12px;padding-bottom:12px;border-bottom:1px solid rgba(255,255,255,.15)">
+              <div style="font-weight:600;margin-bottom:8px;color:#fff">Sensor Workflows (Pre-processing)
+                <span title="Read-only workflows that collect context before reasoning. Each sensor can have conditions that determine routing based on its output." style="font-size:12px;opacity:0.9;cursor:help;background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.35);padding:0 6px;border-radius:50%;margin-left:4px">?</span>
+              </div>
+              <div style="font-size:12px;opacity:0.8;margin-bottom:8px">Add sensor workflows to collect context. Cron schedules and pattern recognition rules can be configured within each workflow.</div>
+              <div id="L-sensor-workflows" style="display:flex;flex-direction:column;gap:12px;margin-bottom:8px"></div>
+              <button id="L-add-sensor" style="background:rgba(96,165,250,.3);border:1px solid rgba(96,165,250,.5);color:#fff;padding:8px 14px;border-radius:6px;cursor:pointer;font-weight:500">+ Add Sensor Workflow</button>
+            </div>
 
-              <span title="Describe examples, keywords, or patterns the Listener Agent should detect. These instructions improve the intent detection of the optimization layer and can enhance or overwrite the trained LLM logic of finetuned models, depending on this agent's settings. It offers a more tailored experience for the users." style="font-size:12px;opacity:0.9;cursor:help;background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.35);padding:0 6px;border-radius:50%">i</span>
-
-            </label>
-
-            <textarea id="L-context" placeholder="e.g. business email, product research, visiting specific site" style="width:100%;min-height:90px;background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.45);color:#fff;padding:8px;border-radius:6px;margin-bottom:8px"></textarea>
-
+            <!-- Allowed Actions Section -->
             <div style="margin-bottom:12px">
-
-              <label>Example Context (optional)
-
-                <input id="L-examples" type="file" multiple style="width:100%;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.25);color:#fff;padding:6px;border-radius:6px;margin-top:4px">
-
-              </label>
-
-              <div id="L-examples-list-container"></div>
-
-            </div>
-
-            <div style="margin:8px 0;display:flex;flex-wrap:wrap;gap:10px">
-
-              <label><input class="L-tag" type="checkbox" value="patterns" checked> patterns</label>
-
-              <label><input class="L-tag" type="checkbox" value="code"> code</label>
-
-              <label><input class="L-tag" type="checkbox" value="debug-error"> debug error</label>
-
-              <label><input class="L-tag" type="checkbox" value="math"> math</label>
-
+              <div style="font-weight:600;margin-bottom:8px;color:#fff">Allowed Actions (Post-processing)
+                <span title="Whitelisted action workflows that this listener can execute after reasoning. Only selected actions will be available." style="font-size:12px;opacity:0.9;cursor:help;background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.35);padding:0 6px;border-radius:50%;margin-left:4px">?</span>
+              </div>
+              <div id="L-action-workflows" style="display:flex;flex-direction:column;gap:8px;margin-bottom:8px"></div>
+              <button id="L-add-action" style="background:rgba(255,255,255,.2);border:1px solid rgba(255,255,255,.35);color:#fff;padding:6px 10px;border-radius:6px;cursor:pointer">+ Add Allowed Action</button>
             </div>
 
             </div>
 
             <div id="L-active" style="display:none;border:1px solid rgba(255,255,255,.25);border-radius:8px;padding:10px;background:rgba(255,255,255,0.04);margin-bottom:10px">
 
-              <div style="font-weight:700;margin-bottom:6px">Tagged Trigger (without pattern detection)</div>
+              <div style="font-weight:700;margin-bottom:6px">Action Trigger (without pattern detection)</div>
 
               <div id="L-active-list" style="display:flex;flex-direction:column;gap:8px"></div>
 
@@ -14274,17 +14272,143 @@ function initializeExtension() {
 
 
 
-        // After mount init
+        // Trigger sources are now defined per Action Trigger, not globally
 
-        const srcSel = configOverlay.querySelector('#L-source') as HTMLSelectElement | null
+        // Condition row helpers
+        const conditionsList = configOverlay.querySelector('#L-conditions-list') as HTMLElement | null
+        const addConditionBtn = configOverlay.querySelector('#L-add-condition') as HTMLButtonElement | null
 
-        const websiteWrap = configOverlay.querySelector('#L-website-wrap') as HTMLElement | null
+        const createConditionRow = (field: string = '', op: string = 'eq', value: string = '') => {
+          const row = document.createElement('div')
+          row.className = 'condition-row'
+          row.style.cssText = 'display:flex;gap:6px;align-items:center'
+          row.innerHTML = `
+            <input type="text" placeholder="Field (e.g. input.length)" value="${field}" style="flex:1;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.35);color:#fff;padding:6px;border-radius:4px;font-size:12px" class="cond-field">
+            <select style="background:#fff;color:#0f172a;border:1px solid #cbd5e1;padding:6px;border-radius:4px;font-size:12px" class="cond-op">
+              <option value="eq" ${op==='eq'?'selected':''}>equals</option>
+              <option value="ne" ${op==='ne'?'selected':''}>not equals</option>
+              <option value="contains" ${op==='contains'?'selected':''}>contains</option>
+              <option value="gt" ${op==='gt'?'selected':''}>&gt;</option>
+              <option value="lt" ${op==='lt'?'selected':''}>&lt;</option>
+              <option value="gte" ${op==='gte'?'selected':''}>&gt;=</option>
+              <option value="lte" ${op==='lte'?'selected':''}>&lt;=</option>
+              <option value="exists" ${op==='exists'?'selected':''}>exists</option>
+              <option value="regex" ${op==='regex'?'selected':''}>regex</option>
+            </select>
+            <input type="text" placeholder="Value" value="${value}" style="flex:1;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.35);color:#fff;padding:6px;border-radius:4px;font-size:12px" class="cond-value">
+            <button style="background:#ef4444;border:none;color:#fff;padding:4px 8px;border-radius:4px;cursor:pointer;font-size:12px" class="cond-del">✕</button>
+          `
+          row.querySelector('.cond-del')?.addEventListener('click', () => row.remove())
+          return row
+        }
 
-        const updateWebsiteVisibility = () => { if (srcSel && websiteWrap) websiteWrap.style.display = srcSel.value === 'website' ? 'block' : 'none' }
+        addConditionBtn?.addEventListener('click', () => {
+          conditionsList?.appendChild(createConditionRow())
+        })
 
-        srcSel && srcSel.addEventListener('change', updateWebsiteVisibility)
+        // Sensor workflow helpers - with inline conditions
+        const sensorList = configOverlay.querySelector('#L-sensor-workflows') as HTMLElement | null
+        const addSensorBtn = configOverlay.querySelector('#L-add-sensor') as HTMLButtonElement | null
 
-        updateWebsiteVisibility()
+        const createSensorWorkflowRow = (workflowId: string = '', conditions: any[] = []) => {
+          const row = document.createElement('div')
+          row.className = 'sensor-workflow-row'
+          row.style.cssText = 'background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.2);border-radius:8px;padding:10px'
+          
+          const header = document.createElement('div')
+          header.style.cssText = 'display:flex;gap:8px;align-items:center;margin-bottom:8px'
+          header.innerHTML = `
+            <span style="font-size:13px;font-weight:500;color:#fff">📊 Sensor:</span>
+            <input type="text" placeholder="Workflow ID or name" value="${workflowId}" style="flex:1;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.35);color:#fff;padding:6px 10px;border-radius:4px;font-size:13px" class="workflow-id">
+            <button style="background:#ef4444;border:none;color:#fff;padding:4px 10px;border-radius:4px;cursor:pointer;font-size:12px" class="sensor-del">✕</button>
+          `
+          
+          const conditionsWrap = document.createElement('div')
+          conditionsWrap.style.cssText = 'margin-top:8px;padding-top:8px;border-top:1px dashed rgba(255,255,255,0.15)'
+          conditionsWrap.innerHTML = `
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+              <span style="font-size:12px;opacity:0.8">📋 If output matches (conditions):</span>
+              <button class="sensor-add-cond" style="background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.25);color:#fff;padding:3px 8px;border-radius:4px;cursor:pointer;font-size:11px">+ Add Condition</button>
+            </div>
+            <div class="sensor-conditions" style="display:flex;flex-direction:column;gap:6px"></div>
+          `
+          
+          row.appendChild(header)
+          row.appendChild(conditionsWrap)
+          
+          // Wire up delete
+          header.querySelector('.sensor-del')?.addEventListener('click', () => row.remove())
+          
+          // Wire up add condition for this sensor
+          const sensorCondList = conditionsWrap.querySelector('.sensor-conditions') as HTMLElement
+          conditionsWrap.querySelector('.sensor-add-cond')?.addEventListener('click', () => {
+            const condRow = document.createElement('div')
+            condRow.className = 'sensor-cond-row'
+            condRow.style.cssText = 'display:flex;gap:4px;align-items:center;font-size:12px'
+            condRow.innerHTML = `
+              <span style="opacity:0.7">If</span>
+              <input type="text" placeholder="output.field" style="flex:1;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.25);color:#fff;padding:4px 6px;border-radius:3px;font-size:11px" class="scond-field">
+              <select style="background:#fff;color:#0f172a;border:1px solid #cbd5e1;padding:4px;border-radius:3px;font-size:11px" class="scond-op">
+                <option value="eq">==</option>
+                <option value="ne">!=</option>
+                <option value="contains">contains</option>
+                <option value="gt">&gt;</option>
+                <option value="lt">&lt;</option>
+                <option value="exists">exists</option>
+              </select>
+              <input type="text" placeholder="value" style="flex:1;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.25);color:#fff;padding:4px 6px;border-radius:3px;font-size:11px" class="scond-value">
+              <span style="opacity:0.7">→</span>
+              <select style="background:#fff;color:#0f172a;border:1px solid #cbd5e1;padding:4px;border-radius:3px;font-size:11px" class="scond-action">
+                <option value="continue">Continue</option>
+                <option value="skip">Skip Agent</option>
+                <option value="route">Route to...</option>
+              </select>
+              <button style="background:#ef4444;border:none;color:#fff;padding:2px 6px;border-radius:3px;cursor:pointer;font-size:10px" class="scond-del">✕</button>
+            `
+            condRow.querySelector('.scond-del')?.addEventListener('click', () => condRow.remove())
+            sensorCondList.appendChild(condRow)
+          })
+          
+          // Pre-populate conditions if provided
+          conditions.forEach((c: any) => {
+            const addBtn = conditionsWrap.querySelector('.sensor-add-cond') as HTMLButtonElement
+            addBtn?.click()
+            const rows = sensorCondList.querySelectorAll('.sensor-cond-row')
+            const lastRow = rows[rows.length - 1]
+            if (lastRow) {
+              (lastRow.querySelector('.scond-field') as HTMLInputElement).value = c.field || ''
+              ;(lastRow.querySelector('.scond-op') as HTMLSelectElement).value = c.op || 'eq'
+              ;(lastRow.querySelector('.scond-value') as HTMLInputElement).value = c.value || ''
+              ;(lastRow.querySelector('.scond-action') as HTMLSelectElement).value = c.action || 'continue'
+            }
+          })
+          
+          return row
+        }
+
+        addSensorBtn?.addEventListener('click', () => {
+          sensorList?.appendChild(createSensorWorkflowRow())
+        })
+
+        // Action workflow helpers (simple rows)
+        const actionList = configOverlay.querySelector('#L-action-workflows') as HTMLElement | null
+        const addActionBtn = configOverlay.querySelector('#L-add-action') as HTMLButtonElement | null
+
+        const createActionWorkflowRow = (value: string = '') => {
+          const row = document.createElement('div')
+          row.className = 'action-workflow-row'
+          row.style.cssText = 'display:flex;gap:6px;align-items:center'
+          row.innerHTML = `
+            <input type="text" placeholder="Action workflow ID or name" value="${value}" style="flex:1;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.35);color:#fff;padding:6px;border-radius:4px;font-size:12px" class="workflow-id">
+            <button style="background:#ef4444;border:none;color:#fff;padding:4px 8px;border-radius:4px;cursor:pointer;font-size:12px" class="workflow-del">✕</button>
+          `
+          row.querySelector('.workflow-del')?.addEventListener('click', () => row.remove())
+          return row
+        }
+
+        addActionBtn?.addEventListener('click', () => {
+          actionList?.appendChild(createActionWorkflowRow())
+        })
 
 
 
@@ -14358,62 +14482,217 @@ function initializeExtension() {
 
         }
 
-        const makeTriggerRow = (init?: { tag?: string, kind?: string, extra?: string }) => {
-
+        const makeTriggerRow = (init?: { tag?: string, source?: string, sourceValue?: string, cronSchedule?: string }) => {
           const row = document.createElement('div')
-
           row.className = 'act-row'
-
-          row.style.cssText = 'display:grid;grid-template-columns:auto 1fr 1fr auto;gap:8px;align-items:center'
-
-          const hash = document.createElement('div'); hash.textContent = '#'; hash.style.cssText = 'background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.35);padding:6px 10px;border-radius:6px;font-weight:700'
-
-          const tagInput = document.createElement('input'); tagInput.placeholder = 'tag-name'; tagInput.className = 'act-tag'; tagInput.style.cssText = 'background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.35);color:#fff;padding:8px;border-radius:6px'; if (init?.tag) tagInput.value = init.tag
-
-          const kindSel = document.createElement('select'); kindSel.className = 'act-kind'; kindSel.style.cssText = 'background:#fff;color:#0f172a;border:1px solid #cbd5e1;padding:8px;border-radius:6px'
-
-          const kinds = ['URL','API','PIN-SCREENSHOT','PIN-STREAM','VIDEO','PICTURE','VOICEMEMO','MIC','COMMAND','PDF','FILE','DOCS','SIGNAL','OTHER']
-
-          const kindLabels: Record<string, string> = {
-
-            'PIN-SCREENSHOT': 'Tagged-Trigger Screenshot',
-
-            'PIN-STREAM': 'Tagged-Trigger Stream'
-
+          row.style.cssText = 'background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.2);border-radius:8px;padding:12px'
+          
+          // Header row with tag name and delete button
+          const header = document.createElement('div')
+          header.style.cssText = 'display:flex;gap:8px;align-items:center;margin-bottom:10px'
+          
+          const hash = document.createElement('div')
+          hash.textContent = '#'
+          hash.style.cssText = 'background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.35);padding:6px 10px;border-radius:6px;font-weight:700;color:#fff'
+          
+          const tagInput = document.createElement('input')
+          tagInput.placeholder = 'trigger-name (e.g. invoice, report, screenshot)'
+          tagInput.className = 'act-tag'
+          tagInput.style.cssText = 'flex:1;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.35);color:#fff;padding:8px 12px;border-radius:6px;font-size:13px'
+          if (init?.tag) tagInput.value = init.tag
+          
+          const delBtn = document.createElement('button')
+          delBtn.textContent = '×'
+          delBtn.title = 'Remove trigger'
+          delBtn.style.cssText = 'background:#ef4444;color:#fff;border:none;padding:6px 12px;border-radius:6px;cursor:pointer;font-size:16px'
+          delBtn.addEventListener('click', () => row.remove())
+          
+          header.appendChild(hash)
+          header.appendChild(tagInput)
+          header.appendChild(delBtn)
+          
+          // Source selection row
+          const sourceRow = document.createElement('div')
+          sourceRow.style.cssText = 'display:flex;gap:8px;align-items:center;flex-wrap:wrap'
+          
+          const sourceLabel = document.createElement('span')
+          sourceLabel.textContent = 'Source:'
+          sourceLabel.style.cssText = 'font-size:12px;opacity:0.8;min-width:50px'
+          
+          const sourceSel = document.createElement('select')
+          sourceSel.className = 'act-source'
+          sourceSel.style.cssText = 'background:#fff;color:#0f172a;border:1px solid #cbd5e1;padding:6px 10px;border-radius:6px;font-size:12px'
+          
+          const sources = [
+            { value: 'all', label: 'All Sources' },
+            { value: 'chat', label: 'Chat Message' },
+            { value: 'voice', label: 'Voice Command' },
+            { value: 'voicememo', label: 'Voice Memo' },
+            { value: 'video', label: 'Video' },
+            { value: 'email', label: 'Email' },
+            { value: 'whatsapp', label: 'WhatsApp Web' },
+            { value: 'pdf', label: 'PDF' },
+            { value: 'docs', label: 'DOCS' },
+            { value: 'dom', label: 'DOM/Page' },
+            { value: 'api', label: 'API/Webhook' },
+            { value: 'workflow', label: 'Workflow' },
+            { value: 'agent', label: 'Agent' },
+            { value: 'screenshot', label: 'Screenshot Capture' },
+            { value: 'stream', label: 'Stream Capture' }
+          ]
+          sources.forEach(s => {
+            const op = document.createElement('option')
+            op.value = s.value
+            op.textContent = s.label
+            if (init?.source === s.value) op.selected = true
+            if (!init?.source && s.value === 'chat') op.selected = true
+            sourceSel.appendChild(op)
+          })
+          
+          // Source-specific value input (shown for workflow, api, dom)
+          const sourceValueInput = document.createElement('input')
+          sourceValueInput.className = 'act-source-value'
+          sourceValueInput.style.cssText = 'flex:1;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.35);color:#fff;padding:6px 10px;border-radius:6px;font-size:12px;display:none'
+          if (init?.sourceValue && init?.source !== 'agent') sourceValueInput.value = init.sourceValue
+          
+          // Agent select dropdown (1-50)
+          const agentSelect = document.createElement('select')
+          agentSelect.className = 'act-agent-select'
+          agentSelect.style.cssText = 'background:#fff;color:#0f172a;border:1px solid #cbd5e1;padding:6px 10px;border-radius:6px;font-size:12px;display:none'
+          const defaultAgentOpt = document.createElement('option')
+          defaultAgentOpt.value = ''
+          defaultAgentOpt.textContent = 'Select Agent...'
+          agentSelect.appendChild(defaultAgentOpt)
+          for (let i = 1; i <= 50; i++) {
+            const opt = document.createElement('option')
+            opt.value = String(i)
+            opt.textContent = `Agent ${i}`
+            if (init?.source === 'agent' && init?.sourceValue === String(i)) opt.selected = true
+            agentSelect.appendChild(opt)
           }
-
-          kinds.forEach(k=>{ const op=document.createElement('option'); op.value=k; op.textContent=kindLabels[k] || k; if(!init?.kind && k==='OTHER') op.selected=true; if(init?.kind===k) op.selected=true; kindSel.appendChild(op) })
-
-          const extraSel = document.createElement('select'); extraSel.className = 'act-extra'; extraSel.style.cssText = 'background:#fff;color:#0f172a;border:1px solid #cbd5e1;padding:8px;border-radius:6px;display:none'
-
-          const delBtn = document.createElement('button'); delBtn.textContent = '×'; delBtn.title='Remove'; delBtn.style.cssText = 'background:#f44336;color:#fff;border:1px solid rgba(255,255,255,.25);padding:0 10px;border-radius:6px;cursor:pointer'
-
-          delBtn.addEventListener('click', ()=> row.remove())
-
-          const syncExtra = () => {
-
-            const v = kindSel.value
-
-            // Removed PIN-SCREENSHOT and PIN-STREAM from showing extra select - user can write in textbox
-
-            extraSel.style.display='none'; extraSel.innerHTML=''
-
+          
+          // Email tags container - inline tag input style
+          const emailContainer = document.createElement('div')
+          emailContainer.className = 'act-email-container'
+          emailContainer.style.cssText = 'flex:1;display:none;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.35);border-radius:6px;padding:4px 8px;min-height:32px;cursor:text'
+          
+          const emailTagsWrap = document.createElement('div')
+          emailTagsWrap.className = 'act-email-tags'
+          emailTagsWrap.style.cssText = 'display:flex;flex-wrap:wrap;gap:4px;align-items:center'
+          
+          const emailInput = document.createElement('input')
+          emailInput.className = 'act-email-input'
+          emailInput.placeholder = 'Type email and press space...'
+          emailInput.style.cssText = 'flex:1;min-width:150px;background:transparent;border:none;outline:none;color:#fff;padding:2px 0;font-size:12px'
+          
+          const addEmailTag = (email: string) => {
+            const trimmed = email.trim().replace(/,$/,'')
+            if (!trimmed || !trimmed.includes('@')) return false
+            // Check for duplicates
+            const existing = emailTagsWrap.querySelectorAll('.email-tag span:first-child')
+            for (const e of existing) { if ((e as HTMLElement).textContent === trimmed) return false }
+            
+            const tag = document.createElement('span')
+            tag.className = 'email-tag'
+            tag.style.cssText = 'display:inline-flex;align-items:center;gap:3px;background:rgba(96,165,250,.4);color:#fff;padding:2px 6px;border-radius:4px;font-size:11px'
+            tag.innerHTML = `<span>${trimmed}</span><button type="button" style="background:none;border:none;color:#fff;cursor:pointer;padding:0;font-size:14px;line-height:1;opacity:0.8">×</button>`
+            tag.querySelector('button')?.addEventListener('click', (e) => { e.stopPropagation(); tag.remove() })
+            emailTagsWrap.insertBefore(tag, emailInput)
+            return true
           }
-
-          kindSel.addEventListener('change', syncExtra)
-
-          row.appendChild(hash); row.appendChild(tagInput); row.appendChild(kindSel); row.appendChild(delBtn)
-
-          // Insert extra select before delete when visible
-
-          row.insertBefore(extraSel, delBtn)
-
-          syncExtra()
-
-          if (init?.extra) { try { extraSel.value = init.extra } catch {} }
-
+          
+          emailInput.addEventListener('keydown', (e) => {
+            if (e.key === ' ' || e.key === 'Enter' || e.key === ',') {
+              e.preventDefault()
+              if (addEmailTag(emailInput.value)) emailInput.value = ''
+            } else if (e.key === 'Backspace' && !emailInput.value) {
+              const tags = emailTagsWrap.querySelectorAll('.email-tag')
+              if (tags.length > 0) tags[tags.length - 1].remove()
+            }
+          })
+          
+          // Also handle paste with multiple emails
+          emailInput.addEventListener('paste', (e) => {
+            e.preventDefault()
+            const paste = (e.clipboardData || (window as any).clipboardData).getData('text')
+            paste.split(/[,\s]+/).forEach((email: string) => addEmailTag(email))
+          })
+          
+          emailContainer.addEventListener('click', () => emailInput.focus())
+          emailTagsWrap.appendChild(emailInput)
+          emailContainer.appendChild(emailTagsWrap)
+          
+          // Restore existing emails
+          if (init?.source === 'email' && init?.sourceValue) {
+            init.sourceValue.split(',').forEach((email: string) => addEmailTag(email))
+          }
+          
+          // Cron schedule option
+          const cronWrap = document.createElement('div')
+          cronWrap.style.cssText = 'display:none;width:100%;margin-top:8px'
+          cronWrap.innerHTML = `
+            <div style="display:flex;align-items:center;gap:8px">
+              <label style="display:flex;align-items:center;gap:4px;font-size:12px;opacity:0.8">
+                <input type="checkbox" class="act-cron-enable" style="margin:0"> + Cron Schedule
+              </label>
+              <input type="text" class="act-cron-schedule" placeholder="*/5 * * * *" style="flex:1;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.35);color:#fff;padding:4px 8px;border-radius:4px;font-family:monospace;font-size:11px;display:none">
+            </div>
+          `
+          
+          const updateSourceOptions = () => {
+            const v = sourceSel.value
+            sourceValueInput.style.display = 'none'
+            agentSelect.style.display = 'none'
+            emailContainer.style.display = 'none'
+            cronWrap.style.display = 'none'
+            
+            if (v === 'workflow') {
+              sourceValueInput.style.display = 'block'
+              sourceValueInput.placeholder = 'Workflow ID (optional)'
+              cronWrap.style.display = 'block'
+            } else if (v === 'api') {
+              sourceValueInput.style.display = 'block'
+              sourceValueInput.placeholder = '/api/webhook/endpoint (optional)'
+              cronWrap.style.display = 'block'
+            } else if (v === 'agent') {
+              agentSelect.style.display = 'block'
+            } else if (v === 'email') {
+              emailContainer.style.display = 'flex'
+            } else if (v === 'dom') {
+              sourceValueInput.style.display = 'block'
+              sourceValueInput.placeholder = 'URL filter (optional)'
+            }
+          }
+          
+          sourceSel.addEventListener('change', updateSourceOptions)
+          
+          // Wire up cron checkbox
+          setTimeout(() => {
+            const cronCheck = cronWrap.querySelector('.act-cron-enable') as HTMLInputElement
+            const cronInput = cronWrap.querySelector('.act-cron-schedule') as HTMLInputElement
+            cronCheck?.addEventListener('change', () => {
+              cronInput.style.display = cronCheck.checked ? 'block' : 'none'
+            })
+            if (init?.cronSchedule) {
+              cronCheck.checked = true
+              cronInput.style.display = 'block'
+              cronInput.value = init.cronSchedule
+            }
+          }, 0)
+          
+          sourceRow.appendChild(sourceLabel)
+          sourceRow.appendChild(sourceSel)
+          sourceRow.appendChild(sourceValueInput)
+          sourceRow.appendChild(agentSelect)
+          sourceRow.appendChild(emailContainer)
+          
+          row.appendChild(header)
+          row.appendChild(sourceRow)
+          row.appendChild(cronWrap)
+          
+          updateSourceOptions()
+          
           return row
-
         }
 
         if (activeList && activeAddBtn) {
@@ -15412,23 +15691,7 @@ function initializeExtension() {
 
             
 
-            // Restore Source dropdown
-
-            if (l.source) {
-
-              const sourceSelect = configOverlay.querySelector('#L-source') as HTMLSelectElement
-
-              if (sourceSelect) {
-
-                sourceSelect.value = l.source
-
-                sourceSelect.dispatchEvent(new Event('change'))
-
-                console.log(`  ✓ Restored Source: ${l.source}`)
-
-              }
-
-            }
+            // Trigger sources are now restored per Action Trigger below
 
             
 
@@ -15449,6 +15712,112 @@ function initializeExtension() {
             }
 
             
+
+            // Restore API Endpoint
+            if (l.apiEndpoint) {
+              const apiInput = configOverlay.querySelector('#L-api-endpoint') as HTMLInputElement
+              if (apiInput) {
+                apiInput.value = l.apiEndpoint
+                console.log(`  ✓ Restored API Endpoint: ${l.apiEndpoint}`)
+              }
+            }
+
+            // Restore Cron Schedule
+            if (l.cronSchedule) {
+              const cronInput = configOverlay.querySelector('#L-cron-schedule') as HTMLInputElement
+              if (cronInput) {
+                cronInput.value = l.cronSchedule
+                console.log(`  ✓ Restored Cron Schedule: ${l.cronSchedule}`)
+              }
+            }
+
+            // Restore Modalities
+            if (l.modalities && Array.isArray(l.modalities)) {
+              document.querySelectorAll('.L-modality').forEach((el: any) => {
+                el.checked = l.modalities.includes(el.value)
+              })
+              console.log(`  ✓ Restored Modalities: ${l.modalities.join(', ')}`)
+            }
+
+            // Restore Conditions
+            if (l.conditions) {
+              const condLogicSelect = configOverlay.querySelector('#L-condition-logic') as HTMLSelectElement
+              const condList = configOverlay.querySelector('#L-conditions-list') as HTMLElement
+              const addCondBtn = configOverlay.querySelector('#L-add-condition') as HTMLButtonElement
+              
+              if (condLogicSelect && condList && addCondBtn) {
+                const condItems = l.conditions.all || l.conditions.any || []
+                condLogicSelect.value = l.conditions.all ? 'all' : 'any'
+                
+                condItems.forEach((cond: any) => {
+                  addCondBtn.click()
+                  const rows = condList.querySelectorAll('.condition-row')
+                  const lastRow = rows[rows.length - 1]
+                  if (lastRow) {
+                    const fieldInput = lastRow.querySelector('.cond-field') as HTMLInputElement
+                    const opSelect = lastRow.querySelector('.cond-op') as HTMLSelectElement
+                    const valueInput = lastRow.querySelector('.cond-value') as HTMLInputElement
+                    if (fieldInput) fieldInput.value = cond.field || ''
+                    if (opSelect) opSelect.value = cond.op || 'eq'
+                    if (valueInput) valueInput.value = cond.value || ''
+                  }
+                })
+                console.log(`  ✓ Restored Conditions: ${condItems.length}`)
+              }
+            }
+
+            // Restore Sensor Workflows (with inline conditions)
+            if (l.sensorWorkflows && Array.isArray(l.sensorWorkflows)) {
+              const sensorList = configOverlay.querySelector('#L-sensor-workflows') as HTMLElement
+              const addSensorBtn = configOverlay.querySelector('#L-add-sensor') as HTMLButtonElement
+              if (sensorList && addSensorBtn) {
+                l.sensorWorkflows.forEach((sensor: any) => {
+                  // Handle both old format (string) and new format (object with id and conditions)
+                  const sensorId = typeof sensor === 'string' ? sensor : sensor.id
+                  const sensorConds = typeof sensor === 'object' ? (sensor.conditions || []) : []
+                  
+                  addSensorBtn.click()
+                  const rows = sensorList.querySelectorAll('.sensor-workflow-row')
+                  const lastRow = rows[rows.length - 1]
+                  const input = lastRow?.querySelector('.workflow-id') as HTMLInputElement
+                  if (input) input.value = sensorId
+                  
+                  // Restore sensor conditions
+                  if (sensorConds.length > 0 && lastRow) {
+                    const addCondBtn = lastRow.querySelector('.sensor-add-cond') as HTMLButtonElement
+                    const condsList = lastRow.querySelector('.sensor-conditions') as HTMLElement
+                    sensorConds.forEach((c: any) => {
+                      addCondBtn?.click()
+                      const condRows = condsList?.querySelectorAll('.sensor-cond-row')
+                      const lastCondRow = condRows?.[condRows.length - 1]
+                      if (lastCondRow) {
+                        (lastCondRow.querySelector('.scond-field') as HTMLInputElement).value = c.field || ''
+                        ;(lastCondRow.querySelector('.scond-op') as HTMLSelectElement).value = c.op || 'eq'
+                        ;(lastCondRow.querySelector('.scond-value') as HTMLInputElement).value = c.value || ''
+                        ;(lastCondRow.querySelector('.scond-action') as HTMLSelectElement).value = c.action || 'continue'
+                      }
+                    })
+                  }
+                })
+                console.log(`  ✓ Restored Sensor Workflows: ${l.sensorWorkflows.length}`)
+              }
+            }
+
+            // Restore Allowed Actions
+            if (l.allowedActions && Array.isArray(l.allowedActions)) {
+              const actionList = configOverlay.querySelector('#L-action-workflows') as HTMLElement
+              const addActionBtn = configOverlay.querySelector('#L-add-action') as HTMLButtonElement
+              if (actionList && addActionBtn) {
+                l.allowedActions.forEach((wfId: string) => {
+                  addActionBtn.click()
+                  const rows = actionList.querySelectorAll('.action-workflow-row')
+                  const lastRow = rows[rows.length - 1]
+                  const input = lastRow?.querySelector('.workflow-id') as HTMLInputElement
+                  if (input) input.value = wfId
+                })
+                console.log(`  ✓ Restored Allowed Actions: ${l.allowedActions.length}`)
+              }
+            }
 
             // Restore Passive/Active toggles
 
@@ -15486,48 +15855,57 @@ function initializeExtension() {
 
             
 
-            // Restore passive triggers
-
-            if (l.passive?.triggers && l.passive.triggers.length > 0) {
-
+            // Restore action triggers (new format)
+            const triggersToRestore = l.triggers || l.passive?.triggers || []
+            if (triggersToRestore.length > 0) {
               const passiveList = configOverlay.querySelector('#L-passive-triggers')
-
               if (passiveList) {
-
                 passiveList.innerHTML = ''  // Clear first
-
-                l.passive.triggers.forEach((trigger: any) => {
-
+                triggersToRestore.forEach((trigger: any) => {
                   const addBtn = configOverlay.querySelector('#L-add-passive-trigger') as HTMLButtonElement
-
                   if (addBtn) {
-
                     addBtn.click()
-
                     const rows = configOverlay.querySelectorAll('#L-passive-triggers .act-row')
-
                     const lastRow = rows[rows.length - 1]
-
-                    if (lastRow && trigger.tag) {
-
+                    if (lastRow) {
+                      // New format: name, source, sourceValue, cronSchedule
                       const nameInput = lastRow.querySelector('.act-tag') as HTMLInputElement
-
-                      const kindSelect = lastRow.querySelector('.act-kind') as HTMLSelectElement
-
-                      if (nameInput) nameInput.value = trigger.tag.name || ''
-
-                      if (kindSelect) kindSelect.value = trigger.tag.kind || 'OTHER'
-
+                      const sourceSelect = lastRow.querySelector('.act-source') as HTMLSelectElement
+                      const sourceValueInput = lastRow.querySelector('.act-source-value') as HTMLInputElement
+                      const agentSelectEl = lastRow.querySelector('.act-agent-select') as HTMLSelectElement
+                      const cronCheck = lastRow.querySelector('.act-cron-enable') as HTMLInputElement
+                      const cronInput = lastRow.querySelector('.act-cron-schedule') as HTMLInputElement
+                      
+                      // Handle both old format (trigger.tag.name) and new format (trigger.name)
+                      const name = trigger.name || trigger.tag?.name || ''
+                      const source = trigger.source || 'chat'
+                      const sourceValue = trigger.sourceValue || ''
+                      const cronSchedule = trigger.cronSchedule || ''
+                      
+                      if (nameInput) nameInput.value = name
+                      if (sourceSelect) {
+                        sourceSelect.value = source
+                        sourceSelect.dispatchEvent(new Event('change'))
+                      }
+                      // Set source value - agent select, email input, or text input
+                      if (source === 'agent' && agentSelectEl && sourceValue) {
+                        agentSelectEl.value = sourceValue
+                      } else if (source === 'email' && sourceValue) {
+                        const emailEl = lastRow.querySelector('.act-email-input') as HTMLInputElement
+                        if (emailEl) emailEl.value = sourceValue
+                      } else if (sourceValueInput && sourceValue) {
+                        sourceValueInput.value = sourceValue
+                      }
+                      if (cronSchedule && cronCheck && cronInput) {
+                        cronCheck.checked = true
+                        cronInput.style.display = 'block'
+                        cronInput.value = cronSchedule
+                      }
                     }
-
                   }
-
                 })
-
-                console.log(`  ✓ Restored ${l.passive.triggers.length} passive triggers`)
-
+                console.log(`  ✓ Restored ${triggersToRestore.length} action triggers`)
               }
-
             }
 
             
@@ -16844,12 +17222,18 @@ function initializeExtension() {
 
               
 
-              if (l.source) {
-
-                const src = configOverlay.querySelector('#L-source') as HTMLSelectElement
-
-                if (src) src.value = l.source
-
+              // Restore sources (multi-select checkboxes)
+              if (l.sources && Array.isArray(l.sources)) {
+                document.querySelectorAll('.L-source-check').forEach((el: any) => {
+                  el.checked = l.sources.includes(el.value)
+                  el.dispatchEvent(new Event('change'))
+                })
+              }
+              // Restore agent sources
+              if (l.agentSources && Array.isArray(l.agentSources)) {
+                document.querySelectorAll('.L-agent-source').forEach((el: any) => {
+                  el.checked = l.agentSources.includes(el.value)
+                })
               }
 
               
@@ -16860,6 +17244,21 @@ function initializeExtension() {
 
                 if (web) web.value = l.website
 
+              }
+
+              // Restore new automation fields
+              if (l.apiEndpoint) {
+                const apiEl = configOverlay.querySelector('#L-api-endpoint') as HTMLInputElement
+                if (apiEl) apiEl.value = l.apiEndpoint
+              }
+              if (l.cronSchedule) {
+                const cronEl = configOverlay.querySelector('#L-cron-schedule') as HTMLInputElement
+                if (cronEl) cronEl.value = l.cronSchedule
+              }
+              if (l.modalities && Array.isArray(l.modalities)) {
+                document.querySelectorAll('.L-modality').forEach((el: any) => {
+                  el.checked = l.modalities.includes(el.value)
+                })
               }
 
               
@@ -17542,7 +17941,7 @@ function initializeExtension() {
 
             console.log(`  📝 Expected Context: "${parsed?.listening?.expectedContext?.substring(0, 50) || '(empty)'}${parsed?.listening?.expectedContext?.length > 50 ? '...' : ''}"`)
 
-            console.log(`  🎯 Listen on (type): "${parsed?.listening?.source || '(empty)'}"`)
+            console.log(`  🎯 Trigger Sources: ${JSON.stringify(parsed?.listening?.sources || [])}`)
 
             console.log(`  📋 Rules: "${parsed?.reasoning?.rules?.substring(0, 50) || '(empty)'}${parsed?.reasoning?.rules?.length > 50 ? '...' : ''}"`)
 
@@ -17826,29 +18225,89 @@ function initializeExtension() {
 
             .filter((el:any)=>el.checked).map((el:any)=>el.value)
 
-          const src = (document.getElementById('L-source') as HTMLSelectElement)?.value || ''
-
+          // Collect multiple trigger sources (checkboxes)
+          const sources = Array.from(document.querySelectorAll('.L-source-check'))
+            .filter((el: any) => el.checked).map((el: any) => el.value)
           
+          // Collect workflow sources (specific workflow IDs)
+          const workflowSources: string[] = []
+          document.querySelectorAll('#L-workflow-sources .workflow-source-row').forEach((row: any) => {
+            const id = row.querySelector('.workflow-source-id')?.value || ''
+            if (id.trim()) workflowSources.push(id.trim())
+          })
+          
+          // Collect agent sources (which agents can trigger)
+          const agentSources = Array.from(document.querySelectorAll('.L-agent-source'))
+            .filter((el: any) => el.checked).map((el: any) => el.value)
+
+          const apiEndpoint = (document.getElementById('L-api-endpoint') as HTMLInputElement)?.value || ''
+          const cronSchedule = (document.getElementById('L-cron-schedule') as HTMLInputElement)?.value || ''
+
+          // Collect modalities
+          const modalities = Array.from(document.querySelectorAll('.L-modality'))
+            .filter((el:any)=>el.checked).map((el:any)=>el.value)
+
+          // Collect global conditions
+          const conditionLogic = (document.getElementById('L-condition-logic') as HTMLSelectElement)?.value || 'all'
+          const conditionRows = document.querySelectorAll('#L-conditions-list .condition-row')
+          const conditionItems: any[] = []
+          conditionRows.forEach((row: any) => {
+            const field = row.querySelector('.cond-field')?.value || ''
+            const op = row.querySelector('.cond-op')?.value || 'eq'
+            const value = row.querySelector('.cond-value')?.value || ''
+            if (field.trim()) {
+              conditionItems.push({ field, op, value })
+            }
+          })
+
+          // Build conditions object
+          const conditions = conditionItems.length > 0 
+            ? (conditionLogic === 'all' ? { all: conditionItems } : { any: conditionItems })
+            : null
+
+          // Collect sensor workflows with their inline conditions
+          const sensorWorkflows: any[] = []
+          document.querySelectorAll('#L-sensor-workflows .sensor-workflow-row').forEach((row: any) => {
+            const id = row.querySelector('.workflow-id')?.value || ''
+            if (id.trim()) {
+              const sensorConditions: any[] = []
+              row.querySelectorAll('.sensor-cond-row').forEach((condRow: any) => {
+                const field = condRow.querySelector('.scond-field')?.value || ''
+                const op = condRow.querySelector('.scond-op')?.value || 'eq'
+                const value = condRow.querySelector('.scond-value')?.value || ''
+                const action = condRow.querySelector('.scond-action')?.value || 'continue'
+                if (field.trim()) {
+                  sensorConditions.push({ field, op, value, action })
+                }
+              })
+              sensorWorkflows.push({ id: id.trim(), conditions: sensorConditions })
+            }
+          })
+
+          // Collect action workflows (allowed actions)
+          const allowedActions: string[] = []
+          document.querySelectorAll('#L-action-workflows .action-workflow-row').forEach((row: any) => {
+            const id = row.querySelector('.workflow-id')?.value || ''
+            if (id.trim()) allowedActions.push(id.trim())
+          })
 
           // ALWAYS save all fields (not conditional on passiveEnabled)
-
           const listening:any = {
-
             passiveEnabled,
-
             activeEnabled,
-
             expectedContext: (document.getElementById('L-context') as HTMLTextAreaElement)?.value || '',
-
             tags: tags,
-
-            source: src,
-
+            sources: sources,
+            workflowSources: workflowSources,
+            agentSources: agentSources,
+            apiEndpoint: apiEndpoint,
+            modalities: modalities,
+            cronSchedule: cronSchedule,
+            conditions: conditions,
+            sensorWorkflows: sensorWorkflows,
+            allowedActions: allowedActions,
             website: ((document.getElementById('L-website') as HTMLInputElement)?.value || '')
-
           }
-
-          
 
           // ALWAYS save active triggers (without pattern detection)
 
@@ -18696,7 +19155,7 @@ function initializeExtension() {
 
           console.log(`  📝 Expected Context: "${parsedData.listening?.expectedContext?.substring(0, 50) || '(empty)'}${parsedData.listening?.expectedContext?.length > 50 ? '...' : ''}"`)
 
-          console.log(`  🎯 Listen on (type): "${parsedData.listening?.source || '(empty)'}"`)
+          console.log(`  🎯 Trigger Sources: ${JSON.stringify(parsedData.listening?.sources || [])}`)
 
           console.log(`  🌐 Website: "${parsedData.listening?.website || '(empty)'}"`)
 
@@ -19158,22 +19617,6 @@ function initializeExtension() {
 
     
 
-    const updateWebsiteVisibility = () => {
-
-      const srcSel = configOverlay.querySelector('#L-source') as HTMLSelectElement | null
-
-      const websiteWrap = configOverlay.querySelector('#L-website-wrap') as HTMLElement | null
-
-      if (srcSel && websiteWrap) {
-
-        websiteWrap.style.display = srcSel.value === 'website' ? 'block' : 'none'
-
-      }
-
-    }
-
-    
-
     // Delegated listeners for broader compatibility
 
     configOverlay.addEventListener('input', (ev) => {
@@ -19187,10 +19630,6 @@ function initializeExtension() {
       if (id === 'cap-listening' || id === 'cap-reasoning' || id === 'cap-execution') {
 
         updateBoxes()
-
-      } else if (id === 'L-source') {
-
-        updateWebsiteVisibility()
 
       }
 
@@ -19209,12 +19648,6 @@ function initializeExtension() {
       if (input) {
 
         setTimeout(() => updateBoxes(), 0)
-
-      }
-
-      if ((el as HTMLElement).id === 'L-source') {
-
-        setTimeout(() => updateWebsiteVisibility(), 0)
 
       }
 
@@ -22167,7 +22600,7 @@ ${pageText}
 
 
 
-  // Simple screen selection overlay with controls (Screenshot | Stream | [ ] Create Tagged Trigger)
+  // Simple screen selection overlay with controls (Screenshot | Stream | [ ] Create Action Trigger)
 
   function beginScreenSelect(messagesEl: HTMLElement, preset?: { rect: CaptureRect, mode: 'screenshot'|'stream' }){
 
@@ -32640,43 +33073,69 @@ ${pageText}
       
       agents.forEach((agentConfig) => {
         const agentName = agentConfig.name;
-        if (!agentName) {
-          console.warn('[restoreAgentConfigs] Skipping agent with no name:', agentConfig);
+        const agentKey = agentConfig.key;
+        if (!agentName && !agentKey) {
+          console.warn('[restoreAgentConfigs] Skipping agent with no name or key:', agentConfig);
           return;
         }
 
+        const identifier = agentName || agentKey;
+
         // Restore model config
         if (agentConfig.model) {
-          localStorage.setItem(`agent_model_v2_${agentName}`, JSON.stringify(agentConfig.model));
+          localStorage.setItem(`agent_model_v2_${identifier}`, JSON.stringify(agentConfig.model));
         }
 
         // Restore other properties (only if they have a value)
         if (agentConfig.context) {
-          localStorage.setItem(`agent_${agentName}_context`, agentConfig.context);
+          localStorage.setItem(`agent_${identifier}_context`, agentConfig.context);
         }
         if (agentConfig.memory) {
-          localStorage.setItem(`agent_${agentName}_memory`, agentConfig.memory);
+          localStorage.setItem(`agent_${identifier}_memory`, agentConfig.memory);
         }
         if (agentConfig.source) {
-          localStorage.setItem(`agent_${agentName}_source`, agentConfig.source);
+          localStorage.setItem(`agent_${identifier}_source`, agentConfig.source);
         }
         if (agentConfig.persist) {
-          localStorage.setItem(`agent_${agentName}_persist`, agentConfig.persist);
+          localStorage.setItem(`agent_${identifier}_persist`, agentConfig.persist);
         }
         if (agentConfig.priority) {
-          localStorage.setItem(`agent_${agentName}_priority`, agentConfig.priority);
+          localStorage.setItem(`agent_${identifier}_priority`, agentConfig.priority);
         }
         if (agentConfig.autostart) {
-          localStorage.setItem(`agent_${agentName}_autostart`, agentConfig.autostart);
+          localStorage.setItem(`agent_${identifier}_autostart`, agentConfig.autostart);
         }
         if (agentConfig.autorespond) {
-          localStorage.setItem(`agent_${agentName}_autorespond`, agentConfig.autorespond);
+          localStorage.setItem(`agent_${identifier}_autorespond`, agentConfig.autorespond);
         }
         if (agentConfig.delay) {
-          localStorage.setItem(`agent_${agentName}_delay`, agentConfig.delay);
+          localStorage.setItem(`agent_${identifier}_delay`, agentConfig.delay);
+        }
+        
+        // 🔥 CRITICAL: Restore the full config object including instructions
+        // This contains triggers, reasoning rules, execution settings, etc.
+        if (agentConfig.config) {
+          console.log(`[restoreAgentConfigs] Agent "${identifier}" has config:`, Object.keys(agentConfig.config));
+          
+          // Store full config object
+          if (agentConfig.config.instructions) {
+            const instructionsData = typeof agentConfig.config.instructions === 'string' 
+              ? agentConfig.config.instructions 
+              : JSON.stringify(agentConfig.config.instructions);
+            localStorage.setItem(`agent_${identifier}_instructions`, instructionsData);
+            console.log(`[restoreAgentConfigs] ✅ Restored instructions for "${identifier}" (${instructionsData.length} chars)`);
+          }
+          
+          // Store complete config object for safety
+          localStorage.setItem(`agent_${identifier}_full_config`, JSON.stringify(agentConfig.config));
         }
 
-        console.log(`[restoreAgentConfigs] Restored agent: ${agentName}`);
+        console.log(`[restoreAgentConfigs] Restored agent: ${identifier}`, {
+          hasConfig: !!agentConfig.config,
+          hasInstructions: !!agentConfig.config?.instructions,
+          enabled: agentConfig.enabled,
+          number: agentConfig.number
+        });
       });
 
       console.log('[restoreAgentConfigs] ✅ All agents restored successfully');
