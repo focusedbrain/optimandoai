@@ -2054,29 +2054,30 @@ function SidepanelOrchestrator() {
                 borderBottom: '1px solid rgba(255,255,255,0.20)',
                 color: themeColors.text
               }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flex: 1, minWidth: 0 }}>
                   <select
                     value={dockedPanelMode}
                     onChange={(e) => setDockedPanelMode(e.target.value as 'command-chat' | 'mailguard')}
                     style={{
-                      fontSize: '13px',
-                      fontWeight: '700',
+                      fontSize: '11px',
+                      fontWeight: '600',
+                      height: '32px',
                       background: theme === 'professional' ? 'rgba(15,23,42,0.08)' : 'rgba(255,255,255,0.15)',
                       border: theme === 'professional' ? '1px solid rgba(15,23,42,0.2)' : '1px solid rgba(255,255,255,0.25)',
                       color: theme === 'professional' ? '#0f172a' : 'inherit',
                       borderRadius: '6px',
-                      padding: '6px 10px',
+                      padding: '0 22px 0 8px',
                       cursor: 'pointer',
                       outline: 'none',
                       appearance: 'none',
                       WebkitAppearance: 'none',
-                      backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='${theme === 'professional' ? '%230f172a' : '%23ffffff'}' d='M3 4.5L6 7.5L9 4.5'/%3E%3C/svg%3E")`,
+                      flexShrink: 0,
+                      backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 12 12'%3E%3Cpath fill='${theme === 'professional' ? '%230f172a' : '%23ffffff'}' d='M3 4.5L6 7.5L9 4.5'/%3E%3C/svg%3E")`,
                       backgroundRepeat: 'no-repeat',
-                      backgroundPosition: 'right 8px center',
-                      paddingRight: '28px'
+                      backgroundPosition: 'right 6px center'
                     }}
                   >
-                    <option value="command-chat" style={{ background: '#1e293b', color: 'white' }}>💬 Command Chat</option>
+                    <option value="command-chat" style={{ background: '#1e293b', color: 'white' }}>💬 WR Chat</option>
                     <option value="mailguard" style={{ background: '#1e293b', color: 'white' }}>🛡️ WR MailGuard</option>
                   </select>
                   {dockedPanelMode === 'command-chat' && <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
@@ -2282,7 +2283,7 @@ function SidepanelOrchestrator() {
                     </div>
                   </div>}
                 </div>
-                <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexShrink: 0 }}>
                   <button 
                     onClick={toggleCommandChatPin}
                     title="Unpin from sidepanel"
@@ -3086,24 +3087,23 @@ Write your message with the confidence that it will be protected by WRGuard encr
                   value={dockedPanelMode}
                   onChange={(e) => setDockedPanelMode(e.target.value as 'command-chat' | 'mailguard')}
                   style={{
-                    fontSize: '13px',
-                    fontWeight: '700',
+                    fontSize: '11px',
+                    fontWeight: '600',
                     background: theme === 'professional' ? 'rgba(15,23,42,0.08)' : 'rgba(255,255,255,0.15)',
                     border: theme === 'professional' ? '1px solid rgba(15,23,42,0.2)' : '1px solid rgba(255,255,255,0.25)',
                     color: theme === 'professional' ? '#0f172a' : 'inherit',
-                    borderRadius: '6px',
-                    padding: '6px 10px',
+                    borderRadius: '5px',
+                    padding: '4px 20px 4px 6px',
                     cursor: 'pointer',
                     outline: 'none',
                     appearance: 'none',
                     WebkitAppearance: 'none',
-                    backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='${theme === 'professional' ? '%230f172a' : '%23ffffff'}' d='M3 4.5L6 7.5L9 4.5'/%3E%3C/svg%3E")`,
+                    backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 12 12'%3E%3Cpath fill='${theme === 'professional' ? '%230f172a' : '%23ffffff'}' d='M3 4.5L6 7.5L9 4.5'/%3E%3C/svg%3E")`,
                     backgroundRepeat: 'no-repeat',
-                    backgroundPosition: 'right 8px center',
-                    paddingRight: '28px'
+                    backgroundPosition: 'right 5px center'
                   }}
                 >
-                  <option value="command-chat" style={{ background: '#1e293b', color: 'white' }}>💬 Command Chat</option>
+                  <option value="command-chat" style={{ background: '#1e293b', color: 'white' }}>💬 WR Chat</option>
                   <option value="mailguard" style={{ background: '#1e293b', color: 'white' }}>🛡️ WR MailGuard</option>
                 </select>
                 {dockedPanelMode === 'command-chat' && <div data-controls="app-view" style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
@@ -3822,24 +3822,23 @@ Write your message with the confidence that it will be protected by WRGuard encr
                   value={dockedPanelMode}
                   onChange={(e) => setDockedPanelMode(e.target.value as 'command-chat' | 'mailguard')}
                   style={{
-                    fontSize: '13px',
-                    fontWeight: '700',
+                    fontSize: '11px',
+                    fontWeight: '600',
                     background: theme === 'professional' ? 'rgba(15,23,42,0.08)' : 'rgba(255,255,255,0.15)',
                     border: theme === 'professional' ? '1px solid rgba(15,23,42,0.2)' : '1px solid rgba(255,255,255,0.25)',
                     color: theme === 'professional' ? '#0f172a' : 'inherit',
-                    borderRadius: '6px',
-                    padding: '6px 10px',
+                    borderRadius: '5px',
+                    padding: '4px 20px 4px 6px',
                     cursor: 'pointer',
                     outline: 'none',
                     appearance: 'none',
                     WebkitAppearance: 'none',
-                    backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='${theme === 'professional' ? '%230f172a' : '%23ffffff'}' d='M3 4.5L6 7.5L9 4.5'/%3E%3C/svg%3E")`,
+                    backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 12 12'%3E%3Cpath fill='${theme === 'professional' ? '%230f172a' : '%23ffffff'}' d='M3 4.5L6 7.5L9 4.5'/%3E%3C/svg%3E")`,
                     backgroundRepeat: 'no-repeat',
-                    backgroundPosition: 'right 8px center',
-                    paddingRight: '28px'
+                    backgroundPosition: 'right 5px center'
                   }}
                 >
-                  <option value="command-chat" style={{ background: '#1e293b', color: 'white' }}>💬 Command Chat</option>
+                  <option value="command-chat" style={{ background: '#1e293b', color: 'white' }}>💬 WR Chat</option>
                   <option value="mailguard" style={{ background: '#1e293b', color: 'white' }}>🛡️ WR MailGuard</option>
                 </select>
                 {dockedPanelMode === 'command-chat' && <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>

@@ -2,7 +2,7 @@
 <html>
   <head>
     <meta charset="utf-8" />
-    <title>Command Chat</title>
+    <title>WR Chat</title>
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <style>
       :root{
@@ -87,8 +87,9 @@
       body.theme-professional .send { background: linear-gradient(135deg,#ffffff,#f1f5f9); border:1px solid #cbd5e1; color:#0f172a; }
       
       /* Mode selector styling */
-      .mode-select { font-size:12px; font-weight:700; background:var(--btn-surface); border:1px solid var(--border); color:var(--text); border-radius:6px; padding:6px 28px 6px 10px; cursor:pointer; outline:none; appearance:none; -webkit-appearance:none; background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23888888' d='M3 4.5L6 7.5L9 4.5'/%3E%3C/svg%3E"); background-repeat:no-repeat; background-position:right 8px center; }
-      body.theme-professional .mode-select { background-color:#e2e8f0; color:#0f172a; }
+      .mode-select { font-size:11px; font-weight:600; background:var(--btn-surface); border:1px solid var(--border); color:var(--text); border-radius:5px; padding:5px 22px 5px 8px; cursor:pointer; outline:none; appearance:none; -webkit-appearance:none; background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 12 12'%3E%3Cpath fill='%23ffffff' d='M3 4.5L6 7.5L9 4.5'/%3E%3C/svg%3E"); background-repeat:no-repeat; background-position:right 6px center; }
+      body.theme-professional .mode-select { background-color:#e2e8f0; color:#0f172a; background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 12 12'%3E%3Cpath fill='%230f172a' d='M3 4.5L6 7.5L9 4.5'/%3E%3C/svg%3E"); }
+      body.theme-dark .mode-select { background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 12 12'%3E%3Cpath fill='%23e5e7eb' d='M3 4.5L6 7.5L9 4.5'/%3E%3C/svg%3E"); }
       
       /* Chat view styles */
       .chat-view { display:flex; flex-direction:column; flex:1; }
@@ -122,10 +123,6 @@
       .mg-att-size { opacity:0.5; font-size:11px; }
       .mg-att-remove { background:transparent; border:none; color:var(--muted); cursor:pointer; font-size:14px; padding:0 2px; opacity:0.7; }
       .mg-att-remove:hover { opacity:1; color:#ef4444; }
-      .mg-resize { height:12px; background:linear-gradient(180deg, var(--border) 0%, var(--surface) 100%); cursor:ns-resize; margin:8px 0; border-radius:6px; display:flex; align-items:center; justify-content:center; border:1px solid var(--border); }
-      .mg-resize:hover { background:rgba(168,85,247,0.3); }
-      .mg-resize-handle { width:40px; height:4px; background:var(--muted); border-radius:2px; opacity:0.6; }
-      .mg-resize:hover .mg-resize-handle { opacity:1; background:rgba(168,85,247,0.8); }
       .mg-footer { padding:12px 14px; border-top:1px solid var(--border); display:flex; justify-content:space-between; align-items:center; background:var(--surface); }
       .mg-discard { background:transparent; border:none; color:var(--muted); padding:8px 12px; font-size:13px; cursor:pointer; text-decoration:underline; text-underline-offset:2px; }
       .mg-send { background:#a855f7; border:none; color:white; border-radius:8px; padding:12px 24px; font-size:14px; font-weight:600; cursor:pointer; display:flex; align-items:center; gap:8px; box-shadow:0 2px 8px rgba(168,85,247,0.4); }
@@ -137,7 +134,7 @@
       <div class="wrap">
       <div class="toolkit">
         <select id="mode-select" class="mode-select">
-          <option value="command-chat">💬 Command Chat</option>
+          <option value="command-chat">💬 WR Chat</option>
           <option value="mailguard">🛡️ WR MailGuard</option>
         </select>
         <div id="chat-controls" style="display:flex; gap:8px; align-items:center;">
@@ -178,7 +175,6 @@
             <input type="text" id="mg-subject" class="mg-input" placeholder="Enter email subject line" />
           </div>
           <textarea id="mg-body" class="mg-body" placeholder="Write your email message here...&#10;&#10;Your message will be protected with WRGuard verification and encryption."></textarea>
-          <div id="mg-resize" class="mg-resize" title="Drag to resize editor height"><div class="mg-resize-handle"></div></div>
           <div class="mg-attach-row">
             <span class="mg-attach-label">
               <span>📎</span> Attachments

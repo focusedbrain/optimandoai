@@ -41,7 +41,6 @@ const mgAttachments = document.getElementById('mg-attachments')
 const mgDiscard = document.getElementById('mg-discard')
 const mgSend = document.getElementById('mg-send')
 const mgHint = document.getElementById('mg-hint')
-const mgResize = document.getElementById('mg-resize')
 
 // MailGuard state
 let mgAttachmentsList = []
@@ -161,35 +160,6 @@ if (mgSend) {
   })
 }
 
-// MailGuard resize handle for body textarea
-if (mgResize && mgBody) {
-  let isResizing = false
-  let startY = 0
-  let startH = 0
-  
-  mgResize.addEventListener('mousedown', (e) => {
-    e.preventDefault()
-    isResizing = true
-    startY = e.clientY
-    startH = mgBody.offsetHeight
-    document.addEventListener('mousemove', doResize)
-    document.addEventListener('mouseup', stopResize)
-  })
-  
-  function doResize(e) {
-    if (!isResizing) return
-    const dy = e.clientY - startY
-    const newH = Math.max(80, Math.min(400, startH + dy))
-    mgBody.style.height = newH + 'px'
-    mgBody.style.minHeight = newH + 'px'
-  }
-  
-  function stopResize() {
-    isResizing = false
-    document.removeEventListener('mousemove', doResize)
-    document.removeEventListener('mouseup', stopResize)
-  }
-}
 
 function row(role, text){
   const r = document.createElement('div'); r.className = 'row ' + (role === 'user' ? 'user' : 'assistant');

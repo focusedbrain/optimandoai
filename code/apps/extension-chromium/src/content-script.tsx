@@ -35380,9 +35380,9 @@ ${pageText}
       container.innerHTML = `
 
         <div id="ccd-header" style="display:flex; align-items:center; justify-content:space-between; padding:6px 8px; background:${hdr}; border-bottom:1px solid ${br};">
-          <div style="display:flex; align-items:center; gap:8px; color:${theme==='professional'?'#0f172a':'white'}">
-            <select id="ccd-mode-select" style="font-size:12px; font-weight:700; background:${theme==='professional'?'rgba(15,23,42,0.08)':'rgba(255,255,255,0.15)'}; border:1px solid ${br}; color:${theme==='professional'?'#0f172a':'inherit'}; border-radius:6px; padding:4px 24px 4px 8px; cursor:pointer; outline:none; appearance:none; -webkit-appearance:none; background-image:url(&quot;data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='${theme==='professional'?'%230f172a':'%23ffffff'}' d='M3 4.5L6 7.5L9 4.5'/%3E%3C/svg%3E&quot;); background-repeat:no-repeat; background-position:right 6px center;">
-              <option value="command-chat" style="background:#1e293b; color:white;">💬 Command Chat</option>
+          <div style="display:flex; align-items:center; gap:8px; color:${theme==='professional'?'#0f172a':'white'}; flex:1; min-width:0;">
+            <select id="ccd-mode-select" style="font-size:11px; font-weight:600; height:28px; flex-shrink:0; background:${theme==='professional'?'rgba(15,23,42,0.08)':'rgba(255,255,255,0.15)'}; border:1px solid ${br}; color:${theme==='professional'?'#0f172a':'inherit'}; border-radius:6px; padding:0 22px 0 8px; cursor:pointer; outline:none; appearance:none; -webkit-appearance:none; background-image:url(&quot;data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 12 12'%3E%3Cpath fill='${theme==='professional'?'%230f172a':'%23ffffff'}' d='M3 4.5L6 7.5L9 4.5'/%3E%3C/svg%3E&quot;); background-repeat:no-repeat; background-position:right 6px center;">
+              <option value="command-chat" style="background:#1e293b; color:white;">💬 WR Chat</option>
               <option value="mailguard" style="background:#1e293b; color:white;">🛡️ WR MailGuard</option>
             </select>
             <div id="ccd-chat-controls" style="display:flex; gap:6px; align-items:center;">
@@ -35390,7 +35390,7 @@ ${pageText}
               <button id="ccd-lm-one" title="LmGTFY - Capture a screen area as screenshot or stream and send it to your pre-defined automation tasks." style="background:${theme==='professional'?'#e2e8f0':'rgba(255,255,255,0.15)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; padding:2px 6px; font-size:12px; cursor:pointer;">✎</button>
             </div>
           </div>
-          <div style="display:flex; gap:6px; align-items:center;">
+          <div style="display:flex; gap:6px; align-items:center; flex-shrink:0;">
             <button id="ccd-undock" title="Undock from sidepanel" style="background:${theme==='professional'?'#e2e8f0':'rgba(255,255,255,0.15)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; padding:4px 6px; font-size:10px; cursor:pointer;">↗</button>
           </div>
         </div>
@@ -36053,8 +36053,8 @@ ${pageText}
 
           <div style="display:flex; align-items:center; gap:8px; color:${theme==='professional'?'#0f172a':'white'}">
 
-            <select id="ccf-mode-select" style="font-size:12px; font-weight:700; background:${theme==='professional'?'rgba(15,23,42,0.08)':'rgba(255,255,255,0.15)'}; border:1px solid ${br}; color:${theme==='professional'?'#0f172a':'inherit'}; border-radius:6px; padding:4px 24px 4px 8px; cursor:pointer; outline:none; appearance:none; -webkit-appearance:none; background-image:url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='${theme==='professional'?'%230f172a':'%23ffffff'}' d='M3 4.5L6 7.5L9 4.5'/%3E%3C/svg%3E\"); background-repeat:no-repeat; background-position:right 6px center;">
-              <option value="command-chat" style="background:#1e293b; color:white;">💬 Command Chat</option>
+            <select id="ccf-mode-select" style="font-size:11px; font-weight:600; background:${theme==='professional'?'rgba(15,23,42,0.08)':'rgba(255,255,255,0.15)'}; border:1px solid ${br}; color:${theme==='professional'?'#0f172a':'inherit'}; border-radius:5px; padding:4px 20px 4px 6px; cursor:pointer; outline:none; appearance:none; -webkit-appearance:none; background-image:url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 12 12'%3E%3Cpath fill='${theme==='professional'?'%230f172a':'%23ffffff'}' d='M3 4.5L6 7.5L9 4.5'/%3E%3C/svg%3E\"); background-repeat:no-repeat; background-position:right 5px center;">
+              <option value="command-chat" style="background:#1e293b; color:white;">💬 WR Chat</option>
               <option value="mailguard" style="background:#1e293b; color:white;">🛡️ WR MailGuard</option>
             </select>
 
@@ -36098,8 +36098,7 @@ ${pageText}
               <label style="font-size:12px; font-weight:600; opacity:0.7; min-width:50px;">Subject:</label>
               <input type="text" id="ccf-mg-subject" placeholder="Email subject" style="flex:1; background:${theme==='professional'?'#ffffff':'rgba(255,255,255,0.08)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; padding:8px 10px; font-size:13px; outline:none;" />
             </div>
-            <textarea id="ccf-mg-body" placeholder="Compose your email message here..." style="background:${theme==='professional'?'#ffffff':'rgba(255,255,255,0.06)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; padding:10px 12px; font-size:13px; min-height:120px; height:120px; resize:none; font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; line-height:1.5; outline:none;"></textarea>
-            <div id="ccf-mg-resize" style="height:12px; background:${theme==='professional'?'linear-gradient(180deg, #e2e8f0 0%, #cbd5e1 100%)':'linear-gradient(180deg, rgba(255,255,255,0.2) 0%, rgba(255,255,255,0.1) 100%)'}; cursor:ns-resize; border-radius:6px; margin:8px 0; display:flex; align-items:center; justify-content:center; border:1px solid ${theme==='professional'?'rgba(15,23,42,0.1)':'rgba(255,255,255,0.15)'};" title="Drag to resize editor height"><div style="width:40px; height:4px; background:${theme==='professional'?'#94a3b8':'rgba(255,255,255,0.4)'}; border-radius:2px;"></div></div>
+            <textarea id="ccf-mg-body" placeholder="Compose your email message here..." style="background:${theme==='professional'?'#ffffff':'rgba(255,255,255,0.06)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; padding:10px 12px; font-size:13px; min-height:120px; resize:vertical; font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; line-height:1.5; outline:none;"></textarea>
             <div style="display:flex; align-items:center; justify-content:space-between;">
               <span style="font-size:11px; font-weight:600; opacity:0.7; display:flex; align-items:center; gap:4px;">
                 <span>📎</span> Attachments <span style="font-size:10px; opacity:0.6; font-weight:400;">(WR Stamped PDFs)</span>
@@ -36401,38 +36400,6 @@ ${pageText}
         })
       }
       
-      // Floating popup MailGuard body textarea resize
-      const ccfMgResize = box.querySelector('#ccf-mg-resize') as HTMLElement | null
-      const ccfMgBody = box.querySelector('#ccf-mg-body') as HTMLTextAreaElement | null
-      if (ccfMgResize && ccfMgBody) {
-        let ccfMgIsResizing = false
-        let ccfMgStartY = 0
-        let ccfMgStartH = 0
-        
-        ccfMgResize.addEventListener('mousedown', (e: MouseEvent) => {
-          e.preventDefault()
-          ccfMgIsResizing = true
-          ccfMgStartY = e.clientY
-          ccfMgStartH = ccfMgBody.offsetHeight
-          document.addEventListener('mousemove', ccfMgDoResize)
-          document.addEventListener('mouseup', ccfMgStopResize)
-        })
-        
-        function ccfMgDoResize(e: MouseEvent) {
-          if (!ccfMgIsResizing) return
-          const dy = e.clientY - ccfMgStartY
-          const newH = Math.max(80, Math.min(400, ccfMgStartH + dy))
-          ccfMgBody.style.height = newH + 'px'
-          ccfMgBody.style.minHeight = newH + 'px'
-        }
-        
-        function ccfMgStopResize() {
-          ccfMgIsResizing = false
-          document.removeEventListener('mousemove', ccfMgDoResize)
-          document.removeEventListener('mouseup', ccfMgStopResize)
-        }
-      }
-
       const headerTools = box.querySelector('#ccf-header > div:first-child > div:last-child') as HTMLElement | null
 
       if (headerTools) {
