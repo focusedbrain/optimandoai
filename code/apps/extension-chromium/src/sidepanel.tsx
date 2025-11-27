@@ -88,6 +88,8 @@ function SidepanelOrchestrator() {
   
   // LLM state
   const [activeLlmModel, setActiveLlmModel] = useState<string>('')
+  const [availableModels, setAvailableModels] = useState<Array<{ name: string; size?: string }>>([])
+  const [showModelDropdown, setShowModelDropdown] = useState(false)
   
   // Refs to store latest values for use in message handlers (avoids stale closure)
   const activeLlmModelRef = useRef<string>('')
@@ -112,11 +114,20 @@ function SidepanelOrchestrator() {
       const statusResult = await statusResponse.json()
       
       if (statusResult.ok && statusResult.data?.modelsInstalled?.length > 0) {
-        const firstModel = statusResult.data.modelsInstalled[0].name
-        setActiveLlmModel(firstModel)
-        activeLlmModelRef.current = firstModel // Keep ref in sync
+        const models = statusResult.data.modelsInstalled
+        setAvailableModels(models)
+        
+        // Only set active model if not already set OR if current selection no longer exists
+        const currentModel = activeLlmModelRef.current || activeLlmModel
+        const modelStillExists = models.some((m: any) => m.name === currentModel)
+        
+        if (!currentModel || !modelStillExists) {
+          const firstModel = models[0].name
+          setActiveLlmModel(firstModel)
+          activeLlmModelRef.current = firstModel
+          console.log('[Command Chat] Auto-selected model:', firstModel)
+        }
         setLlmError(null)
-        console.log('[Command Chat] Refreshed and selected model:', firstModel)
         return true
       }
       return false
@@ -152,10 +163,19 @@ function SidepanelOrchestrator() {
         
         // Check if any models are installed
         if (status.modelsInstalled && status.modelsInstalled.length > 0) {
-          const firstModel = status.modelsInstalled[0].name
-          setActiveLlmModel(firstModel)
-          activeLlmModelRef.current = firstModel // Keep ref in sync
-          console.log('[Command Chat] Auto-selected model:', firstModel)
+          setAvailableModels(status.modelsInstalled)
+          
+          // Only set model if not already set
+          const currentModel = activeLlmModelRef.current || activeLlmModel
+          const modelExists = status.modelsInstalled.some((m: any) => m.name === currentModel)
+          
+          if (!currentModel || !modelExists) {
+            const firstModel = status.modelsInstalled[0].name
+            setActiveLlmModel(firstModel)
+            activeLlmModelRef.current = firstModel
+            console.log('[Command Chat] Auto-selected model:', firstModel)
+          }
+          console.log('[Command Chat] Available models:', status.modelsInstalled.map((m: any) => m.name))
           setLlmError(null)
         } else {
           // No models installed - show message but DON'T auto-install
@@ -195,6 +215,26 @@ function SidepanelOrchestrator() {
       chrome.storage?.onChanged?.removeListener(handleStorageChange)
     }
   }, [])
+  
+  // Close model dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (showModelDropdown) {
+        setShowModelDropdown(false)
+      }
+    }
+    
+    if (showModelDropdown) {
+      // Use setTimeout to avoid closing immediately when opening
+      setTimeout(() => {
+        document.addEventListener('click', handleClickOutside)
+      }, 0)
+    }
+    
+    return () => {
+      document.removeEventListener('click', handleClickOutside)
+    }
+  }, [showModelDropdown])
   
   // NOTE: Screenshot trigger processing is now handled directly in the chrome.runtime message listener
   // This avoids stale closure issues that occurred with the useEffect + custom event pattern
@@ -1630,7 +1670,21 @@ function SidepanelOrchestrator() {
     const text = chatInput.trim()
     // Allow sending with just an image (no text required)
     const hasImage = chatMessages.some(msg => msg.imageUrl)
-    if ((!text && !hasImage) || isLlmLoading) return
+    
+    // If empty input, show helpful hint
+    if (!text && !hasImage) {
+      if (isLlmLoading) return
+      setChatMessages([...chatMessages, {
+        role: 'assistant' as const,
+        text: `💡 **How to use WR Chat:**\n\n• Ask questions about the orchestrator or your workflow\n• Trigger automations using **#tagname** (e.g., "#summarize")\n• Use the 📸 button to capture screenshots for analysis\n• Attach files with 📎 for context\n\nTry: "What can you help me with?" or "#help"`
+      }])
+      setTimeout(() => {
+        if (chatRef.current) chatRef.current.scrollTop = chatRef.current.scrollHeight
+      }, 0)
+      return
+    }
+    
+    if (isLlmLoading) return
     
     // Check if model is available
     if (!activeLlmModel) {
@@ -1868,6 +1922,253 @@ function SidepanelOrchestrator() {
       e.preventDefault()
       handleSendMessage()
     }
+  }
+
+  // Handle model selection
+  const handleModelSelect = (modelName: string, e: React.MouseEvent) => {
+    e.stopPropagation()
+    setActiveLlmModel(modelName)
+    activeLlmModelRef.current = modelName
+    setShowModelDropdown(false)
+    console.log('[Command Chat] Model selected:', modelName)
+  }
+
+  // Get short model name for display (e.g., "llama3.2:3b" -> "llama3.2")
+  const getShortModelName = (name: string) => {
+    if (!name) return 'No model'
+    // Remove size suffix like :3b, :7b, :latest
+    const baseName = name.split(':')[0]
+    // Truncate if too long
+    return baseName.length > 12 ? baseName.slice(0, 12) + '…' : baseName
+  }
+
+  // Render the Send button with integrated model dropdown
+  const renderSendButton = () => {
+    const hasModels = availableModels.length > 0
+    const isDisabled = isLlmLoading || !chatInput.trim()
+    const noInput = !chatInput.trim()
+    const isReady = hasModels && activeLlmModel && !isLlmLoading
+    
+    // Colors based on state - always green
+    const getButtonStyle = () => {
+      // Loading state - purple/blue
+      if (isLlmLoading) {
+        return {
+          bg: 'linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)',
+          border: '1px solid #7c3aed',
+          color: '#ffffff'
+        }
+      }
+      
+      // Always green - both active and inactive
+      return {
+        bg: 'linear-gradient(135deg, #22c55e 0%, #16a34a 100%)',
+        border: '1px solid #15803d',
+        color: '#052e16'
+      }
+    }
+    
+    const style = getButtonStyle()
+    
+    return (
+      <div 
+        style={{ position: 'relative', display: 'flex', marginRight: '2px' }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Main Send button */}
+        <button
+          onClick={handleSendMessage}
+          disabled={isDisabled}
+          style={{
+            height: '44px',
+            padding: '4px 14px',
+            background: style.bg,
+            border: style.border,
+            borderRight: hasModels ? 'none' : undefined,
+            borderTopLeftRadius: '10px',
+            borderBottomLeftRadius: '10px',
+            borderTopRightRadius: hasModels ? '0' : '10px',
+            borderBottomRightRadius: hasModels ? '0' : '10px',
+            color: style.color,
+            cursor: isDisabled ? 'not-allowed' : 'pointer',
+            transition: 'all 0.2s ease',
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: '1px',
+            boxShadow: isDisabled ? 'none' : '0 2px 4px rgba(0,0,0,0.1)'
+          }}
+          onMouseEnter={(e) => {
+            if (!isDisabled) {
+              e.currentTarget.style.transform = 'translateY(-1px)'
+              e.currentTarget.style.boxShadow = '0 4px 8px rgba(0,0,0,0.15)'
+            }
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.transform = 'translateY(0)'
+            e.currentTarget.style.boxShadow = isDisabled ? 'none' : '0 2px 4px rgba(0,0,0,0.1)'
+          }}
+        >
+          <span style={{ 
+            fontSize: '13px', 
+            fontWeight: '700',
+            lineHeight: 1
+          }}>
+            {isLlmLoading ? '⏳ Thinking' : 'Send'}
+          </span>
+          {hasModels && (
+            <span style={{ 
+              fontSize: '9px', 
+              opacity: 0.8,
+              lineHeight: 1,
+              maxWidth: '70px',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap'
+            }}>
+              {getShortModelName(activeLlmModel)}
+            </span>
+          )}
+        </button>
+        
+        {/* Model dropdown toggle */}
+        {hasModels && (
+          <button
+            onClick={(e) => {
+              e.stopPropagation()
+              setShowModelDropdown(!showModelDropdown)
+            }}
+            disabled={isLlmLoading}
+            style={{
+              height: '44px',
+              width: '22px',
+              background: style.bg,
+              border: style.border,
+              borderLeft: '1px solid rgba(0,0,0,0.1)',
+              borderTopRightRadius: '10px',
+              borderBottomRightRadius: '10px',
+              color: style.color,
+              cursor: isLlmLoading ? 'not-allowed' : 'pointer',
+              fontSize: '10px',
+              transition: 'all 0.2s ease',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              boxShadow: isLlmLoading ? 'none' : '0 2px 4px rgba(0,0,0,0.1)'
+            }}
+            onMouseEnter={(e) => {
+              if (!isLlmLoading) {
+                e.currentTarget.style.opacity = '0.85'
+                e.currentTarget.style.transform = 'translateY(-1px)'
+              }
+            }}
+            onMouseLeave={(e) => {
+              if (!isLlmLoading) {
+                e.currentTarget.style.opacity = '1'
+                e.currentTarget.style.transform = 'translateY(0)'
+              }
+            }}
+          >
+            ▾
+          </button>
+        )}
+        
+        {/* Model dropdown menu */}
+        {showModelDropdown && hasModels && (
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              position: 'absolute',
+              bottom: '100%',
+              right: 0,
+              marginBottom: '6px',
+              background: theme === 'professional' ? '#ffffff' : '#1e293b',
+              border: theme === 'professional' ? '1px solid #e2e8f0' : '1px solid rgba(255,255,255,0.2)',
+              borderRadius: '10px',
+              boxShadow: '0 8px 24px rgba(0,0,0,0.25)',
+              zIndex: 1000,
+              minWidth: '180px',
+              maxHeight: '220px',
+              overflowY: 'auto'
+            }}
+          >
+            <div style={{
+              padding: '8px 12px',
+              fontSize: '10px',
+              fontWeight: '700',
+              opacity: 0.5,
+              borderBottom: theme === 'professional' ? '1px solid #e2e8f0' : '1px solid rgba(255,255,255,0.1)',
+              color: theme === 'professional' ? '#64748b' : 'inherit',
+              letterSpacing: '0.5px'
+            }}>
+              SELECT MODEL
+            </div>
+            {availableModels.map((model) => (
+              <div
+                key={model.name}
+                onClick={(e) => handleModelSelect(model.name, e)}
+                style={{
+                  padding: '10px 12px',
+                  fontSize: '12px',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  background: model.name === activeLlmModel 
+                    ? (theme === 'professional' ? 'rgba(34,197,94,0.12)' : 'rgba(34,197,94,0.25)')
+                    : 'transparent',
+                  color: theme === 'professional' ? '#0f172a' : 'inherit',
+                  borderLeft: model.name === activeLlmModel ? '3px solid #22c55e' : '3px solid transparent',
+                  transition: 'all 0.15s ease'
+                }}
+                onMouseEnter={(e) => {
+                  if (model.name !== activeLlmModel) {
+                    e.currentTarget.style.background = theme === 'professional' ? '#f1f5f9' : 'rgba(255,255,255,0.08)'
+                    e.currentTarget.style.borderLeftColor = '#22c55e'
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  if (model.name !== activeLlmModel) {
+                    e.currentTarget.style.background = 'transparent'
+                    e.currentTarget.style.borderLeftColor = 'transparent'
+                  }
+                }}
+              >
+                <span style={{ 
+                  width: '16px',
+                  color: '#22c55e',
+                  fontWeight: '700'
+                }}>
+                  {model.name === activeLlmModel ? '✓' : ''}
+                </span>
+                <span style={{ 
+                  flex: 1,
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                  fontWeight: model.name === activeLlmModel ? '600' : '400'
+                }}>
+                  {model.name}
+                </span>
+                {model.size && (
+                  <span style={{ 
+                    fontSize: '10px', 
+                    opacity: 0.5, 
+                    flexShrink: 0,
+                    background: theme === 'professional' ? '#e2e8f0' : 'rgba(255,255,255,0.1)',
+                    padding: '2px 6px',
+                    borderRadius: '4px'
+                  }}>
+                    {model.size}
+                  </span>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    )
   }
 
   const handleTriggerClick = (trigger: any) => {
@@ -2652,36 +2953,7 @@ function SidepanelOrchestrator() {
                 >
                   🎙️
                 </button>
-                <button
-                  onClick={handleSendMessage}
-                  disabled={isLlmLoading || !chatInput.trim()}
-                  style={{
-                    height: '40px',
-                    background: isLlmLoading ? '#9ca3af' : '#22c55e',
-                    border: isLlmLoading ? '1px solid #6b7280' : '1px solid #16a34a',
-                    color: isLlmLoading ? '#4b5563' : '#0b1e12',
-                    borderRadius: '8px',
-                    fontWeight: '700',
-                    cursor: isLlmLoading ? 'not-allowed' : 'pointer',
-                    fontSize: '13px',
-                    transition: 'all 0.2s ease',
-                    opacity: isLlmLoading || !chatInput.trim() ? 0.6 : 1
-                  }}
-                  onMouseEnter={(e) => {
-                    if (!isLlmLoading) {
-                      e.currentTarget.style.background = '#16a34a'
-                      e.currentTarget.style.transform = 'translateY(-1px)'
-                    }
-                  }}
-                  onMouseLeave={(e) => {
-                    if (!isLlmLoading) {
-                      e.currentTarget.style.background = '#22c55e'
-                      e.currentTarget.style.transform = 'translateY(0)'
-                    }
-                  }}
-                >
-                  {isLlmLoading ? '⏳ Thinking...' : 'Send'}
-                </button>
+                {renderSendButton()}
           </div>
 
             {/* Trigger Creation UI - Minimal View Section 1 */}
@@ -3672,36 +3944,7 @@ Write your message with the confidence that it will be protected by WRGuard encr
                   >
                     📎
                   </button>
-                  <button
-                    onClick={handleSendMessage}
-                    disabled={isLlmLoading || !chatInput.trim()}
-                    style={{
-                      height: '40px',
-                      background: isLlmLoading ? '#9ca3af' : '#22c55e',
-                      border: isLlmLoading ? '1px solid #6b7280' : '1px solid #16a34a',
-                      color: isLlmLoading ? '#4b5563' : '#0b1e12',
-                      borderRadius: '8px',
-                      fontWeight: '700',
-                      cursor: isLlmLoading ? 'not-allowed' : 'pointer',
-                      fontSize: '13px',
-                      transition: 'all 0.2s ease',
-                      opacity: isLlmLoading || !chatInput.trim() ? 0.6 : 1
-                    }}
-                    onMouseEnter={(e) => {
-                      if (!isLlmLoading) {
-                        e.currentTarget.style.background = '#16a34a'
-                        e.currentTarget.style.transform = 'translateY(-1px)'
-                      }
-                    }}
-                    onMouseLeave={(e) => {
-                      if (!isLlmLoading) {
-                        e.currentTarget.style.background = '#22c55e'
-                        e.currentTarget.style.transform = 'translateY(0)'
-                      }
-                    }}
-                  >
-                    {isLlmLoading ? '⏳ Thinking...' : 'Send'}
-                  </button>
+                  {renderSendButton()}
                 </div>
               </>
             ) : (
@@ -4420,36 +4663,7 @@ Write your message with the confidence that it will be protected by WRGuard encr
                   >
                     📎
                   </button>
-                  <button
-                    onClick={handleSendMessage}
-                    disabled={isLlmLoading || !chatInput.trim()}
-                    style={{
-                      height: '40px',
-                      background: isLlmLoading ? '#9ca3af' : '#22c55e',
-                      border: isLlmLoading ? '1px solid #6b7280' : '1px solid #16a34a',
-                      color: isLlmLoading ? '#4b5563' : '#0b1e12',
-                      borderRadius: '8px',
-                      fontWeight: '700',
-                      cursor: isLlmLoading ? 'not-allowed' : 'pointer',
-                      fontSize: '13px',
-                      transition: 'all 0.2s ease',
-                      opacity: isLlmLoading || !chatInput.trim() ? 0.6 : 1
-                    }}
-                    onMouseEnter={(e) => {
-                      if (!isLlmLoading) {
-                        e.currentTarget.style.background = '#16a34a'
-                        e.currentTarget.style.transform = 'translateY(-1px)'
-                      }
-                    }}
-                    onMouseLeave={(e) => {
-                      if (!isLlmLoading) {
-                        e.currentTarget.style.background = '#22c55e'
-                        e.currentTarget.style.transform = 'translateY(0)'
-                      }
-                    }}
-                  >
-                    {isLlmLoading ? '⏳ Thinking...' : 'Send'}
-                  </button>
+                  {renderSendButton()}
                 </div>
               </>
             ) : (
