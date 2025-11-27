@@ -15009,7 +15009,8 @@ function initializeExtension() {
 
             const boxSel = makeSelect(boxOpts, 'esp-box-num', def?.agents?.[0] || '')
 
-            boxSel.style.cssText = 'background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.35);color:#fff;padding:8px 12px;border-radius:6px;width:100%'
+            // Use dark background with light text for readable dropdown options
+            boxSel.style.cssText = 'background:#1e293b;border:1px solid #475569;color:#f1f5f9;padding:8px 12px;border-radius:6px;width:100%'
 
             return boxSel
 
@@ -15031,7 +15032,8 @@ function initializeExtension() {
 
             const agentSel = makeSelect(agentOpts, 'esp-agent-num', def?.agents?.[0] || '')
 
-            agentSel.style.cssText = 'background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.35);color:#fff;padding:8px 12px;border-radius:6px;width:100%'
+            // Use dark background with light text for readable dropdown options
+            agentSel.style.cssText = 'background:#1e293b;border:1px solid #475569;color:#f1f5f9;padding:8px 12px;border-radius:6px;width:100%'
 
             return agentSel
 
@@ -18837,9 +18839,39 @@ function initializeExtension() {
 
           const eDestinationsMain = eKindsMain.map(sel => {
 
-            const agents = Array.from(sel.parentElement?.querySelectorAll('.esp-agents .E-agent') || []).filter((cb:any)=> cb.checked).map((cb:any)=> cb.value)
+            const row = sel.parentElement
 
-            return { kind: sel.value, agents: sel.value==='agent' ? agents : [] }
+            let agents: string[] = []
+
+            
+
+            if (sel.value === 'agentBox') {
+
+              // Get selected agent box from follow-up select
+
+              const boxSel = row?.querySelector('.esp-followup select') as HTMLSelectElement | null
+
+              if (boxSel?.value) {
+
+                agents = [boxSel.value]
+
+              }
+
+            } else if (sel.value === 'agent') {
+
+              // Get selected agent from follow-up select
+
+              const agentSel = row?.querySelector('.esp-followup select') as HTMLSelectElement | null
+
+              if (agentSel?.value) {
+
+                agents = [agentSel.value]
+
+              }
+
+            }
+
+            return { kind: sel.value, agents }
 
           })
 
@@ -18877,9 +18909,27 @@ function initializeExtension() {
 
             const dests = kinds.map(sel => {
 
-              const agents = Array.from(sel.parentElement?.querySelectorAll('.esp-agents .E-agent') || []).filter((cb:any)=> cb.checked).map((cb:any)=> cb.value)
+              const row = sel.parentElement
 
-              return { kind: sel.value, agents: sel.value==='agent' ? agents : [] }
+              let agents: string[] = []
+
+              
+
+              if (sel.value === 'agentBox') {
+
+                const boxSel = row?.querySelector('.esp-followup select') as HTMLSelectElement | null
+
+                if (boxSel?.value) agents = [boxSel.value]
+
+              } else if (sel.value === 'agent') {
+
+                const agentSel = row?.querySelector('.esp-followup select') as HTMLSelectElement | null
+
+                if (agentSel?.value) agents = [agentSel.value]
+
+              }
+
+              return { kind: sel.value, agents }
 
             })
 
