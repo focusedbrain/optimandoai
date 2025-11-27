@@ -15,6 +15,8 @@ import {
   type AgentMatch,
   type AgentBox
 } from './services/processFlow'
+import { nlpClassifier, type ClassifiedInput } from './nlp'
+import { inputCoordinator } from './services/InputCoordinator'
 
 interface ConnectionStatus {
   isConnected: boolean
@@ -1484,6 +1486,34 @@ function SidepanelOrchestrator() {
         }
       }
       
+      // NLP Classification step
+      const inputTextForNlp = ocrText || triggerText
+      const nlpResult = await nlpClassifier.classify(
+        inputTextForNlp,
+        ocrText ? 'ocr' : 'inline_chat',
+        { sourceUrl: currentUrl, sessionKey: sessionName }
+      )
+      
+      console.log('[Sidepanel] Trigger NLP Classification:', {
+        triggers: nlpResult.input.triggers,
+        entities: nlpResult.input.entities.length
+      })
+      
+      // Route classified input for agent allocations
+      const agentsForNlp = await loadAgentsFromSession()
+      const agentBoxesList = agentBoxes as AgentBox[]
+      const classifiedWithAllocations = inputCoordinator.routeClassifiedInput(
+        nlpResult.input,
+        agentsForNlp,
+        agentBoxesList,
+        currentModel,
+        'ollama'
+      )
+      
+      console.log('[Sidepanel] Trigger Agent Allocations:', {
+        count: classifiedWithAllocations.agentAllocations?.length || 0
+      })
+      
       if (routingDecision.shouldForwardToAgent && routingDecision.matchedAgents.length > 0) {
         // Show butler confirmation
         setChatMessages(prev => [...prev, {
@@ -1672,6 +1702,43 @@ function SidepanelOrchestrator() {
       // STEP 3: PROCESS OCR IF IMAGES PRESENT
       // =================================================================
       const { processedMessages, ocrText } = await processMessagesWithOCR(newMessages, baseUrl)
+      
+      // =================================================================
+      // STEP 3.5: NLP CLASSIFICATION
+      // Classify input text (or OCR text) into structured JSON
+      // This extracts triggers, entities, and prepares for routing
+      // =================================================================
+      const inputTextForNlp = ocrText || text
+      const nlpResult = await nlpClassifier.classify(
+        inputTextForNlp,
+        ocrText ? 'ocr' : 'inline_chat',
+        { sourceUrl: currentUrl, sessionKey: sessionName }
+      )
+      
+      console.log('[Chat] NLP Classification:', {
+        success: nlpResult.success,
+        triggers: nlpResult.input.triggers,
+        entities: nlpResult.input.entities.length,
+        processingTimeMs: nlpResult.processingTimeMs
+      })
+      
+      // Route classified input through InputCoordinator for agent allocations
+      const agents = await loadAgentsFromSession()
+      const agentBoxesList = agentBoxes as AgentBox[]
+      const classifiedWithAllocations = inputCoordinator.routeClassifiedInput(
+        nlpResult.input,
+        agents,
+        agentBoxesList,
+        activeLlmModel,
+        'ollama'
+      )
+      
+      console.log('[Chat] Agent Allocations:', {
+        count: classifiedWithAllocations.agentAllocations?.length || 0,
+        agents: classifiedWithAllocations.agentAllocations?.map(a => 
+          `${a.agentName} → ${a.outputSlot.destination} (${a.llmModel})`
+        )
+      })
       
       // =================================================================
       // STEP 4: HANDLE ROUTING DECISION
