@@ -1208,6 +1208,204 @@ function SidepanelOrchestrator() {
     })
   }
   
+  // =============================================================================
+  // CHAT FLOW HELPERS
+  // The chat flow follows this architecture:
+  //
+  // User Input (WR Chat)
+  //        |
+  //        v
+  // +------------------+
+  // | Butler LLM       |  <- Immediate response (confirm/feedback)
+  // +------------------+
+  //        |
+  //        v
+  // +------------------+
+  // | Input Coordinator|
+  // |  - Check #tags   |
+  // |  - Pattern match |
+  // |  - No listener?  |  <- If no listener, forward anyway
+  // +------------------+
+  //        |
+  //        v (if matched or no listener)
+  // +------------------+
+  // | Reasoning Wrap   |  <- Goals, Role, Rules from agent config
+  // +------------------+
+  //        |
+  //        v
+  // +------------------+
+  // | Agent LLM        |  <- Model from AgentBox config
+  // +------------------+
+  //        |
+  //        v
+  // +------------------+
+  // | Agent Box Output |  <- Display in connected box
+  // +------------------+
+  // =============================================================================
+  
+  /**
+   * Process input with OCR if images are present
+   */
+  const processMessagesWithOCR = async (
+    messages: Array<{role: 'user' | 'assistant', text: string, imageUrl?: string}>,
+    baseUrl: string
+  ): Promise<{ processedMessages: Array<{role: string, content: string}>, ocrText: string }> => {
+    let ocrText = ''
+    
+    const processedMessages = await Promise.all(messages.map(async (msg) => {
+      if (msg.imageUrl && msg.role === 'user') {
+        try {
+          const ocrResponse = await fetch(`${baseUrl}/api/ocr/process`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ image: msg.imageUrl })
+          })
+          
+          if (ocrResponse.ok) {
+            const ocrResult = await ocrResponse.json()
+            if (ocrResult.ok && ocrResult.data?.text) {
+              ocrText = ocrResult.data.text
+              const ocrMethod = ocrResult.data.method === 'cloud_vision' ? '🌐 Cloud Vision' : '📝 Local OCR'
+              return {
+                role: msg.role,
+                content: `${msg.text || 'Image content:'}\n\n[${ocrMethod} extracted text]:\n${ocrResult.data.text}`
+              }
+            }
+          }
+        } catch (e) {
+          console.warn('[Chat] OCR processing failed:', e)
+        }
+        return {
+          role: msg.role,
+          content: msg.text || '[Image attached - OCR unavailable]'
+        }
+      }
+      return {
+        role: msg.role,
+        content: msg.text
+      }
+    }))
+    
+    return { processedMessages, ocrText }
+  }
+  
+  /**
+   * Process input through an agent with reasoning wrapping
+   * This is the core of the agent processing path
+   */
+  const processWithAgent = async (
+    match: AgentMatch,
+    inputText: string,
+    ocrText: string,
+    processedMessages: Array<{role: string, content: string}>,
+    fallbackModel: string,
+    baseUrl: string
+  ): Promise<{ success: boolean, output?: string, error?: string }> => {
+    try {
+      // Load full agent config
+      const agents = await loadAgentsFromSession()
+      const agent = agents.find(a => a.id === match.agentId)
+      
+      if (!agent) {
+        console.warn(`[Chat] Agent not found: ${match.agentId}`)
+        return { success: false, error: `Agent ${match.agentName} not found` }
+      }
+      
+      // Wrap input with agent's reasoning instructions (Goals, Role, Rules)
+      const reasoningContext = wrapInputForAgent(inputText, agent, ocrText)
+      
+      console.log('[Chat] Processing with agent:', {
+        name: match.agentName,
+        reasoningContext: reasoningContext.substring(0, 200) + '...',
+        targetBox: match.agentBoxId
+      })
+      
+      // Resolve which model to use (AgentBox model > fallback)
+      const modelResolution = resolveModelForAgent(
+        match.agentBoxProvider,
+        match.agentBoxModel,
+        fallbackModel
+      )
+      
+      console.log('[Chat] Model resolution:', modelResolution)
+      
+      // Call LLM with reasoning-wrapped input
+      const response = await fetch(`${baseUrl}/api/llm/chat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          modelId: modelResolution.model || fallbackModel,
+          messages: [
+            { role: 'system', content: reasoningContext },
+            ...processedMessages.slice(-3) // Include recent context
+          ]
+        })
+      })
+      
+      if (!response.ok) {
+        const result = await response.json()
+        return { success: false, error: result.error || 'LLM request failed' }
+      }
+      
+      const result = await response.json()
+      if (result.ok && result.data?.content) {
+        return { success: true, output: result.data.content }
+      }
+      
+      return { success: false, error: 'No output from LLM' }
+      
+    } catch (error: any) {
+      console.error('[Chat] Agent processing error:', error)
+      return { success: false, error: error.message || 'Agent processing failed' }
+    }
+  }
+  
+  /**
+   * Get butler LLM response for general queries
+   */
+  const getButlerResponse = async (
+    messages: Array<{role: string, content: string}>,
+    model: string,
+    baseUrl: string
+  ): Promise<{ success: boolean, response?: string, error?: string }> => {
+    try {
+      const agents = await loadAgentsFromSession()
+      const butlerPrompt = getButlerSystemPrompt(
+        sessionName,
+        agents.filter(a => a.enabled).length,
+        connectionStatus.isConnected
+      )
+      
+      const response = await fetch(`${baseUrl}/api/llm/chat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          modelId: model,
+          messages: [
+            { role: 'system', content: butlerPrompt },
+            ...messages
+          ]
+        })
+      })
+      
+      if (!response.ok) {
+        const result = await response.json()
+        return { success: false, error: result.error || 'Butler LLM request failed' }
+      }
+      
+      const result = await response.json()
+      if (result.ok && result.data?.content) {
+        return { success: true, response: result.data.content }
+      }
+      
+      return { success: false, error: 'No response from butler LLM' }
+      
+    } catch (error: any) {
+      console.error('[Chat] Butler response error:', error)
+      return { success: false, error: error.message || 'Butler response failed' }
+    }
+  }
+  
   // Handle sending message with trigger (auto-process after screenshot)
   const handleSendMessageWithTrigger = async (triggerText: string, imageUrl?: string) => {
     console.log('[Sidepanel] handleSendMessageWithTrigger:', { triggerText, hasImage: !!imageUrl })
@@ -1424,25 +1622,37 @@ function SidepanelOrchestrator() {
     setChatInput('')
     setIsLlmLoading(true)
     
-    // Scroll to bottom after user message
-    setTimeout(() => {
-      if (chatRef.current) chatRef.current.scrollTop = chatRef.current.scrollHeight
-    }, 0)
+    // Helper to scroll chat to bottom
+    const scrollToBottom = () => {
+      setTimeout(() => {
+        if (chatRef.current) chatRef.current.scrollTop = chatRef.current.scrollHeight
+      }, 0)
+    }
+    
+    scrollToBottom()
     
     try {
       const baseUrl = 'http://127.0.0.1:51248'
       
-      // === PROCESS FLOW ROUTING ===
-      // Route input through the process flow to determine handling
-      // Get current tab URL for website filtering
+      // =================================================================
+      // STEP 1: GET CURRENT CONTEXT
+      // =================================================================
       let currentUrl = ''
       try {
         const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
         currentUrl = tab?.url || ''
       } catch (e) {
-        console.warn('[Command Chat] Could not get current tab URL:', e)
+        console.warn('[Chat] Could not get current tab URL:', e)
       }
       
+      // =================================================================
+      // STEP 2: ROUTE INPUT THROUGH INPUT COORDINATOR
+      // The InputCoordinator decides which agents should receive the input:
+      // - Active trigger (#tag17) -> Forward to matched agent
+      // - Passive trigger pattern matched -> Forward to matched agent
+      // - No listener active on agent -> Always forward to reasoning section
+      // - No match at all -> Butler response only
+      // =================================================================
       const routingDecision = await routeInput(
         text,
         hasImage,
@@ -1452,209 +1662,126 @@ function SidepanelOrchestrator() {
         currentUrl
       )
       
-      console.log('[Command Chat] Routing decision:', routingDecision)
+      console.log('[Chat] Input Coordinator routing decision:', {
+        shouldForward: routingDecision.shouldForwardToAgent,
+        matchedAgents: routingDecision.matchedAgents.length,
+        agents: routingDecision.matchedAgents.map(m => `${m.agentName} (${m.matchDetails})`)
+      })
       
-      // Process images with OCR if any (smart routing: cloud or local)
-      let ocrText = ''
-      const processedMessages = await Promise.all(newMessages.map(async (msg) => {
-        if (msg.imageUrl && msg.role === 'user') {
-          try {
-            // Call OCR API - it will automatically route to cloud or local
-            const ocrResponse = await fetch(`${baseUrl}/api/ocr/process`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ image: msg.imageUrl })
-            })
-            
-            if (ocrResponse.ok) {
-              const ocrResult = await ocrResponse.json()
-              if (ocrResult.ok && ocrResult.data?.text) {
-                ocrText = ocrResult.data.text
-                // Include OCR text with the original message
-                const ocrMethod = ocrResult.data.method === 'cloud_vision' ? '🌐 Cloud Vision' : '📝 Local OCR'
-                return {
-                  role: msg.role,
-                  content: `${msg.text || 'Image content:'}\n\n[${ocrMethod} extracted text]:\n${ocrResult.data.text}`
-                }
-              }
-            }
-          } catch (e) {
-            console.warn('[Chat] OCR processing failed:', e)
-          }
-          // Fallback: just describe that there's an image
-          return {
-            role: msg.role,
-            content: msg.text || '[Image attached - OCR unavailable]'
-          }
-        }
-        return {
-          role: msg.role,
-          content: msg.text
-        }
-      }))
+      // =================================================================
+      // STEP 3: PROCESS OCR IF IMAGES PRESENT
+      // =================================================================
+      const { processedMessages, ocrText } = await processMessagesWithOCR(newMessages, baseUrl)
       
-      // === HANDLE ROUTING DECISION ===
+      // =================================================================
+      // STEP 4: HANDLE ROUTING DECISION
+      // =================================================================
       
       if (routingDecision.shouldForwardToAgent && routingDecision.matchedAgents.length > 0) {
-        // === AGENT FORWARDING (Layer 2) ===
-        // First, show butler confirmation
-        const butlerMessages = [...newMessages, {
-          role: 'assistant' as const,
-          text: routingDecision.butlerResponse
-        }]
-        setChatMessages(butlerMessages)
+        // =================================================================
+        // PATH A: AGENT PROCESSING
+        // 1. Butler shows immediate confirmation
+        // 2. Each matched agent processes with reasoning wrapper
+        // 3. Output goes to connected AgentBox (or inline if no box)
+        // =================================================================
         
-        // Scroll to show butler response
-        setTimeout(() => {
-          if (chatRef.current) chatRef.current.scrollTop = chatRef.current.scrollHeight
-        }, 0)
-        
-        // Load full agent configs for processing
-        const agents = await loadAgentsFromSession()
-        
-        // Process with each matched agent
-        for (const match of routingDecision.matchedAgents) {
-          const agent = agents.find(a => a.id === match.agentId)
-          if (!agent) continue
-          
-          // Wrap input with agent's reasoning instructions
-          const wrappedInput = wrapInputForAgent(text, agent, ocrText)
-          
-          console.log('[Command Chat] Forwarding to agent:', match.agentName)
-          console.log('[Command Chat] Reasoning context:', wrappedInput)
-          console.log('[Command Chat] Target agent box:', match.agentBoxId)
-          
-          // Resolve which model to use (agent box model if configured, else active local model)
-          const modelResolution = resolveModelForAgent(
-            match.agentBoxProvider,
-            match.agentBoxModel,
-            activeLlmModel
-          )
-          
-          console.log('[Command Chat] Model resolution:', modelResolution)
-          
-          // Send to agent processing via LLM with agent context
-          const agentResponse = await fetch(`${baseUrl}/api/llm/chat`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              modelId: modelResolution.model || activeLlmModel,
-              messages: [
-                { role: 'system', content: wrappedInput },
-                ...processedMessages.slice(-3) // Include recent context
-              ]
-            })
-          })
-          
-          if (agentResponse.ok) {
-            const agentResult = await agentResponse.json()
-            if (agentResult.ok && agentResult.data?.content) {
-              const agentOutput = agentResult.data.content
-              
-              // === ROUTE OUTPUT TO AGENT BOX (if connected) ===
-              if (match.agentBoxId) {
-                // Update agent box with reasoning context + output
-                const reasoningContext = `**Agent:** ${match.agentIcon} ${match.agentName}\n**Match:** ${match.matchDetails}\n**Input:** ${text}`
-                
-                await updateAgentBoxOutput(
-                  match.agentBoxId,
-                  agentOutput,
-                  reasoningContext
-                )
-                
-                // Add brief confirmation to chat (output is in agent box)
-                setChatMessages(prev => [...prev, {
-                  role: 'assistant' as const,
-                  text: `✓ ${match.agentIcon} **${match.agentName}** processed your request.\n→ Output displayed in Agent Box ${String(match.agentBoxNumber).padStart(2, '0')}`
-                }])
-              } else {
-                // No agent box connected - show in chat
-                setChatMessages(prev => [...prev, {
-                  role: 'assistant' as const,
-                  text: `${match.agentIcon} **${match.agentName}**:\n\n${agentOutput}`
-                }])
-              }
-              
-              // Scroll to bottom after agent response
-              setTimeout(() => {
-                if (chatRef.current) chatRef.current.scrollTop = chatRef.current.scrollHeight
-              }, 0)
-            }
-          }
-        }
-        
-      } else if (routingDecision.butlerResponse) {
-        // === SYSTEM STATUS RESPONSE ===
-        // Butler handled this directly (e.g., status query)
+        // A1. Show Butler confirmation (immediate response)
         setChatMessages([...newMessages, {
           role: 'assistant' as const,
           text: routingDecision.butlerResponse
         }])
+        scrollToBottom()
         
-        setTimeout(() => {
-          if (chatRef.current) chatRef.current.scrollTop = chatRef.current.scrollHeight
-        }, 0)
-        
-      } else {
-        // === BUTLER LLM RESPONSE (No agent match) ===
-        // Use butler personality for general questions
-        const agents = await loadAgentsFromSession()
-        const butlerPrompt = getButlerSystemPrompt(
-          sessionName,
-          agents.filter(a => a.enabled).length,
-          connectionStatus.isConnected
-        )
-        
-        // Call Ollama API with butler system prompt
-        const response = await fetch(`${baseUrl}/api/llm/chat`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            modelId: activeLlmModel,
-            messages: [
-              { role: 'system', content: butlerPrompt },
-              ...processedMessages
-            ]
-          })
-        })
-        
-        if (!response.ok) {
-          const result = await response.json()
-          throw new Error(result.error || `API request failed: ${response.statusText}`)
+        // A2. Process with each matched agent
+        for (const match of routingDecision.matchedAgents) {
+          console.log(`[Chat] Processing with agent: ${match.agentName}`)
+          
+          // Use helper function to process with agent
+          const result = await processWithAgent(
+            match,
+            text,
+            ocrText,
+            processedMessages,
+            activeLlmModel,
+            baseUrl
+          )
+          
+          if (result.success && result.output) {
+            // A3. Route output to AgentBox or inline chat
+            if (match.agentBoxId) {
+              // Update AgentBox with output
+              const reasoningContext = `**Agent:** ${match.agentIcon} ${match.agentName}\n**Match:** ${match.matchDetails}\n**Input:** ${text}`
+              
+              await updateAgentBoxOutput(
+                match.agentBoxId,
+                result.output,
+                reasoningContext
+              )
+              
+              // Show brief confirmation in chat
+              setChatMessages(prev => [...prev, {
+                role: 'assistant' as const,
+                text: `✓ ${match.agentIcon} **${match.agentName}** processed your request.\n→ Output displayed in Agent Box ${String(match.agentBoxNumber).padStart(2, '0')}`
+              }])
+            } else {
+              // No AgentBox - show full output in chat
+              setChatMessages(prev => [...prev, {
+                role: 'assistant' as const,
+                text: `${match.agentIcon} **${match.agentName}**:\n\n${result.output}`
+              }])
+            }
+            scrollToBottom()
+          } else if (result.error) {
+            // Show error for this agent
+            setChatMessages(prev => [...prev, {
+              role: 'assistant' as const,
+              text: `⚠️ ${match.agentIcon} **${match.agentName}** error: ${result.error}`
+            }])
+            scrollToBottom()
+          }
         }
         
-        const result = await response.json()
+      } else if (routingDecision.butlerResponse) {
+        // =================================================================
+        // PATH B: SYSTEM STATUS RESPONSE
+        // Butler handled this directly (e.g., "status", "what agents")
+        // =================================================================
+        setChatMessages([...newMessages, {
+          role: 'assistant' as const,
+          text: routingDecision.butlerResponse
+        }])
+        scrollToBottom()
         
-        if (result.ok && result.data?.content) {
-          // Add assistant response
+      } else {
+        // =================================================================
+        // PATH C: BUTLER LLM RESPONSE
+        // No agent match - use butler personality for general questions
+        // =================================================================
+        const butlerResult = await getButlerResponse(processedMessages, activeLlmModel, baseUrl)
+        
+        if (butlerResult.success && butlerResult.response) {
           setChatMessages([...newMessages, {
             role: 'assistant' as const,
-            text: result.data.content
+            text: butlerResult.response
           }])
-          
-          // Scroll to bottom after assistant response
-          setTimeout(() => {
-            if (chatRef.current) chatRef.current.scrollTop = chatRef.current.scrollHeight
-          }, 0)
+          scrollToBottom()
         } else {
-          throw new Error(result.error || 'No response from LLM')
+          throw new Error(butlerResult.error || 'No response from butler')
         }
       }
       
     } catch (error: any) {
-      console.error('[Command Chat] LLM error:', error)
+      console.error('[Chat] Error:', error)
       
       // Provide helpful error messages
       let errorMsg = error.message || 'Failed to get response from LLM'
       
-      // Check if it's a "no models installed" error
       if (errorMsg.includes('No models installed') || errorMsg.includes('Please go to LLM Settings')) {
         errorMsg = `⚠️ No LLM model installed!\n\nTo get started:\n1. Click Admin toggle at top\n2. Go to LLM Settings\n3. Install a trusted lightweight model:\n   • TinyLlama (0.6GB) - Recommended\n   • Gemma 2B Q2_K (0.9GB) - Google\n   • StableLM (1.0GB) - Stability AI\n\nThen come back and chat!`
       } else {
         errorMsg = `⚠️ Error: ${errorMsg}\n\nTip: Make sure Ollama is running and a trusted model is installed in LLM Settings.`
       }
       
-      // Add error message
       setChatMessages(prev => [...prev, {
         role: 'assistant' as const,
         text: errorMsg

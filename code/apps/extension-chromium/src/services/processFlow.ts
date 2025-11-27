@@ -5,11 +5,18 @@
  * Handles trigger matching, input routing, butler response generation,
  * and agent box output routing based on Input/Output Coordinator rules
  * 
- * This module now integrates with the new automation system for enhanced
- * trigger/condition/workflow support while maintaining backward compatibility.
+ * This module uses the unified InputCoordinator for all routing decisions.
+ * The InputCoordinator consolidates the routing logic with clear forwarding rules:
+ * 1. Active trigger clicked (e.g., #tag17) -> Forward to agent
+ * 2. Passive trigger pattern matched -> Forward to agent
+ * 3. No listener active on agent -> Always forward to reasoning
+ * 4. No match at all -> Butler response only
  */
 
-// Import new automation system for enhanced features
+// Import the unified Input Coordinator
+import { InputCoordinator, inputCoordinator } from './InputCoordinator'
+
+// Import new automation system for enhanced features (kept for compatibility)
 import { 
   ListenerManager, 
   TriggerRegistry, 
@@ -273,11 +280,17 @@ function getCurrentSessionKey(): string | null {
 
 /**
  * Extract agent number from various sources
- * Priority: explicit number field > parsed from key > parsed from agentId > index-based
+ * Priority: explicit number field > parsed from key > parsed from name > parsed from id > index-based
+ * 
+ * This is the authoritative function for determining an agent's number, used by:
+ * - loadAgentsFromSession() - sets agent.number on load
+ * - InputCoordinator - uses agent.number for matching
+ * - findAgentBoxesForAgent() - matches agent.number to box.agentNumber
  */
 function extractAgentNumber(agent: any, index: number): number {
-  // 1. Check explicit number field (from parsed config.instructions)
+  // 1. Check explicit number field (from parsed config.instructions or direct assignment)
   if (typeof agent.number === 'number' && agent.number > 0) {
+    console.log(`[ProcessFlow] extractAgentNumber: Found explicit number ${agent.number} for "${agent.name || agent.key}"`)
     return agent.number
   }
   
@@ -285,20 +298,37 @@ function extractAgentNumber(agent: any, index: number): number {
   if (agent.key) {
     const keyMatch = String(agent.key).match(/^agent(\d+)$/i)
     if (keyMatch) {
-      return parseInt(keyMatch[1], 10)
+      const num = parseInt(keyMatch[1], 10)
+      console.log(`[ProcessFlow] extractAgentNumber: Extracted ${num} from key "${agent.key}"`)
+      return num
     }
   }
   
-  // 3. Try to parse from id
+  // 3. Try to parse from name (e.g., "Agent 01", "Agent 02: Invoice Processor")
+  if (agent.name) {
+    // Match "Agent XX" or "Agent XX:" patterns
+    const nameMatch = String(agent.name).match(/^agent\s*(\d+)/i)
+    if (nameMatch) {
+      const num = parseInt(nameMatch[1], 10)
+      console.log(`[ProcessFlow] extractAgentNumber: Extracted ${num} from name "${agent.name}"`)
+      return num
+    }
+  }
+  
+  // 4. Try to parse from id (e.g., "agent1-uuid", "session_agent2")
   if (agent.id) {
     const idMatch = String(agent.id).match(/agent(\d+)/i)
     if (idMatch) {
-      return parseInt(idMatch[1], 10)
+      const num = parseInt(idMatch[1], 10)
+      console.log(`[ProcessFlow] extractAgentNumber: Extracted ${num} from id "${agent.id}"`)
+      return num
     }
   }
   
-  // 4. Fall back to 1-indexed position
-  return index + 1
+  // 5. Fall back to 1-indexed position
+  const fallbackNum = index + 1
+  console.log(`[ProcessFlow] extractAgentNumber: Using fallback index ${fallbackNum} for "${agent.name || agent.key || agent.id}"`)
+  return fallbackNum
 }
 
 /**
@@ -406,6 +436,51 @@ export async function loadAgentsFromSession(): Promise<AgentConfig[]> {
 }
 
 /**
+ * Extract agent number from AgentBox data
+ * Priority: explicit agentNumber > allocatedAgentNumber > parsed from agentId > parsed from model > parsed from title
+ * 
+ * This is the authoritative function for determining which agent is connected to a box.
+ */
+function extractBoxAgentNumber(box: any): number | undefined {
+  // 1. Check explicit agentNumber field (set by UI when allocating agent)
+  if (typeof box.agentNumber === 'number' && box.agentNumber > 0) {
+    return box.agentNumber
+  }
+  
+  // 2. Check allocatedAgentNumber (alternative field name)
+  if (typeof box.allocatedAgentNumber === 'number' && box.allocatedAgentNumber > 0) {
+    return box.allocatedAgentNumber
+  }
+  
+  // 3. Try to parse from agentId (e.g., "agent1", "agent2")
+  if (box.agentId) {
+    const match = String(box.agentId).match(/agent(\d+)/i)
+    if (match) {
+      return parseInt(match[1], 10)
+    }
+  }
+  
+  // 4. Try to parse from model field (legacy: sometimes agent number was stored here)
+  if (box.model && typeof box.model === 'string') {
+    const match = String(box.model).match(/agent(\d+)/i)
+    if (match) {
+      return parseInt(match[1], 10)
+    }
+  }
+  
+  // 5. Try to parse from title (e.g., "Agent 01 Output")
+  if (box.title) {
+    const match = String(box.title).match(/agent\s*(\d+)/i)
+    if (match) {
+      return parseInt(match[1], 10)
+    }
+  }
+  
+  // No agent number found - box is not connected to an agent
+  return undefined
+}
+
+/**
  * Load agent boxes from the current session
  */
 export async function loadAgentBoxesFromSession(): Promise<AgentBox[]> {
@@ -434,30 +509,36 @@ export async function loadAgentBoxesFromSession(): Promise<AgentBox[]> {
           
           console.log('[ProcessFlow] Found', agentBoxes.length, 'agent boxes in session')
           
-          // Normalize agent box data
-          const normalizedBoxes = agentBoxes.map(box => {
+          // Normalize agent box data and extract agent numbers
+          const normalizedBoxes = agentBoxes.map((box, index) => {
             const normalized = { ...box }
             
-            // Extract agentNumber from agentId if not set
-            if (!normalized.agentNumber && normalized.agentId) {
-              const match = String(normalized.agentId).match(/agent(\d+)/i)
-              if (match) {
-                normalized.agentNumber = parseInt(match[1], 10)
-              }
+            // Ensure boxNumber is set
+            if (normalized.boxNumber === undefined) {
+              normalized.boxNumber = index + 1
             }
             
-            // Also check model field for agent pattern
-            if (!normalized.agentNumber && normalized.model) {
-              const match = String(normalized.model).match(/agent(\d+)/i)
-              if (match) {
-                normalized.agentNumber = parseInt(match[1], 10)
-              }
+            // Extract agent number using the comprehensive extractor
+            const extractedAgentNum = extractBoxAgentNumber(box)
+            if (extractedAgentNum !== undefined) {
+              normalized.agentNumber = extractedAgentNum
             }
             
-            console.log(`[ProcessFlow] AgentBox ${normalized.boxNumber}: agentNumber=${normalized.agentNumber}, provider=${normalized.provider}, model=${normalized.model}`)
+            console.log(`[ProcessFlow] AgentBox ${normalized.boxNumber}:`, {
+              id: normalized.id,
+              title: normalized.title,
+              agentNumber: normalized.agentNumber ?? '(none)',
+              provider: normalized.provider ?? '(none)',
+              model: normalized.model ?? '(none)',
+              enabled: normalized.enabled !== false
+            })
             
             return normalized
           })
+          
+          // Log wiring summary
+          const connectedBoxes = normalizedBoxes.filter(b => b.agentNumber !== undefined)
+          console.log(`[ProcessFlow] AgentBox wiring summary: ${connectedBoxes.length}/${normalizedBoxes.length} boxes connected to agents`)
           
           resolve(normalizedBoxes)
         })
@@ -474,56 +555,24 @@ export async function loadAgentBoxesFromSession(): Promise<AgentBox[]> {
 
 /**
  * Find agent boxes connected to an agent via agentNumber matching
+ * 
+ * Uses the InputCoordinator's implementation for consistent matching logic.
  */
 export function findAgentBoxesForAgent(
   agent: AgentConfig,
   agentBoxes: AgentBox[]
 ): AgentBox[] {
-  console.log(`[ProcessFlow] findAgentBoxesForAgent: Looking for boxes matching agent ${agent.number} (${agent.name || agent.key})`)
-  console.log(`[ProcessFlow] Available agent boxes:`, agentBoxes.map(b => ({
-    id: b.id,
-    boxNumber: b.boxNumber,
-    agentNumber: b.agentNumber,
-    title: b.title,
-    enabled: b.enabled
-  })))
-  
-  if (!agent.number) {
-    console.warn(`[ProcessFlow] Agent "${agent.name || agent.key}" has no number, cannot match to boxes`)
-    return []
-  }
-  
-  const matchedBoxes = agentBoxes.filter(box => {
-    const boxAgentNum = box.agentNumber
-    const matches = boxAgentNum === agent.number && box.enabled !== false
-    console.log(`[ProcessFlow] Box ${box.boxNumber}: agentNumber=${boxAgentNum}, agent.number=${agent.number}, enabled=${box.enabled !== false}, matches=${matches}`)
-    if (matches) {
-      console.log(`[ProcessFlow] ✅ Matched: Agent ${agent.number} (${agent.name}) → Box ${box.boxNumber}`)
-    }
-    return matches
-  })
-  
-  if (matchedBoxes.length === 0) {
-    console.warn(`[ProcessFlow] ⚠️ No boxes found for agent ${agent.number} (${agent.name || agent.key})`)
-  }
-  
-  return matchedBoxes
+  // Delegate to InputCoordinator for consistent matching
+  return inputCoordinator.findAgentBoxesForAgent(agent, agentBoxes)
 }
 
 /**
  * Extract trigger patterns from input text
- * Looks for @TriggerName patterns
+ * Looks for @TriggerName and #TriggerName patterns
  */
 export function extractTriggerPatterns(input: string): string[] {
-  const patterns: string[] = []
-  
-  // Match @TriggerName patterns
-  const atMatches = input.match(/@[\w-]+/g)
-  if (atMatches) {
-    patterns.push(...atMatches.map(m => m.substring(1))) // Remove @
-  }
-  
-  return patterns
+  // Delegate to InputCoordinator for consistent pattern extraction
+  return inputCoordinator.extractTriggerPatterns(input)
 }
 
 /**
@@ -558,11 +607,12 @@ function matchesApplyFor(applyFor: string | undefined, inputType: string, hasIma
 
 /**
  * Full routing logic - matches input against all agent rules
- * Based on Input Coordinator rules:
- * 1. Trigger match (listener.passive/active.triggers)
- * 2. Expected context match (listener.expectedContext)
- * 3. Apply for match (reasoning.applyFor)
- * 4. Accept from check (reasoning.acceptFrom)
+ * 
+ * Uses the unified InputCoordinator with the following forwarding rules:
+ * 1. Active trigger clicked (e.g., #tag17) -> Forward to matched agent
+ * 2. Passive trigger pattern matched -> Forward to matched agent
+ * 3. No listener active on agent -> Always forward to reasoning section
+ * 4. No match at all -> Butler response only (empty array returned)
  */
 export function matchInputToAgents(
   input: string,
@@ -572,143 +622,15 @@ export function matchInputToAgents(
   agentBoxes: AgentBox[],
   currentUrl?: string
 ): AgentMatch[] {
-  const matches: AgentMatch[] = []
-  const inputTriggers = extractTriggerPatterns(input)
-  
-  console.log('[ProcessFlow] matchInputToAgents:', { 
-    input: input.substring(0, 50), 
-    inputType, 
-    inputTriggers, 
-    agentCount: agents.length,
-    boxCount: agentBoxes.length 
-  })
-
-  for (const agent of agents) {
-    // Skip disabled agents
-    if (!agent.enabled) {
-      console.log(`[ProcessFlow] Skipping disabled agent: ${agent.name}`)
-      continue
-    }
-
-    const listening = agent.listening
-    const reasoning = agent.reasoning
-    let matched = false
-    let matchReason: AgentMatch['matchReason'] = 'default'
-    let matchDetails = ''
-    let triggerName: string | undefined
-    let triggerType: 'passive' | 'active' | undefined
-
-    // 1. Check trigger matches (highest priority)
-    if (listening && inputTriggers.length > 0) {
-      // Check passive triggers
-      if (listening.passiveEnabled && listening.passive?.triggers) {
-        for (const trigger of listening.passive.triggers) {
-          const tName = trigger.tag?.name
-          if (tName && inputTriggers.some(t => t.toLowerCase() === tName.toLowerCase())) {
-            matched = true
-            matchReason = 'trigger'
-            triggerName = tName
-            triggerType = 'passive'
-            matchDetails = `Passive trigger @${tName} matched`
-            console.log(`[ProcessFlow] Trigger match: @${tName} → ${agent.name}`)
-            break
-          }
-        }
-      }
-
-      // Check active triggers
-      if (!matched && listening.activeEnabled && listening.active?.triggers) {
-        for (const trigger of listening.active.triggers) {
-          const tName = trigger.tag?.name
-          if (tName && inputTriggers.some(t => t.toLowerCase() === tName.toLowerCase())) {
-            matched = true
-            matchReason = 'trigger'
-            triggerName = tName
-            triggerType = 'active'
-            matchDetails = `Active trigger @${tName} matched`
-            console.log(`[ProcessFlow] Trigger match: @${tName} → ${agent.name}`)
-            break
-          }
-        }
-      }
-    }
-
-    // 2. Check expected context match
-    if (!matched && listening?.expectedContext) {
-      if (matchesExpectedContext(input, listening.expectedContext)) {
-        matched = true
-        matchReason = 'expected_context'
-        matchDetails = `Expected context "${listening.expectedContext}" matched`
-        console.log(`[ProcessFlow] Context match: "${listening.expectedContext}" → ${agent.name}`)
-      }
-    }
-
-    // 3. Check website filter (if set, must match)
-    if (matched && listening?.website && currentUrl) {
-      const websitePattern = listening.website.toLowerCase()
-      const urlLower = currentUrl.toLowerCase()
-      if (!urlLower.includes(websitePattern)) {
-        matched = false // URL doesn't match filter
-        console.log(`[ProcessFlow] Website filter rejected: ${websitePattern} not in ${currentUrl}`)
-      }
-    }
-
-    // 4. Check reasoning applyFor (for non-trigger matches)
-    if (!matched && reasoning) {
-      if (matchesApplyFor(reasoning.applyFor, inputType, hasImage)) {
-        // Only match if agent has reasoning capabilities and applyFor is specific
-        if (reasoning.applyFor && reasoning.applyFor !== '__any__') {
-          matched = true
-          matchReason = 'apply_for'
-          matchDetails = `ApplyFor "${reasoning.applyFor}" matched input type`
-          console.log(`[ProcessFlow] ApplyFor match: ${reasoning.applyFor} → ${agent.name}`)
-        }
-      }
-    }
-
-    // If matched, find connected agent boxes
-    if (matched) {
-      const connectedBoxes = findAgentBoxesForAgent(agent, agentBoxes)
-      const firstBox = connectedBoxes[0]
-
-      matches.push({
-        agentId: agent.id,
-        agentName: agent.name || agent.key || 'Unnamed Agent',
-        agentIcon: agent.icon || '🤖',
-        agentNumber: agent.number,
-        matchReason,
-        matchDetails,
-        triggerName,
-        triggerType,
-        outputLocation: firstBox 
-          ? `Agent Box ${String(firstBox.boxNumber).padStart(2, '0')} (${firstBox.title || 'Untitled'})`
-          : listening?.reportTo?.[0] || 'Agent Box',
-        agentBoxId: firstBox?.id,
-        agentBoxNumber: firstBox?.boxNumber,
-        // Include agent box model info for LLM selection
-        agentBoxProvider: firstBox?.provider,
-        agentBoxModel: firstBox?.model
-      })
-      
-      console.log(`[ProcessFlow] Agent matched:`, {
-        agent: agent.name,
-        agentNumber: agent.number,
-        boxId: firstBox?.id,
-        boxNumber: firstBox?.boxNumber,
-        boxProvider: firstBox?.provider,
-        boxModel: firstBox?.model
-      })
-    }
-  }
-
-  // Remove duplicates (same agent matched multiple times - keep first/best match)
-  const uniqueMatches = matches.filter((match, index, self) =>
-    index === self.findIndex(m => m.agentId === match.agentId)
+  // Delegate to the unified InputCoordinator
+  return inputCoordinator.routeToAgents(
+    input,
+    inputType,
+    hasImage,
+    agents,
+    agentBoxes,
+    currentUrl
   )
-  
-  console.log(`[ProcessFlow] Total matches: ${uniqueMatches.length}`)
-
-  return uniqueMatches
 }
 
 /**
@@ -733,29 +655,8 @@ export function isSystemQuery(input: string): boolean {
  * Generate butler response for agent forwarding
  */
 export function generateForwardingResponse(matches: AgentMatch[]): string {
-  if (matches.length === 0) return ''
-
-  if (matches.length === 1) {
-    const match = matches[0]
-    let response = `I'm forwarding your request to ${match.agentIcon} **${match.agentName}**.\n`
-    response += `→ ${match.matchDetails}\n`
-    response += `→ Output will appear in: ${match.outputLocation}`
-    if (match.agentBoxProvider && match.agentBoxModel) {
-      response += `\n→ Using: ${match.agentBoxProvider} / ${match.agentBoxModel}`
-    }
-    return response
-  }
-
-  // Multiple agents matched
-  let response = `Your request matches ${matches.length} agents:\n\n`
-  for (const match of matches) {
-    response += `${match.agentIcon} **${match.agentName}**\n`
-    response += `   ${match.matchDetails}\n`
-    response += `   → Output: ${match.outputLocation}\n\n`
-  }
-  response += `Processing with all matched agents...`
-  
-  return response
+  // Delegate to InputCoordinator for consistent response generation
+  return inputCoordinator.generateForwardingResponse(matches)
 }
 
 /**
