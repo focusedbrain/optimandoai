@@ -288,24 +288,72 @@ export class InputCoordinator {
   }
 
   /**
-   * Find agent boxes connected to an agent via agentNumber matching
+   * Find agent boxes connected to an agent
+   * 
+   * Priority:
+   * 1. Check execution.specialDestinations for explicit agentBox targets
+   * 2. Check listener.reportTo for explicit destinations
+   * 3. Fall back to matching agent.number with box.agentNumber
    */
   findAgentBoxesForAgent(agent: AgentConfig, agentBoxes: AgentBox[]): AgentBox[] {
-    if (!agent.number) {
-      this.log(`Agent "${agent.name}" has no number, cannot match to boxes`)
-      return []
+    const matchedBoxes: AgentBox[] = []
+    
+    // 1. Check execution.specialDestinations for explicit agentBox targets
+    const specialDestinations = (agent as any).execution?.specialDestinations || []
+    for (const dest of specialDestinations) {
+      if (dest.kind === 'agentBox') {
+        // If agents array specifies specific boxes like ["agentBox01", "agentBox02"]
+        if (dest.agents && dest.agents.length > 0) {
+          for (const targetBox of dest.agents) {
+            // Parse box number from "agentBox01", "box01", etc.
+            const boxNumMatch = String(targetBox).match(/(\d+)/)
+            if (boxNumMatch) {
+              const targetBoxNum = parseInt(boxNumMatch[1], 10)
+              const box = agentBoxes.find(b => b.boxNumber === targetBoxNum && b.enabled !== false)
+              if (box && !matchedBoxes.some(mb => mb.id === box.id)) {
+                this.log(`Agent "${agent.name}" → Explicit destination: Agent Box ${targetBoxNum}`)
+                matchedBoxes.push(box)
+              }
+            }
+          }
+        } else {
+          // Generic "agentBox" destination - use agent number matching
+          this.log(`Agent "${agent.name}" has generic agentBox destination, using number matching`)
+        }
+      }
     }
     
-    const matchedBoxes = agentBoxes.filter(box => {
-      const boxAgentNum = box.agentNumber
-      const matches = boxAgentNum === agent.number && box.enabled !== false
-      return matches
-    })
+    // 2. Check listener.reportTo for explicit destinations
+    const reportTo = agent.listening?.reportTo || []
+    for (const dest of reportTo) {
+      // Parse destinations like "Agent Box 01", "agentBox01", etc.
+      const boxNumMatch = String(dest).match(/(?:box|Box)\s*(\d+)/i)
+      if (boxNumMatch) {
+        const targetBoxNum = parseInt(boxNumMatch[1], 10)
+        const box = agentBoxes.find(b => b.boxNumber === targetBoxNum && b.enabled !== false)
+        if (box && !matchedBoxes.some(mb => mb.id === box.id)) {
+          this.log(`Agent "${agent.name}" → ReportTo destination: Agent Box ${targetBoxNum}`)
+          matchedBoxes.push(box)
+        }
+      }
+    }
     
-    if (matchedBoxes.length > 0) {
-      this.log(`Agent ${agent.number} (${agent.name}) → ${matchedBoxes.length} box(es): ${matchedBoxes.map(b => `Box ${b.boxNumber}`).join(', ')}`)
-    } else {
-      this.log(`Agent ${agent.number} (${agent.name}) has no connected boxes`)
+    // 3. Fall back to agent.number matching if no explicit destinations found
+    if (matchedBoxes.length === 0 && agent.number) {
+      const numberMatchedBoxes = agentBoxes.filter(box => {
+        const boxAgentNum = box.agentNumber
+        const matches = boxAgentNum === agent.number && box.enabled !== false
+        return matches
+      })
+      
+      if (numberMatchedBoxes.length > 0) {
+        this.log(`Agent ${agent.number} (${agent.name}) → Number match: ${numberMatchedBoxes.map(b => `Box ${b.boxNumber}`).join(', ')}`)
+        matchedBoxes.push(...numberMatchedBoxes)
+      }
+    }
+    
+    if (matchedBoxes.length === 0) {
+      this.log(`Agent "${agent.name}" has no connected boxes (checked: specialDestinations, reportTo, number matching)`)
     }
     
     return matchedBoxes

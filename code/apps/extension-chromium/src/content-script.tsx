@@ -12103,9 +12103,39 @@ function initializeExtension() {
 
               const eDestinationsMain = eKindsMain.map(sel => {
 
-                const agents = Array.from(sel.parentElement?.querySelectorAll('.esp-agents .E-agent') || []).filter((cb:any)=> cb.checked).map((cb:any)=> cb.value)
+                const row = sel.parentElement
 
-                return { kind: sel.value, agents: sel.value==='agent' ? agents : [] }
+                let agents: string[] = []
+
+                
+
+                if (sel.value === 'agentBox') {
+
+                  // Get selected agent box from follow-up select
+
+                  const boxSel = row?.querySelector('.esp-followup select') as HTMLSelectElement | null
+
+                  if (boxSel?.value) {
+
+                    agents = [boxSel.value]
+
+                  }
+
+                } else if (sel.value === 'agent') {
+
+                  // Get selected agent from follow-up select
+
+                  const agentSel = row?.querySelector('.esp-followup select') as HTMLSelectElement | null
+
+                  if (agentSel?.value) {
+
+                    agents = [agentSel.value]
+
+                  }
+
+                }
+
+                return { kind: sel.value, agents }
 
               })
 
@@ -13029,9 +13059,39 @@ function initializeExtension() {
 
             const eDestinationsMain = eKindsMain.map(sel => {
 
-              const agents = Array.from(sel.parentElement?.querySelectorAll('.esp-agents .E-agent') || []).filter((cb:any)=> cb.checked).map((cb:any)=> cb.value)
+              const row = sel.parentElement
 
-              return { kind: sel.value, agents: sel.value==='agent' ? agents : [] }
+              let agents: string[] = []
+
+              
+
+              if (sel.value === 'agentBox') {
+
+                // Get selected agent box from follow-up select
+
+                const boxSel = row?.querySelector('.esp-followup select') as HTMLSelectElement | null
+
+                if (boxSel?.value) {
+
+                  agents = [boxSel.value]
+
+                }
+
+              } else if (sel.value === 'agent') {
+
+                // Get selected agent from follow-up select
+
+                const agentSel = row?.querySelector('.esp-followup select') as HTMLSelectElement | null
+
+                if (agentSel?.value) {
+
+                  agents = [agentSel.value]
+
+                }
+
+              }
+
+              return { kind: sel.value, agents }
 
             })
 
@@ -13047,9 +13107,27 @@ function initializeExtension() {
 
               const dests = kinds.map(sel => {
 
-                const agents = Array.from(sel.parentElement?.querySelectorAll('.esp-agents .E-agent') || []).filter((cb:any)=> cb.checked).map((cb:any)=> cb.value)
+                const row = sel.parentElement
 
-                return { kind: sel.value, agents: sel.value==='agent' ? agents : [] }
+                let agents: string[] = []
+
+                
+
+                if (sel.value === 'agentBox') {
+
+                  const boxSel = row?.querySelector('.esp-followup select') as HTMLSelectElement | null
+
+                  if (boxSel?.value) agents = [boxSel.value]
+
+                } else if (sel.value === 'agent') {
+
+                  const agentSel = row?.querySelector('.esp-followup select') as HTMLSelectElement | null
+
+                  if (agentSel?.value) agents = [agentSel.value]
+
+                }
+
+                return { kind: sel.value, agents }
 
               })
 
@@ -14873,7 +14951,7 @@ function initializeExtension() {
 
         }
 
-        const addSpecialRow = (def?: { kind?: string }) => {
+        const addSpecialRow = (def?: { kind?: string; agents?: string[] }) => {
 
           if (!eSpecialList) return
 
@@ -14881,11 +14959,11 @@ function initializeExtension() {
 
           row.className = 'esp-row'
 
-          row.style.cssText = 'display:grid;grid-template-columns:1fr auto;gap:8px'
+          row.style.cssText = 'display:grid;grid-template-columns:1fr 1fr auto;gap:8px;align-items:start'
 
           const opts = [
 
-            { label: 'Agent Boxes (default)', value: 'agentBox' },
+            { label: 'Agent Box', value: 'agentBox' },
 
             { label: 'Agent', value: 'agent' },
 
@@ -14907,37 +14985,95 @@ function initializeExtension() {
 
           const sel = makeSelect(opts, 'esp-kind', def?.kind || 'agentBox')
 
+          // Create follow-up select container for specific box/agent selection
+
+          const followUpHost = document.createElement('div')
+
+          followUpHost.className = 'esp-followup'
+
+          followUpHost.style.cssText = 'display:none'
+
+          // Build agent box options (01-50)
+
+          const buildAgentBoxSelect = (): HTMLSelectElement => {
+
+            const boxOpts = [{ label: '— Select Agent Box —', value: '' }]
+
+            for (let i = 1; i <= 50; i++) {
+
+              const num = String(i).padStart(2, '0')
+
+              boxOpts.push({ label: `Agent Box ${num}`, value: `agentBox${num}` })
+
+            }
+
+            const boxSel = makeSelect(boxOpts, 'esp-box-num', def?.agents?.[0] || '')
+
+            boxSel.style.cssText = 'background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.35);color:#fff;padding:8px 12px;border-radius:6px;width:100%'
+
+            return boxSel
+
+          }
+
+          // Build agent options (01-50)
+
+          const buildAgentSelect = (): HTMLSelectElement => {
+
+            const agentOpts = [{ label: '— Select Agent —', value: '' }]
+
+            for (let i = 1; i <= 50; i++) {
+
+              const num = String(i).padStart(2, '0')
+
+              agentOpts.push({ label: `Agent ${num}`, value: `agent${num}` })
+
+            }
+
+            const agentSel = makeSelect(agentOpts, 'esp-agent-num', def?.agents?.[0] || '')
+
+            agentSel.style.cssText = 'background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.35);color:#fff;padding:8px 12px;border-radius:6px;width:100%'
+
+            return agentSel
+
+          }
+
           const del = document.createElement('button')
 
           del.textContent = '×'
 
           del.title = 'Remove'
 
-          del.style.cssText = 'background:#f44336;color:#fff;border:1px solid rgba(255,255,255,.25);padding:0 10px;border-radius:6px;cursor:pointer'
+          del.style.cssText = 'background:#f44336;color:#fff;border:1px solid rgba(255,255,255,.25);padding:0 10px;border-radius:6px;cursor:pointer;height:36px'
 
           del.addEventListener('click', () => row.remove())
 
           row.appendChild(sel)
 
+          row.appendChild(followUpHost)
+
           row.appendChild(del)
-
-          // Agent checklist container if needed
-
-          const agentHost = document.createElement('div')
-
-          agentHost.className = 'esp-agents'
-
-          agentHost.style.cssText = 'display:none'
-
-          row.appendChild(agentHost)
 
           const sync = () => {
 
             const v = sel.value
 
-            agentHost.style.display = v === 'agent' ? 'block' : 'none'
+            followUpHost.innerHTML = ''
 
-            if (v === 'agent' && agentHost.childElementCount === 0) buildAgentChecklist(agentHost)
+            followUpHost.style.display = 'none'
+
+            if (v === 'agentBox') {
+
+              followUpHost.style.display = 'block'
+
+              followUpHost.appendChild(buildAgentBoxSelect())
+
+            } else if (v === 'agent') {
+
+              followUpHost.style.display = 'block'
+
+              followUpHost.appendChild(buildAgentSelect())
+
+            }
 
           }
 
@@ -16792,19 +16928,19 @@ function initializeExtension() {
 
                       }
 
-                      // If agent type, restore selected agents
+                      // Restore follow-up selection for agentBox or agent
 
-                      if (dest.kind === 'agent' && dest.agents && dest.agents.length > 0) {
+                      if ((dest.kind === 'agentBox' || dest.kind === 'agent') && dest.agents && dest.agents.length > 0) {
 
                         setTimeout(() => {
 
-                          dest.agents.forEach((agentId: string) => {
+                          const followUpSel = lastRow.querySelector('.esp-followup select') as HTMLSelectElement
 
-                            const checkbox = lastRow.querySelector(`.E-agent[value="${agentId}"]`) as HTMLInputElement
+                          if (followUpSel && dest.agents[0]) {
 
-                            if (checkbox) checkbox.checked = true
+                            followUpSel.value = dest.agents[0]
 
-                          })
+                          }
 
                         }, 100)
 
