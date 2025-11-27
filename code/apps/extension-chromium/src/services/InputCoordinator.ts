@@ -72,22 +72,23 @@ export class InputCoordinator {
   }
 
   /**
-   * Extract @mention patterns from input text
-   * Looks for @TriggerName, #TriggerName, or #tag17 patterns
+   * Extract trigger patterns from input text
+   * Looks for #TriggerName or #tag17 patterns (primary format)
+   * Also supports @TriggerName for backward compatibility
    */
   extractTriggerPatterns(input: string): string[] {
     const patterns: string[] = []
     
-    // Match @TriggerName patterns
-    const atMatches = input.match(/@[\w-]+/g)
-    if (atMatches) {
-      patterns.push(...atMatches.map(m => m.substring(1)))
-    }
-    
-    // Match #TriggerName or #tag17 patterns
+    // Match #TriggerName or #tag17 patterns (primary format)
     const hashMatches = input.match(/#[\w-]+/g)
     if (hashMatches) {
       patterns.push(...hashMatches.map(m => m.substring(1)))
+    }
+    
+    // Match @TriggerName patterns (backward compatibility)
+    const atMatches = input.match(/@[\w-]+/g)
+    if (atMatches) {
+      patterns.push(...atMatches.map(m => m.substring(1)))
     }
     
     return patterns
@@ -202,7 +203,7 @@ export class InputCoordinator {
         if (triggerName && inputTriggers.some(t => 
           t.toLowerCase() === triggerName.toLowerCase()
         )) {
-          this.log(`Agent "${agent.name}" matched passive trigger: @${triggerName}`)
+          this.log(`Agent "${agent.name}" matched passive trigger: #${triggerName}`)
           return {
             hasListener: true,
             isListenerActive: true,
@@ -212,7 +213,7 @@ export class InputCoordinator {
             matchesApplyFor: true,
             matchedTriggerName: triggerName,
             matchType: 'passive_trigger',
-            matchDetails: `Passive trigger @${triggerName} matched`
+            matchDetails: `Passive trigger #${triggerName} matched`
           }
         }
       }
@@ -225,7 +226,7 @@ export class InputCoordinator {
         if (triggerName && inputTriggers.some(t => 
           t.toLowerCase() === triggerName.toLowerCase()
         )) {
-          this.log(`Agent "${agent.name}" matched active trigger: @${triggerName}`)
+          this.log(`Agent "${agent.name}" matched active trigger: #${triggerName}`)
           return {
             hasListener: true,
             isListenerActive: true,
@@ -235,7 +236,7 @@ export class InputCoordinator {
             matchesApplyFor: true,
             matchedTriggerName: triggerName,
             matchType: 'active_trigger',
-            matchDetails: `Active trigger @${triggerName} matched`
+            matchDetails: `Active trigger #${triggerName} matched`
           }
         }
       }
