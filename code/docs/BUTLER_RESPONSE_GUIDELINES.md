@@ -89,7 +89,7 @@ When something goes wrong:
 
 The butler checks incoming messages for:
 
-1. **Explicit triggers**: Messages containing trigger names (e.g., "@Invoice-Q4")
+1. **Explicit triggers**: Messages containing trigger names (e.g., "#Invoice-Q4")
 2. **Image triggers**: When an image is attached with a known trigger region
 3. **Pattern matches**: Text patterns matching agent listener configurations
 
@@ -136,12 +136,13 @@ I don't see a specific trigger for invoice processing.
 To process an invoice:
 1. Use the pencil icon to select the invoice area
 2. Create a trigger named "Invoice" 
-3. Make sure an agent has "Invoice" in its listener triggers
+3. Use #Invoice in your message to trigger it
+4. Make sure an agent has "Invoice" in its listener triggers
 
 Or ask me anything else I can help with!
 ```
 
-### User sends: "@Invoice-Q4 extract totals"
+### User sends: "#Invoice-Q4 extract totals"
 **Trigger match → Forwarding response:**
 ```
 I'm forwarding your request to Invoice Processor.
@@ -157,10 +158,10 @@ The agent will analyze the image and extract all monetary values.
 Active Agents in this session:
 
 1. 📊 Invoice Processor - Enabled
-   Triggers: @Invoice, @Receipt, @Bill
+   Triggers: #Invoice, #Receipt, #Bill
    
 2. 📝 Note Summarizer - Enabled  
-   Triggers: @Summarize, @Notes
+   Triggers: #Summarize, #Notes
    
 3. 🔍 Data Extractor - Disabled
    (Enable in Agent Settings to use)
