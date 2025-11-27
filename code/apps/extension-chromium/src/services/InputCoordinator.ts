@@ -13,6 +13,7 @@
  */
 
 import type { AgentConfig, AgentBox, AgentMatch, RoutingDecision } from './processFlow'
+import type { ClassifiedInput, AgentAllocation, AgentReasoning, OutputSlot } from '../nlp/types'
 
 /**
  * Configuration for the Input Coordinator
@@ -484,6 +485,164 @@ export class InputCoordinator {
       response += `${match.agentIcon} **${match.agentName}**\n`
       response += `   ${match.matchDetails}\n`
       response += `   → Output: ${match.outputLocation}\n\n`
+    }
+    response += `Processing with all matched agents...`
+    
+    return response
+  }
+
+  /**
+   * Route ClassifiedInput to matching agents and populate agent allocations
+   * 
+   * This is the primary routing method for the NLP pipeline. It:
+   * 1. Uses pre-extracted triggers from ClassifiedInput
+   * 2. Matches against agent configurations
+   * 3. Populates agentAllocations with full reasoning, LLM, and output info
+   * 4. Returns the enriched ClassifiedInput ready for multi-agent dispatch
+   * 
+   * @param classifiedInput - The classified input from NLP
+   * @param agents - List of all agents
+   * @param agentBoxes - List of all agent boxes
+   * @param fallbackModel - Default model if agent box has none
+   * @param fallbackProvider - Default provider if agent box has none
+   */
+  routeClassifiedInput(
+    classifiedInput: ClassifiedInput,
+    agents: AgentConfig[],
+    agentBoxes: AgentBox[],
+    fallbackModel: string = 'llama3.2',
+    fallbackProvider: string = 'ollama'
+  ): ClassifiedInput {
+    const allocations: AgentAllocation[] = []
+    
+    // Extract triggers WITHOUT the # prefix for matching (but keep original in triggers array)
+    const inputTriggers = classifiedInput.triggers.map(t => 
+      t.startsWith('#') ? t.substring(1) : t
+    )
+    
+    // Determine input type
+    const hasImage = classifiedInput.source === 'ocr' || 
+                     classifiedInput.entities.some(e => e.type === 'url' && /\.(png|jpg|jpeg|gif|webp)$/i.test(e.value))
+    const inputType: 'text' | 'image' | 'mixed' = hasImage ? 'mixed' : 'text'
+    
+    this.log('--- Classified Input Routing ---')
+    this.log(`Raw text: "${classifiedInput.rawText.substring(0, 50)}${classifiedInput.rawText.length > 50 ? '...' : ''}"`)
+    this.log(`Triggers: ${classifiedInput.triggers.join(', ') || '(none)'}`)
+    this.log(`Entities: ${classifiedInput.entities.length}`)
+
+    for (const agent of agents) {
+      // Skip disabled agents
+      if (!agent.enabled) {
+        continue
+      }
+
+      // Evaluate listener against classified input
+      const evaluation = this.evaluateAgentListener(
+        agent,
+        classifiedInput.rawText,
+        inputType,
+        hasImage,
+        inputTriggers,
+        classifiedInput.sourceUrl
+      )
+
+      // Only allocate if matched
+      if (evaluation.matchType === 'none') {
+        continue
+      }
+
+      // Find connected agent boxes
+      const connectedBoxes = this.findAgentBoxesForAgent(agent, agentBoxes)
+      const primaryBox = connectedBoxes[0]
+
+      // Build reasoning from agent config
+      const reasoning: AgentReasoning = {
+        goals: agent.reasoning?.goals || '',
+        role: agent.reasoning?.role || '',
+        rules: agent.reasoning?.rules || '',
+        custom: agent.reasoning?.custom || [],
+        applyFor: agent.reasoning?.applyFor
+      }
+
+      // Build output slot
+      const outputSlot: OutputSlot = {
+        boxId: primaryBox?.id,
+        boxNumber: primaryBox?.boxNumber,
+        destination: primaryBox 
+          ? `Agent Box ${String(primaryBox.boxNumber).padStart(2, '0')}`
+          : agent.listening?.reportTo?.[0] || 'Inline Chat',
+        title: primaryBox?.title
+      }
+
+      // Determine match reason
+      let matchReason: AgentAllocation['matchReason'] = 'default'
+      if (evaluation.matchType === 'passive_trigger' || evaluation.matchType === 'active_trigger') {
+        matchReason = 'trigger'
+      } else if (evaluation.matchType === 'expected_context') {
+        matchReason = 'expected_context'
+      } else if (evaluation.matchType === 'apply_for') {
+        matchReason = 'apply_for'
+      }
+
+      // Create allocation
+      const allocation: AgentAllocation = {
+        agentId: agent.id,
+        agentName: agent.name || agent.key || 'Unnamed Agent',
+        agentIcon: agent.icon || '🤖',
+        agentNumber: agent.number,
+        reasoning,
+        llmProvider: primaryBox?.provider || fallbackProvider,
+        llmModel: primaryBox?.model || fallbackModel,
+        outputSlot,
+        matchReason,
+        matchDetails: evaluation.matchDetails,
+        triggerName: evaluation.matchedTriggerName,
+        triggerType: evaluation.matchType === 'passive_trigger' ? 'passive'
+                   : evaluation.matchType === 'active_trigger' ? 'active'
+                   : undefined
+      }
+
+      allocations.push(allocation)
+      this.log(`✓ Allocated agent "${agent.name}" → ${outputSlot.destination} (${allocation.llmProvider}/${allocation.llmModel})`)
+    }
+
+    // Remove duplicates (keep first occurrence)
+    const uniqueAllocations = allocations.filter((alloc, index, self) =>
+      index === self.findIndex(a => a.agentId === alloc.agentId)
+    )
+
+    this.log(`--- Routing Result: ${uniqueAllocations.length} agent(s) allocated ---`)
+
+    // Return enriched ClassifiedInput
+    return {
+      ...classifiedInput,
+      agentAllocations: uniqueAllocations
+    }
+  }
+
+  /**
+   * Generate a butler response from ClassifiedInput with allocations
+   */
+  generateForwardingResponseFromClassified(classifiedInput: ClassifiedInput): string {
+    const allocations = classifiedInput.agentAllocations || []
+    if (allocations.length === 0) return ''
+
+    if (allocations.length === 1) {
+      const alloc = allocations[0]
+      let response = `I'm forwarding your request to ${alloc.agentIcon} **${alloc.agentName}**.\n`
+      response += `→ ${alloc.matchDetails}\n`
+      response += `→ Output will appear in: ${alloc.outputSlot.destination}`
+      response += `\n→ Using: ${alloc.llmProvider} / ${alloc.llmModel}`
+      return response
+    }
+
+    // Multiple agents allocated
+    let response = `Your request matches ${allocations.length} agents:\n\n`
+    for (const alloc of allocations) {
+      response += `${alloc.agentIcon} **${alloc.agentName}**\n`
+      response += `   ${alloc.matchDetails}\n`
+      response += `   → Output: ${alloc.outputSlot.destination}\n`
+      response += `   → Model: ${alloc.llmProvider}/${alloc.llmModel}\n\n`
     }
     response += `Processing with all matched agents...`
     
