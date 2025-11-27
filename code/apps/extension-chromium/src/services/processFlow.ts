@@ -568,7 +568,7 @@ export function findAgentBoxesForAgent(
 
 /**
  * Extract trigger patterns from input text
- * Looks for @TriggerName and #TriggerName patterns
+ * Looks for #TriggerName patterns (primary) and @TriggerName (backward compatibility)
  */
 export function extractTriggerPatterns(input: string): string[] {
   // Delegate to InputCoordinator for consistent pattern extraction
@@ -702,7 +702,7 @@ export async function generateSystemStatusResponse(
 
       response += `\n${icon} **Agent ${num}: ${name}**\n`
       if (triggers.length > 0) {
-        response += `   Triggers: ${triggers.map(t => '@' + t).join(', ')}\n`
+        response += `   Triggers: ${triggers.map(t => '#' + t).join(', ')}\n`
       }
       if (agent.listening?.expectedContext) {
         response += `   Expected: "${agent.listening.expectedContext}"\n`
@@ -740,7 +740,7 @@ Keep responses concise and professional. If the user seems to want a specific
 agent task done, suggest which agent might help and how to trigger it.
 
 To trigger an agent, users can:
-1. Use @TriggerName in their message (e.g., "@Invoice process this")
+1. Use #TriggerName in their message (e.g., "#Invoice process this")
 2. Use the pencil icon to select a screen region and create a trigger
 3. Configure triggers in the agent's Listener section
 4. Agents may also auto-match based on expected context or applyFor settings
