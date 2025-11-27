@@ -492,7 +492,7 @@ export class InputCoordinator {
 }
 
 /**
- * Default singleton instance with debug logging enabled
+ * Default singleton instance
  */
-export const inputCoordinator = new InputCoordinator({ debug: true })
+export const inputCoordinator = new InputCoordinator({ debug: false })
 
