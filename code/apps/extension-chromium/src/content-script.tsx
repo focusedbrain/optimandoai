@@ -10083,6 +10083,17 @@ function initializeExtension() {
 
     text += 'Displays ALL configured settings from the AI Agent setup forms.\n\n'
 
+    // Add routing rules explanation
+    text += '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n'
+    text += 'ROUTING RULES (Input Coordinator)\n'
+    text += '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n'
+    text += '1. Active Trigger Match (#tag or @trigger) → Forward to agent\n'
+    text += '2. Passive Trigger Pattern Matched → Forward to agent\n'
+    text += '3. No Listener Active on Agent → ALWAYS forward to reasoning\n'
+    text += '4. No Match at All → Butler response only\n\n'
+    text += 'Flow: WR Chat → Butler (immediate) → Input Coordinator → Agent(s)\n'
+    text += '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n'
+
     
 
     if (agents.length === 0) {
@@ -10315,23 +10326,35 @@ function initializeExtension() {
 
         text += `\n  Input Routing Logic:\n`
 
-        text += `    1. Multimodal input arrives (DOM/uploads/screenshots)\n`
+        text += `    1. User input arrives in WR Chat\n`
 
-        text += `    2. Listener filters by: tags, source, website, expected context\n`
+        text += `    2. Butler LLM provides immediate confirmation\n`
 
-        text += `    3. If match found → Process and report to destinations\n`
+        text += `    3. Input Coordinator checks:\n`
 
-        text += `    4. If no match → Skip this agent\n`
+        text += `       - #tag or @trigger pattern match\n`
+
+        text += `       - Expected context keywords\n`
+
+        text += `       - Website filter (if set)\n`
+
+        text += `    4. If match found → Forward to Reasoning section\n`
+
+        text += `    5. Reasoning wraps with Goals/Role/Rules\n`
+
+        text += `    6. Agent LLM processes (from AgentBox model)\n`
+
+        text += `    7. Output displayed in connected AgentBox\n`
 
         
 
       } else {
 
-        text += `  State: ✗ INACTIVE\n`
+        text += `  State: ✗ INACTIVE (No listener configured)\n`
 
-        text += `  All multimodal input passes directly to REASONING section\n`
+        text += `  ⚡ ALL INPUT FORWARDED to Reasoning section\n`
 
-        text += `  (No filtering applied)\n`
+        text += `  (When no listener is active, agent receives all inputs)\n`
 
       }
 
@@ -10628,6 +10651,19 @@ function initializeExtension() {
     text += 'Lists all agent boxes and their connected agents.\n'
 
     text += 'Shows COMPLETE Execution section settings and Report To destinations.\n\n'
+
+    // Add output routing explanation
+    text += '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n'
+    text += 'OUTPUT ROUTING RULES\n'
+    text += '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n'
+    text += 'Agent → AgentBox Connection:\n'
+    text += '  • Agent Number must match AgentBox.agentNumber\n'
+    text += '  • AgentBox must be enabled (enabled !== false)\n'
+    text += '  • Output displays in the connected AgentBox\n\n'
+    text += 'LLM Model Selection:\n'
+    text += '  • If AgentBox has provider/model set → Use that model\n'
+    text += '  • Otherwise → Use default local model (Ollama)\n'
+    text += '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n'
 
     
 
