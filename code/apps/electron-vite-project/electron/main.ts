@@ -575,6 +575,7 @@ app.whenReady().then(async () => {
         // Initialize Services
         let fileWatcher: any = null;
         let diffService: any = null;
+        let templateLoader: any = null;
 
         import('./main/services').then(({ FileWatcherService, DiffService }) => {
           fileWatcher = new FileWatcherService();
@@ -595,6 +596,34 @@ app.whenReady().then(async () => {
             });
           });
         }).catch(err => console.error('[MAIN] Failed to load services:', err));
+
+        // Initialize Template Loader for GlassView apps
+        import('./main/services/TemplateLoader').then(({ createTemplateLoader }) => {
+          const templatesPath = path.join(app.getPath('userData'), 'glassview-templates');
+          templateLoader = createTemplateLoader(templatesPath);
+          
+          templateLoader.initialize().then(() => {
+            console.log('[MAIN] Template Loader initialized');
+            
+            // Watch for template changes and notify connected clients
+            templateLoader.onTemplateChanged((templateInfo: any) => {
+              console.log('[MAIN] Template changed:', templateInfo.name);
+              wsClients.forEach(client => {
+                try {
+                  client.send(JSON.stringify({
+                    type: 'TEMPLATE_CHANGED',
+                    payload: {
+                      name: templateInfo.name,
+                      content: templateInfo.content
+                    }
+                  }));
+                } catch (e) {
+                  console.error('[MAIN] Error broadcasting template change:', e);
+                }
+              });
+            });
+          }).catch((err: any) => console.error('[MAIN] Failed to initialize Template Loader:', err));
+        }).catch((err: any) => console.error('[MAIN] Failed to load Template Loader:', err));
 
         wss.on('connection', (socket: any) => {
           console.log('[MAIN] ===== NEW WEBSOCKET CONNECTION =====')
@@ -856,6 +885,77 @@ app.whenReady().then(async () => {
                 } else {
                   console.error('[MAIN] DiffService not initialized yet!');
                   socket.send(JSON.stringify({ type: 'DIFF_ERROR', filePath: msg.filePath, error: 'DiffService not ready' }));
+                }
+              }
+
+              // Template operations
+              if (msg.type === 'GET_TEMPLATE') {
+                console.log('[MAIN] GET_TEMPLATE received:', msg.name);
+                if (templateLoader) {
+                  try {
+                    const allTemplates = templateLoader.getAllTemplates();
+                    console.log('[MAIN] Available templates:', allTemplates.map((t: any) => t.name));
+                    const template = templateLoader.getTemplate(msg.name);
+                    console.log('[MAIN] Template found:', !!template);
+                    if (template) {
+                      socket.send(JSON.stringify({ 
+                        type: 'TEMPLATE_RESULT', 
+                        name: template.name,
+                        content: template.content,
+                        lastModified: template.lastModified
+                      }));
+                      console.log('[MAIN] TEMPLATE_RESULT sent to client');
+                    } else {
+                      socket.send(JSON.stringify({ 
+                        type: 'TEMPLATE_ERROR', 
+                        name: msg.name,
+                        error: 'Template not found' 
+                      }));
+                    }
+                  } catch (err) {
+                    console.error('[MAIN] Error getting template:', err);
+                    socket.send(JSON.stringify({ 
+                      type: 'TEMPLATE_ERROR', 
+                      name: msg.name,
+                      error: String(err) 
+                    }));
+                  }
+                } else {
+                  console.error('[MAIN] TemplateLoader not initialized yet!');
+                  socket.send(JSON.stringify({ 
+                    type: 'TEMPLATE_ERROR', 
+                    name: msg.name,
+                    error: 'TemplateLoader not ready' 
+                  }));
+                }
+              }
+
+              if (msg.type === 'LIST_TEMPLATES') {
+                console.log('[MAIN] LIST_TEMPLATES received');
+                if (templateLoader) {
+                  try {
+                    const templates = templateLoader.getAllTemplates();
+                    socket.send(JSON.stringify({ 
+                      type: 'TEMPLATES_LIST', 
+                      templates: templates.map((t: any) => ({
+                        name: t.name,
+                        lastModified: t.lastModified
+                      }))
+                    }));
+                    console.log('[MAIN] TEMPLATES_LIST sent to client');
+                  } catch (err) {
+                    console.error('[MAIN] Error listing templates:', err);
+                    socket.send(JSON.stringify({ 
+                      type: 'TEMPLATES_ERROR', 
+                      error: String(err) 
+                    }));
+                  }
+                } else {
+                  console.error('[MAIN] TemplateLoader not initialized yet!');
+                  socket.send(JSON.stringify({ 
+                    type: 'TEMPLATES_ERROR', 
+                    error: 'TemplateLoader not ready' 
+                  }));
                 }
               }
 

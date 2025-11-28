@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
 
-import { MiniAppContainer, FileList, DiffViewer } from '@shared/components';
+import { GlassViewContainer, FileList, DiffViewer } from '@shared/components';
 
 // --- Main Component ---
 
-export const GlassDoorMiniApp: React.FC = () => {
+export const GlassDoorGlassView: React.FC = () => {
 	const [projectPath, setProjectPath] = useState('');
 	const [isWatching, setIsWatching] = useState(false);
 	const [changedFiles, setChangedFiles] = useState<string[]>([]);
@@ -84,7 +84,7 @@ export const GlassDoorMiniApp: React.FC = () => {
 	};
 
 	return (
-		<MiniAppContainer title="WR-Code-GlassDoor">
+		<GlassViewContainer title="WR-Code-GlassDoor">
 			<div className="space-y-4">
 				{/* Connection Status */}
 				<div className={`px-2 py-1 text-xs rounded ${isConnected ? 'bg-green-100 text-green-700 dark:bg-green-900/20 dark:text-green-400' : 'bg-red-100 text-red-700 dark:bg-red-900/20 dark:text-red-400'}`}>
@@ -147,6 +147,6 @@ export const GlassDoorMiniApp: React.FC = () => {
 					</div>
 				)}
 			</div>
-		</MiniAppContainer>
+		</GlassViewContainer>
 	);
 };

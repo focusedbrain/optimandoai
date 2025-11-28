@@ -1,4 +1,4 @@
-export * from './MiniAppContainer';
+export * from './GlassViewContainer';
 export * from './FileList';
 export * from './DiffViewer';
 export * from './Button';

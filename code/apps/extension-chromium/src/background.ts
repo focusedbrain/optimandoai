@@ -114,9 +114,9 @@ function connectToWebSocketServer() {
               try { chrome.runtime.sendMessage(message) } catch { }
             })
 
-          } else if (data.type === 'FILE_CHANGED' || data.type === 'WATCHING_STARTED' || data.type === 'WATCHING_STOPPED' || data.type === 'DIFF_RESULT' || data.type === 'DIFF_ERROR' || data.type === 'WATCHING_ERROR') {
-            // Forward file watching events to sidepanel
-            console.log('[BG] Forwarding file watching event to sidepanel:', data.type);
+          } else if (data.type === 'FILE_CHANGED' || data.type === 'WATCHING_STARTED' || data.type === 'WATCHING_STOPPED' || data.type === 'DIFF_RESULT' || data.type === 'DIFF_ERROR' || data.type === 'WATCHING_ERROR' || data.type === 'TEMPLATE_RESULT' || data.type === 'TEMPLATE_ERROR' || data.type === 'TEMPLATES_LIST' || data.type === 'TEMPLATES_ERROR' || data.type === 'TEMPLATE_CHANGED') {
+            // Forward file watching and template events to sidepanel
+            console.log('[BG] Forwarding event to sidepanel:', data.type);
             try { chrome.runtime.sendMessage(data) } catch { }
           }
         }
@@ -587,22 +587,25 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     }
     case 'START_WATCHING':
     case 'STOP_WATCHING':
-    case 'GET_DIFF': {
+    case 'GET_DIFF':
+    case 'GET_TEMPLATE':
+    case 'LIST_TEMPLATES': {
       try {
-        console.log('[BG] Received glassdoor message:', msg.type, 'WS_ENABLED:', WS_ENABLED, 'ws state:', ws?.readyState);
+        console.log('[BG] Received message:', msg.type, 'WS_ENABLED:', WS_ENABLED, 'ws state:', ws?.readyState);
         if (WS_ENABLED && ws && ws.readyState === WebSocket.OPEN) {
           console.log('[BG] Sending to Electron:', JSON.stringify(msg));
           ws.send(JSON.stringify(msg))
-          try { sendResponse({ success: true }) } catch { }
+          // Don't send response yet - wait for Electron to respond
+          // The response will come via WebSocket message
         } else {
           console.log('[BG] WebSocket not connected!');
           try { sendResponse({ success: false, error: 'WS not connected' }) } catch { }
         }
       } catch (err) { 
-        console.log('[BG] Error handling glassdoor message:', err);
+        console.log('[BG] Error handling message:', err);
         try { sendResponse({ success: false }) } catch { } 
       }
-      break
+      return true; // Keep message channel open for async response
     }
     case 'REQUEST_START_SELECTION_POPUP': {
       try {

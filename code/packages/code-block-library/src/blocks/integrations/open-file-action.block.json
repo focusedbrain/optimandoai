@@ -1,0 +1,44 @@
+{
+  "id": "open-file-action",
+  "name": "Open File Action",
+  "description": "Integration block that sends IPC message to open a file in the editor at a specific line.",
+  "category": "integrations",
+  "version": "1.0.0",
+  "inputs": {
+    "filePath": {
+      "type": "string",
+      "description": "Absolute or relative path to the file",
+      "required": true
+    },
+    "lineNumber": {
+      "type": "number",
+      "description": "Line number to navigate to",
+      "required": false
+    },
+    "columnNumber": {
+      "type": "number",
+      "description": "Column number for precise cursor positioning",
+      "required": false
+    },
+    "highlightRange": {
+      "type": "object",
+      "description": "Range to highlight { start: number, end: number }",
+      "required": false
+    }
+  },
+  "outputs": {
+    "onSuccess": {
+      "type": "function",
+      "description": "Callback fired when file is successfully opened"
+    },
+    "onError": {
+      "type": "function",
+      "description": "Callback fired if opening fails with error message"
+    }
+  },
+  "dependencies": [],
+  "requiresElectron": true,
+  "cspCompliant": true,
+  "securityHash": "sha256-placeholder",
+  "plainEnglishDescription": "This block provides the ability to open files in your code editor (like VS Code or Cursor) from within a GlassView app. When you click on a file or code change in the app, this block sends a message to the orchestrator (the desktop application) asking it to open that file in your editor. You can specify which line to jump to, so clicking on a specific code change takes you right to that exact line in your editor. It can also highlight a range of lines. Think of it as a bridge between the browser-based GlassView app and your desktop editor. This is essential for workflows where you review code changes in the app and want to quickly navigate to the actual file to make edits."
+}

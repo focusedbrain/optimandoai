@@ -1,0 +1,35 @@
+{
+  "name": "@optimandoai/orchestrator",
+  "version": "0.1.0",
+  "description": "Orchestrator for managing template-driven app creation in OptimandoAI ecosystem",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "test": "node --loader tsx test-orchestrator.ts"
+  },
+  "keywords": [
+    "orchestrator",
+    "template-manager",
+    "glassview",
+    "electron-ipc"
+  ],
+  "dependencies": {
+    "@optimandoai/code-block-library": "workspace:*",
+    "chokidar": "^3.5.3",
+    "eventemitter3": "^5.0.1"
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.1",
+    "typescript": "^5.0.0"
+  },
+  "peerDependencies": {
+    "electron": ">=13.0.0"
+  },
+  "directories": {
+    "test": "test"
+  },
+  "author": "",
+  "license": "ISC"
+}

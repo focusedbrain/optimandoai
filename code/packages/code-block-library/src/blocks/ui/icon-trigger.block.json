@@ -1,0 +1,40 @@
+{
+  "id": "icon-trigger",
+  "name": "Icon Trigger",
+  "description": "Color-coded clickable icons that trigger actions when clicked. Each color represents a specific action type.",
+  "category": "ui",
+  "version": "1.0.0",
+  "inputs": {
+    "color": {
+      "type": "string",
+      "description": "The color of the icon (e.g., 'blue', 'green', 'red', 'yellow', 'purple')",
+      "required": true,
+      "enum": ["blue", "green", "red", "yellow", "purple", "orange"]
+    },
+    "icon": {
+      "type": "string",
+      "description": "Icon identifier (emoji or name)",
+      "required": true
+    },
+    "label": {
+      "type": "string",
+      "description": "Tooltip text shown on hover",
+      "required": false
+    },
+    "position": {
+      "type": "object",
+      "description": "Position relative to parent (line number or offset)",
+      "required": false
+    }
+  },
+  "outputs": {
+    "onTrigger": {
+      "type": "function",
+      "description": "Callback fired when icon is clicked. Receives color and context data."
+    }
+  },
+  "dependencies": ["react"],
+  "cspCompliant": true,
+  "securityHash": "sha256-placeholder",
+  "plainEnglishDescription": "This block creates small colored icons that users can click to trigger actions. Think of them as smart buttons that are color-coded by purpose. For example, a blue icon might mean 'explain this code', a red icon might mean 'check for security issues', and a green icon might mean 'suggest improvements'. The icons can be attached to specific lines of code or code hunks. When clicked, they send a message telling the system what action to perform and what code to analyze. This is the key mechanism for users to interact with code analysis features - instead of typing commands, they just click the appropriately colored icon."
+}

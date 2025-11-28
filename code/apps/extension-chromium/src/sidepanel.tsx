@@ -3,7 +3,8 @@ import React, { useState, useEffect, useRef } from 'react'
 import { createRoot } from 'react-dom/client'
 import { BackendSwitcher } from './components/BackendSwitcher'
 import { BackendSwitcherInline } from './components/BackendSwitcherInline'
-import { GlassDoorMiniApp } from './components/GlassDoorMiniApp'
+import { GlassDoorGlassView } from './components/GlassDoorGlassView'
+import { TemplateGlassView } from './components/TemplateGlassView'
 
 interface ConnectionStatus {
   isConnected: boolean
@@ -2421,7 +2422,7 @@ function SidepanelOrchestrator() {
         }}>
           {activeMiniApp === 'glassdoor' ? (
             <div style={{ width: '100%', height: '100%', minHeight: '400px' }}>
-              <GlassDoorMiniApp />
+              <TemplateGlassView templateName="file-watcher" />
             </div>
           ) : (
             <button

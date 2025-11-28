@@ -1,0 +1,85 @@
+{
+  "name": "@optimandoai/code-block-library",
+  "version": "1.0.0",
+  "description": "Enterprise-grade React component library with advanced UI components for building modern web applications",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.js"
+    },
+    "./components": {
+      "types": "./dist/components/index.d.ts",
+      "import": "./dist/components/index.js",
+      "require": "./dist/components/index.js"
+    },
+    "./charts": {
+      "types": "./dist/components/charts/index.d.ts",
+      "import": "./dist/components/charts/index.js",
+      "require": "./dist/components/charts/index.js"
+    },
+    "./forms": {
+      "types": "./dist/components/forms/index.d.ts",
+      "import": "./dist/components/forms/index.js",
+      "require": "./dist/components/forms/index.js"
+    },
+    "./navigation": {
+      "types": "./dist/components/navigation/index.d.ts",
+      "import": "./dist/components/navigation/index.js",
+      "require": "./dist/components/navigation/index.js"
+    },
+    "./modals": {
+      "types": "./dist/components/modals/index.d.ts",
+      "import": "./dist/components/modals/index.js",
+      "require": "./dist/components/modals/index.js"
+    },
+    "./tables": {
+      "types": "./dist/components/tables/index.d.ts",
+      "import": "./dist/components/tables/index.js",
+      "require": "./dist/components/tables/index.js"
+    },
+    "./layouts": {
+      "types": "./dist/components/layouts/index.d.ts",
+      "import": "./dist/components/layouts/index.js",
+      "require": "./dist/components/layouts/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "test": "node --loader tsx test-template-builder.ts",
+    "clean": "rm -rf dist",
+    "prepublishOnly": "npm run clean && npm run build"
+  },
+  "keywords": [
+    "react",
+    "components",
+    "ui-library",
+    "typescript",
+    "charts",
+    "forms",
+    "navigation",
+    "modals",
+    "tables",
+    "layouts",
+    "dashboard",
+    "enterprise",
+    "responsive",
+    "accessibility"
+  ],
+  "dependencies": {
+    "js-yaml": "^4.1.1",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0"
+  },
+  "devDependencies": {
+    "@types/chrome": "^0.1.31",
+    "@types/js-yaml": "^4.0.9",
+    "@types/node": "^24.10.1",
+    "@types/react": "^18.2.0",
+    "@types/react-dom": "^18.2.0",
+    "typescript": "^5.0.0"
+  }
+}

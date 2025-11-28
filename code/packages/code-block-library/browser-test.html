@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TemplateBuilder Browser Test</title>
+    <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; }
+        .container { max-width: 800px; margin: 0 auto; }
+        .test-result { margin: 10px 0; padding: 10px; border-radius: 4px; }
+        .success { background-color: #d4edda; border: 1px solid #c3e6cb; }
+        .error { background-color: #f8d7da; border: 1px solid #f5c6cb; }
+        textarea { width: 100%; height: 200px; font-family: monospace; }
+        button { padding: 10px 20px; margin: 10px 5px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🧪 TemplateBuilder Browser Test</h1>
+        
+        <h3>Template Input:</h3>
+        <textarea id="templateInput" placeholder="Paste your template here...">
+```yaml
+GLASSVIEW_APP:
+  name: "Browser Test"
+  bootstrap:
+    block: "react-app"
+    config:
+      appName: "Browser Test"
+      initialState:
+        message: "Hello from Browser!"
+  layout:
+    - component: "container"
+      props:
+        title: "Browser Test"
+      children:
+        - component: "status-indicator"
+          props:
+            message: "{state.message}"
+            color: "blue"
+```
+        </textarea>
+        
+        <div>
+            <button onclick="validateTemplate()">Validate Template</button>
+            <button onclick="buildTemplate()">Build Template</button>
+            <button onclick="renderTemplate()">Render Template</button>
+        </div>
+        
+        <div id="results"></div>
+        <div id="app-container"></div>
+        
+        <script>
+            // This would be a test for browser environment
+            // Note: This is a demo HTML - actual implementation would need:
+            // 1. Bundle the code-block-library for browser
+            // 2. Include all dependencies
+            // 3. Handle module imports properly
+            
+            function validateTemplate() {
+                const template = document.getElementById('templateInput').value;
+                const results = document.getElementById('results');
+                
+                // In real implementation:
+                // const { validateTemplate } = CodeBlockLibrary;
+                // const validation = validateTemplate(template);
+                
+                // Mock result for demo
+                results.innerHTML = `
+                    <div class="test-result success">
+                        ✅ Template validation would happen here<br>
+                        📋 Template appears to be valid YAML format<br>
+                        🔧 Required 'bootstrap' block found<br>
+                        📊 Component structure looks correct
+                    </div>
+                `;
+            }
+            
+            function buildTemplate() {
+                const template = document.getElementById('templateInput').value;
+                const results = document.getElementById('results');
+                
+                // In real implementation:
+                // const { buildFromTemplate } = CodeBlockLibrary;
+                // const result = buildFromTemplate(template);
+                
+                // Mock result for demo
+                results.innerHTML = `
+                    <div class="test-result success">
+                        ✅ Template build would happen here<br>
+                        📦 Blocks used: react-app<br>
+                        🎯 Component created successfully<br>
+                        ⚠️  Ready for rendering
+                    </div>
+                `;
+            }
+            
+            function renderTemplate() {
+                const results = document.getElementById('results');
+                const container = document.getElementById('app-container');
+                
+                // In real implementation, this would render the actual component
+                // const { buildFromTemplate } = CodeBlockLibrary;
+                // const result = buildFromTemplate(template);
+                // ReactDOM.render(<result.Component />, container);
+                
+                // Mock rendered component for demo
+                container.innerHTML = `
+                    <div style="border: 2px dashed #007bff; padding: 20px; margin: 10px 0;">
+                        <h3>📱 Rendered App (Mock)</h3>
+                        <div style="padding: 12px 16px; background-color: #dbeafe; color: #1e40af; border: 1px solid #93c5fd; border-radius: 4px;">
+                            Hello from Browser!
+                        </div>
+                        <p><em>This is a mock render. Real implementation would show the actual React component.</em></p>
+                    </div>
+                `;
+                
+                results.innerHTML = `
+                    <div class="test-result success">
+                        🎉 Template rendered successfully!<br>
+                        📱 Check the app container below
+                    </div>
+                `;
+            }
+        </script>
+    </div>
+</body>
+</html>

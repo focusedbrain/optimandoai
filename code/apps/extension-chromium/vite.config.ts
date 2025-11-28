@@ -13,6 +13,10 @@ export default defineConfig({
     alias: {
       '@shared-extension': path.resolve(__dirname, '../../packages/shared-extension/src'),
       '@shared': path.resolve(__dirname, '../../packages/shared/src'),
+      '@optimandoai/code-block-library': path.resolve(__dirname, '../../packages/code-block-library/src'),
     }
+  },
+  esbuild: {
+    drop: [], // Don't drop console.log or debugger statements
   }
 })

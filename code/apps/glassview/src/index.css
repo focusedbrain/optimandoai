@@ -1,0 +1,268 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* GlassView Custom Styles */
+
+/* Base styling for the app */
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+code {
+  font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New',
+    monospace;
+}
+
+/* Custom scrollbar styling */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 6px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: #f1f1f1;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: #888;
+  border-radius: 3px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: #555;
+}
+
+/* Color coding for triggers */
+.trigger-blue {
+  @apply bg-blue-100 text-blue-800 border border-blue-200;
+}
+
+.trigger-red {
+  @apply bg-red-100 text-red-800 border border-red-200;
+}
+
+.trigger-green {
+  @apply bg-green-100 text-green-800 border border-green-200;
+}
+
+.trigger-yellow {
+  @apply bg-yellow-100 text-yellow-800 border border-yellow-200;
+}
+
+.trigger-orange {
+  @apply bg-orange-100 text-orange-800 border border-orange-200;
+}
+
+.trigger-purple {
+  @apply bg-purple-100 text-purple-800 border border-purple-200;
+}
+
+.trigger-gray {
+  @apply bg-gray-100 text-gray-800 border border-gray-200;
+}
+
+/* Animation utilities */
+.fade-in {
+  animation: fadeIn 0.3s ease-in-out;
+}
+
+.slide-in-right {
+  animation: slideInRight 0.3s ease-in-out;
+}
+
+.slide-in-left {
+  animation: slideInLeft 0.3s ease-in-out;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes slideInRight {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+@keyframes slideInLeft {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+/* Status indicators */
+.status-pending {
+  @apply inline-block w-2 h-2 bg-yellow-400 rounded-full animate-pulse;
+}
+
+.status-active {
+  @apply inline-block w-2 h-2 bg-blue-500 rounded-full animate-bounce;
+}
+
+.status-completed {
+  @apply inline-block w-2 h-2 bg-green-500 rounded-full;
+}
+
+.status-error {
+  @apply inline-block w-2 h-2 bg-red-500 rounded-full;
+}
+
+/* Priority indicators */
+.priority-critical {
+  @apply border-l-4 border-red-500 bg-red-50;
+}
+
+.priority-high {
+  @apply border-l-4 border-orange-500 bg-orange-50;
+}
+
+.priority-medium {
+  @apply border-l-4 border-yellow-500 bg-yellow-50;
+}
+
+.priority-low {
+  @apply border-l-4 border-gray-500 bg-gray-50;
+}
+
+/* Code highlighting */
+.code-added {
+  @apply bg-green-50 border-l-2 border-green-500 pl-2;
+}
+
+.code-deleted {
+  @apply bg-red-50 border-l-2 border-red-500 pl-2;
+}
+
+.code-modified {
+  @apply bg-blue-50 border-l-2 border-blue-500 pl-2;
+}
+
+/* Dark theme overrides */
+.dark {
+  @apply bg-gray-900 text-white;
+}
+
+.dark .trigger-blue {
+  @apply bg-blue-900 text-blue-100 border-blue-700;
+}
+
+.dark .trigger-red {
+  @apply bg-red-900 text-red-100 border-red-700;
+}
+
+.dark .trigger-green {
+  @apply bg-green-900 text-green-100 border-green-700;
+}
+
+.dark .trigger-yellow {
+  @apply bg-yellow-900 text-yellow-100 border-yellow-700;
+}
+
+.dark .trigger-orange {
+  @apply bg-orange-900 text-orange-100 border-orange-700;
+}
+
+.dark .trigger-purple {
+  @apply bg-purple-900 text-purple-100 border-purple-700;
+}
+
+.dark .trigger-gray {
+  @apply bg-gray-800 text-gray-100 border-gray-600;
+}
+
+/* Loading states */
+.loading-shimmer {
+  background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
+  background-size: 200% 100%;
+  animation: shimmer 2s infinite;
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+/* Custom button styles for trigger actions */
+.trigger-action-btn {
+  @apply px-3 py-1 rounded text-sm font-medium transition-all duration-200 
+         hover:shadow-md active:transform active:scale-95;
+}
+
+.trigger-action-btn.execute {
+  @apply bg-gradient-to-r from-green-500 to-green-600 text-white 
+         hover:from-green-600 hover:to-green-700;
+}
+
+.trigger-action-btn.view {
+  @apply bg-gradient-to-r from-blue-500 to-blue-600 text-white 
+         hover:from-blue-600 hover:to-blue-700;
+}
+
+.trigger-action-btn.disabled {
+  @apply bg-gray-300 text-gray-500 cursor-not-allowed 
+         hover:shadow-none hover:transform-none;
+}
+
+/* File type icons */
+.file-icon {
+  @apply inline-block w-4 h-4 mr-2;
+}
+
+.file-icon.markdown::before {
+  content: '📝';
+}
+
+.file-icon.cursorrules::before {
+  content: '⚙️';
+}
+
+.file-icon.diff::before {
+  content: '🔄';
+}
+
+/* Notification positioning and styling */
+.notification-container {
+  @apply fixed top-20 right-4 space-y-2 max-w-sm z-50;
+}
+
+/* Responsive design utilities */
+@media (max-width: 768px) {
+  .mobile-hidden {
+    @apply hidden;
+  }
+  
+  .mobile-full {
+    @apply w-full;
+  }
+}
+
+/* Print styles */
+@media print {
+  .print-hidden {
+    @apply hidden;
+  }
+  
+  .print-visible {
+    @apply block;
+  }
+}

@@ -1,0 +1,42 @@
+{
+  "id": "slider-navigation",
+  "name": "Slider Navigation",
+  "description": "A horizontal slider component for navigating between items with prev/next controls and direct selection.",
+  "category": "ui",
+  "version": "1.0.0",
+  "inputs": {
+    "items": {
+      "type": "array",
+      "description": "Array of items to display in the slider",
+      "required": true
+    },
+    "currentIndex": {
+      "type": "number",
+      "description": "Currently active slide index (0-based)",
+      "required": true,
+      "default": 0
+    },
+    "showDots": {
+      "type": "boolean",
+      "description": "Show navigation dots below slider",
+      "required": false,
+      "default": true
+    },
+    "showArrows": {
+      "type": "boolean",
+      "description": "Show prev/next arrow buttons",
+      "required": false,
+      "default": true
+    }
+  },
+  "outputs": {
+    "onChange": {
+      "type": "function",
+      "description": "Callback fired when slide changes. Receives new index as parameter."
+    }
+  },
+  "dependencies": ["react"],
+  "cspCompliant": true,
+  "securityHash": "sha256-placeholder",
+  "plainEnglishDescription": "This block creates a slider that lets users navigate between multiple items. Think of it like a photo carousel - you can click arrows to go forward/backward, or click dots at the bottom to jump to a specific item. It's useful for showing code changes one at a time, where each slide represents a different file or code hunk. The slider tracks which item you're currently viewing and calls a function whenever you switch to a different item."
+}

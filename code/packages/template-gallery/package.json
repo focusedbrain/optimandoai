@@ -1,0 +1,28 @@
+{
+  "name": "@optimandoai/template-gallery",
+  "version": "0.1.0",
+  "description": "Pre-built template gallery for OptimandoAI template-driven apps",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "test": "npx tsx test/gallery-test.ts",
+    "preview": "node scripts/preview-templates.js"
+  },
+  "keywords": [
+    "templates",
+    "gallery",
+    "pre-built-apps",
+    "glassview",
+    "mini-apps"
+  ],
+  "dependencies": {
+    "@optimandoai/code-block-library": "workspace:*",
+    "@optimandoai/orchestrator": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.0.0"
+  }
+}

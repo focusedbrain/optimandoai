@@ -1,0 +1,39 @@
+{
+  "id": "react-app",
+  "name": "React App Bootstrap",
+  "description": "Initializes a React application with state management and event handling infrastructure.",
+  "category": "bootstrap",
+  "version": "1.0.0",
+  "inputs": {
+    "appName": {
+      "type": "string",
+      "description": "Name of the application",
+      "required": true
+    },
+    "initialState": {
+      "type": "object",
+      "description": "Initial application state",
+      "required": false,
+      "default": {}
+    },
+    "theme": {
+      "type": "object",
+      "description": "Theme configuration (colors, fonts, spacing)",
+      "required": false
+    }
+  },
+  "outputs": {
+    "stateContext": {
+      "type": "context",
+      "description": "React context providing state and setState to all child components"
+    },
+    "eventBus": {
+      "type": "object",
+      "description": "Event bus for inter-component communication"
+    }
+  },
+  "dependencies": ["react"],
+  "cspCompliant": true,
+  "securityHash": "sha256-placeholder",
+  "plainEnglishDescription": "This is the foundation block that every GlassView app needs to start with. It sets up the basic React application structure that all other blocks build upon. Think of it as the skeleton or framework that holds everything together. It creates a central place to store data (called 'state') that all parts of the app can access and update. For example, if you're building a code review app, the state might include which files are being watched, which file is currently selected, and what code changes have been detected. It also provides an 'event bus' - a messaging system that lets different parts of the app talk to each other. Without this bootstrap block, no other blocks can function because they need this foundation to exist on. Every GlassView template must start with this block."
+}

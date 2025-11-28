@@ -4,6 +4,9 @@
   "version": "0.0.1",
   "scripts": {
     "test": "vitest --passWithNoTests",
+    "test:simple": "npx tsx packages/orchestrator/test/simple-test.ts",
+    "test:phase1": "npx tsx packages/orchestrator/test/simple-test.ts",
+    "demo": "npx tsx packages/orchestrator/test/simple-test.ts",
     "lint": "eslint .",
     "format": "prettier -w .",
     "format:check": "prettier -c ."
@@ -14,6 +17,7 @@
     "husky": "^9.1.7",
     "lint-staged": "^15.5.2",
     "prettier": "^3.3.0",
+    "tsx": "^4.6.2",
     "typescript": "^5.5.0",
     "typescript-eslint": "^8.41.0",
     "vitest": "^2.0.0"

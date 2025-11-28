@@ -1,0 +1,50 @@
+{
+  "id": "code-hunk-display",
+  "name": "Code Hunk Display",
+  "description": "Displays git diff hunks with syntax highlighting, showing additions (green) and deletions (red).",
+  "category": "diff-viewer",
+  "version": "1.0.0",
+  "inputs": {
+    "diff": {
+      "type": "string",
+      "description": "Git diff text to display",
+      "required": true
+    },
+    "filename": {
+      "type": "string",
+      "description": "Name of the file being displayed",
+      "required": true
+    },
+    "language": {
+      "type": "string",
+      "description": "Programming language for syntax highlighting",
+      "required": false
+    },
+    "showLineNumbers": {
+      "type": "boolean",
+      "description": "Show line numbers in diff",
+      "required": false,
+      "default": true
+    },
+    "enableIconTriggers": {
+      "type": "boolean",
+      "description": "Show icon triggers on each hunk",
+      "required": false,
+      "default": false
+    }
+  },
+  "outputs": {
+    "onHunkClick": {
+      "type": "function",
+      "description": "Callback fired when a diff hunk is clicked"
+    },
+    "onIconTrigger": {
+      "type": "function",
+      "description": "Callback fired when icon trigger is clicked on a hunk"
+    }
+  },
+  "dependencies": ["react"],
+  "cspCompliant": true,
+  "securityHash": "sha256-placeholder",
+  "plainEnglishDescription": "This block displays code changes in a visual format, like what you see in GitHub pull requests. It shows what was deleted (in red with a minus sign) and what was added (in green with a plus sign). Each chunk of changes is called a 'hunk'. The block maintains the original code formatting and indentation. If enabled, it can also show icon-triggers next to each hunk, allowing users to click colored icons to analyze that specific code change. For example, clicking a blue icon next to a hunk could ask AI to explain why that change was made. This is useful for code review workflows where you want to examine changes piece by piece."
+}
