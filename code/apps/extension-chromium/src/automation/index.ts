@@ -10,6 +10,7 @@ export * from './types'
 
 // Condition engine
 export { ConditionEngine } from './conditions/ConditionEngine'
+export { EventTagMatcher, eventTagMatcher } from './conditions/EventTagMatcher'
 
 // Trigger system
 export { TriggerRegistry } from './triggers/TriggerRegistry'
@@ -26,6 +27,7 @@ export { ListenerManager } from './ListenerManager'
 
 // Adapters
 export { LegacyConfigAdapter } from './adapters/LegacyConfigAdapter'
+export { TriggerMigration, triggerMigration } from './adapters/TriggerMigration'
 
 
 

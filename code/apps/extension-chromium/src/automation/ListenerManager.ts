@@ -14,9 +14,11 @@ import type {
   Condition,
   TriggerSource,
   TriggerScope,
-  Modality
+  Modality,
+  UnifiedTriggerConfig
 } from './types'
 import { ConditionEngine } from './conditions/ConditionEngine'
+import { EventTagMatcher } from './conditions/EventTagMatcher'
 import { TriggerRegistry } from './triggers/TriggerRegistry'
 import { WorkflowRunner } from './workflows/WorkflowRunner'
 import { WorkflowRegistry } from './workflows/WorkflowRegistry'
@@ -72,6 +74,9 @@ export class ListenerManager {
   /** Condition engine instance */
   private conditionEngine: ConditionEngine = new ConditionEngine()
   
+  /** Event Tag matcher for direct_tag triggers */
+  private eventTagMatcher: EventTagMatcher = new EventTagMatcher()
+  
   /** Trigger registry */
   private triggerRegistry: TriggerRegistry
   
@@ -97,6 +102,97 @@ export class ListenerManager {
     this.triggerRegistry = triggerRegistry || new TriggerRegistry()
     this.workflowRegistry = workflowRegistry || new WorkflowRegistry()
     this.workflowRunner = new WorkflowRunner(this.workflowRegistry)
+  }
+  
+  /**
+   * Evaluate a unified trigger against an event
+   * 
+   * Uses the appropriate matcher based on trigger type.
+   * This is a deterministic evaluation - no LLM or fuzzy matching.
+   * 
+   * @param event - The normalized event
+   * @param trigger - The unified trigger configuration
+   * @returns Match result with reason
+   */
+  evaluateUnifiedTrigger(
+    event: NormalizedEvent, 
+    trigger: UnifiedTriggerConfig
+  ): { matched: boolean; reason: string } {
+    if (!trigger.enabled) {
+      return { matched: false, reason: 'Trigger is disabled' }
+    }
+    
+    switch (trigger.type) {
+      case 'direct_tag': {
+        const result = this.eventTagMatcher.evaluate(event, trigger)
+        return { matched: result.matched, reason: result.reason }
+      }
+      
+      case 'workflow_condition': {
+        // For workflow triggers, check if source workflow matches
+        if (trigger.workflowId && event.sourceWorkflowId !== trigger.workflowId) {
+          return { matched: false, reason: `Workflow mismatch: expected ${trigger.workflowId}` }
+        }
+        // Evaluate conditions if present
+        if (trigger.conditions && trigger.conditions.length > 0) {
+          const condResult = this.conditionEngine.evaluate({ all: trigger.conditions }, event)
+          if (!condResult) {
+            return { matched: false, reason: 'Workflow conditions not met' }
+          }
+        }
+        return { matched: true, reason: `Workflow trigger matched: ${trigger.workflowId}` }
+      }
+      
+      case 'tag_and_condition': {
+        // First check the tag
+        const tagResult = this.eventTagMatcher.evaluate(event, trigger)
+        if (!tagResult.matched) {
+          return tagResult
+        }
+        // Then check workflow conditions
+        if (trigger.conditions && trigger.conditions.length > 0) {
+          const condResult = this.conditionEngine.evaluate({ all: trigger.conditions }, event)
+          if (!condResult) {
+            return { matched: false, reason: 'Gated conditions not met' }
+          }
+        }
+        return { matched: true, reason: `Gated trigger matched: ${trigger.tag}` }
+      }
+      
+      case 'ui_event': {
+        // UI event triggers are handled by the DOM trigger system
+        // Here we just validate the configuration matches
+        if (!trigger.domSelector) {
+          return { matched: false, reason: 'No DOM selector configured' }
+        }
+        // Check if event has the right DOM context
+        const eventSelector = event.metadata?.domSelector as string | undefined
+        if (eventSelector && trigger.domSelector === eventSelector) {
+          return { matched: true, reason: `UI event matched: ${trigger.domSelector}` }
+        }
+        return { matched: false, reason: 'DOM selector mismatch' }
+      }
+      
+      case 'manual': {
+        // Manual triggers are only activated by explicit user action
+        const isManualEvent = event.metadata?.isManualTrigger as boolean | undefined
+        const commandLabel = event.metadata?.commandLabel as string | undefined
+        if (isManualEvent && commandLabel === trigger.commandLabel) {
+          return { matched: true, reason: `Manual trigger: ${trigger.commandLabel}` }
+        }
+        return { matched: false, reason: 'Not a manual trigger event' }
+      }
+      
+      default:
+        return { matched: false, reason: `Unknown trigger type: ${trigger.type}` }
+    }
+  }
+  
+  /**
+   * Get the EventTagMatcher instance for direct access
+   */
+  getEventTagMatcher(): EventTagMatcher {
+    return this.eventTagMatcher
   }
   
   /**

@@ -77,6 +77,315 @@ export interface TriggerConfig {
 }
 
 // =============================================================================
+// Unified Trigger Types (New Architecture)
+// =============================================================================
+
+/**
+ * Event channel - where the triggering event originates
+ */
+export type EventChannel = 
+  | 'chat'           // WR Chat
+  | 'email'          // Email messages
+  | 'web'            // Web page / Messaging
+  | 'overlay'        // Augmented Overlay
+  | 'agent'          // From another Agent
+  | 'miniapp'        // From a Mini-App
+  | 'screenshot'     // Screenshot capture
+  | 'stream'         // Live stream
+  | 'pdf'            // PDF document
+  | 'docs'           // Document files
+  | 'voicememo'      // Voice memo recording
+  | 'video'          // Video content
+  | 'voice_command'  // Voice command input
+  | 'picture'        // Picture/image input
+  | 'api'            // External API webhook
+  | 'workflow'       // From another workflow
+
+/**
+ * Unified trigger type - categorizes how an agent can be activated
+ * 
+ * - direct_tag: Event Triggers - direct user-driven (e.g., #tag in chat/email)
+ * - workflow_condition: Condition Triggers - workflow-driven activation
+ * - tag_and_condition: Gated Triggers - requires both event and condition
+ * - ui_event: UI Event Triggers - DOM/button events (click, scroll, hover)
+ * - manual: Manual Triggers - command/button press activation
+ */
+export type TriggerType = 
+  | 'direct_tag'          // Event Triggers (direct user-driven)
+  | 'workflow_condition'  // Condition Triggers (workflow-driven)
+  | 'tag_and_condition'   // Gated Triggers (event + condition)
+  | 'ui_event'            // UI Event Triggers (DOM/button events)
+  | 'manual'              // Manual Triggers (command/button press)
+
+// =============================================================================
+// Event Tag Trigger Condition Types
+// =============================================================================
+
+/**
+ * Condition type for Event Tag triggers
+ * 
+ * These are predefined, reusable condition types that map to UI sections:
+ * - wrcode_valid: Requires WRCode/WRGuard verification passed
+ * - sender_whitelist: Sender must be in allowed list (email)
+ * - body_keywords: Body must contain any of these keywords
+ * - website_filter: URL must match pattern (web/overlay channel)
+ */
+export type EventTagConditionType = 
+  | 'wrcode_valid'      // Requires valid WRCode stamp
+  | 'sender_whitelist'  // Sender in allowed list
+  | 'body_keywords'     // Body contains keywords
+  | 'website_filter'    // URL matches pattern
+
+/**
+ * WRCode validation condition
+ * Requires the event to have passed WRCode/WRGuard verification
+ */
+export interface WRCodeCondition {
+  type: 'wrcode_valid'
+  /** Whether WRCode validation is required */
+  required: boolean
+}
+
+/**
+ * Sender whitelist condition
+ * Only allows events from specific sender addresses
+ */
+export interface SenderWhitelistCondition {
+  type: 'sender_whitelist'
+  /** List of allowed sender addresses (emails) */
+  allowedSenders: string[]
+}
+
+/**
+ * Body keywords condition
+ * Requires the event body to contain at least one of these keywords
+ */
+export interface BodyKeywordsCondition {
+  type: 'body_keywords'
+  /** List of keywords to match (any must be present) */
+  keywords: string[]
+  /** Whether match should be case-insensitive (default: true) */
+  caseInsensitive?: boolean
+}
+
+/**
+ * Website/domain filter condition
+ * Only activates for events from matching URLs (for web/overlay channels)
+ */
+export interface WebsiteFilterCondition {
+  type: 'website_filter'
+  /** URL patterns to match (supports wildcards like *.example.com) */
+  patterns: string[]
+}
+
+/**
+ * Union of all Event Tag condition types
+ */
+export type EventTagCondition = 
+  | WRCodeCondition
+  | SenderWhitelistCondition
+  | BodyKeywordsCondition
+  | WebsiteFilterCondition
+
+/**
+ * Event Tag Trigger Configuration
+ * 
+ * A structured, typed configuration for Event Triggers (Tag).
+ * This replaces the legacy free-form text fields with a clear, validated structure.
+ * 
+ * @example Email trigger with WRCode and sender whitelist
+ * ```typescript
+ * const trigger: EventTagTriggerConfig = {
+ *   type: 'direct_tag',
+ *   channel: 'email',
+ *   tag: '#invoice',
+ *   conditions: [
+ *     { type: 'wrcode_valid', required: true },
+ *     { type: 'sender_whitelist', allowedSenders: ['accounting@company.com'] },
+ *     { type: 'body_keywords', keywords: ['urgent', 'payment'] }
+ *   ]
+ * }
+ * ```
+ */
+export interface EventTagTriggerConfig {
+  /** Discriminator - always 'direct_tag' for this config type */
+  type: 'direct_tag'
+  
+  /** Event channel (email, chat, web, etc.) */
+  channel: EventChannel
+  
+  /** The tag to match (e.g., '#invoice'). Required and must start with # */
+  tag: string
+  
+  /** Optional human-readable name for this trigger */
+  name?: string
+  
+  /** Whether this trigger is enabled */
+  enabled: boolean
+  
+  /** Array of conditions to evaluate (all must pass) */
+  conditions: EventTagCondition[]
+}
+
+/**
+ * Unified trigger configuration - consolidates all trigger types into one interface
+ * 
+ * Each trigger type uses a subset of these fields:
+ * - direct_tag: channel, tag, eventTagConditions (new structured format)
+ * - workflow_condition: workflowId, conditions
+ * - tag_and_condition: tagName, conditions, expectedContext
+ * - ui_event: domSelector, domEvent
+ * - manual: commandLabel
+ * 
+ * For direct_tag triggers, use the new structured eventTagConditions array
+ * which provides clear, typed conditions (WRCode, sender whitelist, keywords, etc.)
+ */
+export interface UnifiedTriggerConfig {
+  /** Unique identifier for this trigger */
+  id: string
+  
+  /** The type of trigger */
+  type: TriggerType
+  
+  /** Human-readable name for this trigger */
+  name?: string
+  
+  /** Whether this trigger is enabled */
+  enabled: boolean
+  
+  // === direct_tag fields (NEW structured format) ===
+  
+  /** Event channel for direct_tag triggers (email, chat, web, etc.) */
+  channel?: EventChannel
+  
+  /** Tag to match (e.g., '#invoice'). Must start with # */
+  tag?: string
+  
+  /** Structured conditions for direct_tag triggers */
+  eventTagConditions?: EventTagCondition[]
+  
+  // === direct_tag fields (LEGACY - for backward compatibility) ===
+  
+  /** @deprecated Use 'tag' instead. Tag name without # prefix */
+  tagName?: string
+  
+  /** @deprecated Use eventTagConditions with body_keywords instead */
+  expectedContext?: string
+  
+  // === workflow_condition fields ===
+  /** Source workflow ID that triggers this (for workflow_condition) */
+  workflowId?: string
+  
+  /** Conditions that must be met (for workflow_condition and tag_and_condition) */
+  conditions?: Condition[]
+  
+  // === ui_event fields ===
+  /** CSS selector for DOM element (for ui_event triggers) */
+  domSelector?: string
+  
+  /** DOM event type: click, scroll, hover, mutate, etc. (for ui_event triggers) */
+  domEvent?: 'click' | 'scroll' | 'hover' | 'mutate' | 'focus' | 'blur' | 'input' | 'change'
+  
+  // === manual fields ===
+  /** Command/button label for manual triggers */
+  commandLabel?: string
+  
+  /** Optional keyboard shortcut for manual triggers */
+  shortcut?: string
+  
+  // === agent channel fields ===
+  /** Source agent number (01-50) for agent channel triggers */
+  sourceAgent?: string
+  
+  // === miniapp channel fields ===
+  /** Mini-App ID for miniapp channel triggers */
+  miniAppId?: string
+  
+  /** UI elements configured for the Mini-App */
+  miniAppUiElements?: Array<{
+    type: 'button' | 'input' | 'select' | 'checkbox' | 'textarea'
+    id: string
+    label: string
+  }>
+  
+  /** Conditions for Mini-App triggers */
+  miniAppConditions?: Array<{
+    field: string
+    op: string
+    value: string
+  }>
+  
+  // === Common optional fields ===
+  /** @deprecated Use eventTagConditions with website_filter instead */
+  websiteFilter?: string
+  
+  /** Content modalities this trigger handles */
+  modalities?: Modality[]
+}
+
+/**
+ * Memory and context settings for reasoning
+ */
+export interface MemoryContextSettings {
+  /** Session context access */
+  sessionContext: {
+    read: boolean
+    write: boolean
+  }
+  
+  /** Account memory access */
+  accountMemory: {
+    read: boolean
+    write: boolean
+  }
+  
+  /** Agent memory is always enabled (read-only display) */
+  agentMemory: {
+    enabled: true
+  }
+}
+
+/**
+ * New listening configuration using unified triggers
+ */
+export interface UnifiedListeningConfig {
+  /** Array of unified triggers */
+  triggers: UnifiedTriggerConfig[]
+  
+  /** IDs of sensor workflows to run before reasoning */
+  sensorWorkflows?: string[]
+  
+  /** IDs of allowed action workflows */
+  allowedActions?: string[]
+}
+
+/**
+ * New reasoning configuration with memory/context settings
+ */
+export interface UnifiedReasoningConfig {
+  /** Apply for specific trigger or '__any__' */
+  applyFor?: string
+  
+  /** Accept input from specific sources */
+  acceptFrom?: string[]
+  
+  /** Agent's goals/system instructions */
+  goals?: string
+  
+  /** Agent's role description */
+  role?: string
+  
+  /** Agent's rules/constraints */
+  rules?: string
+  
+  /** Custom key-value fields */
+  custom?: Array<{ key: string; value: string }>
+  
+  /** Memory and context settings */
+  memoryContext: MemoryContextSettings
+}
+
+// =============================================================================
 // Condition Types
 // =============================================================================
 
@@ -302,6 +611,8 @@ export interface WorkflowDefinition {
  * Normalized event from any trigger source
  * 
  * All triggers produce this normalized format for consistent processing.
+ * This interface is designed to support deterministic trigger evaluation
+ * without any LLM/fuzzy matching at runtime.
  */
 export interface NormalizedEvent {
   /** Unique event identifier */
@@ -312,6 +623,9 @@ export interface NormalizedEvent {
   
   /** Source of the event */
   source: TriggerSource
+  
+  /** Event channel (email, chat, web, etc.) - more specific than source */
+  channel?: EventChannel
   
   /** Scope of the event */
   scope: TriggerScope
@@ -324,6 +638,12 @@ export interface NormalizedEvent {
   /** Primary text input */
   input: string
   
+  /** Email/message subject line (for email/chat channels) */
+  subject?: string
+  
+  /** Body/content text (separate from subject for emails) */
+  body?: string
+  
   /** Image URL if present */
   imageUrl?: string
   
@@ -333,10 +653,29 @@ export interface NormalizedEvent {
   /** Additional metadata */
   metadata: Record<string, any>
   
+  // Email-specific fields
+  
+  /** Sender address (email, chat username, etc.) */
+  senderAddress?: string
+  
+  /** Whether WRCode/WRGuard validation passed */
+  wrcodeValid?: boolean
+  
+  /** Raw WRCode data if present */
+  wrcodeData?: Record<string, any>
+  
+  // Tag extraction
+  
+  /** List of extracted tags from subject/body (e.g., ['#invoice', '#urgent']) */
+  extractedTags?: string[]
+  
   // Context
   
   /** Current page URL */
   url?: string
+  
+  /** Domain extracted from URL (e.g., 'example.com') */
+  domain?: string
   
   /** Chrome tab ID */
   tabId?: number
