@@ -866,8 +866,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       console.log('✅ Removed from currentTabData, remaining:', currentTabData.agentBoxes.length)
 
       // Save to localStorage for immediate UI persistence
-
-      localStorage.setItem(`optimando-tab-${tabId}`, JSON.stringify(currentTabData))
+      try {
+        localStorage.setItem(`optimando-tab-${tabId}`, JSON.stringify(currentTabData))
+      } catch (e) {
+        console.warn('⚠️ Could not save to localStorage:', e)
+      }
 
       // Get session key and delete from SQLite
 
@@ -4219,38 +4222,84 @@ function initializeExtension() {
   }
 
   function saveTabDataToStorage() {
+    const saveToLocalStorage = () => {
+      try {
+        // Save to localStorage for immediate UI persistence across page reloads
+        localStorage.setItem(`optimando-tab-${tabId}`, JSON.stringify(currentTabData))
 
-    // Save to localStorage for immediate UI persistence across page reloads
-    localStorage.setItem(`optimando-tab-${tabId}`, JSON.stringify(currentTabData))
+        // Also save agent boxes configuration with URL-based key for persistence across page reloads
+        const currentUrl = window.location.href.split('?')[0]
+        const urlKey = `optimando-agentboxes-${btoa(currentUrl).substring(0, 20)}`
+        localStorage.setItem(urlKey, JSON.stringify({
+          agentBoxes: currentTabData.agentBoxes,
+          agentBoxHeights: currentTabData.agentBoxHeights,
+          timestamp: new Date().toISOString()
+        }))
+        console.log('🔧 Saved agent boxes to localStorage for UI persistence')
+      } catch (e: any) {
+        if (e.name === 'QuotaExceededError' || e.code === 22) {
+          console.warn('⚠️ LocalStorage quota exceeded, cleaning up old data...')
+          cleanupOldLocalStorageData()
+          // Try once more after cleanup
+          try {
+            localStorage.setItem(`optimando-tab-${tabId}`, JSON.stringify(currentTabData))
+            console.log('✅ Saved after cleanup')
+          } catch (e2) {
+            console.error('❌ Still cannot save to localStorage after cleanup:', e2)
+          }
+        } else {
+          console.error('❌ Error saving to localStorage:', e)
+        }
+      }
+    }
 
-    
-
-    // Also save agent boxes configuration with URL-based key for persistence across page reloads
-
-    const currentUrl = window.location.href.split('?')[0]
-
-    const urlKey = `optimando-agentboxes-${btoa(currentUrl).substring(0, 20)}`
-
-    localStorage.setItem(urlKey, JSON.stringify({
-
-      agentBoxes: currentTabData.agentBoxes,
-
-      agentBoxHeights: currentTabData.agentBoxHeights,
-
-      timestamp: new Date().toISOString()
-
-    }))
-
-    console.log('🔧 Saved agent boxes to localStorage for UI persistence')
-
-    
+    saveToLocalStorage()
 
     // NOTE: SQLite sync is NOT done here automatically
     // SQLite is only updated through explicit operations:
     // - SAVE_AGENT_BOX_TO_SQLITE (when creating/updating individual boxes)
     // - DELETE_AGENT_BOX_FROM_SQLITE (when deleting boxes)
     // This prevents stale data from being re-synced to SQLite
+  }
 
+  // Helper function to clean up old localStorage data when quota is exceeded
+  function cleanupOldLocalStorageData() {
+    console.log('🧹 Cleaning up old localStorage data...')
+    const keysToRemove: string[] = []
+    const now = Date.now()
+    const oneWeekAgo = now - (7 * 24 * 60 * 60 * 1000)
+
+    // Find old optimando keys to remove
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i)
+      if (key && (key.startsWith('optimando-tab-') || key.startsWith('optimando-agentboxes-') || key.startsWith('agent_') && key.includes('_draft_'))) {
+        // Don't remove current tab's data
+        if (key === `optimando-tab-${tabId}`) continue
+        
+        try {
+          const data = localStorage.getItem(key)
+          if (data) {
+            const parsed = JSON.parse(data)
+            const timestamp = parsed.timestamp ? new Date(parsed.timestamp).getTime() : 0
+            // Remove data older than 1 week or data without timestamp
+            if (!timestamp || timestamp < oneWeekAgo) {
+              keysToRemove.push(key)
+            }
+          }
+        } catch {
+          // If we can't parse it, mark for removal
+          keysToRemove.push(key)
+        }
+      }
+    }
+
+    // Remove old keys
+    keysToRemove.forEach(key => {
+      localStorage.removeItem(key)
+      console.log(`  🗑️ Removed old key: ${key}`)
+    })
+
+    console.log(`🧹 Cleaned up ${keysToRemove.length} old localStorage entries`)
   }
 
   function loadTabDataFromStorage() {
@@ -5304,8 +5353,12 @@ function initializeExtension() {
     
 
     // Save to localStorage for immediate UI persistence
-    localStorage.setItem(`optimando-tab-${tabId}`, JSON.stringify(currentTabData))
-    console.log('💾💾💾 Saved to localStorage')
+    try {
+      localStorage.setItem(`optimando-tab-${tabId}`, JSON.stringify(currentTabData))
+      console.log('💾💾💾 Saved to localStorage')
+    } catch (e) {
+      console.warn('⚠️ Could not save to localStorage:', e)
+    }
 
     renderAgentBoxes()
     console.log('🎨🎨🎨 UI re-rendered')
@@ -5406,8 +5459,12 @@ function initializeExtension() {
     console.log('✅✅✅ Removed from currentTabData, remaining:', currentTabData.agentBoxes.length)
 
     // Save to localStorage
-    localStorage.setItem(`optimando-tab-${tabId}`, JSON.stringify(currentTabData))
-    console.log('💾💾💾 Saved to localStorage')
+    try {
+      localStorage.setItem(`optimando-tab-${tabId}`, JSON.stringify(currentTabData))
+      console.log('💾💾💾 Saved to localStorage')
+    } catch (e) {
+      console.warn('⚠️ Could not save to localStorage:', e)
+    }
 
     // Delete from SQLite database
     const sessionKey = getCurrentSessionKey()
@@ -6106,7 +6163,11 @@ function initializeExtension() {
       currentTabData.agentBoxes.push(newBox)
 
       // Save to localStorage for immediate UI persistence
-      localStorage.setItem(`optimando-tab-${tabId}`, JSON.stringify(currentTabData))
+      try {
+        localStorage.setItem(`optimando-tab-${tabId}`, JSON.stringify(currentTabData))
+      } catch (e) {
+        console.warn('⚠️ Could not save to localStorage:', e)
+      }
 
       renderAgentBoxes()
 
@@ -11744,6 +11805,26 @@ function initializeExtension() {
               console.log('✅ Has Reasoning:', !!previouslySavedData.reasoning)
 
               console.log('✅ Has Execution:', !!previouslySavedData.execution)
+              
+              // Detailed verification for Apply For and Sections
+              if (previouslySavedData.reasoning) {
+                console.log('  📝 R-Apply For:', previouslySavedData.reasoning.applyFor || '__any__')
+              }
+              if (previouslySavedData.reasoningSections) {
+                console.log('  📚 Reasoning Sections:', previouslySavedData.reasoningSections.length)
+                previouslySavedData.reasoningSections.forEach((s: any, i: number) => {
+                  console.log(`     Section ${i + 1}: applyFor="${s.applyFor}"`)
+                })
+              }
+              if (previouslySavedData.execution) {
+                console.log('  ⚡ E-Apply For:', previouslySavedData.execution.applyFor || '__any__')
+                console.log('  📚 Execution Sections:', previouslySavedData.execution.executionSections?.length || 0)
+                if (previouslySavedData.execution.executionSections?.length > 0) {
+                  previouslySavedData.execution.executionSections.forEach((s: any, i: number) => {
+                    console.log(`     Section ${i + 1}: applyFor="${s.applyFor}", workflows=${s.workflows?.length || 0}`)
+                  })
+                }
+              }
 
             } else {
 
@@ -11981,10 +12062,13 @@ function initializeExtension() {
 
               // Collect unified triggers (new architecture)
               const unifiedTriggers: any[] = []
-              document.querySelectorAll('#L-unified-triggers .unified-trigger-row').forEach((row: any) => {
+              document.querySelectorAll('#L-unified-triggers .unified-trigger-row').forEach((row: any, idx: number) => {
                 const type = row.querySelector('.trigger-type')?.value || 'direct_tag'
+                const tagValue = row.querySelector('.trigger-tag')?.value?.trim() || ''
+                const existingId = row.dataset.triggerId || ''
+                const triggerId = existingId || (tagValue ? `ID#${tagValue.replace('#', '')}` : `ID${String(idx + 1).padStart(2, '0')}`)
                 const trigger: any = { 
-                  id: `trigger_${Date.now()}_${Math.random().toString(36).slice(2)}`,
+                  id: triggerId,
                   type, 
                   enabled: true 
                 }
@@ -12107,11 +12191,9 @@ function initializeExtension() {
 
               console.log('💾 Saved Listener data with triggers:', {
 
-                activeTriggerCount: triggers.length,
+                activeTriggerCount: activeTriggers.length,
 
-                passiveTriggerCount: passiveTriggers.length,
-
-                triggerNames: [...triggers, ...passiveTriggers].map(t => t.tag.name),
+                unifiedTriggerCount: unifiedTriggers.length,
 
                 exampleFilesCount: listening.exampleFiles?.length || 0
 
@@ -12156,9 +12238,14 @@ function initializeExtension() {
                 agentMemory: { enabled: true }
               }
 
+              // Collect all Apply For values from the list (get all selects inside the list)
+              const rApplyForValues = Array.from(document.querySelectorAll('#R-apply-list select')).map((sel: any) => sel.value).filter((v: string) => v && v !== '')
+              console.log('📝 Reasoning Apply For values collected:', rApplyForValues)
+              
               const base:any = {
 
-                applyFor: (document.getElementById('R-apply') as HTMLSelectElement)?.value || '__any__',
+                applyFor: rApplyForValues.length > 0 ? rApplyForValues[0] : '__any__',
+                applyForList: rApplyForValues.length > 0 ? rApplyForValues : ['__any__'],
 
                 goals: (document.getElementById('R-goals') as HTMLTextAreaElement)?.value || '',
 
@@ -12184,15 +12271,47 @@ function initializeExtension() {
 
               })
 
+              // Collect additional reasoning sections
+              const rSections:any[] = [base]
+              document.querySelectorAll('#R-sections-extra .R-section').forEach((sec:any) => {
+                const sectionAccepts = Array.from(sec.querySelectorAll('.R-accept-list-sub .acc-row')).map((row:any) => {
+                  const kindSel = row.querySelector('.route-kind') as HTMLSelectElement
+                  const specSel = row.querySelector('.route-specific') as HTMLSelectElement
+                  return kindSel && specSel ? `${kindSel.value}:${specSel.value}` : ''
+                }).filter((v:string) => v)
+                
+                // Collect ALL Apply For values from the section's list
+                const sectionApplyForList = Array.from(sec.querySelectorAll('.R-apply-list-sub select')).map((sel: any) => sel.value).filter((v: string) => v && v !== '')
+                console.log('📝 [autoSave] Additional R-section Apply For values:', sectionApplyForList)
+                
+                const s:any = {
+                  applyFor: sectionApplyForList.length > 0 ? sectionApplyForList[0] : '__any__',
+                  applyForList: sectionApplyForList.length > 0 ? sectionApplyForList : ['__any__'],
+                  goals: (sec.querySelector('.R-goals') as HTMLTextAreaElement)?.value || '',
+                  role: (sec.querySelector('.R-role') as HTMLInputElement)?.value || '',
+                  rules: (sec.querySelector('.R-rules') as HTMLTextAreaElement)?.value || '',
+                  custom: [],
+                  acceptFrom: sectionAccepts
+                }
+                sec.querySelectorAll('.R-custom-list > div').forEach((row:any) => {
+                  const key = (row.querySelector('input:nth-child(1)') as HTMLInputElement)?.value || ''
+                  const value = (row.querySelector('input:nth-child(2)') as HTMLInputElement)?.value || ''
+                  if (key || value) s.custom.push({ key, value })
+                })
+                rSections.push(s)
+              })
+
               draft.reasoning = base
 
-              draft.reasoningSections = [base]
+              draft.reasoningSections = rSections
 
               console.log('💾 Saved Reasoning data:', {
 
                 applyFor: base.applyFor,
 
-                acceptFromCount: accepts.length
+                acceptFromCount: accepts.length,
+
+                additionalSectionsCount: rSections.length - 1
 
               })
 
@@ -12202,15 +12321,8 @@ function initializeExtension() {
 
             if (E) {
 
-              const eAccepts:string[] = Array.from(document.querySelectorAll('#E-accept-list .acc-row')).map((row:any) => {
-
-                const kindSel = row.querySelector('.route-kind') as HTMLSelectElement
-
-                const specSel = row.querySelector('.route-specific') as HTMLSelectElement
-
-                return kindSel && specSel ? `${kindSel.value}:${specSel.value}` : ''
-
-              }).filter((v:string) => v)
+              // Accept list removed from Execution section
+              const eAccepts:string[] = []
 
               const eWfs:string[] = Array.from(document.querySelectorAll('#E-workflow-list .wf-row .wf-target')).map((n:any)=> n.value).filter((v:string) => v)
 
@@ -12256,17 +12368,59 @@ function initializeExtension() {
 
               })
 
-              draft.execution = { workflows: eWfs, acceptFrom: eAccepts, specialDestinations: eDestinationsMain, destinations: [] }
+              // Collect additional execution sections
+              const eSections:any[] = []
+              document.querySelectorAll('#E-sections-extra .E-section').forEach((sec:any) => {
+                // Collect ALL Apply For values from the section's list
+                const sectionApplyForList = Array.from(sec.querySelectorAll('.E-apply-list-sub select')).map((sel: any) => sel.value).filter((v: string) => v && v !== '')
+                console.log('📝 [autoSave] Additional E-section Apply For values:', sectionApplyForList)
+                
+                const workflows = Array.from(sec.querySelectorAll('.E-workflow-list-sub .wf-row .wf-target')).map((n:any)=> n.value).filter((v:string) => v)
+                const kinds = Array.from(sec.querySelectorAll('.E-special-list-sub .esp-row .esp-kind')) as HTMLSelectElement[]
+                const dests = kinds.map(sel => {
+                  const row = sel.parentElement
+                  let agents: string[] = []
+                  if (sel.value === 'agentBox') {
+                    const boxSel = row?.querySelector('.esp-followup select') as HTMLSelectElement | null
+                    if (boxSel?.value) agents = [boxSel.value]
+                  } else if (sel.value === 'agent') {
+                    const agentSel = row?.querySelector('.esp-followup select') as HTMLSelectElement | null
+                    if (agentSel?.value) agents = [agentSel.value]
+                  }
+                  return { kind: sel.value, agents }
+                })
+                eSections.push({ 
+                  applyFor: sectionApplyForList.length > 0 ? sectionApplyForList[0] : '__any__',
+                  applyForList: sectionApplyForList.length > 0 ? sectionApplyForList : ['__any__'],
+                  workflows, 
+                  acceptFrom: [], 
+                  specialDestinations: dests 
+                })
+              })
+
+              // Collect all Apply For values from the list (get all selects inside the list)
+              const eApplyForValues = Array.from(document.querySelectorAll('#E-apply-list select')).map((sel: any) => sel.value).filter((v: string) => v && v !== '')
+              console.log('📝 Execution Apply For values collected:', eApplyForValues)
+              
+              draft.execution = { 
+                workflows: eWfs, 
+                acceptFrom: eAccepts, 
+                applyFor: eApplyForValues.length > 0 ? eApplyForValues[0] : '__any__',
+                applyForList: eApplyForValues.length > 0 ? eApplyForValues : ['__any__'],
+                specialDestinations: eDestinationsMain, 
+                executionSections: eSections,
+                destinations: [] 
+              }
 
               console.log('💾 Saved Execution data:', {
 
-                applyFor: draft.execution.applyFor || '__any__',
+                applyFor: draft.execution.applyFor,
 
                 acceptFromCount: eAccepts.length,
 
                 reportToCount: eDestinationsMain.length,
 
-                additionalSectionsCount: 0
+                additionalSectionsCount: eSections.length
 
               })
 
@@ -13015,10 +13169,13 @@ function initializeExtension() {
 
             // Collect unified triggers (new architecture)
             const unifiedTriggers: any[] = []
-            document.querySelectorAll('#L-unified-triggers .unified-trigger-row').forEach((row: any) => {
+            document.querySelectorAll('#L-unified-triggers .unified-trigger-row').forEach((row: any, idx: number) => {
               const type = row.querySelector('.trigger-type')?.value || 'direct_tag'
+              const tagValue = row.querySelector('.trigger-tag')?.value?.trim() || ''
+              const existingId = row.dataset.triggerId || ''
+              const triggerId = existingId || (tagValue ? `ID#${tagValue.replace('#', '')}` : `ID${String(idx + 1).padStart(2, '0')}`)
               const trigger: any = { 
-                id: `trigger_${Date.now()}_${Math.random().toString(36).slice(2)}`,
+                id: triggerId,
                 type, 
                 enabled: true 
               }
@@ -13140,11 +13297,9 @@ function initializeExtension() {
 
             console.log('💾 Saved Listener data with triggers:', {
 
-              activeTriggerCount: triggers.length,
+              activeTriggerCount: activeTriggers.length,
 
-              passiveTriggerCount: passiveTriggers.length,
-
-              triggerNames: [...triggers, ...passiveTriggers].map(t => t.tag.name),
+              actionTriggerCount: actionTriggers.length,
 
               unifiedTriggerCount: unifiedTriggers.length
 
@@ -13171,10 +13326,15 @@ function initializeExtension() {
             }).filter((v:string) => v)
 
             // reportTo removed from Reasoning - only in Execution section now
+            
+            // Collect all Apply For values from the list (get all selects inside the list)
+            const rApplyForValuesSync = Array.from(document.querySelectorAll('#R-apply-list select')).map((sel: any) => sel.value).filter((v: string) => v && v !== '')
+            console.log('📝 [syncPersistedFromDom] Reasoning Apply For values:', rApplyForValuesSync)
 
             const base:any = {
 
-              applyFor: (document.getElementById('R-apply') as HTMLSelectElement)?.value || '__any__',
+              applyFor: rApplyForValuesSync.length > 0 ? rApplyForValuesSync[0] : '__any__',
+              applyForList: rApplyForValuesSync.length > 0 ? rApplyForValuesSync : ['__any__'],
 
               goals: (document.getElementById('R-goals') as HTMLTextAreaElement)?.value || '',
 
@@ -13231,14 +13391,14 @@ function initializeExtension() {
               }).filter((v:string) => v)
 
               
-
-              // sectionReportTo removed - reportTo only in Execution section now
-
-              
+              // Collect ALL Apply For values from the section's list
+              const sectionApplyForList = Array.from(sec.querySelectorAll('.R-apply-list-sub select')).map((sel: any) => sel.value).filter((v: string) => v && v !== '')
+              console.log('📝 [syncPersistedFromDom] Additional R-section Apply For values:', sectionApplyForList)
 
               const s:any = {
 
-                applyFor: (sec.querySelector('.R-apply') as HTMLSelectElement)?.value || '__any__',
+                applyFor: sectionApplyForList.length > 0 ? sectionApplyForList[0] : '__any__',
+                applyForList: sectionApplyForList.length > 0 ? sectionApplyForList : ['__any__'],
 
                 goals: (sec.querySelector('.R-goals') as HTMLTextAreaElement)?.value || '',
 
@@ -13290,17 +13450,10 @@ function initializeExtension() {
 
           const executionElement = document.getElementById('E-apply') as HTMLSelectElement | null
 
-          if (executionElement || document.querySelectorAll('#E-accept-list .acc-row').length > 0) {
+          if (executionElement) {
 
-            const eAccepts = Array.from(document.querySelectorAll('#E-accept-list .acc-row')).map((row:any)=> {
-
-              const kindSel = row.querySelector('.route-kind') as HTMLSelectElement
-
-              const specSel = row.querySelector('.route-specific') as HTMLSelectElement
-
-              return kindSel && specSel ? `${kindSel.value}:${specSel.value}` : ''
-
-            }).filter((v:string) => v)
+            // Accept list removed from Execution section
+            const eAccepts: string[] = []
 
             const eWfs = Array.from(document.querySelectorAll('#E-workflow-list .wf-row .wf-target')).map((n:any)=> n.value).filter((v:string) => v)
 
@@ -13352,7 +13505,9 @@ function initializeExtension() {
 
             document.querySelectorAll('#E-sections-extra .E-section').forEach((sec:any)=>{
 
-              const applyFor = (sec.querySelector('.E-apply-sub') as HTMLSelectElement)?.value || '__any__'
+              // Collect ALL Apply For values from the section's list
+              const sectionApplyForList = Array.from(sec.querySelectorAll('.E-apply-list-sub select')).map((sel: any) => sel.value).filter((v: string) => v && v !== '')
+              console.log('📝 [syncPersistedFromDom] Additional E-section Apply For values:', sectionApplyForList)
 
               const kinds = Array.from(sec.querySelectorAll('.E-special-list-sub .esp-row .esp-kind')) as HTMLSelectElement[]
 
@@ -13382,21 +13537,24 @@ function initializeExtension() {
 
               })
 
-              const wfs = Array.from(sec.querySelectorAll('.E-wf-sub .wf-row .wf-target')).map((n:any)=> n.value).filter((v:string) => v)
+              const wfs = Array.from(sec.querySelectorAll('.E-workflow-list-sub .wf-row .wf-target')).map((n:any)=> n.value).filter((v:string) => v)
 
-              const accepts = Array.from(sec.querySelectorAll('.E-acc-sub .acc-row')).map((row:any)=> {
+              // acceptFrom section removed from Execution
+              const accepts: string[] = []
 
-                const kindSel = row.querySelector('.route-kind') as HTMLSelectElement
-
-                const specSel = row.querySelector('.route-specific') as HTMLSelectElement
-
-                return kindSel && specSel ? `${kindSel.value}:${specSel.value}` : ''
-
-              }).filter((v:string) => v)
-
-              eSections.push({ applyFor, specialDestinations: dests, workflows: wfs, acceptFrom: accepts })
+              eSections.push({ 
+                applyFor: sectionApplyForList.length > 0 ? sectionApplyForList[0] : '__any__',
+                applyForList: sectionApplyForList.length > 0 ? sectionApplyForList : ['__any__'],
+                specialDestinations: dests, 
+                workflows: wfs, 
+                acceptFrom: accepts 
+              })
 
             })
+
+            // Collect all Apply For values from the list (get all selects inside the list)
+            const eApplyForValuesSync = Array.from(document.querySelectorAll('#E-apply-list select')).map((sel: any) => sel.value).filter((v: string) => v && v !== '')
+            console.log('📝 [syncPersistedFromDom] Execution Apply For values:', eApplyForValuesSync)
 
             draft.execution = { 
 
@@ -13404,7 +13562,8 @@ function initializeExtension() {
 
               acceptFrom: eAccepts, 
 
-              applyFor: (document.getElementById('E-apply') as HTMLSelectElement)?.value || '__any__',
+              applyFor: eApplyForValuesSync.length > 0 ? eApplyForValuesSync[0] : '__any__',
+              applyForList: eApplyForValuesSync.length > 0 ? eApplyForValuesSync : ['__any__'],
 
               specialDestinations: eDestinationsMain,
 
@@ -13417,6 +13576,7 @@ function initializeExtension() {
             console.log('💾 Saved Execution data:', {
 
               applyFor: draft.execution.applyFor,
+              applyForListCount: draft.execution.applyForList?.length || 0,
 
               acceptFromCount: eAccepts.length,
 
@@ -14260,19 +14420,22 @@ function initializeExtension() {
 
             <div style="font-weight:700;margin-bottom:6px">Reasoning</div>
 
-            <div style="display:flex;align-items:center;gap:10px;margin:6px 0">
+            <div style="margin:6px 0">
 
-              <label>Apply for:
-
-                <select id="R-apply" style="margin-left:6px;background:#fff;color:#0f172a;border:1px solid #cbd5e1;padding:6px;border-radius:6px">
-
-                  <option value="__any__">Any Tag</option>
-
-                </select>
-
-              </label>
-
-              <button id="R-add-section" style="background:rgba(96,165,250,.3);border:1px solid rgba(96,165,250,.5);color:#fff;padding:6px 12px;border-radius:6px;cursor:pointer;font-weight:500">+ Add Reasoning Section</button>
+              <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px">
+                <div style="display:flex;flex-direction:column;gap:6px">
+                  <span style="font-weight:600">Apply for:</span>
+                  <div id="R-apply-list" style="display:flex;flex-direction:column;gap:6px">
+                    <div class="apply-for-row" style="display:flex;align-items:center;gap:8px">
+                      <select id="R-apply" class="R-apply-select" style="background:#fff;color:#0f172a;border:1px solid #cbd5e1;padding:6px 10px;border-radius:6px;min-width:180px;max-width:280px">
+                        <option value="__any__">Any Trigger</option>
+                      </select>
+                      <button type="button" class="R-apply-add" style="background:rgba(96,165,250,.3);border:1px solid rgba(96,165,250,.5);color:#fff;padding:4px 10px;border-radius:6px;cursor:pointer;font-weight:bold;font-size:14px">+</button>
+                    </div>
+                  </div>
+                </div>
+                <button id="R-add-section" style="background:rgba(96,165,250,.3);border:1px solid rgba(96,165,250,.5);color:#fff;padding:6px 12px;border-radius:6px;cursor:pointer;font-weight:500;white-space:nowrap">+ Add Reasoning Section</button>
+              </div>
 
             </div>
 
@@ -14391,19 +14554,22 @@ function initializeExtension() {
 
             <div style="font-weight:700;margin-bottom:6px">Execution</div>
 
-            <div style="display:flex;align-items:center;gap:10px;margin:6px 0">
+            <div style="margin:6px 0">
 
-              <label>Apply for:
-
-                <select id="E-apply" style="margin-left:6px;background:#fff;color:#0f172a;border:1px solid #cbd5e1;padding:6px;border-radius:6px">
-
-                  <option value="__any__">Any Tag</option>
-
-                </select>
-
-              </label>
-
-              <button id="E-add-section" style="background:rgba(96,165,250,.3);border:1px solid rgba(96,165,250,.5);color:#fff;padding:6px 12px;border-radius:6px;cursor:pointer;font-weight:500">+ Add Execution Section</button>
+              <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px">
+                <div style="display:flex;flex-direction:column;gap:6px">
+                  <span style="font-weight:600">Apply for:</span>
+                  <div id="E-apply-list" style="display:flex;flex-direction:column;gap:6px">
+                    <div class="apply-for-row" style="display:flex;align-items:center;gap:8px">
+                      <select id="E-apply" class="E-apply-select" style="background:#fff;color:#0f172a;border:1px solid #cbd5e1;padding:6px 10px;border-radius:6px;min-width:180px;max-width:280px">
+                        <option value="__any__">Any Trigger</option>
+                      </select>
+                      <button type="button" class="E-apply-add" style="background:rgba(96,165,250,.3);border:1px solid rgba(96,165,250,.5);color:#fff;padding:4px 10px;border-radius:6px;cursor:pointer;font-weight:bold;font-size:14px">+</button>
+                    </div>
+                  </div>
+                </div>
+                <button id="E-add-section" style="background:rgba(96,165,250,.3);border:1px solid rgba(96,165,250,.5);color:#fff;padding:6px 12px;border-radius:6px;cursor:pointer;font-weight:500;white-space:nowrap">+ Add Execution Section</button>
+              </div>
 
             </div>
 
@@ -14411,7 +14577,7 @@ function initializeExtension() {
 
               <div id="E-workflow-list" style="display:flex;flex-direction:column;gap:8px"></div>
 
-              <button id="E-add-workflow" style="background:rgba(255,255,255,.2);border:1px solid rgba(255,255,255,.35);color:#fff;padding:6px 10px;border-radius:6px;cursor:pointer">+ Add Workflow</button>
+              <button id="E-add-workflow" style="background:rgba(96,165,250,.3);border:1px solid rgba(96,165,250,.5);color:#fff;padding:8px 14px;border-radius:6px;cursor:pointer;font-weight:500">+ Add Workflow</button>
 
             </div>
 
@@ -14631,8 +14797,10 @@ function initializeExtension() {
           websiteFilter?: string,
           conditions?: any[]
         }) => {
-          // Generate a unique trigger ID
-          const triggerId = init?.id || `trigger_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
+          // Generate a readable trigger ID
+          const existingTriggers = document.querySelectorAll('#L-unified-triggers .unified-trigger-row').length
+          const nextNum = String(existingTriggers + 1).padStart(2, '0')
+          const triggerId = init?.id || (init?.tagName ? `ID#${init.tagName.replace('#', '')}` : `ID${nextNum}`)
           
           const row = document.createElement('div')
           row.className = 'unified-trigger-row'
@@ -14654,12 +14822,30 @@ function initializeExtension() {
           tempSaveBtn?.addEventListener('click', () => {
             // Update trigger ID in Apply for selectboxes
             updateApplyForOptions()
+            
+            // Show temporary feedback
             tempSaveBtn.textContent = '✓ Saved'
             tempSaveBtn.style.background = '#16a34a'
             setTimeout(() => {
               tempSaveBtn.textContent = '💾 Save'
               tempSaveBtn.style.background = '#22c55e'
             }, 1500)
+            
+            // Add persistent green checkmark indicator if not already present
+            if (!row.querySelector('.trigger-saved-indicator')) {
+              const checkmark = document.createElement('span')
+              checkmark.className = 'trigger-saved-indicator'
+              checkmark.textContent = '✓'
+              checkmark.style.cssText = 'color:#22c55e;font-weight:bold;margin-left:6px;font-size:14px'
+              checkmark.title = 'Trigger saved'
+              tempSaveBtn.parentElement?.insertBefore(checkmark, tempSaveBtn.nextSibling)
+            }
+            
+            // Auto-save to chrome storage to persist the trigger
+            if (typeof autoSaveToChromeStorage === 'function') {
+              autoSaveToChromeStorage()
+              console.log('💾 Trigger saved and persisted to storage')
+            }
           })
           
           // Header row with trigger type selector and delete button
@@ -15007,6 +15193,14 @@ function initializeExtension() {
               tagInput.addEventListener('blur', validateTag)
               tagInput.addEventListener('input', () => {
                 if (tagInput.value.trim()) validateTag()
+                // Update trigger ID display when tag changes
+                const tagValue = tagInput.value.trim().replace('#', '')
+                const idDisplay = row.querySelector('.trigger-id-display') as HTMLElement
+                if (idDisplay && tagValue) {
+                  const newId = `ID#${tagValue}`
+                  idDisplay.textContent = newId
+                  row.dataset.triggerId = newId
+                }
               })
               
               // Email whitelist validation
@@ -15291,7 +15485,7 @@ function initializeExtension() {
           const rApply = document.getElementById('R-apply') as HTMLSelectElement
           if (rApply) {
             const currentValue = rApply.value
-            rApply.innerHTML = '<option value="__any__">Any Tag</option>'
+            rApply.innerHTML = '<option value="__any__">Any Trigger</option>'
             triggerIds.forEach(t => {
               const opt = document.createElement('option')
               opt.value = t.id
@@ -15307,7 +15501,7 @@ function initializeExtension() {
           const eApply = document.getElementById('E-apply') as HTMLSelectElement
           if (eApply) {
             const currentValue = eApply.value
-            eApply.innerHTML = '<option value="__any__">Any Tag</option>'
+            eApply.innerHTML = '<option value="__any__">Any Trigger</option>'
             triggerIds.forEach(t => {
               const opt = document.createElement('option')
               opt.value = t.id
@@ -15322,7 +15516,7 @@ function initializeExtension() {
           // Also update any additional section Apply for selectboxes
           document.querySelectorAll('.R-apply-sub, .E-apply-sub').forEach((sel: any) => {
             const currentValue = sel.value
-            sel.innerHTML = '<option value="__any__">Any Tag</option>'
+            sel.innerHTML = '<option value="__any__">Any Trigger</option>'
             triggerIds.forEach(t => {
               const opt = document.createElement('option')
               opt.value = t.id
@@ -15667,7 +15861,7 @@ function initializeExtension() {
 
         rAdd && rAdd.addEventListener('click', () => addRow('#R-accept-list', 'acc-row', 'route-kind', 'route-specific'))
 
-        eAdd && eAdd.addEventListener('click', () => addRow('#E-accept-list', 'acc-row', 'route-kind', 'route-specific'))
+        // E-accept-list removed from Execution section
 
         // R-add-report removed - Report to only in Execution section now
 
@@ -16029,6 +16223,9 @@ function initializeExtension() {
 
 
         // Apply-for population based on unified triggers - use trigger IDs and tags
+        
+        // Define addApplyForRowToList at this scope so it's accessible from restoreFromMemory
+        let addApplyForRowToList: (listElement: HTMLElement, selectClass: string) => void
 
         const getAllTriggerIdentifiers = (): Array<{id: string, label: string}> => {
           const triggers: Array<{id: string, label: string}> = []
@@ -16063,7 +16260,7 @@ function initializeExtension() {
             if (!sel) return
             const prev = sel.value
             sel.innerHTML = ''
-            const any = document.createElement('option'); any.value='__any__'; any.textContent='Any Tag / Trigger'; sel.appendChild(any)
+            const any = document.createElement('option'); any.value='__any__'; any.textContent='Any Trigger'; sel.appendChild(any)
             triggers.forEach(t => {
               const op = document.createElement('option')
               op.value = t.id
@@ -16073,8 +16270,9 @@ function initializeExtension() {
             if (Array.from(sel.options).some(o => o.value === prev)) sel.value = prev
           }
           
-          updateSelect(configOverlay.querySelector('#R-apply') as HTMLSelectElement | null)
-          updateSelect(configOverlay.querySelector('#E-apply') as HTMLSelectElement | null)
+          // Update all Apply For selectboxes (main and additional sections)
+          configOverlay.querySelectorAll('#R-apply, .R-apply-select').forEach((el:any) => updateSelect(el as HTMLSelectElement))
+          configOverlay.querySelectorAll('#E-apply, .E-apply-select').forEach((el:any) => updateSelect(el as HTMLSelectElement))
           configOverlay.querySelectorAll('.R-section .R-apply').forEach((el:any) => updateSelect(el as HTMLSelectElement))
           configOverlay.querySelectorAll('.E-section .E-apply-sub').forEach((el:any) => updateSelect(el as HTMLSelectElement))
           
@@ -16083,6 +16281,54 @@ function initializeExtension() {
           if (addBtn) addBtn.style.display = 'inline-block'
           const eAddSec = configOverlay.querySelector('#E-add-section') as HTMLButtonElement | null
           if (eAddSec) eAddSec.style.display = 'inline-block'
+        }
+
+        // Helper to add a new Apply For row (works with both ID-based main lists and class-based sub lists)
+        // Assigned to the outer scope variable so it's accessible from restoreFromMemory
+        addApplyForRowToList = (listElement: HTMLElement, selectClass: string) => {
+          if (!listElement) return
+          
+          const row = document.createElement('div')
+          row.className = 'apply-for-row'
+          row.style.cssText = 'display:flex;align-items:center;gap:8px;margin-bottom:4px'
+          
+          const sel = document.createElement('select')
+          sel.className = selectClass
+          sel.style.cssText = 'background:#fff;color:#0f172a;border:1px solid #cbd5e1;padding:6px 10px;border-radius:6px;min-width:180px;max-width:280px'
+          sel.innerHTML = '<option value="__any__">Any Trigger</option>'
+          
+          const addBtn = document.createElement('button')
+          addBtn.type = 'button'
+          addBtn.style.cssText = 'background:rgba(96,165,250,.3);border:1px solid rgba(96,165,250,.5);color:#fff;padding:4px 10px;border-radius:6px;cursor:pointer;font-weight:bold;font-size:14px'
+          addBtn.textContent = '+'
+          addBtn.addEventListener('click', () => addApplyForRowToList(listElement, selectClass))
+          
+          const delBtn = document.createElement('button')
+          delBtn.type = 'button'
+          delBtn.style.cssText = 'background:#ef4444;color:#fff;border:none;padding:4px 10px;border-radius:6px;cursor:pointer;font-weight:bold'
+          delBtn.textContent = '×'
+          delBtn.addEventListener('click', () => row.remove())
+          
+          row.appendChild(sel)
+          row.appendChild(addBtn)
+          row.appendChild(delBtn)
+          listElement.appendChild(row)
+          
+          // Refresh options for the new select
+          refreshApplyForOptions()
+        }
+
+        // Wire up the + buttons for main Reasoning and Execution Apply For
+        const rApplyAddBtn = configOverlay.querySelector('.R-apply-add') as HTMLButtonElement
+        if (rApplyAddBtn) {
+          const rApplyList = configOverlay.querySelector('#R-apply-list') as HTMLElement
+          rApplyAddBtn.addEventListener('click', () => addApplyForRowToList(rApplyList, 'R-apply-select'))
+        }
+        
+        const eApplyAddBtn = configOverlay.querySelector('.E-apply-add') as HTMLButtonElement
+        if (eApplyAddBtn) {
+          const eApplyList = configOverlay.querySelector('#E-apply-list') as HTMLElement
+          eApplyAddBtn.addEventListener('click', () => addApplyForRowToList(eApplyList, 'E-apply-select'))
         }
 
         refreshApplyForOptions()
@@ -16124,20 +16370,19 @@ function initializeExtension() {
 
           sec.innerHTML = `
 
-            <div style="display:flex;align-items:center;gap:10px;margin:6px 0">
-
-              <label>Apply for:
-
-                <select class="R-apply" style="margin-left:6px;background:#fff;color:#0f172a;border:1px solid #cbd5e1;padding:6px;border-radius:6px">
-
-                  <option value="__any__">Any Tag</option>
-
-                </select>
-
-              </label>
-
+            <div style="display:flex;justify-content:space-between;align-items:flex-start;margin:6px 0">
+              <div style="display:flex;flex-direction:column;gap:6px">
+                <span style="font-weight:600">Apply for:</span>
+                <div class="R-apply-list-sub" style="display:flex;flex-direction:column;gap:6px">
+                  <div class="apply-for-row" style="display:flex;align-items:center;gap:8px">
+                    <select class="R-apply" style="background:#fff;color:#0f172a;border:1px solid #cbd5e1;padding:6px 10px;border-radius:6px;min-width:180px;max-width:280px">
+                      <option value="__any__">Any Trigger</option>
+                    </select>
+                    <button type="button" class="R-apply-add-sub" style="background:rgba(96,165,250,.3);border:1px solid rgba(96,165,250,.5);color:#fff;padding:4px 10px;border-radius:6px;cursor:pointer;font-weight:bold;font-size:14px">+</button>
+                  </div>
+                </div>
+              </div>
               <button class="R-del" title="Remove" style="background:#f44336;color:#fff;border:1px solid rgba(255,255,255,.25);padding:2px 8px;border-radius:6px;cursor:pointer">×</button>
-
             </div>
 
             <label style="margin-top:6px">Goals (System instructions)
@@ -16243,6 +16488,13 @@ function initializeExtension() {
             rWorkflowListSub?.appendChild(createReasoningWorkflowRow())
           })
 
+          // Wire up the + button for Apply For in this section
+          const rApplyAddSubBtn = sec.querySelector('.R-apply-add-sub') as HTMLButtonElement
+          const rApplyListSub = sec.querySelector('.R-apply-list-sub') as HTMLElement
+          if (rApplyAddSubBtn && rApplyListSub) {
+            rApplyAddSubBtn.addEventListener('click', () => addApplyForRowToList(rApplyListSub, 'R-apply'))
+          }
+
           return sec
 
         }
@@ -16288,41 +16540,28 @@ function initializeExtension() {
 
           const wfId = `E-wf-sub-${Math.random().toString(36).slice(2,8)}`
 
-          const accId = `E-acc-sub-${Math.random().toString(36).slice(2,8)}`
-
           sec.innerHTML = `
 
-            <div style="display:flex;align-items:center;gap:10px;margin:6px 0">
-
-              <label>Apply for:
-
-                <select class="E-apply-sub" style="margin-left:6px;background:#fff;color:#0f172a;border:1px solid #cbd5e1;padding:6px;border-radius:6px">
-
-                  <option value="__any__">Any Tag</option>
-
-                </select>
-
-              </label>
-
+            <div style="display:flex;justify-content:space-between;align-items:flex-start;margin:6px 0">
+              <div style="display:flex;flex-direction:column;gap:6px">
+                <span style="font-weight:600">Apply for:</span>
+                <div class="E-apply-list-sub" style="display:flex;flex-direction:column;gap:6px">
+                  <div class="apply-for-row" style="display:flex;align-items:center;gap:8px">
+                    <select class="E-apply-sub" style="background:#fff;color:#0f172a;border:1px solid #cbd5e1;padding:6px 10px;border-radius:6px;min-width:180px;max-width:280px">
+                      <option value="__any__">Any Trigger</option>
+                    </select>
+                    <button type="button" class="E-apply-add-sub" style="background:rgba(96,165,250,.3);border:1px solid rgba(96,165,250,.5);color:#fff;padding:4px 10px;border-radius:6px;cursor:pointer;font-weight:bold;font-size:14px">+</button>
+                  </div>
+                </div>
+              </div>
               <button class="E-del" title="Remove" style="background:#f44336;color:#fff;border:1px solid rgba(255,255,255,.25);padding:2px 8px;border-radius:6px;cursor:pointer">×</button>
-
-            </div>
-
-            <div>
-
-              <div style="display:flex;align-items:center;gap:8px;margin:6px 0"><span>Listen from</span></div>
-
-              <div id="${accId}" class="E-accept-list-sub" style="display:flex;flex-direction:column;gap:8px"></div>
-
-              <button class="E-add-accept-sub" style="background:rgba(255,255,255,.2);border:1px solid rgba(255,255,255,.35);color:#fff;padding:6px 10px;border-radius:6px;cursor:pointer">+ Add</button>
-
             </div>
 
             <div style="margin-top:8px">
 
               <div id="${wfId}" class="E-workflow-list-sub" style="display:flex;flex-direction:column;gap:8px"></div>
 
-              <button class="E-add-workflow-sub" style="background:rgba(255,255,255,.2);border:1px solid rgba(255,255,255,.35);color:#fff;padding:6px 10px;border-radius:6px;cursor:pointer">+ Add Workflow</button>
+              <button class="E-add-workflow-sub" style="background:rgba(96,165,250,.3);border:1px solid rgba(96,165,250,.5);color:#fff;padding:8px 14px;border-radius:6px;cursor:pointer;font-weight:500">+ Add Workflow</button>
 
             </div>
 
@@ -16340,75 +16579,104 @@ function initializeExtension() {
 
           ;(sec.querySelector('.E-del') as HTMLButtonElement).addEventListener('click', ()=> sec.remove())
 
-          // wire add for special destinations within section
-
+          // wire add for special destinations within section - same structure as main section
           const list = sec.querySelector('.E-special-list-sub') as HTMLElement
-
           const addBtn = sec.querySelector('.E-special-add-sub') as HTMLButtonElement
 
-          addBtn.addEventListener('click', ()=>{
-
-            // reuse addSpecialRow logic by temporarily pointing eSpecialList
-
+          const addSpecialRowSub = () => {
             const opts = [
-
-              { label: 'Agent Boxes (default)', value: 'agentBox' },
-
+              { label: 'Agent Box', value: 'agentBox' },
               { label: 'Agent', value: 'agent' },
-
               { label: 'Clipboard – Summary', value: 'clip-summary' },
-
               { label: 'Clipboard – Screenshot', value: 'clip-screenshot' },
-
               { label: 'PDF – Summary', value: 'pdf-summary' },
-
               { label: 'PDF – Screenshot', value: 'pdf-screenshot' },
-
               { label: 'PDF – Summary + Screenshot', value: 'pdf-both' },
-
               { label: 'Image – Screenshot (PNG/WebP)', value: 'image-screenshot' },
-
               { label: 'Chat Inline – Summary', value: 'chat-inline-summary' }
-
             ]
 
             const row = document.createElement('div')
-
             row.className = 'esp-row'
-
-            row.style.cssText = 'display:grid;grid-template-columns:1fr auto;gap:8px'
+            row.style.cssText = 'display:grid;grid-template-columns:1fr 1fr auto;gap:8px;align-items:start'
 
             const sel = makeSelect(opts, 'esp-kind', 'agentBox')
 
-            const del = document.createElement('button'); del.textContent='×'; del.title='Remove'; del.style.cssText='background:#f44336;color:#fff;border:1px solid rgba(255,255,255,.25);padding:0 10px;border-radius:6px;cursor:pointer'; del.addEventListener('click', ()=> row.remove())
+            // Create follow-up select container for specific box/agent selection
+            const followUpHost = document.createElement('div')
+            followUpHost.className = 'esp-followup'
+            followUpHost.style.cssText = 'display:none'
 
-            row.appendChild(sel); row.appendChild(del)
+            // Build agent box options (01-50)
+            const buildAgentBoxSelectSub = (): HTMLSelectElement => {
+              const boxOpts = [{ label: '— Select Agent Box —', value: '' }]
+              for (let i = 1; i <= 50; i++) {
+                const num = String(i).padStart(2, '0')
+                boxOpts.push({ label: `Agent Box ${num}`, value: `agentBox${num}` })
+              }
+              const boxSel = makeSelect(boxOpts, 'esp-box-num', '')
+              boxSel.style.cssText = 'background:#1e293b;border:1px solid #475569;color:#f1f5f9;padding:8px 12px;border-radius:6px;width:100%'
+              return boxSel
+            }
 
-            const agentHost = document.createElement('div'); agentHost.className='esp-agents'; agentHost.style.cssText='display:none'; row.appendChild(agentHost)
+            // Build agent options (01-50)
+            const buildAgentSelectSub = (): HTMLSelectElement => {
+              const agentOpts = [{ label: '— Select Agent —', value: '' }]
+              for (let i = 1; i <= 50; i++) {
+                const num = String(i).padStart(2, '0')
+                agentOpts.push({ label: `Agent ${num}`, value: `agent${num}` })
+              }
+              const agentSel = makeSelect(agentOpts, 'esp-agent-num', '')
+              agentSel.style.cssText = 'background:#1e293b;border:1px solid #475569;color:#f1f5f9;padding:8px 12px;border-radius:6px;width:100%'
+              return agentSel
+            }
 
-            const sync = () => { const v = sel.value; agentHost.style.display = v==='agent' ? 'block' : 'none'; if (v==='agent' && agentHost.childElementCount===0) buildAgentChecklist(agentHost) }
+            const del = document.createElement('button')
+            del.textContent = '×'
+            del.title = 'Remove'
+            del.style.cssText = 'background:#f44336;color:#fff;border:1px solid rgba(255,255,255,.25);padding:0 10px;border-radius:6px;cursor:pointer;height:36px'
+            del.addEventListener('click', () => row.remove())
 
-            sel.addEventListener('change', sync); sync()
+            row.appendChild(sel)
+            row.appendChild(followUpHost)
+            row.appendChild(del)
+
+            const sync = () => {
+              const v = sel.value
+              followUpHost.innerHTML = ''
+              followUpHost.style.display = 'none'
+              if (v === 'agentBox') {
+                followUpHost.style.display = 'block'
+                followUpHost.appendChild(buildAgentBoxSelectSub())
+              } else if (v === 'agent') {
+                followUpHost.style.display = 'block'
+                followUpHost.appendChild(buildAgentSelectSub())
+              }
+            }
+
+            sel.addEventListener('change', sync)
+            sync()
 
             list.appendChild(row)
+          }
 
-          })
+          addBtn.addEventListener('click', addSpecialRowSub)
 
           ;(sec.querySelector('.E-add-workflow-sub') as HTMLButtonElement).addEventListener('click', ()=> addWorkflowRow(`#${wfId}`))
 
-          ;(sec.querySelector('.E-add-accept-sub') as HTMLButtonElement).addEventListener('click', ()=> addRow(`#${accId}`, 'acc-row', 'route-kind', 'route-specific'))
-
-          // Initialize with one default Report to row (Agent Boxes)
-
+          // Initialize with one default Report to row (Agent Box)
           setTimeout(()=>{ 
-
             try { 
-
-              addBtn.click() // Add one default Report to row
-
+              addSpecialRowSub()
             } catch {} 
-
           }, 0)
+
+          // Wire up the + button for Apply For in this section
+          const eApplyAddSubBtn = sec.querySelector('.E-apply-add-sub') as HTMLButtonElement
+          const eApplyListSub = sec.querySelector('.E-apply-list-sub') as HTMLElement
+          if (eApplyAddSubBtn && eApplyListSub) {
+            eApplyAddSubBtn.addEventListener('click', () => addApplyForRowToList(eApplyListSub, 'E-apply-sub'))
+          }
 
           return sec
 
@@ -17046,7 +17314,139 @@ function initializeExtension() {
 
             // Listener reportTo removed - Report to only in Execution section now
 
-            
+            // Restore Unified Triggers - CRITICAL for preserving triggers when adding sections
+            if (l.unifiedTriggers && l.unifiedTriggers.length > 0) {
+              console.log(`🔄 Restoring ${l.unifiedTriggers.length} unified triggers...`)
+              const unifiedList = configOverlay.querySelector('#L-unified-triggers') as HTMLElement
+              const addTriggerBtn = configOverlay.querySelector('#L-add-trigger') as HTMLButtonElement
+              
+              if (unifiedList && addTriggerBtn) {
+                unifiedList.innerHTML = '' // Clear existing
+                
+                l.unifiedTriggers.forEach((trigger: any, idx: number) => {
+                  // Click the add trigger button to create a new row
+                  addTriggerBtn.click()
+                  
+                  // Get the newly created row (last one)
+                  setTimeout(() => {
+                    const rows = unifiedList.querySelectorAll('.unified-trigger-row')
+                    const row = rows[rows.length - 1] as HTMLElement
+                    if (!row) {
+                      console.warn(`  ⚠️ Failed to find trigger row ${idx + 1}`)
+                      return
+                    }
+                    
+                    // Set trigger ID
+                    const idDisplay = row.querySelector('.trigger-id-display')
+                    if (idDisplay && trigger.id) {
+                      idDisplay.textContent = trigger.id
+                      row.dataset.triggerId = trigger.id
+                    }
+                    
+                    // Set trigger type
+                    const typeSelect = row.querySelector('.trigger-type') as HTMLSelectElement
+                    if (typeSelect && trigger.type) {
+                      typeSelect.value = trigger.type
+                      typeSelect.dispatchEvent(new Event('change'))
+                    }
+                    
+                    // Wait for type change to render fields, then populate them
+                    setTimeout(() => {
+                      // Set tag value
+                      const tagInput = row.querySelector('.trigger-tag') as HTMLInputElement
+                      if (tagInput && (trigger.tag || trigger.tagName)) {
+                        tagInput.value = (trigger.tag || trigger.tagName || '').replace('#', '')
+                      }
+                      
+                      // Set channel
+                      const channelSelect = row.querySelector('.trigger-channel') as HTMLSelectElement
+                      if (channelSelect && trigger.channel) {
+                        channelSelect.value = trigger.channel
+                        channelSelect.dispatchEvent(new Event('change'))
+                      }
+                      
+                      // Restore eventTagConditions
+                      if (trigger.eventTagConditions) {
+                        trigger.eventTagConditions.forEach((cond: any) => {
+                          if (cond.type === 'wrcode_valid') {
+                            const wrcodeCheck = row.querySelector('.trigger-wrcode') as HTMLInputElement
+                            if (wrcodeCheck) wrcodeCheck.checked = true
+                          }
+                          if (cond.type === 'sender_whitelist' && cond.allowedSenders) {
+                            const senderInput = row.querySelector('.trigger-sender-whitelist') as HTMLInputElement
+                            if (senderInput) senderInput.value = cond.allowedSenders.join(', ')
+                          }
+                          if (cond.type === 'body_keywords' && cond.keywords) {
+                            const keywordsInput = row.querySelector('.trigger-keywords') as HTMLInputElement
+                            if (keywordsInput) keywordsInput.value = cond.keywords.join(', ')
+                          }
+                          if (cond.type === 'website_filter' && cond.patterns) {
+                            const websiteInput = row.querySelector('.trigger-website') as HTMLInputElement
+                            if (websiteInput) websiteInput.value = cond.patterns.join(', ')
+                          }
+                        })
+                      }
+                      
+                      // Restore workflow condition fields
+                      if (trigger.workflowId) {
+                        const wfInput = row.querySelector('.trigger-workflow') as HTMLInputElement
+                        if (wfInput) wfInput.value = trigger.workflowId
+                      }
+                      
+                      // Restore UI event fields
+                      if (trigger.domSelector) {
+                        const domInput = row.querySelector('.trigger-dom-selector') as HTMLInputElement
+                        if (domInput) domInput.value = trigger.domSelector
+                      }
+                      if (trigger.domEvent) {
+                        const eventSelect = row.querySelector('.trigger-dom-event') as HTMLSelectElement
+                        if (eventSelect) eventSelect.value = trigger.domEvent
+                      }
+                      
+                      // Restore manual command
+                      if (trigger.commandLabel) {
+                        const cmdInput = row.querySelector('.trigger-command') as HTMLInputElement
+                        if (cmdInput) cmdInput.value = trigger.commandLabel
+                      }
+                      
+                      // Restore agent source
+                      if (trigger.sourceAgent) {
+                        const agentSelect = row.querySelector('.trigger-agent-select') as HTMLSelectElement
+                        if (agentSelect) agentSelect.value = trigger.sourceAgent
+                      }
+                      
+                      // Restore miniapp data
+                      if (trigger.miniAppId) {
+                        const miniAppInput = row.querySelector('.trigger-miniapp-id') as HTMLInputElement
+                        if (miniAppInput) miniAppInput.value = trigger.miniAppId
+                      }
+                      
+                      // Mark trigger as saved by showing checkmark
+                      const tempSaveBtn = row.querySelector('.trigger-temp-save') as HTMLButtonElement
+                      if (tempSaveBtn && !row.querySelector('.trigger-saved-indicator')) {
+                        const checkmark = document.createElement('span')
+                        checkmark.className = 'trigger-saved-indicator'
+                        checkmark.textContent = '✓'
+                        checkmark.style.cssText = 'color:#22c55e;font-weight:bold;margin-left:6px;font-size:14px'
+                        checkmark.title = 'Trigger saved'
+                        tempSaveBtn.parentElement?.insertBefore(checkmark, tempSaveBtn.nextSibling)
+                      }
+                      
+                      console.log(`  ✓ Restored unified trigger ${idx + 1}: ${trigger.type} - ${trigger.tag || trigger.tagName || trigger.id}`)
+                    }, 100)
+                  }, 50 * (idx + 1)) // Stagger the restorations
+                })
+                
+                // Update Apply for options after all triggers are restored
+                setTimeout(() => {
+                  // Trigger the updateApplyForOptions by dispatching input event on trigger list
+                  const event = new Event('input', { bubbles: true })
+                  unifiedList.dispatchEvent(event)
+                }, 200 + (50 * l.unifiedTriggers.length))
+                
+                console.log(`  ✓ Started restoring ${l.unifiedTriggers.length} unified triggers`)
+              }
+            }
 
             // Restore Listener Example files - CRITICAL for preserving uploads
 
@@ -17228,23 +17628,49 @@ function initializeExtension() {
 
             
 
-            // Restore Apply For select
-
-            if (r.applyFor) {
-
-              const applySelect = configOverlay.querySelector('#R-apply') as HTMLSelectElement
-
-              if (applySelect) {
-
-                applySelect.value = r.applyFor
-
-                console.log(`  ✓ Restored Apply For: ${r.applyFor}`)
-
-              }
-
-            }
-
+            // Restore Apply For selects - DELAYED to ensure trigger options are populated first
+            const rApplyForListToRestore = r.applyForList || (r.applyFor ? [r.applyFor] : ['__any__'])
+            console.log(`  🔍 Main Reasoning applyForList to restore:`, rApplyForListToRestore)
             
+            if (rApplyForListToRestore.length > 0) {
+              setTimeout(() => {
+                // Refresh options first
+                if (typeof refreshApplyForOptions === 'function') {
+                  refreshApplyForOptions()
+                  console.log(`  🔄 Refreshed Apply For options for main Reasoning`)
+                }
+                setTimeout(() => {
+                  const rApplyList = configOverlay.querySelector('#R-apply-list') as HTMLElement
+                  
+                  // Set first value on existing select
+                  const firstSelect = configOverlay.querySelector('#R-apply') as HTMLSelectElement
+                  if (firstSelect && rApplyForListToRestore[0]) {
+                    firstSelect.value = rApplyForListToRestore[0]
+                    console.log(`  ✓ Set first Reasoning Apply For to: ${rApplyForListToRestore[0]}`)
+                  }
+                  
+                  // Add additional Apply For rows for remaining values
+                  if (rApplyList && rApplyForListToRestore.length > 1) {
+                    rApplyForListToRestore.slice(1).forEach((applyForValue: string, idx: number) => {
+                      setTimeout(() => {
+                        addApplyForRowToList(rApplyList, 'R-apply-select')
+                        setTimeout(() => {
+                          const selects = rApplyList.querySelectorAll('.R-apply-select, select')
+                          const lastSelect = selects[selects.length - 1] as HTMLSelectElement
+                          if (lastSelect) {
+                            refreshApplyForOptions()
+                            setTimeout(() => {
+                              lastSelect.value = applyForValue
+                              console.log(`    ✓ Set additional Reasoning Apply For ${idx + 2} to: ${applyForValue}`)
+                            }, 100)
+                          }
+                        }, 100)
+                      }, idx * 200)
+                    })
+                  }
+                }, 200)
+              }, 400)
+            }
 
             // Restore Listen From rows
 
@@ -17360,39 +17786,78 @@ function initializeExtension() {
 
               
 
+              console.log(`  🔍 R-add-section button found: ${!!rAddSectionBtn}`)
+              console.log(`  🔍 R-sections-extra container found: ${!!rExtra}`)
+
               if (rAddSectionBtn && rExtra) {
 
                 // Skip first section (index 0) as it's the base section already restored above
 
                 previouslySavedData.reasoningSections.slice(1).forEach((rSection: any, sectionIdx: number) => {
 
-                  // Create a new section
+                  console.log(`  📝 Creating reasoning section ${sectionIdx + 1} with applyFor: ${rSection.applyFor}`)
 
-                  rAddSectionBtn.click()
-
-                  
-
+                  // Create a new section - stagger the clicks
                   setTimeout(() => {
+                    rAddSectionBtn.click()
+                    console.log(`  ✓ Clicked add section button for reasoning section ${sectionIdx + 1}`)
 
-                    const sections = configOverlay.querySelectorAll('#R-sections-extra .R-section')
+                    // Wait longer for section to be fully created in DOM
+                    setTimeout(() => {
 
-                    const newSection = sections[sectionIdx] as HTMLElement
+                      const sections = configOverlay.querySelectorAll('#R-sections-extra .R-section')
+                      console.log(`  🔍 Found ${sections.length} R-section elements after click`)
 
-                    
+                      const newSection = sections[sectionIdx] as HTMLElement
 
-                    if (newSection) {
+                      if (newSection) {
+                        console.log(`  ✓ Reasoning section ${sectionIdx + 1} found in DOM`)
 
-                      // Restore Apply For
-
-                      if (rSection.applyFor) {
-
-                        const applySelect = newSection.querySelector('.R-apply') as HTMLSelectElement
-
-                        if (applySelect) applySelect.value = rSection.applyFor
-
-                      }
-
-                      
+                        // Restore Apply For - DELAYED to ensure trigger options are populated first
+                        const rSectionApplyForList = rSection.applyForList || (rSection.applyFor ? [rSection.applyFor] : ['__any__'])
+                        if (rSectionApplyForList.length > 0) {
+                          setTimeout(() => {
+                            // Refresh options first
+                            if (typeof refreshApplyForOptions === 'function') {
+                              refreshApplyForOptions()
+                              console.log(`    🔄 Refreshed Apply For options for reasoning section ${sectionIdx + 1}`)
+                            }
+                            setTimeout(() => {
+                              // Set first value on existing select
+                              const applySelect = newSection.querySelector('.R-apply') as HTMLSelectElement
+                              const applyList = newSection.querySelector('.R-apply-list-sub') as HTMLElement
+                              if (applySelect) {
+                                console.log(`    🔍 R-apply select found, current value: ${applySelect.value}`)
+                                console.log(`    🔍 Available options:`, Array.from(applySelect.options).map(o => o.value))
+                                applySelect.value = rSectionApplyForList[0]
+                                console.log(`    ✓ Set additional Reasoning section ${sectionIdx + 1} Apply For to: ${rSectionApplyForList[0]}`)
+                                console.log(`    🔍 Verify: applySelect.value is now: ${applySelect.value}`)
+                                
+                                // Add additional Apply For rows for remaining values
+                                if (applyList && rSectionApplyForList.length > 1) {
+                                  rSectionApplyForList.slice(1).forEach((applyForValue: string, idx: number) => {
+                                    setTimeout(() => {
+                                      addApplyForRowToList(applyList, 'R-apply')
+                                      setTimeout(() => {
+                                        const selects = applyList.querySelectorAll('select')
+                                        const lastSelect = selects[selects.length - 1] as HTMLSelectElement
+                                        if (lastSelect) {
+                                          refreshApplyForOptions()
+                                          setTimeout(() => {
+                                            lastSelect.value = applyForValue
+                                            console.log(`      ✓ Set additional R-section ${sectionIdx + 1} Apply For ${idx + 2} to: ${applyForValue}`)
+                                          }, 100)
+                                        }
+                                      }, 100)
+                                    }, idx * 200)
+                                  })
+                                }
+                              } else {
+                                console.error(`    ❌ Could not find .R-apply in section ${sectionIdx + 1}`)
+                              }
+                            }, 200)
+                          }, 500)
+                        }
 
                       // Restore Goals
 
@@ -17522,11 +17987,14 @@ function initializeExtension() {
 
                       
 
-                      console.log(`    ✓ Restored reasoning section ${sectionIdx + 1}`)
+                        console.log(`    ✓ Restored reasoning section ${sectionIdx + 1}`)
+                      } else {
+                        console.error(`    ❌ Reasoning section ${sectionIdx + 1} NOT found in DOM after waiting`)
+                      }
 
-                    }
+                    }, 300) // Wait 300ms for section to be created in DOM
 
-                  }, 100 * (sectionIdx + 1)) // Stagger the restoration
+                  }, sectionIdx * 400) // Stagger section creation by 400ms each
 
                 })
 
@@ -17545,74 +18013,54 @@ function initializeExtension() {
             const e = previouslySavedData.execution
 
             
-
-            // Restore Apply For select
-
-            if (e.applyFor) {
-
-              const applySelect = configOverlay.querySelector('#E-apply') as HTMLSelectElement
-
-              if (applySelect) {
-
-                applySelect.value = e.applyFor
-
-                console.log(`  ✓ Restored Execution Apply For: ${e.applyFor}`)
-
-              }
-
-            }
-
-            
-
-            // Restore Listen From rows
-
+            // Listen From section removed from Execution - skip restoration
             if (e.acceptFrom && e.acceptFrom.length > 0) {
-
-              const acceptList = configOverlay.querySelector('#E-accept-list')
-
-              if (acceptList) {
-
-                acceptList.innerHTML = ''  // Clear first
-
-                e.acceptFrom.forEach((target: string) => {
-
-                  const addBtn = configOverlay.querySelector('#E-add-accept') as HTMLButtonElement
-
-                  if (addBtn) {
-
-                    addBtn.click()
-
-                    const rows = configOverlay.querySelectorAll('#E-accept-list .acc-row')
-
-                    const lastRow = rows[rows.length - 1]
-
-                    if (lastRow) {
-
-                      const kindSel = lastRow.querySelector('.route-kind') as HTMLSelectElement
-
-                      const specSel = lastRow.querySelector('.route-specific') as HTMLSelectElement
-
-                      const [kind, spec] = target.split(':')
-
-                      if (kindSel) kindSel.value = kind
-
-                      kindSel?.dispatchEvent(new Event('change'))
-
-                      setTimeout(() => { if (specSel && spec) specSel.value = spec }, 50)
-
-                    }
-
-                  }
-
-                })
-
-                console.log(`  ✓ Restored ${e.acceptFrom.length} execution listen-from rows`)
-
-              }
-
+              console.log(`  ℹ️ Skipping ${e.acceptFrom.length} execution listen-from rows (section removed)`)
             }
-
             
+            // Restore Apply For selects - DELAYED to ensure trigger options are populated first
+            const eApplyForListToRestore = e.applyForList || (e.applyFor ? [e.applyFor] : ['__any__'])
+            console.log(`  🔍 Main Execution applyForList to restore:`, eApplyForListToRestore)
+            
+            if (eApplyForListToRestore.length > 0) {
+              setTimeout(() => {
+                // First refresh the options to include trigger IDs
+                if (typeof refreshApplyForOptions === 'function') {
+                  refreshApplyForOptions()
+                  console.log(`  🔄 Refreshed Apply For options for main Execution`)
+                }
+                setTimeout(() => {
+                  const eApplyList = configOverlay.querySelector('#E-apply-list') as HTMLElement
+                  
+                  // Set first value on existing select
+                  const firstSelect = configOverlay.querySelector('#E-apply') as HTMLSelectElement
+                  if (firstSelect && eApplyForListToRestore[0]) {
+                    firstSelect.value = eApplyForListToRestore[0]
+                    console.log(`  ✓ Set first Execution Apply For to: ${eApplyForListToRestore[0]}`)
+                  }
+                  
+                  // Add additional Apply For rows for remaining values
+                  if (eApplyList && eApplyForListToRestore.length > 1) {
+                    eApplyForListToRestore.slice(1).forEach((applyForValue: string, idx: number) => {
+                      setTimeout(() => {
+                        addApplyForRowToList(eApplyList, 'E-apply-select')
+                        setTimeout(() => {
+                          const selects = eApplyList.querySelectorAll('.E-apply-select, select')
+                          const lastSelect = selects[selects.length - 1] as HTMLSelectElement
+                          if (lastSelect) {
+                            refreshApplyForOptions()
+                            setTimeout(() => {
+                              lastSelect.value = applyForValue
+                              console.log(`    ✓ Set additional Execution Apply For ${idx + 2} to: ${applyForValue}`)
+                            }, 100)
+                          }
+                        }, 100)
+                      }, idx * 200)
+                    })
+                  }
+                }, 200)
+              }, 400)
+            }
 
             // Restore Workflows
 
@@ -17724,193 +18172,184 @@ function initializeExtension() {
 
             // Restore Additional Execution Sections
 
+            console.log(`  🔍 Checking e.executionSections:`, e.executionSections)
+
             if (e.executionSections && e.executionSections.length > 0) {
 
               console.log(`  🔄 Restoring ${e.executionSections.length} additional execution sections...`)
+              console.log(`  📦 Execution sections data:`, JSON.stringify(e.executionSections))
 
               const eAddSectionBtn = configOverlay.querySelector('#E-add-section') as HTMLButtonElement
 
               const eExtra = configOverlay.querySelector('#E-sections-extra') as HTMLElement
 
-              
+              console.log(`  🔍 E-add-section button found: ${!!eAddSectionBtn}`)
+              console.log(`  🔍 E-sections-extra container found: ${!!eExtra}`)
 
               if (eAddSectionBtn && eExtra) {
 
                 e.executionSections.forEach((eSection: any, sectionIdx: number) => {
 
-                  // Create a new section
+                  console.log(`  📝 Creating execution section ${sectionIdx + 1} with applyFor: ${eSection.applyFor}`)
 
-                  eAddSectionBtn.click()
-
-                  
-
+                  // Create a new section - stagger the clicks
                   setTimeout(() => {
+                    eAddSectionBtn.click()
+                    console.log(`  ✓ Clicked add section button for section ${sectionIdx + 1}`)
 
-                    const sections = configOverlay.querySelectorAll('#E-sections-extra .E-section')
+                    // Wait longer for section to be fully created in DOM
+                    setTimeout(() => {
 
-                    const newSection = sections[sectionIdx] as HTMLElement
+                      const sections = configOverlay.querySelectorAll('#E-sections-extra .E-section')
+                      console.log(`  🔍 Found ${sections.length} E-section elements after click`)
 
-                    
+                      const newSection = sections[sectionIdx] as HTMLElement
 
-                    if (newSection) {
+                      if (newSection) {
+                        console.log(`  ✓ Section ${sectionIdx + 1} found in DOM`)
 
-                      // Restore Apply For
+                        // Restore Apply For - DELAYED to ensure trigger options are populated first
+                        const eSectionApplyForList = eSection.applyForList || (eSection.applyFor ? [eSection.applyFor] : ['__any__'])
+                        if (eSectionApplyForList.length > 0) {
+                          setTimeout(() => {
+                            // Refresh options first
+                            if (typeof refreshApplyForOptions === 'function') {
+                              refreshApplyForOptions()
+                              console.log(`    🔄 Refreshed Apply For options`)
+                            }
+                            setTimeout(() => {
+                              // Set first value on existing select
+                              const applySelect = newSection.querySelector('.E-apply-sub') as HTMLSelectElement
+                              const applyList = newSection.querySelector('.E-apply-list-sub') as HTMLElement
+                              if (applySelect) {
+                                console.log(`    🔍 Apply select found, current value: ${applySelect.value}`)
+                                console.log(`    🔍 Available options:`, Array.from(applySelect.options).map(o => o.value))
+                                applySelect.value = eSectionApplyForList[0]
+                                console.log(`    ✓ Set additional section ${sectionIdx + 1} Apply For to: ${eSectionApplyForList[0]}`)
+                                console.log(`    🔍 Verify: applySelect.value is now: ${applySelect.value}`)
+                                
+                                // Add additional Apply For rows for remaining values
+                                if (applyList && eSectionApplyForList.length > 1) {
+                                  eSectionApplyForList.slice(1).forEach((applyForValue: string, idx: number) => {
+                                    setTimeout(() => {
+                                      addApplyForRowToList(applyList, 'E-apply-sub')
+                                      setTimeout(() => {
+                                        const selects = applyList.querySelectorAll('select')
+                                        const lastSelect = selects[selects.length - 1] as HTMLSelectElement
+                                        if (lastSelect) {
+                                          refreshApplyForOptions()
+                                          setTimeout(() => {
+                                            lastSelect.value = applyForValue
+                                            console.log(`      ✓ Set additional E-section ${sectionIdx + 1} Apply For ${idx + 2} to: ${applyForValue}`)
+                                          }, 100)
+                                        }
+                                      }, 100)
+                                    }, idx * 200)
+                                  })
+                                }
+                              } else {
+                                console.error(`    ❌ Could not find .E-apply-sub in section ${sectionIdx + 1}`)
+                              }
+                            }, 200)
+                          }, 500)
+                        }
 
-                      if (eSection.applyFor) {
+                        // Restore Workflows
 
-                        const applySelect = newSection.querySelector('.E-apply-sub') as HTMLSelectElement
+                        if (eSection.workflows && eSection.workflows.length > 0) {
 
-                        if (applySelect) applySelect.value = eSection.applyFor
-
-                      }
-
-                      
-
-                      // Restore Workflows
-
-                      if (eSection.workflows && eSection.workflows.length > 0) {
-
-                        eSection.workflows.forEach((workflow: string) => {
-
-                          const addBtn = newSection.querySelector('.E-add-workflow-sub') as HTMLButtonElement
-
-                          if (addBtn) {
-
-                            addBtn.click()
+                          eSection.workflows.forEach((workflow: string, wfIdx: number) => {
 
                             setTimeout(() => {
+                              const addBtn = newSection.querySelector('.E-add-workflow-sub') as HTMLButtonElement
 
-                              const rows = newSection.querySelectorAll('.E-wf-sub .wf-row')
+                              if (addBtn) {
 
-                              const lastRow = rows[rows.length - 1]
+                                addBtn.click()
 
-                              if (lastRow) {
+                                setTimeout(() => {
 
-                                const input = lastRow.querySelector('.wf-target') as HTMLInputElement
+                                  const rows = newSection.querySelectorAll('.E-workflow-list-sub .wf-row')
 
-                                if (input) input.value = workflow
+                                  const lastRow = rows[rows.length - 1]
 
-                              }
+                                  if (lastRow) {
 
-                            }, 50)
+                                    const input = lastRow.querySelector('.wf-target') as HTMLInputElement
 
-                          }
+                                    if (input) {
+                                      input.value = workflow
+                                      console.log(`    ✓ Restored workflow ${wfIdx + 1}: ${workflow}`)
+                                    }
 
-                        })
+                                  }
 
-                      }
-
-                      
-
-                      // Restore Accept From
-
-                      if (eSection.acceptFrom && eSection.acceptFrom.length > 0) {
-
-                        eSection.acceptFrom.forEach((target: string) => {
-
-                          const addBtn = newSection.querySelector('.E-add-accept-sub') as HTMLButtonElement
-
-                          if (addBtn) {
-
-                            addBtn.click()
-
-                            setTimeout(() => {
-
-                              const rows = newSection.querySelectorAll('.E-acc-sub .acc-row')
-
-                              const lastRow = rows[rows.length - 1]
-
-                              if (lastRow) {
-
-                                const kindSel = lastRow.querySelector('.route-kind') as HTMLSelectElement
-
-                                const specSel = lastRow.querySelector('.route-specific') as HTMLSelectElement
-
-                                const [kind, spec] = target.split(':')
-
-                                if (kindSel) kindSel.value = kind
-
-                                kindSel?.dispatchEvent(new Event('change'))
-
-                                setTimeout(() => { if (specSel && spec) specSel.value = spec }, 50)
+                                }, 100)
 
                               }
+                            }, wfIdx * 150)
 
-                            }, 50)
+                          })
 
-                          }
+                        }
 
-                        })
-
-                      }
-
-                      
-
-                      // Restore Special Destinations (Report to)
+                        // Accept From section removed from Execution sections
+                        
+                        // Restore Special Destinations (Report to)
 
                       if (eSection.specialDestinations && eSection.specialDestinations.length > 0) {
+                        const specialList = newSection.querySelector('.E-special-list-sub') as HTMLElement
+                        const addBtn = newSection.querySelector('.E-special-add-sub') as HTMLButtonElement
 
-                        eSection.specialDestinations.forEach((dest: any) => {
+                        if (specialList && addBtn) {
+                          // Clear any existing default rows first
+                          specialList.innerHTML = ''
 
-                          const specialList = newSection.querySelector('.E-special-list-sub') as HTMLElement
-
-                          const addBtn = newSection.querySelector('.E-special-add-sub') as HTMLButtonElement
-
-                          if (addBtn) {
-
-                            addBtn.click()
-
+                          eSection.specialDestinations.forEach((dest: any, destIdx: number) => {
                             setTimeout(() => {
+                              addBtn.click()
 
-                              const rows = specialList?.querySelectorAll('.esp-row')
+                              setTimeout(() => {
+                                const rows = specialList.querySelectorAll('.esp-row')
+                                const lastRow = rows[rows.length - 1]
 
-                              const lastRow = rows && rows[rows.length - 1]
+                                if (lastRow) {
+                                  const kindSel = lastRow.querySelector('.esp-kind') as HTMLSelectElement
 
-                              if (lastRow) {
+                                  if (kindSel) {
+                                    kindSel.value = dest.kind
+                                    kindSel.dispatchEvent(new Event('change'))
+                                    console.log(`      ✓ Set Report To kind to: ${dest.kind}`)
+                                  }
 
-                                const kindSel = lastRow.querySelector('.esp-kind') as HTMLSelectElement
-
-                                if (kindSel) {
-
-                                  kindSel.value = dest.kind
-
-                                  kindSel.dispatchEvent(new Event('change'))
-
+                                  // For agentBox or agent, set the follow-up select value
+                                  if ((dest.kind === 'agentBox' || dest.kind === 'agent') && dest.agents && dest.agents.length > 0) {
+                                    setTimeout(() => {
+                                      const followUp = lastRow.querySelector('.esp-followup select') as HTMLSelectElement
+                                      if (followUp && dest.agents[0]) {
+                                        followUp.value = dest.agents[0]
+                                        console.log(`      ✓ Set Report To agent/box to: ${dest.agents[0]}`)
+                                      }
+                                    }, 150)
+                                  }
                                 }
-
-                                if (dest.kind === 'agent' && dest.agents && dest.agents.length > 0) {
-
-                                  setTimeout(() => {
-
-                                    dest.agents.forEach((agentId: string) => {
-
-                                      const checkbox = lastRow.querySelector(`.E-agent[value="${agentId}"]`) as HTMLInputElement
-
-                                      if (checkbox) checkbox.checked = true
-
-                                    })
-
-                                  }, 100)
-
-                                }
-
-                              }
-
-                            }, 50)
-
-                          }
-
-                        })
-
+                              }, 100)
+                            }, destIdx * 200) // Stagger each destination restoration
+                          })
+                          console.log(`    ✓ Restoring ${eSection.specialDestinations.length} Report To destinations`)
+                        }
                       }
 
                       
 
-                      console.log(`    ✓ Restored execution section ${sectionIdx + 1}`)
+                        console.log(`    ✓ Restored execution section ${sectionIdx + 1}`)
+                      } else {
+                        console.error(`    ❌ Section ${sectionIdx + 1} NOT found in DOM after waiting`)
+                      }
 
-                    }
+                    }, 300) // Wait 300ms for section to be created in DOM
 
-                  }, 100 * (sectionIdx + 1)) // Stagger the restoration
+                  }, sectionIdx * 400) // Stagger section creation by 400ms each
 
                 })
 
@@ -18592,46 +19031,8 @@ function initializeExtension() {
 
               
 
-              // Restore acceptFrom
-
-              if (e.acceptFrom) {
-
-                e.acceptFrom.forEach((target: string) => {
-
-                  const addBtn = configOverlay.querySelector('#E-accept-add') as HTMLButtonElement
-
-                  if (addBtn) {
-
-                    addBtn.click()
-
-                    const rows = configOverlay.querySelectorAll('#E-accept-list .acc-row')
-
-                    const lastRow = rows[rows.length - 1]
-
-                    if (lastRow) {
-
-                      const kindSel = lastRow.querySelector('.route-kind') as HTMLSelectElement
-
-                      const specSel = lastRow.querySelector('.route-specific') as HTMLSelectElement
-
-                      const [kind, spec] = target.split(':')
-
-                      if (kindSel) kindSel.value = kind
-
-                      kindSel?.dispatchEvent(new Event('change'))
-
-                      setTimeout(() => { if (specSel && spec) specSel.value = spec }, 50)
-
-                    }
-
-                  }
-
-                })
-
-              }
-
+              // acceptFrom section removed from Execution - skip restoration
               
-
               // Restore workflows
 
               if (e.workflows) {
@@ -19302,15 +19703,17 @@ function initializeExtension() {
 
             activeEnabled,
 
-            contextLength: listening.expectedContext.length,
+            contextLength: listening.expectedContext?.length || 0,
 
-            tagsCount: listening.tags.length,
+            tagsCount: listening.tags?.length || 0,
 
             source: listening.source,
 
             website: listening.website,
 
-            triggersCount: triggers.length
+            activeTriggersCount: listening.active?.triggers?.length || 0,
+
+            passiveTriggersCount: listening.passive?.triggers?.length || 0
 
           })
 
@@ -19347,12 +19750,15 @@ function initializeExtension() {
           
 
           // reportTo removed from Reasoning - only in Execution section now
-
           
+          // Collect all Apply For values from the list (get all selects inside the list)
+          const rApplyForValuesSave = Array.from(document.querySelectorAll('#R-apply-list select')).map((sel: any) => sel.value).filter((v: string) => v && v !== '')
+          console.log('📝 [SAVE] Reasoning Apply For values:', rApplyForValuesSave)
 
           const base:any = {
 
-            applyFor: (document.getElementById('R-apply') as HTMLSelectElement)?.value || '__any__',
+            applyFor: rApplyForValuesSave.length > 0 ? rApplyForValuesSave[0] : '__any__',
+            applyForList: rApplyForValuesSave.length > 0 ? rApplyForValuesSave : ['__any__'],
 
             goals: (document.getElementById('R-goals') as HTMLTextAreaElement)?.value || '',
 
@@ -19393,14 +19799,14 @@ function initializeExtension() {
             }).filter((v:string) => v)
 
             
-
-            // sectionReportTo removed - reportTo only in Execution section now
-
-            
+            // Collect ALL Apply For values from the section's list
+            const sectionApplyForList = Array.from(sec.querySelectorAll('.R-apply-list-sub select')).map((sel: any) => sel.value).filter((v: string) => v && v !== '')
+            console.log('📝 [SAVE] Additional R-section Apply For values:', sectionApplyForList)
 
             const s:any = {
 
-              applyFor: (sec.querySelector('.R-apply') as HTMLSelectElement)?.value || '__any__',
+              applyFor: sectionApplyForList.length > 0 ? sectionApplyForList[0] : '__any__',
+              applyForList: sectionApplyForList.length > 0 ? sectionApplyForList : ['__any__'],
 
               goals: (sec.querySelector('.R-goals') as HTMLTextAreaElement)?.value || '',
 
@@ -19448,8 +19854,6 @@ function initializeExtension() {
 
             acceptFromCount: accepts.length,
 
-            reportToCount: base.reportTo.length,
-
             sectionsCount: sections.length
 
           })
@@ -19462,20 +19866,9 @@ function initializeExtension() {
 
         if (executionSection) {
 
-          // Accept From list - format as "kind:specific"
-
-          const eAccepts:string[] = Array.from(document.querySelectorAll('#E-accept-list .acc-row')).map((row:any) => {
-
-            const kindSel = row.querySelector('.route-kind') as HTMLSelectElement
-
-            const specSel = row.querySelector('.route-specific') as HTMLSelectElement
-
-            return kindSel && specSel ? `${kindSel.value}:${specSel.value}` : ''
-
-          }).filter((v:string) => v)
-
+          // Accept From list removed from Execution section
+          const eAccepts:string[] = []
           
-
           // Workflows list
 
           const eWfs:string[] = Array.from(document.querySelectorAll('#E-workflow-list .wf-row .wf-target')).map((n:any)=> n.value).filter((v:string) => v)
@@ -19524,27 +19917,16 @@ function initializeExtension() {
 
           document.querySelectorAll('#E-sections-extra .E-section').forEach((sec:any)=>{
 
-            const applyFor = (sec.querySelector('.E-apply-sub') as HTMLSelectElement)?.value || '__any__'
-
-            
+            // Collect ALL Apply For values from the section's list
+            const sectionApplyForList = Array.from(sec.querySelectorAll('.E-apply-list-sub select')).map((sel: any) => sel.value).filter((v: string) => v && v !== '')
+            console.log('📝 [SAVE] Additional E-section Apply For values:', sectionApplyForList)
 
             // Collect workflows for this section
 
-            const workflows = Array.from(sec.querySelectorAll('.E-wf-sub .wf-row .wf-target')).map((n:any)=> n.value).filter((v:string) => v)
+            const workflows = Array.from(sec.querySelectorAll('.E-workflow-list-sub .wf-row .wf-target')).map((n:any)=> n.value).filter((v:string) => v)
 
-            
-
-            // Collect acceptFrom for this section
-
-            const acceptFrom = Array.from(sec.querySelectorAll('.E-acc-sub .acc-row')).map((row:any) => {
-
-              const kindSel = row.querySelector('.route-kind') as HTMLSelectElement
-
-              const specSel = row.querySelector('.route-specific') as HTMLSelectElement
-
-              return kindSel && specSel ? `${kindSel.value}:${specSel.value}` : ''
-
-            }).filter((v:string) => v)
+            // acceptFrom section removed from Execution
+            const acceptFrom: string[] = []
 
             
 
@@ -19580,9 +19962,19 @@ function initializeExtension() {
 
             
 
-            eSections.push({ applyFor, workflows, acceptFrom, specialDestinations: dests })
+            eSections.push({ 
+              applyFor: sectionApplyForList.length > 0 ? sectionApplyForList[0] : '__any__',
+              applyForList: sectionApplyForList.length > 0 ? sectionApplyForList : ['__any__'],
+              workflows, 
+              acceptFrom, 
+              specialDestinations: dests 
+            })
 
           })
+
+          // Collect all Apply For values from the list (get all selects inside the list)
+          const eApplyForValuesSave = Array.from(document.querySelectorAll('#E-apply-list select')).map((sel: any) => sel.value).filter((v: string) => v && v !== '')
+          console.log('📝 [SAVE] Execution Apply For values:', eApplyForValuesSave)
 
           draft.execution = {
 
@@ -19590,7 +19982,8 @@ function initializeExtension() {
 
             workflows: eWfs,
 
-            applyFor: (document.getElementById('E-apply') as HTMLSelectElement)?.value || '__any__',
+            applyFor: eApplyForValuesSave.length > 0 ? eApplyForValuesSave[0] : '__any__',
+            applyForList: eApplyForValuesSave.length > 0 ? eApplyForValuesSave : ['__any__'],
 
             specialDestinations: eDestinationsMain,
 
@@ -20067,6 +20460,16 @@ function initializeExtension() {
           console.log(`  🔧 E-Workflows: ${parsedData.execution?.workflows?.length || 0}`)
 
           console.log(`  ⚡ E-Special Destinations: ${parsedData.execution?.specialDestinations?.length || 0}`)
+          
+          console.log(`  📦 E-Apply For: ${parsedData.execution?.applyFor || '__any__'}`)
+          
+          console.log(`  📚 Execution Sections: ${parsedData.execution?.executionSections?.length || 0} section(s)`)
+          
+          if (parsedData.execution?.executionSections?.length > 0) {
+            parsedData.execution.executionSections.forEach((section: any, idx: number) => {
+              console.log(`     E-Section ${idx + 1}: applyFor="${section.applyFor}", workflows=${section.workflows?.length || 0}, reportTo=${section.specialDestinations?.length || 0}`)
+            })
+          }
 
         }
 
