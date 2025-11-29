@@ -16386,21 +16386,21 @@ function initializeExtension() {
               <button class="R-del" title="Remove" style="background:#f44336;color:#fff;border:1px solid rgba(255,255,255,.25);padding:2px 8px;border-radius:6px;cursor:pointer">×</button>
             </div>
 
-            <label style="margin-top:6px">Goals (System instructions)
+            <label style="display:block;margin-top:8px">Goals (System instructions)
 
-              <textarea class="R-goals" style="width:100%;min-height:70px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.35);color:#fff;padding:8px;border-radius:6px"></textarea>
+              <textarea class="R-goals" style="width:100%;min-height:90px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.35);color:#fff;padding:8px;border-radius:6px"></textarea>
 
             </label>
 
-            <label>Role (optional)
+            <label style="display:block">Role (optional)
 
               <input class="R-role" style="width:100%;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.35);color:#fff;padding:8px;border-radius:6px">
 
             </label>
 
-            <label>Rules
+            <label style="display:block">Rules
 
-              <textarea class="R-rules" style="width:100%;min-height:60px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.35);color:#fff;padding:8px;border-radius:6px"></textarea>
+              <textarea class="R-rules" style="width:100%;min-height:70px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.35);color:#fff;padding:8px;border-radius:6px"></textarea>
 
             </label>
 
@@ -17325,39 +17325,44 @@ function initializeExtension() {
                 unifiedList.innerHTML = '' // Clear existing
                 
                 l.unifiedTriggers.forEach((trigger: any, idx: number) => {
-                  // Click the add trigger button to create a new row
-                  addTriggerBtn.click()
-                  
-                  // Get the newly created row (last one)
+                  // Stagger trigger restoration to avoid race conditions
                   setTimeout(() => {
-                    const rows = unifiedList.querySelectorAll('.unified-trigger-row')
-                    const row = rows[rows.length - 1] as HTMLElement
-                    if (!row) {
-                      console.warn(`  ⚠️ Failed to find trigger row ${idx + 1}`)
-                      return
-                    }
+                    // Click the add trigger button to create a new row
+                    addTriggerBtn.click()
                     
-                    // Set trigger ID
-                    const idDisplay = row.querySelector('.trigger-id-display')
-                    if (idDisplay && trigger.id) {
-                      idDisplay.textContent = trigger.id
-                      row.dataset.triggerId = trigger.id
-                    }
-                    
-                    // Set trigger type
-                    const typeSelect = row.querySelector('.trigger-type') as HTMLSelectElement
-                    if (typeSelect && trigger.type) {
-                      typeSelect.value = trigger.type
-                      typeSelect.dispatchEvent(new Event('change'))
-                    }
-                    
-                    // Wait for type change to render fields, then populate them
+                    // Get the newly created row (last one)
                     setTimeout(() => {
-                      // Set tag value
-                      const tagInput = row.querySelector('.trigger-tag') as HTMLInputElement
-                      if (tagInput && (trigger.tag || trigger.tagName)) {
-                        tagInput.value = (trigger.tag || trigger.tagName || '').replace('#', '')
+                      const rows = unifiedList.querySelectorAll('.unified-trigger-row')
+                      const row = rows[rows.length - 1] as HTMLElement
+                      if (!row) {
+                        console.warn(`  ⚠️ Failed to find trigger row ${idx + 1}`)
+                        return
                       }
+                      
+                      // Set trigger ID
+                      const idDisplay = row.querySelector('.trigger-id-display')
+                      if (idDisplay && trigger.id) {
+                        idDisplay.textContent = trigger.id
+                        row.dataset.triggerId = trigger.id
+                        console.log(`    ✓ Set trigger ${idx + 1} ID: ${trigger.id}`)
+                      }
+                      
+                      // Set trigger type
+                      const typeSelect = row.querySelector('.trigger-type') as HTMLSelectElement
+                      if (typeSelect && trigger.type) {
+                        typeSelect.value = trigger.type
+                        typeSelect.dispatchEvent(new Event('change'))
+                      }
+                      
+                      // Wait for type change to render fields, then populate them
+                      setTimeout(() => {
+                        // Set tag value
+                        const tagInput = row.querySelector('.trigger-tag') as HTMLInputElement
+                        if (tagInput && (trigger.tag || trigger.tagName)) {
+                          const tagValue = (trigger.tag || trigger.tagName || '').replace('#', '')
+                          tagInput.value = tagValue
+                          console.log(`    ✓ Set trigger ${idx + 1} tag: ${tagValue}`)
+                        }
                       
                       // Set channel
                       const channelSelect = row.querySelector('.trigger-channel') as HTMLSelectElement
@@ -17434,8 +17439,14 @@ function initializeExtension() {
                       }
                       
                       console.log(`  ✓ Restored unified trigger ${idx + 1}: ${trigger.type} - ${trigger.tag || trigger.tagName || trigger.id}`)
-                    }, 100)
-                  }, 50 * (idx + 1)) // Stagger the restorations
+                      
+                      // Refresh Apply For options after setting tag
+                      if (typeof refreshApplyForOptions === 'function') {
+                        refreshApplyForOptions()
+                      }
+                    }, 100) // Wait for type change to render fields
+                  }, 50) // Wait for row to be created
+                  }, idx * 150) // Stagger trigger restorations to avoid race conditions
                 })
                 
                 // Update Apply for options after all triggers are restored
@@ -17650,27 +17661,33 @@ function initializeExtension() {
                     console.log(`  ✓ Set first Reasoning Apply For to: ${rApplyForListToRestore[0]}`)
                   }
                   
-                  // Add additional Apply For rows for remaining values
+                  // Add additional Apply For rows for remaining values - use sequential async
                   if (rApplyList && rApplyForListToRestore.length > 1) {
-                    rApplyForListToRestore.slice(1).forEach((applyForValue: string, idx: number) => {
-                      setTimeout(() => {
-                        addApplyForRowToList(rApplyList, 'R-apply-select')
-                        setTimeout(() => {
-                          const selects = rApplyList.querySelectorAll('.R-apply-select, select')
-                          const lastSelect = selects[selects.length - 1] as HTMLSelectElement
-                          if (lastSelect) {
-                            refreshApplyForOptions()
-                            setTimeout(() => {
-                              lastSelect.value = applyForValue
-                              console.log(`    ✓ Set additional Reasoning Apply For ${idx + 2} to: ${applyForValue}`)
-                            }, 100)
-                          }
-                        }, 100)
-                      }, idx * 200)
+                    const additionalValues = rApplyForListToRestore.slice(1)
+                    console.log(`  🔄 Creating ${additionalValues.length} additional Apply For rows`)
+                    
+                    // First, create all the additional rows
+                    additionalValues.forEach(() => {
+                      addApplyForRowToList(rApplyList, 'R-apply-select')
                     })
+                    
+                    // Then set all values after a delay to ensure DOM is updated
+                    setTimeout(() => {
+                      refreshApplyForOptions()
+                      // Get all selects EXCEPT the first one (which has id="R-apply")
+                      const additionalSelects = Array.from(rApplyList.querySelectorAll('select:not(#R-apply)')) as HTMLSelectElement[]
+                      console.log(`  🔄 Found ${additionalSelects.length} additional selects to set values`)
+                      
+                      additionalSelects.forEach((sel, idx) => {
+                        if (additionalValues[idx]) {
+                          sel.value = additionalValues[idx]
+                          console.log(`    ✓ Set additional Reasoning Apply For ${idx + 2} to: ${additionalValues[idx]}`)
+                        }
+                      })
+                    }, 150)
                   }
                 }, 200)
-              }, 400)
+              }, 800) // Increased delay to wait for triggers to be fully restored
             }
 
             // Restore Listen From rows
@@ -17834,24 +17851,30 @@ function initializeExtension() {
                                 console.log(`    ✓ Set additional Reasoning section ${sectionIdx + 1} Apply For to: ${rSectionApplyForList[0]}`)
                                 console.log(`    🔍 Verify: applySelect.value is now: ${applySelect.value}`)
                                 
-                                // Add additional Apply For rows for remaining values
+                                // Add additional Apply For rows for remaining values - create all at once then set values
                                 if (applyList && rSectionApplyForList.length > 1) {
-                                  rSectionApplyForList.slice(1).forEach((applyForValue: string, idx: number) => {
-                                    setTimeout(() => {
-                                      addApplyForRowToList(applyList, 'R-apply')
-                                      setTimeout(() => {
-                                        const selects = applyList.querySelectorAll('select')
-                                        const lastSelect = selects[selects.length - 1] as HTMLSelectElement
-                                        if (lastSelect) {
-                                          refreshApplyForOptions()
-                                          setTimeout(() => {
-                                            lastSelect.value = applyForValue
-                                            console.log(`      ✓ Set additional R-section ${sectionIdx + 1} Apply For ${idx + 2} to: ${applyForValue}`)
-                                          }, 100)
-                                        }
-                                      }, 100)
-                                    }, idx * 200)
+                                  const additionalValues = rSectionApplyForList.slice(1)
+                                  console.log(`    🔄 Creating ${additionalValues.length} additional R-section Apply For rows`)
+                                  
+                                  // First, create all the additional rows
+                                  additionalValues.forEach(() => {
+                                    addApplyForRowToList(applyList, 'R-apply')
                                   })
+                                  
+                                  // Then set all values after DOM update
+                                  setTimeout(() => {
+                                    refreshApplyForOptions()
+                                    // Get all selects except the first one in this section
+                                    const allSelects = Array.from(applyList.querySelectorAll('select')) as HTMLSelectElement[]
+                                    const additionalSelects = allSelects.slice(1) // Skip the first one
+                                    
+                                    additionalSelects.forEach((sel, idx) => {
+                                      if (additionalValues[idx]) {
+                                        sel.value = additionalValues[idx]
+                                        console.log(`      ✓ Set R-section ${sectionIdx + 1} Apply For ${idx + 2} to: ${additionalValues[idx]}`)
+                                      }
+                                    })
+                                  }, 150)
                                 }
                               } else {
                                 console.error(`    ❌ Could not find .R-apply in section ${sectionIdx + 1}`)
@@ -18040,27 +18063,33 @@ function initializeExtension() {
                     console.log(`  ✓ Set first Execution Apply For to: ${eApplyForListToRestore[0]}`)
                   }
                   
-                  // Add additional Apply For rows for remaining values
+                  // Add additional Apply For rows for remaining values - use sequential async
                   if (eApplyList && eApplyForListToRestore.length > 1) {
-                    eApplyForListToRestore.slice(1).forEach((applyForValue: string, idx: number) => {
-                      setTimeout(() => {
-                        addApplyForRowToList(eApplyList, 'E-apply-select')
-                        setTimeout(() => {
-                          const selects = eApplyList.querySelectorAll('.E-apply-select, select')
-                          const lastSelect = selects[selects.length - 1] as HTMLSelectElement
-                          if (lastSelect) {
-                            refreshApplyForOptions()
-                            setTimeout(() => {
-                              lastSelect.value = applyForValue
-                              console.log(`    ✓ Set additional Execution Apply For ${idx + 2} to: ${applyForValue}`)
-                            }, 100)
-                          }
-                        }, 100)
-                      }, idx * 200)
+                    const additionalValues = eApplyForListToRestore.slice(1)
+                    console.log(`  🔄 Creating ${additionalValues.length} additional Execution Apply For rows`)
+                    
+                    // First, create all the additional rows
+                    additionalValues.forEach(() => {
+                      addApplyForRowToList(eApplyList, 'E-apply-select')
                     })
+                    
+                    // Then set all values after a delay to ensure DOM is updated
+                    setTimeout(() => {
+                      refreshApplyForOptions()
+                      // Get all selects EXCEPT the first one (which has id="E-apply")
+                      const additionalSelects = Array.from(eApplyList.querySelectorAll('select:not(#E-apply)')) as HTMLSelectElement[]
+                      console.log(`  🔄 Found ${additionalSelects.length} additional Execution selects to set values`)
+                      
+                      additionalSelects.forEach((sel, idx) => {
+                        if (additionalValues[idx]) {
+                          sel.value = additionalValues[idx]
+                          console.log(`    ✓ Set additional Execution Apply For ${idx + 2} to: ${additionalValues[idx]}`)
+                        }
+                      })
+                    }, 150)
                   }
                 }, 200)
-              }, 400)
+              }, 800) // Increased delay to wait for triggers to be fully restored
             }
 
             // Restore Workflows
@@ -18229,24 +18258,30 @@ function initializeExtension() {
                                 console.log(`    ✓ Set additional section ${sectionIdx + 1} Apply For to: ${eSectionApplyForList[0]}`)
                                 console.log(`    🔍 Verify: applySelect.value is now: ${applySelect.value}`)
                                 
-                                // Add additional Apply For rows for remaining values
+                                // Add additional Apply For rows for remaining values - create all at once then set values
                                 if (applyList && eSectionApplyForList.length > 1) {
-                                  eSectionApplyForList.slice(1).forEach((applyForValue: string, idx: number) => {
-                                    setTimeout(() => {
-                                      addApplyForRowToList(applyList, 'E-apply-sub')
-                                      setTimeout(() => {
-                                        const selects = applyList.querySelectorAll('select')
-                                        const lastSelect = selects[selects.length - 1] as HTMLSelectElement
-                                        if (lastSelect) {
-                                          refreshApplyForOptions()
-                                          setTimeout(() => {
-                                            lastSelect.value = applyForValue
-                                            console.log(`      ✓ Set additional E-section ${sectionIdx + 1} Apply For ${idx + 2} to: ${applyForValue}`)
-                                          }, 100)
-                                        }
-                                      }, 100)
-                                    }, idx * 200)
+                                  const additionalValues = eSectionApplyForList.slice(1)
+                                  console.log(`    🔄 Creating ${additionalValues.length} additional E-section Apply For rows`)
+                                  
+                                  // First, create all the additional rows
+                                  additionalValues.forEach(() => {
+                                    addApplyForRowToList(applyList, 'E-apply-sub')
                                   })
+                                  
+                                  // Then set all values after DOM update
+                                  setTimeout(() => {
+                                    refreshApplyForOptions()
+                                    // Get all selects except the first one in this section
+                                    const allSelects = Array.from(applyList.querySelectorAll('select')) as HTMLSelectElement[]
+                                    const additionalSelects = allSelects.slice(1) // Skip the first one
+                                    
+                                    additionalSelects.forEach((sel, idx) => {
+                                      if (additionalValues[idx]) {
+                                        sel.value = additionalValues[idx]
+                                        console.log(`      ✓ Set E-section ${sectionIdx + 1} Apply For ${idx + 2} to: ${additionalValues[idx]}`)
+                                      }
+                                    })
+                                  }, 150)
                                 }
                               } else {
                                 console.error(`    ❌ Could not find .E-apply-sub in section ${sectionIdx + 1}`)
