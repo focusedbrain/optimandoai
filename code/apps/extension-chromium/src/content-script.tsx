@@ -12181,6 +12181,52 @@ function initializeExtension() {
                   trigger.websiteFilter = row.querySelector('.trigger-website')?.value || ''
                 }
                 
+                // Collect per-trigger Sensor Workflows
+                const sensorWorkflows: any[] = []
+                const sensorContainer = row.querySelector('.trigger-sensor-workflows')
+                const sensorRows = sensorContainer ? sensorContainer.querySelectorAll('.trigger-sensor-row') : []
+                console.log(`🔍 [autoSave] Trigger ${trigger.id}: Found ${sensorRows.length} sensor workflow rows`)
+                sensorRows.forEach((wfRow: any) => {
+                  const wfType = wfRow.querySelector('.t-workflow-type-radio:checked')?.value || 'internal'
+                  const wfId = wfRow.querySelector('.t-workflow-id')?.value || ''
+                  const conditions: any[] = []
+                  wfRow.querySelectorAll('.t-workflow-cond-row').forEach((condRow: any) => {
+                    conditions.push({
+                      field: condRow.querySelector('.t-wcond-field')?.value || '',
+                      op: condRow.querySelector('.t-wcond-op')?.value || 'eq',
+                      value: condRow.querySelector('.t-wcond-value')?.value || '',
+                      action: condRow.querySelector('.t-wcond-action')?.value || 'continue',
+                      routeId: condRow.querySelector('.t-wcond-route-id')?.value || ''
+                    })
+                  })
+                  sensorWorkflows.push({ type: wfType, workflowId: wfId, conditions })
+                  console.log(`  📦 [autoSave] Sensor workflow: type=${wfType}, id=${wfId}, conditions=${conditions.length}`)
+                })
+                if (sensorWorkflows.length > 0) trigger.sensorWorkflows = sensorWorkflows
+                
+                // Collect per-trigger Allowed Actions
+                const allowedActions: any[] = []
+                const actionsContainer = row.querySelector('.trigger-allowed-actions')
+                const actionRows = actionsContainer ? actionsContainer.querySelectorAll('.trigger-action-row') : []
+                console.log(`🔍 [autoSave] Trigger ${trigger.id}: Found ${actionRows.length} action workflow rows`)
+                actionRows.forEach((wfRow: any) => {
+                  const wfType = wfRow.querySelector('.t-workflow-type-radio:checked')?.value || 'internal'
+                  const wfId = wfRow.querySelector('.t-workflow-id')?.value || ''
+                  const conditions: any[] = []
+                  wfRow.querySelectorAll('.t-workflow-cond-row').forEach((condRow: any) => {
+                    conditions.push({
+                      field: condRow.querySelector('.t-wcond-field')?.value || '',
+                      op: condRow.querySelector('.t-wcond-op')?.value || 'eq',
+                      value: condRow.querySelector('.t-wcond-value')?.value || '',
+                      action: condRow.querySelector('.t-wcond-action')?.value || 'continue',
+                      routeId: condRow.querySelector('.t-wcond-route-id')?.value || ''
+                    })
+                  })
+                  allowedActions.push({ type: wfType, workflowId: wfId, conditions })
+                  console.log(`  📦 [autoSave] Action workflow: type=${wfType}, id=${wfId}, conditions=${conditions.length}`)
+                })
+                if (allowedActions.length > 0) trigger.allowedActions = allowedActions
+                
                 unifiedTriggers.push(trigger)
               })
               if (unifiedTriggers.length > 0) listening.unifiedTriggers = unifiedTriggers
@@ -12257,9 +12303,32 @@ function initializeExtension() {
 
                 acceptFrom: accepts,
 
-                memoryContext: memoryContext
+                memoryContext: memoryContext,
+                
+                reasoningWorkflows: []
 
               }
+              
+              // Collect Reasoning Workflows for main section
+              const rWorkflowContainerAuto = document.querySelector('#R-reasoning-workflows')
+              const rWorkflowRowsAuto = rWorkflowContainerAuto ? rWorkflowContainerAuto.querySelectorAll('.reasoning-workflow-row') : []
+              console.log(`🔍 [autoSave] Main Reasoning: Found ${rWorkflowRowsAuto.length} reasoning workflow rows`)
+              rWorkflowRowsAuto.forEach((wfRow: any) => {
+                const wfType = wfRow.querySelector('.r-workflow-type-radio:checked')?.value || 'internal'
+                const wfId = wfRow.querySelector('.r-workflow-id')?.value || ''
+                const conditions: any[] = []
+                wfRow.querySelectorAll('.r-workflow-cond-row').forEach((condRow: any) => {
+                  conditions.push({
+                    field: condRow.querySelector('.r-wcond-field')?.value || '',
+                    op: condRow.querySelector('.r-wcond-op')?.value || 'eq',
+                    value: condRow.querySelector('.r-wcond-value')?.value || '',
+                    action: condRow.querySelector('.r-wcond-action')?.value || 'continue',
+                    routeId: condRow.querySelector('.r-wcond-route-id')?.value || ''
+                  })
+                })
+                base.reasoningWorkflows.push({ type: wfType, workflowId: wfId, conditions })
+                console.log(`  📦 [autoSave] Reasoning workflow: type=${wfType}, id=${wfId}, conditions=${conditions.length}`)
+              })
 
               document.querySelectorAll('#R-custom-list > div').forEach((row:any)=>{
 
@@ -12284,6 +12353,25 @@ function initializeExtension() {
                 const sectionApplyForList = Array.from(sec.querySelectorAll('.R-apply-list-sub select')).map((sel: any) => sel.value).filter((v: string) => v && v !== '')
                 console.log('📝 [autoSave] Additional R-section Apply For values:', sectionApplyForList)
                 
+                // Collect Reasoning Workflows for additional section
+                const sectionWorkflows: any[] = []
+                sec.querySelectorAll('.R-workflows-sub .reasoning-workflow-row').forEach((wfRow: any) => {
+                  const wfType = wfRow.querySelector('.r-workflow-type-radio:checked')?.value || 'internal'
+                  const wfId = wfRow.querySelector('.r-workflow-id')?.value || ''
+                  const conditions: any[] = []
+                  wfRow.querySelectorAll('.r-workflow-cond-row').forEach((condRow: any) => {
+                    conditions.push({
+                      field: condRow.querySelector('.r-wcond-field')?.value || '',
+                      op: condRow.querySelector('.r-wcond-op')?.value || 'eq',
+                      value: condRow.querySelector('.r-wcond-value')?.value || '',
+                      action: condRow.querySelector('.r-wcond-action')?.value || 'continue',
+                      routeId: condRow.querySelector('.r-wcond-route-id')?.value || ''
+                    })
+                  })
+                  sectionWorkflows.push({ type: wfType, workflowId: wfId, conditions })
+                })
+                console.log(`🔍 [autoSave] Additional R-section: Found ${sectionWorkflows.length} reasoning workflow rows`)
+                
                 const s:any = {
                   applyFor: sectionApplyForList.length > 0 ? sectionApplyForList[0] : '__any__',
                   applyForList: sectionApplyForList.length > 0 ? sectionApplyForList : ['__any__'],
@@ -12291,7 +12379,8 @@ function initializeExtension() {
                   role: (sec.querySelector('.R-role') as HTMLInputElement)?.value || '',
                   rules: (sec.querySelector('.R-rules') as HTMLTextAreaElement)?.value || '',
                   custom: [],
-                  acceptFrom: sectionAccepts
+                  acceptFrom: sectionAccepts,
+                  reasoningWorkflows: sectionWorkflows
                 }
                 sec.querySelectorAll('.R-custom-list > div').forEach((row:any) => {
                   const key = (row.querySelector('input:nth-child(1)') as HTMLInputElement)?.value || ''
@@ -12324,7 +12413,27 @@ function initializeExtension() {
               // Accept list removed from Execution section
               const eAccepts:string[] = []
 
-              const eWfs:string[] = Array.from(document.querySelectorAll('#E-workflow-list .wf-row .wf-target')).map((n:any)=> n.value).filter((v:string) => v)
+              // Collect execution workflows with new format (type, workflowId, conditions)
+              const eWorkflows: any[] = []
+              document.querySelectorAll('#E-workflow-list .exec-workflow-row').forEach((wfRow: any) => {
+                const wfType = wfRow.querySelector('.e-workflow-type-radio:checked')?.value || 'internal'
+                const wfId = wfRow.querySelector('.e-workflow-id')?.value || ''
+                const conditions: any[] = []
+                wfRow.querySelectorAll('.e-workflow-cond-row').forEach((condRow: any) => {
+                  conditions.push({
+                    field: condRow.querySelector('.e-wcond-field')?.value || '',
+                    op: condRow.querySelector('.e-wcond-op')?.value || 'eq',
+                    value: condRow.querySelector('.e-wcond-value')?.value || '',
+                    action: condRow.querySelector('.e-wcond-action')?.value || 'continue',
+                    routeId: condRow.querySelector('.e-wcond-route-id')?.value || ''
+                  })
+                })
+                eWorkflows.push({ type: wfType, workflowId: wfId, conditions })
+              })
+              console.log(`🔍 [autoSave] Execution: Found ${eWorkflows.length} execution workflow rows`)
+              
+              // Legacy format for backward compatibility
+              const eWfs:string[] = eWorkflows.map(w => w.workflowId).filter(v => v)
 
               // Collect special destinations (Report to)
 
@@ -12375,7 +12484,26 @@ function initializeExtension() {
                 const sectionApplyForList = Array.from(sec.querySelectorAll('.E-apply-list-sub select')).map((sel: any) => sel.value).filter((v: string) => v && v !== '')
                 console.log('📝 [autoSave] Additional E-section Apply For values:', sectionApplyForList)
                 
-                const workflows = Array.from(sec.querySelectorAll('.E-workflow-list-sub .wf-row .wf-target')).map((n:any)=> n.value).filter((v:string) => v)
+                // Collect workflows with new format for additional sections
+                const sectionWorkflows: any[] = []
+                sec.querySelectorAll('.E-workflow-list-sub .exec-workflow-row').forEach((wfRow: any) => {
+                  const wfType = wfRow.querySelector('.e-workflow-type-radio:checked')?.value || 'internal'
+                  const wfId = wfRow.querySelector('.e-workflow-id')?.value || ''
+                  const conditions: any[] = []
+                  wfRow.querySelectorAll('.e-workflow-cond-row').forEach((condRow: any) => {
+                    conditions.push({
+                      field: condRow.querySelector('.e-wcond-field')?.value || '',
+                      op: condRow.querySelector('.e-wcond-op')?.value || 'eq',
+                      value: condRow.querySelector('.e-wcond-value')?.value || '',
+                      action: condRow.querySelector('.e-wcond-action')?.value || 'continue',
+                      routeId: condRow.querySelector('.e-wcond-route-id')?.value || ''
+                    })
+                  })
+                  sectionWorkflows.push({ type: wfType, workflowId: wfId, conditions })
+                })
+                
+                // Legacy format for backward compatibility
+                const workflows = sectionWorkflows.map(w => w.workflowId).filter(v => v)
                 const kinds = Array.from(sec.querySelectorAll('.E-special-list-sub .esp-row .esp-kind')) as HTMLSelectElement[]
                 const dests = kinds.map(sel => {
                   const row = sel.parentElement
@@ -12393,6 +12521,7 @@ function initializeExtension() {
                   applyFor: sectionApplyForList.length > 0 ? sectionApplyForList[0] : '__any__',
                   applyForList: sectionApplyForList.length > 0 ? sectionApplyForList : ['__any__'],
                   workflows, 
+                  executionWorkflows: sectionWorkflows,
                   acceptFrom: [], 
                   specialDestinations: dests 
                 })
@@ -12404,6 +12533,7 @@ function initializeExtension() {
               
               draft.execution = { 
                 workflows: eWfs, 
+                executionWorkflows: eWorkflows,
                 acceptFrom: eAccepts, 
                 applyFor: eApplyForValues.length > 0 ? eApplyForValues[0] : '__any__',
                 applyForList: eApplyForValues.length > 0 ? eApplyForValues : ['__any__'],
@@ -12915,70 +13045,128 @@ function initializeExtension() {
 
       }
 
-      // Execution workflow row creator - styled like Sensor Workflows
-      const createExecutionWorkflowRow = (workflowId: string = '', conditions: any[] = []) => {
+      // Execution workflow row creator - styled like Reasoning Workflows with Internal/External radio buttons
+      const createExecutionWorkflowRow = (init?: { type?: string, workflowId?: string, conditions?: any[] }) => {
+        const workflowType = init?.type || 'internal'
+        const workflowId = init?.workflowId || ''
+        const conditions = init?.conditions || []
+        const uniqueId = Math.random().toString(36).slice(2, 8)
+        
         const row = document.createElement('div')
         row.className = 'exec-workflow-row'
         row.style.cssText = 'background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.2);border-radius:8px;padding:10px'
         
         const header = document.createElement('div')
-        header.style.cssText = 'display:flex;gap:8px;align-items:center;margin-bottom:8px'
+        header.style.cssText = 'display:flex;flex-direction:column;gap:8px;margin-bottom:8px'
         header.innerHTML = `
-          <span style="font-size:13px;font-weight:500;color:#fff">⚙️ Workflow:</span>
-          <input type="text" placeholder="Workflow ID or name" value="${workflowId}" style="flex:1;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.35);color:#fff;padding:6px 10px;border-radius:4px;font-size:13px" class="exec-workflow-id">
-          <button style="background:#ef4444;border:none;color:#fff;padding:4px 10px;border-radius:4px;cursor:pointer;font-size:12px" class="exec-workflow-del">✕</button>
+          <div style="display:flex;justify-content:space-between;align-items:center">
+            <div style="display:flex;gap:16px;align-items:center">
+              <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+                <input type="radio" name="e-wf-type-${uniqueId}" value="internal" class="e-workflow-type-radio" ${workflowType === 'internal' ? 'checked' : ''} style="margin:0">
+                <span style="font-size:13px;font-weight:500;color:#fff">🔧 Internal Parser</span>
+              </label>
+              <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+                <input type="radio" name="e-wf-type-${uniqueId}" value="external" class="e-workflow-type-radio" ${workflowType === 'external' ? 'checked' : ''} style="margin:0">
+                <span style="font-size:13px;font-weight:500;color:#fff">🌐 External Workflow</span>
+              </label>
+              <span title="Internal Parser works with agents, mini-apps, and websites displayed in the master tab. Use External Workflow for external data sources and APIs." style="font-size:12px;opacity:0.9;cursor:help;background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.35);padding:0 6px;border-radius:50%">?</span>
+            </div>
+            <button style="background:#ef4444;border:none;color:#fff;padding:4px 10px;border-radius:4px;cursor:pointer;font-size:12px" class="e-workflow-del">✕</button>
+          </div>
+          <div class="e-workflow-id-container" style="display:${workflowType === 'external' ? 'block' : 'none'}">
+            <input type="text" placeholder="Workflow ID or name" value="${workflowId}" style="width:100%;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.35);color:#fff;padding:6px 10px;border-radius:4px;font-size:13px" class="e-workflow-id">
+          </div>
         `
+        
+        // Wire up radio button toggle for workflow ID visibility
+        const radioButtons = header.querySelectorAll('.e-workflow-type-radio') as NodeListOf<HTMLInputElement>
+        const workflowIdContainer = header.querySelector('.e-workflow-id-container') as HTMLElement
+        radioButtons.forEach(radio => {
+          radio.addEventListener('change', () => {
+            workflowIdContainer.style.display = radio.value === 'external' ? 'block' : 'none'
+          })
+        })
         
         const conditionsWrap = document.createElement('div')
         conditionsWrap.style.cssText = 'margin-top:8px;padding-top:8px;border-top:1px dashed rgba(255,255,255,0.15)'
         conditionsWrap.innerHTML = `
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
             <span style="font-size:12px;opacity:0.8">📋 Execute when (conditions):</span>
-            <button class="exec-workflow-add-cond" style="background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.25);color:#fff;padding:3px 8px;border-radius:4px;cursor:pointer;font-size:11px">+ Add Condition</button>
+            <button class="e-workflow-add-cond" style="background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.25);color:#fff;padding:3px 8px;border-radius:4px;cursor:pointer;font-size:11px">+ Add Condition</button>
           </div>
-          <div class="exec-workflow-conditions" style="display:flex;flex-direction:column;gap:6px"></div>
+          <div class="e-workflow-conditions" style="display:flex;flex-direction:column;gap:6px"></div>
         `
         
         row.appendChild(header)
         row.appendChild(conditionsWrap)
         
         // Wire up delete
-        header.querySelector('.exec-workflow-del')?.addEventListener('click', () => row.remove())
+        header.querySelector('.e-workflow-del')?.addEventListener('click', () => row.remove())
         
         // Wire up add condition
-        const execCondList = conditionsWrap.querySelector('.exec-workflow-conditions') as HTMLElement
-        conditionsWrap.querySelector('.exec-workflow-add-cond')?.addEventListener('click', () => {
+        const execCondList = conditionsWrap.querySelector('.e-workflow-conditions') as HTMLElement
+        conditionsWrap.querySelector('.e-workflow-add-cond')?.addEventListener('click', () => {
           const condRow = document.createElement('div')
-          condRow.className = 'exec-cond-row'
-          condRow.style.cssText = 'display:flex;gap:4px;align-items:center;font-size:12px'
+          condRow.className = 'e-workflow-cond-row'
+          condRow.style.cssText = 'display:flex;flex-direction:column;gap:6px;font-size:12px;background:rgba(255,255,255,0.03);padding:8px;border-radius:4px;border:1px solid rgba(255,255,255,0.1)'
           condRow.innerHTML = `
-            <span style="opacity:0.7">If</span>
-            <input type="text" placeholder="output.field" style="flex:1;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.25);color:#fff;padding:4px 6px;border-radius:3px;font-size:11px" class="exec-cond-field">
-            <select style="background:#fff;color:#0f172a;border:1px solid #cbd5e1;padding:4px;border-radius:3px;font-size:11px" class="exec-cond-op">
-              <option value="eq">==</option>
-              <option value="ne">!=</option>
-              <option value="contains">contains</option>
-              <option value="gt">&gt;</option>
-              <option value="lt">&lt;</option>
-              <option value="exists">exists</option>
-            </select>
-            <input type="text" placeholder="value" style="flex:1;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.25);color:#fff;padding:4px 6px;border-radius:3px;font-size:11px" class="exec-cond-value">
-            <button style="background:#ef4444;border:none;color:#fff;padding:2px 6px;border-radius:3px;cursor:pointer;font-size:10px" class="exec-cond-del">✕</button>
+            <div style="display:flex;gap:6px;align-items:center">
+              <span style="opacity:0.7;white-space:nowrap">If</span>
+              <input type="text" placeholder="Expected Value" style="flex:1;background:rgba(255,255,255,.85);border:1px solid rgba(255,255,255,.5);color:#1e293b;padding:4px 8px;border-radius:3px;font-size:11px" class="e-wcond-field">
+              <select style="flex:1;background:#fff;color:#0f172a;border:1px solid #cbd5e1;padding:4px 8px;border-radius:3px;font-size:11px" class="e-wcond-op">
+                <option value="eq">==</option>
+                <option value="ne">!=</option>
+                <option value="contains">contains</option>
+                <option value="gt">&gt;</option>
+                <option value="lt">&lt;</option>
+                <option value="exists">exists</option>
+              </select>
+              <input type="text" placeholder="value" style="flex:1;background:rgba(255,255,255,.85);border:1px solid rgba(255,255,255,.5);color:#1e293b;padding:4px 6px;border-radius:3px;font-size:11px" class="e-wcond-value">
+              <span style="opacity:0.7;white-space:nowrap">→</span>
+              <select style="flex:1;background:#fff;color:#0f172a;border:1px solid #cbd5e1;padding:4px 8px;border-radius:3px;font-size:11px" class="e-wcond-action">
+                <option value="continue">Continue</option>
+                <option value="skip">Skip</option>
+                <option value="route">Route to...</option>
+              </select>
+              <button style="background:#ef4444;border:none;color:#fff;padding:2px 6px;border-radius:3px;cursor:pointer;font-size:10px" class="e-wcond-del">✕</button>
+            </div>
+            <div class="e-wcond-route-container" style="display:none;padding-left:20px">
+              <input type="text" placeholder="Workflow ID to route to" style="width:100%;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.35);color:#fff;padding:6px 10px;border-radius:4px;font-size:12px" class="e-wcond-route-id">
+            </div>
           `
-          condRow.querySelector('.exec-cond-del')?.addEventListener('click', () => condRow.remove())
+          
+          condRow.querySelector('.e-wcond-del')?.addEventListener('click', () => condRow.remove())
+          
+          // Wire up action change to show/hide route workflow ID field
+          const actionSelect = condRow.querySelector('.e-wcond-action') as HTMLSelectElement
+          const routeContainer = condRow.querySelector('.e-wcond-route-container') as HTMLElement
+          actionSelect?.addEventListener('change', () => {
+            routeContainer.style.display = actionSelect.value === 'route' ? 'block' : 'none'
+          })
+          
           execCondList.appendChild(condRow)
         })
         
         // Pre-populate conditions if provided
         conditions.forEach((c: any) => {
-          const addBtn = conditionsWrap.querySelector('.exec-workflow-add-cond') as HTMLButtonElement
+          const addBtn = conditionsWrap.querySelector('.e-workflow-add-cond') as HTMLButtonElement
           addBtn?.click()
-          const rows = execCondList.querySelectorAll('.exec-cond-row')
+          const rows = execCondList.querySelectorAll('.e-workflow-cond-row')
           const lastRow = rows[rows.length - 1]
           if (lastRow) {
-            (lastRow.querySelector('.exec-cond-field') as HTMLInputElement).value = c.field || ''
-            ;(lastRow.querySelector('.exec-cond-op') as HTMLSelectElement).value = c.op || 'eq'
-            ;(lastRow.querySelector('.exec-cond-value') as HTMLInputElement).value = c.value || ''
+            (lastRow.querySelector('.e-wcond-field') as HTMLInputElement).value = c.field || ''
+            ;(lastRow.querySelector('.e-wcond-op') as HTMLSelectElement).value = c.op || 'eq'
+            ;(lastRow.querySelector('.e-wcond-value') as HTMLInputElement).value = c.value || ''
+            
+            const actionSelect = lastRow.querySelector('.e-wcond-action') as HTMLSelectElement
+            const routeContainer = lastRow.querySelector('.e-wcond-route-container') as HTMLElement
+            actionSelect.value = c.action || 'continue'
+            
+            if (c.action === 'route') {
+              routeContainer.style.display = 'block'
+              const routeIdInput = lastRow.querySelector('.e-wcond-route-id') as HTMLInputElement
+              if (routeIdInput && c.routeId) routeIdInput.value = c.routeId
+            }
           }
         })
         
@@ -13290,6 +13478,52 @@ function initializeExtension() {
                 trigger.websiteFilter = row.querySelector('.trigger-website')?.value || ''
               }
               
+              // Collect per-trigger Sensor Workflows
+              const sensorWorkflows: any[] = []
+              const sensorContainer = row.querySelector('.trigger-sensor-workflows')
+              const sensorRows = sensorContainer ? sensorContainer.querySelectorAll('.trigger-sensor-row') : []
+              console.log(`🔍 [syncPersistedFromDom] Trigger ${trigger.id}: Found ${sensorRows.length} sensor workflow rows`)
+              sensorRows.forEach((wfRow: any) => {
+                const wfType = wfRow.querySelector('.t-workflow-type-radio:checked')?.value || 'internal'
+                const wfId = wfRow.querySelector('.t-workflow-id')?.value || ''
+                const conditions: any[] = []
+                wfRow.querySelectorAll('.t-workflow-cond-row').forEach((condRow: any) => {
+                  conditions.push({
+                    field: condRow.querySelector('.t-wcond-field')?.value || '',
+                    op: condRow.querySelector('.t-wcond-op')?.value || 'eq',
+                    value: condRow.querySelector('.t-wcond-value')?.value || '',
+                    action: condRow.querySelector('.t-wcond-action')?.value || 'continue',
+                    routeId: condRow.querySelector('.t-wcond-route-id')?.value || ''
+                  })
+                })
+                sensorWorkflows.push({ type: wfType, workflowId: wfId, conditions })
+                console.log(`  📦 Sensor workflow: type=${wfType}, id=${wfId}, conditions=${conditions.length}`)
+              })
+              if (sensorWorkflows.length > 0) trigger.sensorWorkflows = sensorWorkflows
+              
+              // Collect per-trigger Allowed Actions
+              const allowedActions: any[] = []
+              const actionsContainer = row.querySelector('.trigger-allowed-actions')
+              const actionRows = actionsContainer ? actionsContainer.querySelectorAll('.trigger-action-row') : []
+              console.log(`🔍 [syncPersistedFromDom] Trigger ${trigger.id}: Found ${actionRows.length} action workflow rows`)
+              actionRows.forEach((wfRow: any) => {
+                const wfType = wfRow.querySelector('.t-workflow-type-radio:checked')?.value || 'internal'
+                const wfId = wfRow.querySelector('.t-workflow-id')?.value || ''
+                const conditions: any[] = []
+                wfRow.querySelectorAll('.t-workflow-cond-row').forEach((condRow: any) => {
+                  conditions.push({
+                    field: condRow.querySelector('.t-wcond-field')?.value || '',
+                    op: condRow.querySelector('.t-wcond-op')?.value || 'eq',
+                    value: condRow.querySelector('.t-wcond-value')?.value || '',
+                    action: condRow.querySelector('.t-wcond-action')?.value || 'continue',
+                    routeId: condRow.querySelector('.t-wcond-route-id')?.value || ''
+                  })
+                })
+                allowedActions.push({ type: wfType, workflowId: wfId, conditions })
+                console.log(`  📦 Action workflow: type=${wfType}, id=${wfId}, conditions=${conditions.length}`)
+              })
+              if (allowedActions.length > 0) trigger.allowedActions = allowedActions
+              
               unifiedTriggers.push(trigger)
             })
             if (unifiedTriggers.length > 0) listening.unifiedTriggers = unifiedTriggers
@@ -13359,9 +13593,32 @@ function initializeExtension() {
                   write: !!(document.getElementById('R-MEM-account-write') as HTMLInputElement)?.checked
                 },
                 agentMemory: { enabled: true }
-              }
+              },
+              
+              reasoningWorkflows: []
 
             }
+            
+            // Collect Reasoning Workflows for main section
+            const rWorkflowContainer = document.querySelector('#R-reasoning-workflows')
+            const rWorkflowRows = rWorkflowContainer ? rWorkflowContainer.querySelectorAll('.reasoning-workflow-row') : []
+            console.log(`🔍 [syncPersistedFromDom] Main Reasoning: Found ${rWorkflowRows.length} reasoning workflow rows`)
+            rWorkflowRows.forEach((wfRow: any) => {
+              const wfType = wfRow.querySelector('.r-workflow-type-radio:checked')?.value || 'internal'
+              const wfId = wfRow.querySelector('.r-workflow-id')?.value || ''
+              const conditions: any[] = []
+              wfRow.querySelectorAll('.r-workflow-cond-row').forEach((condRow: any) => {
+                conditions.push({
+                  field: condRow.querySelector('.r-wcond-field')?.value || '',
+                  op: condRow.querySelector('.r-wcond-op')?.value || 'eq',
+                  value: condRow.querySelector('.r-wcond-value')?.value || '',
+                  action: condRow.querySelector('.r-wcond-action')?.value || 'continue',
+                  routeId: condRow.querySelector('.r-wcond-route-id')?.value || ''
+                })
+              })
+              base.reasoningWorkflows.push({ type: wfType, workflowId: wfId, conditions })
+              console.log(`  📦 [syncPersistedFromDom] Reasoning workflow: type=${wfType}, id=${wfId}, conditions=${conditions.length}`)
+            })
 
             document.querySelectorAll('#R-custom-list > div').forEach((row:any)=>{
 
@@ -13398,6 +13655,25 @@ function initializeExtension() {
               const sectionApplyForList = Array.from(sec.querySelectorAll('.R-apply-list-sub select')).map((sel: any) => sel.value).filter((v: string) => v && v !== '')
               console.log('📝 [syncPersistedFromDom] Additional R-section Apply For values:', sectionApplyForList)
 
+              // Collect Reasoning Workflows for additional section
+              const sectionWorkflows: any[] = []
+              sec.querySelectorAll('.R-workflows-sub .reasoning-workflow-row').forEach((wfRow: any) => {
+                const wfType = wfRow.querySelector('.r-workflow-type-radio:checked')?.value || 'internal'
+                const wfId = wfRow.querySelector('.r-workflow-id')?.value || ''
+                const conditions: any[] = []
+                wfRow.querySelectorAll('.r-workflow-cond-row').forEach((condRow: any) => {
+                  conditions.push({
+                    field: condRow.querySelector('.r-wcond-field')?.value || '',
+                    op: condRow.querySelector('.r-wcond-op')?.value || 'eq',
+                    value: condRow.querySelector('.r-wcond-value')?.value || '',
+                    action: condRow.querySelector('.r-wcond-action')?.value || 'continue',
+                    routeId: condRow.querySelector('.r-wcond-route-id')?.value || ''
+                  })
+                })
+                sectionWorkflows.push({ type: wfType, workflowId: wfId, conditions })
+              })
+              console.log(`🔍 [syncPersistedFromDom] Additional R-section: Found ${sectionWorkflows.length} reasoning workflow rows`)
+
               const s:any = {
 
                 applyFor: sectionApplyForList.length > 0 ? sectionApplyForList[0] : '__any__',
@@ -13411,7 +13687,9 @@ function initializeExtension() {
 
                 custom: [],
 
-                acceptFrom: sectionAccepts
+                acceptFrom: sectionAccepts,
+                
+                reasoningWorkflows: sectionWorkflows
 
               }
 
@@ -13458,7 +13736,27 @@ function initializeExtension() {
             // Accept list removed from Execution section
             const eAccepts: string[] = []
 
-            const eWfs = Array.from(document.querySelectorAll('#E-workflow-list .wf-row .wf-target')).map((n:any)=> n.value).filter((v:string) => v)
+            // Collect execution workflows with new format (type, workflowId, conditions)
+            const eWorkflowsSync: any[] = []
+            document.querySelectorAll('#E-workflow-list .exec-workflow-row').forEach((wfRow: any) => {
+              const wfType = wfRow.querySelector('.e-workflow-type-radio:checked')?.value || 'internal'
+              const wfId = wfRow.querySelector('.e-workflow-id')?.value || ''
+              const conditions: any[] = []
+              wfRow.querySelectorAll('.e-workflow-cond-row').forEach((condRow: any) => {
+                conditions.push({
+                  field: condRow.querySelector('.e-wcond-field')?.value || '',
+                  op: condRow.querySelector('.e-wcond-op')?.value || 'eq',
+                  value: condRow.querySelector('.e-wcond-value')?.value || '',
+                  action: condRow.querySelector('.e-wcond-action')?.value || 'continue',
+                  routeId: condRow.querySelector('.e-wcond-route-id')?.value || ''
+                })
+              })
+              eWorkflowsSync.push({ type: wfType, workflowId: wfId, conditions })
+            })
+            console.log(`🔍 [syncPersistedFromDom] Execution: Found ${eWorkflowsSync.length} execution workflow rows`)
+            
+            // Legacy format for backward compatibility
+            const eWfs = eWorkflowsSync.map(w => w.workflowId).filter(v => v)
 
             // Collect special destinations (Report to) from MAIN section
 
@@ -13540,7 +13838,26 @@ function initializeExtension() {
 
               })
 
-              const wfs = Array.from(sec.querySelectorAll('.E-workflow-list-sub .wf-row .wf-target')).map((n:any)=> n.value).filter((v:string) => v)
+              // Collect workflows with new format for additional sections
+              const sectionWorkflowsSync: any[] = []
+              sec.querySelectorAll('.E-workflow-list-sub .exec-workflow-row').forEach((wfRow: any) => {
+                const wfType = wfRow.querySelector('.e-workflow-type-radio:checked')?.value || 'internal'
+                const wfId = wfRow.querySelector('.e-workflow-id')?.value || ''
+                const conditions: any[] = []
+                wfRow.querySelectorAll('.e-workflow-cond-row').forEach((condRow: any) => {
+                  conditions.push({
+                    field: condRow.querySelector('.e-wcond-field')?.value || '',
+                    op: condRow.querySelector('.e-wcond-op')?.value || 'eq',
+                    value: condRow.querySelector('.e-wcond-value')?.value || '',
+                    action: condRow.querySelector('.e-wcond-action')?.value || 'continue',
+                    routeId: condRow.querySelector('.e-wcond-route-id')?.value || ''
+                  })
+                })
+                sectionWorkflowsSync.push({ type: wfType, workflowId: wfId, conditions })
+              })
+              
+              // Legacy format for backward compatibility
+              const wfs = sectionWorkflowsSync.map(w => w.workflowId).filter(v => v)
 
               // acceptFrom section removed from Execution
               const accepts: string[] = []
@@ -13550,6 +13867,7 @@ function initializeExtension() {
                 applyForList: sectionApplyForList.length > 0 ? sectionApplyForList : ['__any__'],
                 specialDestinations: dests, 
                 workflows: wfs, 
+                executionWorkflows: sectionWorkflowsSync,
                 acceptFrom: accepts 
               })
 
@@ -13562,6 +13880,7 @@ function initializeExtension() {
             draft.execution = { 
 
               workflows: eWfs, 
+              executionWorkflows: eWorkflowsSync,
 
               acceptFrom: eAccepts, 
 
@@ -13701,7 +14020,267 @@ function initializeExtension() {
 
       }
 
+      // Helper function to create workflow rows for triggers (styled like Reasoning Workflows)
+      // MUST be defined OUTSIDE render() so it's accessible from restoreFromMemory()
+      const createTriggerWorkflowRow = (type: 'sensor' | 'action', init?: { workflowType?: string, workflowId?: string, conditions?: any[] }) => {
+        const workflowType = init?.workflowType || 'internal'
+        const workflowId = init?.workflowId || ''
+        const conditions = init?.conditions || []
+        const uniqueId = Math.random().toString(36).slice(2, 8)
+        
+        const row = document.createElement('div')
+        row.className = `trigger-${type}-row`
+        row.style.cssText = 'background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.2);border-radius:8px;padding:10px'
+        
+        const header = document.createElement('div')
+        header.style.cssText = 'display:flex;flex-direction:column;gap:8px;margin-bottom:8px'
+        header.innerHTML = `
+          <div style="display:flex;justify-content:space-between;align-items:center">
+            <div style="display:flex;gap:16px;align-items:center">
+              <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+                <input type="radio" name="t-wf-type-${uniqueId}" value="internal" class="t-workflow-type-radio" ${workflowType === 'internal' ? 'checked' : ''} style="margin:0">
+                <span style="font-size:13px;font-weight:500;color:#fff">🔧 Internal Parser</span>
+              </label>
+              <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+                <input type="radio" name="t-wf-type-${uniqueId}" value="external" class="t-workflow-type-radio" ${workflowType === 'external' ? 'checked' : ''} style="margin:0">
+                <span style="font-size:13px;font-weight:500;color:#fff">🌐 External Workflow</span>
+              </label>
+            </div>
+            <button style="background:#ef4444;border:none;color:#fff;padding:4px 10px;border-radius:4px;cursor:pointer;font-size:12px" class="t-workflow-del">✕</button>
+          </div>
+          <div class="t-workflow-id-container" style="display:${workflowType === 'external' ? 'block' : 'none'}">
+            <input type="text" placeholder="Workflow ID or name" value="${workflowId}" style="width:100%;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.35);color:#fff;padding:6px 10px;border-radius:4px;font-size:13px" class="t-workflow-id">
+          </div>
+        `
+        
+        // Wire up radio button toggle for workflow ID visibility
+        const radioButtons = header.querySelectorAll('.t-workflow-type-radio') as NodeListOf<HTMLInputElement>
+        const workflowIdContainer = header.querySelector('.t-workflow-id-container') as HTMLElement
+        radioButtons.forEach(radio => {
+          radio.addEventListener('change', () => {
+            workflowIdContainer.style.display = radio.value === 'external' ? 'block' : 'none'
+          })
+        })
+        
+        const conditionsWrap = document.createElement('div')
+        conditionsWrap.style.cssText = 'margin-top:8px;padding-top:8px;border-top:1px dashed rgba(255,255,255,0.15)'
+        conditionsWrap.innerHTML = `
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+            <span style="font-size:12px;opacity:0.8">📋 If output matches (conditions):</span>
+            <button class="t-workflow-add-cond" style="background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.25);color:#fff;padding:3px 8px;border-radius:4px;cursor:pointer;font-size:11px">+ Add Condition</button>
+          </div>
+          <div class="t-workflow-conditions" style="display:flex;flex-direction:column;gap:6px"></div>
+        `
+        
+        row.appendChild(header)
+        row.appendChild(conditionsWrap)
+        
+        // Wire up delete
+        header.querySelector('.t-workflow-del')?.addEventListener('click', () => row.remove())
+        
+        // Wire up add condition
+        const condList = conditionsWrap.querySelector('.t-workflow-conditions') as HTMLElement
+        conditionsWrap.querySelector('.t-workflow-add-cond')?.addEventListener('click', () => {
+          const condRow = document.createElement('div')
+          condRow.className = 't-workflow-cond-row'
+          condRow.style.cssText = 'display:flex;flex-direction:column;gap:6px;font-size:12px;background:rgba(255,255,255,0.03);padding:8px;border-radius:4px;border:1px solid rgba(255,255,255,0.1)'
+          condRow.innerHTML = `
+            <div style="display:flex;gap:6px;align-items:center">
+              <span style="opacity:0.7;white-space:nowrap">If</span>
+              <input type="text" placeholder="Expected Value" style="flex:1;background:rgba(255,255,255,.85);border:1px solid rgba(255,255,255,.5);color:#1e293b;padding:4px 8px;border-radius:3px;font-size:11px" class="t-wcond-field">
+              <select style="flex:1;background:#fff;color:#0f172a;border:1px solid #cbd5e1;padding:4px 8px;border-radius:3px;font-size:11px" class="t-wcond-op">
+                <option value="eq">==</option>
+                <option value="ne">!=</option>
+                <option value="contains">contains</option>
+                <option value="gt">&gt;</option>
+                <option value="lt">&lt;</option>
+                <option value="exists">exists</option>
+              </select>
+              <input type="text" placeholder="value" style="flex:1;background:rgba(255,255,255,.85);border:1px solid rgba(255,255,255,.5);color:#1e293b;padding:4px 6px;border-radius:3px;font-size:11px" class="t-wcond-value">
+              <span style="opacity:0.7;white-space:nowrap">→</span>
+              <select style="flex:1;background:#fff;color:#0f172a;border:1px solid #cbd5e1;padding:4px 8px;border-radius:3px;font-size:11px" class="t-wcond-action">
+                <option value="continue">Continue</option>
+                <option value="skip">Skip</option>
+                <option value="route">Route to...</option>
+              </select>
+              <button style="background:#ef4444;border:none;color:#fff;padding:2px 6px;border-radius:3px;cursor:pointer;font-size:10px" class="t-wcond-del">✕</button>
+            </div>
+            <div class="t-wcond-route-container" style="display:none;padding-left:20px">
+              <input type="text" placeholder="Workflow ID to route to" style="width:100%;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.35);color:#fff;padding:6px 10px;border-radius:4px;font-size:12px" class="t-wcond-route-id">
+            </div>
+          `
+          
+          condRow.querySelector('.t-wcond-del')?.addEventListener('click', () => condRow.remove())
+          
+          const actionSelect = condRow.querySelector('.t-wcond-action') as HTMLSelectElement
+          const routeContainer = condRow.querySelector('.t-wcond-route-container') as HTMLElement
+          actionSelect?.addEventListener('change', () => {
+            routeContainer.style.display = actionSelect.value === 'route' ? 'block' : 'none'
+          })
+          
+          condList.appendChild(condRow)
+        })
+        
+        // Pre-populate conditions if provided
+        conditions.forEach((c: any) => {
+          const addBtn = conditionsWrap.querySelector('.t-workflow-add-cond') as HTMLButtonElement
+          addBtn?.click()
+          const rows = condList.querySelectorAll('.t-workflow-cond-row')
+          const lastRow = rows[rows.length - 1]
+          if (lastRow) {
+            (lastRow.querySelector('.t-wcond-field') as HTMLInputElement).value = c.field || ''
+            ;(lastRow.querySelector('.t-wcond-op') as HTMLSelectElement).value = c.op || 'eq'
+            ;(lastRow.querySelector('.t-wcond-value') as HTMLInputElement).value = c.value || ''
+            
+            const actionSelect = lastRow.querySelector('.t-wcond-action') as HTMLSelectElement
+            const routeContainer = lastRow.querySelector('.t-wcond-route-container') as HTMLElement
+            actionSelect.value = c.action || 'continue'
+            
+            if (c.action === 'route') {
+              routeContainer.style.display = 'block'
+              const routeIdInput = lastRow.querySelector('.t-wcond-route-id') as HTMLInputElement
+              if (routeIdInput && c.routeId) routeIdInput.value = c.routeId
+            }
+          }
+        })
+        
+        return row
+      }
 
+      // Helper function to create Reasoning Workflow rows
+      // MUST be defined OUTSIDE render() so it's accessible from restoreFromMemory()
+      const createReasoningWorkflowRow = (init?: { type?: string, workflowId?: string, conditions?: any[] }) => {
+        const workflowType = init?.type || 'internal'
+        const workflowId = init?.workflowId || ''
+        const conditions = init?.conditions || []
+        const uniqueId = Math.random().toString(36).slice(2, 8)
+        
+        const row = document.createElement('div')
+        row.className = 'reasoning-workflow-row'
+        row.style.cssText = 'background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.2);border-radius:8px;padding:10px'
+        
+        const header = document.createElement('div')
+        header.style.cssText = 'display:flex;flex-direction:column;gap:8px;margin-bottom:8px'
+        header.innerHTML = `
+          <div style="display:flex;justify-content:space-between;align-items:center">
+            <div style="display:flex;gap:16px;align-items:center">
+              <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+                <input type="radio" name="r-wf-type-${uniqueId}" value="internal" class="r-workflow-type-radio" ${workflowType === 'internal' ? 'checked' : ''} style="margin:0">
+                <span style="font-size:13px;font-weight:500;color:#fff">🔧 Internal Parser</span>
+              </label>
+              <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+                <input type="radio" name="r-wf-type-${uniqueId}" value="external" class="r-workflow-type-radio" ${workflowType === 'external' ? 'checked' : ''} style="margin:0">
+                <span style="font-size:13px;font-weight:500;color:#fff">🌐 External Workflow</span>
+              </label>
+              <span title="Internal Parser works with agents, mini-apps, and websites displayed in the master tab. Use External Workflow for external data sources and APIs." style="font-size:12px;opacity:0.9;cursor:help;background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.35);padding:0 6px;border-radius:50%">?</span>
+            </div>
+            <button style="background:#ef4444;border:none;color:#fff;padding:4px 10px;border-radius:4px;cursor:pointer;font-size:12px" class="r-workflow-del">✕</button>
+          </div>
+          <div class="r-workflow-id-container" style="display:${workflowType === 'external' ? 'block' : 'none'}">
+            <input type="text" placeholder="Workflow ID or name" value="${workflowId}" style="width:100%;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.35);color:#fff;padding:6px 10px;border-radius:4px;font-size:13px" class="r-workflow-id">
+          </div>
+        `
+        
+        // Wire up radio button toggle for workflow ID visibility
+        const radioButtons = header.querySelectorAll('.r-workflow-type-radio') as NodeListOf<HTMLInputElement>
+        const workflowIdContainer = header.querySelector('.r-workflow-id-container') as HTMLElement
+        radioButtons.forEach(radio => {
+          radio.addEventListener('change', () => {
+            if (radio.value === 'external') {
+              workflowIdContainer.style.display = 'block'
+            } else {
+              workflowIdContainer.style.display = 'none'
+            }
+          })
+        })
+        
+        const conditionsWrap = document.createElement('div')
+        conditionsWrap.style.cssText = 'margin-top:8px;padding-top:8px;border-top:1px dashed rgba(255,255,255,0.15)'
+        conditionsWrap.innerHTML = `
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+            <span style="font-size:12px;opacity:0.8">📋 If output matches (conditions):</span>
+            <button class="r-workflow-add-cond" style="background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.25);color:#fff;padding:3px 8px;border-radius:4px;cursor:pointer;font-size:11px">+ Add Condition</button>
+          </div>
+          <div class="r-workflow-conditions" style="display:flex;flex-direction:column;gap:6px"></div>
+        `
+        
+        row.appendChild(header)
+        row.appendChild(conditionsWrap)
+        
+        // Wire up delete
+        header.querySelector('.r-workflow-del')?.addEventListener('click', () => row.remove())
+        
+        // Wire up add condition for this workflow
+        const workflowCondList = conditionsWrap.querySelector('.r-workflow-conditions') as HTMLElement
+        conditionsWrap.querySelector('.r-workflow-add-cond')?.addEventListener('click', () => {
+          const condRow = document.createElement('div')
+          condRow.className = 'r-workflow-cond-row'
+          condRow.style.cssText = 'display:flex;flex-direction:column;gap:6px;font-size:12px;background:rgba(255,255,255,0.03);padding:8px;border-radius:4px;border:1px solid rgba(255,255,255,0.1)'
+          condRow.innerHTML = `
+            <div style="display:flex;gap:6px;align-items:center">
+              <span style="opacity:0.7;white-space:nowrap">If</span>
+              <input type="text" placeholder="Expected Value" style="flex:1;background:rgba(255,255,255,.85);border:1px solid rgba(255,255,255,.5);color:#1e293b;padding:4px 8px;border-radius:3px;font-size:11px" class="r-wcond-field">
+              <select style="flex:1;background:#fff;color:#0f172a;border:1px solid #cbd5e1;padding:4px 8px;border-radius:3px;font-size:11px" class="r-wcond-op">
+                <option value="eq">==</option>
+                <option value="ne">!=</option>
+                <option value="contains">contains</option>
+                <option value="gt">&gt;</option>
+                <option value="lt">&lt;</option>
+                <option value="exists">exists</option>
+              </select>
+              <input type="text" placeholder="value" style="flex:1;background:rgba(255,255,255,.85);border:1px solid rgba(255,255,255,.5);color:#1e293b;padding:4px 6px;border-radius:3px;font-size:11px" class="r-wcond-value">
+              <span style="opacity:0.7;white-space:nowrap">→</span>
+              <select style="flex:1;background:#fff;color:#0f172a;border:1px solid #cbd5e1;padding:4px 8px;border-radius:3px;font-size:11px" class="r-wcond-action">
+                <option value="continue">Continue</option>
+                <option value="skip">Skip</option>
+                <option value="route">Route to...</option>
+              </select>
+              <button style="background:#ef4444;border:none;color:#fff;padding:2px 6px;border-radius:3px;cursor:pointer;font-size:10px" class="r-wcond-del">✕</button>
+            </div>
+            <div class="r-wcond-route-container" style="display:none;padding-left:20px">
+              <input type="text" placeholder="Workflow ID to route to" style="width:100%;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.35);color:#fff;padding:6px 10px;border-radius:4px;font-size:12px" class="r-wcond-route-id">
+            </div>
+          `
+          
+          // Wire up delete
+          condRow.querySelector('.r-wcond-del')?.addEventListener('click', () => condRow.remove())
+          
+          // Wire up action change to show/hide route workflow ID field
+          const actionSelect = condRow.querySelector('.r-wcond-action') as HTMLSelectElement
+          const routeContainer = condRow.querySelector('.r-wcond-route-container') as HTMLElement
+          actionSelect?.addEventListener('change', () => {
+            routeContainer.style.display = actionSelect.value === 'route' ? 'block' : 'none'
+          })
+          
+          workflowCondList.appendChild(condRow)
+        })
+        
+        // Pre-populate conditions if provided
+        conditions.forEach((c: any) => {
+          const addBtn = conditionsWrap.querySelector('.r-workflow-add-cond') as HTMLButtonElement
+          addBtn?.click()
+          const rows = workflowCondList.querySelectorAll('.r-workflow-cond-row')
+          const lastRow = rows[rows.length - 1]
+          if (lastRow) {
+            (lastRow.querySelector('.r-wcond-field') as HTMLInputElement).value = c.field || ''
+            ;(lastRow.querySelector('.r-wcond-op') as HTMLSelectElement).value = c.op || 'eq'
+            ;(lastRow.querySelector('.r-wcond-value') as HTMLInputElement).value = c.value || ''
+            
+            const actionSelect = lastRow.querySelector('.r-wcond-action') as HTMLSelectElement
+            const routeContainer = lastRow.querySelector('.r-wcond-route-container') as HTMLElement
+            actionSelect.value = c.action || 'continue'
+            
+            // Show route container and set route ID if action is route
+            if (c.action === 'route') {
+              routeContainer.style.display = 'block'
+              const routeIdInput = lastRow.querySelector('.r-wcond-route-id') as HTMLInputElement
+              if (routeIdInput && c.routeId) routeIdInput.value = c.routeId
+            }
+          }
+        })
+        
+        return row
+      }
 
       const render = () => {
 
@@ -14090,26 +14669,7 @@ function initializeExtension() {
               <button id="L-add-trigger" style="background:rgba(96,165,250,.3);border:1px solid rgba(96,165,250,.5);color:#fff;padding:8px 14px;border-radius:6px;cursor:pointer;font-weight:500">+ Add Trigger</button>
             </div>
 
-            <!-- Sensor Workflows Section -->
-            <div style="border:1px solid rgba(255,255,255,.25);border-radius:8px;padding:12px;background:rgba(255,255,255,0.04);margin-bottom:10px">
-              <div style="font-weight:600;margin-bottom:8px;color:#fff;display:flex;align-items:center;gap:8px">
-                Sensor Workflows (Pre-processing)
-                <span title="Read-only workflows that collect context before reasoning." style="font-size:12px;opacity:0.9;cursor:help;background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.35);padding:0 6px;border-radius:50%">?</span>
-              </div>
-              <div style="font-size:13px;color:rgba(255,255,255,0.85);margin-bottom:8px;line-height:1.4">Add sensor workflows to collect context before reasoning.</div>
-              <div id="L-sensor-workflows" style="display:flex;flex-direction:column;gap:12px;margin-bottom:8px"></div>
-              <button id="L-add-sensor" style="background:rgba(96,165,250,.3);border:1px solid rgba(96,165,250,.5);color:#fff;padding:8px 14px;border-radius:6px;cursor:pointer;font-weight:500">+ Add Sensor Workflow</button>
-            </div>
-
-            <!-- Allowed Actions Section -->
-            <div style="border:1px solid rgba(255,255,255,.25);border-radius:8px;padding:12px;background:rgba(255,255,255,0.04)">
-              <div style="font-weight:600;margin-bottom:8px;color:#fff;display:flex;align-items:center;gap:8px">
-                Allowed Actions (Post-processing)
-                <span title="Whitelisted action workflows that this listener can execute after reasoning." style="font-size:12px;opacity:0.9;cursor:help;background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.35);padding:0 6px;border-radius:50%">?</span>
-              </div>
-              <div id="L-action-workflows" style="display:flex;flex-direction:column;gap:8px;margin-bottom:8px"></div>
-              <button id="L-add-action" style="background:rgba(255,255,255,.2);border:1px solid rgba(255,255,255,.35);color:#fff;padding:6px 10px;border-radius:6px;cursor:pointer">+ Add Allowed Action</button>
-            </div>`
+`
 
           container.appendChild(wrap)
 
@@ -14442,7 +15002,17 @@ function initializeExtension() {
 
             </div>
 
-            <label style="display:block;margin-top:8px">Goals (System instructions)
+            <!-- Reasoning Workflows Section (optional) - placed before Goals to gather context first -->
+            <div style="border:1px solid rgba(255,255,255,.25);border-radius:8px;padding:12px;background:rgba(255,255,255,0.04);margin-top:12px">
+              <div style="font-weight:600;margin-bottom:8px;color:#fff;display:flex;align-items:center;gap:8px">
+                Reasoning Workflows (optional)
+                <span title="Optional workflows to gather context before reasoning. Can route based on output conditions." style="font-size:12px;opacity:0.9;cursor:help;background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.35);padding:0 6px;border-radius:50%">?</span>
+              </div>
+              <div id="R-reasoning-workflows" style="display:flex;flex-direction:column;gap:12px;margin-bottom:8px"></div>
+              <button id="R-add-workflow" style="background:rgba(96,165,250,.3);border:1px solid rgba(96,165,250,.5);color:#fff;padding:8px 14px;border-radius:6px;cursor:pointer;font-weight:500">+ Add Workflow</button>
+            </div>
+
+            <label style="display:block;margin-top:12px">Goals (System instructions)
 
               <textarea id="R-goals" style="width:100%;min-height:90px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.35);color:#fff;padding:8px;border-radius:6px"></textarea>
 
@@ -14463,16 +15033,6 @@ function initializeExtension() {
             <div id="R-custom-list" style="display:flex;flex-direction:column;gap:8px;margin-top:8px"></div>
 
             <button id="R-add-custom" style="background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.35);color:#fff;padding:6px 10px;border-radius:6px;cursor:pointer">+ Custom field</button>
-
-            <!-- Reasoning Workflows Section (styled like Sensor Workflows) -->
-            <div style="border:1px solid rgba(255,255,255,.25);border-radius:8px;padding:12px;background:rgba(255,255,255,0.04);margin-top:12px">
-              <div style="font-weight:600;margin-bottom:8px;color:#fff;display:flex;align-items:center;gap:8px">
-                Reasoning Workflows
-                <span title="Workflows to execute as part of reasoning logic. Can route based on conditions." style="font-size:12px;opacity:0.9;cursor:help;background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.35);padding:0 6px;border-radius:50%">?</span>
-              </div>
-              <div id="R-reasoning-workflows" style="display:flex;flex-direction:column;gap:12px;margin-bottom:8px"></div>
-              <button id="R-add-workflow" style="background:rgba(96,165,250,.3);border:1px solid rgba(96,165,250,.5);color:#fff;padding:8px 14px;border-radius:6px;cursor:pointer;font-weight:500">+ Add Workflow</button>
-            </div>
 
             <!-- Memory & Context Settings (moved from separate section) -->
             <div id="R-memory-context" style="margin-top:12px;padding:12px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.15);border-radius:8px">
@@ -14787,6 +15347,8 @@ function initializeExtension() {
         // Unified Trigger System - replaces old Active/Passive toggles
         const unifiedTriggersList = configOverlay.querySelector('#L-unified-triggers') as HTMLElement | null
         const addTriggerBtn = configOverlay.querySelector('#L-add-trigger') as HTMLButtonElement | null
+
+        // createTriggerWorkflowRow is now defined OUTSIDE render() to be accessible from restoreFromMemory()
 
         // Create unified trigger row with type-specific fields
         const makeUnifiedTriggerRow = (init?: { 
@@ -15468,6 +16030,91 @@ function initializeExtension() {
           // Update fields when type changes
           typeSel.addEventListener('change', () => renderFieldsForType(typeSel.value))
           
+          // ========== SENSOR WORKFLOWS (Pre-processing) ==========
+          const sensorSection = document.createElement('div')
+          sensorSection.className = 'trigger-sensor-workflows'
+          sensorSection.style.cssText = 'border:1px solid rgba(255,255,255,.25);border-radius:8px;padding:12px;background:rgba(255,255,255,0.04);margin-top:12px'
+          sensorSection.innerHTML = `
+            <div style="font-weight:600;margin-bottom:8px;color:#fff;display:flex;align-items:center;gap:8px">
+              Sensor Workflows (optional)
+              <span title="Pre-processing workflows to collect context before reasoning. Internal Parser works with agents, mini-apps, and websites in the master tab." style="font-size:12px;opacity:0.9;cursor:help;background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.35);padding:0 6px;border-radius:50%">?</span>
+            </div>
+            <div class="trigger-sensor-list" style="display:flex;flex-direction:column;gap:12px;margin-bottom:8px"></div>
+            <button class="trigger-add-sensor" style="background:rgba(96,165,250,.3);border:1px solid rgba(96,165,250,.5);color:#fff;padding:8px 14px;border-radius:6px;cursor:pointer;font-weight:500">+ Add Sensor Workflow</button>
+          `
+          row.appendChild(sensorSection)
+          
+          // Wire up sensor workflow add button
+          const sensorList = sensorSection.querySelector('.trigger-sensor-list') as HTMLElement
+          const addSensorBtn = sensorSection.querySelector('.trigger-add-sensor') as HTMLButtonElement
+          addSensorBtn?.addEventListener('click', () => {
+            sensorList.appendChild(createTriggerWorkflowRow('sensor'))
+          })
+          
+          // ========== ALLOWED ACTIONS (Post-processing) ==========
+          const actionsSection = document.createElement('div')
+          actionsSection.className = 'trigger-allowed-actions'
+          actionsSection.style.cssText = 'border:1px solid rgba(255,255,255,.25);border-radius:8px;padding:12px;background:rgba(255,255,255,0.04);margin-top:12px'
+          actionsSection.innerHTML = `
+            <div style="font-weight:600;margin-bottom:8px;color:#fff;display:flex;align-items:center;gap:8px">
+              Allowed Actions (optional)
+              <span title="Post-processing workflows that can be executed after reasoning. Use External Workflow for APIs and external data sources." style="font-size:12px;opacity:0.9;cursor:help;background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.35);padding:0 6px;border-radius:50%">?</span>
+            </div>
+            <div class="trigger-actions-list" style="display:flex;flex-direction:column;gap:12px;margin-bottom:8px"></div>
+            <button class="trigger-add-action" style="background:rgba(96,165,250,.3);border:1px solid rgba(96,165,250,.5);color:#fff;padding:8px 14px;border-radius:6px;cursor:pointer;font-weight:500">+ Add Allowed Action</button>
+          `
+          row.appendChild(actionsSection)
+          
+          // Wire up allowed actions add button
+          const actionsList = actionsSection.querySelector('.trigger-actions-list') as HTMLElement
+          const addActionBtn = actionsSection.querySelector('.trigger-add-action') as HTMLButtonElement
+          addActionBtn?.addEventListener('click', () => {
+            actionsList.appendChild(createTriggerWorkflowRow('action'))
+          })
+          
+          // ========== SAVE BUTTON AT BOTTOM OF TRIGGER ==========
+          const bottomSaveRow = document.createElement('div')
+          bottomSaveRow.style.cssText = 'display:flex;justify-content:flex-end;gap:8px;margin-top:16px;padding-top:12px;border-top:1px solid rgba(255,255,255,0.15)'
+          const bottomSaveBtn = document.createElement('button')
+          bottomSaveBtn.className = 'trigger-bottom-save'
+          bottomSaveBtn.textContent = '💾 Save Trigger'
+          bottomSaveBtn.style.cssText = 'background:#22c55e;color:#fff;border:none;padding:8px 18px;border-radius:6px;cursor:pointer;font-size:13px;font-weight:600'
+          bottomSaveRow.appendChild(bottomSaveBtn)
+          row.appendChild(bottomSaveRow)
+          
+          // Wire up bottom save button
+          bottomSaveBtn.addEventListener('click', () => {
+            // Update trigger ID in Apply for selectboxes
+            updateApplyForOptions()
+            
+            // Show temporary feedback
+            bottomSaveBtn.textContent = '✓ Saved!'
+            bottomSaveBtn.style.background = '#16a34a'
+            setTimeout(() => {
+              bottomSaveBtn.textContent = '💾 Save Trigger'
+              bottomSaveBtn.style.background = '#22c55e'
+            }, 1500)
+            
+            // Add persistent green checkmark to ID row if not already present
+            if (!row.querySelector('.trigger-saved-indicator')) {
+              const idRowEl = row.querySelector('.trigger-id-display')?.parentElement
+              if (idRowEl) {
+                const checkmark = document.createElement('span')
+                checkmark.className = 'trigger-saved-indicator'
+                checkmark.textContent = '✓'
+                checkmark.style.cssText = 'color:#22c55e;font-weight:bold;margin-left:6px;font-size:14px'
+                checkmark.title = 'Trigger saved'
+                idRowEl.appendChild(checkmark)
+              }
+            }
+            
+            // Auto-save to chrome storage to persist the trigger
+            if (typeof autoSaveToChromeStorage === 'function') {
+              autoSaveToChromeStorage()
+              console.log('💾 Trigger saved (from bottom button) and persisted to storage')
+            }
+          })
+          
           return row
         }
 
@@ -16118,85 +16765,9 @@ function initializeExtension() {
 
         })
 
-        // Reasoning Workflow helpers (styled like Sensor Workflows)
+        // Reasoning Workflow helpers - createReasoningWorkflowRow is defined OUTSIDE render() for restoreFromMemory access
         const rWorkflowList = configOverlay.querySelector('#R-reasoning-workflows') as HTMLElement | null
         const rAddWorkflowBtn = configOverlay.querySelector('#R-add-workflow') as HTMLButtonElement | null
-
-        const createReasoningWorkflowRow = (workflowId: string = '', conditions: any[] = []) => {
-          const row = document.createElement('div')
-          row.className = 'reasoning-workflow-row'
-          row.style.cssText = 'background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.2);border-radius:8px;padding:10px'
-          
-          const header = document.createElement('div')
-          header.style.cssText = 'display:flex;gap:8px;align-items:center;margin-bottom:8px'
-          header.innerHTML = `
-            <span style="font-size:13px;font-weight:500;color:#fff">🧠 Workflow:</span>
-            <input type="text" placeholder="Workflow ID or name" value="${workflowId}" style="flex:1;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.35);color:#fff;padding:6px 10px;border-radius:4px;font-size:13px" class="r-workflow-id">
-            <button style="background:#ef4444;border:none;color:#fff;padding:4px 10px;border-radius:4px;cursor:pointer;font-size:12px" class="r-workflow-del">✕</button>
-          `
-          
-          const conditionsWrap = document.createElement('div')
-          conditionsWrap.style.cssText = 'margin-top:8px;padding-top:8px;border-top:1px dashed rgba(255,255,255,0.15)'
-          conditionsWrap.innerHTML = `
-            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
-              <span style="font-size:12px;opacity:0.8">📋 If output matches (conditions):</span>
-              <button class="r-workflow-add-cond" style="background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.25);color:#fff;padding:3px 8px;border-radius:4px;cursor:pointer;font-size:11px">+ Add Condition</button>
-            </div>
-            <div class="r-workflow-conditions" style="display:flex;flex-direction:column;gap:6px"></div>
-          `
-          
-          row.appendChild(header)
-          row.appendChild(conditionsWrap)
-          
-          // Wire up delete
-          header.querySelector('.r-workflow-del')?.addEventListener('click', () => row.remove())
-          
-          // Wire up add condition for this workflow
-          const workflowCondList = conditionsWrap.querySelector('.r-workflow-conditions') as HTMLElement
-          conditionsWrap.querySelector('.r-workflow-add-cond')?.addEventListener('click', () => {
-            const condRow = document.createElement('div')
-            condRow.className = 'r-workflow-cond-row'
-            condRow.style.cssText = 'display:flex;gap:4px;align-items:center;font-size:12px'
-            condRow.innerHTML = `
-              <span style="opacity:0.7">If</span>
-              <input type="text" placeholder="output.field" style="flex:1;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.25);color:#fff;padding:4px 6px;border-radius:3px;font-size:11px" class="r-wcond-field">
-              <select style="background:#fff;color:#0f172a;border:1px solid #cbd5e1;padding:4px;border-radius:3px;font-size:11px" class="r-wcond-op">
-                <option value="eq">==</option>
-                <option value="ne">!=</option>
-                <option value="contains">contains</option>
-                <option value="gt">&gt;</option>
-                <option value="lt">&lt;</option>
-                <option value="exists">exists</option>
-              </select>
-              <input type="text" placeholder="value" style="flex:1;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.25);color:#fff;padding:4px 6px;border-radius:3px;font-size:11px" class="r-wcond-value">
-              <span style="opacity:0.7">→</span>
-              <select style="background:#fff;color:#0f172a;border:1px solid #cbd5e1;padding:4px;border-radius:3px;font-size:11px" class="r-wcond-action">
-                <option value="continue">Continue</option>
-                <option value="skip">Skip</option>
-                <option value="route">Route to...</option>
-              </select>
-              <button style="background:#ef4444;border:none;color:#fff;padding:2px 6px;border-radius:3px;cursor:pointer;font-size:10px" class="r-wcond-del">✕</button>
-            `
-            condRow.querySelector('.r-wcond-del')?.addEventListener('click', () => condRow.remove())
-            workflowCondList.appendChild(condRow)
-          })
-          
-          // Pre-populate conditions if provided
-          conditions.forEach((c: any) => {
-            const addBtn = conditionsWrap.querySelector('.r-workflow-add-cond') as HTMLButtonElement
-            addBtn?.click()
-            const rows = workflowCondList.querySelectorAll('.r-workflow-cond-row')
-            const lastRow = rows[rows.length - 1]
-            if (lastRow) {
-              (lastRow.querySelector('.r-wcond-field') as HTMLInputElement).value = c.field || ''
-              ;(lastRow.querySelector('.r-wcond-op') as HTMLSelectElement).value = c.op || 'eq'
-              ;(lastRow.querySelector('.r-wcond-value') as HTMLInputElement).value = c.value || ''
-              ;(lastRow.querySelector('.r-wcond-action') as HTMLSelectElement).value = c.action || 'continue'
-            }
-          })
-          
-          return row
-        }
 
         rAddWorkflowBtn?.addEventListener('click', () => {
           rWorkflowList?.appendChild(createReasoningWorkflowRow())
@@ -16386,7 +16957,17 @@ function initializeExtension() {
               <button class="R-del" title="Remove" style="background:#f44336;color:#fff;border:1px solid rgba(255,255,255,.25);padding:2px 8px;border-radius:6px;cursor:pointer">×</button>
             </div>
 
-            <label style="display:block;margin-top:8px">Goals (System instructions)
+            <!-- Reasoning Workflows Section (optional) - placed before Goals to gather context first -->
+            <div style="border:1px solid rgba(255,255,255,.25);border-radius:8px;padding:12px;background:rgba(255,255,255,0.04);margin-top:8px">
+              <div style="font-weight:600;margin-bottom:8px;color:#fff;display:flex;align-items:center;gap:8px">
+                Reasoning Workflows (optional)
+                <span title="Optional workflows to gather context before reasoning. Can route based on output conditions." style="font-size:12px;opacity:0.9;cursor:help;background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.35);padding:0 6px;border-radius:50%">?</span>
+              </div>
+              <div id="${wfId}" class="R-workflows-sub" style="display:flex;flex-direction:column;gap:12px;margin-bottom:8px"></div>
+              <button class="R-add-workflow-sub" style="background:rgba(96,165,250,.3);border:1px solid rgba(96,165,250,.5);color:#fff;padding:8px 14px;border-radius:6px;cursor:pointer;font-weight:500">+ Add Workflow</button>
+            </div>
+
+            <label style="display:block;margin-top:12px">Goals (System instructions)
 
               <textarea class="R-goals" style="width:100%;min-height:90px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.35);color:#fff;padding:8px;border-radius:6px"></textarea>
 
@@ -16407,16 +16988,6 @@ function initializeExtension() {
             <div class="R-custom-list" style="display:flex;flex-direction:column;gap:8px;margin-top:6px"></div>
 
             <button class="R-add-custom" style="background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.35);color:#fff;padding:6px 10px;border-radius:6px;cursor:pointer">+ Custom field</button>
-
-            <!-- Reasoning Workflows Section -->
-            <div style="border:1px solid rgba(255,255,255,.25);border-radius:8px;padding:12px;background:rgba(255,255,255,0.04);margin-top:12px">
-              <div style="font-weight:600;margin-bottom:8px;color:#fff;display:flex;align-items:center;gap:8px">
-                Reasoning Workflows
-                <span title="Workflows to execute as part of reasoning logic." style="font-size:12px;opacity:0.9;cursor:help;background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.35);padding:0 6px;border-radius:50%">?</span>
-              </div>
-              <div id="${wfId}" class="R-workflows-sub" style="display:flex;flex-direction:column;gap:12px;margin-bottom:8px"></div>
-              <button class="R-add-workflow-sub" style="background:rgba(96,165,250,.3);border:1px solid rgba(96,165,250,.5);color:#fff;padding:8px 14px;border-radius:6px;cursor:pointer;font-weight:500">+ Add Workflow</button>
-            </div>
 
             <!-- Memory & Context Settings -->
             <div class="R-memory-context-sub" style="margin-top:12px;padding:12px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.15);border-radius:8px">
@@ -17427,6 +17998,40 @@ function initializeExtension() {
                         if (miniAppInput) miniAppInput.value = trigger.miniAppId
                       }
                       
+                      // Restore per-trigger Sensor Workflows
+                      if (trigger.sensorWorkflows && trigger.sensorWorkflows.length > 0) {
+                        const sensorList = row.querySelector('.trigger-sensor-list') as HTMLElement
+                        const addSensorBtn = row.querySelector('.trigger-add-sensor') as HTMLButtonElement
+                        if (sensorList && addSensorBtn) {
+                          trigger.sensorWorkflows.forEach((wf: any) => {
+                            const wfRow = createTriggerWorkflowRow('sensor', {
+                              workflowType: wf.type || 'internal',
+                              workflowId: wf.workflowId || '',
+                              conditions: wf.conditions || []
+                            })
+                            sensorList.appendChild(wfRow)
+                          })
+                          console.log(`    ✓ Restored ${trigger.sensorWorkflows.length} sensor workflows for trigger ${idx + 1}`)
+                        }
+                      }
+                      
+                      // Restore per-trigger Allowed Actions
+                      if (trigger.allowedActions && trigger.allowedActions.length > 0) {
+                        const actionsList = row.querySelector('.trigger-actions-list') as HTMLElement
+                        const addActionBtn = row.querySelector('.trigger-add-action') as HTMLButtonElement
+                        if (actionsList && addActionBtn) {
+                          trigger.allowedActions.forEach((wf: any) => {
+                            const wfRow = createTriggerWorkflowRow('action', {
+                              workflowType: wf.type || 'internal',
+                              workflowId: wf.workflowId || '',
+                              conditions: wf.conditions || []
+                            })
+                            actionsList.appendChild(wfRow)
+                          })
+                          console.log(`    ✓ Restored ${trigger.allowedActions.length} allowed actions for trigger ${idx + 1}`)
+                        }
+                      }
+                      
                       // Mark trigger as saved by showing checkmark
                       const tempSaveBtn = row.querySelector('.trigger-temp-save') as HTMLButtonElement
                       if (tempSaveBtn && !row.querySelector('.trigger-saved-indicator')) {
@@ -17741,6 +18346,25 @@ function initializeExtension() {
             
 
             // Reasoning reportTo removed - Report to only in Execution section now
+            
+            // Restore Reasoning Workflows for main section
+            if (r.reasoningWorkflows && r.reasoningWorkflows.length > 0) {
+              console.log(`  🔄 Restoring ${r.reasoningWorkflows.length} reasoning workflows...`)
+              const wfList = configOverlay.querySelector('#R-reasoning-workflows') as HTMLElement
+              if (wfList) {
+                r.reasoningWorkflows.forEach((wf: any, idx: number) => {
+                  setTimeout(() => {
+                    const wfRow = createReasoningWorkflowRow({
+                      type: wf.type || 'internal',
+                      workflowId: wf.workflowId || '',
+                      conditions: wf.conditions || []
+                    })
+                    wfList.appendChild(wfRow)
+                    console.log(`    ✓ Restored reasoning workflow ${idx + 1}: ${wf.type}`)
+                  }, idx * 100)
+                })
+              }
+            }
 
             
 
@@ -18009,6 +18633,23 @@ function initializeExtension() {
 
                       // rSection.reportTo restore removed - reportTo only in Execution section now
 
+                      // Restore Reasoning Workflows for additional section
+                      if (rSection.reasoningWorkflows && rSection.reasoningWorkflows.length > 0) {
+                        const wfListSub = newSection.querySelector('.R-workflows-sub') as HTMLElement
+                        if (wfListSub) {
+                          rSection.reasoningWorkflows.forEach((wf: any, wfIdx: number) => {
+                            const wfRow = createReasoningWorkflowRow({
+                              type: wf.type || 'internal',
+                              workflowId: wf.workflowId || '',
+                              conditions: wf.conditions || []
+                            })
+                            wfListSub.appendChild(wfRow)
+                            console.log(`      ✓ Restored reasoning workflow ${wfIdx + 1}: ${wf.type} - ${wf.workflowId}`)
+                          })
+                          console.log(`    ✓ Restored ${rSection.reasoningWorkflows.length} reasoning workflows for section ${sectionIdx + 1}`)
+                        }
+                      }
+
                       
 
                         console.log(`    ✓ Restored reasoning section ${sectionIdx + 1}`)
@@ -18092,44 +18733,36 @@ function initializeExtension() {
               }, 800) // Increased delay to wait for triggers to be fully restored
             }
 
-            // Restore Workflows
-
-            if (e.workflows && e.workflows.length > 0) {
-
-              const workflowList = configOverlay.querySelector('#E-workflow-list')
-
+            // Restore Execution Workflows (new format with type, workflowId, conditions)
+            if (e.executionWorkflows && e.executionWorkflows.length > 0) {
+              const workflowList = configOverlay.querySelector('#E-workflow-list') as HTMLElement
               if (workflowList) {
-
                 workflowList.innerHTML = ''  // Clear first
-
-                e.workflows.forEach((workflow: string) => {
-
-                  const addBtn = configOverlay.querySelector('#E-add-workflow') as HTMLButtonElement
-
-                  if (addBtn) {
-
-                    addBtn.click()
-
-                    const rows = configOverlay.querySelectorAll('#E-workflow-list .wf-row')
-
-                    const lastRow = rows[rows.length - 1]
-
-                    if (lastRow) {
-
-                      const input = lastRow.querySelector('.wf-target') as HTMLInputElement
-
-                      if (input) input.value = workflow
-
-                    }
-
-                  }
-
+                e.executionWorkflows.forEach((wf: any, idx: number) => {
+                  const wfRow = createExecutionWorkflowRow({
+                    type: wf.type || 'internal',
+                    workflowId: wf.workflowId || '',
+                    conditions: wf.conditions || []
+                  })
+                  workflowList.appendChild(wfRow)
                 })
-
-                console.log(`  ✓ Restored ${e.workflows.length} execution workflows`)
-
+                console.log(`  ✓ Restored ${e.executionWorkflows.length} execution workflows (new format)`)
               }
-
+            } else if (e.workflows && e.workflows.length > 0) {
+              // Legacy format fallback - just workflow IDs
+              const workflowList = configOverlay.querySelector('#E-workflow-list') as HTMLElement
+              if (workflowList) {
+                workflowList.innerHTML = ''  // Clear first
+                e.workflows.forEach((workflowId: string) => {
+                  const wfRow = createExecutionWorkflowRow({
+                    type: 'external',
+                    workflowId: workflowId,
+                    conditions: []
+                  })
+                  workflowList.appendChild(wfRow)
+                })
+                console.log(`  ✓ Restored ${e.workflows.length} execution workflows (legacy format)`)
+              }
             }
 
             
@@ -18290,43 +18923,34 @@ function initializeExtension() {
                           }, 500)
                         }
 
-                        // Restore Workflows
-
-                        if (eSection.workflows && eSection.workflows.length > 0) {
-
-                          eSection.workflows.forEach((workflow: string, wfIdx: number) => {
-
-                            setTimeout(() => {
-                              const addBtn = newSection.querySelector('.E-add-workflow-sub') as HTMLButtonElement
-
-                              if (addBtn) {
-
-                                addBtn.click()
-
-                                setTimeout(() => {
-
-                                  const rows = newSection.querySelectorAll('.E-workflow-list-sub .wf-row')
-
-                                  const lastRow = rows[rows.length - 1]
-
-                                  if (lastRow) {
-
-                                    const input = lastRow.querySelector('.wf-target') as HTMLInputElement
-
-                                    if (input) {
-                                      input.value = workflow
-                                      console.log(`    ✓ Restored workflow ${wfIdx + 1}: ${workflow}`)
-                                    }
-
-                                  }
-
-                                }, 100)
-
-                              }
-                            }, wfIdx * 150)
-
-                          })
-
+                        // Restore Execution Workflows (new format)
+                        if (eSection.executionWorkflows && eSection.executionWorkflows.length > 0) {
+                          const wfListSub = newSection.querySelector('.E-workflow-list-sub') as HTMLElement
+                          if (wfListSub) {
+                            eSection.executionWorkflows.forEach((wf: any, wfIdx: number) => {
+                              const wfRow = createExecutionWorkflowRow({
+                                type: wf.type || 'internal',
+                                workflowId: wf.workflowId || '',
+                                conditions: wf.conditions || []
+                              })
+                              wfListSub.appendChild(wfRow)
+                              console.log(`    ✓ Restored workflow ${wfIdx + 1}: ${wf.type} - ${wf.workflowId}`)
+                            })
+                          }
+                        } else if (eSection.workflows && eSection.workflows.length > 0) {
+                          // Legacy format fallback
+                          const wfListSub = newSection.querySelector('.E-workflow-list-sub') as HTMLElement
+                          if (wfListSub) {
+                            eSection.workflows.forEach((workflowId: string, wfIdx: number) => {
+                              const wfRow = createExecutionWorkflowRow({
+                                type: 'external',
+                                workflowId: workflowId,
+                                conditions: []
+                              })
+                              wfListSub.appendChild(wfRow)
+                              console.log(`    ✓ Restored workflow ${wfIdx + 1}: ${workflowId} (legacy)`)
+                            })
+                          }
                         }
 
                         // Accept From section removed from Execution sections
@@ -19804,9 +20428,28 @@ function initializeExtension() {
 
             custom: [],
 
-            acceptFrom: accepts
+            acceptFrom: accepts,
+            
+            reasoningWorkflows: []
 
           }
+          
+          // Collect Reasoning Workflows for main section
+          document.querySelectorAll('#R-reasoning-workflows .reasoning-workflow-row').forEach((wfRow: any) => {
+            const wfType = wfRow.querySelector('.r-workflow-type-radio:checked')?.value || 'internal'
+            const wfId = wfRow.querySelector('.r-workflow-id')?.value || ''
+            const conditions: any[] = []
+            wfRow.querySelectorAll('.r-workflow-cond-row').forEach((condRow: any) => {
+              conditions.push({
+                field: condRow.querySelector('.r-wcond-field')?.value || '',
+                op: condRow.querySelector('.r-wcond-op')?.value || 'eq',
+                value: condRow.querySelector('.r-wcond-value')?.value || '',
+                action: condRow.querySelector('.r-wcond-action')?.value || 'continue',
+                routeId: condRow.querySelector('.r-wcond-route-id')?.value || ''
+              })
+            })
+            base.reasoningWorkflows.push({ type: wfType, workflowId: wfId, conditions })
+          })
 
           document.querySelectorAll('#R-custom-list > div').forEach((row:any)=>{
 
@@ -19839,6 +20482,25 @@ function initializeExtension() {
             const sectionApplyForList = Array.from(sec.querySelectorAll('.R-apply-list-sub select')).map((sel: any) => sel.value).filter((v: string) => v && v !== '')
             console.log('📝 [SAVE] Additional R-section Apply For values:', sectionApplyForList)
 
+            // Collect Reasoning Workflows for additional section
+            const sectionWorkflows: any[] = []
+            sec.querySelectorAll('.R-workflows-sub .reasoning-workflow-row').forEach((wfRow: any) => {
+              const wfType = wfRow.querySelector('.r-workflow-type-radio:checked')?.value || 'internal'
+              const wfId = wfRow.querySelector('.r-workflow-id')?.value || ''
+              const conditions: any[] = []
+              wfRow.querySelectorAll('.r-workflow-cond-row').forEach((condRow: any) => {
+                conditions.push({
+                  field: condRow.querySelector('.r-wcond-field')?.value || '',
+                  op: condRow.querySelector('.r-wcond-op')?.value || 'eq',
+                  value: condRow.querySelector('.r-wcond-value')?.value || '',
+                  action: condRow.querySelector('.r-wcond-action')?.value || 'continue',
+                  routeId: condRow.querySelector('.r-wcond-route-id')?.value || ''
+                })
+              })
+              sectionWorkflows.push({ type: wfType, workflowId: wfId, conditions })
+            })
+            console.log(`🔍 [SAVE] Additional R-section: Found ${sectionWorkflows.length} reasoning workflow rows`)
+
             const s:any = {
 
               applyFor: sectionApplyForList.length > 0 ? sectionApplyForList[0] : '__any__',
@@ -19852,7 +20514,9 @@ function initializeExtension() {
 
               custom: [],
 
-              acceptFrom: sectionAccepts
+              acceptFrom: sectionAccepts,
+              
+              reasoningWorkflows: sectionWorkflows
 
             }
 
@@ -19905,9 +20569,27 @@ function initializeExtension() {
           // Accept From list removed from Execution section
           const eAccepts:string[] = []
           
-          // Workflows list
-
-          const eWfs:string[] = Array.from(document.querySelectorAll('#E-workflow-list .wf-row .wf-target')).map((n:any)=> n.value).filter((v:string) => v)
+          // Collect execution workflows with new format (type, workflowId, conditions)
+          const eWorkflowsSave: any[] = []
+          document.querySelectorAll('#E-workflow-list .exec-workflow-row').forEach((wfRow: any) => {
+            const wfType = wfRow.querySelector('.e-workflow-type-radio:checked')?.value || 'internal'
+            const wfId = wfRow.querySelector('.e-workflow-id')?.value || ''
+            const conditions: any[] = []
+            wfRow.querySelectorAll('.e-workflow-cond-row').forEach((condRow: any) => {
+              conditions.push({
+                field: condRow.querySelector('.e-wcond-field')?.value || '',
+                op: condRow.querySelector('.e-wcond-op')?.value || 'eq',
+                value: condRow.querySelector('.e-wcond-value')?.value || '',
+                action: condRow.querySelector('.e-wcond-action')?.value || 'continue',
+                routeId: condRow.querySelector('.e-wcond-route-id')?.value || ''
+              })
+            })
+            eWorkflowsSave.push({ type: wfType, workflowId: wfId, conditions })
+          })
+          console.log(`🔍 [SAVE] Execution: Found ${eWorkflowsSave.length} execution workflow rows`)
+          
+          // Legacy format for backward compatibility
+          const eWfs:string[] = eWorkflowsSave.map(w => w.workflowId).filter(v => v)
 
           const eKindsMain = Array.from(document.querySelectorAll('#E-special-list .esp-row .esp-kind')) as HTMLSelectElement[]
 
@@ -19957,9 +20639,26 @@ function initializeExtension() {
             const sectionApplyForList = Array.from(sec.querySelectorAll('.E-apply-list-sub select')).map((sel: any) => sel.value).filter((v: string) => v && v !== '')
             console.log('📝 [SAVE] Additional E-section Apply For values:', sectionApplyForList)
 
-            // Collect workflows for this section
-
-            const workflows = Array.from(sec.querySelectorAll('.E-workflow-list-sub .wf-row .wf-target')).map((n:any)=> n.value).filter((v:string) => v)
+            // Collect workflows with new format for additional sections
+            const sectionWorkflowsSave: any[] = []
+            sec.querySelectorAll('.E-workflow-list-sub .exec-workflow-row').forEach((wfRow: any) => {
+              const wfType = wfRow.querySelector('.e-workflow-type-radio:checked')?.value || 'internal'
+              const wfId = wfRow.querySelector('.e-workflow-id')?.value || ''
+              const conditions: any[] = []
+              wfRow.querySelectorAll('.e-workflow-cond-row').forEach((condRow: any) => {
+                conditions.push({
+                  field: condRow.querySelector('.e-wcond-field')?.value || '',
+                  op: condRow.querySelector('.e-wcond-op')?.value || 'eq',
+                  value: condRow.querySelector('.e-wcond-value')?.value || '',
+                  action: condRow.querySelector('.e-wcond-action')?.value || 'continue',
+                  routeId: condRow.querySelector('.e-wcond-route-id')?.value || ''
+                })
+              })
+              sectionWorkflowsSave.push({ type: wfType, workflowId: wfId, conditions })
+            })
+            
+            // Legacy format for backward compatibility
+            const workflows = sectionWorkflowsSave.map(w => w.workflowId).filter(v => v)
 
             // acceptFrom section removed from Execution
             const acceptFrom: string[] = []
@@ -20002,6 +20701,7 @@ function initializeExtension() {
               applyFor: sectionApplyForList.length > 0 ? sectionApplyForList[0] : '__any__',
               applyForList: sectionApplyForList.length > 0 ? sectionApplyForList : ['__any__'],
               workflows, 
+              executionWorkflows: sectionWorkflowsSave,
               acceptFrom, 
               specialDestinations: dests 
             })
@@ -20017,6 +20717,7 @@ function initializeExtension() {
             acceptFrom: eAccepts,
 
             workflows: eWfs,
+            executionWorkflows: eWorkflowsSave,
 
             applyFor: eApplyForValuesSave.length > 0 ? eApplyForValuesSave[0] : '__any__',
             applyForList: eApplyForValuesSave.length > 0 ? eApplyForValuesSave : ['__any__'],
