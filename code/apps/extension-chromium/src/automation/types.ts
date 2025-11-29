@@ -847,6 +847,235 @@ export interface LegacyAgentConfig {
   }
 }
 
+// =============================================================================
+// Event Tag Routing Types (Refactored Wiring)
+// =============================================================================
+
+/**
+ * Output destination for execution results
+ */
+export interface OutputDestination {
+  /** Destination type */
+  kind: 'agent_box' | 'wr_chat' | 'inline_chat' | 'notification' | 'webhook'
+  
+  /** Agent Box ID if kind is 'agent_box' */
+  agentBoxId?: string
+  
+  /** Agent Box number (01-50) */
+  agentBoxNumber?: number
+  
+  /** Human-readable label */
+  label: string
+  
+  /** Whether this destination is enabled */
+  enabled: boolean
+}
+
+/**
+ * LLM configuration resolved from an Agent Box
+ */
+export interface ResolvedLlmConfig {
+  /** LLM provider (ollama, openai, anthropic, etc.) */
+  provider: string
+  
+  /** Model name/identifier */
+  model: string
+  
+  /** Agent Box ID this config comes from */
+  agentBoxId: string
+  
+  /** Agent Box number */
+  agentBoxNumber: number
+  
+  /** Agent Box title for display */
+  agentBoxTitle?: string
+  
+  /** Whether the LLM is available/enabled */
+  isAvailable: boolean
+  
+  /** Reason if not available */
+  unavailableReason?: string
+}
+
+/**
+ * Reasoning configuration for an agent
+ */
+export interface ResolvedReasoningConfig {
+  /** What this reasoning applies to (trigger ID or '__any__') */
+  applyFor: string
+  
+  /** Agent's goals/system instructions */
+  goals: string
+  
+  /** Agent's role description */
+  role: string
+  
+  /** Agent's rules/constraints */
+  rules: string
+  
+  /** Custom key-value fields */
+  custom: Array<{ key: string; value: string }>
+  
+  /** Memory and context settings */
+  memoryContext: {
+    sessionContext: { read: boolean; write: boolean }
+    accountMemory: { read: boolean; write: boolean }
+    agentMemory: { enabled: boolean }
+  }
+  
+  /** Reasoning workflows to run before LLM */
+  reasoningWorkflows: string[]
+}
+
+/**
+ * Execution configuration for an agent
+ */
+export interface ResolvedExecutionConfig {
+  /** What this execution applies to (trigger ID or '__any__') */
+  applyFor: string
+  
+  /** Workflows to execute */
+  workflows: string[]
+  
+  /** Where to send the output */
+  reportTo: OutputDestination[]
+}
+
+/**
+ * Complete routing result for an Event Tag trigger match
+ * 
+ * This represents the full resolved configuration after:
+ * 1. Listener matching (tag + channel + conditions)
+ * 2. Sensor workflow context collection
+ * 3. LLM resolution from connected Agent Box
+ * 4. Reasoning section selection (via applyFor)
+ * 5. Execution section selection (via applyFor)
+ * 6. Output destination resolution (via reportTo)
+ */
+export interface EventTagRoutingResult {
+  /** Whether a match was found */
+  matched: boolean
+  
+  /** The matched agent's ID */
+  agentId: string
+  
+  /** The matched agent's name */
+  agentName: string
+  
+  /** The matched agent's icon */
+  agentIcon: string
+  
+  /** The matched agent's number */
+  agentNumber?: number
+  
+  /** The trigger that matched */
+  trigger: {
+    /** Trigger ID (e.g., 'ID#invoice') */
+    id: string
+    /** Trigger type */
+    type: TriggerType
+    /** The tag that matched (e.g., '#invoice') */
+    tag: string
+    /** The channel the trigger listens to */
+    channel: EventChannel
+  }
+  
+  /** Results from condition evaluation */
+  conditionResults: {
+    /** Whether all conditions passed */
+    allPassed: boolean
+    /** Individual condition results */
+    conditions: Array<{
+      type: EventTagConditionType | string
+      passed: boolean
+      details: string
+    }>
+  }
+  
+  /** Context collected from sensor workflows */
+  sensorContext: Record<string, any>
+  
+  /** Resolved LLM configuration from Agent Box */
+  llmConfig: ResolvedLlmConfig
+  
+  /** Resolved reasoning configuration */
+  reasoningConfig: ResolvedReasoningConfig
+  
+  /** Resolved execution configuration */
+  executionConfig: ResolvedExecutionConfig
+  
+  /** Human-readable match reason for logging/display */
+  matchDetails: string
+  
+  /** Timestamp when routing was resolved */
+  timestamp: number
+}
+
+/**
+ * Input to the Event Tag routing flow
+ */
+export interface EventTagRoutingInput {
+  /** The classified input from NLP */
+  classifiedInput: {
+    rawText: string
+    normalizedText: string
+    triggers: string[]
+    entities: Array<{ type: string; value: string; start: number; end: number }>
+    source: 'inline_chat' | 'ocr' | 'other'
+    sourceUrl?: string
+    sessionKey?: string
+  }
+  
+  /** All agents in the current session */
+  agents: LegacyAgentConfig[]
+  
+  /** All agent boxes in the current session */
+  agentBoxes: Array<{
+    id: string
+    boxNumber: number
+    title?: string
+    agentNumber?: number
+    enabled?: boolean
+    provider?: string
+    model?: string
+  }>
+  
+  /** Current page URL for website filtering */
+  currentUrl?: string
+  
+  /** Session key for context */
+  sessionKey?: string
+}
+
+/**
+ * Batch result when routing to multiple agents
+ */
+export interface EventTagRoutingBatch {
+  /** Individual routing results for each matched agent */
+  results: EventTagRoutingResult[]
+  
+  /** Summary of the routing */
+  summary: {
+    /** Total agents checked */
+    totalAgentsChecked: number
+    /** Agents with active listeners */
+    agentsWithListeners: number
+    /** Agents that matched */
+    agentsMatched: number
+    /** Agents skipped (disabled or no match) */
+    agentsSkipped: number
+  }
+  
+  /** The original input text */
+  originalInput: string
+  
+  /** Triggers found in the input */
+  triggersFound: string[]
+  
+  /** Processing time in milliseconds */
+  processingTimeMs: number
+}
+
 
 
 

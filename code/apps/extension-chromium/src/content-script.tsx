@@ -16119,66 +16119,110 @@ function initializeExtension() {
         }
 
         // Function to update Apply for selectboxes with trigger IDs
+        // This is a key part of the Event Tag wiring - connects triggers to Reasoning/Execution sections
         const updateApplyForOptions = () => {
           const triggerRows = document.querySelectorAll('#L-unified-triggers .unified-trigger-row')
-          const triggerIds: Array<{id: string, label: string}> = []
+          const triggerIds: Array<{id: string, label: string, channel: string, type: string}> = []
           
           triggerRows.forEach((row: any) => {
             const id = row.dataset.triggerId || ''
             const type = row.querySelector('.trigger-type')?.value || 'direct_tag'
             const tag = row.querySelector('.trigger-tag')?.value || ''
-            const label = tag ? `#${tag.replace('#', '')}` : `${type} (${id.substring(0, 8)}...)`
-            if (id) triggerIds.push({ id, label })
+            const channel = row.querySelector('.trigger-channel')?.value || 'chat'
+            
+            // Build a descriptive label including channel for event tag triggers
+            let label = ''
+            if (type === 'direct_tag' || type === 'tag_and_condition') {
+              const tagName = tag.replace('#', '')
+              label = tagName ? `#${tagName}` : `${type} (${id.substring(0, 8)}...)`
+              // Add channel indicator for non-default channels
+              if (channel && channel !== 'chat') {
+                const channelIcons: Record<string, string> = {
+                  'email': '📧',
+                  'web': '🌐',
+                  'overlay': '🎯',
+                  'agent': '🤖',
+                  'miniapp': '📱',
+                  'screenshot': '📸',
+                  'stream': '📺',
+                  'pdf': '📄',
+                  'docs': '📝',
+                  'voicememo': '🎙️',
+                  'video': '🎬',
+                  'voice_command': '🗣️',
+                  'picture': '🖼️',
+                  'api': '🔌'
+                }
+                label += ` ${channelIcons[channel] || ''}`
+              }
+            } else if (type === 'workflow_condition') {
+              const workflowId = row.querySelector('.trigger-workflow')?.value || ''
+              label = workflowId ? `⚙️ ${workflowId}` : `Workflow (${id.substring(0, 8)}...)`
+            } else if (type === 'ui_event') {
+              const selector = row.querySelector('.trigger-selector')?.value || ''
+              label = selector ? `🖱️ ${selector.substring(0, 20)}...` : `UI Event (${id.substring(0, 8)}...)`
+            } else if (type === 'manual') {
+              const command = row.querySelector('.trigger-command')?.value || ''
+              label = command ? `⌘ ${command}` : `Manual (${id.substring(0, 8)}...)`
+            } else {
+              label = `${type} (${id.substring(0, 8)}...)`
+            }
+            
+            if (id) {
+              triggerIds.push({ id, label, channel, type })
+            }
           })
           
-          // Update R-apply selectbox
+          // Helper function to populate a select element with trigger options
+          const populateApplyForSelect = (selectEl: HTMLSelectElement) => {
+            const currentValue = selectEl.value
+            selectEl.innerHTML = '<option value="__any__">Any Trigger</option>'
+            triggerIds.forEach(t => {
+              const opt = document.createElement('option')
+              opt.value = t.id
+              opt.textContent = t.label
+              opt.dataset.channel = t.channel
+              opt.dataset.type = t.type
+              selectEl.appendChild(opt)
+            })
+            // Preserve current selection if still valid
+            if (currentValue && Array.from(selectEl.options).some(o => o.value === currentValue)) {
+              selectEl.value = currentValue
+            }
+          }
+          
+          // Update R-apply selectbox (main Reasoning Apply for)
           const rApply = document.getElementById('R-apply') as HTMLSelectElement
           if (rApply) {
-            const currentValue = rApply.value
-            rApply.innerHTML = '<option value="__any__">Any Trigger</option>'
-            triggerIds.forEach(t => {
-              const opt = document.createElement('option')
-              opt.value = t.id
-              opt.textContent = t.label
-              rApply.appendChild(opt)
-            })
-            if (currentValue && Array.from(rApply.options).some(o => o.value === currentValue)) {
-              rApply.value = currentValue
-            }
+            populateApplyForSelect(rApply)
           }
           
-          // Update E-apply selectbox
-          const eApply = document.getElementById('E-apply') as HTMLSelectElement
-          if (eApply) {
-            const currentValue = eApply.value
-            eApply.innerHTML = '<option value="__any__">Any Trigger</option>'
-            triggerIds.forEach(t => {
-              const opt = document.createElement('option')
-              opt.value = t.id
-              opt.textContent = t.label
-              eApply.appendChild(opt)
-            })
-            if (currentValue && Array.from(eApply.options).some(o => o.value === currentValue)) {
-              eApply.value = currentValue
-            }
-          }
-          
-          // Also update any additional section Apply for selectboxes
-          document.querySelectorAll('.R-apply-sub, .E-apply-sub').forEach((sel: any) => {
-            const currentValue = sel.value
-            sel.innerHTML = '<option value="__any__">Any Trigger</option>'
-            triggerIds.forEach(t => {
-              const opt = document.createElement('option')
-              opt.value = t.id
-              opt.textContent = t.label
-              sel.appendChild(opt)
-            })
-            if (currentValue && Array.from(sel.options).some((o: any) => o.value === currentValue)) {
-              sel.value = currentValue
+          // Update all R-apply-select elements in the list (for multi-select scenarios)
+          document.querySelectorAll('#R-apply-list .R-apply-select').forEach((sel: any) => {
+            if (sel.id !== 'R-apply') { // Skip the main one, already handled
+              populateApplyForSelect(sel)
             }
           })
           
-          console.log('📋 Updated Apply for options with', triggerIds.length, 'triggers:', triggerIds.map(t => t.label))
+          // Update E-apply selectbox (main Execution Apply for)
+          const eApply = document.getElementById('E-apply') as HTMLSelectElement
+          if (eApply) {
+            populateApplyForSelect(eApply)
+          }
+          
+          // Update all E-apply-select elements in the list
+          document.querySelectorAll('#E-apply-list .E-apply-select').forEach((sel: any) => {
+            if (sel.id !== 'E-apply') {
+              populateApplyForSelect(sel)
+            }
+          })
+          
+          // Update any additional section Apply for selectboxes
+          document.querySelectorAll('.R-apply-sub, .E-apply-sub, .R-apply-list-sub select, .E-apply-list-sub select').forEach((sel: any) => {
+            populateApplyForSelect(sel)
+          })
+          
+          console.log('📋 Updated Apply for options with', triggerIds.length, 'triggers:', triggerIds.map(t => `${t.label} [${t.id}]`))
         }
         
         // Add trigger button handler
@@ -16587,11 +16631,17 @@ function initializeExtension() {
 
           row.style.cssText = 'display:grid;grid-template-columns:1fr 1fr auto;gap:8px;align-items:start'
 
+          // Report to options - defines where the LLM output will be displayed
+          // This is part of the Event Tag wiring flow
           const opts = [
 
             { label: 'Agent Box', value: 'agentBox' },
 
+            { label: '💬 WR Chat (Command Chat)', value: 'wrChat' },
+
             { label: 'Agent', value: 'agent' },
+
+            { label: 'Chat Inline – Summary', value: 'chat-inline-summary' },
 
             { label: 'Clipboard – Summary', value: 'clip-summary' },
 
@@ -16603,9 +16653,7 @@ function initializeExtension() {
 
             { label: 'PDF – Summary + Screenshot', value: 'pdf-both' },
 
-            { label: 'Image – Screenshot (PNG/WebP)', value: 'image-screenshot' },
-
-            { label: 'Chat Inline – Summary', value: 'chat-inline-summary' }
+            { label: 'Image – Screenshot (PNG/WebP)', value: 'image-screenshot' }
 
           ]
 
@@ -16619,17 +16667,47 @@ function initializeExtension() {
 
           followUpHost.style.cssText = 'display:none'
 
-          // Build agent box options (01-50)
+          // Build agent box options (01-50) with LLM info from session
+          // This is a key part of the Event Tag wiring - shows which LLM will be used for each box
 
           const buildAgentBoxSelect = (): HTMLSelectElement => {
 
             const boxOpts = [{ label: '— Select Agent Box —', value: '' }]
 
+            // Try to get agent boxes from the current session to show LLM info
+            const sessionKey = getCurrentSessionKey()
+            let sessionAgentBoxes: any[] = []
+            
+            if (sessionKey && previouslySavedData?.agentBoxes) {
+              sessionAgentBoxes = previouslySavedData.agentBoxes
+            }
+
             for (let i = 1; i <= 50; i++) {
 
               const num = String(i).padStart(2, '0')
+              
+              // Try to find agent box info from session
+              const boxInfo = sessionAgentBoxes.find((b: any) => b.boxNumber === i)
+              
+              let label = `Agent Box ${num}`
+              if (boxInfo) {
+                // Add title if available
+                if (boxInfo.title) {
+                  label += ` (${boxInfo.title})`
+                }
+                // Add LLM info if available
+                if (boxInfo.provider && boxInfo.model) {
+                  label += ` — ${boxInfo.provider}/${boxInfo.model}`
+                } else if (boxInfo.model) {
+                  label += ` — ${boxInfo.model}`
+                }
+                // Add enabled/disabled status
+                if (boxInfo.enabled === false) {
+                  label += ' [disabled]'
+                }
+              }
 
-              boxOpts.push({ label: `Agent Box ${num}`, value: `agentBox${num}` })
+              boxOpts.push({ label, value: `agentBox${num}` })
 
             }
 
@@ -16797,9 +16875,17 @@ function initializeExtension() {
 
 
         // Apply-for population based on unified triggers - use trigger IDs and tags
+        // This is a key part of the Event Tag wiring - connects triggers to Reasoning/Execution sections
 
-        const getAllTriggerIdentifiers = (): Array<{id: string, label: string}> => {
-          const triggers: Array<{id: string, label: string}> = []
+        const getAllTriggerIdentifiers = (): Array<{id: string, label: string, channel?: string, type?: string}> => {
+          const triggers: Array<{id: string, label: string, channel?: string, type?: string}> = []
+          
+          // Channel icons for display
+          const channelIcons: Record<string, string> = {
+            'email': '📧', 'web': '🌐', 'overlay': '🎯', 'agent': '🤖', 'miniapp': '📱',
+            'screenshot': '📸', 'stream': '📺', 'pdf': '📄', 'docs': '📝', 'voicememo': '🎙️',
+            'video': '🎬', 'voice_command': '🗣️', 'picture': '🖼️', 'api': '🔌'
+          }
           
           // Get from unified triggers (new system)
           const triggerRows = configOverlay.querySelectorAll('#L-unified-triggers .unified-trigger-row')
@@ -16807,8 +16893,30 @@ function initializeExtension() {
             const id = row.dataset.triggerId || ''
             const type = row.querySelector('.trigger-type')?.value || 'direct_tag'
             const tag = row.querySelector('.trigger-tag')?.value || ''
-            const label = tag ? `#${tag.replace('#', '')}` : `${type} (${id.substring(0, 8)}...)`
-            if (id) triggers.push({ id, label })
+            const channel = row.querySelector('.trigger-channel')?.value || 'chat'
+            
+            let label = ''
+            if (type === 'direct_tag' || type === 'tag_and_condition') {
+              const tagName = tag.replace('#', '')
+              label = tagName ? `#${tagName}` : `${type} (${id.substring(0, 8)}...)`
+              // Add channel indicator for non-chat channels
+              if (channel && channel !== 'chat' && channelIcons[channel]) {
+                label += ` ${channelIcons[channel]}`
+              }
+            } else if (type === 'workflow_condition') {
+              const workflowId = row.querySelector('.trigger-workflow')?.value || ''
+              label = workflowId ? `⚙️ ${workflowId}` : `Workflow (${id.substring(0, 8)}...)`
+            } else if (type === 'ui_event') {
+              const selector = row.querySelector('.trigger-selector')?.value || ''
+              label = selector ? `🖱️ ${selector.substring(0, 20)}...` : `UI Event (${id.substring(0, 8)}...)`
+            } else if (type === 'manual') {
+              const command = row.querySelector('.trigger-command')?.value || ''
+              label = command ? `⌘ ${command}` : `Manual (${id.substring(0, 8)}...)`
+            } else {
+              label = `${type} (${id.substring(0, 8)}...)`
+            }
+            
+            if (id) triggers.push({ id, label, channel, type })
           })
           
           // Also include legacy active/passive tags for backward compatibility
@@ -16817,7 +16925,7 @@ function initializeExtension() {
           const legacyTags = [...activeTags, ...passiveTags].filter((v, i, a) => v && a.indexOf(v) === i)
           legacyTags.forEach(tag => {
             if (!triggers.some(t => t.id === tag)) {
-              triggers.push({ id: tag, label: tag })
+              triggers.push({ id: tag, label: tag, channel: 'chat', type: 'direct_tag' })
             }
           })
           
@@ -17156,16 +17264,18 @@ function initializeExtension() {
           const addBtn = sec.querySelector('.E-special-add-sub') as HTMLButtonElement
 
           const addSpecialRowSub = () => {
+            // Report to options - defines where the LLM output will be displayed
             const opts = [
               { label: 'Agent Box', value: 'agentBox' },
+              { label: '💬 WR Chat (Command Chat)', value: 'wrChat' },
               { label: 'Agent', value: 'agent' },
+              { label: 'Chat Inline – Summary', value: 'chat-inline-summary' },
               { label: 'Clipboard – Summary', value: 'clip-summary' },
               { label: 'Clipboard – Screenshot', value: 'clip-screenshot' },
               { label: 'PDF – Summary', value: 'pdf-summary' },
               { label: 'PDF – Screenshot', value: 'pdf-screenshot' },
               { label: 'PDF – Summary + Screenshot', value: 'pdf-both' },
-              { label: 'Image – Screenshot (PNG/WebP)', value: 'image-screenshot' },
-              { label: 'Chat Inline – Summary', value: 'chat-inline-summary' }
+              { label: 'Image – Screenshot (PNG/WebP)', value: 'image-screenshot' }
             ]
 
             const row = document.createElement('div')
@@ -17179,12 +17289,40 @@ function initializeExtension() {
             followUpHost.className = 'esp-followup'
             followUpHost.style.cssText = 'display:none'
 
-            // Build agent box options (01-50)
+            // Build agent box options (01-50) with LLM info from session
             const buildAgentBoxSelectSub = (): HTMLSelectElement => {
               const boxOpts = [{ label: '— Select Agent Box —', value: '' }]
+              
+              // Try to get agent boxes from the current session to show LLM info
+              const sessionKey = getCurrentSessionKey()
+              let sessionAgentBoxes: any[] = []
+              
+              if (sessionKey && previouslySavedData?.agentBoxes) {
+                sessionAgentBoxes = previouslySavedData.agentBoxes
+              }
+              
               for (let i = 1; i <= 50; i++) {
                 const num = String(i).padStart(2, '0')
-                boxOpts.push({ label: `Agent Box ${num}`, value: `agentBox${num}` })
+                
+                // Try to find agent box info from session
+                const boxInfo = sessionAgentBoxes.find((b: any) => b.boxNumber === i)
+                
+                let label = `Agent Box ${num}`
+                if (boxInfo) {
+                  if (boxInfo.title) {
+                    label += ` (${boxInfo.title})`
+                  }
+                  if (boxInfo.provider && boxInfo.model) {
+                    label += ` — ${boxInfo.provider}/${boxInfo.model}`
+                  } else if (boxInfo.model) {
+                    label += ` — ${boxInfo.model}`
+                  }
+                  if (boxInfo.enabled === false) {
+                    label += ' [disabled]'
+                  }
+                }
+                
+                boxOpts.push({ label, value: `agentBox${num}` })
               }
               const boxSel = makeSelect(boxOpts, 'esp-box-num', '')
               boxSel.style.cssText = 'background:#1e293b;border:1px solid #475569;color:#f1f5f9;padding:8px 12px;border-radius:6px;width:100%'
