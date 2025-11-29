@@ -12764,7 +12764,10 @@ function initializeExtension() {
 
       if (!container) throw new Error('agent-sections container missing')
 
-
+      // Declare addApplyForRowToList at this scope level so it's accessible from restoreFromMemory
+      let addApplyForRowToList: (listElement: HTMLElement, selectClass: string) => void
+      // Also declare refreshApplyForOptions at this level
+      let refreshApplyForOptions: () => void
 
       const makeSelect = (options: Array<{label:string,value:string}>, cls: string, defValue?: string) => {
 
@@ -16223,9 +16226,6 @@ function initializeExtension() {
 
 
         // Apply-for population based on unified triggers - use trigger IDs and tags
-        
-        // Define addApplyForRowToList at this scope so it's accessible from restoreFromMemory
-        let addApplyForRowToList: (listElement: HTMLElement, selectClass: string) => void
 
         const getAllTriggerIdentifiers = (): Array<{id: string, label: string}> => {
           const triggers: Array<{id: string, label: string}> = []
@@ -16253,7 +16253,8 @@ function initializeExtension() {
           return triggers
         }
 
-        const refreshApplyForOptions = () => {
+        // Assign to outer scope variable so it's accessible from restoreFromMemory
+        refreshApplyForOptions = () => {
           const triggers = getAllTriggerIdentifiers()
           
           const updateSelect = (sel: HTMLSelectElement | null) => {
