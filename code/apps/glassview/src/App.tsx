@@ -1,5 +1,4 @@
 import React from 'react';
-import ReactDOM from 'react-dom/client';
 import GlassView from './components/GlassView';
 import './index.css';
 
@@ -26,19 +25,6 @@ function App() {
       />
     </div>
   );
-}
-
-// Render the app
-const container = document.getElementById('root');
-if (container) {
-  const root = ReactDOM.createRoot(container);
-  root.render(
-    <React.StrictMode>
-      <App />
-    </React.StrictMode>
-  );
-} else {
-  console.error('Root container not found');
 }
 
 export default App;

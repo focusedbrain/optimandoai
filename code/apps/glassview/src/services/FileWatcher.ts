@@ -1,7 +1,21 @@
-import { EventEmitter } from 'events';
-import { watch, FSWatcher, Stats } from 'fs';
-import { readdir, readFile, stat } from 'fs/promises';
-import { join, extname, basename } from 'path';
+import EventEmitter from 'eventemitter3';
+// Minimal path helpers for browser
+function basename(p: string): string {
+  const idx = p.replace(/\\/g, '/').lastIndexOf('/');
+  return idx >= 0 ? p.slice(idx + 1) : p;
+}
+function extname(p: string): string {
+  const b = basename(p);
+  const dot = b.lastIndexOf('.');
+  return dot >= 0 ? b.slice(dot) : '';
+}
+function join(...parts: string[]): string {
+  return parts
+    .filter(Boolean)
+    .map(s => s.replace(/\\/g, '/'))
+    .join('/')
+    .replace(/\/+/g, '/');
+}
 
 export interface ReviewFile {
   id: string;
@@ -39,7 +53,7 @@ declare interface FileWatcher {
 }
 
 class FileWatcher extends EventEmitter {
-  private watchers: Map<string, FSWatcher> = new Map();
+  private watchers: Map<string, any> = new Map();
   private watchedFiles: Map<string, ReviewFile> = new Map();
   private isWatching: boolean = false;
 
@@ -53,10 +67,8 @@ class FileWatcher extends EventEmitter {
   async startWatching(directoryPath: string): Promise<void> {
     try {
       // Check if directory exists
-      const stats = await stat(directoryPath);
-      if (!stats.isDirectory()) {
-        throw new Error(`Path ${directoryPath} is not a directory`);
-      }
+      // Browser environment: we cannot access Node fs API.
+      // Assume directory path is valid and simulate initial scan.
 
       this.isWatching = true;
       
@@ -64,13 +76,12 @@ class FileWatcher extends EventEmitter {
       await this.scanDirectory(directoryPath);
 
       // Set up file system watcher
-      const watcher = watch(directoryPath, { recursive: true }, (eventType, filename) => {
-        if (filename) {
-          this.handleFileEvent(eventType, join(directoryPath, filename));
-        }
-      });
+      // In browser, no native fs watcher; set up a simple polling simulation
+      const pollInterval = setInterval(() => {
+        this.refreshDirectory(directoryPath).catch(() => {});
+      }, 1500);
 
-      this.watchers.set(directoryPath, watcher);
+      this.watchers.set(directoryPath, { interval: pollInterval });
 
       console.log(`FileWatcher: Started watching ${directoryPath}`);
       
@@ -85,7 +96,9 @@ class FileWatcher extends EventEmitter {
   stopWatching(directoryPath: string): void {
     const watcher = this.watchers.get(directoryPath);
     if (watcher) {
-      watcher.close();
+      if (watcher.interval) {
+        clearInterval(watcher.interval);
+      }
       this.watchers.delete(directoryPath);
       console.log(`FileWatcher: Stopped watching ${directoryPath}`);
     }
@@ -96,7 +109,9 @@ class FileWatcher extends EventEmitter {
    */
   stopAll(): void {
     this.watchers.forEach((watcher, path) => {
-      watcher.close();
+      if (watcher.interval) {
+        clearInterval(watcher.interval);
+      }
       console.log(`FileWatcher: Stopped watching ${path}`);
     });
     this.watchers.clear();
@@ -132,7 +147,13 @@ class FileWatcher extends EventEmitter {
    */
   private async scanDirectory(directoryPath: string): Promise<void> {
     try {
-      const entries = await readdir(directoryPath, { withFileTypes: true });
+      // Browser: cannot read real filesystem; simulate reading known demo files
+      const entries = [
+        { name: 'live-demo.md', isFile: () => true, isDirectory: () => false },
+        { name: 'performance-review.md', isFile: () => true, isDirectory: () => false },
+        { name: 'refactor-suggestions.md', isFile: () => true, isDirectory: () => false },
+        { name: 'security-review.md', isFile: () => true, isDirectory: () => false },
+      ] as any[];
       
       for (const entry of entries) {
         const fullPath = join(directoryPath, entry.name);
@@ -160,23 +181,7 @@ class FileWatcher extends EventEmitter {
         return; // Ignore non-review files
       }
 
-      switch (eventType) {
-        case 'rename':
-          // Handle both file creation and deletion
-          try {
-            await stat(filePath);
-            // File exists, so it was created or moved here
-            await this.processFile(filePath);
-          } catch {
-            // File doesn't exist, so it was deleted
-            this.handleFileDeleted(filePath);
-          }
-          break;
-          
-        case 'change':
-          await this.processFile(filePath);
-          break;
-      }
+      await this.processFile(filePath);
     } catch (error) {
       this.emit('error', new Error(`Failed to handle file event for ${filePath}: ${error.message}`));
     }
@@ -187,16 +192,17 @@ class FileWatcher extends EventEmitter {
    */
   private async processFile(filePath: string): Promise<void> {
     try {
-      const stats = await stat(filePath);
-      const content = await readFile(filePath, 'utf-8');
+      // Browser: synthesize content based on filename
+      const now = new Date();
+      const content = this.generateMockContentFor(filePath);
       
       const reviewFile: ReviewFile = {
         id: this.generateFileId(filePath),
         filePath,
         fileName: basename(filePath),
         content,
-        lastModified: stats.mtime,
-        size: stats.size,
+        lastModified: now,
+        size: content.length,
         type: this.getFileType(basename(filePath)),
       };
 
@@ -229,6 +235,23 @@ class FileWatcher extends EventEmitter {
     } catch (error) {
       this.emit('error', new Error(`Failed to process file ${filePath}: ${error.message}`));
     }
+  }
+
+  private generateMockContentFor(filePath: string): string {
+    const name = basename(filePath).toLowerCase();
+    if (name.includes('live-demo')) {
+      return '# Live Demo\n\nsecurity vulnerability: SQL injection risk\n@@ diff hunk\n- const query = "SELECT * FROM users WHERE id = " + userInput\n+ const query = "SELECT * FROM users WHERE id = ?"';
+    }
+    if (name.includes('performance')) {
+      return '# Performance Review\n\noptimization: slow query detected\n@@ diff hunk\n- N+1 queries\n+ batched queries';
+    }
+    if (name.includes('refactor')) {
+      return '# Refactor Suggestions\n\nrefactor: cleanup and restructure';
+    }
+    if (name.includes('security')) {
+      return '# Security Review\n\nvulnerability: weak auth flow';
+    }
+    return '# General Review\n\nnotes: documentation update';
   }
 
   /**
@@ -280,7 +303,11 @@ class FileWatcher extends EventEmitter {
    * Generate a unique ID for a file
    */
   private generateFileId(filePath: string): string {
-    return Buffer.from(filePath).toString('base64').slice(0, 16);
+    try {
+      return btoa(unescape(encodeURIComponent(filePath))).slice(0, 16);
+    } catch {
+      return `file_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+    }
   }
 
   /**

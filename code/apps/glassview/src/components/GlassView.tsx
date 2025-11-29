@@ -16,16 +16,16 @@ import {
 import BackendAutomationService from '../services/BackendAutomationService';
 
 // Import components from our advanced library
-import { DataTable } from '../../../packages/code-block-library/src/components/tables/DataTable';
-import { Modal } from '../../../packages/code-block-library/src/components/modals/Modal';
-import { Drawer } from '../../../packages/code-block-library/src/components/modals/Drawer';
-import { Notification } from '../../../packages/code-block-library/src/components/modals/Notification';
-import { GridLayout } from '../../../packages/code-block-library/src/components/layouts/GridLayout';
-import { DashboardLayout } from '../../../packages/code-block-library/src/components/layouts/DashboardLayout';
-import { Navbar } from '../../../packages/code-block-library/src/components/navigation/Navbar';
-import { Sidebar } from '../../../packages/code-block-library/src/components/navigation/Sidebar';
-import { FormBuilder } from '../../../packages/code-block-library/src/components/forms/FormBuilder';
-import { LineChart } from '../../../packages/code-block-library/src/components/charts/LineChart';
+import { DataTable } from '@lib/tables/DataTable';
+import { Modal } from '@lib/modals/Modal';
+import { Drawer } from '@lib/modals/Drawer';
+import { Notification } from '@lib/modals/Notification';
+import { GridLayout } from '@lib/layouts/GridLayout';
+import { DashboardLayout } from '@lib/layouts/DashboardLayout';
+import { Navbar } from '@lib/navigation/Navbar';
+import { Sidebar } from '@lib/navigation/Sidebar';
+import { FormBuilder } from '@lib/forms/FormBuilder';
+import { LineChart } from '@lib/charts/LineChart';
 
 interface GlassViewProps {
   watchDirectory?: string;
@@ -123,6 +123,8 @@ const GlassView: React.FC<GlassViewProps> = ({
   /**
    * Start watching for review files
    */
+  const makeNotifId = () => `notif_${Date.now()}_${Math.random().toString(36).slice(2,6)}`;
+
   const startWatching = useCallback(async () => {
     try {
       setState(prev => ({ ...prev, isLoading: true, error: null }));
@@ -134,7 +136,7 @@ const GlassView: React.FC<GlassViewProps> = ({
         notifications: [
           ...prev.notifications,
           {
-            id: `notif_${Date.now()}`,
+            id: makeNotifId(),
             type: 'success',
             message: `Started watching ${watchDirectory}`,
             timestamp: new Date(),
@@ -149,7 +151,7 @@ const GlassView: React.FC<GlassViewProps> = ({
         notifications: [
           ...prev.notifications,
           {
-            id: `notif_${Date.now()}`,
+            id: makeNotifId(),
             type: 'error',
             message: `Failed to start watching: ${error.message}`,
             timestamp: new Date(),
@@ -170,7 +172,7 @@ const GlassView: React.FC<GlassViewProps> = ({
       notifications: [
         ...prev.notifications,
         {
-          id: `notif_${Date.now()}`,
+          id: makeNotifId(),
           type: 'info',
           message: 'Stopped watching for review files',
           timestamp: new Date(),
@@ -193,7 +195,7 @@ const GlassView: React.FC<GlassViewProps> = ({
       notifications: [
         ...prev.notifications,
         {
-          id: `notif_${Date.now()}`,
+          id: makeNotifId(),
           type: 'info',
           message: `New review file: ${file.fileName} (${triggers.length} triggers created)`,
           timestamp: new Date(),
@@ -212,7 +214,7 @@ const GlassView: React.FC<GlassViewProps> = ({
       notifications: [
         ...prev.notifications,
         {
-          id: `notif_${Date.now()}`,
+          id: makeNotifId(),
           type: 'info',
           message: `Review file updated: ${file.fileName}`,
           timestamp: new Date(),
@@ -229,7 +231,7 @@ const GlassView: React.FC<GlassViewProps> = ({
       notifications: [
         ...prev.notifications,
         {
-          id: `notif_${Date.now()}`,
+          id: makeNotifId(),
           type: 'warning',
           message: `Review file deleted: ${filePath}`,
           timestamp: new Date(),
@@ -249,7 +251,7 @@ const GlassView: React.FC<GlassViewProps> = ({
       notifications: [
         ...prev.notifications,
         {
-          id: `notif_${Date.now()}`,
+          id: makeNotifId(),
           type: 'error',
           message: `File watcher error: ${error.message}`,
           timestamp: new Date(),
@@ -271,7 +273,7 @@ const GlassView: React.FC<GlassViewProps> = ({
       notifications: [
         ...prev.notifications,
         {
-          id: `notif_${Date.now()}`,
+          id: makeNotifId(),
           type: 'info',
           message: `Executing: ${trigger.label}`,
           timestamp: new Date(),
@@ -289,7 +291,7 @@ const GlassView: React.FC<GlassViewProps> = ({
       notifications: [
         ...prev.notifications,
         {
-          id: `notif_${Date.now()}`,
+          id: makeNotifId(),
           type: 'success',
           message: `Completed: ${trigger.label}`,
           timestamp: new Date(),
@@ -328,7 +330,7 @@ const GlassView: React.FC<GlassViewProps> = ({
         notifications: [
           ...prev.notifications,
           {
-            id: `notif_${Date.now()}`,
+            id: makeNotifId(),
             type: 'error',
             message: `Trigger execution failed: ${error.message}`,
             timestamp: new Date(),
@@ -393,15 +395,17 @@ const GlassView: React.FC<GlassViewProps> = ({
       ),
     }));
 
-  const activityChartData = {
-    labels: state.notifications.slice(-10).map((_, i) => `${i + 1}`),
-    datasets: [{
-      label: 'Activity',
-      data: state.notifications.slice(-10).map(() => Math.floor(Math.random() * 100)),
-      borderColor: 'rgb(59, 130, 246)',
-      backgroundColor: 'rgba(59, 130, 246, 0.1)',
-    }]
-  };
+  const basePoints = state.notifications.slice(-10).map((n, i) => ({ x: i + 1, y: i + 1, label: n.message }));
+  const safePoints = basePoints.length >= 2 
+    ? basePoints 
+    : basePoints.concat({ x: (basePoints[0]?.x ?? 1) + 1, y: (basePoints[0]?.y ?? 1) + 1, label: 'baseline' });
+  const activitySeries = [
+    {
+      name: 'Activity',
+      color: '#3b82f6',
+      data: safePoints,
+    }
+  ];
 
   const sidebarMenuItems = [
     { 
@@ -464,40 +468,44 @@ const GlassView: React.FC<GlassViewProps> = ({
 
         {/* Main Content */}
         <main className="flex-1">
-          <DashboardLayout
-            header={
-              <div className="p-6">
-                <h1 className="text-2xl font-bold mb-2">
-                  GlassView Code Review Monitor
-                </h1>
-                <p className="text-gray-600">
-                  Watching: {watchDirectory} | Status: {state.isWatching ? '🟢 Active' : '🔴 Inactive'}
-                </p>
-              </div>
-            }
-            content={
-              <div className="p-6 space-y-6">
-                {/* Activity Chart */}
-                <div className="bg-white rounded-lg shadow p-6">
-                  <h2 className="text-lg font-semibold mb-4">Activity Overview</h2>
-                  <LineChart
-                    data={activityChartData}
-                    options={{
-                      responsive: true,
-                      plugins: {
-                        legend: { display: false },
-                      },
-                      scales: {
-                        y: { beginAtZero: true },
-                      },
-                    }}
-                    className="h-64"
-                  />
-                </div>
+          <div className="p-6">
+            <h1 className="text-2xl font-bold mb-2">
+              GlassView Code Review Monitor
+            </h1>
+            <p className="text-gray-600">
+              Watching: {watchDirectory} | Status: {state.isWatching ? '🟢 Active' : '🔴 Inactive'}
+            </p>
+          </div>
 
-                {/* Reviews Table */}
-                <div className="bg-white rounded-lg shadow p-6">
-                  <h2 className="text-lg font-semibold mb-4">Review Files</h2>
+          <DashboardLayout
+            widgets={[
+              {
+                id: 'activity',
+                title: 'Activity Overview',
+                x: 0,
+                y: 0,
+                width: 6,
+                height: 3,
+                content: (
+                  <div className="h-full">
+                    <LineChart
+                      series={activitySeries}
+                      width={800}
+                      height={300}
+                      showLegend={false}
+                      className="h-64"
+                    />
+                  </div>
+                ),
+              },
+              {
+                id: 'reviews',
+                title: 'Review Files',
+                x: 0,
+                y: 3,
+                width: 12,
+                height: 4,
+                content: (
                   <DataTable
                     data={reviewTableData}
                     columns={[
@@ -506,19 +514,35 @@ const GlassView: React.FC<GlassViewProps> = ({
                       { key: 'priority', header: 'Priority', sortable: true },
                       { key: 'status', header: 'Status', sortable: true },
                       { key: 'hunks', header: 'Code Hunks', sortable: true },
-                      { key: 'actions', header: 'Actions', sortable: false },
+                      {
+                        key: 'actions',
+                        header: 'Actions',
+                        sortable: false,
+                        render: (_value, row) => (
+                          <div className="flex gap-2">
+                            <button 
+                              className="px-3 py-1 bg-blue-500 text-white rounded text-sm hover:bg-blue-600"
+                              onClick={(e) => { e.stopPropagation(); const r = state.parsedReviews.find(pr => pr.id === row.id); if (r) openReviewDetails(r); }}
+                            >
+                              View
+                            </button>
+                          </div>
+                        )
+                      },
                     ]}
                     searchable
-                    pagination={{
-                      pageSize: 10,
-                      showSizeSelector: true,
-                    }}
+                    pagination={{ pageSize: 10, showSizeSelector: true }}
                   />
-                </div>
-
-                {/* Active Triggers */}
-                <div className="bg-white rounded-lg shadow p-6">
-                  <h2 className="text-lg font-semibold mb-4">Active Triggers</h2>
+                ),
+              },
+              {
+                id: 'triggers',
+                title: 'Active Triggers',
+                x: 6,
+                y: 0,
+                width: 6,
+                height: 3,
+                content: (
                   <DataTable
                     data={triggerTableData}
                     columns={[
@@ -527,14 +551,37 @@ const GlassView: React.FC<GlassViewProps> = ({
                       { key: 'type', header: 'Type', sortable: true },
                       { key: 'priority', header: 'Priority', sortable: true },
                       { key: 'status', header: 'Status', sortable: true },
-                      { key: 'actions', header: 'Actions', sortable: false },
+                      {
+                        key: 'actions',
+                        header: 'Actions',
+                        sortable: false,
+                        render: (_value, row) => (
+                          <div className="flex gap-2">
+                            {row.status === 'pending' ? (
+                              <button 
+                                className="px-3 py-1 bg-green-500 hover:bg-green-600 text-white rounded text-sm"
+                                onClick={(e) => { e.stopPropagation(); executeTrigger(row.id); }}
+                              >
+                                Execute
+                              </button>
+                            ) : (
+                              <button 
+                                className="px-3 py-1 bg-gray-200 text-gray-700 rounded text-sm"
+                                onClick={(e) => { e.stopPropagation(); const t = state.activeTriggers.find(t => t.id === row.id); if (t) openTriggerDetails(t); }}
+                              >
+                                View
+                              </button>
+                            )}
+                          </div>
+                        )
+                      },
                     ]}
                     searchable
                     emptyMessage="No active triggers"
                   />
-                </div>
-              </div>
-            }
+                ),
+              },
+            ]}
             className={theme === 'dark' ? 'bg-gray-900' : 'bg-gray-50'}
           />
         </main>
@@ -642,17 +689,18 @@ const GlassView: React.FC<GlassViewProps> = ({
       </Drawer>
 
       {/* Notifications */}
-      <div className="fixed top-20 right-4 space-y-2 max-w-sm">
-        {state.notifications.slice(-3).map((notification) => (
-          <Notification
-            key={notification.id}
-            type={notification.type}
-            message={notification.message}
-            onClose={() => dismissNotification(notification.id)}
-            duration={5000}
-          />
-        ))}
-      </div>
+      <Notification
+        notifications={state.notifications.map(n => ({
+          id: n.id,
+          type: n.type,
+          title: undefined,
+          message: n.message,
+          duration: 5000,
+        }))}
+        onRemove={(id) => dismissNotification(id)}
+        position="top-right"
+        maxVisible={3}
+      />
 
       {/* Loading Overlay */}
       {state.isLoading && (

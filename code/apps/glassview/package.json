@@ -15,11 +15,14 @@
     "test:coverage": "jest --coverage"
   },
   "dependencies": {
+    "eventemitter3": "^5.0.1",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "chart.js": "^4.4.0",
     "react-chartjs-2": "^5.2.0",
-    "@code-block-library/components": "workspace:*"
+    "@optimandoai/code-block-library": "file:../../packages/code-block-library",
+    "@shared/core": "file:../../packages/shared",
+    "@shared/extension": "file:../../packages/shared-extension"
   },
   "devDependencies": {
     "@types/react": "^18.2.43",
