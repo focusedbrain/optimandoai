@@ -12,8 +12,8 @@
   ],
   "extraResources": [
     {
-      "from": "resources/ollama/${os}",
-      "to": "ollama",
+      "from": "licenses",
+      "to": "licenses",
       "filter": ["**/*"]
     }
   ],
@@ -24,7 +24,6 @@
         "arch": ["x64"]
       }
     ],
-    "icon": "build/icon.ico",
     "artifactName": "${productName}-${version}-Setup.${ext}"
   },
   "mac": {
@@ -34,12 +33,9 @@
         "arch": ["x64", "arm64"]
       }
     ],
-    "icon": "build/icon.icns",
     "category": "public.app-category.productivity",
     "hardenedRuntime": true,
-    "gatekeeperAssess": false,
-    "entitlements": "build/entitlements.mac.plist",
-    "entitlementsInherit": "build/entitlements.mac.plist"
+    "gatekeeperAssess": false
   },
   "linux": {
     "target": [
@@ -48,7 +44,6 @@
         "arch": ["x64"]
       }
     ],
-    "icon": "build/icon.png",
     "category": "Development"
   },
   "nsis": {
@@ -56,12 +51,10 @@
     "allowToChangeInstallationDirectory": true,
     "createDesktopShortcut": true,
     "createStartMenuShortcut": true,
-    "installerIcon": "build/icon.ico",
-    "uninstallerIcon": "build/icon.ico",
     "shortcutName": "OpenGiraffe",
     "perMachine": false,
     "runAfterFinish": true,
-    "license": "LICENSE"
+    "include": "build/installer.nsh"
   },
   "dmg": {
     "contents": [
@@ -89,4 +82,5 @@
     "resources/**/*"
   ]
 }
+
 

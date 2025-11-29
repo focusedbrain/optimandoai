@@ -25,6 +25,7 @@
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "simple-git": "^3.30.0",
+    "tesseract.js": "^5.1.1",
     "zod": "^3.22.4"
   },
   "devDependencies": {

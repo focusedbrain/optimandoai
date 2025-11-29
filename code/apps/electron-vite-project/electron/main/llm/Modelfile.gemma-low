@@ -1,0 +1,20 @@
+FROM gemma:2b
+
+PARAMETER num_ctx 2048
+PARAMETER num_batch 32
+PARAMETER num_threads 4
+PARAMETER temperature 0.7
+
+SYSTEM You are a helpful AI assistant optimized for low-resource systems.
+
+
+
+
+
+
+
+
+
+
+
+

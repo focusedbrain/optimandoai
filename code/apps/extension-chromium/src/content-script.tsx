@@ -466,7 +466,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         session.agentBoxes = session.agentBoxes.filter((b: any) => b.identifier !== agentBox.identifier)
         session.agentBoxes.push(agentBox)
         
-        storageSet({ [currentSessionKey]: session }, () => {
+        ensureSessionInHistory(currentSessionKey, session, () => {
           console.log('✅ Agent box saved to session:', agentBox.identifier)
           
           // Notify sidepanel
@@ -866,8 +866,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       console.log('✅ Removed from currentTabData, remaining:', currentTabData.agentBoxes.length)
 
       // Save to localStorage for immediate UI persistence
-
-      localStorage.setItem(`optimando-tab-${tabId}`, JSON.stringify(currentTabData))
+      try {
+        localStorage.setItem(`optimando-tab-${tabId}`, JSON.stringify(currentTabData))
+      } catch (e) {
+        console.warn('⚠️ Could not save to localStorage:', e)
+      }
 
       // Get session key and delete from SQLite
 
@@ -2470,6 +2473,15 @@ function initializeExtension() {
     // Persist across navigations
 
     writeOptimandoState({ sessionKey: key })
+    
+    // Also write to chrome.storage.local so sidepanel can listen for session changes
+    try {
+      chrome.storage?.local?.set({ 'optimando-active-session-key': key }, () => {
+        console.log('✅ Active session key saved to chrome.storage:', key)
+      })
+    } catch (e) {
+      console.error('❌ Failed to save session key to chrome.storage:', e)
+    }
 
   }
 
@@ -2497,7 +2509,23 @@ function initializeExtension() {
 
         storageGet([sessionKeyFromUrl], (all:any) => {
 
+          console.log('🔍 DEBUG LOAD FROM URL: Raw storage result:', all)
+
           const session = (all && all[sessionKeyFromUrl]) || {}
+
+          console.log('🔍 DEBUG LOAD FROM URL: Parsed session:', {
+            hasAgents: !!session.agents,
+            agentsCount: session.agents?.length || 0,
+            hasAgentBoxes: !!session.agentBoxes,
+            agentBoxesCount: session.agentBoxes?.length || 0,
+            agents: session.agents?.map((a: any) => ({
+              key: a.key,
+              name: a.name,
+              enabled: a.enabled,
+              hasConfig: !!a.config,
+              configKeys: a.config ? Object.keys(a.config) : []
+            }))
+          })
 
           // Ensure session has all required fields
 
@@ -2514,6 +2542,33 @@ function initializeExtension() {
           if (!session.hiddenBuiltins) session.hiddenBuiltins = []
 
           if (!session.timestamp) session.timestamp = new Date().toISOString()
+
+          // CRITICAL: Transform agents from orchestrator format to internal format on load
+          if (session.agents && Array.isArray(session.agents)) {
+            session.agents = session.agents.map((a: any) => {
+              if (a.key) return a; // Already in internal format
+              
+              // Transform from orchestrator format
+              const sanitizedKey = a.name ? a.name.toLowerCase().replace(/[^a-z0-9]/g, '') : `agent${a.number || 1}`;
+              console.log(`[TRACE LOAD] Transforming agent on load: ${a.agent_id || a.name} -> key: ${sanitizedKey}`);
+              
+              return {
+                ...a,
+                key: sanitizedKey,
+                agent_id: undefined
+              };
+            });
+          }
+
+          console.log('🔍 DEBUG LOAD FROM URL: After transform:', {
+            agentsCount: session.agents?.length || 0,
+            agents: session.agents?.map((a: any) => ({
+              key: a.key,
+              name: a.name,
+              enabled: a.enabled,
+              hasConfig: !!a.config
+            }))
+          })
 
           
 
@@ -2572,7 +2627,31 @@ function initializeExtension() {
 
         storageGet([existingKey], (all:any) => {
 
+          console.log('🔍 DEBUG LOAD EXISTING: Raw storage result:', all)
+
           const session = (all && all[existingKey]) || {}
+
+          console.log('🔍 DEBUG LOAD EXISTING: Parsed session:', {
+            key: existingKey,
+            hasAgents: !!session.agents,
+            agentsCount: session.agents?.length || 0,
+            hasAgentBoxes: !!session.agentBoxes,
+            agentBoxesCount: session.agentBoxes?.length || 0,
+            agents: session.agents?.map((a: any) => ({
+              key: a.key,
+              name: a.name,
+              enabled: a.enabled,
+              number: a.number,
+              hasConfig: !!a.config,
+              configKeys: a.config ? Object.keys(a.config) : [],
+              configInstructions: a.config?.instructions ? (typeof a.config.instructions === 'string' ? 'STRING' : 'OBJECT') : 'NONE'
+            })),
+            agentBoxes: session.agentBoxes?.map((b: any) => ({
+              boxNumber: b.boxNumber,
+              agentNumber: b.agentNumber,
+              title: b.title
+            }))
+          })
 
           // Ensure session has all required fields
 
@@ -2588,7 +2667,39 @@ function initializeExtension() {
 
           if (!session.hiddenBuiltins) session.hiddenBuiltins = []
 
+          // CRITICAL: Transform agents from orchestrator format to internal format on load
+          if (session.agents && Array.isArray(session.agents)) {
+            session.agents = session.agents.map((a: any) => {
+              if (a.key) return a; // Already in internal format
+              
+              // Transform from orchestrator format
+              const sanitizedKey = a.name ? a.name.toLowerCase().replace(/[^a-z0-9]/g, '') : `agent${a.number || 1}`;
+              console.log(`[TRACE LOAD] Transforming agent on load: ${a.agent_id || a.name} -> key: ${sanitizedKey}`);
+              
+              return {
+                ...a,
+                key: sanitizedKey,
+                agent_id: undefined
+              };
+            });
+          }
+
+          console.log('🔍 DEBUG LOAD EXISTING: After transform:', {
+            agentsCount: session.agents?.length || 0,
+            agents: session.agents?.map((a: any) => ({
+              key: a.key,
+              name: a.name,
+              enabled: a.enabled,
+              hasConfig: !!a.config
+            }))
+          })
+
           if (!session.timestamp) session.timestamp = new Date().toISOString()
+
+          console.log('🔍 DEBUG LOAD EXISTING: Final session before callback:', {
+            agentsCount: session.agents?.length || 0,
+            agentBoxesCount: session.agentBoxes?.length || 0
+          })
 
           cb(existingKey, session)
 
@@ -2647,6 +2758,28 @@ function initializeExtension() {
   function ensureSessionInHistory(sessionKey: string, sessionData: any, callback?: () => void) {
 
     // Ensure the session has all required fields for session history
+    console.log('[TRACE] ensureSessionInHistory called for:', sessionKey);
+    console.log('[TRACE] Input agents:', sessionData.agents);
+
+    // Transform agents from orchestrator format to internal format if needed
+    let transformedAgents = (sessionData.agents || []).map((a: any) => {
+      // Check if agent has a key (internal format)
+      if (a.key) {
+        return a;
+      }
+      
+      // Transform from orchestrator format (agent_id) to internal format (key)
+      const sanitizedKey = a.name ? a.name.toLowerCase().replace(/[^a-z0-9]/g, '') : `agent${a.number || 1}`;
+      console.log(`[TRACE] Transforming agent: ${a.agent_id || a.name} -> key: ${sanitizedKey}`);
+      
+      return {
+        ...a,
+        key: sanitizedKey,
+        agent_id: undefined // Remove orchestrator format field
+      };
+    });
+    
+    console.log('[TRACE] Transformed agents:', transformedAgents);
 
     const completeSessionData = {
 
@@ -2664,11 +2797,26 @@ function initializeExtension() {
 
       customAgents: sessionData.customAgents || [],
 
-      hiddenBuiltins: sessionData.hiddenBuiltins || []
+      hiddenBuiltins: sessionData.hiddenBuiltins || [],
+      
+      agents: transformedAgents // ← CRITICAL: Include transformed agents array
 
     }
 
-    
+    console.log('[TRACE] Complete session data to save:', { 
+      key: sessionKey, 
+      agentCount: completeSessionData.agents.length,
+      agents: completeSessionData.agents.map((a: any) => ({ 
+        key: a.key, 
+        name: a.name, 
+        enabled: a.enabled,
+        hasConfig: !!a.config,
+        configKeys: a.config ? Object.keys(a.config) : [],
+        hasInstructions: !!a.config?.instructions,
+        instructionsType: a.config?.instructions ? typeof a.config.instructions : 'none',
+        instructionsLength: a.config?.instructions ? (typeof a.config.instructions === 'string' ? a.config.instructions.length : JSON.stringify(a.config.instructions).length) : 0
+      }))
+    });
 
     storageSet({ [sessionKey]: completeSessionData }, () => {
 
@@ -2679,6 +2827,7 @@ function initializeExtension() {
       } else {
 
         console.log('✅ Session saved to history:', sessionKey, completeSessionData.tabName)
+        console.log('[TRACE] Saved agents:', completeSessionData.agents.length);
 
       }
 
@@ -3222,57 +3371,11 @@ function initializeExtension() {
 
         
 
-        // 🆕 ALSO include agents from agentBoxes (display grid, hybrid agents, etc.)
+        // NOTE: We no longer convert agentBoxes to agents here because agent shells
 
-        const agentBoxes = session.agentBoxes || []
+        // are auto-created in background.ts when agent boxes are saved.
 
-        const agentBoxAgents = agentBoxes.map((box: any) => {
-
-          // Convert agent box to agent format
-
-          return {
-
-            key: box.identifier || `agent_${box.boxNumber}_${box.agentNumber}`,
-
-            name: box.title || `Agent ${box.agentNumber}`,
-
-            icon: '📊', // Display grid icon
-
-            number: box.agentNumber || box.boxNumber,
-
-            scope: 'session',
-
-            kind: 'custom',
-
-            source: box.source || 'display_grid',
-
-            provider: box.provider,
-
-            model: box.model,
-
-            locationLabel: box.locationLabel,
-
-            locationId: box.locationId,
-
-            gridSessionId: box.gridSessionId,
-
-            slotId: box.slotId
-
-          }
-
-        })
-
-        
-
-        agentBoxAgents.forEach((a: any) => {
-
-          if (!agentMap.has(a.key)) {
-
-            agentMap.set(a.key, a)
-
-          }
-
-        })
+        // This prevents duplicate agents from appearing.
 
         
 
@@ -3304,15 +3407,13 @@ function initializeExtension() {
 
         
 
-        console.log(`🔄 getAllAgentsForSession: Merging ${accountAgents.length} account + ${sessionAgents.length} session + ${agentBoxAgents.length} agentBox agents`)
+        console.log(`🔄 getAllAgentsForSession: Merging ${accountAgents.length} account + ${sessionAgents.length} session agents (agentBox conversion removed to prevent duplicates)`)
 
         console.log(`   Account agents:`, accountAgents.map((a: any) => `${a.name} (${a.key}, scope: ${a.scope})`))
 
         console.log(`   Session agents:`, sessionAgents.map((a: any) => `${a.name} (${a.key}, scope: ${a.scope})`))
 
-        console.log(`   AgentBox agents:`, agentBoxAgents.map((a: any) => `${a.name} (${a.key}, source: ${a.source})`))
-
-        console.log(`   Duplicates found and removed: ${(accountAgents.length + sessionAgents.length + agentBoxAgents.length) - allAgents.length}`)
+        console.log(`   Duplicates found and removed: ${(accountAgents.length + sessionAgents.length) - allAgents.length}`)
 
         console.log(`   Final unique agents (${allAgents.length}):`, allAgents.map((a: any) => `${a.name} (${a.key}, scope: ${a.scope})`))
 
@@ -3368,7 +3469,7 @@ function initializeExtension() {
 
           saveAccountAgents(accountAgents, () => {
 
-            storageSet({ [activeKey]: session }, () => {
+            ensureSessionInHistory(activeKey, session, () => {
 
               console.log('✅ Agent moved to Account scope:', agentKey)
 
@@ -3460,7 +3561,7 @@ function initializeExtension() {
 
           saveAccountAgents(updatedAccountAgents, () => {
 
-              storageSet({ [targetSessionKey]: targetSession }, () => {
+              ensureSessionInHistory(targetSessionKey, targetSession, () => {
 
                 console.log(`✅ Agent moved to Session scope in session: ${targetSessionKey}`)
 
@@ -3534,7 +3635,7 @@ function initializeExtension() {
 
         session.timestamp = new Date().toISOString()
 
-        storageSet({ [activeKey]: session }, () => {
+        ensureSessionInHistory(activeKey, session, () => {
 
           console.log('✅ Platform preference saved for session agent:', agentKey)
 
@@ -3627,6 +3728,10 @@ function initializeExtension() {
           if (!agent.config) agent.config = {}
 
           agent.config[configType] = configData
+          
+          // 🔥 CRITICAL: Enable agent when user saves configuration
+          agent.enabled = true
+          console.log(`✅ Enabled agent "${agentKey}" after configuration save`)
 
           s.timestamp = new Date().toISOString()
 
@@ -3646,7 +3751,7 @@ function initializeExtension() {
 
           
 
-          storageSet({ [activeKey]: s }, () => {
+          ensureSessionInHistory(activeKey, s, () => {
 
             if (chrome.runtime.lastError) {
 
@@ -3870,7 +3975,7 @@ function initializeExtension() {
 
             <h4 style="margin: 0 0 8px 0; font-size: 12px; color: #FFFFFF; font-weight: bold;">Agent ${num} — ${a.name || 'Agent'}</h4>
 
-              <button class="agent-toggle" data-agent-key="${a.key}" style="padding: 4px 8px; background: #f44336; border: none; color: white; border-radius: 3px; cursor: pointer; font-size: 9px; margin-bottom: 4px;">OFF</button>
+              <button class="agent-toggle" data-agent-key="${a.key}" style="padding: 4px 8px; background: ${a.enabled ? '#4CAF50' : '#f44336'}; border: none; color: white; border-radius: 3px; cursor: pointer; font-size: 9px; margin-bottom: 4px;">${a.enabled ? 'ON' : 'OFF'}</button>
 
               
 
@@ -3920,7 +4025,7 @@ function initializeExtension() {
 
             <div style="display: flex; justify-content: center; gap: 6px; margin-top: 10px;">
 
-              <button class="lightbox-btn" data-agent="${a.key}" data-scope="${a.scope || 'session'}" data-type="instructions" style="background: rgba(255,255,255,0.2); border: none; color: white; padding: 6px 8px; border-radius: 5px; cursor: pointer; font-size: 10px; display: flex; flex-direction: column; align-items: center; gap: 2px; min-width: 50px;" title="AI Instructions">
+              <button class="lightbox-btn" data-agent="${a.key}" data-scope="${a.scope || 'session'}" data-type="instructions" data-number="${a.number || ''}" style="background: rgba(255,255,255,0.2); border: none; color: white; padding: 6px 8px; border-radius: 5px; cursor: pointer; font-size: 10px; display: flex; flex-direction: column; align-items: center; gap: 2px; min-width: 50px;" title="AI Instructions">
 
                 <span style="font-size: 14px;">📋</span>
 
@@ -3928,7 +4033,7 @@ function initializeExtension() {
 
               </button>
 
-              <button class="memory-btn" data-agent="${a.key}" data-scope="${a.scope || 'session'}" style="background: rgba(255,255,255,0.2); border: none; color: white; padding: 6px 8px; border-radius: 5px; cursor: pointer; font-size: 10px; display: flex; flex-direction: column; align-items: center; gap: 2px; min-width: 50px;" title="Agent Memory">
+              <button class="memory-btn" data-agent="${a.key}" data-scope="${a.scope || 'session'}" data-number="${a.number || ''}" style="background: rgba(255,255,255,0.2); border: none; color: white; padding: 6px 8px; border-radius: 5px; cursor: pointer; font-size: 10px; display: flex; flex-direction: column; align-items: center; gap: 2px; min-width: 50px;" title="Agent Memory">
 
                 <span style="font-size: 14px;">🧠</span>
 
@@ -3936,7 +4041,7 @@ function initializeExtension() {
 
               </button>
 
-              <button class="lightbox-btn" data-agent="${a.key}" data-scope="${a.scope || 'session'}" data-type="settings" style="background: rgba(255,255,255,0.2); border: none; color: white; padding: 6px 8px; border-radius: 5px; cursor: pointer; font-size: 10px; display: flex; flex-direction: column; align-items: center; gap: 2px; min-width: 50px;" title="Agent Settings">
+              <button class="lightbox-btn" data-agent="${a.key}" data-scope="${a.scope || 'session'}" data-type="settings" data-number="${a.number || ''}" style="background: rgba(255,255,255,0.2); border: none; color: white; padding: 6px 8px; border-radius: 5px; cursor: pointer; font-size: 10px; display: flex; flex-direction: column; align-items: center; gap: 2px; min-width: 50px;" title="Agent Settings">
 
                 <span style="font-size: 14px;">⚙️</span>
 
@@ -3952,17 +4057,29 @@ function initializeExtension() {
 
             
 
-            // ON/OFF toggle
-
+            // ON/OFF toggle with persistence
           const toggle = card.querySelector('.agent-toggle') as HTMLElement | null
 
           toggle?.addEventListener('click', () => {
 
+            const agentKey = toggle.getAttribute('data-agent-key')
             const isOn = toggle.textContent === 'ON'
+            const newEnabled = !isOn
 
-            toggle.textContent = isOn ? 'OFF' : 'ON'
+            // Update UI immediately
+            toggle.textContent = newEnabled ? 'ON' : 'OFF'
+            toggle.style.background = newEnabled ? '#4CAF50' : '#f44336'
 
-            toggle.style.background = isOn ? '#f44336' : '#4CAF50'
+            // Persist to storage
+            ensureActiveSession((activeKey: string, session: any) => {
+              const agent = session.agents?.find((ag: any) => ag.key === agentKey)
+              if (agent) {
+                agent.enabled = newEnabled
+                ensureSessionInHistory(activeKey, session, () => {
+                  console.log(`✅ Agent ${agentKey} ${newEnabled ? 'enabled' : 'disabled'}`)
+                })
+              }
+            })
 
           })
 
@@ -4054,7 +4171,7 @@ function initializeExtension() {
 
               console.log(`   Full agent object:`, a)
 
-              openAgentConfigDialog(agentKey, t, overlay, agentScope)
+              openAgentConfigDialog(agentKey, t, overlay, agentScope, a.number)
 
             })
 
@@ -4105,38 +4222,84 @@ function initializeExtension() {
   }
 
   function saveTabDataToStorage() {
+    const saveToLocalStorage = () => {
+      try {
+        // Save to localStorage for immediate UI persistence across page reloads
+        localStorage.setItem(`optimando-tab-${tabId}`, JSON.stringify(currentTabData))
 
-    // Save to localStorage for immediate UI persistence across page reloads
-    localStorage.setItem(`optimando-tab-${tabId}`, JSON.stringify(currentTabData))
+        // Also save agent boxes configuration with URL-based key for persistence across page reloads
+        const currentUrl = window.location.href.split('?')[0]
+        const urlKey = `optimando-agentboxes-${btoa(currentUrl).substring(0, 20)}`
+        localStorage.setItem(urlKey, JSON.stringify({
+          agentBoxes: currentTabData.agentBoxes,
+          agentBoxHeights: currentTabData.agentBoxHeights,
+          timestamp: new Date().toISOString()
+        }))
+        console.log('🔧 Saved agent boxes to localStorage for UI persistence')
+      } catch (e: any) {
+        if (e.name === 'QuotaExceededError' || e.code === 22) {
+          console.warn('⚠️ LocalStorage quota exceeded, cleaning up old data...')
+          cleanupOldLocalStorageData()
+          // Try once more after cleanup
+          try {
+            localStorage.setItem(`optimando-tab-${tabId}`, JSON.stringify(currentTabData))
+            console.log('✅ Saved after cleanup')
+          } catch (e2) {
+            console.error('❌ Still cannot save to localStorage after cleanup:', e2)
+          }
+        } else {
+          console.error('❌ Error saving to localStorage:', e)
+        }
+      }
+    }
 
-    
-
-    // Also save agent boxes configuration with URL-based key for persistence across page reloads
-
-    const currentUrl = window.location.href.split('?')[0]
-
-    const urlKey = `optimando-agentboxes-${btoa(currentUrl).substring(0, 20)}`
-
-    localStorage.setItem(urlKey, JSON.stringify({
-
-      agentBoxes: currentTabData.agentBoxes,
-
-      agentBoxHeights: currentTabData.agentBoxHeights,
-
-      timestamp: new Date().toISOString()
-
-    }))
-
-    console.log('🔧 Saved agent boxes to localStorage for UI persistence')
-
-    
+    saveToLocalStorage()
 
     // NOTE: SQLite sync is NOT done here automatically
     // SQLite is only updated through explicit operations:
     // - SAVE_AGENT_BOX_TO_SQLITE (when creating/updating individual boxes)
     // - DELETE_AGENT_BOX_FROM_SQLITE (when deleting boxes)
     // This prevents stale data from being re-synced to SQLite
+  }
 
+  // Helper function to clean up old localStorage data when quota is exceeded
+  function cleanupOldLocalStorageData() {
+    console.log('🧹 Cleaning up old localStorage data...')
+    const keysToRemove: string[] = []
+    const now = Date.now()
+    const oneWeekAgo = now - (7 * 24 * 60 * 60 * 1000)
+
+    // Find old optimando keys to remove
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i)
+      if (key && (key.startsWith('optimando-tab-') || key.startsWith('optimando-agentboxes-') || key.startsWith('agent_') && key.includes('_draft_'))) {
+        // Don't remove current tab's data
+        if (key === `optimando-tab-${tabId}`) continue
+        
+        try {
+          const data = localStorage.getItem(key)
+          if (data) {
+            const parsed = JSON.parse(data)
+            const timestamp = parsed.timestamp ? new Date(parsed.timestamp).getTime() : 0
+            // Remove data older than 1 week or data without timestamp
+            if (!timestamp || timestamp < oneWeekAgo) {
+              keysToRemove.push(key)
+            }
+          }
+        } catch {
+          // If we can't parse it, mark for removal
+          keysToRemove.push(key)
+        }
+      }
+    }
+
+    // Remove old keys
+    keysToRemove.forEach(key => {
+      localStorage.removeItem(key)
+      console.log(`  🗑️ Removed old key: ${key}`)
+    })
+
+    console.log(`🧹 Cleaned up ${keysToRemove.length} old localStorage entries`)
   }
 
   function loadTabDataFromStorage() {
@@ -5190,8 +5353,12 @@ function initializeExtension() {
     
 
     // Save to localStorage for immediate UI persistence
-    localStorage.setItem(`optimando-tab-${tabId}`, JSON.stringify(currentTabData))
-    console.log('💾💾💾 Saved to localStorage')
+    try {
+      localStorage.setItem(`optimando-tab-${tabId}`, JSON.stringify(currentTabData))
+      console.log('💾💾💾 Saved to localStorage')
+    } catch (e) {
+      console.warn('⚠️ Could not save to localStorage:', e)
+    }
 
     renderAgentBoxes()
     console.log('🎨🎨🎨 UI re-rendered')
@@ -5292,8 +5459,12 @@ function initializeExtension() {
     console.log('✅✅✅ Removed from currentTabData, remaining:', currentTabData.agentBoxes.length)
 
     // Save to localStorage
-    localStorage.setItem(`optimando-tab-${tabId}`, JSON.stringify(currentTabData))
-    console.log('💾💾💾 Saved to localStorage')
+    try {
+      localStorage.setItem(`optimando-tab-${tabId}`, JSON.stringify(currentTabData))
+      console.log('💾💾💾 Saved to localStorage')
+    } catch (e) {
+      console.warn('⚠️ Could not save to localStorage:', e)
+    }
 
     // Delete from SQLite database
     const sessionKey = getCurrentSessionKey()
@@ -5587,6 +5758,8 @@ function initializeExtension() {
 
               <option value="Grok">Grok</option>
 
+              <option value="Local AI">Local AI</option>
+
             </select>
 
           </div>
@@ -5678,6 +5851,8 @@ function initializeExtension() {
         case 'gemini': return ['auto', 'gemini-1.5-flash', 'gemini-1.5-pro']
 
         case 'grok': return ['auto', 'grok-2-mini', 'grok-2']
+
+        case 'local ai': return ['auto', 'tinyllama', 'tinydolphin', 'stablelm2:1.6b', 'stablelm-zephyr:3b', 'phi3:mini', 'gemma:2b', 'phi:2.7b', 'orca-mini', 'qwen2.5-coder:1.5b', 'deepseek-r1:1.5b', 'mistral:7b-instruct-q4_0', 'llama3.2', 'qwen2.5-coder:7b']
 
         default: return ['auto']
 
@@ -5988,7 +6163,11 @@ function initializeExtension() {
       currentTabData.agentBoxes.push(newBox)
 
       // Save to localStorage for immediate UI persistence
-      localStorage.setItem(`optimando-tab-${tabId}`, JSON.stringify(currentTabData))
+      try {
+        localStorage.setItem(`optimando-tab-${tabId}`, JSON.stringify(currentTabData))
+      } catch (e) {
+        console.warn('⚠️ Could not save to localStorage:', e)
+      }
 
       renderAgentBoxes()
 
@@ -9955,6 +10134,911 @@ function initializeExtension() {
 
   
 
+  // System Tab Wiring Logic Generators
+
+  function generateInputCoordinatorText(agents: any[]): string {
+
+    let text = '=== INPUT COORDINATOR - MULTIMODAL INPUT ROUTING ===\n\n'
+
+    text += 'Shows how multimodal inputs (DOM, uploads, screenshots, etc.) flow through each agent.\n'
+
+    text += 'Displays ALL configured settings from the AI Agent setup forms.\n\n'
+
+    // Add routing rules explanation
+    text += '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n'
+    text += 'ROUTING RULES (Input Coordinator)\n'
+    text += '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n'
+    text += '1. Active Trigger Match (#tag or @trigger) → Forward to agent\n'
+    text += '2. Passive Trigger Pattern Matched → Forward to agent\n'
+    text += '3. No Listener Active on Agent → ALWAYS forward to reasoning\n'
+    text += '4. No Match at All → Butler response only\n\n'
+    text += 'Flow: WR Chat → Butler (immediate) → Input Coordinator → Agent(s)\n'
+    text += '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n'
+
+    
+
+    if (agents.length === 0) {
+
+      return text + 'No agents configured in this session.\n'
+
+    }
+
+    
+
+    agents.forEach((agent, idx) => {
+
+      const num = String(idx + 1).padStart(2, '0')
+
+      const name = agent.name || agent.key || `Agent${num}`
+
+      
+
+      // Parse agent.config.instructions if it's a string
+
+      let agentData = agent
+
+      if (agent.config?.instructions) {
+
+        try {
+
+          const parsed = typeof agent.config.instructions === 'string' 
+
+            ? JSON.parse(agent.config.instructions) 
+
+            : agent.config.instructions
+
+          // Merge parsed config into agent data
+
+          agentData = { ...agent, ...parsed }
+
+        } catch (e) {
+
+          console.error('Failed to parse agent config:', e)
+
+        }
+
+      }
+
+      
+
+      text += `\n━━━ Agent ${num}: ${name} ━━━\n`
+
+      text += `Enabled: ${agentData.enabled ? '✓ YES' : '✗ NO'}\n`
+
+      text += `Icon: ${agentData.icon || '🤖'}\n\n`
+
+      
+
+      // Listener Section Analysis (COMPLETE)
+
+      const hasListener = agentData.capabilities?.includes('listening') || false
+
+      text += `[LISTENER SECTION]\n`
+
+      
+
+      if (hasListener && agentData.listening) {
+
+        text += `  State: ✓ ACTIVE\n\n`
+
+        
+
+        // Passive/Active toggles
+
+        const passiveEnabled = agentData.listening.passiveEnabled || false
+
+        const activeEnabled = agentData.listening.activeEnabled || false
+
+        text += `  Modes:\n`
+
+        text += `    Passive Listener: ${passiveEnabled ? '✓ ENABLED' : '✗ DISABLED'}\n`
+
+        text += `    Active Listener: ${activeEnabled ? '✓ ENABLED' : '✗ DISABLED'}\n\n`
+
+        
+
+        // Expected Context
+
+        if (agentData.listening.expectedContext) {
+
+          text += `  Expected Context:\n`
+
+          text += `    "${agentData.listening.expectedContext}"\n\n`
+
+        }
+
+        
+
+        // Tags
+
+        const tags = agentData.listening.tags || []
+
+        if (tags.length > 0) {
+
+          text += `  Tags: [${tags.join(', ')}]\n\n`
+
+        } else {
+
+          text += `  Tags: [] (none selected)\n\n`
+
+        }
+
+        
+
+        // Source
+
+        const source = agentData.listening.source || ''
+
+        if (source) {
+
+          text += `  Source: ${source}\n\n`
+
+        }
+
+        
+
+        // Website
+
+        if (agentData.listening.website) {
+
+          text += `  Website Filter: ${agentData.listening.website}\n\n`
+
+        }
+
+        
+
+        // Passive Triggers
+
+        if (passiveEnabled) {
+
+          const passiveTriggers = agentData.listening.passive?.triggers || []
+
+          text += `  Passive Triggers (${passiveTriggers.length}):\n`
+
+          if (passiveTriggers.length > 0) {
+
+            passiveTriggers.forEach((trigger: any) => {
+
+              text += `    • ${trigger.tag?.name || 'unnamed'} [${trigger.tag?.kind || 'OTHER'}]\n`
+
+            })
+
+          } else {
+
+            text += `    (none configured)\n`
+
+          }
+
+          text += '\n'
+
+        }
+
+        
+
+        // Active Triggers
+
+        if (activeEnabled) {
+
+          const activeTriggers = agentData.listening.active?.triggers || []
+
+          text += `  Active Triggers (${activeTriggers.length}):\n`
+
+          if (activeTriggers.length > 0) {
+
+            activeTriggers.forEach((trigger: any) => {
+
+              text += `    • ${trigger.tag?.name || 'unnamed'} [${trigger.tag?.kind || 'OTHER'}]\n`
+
+            })
+
+          } else {
+
+            text += `    (none configured)\n`
+
+          }
+
+          text += '\n'
+
+        }
+
+        
+
+        // Example Files
+
+        const exampleFiles = agentData.listening.exampleFiles || []
+
+        if (exampleFiles.length > 0) {
+
+          text += `  Example Files (${exampleFiles.length}):\n`
+
+          exampleFiles.forEach((file: any) => {
+
+            text += `    • ${file.name || 'unnamed'} (${(file.size / 1024).toFixed(1)} KB)\n`
+
+          })
+
+          text += '\n'
+
+        }
+
+        
+
+        // Report To
+
+        const listenerReportTo = agentData.listening.reportTo || []
+
+        text += `  Listener Reports To:\n`
+
+        if (listenerReportTo.length > 0) {
+
+          listenerReportTo.forEach((dest: string) => {
+
+            text += `    → ${dest}\n`
+
+          })
+
+        } else {
+
+          text += `    → REASONING section (internal passthrough)\n`
+
+        }
+
+        
+
+        text += `\n  Input Routing Logic:\n`
+
+        text += `    1. User input arrives in WR Chat\n`
+
+        text += `    2. Butler LLM provides immediate confirmation\n`
+
+        text += `    3. Input Coordinator checks:\n`
+
+        text += `       - #tag or @trigger pattern match\n`
+
+        text += `       - Expected context keywords\n`
+
+        text += `       - Website filter (if set)\n`
+
+        text += `    4. If match found → Forward to Reasoning section\n`
+
+        text += `    5. Reasoning wraps with Goals/Role/Rules\n`
+
+        text += `    6. Agent LLM processes (from AgentBox model)\n`
+
+        text += `    7. Output displayed in connected AgentBox\n`
+
+        
+
+      } else {
+
+        text += `  State: ✗ INACTIVE (No listener configured)\n`
+
+        text += `  ⚡ ALL INPUT FORWARDED to Reasoning section\n`
+
+        text += `  (When no listener is active, agent receives all inputs)\n`
+
+      }
+
+      
+
+      text += '\n'
+
+      
+
+      // Reasoning Section - Listen From (acceptFrom)
+
+      const hasReasoning = agentData.capabilities?.includes('reasoning') || false
+
+      if (hasReasoning && agentData.reasoning) {
+
+        text += `[REASONING SECTION - Input]\n`
+
+        
+
+        // Apply For
+
+        const applyFor = agentData.reasoning.applyFor || '__any__'
+
+        text += `  Apply For: ${applyFor === '__any__' ? 'Any Input' : applyFor}\n\n`
+
+        
+
+        // Accept From (Listen From)
+
+        const acceptFrom = agentData.reasoning.acceptFrom || []
+
+        text += `  Listen From (Accept From):\n`
+
+        if (acceptFrom.length > 0) {
+
+          acceptFrom.forEach((source: string) => {
+
+            text += `    ← ${source}\n`
+
+          })
+
+          text += `  → Only processes input from these sources\n`
+
+        } else {
+
+          text += `    [] (not set)\n`
+
+          text += `    → Accepts direct multimodal input (internal passthrough)\n`
+
+        }
+
+        
+
+        text += '\n'
+
+        
+
+        // Goals/Role/Rules
+
+        if (agentData.reasoning.goals) {
+
+          text += `  Goals:\n`
+
+          const goals = agentData.reasoning.goals.split('\n').filter((l: string) => l.trim())
+
+          goals.forEach((line: string) => {
+
+            text += `    ${line}\n`
+
+          })
+
+          text += '\n'
+
+        }
+
+        
+
+        if (agentData.reasoning.role) {
+
+          text += `  Role: ${agentData.reasoning.role}\n\n`
+
+        }
+
+        
+
+        if (agentData.reasoning.rules) {
+
+          text += `  Rules:\n`
+
+          const rules = agentData.reasoning.rules.split('\n').filter((l: string) => l.trim())
+
+          rules.forEach((line: string) => {
+
+            text += `    ${line}\n`
+
+          })
+
+          text += '\n'
+
+        }
+
+        
+
+        // Custom Fields
+
+        const custom = agentData.reasoning.custom || []
+
+        if (custom.length > 0) {
+
+          text += `  Custom Fields:\n`
+
+          custom.forEach((field: any) => {
+
+            text += `    ${field.key}: ${field.value}\n`
+
+          })
+
+          text += '\n'
+
+        }
+
+      }
+
+      
+
+      // Context Section (Session/Account/Agent)
+
+      text += `[CONTEXT]\n`
+
+      const contextSettings = agentData.contextSettings || {}
+
+      text += `  Session Context: ${contextSettings.sessionContext ? '✓ ENABLED' : '✗ DISABLED'}\n`
+
+      text += `  Account Context: ${contextSettings.accountContext ? '✓ ENABLED' : '✗ DISABLED'}\n`
+
+      text += `  Agent Context: ${contextSettings.agentContext ? '✓ ENABLED' : '✗ DISABLED'}\n\n`
+
+      
+
+      // Agent Context Files
+
+      const agentContextFiles = agentData.agentContextFiles || []
+
+      if (agentContextFiles.length > 0) {
+
+        text += `  Agent Context Files (${agentContextFiles.length}):\n`
+
+        agentContextFiles.forEach((file: any) => {
+
+          text += `    • ${file.name || 'unnamed'} (${(file.size / 1024).toFixed(1)} KB)\n`
+
+        })
+
+        text += '\n'
+
+      }
+
+      
+
+      text += '\n'
+
+      
+
+      // Memory Settings
+
+      const memSettings = agentData.memorySettings || {}
+
+      text += `[MEMORY SETTINGS]\n`
+
+      text += `  Session Memory: ${memSettings.sessionEnabled ? '✓ ENABLED' : '✗ DISABLED'}\n`
+
+      if (memSettings.sessionEnabled) {
+
+        text += `    Read: ${memSettings.sessionRead ? '✓' : '✗'}\n`
+
+        text += `    Write: ${memSettings.sessionWrite ? '✓' : '✗'}\n`
+
+      }
+
+      text += `  Account Memory: ${memSettings.accountEnabled ? '✓ ENABLED' : '✗ DISABLED'}\n`
+
+      if (memSettings.accountEnabled) {
+
+        text += `    Read: ${memSettings.accountRead ? '✓' : '✗'}\n`
+
+        text += `    Write: ${memSettings.accountWrite ? '✓' : '✗'}\n`
+
+      }
+
+      
+
+      text += '\n'
+
+    })
+
+    
+
+    // Summary - need to re-parse all agents for statistics
+
+    const enabledCount = agents.filter(a => a.enabled).length
+
+    let listenerCount = 0
+
+    let activeListeners = 0
+
+    let wiringCount = 0
+
+    
+
+    agents.forEach(agent => {
+
+      let agentData = agent
+
+      if (agent.config?.instructions) {
+
+        try {
+
+          const parsed = typeof agent.config.instructions === 'string' 
+
+            ? JSON.parse(agent.config.instructions) 
+
+            : agent.config.instructions
+
+          agentData = { ...agent, ...parsed }
+
+        } catch (e) {}
+
+      }
+
+      
+
+      if (agentData.capabilities?.includes('listening')) listenerCount++
+
+      if (agentData.listening && (agentData.listening.passiveEnabled || agentData.listening.activeEnabled)) activeListeners++
+
+      if ((agentData.reasoning?.acceptFrom || []).length > 0) wiringCount++
+
+    })
+
+    
+
+    text += '\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n'
+
+    text += `SUMMARY:\n`
+
+    text += `  Total Agents: ${agents.length}\n`
+
+    text += `  Enabled: ${enabledCount}\n`
+
+    text += `  With Listener Capability: ${listenerCount}\n`
+
+    text += `  Active Listeners (Passive/Active): ${activeListeners}\n`
+
+    text += `  With Inter-Agent Wiring: ${wiringCount}\n`
+
+    
+
+    return text
+
+  }
+
+  
+
+  function generateOutputCoordinatorText(agents: any[]): string {
+
+    // This function will be called with actual agent boxes data
+
+    return generateOutputCoordinatorTextWithBoxes(agents, [])
+
+  }
+
+
+
+  function generateOutputCoordinatorTextWithBoxes(agents: any[], agentBoxes: any[]): string {
+
+    // Helper to convert kind value to human-readable label
+    const kindToLabel = (kind: string): string => {
+      const labels: Record<string, string> = {
+        'agentBox': 'Agent Boxes (Default)',
+        'agent': 'Specific Agent(s)',
+        'clip-summary': 'Clipboard – Summary',
+        'clip-screenshot': 'Clipboard – Screenshot',
+        'pdf-summary': 'PDF – Summary',
+        'pdf-screenshot': 'PDF – Screenshot',
+        'pdf-both': 'PDF – Summary + Screenshot',
+        'image-screenshot': 'Image – Screenshot (PNG/WebP)',
+        'chat-inline-summary': 'Chat Inline – Summary'
+      }
+      return labels[kind] || kind
+    }
+
+    let text = '=== OUTPUT COORDINATOR - AGENT BOX CONNECTIONS ===\n\n'
+
+    text += 'Lists all agent boxes and their connected agents.\n'
+
+    text += 'Shows COMPLETE Execution section settings and Report To destinations.\n\n'
+
+    // Add output routing explanation
+    text += '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n'
+    text += 'OUTPUT ROUTING RULES\n'
+    text += '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n'
+    text += 'Agent → AgentBox Connection:\n'
+    text += '  • Agent Number must match AgentBox.agentNumber\n'
+    text += '  • AgentBox must be enabled (enabled !== false)\n'
+    text += '  • Output displays in the connected AgentBox\n\n'
+    text += 'LLM Model Selection:\n'
+    text += '  • If AgentBox has provider/model set → Use that model\n'
+    text += '  • Otherwise → Use default local model (Ollama)\n'
+    text += '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n'
+
+    
+
+    if (agentBoxes.length === 0) {
+
+      text += 'No agent boxes configured in this session.\n\n'
+
+      text += 'To create agent boxes:\n'
+
+      text += '1. Open a Display Grid (2x2, 3x3, or 4x4)\n'
+
+      text += '2. Click on a slot to configure it\n'
+
+      text += '3. Enter an Agent Number to allocate an agent\n'
+
+      text += '4. Save the configuration\n\n'
+
+      return text
+
+    }
+
+    
+
+    text += `━━━ AGENT BOXES (${agentBoxes.length} total) ━━━\n\n`
+
+    
+
+    let connectedCount = 0
+
+    
+
+    agentBoxes.forEach((box: any) => {
+
+      const boxNum = String(box.boxNumber).padStart(2, '0')
+
+      const location = box.locationLabel || box.locationId || 'Unknown location'
+
+      
+
+      text += `Agent Box ${boxNum}: ${box.title || 'Untitled'}\n`
+
+      text += `  Location: ${location}\n`
+
+      if (box.slotId) text += `  Slot: ${box.slotId}\n`
+
+      
+
+      // Check if this box has an agent allocated
+
+      if (box.agentNumber && box.agentNumber > 0) {
+
+        // Find the matching agent
+
+        let matchedAgent = null
+
+        let matchedAgentIdx = -1
+
+        
+
+        for (let i = 0; i < agents.length; i++) {
+
+          const agentNum = agents[i].number || 0
+
+          if (agentNum === box.agentNumber) {
+
+            matchedAgent = agents[i]
+
+            matchedAgentIdx = i
+
+            break
+
+          }
+
+        }
+
+        
+
+        if (matchedAgent) {
+
+          connectedCount++
+
+          const agentNum = String(matchedAgentIdx + 1).padStart(2, '0')
+
+          const agentName = matchedAgent.name || matchedAgent.key || `Agent${agentNum}`
+
+          
+
+          text += `  Connected Agent: Agent ${agentNum} (${agentName})\n`
+
+          text += `  Connection: Agent ${agentNum} → Agent Box ${boxNum}\n`
+
+          text += `  Status: ${matchedAgent.enabled ? '✓ Active' : '⚠️ Agent disabled'}\n`
+
+          
+
+          // Parse agent config to get execution settings
+
+          let agentData = matchedAgent
+
+          if (matchedAgent.config?.instructions) {
+
+            try {
+
+              const parsed = typeof matchedAgent.config.instructions === 'string' 
+
+                ? JSON.parse(matchedAgent.config.instructions) 
+
+                : matchedAgent.config.instructions
+
+              agentData = { ...matchedAgent, ...parsed }
+
+            } catch (e) {
+
+              console.error('Failed to parse agent config:', e)
+
+            }
+
+          }
+
+          
+
+          // Show execution section settings
+
+          const hasExecution = agentData.capabilities?.includes('execution') || false
+
+          
+
+          if (hasExecution) {
+
+            text += `\n  [EXECUTION SECTION]\n`
+
+            
+            // Show Apply For setting
+            const applyFor = agentData.execution?.applyFor || '__any__'
+            text += `    Apply For: ${applyFor === '__any__' ? 'All Content (Default)' : applyFor}\n`
+            
+            // Show Special Destinations (Report To) - this is what the user actually selects!
+            const specialDestinations = agentData.execution?.specialDestinations || []
+            if (specialDestinations.length > 0) {
+              text += `    Report To:\n`
+              specialDestinations.forEach((dest: any) => {
+                const label = kindToLabel(dest.kind)
+                if (dest.kind === 'agent' && dest.agents && dest.agents.length > 0) {
+                  text += `      → ${label}: ${dest.agents.join(', ')}\n`
+                } else {
+                  text += `      → ${label}\n`
+                }
+              })
+            } else {
+              text += `    Report To: Agent Boxes (Default)\n`
+            }
+            
+            // Show Accept From (who triggers this execution)
+            const acceptFrom = agentData.execution?.acceptFrom || []
+            if (acceptFrom.length > 0) {
+              text += `    Accept From: ${acceptFrom.join(', ')}\n`
+            }
+            
+            // Show Workflows if any
+            if (agentData.execution?.workflows && agentData.execution.workflows.length > 0) {
+              text += `    Workflows: ${agentData.execution.workflows.join(', ')}\n`
+            }
+            
+            // Show Additional Execution Sections if any
+            const executionSections = agentData.execution?.executionSections || []
+            if (executionSections.length > 0) {
+              text += `\n    [ADDITIONAL EXECUTION SECTIONS] (${executionSections.length})\n`
+              executionSections.forEach((sec: any, idx: number) => {
+                text += `      Section ${idx + 1}:\n`
+                text += `        Apply For: ${sec.applyFor === '__any__' ? 'All Content' : sec.applyFor}\n`
+                if (sec.specialDestinations && sec.specialDestinations.length > 0) {
+                  text += `        Report To:\n`
+                  sec.specialDestinations.forEach((dest: any) => {
+                    const label = kindToLabel(dest.kind)
+                    if (dest.kind === 'agent' && dest.agents && dest.agents.length > 0) {
+                      text += `          → ${label}: ${dest.agents.join(', ')}\n`
+                    } else {
+                      text += `          → ${label}\n`
+                    }
+                  })
+                }
+                if (sec.acceptFrom && sec.acceptFrom.length > 0) {
+                  text += `        Accept From: ${sec.acceptFrom.join(', ')}\n`
+                }
+                if (sec.workflows && sec.workflows.length > 0) {
+                  text += `        Workflows: ${sec.workflows.join(', ')}\n`
+                }
+              })
+            }
+            
+            // Summary note about output destination
+            const hasAgentBoxDest = specialDestinations.some((d: any) => d.kind === 'agentBox')
+            if (hasAgentBoxDest || specialDestinations.length === 0) {
+              text += `    ✓ Output will display in Agent Box ${boxNum}\n`
+            }
+            const otherDests = specialDestinations.filter((d: any) => d.kind !== 'agentBox')
+            if (otherDests.length > 0) {
+              text += `    ✓ Output also sent to: ${otherDests.map((d: any) => kindToLabel(d.kind)).join(', ')}\n`
+            }
+
+          } else {
+
+            text += `\n  [EXECUTION SECTION]\n`
+
+            text += `    Status: ✗ Not enabled\n`
+
+          }
+
+          
+
+        } else {
+
+          text += `  Allocated Agent: Number ${box.agentNumber} (not found in session)\n`
+
+          text += `  ⚠️ Warning: Agent not found or deleted\n`
+
+        }
+
+        
+
+      } else {
+
+        text += `  Connected Agent: None\n`
+
+        text += `  Status: Unallocated - No agent assigned\n`
+
+      }
+
+      
+
+      text += '\n'
+
+    })
+
+    
+
+    // Summary
+
+    const allocatedBoxes = agentBoxes.filter((box: any) => box.agentNumber && box.agentNumber > 0).length
+
+    const unallocatedBoxes = agentBoxes.length - allocatedBoxes
+
+    
+
+    text += '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n'
+
+    text += `SUMMARY:\n`
+
+    text += `  Total Agent Boxes: ${agentBoxes.length}\n`
+
+    text += `  Connected (with agent): ${connectedCount}\n`
+
+    text += `  Allocated (agent not found): ${allocatedBoxes - connectedCount}\n`
+
+    text += `  Unallocated: ${unallocatedBoxes}\n`
+
+    
+
+    return text
+
+  }
+
+  
+
+  function getAllAgentsFromSession(callback: (agents: any[]) => void) {
+
+    ensureActiveSession((key, session) => {
+
+      const agents = session.agents || []
+
+      callback(agents)
+
+    })
+
+  }
+
+  
+
+  function loadSystemTabContent() {
+
+    getAllAgentsFromSession((agents) => {
+
+      const inputText = generateInputCoordinatorText(agents)
+
+      
+
+      // Get agent boxes from session
+
+      ensureActiveSession((key, session) => {
+
+        const agentBoxes = session.agentBoxes || []
+
+        const outputText = generateOutputCoordinatorTextWithBoxes(agents, agentBoxes)
+
+        
+
+        const inputTextarea = document.getElementById('input-coordinator-text') as HTMLTextAreaElement | null
+
+        const outputTextarea = document.getElementById('output-coordinator-text') as HTMLTextAreaElement | null
+
+        
+
+        if (inputTextarea) inputTextarea.value = inputText
+
+        if (outputTextarea) outputTextarea.value = outputText
+
+      })
+
+    })
+
+  }
+
+  
+
   // Store references to original lightbox functions
 
   function openAgentsLightboxOriginal() {
@@ -10117,13 +11201,51 @@ function initializeExtension() {
 
           <!-- Add New Agent Button -->
 
-          <div style="text-align: center; margin-top: 15px;">
+          <div id="add-agent-container" style="text-align: center; margin-top: 15px;">
 
             <button id="add-new-agent" style="padding: 12px 20px; background: #4CAF50; border: none; color: white; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: bold;">
 
               ➕ Add New Agent
 
             </button>
+
+          </div>
+
+          
+
+          <!-- System Tab Content -->
+
+          <div id="system-tab-content" style="display: none;">
+
+            <div style="background:rgba(255,255,255,0.08);padding:20px;border-radius:8px;margin-bottom:20px;">
+
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+
+                <label style="font-size:16px;font-weight:bold;color:#FFD700;">📥 Input Coordinator (System Instructions)</label>
+
+                <button id="reload-input-coordinator" style="padding:8px 16px;background:#4CAF50;border:none;color:white;border-radius:6px;cursor:pointer;font-size:12px;">Set as Default</button>
+
+              </div>
+
+              <textarea id="input-coordinator-text" style="width:100%;height:350px;background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.3);color:white;padding:12px;border-radius:6px;font-size:12px;font-family:'Consolas',monospace;resize:vertical;line-height:1.6;" placeholder="Input coordinator wiring logic will appear here..."></textarea>
+
+            </div>
+
+            
+
+            <div style="background:rgba(255,255,255,0.08);padding:20px;border-radius:8px;">
+
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+
+                <label style="font-size:16px;font-weight:bold;color:#FFD700;">📤 Output Coordinator (System Instructions)</label>
+
+                <button id="reload-output-coordinator" style="padding:8px 16px;background:#4CAF50;border:none;color:white;border-radius:6px;cursor:pointer;font-size:12px;">Set as Default</button>
+
+              </div>
+
+              <textarea id="output-coordinator-text" style="width:100%;height:350px;background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.3);color:white;padding:12px;border-radius:6px;font-size:12px;font-family:'Consolas',monospace;resize:vertical;line-height:1.6;" placeholder="Output coordinator wiring logic will appear here..."></textarea>
+
+            </div>
 
           </div>
 
@@ -10179,13 +11301,111 @@ function initializeExtension() {
 
         })
 
-        // Re-render grid with filter
+        
 
-        renderAgentsGrid(overlay, currentFilter)
+        // Show/hide content based on tab
+
+        const agentsGrid = overlay.querySelector('#agents-grid') as HTMLElement | null
+
+        const addAgentContainer = overlay.querySelector('#add-agent-container') as HTMLElement | null
+
+        const systemTabContent = overlay.querySelector('#system-tab-content') as HTMLElement | null
+
+        
+
+        if (currentFilter === 'system') {
+
+          // Show System tab content, hide agents grid
+
+          if (agentsGrid) agentsGrid.style.display = 'none'
+
+          if (addAgentContainer) addAgentContainer.style.display = 'none'
+
+          if (systemTabContent) systemTabContent.style.display = 'block'
+
+          loadSystemTabContent()
+
+        } else {
+
+          // Show agents grid, hide System tab content
+
+          if (agentsGrid) agentsGrid.style.display = 'grid'
+
+          if (addAgentContainer) addAgentContainer.style.display = 'block'
+
+          if (systemTabContent) systemTabContent.style.display = 'none'
+
+          // Re-render grid with filter
+
+          renderAgentsGrid(overlay, currentFilter)
+
+        }
 
       })
 
     })
+
+    
+
+    // System tab button event handlers
+
+    const reloadInputBtn = overlay.querySelector('#reload-input-coordinator') as HTMLButtonElement | null
+
+    const reloadOutputBtn = overlay.querySelector('#reload-output-coordinator') as HTMLButtonElement | null
+
+    
+
+    function showNotification(message: string, duration: number) {
+
+      const notif = document.createElement('div')
+
+      notif.textContent = message
+
+      notif.style.cssText = `
+
+        position: fixed; top: 20px; right: 20px; z-index: 2147483651;
+
+        background: rgba(76, 175, 80, 0.95); color: white;
+
+        padding: 12px 20px; border-radius: 8px; font-size: 14px;
+
+        box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+
+      `
+
+      document.body.appendChild(notif)
+
+      setTimeout(() => notif.remove(), duration)
+
+    }
+
+    
+
+    if (reloadInputBtn) {
+
+      reloadInputBtn.addEventListener('click', () => {
+
+        loadSystemTabContent()
+
+        showNotification('✅ Input Coordinator reloaded', 2000)
+
+      })
+
+    }
+
+    
+
+    if (reloadOutputBtn) {
+
+      reloadOutputBtn.addEventListener('click', () => {
+
+        loadSystemTabContent()
+
+        showNotification('✅ Output Coordinator reloaded', 2000)
+
+      })
+
+    }
 
     
 
@@ -10231,9 +11451,13 @@ function initializeExtension() {
 
         const scope = t.getAttribute('data-scope') || 'session'
 
-        console.log(`📂 Opening agent config from delegated handler: "${agentKey}", type: ${type}, scope: ${scope}`)
+        const agentNumberStr = t.getAttribute('data-number') || ''
 
-        openAgentConfigDialog(agentKey, type, overlay, scope)
+        const agentNumber = agentNumberStr ? parseInt(agentNumberStr, 10) : undefined
+
+        console.log(`📂 Opening agent config from delegated handler: "${agentKey}", type: ${type}, scope: ${scope}, number: ${agentNumber}`)
+
+        openAgentConfigDialog(agentKey, type, overlay, scope, agentNumber)
 
         return
 
@@ -10357,7 +11581,7 @@ function initializeExtension() {
 
           session.timestamp = new Date().toISOString()
 
-          storageSet({ [activeKey]: session }, ()=>{})
+          ensureSessionInHistory(activeKey, session, () => {})
 
           try { localStorage.setItem('optimando-agent-number-map', JSON.stringify(map)) } catch {}
 
@@ -10427,36 +11651,29 @@ function initializeExtension() {
 
   }
 
-  function openAgentConfigDialog(agentName, type, parentOverlay, agentScope = 'session') {
+  function openAgentConfigDialog(agentName, type, parentOverlay, agentScope = 'session', agentNumber?) {
 
-    console.log(`🚀 openAgentConfigDialog called - Agent: "${agentName}", Type: "${type}", Scope: "${agentScope}"`)
+    console.log(`🚀 openAgentConfigDialog called - Agent: "${agentName}", Type: "${type}", Scope: "${agentScope}", Number: ${agentNumber}`)
 
     function pad2(n) { try { const num = parseInt(n, 10) || 0; return num < 10 ? `0${num}` : String(num) } catch { return '01' } }
 
     function capitalizeName(n) { try { return (n || '').toString().charAt(0).toUpperCase() + (n || '').toString().slice(1) } catch { return n } }
 
-    function getOrAssignAgentNumber(key) {
-
+    // Fallback function for agent number when not provided via parameter
+    // Note: Agent number should be passed via data-number attribute when available
+    function getAgentNumberFallback(key: string): string {
       try {
-
+        // Use localStorage map as fallback
         const raw = localStorage.getItem('optimando-agent-number-map')
-
         const map = raw ? JSON.parse(raw) : {}
-
         if (map && map[key]) return pad2(map[key])
-
-        const used = Object.values(map || {}).map(v => parseInt(v, 10)).filter(v => !isNaN(v))
-
-        const next = used.length > 0 ? Math.max(...used) + 1 : 1
-
+        // Last resort: assign new number
+        const used = Object.values(map || {}).map(v => parseInt(v as any, 10)).filter(v => !isNaN(v))
+        const next = used.length > 0 ? Math.max(...(used as number[])) + 1 : 1
         map[key] = next
-
         localStorage.setItem('optimando-agent-number-map', JSON.stringify(map))
-
         return pad2(next)
-
       } catch { return '01' }
-
     }
 
     // Create agent config dialog
@@ -10588,6 +11805,26 @@ function initializeExtension() {
               console.log('✅ Has Reasoning:', !!previouslySavedData.reasoning)
 
               console.log('✅ Has Execution:', !!previouslySavedData.execution)
+              
+              // Detailed verification for Apply For and Sections
+              if (previouslySavedData.reasoning) {
+                console.log('  📝 R-Apply For:', previouslySavedData.reasoning.applyFor || '__any__')
+              }
+              if (previouslySavedData.reasoningSections) {
+                console.log('  📚 Reasoning Sections:', previouslySavedData.reasoningSections.length)
+                previouslySavedData.reasoningSections.forEach((s: any, i: number) => {
+                  console.log(`     Section ${i + 1}: applyFor="${s.applyFor}"`)
+                })
+              }
+              if (previouslySavedData.execution) {
+                console.log('  ⚡ E-Apply For:', previouslySavedData.execution.applyFor || '__any__')
+                console.log('  📚 Execution Sections:', previouslySavedData.execution.executionSections?.length || 0)
+                if (previouslySavedData.execution.executionSections?.length > 0) {
+                  previouslySavedData.execution.executionSections.forEach((s: any, i: number) => {
+                    console.log(`     Section ${i + 1}: applyFor="${s.applyFor}", workflows=${s.workflows?.length || 0}`)
+                  })
+                }
+              }
 
             } else {
 
@@ -10723,77 +11960,286 @@ function initializeExtension() {
 
               const tags = Array.from(document.querySelectorAll('.L-tag')).filter((el:any)=>el.checked).map((el:any)=>el.value)
 
-              const src = (document.getElementById('L-source') as HTMLSelectElement)?.value || ''
+              // Collect multiple trigger sources
+              const sources = Array.from(document.querySelectorAll('.L-source-check')).filter((el:any)=>el.checked).map((el:any)=>el.value)
+              const workflowSources: string[] = []
+              document.querySelectorAll('#L-workflow-sources .workflow-source-row').forEach((row: any) => {
+                const id = row.querySelector('.workflow-source-id')?.value || ''
+                if (id.trim()) workflowSources.push(id.trim())
+              })
+              const agentSources = Array.from(document.querySelectorAll('.L-agent-source')).filter((el:any)=>el.checked).map((el:any)=>el.value)
+              
+              const apiEndpoint = (document.getElementById('L-api-endpoint') as HTMLInputElement)?.value || ''
+              const cronSchedule = (document.getElementById('L-cron-schedule') as HTMLInputElement)?.value || ''
+              const modalities = Array.from(document.querySelectorAll('.L-modality')).filter((el:any)=>el.checked).map((el:any)=>el.value)
+              
+              // Collect conditions
+              const conditionLogic = (document.getElementById('L-condition-logic') as HTMLSelectElement)?.value || 'all'
+              const condRows = document.querySelectorAll('#L-conditions-list .condition-row')
+              const condItems: any[] = []
+              condRows.forEach((row: any) => {
+                const field = row.querySelector('.cond-field')?.value || ''
+                const op = row.querySelector('.cond-op')?.value || 'eq'
+                const value = row.querySelector('.cond-value')?.value || ''
+                if (field.trim()) condItems.push({ field, op, value })
+              })
+              const conditions = condItems.length > 0 ? (conditionLogic === 'all' ? { all: condItems } : { any: condItems }) : null
+              
+              // Collect sensor workflows with conditions
+              const sensorWorkflows: any[] = []
+              document.querySelectorAll('#L-sensor-workflows .sensor-workflow-row').forEach((row: any) => {
+                const id = row.querySelector('.workflow-id')?.value || ''
+                if (id.trim()) {
+                  const sensorConds: any[] = []
+                  row.querySelectorAll('.sensor-cond-row').forEach((cr: any) => {
+                    const f = cr.querySelector('.scond-field')?.value || ''
+                    const o = cr.querySelector('.scond-op')?.value || 'eq'
+                    const v = cr.querySelector('.scond-value')?.value || ''
+                    const a = cr.querySelector('.scond-action')?.value || 'continue'
+                    if (f.trim()) sensorConds.push({ field: f, op: o, value: v, action: a })
+                  })
+                  sensorWorkflows.push({ id: id.trim(), conditions: sensorConds })
+                }
+              })
+              const allowedActions: string[] = []
+              document.querySelectorAll('#L-action-workflows .action-workflow-row').forEach((row: any) => {
+                const id = row.querySelector('.workflow-id')?.value || ''
+                if (id.trim()) allowedActions.push(id.trim())
+              })
 
               const listening:any = {
-
                 passiveEnabled,
-
                 activeEnabled,
-
                 expectedContext: (document.getElementById('L-context') as HTMLTextAreaElement)?.value || '',
-
                 tags,
-
-                source: src,
-
+                sources: sources,
+                workflowSources: workflowSources,
+                agentSources: agentSources,
+                apiEndpoint: apiEndpoint,
+                modalities: modalities,
+                cronSchedule: cronSchedule,
+                conditions: conditions,
+                sensorWorkflows: sensorWorkflows,
+                allowedActions: allowedActions,
                 website: (document.getElementById('L-website') as HTMLInputElement)?.value || '',
-
                 // CRITICAL: Always preserve example files even when capability is toggled
-
                 exampleFiles: previouslySavedData?.listening?.exampleFiles || []
-
               }
 
-              // Collect triggers
+              // Helper to get source value based on source type
+              const getSourceValue = (row: any, source: string) => {
+                if (source === 'agent') return (row.querySelector('.act-agent-select') as HTMLSelectElement)?.value || ''
+                if (source === 'email') {
+                  const tags = row.querySelectorAll('.act-email-tags .email-tag span:first-child')
+                  return Array.from(tags).map((t: any) => t.textContent).join(',')
+                }
+                return (row.querySelector('.act-source-value') as HTMLInputElement)?.value || ''
+              }
 
-              const triggers:any[] = []
-
-              document.querySelectorAll('#L-active-list .act-row').forEach((row:any)=>{
-
-                const name = (row.querySelector('.act-tag') as HTMLInputElement)?.value || ''
-
-                const kind = (row.querySelector('.act-kind') as HTMLSelectElement)?.value || 'OTHER'
-
-                if (name.trim()) triggers.push({ tag: { name, kind } })
-
-              })
-
-              if (triggers.length > 0) listening.active = { triggers }
-
-              const passiveTriggers:any[] = []
-
+              // Collect action triggers (new format with source)
+              const actionTriggers:any[] = []
               document.querySelectorAll('#L-passive-triggers .act-row').forEach((row:any)=>{
-
                 const name = (row.querySelector('.act-tag') as HTMLInputElement)?.value || ''
-
-                const kind = (row.querySelector('.act-kind') as HTMLSelectElement)?.value || 'OTHER'
-
-                if (name.trim()) passiveTriggers.push({ tag: { name, kind } })
-
+                const source = (row.querySelector('.act-source') as HTMLSelectElement)?.value || 'chat'
+                const sourceValue = getSourceValue(row, source)
+                const cronCheck = row.querySelector('.act-cron-enable') as HTMLInputElement
+                const cronSchedule = cronCheck?.checked ? (row.querySelector('.act-cron-schedule') as HTMLInputElement)?.value || '' : ''
+                if (name.trim()) actionTriggers.push({ name, source, sourceValue, cronSchedule })
               })
+              if (actionTriggers.length > 0) listening.triggers = actionTriggers
 
-              if (passiveTriggers.length > 0) listening.passive = { triggers: passiveTriggers }
+              // Active triggers (for backward compatibility)
+              const activeTriggers:any[] = []
+              document.querySelectorAll('#L-active-list .act-row').forEach((row:any)=>{
+                const name = (row.querySelector('.act-tag') as HTMLInputElement)?.value || ''
+                const source = (row.querySelector('.act-source') as HTMLSelectElement)?.value || 'chat'
+                const sourceValue = getSourceValue(row, source)
+                const cronCheck = row.querySelector('.act-cron-enable') as HTMLInputElement
+                const cronSchedule = cronCheck?.checked ? (row.querySelector('.act-cron-schedule') as HTMLInputElement)?.value || '' : ''
+                if (name.trim()) activeTriggers.push({ name, source, sourceValue, cronSchedule })
+              })
+              if (activeTriggers.length > 0) listening.active = { triggers: activeTriggers }
 
-              listening.reportTo = Array.from(document.querySelectorAll('#L-report-list .rep-row')).map((row:any)=> {
+              // Collect unified triggers (new architecture)
+              const unifiedTriggers: any[] = []
+              document.querySelectorAll('#L-unified-triggers .unified-trigger-row').forEach((row: any, idx: number) => {
+                const type = row.querySelector('.trigger-type')?.value || 'direct_tag'
+                const tagValue = row.querySelector('.trigger-tag')?.value?.trim() || ''
+                const existingId = row.dataset.triggerId || ''
+                const triggerId = existingId || (tagValue ? `ID#${tagValue.replace('#', '')}` : `ID${String(idx + 1).padStart(2, '0')}`)
+                const trigger: any = { 
+                  id: triggerId,
+                  type, 
+                  enabled: true 
+                }
+                
+                // Collect type-specific fields
+                if (type === 'direct_tag' || type === 'tag_and_condition') {
+                  // New structured format for Event Tag triggers
+                  const tagValue = row.querySelector('.trigger-tag')?.value?.trim() || ''
+                  trigger.tag = tagValue.startsWith('#') ? tagValue : `#${tagValue}`
+                  trigger.channel = row.querySelector('.trigger-channel')?.value || 'chat'
+                  
+                  // Build structured eventTagConditions array
+                  const eventTagConditions: any[] = []
+                  
+                  // WRCode condition
+                  const wrcodeChecked = row.querySelector('.trigger-wrcode')?.checked
+                  if (wrcodeChecked) {
+                    eventTagConditions.push({ type: 'wrcode_valid', required: true })
+                  }
+                  
+                  // Sender whitelist condition
+                  const senderWhitelist = row.querySelector('.trigger-sender-whitelist')?.value?.trim() || ''
+                  if (senderWhitelist) {
+                    const allowedSenders = senderWhitelist.split(',').map((s: string) => s.trim()).filter(Boolean)
+                    if (allowedSenders.length > 0) {
+                      eventTagConditions.push({ type: 'sender_whitelist', allowedSenders })
+                    }
+                  }
+                  
+                  // Body keywords condition
+                  const keywords = row.querySelector('.trigger-keywords')?.value?.trim() || ''
+                  if (keywords) {
+                    const keywordList = keywords.split(',').map((k: string) => k.trim()).filter(Boolean)
+                    if (keywordList.length > 0) {
+                      eventTagConditions.push({ type: 'body_keywords', keywords: keywordList, caseInsensitive: true })
+                    }
+                  }
+                  
+                  // Website filter condition
+                  const websiteFilter = row.querySelector('.trigger-website')?.value?.trim() || ''
+                  if (websiteFilter) {
+                    const patterns = websiteFilter.split(',').map((p: string) => p.trim()).filter(Boolean)
+                    if (patterns.length > 0) {
+                      eventTagConditions.push({ type: 'website_filter', patterns })
+                    }
+                  }
+                  
+                  if (eventTagConditions.length > 0) {
+                    trigger.eventTagConditions = eventTagConditions
+                  }
+                  
+                  // Legacy fields for backward compatibility
+                  trigger.tagName = tagValue.replace('#', '')
+                  const legacyContext = row.querySelector('.trigger-keywords')?.value?.trim() || ''
+                  if (legacyContext) trigger.expectedContext = legacyContext
+                }
+                if (type === 'workflow_condition' || type === 'tag_and_condition') {
+                  trigger.workflowId = row.querySelector('.trigger-workflow')?.value || ''
+                  const condRows = row.querySelectorAll('.trigger-conditions > div')
+                  const conditions: any[] = []
+                  condRows.forEach((cr: any) => {
+                    const field = cr.querySelector('.cond-field')?.value || ''
+                    const op = cr.querySelector('.cond-op')?.value || 'eq'
+                    const value = cr.querySelector('.cond-value')?.value || ''
+                    if (field.trim()) conditions.push({ field, op, value })
+                  })
+                  if (conditions.length > 0) trigger.conditions = conditions
+                }
+                if (type === 'ui_event') {
+                  trigger.domSelector = row.querySelector('.trigger-dom-selector')?.value || ''
+                  trigger.domEvent = row.querySelector('.trigger-dom-event')?.value || 'click'
+                }
+                if (type === 'manual') {
+                  trigger.commandLabel = row.querySelector('.trigger-command')?.value || ''
+                }
+                
+                // Collect Agent channel data
+                const channel = row.querySelector('.trigger-channel')?.value || ''
+                if (channel === 'agent') {
+                  trigger.sourceAgent = row.querySelector('.trigger-agent-select')?.value || '01'
+                }
+                
+                // Collect Mini-App channel data
+                if (channel === 'miniapp') {
+                  trigger.miniAppId = row.querySelector('.trigger-miniapp-id')?.value || ''
+                  
+                  // Collect UI elements
+                  const uiElements: any[] = []
+                  row.querySelectorAll('.miniapp-ui-list > div').forEach((uiRow: any) => {
+                    const uiType = uiRow.querySelector('.miniapp-ui-type')?.value || 'button'
+                    const uiId = uiRow.querySelector('.miniapp-ui-id')?.value || ''
+                    const uiLabel = uiRow.querySelector('.miniapp-ui-label')?.value || ''
+                    if (uiId.trim()) uiElements.push({ type: uiType, id: uiId, label: uiLabel })
+                  })
+                  if (uiElements.length > 0) trigger.miniAppUiElements = uiElements
+                  
+                  // Collect conditions
+                  const miniAppConds: any[] = []
+                  row.querySelectorAll('.miniapp-condition-list > div').forEach((condRow: any) => {
+                    const field = condRow.querySelector('.miniapp-cond-field')?.value || ''
+                    const op = condRow.querySelector('.miniapp-cond-op')?.value || 'eq'
+                    const value = condRow.querySelector('.miniapp-cond-value')?.value || ''
+                    if (field.trim()) miniAppConds.push({ field, op, value })
+                  })
+                  if (miniAppConds.length > 0) trigger.miniAppConditions = miniAppConds
+                }
+                
+                // Legacy websiteFilter for non-direct_tag types
+                if (type !== 'direct_tag') {
+                  trigger.websiteFilter = row.querySelector('.trigger-website')?.value || ''
+                }
+                
+                // Collect per-trigger Sensor Workflows
+                const sensorWorkflows: any[] = []
+                const sensorContainer = row.querySelector('.trigger-sensor-workflows')
+                const sensorRows = sensorContainer ? sensorContainer.querySelectorAll('.trigger-sensor-row') : []
+                console.log(`🔍 [autoSave] Trigger ${trigger.id}: Found ${sensorRows.length} sensor workflow rows`)
+                sensorRows.forEach((wfRow: any) => {
+                  const wfType = wfRow.querySelector('.t-workflow-type-radio:checked')?.value || 'internal'
+                  const wfId = wfRow.querySelector('.t-workflow-id')?.value || ''
+                  const conditions: any[] = []
+                  wfRow.querySelectorAll('.t-workflow-cond-row').forEach((condRow: any) => {
+                    conditions.push({
+                      field: condRow.querySelector('.t-wcond-field')?.value || '',
+                      op: condRow.querySelector('.t-wcond-op')?.value || 'eq',
+                      value: condRow.querySelector('.t-wcond-value')?.value || '',
+                      action: condRow.querySelector('.t-wcond-action')?.value || 'continue',
+                      routeId: condRow.querySelector('.t-wcond-route-id')?.value || ''
+                    })
+                  })
+                  sensorWorkflows.push({ type: wfType, workflowId: wfId, conditions })
+                  console.log(`  📦 [autoSave] Sensor workflow: type=${wfType}, id=${wfId}, conditions=${conditions.length}`)
+                })
+                if (sensorWorkflows.length > 0) trigger.sensorWorkflows = sensorWorkflows
+                
+                // Collect per-trigger Allowed Actions
+                const allowedActions: any[] = []
+                const actionsContainer = row.querySelector('.trigger-allowed-actions')
+                const actionRows = actionsContainer ? actionsContainer.querySelectorAll('.trigger-action-row') : []
+                console.log(`🔍 [autoSave] Trigger ${trigger.id}: Found ${actionRows.length} action workflow rows`)
+                actionRows.forEach((wfRow: any) => {
+                  const wfType = wfRow.querySelector('.t-workflow-type-radio:checked')?.value || 'internal'
+                  const wfId = wfRow.querySelector('.t-workflow-id')?.value || ''
+                  const conditions: any[] = []
+                  wfRow.querySelectorAll('.t-workflow-cond-row').forEach((condRow: any) => {
+                    conditions.push({
+                      field: condRow.querySelector('.t-wcond-field')?.value || '',
+                      op: condRow.querySelector('.t-wcond-op')?.value || 'eq',
+                      value: condRow.querySelector('.t-wcond-value')?.value || '',
+                      action: condRow.querySelector('.t-wcond-action')?.value || 'continue',
+                      routeId: condRow.querySelector('.t-wcond-route-id')?.value || ''
+                    })
+                  })
+                  allowedActions.push({ type: wfType, workflowId: wfId, conditions })
+                  console.log(`  📦 [autoSave] Action workflow: type=${wfType}, id=${wfId}, conditions=${conditions.length}`)
+                })
+                if (allowedActions.length > 0) trigger.allowedActions = allowedActions
+                
+                unifiedTriggers.push(trigger)
+              })
+              if (unifiedTriggers.length > 0) listening.unifiedTriggers = unifiedTriggers
 
-                const kindSel = row.querySelector('.route-kind') as HTMLSelectElement
-
-                const specSel = row.querySelector('.route-specific') as HTMLSelectElement
-
-                return kindSel && specSel ? `${kindSel.value}:${specSel.value}` : ''
-
-              }).filter((v:string) => v)
+              // reportTo removed from Listener - only in Execution section now
 
               draft.listening = listening
 
               console.log('💾 Saved Listener data with triggers:', {
 
-                activeTriggerCount: triggers.length,
+                activeTriggerCount: activeTriggers.length,
 
-                passiveTriggerCount: passiveTriggers.length,
-
-                triggerNames: [...triggers, ...passiveTriggers].map(t => t.tag.name),
+                unifiedTriggerCount: unifiedTriggers.length,
 
                 exampleFilesCount: listening.exampleFiles?.length || 0
 
@@ -10823,19 +12269,29 @@ function initializeExtension() {
 
               }).filter((v:string) => v)
 
-              const reportTo:string[] = Array.from(document.querySelectorAll('#R-report-list .rep-row')).map((row:any) => {
+              // reportTo removed from Reasoning - only in Execution section now
 
-                const kindSel = row.querySelector('.route-kind') as HTMLSelectElement
+              // Collect memory/context settings from Reasoning section
+              const memoryContext = {
+                sessionContext: {
+                  read: !!(document.getElementById('R-MEM-session-read') as HTMLInputElement)?.checked,
+                  write: !!(document.getElementById('R-MEM-session-write') as HTMLInputElement)?.checked
+                },
+                accountMemory: {
+                  read: !!(document.getElementById('R-MEM-account-read') as HTMLInputElement)?.checked,
+                  write: !!(document.getElementById('R-MEM-account-write') as HTMLInputElement)?.checked
+                },
+                agentMemory: { enabled: true }
+              }
 
-                const specSel = row.querySelector('.route-specific') as HTMLSelectElement
-
-                return kindSel && specSel ? `${kindSel.value}:${specSel.value}` : ''
-
-              }).filter((v:string) => v)
-
+              // Collect all Apply For values from the list (get all selects inside the list)
+              const rApplyForValues = Array.from(document.querySelectorAll('#R-apply-list select')).map((sel: any) => sel.value).filter((v: string) => v && v !== '')
+              console.log('📝 Reasoning Apply For values collected:', rApplyForValues)
+              
               const base:any = {
 
-                applyFor: (document.getElementById('R-apply') as HTMLSelectElement)?.value || '__any__',
+                applyFor: rApplyForValues.length > 0 ? rApplyForValues[0] : '__any__',
+                applyForList: rApplyForValues.length > 0 ? rApplyForValues : ['__any__'],
 
                 goals: (document.getElementById('R-goals') as HTMLTextAreaElement)?.value || '',
 
@@ -10847,9 +12303,32 @@ function initializeExtension() {
 
                 acceptFrom: accepts,
 
-                reportTo: reportTo
+                memoryContext: memoryContext,
+                
+                reasoningWorkflows: []
 
               }
+              
+              // Collect Reasoning Workflows for main section
+              const rWorkflowContainerAuto = document.querySelector('#R-reasoning-workflows')
+              const rWorkflowRowsAuto = rWorkflowContainerAuto ? rWorkflowContainerAuto.querySelectorAll('.reasoning-workflow-row') : []
+              console.log(`🔍 [autoSave] Main Reasoning: Found ${rWorkflowRowsAuto.length} reasoning workflow rows`)
+              rWorkflowRowsAuto.forEach((wfRow: any) => {
+                const wfType = wfRow.querySelector('.r-workflow-type-radio:checked')?.value || 'internal'
+                const wfId = wfRow.querySelector('.r-workflow-id')?.value || ''
+                const conditions: any[] = []
+                wfRow.querySelectorAll('.r-workflow-cond-row').forEach((condRow: any) => {
+                  conditions.push({
+                    field: condRow.querySelector('.r-wcond-field')?.value || '',
+                    op: condRow.querySelector('.r-wcond-op')?.value || 'eq',
+                    value: condRow.querySelector('.r-wcond-value')?.value || '',
+                    action: condRow.querySelector('.r-wcond-action')?.value || 'continue',
+                    routeId: condRow.querySelector('.r-wcond-route-id')?.value || ''
+                  })
+                })
+                base.reasoningWorkflows.push({ type: wfType, workflowId: wfId, conditions })
+                console.log(`  📦 [autoSave] Reasoning workflow: type=${wfType}, id=${wfId}, conditions=${conditions.length}`)
+              })
 
               document.querySelectorAll('#R-custom-list > div').forEach((row:any)=>{
 
@@ -10861,9 +12340,59 @@ function initializeExtension() {
 
               })
 
+              // Collect additional reasoning sections
+              const rSections:any[] = [base]
+              document.querySelectorAll('#R-sections-extra .R-section').forEach((sec:any) => {
+                const sectionAccepts = Array.from(sec.querySelectorAll('.R-accept-list-sub .acc-row')).map((row:any) => {
+                  const kindSel = row.querySelector('.route-kind') as HTMLSelectElement
+                  const specSel = row.querySelector('.route-specific') as HTMLSelectElement
+                  return kindSel && specSel ? `${kindSel.value}:${specSel.value}` : ''
+                }).filter((v:string) => v)
+                
+                // Collect ALL Apply For values from the section's list
+                const sectionApplyForList = Array.from(sec.querySelectorAll('.R-apply-list-sub select')).map((sel: any) => sel.value).filter((v: string) => v && v !== '')
+                console.log('📝 [autoSave] Additional R-section Apply For values:', sectionApplyForList)
+                
+                // Collect Reasoning Workflows for additional section
+                const sectionWorkflows: any[] = []
+                sec.querySelectorAll('.R-workflows-sub .reasoning-workflow-row').forEach((wfRow: any) => {
+                  const wfType = wfRow.querySelector('.r-workflow-type-radio:checked')?.value || 'internal'
+                  const wfId = wfRow.querySelector('.r-workflow-id')?.value || ''
+                  const conditions: any[] = []
+                  wfRow.querySelectorAll('.r-workflow-cond-row').forEach((condRow: any) => {
+                    conditions.push({
+                      field: condRow.querySelector('.r-wcond-field')?.value || '',
+                      op: condRow.querySelector('.r-wcond-op')?.value || 'eq',
+                      value: condRow.querySelector('.r-wcond-value')?.value || '',
+                      action: condRow.querySelector('.r-wcond-action')?.value || 'continue',
+                      routeId: condRow.querySelector('.r-wcond-route-id')?.value || ''
+                    })
+                  })
+                  sectionWorkflows.push({ type: wfType, workflowId: wfId, conditions })
+                })
+                console.log(`🔍 [autoSave] Additional R-section: Found ${sectionWorkflows.length} reasoning workflow rows`)
+                
+                const s:any = {
+                  applyFor: sectionApplyForList.length > 0 ? sectionApplyForList[0] : '__any__',
+                  applyForList: sectionApplyForList.length > 0 ? sectionApplyForList : ['__any__'],
+                  goals: (sec.querySelector('.R-goals') as HTMLTextAreaElement)?.value || '',
+                  role: (sec.querySelector('.R-role') as HTMLInputElement)?.value || '',
+                  rules: (sec.querySelector('.R-rules') as HTMLTextAreaElement)?.value || '',
+                  custom: [],
+                  acceptFrom: sectionAccepts,
+                  reasoningWorkflows: sectionWorkflows
+                }
+                sec.querySelectorAll('.R-custom-list > div').forEach((row:any) => {
+                  const key = (row.querySelector('input:nth-child(1)') as HTMLInputElement)?.value || ''
+                  const value = (row.querySelector('input:nth-child(2)') as HTMLInputElement)?.value || ''
+                  if (key || value) s.custom.push({ key, value })
+                })
+                rSections.push(s)
+              })
+
               draft.reasoning = base
 
-              draft.reasoningSections = [base]
+              draft.reasoningSections = rSections
 
               console.log('💾 Saved Reasoning data:', {
 
@@ -10871,7 +12400,7 @@ function initializeExtension() {
 
                 acceptFromCount: accepts.length,
 
-                reportToCount: base.reportTo.length
+                additionalSectionsCount: rSections.length - 1
 
               })
 
@@ -10881,17 +12410,30 @@ function initializeExtension() {
 
             if (E) {
 
-              const eAccepts:string[] = Array.from(document.querySelectorAll('#E-accept-list .acc-row')).map((row:any) => {
+              // Accept list removed from Execution section
+              const eAccepts:string[] = []
 
-                const kindSel = row.querySelector('.route-kind') as HTMLSelectElement
-
-                const specSel = row.querySelector('.route-specific') as HTMLSelectElement
-
-                return kindSel && specSel ? `${kindSel.value}:${specSel.value}` : ''
-
-              }).filter((v:string) => v)
-
-              const eWfs:string[] = Array.from(document.querySelectorAll('#E-workflow-list .wf-row .wf-target')).map((n:any)=> n.value).filter((v:string) => v)
+              // Collect execution workflows with new format (type, workflowId, conditions)
+              const eWorkflows: any[] = []
+              document.querySelectorAll('#E-workflow-list .exec-workflow-row').forEach((wfRow: any) => {
+                const wfType = wfRow.querySelector('.e-workflow-type-radio:checked')?.value || 'internal'
+                const wfId = wfRow.querySelector('.e-workflow-id')?.value || ''
+                const conditions: any[] = []
+                wfRow.querySelectorAll('.e-workflow-cond-row').forEach((condRow: any) => {
+                  conditions.push({
+                    field: condRow.querySelector('.e-wcond-field')?.value || '',
+                    op: condRow.querySelector('.e-wcond-op')?.value || 'eq',
+                    value: condRow.querySelector('.e-wcond-value')?.value || '',
+                    action: condRow.querySelector('.e-wcond-action')?.value || 'continue',
+                    routeId: condRow.querySelector('.e-wcond-route-id')?.value || ''
+                  })
+                })
+                eWorkflows.push({ type: wfType, workflowId: wfId, conditions })
+              })
+              console.log(`🔍 [autoSave] Execution: Found ${eWorkflows.length} execution workflow rows`)
+              
+              // Legacy format for backward compatibility
+              const eWfs:string[] = eWorkflows.map(w => w.workflowId).filter(v => v)
 
               // Collect special destinations (Report to)
 
@@ -10899,23 +12441,116 @@ function initializeExtension() {
 
               const eDestinationsMain = eKindsMain.map(sel => {
 
-                const agents = Array.from(sel.parentElement?.querySelectorAll('.esp-agents .E-agent') || []).filter((cb:any)=> cb.checked).map((cb:any)=> cb.value)
+                const row = sel.parentElement
 
-                return { kind: sel.value, agents: sel.value==='agent' ? agents : [] }
+                let agents: string[] = []
+
+                
+
+                if (sel.value === 'agentBox') {
+
+                  // Get selected agent box from follow-up select
+
+                  const boxSel = row?.querySelector('.esp-followup select') as HTMLSelectElement | null
+
+                  if (boxSel?.value) {
+
+                    agents = [boxSel.value]
+
+                  }
+
+                } else if (sel.value === 'agent') {
+
+                  // Get selected agent from follow-up select
+
+                  const agentSel = row?.querySelector('.esp-followup select') as HTMLSelectElement | null
+
+                  if (agentSel?.value) {
+
+                    agents = [agentSel.value]
+
+                  }
+
+                }
+
+                return { kind: sel.value, agents }
 
               })
 
-              draft.execution = { workflows: eWfs, acceptFrom: eAccepts, specialDestinations: eDestinationsMain, destinations: [] }
+              // Collect additional execution sections
+              const eSections:any[] = []
+              document.querySelectorAll('#E-sections-extra .E-section').forEach((sec:any) => {
+                // Collect ALL Apply For values from the section's list
+                const sectionApplyForList = Array.from(sec.querySelectorAll('.E-apply-list-sub select')).map((sel: any) => sel.value).filter((v: string) => v && v !== '')
+                console.log('📝 [autoSave] Additional E-section Apply For values:', sectionApplyForList)
+                
+                // Collect workflows with new format for additional sections
+                const sectionWorkflows: any[] = []
+                sec.querySelectorAll('.E-workflow-list-sub .exec-workflow-row').forEach((wfRow: any) => {
+                  const wfType = wfRow.querySelector('.e-workflow-type-radio:checked')?.value || 'internal'
+                  const wfId = wfRow.querySelector('.e-workflow-id')?.value || ''
+                  const conditions: any[] = []
+                  wfRow.querySelectorAll('.e-workflow-cond-row').forEach((condRow: any) => {
+                    conditions.push({
+                      field: condRow.querySelector('.e-wcond-field')?.value || '',
+                      op: condRow.querySelector('.e-wcond-op')?.value || 'eq',
+                      value: condRow.querySelector('.e-wcond-value')?.value || '',
+                      action: condRow.querySelector('.e-wcond-action')?.value || 'continue',
+                      routeId: condRow.querySelector('.e-wcond-route-id')?.value || ''
+                    })
+                  })
+                  sectionWorkflows.push({ type: wfType, workflowId: wfId, conditions })
+                })
+                
+                // Legacy format for backward compatibility
+                const workflows = sectionWorkflows.map(w => w.workflowId).filter(v => v)
+                const kinds = Array.from(sec.querySelectorAll('.E-special-list-sub .esp-row .esp-kind')) as HTMLSelectElement[]
+                const dests = kinds.map(sel => {
+                  const row = sel.parentElement
+                  let agents: string[] = []
+                  if (sel.value === 'agentBox') {
+                    const boxSel = row?.querySelector('.esp-followup select') as HTMLSelectElement | null
+                    if (boxSel?.value) agents = [boxSel.value]
+                  } else if (sel.value === 'agent') {
+                    const agentSel = row?.querySelector('.esp-followup select') as HTMLSelectElement | null
+                    if (agentSel?.value) agents = [agentSel.value]
+                  }
+                  return { kind: sel.value, agents }
+                })
+                eSections.push({ 
+                  applyFor: sectionApplyForList.length > 0 ? sectionApplyForList[0] : '__any__',
+                  applyForList: sectionApplyForList.length > 0 ? sectionApplyForList : ['__any__'],
+                  workflows, 
+                  executionWorkflows: sectionWorkflows,
+                  acceptFrom: [], 
+                  specialDestinations: dests 
+                })
+              })
+
+              // Collect all Apply For values from the list (get all selects inside the list)
+              const eApplyForValues = Array.from(document.querySelectorAll('#E-apply-list select')).map((sel: any) => sel.value).filter((v: string) => v && v !== '')
+              console.log('📝 Execution Apply For values collected:', eApplyForValues)
+              
+              draft.execution = { 
+                workflows: eWfs, 
+                executionWorkflows: eWorkflows,
+                acceptFrom: eAccepts, 
+                applyFor: eApplyForValues.length > 0 ? eApplyForValues[0] : '__any__',
+                applyForList: eApplyForValues.length > 0 ? eApplyForValues : ['__any__'],
+                specialDestinations: eDestinationsMain, 
+                executionSections: eSections,
+                destinations: [] 
+              }
 
               console.log('💾 Saved Execution data:', {
 
-                applyFor: draft.execution.applyFor || '__any__',
+                applyFor: draft.execution.applyFor,
 
                 acceptFromCount: eAccepts.length,
 
                 reportToCount: eDestinationsMain.length,
 
-                additionalSectionsCount: 0
+                additionalSectionsCount: eSections.length
 
               })
 
@@ -11189,21 +12824,21 @@ function initializeExtension() {
 
       if (type === 'instructions') {
 
-        const num = getOrAssignAgentNumber(agentName)
+        const num = agentNumber ? pad2(agentNumber) : getAgentNumberFallback(agentName)
 
-        return `AI Instructions - Agent ${num} - ${capitalizeName(agentName)}`
+        return `🤖 AI Instructions - Agent ${num}`
 
       }
 
       if (type === 'context') {
 
-        const num = getOrAssignAgentNumber(agentName)
+        const num = agentNumber ? pad2(agentNumber) : getAgentNumberFallback(agentName)
 
-        return `Memory Agent ${num} - ${capitalizeName(agentName)}`
+        return `🧠 Memory - Agent ${num}`
 
       }
 
-      return `${typeLabels[type]} - ${agentName}`
+      return `${typeLabels[type]} - ${capitalizeName(agentName)}`
 
     })()
 
@@ -11259,7 +12894,10 @@ function initializeExtension() {
 
       if (!container) throw new Error('agent-sections container missing')
 
-
+      // Declare addApplyForRowToList at this scope level so it's accessible from restoreFromMemory
+      let addApplyForRowToList: (listElement: HTMLElement, selectClass: string) => void
+      // Also declare refreshApplyForOptions at this level
+      let refreshApplyForOptions: () => void
 
       const makeSelect = (options: Array<{label:string,value:string}>, cls: string, defValue?: string) => {
 
@@ -11407,48 +13045,139 @@ function initializeExtension() {
 
       }
 
-      // Dedicated workflow-row adder (no kind selector)
-
-      const addWorkflowRow = (containerId: string) => {
-
-        const cont = configOverlay.querySelector(containerId) as HTMLElement | null
-
-        if (!cont) return
-
+      // Execution workflow row creator - styled like Reasoning Workflows with Internal/External radio buttons
+      const createExecutionWorkflowRow = (init?: { type?: string, workflowId?: string, conditions?: any[] }) => {
+        const workflowType = init?.type || 'internal'
+        const workflowId = init?.workflowId || ''
+        const conditions = init?.conditions || []
+        const uniqueId = Math.random().toString(36).slice(2, 8)
+        
         const row = document.createElement('div')
-
-        row.className = 'wf-row'
-
-        row.style.cssText = 'display:grid;grid-template-columns:1fr auto;gap:8px'
-
-        const workflows = [
-
-          { label: 'Email', value: 'email' },
-
-          { label: 'Calendar', value: 'calendar' },
-
-          { label: 'Cleanup', value: 'cleanup' }
-
-        ]
-
-        const sel = makeSelect(workflows, 'wf-target')
-
-        const del = document.createElement('button')
-
-        del.textContent = '×'
-
-        del.title = 'Remove'
-
-        del.style.cssText = 'background:#f44336;color:#fff;border:1px solid rgba(255,255,255,.25);padding:0 10px;border-radius:6px;cursor:pointer'
-
-        del.addEventListener('click', () => row.remove())
-
-        row.appendChild(sel)
-
-        row.appendChild(del)
-
-        cont.appendChild(row)
-
+        row.className = 'exec-workflow-row'
+        row.style.cssText = 'background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.2);border-radius:8px;padding:10px'
+        
+        const header = document.createElement('div')
+        header.style.cssText = 'display:flex;flex-direction:column;gap:8px;margin-bottom:8px'
+        header.innerHTML = `
+          <div style="display:flex;justify-content:space-between;align-items:center">
+            <div style="display:flex;gap:16px;align-items:center">
+              <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+                <input type="radio" name="e-wf-type-${uniqueId}" value="internal" class="e-workflow-type-radio" ${workflowType === 'internal' ? 'checked' : ''} style="margin:0">
+                <span style="font-size:13px;font-weight:500;color:#fff">🔧 Internal Parser</span>
+              </label>
+              <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+                <input type="radio" name="e-wf-type-${uniqueId}" value="external" class="e-workflow-type-radio" ${workflowType === 'external' ? 'checked' : ''} style="margin:0">
+                <span style="font-size:13px;font-weight:500;color:#fff">🌐 External Workflow</span>
+              </label>
+              <span title="Internal Parser works with agents, mini-apps, and websites displayed in the master tab. Use External Workflow for external data sources and APIs." style="font-size:12px;opacity:0.9;cursor:help;background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.35);padding:0 6px;border-radius:50%">?</span>
+            </div>
+            <button style="background:#ef4444;border:none;color:#fff;padding:4px 10px;border-radius:4px;cursor:pointer;font-size:12px" class="e-workflow-del">✕</button>
+          </div>
+          <div class="e-workflow-id-container" style="display:${workflowType === 'external' ? 'block' : 'none'}">
+            <input type="text" placeholder="Workflow ID or name" value="${workflowId}" style="width:100%;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.35);color:#fff;padding:6px 10px;border-radius:4px;font-size:13px" class="e-workflow-id">
+          </div>
+        `
+        
+        // Wire up radio button toggle for workflow ID visibility
+        const radioButtons = header.querySelectorAll('.e-workflow-type-radio') as NodeListOf<HTMLInputElement>
+        const workflowIdContainer = header.querySelector('.e-workflow-id-container') as HTMLElement
+        radioButtons.forEach(radio => {
+          radio.addEventListener('change', () => {
+            workflowIdContainer.style.display = radio.value === 'external' ? 'block' : 'none'
+          })
+        })
+        
+        const conditionsWrap = document.createElement('div')
+        conditionsWrap.style.cssText = 'margin-top:8px;padding-top:8px;border-top:1px dashed rgba(255,255,255,0.15)'
+        conditionsWrap.innerHTML = `
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+            <span style="font-size:12px;opacity:0.8">📋 Execute when (conditions):</span>
+            <button class="e-workflow-add-cond" style="background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.25);color:#fff;padding:3px 8px;border-radius:4px;cursor:pointer;font-size:11px">+ Add Condition</button>
+          </div>
+          <div class="e-workflow-conditions" style="display:flex;flex-direction:column;gap:6px"></div>
+        `
+        
+        row.appendChild(header)
+        row.appendChild(conditionsWrap)
+        
+        // Wire up delete
+        header.querySelector('.e-workflow-del')?.addEventListener('click', () => row.remove())
+        
+        // Wire up add condition
+        const execCondList = conditionsWrap.querySelector('.e-workflow-conditions') as HTMLElement
+        conditionsWrap.querySelector('.e-workflow-add-cond')?.addEventListener('click', () => {
+          const condRow = document.createElement('div')
+          condRow.className = 'e-workflow-cond-row'
+          condRow.style.cssText = 'display:flex;flex-direction:column;gap:6px;font-size:12px;background:rgba(255,255,255,0.03);padding:8px;border-radius:4px;border:1px solid rgba(255,255,255,0.1)'
+          condRow.innerHTML = `
+            <div style="display:flex;gap:6px;align-items:center">
+              <span style="opacity:0.7;white-space:nowrap">If</span>
+              <input type="text" placeholder="Expected Value" style="flex:1;background:rgba(255,255,255,.85);border:1px solid rgba(255,255,255,.5);color:#1e293b;padding:4px 8px;border-radius:3px;font-size:11px" class="e-wcond-field">
+              <select style="flex:1;background:#fff;color:#0f172a;border:1px solid #cbd5e1;padding:4px 8px;border-radius:3px;font-size:11px" class="e-wcond-op">
+                <option value="eq">==</option>
+                <option value="ne">!=</option>
+                <option value="contains">contains</option>
+                <option value="gt">&gt;</option>
+                <option value="lt">&lt;</option>
+                <option value="exists">exists</option>
+              </select>
+              <input type="text" placeholder="value" style="flex:1;background:rgba(255,255,255,.85);border:1px solid rgba(255,255,255,.5);color:#1e293b;padding:4px 6px;border-radius:3px;font-size:11px" class="e-wcond-value">
+              <span style="opacity:0.7;white-space:nowrap">→</span>
+              <select style="flex:1;background:#fff;color:#0f172a;border:1px solid #cbd5e1;padding:4px 8px;border-radius:3px;font-size:11px" class="e-wcond-action">
+                <option value="continue">Continue</option>
+                <option value="skip">Skip</option>
+                <option value="route">Route to...</option>
+              </select>
+              <button style="background:#ef4444;border:none;color:#fff;padding:2px 6px;border-radius:3px;cursor:pointer;font-size:10px" class="e-wcond-del">✕</button>
+            </div>
+            <div class="e-wcond-route-container" style="display:none;padding-left:20px">
+              <input type="text" placeholder="Workflow ID to route to" style="width:100%;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.35);color:#fff;padding:6px 10px;border-radius:4px;font-size:12px" class="e-wcond-route-id">
+            </div>
+          `
+          
+          condRow.querySelector('.e-wcond-del')?.addEventListener('click', () => condRow.remove())
+          
+          // Wire up action change to show/hide route workflow ID field
+          const actionSelect = condRow.querySelector('.e-wcond-action') as HTMLSelectElement
+          const routeContainer = condRow.querySelector('.e-wcond-route-container') as HTMLElement
+          actionSelect?.addEventListener('change', () => {
+            routeContainer.style.display = actionSelect.value === 'route' ? 'block' : 'none'
+          })
+          
+          execCondList.appendChild(condRow)
+        })
+        
+        // Pre-populate conditions if provided
+        conditions.forEach((c: any) => {
+          const addBtn = conditionsWrap.querySelector('.e-workflow-add-cond') as HTMLButtonElement
+          addBtn?.click()
+          const rows = execCondList.querySelectorAll('.e-workflow-cond-row')
+          const lastRow = rows[rows.length - 1]
+          if (lastRow) {
+            (lastRow.querySelector('.e-wcond-field') as HTMLInputElement).value = c.field || ''
+            ;(lastRow.querySelector('.e-wcond-op') as HTMLSelectElement).value = c.op || 'eq'
+            ;(lastRow.querySelector('.e-wcond-value') as HTMLInputElement).value = c.value || ''
+            
+            const actionSelect = lastRow.querySelector('.e-wcond-action') as HTMLSelectElement
+            const routeContainer = lastRow.querySelector('.e-wcond-route-container') as HTMLElement
+            actionSelect.value = c.action || 'continue'
+            
+            if (c.action === 'route') {
+              routeContainer.style.display = 'block'
+              const routeIdInput = lastRow.querySelector('.e-wcond-route-id') as HTMLInputElement
+              if (routeIdInput && c.routeId) routeIdInput.value = c.routeId
+            }
+          }
+        })
+        
+        return row
+      }
+      
+      // Dedicated workflow-row adder - now uses Sensor Workflow style
+      const addWorkflowRow = (containerId: string) => {
+        const cont = configOverlay.querySelector(containerId) as HTMLElement | null
+        if (!cont) return
+        cont.appendChild(createExecutionWorkflowRow())
       }
 
       const agentTargets = [
@@ -11483,7 +13212,7 @@ function initializeExtension() {
 
       let persistedRole = ''
 
-      let persistedPassiveToggle = true
+      let persistedPassiveToggle = false
 
       let persistedActiveToggle = false
 
@@ -11589,75 +13318,227 @@ function initializeExtension() {
 
             }
 
-            // Active triggers - CRITICAL: Always save these for "Apply for:" dropdowns
+            // Helper to get source value based on source type
+            const getSourceVal = (row: any, source: string) => {
+              if (source === 'agent') return (row.querySelector('.act-agent-select') as HTMLSelectElement)?.value || ''
+              if (source === 'email') {
+                const tags = row.querySelectorAll('.act-email-tags .email-tag span:first-child')
+                return Array.from(tags).map((t: any) => t.textContent).join(',')
+              }
+              return (row.querySelector('.act-source-value') as HTMLInputElement)?.value || ''
+            }
 
-            const triggers:any[] = []
-
+            // Active triggers (for backward compatibility)
+            const activeTriggers:any[] = []
             document.querySelectorAll('#L-active-list .act-row').forEach((row:any)=>{
-
               const name = (row.querySelector('.act-tag') as HTMLInputElement)?.value || ''
-
-              const kind = (row.querySelector('.act-kind') as HTMLSelectElement)?.value || 'OTHER'
-
-              const extraSel = row.querySelector('.act-extra') as HTMLSelectElement | null
-
-              const extra = extraSel && extraSel.style.display !== 'none' ? (extraSel.value || '') : ''
-
-              if (name.trim()) {  // Only save non-empty trigger names
-
-                triggers.push({ tag: { name, kind, extra } })
-
+              const source = (row.querySelector('.act-source') as HTMLSelectElement)?.value || 'chat'
+              const sourceValue = getSourceVal(row, source)
+              const cronCheck = row.querySelector('.act-cron-enable') as HTMLInputElement
+              const cronSchedule = cronCheck?.checked ? (row.querySelector('.act-cron-schedule') as HTMLInputElement)?.value || '' : ''
+              
+              if (name.trim()) {
+                activeTriggers.push({ name, source, sourceValue, cronSchedule })
               }
-
             })
+            if (activeTriggers.length > 0) listening.active = { triggers: activeTriggers }
 
-            if (triggers.length > 0) listening.active = { triggers }
-
-            // Passive triggers
-
-            const passiveTriggers:any[] = []
-
+            // Action triggers (with source selection)
+            const actionTriggers:any[] = []
             document.querySelectorAll('#L-passive-triggers .act-row').forEach((row:any)=>{
-
               const name = (row.querySelector('.act-tag') as HTMLInputElement)?.value || ''
-
-              const kind = (row.querySelector('.act-kind') as HTMLSelectElement)?.value || 'OTHER'
-
-              const extraSel = row.querySelector('.act-extra') as HTMLSelectElement | null
-
-              const extra = extraSel && extraSel.style.display !== 'none' ? (extraSel.value || '') : ''
-
-              if (name.trim()) {  // Only save non-empty trigger names
-
-                passiveTriggers.push({ tag: { name, kind, extra } })
-
+              const source = (row.querySelector('.act-source') as HTMLSelectElement)?.value || 'chat'
+              const sourceValue = getSourceVal(row, source)
+              const cronCheck = row.querySelector('.act-cron-enable') as HTMLInputElement
+              const cronSchedule = cronCheck?.checked ? (row.querySelector('.act-cron-schedule') as HTMLInputElement)?.value || '' : ''
+              
+              if (name.trim()) {
+                actionTriggers.push({ name, source, sourceValue, cronSchedule })
               }
-
             })
+            if (actionTriggers.length > 0) listening.triggers = actionTriggers
 
-            if (passiveTriggers.length > 0) listening.passive = { triggers: passiveTriggers }
+            // Collect unified triggers (new architecture)
+            const unifiedTriggers: any[] = []
+            document.querySelectorAll('#L-unified-triggers .unified-trigger-row').forEach((row: any, idx: number) => {
+              const type = row.querySelector('.trigger-type')?.value || 'direct_tag'
+              const tagValue = row.querySelector('.trigger-tag')?.value?.trim() || ''
+              const existingId = row.dataset.triggerId || ''
+              const triggerId = existingId || (tagValue ? `ID#${tagValue.replace('#', '')}` : `ID${String(idx + 1).padStart(2, '0')}`)
+              const trigger: any = { 
+                id: triggerId,
+                type, 
+                enabled: true 
+              }
+              
+              if (type === 'direct_tag' || type === 'tag_and_condition') {
+                // New structured format for Event Tag triggers
+                const tagValue = row.querySelector('.trigger-tag')?.value?.trim() || ''
+                trigger.tag = tagValue.startsWith('#') ? tagValue : `#${tagValue}`
+                trigger.channel = row.querySelector('.trigger-channel')?.value || 'chat'
+                
+                // Build structured eventTagConditions array
+                const eventTagConditions: any[] = []
+                
+                // WRCode condition
+                const wrcodeChecked = row.querySelector('.trigger-wrcode')?.checked
+                if (wrcodeChecked) {
+                  eventTagConditions.push({ type: 'wrcode_valid', required: true })
+                }
+                
+                // Sender whitelist condition
+                const senderWhitelist = row.querySelector('.trigger-sender-whitelist')?.value?.trim() || ''
+                if (senderWhitelist) {
+                  const allowedSenders = senderWhitelist.split(',').map((s: string) => s.trim()).filter(Boolean)
+                  if (allowedSenders.length > 0) {
+                    eventTagConditions.push({ type: 'sender_whitelist', allowedSenders })
+                  }
+                }
+                
+                // Body keywords condition
+                const keywords = row.querySelector('.trigger-keywords')?.value?.trim() || ''
+                if (keywords) {
+                  const keywordList = keywords.split(',').map((k: string) => k.trim()).filter(Boolean)
+                  if (keywordList.length > 0) {
+                    eventTagConditions.push({ type: 'body_keywords', keywords: keywordList, caseInsensitive: true })
+                  }
+                }
+                
+                // Website filter condition
+                const websiteFilter = row.querySelector('.trigger-website')?.value?.trim() || ''
+                if (websiteFilter) {
+                  const patterns = websiteFilter.split(',').map((p: string) => p.trim()).filter(Boolean)
+                  if (patterns.length > 0) {
+                    eventTagConditions.push({ type: 'website_filter', patterns })
+                  }
+                }
+                
+                if (eventTagConditions.length > 0) {
+                  trigger.eventTagConditions = eventTagConditions
+                }
+                
+                // Legacy fields for backward compatibility
+                trigger.tagName = tagValue.replace('#', '')
+                const legacyContext = row.querySelector('.trigger-keywords')?.value?.trim() || ''
+                if (legacyContext) trigger.expectedContext = legacyContext
+              }
+              if (type === 'workflow_condition' || type === 'tag_and_condition') {
+                trigger.workflowId = row.querySelector('.trigger-workflow')?.value || ''
+                const condRows = row.querySelectorAll('.trigger-conditions > div')
+                const conditions: any[] = []
+                condRows.forEach((cr: any) => {
+                  const field = cr.querySelector('.cond-field')?.value || ''
+                  const op = cr.querySelector('.cond-op')?.value || 'eq'
+                  const value = cr.querySelector('.cond-value')?.value || ''
+                  if (field.trim()) conditions.push({ field, op, value })
+                })
+                if (conditions.length > 0) trigger.conditions = conditions
+              }
+              if (type === 'ui_event') {
+                trigger.domSelector = row.querySelector('.trigger-dom-selector')?.value || ''
+                trigger.domEvent = row.querySelector('.trigger-dom-event')?.value || 'click'
+              }
+              if (type === 'manual') {
+                trigger.commandLabel = row.querySelector('.trigger-command')?.value || ''
+              }
+              
+              // Collect Agent channel data
+              const channel = row.querySelector('.trigger-channel')?.value || ''
+              if (channel === 'agent') {
+                trigger.sourceAgent = row.querySelector('.trigger-agent-select')?.value || '01'
+              }
+              
+              // Collect Mini-App channel data
+              if (channel === 'miniapp') {
+                trigger.miniAppId = row.querySelector('.trigger-miniapp-id')?.value || ''
+                
+                // Collect UI elements
+                const uiElements: any[] = []
+                row.querySelectorAll('.miniapp-ui-list > div').forEach((uiRow: any) => {
+                  const uiType = uiRow.querySelector('.miniapp-ui-type')?.value || 'button'
+                  const uiId = uiRow.querySelector('.miniapp-ui-id')?.value || ''
+                  const uiLabel = uiRow.querySelector('.miniapp-ui-label')?.value || ''
+                  if (uiId.trim()) uiElements.push({ type: uiType, id: uiId, label: uiLabel })
+                })
+                if (uiElements.length > 0) trigger.miniAppUiElements = uiElements
+                
+                // Collect conditions
+                const miniAppConds: any[] = []
+                row.querySelectorAll('.miniapp-condition-list > div').forEach((condRow: any) => {
+                  const field = condRow.querySelector('.miniapp-cond-field')?.value || ''
+                  const op = condRow.querySelector('.miniapp-cond-op')?.value || 'eq'
+                  const value = condRow.querySelector('.miniapp-cond-value')?.value || ''
+                  if (field.trim()) miniAppConds.push({ field, op, value })
+                })
+                if (miniAppConds.length > 0) trigger.miniAppConditions = miniAppConds
+              }
+              
+              // Legacy websiteFilter for non-direct_tag types
+              if (type !== 'direct_tag') {
+                trigger.websiteFilter = row.querySelector('.trigger-website')?.value || ''
+              }
+              
+              // Collect per-trigger Sensor Workflows
+              const sensorWorkflows: any[] = []
+              const sensorContainer = row.querySelector('.trigger-sensor-workflows')
+              const sensorRows = sensorContainer ? sensorContainer.querySelectorAll('.trigger-sensor-row') : []
+              console.log(`🔍 [syncPersistedFromDom] Trigger ${trigger.id}: Found ${sensorRows.length} sensor workflow rows`)
+              sensorRows.forEach((wfRow: any) => {
+                const wfType = wfRow.querySelector('.t-workflow-type-radio:checked')?.value || 'internal'
+                const wfId = wfRow.querySelector('.t-workflow-id')?.value || ''
+                const conditions: any[] = []
+                wfRow.querySelectorAll('.t-workflow-cond-row').forEach((condRow: any) => {
+                  conditions.push({
+                    field: condRow.querySelector('.t-wcond-field')?.value || '',
+                    op: condRow.querySelector('.t-wcond-op')?.value || 'eq',
+                    value: condRow.querySelector('.t-wcond-value')?.value || '',
+                    action: condRow.querySelector('.t-wcond-action')?.value || 'continue',
+                    routeId: condRow.querySelector('.t-wcond-route-id')?.value || ''
+                  })
+                })
+                sensorWorkflows.push({ type: wfType, workflowId: wfId, conditions })
+                console.log(`  📦 Sensor workflow: type=${wfType}, id=${wfId}, conditions=${conditions.length}`)
+              })
+              if (sensorWorkflows.length > 0) trigger.sensorWorkflows = sensorWorkflows
+              
+              // Collect per-trigger Allowed Actions
+              const allowedActions: any[] = []
+              const actionsContainer = row.querySelector('.trigger-allowed-actions')
+              const actionRows = actionsContainer ? actionsContainer.querySelectorAll('.trigger-action-row') : []
+              console.log(`🔍 [syncPersistedFromDom] Trigger ${trigger.id}: Found ${actionRows.length} action workflow rows`)
+              actionRows.forEach((wfRow: any) => {
+                const wfType = wfRow.querySelector('.t-workflow-type-radio:checked')?.value || 'internal'
+                const wfId = wfRow.querySelector('.t-workflow-id')?.value || ''
+                const conditions: any[] = []
+                wfRow.querySelectorAll('.t-workflow-cond-row').forEach((condRow: any) => {
+                  conditions.push({
+                    field: condRow.querySelector('.t-wcond-field')?.value || '',
+                    op: condRow.querySelector('.t-wcond-op')?.value || 'eq',
+                    value: condRow.querySelector('.t-wcond-value')?.value || '',
+                    action: condRow.querySelector('.t-wcond-action')?.value || 'continue',
+                    routeId: condRow.querySelector('.t-wcond-route-id')?.value || ''
+                  })
+                })
+                allowedActions.push({ type: wfType, workflowId: wfId, conditions })
+                console.log(`  📦 Action workflow: type=${wfType}, id=${wfId}, conditions=${conditions.length}`)
+              })
+              if (allowedActions.length > 0) trigger.allowedActions = allowedActions
+              
+              unifiedTriggers.push(trigger)
+            })
+            if (unifiedTriggers.length > 0) listening.unifiedTriggers = unifiedTriggers
 
-            // Report to
-
-            listening.reportTo = Array.from(document.querySelectorAll('#L-report-list .rep-row')).map((row:any)=> {
-
-              const kindSel = row.querySelector('.route-kind') as HTMLSelectElement
-
-              const specSel = row.querySelector('.route-specific') as HTMLSelectElement
-
-              return kindSel && specSel ? `${kindSel.value}:${specSel.value}` : ''
-
-            }).filter((v:string) => v)
+            // reportTo removed from Listener - only in Execution section now
 
             draft.listening = listening
 
             console.log('💾 Saved Listener data with triggers:', {
 
-              activeTriggerCount: triggers.length,
+              activeTriggerCount: activeTriggers.length,
 
-              passiveTriggerCount: passiveTriggers.length,
+              actionTriggerCount: actionTriggers.length,
 
-              triggerNames: [...triggers, ...passiveTriggers].map(t => t.tag.name)
+              unifiedTriggerCount: unifiedTriggers.length
 
             })
 
@@ -11681,19 +13562,16 @@ function initializeExtension() {
 
             }).filter((v:string) => v)
 
-            const reportTo = Array.from(document.querySelectorAll('#R-report-list .rep-row')).map((row:any)=> {
-
-              const kindSel = row.querySelector('.route-kind') as HTMLSelectElement
-
-              const specSel = row.querySelector('.route-specific') as HTMLSelectElement
-
-              return kindSel && specSel ? `${kindSel.value}:${specSel.value}` : ''
-
-            }).filter((v:string) => v)
+            // reportTo removed from Reasoning - only in Execution section now
+            
+            // Collect all Apply For values from the list (get all selects inside the list)
+            const rApplyForValuesSync = Array.from(document.querySelectorAll('#R-apply-list select')).map((sel: any) => sel.value).filter((v: string) => v && v !== '')
+            console.log('📝 [syncPersistedFromDom] Reasoning Apply For values:', rApplyForValuesSync)
 
             const base:any = {
 
-              applyFor: (document.getElementById('R-apply') as HTMLSelectElement)?.value || '__any__',
+              applyFor: rApplyForValuesSync.length > 0 ? rApplyForValuesSync[0] : '__any__',
+              applyForList: rApplyForValuesSync.length > 0 ? rApplyForValuesSync : ['__any__'],
 
               goals: (document.getElementById('R-goals') as HTMLTextAreaElement)?.value || '',
 
@@ -11705,9 +13583,42 @@ function initializeExtension() {
 
               acceptFrom: accepts,
 
-              reportTo: reportTo
+              memoryContext: {
+                sessionContext: {
+                  read: !!(document.getElementById('R-MEM-session-read') as HTMLInputElement)?.checked,
+                  write: !!(document.getElementById('R-MEM-session-write') as HTMLInputElement)?.checked
+                },
+                accountMemory: {
+                  read: !!(document.getElementById('R-MEM-account-read') as HTMLInputElement)?.checked,
+                  write: !!(document.getElementById('R-MEM-account-write') as HTMLInputElement)?.checked
+                },
+                agentMemory: { enabled: true }
+              },
+              
+              reasoningWorkflows: []
 
             }
+            
+            // Collect Reasoning Workflows for main section
+            const rWorkflowContainer = document.querySelector('#R-reasoning-workflows')
+            const rWorkflowRows = rWorkflowContainer ? rWorkflowContainer.querySelectorAll('.reasoning-workflow-row') : []
+            console.log(`🔍 [syncPersistedFromDom] Main Reasoning: Found ${rWorkflowRows.length} reasoning workflow rows`)
+            rWorkflowRows.forEach((wfRow: any) => {
+              const wfType = wfRow.querySelector('.r-workflow-type-radio:checked')?.value || 'internal'
+              const wfId = wfRow.querySelector('.r-workflow-id')?.value || ''
+              const conditions: any[] = []
+              wfRow.querySelectorAll('.r-workflow-cond-row').forEach((condRow: any) => {
+                conditions.push({
+                  field: condRow.querySelector('.r-wcond-field')?.value || '',
+                  op: condRow.querySelector('.r-wcond-op')?.value || 'eq',
+                  value: condRow.querySelector('.r-wcond-value')?.value || '',
+                  action: condRow.querySelector('.r-wcond-action')?.value || 'continue',
+                  routeId: condRow.querySelector('.r-wcond-route-id')?.value || ''
+                })
+              })
+              base.reasoningWorkflows.push({ type: wfType, workflowId: wfId, conditions })
+              console.log(`  📦 [syncPersistedFromDom] Reasoning workflow: type=${wfType}, id=${wfId}, conditions=${conditions.length}`)
+            })
 
             document.querySelectorAll('#R-custom-list > div').forEach((row:any)=>{
 
@@ -11740,24 +13651,33 @@ function initializeExtension() {
               }).filter((v:string) => v)
 
               
+              // Collect ALL Apply For values from the section's list
+              const sectionApplyForList = Array.from(sec.querySelectorAll('.R-apply-list-sub select')).map((sel: any) => sel.value).filter((v: string) => v && v !== '')
+              console.log('📝 [syncPersistedFromDom] Additional R-section Apply For values:', sectionApplyForList)
 
-              // Collect reportTo for this section
-
-              const sectionReportTo = Array.from(sec.querySelectorAll('.R-report-list-sub .rep-row')).map((row:any)=> {
-
-                const kindSel = row.querySelector('.route-kind') as HTMLSelectElement
-
-                const specSel = row.querySelector('.route-specific') as HTMLSelectElement
-
-                return kindSel && specSel ? `${kindSel.value}:${specSel.value}` : ''
-
-              }).filter((v:string) => v)
-
-              
+              // Collect Reasoning Workflows for additional section
+              const sectionWorkflows: any[] = []
+              sec.querySelectorAll('.R-workflows-sub .reasoning-workflow-row').forEach((wfRow: any) => {
+                const wfType = wfRow.querySelector('.r-workflow-type-radio:checked')?.value || 'internal'
+                const wfId = wfRow.querySelector('.r-workflow-id')?.value || ''
+                const conditions: any[] = []
+                wfRow.querySelectorAll('.r-workflow-cond-row').forEach((condRow: any) => {
+                  conditions.push({
+                    field: condRow.querySelector('.r-wcond-field')?.value || '',
+                    op: condRow.querySelector('.r-wcond-op')?.value || 'eq',
+                    value: condRow.querySelector('.r-wcond-value')?.value || '',
+                    action: condRow.querySelector('.r-wcond-action')?.value || 'continue',
+                    routeId: condRow.querySelector('.r-wcond-route-id')?.value || ''
+                  })
+                })
+                sectionWorkflows.push({ type: wfType, workflowId: wfId, conditions })
+              })
+              console.log(`🔍 [syncPersistedFromDom] Additional R-section: Found ${sectionWorkflows.length} reasoning workflow rows`)
 
               const s:any = {
 
-                applyFor: (sec.querySelector('.R-apply') as HTMLSelectElement)?.value || '__any__',
+                applyFor: sectionApplyForList.length > 0 ? sectionApplyForList[0] : '__any__',
+                applyForList: sectionApplyForList.length > 0 ? sectionApplyForList : ['__any__'],
 
                 goals: (sec.querySelector('.R-goals') as HTMLTextAreaElement)?.value || '',
 
@@ -11768,8 +13688,8 @@ function initializeExtension() {
                 custom: [],
 
                 acceptFrom: sectionAccepts,
-
-                reportTo: sectionReportTo
+                
+                reasoningWorkflows: sectionWorkflows
 
               }
 
@@ -11799,8 +13719,6 @@ function initializeExtension() {
 
               acceptFromCount: accepts.length,
 
-              reportToCount: reportTo.length,
-
               additionalSectionsCount: rSections.length - 1
 
             })
@@ -11813,19 +13731,32 @@ function initializeExtension() {
 
           const executionElement = document.getElementById('E-apply') as HTMLSelectElement | null
 
-          if (executionElement || document.querySelectorAll('#E-accept-list .acc-row').length > 0) {
+          if (executionElement) {
 
-            const eAccepts = Array.from(document.querySelectorAll('#E-accept-list .acc-row')).map((row:any)=> {
+            // Accept list removed from Execution section
+            const eAccepts: string[] = []
 
-              const kindSel = row.querySelector('.route-kind') as HTMLSelectElement
-
-              const specSel = row.querySelector('.route-specific') as HTMLSelectElement
-
-              return kindSel && specSel ? `${kindSel.value}:${specSel.value}` : ''
-
-            }).filter((v:string) => v)
-
-            const eWfs = Array.from(document.querySelectorAll('#E-workflow-list .wf-row .wf-target')).map((n:any)=> n.value).filter((v:string) => v)
+            // Collect execution workflows with new format (type, workflowId, conditions)
+            const eWorkflowsSync: any[] = []
+            document.querySelectorAll('#E-workflow-list .exec-workflow-row').forEach((wfRow: any) => {
+              const wfType = wfRow.querySelector('.e-workflow-type-radio:checked')?.value || 'internal'
+              const wfId = wfRow.querySelector('.e-workflow-id')?.value || ''
+              const conditions: any[] = []
+              wfRow.querySelectorAll('.e-workflow-cond-row').forEach((condRow: any) => {
+                conditions.push({
+                  field: condRow.querySelector('.e-wcond-field')?.value || '',
+                  op: condRow.querySelector('.e-wcond-op')?.value || 'eq',
+                  value: condRow.querySelector('.e-wcond-value')?.value || '',
+                  action: condRow.querySelector('.e-wcond-action')?.value || 'continue',
+                  routeId: condRow.querySelector('.e-wcond-route-id')?.value || ''
+                })
+              })
+              eWorkflowsSync.push({ type: wfType, workflowId: wfId, conditions })
+            })
+            console.log(`🔍 [syncPersistedFromDom] Execution: Found ${eWorkflowsSync.length} execution workflow rows`)
+            
+            // Legacy format for backward compatibility
+            const eWfs = eWorkflowsSync.map(w => w.workflowId).filter(v => v)
 
             // Collect special destinations (Report to) from MAIN section
 
@@ -11833,9 +13764,39 @@ function initializeExtension() {
 
             const eDestinationsMain = eKindsMain.map(sel => {
 
-              const agents = Array.from(sel.parentElement?.querySelectorAll('.esp-agents .E-agent') || []).filter((cb:any)=> cb.checked).map((cb:any)=> cb.value)
+              const row = sel.parentElement
 
-              return { kind: sel.value, agents: sel.value==='agent' ? agents : [] }
+              let agents: string[] = []
+
+              
+
+              if (sel.value === 'agentBox') {
+
+                // Get selected agent box from follow-up select
+
+                const boxSel = row?.querySelector('.esp-followup select') as HTMLSelectElement | null
+
+                if (boxSel?.value) {
+
+                  agents = [boxSel.value]
+
+                }
+
+              } else if (sel.value === 'agent') {
+
+                // Get selected agent from follow-up select
+
+                const agentSel = row?.querySelector('.esp-followup select') as HTMLSelectElement | null
+
+                if (agentSel?.value) {
+
+                  agents = [agentSel.value]
+
+                }
+
+              }
+
+              return { kind: sel.value, agents }
 
             })
 
@@ -11845,41 +13806,86 @@ function initializeExtension() {
 
             document.querySelectorAll('#E-sections-extra .E-section').forEach((sec:any)=>{
 
-              const applyFor = (sec.querySelector('.E-apply-sub') as HTMLSelectElement)?.value || '__any__'
+              // Collect ALL Apply For values from the section's list
+              const sectionApplyForList = Array.from(sec.querySelectorAll('.E-apply-list-sub select')).map((sel: any) => sel.value).filter((v: string) => v && v !== '')
+              console.log('📝 [syncPersistedFromDom] Additional E-section Apply For values:', sectionApplyForList)
 
               const kinds = Array.from(sec.querySelectorAll('.E-special-list-sub .esp-row .esp-kind')) as HTMLSelectElement[]
 
               const dests = kinds.map(sel => {
 
-                const agents = Array.from(sel.parentElement?.querySelectorAll('.esp-agents .E-agent') || []).filter((cb:any)=> cb.checked).map((cb:any)=> cb.value)
+                const row = sel.parentElement
 
-                return { kind: sel.value, agents: sel.value==='agent' ? agents : [] }
+                let agents: string[] = []
+
+                
+
+                if (sel.value === 'agentBox') {
+
+                  const boxSel = row?.querySelector('.esp-followup select') as HTMLSelectElement | null
+
+                  if (boxSel?.value) agents = [boxSel.value]
+
+                } else if (sel.value === 'agent') {
+
+                  const agentSel = row?.querySelector('.esp-followup select') as HTMLSelectElement | null
+
+                  if (agentSel?.value) agents = [agentSel.value]
+
+                }
+
+                return { kind: sel.value, agents }
 
               })
 
-              const wfs = Array.from(sec.querySelectorAll('.E-wf-sub .wf-row .wf-target')).map((n:any)=> n.value).filter((v:string) => v)
+              // Collect workflows with new format for additional sections
+              const sectionWorkflowsSync: any[] = []
+              sec.querySelectorAll('.E-workflow-list-sub .exec-workflow-row').forEach((wfRow: any) => {
+                const wfType = wfRow.querySelector('.e-workflow-type-radio:checked')?.value || 'internal'
+                const wfId = wfRow.querySelector('.e-workflow-id')?.value || ''
+                const conditions: any[] = []
+                wfRow.querySelectorAll('.e-workflow-cond-row').forEach((condRow: any) => {
+                  conditions.push({
+                    field: condRow.querySelector('.e-wcond-field')?.value || '',
+                    op: condRow.querySelector('.e-wcond-op')?.value || 'eq',
+                    value: condRow.querySelector('.e-wcond-value')?.value || '',
+                    action: condRow.querySelector('.e-wcond-action')?.value || 'continue',
+                    routeId: condRow.querySelector('.e-wcond-route-id')?.value || ''
+                  })
+                })
+                sectionWorkflowsSync.push({ type: wfType, workflowId: wfId, conditions })
+              })
+              
+              // Legacy format for backward compatibility
+              const wfs = sectionWorkflowsSync.map(w => w.workflowId).filter(v => v)
 
-              const accepts = Array.from(sec.querySelectorAll('.E-acc-sub .acc-row')).map((row:any)=> {
+              // acceptFrom section removed from Execution
+              const accepts: string[] = []
 
-                const kindSel = row.querySelector('.route-kind') as HTMLSelectElement
-
-                const specSel = row.querySelector('.route-specific') as HTMLSelectElement
-
-                return kindSel && specSel ? `${kindSel.value}:${specSel.value}` : ''
-
-              }).filter((v:string) => v)
-
-              eSections.push({ applyFor, specialDestinations: dests, workflows: wfs, acceptFrom: accepts })
+              eSections.push({ 
+                applyFor: sectionApplyForList.length > 0 ? sectionApplyForList[0] : '__any__',
+                applyForList: sectionApplyForList.length > 0 ? sectionApplyForList : ['__any__'],
+                specialDestinations: dests, 
+                workflows: wfs, 
+                executionWorkflows: sectionWorkflowsSync,
+                acceptFrom: accepts 
+              })
 
             })
+
+            // Collect all Apply For values from the list (get all selects inside the list)
+            const eApplyForValuesSync = Array.from(document.querySelectorAll('#E-apply-list select')).map((sel: any) => sel.value).filter((v: string) => v && v !== '')
+            console.log('📝 [syncPersistedFromDom] Execution Apply For values:', eApplyForValuesSync)
 
             draft.execution = { 
 
               workflows: eWfs, 
+              executionWorkflows: eWorkflowsSync,
 
               acceptFrom: eAccepts, 
 
-              applyFor: (document.getElementById('E-apply') as HTMLSelectElement)?.value || '__any__',
+              applyFor: eApplyForValuesSync.length > 0 ? eApplyForValuesSync[0] : '__any__',
+              applyForList: eApplyForValuesSync.length > 0 ? eApplyForValuesSync : ['__any__'],
 
               specialDestinations: eDestinationsMain,
 
@@ -11892,6 +13898,7 @@ function initializeExtension() {
             console.log('💾 Saved Execution data:', {
 
               applyFor: draft.execution.applyFor,
+              applyForListCount: draft.execution.applyForList?.length || 0,
 
               acceptFromCount: eAccepts.length,
 
@@ -12013,7 +14020,267 @@ function initializeExtension() {
 
       }
 
+      // Helper function to create workflow rows for triggers (styled like Reasoning Workflows)
+      // MUST be defined OUTSIDE render() so it's accessible from restoreFromMemory()
+      const createTriggerWorkflowRow = (type: 'sensor' | 'action', init?: { workflowType?: string, workflowId?: string, conditions?: any[] }) => {
+        const workflowType = init?.workflowType || 'internal'
+        const workflowId = init?.workflowId || ''
+        const conditions = init?.conditions || []
+        const uniqueId = Math.random().toString(36).slice(2, 8)
+        
+        const row = document.createElement('div')
+        row.className = `trigger-${type}-row`
+        row.style.cssText = 'background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.2);border-radius:8px;padding:10px'
+        
+        const header = document.createElement('div')
+        header.style.cssText = 'display:flex;flex-direction:column;gap:8px;margin-bottom:8px'
+        header.innerHTML = `
+          <div style="display:flex;justify-content:space-between;align-items:center">
+            <div style="display:flex;gap:16px;align-items:center">
+              <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+                <input type="radio" name="t-wf-type-${uniqueId}" value="internal" class="t-workflow-type-radio" ${workflowType === 'internal' ? 'checked' : ''} style="margin:0">
+                <span style="font-size:13px;font-weight:500;color:#fff">🔧 Internal Parser</span>
+              </label>
+              <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+                <input type="radio" name="t-wf-type-${uniqueId}" value="external" class="t-workflow-type-radio" ${workflowType === 'external' ? 'checked' : ''} style="margin:0">
+                <span style="font-size:13px;font-weight:500;color:#fff">🌐 External Workflow</span>
+              </label>
+            </div>
+            <button style="background:#ef4444;border:none;color:#fff;padding:4px 10px;border-radius:4px;cursor:pointer;font-size:12px" class="t-workflow-del">✕</button>
+          </div>
+          <div class="t-workflow-id-container" style="display:${workflowType === 'external' ? 'block' : 'none'}">
+            <input type="text" placeholder="Workflow ID or name" value="${workflowId}" style="width:100%;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.35);color:#fff;padding:6px 10px;border-radius:4px;font-size:13px" class="t-workflow-id">
+          </div>
+        `
+        
+        // Wire up radio button toggle for workflow ID visibility
+        const radioButtons = header.querySelectorAll('.t-workflow-type-radio') as NodeListOf<HTMLInputElement>
+        const workflowIdContainer = header.querySelector('.t-workflow-id-container') as HTMLElement
+        radioButtons.forEach(radio => {
+          radio.addEventListener('change', () => {
+            workflowIdContainer.style.display = radio.value === 'external' ? 'block' : 'none'
+          })
+        })
+        
+        const conditionsWrap = document.createElement('div')
+        conditionsWrap.style.cssText = 'margin-top:8px;padding-top:8px;border-top:1px dashed rgba(255,255,255,0.15)'
+        conditionsWrap.innerHTML = `
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+            <span style="font-size:12px;opacity:0.8">📋 If output matches (conditions):</span>
+            <button class="t-workflow-add-cond" style="background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.25);color:#fff;padding:3px 8px;border-radius:4px;cursor:pointer;font-size:11px">+ Add Condition</button>
+          </div>
+          <div class="t-workflow-conditions" style="display:flex;flex-direction:column;gap:6px"></div>
+        `
+        
+        row.appendChild(header)
+        row.appendChild(conditionsWrap)
+        
+        // Wire up delete
+        header.querySelector('.t-workflow-del')?.addEventListener('click', () => row.remove())
+        
+        // Wire up add condition
+        const condList = conditionsWrap.querySelector('.t-workflow-conditions') as HTMLElement
+        conditionsWrap.querySelector('.t-workflow-add-cond')?.addEventListener('click', () => {
+          const condRow = document.createElement('div')
+          condRow.className = 't-workflow-cond-row'
+          condRow.style.cssText = 'display:flex;flex-direction:column;gap:6px;font-size:12px;background:rgba(255,255,255,0.03);padding:8px;border-radius:4px;border:1px solid rgba(255,255,255,0.1)'
+          condRow.innerHTML = `
+            <div style="display:flex;gap:6px;align-items:center">
+              <span style="opacity:0.7;white-space:nowrap">If</span>
+              <input type="text" placeholder="Expected Value" style="flex:1;background:rgba(255,255,255,.85);border:1px solid rgba(255,255,255,.5);color:#1e293b;padding:4px 8px;border-radius:3px;font-size:11px" class="t-wcond-field">
+              <select style="flex:1;background:#fff;color:#0f172a;border:1px solid #cbd5e1;padding:4px 8px;border-radius:3px;font-size:11px" class="t-wcond-op">
+                <option value="eq">==</option>
+                <option value="ne">!=</option>
+                <option value="contains">contains</option>
+                <option value="gt">&gt;</option>
+                <option value="lt">&lt;</option>
+                <option value="exists">exists</option>
+              </select>
+              <input type="text" placeholder="value" style="flex:1;background:rgba(255,255,255,.85);border:1px solid rgba(255,255,255,.5);color:#1e293b;padding:4px 6px;border-radius:3px;font-size:11px" class="t-wcond-value">
+              <span style="opacity:0.7;white-space:nowrap">→</span>
+              <select style="flex:1;background:#fff;color:#0f172a;border:1px solid #cbd5e1;padding:4px 8px;border-radius:3px;font-size:11px" class="t-wcond-action">
+                <option value="continue">Continue</option>
+                <option value="skip">Skip</option>
+                <option value="route">Route to...</option>
+              </select>
+              <button style="background:#ef4444;border:none;color:#fff;padding:2px 6px;border-radius:3px;cursor:pointer;font-size:10px" class="t-wcond-del">✕</button>
+            </div>
+            <div class="t-wcond-route-container" style="display:none;padding-left:20px">
+              <input type="text" placeholder="Workflow ID to route to" style="width:100%;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.35);color:#fff;padding:6px 10px;border-radius:4px;font-size:12px" class="t-wcond-route-id">
+            </div>
+          `
+          
+          condRow.querySelector('.t-wcond-del')?.addEventListener('click', () => condRow.remove())
+          
+          const actionSelect = condRow.querySelector('.t-wcond-action') as HTMLSelectElement
+          const routeContainer = condRow.querySelector('.t-wcond-route-container') as HTMLElement
+          actionSelect?.addEventListener('change', () => {
+            routeContainer.style.display = actionSelect.value === 'route' ? 'block' : 'none'
+          })
+          
+          condList.appendChild(condRow)
+        })
+        
+        // Pre-populate conditions if provided
+        conditions.forEach((c: any) => {
+          const addBtn = conditionsWrap.querySelector('.t-workflow-add-cond') as HTMLButtonElement
+          addBtn?.click()
+          const rows = condList.querySelectorAll('.t-workflow-cond-row')
+          const lastRow = rows[rows.length - 1]
+          if (lastRow) {
+            (lastRow.querySelector('.t-wcond-field') as HTMLInputElement).value = c.field || ''
+            ;(lastRow.querySelector('.t-wcond-op') as HTMLSelectElement).value = c.op || 'eq'
+            ;(lastRow.querySelector('.t-wcond-value') as HTMLInputElement).value = c.value || ''
+            
+            const actionSelect = lastRow.querySelector('.t-wcond-action') as HTMLSelectElement
+            const routeContainer = lastRow.querySelector('.t-wcond-route-container') as HTMLElement
+            actionSelect.value = c.action || 'continue'
+            
+            if (c.action === 'route') {
+              routeContainer.style.display = 'block'
+              const routeIdInput = lastRow.querySelector('.t-wcond-route-id') as HTMLInputElement
+              if (routeIdInput && c.routeId) routeIdInput.value = c.routeId
+            }
+          }
+        })
+        
+        return row
+      }
 
+      // Helper function to create Reasoning Workflow rows
+      // MUST be defined OUTSIDE render() so it's accessible from restoreFromMemory()
+      const createReasoningWorkflowRow = (init?: { type?: string, workflowId?: string, conditions?: any[] }) => {
+        const workflowType = init?.type || 'internal'
+        const workflowId = init?.workflowId || ''
+        const conditions = init?.conditions || []
+        const uniqueId = Math.random().toString(36).slice(2, 8)
+        
+        const row = document.createElement('div')
+        row.className = 'reasoning-workflow-row'
+        row.style.cssText = 'background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.2);border-radius:8px;padding:10px'
+        
+        const header = document.createElement('div')
+        header.style.cssText = 'display:flex;flex-direction:column;gap:8px;margin-bottom:8px'
+        header.innerHTML = `
+          <div style="display:flex;justify-content:space-between;align-items:center">
+            <div style="display:flex;gap:16px;align-items:center">
+              <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+                <input type="radio" name="r-wf-type-${uniqueId}" value="internal" class="r-workflow-type-radio" ${workflowType === 'internal' ? 'checked' : ''} style="margin:0">
+                <span style="font-size:13px;font-weight:500;color:#fff">🔧 Internal Parser</span>
+              </label>
+              <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+                <input type="radio" name="r-wf-type-${uniqueId}" value="external" class="r-workflow-type-radio" ${workflowType === 'external' ? 'checked' : ''} style="margin:0">
+                <span style="font-size:13px;font-weight:500;color:#fff">🌐 External Workflow</span>
+              </label>
+              <span title="Internal Parser works with agents, mini-apps, and websites displayed in the master tab. Use External Workflow for external data sources and APIs." style="font-size:12px;opacity:0.9;cursor:help;background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.35);padding:0 6px;border-radius:50%">?</span>
+            </div>
+            <button style="background:#ef4444;border:none;color:#fff;padding:4px 10px;border-radius:4px;cursor:pointer;font-size:12px" class="r-workflow-del">✕</button>
+          </div>
+          <div class="r-workflow-id-container" style="display:${workflowType === 'external' ? 'block' : 'none'}">
+            <input type="text" placeholder="Workflow ID or name" value="${workflowId}" style="width:100%;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.35);color:#fff;padding:6px 10px;border-radius:4px;font-size:13px" class="r-workflow-id">
+          </div>
+        `
+        
+        // Wire up radio button toggle for workflow ID visibility
+        const radioButtons = header.querySelectorAll('.r-workflow-type-radio') as NodeListOf<HTMLInputElement>
+        const workflowIdContainer = header.querySelector('.r-workflow-id-container') as HTMLElement
+        radioButtons.forEach(radio => {
+          radio.addEventListener('change', () => {
+            if (radio.value === 'external') {
+              workflowIdContainer.style.display = 'block'
+            } else {
+              workflowIdContainer.style.display = 'none'
+            }
+          })
+        })
+        
+        const conditionsWrap = document.createElement('div')
+        conditionsWrap.style.cssText = 'margin-top:8px;padding-top:8px;border-top:1px dashed rgba(255,255,255,0.15)'
+        conditionsWrap.innerHTML = `
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+            <span style="font-size:12px;opacity:0.8">📋 If output matches (conditions):</span>
+            <button class="r-workflow-add-cond" style="background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.25);color:#fff;padding:3px 8px;border-radius:4px;cursor:pointer;font-size:11px">+ Add Condition</button>
+          </div>
+          <div class="r-workflow-conditions" style="display:flex;flex-direction:column;gap:6px"></div>
+        `
+        
+        row.appendChild(header)
+        row.appendChild(conditionsWrap)
+        
+        // Wire up delete
+        header.querySelector('.r-workflow-del')?.addEventListener('click', () => row.remove())
+        
+        // Wire up add condition for this workflow
+        const workflowCondList = conditionsWrap.querySelector('.r-workflow-conditions') as HTMLElement
+        conditionsWrap.querySelector('.r-workflow-add-cond')?.addEventListener('click', () => {
+          const condRow = document.createElement('div')
+          condRow.className = 'r-workflow-cond-row'
+          condRow.style.cssText = 'display:flex;flex-direction:column;gap:6px;font-size:12px;background:rgba(255,255,255,0.03);padding:8px;border-radius:4px;border:1px solid rgba(255,255,255,0.1)'
+          condRow.innerHTML = `
+            <div style="display:flex;gap:6px;align-items:center">
+              <span style="opacity:0.7;white-space:nowrap">If</span>
+              <input type="text" placeholder="Expected Value" style="flex:1;background:rgba(255,255,255,.85);border:1px solid rgba(255,255,255,.5);color:#1e293b;padding:4px 8px;border-radius:3px;font-size:11px" class="r-wcond-field">
+              <select style="flex:1;background:#fff;color:#0f172a;border:1px solid #cbd5e1;padding:4px 8px;border-radius:3px;font-size:11px" class="r-wcond-op">
+                <option value="eq">==</option>
+                <option value="ne">!=</option>
+                <option value="contains">contains</option>
+                <option value="gt">&gt;</option>
+                <option value="lt">&lt;</option>
+                <option value="exists">exists</option>
+              </select>
+              <input type="text" placeholder="value" style="flex:1;background:rgba(255,255,255,.85);border:1px solid rgba(255,255,255,.5);color:#1e293b;padding:4px 6px;border-radius:3px;font-size:11px" class="r-wcond-value">
+              <span style="opacity:0.7;white-space:nowrap">→</span>
+              <select style="flex:1;background:#fff;color:#0f172a;border:1px solid #cbd5e1;padding:4px 8px;border-radius:3px;font-size:11px" class="r-wcond-action">
+                <option value="continue">Continue</option>
+                <option value="skip">Skip</option>
+                <option value="route">Route to...</option>
+              </select>
+              <button style="background:#ef4444;border:none;color:#fff;padding:2px 6px;border-radius:3px;cursor:pointer;font-size:10px" class="r-wcond-del">✕</button>
+            </div>
+            <div class="r-wcond-route-container" style="display:none;padding-left:20px">
+              <input type="text" placeholder="Workflow ID to route to" style="width:100%;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.35);color:#fff;padding:6px 10px;border-radius:4px;font-size:12px" class="r-wcond-route-id">
+            </div>
+          `
+          
+          // Wire up delete
+          condRow.querySelector('.r-wcond-del')?.addEventListener('click', () => condRow.remove())
+          
+          // Wire up action change to show/hide route workflow ID field
+          const actionSelect = condRow.querySelector('.r-wcond-action') as HTMLSelectElement
+          const routeContainer = condRow.querySelector('.r-wcond-route-container') as HTMLElement
+          actionSelect?.addEventListener('change', () => {
+            routeContainer.style.display = actionSelect.value === 'route' ? 'block' : 'none'
+          })
+          
+          workflowCondList.appendChild(condRow)
+        })
+        
+        // Pre-populate conditions if provided
+        conditions.forEach((c: any) => {
+          const addBtn = conditionsWrap.querySelector('.r-workflow-add-cond') as HTMLButtonElement
+          addBtn?.click()
+          const rows = workflowCondList.querySelectorAll('.r-workflow-cond-row')
+          const lastRow = rows[rows.length - 1]
+          if (lastRow) {
+            (lastRow.querySelector('.r-wcond-field') as HTMLInputElement).value = c.field || ''
+            ;(lastRow.querySelector('.r-wcond-op') as HTMLSelectElement).value = c.op || 'eq'
+            ;(lastRow.querySelector('.r-wcond-value') as HTMLInputElement).value = c.value || ''
+            
+            const actionSelect = lastRow.querySelector('.r-wcond-action') as HTMLSelectElement
+            const routeContainer = lastRow.querySelector('.r-wcond-route-container') as HTMLElement
+            actionSelect.value = c.action || 'continue'
+            
+            // Show route container and set route ID if action is route
+            if (c.action === 'route') {
+              routeContainer.style.display = 'block'
+              const routeIdInput = lastRow.querySelector('.r-wcond-route-id') as HTMLInputElement
+              if (routeIdInput && c.routeId) routeIdInput.value = c.routeId
+            }
+          }
+        })
+        
+        return row
+      }
 
       const render = () => {
 
@@ -12033,7 +14300,7 @@ function initializeExtension() {
 
         container.innerHTML = ''
 
-        // Context uploader
+        // Agent Context file uploader (Context & Memory settings moved to Reasoning section)
 
         const agentCtxWrap = document.createElement('div')
 
@@ -12043,29 +14310,25 @@ function initializeExtension() {
 
           <div style="display:flex;align-items:center;gap:12px;justify-content:space-between">
 
-            <div style="font-weight:700">Context</div>
+            <div style="font-weight:700">Agent Context Files</div>
 
-            <div style="display:flex;align-items:center;gap:12px;font-size:12px">
-
-              <label style="display:flex;align-items:center;gap:6px"><input id="AC-session" type="checkbox" ${persistedACSession ? 'checked' : ''}> Session Context</label>
-
-              <label style="display:flex;align-items:center;gap:6px"><input id="AC-account" type="checkbox" ${persistedACAccount ? 'checked' : ''}> Account Context</label>
-
-              <label style="display:flex;align-items:center;gap:6px"><input id="AC-agent" type="checkbox" ${persistedACAgent ? 'checked' : ''}> Agent Context</label>
-
-            </div>
+            <label style="display:flex;align-items:center;gap:6px;font-size:12px"><input id="AC-agent" type="checkbox" ${persistedACAgent ? 'checked' : ''}> Enable</label>
 
           </div>
 
           <div id="AC-content" style="display:none;margin-top:8px">
 
-            <label style="display:block;margin-bottom:6px">Upload JSON / PDF / DOCX / MD</label>
+            <label style="display:block;margin-bottom:6px;font-size:12px;color:rgba(255,255,255,0.8)">Upload context files (JSON / PDF / DOCX / MD)</label>
 
             <input id="AC-files" type="file" multiple accept="application/json,application/pdf,.doc,.docx,text/markdown,.md,application/vnd.openxmlformats-officedocument.wordprocessingml.document" style="width:100%;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.35);color:#fff;padding:8px;border-radius:6px">
 
             <div id="AC-list" style="margin-top:6px;font-size:12px;opacity:.85">No files selected</div>
 
-          </div>`
+          </div>
+          
+          <!-- Hidden checkboxes for backward compatibility -->
+          <input id="AC-session" type="checkbox" style="display:none">
+          <input id="AC-account" type="checkbox" style="display:none">`
 
         container.appendChild(agentCtxWrap)
 
@@ -12379,159 +14642,7 @@ function initializeExtension() {
 
         })
 
-
-
-        // Memory settings block
-
-        const memoryWrap = document.createElement('div')
-
-        memoryWrap.style.cssText = 'background:rgba(255,255,255,0.06);padding:12px;border-radius:10px;border:1px solid rgba(255,255,255,0.15);margin-top:10px'
-
-        memoryWrap.innerHTML = `
-
-          <div style="font-weight:700;margin-bottom:6px">Memory</div>
-
-          <div style="display:flex;flex-direction:column;gap:10px;font-size:12px">
-
-            <div style="display:flex;align-items:center;gap:12px;justify-content:space-between">
-
-              <label style="display:flex;align-items:center;gap:6px"><input id="MEM-session" type="checkbox" ${persistedMemSessionEnabled ? 'checked' : ''}> Session Memory</label>
-
-              <div style="display:flex;align-items:center;gap:10px">
-
-                <label style="display:flex;align-items:center;gap:6px">
-
-                  <input id="MEM-session-read" type="checkbox" ${persistedMemSessionRead ? 'checked' : ''}>
-
-                  <span>Read <span id="MEM-session-read-state" style="padding:2px 6px;border-radius:6px;background:${persistedMemSessionRead ? '#22c55e' : 'rgba(255,255,255,.15)'};border:1px solid rgba(255,255,255,.3)">${persistedMemSessionRead ? 'ON' : 'OFF'}</span></span>
-
-                </label>
-
-                <label style="display:flex;align-items:center;gap:6px">
-
-                  <input id="MEM-session-write" type="checkbox" ${persistedMemSessionWrite ? 'checked' : ''}>
-
-                  <span>Write <span id="MEM-session-write-state" style="padding:2px 6px;border-radius:6px;background:${persistedMemSessionWrite ? '#22c55e' : 'rgba(255,255,255,.15)'};border:1px solid rgba(255,255,255,.3)">${persistedMemSessionWrite ? 'ON' : 'OFF'}</span></span>
-
-                </label>
-
-              </div>
-
-            </div>
-
-            <div style="display:flex;align-items:center;gap:12px;justify-content:space-between">
-
-              <label style="display:flex;align-items:center;gap:6px"><input id="MEM-account" type="checkbox" ${persistedMemAccountEnabled ? 'checked' : ''}> Account Memory</label>
-
-              <div style="display:flex;align-items:center;gap:10px">
-
-                <label style="display:flex;align-items:center;gap:6px">
-
-                  <input id="MEM-account-read" type="checkbox" ${persistedMemAccountRead ? 'checked' : ''}>
-
-                  <span>Read <span id="MEM-account-read-state" style="padding:2px 6px;border-radius:6px;background:${persistedMemAccountRead ? '#22c55e' : 'rgba(255,255,255,.15)'};border:1px solid rgba(255,255,255,.3)">${persistedMemAccountRead ? 'ON' : 'OFF'}</span></span>
-
-                </label>
-
-                <label style="display:flex;align-items:center;gap:6px">
-
-                  <input id="MEM-account-write" type="checkbox" ${persistedMemAccountWrite ? 'checked' : ''}>
-
-                  <span>Write <span id="MEM-account-write-state" style="padding:2px 6px;border-radius:6px;background:${persistedMemAccountWrite ? '#22c55e' : 'rgba(255,255,255,.15)'};border:1px solid rgba(255,255,255,.3)">${persistedMemAccountWrite ? 'ON' : 'OFF'}</span></span>
-
-                </label>
-
-              </div>
-
-            </div>
-
-            <div style="display:flex;align-items:center;gap:12px;opacity:.6">
-
-              <label style="display:flex;align-items:center;gap:6px"><input id="MEM-agent" type="checkbox" checked disabled> Agent Memory (always on)</label>
-
-            </div>
-
-          </div>
-
-        `
-
-        container.appendChild(memoryWrap)
-
-
-
-        // Wire memory interactions
-
-        const memSession = memoryWrap.querySelector('#MEM-session') as HTMLInputElement
-
-        const memSessionRead = memoryWrap.querySelector('#MEM-session-read') as HTMLInputElement
-
-        const memSessionWrite = memoryWrap.querySelector('#MEM-session-write') as HTMLInputElement
-
-        const memAccount = memoryWrap.querySelector('#MEM-account') as HTMLInputElement
-
-        const memAccountRead = memoryWrap.querySelector('#MEM-account-read') as HTMLInputElement
-
-        const memAccountWrite = memoryWrap.querySelector('#MEM-account-write') as HTMLInputElement
-
-        const stateEls: Record<string, HTMLElement | null> = {
-
-          'MEM-session-read': memoryWrap.querySelector('#MEM-session-read-state') as HTMLElement,
-
-          'MEM-session-write': memoryWrap.querySelector('#MEM-session-write-state') as HTMLElement,
-
-          'MEM-account-read': memoryWrap.querySelector('#MEM-account-read-state') as HTMLElement,
-
-          'MEM-account-write': memoryWrap.querySelector('#MEM-account-write-state') as HTMLElement
-
-        }
-
-        const syncToggleText = (id: string, checked: boolean) => {
-
-          const el = stateEls[id]
-
-          if (el) {
-
-            el.textContent = checked ? 'ON' : 'OFF'
-
-            el.style.background = checked ? '#22c55e' : 'rgba(255,255,255,.15)'
-
-          }
-
-        }
-
-        const syncParentEnable = () => {
-
-          const sesEnabled = !!memSession?.checked
-
-          const accEnabled = !!memAccount?.checked
-
-          ;[memSessionRead, memSessionWrite].forEach(el => { if (el) el.disabled = !sesEnabled })
-
-          ;[memAccountRead, memAccountWrite].forEach(el => { if (el) el.disabled = !accEnabled })
-
-          if (memSessionRead) syncToggleText('MEM-session-read', memSessionRead.checked)
-
-          if (memSessionWrite) syncToggleText('MEM-session-write', memSessionWrite.checked)
-
-          if (memAccountRead) syncToggleText('MEM-account-read', memAccountRead.checked)
-
-          if (memAccountWrite) syncToggleText('MEM-account-write', memAccountWrite.checked)
-
-        }
-
-        memSession?.addEventListener('change', syncParentEnable)
-
-        memAccount?.addEventListener('change', syncParentEnable)
-
-        memSessionRead?.addEventListener('change', () => syncToggleText('MEM-session-read', memSessionRead.checked))
-
-        memSessionWrite?.addEventListener('change', () => syncToggleText('MEM-session-write', memSessionWrite.checked))
-
-        memAccountRead?.addEventListener('change', () => syncToggleText('MEM-account-read', memAccountRead.checked))
-
-        memAccountWrite?.addEventListener('change', () => syncToggleText('MEM-account-write', memAccountWrite.checked))
-
-        syncParentEnable()
+        // Memory settings moved to Reasoning section
 
         if (capL) {
 
@@ -12543,123 +14654,22 @@ function initializeExtension() {
 
           wrap.innerHTML = `
 
-            <div style="font-weight:700;margin-bottom:6px">Listener</div>
+            <div style="font-weight:700;margin-bottom:10px">Listener</div>
 
-            <div style="margin:6px 0 8px 0;display:flex;align-items:center;gap:14px">
+            <!-- Unified Triggers Section -->
+            <div id="L-triggers-section" style="border:1px solid rgba(255,255,255,.25);border-radius:8px;padding:12px;background:rgba(255,255,255,0.04);margin-bottom:10px">
+              <div style="font-weight:700;margin-bottom:8px;color:#fff;display:flex;align-items:center;gap:8px">
+                Triggers
+                <span title="Define how this agent can be activated. Each trigger type offers different activation methods." style="font-size:12px;opacity:0.9;cursor:help;background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.35);padding:0 6px;border-radius:50%">?</span>
+              </div>
+              <div style="font-size:13px;color:rgba(255,255,255,0.85);margin-bottom:12px;line-height:1.4">Configure triggers to activate this agent. Multiple triggers can be added with different types.</div>
 
-              <label style="display:flex;align-items:center;gap:6px"><input id="L-toggle-passive" type="checkbox" checked> Passive Listener</label>
+              <div id="L-unified-triggers" style="display:flex;flex-direction:column;gap:12px;margin-bottom:12px"></div>
 
-              <label style="display:flex;align-items:center;gap:6px"><input id="L-toggle-active" type="checkbox"> Active Listener</label>
-
+              <button id="L-add-trigger" style="background:rgba(96,165,250,.3);border:1px solid rgba(96,165,250,.5);color:#fff;padding:8px 14px;border-radius:6px;cursor:pointer;font-weight:500">+ Add Trigger</button>
             </div>
 
-            <div id="L-passive" style="border:1px solid rgba(255,255,255,.25);border-radius:8px;padding:10px;background:rgba(255,255,255,0.04);margin-bottom:10px">
-
-            <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px">
-
-              <label>Listen on (type)
-
-                <select id="L-source" style="width:100%;background:#fff;color:#0f172a;border:1px solid #cbd5e1;padding:8px;border-radius:6px">
-
-                  <option value="all" selected>All</option>
-
-                  <option value="website">website</option>
-
-                  <option value="api">api</option>
-
-                  <option value="lmgtfy">LmGTFY</option>
-
-                  <option value="agent">Agent</option>
-
-                  <option value="workflow">Workflow</option>
-
-                  <option value="table">Table</option>
-
-                  <option value="diagram">Diagram</option>
-
-                  <option value="picture">Picture</option>
-
-                  <option value="video">Video</option>
-
-                </select>
-
-              </label>
-
-              <label id="L-website-wrap" style="display:none">Website URL
-
-                <input id="L-website" placeholder="https://example.com" style="width:100%;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.35);color:#fff;padding:8px;border-radius:6px">
-
-              </label>
-
-            </div>
-
-            <div style="margin-bottom:12px;padding-bottom:12px;border-bottom:1px solid rgba(255,255,255,.15)">
-
-              <div style="font-weight:700;margin-bottom:6px">Tagged Trigger (with pattern detection)</div>
-
-              <div id="L-passive-triggers" style="display:flex;flex-direction:column;gap:8px;margin-bottom:8px"></div>
-
-              <button id="L-add-passive-trigger" style="background:rgba(255,255,255,.2);border:1px solid rgba(255,255,255,.35);color:#fff;padding:6px 10px;border-radius:6px;cursor:pointer">+ Add Trigger</button>
-
-              <div style="margin-top:8px;font-size:12px;opacity:0.9">Add #tags inside media or along uploads to the command chat. Pattern detection will analyze context automatically.</div>
-
-            </div>
-
-            <label style="display:flex;align-items:center;gap:6px">Expected Context
-
-              <span title="Describe examples, keywords, or patterns the Listener Agent should detect. These instructions improve the intent detection of the optimization layer and can enhance or overwrite the trained LLM logic of finetuned models, depending on this agent's settings. It offers a more tailored experience for the users." style="font-size:12px;opacity:0.9;cursor:help;background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.35);padding:0 6px;border-radius:50%">i</span>
-
-            </label>
-
-            <textarea id="L-context" placeholder="e.g. business email, product research, visiting specific site" style="width:100%;min-height:90px;background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.45);color:#fff;padding:8px;border-radius:6px;margin-bottom:8px"></textarea>
-
-            <div style="margin-bottom:12px">
-
-              <label>Example Context (optional)
-
-                <input id="L-examples" type="file" multiple style="width:100%;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.25);color:#fff;padding:6px;border-radius:6px;margin-top:4px">
-
-              </label>
-
-              <div id="L-examples-list-container"></div>
-
-            </div>
-
-            <div style="margin:8px 0;display:flex;flex-wrap:wrap;gap:10px">
-
-              <label><input class="L-tag" type="checkbox" value="patterns" checked> patterns</label>
-
-              <label><input class="L-tag" type="checkbox" value="code"> code</label>
-
-              <label><input class="L-tag" type="checkbox" value="debug-error"> debug error</label>
-
-              <label><input class="L-tag" type="checkbox" value="math"> math</label>
-
-            </div>
-
-            </div>
-
-            <div id="L-active" style="display:none;border:1px solid rgba(255,255,255,.25);border-radius:8px;padding:10px;background:rgba(255,255,255,0.04);margin-bottom:10px">
-
-              <div style="font-weight:700;margin-bottom:6px">Tagged Trigger (without pattern detection)</div>
-
-              <div id="L-active-list" style="display:flex;flex-direction:column;gap:8px"></div>
-
-              <button id="L-add-active-trigger" style="margin-top:6px;background:rgba(255,255,255,.2);border:1px solid rgba(255,255,255,.35);color:#fff;padding:6px 10px;border-radius:6px;cursor:pointer">+ Add Trigger</button>
-
-              <div style="margin-top:8px;font-size:12px;opacity:0.9">Add #tags inside media or along uploads to the command chat in order to trigger the automation</div>
-
-            </div>
-
-            <div id="L-reports" style="margin-top:10px">
-
-              <div style="font-weight:600;margin:6px 0">Report to (optional)</div>
-
-              <div id="L-report-list" style="display:flex;flex-direction:column;gap:8px"></div>
-
-              <button id="L-add-report" style="margin-top:6px;background:rgba(255,255,255,.2);border:1px solid rgba(255,255,255,.35);color:#fff;padding:6px 10px;border-radius:6px;cursor:pointer">+ Add</button>
-
-            </div>`
+`
 
           container.appendChild(wrap)
 
@@ -12973,45 +14983,48 @@ function initializeExtension() {
 
             <div style="font-weight:700;margin-bottom:6px">Reasoning</div>
 
-            <div style="display:flex;align-items:center;gap:10px;margin:6px 0">
+            <div style="margin:6px 0">
 
-              <label>Apply for:
-
-                <select id="R-apply" style="margin-left:6px;background:#fff;color:#0f172a;border:1px solid #cbd5e1;padding:6px;border-radius:6px">
-
-                  <option value="__any__">Any Tag</option>
-
-                </select>
-
-              </label>
-
-              <button id="R-add-section" style="display:none;background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.35);color:#fff;padding:4px 8px;border-radius:6px;cursor:pointer">+ Add Reasoning Section</button>
-
-            </div>
-
-            <div>
-
-              <div style="display:flex;align-items:center;gap:8px;margin:6px 0"><span>Listen from</span></div>
-
-              <div id="R-accept-list" style="display:flex;flex-direction:column;gap:8px"></div>
-
-              <button id="R-add-accept" style="background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.35);color:#fff;padding:6px 10px;border-radius:6px;cursor:pointer">+ Add</button>
+              <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px">
+                <div style="display:flex;flex-direction:column;gap:6px">
+                  <span style="font-weight:600">Apply for:</span>
+                  <div id="R-apply-list" style="display:flex;flex-direction:column;gap:6px">
+                    <div class="apply-for-row" style="display:flex;align-items:center;gap:8px">
+                      <select id="R-apply" class="R-apply-select" style="background:#fff;color:#0f172a;border:1px solid #cbd5e1;padding:6px 10px;border-radius:6px;min-width:180px;max-width:280px">
+                        <option value="__any__">Any Trigger</option>
+                      </select>
+                      <button type="button" class="R-apply-add" style="background:rgba(96,165,250,.3);border:1px solid rgba(96,165,250,.5);color:#fff;padding:4px 10px;border-radius:6px;cursor:pointer;font-weight:bold;font-size:14px">+</button>
+                    </div>
+                  </div>
+                </div>
+                <button id="R-add-section" style="background:rgba(96,165,250,.3);border:1px solid rgba(96,165,250,.5);color:#fff;padding:6px 12px;border-radius:6px;cursor:pointer;font-weight:500;white-space:nowrap">+ Add Reasoning Section</button>
+              </div>
 
             </div>
 
-            <label style="margin-top:8px">Goals (System instructions)
+            <!-- Reasoning Workflows Section (optional) - placed before Goals to gather context first -->
+            <div style="border:1px solid rgba(255,255,255,.25);border-radius:8px;padding:12px;background:rgba(255,255,255,0.04);margin-top:12px">
+              <div style="font-weight:600;margin-bottom:8px;color:#fff;display:flex;align-items:center;gap:8px">
+                Reasoning Workflows (optional)
+                <span title="Optional workflows to gather context before reasoning. Can route based on output conditions." style="font-size:12px;opacity:0.9;cursor:help;background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.35);padding:0 6px;border-radius:50%">?</span>
+              </div>
+              <div id="R-reasoning-workflows" style="display:flex;flex-direction:column;gap:12px;margin-bottom:8px"></div>
+              <button id="R-add-workflow" style="background:rgba(96,165,250,.3);border:1px solid rgba(96,165,250,.5);color:#fff;padding:8px 14px;border-radius:6px;cursor:pointer;font-weight:500">+ Add Workflow</button>
+            </div>
+
+            <label style="display:block;margin-top:12px">Goals (System instructions)
 
               <textarea id="R-goals" style="width:100%;min-height:90px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.35);color:#fff;padding:8px;border-radius:6px"></textarea>
 
             </label>
 
-            <label>Role (optional)
+            <label style="display:block">Role (optional)
 
               <input id="R-role" style="width:100%;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.35);color:#fff;padding:8px;border-radius:6px">
 
             </label>
 
-            <label>Rules
+            <label style="display:block">Rules
 
               <textarea id="R-rules" style="width:100%;min-height:70px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.35);color:#fff;padding:8px;border-radius:6px"></textarea>
 
@@ -13021,14 +15034,49 @@ function initializeExtension() {
 
             <button id="R-add-custom" style="background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.35);color:#fff;padding:6px 10px;border-radius:6px;cursor:pointer">+ Custom field</button>
 
-            <div style="margin-top:8px">
+            <!-- Memory & Context Settings (moved from separate section) -->
+            <div id="R-memory-context" style="margin-top:12px;padding:12px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.15);border-radius:8px">
+              <div style="font-weight:600;margin-bottom:4px;display:flex;align-items:center;gap:8px">
+                Memory & Context
+                <span title="Configure which memory and context sources this agent can access during reasoning." style="font-size:12px;opacity:0.9;cursor:help;background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.35);padding:0 6px;border-radius:50%">?</span>
+              </div>
+              <div style="font-size:13px;color:rgba(255,255,255,0.85);margin-bottom:10px;line-height:1.4">Enable memory sources for context during reasoning.</div>
 
-              <div style="font-weight:600;margin:6px 0">Report to (optional)</div>
+              <div style="display:flex;flex-direction:column;gap:10px;font-size:13px">
 
-              <div id="R-report-list" style="display:flex;flex-direction:column;gap:8px"></div>
+                <div style="display:flex;align-items:center;gap:12px;justify-content:space-between">
+                  <label style="display:flex;align-items:center;gap:6px"><input id="R-MEM-session" type="checkbox"> Session Context</label>
+                  <div style="display:flex;align-items:center;gap:10px">
+                    <label style="display:flex;align-items:center;gap:6px">
+                      <input id="R-MEM-session-read" type="checkbox">
+                      <span>Read <span id="R-MEM-session-read-state" style="padding:2px 6px;border-radius:6px;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.3)">OFF</span></span>
+                    </label>
+                    <label style="display:flex;align-items:center;gap:6px">
+                      <input id="R-MEM-session-write" type="checkbox">
+                      <span>Write <span id="R-MEM-session-write-state" style="padding:2px 6px;border-radius:6px;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.3)">OFF</span></span>
+                    </label>
+                  </div>
+                </div>
 
-              <button id="R-add-report" style="background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.35);color:#fff;padding:6px 10px;border-radius:6px;cursor:pointer;margin-top:6px">+ Add</button>
+                <div style="display:flex;align-items:center;gap:12px;justify-content:space-between">
+                  <label style="display:flex;align-items:center;gap:6px"><input id="R-MEM-account" type="checkbox"> Account Memory</label>
+                  <div style="display:flex;align-items:center;gap:10px">
+                    <label style="display:flex;align-items:center;gap:6px">
+                      <input id="R-MEM-account-read" type="checkbox">
+                      <span>Read <span id="R-MEM-account-read-state" style="padding:2px 6px;border-radius:6px;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.3)">OFF</span></span>
+                    </label>
+                    <label style="display:flex;align-items:center;gap:6px">
+                      <input id="R-MEM-account-write" type="checkbox">
+                      <span>Write <span id="R-MEM-account-write-state" style="padding:2px 6px;border-radius:6px;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.3)">OFF</span></span>
+                    </label>
+                  </div>
+                </div>
 
+                <div style="display:flex;align-items:center;gap:12px;opacity:.7">
+                  <label style="display:flex;align-items:center;gap:6px"><input id="R-MEM-agent" type="checkbox" checked disabled> Agent Memory (always on)</label>
+                </div>
+
+              </div>
             </div>
 
             <div id="R-sections-extra" style="display:flex;flex-direction:column;gap:10px;margin-top:10px"></div>`
@@ -13069,29 +15117,22 @@ function initializeExtension() {
 
             <div style="font-weight:700;margin-bottom:6px">Execution</div>
 
-            <div style="display:flex;align-items:center;gap:10px;margin:6px 0">
+            <div style="margin:6px 0">
 
-              <label>Apply for:
-
-                <select id="E-apply" style="margin-left:6px;background:#fff;color:#0f172a;border:1px solid #cbd5e1;padding:6px;border-radius:6px">
-
-                  <option value="__any__">Any Tag</option>
-
-                </select>
-
-              </label>
-
-              <button id="E-add-section" style="display:none;background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.35);color:#fff;padding:4px 8px;border-radius:6px;cursor:pointer">+ Add Execution Section</button>
-
-            </div>
-
-            <div>
-
-              <div style="display:flex;align-items:center;gap:8px;margin:6px 0"><span>Listen from</span></div>
-
-              <div id="E-accept-list" style="display:flex;flex-direction:column;gap:8px"></div>
-
-              <button id="E-add-accept" style="background:rgba(255,255,255,.2);border:1px solid rgba(255,255,255,.35);color:#fff;padding:6px 10px;border-radius:6px;cursor:pointer">+ Add</button>
+              <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px">
+                <div style="display:flex;flex-direction:column;gap:6px">
+                  <span style="font-weight:600">Apply for:</span>
+                  <div id="E-apply-list" style="display:flex;flex-direction:column;gap:6px">
+                    <div class="apply-for-row" style="display:flex;align-items:center;gap:8px">
+                      <select id="E-apply" class="E-apply-select" style="background:#fff;color:#0f172a;border:1px solid #cbd5e1;padding:6px 10px;border-radius:6px;min-width:180px;max-width:280px">
+                        <option value="__any__">Any Trigger</option>
+                      </select>
+                      <button type="button" class="E-apply-add" style="background:rgba(96,165,250,.3);border:1px solid rgba(96,165,250,.5);color:#fff;padding:4px 10px;border-radius:6px;cursor:pointer;font-weight:bold;font-size:14px">+</button>
+                    </div>
+                  </div>
+                </div>
+                <button id="E-add-section" style="background:rgba(96,165,250,.3);border:1px solid rgba(96,165,250,.5);color:#fff;padding:6px 12px;border-radius:6px;cursor:pointer;font-weight:500;white-space:nowrap">+ Add Execution Section</button>
+              </div>
 
             </div>
 
@@ -13099,7 +15140,7 @@ function initializeExtension() {
 
               <div id="E-workflow-list" style="display:flex;flex-direction:column;gap:8px"></div>
 
-              <button id="E-add-workflow" style="background:rgba(255,255,255,.2);border:1px solid rgba(255,255,255,.35);color:#fff;padding:6px 10px;border-radius:6px;cursor:pointer">+ Add Workflow</button>
+              <button id="E-add-workflow" style="background:rgba(96,165,250,.3);border:1px solid rgba(96,165,250,.5);color:#fff;padding:8px 14px;border-radius:6px;cursor:pointer;font-weight:500">+ Add Workflow</button>
 
             </div>
 
@@ -13163,54 +15204,992 @@ function initializeExtension() {
 
 
 
-        // After mount init
+        // Trigger sources are now defined per Action Trigger, not globally
 
-        const srcSel = configOverlay.querySelector('#L-source') as HTMLSelectElement | null
+        // Condition row helpers
+        const conditionsList = configOverlay.querySelector('#L-conditions-list') as HTMLElement | null
+        const addConditionBtn = configOverlay.querySelector('#L-add-condition') as HTMLButtonElement | null
 
-        const websiteWrap = configOverlay.querySelector('#L-website-wrap') as HTMLElement | null
-
-        const updateWebsiteVisibility = () => { if (srcSel && websiteWrap) websiteWrap.style.display = srcSel.value === 'website' ? 'block' : 'none' }
-
-        srcSel && srcSel.addEventListener('change', updateWebsiteVisibility)
-
-        updateWebsiteVisibility()
-
-
-
-        const passToggle = configOverlay.querySelector('#L-toggle-passive') as HTMLInputElement | null
-
-        const actToggle = configOverlay.querySelector('#L-toggle-active') as HTMLInputElement | null
-
-        const passWrap = configOverlay.querySelector('#L-passive') as HTMLElement | null
-
-        const actWrap = configOverlay.querySelector('#L-active') as HTMLElement | null
-
-        const syncListenerSubsections = () => {
-
-          if (passWrap && passToggle) passWrap.style.display = passToggle.checked ? 'block' : 'none'
-
-          if (actWrap && actToggle) actWrap.style.display = actToggle.checked ? 'block' : 'none'
-
+        const createConditionRow = (field: string = '', op: string = 'eq', value: string = '') => {
+          const row = document.createElement('div')
+          row.className = 'condition-row'
+          row.style.cssText = 'display:flex;gap:6px;align-items:center'
+          row.innerHTML = `
+            <input type="text" placeholder="Field (e.g. input.length)" value="${field}" style="flex:1;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.35);color:#fff;padding:6px;border-radius:4px;font-size:12px" class="cond-field">
+            <select style="background:#fff;color:#0f172a;border:1px solid #cbd5e1;padding:6px;border-radius:4px;font-size:12px" class="cond-op">
+              <option value="eq" ${op==='eq'?'selected':''}>equals</option>
+              <option value="ne" ${op==='ne'?'selected':''}>not equals</option>
+              <option value="contains" ${op==='contains'?'selected':''}>contains</option>
+              <option value="gt" ${op==='gt'?'selected':''}>&gt;</option>
+              <option value="lt" ${op==='lt'?'selected':''}>&lt;</option>
+              <option value="gte" ${op==='gte'?'selected':''}>&gt;=</option>
+              <option value="lte" ${op==='lte'?'selected':''}>&lt;=</option>
+              <option value="exists" ${op==='exists'?'selected':''}>exists</option>
+              <option value="regex" ${op==='regex'?'selected':''}>regex</option>
+            </select>
+            <input type="text" placeholder="Value" value="${value}" style="flex:1;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.35);color:#fff;padding:6px;border-radius:4px;font-size:12px" class="cond-value">
+            <button style="background:#ef4444;border:none;color:#fff;padding:4px 8px;border-radius:4px;cursor:pointer;font-size:12px" class="cond-del">✕</button>
+          `
+          row.querySelector('.cond-del')?.addEventListener('click', () => row.remove())
+          return row
         }
 
-        passToggle && passToggle.addEventListener('change', syncListenerSubsections)
+        addConditionBtn?.addEventListener('click', () => {
+          conditionsList?.appendChild(createConditionRow())
+        })
 
-        actToggle && actToggle.addEventListener('change', syncListenerSubsections)
+        // Sensor workflow helpers - with inline conditions
+        const sensorList = configOverlay.querySelector('#L-sensor-workflows') as HTMLElement | null
+        const addSensorBtn = configOverlay.querySelector('#L-add-sensor') as HTMLButtonElement | null
 
-        // Restore previous open/closed state
+        const createSensorWorkflowRow = (workflowId: string = '', conditions: any[] = []) => {
+          const row = document.createElement('div')
+          row.className = 'sensor-workflow-row'
+          row.style.cssText = 'background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.2);border-radius:8px;padding:10px'
+          
+          const header = document.createElement('div')
+          header.style.cssText = 'display:flex;gap:8px;align-items:center;margin-bottom:8px'
+          header.innerHTML = `
+            <span style="font-size:13px;font-weight:500;color:#fff">📊 Sensor:</span>
+            <input type="text" placeholder="Workflow ID or name" value="${workflowId}" style="flex:1;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.35);color:#fff;padding:6px 10px;border-radius:4px;font-size:13px" class="workflow-id">
+            <button style="background:#ef4444;border:none;color:#fff;padding:4px 10px;border-radius:4px;cursor:pointer;font-size:12px" class="sensor-del">✕</button>
+          `
+          
+          const conditionsWrap = document.createElement('div')
+          conditionsWrap.style.cssText = 'margin-top:8px;padding-top:8px;border-top:1px dashed rgba(255,255,255,0.15)'
+          conditionsWrap.innerHTML = `
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+              <span style="font-size:12px;opacity:0.8">📋 If output matches (conditions):</span>
+              <button class="sensor-add-cond" style="background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.25);color:#fff;padding:3px 8px;border-radius:4px;cursor:pointer;font-size:11px">+ Add Condition</button>
+            </div>
+            <div class="sensor-conditions" style="display:flex;flex-direction:column;gap:6px"></div>
+          `
+          
+          row.appendChild(header)
+          row.appendChild(conditionsWrap)
+          
+          // Wire up delete
+          header.querySelector('.sensor-del')?.addEventListener('click', () => row.remove())
+          
+          // Wire up add condition for this sensor
+          const sensorCondList = conditionsWrap.querySelector('.sensor-conditions') as HTMLElement
+          conditionsWrap.querySelector('.sensor-add-cond')?.addEventListener('click', () => {
+            const condRow = document.createElement('div')
+            condRow.className = 'sensor-cond-row'
+            condRow.style.cssText = 'display:flex;gap:4px;align-items:center;font-size:12px'
+            condRow.innerHTML = `
+              <span style="opacity:0.7">If</span>
+              <input type="text" placeholder="output.field" style="flex:1;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.25);color:#fff;padding:4px 6px;border-radius:3px;font-size:11px" class="scond-field">
+              <select style="background:#fff;color:#0f172a;border:1px solid #cbd5e1;padding:4px;border-radius:3px;font-size:11px" class="scond-op">
+                <option value="eq">==</option>
+                <option value="ne">!=</option>
+                <option value="contains">contains</option>
+                <option value="gt">&gt;</option>
+                <option value="lt">&lt;</option>
+                <option value="exists">exists</option>
+              </select>
+              <input type="text" placeholder="value" style="flex:1;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.25);color:#fff;padding:4px 6px;border-radius:3px;font-size:11px" class="scond-value">
+              <span style="opacity:0.7">→</span>
+              <select style="background:#fff;color:#0f172a;border:1px solid #cbd5e1;padding:4px;border-radius:3px;font-size:11px" class="scond-action">
+                <option value="continue">Continue</option>
+                <option value="skip">Skip Agent</option>
+                <option value="route">Route to...</option>
+              </select>
+              <button style="background:#ef4444;border:none;color:#fff;padding:2px 6px;border-radius:3px;cursor:pointer;font-size:10px" class="scond-del">✕</button>
+            `
+            condRow.querySelector('.scond-del')?.addEventListener('click', () => condRow.remove())
+            sensorCondList.appendChild(condRow)
+          })
+          
+          // Pre-populate conditions if provided
+          conditions.forEach((c: any) => {
+            const addBtn = conditionsWrap.querySelector('.sensor-add-cond') as HTMLButtonElement
+            addBtn?.click()
+            const rows = sensorCondList.querySelectorAll('.sensor-cond-row')
+            const lastRow = rows[rows.length - 1]
+            if (lastRow) {
+              (lastRow.querySelector('.scond-field') as HTMLInputElement).value = c.field || ''
+              ;(lastRow.querySelector('.scond-op') as HTMLSelectElement).value = c.op || 'eq'
+              ;(lastRow.querySelector('.scond-value') as HTMLInputElement).value = c.value || ''
+              ;(lastRow.querySelector('.scond-action') as HTMLSelectElement).value = c.action || 'continue'
+            }
+          })
+          
+          return row
+        }
 
-        if (passToggle) passToggle.checked = !!persistedPassiveToggle
+        addSensorBtn?.addEventListener('click', () => {
+          sensorList?.appendChild(createSensorWorkflowRow())
+        })
 
-        if (actToggle) actToggle.checked = !!persistedActiveToggle
+        // Action workflow helpers (simple rows)
+        const actionList = configOverlay.querySelector('#L-action-workflows') as HTMLElement | null
+        const addActionBtn = configOverlay.querySelector('#L-add-action') as HTMLButtonElement | null
 
-        syncListenerSubsections()
+        const createActionWorkflowRow = (value: string = '') => {
+          const row = document.createElement('div')
+          row.className = 'action-workflow-row'
+          row.style.cssText = 'display:flex;gap:6px;align-items:center'
+          row.innerHTML = `
+            <input type="text" placeholder="Action workflow ID or name" value="${value}" style="flex:1;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.35);color:#fff;padding:6px;border-radius:4px;font-size:12px" class="workflow-id">
+            <button style="background:#ef4444;border:none;color:#fff;padding:4px 8px;border-radius:4px;cursor:pointer;font-size:12px" class="workflow-del">✕</button>
+          `
+          row.querySelector('.workflow-del')?.addEventListener('click', () => row.remove())
+          return row
+        }
+
+        addActionBtn?.addEventListener('click', () => {
+          actionList?.appendChild(createActionWorkflowRow())
+        })
 
 
 
-        // Active triggers list (multi-row)
+        // Unified Trigger System - replaces old Active/Passive toggles
+        const unifiedTriggersList = configOverlay.querySelector('#L-unified-triggers') as HTMLElement | null
+        const addTriggerBtn = configOverlay.querySelector('#L-add-trigger') as HTMLButtonElement | null
 
+        // createTriggerWorkflowRow is now defined OUTSIDE render() to be accessible from restoreFromMemory()
+
+        // Create unified trigger row with type-specific fields
+        const makeUnifiedTriggerRow = (init?: { 
+          type?: string, 
+          tagName?: string, 
+          expectedContext?: string,
+          workflowId?: string,
+          domSelector?: string,
+          domEvent?: string,
+          commandLabel?: string,
+          websiteFilter?: string,
+          conditions?: any[]
+        }) => {
+          // Generate a readable trigger ID
+          const existingTriggers = document.querySelectorAll('#L-unified-triggers .unified-trigger-row').length
+          const nextNum = String(existingTriggers + 1).padStart(2, '0')
+          const triggerId = init?.id || (init?.tagName ? `ID#${init.tagName.replace('#', '')}` : `ID${nextNum}`)
+          
+          const row = document.createElement('div')
+          row.className = 'unified-trigger-row'
+          row.dataset.triggerId = triggerId
+          row.style.cssText = 'background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.2);border-radius:8px;padding:12px'
+          
+          // ID display row
+          const idRow = document.createElement('div')
+          idRow.style.cssText = 'display:flex;gap:8px;align-items:center;margin-bottom:8px;padding-bottom:8px;border-bottom:1px solid rgba(255,255,255,0.1)'
+          idRow.innerHTML = `
+            <span style="font-size:11px;color:rgba(255,255,255,0.6)">ID:</span>
+            <code class="trigger-id-display" style="font-size:11px;color:#60a5fa;background:rgba(96,165,250,0.1);padding:2px 8px;border-radius:4px;font-family:monospace">${triggerId}</code>
+            <button class="trigger-temp-save" style="margin-left:auto;background:#22c55e;color:#fff;border:none;padding:4px 10px;border-radius:4px;cursor:pointer;font-size:11px;font-weight:500">💾 Save</button>
+          `
+          row.appendChild(idRow)
+          
+          // Wire up temp save button
+          const tempSaveBtn = idRow.querySelector('.trigger-temp-save') as HTMLButtonElement
+          tempSaveBtn?.addEventListener('click', () => {
+            // Update trigger ID in Apply for selectboxes
+            updateApplyForOptions()
+            
+            // Show temporary feedback
+            tempSaveBtn.textContent = '✓ Saved'
+            tempSaveBtn.style.background = '#16a34a'
+            setTimeout(() => {
+              tempSaveBtn.textContent = '💾 Save'
+              tempSaveBtn.style.background = '#22c55e'
+            }, 1500)
+            
+            // Add persistent green checkmark indicator if not already present
+            if (!row.querySelector('.trigger-saved-indicator')) {
+              const checkmark = document.createElement('span')
+              checkmark.className = 'trigger-saved-indicator'
+              checkmark.textContent = '✓'
+              checkmark.style.cssText = 'color:#22c55e;font-weight:bold;margin-left:6px;font-size:14px'
+              checkmark.title = 'Trigger saved'
+              tempSaveBtn.parentElement?.insertBefore(checkmark, tempSaveBtn.nextSibling)
+            }
+            
+            // Auto-save to chrome storage to persist the trigger
+            if (typeof autoSaveToChromeStorage === 'function') {
+              autoSaveToChromeStorage()
+              console.log('💾 Trigger saved and persisted to storage')
+            }
+          })
+          
+          // Header row with trigger type selector and delete button
+          const header = document.createElement('div')
+          header.style.cssText = 'display:flex;gap:8px;align-items:center;margin-bottom:10px'
+          
+          const typeLabel = document.createElement('span')
+          typeLabel.textContent = 'Trigger Type:'
+          typeLabel.style.cssText = 'font-size:12px;font-weight:600;color:#fff'
+          
+          const typeSel = document.createElement('select')
+          typeSel.className = 'trigger-type'
+          typeSel.style.cssText = 'background:#fff;color:#0f172a;border:1px solid #cbd5e1;padding:6px 10px;border-radius:6px;font-size:12px;flex:1'
+          typeSel.innerHTML = `
+            <option value="direct_tag">Event Trigger (Tag)</option>
+            <option value="workflow_condition">Condition Trigger (Workflow)</option>
+            <option value="tag_and_condition">Gated Trigger (Tag + Condition)</option>
+            <option value="ui_event">UI Event Trigger (DOM)</option>
+            <option value="manual">Manual Trigger (Command)</option>
+            <option value="agent">Agent Trigger</option>
+            <option value="miniapp">Mini-App Trigger</option>
+          `
+          if (init?.type) typeSel.value = init.type
+          
+          const delBtn = document.createElement('button')
+          delBtn.textContent = '×'
+          delBtn.title = 'Remove trigger'
+          delBtn.style.cssText = 'background:#ef4444;color:#fff;border:none;padding:6px 12px;border-radius:6px;cursor:pointer;font-size:16px'
+          delBtn.addEventListener('click', () => {
+            row.remove()
+            updateApplyForOptions() // Update options when trigger is deleted
+          })
+          
+          header.appendChild(typeLabel)
+          header.appendChild(typeSel)
+          header.appendChild(delBtn)
+          row.appendChild(header)
+          
+          // Type-specific fields container
+          const fieldsContainer = document.createElement('div')
+          fieldsContainer.className = 'trigger-fields'
+          fieldsContainer.style.cssText = 'display:flex;flex-direction:column;gap:8px'
+          row.appendChild(fieldsContainer)
+          
+          // Function to render type-specific fields
+          const renderFieldsForType = (type: string) => {
+            fieldsContainer.innerHTML = ''
+            
+            if (type === 'direct_tag' || type === 'tag_and_condition') {
+              // ========== SECTION 1: TAG (Required) ==========
+              const tagSection = document.createElement('div')
+              tagSection.className = 'trigger-section'
+              tagSection.style.cssText = 'margin-bottom:12px;padding:10px;background:rgba(59,130,246,0.08);border:1px solid rgba(59,130,246,0.25);border-radius:8px'
+              tagSection.innerHTML = `
+                <div style="font-weight:600;font-size:13px;color:#60a5fa;margin-bottom:6px;display:flex;align-items:center;gap:6px">
+                  <span style="font-size:14px">🏷️</span> Tag <span style="color:#ef4444;font-size:10px">(required)</span>
+                </div>
+                <div style="display:flex;gap:8px;align-items:center;margin-bottom:6px">
+                  <span style="background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.35);padding:6px 10px;border-radius:6px;font-weight:700;color:#fff">#</span>
+                  <input class="trigger-tag" placeholder="invoice" value="${init?.tag?.replace('#', '') || init?.tagName || ''}" style="flex:1;background:rgba(255,255,255,.85);border:1px solid rgba(255,255,255,.5);color:#1e293b;padding:8px 12px;border-radius:6px;font-size:13px">
+                </div>
+                <div style="font-size:12px;color:#fff;opacity:0.9;line-height:1.4">
+                  This tag must appear in the email subject/body or chat input to activate this trigger.
+                </div>
+              `
+              fieldsContainer.appendChild(tagSection)
+              
+              // ========== SECTION 2: CHANNEL ==========
+              const channelSection = document.createElement('div')
+              channelSection.className = 'trigger-section'
+              channelSection.style.cssText = 'margin-bottom:12px;padding:10px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.12);border-radius:8px'
+              channelSection.innerHTML = `
+                <div style="font-weight:600;font-size:13px;color:rgba(255,255,255,0.9);margin-bottom:6px;display:flex;align-items:center;gap:6px">
+                  <span style="font-size:14px">📡</span> Event Channel
+                </div>
+                <select class="trigger-channel" style="width:100%;background:#fff;color:#0f172a;border:1px solid #cbd5e1;padding:8px 10px;border-radius:6px;font-size:12px;margin-bottom:6px">
+                  <option value="chat" ${!init?.channel || init?.channel === 'chat' ? 'selected' : ''}>💬 WR Chat</option>
+                  <option value="email" ${init?.channel === 'email' ? 'selected' : ''}>📧 Email</option>
+                  <option value="web" ${init?.channel === 'web' ? 'selected' : ''}>🌐 Web/Messaging</option>
+                  <option value="overlay" ${init?.channel === 'overlay' ? 'selected' : ''}>🎯 Augmented Overlay</option>
+                  <option value="agent" ${init?.channel === 'agent' ? 'selected' : ''}>🤖 Agent</option>
+                  <option value="miniapp" ${init?.channel === 'miniapp' ? 'selected' : ''}>📱 Mini-App</option>
+                  <option value="screenshot" ${init?.channel === 'screenshot' ? 'selected' : ''}>📸 Screenshot</option>
+                  <option value="stream" ${init?.channel === 'stream' ? 'selected' : ''}>📺 Stream</option>
+                  <option value="pdf" ${init?.channel === 'pdf' ? 'selected' : ''}>📄 PDF</option>
+                  <option value="docs" ${init?.channel === 'docs' ? 'selected' : ''}>📝 Docs</option>
+                  <option value="voicememo" ${init?.channel === 'voicememo' ? 'selected' : ''}>🎙️ Voicememo</option>
+                  <option value="video" ${init?.channel === 'video' ? 'selected' : ''}>🎬 Video</option>
+                  <option value="voice_command" ${init?.channel === 'voice_command' ? 'selected' : ''}>🗣️ Voice Command</option>
+                  <option value="picture" ${init?.channel === 'picture' ? 'selected' : ''}>🖼️ Picture</option>
+                  <option value="api" ${init?.channel === 'api' ? 'selected' : ''}>🔌 API Webhook</option>
+                </select>
+                <div style="font-size:12px;color:#fff;opacity:0.9;margin-top:4px">Where should this trigger listen for events?</div>
+              `
+              fieldsContainer.appendChild(channelSection)
+              
+              // ========== SECTION 3: SOURCE & SECURITY (shown for email) ==========
+              const securitySection = document.createElement('div')
+              securitySection.className = 'trigger-section trigger-security-section'
+              securitySection.style.cssText = 'margin-bottom:12px;padding:10px;background:rgba(34,197,94,0.06);border:1px solid rgba(34,197,94,0.2);border-radius:8px'
+              
+              // Get existing conditions
+              const existingConditions = init?.eventTagConditions || []
+              const wrcodeCondition = existingConditions.find((c: any) => c.type === 'wrcode_valid')
+              const senderCondition = existingConditions.find((c: any) => c.type === 'sender_whitelist')
+              
+              securitySection.innerHTML = `
+                <div style="font-weight:600;font-size:13px;color:#22c55e;margin-bottom:8px;display:flex;align-items:center;gap:6px">
+                  <span style="font-size:14px">🔒</span> Source & Security
+                </div>
+                <div style="display:flex;flex-direction:column;gap:8px">
+                  <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+                    <input type="checkbox" class="trigger-wrcode" ${wrcodeCondition?.required ? 'checked' : ''} style="width:16px;height:16px;cursor:pointer">
+                    <span style="font-size:12px;color:rgba(255,255,255,0.9)">Only accept WRCode-stamped emails</span>
+                  </label>
+                  <div style="font-size:12px;color:#fff;opacity:0.9;padding-left:24px;margin-bottom:4px">
+                    Requires cryptographic verification of sender authenticity.
+                  </div>
+                  
+                  <div style="margin-top:4px">
+                    <label style="font-size:12px;color:rgba(255,255,255,0.9);display:block;margin-bottom:4px">Allowed Senders (comma-separated)</label>
+                    <input type="text" class="trigger-sender-whitelist" placeholder="accounting@company.com, invoices@vendor.com" value="${senderCondition?.allowedSenders?.join(', ') || ''}" style="width:100%;background:rgba(255,255,255,.85);border:1px solid rgba(255,255,255,.5);color:#1e293b;padding:8px 10px;border-radius:6px;font-size:12px">
+                    <div style="font-size:12px;color:#fff;opacity:0.9;margin-top:4px">
+                      Only emails from these addresses will be processed. Leave empty to allow all senders.
+                    </div>
+                  </div>
+                </div>
+              `
+              fieldsContainer.appendChild(securitySection)
+              
+              // ========== SECTION 4: OPTIONAL CONTEXT ==========
+              const keywordsCondition = existingConditions.find((c: any) => c.type === 'body_keywords')
+              const contextSection = document.createElement('div')
+              contextSection.className = 'trigger-section'
+              contextSection.style.cssText = 'margin-bottom:12px;padding:10px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.12);border-radius:8px'
+              contextSection.innerHTML = `
+                <div style="font-weight:600;font-size:13px;color:rgba(255,255,255,0.9);margin-bottom:6px;display:flex;align-items:center;gap:6px">
+                  <span style="font-size:14px">🔍</span> Optional Context
+                </div>
+                <div>
+                  <label style="font-size:12px;color:rgba(255,255,255,0.9);display:block;margin-bottom:4px">Keywords (comma-separated)</label>
+                  <input type="text" class="trigger-keywords" placeholder="urgent, payment, overdue" value="${keywordsCondition?.keywords?.join(', ') || init?.expectedContext || ''}" style="width:100%;background:rgba(255,255,255,.85);border:1px solid rgba(255,255,255,.5);color:#1e293b;padding:8px 10px;border-radius:6px;font-size:12px">
+                  <div style="font-size:12px;color:#fff;opacity:0.9;margin-top:4px">
+                    Use this to avoid triggering on every tag occurrence. At least one keyword must appear. Leave empty to match any content with the tag.
+                  </div>
+                </div>
+              `
+              fieldsContainer.appendChild(contextSection)
+              
+              // ========== SECTION 5: WEBSITE FILTER (shown for web channel) ==========
+              const websiteCondition = existingConditions.find((c: any) => c.type === 'website_filter')
+              const websiteSection = document.createElement('div')
+              websiteSection.className = 'trigger-section trigger-website-section'
+              websiteSection.style.cssText = 'margin-bottom:12px;padding:10px;background:rgba(168,85,247,0.06);border:1px solid rgba(168,85,247,0.2);border-radius:8px'
+              websiteSection.innerHTML = `
+                <div style="font-weight:600;font-size:13px;color:#a855f7;margin-bottom:6px;display:flex;align-items:center;gap:6px">
+                  <span style="font-size:14px">🌐</span> Website Filter <span style="font-weight:400;font-size:11px;opacity:0.7">(optional)</span>
+                </div>
+                <div>
+                  <label style="font-size:12px;color:rgba(255,255,255,0.9);display:block;margin-bottom:4px">URL Pattern</label>
+                  <input type="text" class="trigger-website" placeholder="*.example.com, https://app.domain.com/*" value="${websiteCondition?.patterns?.join(', ') || init?.websiteFilter || ''}" style="width:100%;background:rgba(255,255,255,.85);border:1px solid rgba(255,255,255,.5);color:#1e293b;padding:8px 10px;border-radius:6px;font-size:12px">
+                  <div style="font-size:12px;color:#fff;opacity:0.9;margin-top:4px">
+                    Restrict this trigger to specific websites. Use * as wildcard.
+                  </div>
+                </div>
+              `
+              fieldsContainer.appendChild(websiteSection)
+              
+              // ========== SECTION 6: AGENT SELECTOR (for agent channel) ==========
+              const agentSection = document.createElement('div')
+              agentSection.className = 'trigger-section trigger-agent-section'
+              agentSection.style.cssText = 'margin-bottom:12px;padding:10px;background:rgba(59,130,246,0.08);border:1px solid rgba(59,130,246,0.25);border-radius:8px;display:none'
+              agentSection.innerHTML = `
+                <div style="font-weight:600;font-size:13px;color:#3b82f6;margin-bottom:6px;display:flex;align-items:center;gap:6px">
+                  <span style="font-size:14px">🤖</span> Source Agent
+                </div>
+                <div>
+                  <label style="font-size:12px;color:rgba(255,255,255,0.9);display:block;margin-bottom:4px">Select Agent</label>
+                  <select class="trigger-agent-select" style="width:100%;background:#fff;color:#0f172a;border:1px solid #cbd5e1;padding:8px 10px;border-radius:6px;font-size:12px">
+                    ${Array.from({length: 50}, (_, i) => {
+                      const num = String(i + 1).padStart(2, '0')
+                      return `<option value="${num}" ${init?.sourceAgent === num ? 'selected' : ''}>Agent ${num}</option>`
+                    }).join('')}
+                  </select>
+                  <div style="font-size:12px;color:#fff;opacity:0.9;margin-top:4px">
+                    Trigger will activate when this agent sends output.
+                  </div>
+                </div>
+              `
+              fieldsContainer.appendChild(agentSection)
+              
+              // ========== SECTION 7: MINI-APP CONFIG (for miniapp channel) ==========
+              const miniappSection = document.createElement('div')
+              miniappSection.className = 'trigger-section trigger-miniapp-section'
+              miniappSection.style.cssText = 'margin-bottom:12px;padding:10px;background:rgba(139,92,246,0.08);border:1px solid rgba(139,92,246,0.25);border-radius:8px;display:none'
+              miniappSection.innerHTML = `
+                <div style="font-weight:600;font-size:13px;color:#8b5cf6;margin-bottom:6px;display:flex;align-items:center;gap:6px">
+                  <span style="font-size:14px">📱</span> Mini-App Configuration
+                </div>
+                <div style="margin-bottom:10px">
+                  <label style="font-size:12px;color:rgba(255,255,255,0.9);display:block;margin-bottom:4px">Mini-App ID</label>
+                  <input type="text" class="trigger-miniapp-id" placeholder="e.g. my-miniapp-123" value="${init?.miniAppId || ''}" style="width:100%;background:rgba(255,255,255,.85);border:1px solid rgba(255,255,255,.5);color:#1e293b;padding:8px 10px;border-radius:6px;font-size:12px">
+                </div>
+                <div style="margin-bottom:10px">
+                  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+                    <label style="font-size:12px;color:rgba(255,255,255,0.9)">UI Elements</label>
+                    <button class="miniapp-add-ui" style="background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.25);color:#fff;padding:3px 8px;border-radius:4px;cursor:pointer;font-size:11px">+ Add UI Element</button>
+                  </div>
+                  <div class="miniapp-ui-list" style="display:flex;flex-direction:column;gap:6px"></div>
+                </div>
+                <div>
+                  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+                    <label style="font-size:12px;color:rgba(255,255,255,0.9)">Conditions</label>
+                    <button class="miniapp-add-condition" style="background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.25);color:#fff;padding:3px 8px;border-radius:4px;cursor:pointer;font-size:11px">+ Add Condition</button>
+                  </div>
+                  <div class="miniapp-condition-list" style="display:flex;flex-direction:column;gap:6px"></div>
+                </div>
+              `
+              fieldsContainer.appendChild(miniappSection)
+              
+              // Wire up Mini-App UI element add button
+              const miniappAddUiBtn = miniappSection.querySelector('.miniapp-add-ui') as HTMLButtonElement
+              const miniappUiList = miniappSection.querySelector('.miniapp-ui-list') as HTMLElement
+              miniappAddUiBtn?.addEventListener('click', () => {
+                const uiRow = document.createElement('div')
+                uiRow.style.cssText = 'display:flex;gap:4px;align-items:center'
+                uiRow.innerHTML = `
+                  <select style="background:#fff;color:#0f172a;border:1px solid #cbd5e1;padding:4px;border-radius:4px;font-size:11px" class="miniapp-ui-type">
+                    <option value="button">Button</option>
+                    <option value="input">Input Field</option>
+                    <option value="select">Dropdown</option>
+                    <option value="checkbox">Checkbox</option>
+                    <option value="textarea">Text Area</option>
+                  </select>
+                  <input type="text" placeholder="Element ID" style="flex:1;background:rgba(255,255,255,.85);border:1px solid rgba(255,255,255,.5);color:#1e293b;padding:4px 6px;border-radius:4px;font-size:11px" class="miniapp-ui-id">
+                  <input type="text" placeholder="Label" style="flex:1;background:rgba(255,255,255,.85);border:1px solid rgba(255,255,255,.5);color:#1e293b;padding:4px 6px;border-radius:4px;font-size:11px" class="miniapp-ui-label">
+                  <button style="background:#ef4444;border:none;color:#fff;padding:2px 6px;border-radius:4px;cursor:pointer;font-size:11px" onclick="this.parentElement.remove()">×</button>
+                `
+                miniappUiList.appendChild(uiRow)
+              })
+              
+              // Wire up Mini-App condition add button
+              const miniappAddCondBtn = miniappSection.querySelector('.miniapp-add-condition') as HTMLButtonElement
+              const miniappCondList = miniappSection.querySelector('.miniapp-condition-list') as HTMLElement
+              miniappAddCondBtn?.addEventListener('click', () => {
+                const condRow = document.createElement('div')
+                condRow.style.cssText = 'display:flex;gap:4px;align-items:center'
+                condRow.innerHTML = `
+                  <input type="text" placeholder="field" style="flex:1;background:rgba(255,255,255,.85);border:1px solid rgba(255,255,255,.5);color:#1e293b;padding:4px 6px;border-radius:4px;font-size:11px" class="miniapp-cond-field">
+                  <select style="background:#fff;color:#0f172a;border:1px solid #cbd5e1;padding:4px;border-radius:4px;font-size:11px" class="miniapp-cond-op">
+                    <option value="eq">equals</option>
+                    <option value="ne">not equals</option>
+                    <option value="contains">contains</option>
+                    <option value="gt">&gt;</option>
+                    <option value="lt">&lt;</option>
+                    <option value="exists">exists</option>
+                  </select>
+                  <input type="text" placeholder="value" style="flex:1;background:rgba(255,255,255,.85);border:1px solid rgba(255,255,255,.5);color:#1e293b;padding:4px 6px;border-radius:4px;font-size:11px" class="miniapp-cond-value">
+                  <button style="background:#ef4444;border:none;color:#fff;padding:2px 6px;border-radius:4px;cursor:pointer;font-size:11px" onclick="this.parentElement.remove()">×</button>
+                `
+                miniappCondList.appendChild(condRow)
+              })
+              
+              // Restore Mini-App UI elements and conditions if any
+              if (init?.miniAppUiElements?.length) {
+                init.miniAppUiElements.forEach((ui: any) => {
+                  miniappAddUiBtn.click()
+                  const lastRow = miniappUiList.lastElementChild
+                  if (lastRow) {
+                    (lastRow.querySelector('.miniapp-ui-type') as HTMLSelectElement).value = ui.type || 'button'
+                    ;(lastRow.querySelector('.miniapp-ui-id') as HTMLInputElement).value = ui.id || ''
+                    ;(lastRow.querySelector('.miniapp-ui-label') as HTMLInputElement).value = ui.label || ''
+                  }
+                })
+              }
+              if (init?.miniAppConditions?.length) {
+                init.miniAppConditions.forEach((cond: any) => {
+                  miniappAddCondBtn.click()
+                  const lastRow = miniappCondList.lastElementChild
+                  if (lastRow) {
+                    (lastRow.querySelector('.miniapp-cond-field') as HTMLInputElement).value = cond.field || ''
+                    ;(lastRow.querySelector('.miniapp-cond-op') as HTMLSelectElement).value = cond.op || 'eq'
+                    ;(lastRow.querySelector('.miniapp-cond-value') as HTMLInputElement).value = cond.value || ''
+                  }
+                })
+              }
+              
+              // Toggle visibility based on channel
+              const channelSelect = channelSection.querySelector('.trigger-channel') as HTMLSelectElement
+              const updateSectionVisibility = () => {
+                const channel = channelSelect.value
+                // Security section only for email
+                securitySection.style.display = channel === 'email' ? 'block' : 'none'
+                // Optional Context (keywords) for text-based channels including overlay
+                const textChannels = ['chat', 'email', 'web', 'overlay']
+                contextSection.style.display = textChannels.includes(channel) ? 'block' : 'none'
+                // Website filter for web-based channels
+                const webChannels = ['web', 'overlay']
+                websiteSection.style.display = webChannels.includes(channel) ? 'block' : 'none'
+                // Agent selector for agent channel
+                agentSection.style.display = channel === 'agent' ? 'block' : 'none'
+                // Mini-App config for miniapp channel
+                miniappSection.style.display = channel === 'miniapp' ? 'block' : 'none'
+              }
+              updateSectionVisibility()
+              channelSelect.addEventListener('change', updateSectionVisibility)
+              
+              // ========== VALIDATION LOGIC ==========
+              const tagInput = tagSection.querySelector('.trigger-tag') as HTMLInputElement
+              const senderInput = securitySection.querySelector('.trigger-sender-whitelist') as HTMLInputElement
+              
+              // Helper to show/hide validation error
+              const showValidationError = (input: HTMLInputElement, message: string | null) => {
+                let errorEl = input.parentElement?.querySelector('.validation-error') as HTMLElement
+                if (message) {
+                  if (!errorEl) {
+                    errorEl = document.createElement('div')
+                    errorEl.className = 'validation-error'
+                    errorEl.style.cssText = 'color:#ef4444;font-size:11px;margin-top:4px;display:flex;align-items:center;gap:4px'
+                    input.parentElement?.appendChild(errorEl)
+                  }
+                  errorEl.innerHTML = `<span>⚠️</span> ${message}`
+                  input.style.borderColor = '#ef4444'
+                } else {
+                  if (errorEl) errorEl.remove()
+                  input.style.borderColor = 'rgba(255,255,255,.35)'
+                }
+              }
+              
+              // Tag validation
+              const validateTag = () => {
+                const value = tagInput.value.trim()
+                if (!value) {
+                  showValidationError(tagInput, 'Tag is required')
+                  return false
+                }
+                // Check for valid characters (letters, numbers, hyphens, underscores)
+                if (!/^[\w-]+$/.test(value.replace('#', ''))) {
+                  showValidationError(tagInput, 'Tag can only contain letters, numbers, hyphens, and underscores')
+                  return false
+                }
+                showValidationError(tagInput, null)
+                return true
+              }
+              tagInput.addEventListener('blur', validateTag)
+              tagInput.addEventListener('input', () => {
+                if (tagInput.value.trim()) validateTag()
+                // Update trigger ID display when tag changes
+                const tagValue = tagInput.value.trim().replace('#', '')
+                const idDisplay = row.querySelector('.trigger-id-display') as HTMLElement
+                if (idDisplay && tagValue) {
+                  const newId = `ID#${tagValue}`
+                  idDisplay.textContent = newId
+                  row.dataset.triggerId = newId
+                }
+              })
+              
+              // Email whitelist validation
+              const validateEmails = () => {
+                const value = senderInput.value.trim()
+                if (!value) {
+                  showValidationError(senderInput, null)
+                  return true // Empty is valid (optional field)
+                }
+                const emails = value.split(',').map(e => e.trim()).filter(Boolean)
+                const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+                const invalidEmails = emails.filter(e => !emailRegex.test(e))
+                if (invalidEmails.length > 0) {
+                  showValidationError(senderInput, `Invalid email format: ${invalidEmails[0]}`)
+                  return false
+                }
+                showValidationError(senderInput, null)
+                return true
+              }
+              senderInput.addEventListener('blur', validateEmails)
+              senderInput.addEventListener('input', () => {
+                if (senderInput.value.includes(',')) validateEmails()
+              })
+            }
+            
+            if (type === 'workflow_condition' || type === 'tag_and_condition') {
+              // Workflow selector
+              const wfRow = document.createElement('div')
+              wfRow.innerHTML = `
+                <label style="font-size:12px;color:rgba(255,255,255,0.9);display:block;margin-bottom:4px">Source Workflow</label>
+                <input class="trigger-workflow" placeholder="Workflow ID or name" value="${init?.workflowId || ''}" style="width:100%;background:rgba(255,255,255,.85);border:1px solid rgba(255,255,255,.5);color:#1e293b;padding:6px 10px;border-radius:6px;font-size:12px">
+              `
+              fieldsContainer.appendChild(wfRow)
+              
+              // Conditions section
+              const condSection = document.createElement('div')
+              condSection.style.cssText = 'margin-top:8px;padding:8px;background:rgba(255,255,255,0.03);border-radius:6px;border:1px dashed rgba(255,255,255,0.15)'
+              condSection.innerHTML = `
+                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+                  <span style="font-size:12px;color:rgba(255,255,255,0.9)">Conditions (when to activate)</span>
+                  <button class="add-condition-btn" style="background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.25);color:#fff;padding:3px 8px;border-radius:4px;cursor:pointer;font-size:11px">+ Condition</button>
+                </div>
+                <div class="trigger-conditions" style="display:flex;flex-direction:column;gap:6px"></div>
+              `
+              fieldsContainer.appendChild(condSection)
+              
+              // Add condition button handler
+              const addCondBtn = condSection.querySelector('.add-condition-btn') as HTMLButtonElement
+              const condList = condSection.querySelector('.trigger-conditions') as HTMLElement
+              addCondBtn?.addEventListener('click', () => {
+                const condRow = document.createElement('div')
+                condRow.style.cssText = 'display:flex;gap:4px;align-items:center'
+                condRow.innerHTML = `
+                  <input type="text" placeholder="field" style="flex:1;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.35);color:#fff;padding:4px 6px;border-radius:4px;font-size:11px" class="cond-field">
+                  <select style="background:#fff;color:#0f172a;border:1px solid #cbd5e1;padding:4px;border-radius:4px;font-size:11px" class="cond-op">
+                    <option value="eq">equals</option>
+                    <option value="ne">not equals</option>
+                    <option value="contains">contains</option>
+                    <option value="gt">&gt;</option>
+                    <option value="lt">&lt;</option>
+                    <option value="exists">exists</option>
+                  </select>
+                  <input type="text" placeholder="value" style="flex:1;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.35);color:#fff;padding:4px 6px;border-radius:4px;font-size:11px" class="cond-value">
+                  <button style="background:#ef4444;border:none;color:#fff;padding:2px 6px;border-radius:4px;cursor:pointer;font-size:11px" onclick="this.parentElement.remove()">×</button>
+                `
+                condList.appendChild(condRow)
+              })
+              
+              // Restore conditions if any
+              if (init?.conditions && init.conditions.length > 0) {
+                init.conditions.forEach((c: any) => addCondBtn?.click())
+              }
+            }
+            
+            if (type === 'ui_event') {
+              // DOM selector field
+              const domRow = document.createElement('div')
+              domRow.innerHTML = `
+                <label style="font-size:12px;color:rgba(255,255,255,0.9);display:block;margin-bottom:4px">CSS Selector</label>
+                <input class="trigger-dom-selector" placeholder="#button-id, .class-name, [data-attr]" value="${init?.domSelector || ''}" style="width:100%;background:rgba(255,255,255,.85);border:1px solid rgba(255,255,255,.5);color:#1e293b;padding:6px 10px;border-radius:6px;font-size:12px">
+              `
+              fieldsContainer.appendChild(domRow)
+              
+              // DOM event type
+              const eventRow = document.createElement('div')
+              eventRow.innerHTML = `
+                <label style="font-size:12px;color:rgba(255,255,255,0.9);display:block;margin-bottom:4px">Event Type</label>
+                <select class="trigger-dom-event" style="width:100%;background:#fff;color:#0f172a;border:1px solid #cbd5e1;padding:6px 10px;border-radius:6px;font-size:12px">
+                  <option value="click" ${init?.domEvent === 'click' ? 'selected' : ''}>Click</option>
+                  <option value="scroll" ${init?.domEvent === 'scroll' ? 'selected' : ''}>Scroll</option>
+                  <option value="hover" ${init?.domEvent === 'hover' ? 'selected' : ''}>Hover</option>
+                  <option value="mutate" ${init?.domEvent === 'mutate' ? 'selected' : ''}>DOM Mutation</option>
+                  <option value="focus" ${init?.domEvent === 'focus' ? 'selected' : ''}>Focus</option>
+                  <option value="input" ${init?.domEvent === 'input' ? 'selected' : ''}>Input Change</option>
+                </select>
+              `
+              fieldsContainer.appendChild(eventRow)
+            }
+            
+            if (type === 'manual') {
+              // Command label field
+              const cmdRow = document.createElement('div')
+              cmdRow.innerHTML = `
+                <label style="font-size:12px;color:rgba(255,255,255,0.9);display:block;margin-bottom:4px">Command/Button Label</label>
+                <input class="trigger-command" placeholder="e.g. Run Analysis, Process Invoice" value="${init?.commandLabel || ''}" style="width:100%;background:rgba(255,255,255,.85);border:1px solid rgba(255,255,255,.5);color:#1e293b;padding:6px 10px;border-radius:6px;font-size:12px">
+              `
+              fieldsContainer.appendChild(cmdRow)
+            }
+            
+            if (type === 'agent') {
+              // Agent Trigger - Source agent selector
+              const agentRow = document.createElement('div')
+              agentRow.className = 'trigger-section'
+              agentRow.style.cssText = 'padding:10px;background:rgba(59,130,246,0.08);border:1px solid rgba(59,130,246,0.25);border-radius:8px'
+              agentRow.innerHTML = `
+                <div style="font-weight:600;font-size:13px;color:#3b82f6;margin-bottom:6px;display:flex;align-items:center;gap:6px">
+                  <span style="font-size:14px">🤖</span> Source Agent
+                </div>
+                <div>
+                  <label style="font-size:12px;color:rgba(255,255,255,0.9);display:block;margin-bottom:4px">Select Agent</label>
+                  <select class="trigger-agent-select" style="width:100%;background:#fff;color:#0f172a;border:1px solid #cbd5e1;padding:8px 10px;border-radius:6px;font-size:12px">
+                    ${Array.from({length: 50}, (_, i) => {
+                      const num = String(i + 1).padStart(2, '0')
+                      return `<option value="${num}" ${init?.sourceAgent === num ? 'selected' : ''}>Agent ${num}</option>`
+                    }).join('')}
+                  </select>
+                  <div style="font-size:12px;color:#fff;opacity:0.9;margin-top:4px">
+                    Trigger will activate when this agent sends output.
+                  </div>
+                </div>
+              `
+              fieldsContainer.appendChild(agentRow)
+            }
+            
+            if (type === 'miniapp') {
+              // Mini-App Trigger configuration
+              const miniappRow = document.createElement('div')
+              miniappRow.className = 'trigger-section'
+              miniappRow.style.cssText = 'padding:10px;background:rgba(139,92,246,0.08);border:1px solid rgba(139,92,246,0.25);border-radius:8px'
+              miniappRow.innerHTML = `
+                <div style="font-weight:600;font-size:13px;color:#8b5cf6;margin-bottom:6px;display:flex;align-items:center;gap:6px">
+                  <span style="font-size:14px">📱</span> Mini-App Configuration
+                </div>
+                <div style="margin-bottom:10px">
+                  <label style="font-size:12px;color:rgba(255,255,255,0.9);display:block;margin-bottom:4px">Mini-App ID</label>
+                  <input type="text" class="trigger-miniapp-id" placeholder="e.g. my-miniapp-123" value="${init?.miniAppId || ''}" style="width:100%;background:rgba(255,255,255,.85);border:1px solid rgba(255,255,255,.5);color:#1e293b;padding:8px 10px;border-radius:6px;font-size:12px">
+                </div>
+                <div style="margin-bottom:10px">
+                  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+                    <label style="font-size:12px;color:rgba(255,255,255,0.9)">UI Elements</label>
+                    <button class="miniapp-add-ui-btn" style="background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.25);color:#fff;padding:3px 8px;border-radius:4px;cursor:pointer;font-size:11px">+ Add UI Element</button>
+                  </div>
+                  <div class="miniapp-ui-list" style="display:flex;flex-direction:column;gap:6px"></div>
+                </div>
+                <div>
+                  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+                    <label style="font-size:12px;color:rgba(255,255,255,0.9)">Conditions</label>
+                    <button class="miniapp-add-cond-btn" style="background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.25);color:#fff;padding:3px 8px;border-radius:4px;cursor:pointer;font-size:11px">+ Add Condition</button>
+                  </div>
+                  <div class="miniapp-cond-list" style="display:flex;flex-direction:column;gap:6px"></div>
+                </div>
+              `
+              fieldsContainer.appendChild(miniappRow)
+              
+              // Wire up UI element add button
+              const addUiBtn = miniappRow.querySelector('.miniapp-add-ui-btn') as HTMLButtonElement
+              const uiList = miniappRow.querySelector('.miniapp-ui-list') as HTMLElement
+              addUiBtn?.addEventListener('click', () => {
+                const uiRow = document.createElement('div')
+                uiRow.style.cssText = 'display:flex;gap:4px;align-items:center'
+                uiRow.innerHTML = `
+                  <select style="background:#fff;color:#0f172a;border:1px solid #cbd5e1;padding:4px;border-radius:4px;font-size:11px" class="miniapp-ui-type">
+                    <option value="button">Button</option>
+                    <option value="input">Input Field</option>
+                    <option value="select">Dropdown</option>
+                    <option value="checkbox">Checkbox</option>
+                    <option value="textarea">Text Area</option>
+                  </select>
+                  <input type="text" placeholder="Element ID" style="flex:1;background:rgba(255,255,255,.85);border:1px solid rgba(255,255,255,.5);color:#1e293b;padding:4px 6px;border-radius:4px;font-size:11px" class="miniapp-ui-id">
+                  <input type="text" placeholder="Label" style="flex:1;background:rgba(255,255,255,.85);border:1px solid rgba(255,255,255,.5);color:#1e293b;padding:4px 6px;border-radius:4px;font-size:11px" class="miniapp-ui-label">
+                  <button style="background:#ef4444;border:none;color:#fff;padding:2px 6px;border-radius:4px;cursor:pointer;font-size:11px" onclick="this.parentElement.remove()">×</button>
+                `
+                uiList.appendChild(uiRow)
+              })
+              
+              // Wire up condition add button
+              const addCondBtn = miniappRow.querySelector('.miniapp-add-cond-btn') as HTMLButtonElement
+              const condList = miniappRow.querySelector('.miniapp-cond-list') as HTMLElement
+              addCondBtn?.addEventListener('click', () => {
+                const condRow = document.createElement('div')
+                condRow.style.cssText = 'display:flex;gap:4px;align-items:center'
+                condRow.innerHTML = `
+                  <input type="text" placeholder="field" style="flex:1;background:rgba(255,255,255,.85);border:1px solid rgba(255,255,255,.5);color:#1e293b;padding:4px 6px;border-radius:4px;font-size:11px" class="miniapp-cond-field">
+                  <select style="background:#fff;color:#0f172a;border:1px solid #cbd5e1;padding:4px;border-radius:4px;font-size:11px" class="miniapp-cond-op">
+                    <option value="eq">equals</option>
+                    <option value="ne">not equals</option>
+                    <option value="contains">contains</option>
+                    <option value="gt">&gt;</option>
+                    <option value="lt">&lt;</option>
+                    <option value="exists">exists</option>
+                  </select>
+                  <input type="text" placeholder="value" style="flex:1;background:rgba(255,255,255,.85);border:1px solid rgba(255,255,255,.5);color:#1e293b;padding:4px 6px;border-radius:4px;font-size:11px" class="miniapp-cond-value">
+                  <button style="background:#ef4444;border:none;color:#fff;padding:2px 6px;border-radius:4px;cursor:pointer;font-size:11px" onclick="this.parentElement.remove()">×</button>
+                `
+                condList.appendChild(condRow)
+              })
+              
+              // Restore UI elements if any
+              if (init?.miniAppUiElements?.length) {
+                init.miniAppUiElements.forEach((ui: any) => {
+                  addUiBtn.click()
+                  const lastRow = uiList.lastElementChild
+                  if (lastRow) {
+                    (lastRow.querySelector('.miniapp-ui-type') as HTMLSelectElement).value = ui.type || 'button'
+                    ;(lastRow.querySelector('.miniapp-ui-id') as HTMLInputElement).value = ui.id || ''
+                    ;(lastRow.querySelector('.miniapp-ui-label') as HTMLInputElement).value = ui.label || ''
+                  }
+                })
+              }
+              
+              // Restore conditions if any
+              if (init?.miniAppConditions?.length) {
+                init.miniAppConditions.forEach((cond: any) => {
+                  addCondBtn.click()
+                  const lastRow = condList.lastElementChild
+                  if (lastRow) {
+                    (lastRow.querySelector('.miniapp-cond-field') as HTMLInputElement).value = cond.field || ''
+                    ;(lastRow.querySelector('.miniapp-cond-op') as HTMLSelectElement).value = cond.op || 'eq'
+                    ;(lastRow.querySelector('.miniapp-cond-value') as HTMLInputElement).value = cond.value || ''
+                  }
+                })
+              }
+            }
+          }
+          
+          // Update trigger ID when tag changes (use tag as ID if provided)
+          const updateTriggerId = () => {
+            const tagInput = row.querySelector('.trigger-tag') as HTMLInputElement
+            const idDisplay = row.querySelector('.trigger-id-display') as HTMLElement
+            if (tagInput && idDisplay) {
+              const tagValue = tagInput.value.trim()
+              if (tagValue) {
+                const newId = tagValue.startsWith('#') ? tagValue.substring(1) : tagValue
+                row.dataset.triggerId = newId
+                idDisplay.textContent = newId
+              }
+            }
+          }
+          
+          // Initialize with current type
+          renderFieldsForType(typeSel.value)
+          
+          // Listen for tag changes to update ID
+          setTimeout(() => {
+            const tagInput = row.querySelector('.trigger-tag') as HTMLInputElement
+            if (tagInput) {
+              tagInput.addEventListener('input', updateTriggerId)
+              tagInput.addEventListener('blur', updateTriggerId)
+            }
+          }, 100)
+          
+          // Update fields when type changes
+          typeSel.addEventListener('change', () => renderFieldsForType(typeSel.value))
+          
+          // ========== SENSOR WORKFLOWS (Pre-processing) ==========
+          const sensorSection = document.createElement('div')
+          sensorSection.className = 'trigger-sensor-workflows'
+          sensorSection.style.cssText = 'border:1px solid rgba(255,255,255,.25);border-radius:8px;padding:12px;background:rgba(255,255,255,0.04);margin-top:12px'
+          sensorSection.innerHTML = `
+            <div style="font-weight:600;margin-bottom:8px;color:#fff;display:flex;align-items:center;gap:8px">
+              Sensor Workflows (optional)
+              <span title="Pre-processing workflows to collect context before reasoning. Internal Parser works with agents, mini-apps, and websites in the master tab." style="font-size:12px;opacity:0.9;cursor:help;background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.35);padding:0 6px;border-radius:50%">?</span>
+            </div>
+            <div class="trigger-sensor-list" style="display:flex;flex-direction:column;gap:12px;margin-bottom:8px"></div>
+            <button class="trigger-add-sensor" style="background:rgba(96,165,250,.3);border:1px solid rgba(96,165,250,.5);color:#fff;padding:8px 14px;border-radius:6px;cursor:pointer;font-weight:500">+ Add Sensor Workflow</button>
+          `
+          row.appendChild(sensorSection)
+          
+          // Wire up sensor workflow add button
+          const sensorList = sensorSection.querySelector('.trigger-sensor-list') as HTMLElement
+          const addSensorBtn = sensorSection.querySelector('.trigger-add-sensor') as HTMLButtonElement
+          addSensorBtn?.addEventListener('click', () => {
+            sensorList.appendChild(createTriggerWorkflowRow('sensor'))
+          })
+          
+          // ========== ALLOWED ACTIONS (Post-processing) ==========
+          const actionsSection = document.createElement('div')
+          actionsSection.className = 'trigger-allowed-actions'
+          actionsSection.style.cssText = 'border:1px solid rgba(255,255,255,.25);border-radius:8px;padding:12px;background:rgba(255,255,255,0.04);margin-top:12px'
+          actionsSection.innerHTML = `
+            <div style="font-weight:600;margin-bottom:8px;color:#fff;display:flex;align-items:center;gap:8px">
+              Allowed Actions (optional)
+              <span title="Post-processing workflows that can be executed after reasoning. Use External Workflow for APIs and external data sources." style="font-size:12px;opacity:0.9;cursor:help;background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.35);padding:0 6px;border-radius:50%">?</span>
+            </div>
+            <div class="trigger-actions-list" style="display:flex;flex-direction:column;gap:12px;margin-bottom:8px"></div>
+            <button class="trigger-add-action" style="background:rgba(96,165,250,.3);border:1px solid rgba(96,165,250,.5);color:#fff;padding:8px 14px;border-radius:6px;cursor:pointer;font-weight:500">+ Add Allowed Action</button>
+          `
+          row.appendChild(actionsSection)
+          
+          // Wire up allowed actions add button
+          const actionsList = actionsSection.querySelector('.trigger-actions-list') as HTMLElement
+          const addActionBtn = actionsSection.querySelector('.trigger-add-action') as HTMLButtonElement
+          addActionBtn?.addEventListener('click', () => {
+            actionsList.appendChild(createTriggerWorkflowRow('action'))
+          })
+          
+          // ========== SAVE BUTTON AT BOTTOM OF TRIGGER ==========
+          const bottomSaveRow = document.createElement('div')
+          bottomSaveRow.style.cssText = 'display:flex;justify-content:flex-end;gap:8px;margin-top:16px;padding-top:12px;border-top:1px solid rgba(255,255,255,0.15)'
+          const bottomSaveBtn = document.createElement('button')
+          bottomSaveBtn.className = 'trigger-bottom-save'
+          bottomSaveBtn.textContent = '💾 Save Trigger'
+          bottomSaveBtn.style.cssText = 'background:#22c55e;color:#fff;border:none;padding:8px 18px;border-radius:6px;cursor:pointer;font-size:13px;font-weight:600'
+          bottomSaveRow.appendChild(bottomSaveBtn)
+          row.appendChild(bottomSaveRow)
+          
+          // Wire up bottom save button
+          bottomSaveBtn.addEventListener('click', () => {
+            // Update trigger ID in Apply for selectboxes
+            updateApplyForOptions()
+            
+            // Show temporary feedback
+            bottomSaveBtn.textContent = '✓ Saved!'
+            bottomSaveBtn.style.background = '#16a34a'
+            setTimeout(() => {
+              bottomSaveBtn.textContent = '💾 Save Trigger'
+              bottomSaveBtn.style.background = '#22c55e'
+            }, 1500)
+            
+            // Add persistent green checkmark to ID row if not already present
+            if (!row.querySelector('.trigger-saved-indicator')) {
+              const idRowEl = row.querySelector('.trigger-id-display')?.parentElement
+              if (idRowEl) {
+                const checkmark = document.createElement('span')
+                checkmark.className = 'trigger-saved-indicator'
+                checkmark.textContent = '✓'
+                checkmark.style.cssText = 'color:#22c55e;font-weight:bold;margin-left:6px;font-size:14px'
+                checkmark.title = 'Trigger saved'
+                idRowEl.appendChild(checkmark)
+              }
+            }
+            
+            // Auto-save to chrome storage to persist the trigger
+            if (typeof autoSaveToChromeStorage === 'function') {
+              autoSaveToChromeStorage()
+              console.log('💾 Trigger saved (from bottom button) and persisted to storage')
+            }
+          })
+          
+          return row
+        }
+
+        // Function to update Apply for selectboxes with trigger IDs
+        const updateApplyForOptions = () => {
+          const triggerRows = document.querySelectorAll('#L-unified-triggers .unified-trigger-row')
+          const triggerIds: Array<{id: string, label: string}> = []
+          
+          triggerRows.forEach((row: any) => {
+            const id = row.dataset.triggerId || ''
+            const type = row.querySelector('.trigger-type')?.value || 'direct_tag'
+            const tag = row.querySelector('.trigger-tag')?.value || ''
+            const label = tag ? `#${tag.replace('#', '')}` : `${type} (${id.substring(0, 8)}...)`
+            if (id) triggerIds.push({ id, label })
+          })
+          
+          // Update R-apply selectbox
+          const rApply = document.getElementById('R-apply') as HTMLSelectElement
+          if (rApply) {
+            const currentValue = rApply.value
+            rApply.innerHTML = '<option value="__any__">Any Trigger</option>'
+            triggerIds.forEach(t => {
+              const opt = document.createElement('option')
+              opt.value = t.id
+              opt.textContent = t.label
+              rApply.appendChild(opt)
+            })
+            if (currentValue && Array.from(rApply.options).some(o => o.value === currentValue)) {
+              rApply.value = currentValue
+            }
+          }
+          
+          // Update E-apply selectbox
+          const eApply = document.getElementById('E-apply') as HTMLSelectElement
+          if (eApply) {
+            const currentValue = eApply.value
+            eApply.innerHTML = '<option value="__any__">Any Trigger</option>'
+            triggerIds.forEach(t => {
+              const opt = document.createElement('option')
+              opt.value = t.id
+              opt.textContent = t.label
+              eApply.appendChild(opt)
+            })
+            if (currentValue && Array.from(eApply.options).some(o => o.value === currentValue)) {
+              eApply.value = currentValue
+            }
+          }
+          
+          // Also update any additional section Apply for selectboxes
+          document.querySelectorAll('.R-apply-sub, .E-apply-sub').forEach((sel: any) => {
+            const currentValue = sel.value
+            sel.innerHTML = '<option value="__any__">Any Trigger</option>'
+            triggerIds.forEach(t => {
+              const opt = document.createElement('option')
+              opt.value = t.id
+              opt.textContent = t.label
+              sel.appendChild(opt)
+            })
+            if (currentValue && Array.from(sel.options).some((o: any) => o.value === currentValue)) {
+              sel.value = currentValue
+            }
+          })
+          
+          console.log('📋 Updated Apply for options with', triggerIds.length, 'triggers:', triggerIds.map(t => t.label))
+        }
+        
+        // Add trigger button handler
+        addTriggerBtn?.addEventListener('click', () => {
+          unifiedTriggersList?.appendChild(makeUnifiedTriggerRow())
+          // Update Apply for options after adding a new trigger
+          setTimeout(updateApplyForOptions, 100)
+        })
+
+        // Legacy support - keep these for backward compatibility during transition
         const activeList = configOverlay.querySelector('#L-active-list') as HTMLElement | null
-
         const activeAddBtn = configOverlay.querySelector('#L-add-active-trigger') as HTMLButtonElement | null
 
         const populateExtra = (selectEl: HTMLSelectElement, opts: { value: string, label: string }[]) => {
@@ -13247,62 +16226,217 @@ function initializeExtension() {
 
         }
 
-        const makeTriggerRow = (init?: { tag?: string, kind?: string, extra?: string }) => {
-
+        const makeTriggerRow = (init?: { tag?: string, source?: string, sourceValue?: string, cronSchedule?: string }) => {
           const row = document.createElement('div')
-
           row.className = 'act-row'
-
-          row.style.cssText = 'display:grid;grid-template-columns:auto 1fr 1fr auto;gap:8px;align-items:center'
-
-          const hash = document.createElement('div'); hash.textContent = '#'; hash.style.cssText = 'background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.35);padding:6px 10px;border-radius:6px;font-weight:700'
-
-          const tagInput = document.createElement('input'); tagInput.placeholder = 'tag-name'; tagInput.className = 'act-tag'; tagInput.style.cssText = 'background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.35);color:#fff;padding:8px;border-radius:6px'; if (init?.tag) tagInput.value = init.tag
-
-          const kindSel = document.createElement('select'); kindSel.className = 'act-kind'; kindSel.style.cssText = 'background:#fff;color:#0f172a;border:1px solid #cbd5e1;padding:8px;border-radius:6px'
-
-          const kinds = ['URL','API','PIN-SCREENSHOT','PIN-STREAM','VIDEO','PICTURE','VOICEMEMO','MIC','COMMAND','PDF','FILE','DOCS','SIGNAL','OTHER']
-
-          const kindLabels: Record<string, string> = {
-
-            'PIN-SCREENSHOT': 'Tagged-Trigger Screenshot',
-
-            'PIN-STREAM': 'Tagged-Trigger Stream'
-
+          row.style.cssText = 'background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.2);border-radius:8px;padding:12px'
+          
+          // Header row with tag name and delete button
+          const header = document.createElement('div')
+          header.style.cssText = 'display:flex;gap:8px;align-items:center;margin-bottom:10px'
+          
+          const hash = document.createElement('div')
+          hash.textContent = '#'
+          hash.style.cssText = 'background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.35);padding:6px 10px;border-radius:6px;font-weight:700;color:#fff'
+          
+          const tagInput = document.createElement('input')
+          tagInput.placeholder = 'trigger-name (e.g. invoice, report, screenshot)'
+          tagInput.className = 'act-tag'
+          tagInput.style.cssText = 'flex:1;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.35);color:#fff;padding:8px 12px;border-radius:6px;font-size:13px'
+          if (init?.tag) tagInput.value = init.tag
+          
+          const delBtn = document.createElement('button')
+          delBtn.textContent = '×'
+          delBtn.title = 'Remove trigger'
+          delBtn.style.cssText = 'background:#ef4444;color:#fff;border:none;padding:6px 12px;border-radius:6px;cursor:pointer;font-size:16px'
+          delBtn.addEventListener('click', () => row.remove())
+          
+          header.appendChild(hash)
+          header.appendChild(tagInput)
+          header.appendChild(delBtn)
+          
+          // Source selection row
+          const sourceRow = document.createElement('div')
+          sourceRow.style.cssText = 'display:flex;gap:8px;align-items:center;flex-wrap:wrap'
+          
+          const sourceLabel = document.createElement('span')
+          sourceLabel.textContent = 'Source:'
+          sourceLabel.style.cssText = 'font-size:12px;opacity:0.8;min-width:50px'
+          
+          const sourceSel = document.createElement('select')
+          sourceSel.className = 'act-source'
+          sourceSel.style.cssText = 'background:#fff;color:#0f172a;border:1px solid #cbd5e1;padding:6px 10px;border-radius:6px;font-size:12px'
+          
+          const sources = [
+            { value: 'all', label: 'All Sources' },
+            { value: 'chat', label: 'Chat Message' },
+            { value: 'voice', label: 'Voice Command' },
+            { value: 'voicememo', label: 'Voice Memo' },
+            { value: 'video', label: 'Video' },
+            { value: 'email', label: 'Email' },
+            { value: 'whatsapp', label: 'WhatsApp Web' },
+            { value: 'pdf', label: 'PDF' },
+            { value: 'docs', label: 'DOCS' },
+            { value: 'dom', label: 'DOM/Page' },
+            { value: 'api', label: 'API/Webhook' },
+            { value: 'workflow', label: 'Workflow' },
+            { value: 'agent', label: 'Agent' },
+            { value: 'screenshot', label: 'Screenshot Capture' },
+            { value: 'stream', label: 'Stream Capture' }
+          ]
+          sources.forEach(s => {
+            const op = document.createElement('option')
+            op.value = s.value
+            op.textContent = s.label
+            if (init?.source === s.value) op.selected = true
+            if (!init?.source && s.value === 'chat') op.selected = true
+            sourceSel.appendChild(op)
+          })
+          
+          // Source-specific value input (shown for workflow, api, dom)
+          const sourceValueInput = document.createElement('input')
+          sourceValueInput.className = 'act-source-value'
+          sourceValueInput.style.cssText = 'flex:1;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.35);color:#fff;padding:6px 10px;border-radius:6px;font-size:12px;display:none'
+          if (init?.sourceValue && init?.source !== 'agent') sourceValueInput.value = init.sourceValue
+          
+          // Agent select dropdown (1-50)
+          const agentSelect = document.createElement('select')
+          agentSelect.className = 'act-agent-select'
+          agentSelect.style.cssText = 'background:#fff;color:#0f172a;border:1px solid #cbd5e1;padding:6px 10px;border-radius:6px;font-size:12px;display:none'
+          const defaultAgentOpt = document.createElement('option')
+          defaultAgentOpt.value = ''
+          defaultAgentOpt.textContent = 'Select Agent...'
+          agentSelect.appendChild(defaultAgentOpt)
+          for (let i = 1; i <= 50; i++) {
+            const opt = document.createElement('option')
+            opt.value = String(i)
+            opt.textContent = `Agent ${i}`
+            if (init?.source === 'agent' && init?.sourceValue === String(i)) opt.selected = true
+            agentSelect.appendChild(opt)
           }
-
-          kinds.forEach(k=>{ const op=document.createElement('option'); op.value=k; op.textContent=kindLabels[k] || k; if(!init?.kind && k==='OTHER') op.selected=true; if(init?.kind===k) op.selected=true; kindSel.appendChild(op) })
-
-          const extraSel = document.createElement('select'); extraSel.className = 'act-extra'; extraSel.style.cssText = 'background:#fff;color:#0f172a;border:1px solid #cbd5e1;padding:8px;border-radius:6px;display:none'
-
-          const delBtn = document.createElement('button'); delBtn.textContent = '×'; delBtn.title='Remove'; delBtn.style.cssText = 'background:#f44336;color:#fff;border:1px solid rgba(255,255,255,.25);padding:0 10px;border-radius:6px;cursor:pointer'
-
-          delBtn.addEventListener('click', ()=> row.remove())
-
-          const syncExtra = () => {
-
-            const v = kindSel.value
-
-            // Removed PIN-SCREENSHOT and PIN-STREAM from showing extra select - user can write in textbox
-
-            extraSel.style.display='none'; extraSel.innerHTML=''
-
+          
+          // Email tags container - inline tag input style
+          const emailContainer = document.createElement('div')
+          emailContainer.className = 'act-email-container'
+          emailContainer.style.cssText = 'flex:1;display:none;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.35);border-radius:6px;padding:4px 8px;min-height:32px;cursor:text'
+          
+          const emailTagsWrap = document.createElement('div')
+          emailTagsWrap.className = 'act-email-tags'
+          emailTagsWrap.style.cssText = 'display:flex;flex-wrap:wrap;gap:4px;align-items:center'
+          
+          const emailInput = document.createElement('input')
+          emailInput.className = 'act-email-input'
+          emailInput.placeholder = 'Type email and press space...'
+          emailInput.style.cssText = 'flex:1;min-width:150px;background:transparent;border:none;outline:none;color:#fff;padding:2px 0;font-size:12px'
+          
+          const addEmailTag = (email: string) => {
+            const trimmed = email.trim().replace(/,$/,'')
+            if (!trimmed || !trimmed.includes('@')) return false
+            // Check for duplicates
+            const existing = emailTagsWrap.querySelectorAll('.email-tag span:first-child')
+            for (const e of existing) { if ((e as HTMLElement).textContent === trimmed) return false }
+            
+            const tag = document.createElement('span')
+            tag.className = 'email-tag'
+            tag.style.cssText = 'display:inline-flex;align-items:center;gap:3px;background:rgba(96,165,250,.4);color:#fff;padding:2px 6px;border-radius:4px;font-size:11px'
+            tag.innerHTML = `<span>${trimmed}</span><button type="button" style="background:none;border:none;color:#fff;cursor:pointer;padding:0;font-size:14px;line-height:1;opacity:0.8">×</button>`
+            tag.querySelector('button')?.addEventListener('click', (e) => { e.stopPropagation(); tag.remove() })
+            emailTagsWrap.insertBefore(tag, emailInput)
+            return true
           }
-
-          kindSel.addEventListener('change', syncExtra)
-
-          row.appendChild(hash); row.appendChild(tagInput); row.appendChild(kindSel); row.appendChild(delBtn)
-
-          // Insert extra select before delete when visible
-
-          row.insertBefore(extraSel, delBtn)
-
-          syncExtra()
-
-          if (init?.extra) { try { extraSel.value = init.extra } catch {} }
-
+          
+          emailInput.addEventListener('keydown', (e) => {
+            if (e.key === ' ' || e.key === 'Enter' || e.key === ',') {
+              e.preventDefault()
+              if (addEmailTag(emailInput.value)) emailInput.value = ''
+            } else if (e.key === 'Backspace' && !emailInput.value) {
+              const tags = emailTagsWrap.querySelectorAll('.email-tag')
+              if (tags.length > 0) tags[tags.length - 1].remove()
+            }
+          })
+          
+          // Also handle paste with multiple emails
+          emailInput.addEventListener('paste', (e) => {
+            e.preventDefault()
+            const paste = (e.clipboardData || (window as any).clipboardData).getData('text')
+            paste.split(/[,\s]+/).forEach((email: string) => addEmailTag(email))
+          })
+          
+          emailContainer.addEventListener('click', () => emailInput.focus())
+          emailTagsWrap.appendChild(emailInput)
+          emailContainer.appendChild(emailTagsWrap)
+          
+          // Restore existing emails
+          if (init?.source === 'email' && init?.sourceValue) {
+            init.sourceValue.split(',').forEach((email: string) => addEmailTag(email))
+          }
+          
+          // Cron schedule option
+          const cronWrap = document.createElement('div')
+          cronWrap.style.cssText = 'display:none;width:100%;margin-top:8px'
+          cronWrap.innerHTML = `
+            <div style="display:flex;align-items:center;gap:8px">
+              <label style="display:flex;align-items:center;gap:4px;font-size:12px;opacity:0.8">
+                <input type="checkbox" class="act-cron-enable" style="margin:0"> + Cron Schedule
+              </label>
+              <input type="text" class="act-cron-schedule" placeholder="*/5 * * * *" style="flex:1;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.35);color:#fff;padding:4px 8px;border-radius:4px;font-family:monospace;font-size:11px;display:none">
+            </div>
+          `
+          
+          const updateSourceOptions = () => {
+            const v = sourceSel.value
+            sourceValueInput.style.display = 'none'
+            agentSelect.style.display = 'none'
+            emailContainer.style.display = 'none'
+            cronWrap.style.display = 'none'
+            
+            if (v === 'workflow') {
+              sourceValueInput.style.display = 'block'
+              sourceValueInput.placeholder = 'Workflow ID (optional)'
+              cronWrap.style.display = 'block'
+            } else if (v === 'api') {
+              sourceValueInput.style.display = 'block'
+              sourceValueInput.placeholder = '/api/webhook/endpoint (optional)'
+              cronWrap.style.display = 'block'
+            } else if (v === 'agent') {
+              agentSelect.style.display = 'block'
+            } else if (v === 'email') {
+              emailContainer.style.display = 'flex'
+            } else if (v === 'dom') {
+              sourceValueInput.style.display = 'block'
+              sourceValueInput.placeholder = 'URL filter (optional)'
+            }
+          }
+          
+          sourceSel.addEventListener('change', updateSourceOptions)
+          
+          // Wire up cron checkbox
+          setTimeout(() => {
+            const cronCheck = cronWrap.querySelector('.act-cron-enable') as HTMLInputElement
+            const cronInput = cronWrap.querySelector('.act-cron-schedule') as HTMLInputElement
+            cronCheck?.addEventListener('change', () => {
+              cronInput.style.display = cronCheck.checked ? 'block' : 'none'
+            })
+            if (init?.cronSchedule) {
+              cronCheck.checked = true
+              cronInput.style.display = 'block'
+              cronInput.value = init.cronSchedule
+            }
+          }, 0)
+          
+          sourceRow.appendChild(sourceLabel)
+          sourceRow.appendChild(sourceSel)
+          sourceRow.appendChild(sourceValueInput)
+          sourceRow.appendChild(agentSelect)
+          sourceRow.appendChild(emailContainer)
+          
+          row.appendChild(header)
+          row.appendChild(sourceRow)
+          row.appendChild(cronWrap)
+          
+          updateSourceOptions()
+          
           return row
-
         }
 
         if (activeList && activeAddBtn) {
@@ -13369,7 +16503,7 @@ function initializeExtension() {
 
         const eAdd = configOverlay.querySelector('#E-add-accept') as HTMLButtonElement | null
 
-        const lRep = configOverlay.querySelector('#L-add-report') as HTMLButtonElement | null
+        // L-add-report removed - Report to only in Execution section now
 
         const eRep = null as unknown as HTMLButtonElement | null
 
@@ -13377,13 +16511,9 @@ function initializeExtension() {
 
         rAdd && rAdd.addEventListener('click', () => addRow('#R-accept-list', 'acc-row', 'route-kind', 'route-specific'))
 
-        eAdd && eAdd.addEventListener('click', () => addRow('#E-accept-list', 'acc-row', 'route-kind', 'route-specific'))
+        // E-accept-list removed from Execution section
 
-        lRep && lRep.addEventListener('click', () => addRow('#L-report-list', 'rep-row', 'route-kind', 'route-specific'))
-
-        const rRepBtn = configOverlay.querySelector('#R-add-report') as HTMLButtonElement | null
-
-        rRepBtn && rRepBtn.addEventListener('click', () => addRow('#R-report-list', 'rep-row', 'route-kind', 'route-specific'))
+        // R-add-report removed - Report to only in Execution section now
 
         // Listener add report rows and execution workflows
 
@@ -13447,7 +16577,7 @@ function initializeExtension() {
 
         }
 
-        const addSpecialRow = (def?: { kind?: string }) => {
+        const addSpecialRow = (def?: { kind?: string; agents?: string[] }) => {
 
           if (!eSpecialList) return
 
@@ -13455,11 +16585,11 @@ function initializeExtension() {
 
           row.className = 'esp-row'
 
-          row.style.cssText = 'display:grid;grid-template-columns:1fr auto;gap:8px'
+          row.style.cssText = 'display:grid;grid-template-columns:1fr 1fr auto;gap:8px;align-items:start'
 
           const opts = [
 
-            { label: 'Agent Boxes (default)', value: 'agentBox' },
+            { label: 'Agent Box', value: 'agentBox' },
 
             { label: 'Agent', value: 'agent' },
 
@@ -13481,37 +16611,97 @@ function initializeExtension() {
 
           const sel = makeSelect(opts, 'esp-kind', def?.kind || 'agentBox')
 
+          // Create follow-up select container for specific box/agent selection
+
+          const followUpHost = document.createElement('div')
+
+          followUpHost.className = 'esp-followup'
+
+          followUpHost.style.cssText = 'display:none'
+
+          // Build agent box options (01-50)
+
+          const buildAgentBoxSelect = (): HTMLSelectElement => {
+
+            const boxOpts = [{ label: '— Select Agent Box —', value: '' }]
+
+            for (let i = 1; i <= 50; i++) {
+
+              const num = String(i).padStart(2, '0')
+
+              boxOpts.push({ label: `Agent Box ${num}`, value: `agentBox${num}` })
+
+            }
+
+            const boxSel = makeSelect(boxOpts, 'esp-box-num', def?.agents?.[0] || '')
+
+            // Use dark background with light text for readable dropdown options
+            boxSel.style.cssText = 'background:#1e293b;border:1px solid #475569;color:#f1f5f9;padding:8px 12px;border-radius:6px;width:100%'
+
+            return boxSel
+
+          }
+
+          // Build agent options (01-50)
+
+          const buildAgentSelect = (): HTMLSelectElement => {
+
+            const agentOpts = [{ label: '— Select Agent —', value: '' }]
+
+            for (let i = 1; i <= 50; i++) {
+
+              const num = String(i).padStart(2, '0')
+
+              agentOpts.push({ label: `Agent ${num}`, value: `agent${num}` })
+
+            }
+
+            const agentSel = makeSelect(agentOpts, 'esp-agent-num', def?.agents?.[0] || '')
+
+            // Use dark background with light text for readable dropdown options
+            agentSel.style.cssText = 'background:#1e293b;border:1px solid #475569;color:#f1f5f9;padding:8px 12px;border-radius:6px;width:100%'
+
+            return agentSel
+
+          }
+
           const del = document.createElement('button')
 
           del.textContent = '×'
 
           del.title = 'Remove'
 
-          del.style.cssText = 'background:#f44336;color:#fff;border:1px solid rgba(255,255,255,.25);padding:0 10px;border-radius:6px;cursor:pointer'
+          del.style.cssText = 'background:#f44336;color:#fff;border:1px solid rgba(255,255,255,.25);padding:0 10px;border-radius:6px;cursor:pointer;height:36px'
 
           del.addEventListener('click', () => row.remove())
 
           row.appendChild(sel)
 
+          row.appendChild(followUpHost)
+
           row.appendChild(del)
-
-          // Agent checklist container if needed
-
-          const agentHost = document.createElement('div')
-
-          agentHost.className = 'esp-agents'
-
-          agentHost.style.cssText = 'display:none'
-
-          row.appendChild(agentHost)
 
           const sync = () => {
 
             const v = sel.value
 
-            agentHost.style.display = v === 'agent' ? 'block' : 'none'
+            followUpHost.innerHTML = ''
 
-            if (v === 'agent' && agentHost.childElementCount === 0) buildAgentChecklist(agentHost)
+            followUpHost.style.display = 'none'
+
+            if (v === 'agentBox') {
+
+              followUpHost.style.display = 'block'
+
+              followUpHost.appendChild(buildAgentBoxSelect())
+
+            } else if (v === 'agent') {
+
+              followUpHost.style.display = 'block'
+
+              followUpHost.appendChild(buildAgentSelect())
+
+            }
 
           }
 
@@ -13575,78 +16765,163 @@ function initializeExtension() {
 
         })
 
+        // Reasoning Workflow helpers - createReasoningWorkflowRow is defined OUTSIDE render() for restoreFromMemory access
+        const rWorkflowList = configOverlay.querySelector('#R-reasoning-workflows') as HTMLElement | null
+        const rAddWorkflowBtn = configOverlay.querySelector('#R-add-workflow') as HTMLButtonElement | null
 
+        rAddWorkflowBtn?.addEventListener('click', () => {
+          rWorkflowList?.appendChild(createReasoningWorkflowRow())
+        })
 
-        // Apply-for population based on BOTH active AND passive tags
-
-        const getAllTriggerTags = (): string[] => {
-
-          const activeTags = Array.from(configOverlay.querySelectorAll('#L-active-list .act-row .act-tag')).map((el:any)=> (el.value||'').trim())
-
-          const passiveTags = Array.from(configOverlay.querySelectorAll('#L-passive-triggers .act-row .act-tag')).map((el:any)=> (el.value||'').trim())
-
-          const allTags = [...activeTags, ...passiveTags]
-
-          return allTags.filter((v:string, i:number, a:string[])=> v && a.indexOf(v)===i) // unique, non-empty
-
+        // Memory & Context toggle handlers for Reasoning section
+        const syncMemoryToggleState = (checkboxId: string, stateId: string) => {
+          const checkbox = configOverlay.querySelector(`#${checkboxId}`) as HTMLInputElement | null
+          const state = configOverlay.querySelector(`#${stateId}`) as HTMLElement | null
+          if (checkbox && state) {
+            const updateState = () => {
+              state.textContent = checkbox.checked ? 'ON' : 'OFF'
+              state.style.background = checkbox.checked ? '#22c55e' : 'rgba(255,255,255,.15)'
+            }
+            checkbox.addEventListener('change', updateState)
+            updateState() // Initialize
+          }
         }
 
-        const refreshApplyForOptions = () => {
+        // Session Context toggles
+        syncMemoryToggleState('R-MEM-session-read', 'R-MEM-session-read-state')
+        syncMemoryToggleState('R-MEM-session-write', 'R-MEM-session-write-state')
+        // Account Memory toggles
+        syncMemoryToggleState('R-MEM-account-read', 'R-MEM-account-read-state')
+        syncMemoryToggleState('R-MEM-account-write', 'R-MEM-account-write-state')
 
-          const tags = getAllTriggerTags()
 
+
+        // Apply-for population based on unified triggers - use trigger IDs and tags
+
+        const getAllTriggerIdentifiers = (): Array<{id: string, label: string}> => {
+          const triggers: Array<{id: string, label: string}> = []
+          
+          // Get from unified triggers (new system)
+          const triggerRows = configOverlay.querySelectorAll('#L-unified-triggers .unified-trigger-row')
+          triggerRows.forEach((row: any) => {
+            const id = row.dataset.triggerId || ''
+            const type = row.querySelector('.trigger-type')?.value || 'direct_tag'
+            const tag = row.querySelector('.trigger-tag')?.value || ''
+            const label = tag ? `#${tag.replace('#', '')}` : `${type} (${id.substring(0, 8)}...)`
+            if (id) triggers.push({ id, label })
+          })
+          
+          // Also include legacy active/passive tags for backward compatibility
+          const activeTags = Array.from(configOverlay.querySelectorAll('#L-active-list .act-row .act-tag')).map((el:any)=> (el.value||'').trim())
+          const passiveTags = Array.from(configOverlay.querySelectorAll('#L-passive-triggers .act-row .act-tag')).map((el:any)=> (el.value||'').trim())
+          const legacyTags = [...activeTags, ...passiveTags].filter((v, i, a) => v && a.indexOf(v) === i)
+          legacyTags.forEach(tag => {
+            if (!triggers.some(t => t.id === tag)) {
+              triggers.push({ id: tag, label: tag })
+            }
+          })
+          
+          return triggers
+        }
+
+        // Assign to outer scope variable so it's accessible from restoreFromMemory
+        refreshApplyForOptions = () => {
+          const triggers = getAllTriggerIdentifiers()
+          
           const updateSelect = (sel: HTMLSelectElement | null) => {
-
             if (!sel) return
-
             const prev = sel.value
-
             sel.innerHTML = ''
-
-            const any = document.createElement('option'); any.value='__any__'; any.textContent='Any Tag'; sel.appendChild(any)
-
-            tags.forEach(t=>{ const op=document.createElement('option'); op.value=t; op.textContent=t; sel.appendChild(op) })
-
-            if (Array.from(sel.options).some(o=>o.value===prev)) sel.value = prev
-
+            const any = document.createElement('option'); any.value='__any__'; any.textContent='Any Trigger'; sel.appendChild(any)
+            triggers.forEach(t => {
+              const op = document.createElement('option')
+              op.value = t.id
+              op.textContent = t.label
+              sel.appendChild(op)
+            })
+            if (Array.from(sel.options).some(o => o.value === prev)) sel.value = prev
           }
-
-          updateSelect(configOverlay.querySelector('#R-apply') as HTMLSelectElement | null)
-
-          updateSelect(configOverlay.querySelector('#E-apply') as HTMLSelectElement | null)
-
-          configOverlay.querySelectorAll('.R-section .R-apply').forEach((el:any)=> updateSelect(el as HTMLSelectElement))
-
-          configOverlay.querySelectorAll('.E-section .E-apply-sub').forEach((el:any)=> updateSelect(el as HTMLSelectElement))
-
+          
+          // Update all Apply For selectboxes (main and additional sections)
+          configOverlay.querySelectorAll('#R-apply, .R-apply-select').forEach((el:any) => updateSelect(el as HTMLSelectElement))
+          configOverlay.querySelectorAll('#E-apply, .E-apply-select').forEach((el:any) => updateSelect(el as HTMLSelectElement))
+          configOverlay.querySelectorAll('.R-section .R-apply').forEach((el:any) => updateSelect(el as HTMLSelectElement))
+          configOverlay.querySelectorAll('.E-section .E-apply-sub').forEach((el:any) => updateSelect(el as HTMLSelectElement))
+          
+          // Always show Add Section buttons (not dependent on having triggers anymore)
           const addBtn = configOverlay.querySelector('#R-add-section') as HTMLButtonElement | null
-
-          if (addBtn) addBtn.style.display = tags.length >= 1 ? 'inline-block' : 'none'
-
+          if (addBtn) addBtn.style.display = 'inline-block'
           const eAddSec = configOverlay.querySelector('#E-add-section') as HTMLButtonElement | null
+          if (eAddSec) eAddSec.style.display = 'inline-block'
+        }
 
-          if (eAddSec) eAddSec.style.display = tags.length >= 1 ? 'inline-block' : 'none'
+        // Helper to add a new Apply For row (works with both ID-based main lists and class-based sub lists)
+        // Assigned to the outer scope variable so it's accessible from restoreFromMemory
+        addApplyForRowToList = (listElement: HTMLElement, selectClass: string) => {
+          if (!listElement) return
+          
+          const row = document.createElement('div')
+          row.className = 'apply-for-row'
+          row.style.cssText = 'display:flex;align-items:center;gap:8px;margin-bottom:4px'
+          
+          const sel = document.createElement('select')
+          sel.className = selectClass
+          sel.style.cssText = 'background:#fff;color:#0f172a;border:1px solid #cbd5e1;padding:6px 10px;border-radius:6px;min-width:180px;max-width:280px'
+          sel.innerHTML = '<option value="__any__">Any Trigger</option>'
+          
+          const addBtn = document.createElement('button')
+          addBtn.type = 'button'
+          addBtn.style.cssText = 'background:rgba(96,165,250,.3);border:1px solid rgba(96,165,250,.5);color:#fff;padding:4px 10px;border-radius:6px;cursor:pointer;font-weight:bold;font-size:14px'
+          addBtn.textContent = '+'
+          addBtn.addEventListener('click', () => addApplyForRowToList(listElement, selectClass))
+          
+          const delBtn = document.createElement('button')
+          delBtn.type = 'button'
+          delBtn.style.cssText = 'background:#ef4444;color:#fff;border:none;padding:4px 10px;border-radius:6px;cursor:pointer;font-weight:bold'
+          delBtn.textContent = '×'
+          delBtn.addEventListener('click', () => row.remove())
+          
+          row.appendChild(sel)
+          row.appendChild(addBtn)
+          row.appendChild(delBtn)
+          listElement.appendChild(row)
+          
+          // Refresh options for the new select
+          refreshApplyForOptions()
+        }
 
+        // Wire up the + buttons for main Reasoning and Execution Apply For
+        const rApplyAddBtn = configOverlay.querySelector('.R-apply-add') as HTMLButtonElement
+        if (rApplyAddBtn) {
+          const rApplyList = configOverlay.querySelector('#R-apply-list') as HTMLElement
+          rApplyAddBtn.addEventListener('click', () => addApplyForRowToList(rApplyList, 'R-apply-select'))
+        }
+        
+        const eApplyAddBtn = configOverlay.querySelector('.E-apply-add') as HTMLButtonElement
+        if (eApplyAddBtn) {
+          const eApplyList = configOverlay.querySelector('#E-apply-list') as HTMLElement
+          eApplyAddBtn.addEventListener('click', () => addApplyForRowToList(eApplyList, 'E-apply-select'))
         }
 
         refreshApplyForOptions()
 
-        // Listen to BOTH active and passive trigger tag inputs
-
-        activeList?.addEventListener('input', (e)=>{
-
+        // Listen to unified trigger changes
+        unifiedTriggersList?.addEventListener('input', (e) => {
           const tgt = e.target as HTMLElement
-
+          if (tgt && (tgt.classList.contains('trigger-tag') || tgt.classList.contains('trigger-type'))) {
+            refreshApplyForOptions()
+          }
+        })
+        
+        // Listen to BOTH active and passive trigger tag inputs (legacy support)
+        activeList?.addEventListener('input', (e)=>{
+          const tgt = e.target as HTMLElement
           if (tgt && tgt.classList.contains('act-tag')) refreshApplyForOptions()
-
         })
 
         passiveList?.addEventListener('input', (e)=>{
-
           const tgt = e.target as HTMLElement
-
           if (tgt && tgt.classList.contains('act-tag')) refreshApplyForOptions()
-
         })
 
         // Add extra Reasoning sections
@@ -13663,53 +16938,50 @@ function initializeExtension() {
 
           sec.style.cssText = 'border:1px dashed rgba(255,255,255,.35);padding:10px;border-radius:8px'
 
-          const accId = `R-acc-sub-${Math.random().toString(36).slice(2,8)}`
-
-          const repId = `R-rep-sub-${Math.random().toString(36).slice(2,8)}`
+          const wfId = `R-wf-sub-${Math.random().toString(36).slice(2,8)}`
 
           sec.innerHTML = `
 
-            <div style="display:flex;align-items:center;gap:10px;margin:6px 0">
-
-              <label>Apply for:
-
-                <select class="R-apply" style="margin-left:6px;background:#fff;color:#0f172a;border:1px solid #cbd5e1;padding:6px;border-radius:6px">
-
-                  <option value="__any__">Any Tag</option>
-
-                </select>
-
-              </label>
-
+            <div style="display:flex;justify-content:space-between;align-items:flex-start;margin:6px 0">
+              <div style="display:flex;flex-direction:column;gap:6px">
+                <span style="font-weight:600">Apply for:</span>
+                <div class="R-apply-list-sub" style="display:flex;flex-direction:column;gap:6px">
+                  <div class="apply-for-row" style="display:flex;align-items:center;gap:8px">
+                    <select class="R-apply" style="background:#fff;color:#0f172a;border:1px solid #cbd5e1;padding:6px 10px;border-radius:6px;min-width:180px;max-width:280px">
+                      <option value="__any__">Any Trigger</option>
+                    </select>
+                    <button type="button" class="R-apply-add-sub" style="background:rgba(96,165,250,.3);border:1px solid rgba(96,165,250,.5);color:#fff;padding:4px 10px;border-radius:6px;cursor:pointer;font-weight:bold;font-size:14px">+</button>
+                  </div>
+                </div>
+              </div>
               <button class="R-del" title="Remove" style="background:#f44336;color:#fff;border:1px solid rgba(255,255,255,.25);padding:2px 8px;border-radius:6px;cursor:pointer">×</button>
-
             </div>
 
-            <div>
-
-              <div style="display:flex;align-items:center;gap:8px;margin:6px 0"><span>Listen from</span></div>
-
-              <div id="${accId}" class="R-accept-list-sub" style="display:flex;flex-direction:column;gap:8px"></div>
-
-              <button class="R-add-accept-sub" style="background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.35);color:#fff;padding:6px 10px;border-radius:6px;cursor:pointer">+ Add</button>
-
+            <!-- Reasoning Workflows Section (optional) - placed before Goals to gather context first -->
+            <div style="border:1px solid rgba(255,255,255,.25);border-radius:8px;padding:12px;background:rgba(255,255,255,0.04);margin-top:8px">
+              <div style="font-weight:600;margin-bottom:8px;color:#fff;display:flex;align-items:center;gap:8px">
+                Reasoning Workflows (optional)
+                <span title="Optional workflows to gather context before reasoning. Can route based on output conditions." style="font-size:12px;opacity:0.9;cursor:help;background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.35);padding:0 6px;border-radius:50%">?</span>
+              </div>
+              <div id="${wfId}" class="R-workflows-sub" style="display:flex;flex-direction:column;gap:12px;margin-bottom:8px"></div>
+              <button class="R-add-workflow-sub" style="background:rgba(96,165,250,.3);border:1px solid rgba(96,165,250,.5);color:#fff;padding:8px 14px;border-radius:6px;cursor:pointer;font-weight:500">+ Add Workflow</button>
             </div>
 
-            <label style="margin-top:6px">Goals (System instructions)
+            <label style="display:block;margin-top:12px">Goals (System instructions)
 
-              <textarea class="R-goals" style="width:100%;min-height:70px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.35);color:#fff;padding:8px;border-radius:6px"></textarea>
+              <textarea class="R-goals" style="width:100%;min-height:90px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.35);color:#fff;padding:8px;border-radius:6px"></textarea>
 
             </label>
 
-            <label>Role (optional)
+            <label style="display:block">Role (optional)
 
               <input class="R-role" style="width:100%;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.35);color:#fff;padding:8px;border-radius:6px">
 
             </label>
 
-            <label>Rules
+            <label style="display:block">Rules
 
-              <textarea class="R-rules" style="width:100%;min-height:60px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.35);color:#fff;padding:8px;border-radius:6px"></textarea>
+              <textarea class="R-rules" style="width:100%;min-height:70px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.35);color:#fff;padding:8px;border-radius:6px"></textarea>
 
             </label>
 
@@ -13717,14 +16989,44 @@ function initializeExtension() {
 
             <button class="R-add-custom" style="background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.35);color:#fff;padding:6px 10px;border-radius:6px;cursor:pointer">+ Custom field</button>
 
-            <div style="margin-top:8px">
-
-              <div style="font-weight:600;margin:6px 0">Report to (optional)</div>
-
-              <div id="${repId}" class="R-report-list-sub" style="display:flex;flex-direction:column;gap:8px"></div>
-
-              <button class="R-add-report-sub" style="background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.35);color:#fff;padding:6px 10px;border-radius:6px;cursor:pointer;margin-top:6px">+ Add</button>
-
+            <!-- Memory & Context Settings -->
+            <div class="R-memory-context-sub" style="margin-top:12px;padding:12px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.15);border-radius:8px">
+              <div style="font-weight:600;margin-bottom:4px;display:flex;align-items:center;gap:8px">
+                Memory & Context
+                <span title="Configure which memory and context sources this reasoning section can access." style="font-size:12px;opacity:0.9;cursor:help;background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.35);padding:0 6px;border-radius:50%">?</span>
+              </div>
+              <div style="font-size:13px;color:rgba(255,255,255,0.85);margin-bottom:10px;line-height:1.4">Enable memory sources for context during reasoning.</div>
+              <div style="display:flex;flex-direction:column;gap:10px;font-size:13px">
+                <div style="display:flex;align-items:center;gap:12px;justify-content:space-between">
+                  <label style="display:flex;align-items:center;gap:6px"><input class="R-MEM-session-sub" type="checkbox"> Session Context</label>
+                  <div style="display:flex;align-items:center;gap:10px">
+                    <label style="display:flex;align-items:center;gap:6px">
+                      <input class="R-MEM-session-read-sub" type="checkbox">
+                      <span>Read</span>
+                    </label>
+                    <label style="display:flex;align-items:center;gap:6px">
+                      <input class="R-MEM-session-write-sub" type="checkbox">
+                      <span>Write</span>
+                    </label>
+                  </div>
+                </div>
+                <div style="display:flex;align-items:center;gap:12px;justify-content:space-between">
+                  <label style="display:flex;align-items:center;gap:6px"><input class="R-MEM-account-sub" type="checkbox"> Account Memory</label>
+                  <div style="display:flex;align-items:center;gap:10px">
+                    <label style="display:flex;align-items:center;gap:6px">
+                      <input class="R-MEM-account-read-sub" type="checkbox">
+                      <span>Read</span>
+                    </label>
+                    <label style="display:flex;align-items:center;gap:6px">
+                      <input class="R-MEM-account-write-sub" type="checkbox">
+                      <span>Write</span>
+                    </label>
+                  </div>
+                </div>
+                <div style="display:flex;align-items:center;gap:12px;opacity:.7">
+                  <label style="display:flex;align-items:center;gap:6px"><input class="R-MEM-agent-sub" type="checkbox" checked disabled> Agent Memory (always on)</label>
+                </div>
+              </div>
             </div>
 
           `
@@ -13751,11 +17053,19 @@ function initializeExtension() {
 
           })
 
-          // Removed auto-workflow addition - user can add manually if needed
+          // Reasoning Workflow add button handler
+          const rWorkflowListSub = sec.querySelector('.R-workflows-sub') as HTMLElement
+          const rAddWorkflowBtnSub = sec.querySelector('.R-add-workflow-sub') as HTMLButtonElement
+          rAddWorkflowBtnSub?.addEventListener('click', () => {
+            rWorkflowListSub?.appendChild(createReasoningWorkflowRow())
+          })
 
-          ;(sec.querySelector('.R-add-accept-sub') as HTMLButtonElement).addEventListener('click', ()=> addRow(`#${accId}`, 'acc-row', 'route-kind', 'route-specific'))
-
-          ;(sec.querySelector('.R-add-report-sub') as HTMLButtonElement).addEventListener('click', ()=> addRow(`#${repId}`, 'rep-row', 'route-kind', 'route-specific'))
+          // Wire up the + button for Apply For in this section
+          const rApplyAddSubBtn = sec.querySelector('.R-apply-add-sub') as HTMLButtonElement
+          const rApplyListSub = sec.querySelector('.R-apply-list-sub') as HTMLElement
+          if (rApplyAddSubBtn && rApplyListSub) {
+            rApplyAddSubBtn.addEventListener('click', () => addApplyForRowToList(rApplyListSub, 'R-apply'))
+          }
 
           return sec
 
@@ -13777,25 +17087,10 @@ function initializeExtension() {
 
           
 
-          // Don't call refreshApplyForOptions here - it will be called after restoration
+          // Refresh options to populate new section's Apply for dropdown
+          refreshApplyForOptions()
 
-          // refreshApplyForOptions()
-
-          
-
-          // Restore all form data IMMEDIATELY after adding section (synchronously)
-
-          requestAnimationFrame(() => {
-
-            restoreFromMemory()
-
-            // NOW call refreshApplyForOptions AFTER restoration to populate new section's options
-
-            refreshApplyForOptions()
-
-            console.log('✅ Restored form data and refreshed options after adding new reasoning section')
-
-          })
+          console.log('✅ Added new reasoning section and refreshed options')
 
         })
 
@@ -13817,41 +17112,28 @@ function initializeExtension() {
 
           const wfId = `E-wf-sub-${Math.random().toString(36).slice(2,8)}`
 
-          const accId = `E-acc-sub-${Math.random().toString(36).slice(2,8)}`
-
           sec.innerHTML = `
 
-            <div style="display:flex;align-items:center;gap:10px;margin:6px 0">
-
-              <label>Apply for:
-
-                <select class="E-apply-sub" style="margin-left:6px;background:#fff;color:#0f172a;border:1px solid #cbd5e1;padding:6px;border-radius:6px">
-
-                  <option value="__any__">Any Tag</option>
-
-                </select>
-
-              </label>
-
+            <div style="display:flex;justify-content:space-between;align-items:flex-start;margin:6px 0">
+              <div style="display:flex;flex-direction:column;gap:6px">
+                <span style="font-weight:600">Apply for:</span>
+                <div class="E-apply-list-sub" style="display:flex;flex-direction:column;gap:6px">
+                  <div class="apply-for-row" style="display:flex;align-items:center;gap:8px">
+                    <select class="E-apply-sub" style="background:#fff;color:#0f172a;border:1px solid #cbd5e1;padding:6px 10px;border-radius:6px;min-width:180px;max-width:280px">
+                      <option value="__any__">Any Trigger</option>
+                    </select>
+                    <button type="button" class="E-apply-add-sub" style="background:rgba(96,165,250,.3);border:1px solid rgba(96,165,250,.5);color:#fff;padding:4px 10px;border-radius:6px;cursor:pointer;font-weight:bold;font-size:14px">+</button>
+                  </div>
+                </div>
+              </div>
               <button class="E-del" title="Remove" style="background:#f44336;color:#fff;border:1px solid rgba(255,255,255,.25);padding:2px 8px;border-radius:6px;cursor:pointer">×</button>
-
-            </div>
-
-            <div>
-
-              <div style="display:flex;align-items:center;gap:8px;margin:6px 0"><span>Listen from</span></div>
-
-              <div id="${accId}" class="E-accept-list-sub" style="display:flex;flex-direction:column;gap:8px"></div>
-
-              <button class="E-add-accept-sub" style="background:rgba(255,255,255,.2);border:1px solid rgba(255,255,255,.35);color:#fff;padding:6px 10px;border-radius:6px;cursor:pointer">+ Add</button>
-
             </div>
 
             <div style="margin-top:8px">
 
               <div id="${wfId}" class="E-workflow-list-sub" style="display:flex;flex-direction:column;gap:8px"></div>
 
-              <button class="E-add-workflow-sub" style="background:rgba(255,255,255,.2);border:1px solid rgba(255,255,255,.35);color:#fff;padding:6px 10px;border-radius:6px;cursor:pointer">+ Add Workflow</button>
+              <button class="E-add-workflow-sub" style="background:rgba(96,165,250,.3);border:1px solid rgba(96,165,250,.5);color:#fff;padding:8px 14px;border-radius:6px;cursor:pointer;font-weight:500">+ Add Workflow</button>
 
             </div>
 
@@ -13869,75 +17151,104 @@ function initializeExtension() {
 
           ;(sec.querySelector('.E-del') as HTMLButtonElement).addEventListener('click', ()=> sec.remove())
 
-          // wire add for special destinations within section
-
+          // wire add for special destinations within section - same structure as main section
           const list = sec.querySelector('.E-special-list-sub') as HTMLElement
-
           const addBtn = sec.querySelector('.E-special-add-sub') as HTMLButtonElement
 
-          addBtn.addEventListener('click', ()=>{
-
-            // reuse addSpecialRow logic by temporarily pointing eSpecialList
-
+          const addSpecialRowSub = () => {
             const opts = [
-
-              { label: 'Agent Boxes (default)', value: 'agentBox' },
-
+              { label: 'Agent Box', value: 'agentBox' },
               { label: 'Agent', value: 'agent' },
-
               { label: 'Clipboard – Summary', value: 'clip-summary' },
-
               { label: 'Clipboard – Screenshot', value: 'clip-screenshot' },
-
               { label: 'PDF – Summary', value: 'pdf-summary' },
-
               { label: 'PDF – Screenshot', value: 'pdf-screenshot' },
-
               { label: 'PDF – Summary + Screenshot', value: 'pdf-both' },
-
               { label: 'Image – Screenshot (PNG/WebP)', value: 'image-screenshot' },
-
               { label: 'Chat Inline – Summary', value: 'chat-inline-summary' }
-
             ]
 
             const row = document.createElement('div')
-
             row.className = 'esp-row'
-
-            row.style.cssText = 'display:grid;grid-template-columns:1fr auto;gap:8px'
+            row.style.cssText = 'display:grid;grid-template-columns:1fr 1fr auto;gap:8px;align-items:start'
 
             const sel = makeSelect(opts, 'esp-kind', 'agentBox')
 
-            const del = document.createElement('button'); del.textContent='×'; del.title='Remove'; del.style.cssText='background:#f44336;color:#fff;border:1px solid rgba(255,255,255,.25);padding:0 10px;border-radius:6px;cursor:pointer'; del.addEventListener('click', ()=> row.remove())
+            // Create follow-up select container for specific box/agent selection
+            const followUpHost = document.createElement('div')
+            followUpHost.className = 'esp-followup'
+            followUpHost.style.cssText = 'display:none'
 
-            row.appendChild(sel); row.appendChild(del)
+            // Build agent box options (01-50)
+            const buildAgentBoxSelectSub = (): HTMLSelectElement => {
+              const boxOpts = [{ label: '— Select Agent Box —', value: '' }]
+              for (let i = 1; i <= 50; i++) {
+                const num = String(i).padStart(2, '0')
+                boxOpts.push({ label: `Agent Box ${num}`, value: `agentBox${num}` })
+              }
+              const boxSel = makeSelect(boxOpts, 'esp-box-num', '')
+              boxSel.style.cssText = 'background:#1e293b;border:1px solid #475569;color:#f1f5f9;padding:8px 12px;border-radius:6px;width:100%'
+              return boxSel
+            }
 
-            const agentHost = document.createElement('div'); agentHost.className='esp-agents'; agentHost.style.cssText='display:none'; row.appendChild(agentHost)
+            // Build agent options (01-50)
+            const buildAgentSelectSub = (): HTMLSelectElement => {
+              const agentOpts = [{ label: '— Select Agent —', value: '' }]
+              for (let i = 1; i <= 50; i++) {
+                const num = String(i).padStart(2, '0')
+                agentOpts.push({ label: `Agent ${num}`, value: `agent${num}` })
+              }
+              const agentSel = makeSelect(agentOpts, 'esp-agent-num', '')
+              agentSel.style.cssText = 'background:#1e293b;border:1px solid #475569;color:#f1f5f9;padding:8px 12px;border-radius:6px;width:100%'
+              return agentSel
+            }
 
-            const sync = () => { const v = sel.value; agentHost.style.display = v==='agent' ? 'block' : 'none'; if (v==='agent' && agentHost.childElementCount===0) buildAgentChecklist(agentHost) }
+            const del = document.createElement('button')
+            del.textContent = '×'
+            del.title = 'Remove'
+            del.style.cssText = 'background:#f44336;color:#fff;border:1px solid rgba(255,255,255,.25);padding:0 10px;border-radius:6px;cursor:pointer;height:36px'
+            del.addEventListener('click', () => row.remove())
 
-            sel.addEventListener('change', sync); sync()
+            row.appendChild(sel)
+            row.appendChild(followUpHost)
+            row.appendChild(del)
+
+            const sync = () => {
+              const v = sel.value
+              followUpHost.innerHTML = ''
+              followUpHost.style.display = 'none'
+              if (v === 'agentBox') {
+                followUpHost.style.display = 'block'
+                followUpHost.appendChild(buildAgentBoxSelectSub())
+              } else if (v === 'agent') {
+                followUpHost.style.display = 'block'
+                followUpHost.appendChild(buildAgentSelectSub())
+              }
+            }
+
+            sel.addEventListener('change', sync)
+            sync()
 
             list.appendChild(row)
+          }
 
-          })
+          addBtn.addEventListener('click', addSpecialRowSub)
 
           ;(sec.querySelector('.E-add-workflow-sub') as HTMLButtonElement).addEventListener('click', ()=> addWorkflowRow(`#${wfId}`))
 
-          ;(sec.querySelector('.E-add-accept-sub') as HTMLButtonElement).addEventListener('click', ()=> addRow(`#${accId}`, 'acc-row', 'route-kind', 'route-specific'))
-
-          // Initialize with one default Report to row (Agent Boxes)
-
+          // Initialize with one default Report to row (Agent Box)
           setTimeout(()=>{ 
-
             try { 
-
-              addBtn.click() // Add one default Report to row
-
+              addSpecialRowSub()
             } catch {} 
-
           }, 0)
+
+          // Wire up the + button for Apply For in this section
+          const eApplyAddSubBtn = sec.querySelector('.E-apply-add-sub') as HTMLButtonElement
+          const eApplyListSub = sec.querySelector('.E-apply-list-sub') as HTMLElement
+          if (eApplyAddSubBtn && eApplyListSub) {
+            eApplyAddSubBtn.addEventListener('click', () => addApplyForRowToList(eApplyListSub, 'E-apply-sub'))
+          }
 
           return sec
 
@@ -13959,25 +17270,10 @@ function initializeExtension() {
 
           
 
-          // Don't call refreshApplyForOptions here - it will be called after restoration
+          // Refresh options to populate new section's Apply for dropdown
+          refreshApplyForOptions()
 
-          // refreshApplyForOptions()
-
-          
-
-          // Restore all form data IMMEDIATELY after adding section (synchronously)
-
-          requestAnimationFrame(() => {
-
-            restoreFromMemory()
-
-            // NOW call refreshApplyForOptions AFTER restoration to populate new section's options
-
-            refreshApplyForOptions()
-
-            console.log('✅ Restored form data and refreshed options after adding new execution section')
-
-          })
+          console.log('✅ Added new execution section and refreshed options')
 
         })
 
@@ -14301,23 +17597,7 @@ function initializeExtension() {
 
             
 
-            // Restore Source dropdown
-
-            if (l.source) {
-
-              const sourceSelect = configOverlay.querySelector('#L-source') as HTMLSelectElement
-
-              if (sourceSelect) {
-
-                sourceSelect.value = l.source
-
-                sourceSelect.dispatchEvent(new Event('change'))
-
-                console.log(`  ✓ Restored Source: ${l.source}`)
-
-              }
-
-            }
+            // Trigger sources are now restored per Action Trigger below
 
             
 
@@ -14338,6 +17618,112 @@ function initializeExtension() {
             }
 
             
+
+            // Restore API Endpoint
+            if (l.apiEndpoint) {
+              const apiInput = configOverlay.querySelector('#L-api-endpoint') as HTMLInputElement
+              if (apiInput) {
+                apiInput.value = l.apiEndpoint
+                console.log(`  ✓ Restored API Endpoint: ${l.apiEndpoint}`)
+              }
+            }
+
+            // Restore Cron Schedule
+            if (l.cronSchedule) {
+              const cronInput = configOverlay.querySelector('#L-cron-schedule') as HTMLInputElement
+              if (cronInput) {
+                cronInput.value = l.cronSchedule
+                console.log(`  ✓ Restored Cron Schedule: ${l.cronSchedule}`)
+              }
+            }
+
+            // Restore Modalities
+            if (l.modalities && Array.isArray(l.modalities)) {
+              document.querySelectorAll('.L-modality').forEach((el: any) => {
+                el.checked = l.modalities.includes(el.value)
+              })
+              console.log(`  ✓ Restored Modalities: ${l.modalities.join(', ')}`)
+            }
+
+            // Restore Conditions
+            if (l.conditions) {
+              const condLogicSelect = configOverlay.querySelector('#L-condition-logic') as HTMLSelectElement
+              const condList = configOverlay.querySelector('#L-conditions-list') as HTMLElement
+              const addCondBtn = configOverlay.querySelector('#L-add-condition') as HTMLButtonElement
+              
+              if (condLogicSelect && condList && addCondBtn) {
+                const condItems = l.conditions.all || l.conditions.any || []
+                condLogicSelect.value = l.conditions.all ? 'all' : 'any'
+                
+                condItems.forEach((cond: any) => {
+                  addCondBtn.click()
+                  const rows = condList.querySelectorAll('.condition-row')
+                  const lastRow = rows[rows.length - 1]
+                  if (lastRow) {
+                    const fieldInput = lastRow.querySelector('.cond-field') as HTMLInputElement
+                    const opSelect = lastRow.querySelector('.cond-op') as HTMLSelectElement
+                    const valueInput = lastRow.querySelector('.cond-value') as HTMLInputElement
+                    if (fieldInput) fieldInput.value = cond.field || ''
+                    if (opSelect) opSelect.value = cond.op || 'eq'
+                    if (valueInput) valueInput.value = cond.value || ''
+                  }
+                })
+                console.log(`  ✓ Restored Conditions: ${condItems.length}`)
+              }
+            }
+
+            // Restore Sensor Workflows (with inline conditions)
+            if (l.sensorWorkflows && Array.isArray(l.sensorWorkflows)) {
+              const sensorList = configOverlay.querySelector('#L-sensor-workflows') as HTMLElement
+              const addSensorBtn = configOverlay.querySelector('#L-add-sensor') as HTMLButtonElement
+              if (sensorList && addSensorBtn) {
+                l.sensorWorkflows.forEach((sensor: any) => {
+                  // Handle both old format (string) and new format (object with id and conditions)
+                  const sensorId = typeof sensor === 'string' ? sensor : sensor.id
+                  const sensorConds = typeof sensor === 'object' ? (sensor.conditions || []) : []
+                  
+                  addSensorBtn.click()
+                  const rows = sensorList.querySelectorAll('.sensor-workflow-row')
+                  const lastRow = rows[rows.length - 1]
+                  const input = lastRow?.querySelector('.workflow-id') as HTMLInputElement
+                  if (input) input.value = sensorId
+                  
+                  // Restore sensor conditions
+                  if (sensorConds.length > 0 && lastRow) {
+                    const addCondBtn = lastRow.querySelector('.sensor-add-cond') as HTMLButtonElement
+                    const condsList = lastRow.querySelector('.sensor-conditions') as HTMLElement
+                    sensorConds.forEach((c: any) => {
+                      addCondBtn?.click()
+                      const condRows = condsList?.querySelectorAll('.sensor-cond-row')
+                      const lastCondRow = condRows?.[condRows.length - 1]
+                      if (lastCondRow) {
+                        (lastCondRow.querySelector('.scond-field') as HTMLInputElement).value = c.field || ''
+                        ;(lastCondRow.querySelector('.scond-op') as HTMLSelectElement).value = c.op || 'eq'
+                        ;(lastCondRow.querySelector('.scond-value') as HTMLInputElement).value = c.value || ''
+                        ;(lastCondRow.querySelector('.scond-action') as HTMLSelectElement).value = c.action || 'continue'
+                      }
+                    })
+                  }
+                })
+                console.log(`  ✓ Restored Sensor Workflows: ${l.sensorWorkflows.length}`)
+              }
+            }
+
+            // Restore Allowed Actions
+            if (l.allowedActions && Array.isArray(l.allowedActions)) {
+              const actionList = configOverlay.querySelector('#L-action-workflows') as HTMLElement
+              const addActionBtn = configOverlay.querySelector('#L-add-action') as HTMLButtonElement
+              if (actionList && addActionBtn) {
+                l.allowedActions.forEach((wfId: string) => {
+                  addActionBtn.click()
+                  const rows = actionList.querySelectorAll('.action-workflow-row')
+                  const lastRow = rows[rows.length - 1]
+                  const input = lastRow?.querySelector('.workflow-id') as HTMLInputElement
+                  if (input) input.value = wfId
+                })
+                console.log(`  ✓ Restored Allowed Actions: ${l.allowedActions.length}`)
+              }
+            }
 
             // Restore Passive/Active toggles
 
@@ -14375,48 +17761,57 @@ function initializeExtension() {
 
             
 
-            // Restore passive triggers
-
-            if (l.passive?.triggers && l.passive.triggers.length > 0) {
-
+            // Restore action triggers (new format)
+            const triggersToRestore = l.triggers || l.passive?.triggers || []
+            if (triggersToRestore.length > 0) {
               const passiveList = configOverlay.querySelector('#L-passive-triggers')
-
               if (passiveList) {
-
                 passiveList.innerHTML = ''  // Clear first
-
-                l.passive.triggers.forEach((trigger: any) => {
-
+                triggersToRestore.forEach((trigger: any) => {
                   const addBtn = configOverlay.querySelector('#L-add-passive-trigger') as HTMLButtonElement
-
                   if (addBtn) {
-
                     addBtn.click()
-
                     const rows = configOverlay.querySelectorAll('#L-passive-triggers .act-row')
-
                     const lastRow = rows[rows.length - 1]
-
-                    if (lastRow && trigger.tag) {
-
+                    if (lastRow) {
+                      // New format: name, source, sourceValue, cronSchedule
                       const nameInput = lastRow.querySelector('.act-tag') as HTMLInputElement
-
-                      const kindSelect = lastRow.querySelector('.act-kind') as HTMLSelectElement
-
-                      if (nameInput) nameInput.value = trigger.tag.name || ''
-
-                      if (kindSelect) kindSelect.value = trigger.tag.kind || 'OTHER'
-
+                      const sourceSelect = lastRow.querySelector('.act-source') as HTMLSelectElement
+                      const sourceValueInput = lastRow.querySelector('.act-source-value') as HTMLInputElement
+                      const agentSelectEl = lastRow.querySelector('.act-agent-select') as HTMLSelectElement
+                      const cronCheck = lastRow.querySelector('.act-cron-enable') as HTMLInputElement
+                      const cronInput = lastRow.querySelector('.act-cron-schedule') as HTMLInputElement
+                      
+                      // Handle both old format (trigger.tag.name) and new format (trigger.name)
+                      const name = trigger.name || trigger.tag?.name || ''
+                      const source = trigger.source || 'chat'
+                      const sourceValue = trigger.sourceValue || ''
+                      const cronSchedule = trigger.cronSchedule || ''
+                      
+                      if (nameInput) nameInput.value = name
+                      if (sourceSelect) {
+                        sourceSelect.value = source
+                        sourceSelect.dispatchEvent(new Event('change'))
+                      }
+                      // Set source value - agent select, email input, or text input
+                      if (source === 'agent' && agentSelectEl && sourceValue) {
+                        agentSelectEl.value = sourceValue
+                      } else if (source === 'email' && sourceValue) {
+                        const emailEl = lastRow.querySelector('.act-email-input') as HTMLInputElement
+                        if (emailEl) emailEl.value = sourceValue
+                      } else if (sourceValueInput && sourceValue) {
+                        sourceValueInput.value = sourceValue
+                      }
+                      if (cronSchedule && cronCheck && cronInput) {
+                        cronCheck.checked = true
+                        cronInput.style.display = 'block'
+                        cronInput.value = cronSchedule
+                      }
                     }
-
                   }
-
                 })
-
-                console.log(`  ✓ Restored ${l.passive.triggers.length} passive triggers`)
-
+                console.log(`  ✓ Restored ${triggersToRestore.length} action triggers`)
               }
-
             }
 
             
@@ -14489,55 +17884,186 @@ function initializeExtension() {
 
             
 
-            // Restore Report To rows
+            // Listener reportTo removed - Report to only in Execution section now
 
-            if (l.reportTo && l.reportTo.length > 0) {
-
-              const reportList = configOverlay.querySelector('#L-report-list')
-
-              if (reportList) {
-
-                reportList.innerHTML = ''  // Clear first
-
-                l.reportTo.forEach((target: string) => {
-
-                  const addBtn = configOverlay.querySelector('#L-add-report') as HTMLButtonElement
-
-                  if (addBtn) {
-
-                    addBtn.click()
-
-                    const rows = configOverlay.querySelectorAll('#L-report-list .rep-row')
-
-                    const lastRow = rows[rows.length - 1]
-
-                    if (lastRow) {
-
-                      const kindSel = lastRow.querySelector('.route-kind') as HTMLSelectElement
-
-                      const specSel = lastRow.querySelector('.route-specific') as HTMLSelectElement
-
-                      const [kind, spec] = target.split(':')
-
-                      if (kindSel) kindSel.value = kind
-
-                      kindSel?.dispatchEvent(new Event('change'))
-
-                      setTimeout(() => { if (specSel && spec) specSel.value = spec }, 50)
-
-                    }
-
-                  }
-
+            // Restore Unified Triggers - CRITICAL for preserving triggers when adding sections
+            if (l.unifiedTriggers && l.unifiedTriggers.length > 0) {
+              console.log(`🔄 Restoring ${l.unifiedTriggers.length} unified triggers...`)
+              const unifiedList = configOverlay.querySelector('#L-unified-triggers') as HTMLElement
+              const addTriggerBtn = configOverlay.querySelector('#L-add-trigger') as HTMLButtonElement
+              
+              if (unifiedList && addTriggerBtn) {
+                unifiedList.innerHTML = '' // Clear existing
+                
+                l.unifiedTriggers.forEach((trigger: any, idx: number) => {
+                  // Stagger trigger restoration to avoid race conditions
+                  setTimeout(() => {
+                    // Click the add trigger button to create a new row
+                    addTriggerBtn.click()
+                    
+                    // Get the newly created row (last one)
+                    setTimeout(() => {
+                      const rows = unifiedList.querySelectorAll('.unified-trigger-row')
+                      const row = rows[rows.length - 1] as HTMLElement
+                      if (!row) {
+                        console.warn(`  ⚠️ Failed to find trigger row ${idx + 1}`)
+                        return
+                      }
+                      
+                      // Set trigger ID
+                      const idDisplay = row.querySelector('.trigger-id-display')
+                      if (idDisplay && trigger.id) {
+                        idDisplay.textContent = trigger.id
+                        row.dataset.triggerId = trigger.id
+                        console.log(`    ✓ Set trigger ${idx + 1} ID: ${trigger.id}`)
+                      }
+                      
+                      // Set trigger type
+                      const typeSelect = row.querySelector('.trigger-type') as HTMLSelectElement
+                      if (typeSelect && trigger.type) {
+                        typeSelect.value = trigger.type
+                        typeSelect.dispatchEvent(new Event('change'))
+                      }
+                      
+                      // Wait for type change to render fields, then populate them
+                      setTimeout(() => {
+                        // Set tag value
+                        const tagInput = row.querySelector('.trigger-tag') as HTMLInputElement
+                        if (tagInput && (trigger.tag || trigger.tagName)) {
+                          const tagValue = (trigger.tag || trigger.tagName || '').replace('#', '')
+                          tagInput.value = tagValue
+                          console.log(`    ✓ Set trigger ${idx + 1} tag: ${tagValue}`)
+                        }
+                      
+                      // Set channel
+                      const channelSelect = row.querySelector('.trigger-channel') as HTMLSelectElement
+                      if (channelSelect && trigger.channel) {
+                        channelSelect.value = trigger.channel
+                        channelSelect.dispatchEvent(new Event('change'))
+                      }
+                      
+                      // Restore eventTagConditions
+                      if (trigger.eventTagConditions) {
+                        trigger.eventTagConditions.forEach((cond: any) => {
+                          if (cond.type === 'wrcode_valid') {
+                            const wrcodeCheck = row.querySelector('.trigger-wrcode') as HTMLInputElement
+                            if (wrcodeCheck) wrcodeCheck.checked = true
+                          }
+                          if (cond.type === 'sender_whitelist' && cond.allowedSenders) {
+                            const senderInput = row.querySelector('.trigger-sender-whitelist') as HTMLInputElement
+                            if (senderInput) senderInput.value = cond.allowedSenders.join(', ')
+                          }
+                          if (cond.type === 'body_keywords' && cond.keywords) {
+                            const keywordsInput = row.querySelector('.trigger-keywords') as HTMLInputElement
+                            if (keywordsInput) keywordsInput.value = cond.keywords.join(', ')
+                          }
+                          if (cond.type === 'website_filter' && cond.patterns) {
+                            const websiteInput = row.querySelector('.trigger-website') as HTMLInputElement
+                            if (websiteInput) websiteInput.value = cond.patterns.join(', ')
+                          }
+                        })
+                      }
+                      
+                      // Restore workflow condition fields
+                      if (trigger.workflowId) {
+                        const wfInput = row.querySelector('.trigger-workflow') as HTMLInputElement
+                        if (wfInput) wfInput.value = trigger.workflowId
+                      }
+                      
+                      // Restore UI event fields
+                      if (trigger.domSelector) {
+                        const domInput = row.querySelector('.trigger-dom-selector') as HTMLInputElement
+                        if (domInput) domInput.value = trigger.domSelector
+                      }
+                      if (trigger.domEvent) {
+                        const eventSelect = row.querySelector('.trigger-dom-event') as HTMLSelectElement
+                        if (eventSelect) eventSelect.value = trigger.domEvent
+                      }
+                      
+                      // Restore manual command
+                      if (trigger.commandLabel) {
+                        const cmdInput = row.querySelector('.trigger-command') as HTMLInputElement
+                        if (cmdInput) cmdInput.value = trigger.commandLabel
+                      }
+                      
+                      // Restore agent source
+                      if (trigger.sourceAgent) {
+                        const agentSelect = row.querySelector('.trigger-agent-select') as HTMLSelectElement
+                        if (agentSelect) agentSelect.value = trigger.sourceAgent
+                      }
+                      
+                      // Restore miniapp data
+                      if (trigger.miniAppId) {
+                        const miniAppInput = row.querySelector('.trigger-miniapp-id') as HTMLInputElement
+                        if (miniAppInput) miniAppInput.value = trigger.miniAppId
+                      }
+                      
+                      // Restore per-trigger Sensor Workflows
+                      if (trigger.sensorWorkflows && trigger.sensorWorkflows.length > 0) {
+                        const sensorList = row.querySelector('.trigger-sensor-list') as HTMLElement
+                        const addSensorBtn = row.querySelector('.trigger-add-sensor') as HTMLButtonElement
+                        if (sensorList && addSensorBtn) {
+                          trigger.sensorWorkflows.forEach((wf: any) => {
+                            const wfRow = createTriggerWorkflowRow('sensor', {
+                              workflowType: wf.type || 'internal',
+                              workflowId: wf.workflowId || '',
+                              conditions: wf.conditions || []
+                            })
+                            sensorList.appendChild(wfRow)
+                          })
+                          console.log(`    ✓ Restored ${trigger.sensorWorkflows.length} sensor workflows for trigger ${idx + 1}`)
+                        }
+                      }
+                      
+                      // Restore per-trigger Allowed Actions
+                      if (trigger.allowedActions && trigger.allowedActions.length > 0) {
+                        const actionsList = row.querySelector('.trigger-actions-list') as HTMLElement
+                        const addActionBtn = row.querySelector('.trigger-add-action') as HTMLButtonElement
+                        if (actionsList && addActionBtn) {
+                          trigger.allowedActions.forEach((wf: any) => {
+                            const wfRow = createTriggerWorkflowRow('action', {
+                              workflowType: wf.type || 'internal',
+                              workflowId: wf.workflowId || '',
+                              conditions: wf.conditions || []
+                            })
+                            actionsList.appendChild(wfRow)
+                          })
+                          console.log(`    ✓ Restored ${trigger.allowedActions.length} allowed actions for trigger ${idx + 1}`)
+                        }
+                      }
+                      
+                      // Mark trigger as saved by showing checkmark
+                      const tempSaveBtn = row.querySelector('.trigger-temp-save') as HTMLButtonElement
+                      if (tempSaveBtn && !row.querySelector('.trigger-saved-indicator')) {
+                        const checkmark = document.createElement('span')
+                        checkmark.className = 'trigger-saved-indicator'
+                        checkmark.textContent = '✓'
+                        checkmark.style.cssText = 'color:#22c55e;font-weight:bold;margin-left:6px;font-size:14px'
+                        checkmark.title = 'Trigger saved'
+                        tempSaveBtn.parentElement?.insertBefore(checkmark, tempSaveBtn.nextSibling)
+                      }
+                      
+                      console.log(`  ✓ Restored unified trigger ${idx + 1}: ${trigger.type} - ${trigger.tag || trigger.tagName || trigger.id}`)
+                      
+                      // Refresh Apply For options after setting tag
+                      if (typeof refreshApplyForOptions === 'function') {
+                        refreshApplyForOptions()
+                      }
+                    }, 100) // Wait for type change to render fields
+                  }, 50) // Wait for row to be created
+                  }, idx * 150) // Stagger trigger restorations to avoid race conditions
                 })
-
-                console.log(`  ✓ Restored ${l.reportTo.length} listener report-to rows`)
-
+                
+                // Update Apply for options after all triggers are restored
+                setTimeout(() => {
+                  // Trigger the updateApplyForOptions by dispatching input event on trigger list
+                  const event = new Event('input', { bubbles: true })
+                  unifiedList.dispatchEvent(event)
+                }, 200 + (50 * l.unifiedTriggers.length))
+                
+                console.log(`  ✓ Started restoring ${l.unifiedTriggers.length} unified triggers`)
               }
-
             }
-
-            
 
             // Restore Listener Example files - CRITICAL for preserving uploads
 
@@ -14719,23 +18245,55 @@ function initializeExtension() {
 
             
 
-            // Restore Apply For select
-
-            if (r.applyFor) {
-
-              const applySelect = configOverlay.querySelector('#R-apply') as HTMLSelectElement
-
-              if (applySelect) {
-
-                applySelect.value = r.applyFor
-
-                console.log(`  ✓ Restored Apply For: ${r.applyFor}`)
-
-              }
-
-            }
-
+            // Restore Apply For selects - DELAYED to ensure trigger options are populated first
+            const rApplyForListToRestore = r.applyForList || (r.applyFor ? [r.applyFor] : ['__any__'])
+            console.log(`  🔍 Main Reasoning applyForList to restore:`, rApplyForListToRestore)
             
+            if (rApplyForListToRestore.length > 0) {
+              setTimeout(() => {
+                // Refresh options first
+                if (typeof refreshApplyForOptions === 'function') {
+                  refreshApplyForOptions()
+                  console.log(`  🔄 Refreshed Apply For options for main Reasoning`)
+                }
+                setTimeout(() => {
+                  const rApplyList = configOverlay.querySelector('#R-apply-list') as HTMLElement
+                  
+                  // Set first value on existing select
+                  const firstSelect = configOverlay.querySelector('#R-apply') as HTMLSelectElement
+                  if (firstSelect && rApplyForListToRestore[0]) {
+                    firstSelect.value = rApplyForListToRestore[0]
+                    console.log(`  ✓ Set first Reasoning Apply For to: ${rApplyForListToRestore[0]}`)
+                  }
+                  
+                  // Add additional Apply For rows for remaining values - use sequential async
+                  if (rApplyList && rApplyForListToRestore.length > 1) {
+                    const additionalValues = rApplyForListToRestore.slice(1)
+                    console.log(`  🔄 Creating ${additionalValues.length} additional Apply For rows`)
+                    
+                    // First, create all the additional rows
+                    additionalValues.forEach(() => {
+                      addApplyForRowToList(rApplyList, 'R-apply-select')
+                    })
+                    
+                    // Then set all values after a delay to ensure DOM is updated
+                    setTimeout(() => {
+                      refreshApplyForOptions()
+                      // Get all selects EXCEPT the first one (which has id="R-apply")
+                      const additionalSelects = Array.from(rApplyList.querySelectorAll('select:not(#R-apply)')) as HTMLSelectElement[]
+                      console.log(`  🔄 Found ${additionalSelects.length} additional selects to set values`)
+                      
+                      additionalSelects.forEach((sel, idx) => {
+                        if (additionalValues[idx]) {
+                          sel.value = additionalValues[idx]
+                          console.log(`    ✓ Set additional Reasoning Apply For ${idx + 2} to: ${additionalValues[idx]}`)
+                        }
+                      })
+                    }, 150)
+                  }
+                }, 200)
+              }, 800) // Increased delay to wait for triggers to be fully restored
+            }
 
             // Restore Listen From rows
 
@@ -14787,52 +18345,25 @@ function initializeExtension() {
 
             
 
-            // Restore Report To rows
-
-            if (r.reportTo && r.reportTo.length > 0) {
-
-              const reportList = configOverlay.querySelector('#R-report-list')
-
-              if (reportList) {
-
-                reportList.innerHTML = ''  // Clear first
-
-                r.reportTo.forEach((target: string) => {
-
-                  const addBtn = configOverlay.querySelector('#R-add-report') as HTMLButtonElement
-
-                  if (addBtn) {
-
-                    addBtn.click()
-
-                    const rows = configOverlay.querySelectorAll('#R-report-list .rep-row')
-
-                    const lastRow = rows[rows.length - 1]
-
-                    if (lastRow) {
-
-                      const kindSel = lastRow.querySelector('.route-kind') as HTMLSelectElement
-
-                      const specSel = lastRow.querySelector('.route-specific') as HTMLSelectElement
-
-                      const [kind, spec] = target.split(':')
-
-                      if (kindSel) kindSel.value = kind
-
-                      kindSel?.dispatchEvent(new Event('change'))
-
-                      setTimeout(() => { if (specSel && spec) specSel.value = spec }, 50)
-
-                    }
-
-                  }
-
+            // Reasoning reportTo removed - Report to only in Execution section now
+            
+            // Restore Reasoning Workflows for main section
+            if (r.reasoningWorkflows && r.reasoningWorkflows.length > 0) {
+              console.log(`  🔄 Restoring ${r.reasoningWorkflows.length} reasoning workflows...`)
+              const wfList = configOverlay.querySelector('#R-reasoning-workflows') as HTMLElement
+              if (wfList) {
+                r.reasoningWorkflows.forEach((wf: any, idx: number) => {
+                  setTimeout(() => {
+                    const wfRow = createReasoningWorkflowRow({
+                      type: wf.type || 'internal',
+                      workflowId: wf.workflowId || '',
+                      conditions: wf.conditions || []
+                    })
+                    wfList.appendChild(wfRow)
+                    console.log(`    ✓ Restored reasoning workflow ${idx + 1}: ${wf.type}`)
+                  }, idx * 100)
                 })
-
-                console.log(`  ✓ Restored ${r.reportTo.length} reasoning report-to rows`)
-
               }
-
             }
 
             
@@ -14897,39 +18428,84 @@ function initializeExtension() {
 
               
 
+              console.log(`  🔍 R-add-section button found: ${!!rAddSectionBtn}`)
+              console.log(`  🔍 R-sections-extra container found: ${!!rExtra}`)
+
               if (rAddSectionBtn && rExtra) {
 
                 // Skip first section (index 0) as it's the base section already restored above
 
                 previouslySavedData.reasoningSections.slice(1).forEach((rSection: any, sectionIdx: number) => {
 
-                  // Create a new section
+                  console.log(`  📝 Creating reasoning section ${sectionIdx + 1} with applyFor: ${rSection.applyFor}`)
 
-                  rAddSectionBtn.click()
-
-                  
-
+                  // Create a new section - stagger the clicks
                   setTimeout(() => {
+                    rAddSectionBtn.click()
+                    console.log(`  ✓ Clicked add section button for reasoning section ${sectionIdx + 1}`)
 
-                    const sections = configOverlay.querySelectorAll('#R-sections-extra .R-section')
+                    // Wait longer for section to be fully created in DOM
+                    setTimeout(() => {
 
-                    const newSection = sections[sectionIdx] as HTMLElement
+                      const sections = configOverlay.querySelectorAll('#R-sections-extra .R-section')
+                      console.log(`  🔍 Found ${sections.length} R-section elements after click`)
 
-                    
+                      const newSection = sections[sectionIdx] as HTMLElement
 
-                    if (newSection) {
+                      if (newSection) {
+                        console.log(`  ✓ Reasoning section ${sectionIdx + 1} found in DOM`)
 
-                      // Restore Apply For
-
-                      if (rSection.applyFor) {
-
-                        const applySelect = newSection.querySelector('.R-apply') as HTMLSelectElement
-
-                        if (applySelect) applySelect.value = rSection.applyFor
-
-                      }
-
-                      
+                        // Restore Apply For - DELAYED to ensure trigger options are populated first
+                        const rSectionApplyForList = rSection.applyForList || (rSection.applyFor ? [rSection.applyFor] : ['__any__'])
+                        if (rSectionApplyForList.length > 0) {
+                          setTimeout(() => {
+                            // Refresh options first
+                            if (typeof refreshApplyForOptions === 'function') {
+                              refreshApplyForOptions()
+                              console.log(`    🔄 Refreshed Apply For options for reasoning section ${sectionIdx + 1}`)
+                            }
+                            setTimeout(() => {
+                              // Set first value on existing select
+                              const applySelect = newSection.querySelector('.R-apply') as HTMLSelectElement
+                              const applyList = newSection.querySelector('.R-apply-list-sub') as HTMLElement
+                              if (applySelect) {
+                                console.log(`    🔍 R-apply select found, current value: ${applySelect.value}`)
+                                console.log(`    🔍 Available options:`, Array.from(applySelect.options).map(o => o.value))
+                                applySelect.value = rSectionApplyForList[0]
+                                console.log(`    ✓ Set additional Reasoning section ${sectionIdx + 1} Apply For to: ${rSectionApplyForList[0]}`)
+                                console.log(`    🔍 Verify: applySelect.value is now: ${applySelect.value}`)
+                                
+                                // Add additional Apply For rows for remaining values - create all at once then set values
+                                if (applyList && rSectionApplyForList.length > 1) {
+                                  const additionalValues = rSectionApplyForList.slice(1)
+                                  console.log(`    🔄 Creating ${additionalValues.length} additional R-section Apply For rows`)
+                                  
+                                  // First, create all the additional rows
+                                  additionalValues.forEach(() => {
+                                    addApplyForRowToList(applyList, 'R-apply')
+                                  })
+                                  
+                                  // Then set all values after DOM update
+                                  setTimeout(() => {
+                                    refreshApplyForOptions()
+                                    // Get all selects except the first one in this section
+                                    const allSelects = Array.from(applyList.querySelectorAll('select')) as HTMLSelectElement[]
+                                    const additionalSelects = allSelects.slice(1) // Skip the first one
+                                    
+                                    additionalSelects.forEach((sel, idx) => {
+                                      if (additionalValues[idx]) {
+                                        sel.value = additionalValues[idx]
+                                        console.log(`      ✓ Set R-section ${sectionIdx + 1} Apply For ${idx + 2} to: ${additionalValues[idx]}`)
+                                      }
+                                    })
+                                  }, 150)
+                                }
+                              } else {
+                                console.error(`    ❌ Could not find .R-apply in section ${sectionIdx + 1}`)
+                              }
+                            }, 200)
+                          }, 500)
+                        }
 
                       // Restore Goals
 
@@ -15055,55 +18631,35 @@ function initializeExtension() {
 
                       
 
-                      // Restore Report To
+                      // rSection.reportTo restore removed - reportTo only in Execution section now
 
-                      if (rSection.reportTo && rSection.reportTo.length > 0) {
-
-                        rSection.reportTo.forEach((target: string) => {
-
-                          const addBtn = newSection.querySelector('.R-add-report-sub') as HTMLButtonElement
-
-                          if (addBtn) {
-
-                            addBtn.click()
-
-                            setTimeout(() => {
-
-                              const rows = newSection.querySelectorAll('.R-report-list-sub .rep-row')
-
-                              const lastRow = rows[rows.length - 1]
-
-                              if (lastRow) {
-
-                                const kindSel = lastRow.querySelector('.route-kind') as HTMLSelectElement
-
-                                const specSel = lastRow.querySelector('.route-specific') as HTMLSelectElement
-
-                                const [kind, spec] = target.split(':')
-
-                                if (kindSel) kindSel.value = kind
-
-                                kindSel?.dispatchEvent(new Event('change'))
-
-                                setTimeout(() => { if (specSel && spec) specSel.value = spec }, 50)
-
-                              }
-
-                            }, 50)
-
-                          }
-
-                        })
-
+                      // Restore Reasoning Workflows for additional section
+                      if (rSection.reasoningWorkflows && rSection.reasoningWorkflows.length > 0) {
+                        const wfListSub = newSection.querySelector('.R-workflows-sub') as HTMLElement
+                        if (wfListSub) {
+                          rSection.reasoningWorkflows.forEach((wf: any, wfIdx: number) => {
+                            const wfRow = createReasoningWorkflowRow({
+                              type: wf.type || 'internal',
+                              workflowId: wf.workflowId || '',
+                              conditions: wf.conditions || []
+                            })
+                            wfListSub.appendChild(wfRow)
+                            console.log(`      ✓ Restored reasoning workflow ${wfIdx + 1}: ${wf.type} - ${wf.workflowId}`)
+                          })
+                          console.log(`    ✓ Restored ${rSection.reasoningWorkflows.length} reasoning workflows for section ${sectionIdx + 1}`)
+                        }
                       }
 
                       
 
-                      console.log(`    ✓ Restored reasoning section ${sectionIdx + 1}`)
+                        console.log(`    ✓ Restored reasoning section ${sectionIdx + 1}`)
+                      } else {
+                        console.error(`    ❌ Reasoning section ${sectionIdx + 1} NOT found in DOM after waiting`)
+                      }
 
-                    }
+                    }, 300) // Wait 300ms for section to be created in DOM
 
-                  }, 100 * (sectionIdx + 1)) // Stagger the restoration
+                  }, sectionIdx * 400) // Stagger section creation by 400ms each
 
                 })
 
@@ -15122,113 +18678,91 @@ function initializeExtension() {
             const e = previouslySavedData.execution
 
             
-
-            // Restore Apply For select
-
-            if (e.applyFor) {
-
-              const applySelect = configOverlay.querySelector('#E-apply') as HTMLSelectElement
-
-              if (applySelect) {
-
-                applySelect.value = e.applyFor
-
-                console.log(`  ✓ Restored Execution Apply For: ${e.applyFor}`)
-
-              }
-
-            }
-
-            
-
-            // Restore Listen From rows
-
+            // Listen From section removed from Execution - skip restoration
             if (e.acceptFrom && e.acceptFrom.length > 0) {
-
-              const acceptList = configOverlay.querySelector('#E-accept-list')
-
-              if (acceptList) {
-
-                acceptList.innerHTML = ''  // Clear first
-
-                e.acceptFrom.forEach((target: string) => {
-
-                  const addBtn = configOverlay.querySelector('#E-add-accept') as HTMLButtonElement
-
-                  if (addBtn) {
-
-                    addBtn.click()
-
-                    const rows = configOverlay.querySelectorAll('#E-accept-list .acc-row')
-
-                    const lastRow = rows[rows.length - 1]
-
-                    if (lastRow) {
-
-                      const kindSel = lastRow.querySelector('.route-kind') as HTMLSelectElement
-
-                      const specSel = lastRow.querySelector('.route-specific') as HTMLSelectElement
-
-                      const [kind, spec] = target.split(':')
-
-                      if (kindSel) kindSel.value = kind
-
-                      kindSel?.dispatchEvent(new Event('change'))
-
-                      setTimeout(() => { if (specSel && spec) specSel.value = spec }, 50)
-
-                    }
-
+              console.log(`  ℹ️ Skipping ${e.acceptFrom.length} execution listen-from rows (section removed)`)
+            }
+            
+            // Restore Apply For selects - DELAYED to ensure trigger options are populated first
+            const eApplyForListToRestore = e.applyForList || (e.applyFor ? [e.applyFor] : ['__any__'])
+            console.log(`  🔍 Main Execution applyForList to restore:`, eApplyForListToRestore)
+            
+            if (eApplyForListToRestore.length > 0) {
+              setTimeout(() => {
+                // First refresh the options to include trigger IDs
+                if (typeof refreshApplyForOptions === 'function') {
+                  refreshApplyForOptions()
+                  console.log(`  🔄 Refreshed Apply For options for main Execution`)
+                }
+                setTimeout(() => {
+                  const eApplyList = configOverlay.querySelector('#E-apply-list') as HTMLElement
+                  
+                  // Set first value on existing select
+                  const firstSelect = configOverlay.querySelector('#E-apply') as HTMLSelectElement
+                  if (firstSelect && eApplyForListToRestore[0]) {
+                    firstSelect.value = eApplyForListToRestore[0]
+                    console.log(`  ✓ Set first Execution Apply For to: ${eApplyForListToRestore[0]}`)
                   }
-
-                })
-
-                console.log(`  ✓ Restored ${e.acceptFrom.length} execution listen-from rows`)
-
-              }
-
+                  
+                  // Add additional Apply For rows for remaining values - use sequential async
+                  if (eApplyList && eApplyForListToRestore.length > 1) {
+                    const additionalValues = eApplyForListToRestore.slice(1)
+                    console.log(`  🔄 Creating ${additionalValues.length} additional Execution Apply For rows`)
+                    
+                    // First, create all the additional rows
+                    additionalValues.forEach(() => {
+                      addApplyForRowToList(eApplyList, 'E-apply-select')
+                    })
+                    
+                    // Then set all values after a delay to ensure DOM is updated
+                    setTimeout(() => {
+                      refreshApplyForOptions()
+                      // Get all selects EXCEPT the first one (which has id="E-apply")
+                      const additionalSelects = Array.from(eApplyList.querySelectorAll('select:not(#E-apply)')) as HTMLSelectElement[]
+                      console.log(`  🔄 Found ${additionalSelects.length} additional Execution selects to set values`)
+                      
+                      additionalSelects.forEach((sel, idx) => {
+                        if (additionalValues[idx]) {
+                          sel.value = additionalValues[idx]
+                          console.log(`    ✓ Set additional Execution Apply For ${idx + 2} to: ${additionalValues[idx]}`)
+                        }
+                      })
+                    }, 150)
+                  }
+                }, 200)
+              }, 800) // Increased delay to wait for triggers to be fully restored
             }
 
-            
-
-            // Restore Workflows
-
-            if (e.workflows && e.workflows.length > 0) {
-
-              const workflowList = configOverlay.querySelector('#E-workflow-list')
-
+            // Restore Execution Workflows (new format with type, workflowId, conditions)
+            if (e.executionWorkflows && e.executionWorkflows.length > 0) {
+              const workflowList = configOverlay.querySelector('#E-workflow-list') as HTMLElement
               if (workflowList) {
-
                 workflowList.innerHTML = ''  // Clear first
-
-                e.workflows.forEach((workflow: string) => {
-
-                  const addBtn = configOverlay.querySelector('#E-add-workflow') as HTMLButtonElement
-
-                  if (addBtn) {
-
-                    addBtn.click()
-
-                    const rows = configOverlay.querySelectorAll('#E-workflow-list .wf-row')
-
-                    const lastRow = rows[rows.length - 1]
-
-                    if (lastRow) {
-
-                      const input = lastRow.querySelector('.wf-target') as HTMLInputElement
-
-                      if (input) input.value = workflow
-
-                    }
-
-                  }
-
+                e.executionWorkflows.forEach((wf: any, idx: number) => {
+                  const wfRow = createExecutionWorkflowRow({
+                    type: wf.type || 'internal',
+                    workflowId: wf.workflowId || '',
+                    conditions: wf.conditions || []
+                  })
+                  workflowList.appendChild(wfRow)
                 })
-
-                console.log(`  ✓ Restored ${e.workflows.length} execution workflows`)
-
+                console.log(`  ✓ Restored ${e.executionWorkflows.length} execution workflows (new format)`)
               }
-
+            } else if (e.workflows && e.workflows.length > 0) {
+              // Legacy format fallback - just workflow IDs
+              const workflowList = configOverlay.querySelector('#E-workflow-list') as HTMLElement
+              if (workflowList) {
+                workflowList.innerHTML = ''  // Clear first
+                e.workflows.forEach((workflowId: string) => {
+                  const wfRow = createExecutionWorkflowRow({
+                    type: 'external',
+                    workflowId: workflowId,
+                    conditions: []
+                  })
+                  workflowList.appendChild(wfRow)
+                })
+                console.log(`  ✓ Restored ${e.workflows.length} execution workflows (legacy format)`)
+              }
             }
 
             
@@ -15267,19 +18801,19 @@ function initializeExtension() {
 
                       }
 
-                      // If agent type, restore selected agents
+                      // Restore follow-up selection for agentBox or agent
 
-                      if (dest.kind === 'agent' && dest.agents && dest.agents.length > 0) {
+                      if ((dest.kind === 'agentBox' || dest.kind === 'agent') && dest.agents && dest.agents.length > 0) {
 
                         setTimeout(() => {
 
-                          dest.agents.forEach((agentId: string) => {
+                          const followUpSel = lastRow.querySelector('.esp-followup select') as HTMLSelectElement
 
-                            const checkbox = lastRow.querySelector(`.E-agent[value="${agentId}"]`) as HTMLInputElement
+                          if (followUpSel && dest.agents[0]) {
 
-                            if (checkbox) checkbox.checked = true
+                            followUpSel.value = dest.agents[0]
 
-                          })
+                          }
 
                         }, 100)
 
@@ -15301,193 +18835,181 @@ function initializeExtension() {
 
             // Restore Additional Execution Sections
 
+            console.log(`  🔍 Checking e.executionSections:`, e.executionSections)
+
             if (e.executionSections && e.executionSections.length > 0) {
 
               console.log(`  🔄 Restoring ${e.executionSections.length} additional execution sections...`)
+              console.log(`  📦 Execution sections data:`, JSON.stringify(e.executionSections))
 
               const eAddSectionBtn = configOverlay.querySelector('#E-add-section') as HTMLButtonElement
 
               const eExtra = configOverlay.querySelector('#E-sections-extra') as HTMLElement
 
-              
+              console.log(`  🔍 E-add-section button found: ${!!eAddSectionBtn}`)
+              console.log(`  🔍 E-sections-extra container found: ${!!eExtra}`)
 
               if (eAddSectionBtn && eExtra) {
 
                 e.executionSections.forEach((eSection: any, sectionIdx: number) => {
 
-                  // Create a new section
+                  console.log(`  📝 Creating execution section ${sectionIdx + 1} with applyFor: ${eSection.applyFor}`)
 
-                  eAddSectionBtn.click()
-
-                  
-
+                  // Create a new section - stagger the clicks
                   setTimeout(() => {
+                    eAddSectionBtn.click()
+                    console.log(`  ✓ Clicked add section button for section ${sectionIdx + 1}`)
 
-                    const sections = configOverlay.querySelectorAll('#E-sections-extra .E-section')
+                    // Wait longer for section to be fully created in DOM
+                    setTimeout(() => {
 
-                    const newSection = sections[sectionIdx] as HTMLElement
+                      const sections = configOverlay.querySelectorAll('#E-sections-extra .E-section')
+                      console.log(`  🔍 Found ${sections.length} E-section elements after click`)
 
-                    
+                      const newSection = sections[sectionIdx] as HTMLElement
 
-                    if (newSection) {
+                      if (newSection) {
+                        console.log(`  ✓ Section ${sectionIdx + 1} found in DOM`)
 
-                      // Restore Apply For
-
-                      if (eSection.applyFor) {
-
-                        const applySelect = newSection.querySelector('.E-apply-sub') as HTMLSelectElement
-
-                        if (applySelect) applySelect.value = eSection.applyFor
-
-                      }
-
-                      
-
-                      // Restore Workflows
-
-                      if (eSection.workflows && eSection.workflows.length > 0) {
-
-                        eSection.workflows.forEach((workflow: string) => {
-
-                          const addBtn = newSection.querySelector('.E-add-workflow-sub') as HTMLButtonElement
-
-                          if (addBtn) {
-
-                            addBtn.click()
-
+                        // Restore Apply For - DELAYED to ensure trigger options are populated first
+                        const eSectionApplyForList = eSection.applyForList || (eSection.applyFor ? [eSection.applyFor] : ['__any__'])
+                        if (eSectionApplyForList.length > 0) {
+                          setTimeout(() => {
+                            // Refresh options first
+                            if (typeof refreshApplyForOptions === 'function') {
+                              refreshApplyForOptions()
+                              console.log(`    🔄 Refreshed Apply For options`)
+                            }
                             setTimeout(() => {
-
-                              const rows = newSection.querySelectorAll('.E-wf-sub .wf-row')
-
-                              const lastRow = rows[rows.length - 1]
-
-                              if (lastRow) {
-
-                                const input = lastRow.querySelector('.wf-target') as HTMLInputElement
-
-                                if (input) input.value = workflow
-
+                              // Set first value on existing select
+                              const applySelect = newSection.querySelector('.E-apply-sub') as HTMLSelectElement
+                              const applyList = newSection.querySelector('.E-apply-list-sub') as HTMLElement
+                              if (applySelect) {
+                                console.log(`    🔍 Apply select found, current value: ${applySelect.value}`)
+                                console.log(`    🔍 Available options:`, Array.from(applySelect.options).map(o => o.value))
+                                applySelect.value = eSectionApplyForList[0]
+                                console.log(`    ✓ Set additional section ${sectionIdx + 1} Apply For to: ${eSectionApplyForList[0]}`)
+                                console.log(`    🔍 Verify: applySelect.value is now: ${applySelect.value}`)
+                                
+                                // Add additional Apply For rows for remaining values - create all at once then set values
+                                if (applyList && eSectionApplyForList.length > 1) {
+                                  const additionalValues = eSectionApplyForList.slice(1)
+                                  console.log(`    🔄 Creating ${additionalValues.length} additional E-section Apply For rows`)
+                                  
+                                  // First, create all the additional rows
+                                  additionalValues.forEach(() => {
+                                    addApplyForRowToList(applyList, 'E-apply-sub')
+                                  })
+                                  
+                                  // Then set all values after DOM update
+                                  setTimeout(() => {
+                                    refreshApplyForOptions()
+                                    // Get all selects except the first one in this section
+                                    const allSelects = Array.from(applyList.querySelectorAll('select')) as HTMLSelectElement[]
+                                    const additionalSelects = allSelects.slice(1) // Skip the first one
+                                    
+                                    additionalSelects.forEach((sel, idx) => {
+                                      if (additionalValues[idx]) {
+                                        sel.value = additionalValues[idx]
+                                        console.log(`      ✓ Set E-section ${sectionIdx + 1} Apply For ${idx + 2} to: ${additionalValues[idx]}`)
+                                      }
+                                    })
+                                  }, 150)
+                                }
+                              } else {
+                                console.error(`    ❌ Could not find .E-apply-sub in section ${sectionIdx + 1}`)
                               }
+                            }, 200)
+                          }, 500)
+                        }
 
-                            }, 50)
-
+                        // Restore Execution Workflows (new format)
+                        if (eSection.executionWorkflows && eSection.executionWorkflows.length > 0) {
+                          const wfListSub = newSection.querySelector('.E-workflow-list-sub') as HTMLElement
+                          if (wfListSub) {
+                            eSection.executionWorkflows.forEach((wf: any, wfIdx: number) => {
+                              const wfRow = createExecutionWorkflowRow({
+                                type: wf.type || 'internal',
+                                workflowId: wf.workflowId || '',
+                                conditions: wf.conditions || []
+                              })
+                              wfListSub.appendChild(wfRow)
+                              console.log(`    ✓ Restored workflow ${wfIdx + 1}: ${wf.type} - ${wf.workflowId}`)
+                            })
                           }
-
-                        })
-
-                      }
-
-                      
-
-                      // Restore Accept From
-
-                      if (eSection.acceptFrom && eSection.acceptFrom.length > 0) {
-
-                        eSection.acceptFrom.forEach((target: string) => {
-
-                          const addBtn = newSection.querySelector('.E-add-accept-sub') as HTMLButtonElement
-
-                          if (addBtn) {
-
-                            addBtn.click()
-
-                            setTimeout(() => {
-
-                              const rows = newSection.querySelectorAll('.E-acc-sub .acc-row')
-
-                              const lastRow = rows[rows.length - 1]
-
-                              if (lastRow) {
-
-                                const kindSel = lastRow.querySelector('.route-kind') as HTMLSelectElement
-
-                                const specSel = lastRow.querySelector('.route-specific') as HTMLSelectElement
-
-                                const [kind, spec] = target.split(':')
-
-                                if (kindSel) kindSel.value = kind
-
-                                kindSel?.dispatchEvent(new Event('change'))
-
-                                setTimeout(() => { if (specSel && spec) specSel.value = spec }, 50)
-
-                              }
-
-                            }, 50)
-
+                        } else if (eSection.workflows && eSection.workflows.length > 0) {
+                          // Legacy format fallback
+                          const wfListSub = newSection.querySelector('.E-workflow-list-sub') as HTMLElement
+                          if (wfListSub) {
+                            eSection.workflows.forEach((workflowId: string, wfIdx: number) => {
+                              const wfRow = createExecutionWorkflowRow({
+                                type: 'external',
+                                workflowId: workflowId,
+                                conditions: []
+                              })
+                              wfListSub.appendChild(wfRow)
+                              console.log(`    ✓ Restored workflow ${wfIdx + 1}: ${workflowId} (legacy)`)
+                            })
                           }
+                        }
 
-                        })
-
-                      }
-
-                      
-
-                      // Restore Special Destinations (Report to)
+                        // Accept From section removed from Execution sections
+                        
+                        // Restore Special Destinations (Report to)
 
                       if (eSection.specialDestinations && eSection.specialDestinations.length > 0) {
+                        const specialList = newSection.querySelector('.E-special-list-sub') as HTMLElement
+                        const addBtn = newSection.querySelector('.E-special-add-sub') as HTMLButtonElement
 
-                        eSection.specialDestinations.forEach((dest: any) => {
+                        if (specialList && addBtn) {
+                          // Clear any existing default rows first
+                          specialList.innerHTML = ''
 
-                          const specialList = newSection.querySelector('.E-special-list-sub') as HTMLElement
-
-                          const addBtn = newSection.querySelector('.E-special-add-sub') as HTMLButtonElement
-
-                          if (addBtn) {
-
-                            addBtn.click()
-
+                          eSection.specialDestinations.forEach((dest: any, destIdx: number) => {
                             setTimeout(() => {
+                              addBtn.click()
 
-                              const rows = specialList?.querySelectorAll('.esp-row')
+                              setTimeout(() => {
+                                const rows = specialList.querySelectorAll('.esp-row')
+                                const lastRow = rows[rows.length - 1]
 
-                              const lastRow = rows && rows[rows.length - 1]
+                                if (lastRow) {
+                                  const kindSel = lastRow.querySelector('.esp-kind') as HTMLSelectElement
 
-                              if (lastRow) {
+                                  if (kindSel) {
+                                    kindSel.value = dest.kind
+                                    kindSel.dispatchEvent(new Event('change'))
+                                    console.log(`      ✓ Set Report To kind to: ${dest.kind}`)
+                                  }
 
-                                const kindSel = lastRow.querySelector('.esp-kind') as HTMLSelectElement
-
-                                if (kindSel) {
-
-                                  kindSel.value = dest.kind
-
-                                  kindSel.dispatchEvent(new Event('change'))
-
+                                  // For agentBox or agent, set the follow-up select value
+                                  if ((dest.kind === 'agentBox' || dest.kind === 'agent') && dest.agents && dest.agents.length > 0) {
+                                    setTimeout(() => {
+                                      const followUp = lastRow.querySelector('.esp-followup select') as HTMLSelectElement
+                                      if (followUp && dest.agents[0]) {
+                                        followUp.value = dest.agents[0]
+                                        console.log(`      ✓ Set Report To agent/box to: ${dest.agents[0]}`)
+                                      }
+                                    }, 150)
+                                  }
                                 }
-
-                                if (dest.kind === 'agent' && dest.agents && dest.agents.length > 0) {
-
-                                  setTimeout(() => {
-
-                                    dest.agents.forEach((agentId: string) => {
-
-                                      const checkbox = lastRow.querySelector(`.E-agent[value="${agentId}"]`) as HTMLInputElement
-
-                                      if (checkbox) checkbox.checked = true
-
-                                    })
-
-                                  }, 100)
-
-                                }
-
-                              }
-
-                            }, 50)
-
-                          }
-
-                        })
-
+                              }, 100)
+                            }, destIdx * 200) // Stagger each destination restoration
+                          })
+                          console.log(`    ✓ Restoring ${eSection.specialDestinations.length} Report To destinations`)
+                        }
                       }
 
                       
 
-                      console.log(`    ✓ Restored execution section ${sectionIdx + 1}`)
+                        console.log(`    ✓ Restored execution section ${sectionIdx + 1}`)
+                      } else {
+                        console.error(`    ❌ Section ${sectionIdx + 1} NOT found in DOM after waiting`)
+                      }
 
-                    }
+                    }, 300) // Wait 300ms for section to be created in DOM
 
-                  }, 100 * (sectionIdx + 1)) // Stagger the restoration
+                  }, sectionIdx * 400) // Stagger section creation by 400ms each
 
                 })
 
@@ -15507,6 +19029,16 @@ function initializeExtension() {
 
       
 
+      // Function to ensure section visibility matches checkbox states
+      const syncSectionVisibility = () => {
+        const boxL = configOverlay.querySelector('#box-listening') as HTMLElement | null
+        const boxR = configOverlay.querySelector('#box-reasoning') as HTMLElement | null
+        const boxE = configOverlay.querySelector('#box-execution') as HTMLElement | null
+        if (boxL && capL) boxL.style.display = capL.checked ? 'block' : 'none'
+        if (boxR && capR) boxR.style.display = capR.checked ? 'block' : 'none'
+        if (boxE && capE) boxE.style.display = capE.checked ? 'block' : 'none'
+      }
+
       const hook = (el: HTMLInputElement | null) => {
 
         if (el) {
@@ -15518,6 +19050,9 @@ function initializeExtension() {
             render()
 
             restoreFromMemory() // Restore data after render
+
+            // Ensure section visibility matches checkboxes after restore
+            requestAnimationFrame(() => syncSectionVisibility())
 
           })
 
@@ -15733,12 +19268,18 @@ function initializeExtension() {
 
               
 
-              if (l.source) {
-
-                const src = configOverlay.querySelector('#L-source') as HTMLSelectElement
-
-                if (src) src.value = l.source
-
+              // Restore sources (multi-select checkboxes)
+              if (l.sources && Array.isArray(l.sources)) {
+                document.querySelectorAll('.L-source-check').forEach((el: any) => {
+                  el.checked = l.sources.includes(el.value)
+                  el.dispatchEvent(new Event('change'))
+                })
+              }
+              // Restore agent sources
+              if (l.agentSources && Array.isArray(l.agentSources)) {
+                document.querySelectorAll('.L-agent-source').forEach((el: any) => {
+                  el.checked = l.agentSources.includes(el.value)
+                })
               }
 
               
@@ -15749,6 +19290,21 @@ function initializeExtension() {
 
                 if (web) web.value = l.website
 
+              }
+
+              // Restore new automation fields
+              if (l.apiEndpoint) {
+                const apiEl = configOverlay.querySelector('#L-api-endpoint') as HTMLInputElement
+                if (apiEl) apiEl.value = l.apiEndpoint
+              }
+              if (l.cronSchedule) {
+                const cronEl = configOverlay.querySelector('#L-cron-schedule') as HTMLInputElement
+                if (cronEl) cronEl.value = l.cronSchedule
+              }
+              if (l.modalities && Array.isArray(l.modalities)) {
+                document.querySelectorAll('.L-modality').forEach((el: any) => {
+                  el.checked = l.modalities.includes(el.value)
+                })
               }
 
               
@@ -15913,53 +19469,7 @@ function initializeExtension() {
 
               
 
-              // Restore reportTo list
-
-              if (l.reportTo && l.reportTo.length > 0) {
-
-                const reportList = configOverlay.querySelector('#L-report-list')
-
-                if (reportList) {
-
-                  // Clear existing rows first to prevent duplicates
-
-                  reportList.innerHTML = ''
-
-                }
-
-                l.reportTo.forEach((target: string) => {
-
-                  const addBtn = configOverlay.querySelector('#L-add-report') as HTMLButtonElement
-
-                  if (addBtn) {
-
-                    addBtn.click()
-
-                    const rows = configOverlay.querySelectorAll('#L-report-list .rep-row')
-
-                    const lastRow = rows[rows.length - 1]
-
-                    if (lastRow) {
-
-                      const kindSel = lastRow.querySelector('.route-kind') as HTMLSelectElement
-
-                      const specSel = lastRow.querySelector('.route-specific') as HTMLSelectElement
-
-                      const [kind, spec] = target.split(':')
-
-                      if (kindSel) kindSel.value = kind
-
-                      kindSel?.dispatchEvent(new Event('change'))
-
-                      setTimeout(() => { if (specSel && spec) specSel.value = spec }, 50)
-
-                    }
-
-                  }
-
-                })
-
-              }
+              // Listener reportTo removed - Report to only in Execution section now
 
               
 
@@ -16161,53 +19671,7 @@ function initializeExtension() {
 
                 
 
-                // Restore reportTo list
-
-                if (baseSection.reportTo && baseSection.reportTo.length > 0) {
-
-                  const reportList = configOverlay.querySelector('#R-report-list')
-
-                  if (reportList) {
-
-                    // Clear existing rows first to prevent duplicates
-
-                    reportList.innerHTML = ''
-
-                  }
-
-                  baseSection.reportTo.forEach((target: string) => {
-
-                    const addBtn = configOverlay.querySelector('#R-add-report') as HTMLButtonElement
-
-                    if (addBtn) {
-
-                      addBtn.click()
-
-                      const rows = configOverlay.querySelectorAll('#R-report-list .rep-row')
-
-                      const lastRow = rows[rows.length - 1]
-
-                      if (lastRow) {
-
-                        const kindSel = lastRow.querySelector('.route-kind') as HTMLSelectElement
-
-                        const specSel = lastRow.querySelector('.route-specific') as HTMLSelectElement
-
-                        const [kind, spec] = target.split(':')
-
-                        if (kindSel) kindSel.value = kind
-
-                        kindSel?.dispatchEvent(new Event('change'))
-
-                        setTimeout(() => { if (specSel && spec) specSel.value = spec }, 50)
-
-                      }
-
-                    }
-
-                  })
-
-                }
+                // baseSection.reportTo restore removed - reportTo only in Execution section now
 
               }
 
@@ -16227,46 +19691,8 @@ function initializeExtension() {
 
               
 
-              // Restore acceptFrom
-
-              if (e.acceptFrom) {
-
-                e.acceptFrom.forEach((target: string) => {
-
-                  const addBtn = configOverlay.querySelector('#E-accept-add') as HTMLButtonElement
-
-                  if (addBtn) {
-
-                    addBtn.click()
-
-                    const rows = configOverlay.querySelectorAll('#E-accept-list .acc-row')
-
-                    const lastRow = rows[rows.length - 1]
-
-                    if (lastRow) {
-
-                      const kindSel = lastRow.querySelector('.route-kind') as HTMLSelectElement
-
-                      const specSel = lastRow.querySelector('.route-specific') as HTMLSelectElement
-
-                      const [kind, spec] = target.split(':')
-
-                      if (kindSel) kindSel.value = kind
-
-                      kindSel?.dispatchEvent(new Event('change'))
-
-                      setTimeout(() => { if (specSel && spec) specSel.value = spec }, 50)
-
-                    }
-
-                  }
-
-                })
-
-              }
-
+              // acceptFrom section removed from Execution - skip restoration
               
-
               // Restore workflows
 
               if (e.workflows) {
@@ -16431,7 +19857,7 @@ function initializeExtension() {
 
             console.log(`  📝 Expected Context: "${parsed?.listening?.expectedContext?.substring(0, 50) || '(empty)'}${parsed?.listening?.expectedContext?.length > 50 ? '...' : ''}"`)
 
-            console.log(`  🎯 Listen on (type): "${parsed?.listening?.source || '(empty)'}"`)
+            console.log(`  🎯 Trigger Sources: ${JSON.stringify(parsed?.listening?.sources || [])}`)
 
             console.log(`  📋 Rules: "${parsed?.reasoning?.rules?.substring(0, 50) || '(empty)'}${parsed?.reasoning?.rules?.length > 50 ? '...' : ''}"`)
 
@@ -16715,29 +20141,89 @@ function initializeExtension() {
 
             .filter((el:any)=>el.checked).map((el:any)=>el.value)
 
-          const src = (document.getElementById('L-source') as HTMLSelectElement)?.value || ''
-
+          // Collect multiple trigger sources (checkboxes)
+          const sources = Array.from(document.querySelectorAll('.L-source-check'))
+            .filter((el: any) => el.checked).map((el: any) => el.value)
           
+          // Collect workflow sources (specific workflow IDs)
+          const workflowSources: string[] = []
+          document.querySelectorAll('#L-workflow-sources .workflow-source-row').forEach((row: any) => {
+            const id = row.querySelector('.workflow-source-id')?.value || ''
+            if (id.trim()) workflowSources.push(id.trim())
+          })
+          
+          // Collect agent sources (which agents can trigger)
+          const agentSources = Array.from(document.querySelectorAll('.L-agent-source'))
+            .filter((el: any) => el.checked).map((el: any) => el.value)
+
+          const apiEndpoint = (document.getElementById('L-api-endpoint') as HTMLInputElement)?.value || ''
+          const cronSchedule = (document.getElementById('L-cron-schedule') as HTMLInputElement)?.value || ''
+
+          // Collect modalities
+          const modalities = Array.from(document.querySelectorAll('.L-modality'))
+            .filter((el:any)=>el.checked).map((el:any)=>el.value)
+
+          // Collect global conditions
+          const conditionLogic = (document.getElementById('L-condition-logic') as HTMLSelectElement)?.value || 'all'
+          const conditionRows = document.querySelectorAll('#L-conditions-list .condition-row')
+          const conditionItems: any[] = []
+          conditionRows.forEach((row: any) => {
+            const field = row.querySelector('.cond-field')?.value || ''
+            const op = row.querySelector('.cond-op')?.value || 'eq'
+            const value = row.querySelector('.cond-value')?.value || ''
+            if (field.trim()) {
+              conditionItems.push({ field, op, value })
+            }
+          })
+
+          // Build conditions object
+          const conditions = conditionItems.length > 0 
+            ? (conditionLogic === 'all' ? { all: conditionItems } : { any: conditionItems })
+            : null
+
+          // Collect sensor workflows with their inline conditions
+          const sensorWorkflows: any[] = []
+          document.querySelectorAll('#L-sensor-workflows .sensor-workflow-row').forEach((row: any) => {
+            const id = row.querySelector('.workflow-id')?.value || ''
+            if (id.trim()) {
+              const sensorConditions: any[] = []
+              row.querySelectorAll('.sensor-cond-row').forEach((condRow: any) => {
+                const field = condRow.querySelector('.scond-field')?.value || ''
+                const op = condRow.querySelector('.scond-op')?.value || 'eq'
+                const value = condRow.querySelector('.scond-value')?.value || ''
+                const action = condRow.querySelector('.scond-action')?.value || 'continue'
+                if (field.trim()) {
+                  sensorConditions.push({ field, op, value, action })
+                }
+              })
+              sensorWorkflows.push({ id: id.trim(), conditions: sensorConditions })
+            }
+          })
+
+          // Collect action workflows (allowed actions)
+          const allowedActions: string[] = []
+          document.querySelectorAll('#L-action-workflows .action-workflow-row').forEach((row: any) => {
+            const id = row.querySelector('.workflow-id')?.value || ''
+            if (id.trim()) allowedActions.push(id.trim())
+          })
 
           // ALWAYS save all fields (not conditional on passiveEnabled)
-
           const listening:any = {
-
             passiveEnabled,
-
             activeEnabled,
-
             expectedContext: (document.getElementById('L-context') as HTMLTextAreaElement)?.value || '',
-
             tags: tags,
-
-            source: src,
-
+            sources: sources,
+            workflowSources: workflowSources,
+            agentSources: agentSources,
+            apiEndpoint: apiEndpoint,
+            modalities: modalities,
+            cronSchedule: cronSchedule,
+            conditions: conditions,
+            sensorWorkflows: sensorWorkflows,
+            allowedActions: allowedActions,
             website: ((document.getElementById('L-website') as HTMLInputElement)?.value || '')
-
           }
-
-          
 
           // ALWAYS save active triggers (without pattern detection)
 
@@ -16867,17 +20353,7 @@ function initializeExtension() {
 
           
 
-          // Report to list - format as "kind:specific"
-
-          listening.reportTo = Array.from(document.querySelectorAll('#L-report-list .rep-row')).map((row:any) => {
-
-            const kindSel = row.querySelector('.route-kind') as HTMLSelectElement
-
-            const specSel = row.querySelector('.route-specific') as HTMLSelectElement
-
-            return kindSel && specSel ? `${kindSel.value}:${specSel.value}` : ''
-
-          }).filter((v:string) => v)
+          // reportTo removed from Listener - only in Execution section now
 
           
 
@@ -16887,17 +20363,17 @@ function initializeExtension() {
 
             activeEnabled,
 
-            contextLength: listening.expectedContext.length,
+            contextLength: listening.expectedContext?.length || 0,
 
-            tagsCount: listening.tags.length,
+            tagsCount: listening.tags?.length || 0,
 
             source: listening.source,
 
             website: listening.website,
 
-            triggersCount: triggers.length,
+            activeTriggersCount: listening.active?.triggers?.length || 0,
 
-            reportToCount: listening.reportTo.length
+            passiveTriggersCount: listening.passive?.triggers?.length || 0
 
           })
 
@@ -16933,23 +20409,16 @@ function initializeExtension() {
 
           
 
-          // Report To list - format as "kind:specific"
-
-          const reportTo:string[] = Array.from(document.querySelectorAll('#R-report-list .rep-row')).map((row:any) => {
-
-            const kindSel = row.querySelector('.route-kind') as HTMLSelectElement
-
-            const specSel = row.querySelector('.route-specific') as HTMLSelectElement
-
-            return kindSel && specSel ? `${kindSel.value}:${specSel.value}` : ''
-
-          }).filter((v:string) => v)
-
+          // reportTo removed from Reasoning - only in Execution section now
           
+          // Collect all Apply For values from the list (get all selects inside the list)
+          const rApplyForValuesSave = Array.from(document.querySelectorAll('#R-apply-list select')).map((sel: any) => sel.value).filter((v: string) => v && v !== '')
+          console.log('📝 [SAVE] Reasoning Apply For values:', rApplyForValuesSave)
 
           const base:any = {
 
-            applyFor: (document.getElementById('R-apply') as HTMLSelectElement)?.value || '__any__',
+            applyFor: rApplyForValuesSave.length > 0 ? rApplyForValuesSave[0] : '__any__',
+            applyForList: rApplyForValuesSave.length > 0 ? rApplyForValuesSave : ['__any__'],
 
             goals: (document.getElementById('R-goals') as HTMLTextAreaElement)?.value || '',
 
@@ -16960,10 +20429,27 @@ function initializeExtension() {
             custom: [],
 
             acceptFrom: accepts,
-
-            reportTo: reportTo
+            
+            reasoningWorkflows: []
 
           }
+          
+          // Collect Reasoning Workflows for main section
+          document.querySelectorAll('#R-reasoning-workflows .reasoning-workflow-row').forEach((wfRow: any) => {
+            const wfType = wfRow.querySelector('.r-workflow-type-radio:checked')?.value || 'internal'
+            const wfId = wfRow.querySelector('.r-workflow-id')?.value || ''
+            const conditions: any[] = []
+            wfRow.querySelectorAll('.r-workflow-cond-row').forEach((condRow: any) => {
+              conditions.push({
+                field: condRow.querySelector('.r-wcond-field')?.value || '',
+                op: condRow.querySelector('.r-wcond-op')?.value || 'eq',
+                value: condRow.querySelector('.r-wcond-value')?.value || '',
+                action: condRow.querySelector('.r-wcond-action')?.value || 'continue',
+                routeId: condRow.querySelector('.r-wcond-route-id')?.value || ''
+              })
+            })
+            base.reasoningWorkflows.push({ type: wfType, workflowId: wfId, conditions })
+          })
 
           document.querySelectorAll('#R-custom-list > div').forEach((row:any)=>{
 
@@ -16992,24 +20478,33 @@ function initializeExtension() {
             }).filter((v:string) => v)
 
             
+            // Collect ALL Apply For values from the section's list
+            const sectionApplyForList = Array.from(sec.querySelectorAll('.R-apply-list-sub select')).map((sel: any) => sel.value).filter((v: string) => v && v !== '')
+            console.log('📝 [SAVE] Additional R-section Apply For values:', sectionApplyForList)
 
-            // Collect reportTo for this section
-
-            const sectionReportTo = Array.from(sec.querySelectorAll('.R-report-list-sub .rep-row')).map((row:any)=> {
-
-              const kindSel = row.querySelector('.route-kind') as HTMLSelectElement
-
-              const specSel = row.querySelector('.route-specific') as HTMLSelectElement
-
-              return kindSel && specSel ? `${kindSel.value}:${specSel.value}` : ''
-
-            }).filter((v:string) => v)
-
-            
+            // Collect Reasoning Workflows for additional section
+            const sectionWorkflows: any[] = []
+            sec.querySelectorAll('.R-workflows-sub .reasoning-workflow-row').forEach((wfRow: any) => {
+              const wfType = wfRow.querySelector('.r-workflow-type-radio:checked')?.value || 'internal'
+              const wfId = wfRow.querySelector('.r-workflow-id')?.value || ''
+              const conditions: any[] = []
+              wfRow.querySelectorAll('.r-workflow-cond-row').forEach((condRow: any) => {
+                conditions.push({
+                  field: condRow.querySelector('.r-wcond-field')?.value || '',
+                  op: condRow.querySelector('.r-wcond-op')?.value || 'eq',
+                  value: condRow.querySelector('.r-wcond-value')?.value || '',
+                  action: condRow.querySelector('.r-wcond-action')?.value || 'continue',
+                  routeId: condRow.querySelector('.r-wcond-route-id')?.value || ''
+                })
+              })
+              sectionWorkflows.push({ type: wfType, workflowId: wfId, conditions })
+            })
+            console.log(`🔍 [SAVE] Additional R-section: Found ${sectionWorkflows.length} reasoning workflow rows`)
 
             const s:any = {
 
-              applyFor: (sec.querySelector('.R-apply') as HTMLSelectElement)?.value || '__any__',
+              applyFor: sectionApplyForList.length > 0 ? sectionApplyForList[0] : '__any__',
+              applyForList: sectionApplyForList.length > 0 ? sectionApplyForList : ['__any__'],
 
               goals: (sec.querySelector('.R-goals') as HTMLTextAreaElement)?.value || '',
 
@@ -17020,8 +20515,8 @@ function initializeExtension() {
               custom: [],
 
               acceptFrom: sectionAccepts,
-
-              reportTo: sectionReportTo
+              
+              reasoningWorkflows: sectionWorkflows
 
             }
 
@@ -17039,7 +20534,7 @@ function initializeExtension() {
 
           })
 
-          draft.reasoning = { acceptFrom: accepts, reportTo: reportTo, goals: base.goals, role: base.role, rules: base.rules, custom: base.custom, applyFor: base.applyFor }
+          draft.reasoning = { acceptFrom: accepts, goals: base.goals, role: base.role, rules: base.rules, custom: base.custom, applyFor: base.applyFor }
 
           ;(draft as any).reasoningSections = sections
 
@@ -17059,8 +20554,6 @@ function initializeExtension() {
 
             acceptFromCount: accepts.length,
 
-            reportToCount: base.reportTo.length,
-
             sectionsCount: sections.length
 
           })
@@ -17073,31 +20566,68 @@ function initializeExtension() {
 
         if (executionSection) {
 
-          // Accept From list - format as "kind:specific"
-
-          const eAccepts:string[] = Array.from(document.querySelectorAll('#E-accept-list .acc-row')).map((row:any) => {
-
-            const kindSel = row.querySelector('.route-kind') as HTMLSelectElement
-
-            const specSel = row.querySelector('.route-specific') as HTMLSelectElement
-
-            return kindSel && specSel ? `${kindSel.value}:${specSel.value}` : ''
-
-          }).filter((v:string) => v)
-
+          // Accept From list removed from Execution section
+          const eAccepts:string[] = []
           
-
-          // Workflows list
-
-          const eWfs:string[] = Array.from(document.querySelectorAll('#E-workflow-list .wf-row .wf-target')).map((n:any)=> n.value).filter((v:string) => v)
+          // Collect execution workflows with new format (type, workflowId, conditions)
+          const eWorkflowsSave: any[] = []
+          document.querySelectorAll('#E-workflow-list .exec-workflow-row').forEach((wfRow: any) => {
+            const wfType = wfRow.querySelector('.e-workflow-type-radio:checked')?.value || 'internal'
+            const wfId = wfRow.querySelector('.e-workflow-id')?.value || ''
+            const conditions: any[] = []
+            wfRow.querySelectorAll('.e-workflow-cond-row').forEach((condRow: any) => {
+              conditions.push({
+                field: condRow.querySelector('.e-wcond-field')?.value || '',
+                op: condRow.querySelector('.e-wcond-op')?.value || 'eq',
+                value: condRow.querySelector('.e-wcond-value')?.value || '',
+                action: condRow.querySelector('.e-wcond-action')?.value || 'continue',
+                routeId: condRow.querySelector('.e-wcond-route-id')?.value || ''
+              })
+            })
+            eWorkflowsSave.push({ type: wfType, workflowId: wfId, conditions })
+          })
+          console.log(`🔍 [SAVE] Execution: Found ${eWorkflowsSave.length} execution workflow rows`)
+          
+          // Legacy format for backward compatibility
+          const eWfs:string[] = eWorkflowsSave.map(w => w.workflowId).filter(v => v)
 
           const eKindsMain = Array.from(document.querySelectorAll('#E-special-list .esp-row .esp-kind')) as HTMLSelectElement[]
 
           const eDestinationsMain = eKindsMain.map(sel => {
 
-            const agents = Array.from(sel.parentElement?.querySelectorAll('.esp-agents .E-agent') || []).filter((cb:any)=> cb.checked).map((cb:any)=> cb.value)
+            const row = sel.parentElement
 
-            return { kind: sel.value, agents: sel.value==='agent' ? agents : [] }
+            let agents: string[] = []
+
+            
+
+            if (sel.value === 'agentBox') {
+
+              // Get selected agent box from follow-up select
+
+              const boxSel = row?.querySelector('.esp-followup select') as HTMLSelectElement | null
+
+              if (boxSel?.value) {
+
+                agents = [boxSel.value]
+
+              }
+
+            } else if (sel.value === 'agent') {
+
+              // Get selected agent from follow-up select
+
+              const agentSel = row?.querySelector('.esp-followup select') as HTMLSelectElement | null
+
+              if (agentSel?.value) {
+
+                agents = [agentSel.value]
+
+              }
+
+            }
+
+            return { kind: sel.value, agents }
 
           })
 
@@ -17105,27 +20635,33 @@ function initializeExtension() {
 
           document.querySelectorAll('#E-sections-extra .E-section').forEach((sec:any)=>{
 
-            const applyFor = (sec.querySelector('.E-apply-sub') as HTMLSelectElement)?.value || '__any__'
+            // Collect ALL Apply For values from the section's list
+            const sectionApplyForList = Array.from(sec.querySelectorAll('.E-apply-list-sub select')).map((sel: any) => sel.value).filter((v: string) => v && v !== '')
+            console.log('📝 [SAVE] Additional E-section Apply For values:', sectionApplyForList)
 
+            // Collect workflows with new format for additional sections
+            const sectionWorkflowsSave: any[] = []
+            sec.querySelectorAll('.E-workflow-list-sub .exec-workflow-row').forEach((wfRow: any) => {
+              const wfType = wfRow.querySelector('.e-workflow-type-radio:checked')?.value || 'internal'
+              const wfId = wfRow.querySelector('.e-workflow-id')?.value || ''
+              const conditions: any[] = []
+              wfRow.querySelectorAll('.e-workflow-cond-row').forEach((condRow: any) => {
+                conditions.push({
+                  field: condRow.querySelector('.e-wcond-field')?.value || '',
+                  op: condRow.querySelector('.e-wcond-op')?.value || 'eq',
+                  value: condRow.querySelector('.e-wcond-value')?.value || '',
+                  action: condRow.querySelector('.e-wcond-action')?.value || 'continue',
+                  routeId: condRow.querySelector('.e-wcond-route-id')?.value || ''
+                })
+              })
+              sectionWorkflowsSave.push({ type: wfType, workflowId: wfId, conditions })
+            })
             
+            // Legacy format for backward compatibility
+            const workflows = sectionWorkflowsSave.map(w => w.workflowId).filter(v => v)
 
-            // Collect workflows for this section
-
-            const workflows = Array.from(sec.querySelectorAll('.E-wf-sub .wf-row .wf-target')).map((n:any)=> n.value).filter((v:string) => v)
-
-            
-
-            // Collect acceptFrom for this section
-
-            const acceptFrom = Array.from(sec.querySelectorAll('.E-acc-sub .acc-row')).map((row:any) => {
-
-              const kindSel = row.querySelector('.route-kind') as HTMLSelectElement
-
-              const specSel = row.querySelector('.route-specific') as HTMLSelectElement
-
-              return kindSel && specSel ? `${kindSel.value}:${specSel.value}` : ''
-
-            }).filter((v:string) => v)
+            // acceptFrom section removed from Execution
+            const acceptFrom: string[] = []
 
             
 
@@ -17135,25 +20671,56 @@ function initializeExtension() {
 
             const dests = kinds.map(sel => {
 
-              const agents = Array.from(sel.parentElement?.querySelectorAll('.esp-agents .E-agent') || []).filter((cb:any)=> cb.checked).map((cb:any)=> cb.value)
+              const row = sel.parentElement
 
-              return { kind: sel.value, agents: sel.value==='agent' ? agents : [] }
+              let agents: string[] = []
+
+              
+
+              if (sel.value === 'agentBox') {
+
+                const boxSel = row?.querySelector('.esp-followup select') as HTMLSelectElement | null
+
+                if (boxSel?.value) agents = [boxSel.value]
+
+              } else if (sel.value === 'agent') {
+
+                const agentSel = row?.querySelector('.esp-followup select') as HTMLSelectElement | null
+
+                if (agentSel?.value) agents = [agentSel.value]
+
+              }
+
+              return { kind: sel.value, agents }
 
             })
 
             
 
-            eSections.push({ applyFor, workflows, acceptFrom, specialDestinations: dests })
+            eSections.push({ 
+              applyFor: sectionApplyForList.length > 0 ? sectionApplyForList[0] : '__any__',
+              applyForList: sectionApplyForList.length > 0 ? sectionApplyForList : ['__any__'],
+              workflows, 
+              executionWorkflows: sectionWorkflowsSave,
+              acceptFrom, 
+              specialDestinations: dests 
+            })
 
           })
+
+          // Collect all Apply For values from the list (get all selects inside the list)
+          const eApplyForValuesSave = Array.from(document.querySelectorAll('#E-apply-list select')).map((sel: any) => sel.value).filter((v: string) => v && v !== '')
+          console.log('📝 [SAVE] Execution Apply For values:', eApplyForValuesSave)
 
           draft.execution = {
 
             acceptFrom: eAccepts,
 
             workflows: eWfs,
+            executionWorkflows: eWorkflowsSave,
 
-            applyFor: (document.getElementById('E-apply') as HTMLSelectElement)?.value || '__any__',
+            applyFor: eApplyForValuesSave.length > 0 ? eApplyForValuesSave[0] : '__any__',
+            applyForList: eApplyForValuesSave.length > 0 ? eApplyForValuesSave : ['__any__'],
 
             specialDestinations: eDestinationsMain,
 
@@ -17585,7 +21152,7 @@ function initializeExtension() {
 
           console.log(`  📝 Expected Context: "${parsedData.listening?.expectedContext?.substring(0, 50) || '(empty)'}${parsedData.listening?.expectedContext?.length > 50 ? '...' : ''}"`)
 
-          console.log(`  🎯 Listen on (type): "${parsedData.listening?.source || '(empty)'}"`)
+          console.log(`  🎯 Trigger Sources: ${JSON.stringify(parsedData.listening?.sources || [])}`)
 
           console.log(`  🌐 Website: "${parsedData.listening?.website || '(empty)'}"`)
 
@@ -17630,6 +21197,16 @@ function initializeExtension() {
           console.log(`  🔧 E-Workflows: ${parsedData.execution?.workflows?.length || 0}`)
 
           console.log(`  ⚡ E-Special Destinations: ${parsedData.execution?.specialDestinations?.length || 0}`)
+          
+          console.log(`  📦 E-Apply For: ${parsedData.execution?.applyFor || '__any__'}`)
+          
+          console.log(`  📚 Execution Sections: ${parsedData.execution?.executionSections?.length || 0} section(s)`)
+          
+          if (parsedData.execution?.executionSections?.length > 0) {
+            parsedData.execution.executionSections.forEach((section: any, idx: number) => {
+              console.log(`     E-Section ${idx + 1}: applyFor="${section.applyFor}", workflows=${section.workflows?.length || 0}, reportTo=${section.specialDestinations?.length || 0}`)
+            })
+          }
 
         }
 
@@ -18047,22 +21624,6 @@ function initializeExtension() {
 
     
 
-    const updateWebsiteVisibility = () => {
-
-      const srcSel = configOverlay.querySelector('#L-source') as HTMLSelectElement | null
-
-      const websiteWrap = configOverlay.querySelector('#L-website-wrap') as HTMLElement | null
-
-      if (srcSel && websiteWrap) {
-
-        websiteWrap.style.display = srcSel.value === 'website' ? 'block' : 'none'
-
-      }
-
-    }
-
-    
-
     // Delegated listeners for broader compatibility
 
     configOverlay.addEventListener('input', (ev) => {
@@ -18076,10 +21637,6 @@ function initializeExtension() {
       if (id === 'cap-listening' || id === 'cap-reasoning' || id === 'cap-execution') {
 
         updateBoxes()
-
-      } else if (id === 'L-source') {
-
-        updateWebsiteVisibility()
 
       }
 
@@ -18098,12 +21655,6 @@ function initializeExtension() {
       if (input) {
 
         setTimeout(() => updateBoxes(), 0)
-
-      }
-
-      if ((el as HTMLElement).id === 'L-source') {
-
-        setTimeout(() => updateWebsiteVisibility(), 0)
 
       }
 
@@ -21056,7 +24607,7 @@ ${pageText}
 
 
 
-  // Simple screen selection overlay with controls (Screenshot | Stream | [ ] Create Tagged Trigger)
+  // Simple screen selection overlay with controls (Screenshot | Stream | [ ] Create Action Trigger)
 
   function beginScreenSelect(messagesEl: HTMLElement, preset?: { rect: CaptureRect, mode: 'screenshot'|'stream' }){
 
@@ -29524,6 +33075,22 @@ ${pageText}
                 renderAgentBoxes()
 
                 
+                // CRITICAL: Notify sidepanel of restored agent boxes
+                chrome.runtime.sendMessage({ 
+                  type: 'UPDATE_AGENT_BOXES', 
+                  data: currentTabData.agentBoxes || []
+                })
+                
+                // Also send full session data update
+                chrome.runtime.sendMessage({
+                  type: 'UPDATE_SESSION_DATA',
+                  data: {
+                    sessionName: currentTabData.tabName,
+                    sessionKey: sessionId,
+                    isLocked: currentTabData.isLocked,
+                    agentBoxes: currentTabData.agentBoxes || []
+                  }
+                })
 
                 // CRITICAL: Re-render agents grid to show agents from restored session
 
@@ -31513,43 +35080,69 @@ ${pageText}
       
       agents.forEach((agentConfig) => {
         const agentName = agentConfig.name;
-        if (!agentName) {
-          console.warn('[restoreAgentConfigs] Skipping agent with no name:', agentConfig);
+        const agentKey = agentConfig.key;
+        if (!agentName && !agentKey) {
+          console.warn('[restoreAgentConfigs] Skipping agent with no name or key:', agentConfig);
           return;
         }
 
+        const identifier = agentName || agentKey;
+
         // Restore model config
         if (agentConfig.model) {
-          localStorage.setItem(`agent_model_v2_${agentName}`, JSON.stringify(agentConfig.model));
+          localStorage.setItem(`agent_model_v2_${identifier}`, JSON.stringify(agentConfig.model));
         }
 
         // Restore other properties (only if they have a value)
         if (agentConfig.context) {
-          localStorage.setItem(`agent_${agentName}_context`, agentConfig.context);
+          localStorage.setItem(`agent_${identifier}_context`, agentConfig.context);
         }
         if (agentConfig.memory) {
-          localStorage.setItem(`agent_${agentName}_memory`, agentConfig.memory);
+          localStorage.setItem(`agent_${identifier}_memory`, agentConfig.memory);
         }
         if (agentConfig.source) {
-          localStorage.setItem(`agent_${agentName}_source`, agentConfig.source);
+          localStorage.setItem(`agent_${identifier}_source`, agentConfig.source);
         }
         if (agentConfig.persist) {
-          localStorage.setItem(`agent_${agentName}_persist`, agentConfig.persist);
+          localStorage.setItem(`agent_${identifier}_persist`, agentConfig.persist);
         }
         if (agentConfig.priority) {
-          localStorage.setItem(`agent_${agentName}_priority`, agentConfig.priority);
+          localStorage.setItem(`agent_${identifier}_priority`, agentConfig.priority);
         }
         if (agentConfig.autostart) {
-          localStorage.setItem(`agent_${agentName}_autostart`, agentConfig.autostart);
+          localStorage.setItem(`agent_${identifier}_autostart`, agentConfig.autostart);
         }
         if (agentConfig.autorespond) {
-          localStorage.setItem(`agent_${agentName}_autorespond`, agentConfig.autorespond);
+          localStorage.setItem(`agent_${identifier}_autorespond`, agentConfig.autorespond);
         }
         if (agentConfig.delay) {
-          localStorage.setItem(`agent_${agentName}_delay`, agentConfig.delay);
+          localStorage.setItem(`agent_${identifier}_delay`, agentConfig.delay);
+        }
+        
+        // 🔥 CRITICAL: Restore the full config object including instructions
+        // This contains triggers, reasoning rules, execution settings, etc.
+        if (agentConfig.config) {
+          console.log(`[restoreAgentConfigs] Agent "${identifier}" has config:`, Object.keys(agentConfig.config));
+          
+          // Store full config object
+          if (agentConfig.config.instructions) {
+            const instructionsData = typeof agentConfig.config.instructions === 'string' 
+              ? agentConfig.config.instructions 
+              : JSON.stringify(agentConfig.config.instructions);
+            localStorage.setItem(`agent_${identifier}_instructions`, instructionsData);
+            console.log(`[restoreAgentConfigs] ✅ Restored instructions for "${identifier}" (${instructionsData.length} chars)`);
+          }
+          
+          // Store complete config object for safety
+          localStorage.setItem(`agent_${identifier}_full_config`, JSON.stringify(agentConfig.config));
         }
 
-        console.log(`[restoreAgentConfigs] Restored agent: ${agentName}`);
+        console.log(`[restoreAgentConfigs] Restored agent: ${identifier}`, {
+          hasConfig: !!agentConfig.config,
+          hasInstructions: !!agentConfig.config?.instructions,
+          enabled: agentConfig.enabled,
+          number: agentConfig.number
+        });
       });
 
       console.log('[restoreAgentConfigs] ✅ All agents restored successfully');
@@ -33793,22 +37386,70 @@ ${pageText}
 
       container.innerHTML = `
 
-        <div id=\"ccd-header\" style=\"display:flex; align-items:center; justify-content:space-between; padding:6px 8px; background:${hdr}; border-bottom:1px solid ${br};\">\n            <div style=\"display:flex; align-items:center; gap:8px; color:${theme==='professional'?'#0f172a':'white'}\">\n            <div style=\"font-size:12px; font-weight:700;\">💬 Command Chat</div>\n            <div style=\"display:flex; gap:6px; align-items:center;\">\n              <button id=\"ccd-bucket\" title=\"Context Bucket: Embed context directly into the session\" style=\"height:28px;background:${theme==='professional'?'#e2e8f0':'rgba(255,255,255,0.08)'}; border:1px solid ${br}; color:#ef4444; border-radius:6px; padding:0 8px; font-size:12px; cursor:pointer; display:flex;align-items:center;justify-content:center;\">🪣</button>\n              <button id=\"ccd-lm-one\" title=\"LmGTFY - Capture a screen area as screenshot or stream and send it to your pre-defined automation tasks.\" style=\"background:${theme==='professional'?'#e2e8f0':'rgba(255,255,255,0.15)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; padding:2px 6px; font-size:12px; cursor:pointer;\">✎</button>\n            </div>\n          </div>\n          <div style=\"display:flex; gap:6px; align-items:center;\">\n            <button id=\"ccd-undock\" title=\"Undock from sidepanel\" style=\"background:${theme==='professional'?'#e2e8f0':'rgba(255,255,255,0.15)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; padding:4px 6px; font-size:10px; cursor:pointer;\">↗</button>\n          </div>\n        </div>
+        <div id="ccd-header" style="display:flex; align-items:center; justify-content:space-between; padding:6px 8px; background:${hdr}; border-bottom:1px solid ${br};">
+          <div style="display:flex; align-items:center; gap:8px; color:${theme==='professional'?'#0f172a':'white'}; flex:1; min-width:0;">
+            <select id="ccd-mode-select" style="font-size:11px; font-weight:600; height:28px; flex-shrink:0; background:${theme==='professional'?'rgba(15,23,42,0.08)':'rgba(255,255,255,0.15)'}; border:1px solid ${br}; color:${theme==='professional'?'#0f172a':'inherit'}; border-radius:6px; padding:0 22px 0 8px; cursor:pointer; outline:none; appearance:none; -webkit-appearance:none; background-image:url(&quot;data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 12 12'%3E%3Cpath fill='${theme==='professional'?'%230f172a':'%23ffffff'}' d='M3 4.5L6 7.5L9 4.5'/%3E%3C/svg%3E&quot;); background-repeat:no-repeat; background-position:right 6px center;">
+              <option value="command-chat" style="background:#1e293b; color:white;">💬 WR Chat</option>
+              <option value="mailguard" style="background:#1e293b; color:white;">🛡️ WR MailGuard</option>
+            </select>
+            <div id="ccd-chat-controls" style="display:flex; gap:6px; align-items:center;">
+              <button id="ccd-bucket" title="Context Bucket: Embed context directly into the session" style="height:28px; min-width:28px; background:${theme==='professional'?'#e2e8f0':'rgba(255,255,255,0.08)'}; border:1px solid ${br}; color:#ef4444; border-radius:6px; padding:0 8px; font-size:13px; cursor:pointer; display:flex;align-items:center;justify-content:center;">🪣</button>
+              <button id="ccd-lm-one" title="LmGTFY - Capture a screen area as screenshot or stream and send it to your pre-defined automation tasks." style="height:28px; min-width:28px; background:${theme==='professional'?'#e2e8f0':'rgba(255,255,255,0.15)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; padding:0 8px; font-size:13px; cursor:pointer; display:flex;align-items:center;justify-content:center;">✎</button>
+            </div>
+          </div>
+          <div style="display:flex; gap:6px; align-items:center; flex-shrink:0;">
+            <button id="ccd-undock" title="Undock from sidepanel" style="background:${theme==='professional'?'#e2e8f0':'rgba(255,255,255,0.15)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; padding:4px 6px; font-size:10px; cursor:pointer;">↗</button>
+          </div>
+        </div>
 
-        <div id="ccd-messages" style="height:160px; overflow:auto; display:flex; flex-direction:column; gap:6px; background:${theme==='professional'?'#f8fafc':'rgba(255,255,255,0.06)'}; border-left:0; border-right:0; border-top:0; border-bottom:1px solid ${br}; padding:8px;"></div>
+        <!-- Command Chat View -->
+        <div id="ccd-chat-view">
+          <div id="ccd-messages" style="height:160px; overflow:auto; display:flex; flex-direction:column; gap:6px; background:${theme==='professional'?'#f8fafc':'rgba(255,255,255,0.06)'}; border-left:0; border-right:0; border-top:0; padding:8px;"></div>
+          <div id="ccd-resize-handle" style="height:5px; background:${theme==='professional'?'#e2e8f0':'rgba(255,255,255,0.15)'}; cursor:ns-resize; border-top:1px solid ${br}; border-bottom:1px solid ${br};"></div>
+          <div id="ccd-compose" style="display:grid; grid-template-columns:1fr 36px 68px; gap:6px; align-items:center; padding:8px;">
+            <textarea id="ccd-input" placeholder="Type..." style="box-sizing:border-box; height:36px; resize:vertical; background:${theme==='professional'?'#ffffff':'rgba(255,255,255,0.08)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; padding:8px; font-size:12px;"></textarea>
+            <input id="ccd-file" type="file" multiple style="display:none" />
+            <button id="ccd-attach" title="Attach" style="height:36px; background:${theme==='professional'?'#e2e8f0':'rgba(255,255,255,0.15)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; cursor:pointer;">📎</button>
+            <button id="ccd-send" class="send-btn">Send</button>
+          </div>
+        </div>
 
-        <div id="ccd-compose" style="display:grid; grid-template-columns:1fr 36px 36px 68px; gap:6px; align-items:center; padding:8px;">
-
-          <textarea id="ccd-input" placeholder="Type..." style="box-sizing:border-box; height:36px; resize:vertical; background:${theme==='professional'?'#ffffff':'rgba(255,255,255,0.08)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; padding:8px; font-size:12px;"></textarea>
-
-          <input id="ccd-file" type="file" multiple style="display:none" />
-
-          <button id="ccd-attach" title="Attach" style="height:36px; background:${theme==='professional'?'#e2e8f0':'rgba(255,255,255,0.15)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; cursor:pointer;">📎</button>
-
-          <button id="ccd-mic" title="Voice" style="height:36px; background:${theme==='professional'?'#e2e8f0':'rgba(255,255,255,0.15)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; cursor:pointer;">🎙️</button>
-
-          <button id="ccd-send" class="send-btn">Send</button>
-
+        <!-- MailGuard View -->
+        <div id="ccd-mailguard-view" style="display:none; flex-direction:column; background:${theme==='professional'?'#f8fafc':'rgba(255,255,255,0.04)'};">
+          <style>
+            #ccd-mg-to::placeholder, #ccd-mg-subject::placeholder, #ccd-mg-body::placeholder {
+              color: ${theme==='professional'?'#64748b':'rgba(255,255,255,0.5)'};
+              opacity: 1;
+            }
+          </style>
+          <div id="ccd-mailguard-hint" style="padding:12px 14px; font-size:12px; opacity:0.7; font-style:italic; border-bottom:1px solid ${br}; background:${theme==='professional'?'rgba(168,85,247,0.08)':'rgba(168,85,247,0.15)'}; display:flex; align-items:center; gap:8px;">
+            <span style="font-size:16px;">✉️</span>
+            Compose verified WRGuard-stamped emails with built-in automation.
+          </div>
+          <div style="padding:12px; display:flex; flex-direction:column; gap:10px;">
+            <div style="display:flex; align-items:center; gap:10px;">
+              <label style="font-size:12px; font-weight:600; opacity:0.7; min-width:50px;">To:</label>
+              <input type="email" id="ccd-mg-to" placeholder="recipient@example.com" style="flex:1; background:${theme==='professional'?'#ffffff':'rgba(255,255,255,0.08)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; padding:8px 10px; font-size:13px; outline:none;" />
+            </div>
+            <div style="display:flex; align-items:center; gap:10px;">
+              <label style="font-size:12px; font-weight:600; opacity:0.7; min-width:50px;">Subject:</label>
+              <input type="text" id="ccd-mg-subject" placeholder="Email subject" style="flex:1; background:${theme==='professional'?'#ffffff':'rgba(255,255,255,0.08)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; padding:8px 10px; font-size:13px; outline:none;" />
+            </div>
+            <textarea id="ccd-mg-body" placeholder="Compose your email message here..." style="background:${theme==='professional'?'#ffffff':'rgba(255,255,255,0.06)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; padding:10px 12px; font-size:13px; min-height:120px; height:120px; resize:none; font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; line-height:1.5; outline:none;"></textarea>
+            <div id="ccd-mg-resize" style="height:12px; background:${theme==='professional'?'linear-gradient(180deg, #e2e8f0 0%, #cbd5e1 100%)':'linear-gradient(180deg, rgba(255,255,255,0.2) 0%, rgba(255,255,255,0.1) 100%)'}; cursor:ns-resize; border-radius:6px; margin:8px 0; display:flex; align-items:center; justify-content:center; border:1px solid ${theme==='professional'?'rgba(15,23,42,0.1)':'rgba(255,255,255,0.15)'};" title="Drag to resize editor height"><div style="width:40px; height:4px; background:${theme==='professional'?'#94a3b8':'rgba(255,255,255,0.4)'}; border-radius:2px;"></div></div>
+            <div style="display:flex; align-items:center; justify-content:space-between;">
+              <span style="font-size:11px; font-weight:600; opacity:0.7; display:flex; align-items:center; gap:4px;">
+                <span>📎</span> Attachments <span style="font-size:10px; opacity:0.6; font-weight:400;">(WR Stamped PDFs)</span>
+              </span>
+              <input id="ccd-mg-file" type="file" accept=".pdf" multiple style="display:none" />
+              <button id="ccd-mg-add-pdf" style="background:${theme==='professional'?'#e2e8f0':'rgba(255,255,255,0.12)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; padding:6px 10px; font-size:11px; cursor:pointer;">+ Add PDF</button>
+            </div>
+            <div id="ccd-mg-attachments" style="min-height:20px;"></div>
+          </div>
+          <div style="padding:10px 12px; border-top:1px solid ${br}; display:flex; justify-content:space-between; align-items:center; background:${theme==='professional'?'#f1f5f9':'rgba(0,0,0,0.15)'};">
+            <button id="ccd-mg-discard" style="background:transparent; border:none; color:${theme==='professional'?'#64748b':'rgba(255,255,255,0.6)'}; padding:6px 10px; font-size:12px; cursor:pointer; text-decoration:underline;">Discard</button>
+            <button id="ccd-mg-send" style="background:#a855f7; border:none; color:white; border-radius:6px; padding:10px 20px; font-size:13px; font-weight:600; cursor:pointer; display:flex; align-items:center; gap:6px;">Send <span style="font-size:14px;">→</span></button>
+          </div>
         </div>
 
       `
@@ -33864,6 +37505,188 @@ ${pageText}
       file.addEventListener('change', ()=>{ const n=(file.files||[]).length; if(n) addRow('user', `Uploaded ${n} file(s).`) })
 
       undock.addEventListener('click', ()=>{ undockCommandChat() })
+
+      // Resize handle for docked chat messages area
+      const ccdResizeHandle = container.querySelector('#ccd-resize-handle') as HTMLElement | null
+      if (ccdResizeHandle && msgs) {
+        let ccdIsResizing = false
+        let ccdStartY = 0
+        let ccdStartH = 0
+        
+        ccdResizeHandle.addEventListener('mousedown', (e: MouseEvent) => {
+          e.preventDefault()
+          ccdIsResizing = true
+          ccdStartY = e.clientY
+          ccdStartH = msgs.offsetHeight
+          document.addEventListener('mousemove', ccdDoResize)
+          document.addEventListener('mouseup', ccdStopResize)
+        })
+        
+        function ccdDoResize(e: MouseEvent) {
+          if (!ccdIsResizing) return
+          const dy = e.clientY - ccdStartY
+          const newH = Math.max(80, Math.min(400, ccdStartH + dy))
+          msgs.style.height = newH + 'px'
+        }
+        
+        function ccdStopResize() {
+          ccdIsResizing = false
+          document.removeEventListener('mousemove', ccdDoResize)
+          document.removeEventListener('mouseup', ccdStopResize)
+        }
+      }
+
+      // Mode switching between Command Chat and MailGuard (docked)
+      const ccdModeSelect = container.querySelector('#ccd-mode-select') as HTMLSelectElement | null
+      const ccdChatView = container.querySelector('#ccd-chat-view') as HTMLElement | null
+      const ccdMailguardView = container.querySelector('#ccd-mailguard-view') as HTMLElement | null
+      const ccdChatControls = container.querySelector('#ccd-chat-controls') as HTMLElement | null
+      
+      // Docked MailGuard state
+      let ccdMgAttachments: Array<{name: string, size: number}> = []
+      
+      function ccdUpdateMgHint() {
+        const hint = container.querySelector('#ccd-mailguard-hint') as HTMLElement | null
+        const to = (container.querySelector('#ccd-mg-to') as HTMLInputElement)?.value || ''
+        const subject = (container.querySelector('#ccd-mg-subject') as HTMLInputElement)?.value || ''
+        const body = (container.querySelector('#ccd-mg-body') as HTMLTextAreaElement)?.value || ''
+        if (hint) {
+          hint.style.display = (!to && !subject && !body && ccdMgAttachments.length === 0) ? 'flex' : 'none'
+        }
+      }
+      
+      function ccdRenderMgAttachments() {
+        const attachContainer = container.querySelector('#ccd-mg-attachments') as HTMLElement | null
+        if (!attachContainer) return
+        if (ccdMgAttachments.length === 0) {
+          attachContainer.innerHTML = ''
+          return
+        }
+        attachContainer.innerHTML = ccdMgAttachments.map((att, idx) => `
+          <div style="display:inline-flex; align-items:center; gap:6px; padding:4px 8px; margin:2px; background:${theme==='professional'?'rgba(34,197,94,0.1)':'rgba(34,197,94,0.15)'}; border:1px solid rgba(34,197,94,0.3); border-radius:4px; font-size:11px;">
+            <span>📄</span>
+            <span style="max-width:100px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${att.name}</span>
+            <span style="opacity:0.5; font-size:10px;">(${Math.round(att.size/1024)} KB)</span>
+            <button data-idx="${idx}" class="ccd-mg-remove" style="background:transparent; border:none; color:${theme==='professional'?'#64748b':'rgba(255,255,255,0.5)'}; cursor:pointer; font-size:12px; padding:0 2px;">×</button>
+          </div>
+        `).join('')
+        attachContainer.querySelectorAll('.ccd-mg-remove').forEach(btn => {
+          btn.addEventListener('click', (e) => {
+            const idx = parseInt((e.target as HTMLElement).getAttribute('data-idx') || '0')
+            ccdMgAttachments = ccdMgAttachments.filter((_, i) => i !== idx)
+            ccdRenderMgAttachments()
+            ccdUpdateMgHint()
+          })
+        })
+      }
+      
+      if (ccdModeSelect && ccdChatView && ccdMailguardView) {
+        ccdModeSelect.addEventListener('change', () => {
+          const mode = ccdModeSelect.value
+          if (mode === 'command-chat') {
+            ccdChatView.style.display = 'block'
+            ccdMailguardView.style.display = 'none'
+            if (ccdChatControls) ccdChatControls.style.display = 'flex'
+          } else {
+            ccdChatView.style.display = 'none'
+            ccdMailguardView.style.display = 'flex'
+            if (ccdChatControls) ccdChatControls.style.display = 'none'
+            ccdUpdateMgHint()
+          }
+        })
+      }
+      
+      // Docked MailGuard file input
+      const ccdMgFileInput = container.querySelector('#ccd-mg-file') as HTMLInputElement | null
+      const ccdMgAddPdfBtn = container.querySelector('#ccd-mg-add-pdf') as HTMLButtonElement | null
+      if (ccdMgAddPdfBtn && ccdMgFileInput) {
+        ccdMgAddPdfBtn.addEventListener('click', () => ccdMgFileInput.click())
+        ccdMgFileInput.addEventListener('change', () => {
+          const files = Array.from(ccdMgFileInput.files || [])
+          const pdfFiles = files.filter(f => f.type === 'application/pdf')
+          if (pdfFiles.length !== files.length) {
+            console.warn('[WR MailGuard Docked] Only PDF files are allowed')
+          }
+          if (pdfFiles.length > 0) {
+            ccdMgAttachments = [...ccdMgAttachments, ...pdfFiles.map(f => ({ name: f.name, size: f.size }))]
+            ccdRenderMgAttachments()
+            ccdUpdateMgHint()
+          }
+          ccdMgFileInput.value = ''
+        })
+      }
+      
+      // Docked MailGuard input listeners for hint visibility
+      ;['#ccd-mg-to', '#ccd-mg-subject', '#ccd-mg-body'].forEach(sel => {
+        const el = container.querySelector(sel) as HTMLInputElement | HTMLTextAreaElement | null
+        if (el) el.addEventListener('input', ccdUpdateMgHint)
+      })
+      
+      // Docked MailGuard discard
+      const ccdMgDiscardBtn = container.querySelector('#ccd-mg-discard') as HTMLButtonElement | null
+      if (ccdMgDiscardBtn) {
+        ccdMgDiscardBtn.addEventListener('click', () => {
+          ;(container.querySelector('#ccd-mg-to') as HTMLInputElement).value = ''
+          ;(container.querySelector('#ccd-mg-subject') as HTMLInputElement).value = ''
+          ;(container.querySelector('#ccd-mg-body') as HTMLTextAreaElement).value = ''
+          ccdMgAttachments = []
+          ccdRenderMgAttachments()
+          ccdUpdateMgHint()
+        })
+      }
+      
+      // Docked MailGuard send
+      const ccdMgSendBtn = container.querySelector('#ccd-mg-send') as HTMLButtonElement | null
+      if (ccdMgSendBtn) {
+        ccdMgSendBtn.addEventListener('click', () => {
+          const to = (container.querySelector('#ccd-mg-to') as HTMLInputElement)?.value || ''
+          const subject = (container.querySelector('#ccd-mg-subject') as HTMLInputElement)?.value || ''
+          const body = (container.querySelector('#ccd-mg-body') as HTMLTextAreaElement)?.value || ''
+          if (!to.trim()) { alert('Please enter a recipient'); return }
+          if (!subject.trim()) { alert('Please enter a subject'); return }
+          if (ccdMgAttachments.length === 0) { alert('Attach at least one WR stamped PDF'); return }
+          console.log('[WR MailGuard Docked] Sending:', { to, subject, attachments: ccdMgAttachments.map(a => a.name) })
+          alert('Protected email queued!')
+          ;(container.querySelector('#ccd-mg-to') as HTMLInputElement).value = ''
+          ;(container.querySelector('#ccd-mg-subject') as HTMLInputElement).value = ''
+          ;(container.querySelector('#ccd-mg-body') as HTMLTextAreaElement).value = ''
+          ccdMgAttachments = []
+          ccdRenderMgAttachments()
+          ccdUpdateMgHint()
+        })
+      }
+      
+      // Docked MailGuard body textarea resize
+      const ccdMgResize = container.querySelector('#ccd-mg-resize') as HTMLElement | null
+      const ccdMgBody = container.querySelector('#ccd-mg-body') as HTMLTextAreaElement | null
+      if (ccdMgResize && ccdMgBody) {
+        let ccdMgIsResizing = false
+        let ccdMgStartY = 0
+        let ccdMgStartH = 0
+        
+        ccdMgResize.addEventListener('mousedown', (e: MouseEvent) => {
+          e.preventDefault()
+          ccdMgIsResizing = true
+          ccdMgStartY = e.clientY
+          ccdMgStartH = ccdMgBody.offsetHeight
+          document.addEventListener('mousemove', ccdMgDoResize)
+          document.addEventListener('mouseup', ccdMgStopResize)
+        })
+        
+        function ccdMgDoResize(e: MouseEvent) {
+          if (!ccdMgIsResizing) return
+          const dy = e.clientY - ccdMgStartY
+          const newH = Math.max(80, Math.min(400, ccdMgStartH + dy))
+          ccdMgBody.style.height = newH + 'px'
+          ccdMgBody.style.minHeight = newH + 'px'
+        }
+        
+        function ccdMgStopResize() {
+          ccdMgIsResizing = false
+          document.removeEventListener('mousemove', ccdMgDoResize)
+          document.removeEventListener('mouseup', ccdMgStopResize)
+        }
+      }
 
       // Mount context bucket (drag & drop + click-to-pick)
 
@@ -34235,7 +38058,7 @@ ${pageText}
 
       box.id = 'command-chat-float'
 
-      box.style.cssText = 'position:fixed; right:20px; bottom:20px; width:360px; z-index:2147483646; background:'+bg+'; color:'+fg+'; border:1px solid '+br+'; border-radius:10px; overflow:hidden; backdrop-filter: blur(6px); box-shadow: 0 8px 24px rgba(0,0,0,0.35);'
+      box.style.cssText = 'position:fixed; right:20px; bottom:20px; width:360px; min-width:280px; min-height:200px; z-index:2147483646; background:'+bg+'; color:'+fg+'; border:1px solid '+br+'; border-radius:10px; overflow:hidden; backdrop-filter: blur(6px); box-shadow: 0 8px 24px rgba(0,0,0,0.35);'
 
       box.innerHTML = `
 
@@ -34243,9 +38066,12 @@ ${pageText}
 
           <div style="display:flex; align-items:center; gap:8px; color:${theme==='professional'?'#0f172a':'white'}">
 
-            <div style="font-size:12px; font-weight:700;">💬 Command Chat</div>
+            <select id="ccf-mode-select" style="font-size:11px; font-weight:600; background:${theme==='professional'?'rgba(15,23,42,0.08)':'rgba(255,255,255,0.15)'}; border:1px solid ${br}; color:${theme==='professional'?'#0f172a':'inherit'}; border-radius:5px; padding:4px 20px 4px 6px; cursor:pointer; outline:none; appearance:none; -webkit-appearance:none; background-image:url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 12 12'%3E%3Cpath fill='${theme==='professional'?'%230f172a':'%23ffffff'}' d='M3 4.5L6 7.5L9 4.5'/%3E%3C/svg%3E\"); background-repeat:no-repeat; background-position:right 5px center;">
+              <option value="command-chat" style="background:#1e293b; color:white;">💬 WR Chat</option>
+              <option value="mailguard" style="background:#1e293b; color:white;">🛡️ WR MailGuard</option>
+            </select>
 
-            <div style="display:flex; gap:6px; align-items:center;">
+            <div id="ccf-chat-controls" style="display:flex; gap:6px; align-items:center;">
 
               <button id="ccf-lm-one" title="LmGTFY - Capture a screen area as screenshot or stream and send it to your pre-defined automation tasks." style="background:${theme==='professional'?'#e2e8f0':'rgba(255,255,255,0.15)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; padding:2px 6px; font-size:12px; cursor:pointer;">✎</button>
 
@@ -34261,21 +38087,171 @@ ${pageText}
 
         </div>
 
-        
-
-        <div id="ccf-messages" style="height:160px; overflow:auto; display:flex; flex-direction:column; gap:6px; background:${theme==='professional'?'#f8fafc':'rgba(255,255,255,0.06)'}; border-left:0; border-right:0; border-top:0; border-bottom:1px solid ${br}; padding:8px;"></div>
-
-        <div id="ccf-compose" style="display:grid; grid-template-columns:1fr 68px; gap:6px; align-items:center; padding:8px;">
-
-          <textarea id="ccf-input" placeholder="Type..." style="box-sizing:border-box; height:36px; resize:vertical; background:${theme==='professional'?'#ffffff':'rgba(255,255,255,0.08)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; padding:8px; font-size:12px;"></textarea>
-
-          <button id="ccf-send" class="send-btn">Send</button>
-
+        <!-- Command Chat View -->
+        <div id="ccf-chat-view">
+          <div id="ccf-messages" style="height:160px; overflow:auto; display:flex; flex-direction:column; gap:6px; background:${theme==='professional'?'#f8fafc':'rgba(255,255,255,0.06)'}; border-left:0; border-right:0; border-top:0; border-bottom:1px solid ${br}; padding:8px;"></div>
+          <div id="ccf-compose" style="display:grid; grid-template-columns:1fr 68px; gap:6px; align-items:center; padding:8px;">
+            <textarea id="ccf-input" placeholder="Type..." style="box-sizing:border-box; height:36px; resize:vertical; background:${theme==='professional'?'#ffffff':'rgba(255,255,255,0.08)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; padding:8px; font-size:12px;"></textarea>
+            <button id="ccf-send" class="send-btn">Send</button>
+          </div>
         </div>
+
+        <!-- MailGuard View -->
+        <div id="ccf-mailguard-view" style="display:none; flex-direction:column; background:${theme==='professional'?'#f8fafc':'rgba(255,255,255,0.04)'};">
+          <div id="ccf-mailguard-hint" style="padding:12px 14px; font-size:12px; opacity:0.7; font-style:italic; border-bottom:1px solid ${br}; background:${theme==='professional'?'rgba(168,85,247,0.08)':'rgba(168,85,247,0.15)'}; display:flex; align-items:center; gap:8px;">
+            <span style="font-size:16px;">✉️</span>
+            Compose verified WRGuard-stamped emails with built-in automation.
+          </div>
+          <div style="padding:12px; display:flex; flex-direction:column; gap:10px;">
+            <div style="display:flex; align-items:center; gap:10px;">
+              <label style="font-size:12px; font-weight:600; opacity:0.7; min-width:50px;">To:</label>
+              <input type="email" id="ccf-mg-to" placeholder="recipient@example.com" style="flex:1; background:${theme==='professional'?'#ffffff':'rgba(255,255,255,0.08)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; padding:8px 10px; font-size:13px; outline:none;" />
+            </div>
+            <div style="display:flex; align-items:center; gap:10px;">
+              <label style="font-size:12px; font-weight:600; opacity:0.7; min-width:50px;">Subject:</label>
+              <input type="text" id="ccf-mg-subject" placeholder="Email subject" style="flex:1; background:${theme==='professional'?'#ffffff':'rgba(255,255,255,0.08)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; padding:8px 10px; font-size:13px; outline:none;" />
+            </div>
+            <textarea id="ccf-mg-body" placeholder="Compose your email message here..." style="background:${theme==='professional'?'#ffffff':'rgba(255,255,255,0.06)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; padding:10px 12px; font-size:13px; min-height:120px; resize:vertical; font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; line-height:1.5; outline:none;"></textarea>
+            <div style="display:flex; align-items:center; justify-content:space-between;">
+              <span style="font-size:11px; font-weight:600; opacity:0.7; display:flex; align-items:center; gap:4px;">
+                <span>📎</span> Attachments <span style="font-size:10px; opacity:0.6; font-weight:400;">(WR Stamped PDFs)</span>
+              </span>
+              <input id="ccf-mg-file" type="file" accept=".pdf" multiple style="display:none" />
+              <button id="ccf-mg-add-pdf" style="background:${theme==='professional'?'#e2e8f0':'rgba(255,255,255,0.12)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; padding:6px 10px; font-size:11px; cursor:pointer;">+ Add PDF</button>
+            </div>
+            <div id="ccf-mg-attachments" style="min-height:20px;"></div>
+          </div>
+          <div style="padding:10px 12px; border-top:1px solid ${br}; display:flex; justify-content:space-between; align-items:center; background:${theme==='professional'?'#f1f5f9':'rgba(0,0,0,0.15)'};">
+            <button id="ccf-mg-discard" style="background:transparent; border:none; color:${theme==='professional'?'#64748b':'rgba(255,255,255,0.6)'}; padding:6px 10px; font-size:12px; cursor:pointer; text-decoration:underline;">Discard</button>
+            <button id="ccf-mg-send" style="background:#a855f7; border:none; color:white; border-radius:6px; padding:10px 20px; font-size:13px; font-weight:600; cursor:pointer; display:flex; align-items:center; gap:6px;">Send <span style="font-size:14px;">→</span></button>
+          </div>
+        </div>
+
+        <!-- Resize Handles -->
+        <div id="ccf-resize-n" style="position:absolute; top:0; left:10px; right:10px; height:6px; cursor:ns-resize;"></div>
+        <div id="ccf-resize-s" style="position:absolute; bottom:0; left:10px; right:10px; height:6px; cursor:ns-resize;"></div>
+        <div id="ccf-resize-e" style="position:absolute; top:10px; bottom:10px; right:0; width:6px; cursor:ew-resize;"></div>
+        <div id="ccf-resize-w" style="position:absolute; top:10px; bottom:10px; left:0; width:6px; cursor:ew-resize;"></div>
+        <div id="ccf-resize-nw" style="position:absolute; top:0; left:0; width:12px; height:12px; cursor:nw-resize;"></div>
+        <div id="ccf-resize-ne" style="position:absolute; top:0; right:0; width:12px; height:12px; cursor:ne-resize;"></div>
+        <div id="ccf-resize-sw" style="position:absolute; bottom:0; left:0; width:12px; height:12px; cursor:sw-resize;"></div>
+        <div id="ccf-resize-se" style="position:absolute; bottom:0; right:0; width:12px; height:12px; cursor:se-resize;"></div>
 
       `
 
       document.body.appendChild(box)
+      
+      // Resize functionality for popup
+      let isResizing = false
+      let resizeDir = ''
+      let startX = 0, startY = 0, startW = 0, startH = 0, startL = 0, startT = 0
+      
+      function initResize(e: MouseEvent, dir: string) {
+        e.preventDefault()
+        isResizing = true
+        resizeDir = dir
+        startX = e.clientX
+        startY = e.clientY
+        const rect = box.getBoundingClientRect()
+        startW = rect.width
+        startH = rect.height
+        startL = rect.left
+        startT = rect.top
+        document.addEventListener('mousemove', doResize)
+        document.addEventListener('mouseup', stopResize)
+      }
+      
+      function doResize(e: MouseEvent) {
+        if (!isResizing) return
+        const dx = e.clientX - startX
+        const dy = e.clientY - startY
+        const minW = 280, minH = 200
+        
+        if (resizeDir.includes('e')) {
+          const newW = Math.max(minW, startW + dx)
+          box.style.width = newW + 'px'
+        }
+        if (resizeDir.includes('w')) {
+          const newW = Math.max(minW, startW - dx)
+          if (newW > minW || dx < 0) {
+            box.style.width = newW + 'px'
+            box.style.left = (startL + dx) + 'px'
+            box.style.right = 'auto'
+          }
+        }
+        if (resizeDir.includes('s')) {
+          const newH = Math.max(minH, startH + dy)
+          box.style.height = newH + 'px'
+        }
+        if (resizeDir.includes('n')) {
+          const newH = Math.max(minH, startH - dy)
+          if (newH > minH || dy < 0) {
+            box.style.height = newH + 'px'
+            box.style.top = (startT + dy) + 'px'
+            box.style.bottom = 'auto'
+          }
+        }
+        
+        // Update messages area height proportionally
+        const messagesEl = box.querySelector('#ccf-messages') as HTMLElement | null
+        if (messagesEl) {
+          const currentBoxH = box.getBoundingClientRect().height
+          const newMsgH = Math.max(80, currentBoxH - 120) // Leave room for header and compose
+          messagesEl.style.height = newMsgH + 'px'
+        }
+      }
+      
+      function stopResize() {
+        isResizing = false
+        resizeDir = ''
+        document.removeEventListener('mousemove', doResize)
+        document.removeEventListener('mouseup', stopResize)
+      }
+      
+      // Attach resize handlers
+      ;['n','s','e','w','nw','ne','sw','se'].forEach(dir => {
+        const handle = box.querySelector('#ccf-resize-' + dir) as HTMLElement | null
+        if (handle) {
+          handle.addEventListener('mousedown', (e: MouseEvent) => initResize(e, dir))
+        }
+      })
+      
+      // Make header draggable
+      const headerEl = box.querySelector('#ccf-header') as HTMLElement | null
+      if (headerEl) {
+        let isDragging = false
+        let dragStartX = 0, dragStartY = 0, dragStartL = 0, dragStartT = 0
+        
+        headerEl.style.cursor = 'move'
+        headerEl.addEventListener('mousedown', (e: MouseEvent) => {
+          // Don't drag if clicking on buttons or select
+          if ((e.target as HTMLElement).tagName === 'BUTTON' || (e.target as HTMLElement).tagName === 'SELECT') return
+          isDragging = true
+          dragStartX = e.clientX
+          dragStartY = e.clientY
+          const rect = box.getBoundingClientRect()
+          dragStartL = rect.left
+          dragStartT = rect.top
+          document.addEventListener('mousemove', doDrag)
+          document.addEventListener('mouseup', stopDrag)
+        })
+        
+        function doDrag(e: MouseEvent) {
+          if (!isDragging) return
+          const dx = e.clientX - dragStartX
+          const dy = e.clientY - dragStartY
+          box.style.left = (dragStartL + dx) + 'px'
+          box.style.top = (dragStartT + dy) + 'px'
+          box.style.right = 'auto'
+          box.style.bottom = 'auto'
+        }
+        
+        function stopDrag() {
+          isDragging = false
+          document.removeEventListener('mousemove', doDrag)
+          document.removeEventListener('mouseup', stopDrag)
+        }
+      }
 
       // Ensure floating composer has no unused icons. Keep only textarea + Send.
 
@@ -34299,13 +38275,13 @@ ${pageText}
 
         }
 
-        // Extra safety: remove any non-whitelisted buttons anywhere inside floating chat
+        // Extra safety: remove any non-whitelisted buttons anywhere inside floating chat (except mailguard buttons)
 
         box.querySelectorAll('button').forEach(btn => {
 
           const id = (btn as HTMLElement).id || ''
 
-          const allow = id === 'ccf-send' || id === 'ccf-close' || id === 'ccf-lm-one'
+          const allow = id === 'ccf-send' || id === 'ccf-close' || id === 'ccf-lm-one' || id.startsWith('ccf-mg-')
 
           const insideCompose = (btn as HTMLElement).closest('#ccf-compose')
 
@@ -34317,6 +38293,126 @@ ${pageText}
 
       ;(box.querySelector('#ccf-close') as HTMLButtonElement | null)?.addEventListener('click', ()=> box.remove())
 
+      // Mode switching between Command Chat and MailGuard
+      const modeSelect = box.querySelector('#ccf-mode-select') as HTMLSelectElement | null
+      const chatView = box.querySelector('#ccf-chat-view') as HTMLElement | null
+      const mailguardView = box.querySelector('#ccf-mailguard-view') as HTMLElement | null
+      const chatControls = box.querySelector('#ccf-chat-controls') as HTMLElement | null
+      
+      // MailGuard state
+      let mgAttachments: Array<{name: string, size: number}> = []
+      
+      function updateMgHint() {
+        const hint = box.querySelector('#ccf-mailguard-hint') as HTMLElement | null
+        const to = (box.querySelector('#ccf-mg-to') as HTMLInputElement)?.value || ''
+        const subject = (box.querySelector('#ccf-mg-subject') as HTMLInputElement)?.value || ''
+        const body = (box.querySelector('#ccf-mg-body') as HTMLTextAreaElement)?.value || ''
+        if (hint) {
+          hint.style.display = (!to && !subject && !body && mgAttachments.length === 0) ? 'flex' : 'none'
+        }
+      }
+      
+      function renderMgAttachments() {
+        const container = box.querySelector('#ccf-mg-attachments') as HTMLElement | null
+        if (!container) return
+        if (mgAttachments.length === 0) {
+          container.innerHTML = ''
+          return
+        }
+        container.innerHTML = mgAttachments.map((att, idx) => `
+          <div style="display:inline-flex; align-items:center; gap:6px; padding:4px 8px; margin:2px; background:${theme==='professional'?'rgba(34,197,94,0.1)':'rgba(34,197,94,0.15)'}; border:1px solid rgba(34,197,94,0.3); border-radius:4px; font-size:11px;">
+            <span>📄</span>
+            <span style="max-width:100px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${att.name}</span>
+            <span style="opacity:0.5; font-size:10px;">(${Math.round(att.size/1024)} KB)</span>
+            <button data-idx="${idx}" class="ccf-mg-remove" style="background:transparent; border:none; color:${theme==='professional'?'#64748b':'rgba(255,255,255,0.5)'}; cursor:pointer; font-size:12px; padding:0 2px;">×</button>
+          </div>
+        `).join('')
+        container.querySelectorAll('.ccf-mg-remove').forEach(btn => {
+          btn.addEventListener('click', (e) => {
+            const idx = parseInt((e.target as HTMLElement).getAttribute('data-idx') || '0')
+            mgAttachments = mgAttachments.filter((_, i) => i !== idx)
+            renderMgAttachments()
+            updateMgHint()
+          })
+        })
+      }
+      
+      if (modeSelect && chatView && mailguardView) {
+        modeSelect.addEventListener('change', () => {
+          const mode = modeSelect.value
+          if (mode === 'command-chat') {
+            chatView.style.display = 'block'
+            mailguardView.style.display = 'none'
+            if (chatControls) chatControls.style.display = 'flex'
+          } else {
+            chatView.style.display = 'none'
+            mailguardView.style.display = 'flex'
+            if (chatControls) chatControls.style.display = 'none'
+            updateMgHint()
+          }
+        })
+      }
+      
+      // MailGuard file input
+      const mgFileInput = box.querySelector('#ccf-mg-file') as HTMLInputElement | null
+      const mgAddPdfBtn = box.querySelector('#ccf-mg-add-pdf') as HTMLButtonElement | null
+      if (mgAddPdfBtn && mgFileInput) {
+        mgAddPdfBtn.addEventListener('click', () => mgFileInput.click())
+        mgFileInput.addEventListener('change', () => {
+          const files = Array.from(mgFileInput.files || [])
+          const pdfFiles = files.filter(f => f.type === 'application/pdf')
+          if (pdfFiles.length !== files.length) {
+            console.warn('[WR MailGuard] Only PDF files are allowed')
+          }
+          if (pdfFiles.length > 0) {
+            mgAttachments = [...mgAttachments, ...pdfFiles.map(f => ({ name: f.name, size: f.size }))]
+            renderMgAttachments()
+            updateMgHint()
+          }
+          mgFileInput.value = ''
+        })
+      }
+      
+      // MailGuard input listeners for hint visibility
+      ;['#ccf-mg-to', '#ccf-mg-subject', '#ccf-mg-body'].forEach(sel => {
+        const el = box.querySelector(sel) as HTMLInputElement | HTMLTextAreaElement | null
+        if (el) el.addEventListener('input', updateMgHint)
+      })
+      
+      // MailGuard discard
+      const mgDiscardBtn = box.querySelector('#ccf-mg-discard') as HTMLButtonElement | null
+      if (mgDiscardBtn) {
+        mgDiscardBtn.addEventListener('click', () => {
+          ;(box.querySelector('#ccf-mg-to') as HTMLInputElement).value = ''
+          ;(box.querySelector('#ccf-mg-subject') as HTMLInputElement).value = ''
+          ;(box.querySelector('#ccf-mg-body') as HTMLTextAreaElement).value = ''
+          mgAttachments = []
+          renderMgAttachments()
+          updateMgHint()
+        })
+      }
+      
+      // MailGuard send
+      const mgSendBtn = box.querySelector('#ccf-mg-send') as HTMLButtonElement | null
+      if (mgSendBtn) {
+        mgSendBtn.addEventListener('click', () => {
+          const to = (box.querySelector('#ccf-mg-to') as HTMLInputElement)?.value || ''
+          const subject = (box.querySelector('#ccf-mg-subject') as HTMLInputElement)?.value || ''
+          const body = (box.querySelector('#ccf-mg-body') as HTMLTextAreaElement)?.value || ''
+          if (!to.trim()) { alert('Please enter a recipient'); return }
+          if (!subject.trim()) { alert('Please enter a subject'); return }
+          if (mgAttachments.length === 0) { alert('Attach at least one WR stamped PDF'); return }
+          console.log('[WR MailGuard] Sending:', { to, subject, attachments: mgAttachments.map(a => a.name) })
+          alert('Protected email queued!')
+          ;(box.querySelector('#ccf-mg-to') as HTMLInputElement).value = ''
+          ;(box.querySelector('#ccf-mg-subject') as HTMLInputElement).value = ''
+          ;(box.querySelector('#ccf-mg-body') as HTMLTextAreaElement).value = ''
+          mgAttachments = []
+          renderMgAttachments()
+          updateMgHint()
+        })
+      }
+      
       const headerTools = box.querySelector('#ccf-header > div:first-child > div:last-child') as HTMLElement | null
 
       if (headerTools) {

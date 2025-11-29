@@ -1,51 +1,197 @@
 📁 Repository Overview
-This repository contains the original scientific paper and license documentation for WR Code, an innovative AI orchestration system published by Optimando.ai, a consulting firm specializing in AI automation workflows for enterprise and research applications.
+
+This repository contains the original scientific paper, documentation, and licensing files for WR Code, a browser-based AI orchestration system developed by Optimando.ai.
+The system introduces a novel architecture for safe, local-first automation using Template-driven agents, tab-level context awareness, and a verifiable workflow ecosystem.
+
+OpenGiraffe remains the internal codename for the core orchestration engine.
+WR Code is the unified name of the overall framework and publishing standard.
 
 📘 Paper Summary
-This repository contains the original scientific paper and license documentation for **WR Code**, an innovative AI orchestration system published by **Optimando.ai**, a consulting firm specializing in AI automation workflows for enterprise and research applications.
 
-📘 **Paper Summary**  
-We introduce **WR Code**, a novel open-source framework that transforms browser tabs into collaborative AI agents using a master–helper orchestration model. The system provides forward-thinking, real-time, context-aware workflow suggestions by coordinating multiple language models across tabs—managed by a local orchestrator application. The entire architecture is client-side, open-source, and privacy-respecting.
+The included research paper presents WR Code, an architecture that transforms browser environments into cooperative AI workspaces.
+By using structured Templates (Mini-Apps), WRCode workflows, and a local orchestrator, the system coordinates distributed AI agents safely and contextually across tabs.
 
-🗂 **Repository Contents**
-- `optimandoai-research-paper-v131.pdf` – Full scientific paper  
-- `optimandoai-research-paper-v131.pdf.ots` – OpenTimestamps proof of authorship  
-- `license.pdf` – Full license terms (CC BY-SA 4.0 with UI attribution requirement)  
-- `license.pdf.ots` – OpenTimestamps proof of license authorship  
-- `License-AGPL-3.0-OpenGiraffe.txt` – Modified AGPLv3 license with UI attribution clause for OpenGiraffe  
-- `License-AGPL-3.0-OpenGiraffe.txt.ots` – OpenTimestamps proof of authorship  
-- `AGPL-3.0.txt` – Original GNU Affero General Public License v3.0 (unmodified, from gnu.org)  
-- `readme.txt` – License summary  
-- `readme.txt.ots` – OpenTimestamps proof of authorship for this README
+Key characteristics:
 
-🧠 **About Optimando.ai**  
-**Optimando.ai** is an AI automation and implementation company focused on browser-based orchestration, intelligent agents, and human-in-the-loop automation. We help enterprises build local-first, scalable, and privacy-compliant AI systems — including the **OpenGiraffe** architecture for real-time agent coordination within the browser environment.
+Local orchestrator 
 
-📢 **Attribution Requirement**  
-Visible attribution to:
+Browser extensions for tab-level AI agents
 
-**optimando.ai – AI Automation**  
-with a clickable link to [https://optimando.ai](https://optimando.ai)
+Augmented Overlay for contextual UI insights
 
-…is required in all public uses of **OpenGiraffe**, including forks, deployments, and user-facing interfaces.  
-See `LICENSE.pdf` for full terms.
+WRVault for secure local storage
 
-🔗 **Citation**  
-Schreyer, O. (2025). *WR Code – An Open-Source Browser-Based AI Agent Framework for Contextual Workflow Orchestration.* Published by Optimando.ai – AI Automation.  
-*(BibTeX and DOI-ready citation formats available upon request.)*
+WRGuard / WR MailGuard for mail & automation protection
 
-📝 **License Summary**  
-This work is published under the **Creative Commons Attribution-ShareAlike 4.0 International (CC BY-SA 4.0)** license with the following terms:
+Fully client-side, privacy-first architecture
 
-✅ Free to share, adapt, and use commercially  
-🔗 Attribution must be clearly visible in user interfaces and documentation  
-🔄 Modified versions must be distributed under the same license  
-📢 Attribution and citation support open innovation by promoting transparency, recognition, and collaborative progress
+No cloud dependency for core automation
 
-💼 **Commercial Licensing**  
-For closed-source or enterprise licensing of OpenGiraffe, including white-label use or integrated deployments, please contact:  
+The documentation describing these models is open-licensed; the runtime is not.
+
+🗂 Repository Contents
+
+optimandoai-research-paper-v136.pdf — Full scientific paper
+
+optimandoai-research-paper-v136.pdf.ots — OpenTimestamps proof of authorship
+
+DOCUMENTATION-LICENSE.txt — CC BY-SA 4.0 license for conceptual documentation
+
+DOCUMENTATION-LICENSE.txt.ots — Timestamp for documentation license
+
+OGPL-1.0.txt — Source-available software license for runtime components
+
+OGPL-1.0.txt.ots — Timestamp for software license
+
+README.txt — License summary and repository overview
+
+README.txt.ots — Timestamp for the README file
+
+(You may adjust filenames depending on your repo structure.)
+
+🧠 About Optimando.ai
+
+Optimando.ai is a consulting and engineering company specialized in:
+
+safe AI orchestration
+
+agent workflows
+
+local-first automation systems
+
+browser-based intelligence layers
+
+enterprise integration for secure AI automation
+
+Optimando.ai is the publisher of WR Code and the OpenGiraffe orchestration engine.
+
+📜 Licensing Overview
+
+This repository uses a dual-license structure:
+
+1. Documentation License (CC BY-SA 4.0)
+
+The following materials are licensed openly:
+
+scientific paper
+
+conceptual diagrams
+
+architectural descriptions
+
+workflow illustrations
+
+explanatory text
+
+all non-executable documentation
+
+🔗 https://creativecommons.org/licenses/by-sa/4.0/
+
+This license requires:
+
+visible attribution
+
+indication of changes
+
+share-alike redistribution of modified documentation
+
+2. Software License (OGPL-1.0)
+
+The software implementation, including:
+
+OpenGiraffe orchestrator
+
+Augmented Overlay runtime
+
+WRCode Workflow-Ready Code integration
+
+WRVault
+
+WRGuard / WR MailGuard
+
+executables, modules, and all runtime code
+
+…is licensed under OGPL-1.0.
+
+OGPL-1.0 is source-available, not open-source:
+
+❌ redistribution prohibited
+
+❌ forks prohibited
+
+❌ hosting (SaaS) prohibited
+
+❌ competing runtimes prohibited
+
+❌ AI/ML training prohibited
+
+✔ Templates may be published and sold
+
+✔ branding must always remain visible (OpenGiraffe, WRCode, WRVault, WRGuard)
+
+📢 Attribution Requirements
+For documentation (CC BY-SA):
+
+You must credit:
+
+OpenGiraffe / WR Code — optimando.ai
+with a link to https://optimando.ai
+
+For software (OGPL-1.0):
+
+You must not remove or hide any branding related to:
+
+OpenGiraffe
+
+WRCode
+
+WRVault
+
+WRGuard
+
+White-labeling requires a commercial agreement.
+
+🔗 Citation
+
+Schreyer, O. (2025).
+WR Code – Browser-Based Multi-Agent Orchestration for Contextual Workflow Automation.
+Published by Optimando.ai – AI Automation.
+
+BibTeX and DOI-ready formats available upon request.
+
+💼 Commercial Licensing
+
+For use in:
+
+closed-source applications
+
+enterprise deployments
+
+SaaS platforms
+
+white-label solutions
+
+regulated environments
+
+contact:
+
 📩 license@optimando.ai
 
-Editable source files are available upon request to ensure attribution integrity, auditing, and version control.
+📝 Source Integrity & Verification
 
-Note: The system originally launched under the name OpenGiraffe, and is currently undergoing a transition to the unified WR CODE naming standard; OpenGiraffe will remain as the internal codename for the core orchestration engine.
+This repository contains deterministic .ots timestamp proofs via OpenTimestamps to verify authorship and ensure long-term provenance:
+
+paper
+
+documentation license
+
+software license
+
+README
+
+Editable source files are available upon request for auditing or institutional verification.
+
+✔️ Transition Note
+
+The framework originally launched as OpenGiraffe.
+The modern standard consolidates naming under WR Code, while OpenGiraffe remains the internal codename for the orchestrator.

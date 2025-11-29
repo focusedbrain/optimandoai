@@ -19,12 +19,292 @@ const msgs = document.getElementById('msgs')
 const ta = document.getElementById('ta')
 const file = document.getElementById('file')
 const up = document.getElementById('up')
-const mic = document.getElementById('mic')
 const send = document.getElementById('send')
+const sendDropdownBtn = document.getElementById('send-dropdown-btn')
+const sendDropdown = document.getElementById('send-dropdown')
+const modelList = document.getElementById('model-list')
+const modelLabel = document.getElementById('model-label')
 const bucketBtn = document.getElementById('tk-bucket')
 const pencilBtn = document.getElementById('tk-pencil')
 const ddTags = document.getElementById('tk-tags')
 const cancelBtn = null
+
+// LLM state
+let availableModels = []
+let activeModel = ''
+let isModelDropdownOpen = false
+
+// Fetch available models from Electron backend
+async function fetchAvailableModels() {
+  try {
+    const baseUrl = 'http://127.0.0.1:51248'
+    const response = await fetch(`${baseUrl}/api/llm/status`)
+    const result = await response.json()
+    
+    if (result.ok && result.data?.modelsInstalled?.length > 0) {
+      availableModels = result.data.modelsInstalled
+      
+      // Only set model if not already set OR if current selection no longer exists
+      const modelStillExists = availableModels.some(m => m.name === activeModel)
+      if (!activeModel || !modelStillExists) {
+        activeModel = availableModels[0].name
+        console.log('[Popup] Auto-selected model:', activeModel)
+      }
+      
+      renderModelList()
+      updateModelLabel()
+      updateSendButtonState()
+    }
+  } catch (err) {
+    console.log('[Popup] Failed to fetch models:', err)
+  }
+}
+
+// Update send button appearance based on state
+function updateSendButtonState() {
+  if (!send) return
+  
+  const hasModel = activeModel && availableModels.length > 0
+  const hasText = (ta?.value || '').trim().length > 0
+  
+  // Remove all state classes
+  send.classList.remove('ready', 'no-model')
+  
+  if (hasModel && hasText) {
+    send.classList.add('ready')
+  } else if (!hasModel) {
+    send.classList.add('no-model')
+  }
+}
+
+// Get short model name for display
+function getShortModelName(name) {
+  if (!name) return 'Local'
+  const baseName = name.split(':')[0]
+  return baseName.length > 10 ? baseName.slice(0, 10) + '…' : baseName
+}
+
+// Update the model label on the send button
+function updateModelLabel() {
+  if (modelLabel) {
+    modelLabel.textContent = availableModels.length > 0 ? getShortModelName(activeModel) : 'Local'
+  }
+}
+
+// Render the model dropdown list
+function renderModelList() {
+  if (!modelList) return
+  modelList.innerHTML = ''
+  
+  if (availableModels.length === 0) {
+    const empty = document.createElement('div')
+    empty.className = 'send-dropdown-item'
+    empty.innerHTML = '<span class="check"></span><span class="name" style="opacity:0.6">No models available</span>'
+    modelList.appendChild(empty)
+    return
+  }
+  
+  availableModels.forEach(model => {
+    const item = document.createElement('div')
+    item.className = 'send-dropdown-item' + (model.name === activeModel ? ' active' : '')
+    
+    const check = document.createElement('span')
+    check.className = 'check'
+    check.textContent = model.name === activeModel ? '✓' : ''
+    
+    const name = document.createElement('span')
+    name.className = 'name'
+    name.textContent = model.name
+    
+    item.append(check, name)
+    
+    if (model.size) {
+      const size = document.createElement('span')
+      size.className = 'size'
+      size.textContent = model.size
+      item.appendChild(size)
+    }
+    
+    item.onclick = (e) => {
+      e.stopPropagation()
+      activeModel = model.name
+      isModelDropdownOpen = false
+      sendDropdown.classList.remove('open')
+      renderModelList()
+      updateModelLabel()
+      console.log('[Popup] Model selected:', activeModel)
+    }
+    
+    modelList.appendChild(item)
+  })
+}
+
+// Toggle model dropdown
+if (sendDropdownBtn) {
+  sendDropdownBtn.onclick = (e) => {
+    e.preventDefault()
+    e.stopPropagation()
+    isModelDropdownOpen = !isModelDropdownOpen
+    sendDropdown.classList.toggle('open', isModelDropdownOpen)
+  }
+}
+
+// Also prevent dropdown from closing when clicking inside it
+if (sendDropdown) {
+  sendDropdown.onclick = (e) => {
+    e.stopPropagation()
+  }
+}
+
+// Close dropdown when clicking outside
+document.addEventListener('click', () => {
+  if (isModelDropdownOpen) {
+    isModelDropdownOpen = false
+    sendDropdown?.classList.remove('open')
+  }
+})
+
+// Initial fetch of models
+fetchAvailableModels()
+
+// Periodic refresh of models (every 10 seconds)
+setInterval(fetchAvailableModels, 10000)
+
+// Mode switching elements
+const modeSelect = document.getElementById('mode-select')
+const chatView = document.getElementById('chat-view')
+const mailguardView = document.getElementById('mailguard-view')
+const chatControls = document.getElementById('chat-controls')
+
+// MailGuard elements
+const mgTo = document.getElementById('mg-to')
+const mgSubject = document.getElementById('mg-subject')
+const mgBody = document.getElementById('mg-body')
+const mgFile = document.getElementById('mg-file')
+const mgAddPdf = document.getElementById('mg-add-pdf')
+const mgAttachments = document.getElementById('mg-attachments')
+const mgDiscard = document.getElementById('mg-discard')
+const mgSend = document.getElementById('mg-send')
+const mgHint = document.getElementById('mg-hint')
+
+// MailGuard state
+let mgAttachmentsList = []
+
+// Mode switching
+if (modeSelect) {
+  modeSelect.addEventListener('change', () => {
+    const mode = modeSelect.value
+    if (mode === 'command-chat') {
+      chatView.classList.remove('hidden')
+      mailguardView.classList.remove('active')
+      if (chatControls) chatControls.style.display = 'flex'
+    } else {
+      chatView.classList.add('hidden')
+      mailguardView.classList.add('active')
+      if (chatControls) chatControls.style.display = 'none'
+      updateMgHint()
+      updateMgSendBtn()
+    }
+  })
+}
+
+// MailGuard hint visibility
+function updateMgHint() {
+  if (!mgHint) return
+  const hasContent = (mgTo?.value || '').trim() || (mgSubject?.value || '').trim() || (mgBody?.value || '').trim() || mgAttachmentsList.length > 0
+  mgHint.style.display = hasContent ? 'none' : 'flex'
+}
+
+// MailGuard send button state
+function updateMgSendBtn() {
+  if (!mgSend) return
+  const canSend = (mgTo?.value || '').trim() && (mgSubject?.value || '').trim() && mgAttachmentsList.length > 0
+  mgSend.disabled = !canSend
+}
+
+// MailGuard input listeners
+if (mgTo) mgTo.addEventListener('input', () => { updateMgHint(); updateMgSendBtn() })
+if (mgSubject) mgSubject.addEventListener('input', () => { updateMgHint(); updateMgSendBtn() })
+if (mgBody) mgBody.addEventListener('input', updateMgHint)
+
+// MailGuard attachments
+function renderMgAttachments() {
+  if (!mgAttachments) return
+  if (mgAttachmentsList.length === 0) {
+    mgAttachments.innerHTML = ''
+    return
+  }
+  mgAttachments.innerHTML = mgAttachmentsList.map((att, idx) => `
+    <div class="mg-att-chip">
+      <span>📄</span>
+      <span class="mg-att-name">${att.name}</span>
+      <span class="mg-att-size">(${Math.round(att.size/1024)} KB)</span>
+      <button class="mg-att-remove" data-idx="${idx}">×</button>
+    </div>
+  `).join('')
+  mgAttachments.querySelectorAll('.mg-att-remove').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      const idx = parseInt(e.target.getAttribute('data-idx'))
+      mgAttachmentsList = mgAttachmentsList.filter((_, i) => i !== idx)
+      renderMgAttachments()
+      updateMgHint()
+      updateMgSendBtn()
+    })
+  })
+}
+
+if (mgAddPdf && mgFile) {
+  mgAddPdf.addEventListener('click', () => mgFile.click())
+  mgFile.addEventListener('change', () => {
+    const files = Array.from(mgFile.files || [])
+    const pdfFiles = files.filter(f => f.type === 'application/pdf' || f.name.endsWith('.pdf'))
+    if (pdfFiles.length !== files.length) {
+      alert('Only PDF files are allowed')
+    }
+    if (pdfFiles.length > 0) {
+      mgAttachmentsList = [...mgAttachmentsList, ...pdfFiles.map(f => ({ name: f.name, size: f.size }))]
+      renderMgAttachments()
+      updateMgHint()
+      updateMgSendBtn()
+    }
+    mgFile.value = ''
+  })
+}
+
+// MailGuard discard
+if (mgDiscard) {
+  mgDiscard.addEventListener('click', () => {
+    if (mgTo) mgTo.value = ''
+    if (mgSubject) mgSubject.value = ''
+    if (mgBody) mgBody.value = ''
+    mgAttachmentsList = []
+    renderMgAttachments()
+    updateMgHint()
+    updateMgSendBtn()
+  })
+}
+
+// MailGuard send
+if (mgSend) {
+  mgSend.addEventListener('click', () => {
+    const to = (mgTo?.value || '').trim()
+    const subject = (mgSubject?.value || '').trim()
+    const body = (mgBody?.value || '').trim()
+    if (!to) { alert('Please enter a recipient'); return }
+    if (!subject) { alert('Please enter a subject'); return }
+    if (mgAttachmentsList.length === 0) { alert('Please attach at least one WR stamped PDF'); return }
+    console.log('[WR MailGuard] Sending:', { to, subject, body, attachments: mgAttachmentsList.map(a => a.name) })
+    alert('Protected email queued!')
+    if (mgTo) mgTo.value = ''
+    if (mgSubject) mgSubject.value = ''
+    if (mgBody) mgBody.value = ''
+    mgAttachmentsList = []
+    renderMgAttachments()
+    updateMgHint()
+    updateMgSendBtn()
+  })
+}
+
 
 function row(role, text){
   const r = document.createElement('div'); r.className = 'row ' + (role === 'user' ? 'user' : 'assistant');
@@ -32,12 +312,70 @@ function row(role, text){
   msgs.appendChild(r); msgs.scrollTop = msgs.scrollHeight;
 }
 
-function sendNow(){
-  const text = (ta.value || '').trim(); if(!text) return; row('user', text); ta.value='';
-  setTimeout(()=>row('assistant','Acknowledged: '+text), 250);
+let isLoading = false
+
+async function sendNow(){
+  const text = (ta.value || '').trim()
+  
+  // If empty input, show helpful hint
+  if (!text) {
+    if (isLoading) return
+    row('assistant', '💡 How to use WR Chat:\n\n• Ask questions about the orchestrator or your workflow\n• Trigger automations using #tagname (e.g., "#summarize")\n• Use the 📸 button to capture screenshots\n• Attach files with 📎 for context\n\nTry: "What can you help me with?" or "#help"')
+    return
+  }
+  
+  if (isLoading) return
+  
+  row('user', text)
+  ta.value = ''
+  updateSendButtonState()
+  
+  // If no model available, show placeholder response
+  if (!activeModel || availableModels.length === 0) {
+    setTimeout(() => row('assistant', '⚠️ No LLM model available. Please install a model in LLM Settings.'), 250)
+    return
+  }
+  
+  // Show loading state
+  isLoading = true
+  send.disabled = true
+  send.classList.add('loading')
+  const sendText = send.querySelector('.send-text')
+  const originalText = sendText?.textContent || 'Send'
+  if (sendText) sendText.textContent = '⏳ Thinking'
+  
+  try {
+    const baseUrl = 'http://127.0.0.1:51248'
+    const response = await fetch(`${baseUrl}/api/llm/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: activeModel,
+        messages: [{ role: 'user', content: text }],
+        stream: false
+      })
+    })
+    
+    const result = await response.json()
+    
+    if (result.ok && result.data?.message?.content) {
+      row('assistant', result.data.message.content)
+    } else {
+      row('assistant', '⚠️ Error: ' + (result.error || 'Failed to get response'))
+    }
+  } catch (err) {
+    console.error('[Popup] LLM error:', err)
+    row('assistant', '⚠️ Failed to connect to LLM. Make sure Ollama is running.')
+  } finally {
+    isLoading = false
+    send.disabled = false
+    send.classList.remove('loading')
+    if (sendText) sendText.textContent = originalText
+  }
 }
 send.onclick = sendNow;
 ta.addEventListener('keydown', (e)=>{ if(e.key==='Enter' && !e.shiftKey){ e.preventDefault(); sendNow(); }});
+ta.addEventListener('input', updateSendButtonState);
 
 up.onclick = () => file.click();
 file.addEventListener('change', ()=>{ const n=(file.files||[]).length; if(n) row('user', 'Uploaded '+n+' file(s).'); });
@@ -46,6 +384,7 @@ file.addEventListener('change', ()=>{ const n=(file.files||[]).length; if(n) row
 document.addEventListener('drop', e=>{ const n = (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length) || 0; if(n) row('user', 'Dropped '+n+' file(s).'); });
 
 // Voice input (optional)
+const mic = document.getElementById('mic')
 let recognizing = false; let recognition;
 try {
   const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -59,16 +398,18 @@ try {
       for (let i = event.resultIndex; i < event.results.length; i++) transcript += event.results[i][0].transcript;
       ta.value = transcript.trim();
     };
-    recognition.onend = () => { recognizing = false; mic.disabled = false; };
+    recognition.onend = () => { recognizing = false; if (mic) mic.disabled = false; };
   } else {
-    mic.disabled = true; mic.title = 'Voice not supported in this browser';
+    if (mic) { mic.disabled = true; mic.title = 'Voice not supported in this browser'; }
   }
 } catch {
-  mic.disabled = true; mic.title = 'Voice not supported in this browser';
+  if (mic) { mic.disabled = true; mic.title = 'Voice not supported in this browser'; }
 }
-mic.addEventListener('click', () => {
-  if (!recognition || recognizing) return; recognizing = true; mic.disabled = true; try { recognition.start(); } catch {}
-});
+if (mic) {
+  mic.addEventListener('click', () => {
+    if (!recognition || recognizing) return; recognizing = true; mic.disabled = true; try { recognition.start(); } catch {}
+  });
+}
 
 // Context Bucket + Pencil wiring (CSP-safe)
 const ddTagsBtn = document.getElementById('tk-tags')

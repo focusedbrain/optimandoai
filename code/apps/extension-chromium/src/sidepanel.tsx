@@ -5,6 +5,20 @@ import { BackendSwitcher } from './components/BackendSwitcher'
 import { BackendSwitcherInline } from './components/BackendSwitcherInline'
 import { GlassDoorGlassView } from './components/GlassDoorGlassView'
 import { TemplateGlassView } from './components/TemplateGlassView'
+import { 
+  routeInput, 
+  getButlerSystemPrompt, 
+  wrapInputForAgent,
+  loadAgentsFromSession,
+  updateAgentBoxOutput,
+  getAgentById,
+  resolveModelForAgent,
+  type RoutingDecision,
+  type AgentMatch,
+  type AgentBox
+} from './services/processFlow'
+import { nlpClassifier, type ClassifiedInput } from './nlp'
+import { inputCoordinator } from './services/InputCoordinator'
 
 interface ConnectionStatus {
   isConnected: boolean
@@ -38,7 +52,8 @@ function SidepanelOrchestrator() {
   const [isAdminDisabled, setIsAdminDisabled] = useState(false) // Disable admin on display grids and Edge startpage
 
   // Command chat state
-  const [chatMessages, setChatMessages] = useState<Array<{ role: 'user' | 'assistant', text: string }>>([])
+  const [dockedPanelMode, setDockedPanelMode] = useState<'command-chat' | 'mailguard'>('command-chat')
+  const [chatMessages, setChatMessages] = useState<Array<{role: 'user' | 'assistant', text: string, imageUrl?: string}>>([])
   const [chatInput, setChatInput] = useState('')
   const [chatHeight, setChatHeight] = useState(200)
   const [isResizingChat, setIsResizingChat] = useState(false)
@@ -49,6 +64,15 @@ function SidepanelOrchestrator() {
   const [embedTarget, setEmbedTarget] = useState<'session' | 'account'>('session')
   const [notification, setNotification] = useState<{ message: string, type: 'success' | 'error' | 'info' } | null>(null)
   const [theme, setTheme] = useState<'default' | 'dark' | 'professional'>('default')
+  
+  // WR MailGuard state
+  const [mailguardTo, setMailguardTo] = useState('')
+  const [mailguardSubject, setMailguardSubject] = useState('')
+  const [mailguardBody, setMailguardBody] = useState('')
+  const [mailguardAttachments, setMailguardAttachments] = useState<Array<{name: string, size: number, file: File}>>([])
+  const [mailguardBodyHeight, setMailguardBodyHeight] = useState(200)
+  const [isResizingMailguard, setIsResizingMailguard] = useState(false)
+  const mailguardFileRef = useRef<HTMLInputElement>(null)
   const [masterTabId, setMasterTabId] = useState<string | null>(null) // For Master Tab (01), (02), (03), etc. (01 = first tab, doesn't show title in UI)
   const [showTriggerPrompt, setShowTriggerPrompt] = useState<{ mode: string, rect: any, imageUrl: string, videoUrl?: string, createTrigger: boolean, addCommand: boolean, name?: string, command?: string, bounds?: any } | null>(null)
   const [createTriggerChecked, setCreateTriggerChecked] = useState(false)
@@ -56,7 +80,364 @@ function SidepanelOrchestrator() {
   const [activeMiniApp, setActiveMiniApp] = useState<string | null>(null)
   const chatRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
-
+  
+  // Pending trigger state - for auto-processing after screenshot capture
+  // Using REF instead of state to avoid stale closure issues in message handlers
+  const pendingTriggerRef = useRef<{
+    trigger: any
+    command?: string
+    autoProcess: boolean
+  } | null>(null)
+  
+  // LLM state
+  const [activeLlmModel, setActiveLlmModel] = useState<string>('')
+  const [availableModels, setAvailableModels] = useState<Array<{ name: string; size?: string }>>([])
+  const [showModelDropdown, setShowModelDropdown] = useState(false)
+  
+  // Refs to store latest values for use in message handlers (avoids stale closure)
+  const activeLlmModelRef = useRef<string>('')
+  const sessionNameRef = useRef<string>('')
+  const connectionStatusRef = useRef<{ isConnected: boolean }>({ isConnected: false })
+  
+  // Keep refs in sync with state (updates on every render)
+  // This ensures message handlers always have access to latest values
+  useEffect(() => {
+    sessionNameRef.current = sessionName
+    connectionStatusRef.current = connectionStatus
+  })
+  const [isLlmLoading, setIsLlmLoading] = useState(false)
+  const [llmError, setLlmError] = useState<string | null>(null)
+  const [llmRefreshTrigger, setLlmRefreshTrigger] = useState(0)
+  
+  // Function to refresh available models
+  const refreshAvailableModels = async () => {
+    try {
+      const baseUrl = 'http://127.0.0.1:51248'
+      const statusResponse = await fetch(`${baseUrl}/api/llm/status`)
+      const statusResult = await statusResponse.json()
+      
+      if (statusResult.ok && statusResult.data?.modelsInstalled?.length > 0) {
+        const models = statusResult.data.modelsInstalled
+        setAvailableModels(models)
+        
+        // Only set active model if not already set OR if current selection no longer exists
+        const currentModel = activeLlmModelRef.current || activeLlmModel
+        const modelStillExists = models.some((m: any) => m.name === currentModel)
+        
+        if (!currentModel || !modelStillExists) {
+          const firstModel = models[0].name
+          setActiveLlmModel(firstModel)
+          activeLlmModelRef.current = firstModel
+          console.log('[Command Chat] Auto-selected model:', firstModel)
+        }
+        setLlmError(null)
+        return true
+      }
+      return false
+    } catch (error) {
+      console.error('[Command Chat] Failed to refresh models:', error)
+      return false
+    }
+  }
+  
+  // Auto-detect first available LLM model on mount and when triggered
+  useEffect(() => {
+    const fetchFirstAvailableModel = async () => {
+      try {
+        const baseUrl = 'http://127.0.0.1:51248'
+        
+        // Check status first
+        const statusResponse = await fetch(`${baseUrl}/api/llm/status`)
+        const statusResult = await statusResponse.json()
+        
+        if (!statusResult.ok || !statusResult.data) {
+          setLlmError('LLM service not available')
+          return
+        }
+        
+        const status = statusResult.data
+        console.log('[Command Chat] LLM Status:', status)
+        
+        // If Ollama is not installed or not running
+        if (!status.installed || !status.running) {
+          setLlmError('Ollama not running. Please start it from LLM Settings.')
+          return
+        }
+        
+        // Check if any models are installed
+        if (status.modelsInstalled && status.modelsInstalled.length > 0) {
+          setAvailableModels(status.modelsInstalled)
+          
+          // Only set model if not already set
+          const currentModel = activeLlmModelRef.current || activeLlmModel
+          const modelExists = status.modelsInstalled.some((m: any) => m.name === currentModel)
+          
+          if (!currentModel || !modelExists) {
+            const firstModel = status.modelsInstalled[0].name
+            setActiveLlmModel(firstModel)
+            activeLlmModelRef.current = firstModel
+            console.log('[Command Chat] Auto-selected model:', firstModel)
+          }
+          console.log('[Command Chat] Available models:', status.modelsInstalled.map((m: any) => m.name))
+          setLlmError(null)
+        } else {
+          // No models installed - show message but DON'T auto-install
+          console.log('[Command Chat] No models installed. User should install from LLM Settings.')
+          setLlmError('No models installed. Please go to Backend Configuration → LLM tab to install a model.')
+        }
+      } catch (error: any) {
+        console.error('[Command Chat] Failed to fetch available models:', error)
+        setLlmError('Failed to connect to LLM service')
+      }
+    }
+    
+    fetchFirstAvailableModel()
+  }, [llmRefreshTrigger])
+  
+  // Periodic check for newly installed models (every 10 seconds)
+  useEffect(() => {
+    const interval = setInterval(() => {
+      refreshAvailableModels()
+    }, 10000) // Check every 10 seconds
+    
+    return () => clearInterval(interval)
+  }, [])
+  
+  // Listen for model installation events from LLM Settings
+  useEffect(() => {
+    const handleStorageChange = (changes: any, namespace: string) => {
+      if (namespace === 'local' && changes['llm-model-installed']) {
+        console.log('[Command Chat] Model installation detected, refreshing...')
+        setLlmRefreshTrigger(prev => prev + 1)
+      }
+    }
+    
+    chrome.storage?.onChanged?.addListener(handleStorageChange)
+    
+    return () => {
+      chrome.storage?.onChanged?.removeListener(handleStorageChange)
+    }
+  }, [])
+  
+  // Close model dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (showModelDropdown) {
+        setShowModelDropdown(false)
+      }
+    }
+    
+    if (showModelDropdown) {
+      // Use setTimeout to avoid closing immediately when opening
+      setTimeout(() => {
+        document.addEventListener('click', handleClickOutside)
+      }, 0)
+    }
+    
+    return () => {
+      document.removeEventListener('click', handleClickOutside)
+    }
+  }, [showModelDropdown])
+  
+  // NOTE: Screenshot trigger processing is now handled directly in the chrome.runtime message listener
+  // This avoids stale closure issues that occurred with the useEffect + custom event pattern
+  
+  // Process screenshot with trigger - uses refs to avoid stale closure issues
+  // This is called from the message listener when a screenshot arrives with a pending trigger
+  const processScreenshotWithTrigger = async (triggerText: string, imageUrl: string) => {
+    console.log('[Sidepanel] processScreenshotWithTrigger called:', { triggerText, hasImage: !!imageUrl })
+    
+    // Use ref value for model to avoid stale closure
+    const currentModel = activeLlmModelRef.current
+    
+    if (!currentModel) {
+      console.warn('[Sidepanel] No LLM model available for trigger processing')
+      setChatMessages(prev => [...prev, {
+        role: 'assistant' as const,
+        text: `⚠️ No LLM model available. Please install a model in LLM Settings.`
+      }])
+      return
+    }
+    
+    setIsLlmLoading(true)
+    
+    try {
+      const baseUrl = 'http://127.0.0.1:51248'
+      
+      // Get current URL for website filtering
+      let currentUrl = ''
+      try {
+        const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
+        currentUrl = tab?.url || ''
+      } catch (e) {}
+      
+      // Import routing functions dynamically to avoid circular deps
+      const { routeInput, loadAgentsFromSession, wrapInputForAgent, updateAgentBoxOutput, getButlerSystemPrompt, resolveModelForAgent } = await import('./services/processFlow')
+      
+      // Use refs for values to avoid stale closures
+      const currentConnectionStatus = connectionStatusRef.current
+      const currentSessionName = sessionNameRef.current
+      
+      // Route the input
+      const routingDecision = await routeInput(
+        triggerText,
+        true, // hasImage = true
+        currentConnectionStatus,
+        currentSessionName,
+        currentModel,
+        currentUrl
+      )
+      
+      console.log('[Sidepanel] Trigger routing decision:', routingDecision)
+      
+      // Process OCR if image provided
+      let ocrText = ''
+      if (imageUrl) {
+        try {
+          const ocrResponse = await fetch(`${baseUrl}/api/ocr/process`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ image: imageUrl })
+          })
+          if (ocrResponse.ok) {
+            const ocrResult = await ocrResponse.json()
+            if (ocrResult.ok && ocrResult.data?.text) {
+              ocrText = ocrResult.data.text
+              console.log('[Sidepanel] OCR extracted text:', ocrText.substring(0, 100) + '...')
+            }
+          }
+        } catch (e) {
+          console.warn('[Sidepanel] OCR failed:', e)
+        }
+      }
+      
+      if (routingDecision.shouldForwardToAgent && routingDecision.matchedAgents.length > 0) {
+        // Show butler confirmation
+        setChatMessages(prev => [...prev, {
+          role: 'assistant' as const,
+          text: routingDecision.butlerResponse
+        }])
+        
+        // Process with each matched agent
+        const agents = await loadAgentsFromSession()
+        
+        for (const match of routingDecision.matchedAgents) {
+          const agent = agents.find(a => a.id === match.agentId)
+          if (!agent) {
+            console.warn('[Sidepanel] Agent not found:', match.agentId)
+            continue
+          }
+          
+          const wrappedInput = wrapInputForAgent(triggerText, agent, ocrText)
+          
+          // Resolve model - use agent box model if configured, otherwise use current model
+          const modelResolution = resolveModelForAgent(
+            match.agentBoxProvider,
+            match.agentBoxModel,
+            currentModel
+          )
+          
+          console.log('[Sidepanel] Processing with agent:', match.agentName, 'model:', modelResolution.model)
+          
+          const processedContent = ocrText 
+            ? `${triggerText}\n\n[Extracted Text]:\n${ocrText}`
+            : triggerText
+          
+          try {
+            const agentResponse = await fetch(`${baseUrl}/api/llm/chat`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                modelId: modelResolution.model || currentModel,
+                messages: [
+                  { role: 'system', content: wrappedInput },
+                  { role: 'user', content: processedContent }
+                ]
+              })
+            })
+            
+            if (agentResponse.ok) {
+              const agentResult = await agentResponse.json()
+              if (agentResult.ok && agentResult.data?.content) {
+                const agentOutput = agentResult.data.content
+                
+                if (match.agentBoxId) {
+                  const reasoningContext = `**Agent:** ${match.agentIcon} ${match.agentName}\n**Match:** ${match.matchDetails}\n**Input:** ${triggerText}`
+                  
+                  await updateAgentBoxOutput(match.agentBoxId, agentOutput, reasoningContext)
+                  
+                  setChatMessages(prev => [...prev, {
+                    role: 'assistant' as const,
+                    text: `✓ ${match.agentIcon} **${match.agentName}** processed your request.\n→ Output displayed in Agent Box ${String(match.agentBoxNumber).padStart(2, '0')}`
+                  }])
+                } else {
+                  setChatMessages(prev => [...prev, {
+                    role: 'assistant' as const,
+                    text: `${match.agentIcon} **${match.agentName}**:\n\n${agentOutput}`
+                  }])
+                }
+              } else {
+                console.error('[Sidepanel] Agent LLM response not ok:', agentResult)
+              }
+            } else {
+              console.error('[Sidepanel] Agent LLM request failed:', agentResponse.status)
+            }
+          } catch (llmError) {
+            console.error('[Sidepanel] Agent LLM error:', llmError)
+          }
+        }
+      } else {
+        // No agent match - use butler response
+        console.log('[Sidepanel] No agent match, using butler response')
+        const agents = await loadAgentsFromSession()
+        const butlerPrompt = getButlerSystemPrompt(
+          currentSessionName,
+          agents.filter(a => a.enabled).length,
+          currentConnectionStatus.isConnected
+        )
+        
+        const processedContent = ocrText 
+          ? `${triggerText}\n\n[Extracted Text from Image]:\n${ocrText}`
+          : triggerText
+        
+        try {
+          const butlerResponse = await fetch(`${baseUrl}/api/llm/chat`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              modelId: currentModel,
+              messages: [
+                { role: 'system', content: butlerPrompt },
+                { role: 'user', content: processedContent }
+              ]
+            })
+          })
+          
+          if (butlerResponse.ok) {
+            const result = await butlerResponse.json()
+            if (result.ok && result.data?.content) {
+              setChatMessages(prev => [...prev, {
+                role: 'assistant' as const,
+                text: result.data.content
+              }])
+            }
+          }
+        } catch (e) {
+          console.error('[Sidepanel] Butler response error:', e)
+        }
+      }
+    } catch (error) {
+      console.error('[Sidepanel] Error processing screenshot with trigger:', error)
+      setChatMessages(prev => [...prev, {
+        role: 'assistant' as const,
+        text: `⚠️ Error processing trigger: ${error instanceof Error ? error.message : 'Unknown error'}`
+      }])
+    } finally {
+      setIsLlmLoading(false)
+    }
+  }
+  
+>>>>>>> dc26ea5244137a289160528cea41adc4d181fae6
   // Load pinned state and viewMode from storage
   useEffect(() => {
     import('./storage/storageWrapper').then(({ storageGet }) => {
@@ -80,7 +461,7 @@ function SidepanelOrchestrator() {
     });
   }, [])
 
-  // Load and listen for theme changes
+  // Load and listen for theme changes AND session changes
   useEffect(() => {
     // Load initial theme
     import('./storage/storageWrapper').then(({ storageGet }) => {
@@ -90,12 +471,48 @@ function SidepanelOrchestrator() {
       });
     });
 
-    // Listen for theme changes
+    // Listen for theme changes AND active session key changes
     const handleStorageChange = (changes: any, namespace: string) => {
-      if (namespace === 'local' && changes['optimando-ui-theme']) {
-        const newTheme = changes['optimando-ui-theme'].newValue || 'default'
-        console.log('🎨 Sidepanel: Theme changed to:', newTheme)
-        setTheme(newTheme as 'default' | 'dark' | 'professional')
+      if (namespace === 'local') {
+        // Handle theme changes
+        if (changes['optimando-ui-theme']) {
+          const newTheme = changes['optimando-ui-theme'].newValue || 'default'
+          console.log('🎨 Sidepanel: Theme changed to:', newTheme)
+          setTheme(newTheme as 'default' | 'dark' | 'professional')
+        }
+        
+        // Handle active session key changes - reload session data when session changes
+        if (changes['optimando-active-session-key']) {
+          const newSessionKey = changes['optimando-active-session-key'].newValue
+          console.log('🔄 Sidepanel: Active session key changed to:', newSessionKey)
+          
+          if (newSessionKey) {
+            // Reload session data from SQLite
+            chrome.runtime.sendMessage({ type: 'GET_ALL_SESSIONS_FROM_SQLITE' }, (response) => {
+              if (chrome.runtime.lastError) {
+                console.error('❌ Error reloading sessions from SQLite:', chrome.runtime.lastError.message)
+                return
+              }
+              
+              if (!response || !response.success || !response.sessions) {
+                console.log('⚠️ No sessions found in SQLite after session change')
+                return
+              }
+              
+              // Find the session with the new key
+              const session = response.sessions[newSessionKey]
+              if (session) {
+                console.log('✅ Reloaded session after key change:', newSessionKey, session.tabName)
+                setSessionName(session.tabName || 'Unnamed Session')
+                setSessionKey(newSessionKey)
+                setIsLocked(session.isLocked || false)
+                setAgentBoxes(session.agentBoxes || [])
+              } else {
+                console.log('⚠️ Session not found for key:', newSessionKey)
+              }
+            })
+          }
+        }
       }
     }
 
@@ -256,6 +673,21 @@ function SidepanelOrchestrator() {
           setAgentBoxes(message.data.agentBoxes)
         }
       }
+      // Listen for agent box OUTPUT updates (from process flow)
+      else if (message.type === 'UPDATE_AGENT_BOX_OUTPUT') {
+        console.log('📤 Agent box output updated:', message.data)
+        if (message.data.allBoxes) {
+          // Update all boxes (includes the updated one)
+          setAgentBoxes(message.data.allBoxes)
+        } else if (message.data.agentBoxId && message.data.output) {
+          // Update specific box output
+          setAgentBoxes(prev => prev.map(box => 
+            box.id === message.data.agentBoxId 
+              ? { ...box, output: message.data.output }
+              : box
+          ))
+        }
+      }
       // Listen for Electron screenshot results
       else if (message.type === 'ELECTRON_SELECTION_RESULT') {
         console.log('📷 Sidepanel received screenshot from Electron:', message.kind)
@@ -274,6 +706,27 @@ function SidepanelOrchestrator() {
               chatRef.current.scrollTop = chatRef.current.scrollHeight
             }
           }, 100)
+          
+          // Check if there's a pending trigger to auto-process
+          // Using REF directly to avoid stale closure issues
+          const pendingTrigger = pendingTriggerRef.current
+          if (pendingTrigger?.autoProcess) {
+            console.log('[Sidepanel] Found pending trigger to auto-process:', pendingTrigger)
+            
+            const command = pendingTrigger.command || pendingTrigger.trigger?.name || ''
+            
+            // Clear pending trigger FIRST
+            pendingTriggerRef.current = null
+            
+            if (command) {
+              const triggerText = command.startsWith('@') ? command : `@${command}`
+              console.log('[Sidepanel] Processing trigger:', triggerText, 'with image:', url.substring(0, 50) + '...')
+              
+              // Process directly using refs to avoid stale closures
+              // This inline processing replaces the problematic useEffect + custom event pattern
+              processScreenshotWithTrigger(triggerText, url)
+            }
+          }
         }
       }
       // Listen for trigger prompt from Electron
@@ -472,6 +925,39 @@ function SidepanelOrchestrator() {
       document.removeEventListener('mouseup', handleMouseUp)
     }
   }, [isResizingChat])
+
+  // MailGuard body resize handlers
+  const mailguardResizeStartY = useRef(0)
+  const mailguardResizeStartH = useRef(200)
+  
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!isResizingMailguard) return
+      const dy = e.clientY - mailguardResizeStartY.current
+      const newHeight = Math.max(100, Math.min(500, mailguardResizeStartH.current + dy))
+      setMailguardBodyHeight(newHeight)
+    }
+
+    const handleMouseUp = () => {
+      if (isResizingMailguard) {
+        setIsResizingMailguard(false)
+        document.body.style.cursor = ''
+        document.body.style.userSelect = ''
+      }
+    }
+
+    if (isResizingMailguard) {
+      document.addEventListener('mousemove', handleMouseMove)
+      document.addEventListener('mouseup', handleMouseUp)
+      document.body.style.cursor = 'ns-resize'
+      document.body.style.userSelect = 'none'
+    }
+
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove)
+      document.removeEventListener('mouseup', handleMouseUp)
+    }
+  }, [isResizingMailguard])
 
   const getStatusColor = () => {
     if (isLoading) return '#FFA500'
@@ -684,8 +1170,41 @@ function SidepanelOrchestrator() {
     e.preventDefault()
     const items = await parseDataTransfer(e.dataTransfer)
     if (!items.length) return
-    setPendingItems(items)
-    setShowEmbedDialog(true)
+    
+    // Check if any item is an image - add directly to chat for LLM vision
+    const imageItems = items.filter(it => it.kind === 'image')
+    if (imageItems.length > 0) {
+      // Convert images to data URLs and add to chat
+      for (const img of imageItems) {
+        if (img.payload instanceof File) {
+          const reader = new FileReader()
+          reader.onload = () => {
+            const dataUrl = reader.result as string
+            const imageMessage = {
+              role: 'user' as const,
+              text: `![Image](${img.name || 'dropped-image'})`,
+              imageUrl: dataUrl
+            }
+            setChatMessages(prev => [...prev, imageMessage])
+            // Scroll to bottom
+            setTimeout(() => {
+              if (chatRef.current) chatRef.current.scrollTop = chatRef.current.scrollHeight
+            }, 0)
+          }
+          reader.readAsDataURL(img.payload)
+        }
+      }
+      // If there are also non-image items, show embed dialog for those
+      const nonImageItems = items.filter(it => it.kind !== 'image')
+      if (nonImageItems.length > 0) {
+        setPendingItems(nonImageItems)
+        setShowEmbedDialog(true)
+      }
+    } else {
+      // No images - show embed dialog for other content types
+      setPendingItems(items)
+      setShowEmbedDialog(true)
+    }
   }
 
   const runEmbed = (items: any[], target: 'session' | 'account') => {
@@ -734,20 +1253,673 @@ function SidepanelOrchestrator() {
       addCommand: addCommandChecked
     })
   }
-
-  const handleSendMessage = () => {
-    const text = chatInput.trim()
-    if (!text) return
-
-    setChatMessages([...chatMessages,
-    { role: 'user', text },
-    { role: 'assistant', text: `Acknowledged: ${text}` }
-    ])
+  
+  // =============================================================================
+  // CHAT FLOW HELPERS
+  // The chat flow follows this architecture:
+  //
+  // User Input (WR Chat)
+  //        |
+  //        v
+  // +------------------+
+  // | Butler LLM       |  <- Immediate response (confirm/feedback)
+  // +------------------+
+  //        |
+  //        v
+  // +------------------+
+  // | Input Coordinator|
+  // |  - Check #tags   |
+  // |  - Pattern match |
+  // |  - No listener?  |  <- If no listener, forward anyway
+  // +------------------+
+  //        |
+  //        v (if matched or no listener)
+  // +------------------+
+  // | Reasoning Wrap   |  <- Goals, Role, Rules from agent config
+  // +------------------+
+  //        |
+  //        v
+  // +------------------+
+  // | Agent LLM        |  <- Model from AgentBox config
+  // +------------------+
+  //        |
+  //        v
+  // +------------------+
+  // | Agent Box Output |  <- Display in connected box
+  // +------------------+
+  // =============================================================================
+  
+  /**
+   * Process input with OCR if images are present
+   */
+  const processMessagesWithOCR = async (
+    messages: Array<{role: 'user' | 'assistant', text: string, imageUrl?: string}>,
+    baseUrl: string
+  ): Promise<{ processedMessages: Array<{role: string, content: string}>, ocrText: string }> => {
+    let ocrText = ''
+    
+    const processedMessages = await Promise.all(messages.map(async (msg) => {
+      if (msg.imageUrl && msg.role === 'user') {
+        try {
+          const ocrResponse = await fetch(`${baseUrl}/api/ocr/process`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ image: msg.imageUrl })
+          })
+          
+          if (ocrResponse.ok) {
+            const ocrResult = await ocrResponse.json()
+            if (ocrResult.ok && ocrResult.data?.text) {
+              ocrText = ocrResult.data.text
+              const ocrMethod = ocrResult.data.method === 'cloud_vision' ? '🌐 Cloud Vision' : '📝 Local OCR'
+              return {
+                role: msg.role,
+                content: `${msg.text || 'Image content:'}\n\n[${ocrMethod} extracted text]:\n${ocrResult.data.text}`
+              }
+            }
+          }
+        } catch (e) {
+          console.warn('[Chat] OCR processing failed:', e)
+        }
+        return {
+          role: msg.role,
+          content: msg.text || '[Image attached - OCR unavailable]'
+        }
+      }
+      return {
+        role: msg.role,
+        content: msg.text
+      }
+    }))
+    
+    return { processedMessages, ocrText }
+  }
+  
+  /**
+   * Process input through an agent with reasoning wrapping
+   * This is the core of the agent processing path
+   */
+  const processWithAgent = async (
+    match: AgentMatch,
+    inputText: string,
+    ocrText: string,
+    processedMessages: Array<{role: string, content: string}>,
+    fallbackModel: string,
+    baseUrl: string
+  ): Promise<{ success: boolean, output?: string, error?: string }> => {
+    try {
+      // Load full agent config
+      const agents = await loadAgentsFromSession()
+      const agent = agents.find(a => a.id === match.agentId)
+      
+      if (!agent) {
+        console.warn(`[Chat] Agent not found: ${match.agentId}`)
+        return { success: false, error: `Agent ${match.agentName} not found` }
+      }
+      
+      // Wrap input with agent's reasoning instructions (Goals, Role, Rules)
+      const reasoningContext = wrapInputForAgent(inputText, agent, ocrText)
+      
+      console.log('[Chat] Processing with agent:', {
+        name: match.agentName,
+        reasoningContext: reasoningContext.substring(0, 200) + '...',
+        targetBox: match.agentBoxId
+      })
+      
+      // Resolve which model to use (AgentBox model > fallback)
+      const modelResolution = resolveModelForAgent(
+        match.agentBoxProvider,
+        match.agentBoxModel,
+        fallbackModel
+      )
+      
+      console.log('[Chat] Model resolution:', modelResolution)
+      
+      // Call LLM with reasoning-wrapped input
+      const response = await fetch(`${baseUrl}/api/llm/chat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          modelId: modelResolution.model || fallbackModel,
+          messages: [
+            { role: 'system', content: reasoningContext },
+            ...processedMessages.slice(-3) // Include recent context
+          ]
+        })
+      })
+      
+      if (!response.ok) {
+        const result = await response.json()
+        return { success: false, error: result.error || 'LLM request failed' }
+      }
+      
+      const result = await response.json()
+      if (result.ok && result.data?.content) {
+        return { success: true, output: result.data.content }
+      }
+      
+      return { success: false, error: 'No output from LLM' }
+      
+    } catch (error: any) {
+      console.error('[Chat] Agent processing error:', error)
+      return { success: false, error: error.message || 'Agent processing failed' }
+    }
+  }
+  
+  /**
+   * Get butler LLM response for general queries
+   */
+  const getButlerResponse = async (
+    messages: Array<{role: string, content: string}>,
+    model: string,
+    baseUrl: string
+  ): Promise<{ success: boolean, response?: string, error?: string }> => {
+    try {
+      const agents = await loadAgentsFromSession()
+      const butlerPrompt = getButlerSystemPrompt(
+        sessionName,
+        agents.filter(a => a.enabled).length,
+        connectionStatus.isConnected
+      )
+      
+      const response = await fetch(`${baseUrl}/api/llm/chat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          modelId: model,
+          messages: [
+            { role: 'system', content: butlerPrompt },
+            ...messages
+          ]
+        })
+      })
+      
+      if (!response.ok) {
+        const result = await response.json()
+        return { success: false, error: result.error || 'Butler LLM request failed' }
+      }
+      
+      const result = await response.json()
+      if (result.ok && result.data?.content) {
+        return { success: true, response: result.data.content }
+      }
+      
+      return { success: false, error: 'No response from butler LLM' }
+      
+    } catch (error: any) {
+      console.error('[Chat] Butler response error:', error)
+      return { success: false, error: error.message || 'Butler response failed' }
+    }
+  }
+  
+  // Handle sending message with trigger (auto-process after screenshot)
+  const handleSendMessageWithTrigger = async (triggerText: string, imageUrl?: string) => {
+    console.log('[Sidepanel] handleSendMessageWithTrigger:', { triggerText, hasImage: !!imageUrl })
+    
+    // Use ref for more reliable model access (avoids potential stale closure)
+    const currentModel = activeLlmModelRef.current || activeLlmModel
+    
+    if (!currentModel) {
+      setChatMessages(prev => [...prev, {
+        role: 'assistant' as const,
+        text: `⚠️ No LLM model available. Please install a model in LLM Settings.`
+      }])
+      return
+    }
+    
+    // Build messages including the image if provided
+    const newMessages: Array<{role: 'user' | 'assistant', text: string, imageUrl?: string}> = []
+    
+    // Add the trigger text as user message
+    if (imageUrl) {
+      newMessages.push({
+        role: 'user' as const,
+        text: triggerText,
+        imageUrl
+      })
+    } else {
+      newMessages.push({
+        role: 'user' as const,
+        text: triggerText
+      })
+    }
+    
+    setChatMessages(prev => [...prev, ...newMessages])
     setChatInput('')
+    setIsLlmLoading(true)
+    
+    try {
+      const baseUrl = 'http://127.0.0.1:51248'
+      
+      // Get current URL for website filtering
+      let currentUrl = ''
+      try {
+        const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
+        currentUrl = tab?.url || ''
+      } catch (e) {}
+      
+      // Route the input
+      const routingDecision = await routeInput(
+        triggerText,
+        !!imageUrl,
+        connectionStatus,
+        sessionName,
+        currentModel,
+        currentUrl
+      )
+      
+      console.log('[Sidepanel] Trigger routing decision:', routingDecision)
+      
+      // Process OCR if image provided
+      let ocrText = ''
+      if (imageUrl) {
+        try {
+          const ocrResponse = await fetch(`${baseUrl}/api/ocr/process`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ image: imageUrl })
+          })
+          if (ocrResponse.ok) {
+            const ocrResult = await ocrResponse.json()
+            if (ocrResult.ok && ocrResult.data?.text) {
+              ocrText = ocrResult.data.text
+            }
+          }
+        } catch (e) {
+          console.warn('[Sidepanel] OCR failed:', e)
+        }
+      }
+      
+      // NLP Classification step
+      const inputTextForNlp = ocrText || triggerText
+      const nlpResult = await nlpClassifier.classify(
+        inputTextForNlp,
+        ocrText ? 'ocr' : 'inline_chat',
+        { sourceUrl: currentUrl, sessionKey: sessionName }
+      )
+      
+      console.log('[Sidepanel] Trigger NLP Classification:', {
+        triggers: nlpResult.input.triggers,
+        entities: nlpResult.input.entities.length
+      })
+      
+      // Route classified input for agent allocations
+      const agentsForNlp = await loadAgentsFromSession()
+      const agentBoxesList = agentBoxes as AgentBox[]
+      const classifiedWithAllocations = inputCoordinator.routeClassifiedInput(
+        nlpResult.input,
+        agentsForNlp,
+        agentBoxesList,
+        currentModel,
+        'ollama'
+      )
+      
+      console.log('[Sidepanel] Trigger Agent Allocations:', {
+        count: classifiedWithAllocations.agentAllocations?.length || 0
+      })
+      
+      if (routingDecision.shouldForwardToAgent && routingDecision.matchedAgents.length > 0) {
+        // Show butler confirmation
+        setChatMessages(prev => [...prev, {
+          role: 'assistant' as const,
+          text: routingDecision.butlerResponse
+        }])
+        
+        // Process with each matched agent
+        const agents = await loadAgentsFromSession()
+        
+        for (const match of routingDecision.matchedAgents) {
+          const agent = agents.find(a => a.id === match.agentId)
+          if (!agent) continue
+          
+          const wrappedInput = wrapInputForAgent(triggerText, agent, ocrText)
+          
+          // Resolve model
+          const modelResolution = resolveModelForAgent(
+            match.agentBoxProvider,
+            match.agentBoxModel,
+            currentModel
+          )
+          
+          console.log('[Sidepanel] Processing with agent:', match.agentName, 'model:', modelResolution.model)
+          
+          const processedContent = ocrText 
+            ? `${triggerText}\n\n[Extracted Text]:\n${ocrText}`
+            : triggerText
+          
+          const agentResponse = await fetch(`${baseUrl}/api/llm/chat`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              modelId: modelResolution.model || currentModel,
+              messages: [
+                { role: 'system', content: wrappedInput },
+                { role: 'user', content: processedContent }
+              ]
+            })
+          })
+          
+          if (agentResponse.ok) {
+            const agentResult = await agentResponse.json()
+            if (agentResult.ok && agentResult.data?.content) {
+              const agentOutput = agentResult.data.content
+              
+              if (match.agentBoxId) {
+                const reasoningContext = `**Agent:** ${match.agentIcon} ${match.agentName}\n**Match:** ${match.matchDetails}\n**Input:** ${triggerText}`
+                
+                await updateAgentBoxOutput(match.agentBoxId, agentOutput, reasoningContext)
+                
+                setChatMessages(prev => [...prev, {
+                  role: 'assistant' as const,
+                  text: `✓ ${match.agentIcon} **${match.agentName}** processed your request.\n→ Output displayed in Agent Box ${String(match.agentBoxNumber).padStart(2, '0')}`
+                }])
+              } else {
+                setChatMessages(prev => [...prev, {
+                  role: 'assistant' as const,
+                  text: `${match.agentIcon} **${match.agentName}**:\n\n${agentOutput}`
+                }])
+              }
+            }
+          }
+        }
+      } else {
+        // No agent match - use butler response
+        const agents = await loadAgentsFromSession()
+        const butlerPrompt = getButlerSystemPrompt(
+          sessionName,
+          agents.filter(a => a.enabled).length,
+          connectionStatus.isConnected
+        )
+        
+        const response = await fetch(`${baseUrl}/api/llm/chat`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            modelId: currentModel,
+            messages: [
+              { role: 'system', content: butlerPrompt },
+              { role: 'user', content: ocrText ? `${triggerText}\n\n[Image Text]:\n${ocrText}` : triggerText }
+            ]
+          })
+        })
+        
+        if (response.ok) {
+          const result = await response.json()
+          if (result.ok && result.data?.content) {
+            setChatMessages(prev => [...prev, {
+              role: 'assistant' as const,
+              text: result.data.content
+            }])
+          }
+        }
+      }
+      
+      // Scroll to bottom
+      setTimeout(() => {
+        if (chatRef.current) chatRef.current.scrollTop = chatRef.current.scrollHeight
+      }, 0)
+      
+    } catch (error: any) {
+      console.error('[Sidepanel] Error processing trigger:', error)
+      setChatMessages(prev => [...prev, {
+        role: 'assistant' as const,
+        text: `⚠️ Error: ${error.message || 'Failed to process trigger'}`
+      }])
+    } finally {
+      setIsLlmLoading(false)
+    }
+  }
 
-    setTimeout(() => {
-      if (chatRef.current) chatRef.current.scrollTop = chatRef.current.scrollHeight
-    }, 0)
+  const handleSendMessage = async () => {
+    const text = chatInput.trim()
+    // Allow sending with just an image (no text required)
+    const hasImage = chatMessages.some(msg => msg.imageUrl)
+    
+    // If empty input, show helpful hint
+    if (!text && !hasImage) {
+      if (isLlmLoading) return
+      setChatMessages([...chatMessages, {
+        role: 'assistant' as const,
+        text: `💡 **How to use WR Chat:**\n\n• Ask questions about the orchestrator or your workflow\n• Trigger automations using **#tagname** (e.g., "#summarize")\n• Use the 📸 button to capture screenshots for analysis\n• Attach files with 📎 for context\n\nTry: "What can you help me with?" or "#help"`
+      }])
+      setTimeout(() => {
+        if (chatRef.current) chatRef.current.scrollTop = chatRef.current.scrollHeight
+      }, 0)
+      return
+    }
+    
+    if (isLlmLoading) return
+    
+    // Check if model is available
+    if (!activeLlmModel) {
+      setChatMessages([...chatMessages, {
+        role: 'assistant' as const,
+        text: `⚠️ No LLM model available. Please:\n\n1. Go to Admin panel (toggle at top)\n2. Open LLM Settings\n3. Install a trusted ultra-lightweight model:\n   • TinyLlama 1.1B (0.6GB) - Recommended\n   • Gemma 2B Q2_K (0.9GB) - Google\n   • StableLM 1.6B (1.0GB) - Stability AI\n4. Come back and try again!`
+      }])
+      setTimeout(() => {
+        if (chatRef.current) chatRef.current.scrollTop = chatRef.current.scrollHeight
+      }, 0)
+      return
+    }
+    
+    // Add user message (only if there's text)
+    const newMessages = text 
+      ? [...chatMessages, { role: 'user' as const, text }]
+      : [...chatMessages]
+    setChatMessages(newMessages)
+    setChatInput('')
+    setIsLlmLoading(true)
+    
+    // Helper to scroll chat to bottom
+    const scrollToBottom = () => {
+      setTimeout(() => {
+        if (chatRef.current) chatRef.current.scrollTop = chatRef.current.scrollHeight
+      }, 0)
+    }
+    
+    scrollToBottom()
+    
+    try {
+      const baseUrl = 'http://127.0.0.1:51248'
+      
+      // =================================================================
+      // STEP 1: GET CURRENT CONTEXT
+      // =================================================================
+      let currentUrl = ''
+      try {
+        const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
+        currentUrl = tab?.url || ''
+      } catch (e) {
+        console.warn('[Chat] Could not get current tab URL:', e)
+      }
+      
+      // =================================================================
+      // STEP 2: ROUTE INPUT THROUGH INPUT COORDINATOR
+      // The InputCoordinator decides which agents should receive the input:
+      // - Active trigger (#tag17) -> Forward to matched agent
+      // - Passive trigger pattern matched -> Forward to matched agent
+      // - No listener active on agent -> Always forward to reasoning section
+      // - No match at all -> Butler response only
+      // =================================================================
+      const routingDecision = await routeInput(
+        text,
+        hasImage,
+        connectionStatus,
+        sessionName,
+        activeLlmModel,
+        currentUrl
+      )
+      
+      console.log('[Chat] Input Coordinator routing decision:', {
+        shouldForward: routingDecision.shouldForwardToAgent,
+        matchedAgents: routingDecision.matchedAgents.length,
+        agents: routingDecision.matchedAgents.map(m => `${m.agentName} (${m.matchDetails})`)
+      })
+      
+      // =================================================================
+      // STEP 3: PROCESS OCR IF IMAGES PRESENT
+      // =================================================================
+      const { processedMessages, ocrText } = await processMessagesWithOCR(newMessages, baseUrl)
+      
+      // =================================================================
+      // STEP 3.5: NLP CLASSIFICATION
+      // Classify input text (or OCR text) into structured JSON
+      // This extracts triggers, entities, and prepares for routing
+      // =================================================================
+      const inputTextForNlp = ocrText || text
+      const nlpResult = await nlpClassifier.classify(
+        inputTextForNlp,
+        ocrText ? 'ocr' : 'inline_chat',
+        { sourceUrl: currentUrl, sessionKey: sessionName }
+      )
+      
+      console.log('[Chat] NLP Classification:', {
+        success: nlpResult.success,
+        triggers: nlpResult.input.triggers,
+        entities: nlpResult.input.entities.length,
+        processingTimeMs: nlpResult.processingTimeMs
+      })
+      
+      // Route classified input through InputCoordinator for agent allocations
+      const agents = await loadAgentsFromSession()
+      const agentBoxesList = agentBoxes as AgentBox[]
+      const classifiedWithAllocations = inputCoordinator.routeClassifiedInput(
+        nlpResult.input,
+        agents,
+        agentBoxesList,
+        activeLlmModel,
+        'ollama'
+      )
+      
+      console.log('[Chat] Agent Allocations:', {
+        count: classifiedWithAllocations.agentAllocations?.length || 0,
+        agents: classifiedWithAllocations.agentAllocations?.map(a => 
+          `${a.agentName} → ${a.outputSlot.destination} (${a.llmModel})`
+        )
+      })
+      
+      // =================================================================
+      // STEP 4: HANDLE ROUTING DECISION
+      // =================================================================
+      
+      if (routingDecision.shouldForwardToAgent && routingDecision.matchedAgents.length > 0) {
+        // =================================================================
+        // PATH A: AGENT PROCESSING
+        // 1. Butler shows immediate confirmation
+        // 2. Each matched agent processes with reasoning wrapper
+        // 3. Output goes to connected AgentBox (or inline if no box)
+        // =================================================================
+        
+        // A1. Show Butler confirmation (immediate response)
+        setChatMessages([...newMessages, {
+          role: 'assistant' as const,
+          text: routingDecision.butlerResponse
+        }])
+        scrollToBottom()
+        
+        // A2. Process with each matched agent
+        for (const match of routingDecision.matchedAgents) {
+          console.log(`[Chat] Processing with agent: ${match.agentName}`)
+          
+          // Use helper function to process with agent
+          const result = await processWithAgent(
+            match,
+            text,
+            ocrText,
+            processedMessages,
+            activeLlmModel,
+            baseUrl
+          )
+          
+          if (result.success && result.output) {
+            // A3. Route output to AgentBox or inline chat
+            if (match.agentBoxId) {
+              // Update AgentBox with output
+              const reasoningContext = `**Agent:** ${match.agentIcon} ${match.agentName}\n**Match:** ${match.matchDetails}\n**Input:** ${text}`
+              
+              await updateAgentBoxOutput(
+                match.agentBoxId,
+                result.output,
+                reasoningContext
+              )
+              
+              // Show brief confirmation in chat
+              setChatMessages(prev => [...prev, {
+                role: 'assistant' as const,
+                text: `✓ ${match.agentIcon} **${match.agentName}** processed your request.\n→ Output displayed in Agent Box ${String(match.agentBoxNumber).padStart(2, '0')}`
+              }])
+            } else {
+              // No AgentBox - show full output in chat
+              setChatMessages(prev => [...prev, {
+                role: 'assistant' as const,
+                text: `${match.agentIcon} **${match.agentName}**:\n\n${result.output}`
+              }])
+            }
+            scrollToBottom()
+          } else if (result.error) {
+            // Show error for this agent
+            setChatMessages(prev => [...prev, {
+              role: 'assistant' as const,
+              text: `⚠️ ${match.agentIcon} **${match.agentName}** error: ${result.error}`
+            }])
+            scrollToBottom()
+          }
+        }
+        
+      } else if (routingDecision.butlerResponse) {
+        // =================================================================
+        // PATH B: SYSTEM STATUS RESPONSE
+        // Butler handled this directly (e.g., "status", "what agents")
+        // =================================================================
+        setChatMessages([...newMessages, {
+          role: 'assistant' as const,
+          text: routingDecision.butlerResponse
+        }])
+        scrollToBottom()
+        
+      } else {
+        // =================================================================
+        // PATH C: BUTLER LLM RESPONSE
+        // No agent match - use butler personality for general questions
+        // =================================================================
+        const butlerResult = await getButlerResponse(processedMessages, activeLlmModel, baseUrl)
+        
+        if (butlerResult.success && butlerResult.response) {
+          setChatMessages([...newMessages, {
+            role: 'assistant' as const,
+            text: butlerResult.response
+          }])
+          scrollToBottom()
+        } else {
+          throw new Error(butlerResult.error || 'No response from butler')
+        }
+      }
+      
+    } catch (error: any) {
+      console.error('[Chat] Error:', error)
+      
+      // Provide helpful error messages
+      let errorMsg = error.message || 'Failed to get response from LLM'
+      
+      if (errorMsg.includes('No models installed') || errorMsg.includes('Please go to LLM Settings')) {
+        errorMsg = `⚠️ No LLM model installed!\n\nTo get started:\n1. Click Admin toggle at top\n2. Go to LLM Settings\n3. Install a trusted lightweight model:\n   • TinyLlama (0.6GB) - Recommended\n   • Gemma 2B Q2_K (0.9GB) - Google\n   • StableLM (1.0GB) - Stability AI\n\nThen come back and chat!`
+      } else {
+        errorMsg = `⚠️ Error: ${errorMsg}\n\nTip: Make sure Ollama is running and a trusted model is installed in LLM Settings.`
+      }
+      
+      setChatMessages(prev => [...prev, {
+        role: 'assistant' as const,
+        text: errorMsg
+      }])
+      
+      // Scroll to bottom after error message
+      setTimeout(() => {
+        if (chatRef.current) chatRef.current.scrollTop = chatRef.current.scrollHeight
+      }, 0)
+    } finally {
+      setIsLlmLoading(false)
+    }
+>>>>>>> dc26ea5244137a289160528cea41adc4d181fae6
   }
 
   const handleChatKeyDown = (e: React.KeyboardEvent) => {
@@ -757,8 +1929,267 @@ function SidepanelOrchestrator() {
     }
   }
 
+  // Handle model selection
+  const handleModelSelect = (modelName: string, e: React.MouseEvent) => {
+    e.stopPropagation()
+    setActiveLlmModel(modelName)
+    activeLlmModelRef.current = modelName
+    setShowModelDropdown(false)
+    console.log('[Command Chat] Model selected:', modelName)
+  }
+
+  // Get short model name for display (e.g., "llama3.2:3b" -> "llama3.2")
+  const getShortModelName = (name: string) => {
+    if (!name) return 'No model'
+    // Remove size suffix like :3b, :7b, :latest
+    const baseName = name.split(':')[0]
+    // Truncate if too long
+    return baseName.length > 12 ? baseName.slice(0, 12) + '…' : baseName
+  }
+
+  // Render the Send button with integrated model dropdown
+  const renderSendButton = () => {
+    const hasModels = availableModels.length > 0
+    const isDisabled = isLlmLoading || !chatInput.trim()
+    const noInput = !chatInput.trim()
+    const isReady = hasModels && activeLlmModel && !isLlmLoading
+    
+    // Colors based on state - always green
+    const getButtonStyle = () => {
+      // Loading state - purple/blue
+      if (isLlmLoading) {
+        return {
+          bg: 'linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)',
+          border: '1px solid #7c3aed',
+          color: '#ffffff'
+        }
+      }
+      
+      // Always green - both active and inactive
+      return {
+        bg: 'linear-gradient(135deg, #22c55e 0%, #16a34a 100%)',
+        border: '1px solid #15803d',
+        color: '#052e16'
+      }
+    }
+    
+    const style = getButtonStyle()
+    
+    return (
+      <div 
+        style={{ position: 'relative', display: 'flex', marginRight: '2px' }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Main Send button */}
+        <button
+          onClick={handleSendMessage}
+          disabled={isDisabled}
+          style={{
+            height: '44px',
+            padding: '4px 14px',
+            background: style.bg,
+            border: style.border,
+            borderRight: hasModels ? 'none' : undefined,
+            borderTopLeftRadius: '10px',
+            borderBottomLeftRadius: '10px',
+            borderTopRightRadius: hasModels ? '0' : '10px',
+            borderBottomRightRadius: hasModels ? '0' : '10px',
+            color: style.color,
+            cursor: isDisabled ? 'not-allowed' : 'pointer',
+            transition: 'all 0.2s ease',
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: '1px',
+            boxShadow: isDisabled ? 'none' : '0 2px 4px rgba(0,0,0,0.1)'
+          }}
+          onMouseEnter={(e) => {
+            if (!isDisabled) {
+              e.currentTarget.style.transform = 'translateY(-1px)'
+              e.currentTarget.style.boxShadow = '0 4px 8px rgba(0,0,0,0.15)'
+            }
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.transform = 'translateY(0)'
+            e.currentTarget.style.boxShadow = isDisabled ? 'none' : '0 2px 4px rgba(0,0,0,0.1)'
+          }}
+        >
+          <span style={{ 
+            fontSize: '13px', 
+            fontWeight: '700',
+            lineHeight: 1
+          }}>
+            {isLlmLoading ? '⏳ Thinking' : 'Send'}
+          </span>
+          {hasModels && (
+            <span style={{ 
+              fontSize: '9px', 
+              opacity: 0.8,
+              lineHeight: 1,
+              maxWidth: '70px',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap'
+            }}>
+              {getShortModelName(activeLlmModel)}
+            </span>
+          )}
+        </button>
+        
+        {/* Model dropdown toggle */}
+        {hasModels && (
+          <button
+            onClick={(e) => {
+              e.stopPropagation()
+              setShowModelDropdown(!showModelDropdown)
+            }}
+            disabled={isLlmLoading}
+            style={{
+              height: '44px',
+              width: '22px',
+              background: style.bg,
+              border: style.border,
+              borderLeft: '1px solid rgba(0,0,0,0.1)',
+              borderTopRightRadius: '10px',
+              borderBottomRightRadius: '10px',
+              color: style.color,
+              cursor: isLlmLoading ? 'not-allowed' : 'pointer',
+              fontSize: '10px',
+              transition: 'all 0.2s ease',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              boxShadow: isLlmLoading ? 'none' : '0 2px 4px rgba(0,0,0,0.1)'
+            }}
+            onMouseEnter={(e) => {
+              if (!isLlmLoading) {
+                e.currentTarget.style.opacity = '0.85'
+                e.currentTarget.style.transform = 'translateY(-1px)'
+              }
+            }}
+            onMouseLeave={(e) => {
+              if (!isLlmLoading) {
+                e.currentTarget.style.opacity = '1'
+                e.currentTarget.style.transform = 'translateY(0)'
+              }
+            }}
+          >
+            ▾
+          </button>
+        )}
+        
+        {/* Model dropdown menu */}
+        {showModelDropdown && hasModels && (
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              position: 'absolute',
+              bottom: '100%',
+              right: 0,
+              marginBottom: '6px',
+              background: theme === 'professional' ? '#ffffff' : '#1e293b',
+              border: theme === 'professional' ? '1px solid #e2e8f0' : '1px solid rgba(255,255,255,0.2)',
+              borderRadius: '10px',
+              boxShadow: '0 8px 24px rgba(0,0,0,0.25)',
+              zIndex: 1000,
+              minWidth: '180px',
+              maxHeight: '220px',
+              overflowY: 'auto'
+            }}
+          >
+            <div style={{
+              padding: '8px 12px',
+              fontSize: '10px',
+              fontWeight: '700',
+              opacity: 0.5,
+              borderBottom: theme === 'professional' ? '1px solid #e2e8f0' : '1px solid rgba(255,255,255,0.1)',
+              color: theme === 'professional' ? '#64748b' : 'inherit',
+              letterSpacing: '0.5px'
+            }}>
+              SELECT MODEL
+            </div>
+            {availableModels.map((model) => (
+              <div
+                key={model.name}
+                onClick={(e) => handleModelSelect(model.name, e)}
+                style={{
+                  padding: '10px 12px',
+                  fontSize: '12px',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  background: model.name === activeLlmModel 
+                    ? (theme === 'professional' ? 'rgba(34,197,94,0.12)' : 'rgba(34,197,94,0.25)')
+                    : 'transparent',
+                  color: theme === 'professional' ? '#0f172a' : 'inherit',
+                  borderLeft: model.name === activeLlmModel ? '3px solid #22c55e' : '3px solid transparent',
+                  transition: 'all 0.15s ease'
+                }}
+                onMouseEnter={(e) => {
+                  if (model.name !== activeLlmModel) {
+                    e.currentTarget.style.background = theme === 'professional' ? '#f1f5f9' : 'rgba(255,255,255,0.08)'
+                    e.currentTarget.style.borderLeftColor = '#22c55e'
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  if (model.name !== activeLlmModel) {
+                    e.currentTarget.style.background = 'transparent'
+                    e.currentTarget.style.borderLeftColor = 'transparent'
+                  }
+                }}
+              >
+                <span style={{ 
+                  width: '16px',
+                  color: '#22c55e',
+                  fontWeight: '700'
+                }}>
+                  {model.name === activeLlmModel ? '✓' : ''}
+                </span>
+                <span style={{ 
+                  flex: 1,
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                  fontWeight: model.name === activeLlmModel ? '600' : '400'
+                }}>
+                  {model.name}
+                </span>
+                {model.size && (
+                  <span style={{ 
+                    fontSize: '10px', 
+                    opacity: 0.5, 
+                    flexShrink: 0,
+                    background: theme === 'professional' ? '#e2e8f0' : 'rgba(255,255,255,0.1)',
+                    padding: '2px 6px',
+                    borderRadius: '4px'
+                  }}>
+                    {model.size}
+                  </span>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    )
+  }
+
   const handleTriggerClick = (trigger: any) => {
     setShowTagsMenu(false)
+    
+    // Set pending trigger for auto-processing when screenshot returns
+    // Using REF to avoid stale closure issues in the message handler
+    pendingTriggerRef.current = {
+      trigger,
+      command: trigger.command || trigger.name, // Use command or trigger name
+      autoProcess: true
+    }
+    
+    console.log('[Sidepanel] Trigger clicked, setting pending process (ref):', pendingTriggerRef.current)
+    
+    // Send to Electron for screenshot capture
     chrome.runtime?.sendMessage({ type: 'ELECTRON_EXECUTE_TRIGGER', trigger })
   }
 
@@ -1122,19 +2553,45 @@ function SidepanelOrchestrator() {
                 borderBottom: '1px solid rgba(255,255,255,0.20)',
                 color: themeColors.text
               }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                  <div style={{ fontSize: '13px', fontWeight: '700' }}>💬 Command Chat</div>
-                  <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                <div style={{ display: 'flex', alignItems: 'center' }}>
+                  <select
+                    value={dockedPanelMode}
+                    onChange={(e) => setDockedPanelMode(e.target.value as 'command-chat' | 'mailguard')}
+                    style={{
+                      fontSize: '11px',
+                      fontWeight: '600',
+                      height: '28px',
+                      background: theme === 'professional' ? 'rgba(15,23,42,0.08)' : 'rgba(255,255,255,0.15)',
+                      border: theme === 'professional' ? '1px solid rgba(15,23,42,0.2)' : '1px solid rgba(255,255,255,0.25)',
+                      color: theme === 'professional' ? '#0f172a' : 'inherit',
+                      borderRadius: '6px',
+                      padding: '0 22px 0 8px',
+                      cursor: 'pointer',
+                      outline: 'none',
+                      appearance: 'none',
+                      WebkitAppearance: 'none',
+                      flexShrink: 0,
+                      backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 12 12'%3E%3Cpath fill='${theme === 'professional' ? '%230f172a' : '%23ffffff'}' d='M3 4.5L6 7.5L9 4.5'/%3E%3C/svg%3E")`,
+                      backgroundRepeat: 'no-repeat',
+                      backgroundPosition: 'right 6px center'
+                    }}
+                  >
+                    <option value="command-chat" style={{ background: '#1e293b', color: 'white' }}>💬 WR Chat</option>
+                    <option value="mailguard" style={{ background: '#1e293b', color: 'white' }}>🛡️ WR MailGuard</option>
+                  </select>
+                </div>
+                <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexShrink: 0 }}>
+                  {dockedPanelMode === 'command-chat' && <>
                     <button
                       onClick={handleBucketClick}
                       title="Context Bucket: Embed context directly into the session"
                       style={{
-                        height: '32px',
-                        minWidth: '32px',
+                        height: '28px',
+                        minWidth: '28px',
                         ...chatControlButtonStyle(),
                         borderRadius: '6px',
-                        padding: '0 10px',
-                        fontSize: '14px',
+                        padding: '0 8px',
+                        fontSize: '13px',
                         cursor: 'pointer',
                         display: 'flex',
                         alignItems: 'center',
@@ -1168,10 +2625,10 @@ function SidepanelOrchestrator() {
                       style={{
                         ...chatControlButtonStyle(),
                         borderRadius: '6px',
-                        padding: '0 10px',
-                        height: '32px',
-                        minWidth: '32px',
-                        fontSize: '14px',
+                        padding: '0 8px',
+                        height: '28px',
+                        minWidth: '28px',
+                        fontSize: '13px',
                         cursor: 'pointer',
                         display: 'flex',
                         alignItems: 'center',
@@ -1206,13 +2663,13 @@ function SidepanelOrchestrator() {
                         style={{
                           ...chatControlButtonStyle(),
                           borderRadius: '6px',
-                          padding: '0 12px',
-                          height: '32px',
-                          fontSize: '13px',
+                          padding: '0 10px',
+                          height: '28px',
+                          fontSize: '11px',
                           cursor: 'pointer',
                           display: 'inline-flex',
                           alignItems: 'center',
-                          gap: '6px',
+                          gap: '4px',
                           transition: 'all 0.2s ease'
                         }}
                         onMouseEnter={(e) => {
@@ -1325,18 +2782,21 @@ function SidepanelOrchestrator() {
                         </div>
                       )}
                     </div>
-                  </div>
-                </div>
-                <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                  </>}
                   <button
                     onClick={toggleCommandChatPin}
                     title="Unpin from sidepanel"
                     style={{
                       ...chatControlButtonStyle(),
+                      height: '28px',
+                      minWidth: '28px',
                       borderRadius: '6px',
-                      padding: '4px 6px',
-                      fontSize: '10px',
-                      cursor: 'pointer'
+                      padding: '0 8px',
+                      fontSize: '13px',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center'
                     }}
                   >
                     ↗
@@ -1344,6 +2804,9 @@ function SidepanelOrchestrator() {
                 </div>
               </div>
 
+              {/* Command Chat Content - Section 1 (showMinimalUI) */}
+              {dockedPanelMode === 'command-chat' ? (
+              <>
               {/* Messages Area */}
               <div
                 id="ccd-messages-sidepanel"
@@ -1494,6 +2957,7 @@ function SidepanelOrchestrator() {
                 >
                   🎙️
                 </button>
+<<<<<<< HEAD
                 <button
                   onClick={handleSendMessage}
                   style={{
@@ -1771,6 +3235,375 @@ function SidepanelOrchestrator() {
               </div>
             )}
           </>
+                {renderSendButton()}
+          </div>
+
+            {/* Trigger Creation UI - Minimal View Section 1 */}
+            {showTriggerPrompt && (
+              <div style={{
+                padding: '12px 14px',
+                background: 'rgba(255,255,255,0.08)',
+                borderTop: '1px solid rgba(255,255,255,0.20)'
+              }}>
+                <div style={{ marginBottom: '8px', fontSize: '12px', fontWeight: '700', opacity: 0.85 }}>
+                  {showTriggerPrompt.mode === 'screenshot' ? '📸 Screenshot' : '🎥 Stream'}
+                </div>
+                {showTriggerPrompt.createTrigger && (
+                  <input
+                    type="text"
+                    placeholder="Trigger Name"
+                    value={showTriggerPrompt.name || ''}
+                    onChange={(e) => setShowTriggerPrompt({ ...showTriggerPrompt, name: e.target.value })}
+                    style={{
+                      width: '100%',
+                      boxSizing: 'border-box',
+                      padding: '8px 10px',
+                      background: 'rgba(255,255,255,0.08)',
+                      border: '1px solid rgba(255,255,255,0.20)',
+                      color: 'white',
+                      borderRadius: '6px',
+                      fontSize: '12px',
+                      marginBottom: '8px'
+                    }}
+                  />
+                )}
+                {showTriggerPrompt.addCommand && (
+                  <textarea
+                    placeholder="Optional Command"
+                    value={showTriggerPrompt.command || ''}
+                    onChange={(e) => setShowTriggerPrompt({ ...showTriggerPrompt, command: e.target.value })}
+                    style={{
+                      width: '100%',
+                      boxSizing: 'border-box',
+                      padding: '8px 10px',
+                      background: 'rgba(255,255,255,0.08)',
+                      border: '1px solid rgba(255,255,255,0.20)',
+                      color: 'white',
+                      borderRadius: '6px',
+                      fontSize: '12px',
+                      minHeight: '60px',
+                      marginBottom: '8px',
+                      resize: 'vertical',
+                      fontFamily: 'inherit'
+                    }}
+                  />
+                )}
+                <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+                  <button
+                    onClick={() => setShowTriggerPrompt(null)}
+                    style={{
+                      padding: '6px 12px',
+                      background: 'rgba(255,255,255,0.15)',
+                      border: '1px solid rgba(255,255,255,0.25)',
+                      color: 'white',
+                      borderRadius: '6px',
+                      cursor: 'pointer',
+                      fontSize: '12px'
+                    }}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={async () => {
+                      const name = showTriggerPrompt.name?.trim() || ''
+                      const command = showTriggerPrompt.command?.trim() || ''
+                      
+                      // If createTrigger is checked, save the trigger
+                      if (showTriggerPrompt.createTrigger) {
+                        if (!name) {
+                          alert('Please enter a trigger name')
+                          return
+                        }
+                        
+                        const triggerData = {
+                          name,
+                          command,
+                          at: Date.now(),
+                          rect: showTriggerPrompt.rect,
+                          bounds: showTriggerPrompt.bounds,
+                          mode: showTriggerPrompt.mode
+                        }
+                        
+                        // Save to chrome.storage for dropdown
+                        chrome.storage.local.get(['optimando-tagged-triggers'], (result) => {
+                          const triggers = result['optimando-tagged-triggers'] || []
+                          triggers.push(triggerData)
+                          chrome.storage.local.set({ 'optimando-tagged-triggers': triggers }, () => {
+                            console.log('✅ Trigger saved to storage:', triggerData)
+                            setTriggers(triggers)
+                            // Notify other contexts
+                            try { chrome.runtime?.sendMessage({ type:'TRIGGERS_UPDATED' }) } catch {}
+                          })
+                        })
+                        
+                        // Send trigger to Electron
+                        try {
+                          chrome.runtime?.sendMessage({
+                            type: 'ELECTRON_SAVE_TRIGGER',
+                            name,
+                            mode: showTriggerPrompt.mode,
+                            rect: showTriggerPrompt.rect,
+                            displayId: 0, // Main display for sidepanel
+                            imageUrl: showTriggerPrompt.imageUrl,
+                            videoUrl: showTriggerPrompt.videoUrl,
+                            command: command || undefined
+                          })
+                        } catch (err) {
+                          console.error('Error sending trigger to Electron:', err)
+                        }
+                      }
+                      
+                      // Auto-process: If there's a command or trigger name, send to LLM
+                      const triggerNameToUse = name || command
+                      const shouldAutoProcess = showTriggerPrompt.addCommand || (showTriggerPrompt.createTrigger && triggerNameToUse)
+                      
+                      if (shouldAutoProcess && triggerNameToUse && showTriggerPrompt.imageUrl) {
+                        // Use the trigger name as @trigger format for routing
+                        const triggerText = triggerNameToUse.startsWith('@') ? triggerNameToUse : `@${triggerNameToUse}`
+                        
+                        console.log('[Sidepanel] Auto-processing trigger creation:', { triggerText, hasImage: true })
+                        
+                        // Clear the prompt first
+                        setShowTriggerPrompt(null)
+                        setCreateTriggerChecked(false)
+                        setAddCommandChecked(false)
+                        
+                        // Send to LLM for processing
+                        handleSendMessageWithTrigger(triggerText, showTriggerPrompt.imageUrl)
+                      } else {
+                        // Just post the screenshot to chat (no auto-process)
+                        if (showTriggerPrompt.imageUrl) {
+                          const imageMessage = {
+                            role: 'user' as const,
+                            text: `![Screenshot](${showTriggerPrompt.imageUrl})`,
+                            imageUrl: showTriggerPrompt.imageUrl
+                          }
+                          setChatMessages(prev => [...prev, imageMessage])
+                          // Scroll to bottom
+                          setTimeout(() => {
+                            if (chatRef.current) {
+                              chatRef.current.scrollTop = chatRef.current.scrollHeight
+                            }
+                          }, 100)
+                        }
+                        
+                        // Clear the prompt
+                        setShowTriggerPrompt(null)
+                        setCreateTriggerChecked(false)
+                        setAddCommandChecked(false)
+                      }
+                    }}
+                    style={{
+                      padding: '6px 12px',
+                      background: '#22c55e',
+                      border: '1px solid #16a34a',
+                      color: '#0b1e12',
+                      borderRadius: '6px',
+                      cursor: 'pointer',
+                      fontSize: '12px',
+                      fontWeight: '700'
+                    }}
+                  >
+                    Save
+                  </button>
+                </div>
+              </div>
+            )}
+              </>
+              ) : (
+                /* WR MailGuard Email Editor - Section 1 (showMinimalUI) */
+                <div style={{ display: 'flex', flexDirection: 'column', flex: 1, background: theme === 'default' ? 'rgba(118,75,162,0.15)' : (theme === 'professional' ? '#f8fafc' : 'rgba(255,255,255,0.04)') }}>
+                  <style>{`
+                    .mg-input::placeholder, .mg-textarea::placeholder {
+                      color: ${theme === 'professional' ? '#64748b' : 'rgba(255,255,255,0.5)'};
+                      opacity: 1;
+                    }
+                  `}</style>
+                  {/* Inline helper text when not composing */}
+                  {!mailguardTo && !mailguardSubject && !mailguardBody && mailguardAttachments.length === 0 && (
+                    <div style={{ padding: '16px 18px', fontSize: '13px', opacity: 0.7, fontStyle: 'italic', borderBottom: theme === 'professional' ? '1px solid rgba(15,23,42,0.1)' : '1px solid rgba(255,255,255,0.1)', background: theme === 'professional' ? 'rgba(168,85,247,0.08)' : 'rgba(168,85,247,0.15)', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                      <span style={{ fontSize: '18px' }}>✉️</span>
+                      Compose verified WRGuard-stamped emails with built-in automation.
+                    </div>
+                  )}
+                  <div style={{ padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: '14px', flex: 1 }}>
+                    {/* Email Header Fields */}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', paddingBottom: '14px', borderBottom: theme === 'professional' ? '1px solid rgba(15,23,42,0.1)' : '1px solid rgba(255,255,255,0.1)' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                        <label style={{ fontSize: '13px', fontWeight: '600', opacity: 0.7, minWidth: '60px' }}>To:</label>
+                        <input type="email" className="mg-input" value={mailguardTo} onChange={(e) => setMailguardTo(e.target.value)} placeholder="recipient@example.com" style={{ flex: 1, background: theme === 'professional' ? '#ffffff' : 'rgba(255,255,255,0.08)', border: theme === 'professional' ? '1px solid rgba(15,23,42,0.15)' : '1px solid rgba(255,255,255,0.15)', color: theme === 'professional' ? '#0f172a' : 'white', borderRadius: '6px', padding: '10px 14px', fontSize: '14px', outline: 'none' }} />
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                        <label style={{ fontSize: '13px', fontWeight: '600', opacity: 0.7, minWidth: '60px' }}>Subject:</label>
+                        <input type="text" className="mg-input" value={mailguardSubject} onChange={(e) => setMailguardSubject(e.target.value)} placeholder="Email subject" style={{ flex: 1, background: theme === 'professional' ? '#ffffff' : 'rgba(255,255,255,0.08)', border: theme === 'professional' ? '1px solid rgba(15,23,42,0.15)' : '1px solid rgba(255,255,255,0.15)', color: theme === 'professional' ? '#0f172a' : 'white', borderRadius: '6px', padding: '10px 14px', fontSize: '14px', outline: 'none' }} />
+                      </div>
+                    </div>
+                    {/* Email Body - Large Text Area with Resize Handle */}
+                    <div style={{ display: 'flex', flexDirection: 'column' }}>
+                      <textarea 
+                        className="mg-textarea"
+                        value={mailguardBody} 
+                        onChange={(e) => setMailguardBody(e.target.value)} 
+                        placeholder="Compose your email message here...
+
+Write your message with the confidence that it will be protected by WRGuard encryption and verification." 
+                        style={{ 
+                          background: theme === 'professional' ? '#ffffff' : 'rgba(255,255,255,0.06)', 
+                          border: theme === 'professional' ? '1px solid rgba(15,23,42,0.15)' : '1px solid rgba(255,255,255,0.12)', 
+                          color: theme === 'professional' ? '#0f172a' : 'white', 
+                          borderRadius: '8px', 
+                          padding: '14px 16px', 
+                          fontSize: '14px', 
+                          lineHeight: '1.6',
+                          height: `${mailguardBodyHeight}px`, 
+                          resize: 'none', 
+                          fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif', 
+                          outline: 'none'
+                        }} 
+                      />
+                      <div 
+                        onMouseDown={(e) => {
+                          e.preventDefault()
+                          mailguardResizeStartY.current = e.clientY
+                          mailguardResizeStartH.current = mailguardBodyHeight
+                          setIsResizingMailguard(true)
+                        }}
+                        style={{ 
+                          height: '12px', 
+                          background: theme === 'professional' ? 'linear-gradient(180deg, #e2e8f0 0%, #cbd5e1 100%)' : 'linear-gradient(180deg, rgba(255,255,255,0.2) 0%, rgba(255,255,255,0.1) 100%)', 
+                          cursor: 'ns-resize', 
+                          borderRadius: '6px', 
+                          margin: '8px 0', 
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          border: theme === 'professional' ? '1px solid rgba(15,23,42,0.1)' : '1px solid rgba(255,255,255,0.15)'
+                        }}
+                        title="Drag to resize editor height"
+                      >
+                        <div style={{ width: '40px', height: '4px', background: theme === 'professional' ? '#94a3b8' : 'rgba(255,255,255,0.4)', borderRadius: '2px' }} />
+                      </div>
+                    </div>
+                    {/* Attachments Section */}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '4px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                        <span style={{ fontSize: '12px', fontWeight: '600', opacity: 0.7, display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          <span>📎</span> Attachments
+                          <span style={{ fontSize: '10px', opacity: 0.6, fontWeight: '400' }}>(WR Stamped PDFs only)</span>
+                        </span>
+                        <input ref={mailguardFileRef} type="file" accept=".pdf" multiple style={{ display: 'none' }} onChange={(e) => { const files = Array.from(e.target.files || []); const pdfFiles = files.filter(f => f.type === 'application/pdf'); if (pdfFiles.length !== files.length) { setNotification({ message: 'Only PDF files are allowed', type: 'error' }); setTimeout(() => setNotification(null), 3000) } if (pdfFiles.length > 0) { setMailguardAttachments(prev => [...prev, ...pdfFiles.map(f => ({ name: f.name, size: f.size, file: f }))]) } if (e.target) e.target.value = '' }} />
+                        <button onClick={() => mailguardFileRef.current?.click()} style={{ background: theme === 'professional' ? '#e2e8f0' : 'rgba(255,255,255,0.12)', border: theme === 'professional' ? '1px solid rgba(15,23,42,0.15)' : '1px solid rgba(255,255,255,0.2)', color: theme === 'professional' ? '#0f172a' : 'white', borderRadius: '6px', padding: '8px 14px', fontSize: '12px', fontWeight: '500', cursor: 'pointer' }}>+ Add PDF</button>
+                      </div>
+                      {mailguardAttachments.length > 0 && (
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', padding: '8px 0' }}>
+                          {mailguardAttachments.map((att, idx) => (
+                            <div key={idx} style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', padding: '6px 10px', background: theme === 'professional' ? 'rgba(34,197,94,0.1)' : 'rgba(34,197,94,0.15)', border: '1px solid rgba(34,197,94,0.3)', borderRadius: '6px', fontSize: '12px' }}>
+                              <span>📄</span>
+                              <span style={{ maxWidth: '140px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{att.name}</span>
+                              <span style={{ opacity: 0.5, fontSize: '11px' }}>({(att.size / 1024).toFixed(0)} KB)</span>
+                              <button onClick={() => setMailguardAttachments(prev => prev.filter((_, i) => i !== idx))} style={{ background: 'transparent', border: 'none', color: theme === 'professional' ? '#64748b' : 'rgba(255,255,255,0.5)', borderRadius: '4px', width: '18px', height: '18px', cursor: 'pointer', fontSize: '14px', lineHeight: '1', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>×</button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                  <div style={{ padding: '14px 18px', borderTop: theme === 'professional' ? '1px solid rgba(15,23,42,0.1)' : '1px solid rgba(255,255,255,0.15)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: theme === 'professional' ? '#f1f5f9' : 'rgba(0,0,0,0.15)' }}>
+                    <button onClick={() => { setMailguardTo(''); setMailguardSubject(''); setMailguardBody(''); setMailguardAttachments([]) }} style={{ background: 'transparent', border: 'none', color: theme === 'professional' ? '#64748b' : 'rgba(255,255,255,0.6)', padding: '8px 12px', fontSize: '13px', cursor: 'pointer', textDecoration: 'underline', textUnderlineOffset: '2px' }}>Discard draft</button>
+                    <button onClick={() => { if (!mailguardTo.trim()) { setNotification({ message: 'Please enter a recipient', type: 'error' }); setTimeout(() => setNotification(null), 3000); return } if (!mailguardSubject.trim()) { setNotification({ message: 'Please enter a subject', type: 'error' }); setTimeout(() => setNotification(null), 3000); return } if (mailguardAttachments.length === 0) { setNotification({ message: 'Attach at least one WR stamped PDF', type: 'error' }); setTimeout(() => setNotification(null), 3000); return } console.log('[WR MailGuard] Sending:', { to: mailguardTo, subject: mailguardSubject, attachments: mailguardAttachments.map(a => a.name) }); setNotification({ message: 'Protected email queued', type: 'success' }); setTimeout(() => setNotification(null), 3000); setMailguardTo(''); setMailguardSubject(''); setMailguardBody(''); setMailguardAttachments([]) }} disabled={!mailguardTo.trim() || !mailguardSubject.trim() || mailguardAttachments.length === 0} style={{ background: (!mailguardTo.trim() || !mailguardSubject.trim() || mailguardAttachments.length === 0) ? (theme === 'professional' ? '#e2e8f0' : '#374151') : '#a855f7', border: 'none', color: (!mailguardTo.trim() || !mailguardSubject.trim() || mailguardAttachments.length === 0) ? (theme === 'professional' ? '#94a3b8' : '#6b7280') : 'white', borderRadius: '8px', padding: '12px 28px', fontSize: '14px', fontWeight: '600', cursor: (!mailguardTo.trim() || !mailguardSubject.trim() || mailguardAttachments.length === 0) ? 'not-allowed' : 'pointer', boxShadow: (!mailguardTo.trim() || !mailguardSubject.trim() || mailguardAttachments.length === 0) ? 'none' : '0 2px 8px rgba(168,85,247,0.4)', display: 'flex', alignItems: 'center', gap: '8px' }}>Send <span style={{ fontSize: '16px' }}>→</span></button>
+                  </div>
+                </div>
+              )}
+      </div>
+
+          {/* Embed Dialog */}
+          {showEmbedDialog && (
+            <div style={{
+              position: 'fixed',
+              inset: 0,
+              background: 'rgba(0,0,0,0.6)',
+              zIndex: 2147483651,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              backdropFilter: 'blur(4px)'
+            }}>
+              <div style={{
+                width: '420px',
+                background: 'linear-gradient(135deg,#c084fc 0%,#a855f7 50%,#9333ea 100%)',
+                color: 'white',
+                borderRadius: '12px',
+                border: '1px solid rgba(255,255,255,0.25)',
+                boxShadow: '0 12px 30px rgba(0,0,0,0.4)',
+                overflow: 'hidden'
+              }}>
+                <div style={{
+                  padding: '14px 16px',
+                  borderBottom: '1px solid rgba(255,255,255,0.25)',
+                  fontWeight: 700
+                }}>
+                  Where to embed?
+                </div>
+                <div style={{ padding: '14px 16px', fontSize: '12px' }}>
+                  <label style={{ display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '8px' }}>
+            <input
+                      type="radio" 
+                      checked={embedTarget === 'session'}
+                      onChange={() => setEmbedTarget('session')}
+                    />
+                    <span>Session Memory (this session only)</span>
+          </label>
+                  <label style={{ display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '8px' }}>
+            <input
+                      type="radio" 
+                      checked={embedTarget === 'account'}
+                      onChange={() => setEmbedTarget('account')}
+                    />
+                    <span>Account Memory (account-wide, long term)</span>
+          </label>
+                  <div style={{ marginTop: '10px', opacity: 0.9 }}>
+                    Content will be processed (OCR/ASR/Parsing), chunked, and embedded locally.
+                  </div>
+                </div>
+                <div style={{
+                  padding: '12px 16px',
+                  background: 'rgba(255,255,255,0.08)',
+                  display: 'flex',
+                  gap: '8px',
+                  justifyContent: 'flex-end'
+                }}>
+                  <button 
+                    onClick={() => setShowEmbedDialog(false)}
+                    style={{
+                      padding: '6px 10px',
+                      border: 0,
+                      borderRadius: '6px',
+                      background: 'rgba(255,255,255,0.18)',
+                      color: 'white',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    Cancel
+                  </button>
+                  <button 
+                    onClick={handleEmbedConfirm}
+                    style={{
+                      padding: '6px 10px',
+                      border: 0,
+                      borderRadius: '6px',
+                      background: '#22c55e',
+                      color: '#0b1e12',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    Embed
+                  </button>
+                </div>
+        </div>
+      </div>
+          )}
+        </>
+>>>>>>> dc26ea5244137a289160528cea41adc4d181fae6
         )}
 
         {/* Add Mini App Button */}
@@ -1982,51 +3815,154 @@ function SidepanelOrchestrator() {
             </div>
           </div>
         </div>
-
-        {/* Docked Command Chat - Full Featured (Only when pinned) */}
-        {isCommandChatPinned && (
-          <>
-            <div
-              style={{
-                borderBottom: '1px solid rgba(255,255,255,0.2)',
-                background: theme === 'default' ? 'rgba(118,75,162,0.4)' : 'rgba(255,255,255,0.10)',
-                border: '1px solid rgba(255,255,255,0.20)',
-                margin: '12px 16px',
-                borderRadius: '8px',
-                overflow: 'hidden',
-                position: 'relative',
-                boxShadow: '0 4px 12px rgba(0,0,0,0.1)'
-              }}
-              onDragOver={(e) => e.preventDefault()}
-              onDrop={handleChatDrop}
-            >
-              {/* Header */}
-              <div style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                padding: '10px 14px',
-                background: themeColors.background,
-                borderBottom: '1px solid rgba(255,255,255,0.20)',
-                color: themeColors.text
-              }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                  <div style={{ fontSize: '13px', fontWeight: '700' }}>💬 Command Chat</div>
-                  <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                    <button
-                      onClick={handleBucketClick}
-                      title="Context Bucket: Embed context directly into the session"
+        
+      {/* Docked Command Chat - App View */}
+      {isCommandChatPinned && (
+        <>
+          <div 
+            style={{
+              borderBottom: '1px solid rgba(255,255,255,0.2)',
+              background: theme === 'default' ? 'rgba(118,75,162,0.4)' : 'rgba(255,255,255,0.10)',
+              border: '1px solid rgba(255,255,255,0.20)',
+              margin: '12px 16px',
+              borderRadius: '8px',
+              overflow: 'hidden',
+              position: 'relative',
+              boxShadow: '0 4px 12px rgba(0,0,0,0.1)'
+            }}
+            onDragOver={(e) => e.preventDefault()}
+            onDrop={handleChatDrop}
+          >
+            {/* Header - App View */}
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              padding: '10px 14px',
+              background: themeColors.background,
+              borderBottom: '1px solid rgba(255,255,255,0.20)',
+              color: themeColors.text
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center' }}>
+                <select
+                  value={dockedPanelMode}
+                  onChange={(e) => setDockedPanelMode(e.target.value as 'command-chat' | 'mailguard')}
+                  style={{
+                    fontSize: '11px',
+                    fontWeight: '600',
+                    height: '28px',
+                    background: theme === 'professional' ? 'rgba(15,23,42,0.08)' : 'rgba(255,255,255,0.15)',
+                    border: theme === 'professional' ? '1px solid rgba(15,23,42,0.2)' : '1px solid rgba(255,255,255,0.25)',
+                    color: theme === 'professional' ? '#0f172a' : 'inherit',
+                    borderRadius: '6px',
+                    padding: '0 22px 0 8px',
+                    cursor: 'pointer',
+                    outline: 'none',
+                    appearance: 'none',
+                    WebkitAppearance: 'none',
+                    flexShrink: 0,
+                    backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 12 12'%3E%3Cpath fill='${theme === 'professional' ? '%230f172a' : '%23ffffff'}' d='M3 4.5L6 7.5L9 4.5'/%3E%3C/svg%3E")`,
+                    backgroundRepeat: 'no-repeat',
+                    backgroundPosition: 'right 6px center'
+                  }}
+                >
+                  <option value="command-chat" style={{ background: '#1e293b', color: 'white' }}>💬 WR Chat</option>
+                  <option value="mailguard" style={{ background: '#1e293b', color: 'white' }}>🛡️ WR MailGuard</option>
+                </select>
+              </div>
+              <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexShrink: 0 }}>
+                {dockedPanelMode === 'command-chat' && <>
+                  <button 
+                    onClick={handleBucketClick}
+                    title="Context Bucket: Embed context directly into the session"
+                    style={{
+                      height: '28px',
+                      minWidth: '28px',
+                      ...chatControlButtonStyle(),
+                      borderRadius: '6px',
+                      padding: '0 8px',
+                      fontSize: '13px',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      transition: 'all 0.2s ease'
+                    }}
+                    onMouseEnter={(e) => {
+                      if (theme === 'professional') {
+                        e.currentTarget.style.background = 'rgba(15,23,42,0.12)'
+                      } else if (theme === 'dark') {
+                        e.currentTarget.style.background = 'rgba(255,255,255,0.2)'
+                      } else {
+                        e.currentTarget.style.background = 'rgba(118,75,162,0.6)'
+                      }
+                    }}
+                    onMouseLeave={(e) => {
+                      if (theme === 'professional') {
+                        e.currentTarget.style.background = 'rgba(15,23,42,0.08)'
+                      } else if (theme === 'dark') {
+                        e.currentTarget.style.background = 'rgba(255,255,255,0.12)'
+                      } else {
+                        e.currentTarget.style.background = 'rgba(118,75,162,0.35)'
+                      }
+                    }}
+                  >
+                    🪣
+                  </button>
+                  <button 
+                    onClick={handleScreenSelect}
+                    title="LmGTFY - Capture a screen area as screenshot or stream"
+                    style={{
+                      ...chatControlButtonStyle(),
+                      borderRadius: '6px',
+                      padding: '0 8px',
+                      height: '28px',
+                      minWidth: '28px',
+                      fontSize: '13px',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      transition: 'all 0.2s ease'
+                    }}
+                    onMouseEnter={(e) => {
+                      if (theme === 'professional') {
+                        e.currentTarget.style.background = 'rgba(15,23,42,0.12)'
+                      } else if (theme === 'dark') {
+                        e.currentTarget.style.background = 'rgba(255,255,255,0.25)'
+                      } else {
+                        e.currentTarget.style.background = 'rgba(118,75,162,0.6)'
+                      }
+                    }}
+                    onMouseLeave={(e) => {
+                      if (theme === 'professional') {
+                        e.currentTarget.style.background = 'rgba(15,23,42,0.08)'
+                      } else if (theme === 'dark') {
+                        e.currentTarget.style.background = 'rgba(255,255,255,0.15)'
+                      } else {
+                        e.currentTarget.style.background = 'rgba(118,75,162,0.35)'
+                      }
+                    }}
+                  >
+                    ✎
+                  </button>
+                  <div style={{ position: 'relative' }}>
+                    <button 
+                      onClick={() => setShowTagsMenu(!showTagsMenu)}
+                      title="Tags - Quick access to saved triggers"
+>>>>>>> dc26ea5244137a289160528cea41adc4d181fae6
                       style={{
                         height: '32px',
                         minWidth: '32px',
                         ...chatControlButtonStyle(),
                         borderRadius: '6px',
                         padding: '0 10px',
-                        fontSize: '14px',
+                        height: '28px',
+                        fontSize: '11px',
                         cursor: 'pointer',
                         display: 'flex',
                         alignItems: 'center',
-                        justifyContent: 'center',
+                        gap: '4px',
                         transition: 'all 0.2s ease'
                       }}
                       onMouseEnter={(e) => {
@@ -2050,6 +3986,7 @@ function SidepanelOrchestrator() {
                     >
                       🪣
                     </button>
+<<<<<<< HEAD
                     <button
                       onClick={handleScreenSelect}
                       title="LmGTFY - Capture a screen area as screenshot or stream"
@@ -2100,6 +4037,25 @@ function SidepanelOrchestrator() {
                           cursor: 'pointer',
                           display: 'inline-flex',
                           alignItems: 'center',
+                          gap: '4px',
+                          transition: 'all 0.2s ease'
+                        }}
+                      >
+                        Tags <span style={{ fontSize: '11px', opacity: 0.9 }}>▾</span>
+                      </button>
+                    
+                    {/* Tags Dropdown Menu - App View */}
+                    {showTagsMenu && (
+                      <div
+                        style={{
+                          ...chatControlButtonStyle(),
+                          borderRadius: '6px',
+                          padding: '0 12px',
+                          height: '32px',
+                          fontSize: '13px',
+                          cursor: 'pointer',
+                          display: 'inline-flex',
+                          alignItems: 'center',
                           gap: '6px',
                           transition: 'all 0.2s ease'
                         }}
@@ -2122,6 +4078,7 @@ function SidepanelOrchestrator() {
                           }
                         }}
                       >
+<<<<<<< HEAD
                         Tags <span style={{ fontSize: '11px', opacity: 0.9 }}>▾</span>
                       </button>
 
@@ -2485,6 +4442,372 @@ function SidepanelOrchestrator() {
               ➕ Add Mini App
             </button>
           )}
+                        {triggers.length === 0 ? (
+                          <div style={{ padding: '8px 10px', fontSize: '12px', opacity: 0.8 }}>
+                            No tags yet
+                          </div>
+                        ) : (
+                          triggers.map((trigger, i) => (
+                            <div 
+                              key={i}
+                              style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'space-between',
+                                padding: '6px 8px',
+                                borderBottom: '1px solid rgba(255,255,255,0.20)',
+                                cursor: 'pointer'
+                              }}
+                              onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.06)'}
+                              onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                            >
+                              <button
+                                onClick={() => handleTriggerClick(trigger)}
+                                style={{
+                                  flex: 1,
+                                  textAlign: 'left',
+                                  padding: 0,
+                                  fontSize: '12px',
+                                  background: 'transparent',
+                                  border: 0,
+                                  color: 'inherit',
+                                  cursor: 'pointer',
+                                  whiteSpace: 'nowrap',
+                                  overflow: 'hidden',
+                                  textOverflow: 'ellipsis',
+                                  minWidth: 0
+                                }}
+                              >
+                                {trigger.name || `Trigger ${i + 1}`}
+                              </button>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  handleDeleteTrigger(i)
+                                }}
+                                style={{
+                                  width: '20px',
+                                  height: '20px',
+                                  border: 'none',
+                                  background: 'rgba(239,68,68,0.2)',
+                                  color: '#ef4444',
+                                  borderRadius: '4px',
+                                  cursor: 'pointer',
+                                  fontSize: '16px',
+                                  lineHeight: 1,
+                                  padding: 0,
+                                  marginLeft: '8px',
+                                  flexShrink: 0
+                                }}
+                                onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(239,68,68,0.4)'}
+                                onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(239,68,68,0.2)'}
+                              >
+                                ×
+                              </button>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </>}
+                <button 
+                  onClick={toggleCommandChatPin}
+                  title="Unpin from sidepanel"
+                  style={{
+                    ...chatControlButtonStyle(),
+                    height: '28px',
+                    minWidth: '28px',
+                    borderRadius: '6px',
+                    padding: '0 8px',
+                    fontSize: '13px',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center'
+                  }}
+                >
+                  ↗
+                </button>
+              </div>
+            </div>
+
+            {/* SECTION 2 - Conditional Content based on mode */}
+            {dockedPanelMode === 'command-chat' ? (
+              <>
+                {/* Messages Area */}
+                <div 
+                  id="ccd-messages-sidepanel"
+                  ref={chatRef}
+                  style={{
+                    height: `${chatHeight}px`,
+                    overflowY: 'auto',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '10px',
+                    background: theme === 'default' ? 'rgba(118,75,162,0.25)' : 'rgba(255,255,255,0.06)',
+                    borderBottom: '1px solid rgba(255,255,255,0.20)',
+                    padding: '14px'
+                  }}
+                >
+                  {chatMessages.length === 0 ? (
+                    <div style={{ fontSize: '13px', opacity: 0.6, textAlign: 'center', padding: '32px 20px' }}>
+                      Start a conversation...
+                    </div>
+                  ) : (
+                    chatMessages.map((msg: any, i) => (
+                      <div 
+                        key={i} 
+                        style={{
+                          display: 'flex',
+                          justifyContent: msg.role === 'user' ? 'flex-end' : 'flex-start'
+                        }}
+                      >
+                        <div style={{
+                          maxWidth: '80%',
+                          padding: '10px 14px',
+                          borderRadius: '12px',
+                          fontSize: '13px',
+                          lineHeight: '1.5',
+                          background: msg.role === 'user' ? 'rgba(34,197,94,0.15)' : 'rgba(255,255,255,0.12)',
+                          border: msg.role === 'user' ? '1px solid rgba(34,197,94,0.5)' : '1px solid rgba(255,255,255,0.25)'
+                        }}>
+                          {msg.imageUrl ? (
+                            <img 
+                              src={msg.imageUrl} 
+                              alt="Screenshot" 
+                              style={{ 
+                                maxWidth: '260px', 
+                                height: 'auto', 
+                                borderRadius: '8px',
+                                display: 'block'
+                              }} 
+                            />
+                          ) : (
+                            msg.text
+                          )}
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+
+                {/* Resize Handle */}
+                <div 
+                  onMouseDown={(e) => {
+                    e.preventDefault()
+                    setIsResizingChat(true)
+                  }}
+                  style={{
+                    height: '4px',
+                    background: 'rgba(255,255,255,0.15)',
+                    cursor: 'ns-resize',
+                    borderTop: '1px solid rgba(255,255,255,0.10)',
+                    borderBottom: '1px solid rgba(255,255,255,0.10)'
+                  }}
+                />
+
+                {/* Compose Area */}
+                <div 
+                  id="ccd-compose-sidepanel"
+                  style={{
+                  display: 'grid',
+                  gridTemplateColumns: '1fr 40px 72px',
+                  gap: '8px',
+                  alignItems: 'center',
+                  padding: '12px 14px'
+                }}>
+                  <textarea
+                    value={chatInput}
+                    onChange={(e) => setChatInput(e.target.value)}
+                    onKeyDown={handleChatKeyDown}
+                    placeholder="Type your message..."
+                    style={{
+                      boxSizing: 'border-box',
+                      height: '40px',
+                      minHeight: '40px',
+                      resize: 'vertical',
+                      background: 'rgba(255,255,255,0.08)',
+                      border: '1px solid rgba(255,255,255,0.20)',
+                      color: 'white',
+                      borderRadius: '8px',
+                      padding: '10px 12px',
+                      fontSize: '13px',
+                      fontFamily: 'inherit',
+                      lineHeight: '1.5'
+                    }}
+                  />
+                <input
+                    ref={fileInputRef}
+                    type="file" 
+                    multiple 
+                    style={{ display: 'none' }} 
+                    onChange={handleFileChange}
+                  />
+                  <button 
+                    onClick={handleBucketClick}
+                    title="Attach" 
+                    style={{
+                      height: '40px',
+                      background: 'rgba(255,255,255,0.15)',
+                      border: '1px solid rgba(255,255,255,0.25)',
+                      color: 'white',
+                      borderRadius: '8px',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      fontSize: '18px',
+                      transition: 'all 0.2s ease'
+                    }}
+                    onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.25)'}
+                    onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.15)'}
+                  >
+                    📎
+                  </button>
+                  {renderSendButton()}
+                </div>
+              </>
+            ) : (
+              /* WR MailGuard Email Editor - Section 2 (App View) */
+              <div style={{ display: 'flex', flexDirection: 'column', flex: 1, background: theme === 'default' ? 'rgba(118,75,162,0.15)' : (theme === 'professional' ? '#f8fafc' : 'rgba(255,255,255,0.04)') }}>
+                <style>{`
+                  .mg-input::placeholder, .mg-textarea::placeholder {
+                    color: ${theme === 'professional' ? '#64748b' : 'rgba(255,255,255,0.5)'};
+                    opacity: 1;
+                  }
+                `}</style>
+                {!mailguardTo && !mailguardSubject && !mailguardBody && mailguardAttachments.length === 0 && (
+                  <div style={{ padding: '16px 18px', fontSize: '13px', opacity: 0.7, fontStyle: 'italic', borderBottom: theme === 'professional' ? '1px solid rgba(15,23,42,0.1)' : '1px solid rgba(255,255,255,0.1)', background: theme === 'professional' ? 'rgba(168,85,247,0.08)' : 'rgba(168,85,247,0.15)', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <span style={{ fontSize: '18px' }}>✉️</span>
+                    Compose verified WRGuard-stamped emails with built-in automation.
+                  </div>
+                )}
+                <div style={{ padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: '14px', flex: 1 }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', paddingBottom: '14px', borderBottom: theme === 'professional' ? '1px solid rgba(15,23,42,0.1)' : '1px solid rgba(255,255,255,0.1)' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                      <label style={{ fontSize: '13px', fontWeight: '600', opacity: 0.7, minWidth: '60px' }}>To:</label>
+                      <input type="email" className="mg-input" value={mailguardTo} onChange={(e) => setMailguardTo(e.target.value)} placeholder="recipient@example.com" style={{ flex: 1, background: theme === 'professional' ? '#ffffff' : 'rgba(255,255,255,0.08)', border: theme === 'professional' ? '1px solid rgba(15,23,42,0.15)' : '1px solid rgba(255,255,255,0.15)', color: theme === 'professional' ? '#0f172a' : 'white', borderRadius: '6px', padding: '10px 14px', fontSize: '14px', outline: 'none' }} />
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                      <label style={{ fontSize: '13px', fontWeight: '600', opacity: 0.7, minWidth: '60px' }}>Subject:</label>
+                      <input type="text" className="mg-input" value={mailguardSubject} onChange={(e) => setMailguardSubject(e.target.value)} placeholder="Email subject" style={{ flex: 1, background: theme === 'professional' ? '#ffffff' : 'rgba(255,255,255,0.08)', border: theme === 'professional' ? '1px solid rgba(15,23,42,0.15)' : '1px solid rgba(255,255,255,0.15)', color: theme === 'professional' ? '#0f172a' : 'white', borderRadius: '6px', padding: '10px 14px', fontSize: '14px', outline: 'none' }} />
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column' }}>
+                    <textarea className="mg-textarea" value={mailguardBody} onChange={(e) => setMailguardBody(e.target.value)} placeholder="Compose your email message here..." style={{ background: theme === 'professional' ? '#ffffff' : 'rgba(255,255,255,0.06)', border: theme === 'professional' ? '1px solid rgba(15,23,42,0.15)' : '1px solid rgba(255,255,255,0.12)', color: theme === 'professional' ? '#0f172a' : 'white', borderRadius: '8px', padding: '14px 16px', fontSize: '14px', lineHeight: '1.6', height: `${mailguardBodyHeight}px`, resize: 'none', fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif', outline: 'none' }} />
+                    <div 
+                      onMouseDown={(e) => {
+                        e.preventDefault()
+                        mailguardResizeStartY.current = e.clientY
+                        mailguardResizeStartH.current = mailguardBodyHeight
+                        setIsResizingMailguard(true)
+                      }}
+                      style={{ height: '8px', background: theme === 'professional' ? '#e2e8f0' : 'rgba(255,255,255,0.15)', cursor: 'ns-resize', borderRadius: '4px', margin: '6px 0', opacity: 0.7 }}
+                      title="Drag to resize"
+                    />
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '4px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <span style={{ fontSize: '12px', fontWeight: '600', opacity: 0.7, display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <span>📎</span> Attachments <span style={{ fontSize: '10px', opacity: 0.6, fontWeight: '400' }}>(WR Stamped PDFs only)</span>
+                      </span>
+                      <input ref={mailguardFileRef} type="file" accept=".pdf" multiple style={{ display: 'none' }} onChange={(e) => { const files = Array.from(e.target.files || []); const pdfFiles = files.filter(f => f.type === 'application/pdf'); if (pdfFiles.length !== files.length) { setNotification({ message: 'Only PDF files are allowed', type: 'error' }); setTimeout(() => setNotification(null), 3000) } if (pdfFiles.length > 0) { setMailguardAttachments(prev => [...prev, ...pdfFiles.map(f => ({ name: f.name, size: f.size, file: f }))]) } if (e.target) e.target.value = '' }} />
+                      <button onClick={() => mailguardFileRef.current?.click()} style={{ background: theme === 'professional' ? '#e2e8f0' : 'rgba(255,255,255,0.12)', border: theme === 'professional' ? '1px solid rgba(15,23,42,0.15)' : '1px solid rgba(255,255,255,0.2)', color: theme === 'professional' ? '#0f172a' : 'white', borderRadius: '6px', padding: '8px 14px', fontSize: '12px', fontWeight: '500', cursor: 'pointer' }}>+ Add PDF</button>
+                    </div>
+                    {mailguardAttachments.length > 0 && (
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', padding: '8px 0' }}>
+                        {mailguardAttachments.map((att, idx) => (
+                          <div key={idx} style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', padding: '6px 10px', background: theme === 'professional' ? 'rgba(34,197,94,0.1)' : 'rgba(34,197,94,0.15)', border: '1px solid rgba(34,197,94,0.3)', borderRadius: '6px', fontSize: '12px' }}>
+                            <span>📄</span>
+                            <span style={{ maxWidth: '140px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{att.name}</span>
+                            <span style={{ opacity: 0.5, fontSize: '11px' }}>({(att.size / 1024).toFixed(0)} KB)</span>
+                            <button onClick={() => setMailguardAttachments(prev => prev.filter((_, i) => i !== idx))} style={{ background: 'transparent', border: 'none', color: theme === 'professional' ? '#64748b' : 'rgba(255,255,255,0.5)', borderRadius: '4px', width: '18px', height: '18px', cursor: 'pointer', fontSize: '14px', lineHeight: '1', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>×</button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+                <div style={{ padding: '14px 18px', borderTop: theme === 'professional' ? '1px solid rgba(15,23,42,0.1)' : '1px solid rgba(255,255,255,0.15)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: theme === 'professional' ? '#f1f5f9' : 'rgba(0,0,0,0.15)' }}>
+                  <button onClick={() => { setMailguardTo(''); setMailguardSubject(''); setMailguardBody(''); setMailguardAttachments([]) }} style={{ background: 'transparent', border: 'none', color: theme === 'professional' ? '#64748b' : 'rgba(255,255,255,0.6)', padding: '8px 12px', fontSize: '13px', cursor: 'pointer', textDecoration: 'underline', textUnderlineOffset: '2px' }}>Discard draft</button>
+                  <button onClick={() => { if (!mailguardTo.trim()) { setNotification({ message: 'Please enter a recipient', type: 'error' }); setTimeout(() => setNotification(null), 3000); return } if (!mailguardSubject.trim()) { setNotification({ message: 'Please enter a subject', type: 'error' }); setTimeout(() => setNotification(null), 3000); return } if (mailguardAttachments.length === 0) { setNotification({ message: 'Attach at least one WR stamped PDF', type: 'error' }); setTimeout(() => setNotification(null), 3000); return } console.log('[WR MailGuard] Sending:', { to: mailguardTo, subject: mailguardSubject, attachments: mailguardAttachments.map(a => a.name) }); setNotification({ message: 'Protected email queued', type: 'success' }); setTimeout(() => setNotification(null), 3000); setMailguardTo(''); setMailguardSubject(''); setMailguardBody(''); setMailguardAttachments([]) }} disabled={!mailguardTo.trim() || !mailguardSubject.trim() || mailguardAttachments.length === 0} style={{ background: (!mailguardTo.trim() || !mailguardSubject.trim() || mailguardAttachments.length === 0) ? (theme === 'professional' ? '#e2e8f0' : '#374151') : '#a855f7', border: 'none', color: (!mailguardTo.trim() || !mailguardSubject.trim() || mailguardAttachments.length === 0) ? (theme === 'professional' ? '#94a3b8' : '#6b7280') : 'white', borderRadius: '8px', padding: '12px 28px', fontSize: '14px', fontWeight: '600', cursor: (!mailguardTo.trim() || !mailguardSubject.trim() || mailguardAttachments.length === 0) ? 'not-allowed' : 'pointer', boxShadow: (!mailguardTo.trim() || !mailguardSubject.trim() || mailguardAttachments.length === 0) ? 'none' : '0 2px 8px rgba(168,85,247,0.4)', display: 'flex', alignItems: 'center', gap: '8px' }}>Send <span style={{ fontSize: '16px' }}>→</span></button>
+                </div>
+              </div>
+            )}
+          </div>
+        </>
+      )}
+      
+      {/* Add Mini App Button - Always visible */}
+      <div style={{
+        flex: 1,
+        padding: '40px 20px',
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center'
+      }}>
+        <button
+            onClick={addMiniApp}
+            style={{
+              width: '100%',
+              maxWidth: '300px',
+              padding: '20px 24px',
+              ...(theme === 'professional' ? {
+                background: 'rgba(15,23,42,0.08)',
+                border: '2px dashed rgba(15,23,42,0.3)',
+                color: '#0f172a'
+              } : theme === 'dark' ? {
+                background: 'rgba(255,255,255,0.1)',
+                border: '2px dashed rgba(255,255,255,0.3)',
+                color: '#f1f5f9'
+              } : {
+                background: 'rgba(118,75,162,0.3)',
+                border: '2px dashed rgba(255,255,255,0.5)',
+                color: 'white'
+              }),
+              borderRadius: '12px',
+              cursor: 'pointer',
+              fontSize: '16px',
+              fontWeight: '700',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '10px',
+              transition: 'all 0.2s ease',
+              boxShadow: 'none'
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.transform = 'translateY(-2px)'
+              if (theme === 'professional') {
+                e.currentTarget.style.background = 'rgba(15,23,42,0.12)'
+                e.currentTarget.style.borderColor = 'rgba(15,23,42,0.4)'
+              } else if (theme === 'dark') {
+                e.currentTarget.style.background = 'rgba(255,255,255,0.15)'
+                e.currentTarget.style.borderColor = 'rgba(255,255,255,0.4)'
+              } else {
+                e.currentTarget.style.background = 'rgba(118,75,162,0.55)'
+                e.currentTarget.style.borderColor = 'rgba(255,255,255,0.7)'
+              }
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.transform = 'translateY(0)'
+              if (theme === 'professional') {
+                e.currentTarget.style.background = 'rgba(15,23,42,0.08)'
+                e.currentTarget.style.borderColor = 'rgba(15,23,42,0.3)'
+              } else if (theme === 'dark') {
+                e.currentTarget.style.background = 'rgba(255,255,255,0.1)'
+                e.currentTarget.style.borderColor = 'rgba(255,255,255,0.3)'
+              } else {
+                e.currentTarget.style.background = 'rgba(118,75,162,0.3)'
+                e.currentTarget.style.borderColor = 'rgba(255,255,255,0.5)'
+              }
+            }}
+          >
+            ➕ Add Mini App
+          </button>
+>>>>>>> dc26ea5244137a289160528cea41adc4d181fae6
         </div>
       </div>
     )
@@ -2650,10 +4973,11 @@ function SidepanelOrchestrator() {
       {/* WR Login / Backend Switcher Section */}
       <BackendSwitcherInline theme={theme} />
 
-      {/* Docked Command Chat - Full Featured (Only when pinned) */}
+      {/* Docked Command Chat - Admin View */}
       {isCommandChatPinned && (
         <>
-          <div
+          <div 
+            data-section="admin-view"
             style={{
               borderBottom: '1px solid rgba(255,255,255,0.2)',
               background: theme === 'default' ? 'rgba(118,75,162,0.4)' : 'rgba(255,255,255,0.10)',
@@ -2677,19 +5001,45 @@ function SidepanelOrchestrator() {
               borderBottom: '1px solid rgba(255,255,255,0.20)',
               color: themeColors.text
             }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                <div style={{ fontSize: '13px', fontWeight: '700' }}>💬 Command Chat</div>
-                <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+              <div style={{ display: 'flex', alignItems: 'center' }}>
+                <select
+                  value={dockedPanelMode}
+                  onChange={(e) => setDockedPanelMode(e.target.value as 'command-chat' | 'mailguard')}
+                  style={{
+                    fontSize: '11px',
+                    fontWeight: '600',
+                    height: '28px',
+                    background: theme === 'professional' ? 'rgba(15,23,42,0.08)' : 'rgba(255,255,255,0.15)',
+                    border: theme === 'professional' ? '1px solid rgba(15,23,42,0.2)' : '1px solid rgba(255,255,255,0.25)',
+                    color: theme === 'professional' ? '#0f172a' : 'inherit',
+                    borderRadius: '6px',
+                    padding: '0 22px 0 8px',
+                    cursor: 'pointer',
+                    outline: 'none',
+                    appearance: 'none',
+                    WebkitAppearance: 'none',
+                    flexShrink: 0,
+                    backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 12 12'%3E%3Cpath fill='${theme === 'professional' ? '%230f172a' : '%23ffffff'}' d='M3 4.5L6 7.5L9 4.5'/%3E%3C/svg%3E")`,
+                    backgroundRepeat: 'no-repeat',
+                    backgroundPosition: 'right 6px center'
+                  }}
+                >
+                  <option value="command-chat" style={{ background: '#1e293b', color: 'white' }}>💬 WR Chat</option>
+                  <option value="mailguard" style={{ background: '#1e293b', color: 'white' }}>🛡️ WR MailGuard</option>
+                </select>
+              </div>
+              <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexShrink: 0 }}>
+                {dockedPanelMode === 'command-chat' && <>
                   <button
                     onClick={handleBucketClick}
                     title="Context Bucket: Embed context directly into the session"
                     style={{
-                      height: '32px',
-                      minWidth: '32px',
+                      height: '28px',
+                      minWidth: '28px',
                       ...chatControlButtonStyle(),
                       borderRadius: '6px',
-                      padding: '0 10px',
-                      fontSize: '14px',
+                      padding: '0 8px',
+                      fontSize: '13px',
                       cursor: 'pointer',
                       display: 'flex',
                       alignItems: 'center',
@@ -2723,10 +5073,10 @@ function SidepanelOrchestrator() {
                     style={{
                       ...chatControlButtonStyle(),
                       borderRadius: '6px',
-                      padding: '0 10px',
-                      height: '32px',
-                      minWidth: '32px',
-                      fontSize: '14px',
+                      padding: '0 8px',
+                      height: '28px',
+                      minWidth: '28px',
+                      fontSize: '13px',
                       cursor: 'pointer',
                       display: 'flex',
                       alignItems: 'center',
@@ -2761,13 +5111,13 @@ function SidepanelOrchestrator() {
                       style={{
                         ...chatControlButtonStyle(),
                         borderRadius: '6px',
-                        padding: '0 12px',
-                        height: '32px',
-                        fontSize: '13px',
+                        padding: '0 10px',
+                        height: '28px',
+                        fontSize: '11px',
                         cursor: 'pointer',
                         display: 'inline-flex',
                         alignItems: 'center',
-                        gap: '6px',
+                        gap: '4px',
                         transition: 'all 0.2s ease'
                       }}
                       onMouseEnter={(e) => {
@@ -2791,8 +5141,8 @@ function SidepanelOrchestrator() {
                     >
                       Tags <span style={{ fontSize: '11px', opacity: 0.9 }}>▾</span>
                     </button>
-
-                    {/* Tags Dropdown Menu */}
+                    
+                    {/* Tags Dropdown Menu - Admin View */}
                     {showTagsMenu && (
                       <div
                         style={{
@@ -2880,18 +5230,21 @@ function SidepanelOrchestrator() {
                       </div>
                     )}
                   </div>
-                </div>
-              </div>
-              <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                </>}
                 <button
                   onClick={toggleCommandChatPin}
                   title="Unpin from sidepanel"
                   style={{
                     ...chatControlButtonStyle(),
+                    height: '28px',
+                    minWidth: '28px',
                     borderRadius: '6px',
-                    padding: '4px 6px',
-                    fontSize: '10px',
-                    cursor: 'pointer'
+                    padding: '0 8px',
+                    fontSize: '13px',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center'
                   }}
                 >
                   ↗
@@ -2899,6 +5252,7 @@ function SidepanelOrchestrator() {
               </div>
             </div>
 
+<<<<<<< HEAD
             {/* Messages Area */}
             <div
               id="ccd-messages-sidepanel"
@@ -2921,17 +5275,84 @@ function SidepanelOrchestrator() {
               ) : (
                 chatMessages.map((msg: any, i) => (
                   <div
-                    key={i}
+                    key={i} 
+                        style={{
+                          display: 'flex',
+                          justifyContent: msg.role === 'user' ? 'flex-end' : 'flex-start'
+                        }}
+                      >
+                        <div style={{
+                          maxWidth: '80%',
+                          padding: '10px 14px',
+                          borderRadius: '12px',
+                          fontSize: '13px',
+                          lineHeight: '1.5',
+                          background: msg.role === 'user' ? 'rgba(34,197,94,0.15)' : 'rgba(255,255,255,0.12)',
+                          border: msg.role === 'user' ? '1px solid rgba(34,197,94,0.5)' : '1px solid rgba(255,255,255,0.25)'
+                        }}>
+                          {msg.imageUrl ? (
+                            <img 
+                              src={msg.imageUrl} 
+                              alt="Screenshot" 
+                              style={{ 
+                                maxWidth: '260px', 
+                                height: 'auto', 
+                                borderRadius: '8px',
+                                display: 'block'
+                              }} 
+                            />
+                          ) : (
+                            msg.text
+                          )}
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+
+                {/* Resize Handle */}
+                <div 
+                  onMouseDown={(e) => {
+                    e.preventDefault()
+                    setIsResizingChat(true)
+                  }}
+                  style={{
+                    height: '4px',
+                    background: 'rgba(255,255,255,0.15)',
+                    cursor: 'ns-resize',
+                    borderTop: '1px solid rgba(255,255,255,0.10)',
+                    borderBottom: '1px solid rgba(255,255,255,0.10)'
+                  }}
+                />
+
+                {/* Compose Area */}
+                <div 
+                  id="ccd-compose-sidepanel"
+                  style={{
+                  display: 'grid',
+                  gridTemplateColumns: '1fr 40px 72px',
+                  gap: '8px',
+                  alignItems: 'center',
+                  padding: '12px 14px'
+                }}>
+                  <textarea
+                    value={chatInput}
+                    onChange={(e) => setChatInput(e.target.value)}
+                    onKeyDown={handleChatKeyDown}
+                    placeholder="Type your message..."
+>>>>>>> dc26ea5244137a289160528cea41adc4d181fae6
                     style={{
-                      display: 'flex',
-                      justifyContent: msg.role === 'user' ? 'flex-end' : 'flex-start'
-                    }}
-                  >
-                    <div style={{
-                      maxWidth: '80%',
-                      padding: '10px 14px',
-                      borderRadius: '12px',
+                      boxSizing: 'border-box',
+                      height: '40px',
+                      minHeight: '40px',
+                      resize: 'vertical',
+                      background: 'rgba(255,255,255,0.08)',
+                      border: '1px solid rgba(255,255,255,0.20)',
+                      color: 'white',
+                      borderRadius: '8px',
+                      padding: '10px 12px',
                       fontSize: '13px',
+<<<<<<< HEAD
                       lineHeight: '1.5',
                       background: msg.role === 'user' ? 'rgba(34,197,94,0.15)' : 'rgba(255,255,255,0.12)',
                       border: msg.role === 'user' ? '1px solid rgba(34,197,94,0.5)' : '1px solid rgba(255,255,255,0.25)'
@@ -3074,6 +5495,109 @@ function SidepanelOrchestrator() {
                 Send
               </button>
             </div>
+                      fontFamily: 'inherit',
+                      lineHeight: '1.5'
+                    }}
+                  />
+                <input
+                    ref={fileInputRef}
+                    type="file" 
+                    multiple 
+                    style={{ display: 'none' }} 
+                    onChange={handleFileChange}
+                  />
+                  <button 
+                    onClick={handleBucketClick}
+                    title="Attach" 
+                    style={{
+                      height: '40px',
+                      background: 'rgba(255,255,255,0.15)',
+                      border: '1px solid rgba(255,255,255,0.25)',
+                      color: 'white',
+                      borderRadius: '8px',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      fontSize: '18px',
+                      transition: 'all 0.2s ease'
+                    }}
+                    onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.25)'}
+                    onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.15)'}
+                  >
+                    📎
+                  </button>
+                  {renderSendButton()}
+                </div>
+              </>
+            ) : (
+              /* WR MailGuard Email Editor - Section 3 (Admin View) */
+              <div style={{ display: 'flex', flexDirection: 'column', flex: 1, background: theme === 'default' ? 'rgba(118,75,162,0.15)' : (theme === 'professional' ? '#f8fafc' : 'rgba(255,255,255,0.04)') }}>
+                <style>{`
+                  .mg-input::placeholder, .mg-textarea::placeholder {
+                    color: ${theme === 'professional' ? '#64748b' : 'rgba(255,255,255,0.5)'};
+                    opacity: 1;
+                  }
+                `}</style>
+                {!mailguardTo && !mailguardSubject && !mailguardBody && mailguardAttachments.length === 0 && (
+                  <div style={{ padding: '16px 18px', fontSize: '13px', opacity: 0.7, fontStyle: 'italic', borderBottom: theme === 'professional' ? '1px solid rgba(15,23,42,0.1)' : '1px solid rgba(255,255,255,0.1)', background: theme === 'professional' ? 'rgba(168,85,247,0.08)' : 'rgba(168,85,247,0.15)', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <span style={{ fontSize: '18px' }}>✉️</span>
+                    Compose verified WRGuard-stamped emails with built-in automation.
+                  </div>
+                )}
+                <div style={{ padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: '14px', flex: 1 }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', paddingBottom: '14px', borderBottom: theme === 'professional' ? '1px solid rgba(15,23,42,0.1)' : '1px solid rgba(255,255,255,0.1)' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                      <label style={{ fontSize: '13px', fontWeight: '600', opacity: 0.7, minWidth: '60px' }}>To:</label>
+                      <input type="email" className="mg-input" value={mailguardTo} onChange={(e) => setMailguardTo(e.target.value)} placeholder="recipient@example.com" style={{ flex: 1, background: theme === 'professional' ? '#ffffff' : 'rgba(255,255,255,0.08)', border: theme === 'professional' ? '1px solid rgba(15,23,42,0.15)' : '1px solid rgba(255,255,255,0.15)', color: theme === 'professional' ? '#0f172a' : 'white', borderRadius: '6px', padding: '10px 14px', fontSize: '14px', outline: 'none' }} />
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                      <label style={{ fontSize: '13px', fontWeight: '600', opacity: 0.7, minWidth: '60px' }}>Subject:</label>
+                      <input type="text" className="mg-input" value={mailguardSubject} onChange={(e) => setMailguardSubject(e.target.value)} placeholder="Email subject" style={{ flex: 1, background: theme === 'professional' ? '#ffffff' : 'rgba(255,255,255,0.08)', border: theme === 'professional' ? '1px solid rgba(15,23,42,0.15)' : '1px solid rgba(255,255,255,0.15)', color: theme === 'professional' ? '#0f172a' : 'white', borderRadius: '6px', padding: '10px 14px', fontSize: '14px', outline: 'none' }} />
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column' }}>
+                    <textarea className="mg-textarea" value={mailguardBody} onChange={(e) => setMailguardBody(e.target.value)} placeholder="Compose your email message here..." style={{ background: theme === 'professional' ? '#ffffff' : 'rgba(255,255,255,0.06)', border: theme === 'professional' ? '1px solid rgba(15,23,42,0.15)' : '1px solid rgba(255,255,255,0.12)', color: theme === 'professional' ? '#0f172a' : 'white', borderRadius: '8px', padding: '14px 16px', fontSize: '14px', lineHeight: '1.6', height: `${mailguardBodyHeight}px`, resize: 'none', fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif', outline: 'none' }} />
+                    <div 
+                      onMouseDown={(e) => {
+                        e.preventDefault()
+                        mailguardResizeStartY.current = e.clientY
+                        mailguardResizeStartH.current = mailguardBodyHeight
+                        setIsResizingMailguard(true)
+                      }}
+                      style={{ height: '8px', background: theme === 'professional' ? '#e2e8f0' : 'rgba(255,255,255,0.15)', cursor: 'ns-resize', borderRadius: '4px', margin: '6px 0', opacity: 0.7 }}
+                      title="Drag to resize"
+                    />
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '4px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <span style={{ fontSize: '12px', fontWeight: '600', opacity: 0.7, display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <span>📎</span> Attachments <span style={{ fontSize: '10px', opacity: 0.6, fontWeight: '400' }}>(WR Stamped PDFs only)</span>
+                      </span>
+                      <input ref={mailguardFileRef} type="file" accept=".pdf" multiple style={{ display: 'none' }} onChange={(e) => { const files = Array.from(e.target.files || []); const pdfFiles = files.filter(f => f.type === 'application/pdf'); if (pdfFiles.length !== files.length) { setNotification({ message: 'Only PDF files are allowed', type: 'error' }); setTimeout(() => setNotification(null), 3000) } if (pdfFiles.length > 0) { setMailguardAttachments(prev => [...prev, ...pdfFiles.map(f => ({ name: f.name, size: f.size, file: f }))]) } if (e.target) e.target.value = '' }} />
+                      <button onClick={() => mailguardFileRef.current?.click()} style={{ background: theme === 'professional' ? '#e2e8f0' : 'rgba(255,255,255,0.12)', border: theme === 'professional' ? '1px solid rgba(15,23,42,0.15)' : '1px solid rgba(255,255,255,0.2)', color: theme === 'professional' ? '#0f172a' : 'white', borderRadius: '6px', padding: '8px 14px', fontSize: '12px', fontWeight: '500', cursor: 'pointer' }}>+ Add PDF</button>
+                    </div>
+                    {mailguardAttachments.length > 0 && (
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', padding: '8px 0' }}>
+                        {mailguardAttachments.map((att, idx) => (
+                          <div key={idx} style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', padding: '6px 10px', background: theme === 'professional' ? 'rgba(34,197,94,0.1)' : 'rgba(34,197,94,0.15)', border: '1px solid rgba(34,197,94,0.3)', borderRadius: '6px', fontSize: '12px' }}>
+                            <span>📄</span>
+                            <span style={{ maxWidth: '140px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{att.name}</span>
+                            <span style={{ opacity: 0.5, fontSize: '11px' }}>({(att.size / 1024).toFixed(0)} KB)</span>
+                            <button onClick={() => setMailguardAttachments(prev => prev.filter((_, i) => i !== idx))} style={{ background: 'transparent', border: 'none', color: theme === 'professional' ? '#64748b' : 'rgba(255,255,255,0.5)', borderRadius: '4px', width: '18px', height: '18px', cursor: 'pointer', fontSize: '14px', lineHeight: '1', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>×</button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+                <div style={{ padding: '14px 18px', borderTop: theme === 'professional' ? '1px solid rgba(15,23,42,0.1)' : '1px solid rgba(255,255,255,0.15)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: theme === 'professional' ? '#f1f5f9' : 'rgba(0,0,0,0.15)' }}>
+                  <button onClick={() => { setMailguardTo(''); setMailguardSubject(''); setMailguardBody(''); setMailguardAttachments([]) }} style={{ background: 'transparent', border: 'none', color: theme === 'professional' ? '#64748b' : 'rgba(255,255,255,0.6)', padding: '8px 12px', fontSize: '13px', cursor: 'pointer', textDecoration: 'underline', textUnderlineOffset: '2px' }}>Discard draft</button>
+                  <button onClick={() => { if (!mailguardTo.trim()) { setNotification({ message: 'Please enter a recipient', type: 'error' }); setTimeout(() => setNotification(null), 3000); return } if (!mailguardSubject.trim()) { setNotification({ message: 'Please enter a subject', type: 'error' }); setTimeout(() => setNotification(null), 3000); return } if (mailguardAttachments.length === 0) { setNotification({ message: 'Attach at least one WR stamped PDF', type: 'error' }); setTimeout(() => setNotification(null), 3000); return } console.log('[WR MailGuard] Sending:', { to: mailguardTo, subject: mailguardSubject, attachments: mailguardAttachments.map(a => a.name) }); setNotification({ message: 'Protected email queued', type: 'success' }); setTimeout(() => setNotification(null), 3000); setMailguardTo(''); setMailguardSubject(''); setMailguardBody(''); setMailguardAttachments([]) }} disabled={!mailguardTo.trim() || !mailguardSubject.trim() || mailguardAttachments.length === 0} style={{ background: (!mailguardTo.trim() || !mailguardSubject.trim() || mailguardAttachments.length === 0) ? (theme === 'professional' ? '#e2e8f0' : '#374151') : '#a855f7', border: 'none', color: (!mailguardTo.trim() || !mailguardSubject.trim() || mailguardAttachments.length === 0) ? (theme === 'professional' ? '#94a3b8' : '#6b7280') : 'white', borderRadius: '8px', padding: '12px 28px', fontSize: '14px', fontWeight: '600', cursor: (!mailguardTo.trim() || !mailguardSubject.trim() || mailguardAttachments.length === 0) ? 'not-allowed' : 'pointer', boxShadow: (!mailguardTo.trim() || !mailguardSubject.trim() || mailguardAttachments.length === 0) ? 'none' : '0 2px 8px rgba(168,85,247,0.4)', display: 'flex', alignItems: 'center', gap: '8px' }}>Send <span style={{ fontSize: '16px' }}>→</span></button>
+                </div>
+              </div>
+            )}
+>>>>>>> dc26ea5244137a289160528cea41adc4d181fae6
 
             {/* Trigger Creation UI */}
             {showTriggerPrompt && (
@@ -3189,6 +5713,7 @@ function SidepanelOrchestrator() {
                           console.error('Error sending trigger to Electron:', err)
                         }
                       }
+<<<<<<< HEAD
 
                       // Post the screenshot to chat
                       if (showTriggerPrompt.imageUrl) {
@@ -3206,20 +5731,46 @@ function SidepanelOrchestrator() {
                         }, 100)
                       }
 
-                      // If addCommand is checked and command exists, add it to chat
-                      if (showTriggerPrompt.addCommand && command) {
-                        const commandMessage = {
-                          role: 'user' as const,
-                          text: `📝 Command: ${command}`
+                      
+                      // Auto-process: If there's a command or trigger name, send to LLM
+                      const triggerNameToUse = name || command
+                      const shouldAutoProcess = showTriggerPrompt.addCommand || (showTriggerPrompt.createTrigger && triggerNameToUse)
+                      
+                      if (shouldAutoProcess && triggerNameToUse && showTriggerPrompt.imageUrl) {
+                        // Use the trigger name as @trigger format for routing
+                        const triggerText = triggerNameToUse.startsWith('@') ? triggerNameToUse : `@${triggerNameToUse}`
+                        
+                        console.log('[Sidepanel] Auto-processing trigger creation:', { triggerText, hasImage: true })
+                        
+                        // Clear the prompt first
+                        setShowTriggerPrompt(null)
+                        setCreateTriggerChecked(false)
+                        setAddCommandChecked(false)
+                        
+                        // Send to LLM for processing
+                        handleSendMessageWithTrigger(triggerText, showTriggerPrompt.imageUrl)
+                      } else {
+                        // Just post the screenshot to chat (no auto-process)
+                        if (showTriggerPrompt.imageUrl) {
+                          const imageMessage = {
+                            role: 'user' as const,
+                            text: `![Screenshot](${showTriggerPrompt.imageUrl})`,
+                            imageUrl: showTriggerPrompt.imageUrl
+                          }
+                          setChatMessages(prev => [...prev, imageMessage])
+                          // Scroll to bottom
+                          setTimeout(() => {
+                            if (chatRef.current) {
+                              chatRef.current.scrollTop = chatRef.current.scrollHeight
+                            }
+                          }, 100)
                         }
-                        setChatMessages(prev => [...prev, commandMessage])
+                        
+                        // Clear the prompt
+                        setShowTriggerPrompt(null)
+                        setCreateTriggerChecked(false)
+                        setAddCommandChecked(false)
                       }
-
-                      // Clear the prompt
-                      setShowTriggerPrompt(null)
-                      // Reset checkboxes
-                      setCreateTriggerChecked(false)
-                      setAddCommandChecked(false)
                     }}
                     style={{
                       padding: '6px 12px',

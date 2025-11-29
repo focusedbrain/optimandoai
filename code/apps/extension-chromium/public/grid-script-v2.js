@@ -48,18 +48,28 @@ if (window.gridScriptV2Loaded) {
       if (p === 'claude') return ['auto', 'claude-3-5-sonnet', 'claude-3-opus'];
       if (p === 'gemini') return ['auto', 'gemini-1.5-flash', 'gemini-1.5-pro'];
       if (p === 'grok') return ['auto', 'grok-2-mini', 'grok-2'];
+      if (p === 'local ai') return ['auto', 'tinyllama', 'tinydolphin', 'stablelm2:1.6b', 'stablelm-zephyr:3b', 'phi3:mini', 'gemma:2b', 'phi:2.7b', 'orca-mini', 'qwen2.5-coder:1.5b', 'deepseek-r1:1.5b', 'mistral:7b-instruct-q4_0', 'llama3.2', 'qwen2.5-coder:7b'];
       return ['auto'];
     }
     
-    const providers = ['OpenAI', 'Claude', 'Gemini', 'Grok'];
+    const providers = ['OpenAI', 'Claude', 'Gemini', 'Grok', 'Local AI'];
     const currentProvider = cfg.provider || '';
     const models = currentProvider ? modelOptions(currentProvider) : [];
     
-    // Display next box number (will be assigned on save)
-    const displayBoxNumber = String(nextBoxNumber).padStart(2, '0');
+    // Check if this is an EXISTING box (editing) or a NEW box (creating)
+    // If editing, use the existing boxNumber; if creating, use the global nextBoxNumber
+    var existingBoxNumber = (typeof cfg.boxNumber === 'number') ? cfg.boxNumber : null;
+    var effectiveBoxNumber = existingBoxNumber !== null ? existingBoxNumber : nextBoxNumber;
+    var isEditing = existingBoxNumber !== null;
+    
+    // Display the correct box number
+    const displayBoxNumber = String(effectiveBoxNumber).padStart(2, '0');
     
     console.log('📋 POPUP V2: Form will show:', {
-      boxNumber: nextBoxNumber,
+      isEditing: isEditing,
+      existingBoxNumber: existingBoxNumber,
+      effectiveBoxNumber: effectiveBoxNumber,
+      boxNumber: displayBoxNumber,
       title: cfg.title || ('Display Port ' + slotId),
       agent: cfg.agent ? String(cfg.agent).replace('agent', '') : '',
       provider: currentProvider,
@@ -286,7 +296,8 @@ if (window.gridScriptV2Loaded) {
       
       var agent = agentNum ? ('agent' + agentNum) : '';
       
-      console.log('💾 POPUP V2: Saving slot config:', { title, agent, provider, model, boxNumber: nextBoxNumber });
+      // Use effectiveBoxNumber (existing for edits, new for creates)
+      console.log('💾 POPUP V2: Saving slot config:', { title, agent, provider, model, boxNumber: effectiveBoxNumber, isEditing: isEditing });
       
       // Generate locationId and locationLabel for this slot
       var gridSessionId = window.gridSessionId || 'unknown';
@@ -294,15 +305,15 @@ if (window.gridScriptV2Loaded) {
       var locationId = 'grid_' + gridSessionId + '_' + gridLayout + '_slot' + slotId;
       var locationLabel = gridLayout + ' Display Grid - Slot ' + slotId;
       
-      // 🆕 Include box number and location in config
+      // 🆕 Include box number and location in config (use effectiveBoxNumber)
       var newConfig = { 
         title: title, 
         agent: agent, 
         provider: provider, 
         model: model, 
-        boxNumber: nextBoxNumber,  // ← KEY FIX: Store the box number
+        boxNumber: effectiveBoxNumber,  // ← Use effectiveBoxNumber (preserves existing for edits)
         agentNumber: agentNum ? parseInt(agentNum) : 0,
-        identifier: 'AB' + String(nextBoxNumber).padStart(2, '0') + (agentNum ? String(agentNum).padStart(2, '0') : '00'),
+        identifier: 'AB' + String(effectiveBoxNumber).padStart(2, '0') + (agentNum ? String(agentNum).padStart(2, '0') : '00'),
         tools: (cfg.tools || []),
         locationId: locationId,
         locationLabel: locationLabel,
@@ -332,9 +343,9 @@ if (window.gridScriptV2Loaded) {
       
       slot.setAttribute('data-slot-config', JSON.stringify(newConfig));
       
-      // Update visual display
+      // Update visual display (use effectiveBoxNumber)
       var agentNumForAB = agent ? agent.replace('agent', '').padStart(2, '0') : '00';
-      var ab = 'AB' + String(nextBoxNumber).padStart(2, '0') + agentNumForAB;
+      var ab = 'AB' + String(effectiveBoxNumber).padStart(2, '0') + agentNumForAB;
       var abEl = slot.querySelector('span[style*="font-family: monospace"]');
       if (abEl) abEl.textContent = ab;
       
@@ -395,8 +406,13 @@ if (window.gridScriptV2Loaded) {
             // Show success notification
             alert('✅ Grid configuration saved successfully!\n\nAgent Box: ' + newConfig.identifier);
             
-            // Increment nextBoxNumber for next save
-            window.nextBoxNumber++;
+            // Only increment nextBoxNumber for NEW boxes (not when editing existing ones)
+            if (!isEditing) {
+              window.nextBoxNumber++;
+              console.log('📦 V2: Incremented nextBoxNumber to:', window.nextBoxNumber, '(was new box)');
+            } else {
+              console.log('📝 V2: Not incrementing nextBoxNumber (was editing existing box)');
+            }
           } else {
             console.error('❌ V2: Save failed:', response);
             alert('Failed to save grid configuration. Please try again.');

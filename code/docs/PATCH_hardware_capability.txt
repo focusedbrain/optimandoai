@@ -1,0 +1,109 @@
+// PATCH FOR: apps/electron-vite-project/electron/main.ts
+// Add Hardware Capability Check Integration
+
+// ============================================
+// CHANGE 1: Add new import at the top
+// ============================================
+import { hardwareCapabilityChecker } from './main/llm/hardware-capability-check'
+
+// ============================================
+// CHANGE 2: Add capability check API endpoint
+// Find your HTTP router section and add this endpoint:
+// ============================================
+
+router.get('/api/llm/hardware-capability', async (req, res) => {
+  try {
+    const result = await hardwareCapabilityChecker.check()
+    res.json({ 
+      ok: true, 
+      data: result
+    })
+  } catch (error: any) {
+    res.status(500).json({ 
+      ok: false, 
+      error: error.message 
+    })
+  }
+})
+
+// ============================================
+// CHANGE 3: Run capability check during LLM initialization
+// Update the LLM services initialization section (around line 528-556)
+// ============================================
+
+// Find this section:
+// Initialize LLM services
+try {
+  console.log('[MAIN] ===== INITIALIZING LLM SERVICES =====')
+  const { registerLlmHandlers } = await import('./main/llm/ipc')
+  const { ollamaManager } = await import('./main/llm/ollama-manager-enhanced')
+  const { hardwareCapabilityChecker } = await import('./main/llm/hardware-capability-check')
+  
+  // Register IPC handlers
+  registerLlmHandlers()
+  console.log('[MAIN] LLM IPC handlers registered')
+  
+  // NEW: Run hardware capability check FIRST
+  const capabilityResult = await hardwareCapabilityChecker.check()
+  console.log('[MAIN] Hardware capability check:', {
+    profile: capabilityResult.profile,
+    recommendation: capabilityResult.recommendation.useCloud ? 'Cloud/Turbo' : 'Local',
+    cpu: {
+      name: capabilityResult.cpu.name,
+      hasAVX2: capabilityResult.cpu.hasAVX2
+    },
+    ramGB: capabilityResult.ramGB,
+    diskType: capabilityResult.disk.type
+  })
+  
+  // If hardware is too old, log warning but continue
+  if (capabilityResult.profile === 'too_old_for_local_llms') {
+    console.warn('[MAIN] ⚠️  Hardware too old for local LLMs - Cloud/Turbo recommended')
+    console.warn('[MAIN] Reasons:', capabilityResult.reasons.join(', '))
+  }
+  
+  // Run hardware diagnostics
+  await ollamaManager.initialize()
+  console.log('[MAIN] Hardware diagnostics complete')
+  
+  // Check if Ollama is installed and auto-start if configured
+  const installed = await ollamaManager.checkInstalled()
+  console.log('[MAIN] Ollama installed:', installed)
+  
+  if (installed) {
+    try {
+      await ollamaManager.start()
+      console.log('[MAIN] Ollama started successfully')
+      
+      // Log health status
+      const health = ollamaManager.getHealthStatus()
+      console.log('[MAIN] Ollama health:', {
+        cpuFallbackMode: health.cpuFallbackMode,
+        healthCheckPassed: health.healthCheckPassed,
+        logPath: health.logPath
+      })
+    } catch (error) {
+      console.warn('[MAIN] Failed to auto-start Ollama:', error)
+    }
+  } else {
+    console.warn('[MAIN] Ollama not found - repair flow will be needed')
+  }
+} catch (error) {
+  console.error('[MAIN] Error initializing LLM services:', error)
+}
+
+// ============================================
+// That's it! The frontend will call /api/llm/hardware-capability
+// ============================================
+
+
+
+
+
+
+
+
+
+
+
+

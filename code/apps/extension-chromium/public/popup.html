@@ -2,7 +2,7 @@
 <html>
   <head>
     <meta charset="utf-8" />
-    <title>Command Chat</title>
+    <title>WR Chat</title>
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <style>
       :root{
@@ -75,36 +75,175 @@
       .toolkit { display:flex; gap:8px; align-items:center; padding:8px 12px; border-bottom:1px solid var(--border); background: var(--surface); }
       .tk-btn { height:28px; padding:0 8px; border-radius:6px; border:1px solid var(--border); cursor:pointer; display:flex; align-items:center; justify-content:center; font-size:12px; background: var(--surface); color:var(--text); }
       .tk-bucket { color:#ef4444; }
-      .composer { display: grid; grid-template-columns: 1fr 40px 40px 80px; gap: 8px; padding: 8px 12px 12px; align-items: center; border-top:1px solid var(--border); }
+      .composer { display: grid; grid-template-columns: 1fr 40px 40px auto; gap: 8px; padding: 8px 12px 12px; align-items: center; border-top:1px solid var(--border); }
       .ta { box-sizing: border-box; width: 100%; height: 42px; max-height: 180px; resize: vertical; background: var(--surface); border:1px solid var(--border); color:var(--text); padding:10px; border-radius:8px; font-size:12px; }
       .btn { height: 42px; background: var(--btn-surface); border:1px solid var(--border); color:var(--text); border-radius:8px; padding:0 12px; cursor: pointer; display:flex; align-items:center; justify-content:center; }
       .btn:disabled { opacity: .5; cursor: default; }
-      .send { font-weight:800; }
       .bucket { border-color:#ef4444; color:#ef4444; background: var(--surface); }
-      /* Theme-specific send button styling */
-      body.theme-default .send { background: linear-gradient(135deg,#8b5cf6,#764ba2); border:1px solid rgba(255,255,255,0.30); color:#ffffff; }
-      body.theme-dark .send { background: linear-gradient(135deg,#334155,#1e293b); border:1px solid rgba(255,255,255,0.20); color:#e5e7eb; }
-      body.theme-professional .send { background: linear-gradient(135deg,#ffffff,#f1f5f9); border:1px solid #cbd5e1; color:#0f172a; }
+      
+      /* Send button with model selector */
+      .send-wrapper { position:relative; display:flex; margin-right:2px; }
+      /* Always green button */
+      .send-main { 
+        height:44px; padding:4px 14px; 
+        background:linear-gradient(135deg, #22c55e 0%, #16a34a 100%); 
+        border:1px solid #15803d; border-right:none; 
+        border-radius:10px 0 0 10px; 
+        color:#052e16; cursor:pointer; 
+        display:flex; flex-direction:column; align-items:center; justify-content:center; gap:1px;
+        box-shadow:0 2px 4px rgba(0,0,0,0.1);
+        transition:all 0.2s ease;
+      }
+      .send-main:disabled { box-shadow:none; cursor:not-allowed; opacity:0.7; }
+      .send-main:not(:disabled):hover { transform:translateY(-1px); box-shadow:0 4px 8px rgba(0,0,0,0.15); }
+      .send-main .send-text { font-size:13px; font-weight:700; line-height:1; }
+      .send-main .send-model { font-size:9px; opacity:0.85; line-height:1; max-width:70px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+      
+      /* Loading state - purple */
+      .send-main.loading { background:linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%); border-color:#7c3aed; color:#ffffff; }
+      .send-main.loading + .send-dropdown-btn { background:linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%); border-color:#7c3aed; color:#ffffff; }
+      
+      .send-dropdown-btn { 
+        height:44px; width:22px; 
+        background:linear-gradient(135deg, #22c55e 0%, #16a34a 100%); 
+        border:1px solid #15803d; border-left:1px solid rgba(255,255,255,0.2); 
+        border-radius:0 10px 10px 0; 
+        color:#052e16; font-size:10px; cursor:pointer; 
+        display:flex; align-items:center; justify-content:center;
+        box-shadow:0 2px 4px rgba(0,0,0,0.1);
+        transition:all 0.2s ease;
+      }
+      .send-dropdown-btn:disabled { box-shadow:none; cursor:not-allowed; opacity:0.7; }
+      .send-dropdown-btn:not(:disabled):hover { opacity:0.85; transform:translateY(-1px); }
+      .send-dropdown { position:absolute; bottom:100%; right:0; margin-bottom:6px; background:var(--surface); border:1px solid var(--border); border-radius:10px; box-shadow:0 8px 24px rgba(0,0,0,0.25); z-index:1000; min-width:180px; max-height:220px; overflow-y:auto; display:none; }
+      .send-dropdown.open { display:block; }
+      .send-dropdown-header { padding:8px 12px; font-size:10px; font-weight:700; opacity:0.5; border-bottom:1px solid var(--border); letter-spacing:0.5px; }
+      .send-dropdown-item { padding:10px 12px; font-size:12px; cursor:pointer; display:flex; align-items:center; gap:8px; border-left:3px solid transparent; transition:all 0.15s ease; }
+      .send-dropdown-item:hover { background:rgba(255,255,255,0.08); border-left-color:#22c55e; }
+      .send-dropdown-item.active { background:rgba(34,197,94,0.25); border-left-color:#22c55e; font-weight:600; }
+      .send-dropdown-item .check { width:16px; color:#22c55e; font-weight:700; }
+      .send-dropdown-item .name { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+      .send-dropdown-item .size { font-size:10px; opacity:0.5; background:rgba(255,255,255,0.1); padding:2px 6px; border-radius:4px; }
+      body.theme-professional .send-main:disabled { background:linear-gradient(135deg, #e2e8f0 0%, #cbd5e1 100%); border-color:#94a3b8; color:#64748b; }
+      body.theme-professional .send-dropdown { background:#ffffff; border-color:#e2e8f0; }
+      body.theme-professional .send-dropdown-item:hover { background:#f1f5f9; }
+      body.theme-professional .send-dropdown-item.active { background:rgba(34,197,94,0.12); }
+      body.theme-professional .send-dropdown-item { color:#0f172a; }
+      body.theme-professional .send-dropdown-item .size { background:#e2e8f0; }
+      
+      /* Mode selector styling */
+      .mode-select { font-size:11px; font-weight:600; background:var(--btn-surface); border:1px solid var(--border); color:var(--text); border-radius:5px; padding:5px 22px 5px 8px; cursor:pointer; outline:none; appearance:none; -webkit-appearance:none; background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 12 12'%3E%3Cpath fill='%23ffffff' d='M3 4.5L6 7.5L9 4.5'/%3E%3C/svg%3E"); background-repeat:no-repeat; background-position:right 6px center; }
+      body.theme-professional .mode-select { background-color:#e2e8f0; color:#0f172a; background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 12 12'%3E%3Cpath fill='%230f172a' d='M3 4.5L6 7.5L9 4.5'/%3E%3C/svg%3E"); }
+      body.theme-dark .mode-select { background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 12 12'%3E%3Cpath fill='%23e5e7eb' d='M3 4.5L6 7.5L9 4.5'/%3E%3C/svg%3E"); }
+      
+      /* Chat view styles */
+      .chat-view { display:flex; flex-direction:column; flex:1; }
+      .chat-view.hidden { display:none; }
+      
+      /* MailGuard styles */
+      .mailguard-view { display:none; flex-direction:column; flex:1; }
+      .mailguard-view.active { display:flex; }
+      .mg-hint { padding:14px; font-size:13px; opacity:0.85; font-style:italic; border-bottom:1px solid var(--border); background:rgba(168,85,247,0.12); display:flex; align-items:center; gap:10px; }
+      .mg-hint-icon { font-size:18px; }
+      .mg-fields { padding:14px; display:flex; flex-direction:column; gap:12px; flex:1; overflow:auto; }
+      .mg-row { display:flex; align-items:center; gap:10px; }
+      .mg-label { font-size:13px; font-weight:600; opacity:0.85; min-width:60px; color:var(--text); }
+      .mg-input { flex:1; background:var(--surface); border:1px solid var(--border); color:var(--text); border-radius:6px; padding:10px 12px; font-size:14px; outline:none; }
+      .mg-input::placeholder { color:var(--muted); opacity:0.7; }
+      body.theme-professional .mg-input::placeholder { color:#64748b; opacity:0.8; }
+      body.theme-dark .mg-input::placeholder { color:rgba(255,255,255,0.5); }
+      body.theme-default .mg-input::placeholder { color:rgba(255,255,255,0.6); }
+      .mg-body { flex:1; min-height:150px; background:var(--surface); border:1px solid var(--border); color:var(--text); border-radius:8px; padding:12px 14px; font-size:14px; line-height:1.6; resize:none; font-family:-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; outline:none; }
+      .mg-body::placeholder { color:var(--muted); opacity:0.7; }
+      body.theme-professional .mg-body::placeholder { color:#64748b; opacity:0.8; }
+      body.theme-dark .mg-body::placeholder { color:rgba(255,255,255,0.5); }
+      body.theme-default .mg-body::placeholder { color:rgba(255,255,255,0.6); }
+      .mg-attach-row { display:flex; align-items:center; justify-content:space-between; margin-top:4px; }
+      .mg-attach-label { font-size:12px; font-weight:600; opacity:0.75; display:flex; align-items:center; gap:6px; }
+      .mg-attach-note { font-size:10px; opacity:0.6; font-weight:400; }
+      .mg-add-btn { background:var(--btn-surface); border:1px solid var(--border); color:var(--text); border-radius:6px; padding:8px 14px; font-size:12px; font-weight:500; cursor:pointer; }
+      .mg-attachments { display:flex; flex-wrap:wrap; gap:8px; padding:8px 0; }
+      .mg-att-chip { display:inline-flex; align-items:center; gap:6px; padding:6px 10px; background:rgba(34,197,94,0.12); border:1px solid rgba(34,197,94,0.35); border-radius:6px; font-size:12px; }
+      .mg-att-name { max-width:120px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+      .mg-att-size { opacity:0.5; font-size:11px; }
+      .mg-att-remove { background:transparent; border:none; color:var(--muted); cursor:pointer; font-size:14px; padding:0 2px; opacity:0.7; }
+      .mg-att-remove:hover { opacity:1; color:#ef4444; }
+      .mg-footer { padding:12px 14px; border-top:1px solid var(--border); display:flex; justify-content:space-between; align-items:center; background:var(--surface); }
+      .mg-discard { background:transparent; border:none; color:var(--muted); padding:8px 12px; font-size:13px; cursor:pointer; text-decoration:underline; text-underline-offset:2px; }
+      .mg-send { background:#a855f7; border:none; color:white; border-radius:8px; padding:12px 24px; font-size:14px; font-weight:600; cursor:pointer; display:flex; align-items:center; gap:8px; box-shadow:0 2px 8px rgba(168,85,247,0.4); }
+      .mg-send:disabled { background:#6b7280; box-shadow:none; cursor:not-allowed; opacity:0.7; }
+      .mg-send:not(:disabled):hover { background:#9333ea; }
     </style>
   </head>
   <body>
       <div class="wrap">
       <div class="toolkit">
-        <button id="tk-bucket" class="tk-btn tk-bucket" title="Context Bucket: Embed context directly into the session">🪣</button>
-        <button id="tk-pencil" class="tk-btn" title="LmGTFY - Capture a screen area as screenshot or stream and send it to your pre-defined automation tasks.">✎</button>
-        
-        <div id="tk-tags-wrapper" style="position:relative;">
-          <button id="tk-tags" class="tk-btn" title="Saved Tagged Triggers" style="padding-right:18px;">▾ Tags</button>
-          <div id="tk-tags-dropdown" style="display:none;position:absolute;top:100%;left:0;min-width:200px;max-height:300px;overflow-y:auto;background:var(--surface);border:1px solid var(--border);border-radius:6px;margin-top:4px;box-shadow:0 4px 12px rgba(0,0,0,0.3);z-index:1000;"></div>
+        <select id="mode-select" class="mode-select">
+          <option value="command-chat">💬 WR Chat</option>
+          <option value="mailguard">🛡️ WR MailGuard</option>
+        </select>
+        <div id="chat-controls" style="display:flex; gap:8px; align-items:center;">
+          <button id="tk-bucket" class="tk-btn tk-bucket" title="Context Bucket: Embed context directly into the session">🪣</button>
+          <button id="tk-pencil" class="tk-btn" title="LmGTFY - Capture a screen area as screenshot or stream and send it to your pre-defined automation tasks.">✎</button>
+          <div id="tk-tags-wrapper" style="position:relative;">
+            <button id="tk-tags" class="tk-btn" title="Saved Tagged Triggers" style="padding-right:18px;">▾ Tags</button>
+            <div id="tk-tags-dropdown" style="display:none;position:absolute;top:100%;left:0;min-width:200px;max-height:300px;overflow-y:auto;background:var(--surface);border:1px solid var(--border);border-radius:6px;margin-top:4px;box-shadow:0 4px 12px rgba(0,0,0,0.3);z-index:1000;"></div>
+          </div>
         </div>
       </div>
-      <div id="msgs" class="messages"></div>
-      <div class="composer" id="composer">
-        <textarea id="ta" class="ta" placeholder="Type a command for the Orchestrator..."></textarea>
-        <input id="file" type="file" multiple style="display:none" />
-        <button id="up" class="btn" title="Attach">📎</button>
-        <button id="mic" class="btn" title="Voice input">🎙️</button>
-        <button id="send" class="btn send">Send</button>
+      
+      <!-- Command Chat View -->
+      <div id="chat-view" class="chat-view">
+        <div id="msgs" class="messages"></div>
+        <div class="composer" id="composer">
+          <textarea id="ta" class="ta" placeholder="Type a command for the Orchestrator..."></textarea>
+          <input id="file" type="file" multiple style="display:none" />
+          <button id="up" class="btn" title="Attach">📎</button>
+          <button id="mic" class="btn" title="Voice input">🎙️</button>
+          <div class="send-wrapper">
+            <button id="send" class="send-main" title="Send message">
+              <span class="send-text">Send</span>
+              <span id="model-label" class="send-model">No model</span>
+            </button>
+            <button id="send-dropdown-btn" class="send-dropdown-btn" title="Select model">▾</button>
+            <div id="send-dropdown" class="send-dropdown">
+              <div class="send-dropdown-header">SELECT MODEL</div>
+              <div id="model-list"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      
+      <!-- MailGuard View -->
+      <div id="mailguard-view" class="mailguard-view">
+        <div id="mg-hint" class="mg-hint">
+          <span class="mg-hint-icon">✉️</span>
+          Compose verified WRGuard-stamped emails with built-in automation.
+        </div>
+        <div class="mg-fields">
+          <div class="mg-row">
+            <label class="mg-label">To:</label>
+            <input type="email" id="mg-to" class="mg-input" placeholder="Enter recipient email address" />
+          </div>
+          <div class="mg-row">
+            <label class="mg-label">Subject:</label>
+            <input type="text" id="mg-subject" class="mg-input" placeholder="Enter email subject line" />
+          </div>
+          <textarea id="mg-body" class="mg-body" placeholder="Write your email message here...&#10;&#10;Your message will be protected with WRGuard verification and encryption."></textarea>
+          <div class="mg-attach-row">
+            <span class="mg-attach-label">
+              <span>📎</span> Attachments
+              <span class="mg-attach-note">(WR Stamped PDFs only)</span>
+            </span>
+            <input id="mg-file" type="file" accept=".pdf" multiple style="display:none" />
+            <button id="mg-add-pdf" class="mg-add-btn">+ Add PDF</button>
+          </div>
+          <div id="mg-attachments" class="mg-attachments"></div>
+        </div>
+        <div class="mg-footer">
+          <button id="mg-discard" class="mg-discard">Discard draft</button>
+          <button id="mg-send" class="mg-send" disabled>Send <span>→</span></button>
+        </div>
       </div>
     </div>
     <!-- All scripting moved to popup.js to satisfy extension CSP -->

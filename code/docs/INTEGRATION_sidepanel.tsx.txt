@@ -1,0 +1,97 @@
+/**
+ * Hook to check hardware capability and show warning if needed
+ * Add this to sidepanel.tsx
+ */
+
+import { useState, useEffect } from 'react'
+import HardwareWarningDialog from './components/HardwareWarningDialog'
+
+// Add this state near the top of SidepanelOrchestrator component:
+const [showHardwareWarning, setShowHardwareWarning] = useState(false)
+const [hardwareProfile, setHardwareProfile] = useState<any>(null)
+
+// Add this useEffect to check hardware on startup:
+useEffect(() => {
+  const checkHardwareCapability = async () => {
+    try {
+      const response = await fetch('http://127.0.0.1:51248/api/llm/hardware-capability')
+      if (response.ok) {
+        const result = await response.json()
+        
+        if (result.ok && result.data) {
+          const data = result.data
+          setHardwareProfile(data)
+          
+          // Show warning if profile is "too_old_for_local_llms"
+          if (data.profile === 'too_old_for_local_llms') {
+            // Check if user has already dismissed this
+            const dismissed = localStorage.getItem('hardware-warning-dismissed')
+            if (!dismissed) {
+              setShowHardwareWarning(true)
+            }
+          }
+        }
+      }
+    } catch (error) {
+      console.error('[HardwareCheck] Failed to check capability:', error)
+    }
+  }
+  
+  // Check on mount
+  checkHardwareCapability()
+}, [])
+
+// Add handlers for the warning dialog:
+const handleUseTurboMode = () => {
+  // TODO: Switch to Turbo/Cloud mode
+  // You'll need to implement this based on your backend switcher logic
+  setShowHardwareWarning(false)
+  localStorage.setItem('hardware-warning-dismissed', 'true')
+  localStorage.setItem('preferred-mode', 'turbo')
+  
+  // Show success notification
+  setNotification({
+    message: '✅ Switched to Turbo Mode for best performance!',
+    type: 'success'
+  })
+}
+
+const handleStayLocal = () => {
+  setShowHardwareWarning(false)
+  localStorage.setItem('hardware-warning-dismissed', 'true')
+  localStorage.setItem('preferred-mode', 'local')
+  
+  // Show info notification
+  setNotification({
+    message: 'ℹ️  Staying in Local Mode. Performance may be slow.',
+    type: 'info'
+  })
+}
+
+// Add the dialog to your JSX (near the top of the return statement):
+return (
+  <div className="h-screen flex flex-col bg-white dark:bg-gray-900">
+    {/* Hardware Warning Dialog */}
+    <HardwareWarningDialog
+      show={showHardwareWarning}
+      onUseTurboMode={handleUseTurboMode}
+      onStayLocal={handleStayLocal}
+      reasons={hardwareProfile?.reasons}
+    />
+    
+    {/* Rest of your UI... */}
+    {/* ... */}
+  </div>
+)
+
+
+
+
+
+
+
+
+
+
+
+

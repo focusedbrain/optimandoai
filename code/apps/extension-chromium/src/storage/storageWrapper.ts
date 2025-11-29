@@ -28,7 +28,7 @@ const CONFIG_CACHE_TTL = 5000; // Cache config for 5 seconds
 
 // Read cache for PostgreSQL backend
 const readCache: Map<string, { value: any; timestamp: number }> = new Map();
-const READ_CACHE_TTL = 2000; // Cache reads for 2 seconds
+const READ_CACHE_TTL = 0; // Disabled: Cache reads for 0ms to ensure fresh data
 
 // Key patterns that should use the active adapter (SQLite/PostgreSQL) instead of Chrome Storage
 const ADAPTER_KEY_PATTERNS = [

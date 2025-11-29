@@ -61,10 +61,11 @@ if (window.gridScriptLoaded) {
       if (p === 'claude') return ['auto', 'claude-3-5-sonnet', 'claude-3-opus'];
       if (p === 'gemini') return ['auto', 'gemini-1.5-flash', 'gemini-1.5-pro'];
       if (p === 'grok') return ['auto', 'grok-2-mini', 'grok-2'];
+      if (p === 'local ai') return ['auto', 'tinyllama', 'tinydolphin', 'stablelm2:1.6b', 'stablelm-zephyr:3b', 'phi3:mini', 'gemma:2b', 'phi:2.7b', 'orca-mini', 'qwen2.5-coder:1.5b', 'deepseek-r1:1.5b', 'mistral:7b-instruct-q4_0', 'llama3.2', 'qwen2.5-coder:7b'];
       return ['auto'];
     }
     
-    const providers = ['OpenAI', 'Claude', 'Gemini', 'Grok'];
+    const providers = ['OpenAI', 'Claude', 'Gemini', 'Grok', 'Local AI'];
     const currentProvider = cfg.provider || '';
     const models = currentProvider ? modelOptions(currentProvider) : [];
     
@@ -155,9 +156,22 @@ if (window.gridScriptLoaded) {
       });
     }
     
-    // Show loading dialog first
-    var nextBoxNumber = 1;
-    var displayBoxNumber = '...';
+    // Check if this is an EXISTING box (editing) or a NEW box (creating)
+    // If editing, use the existing boxNumber; if creating, calculate the next one
+    var existingBoxNumber = (typeof cfg.boxNumber === 'number') ? cfg.boxNumber : null;
+    var isEditing = existingBoxNumber !== null;
+    
+    // Initialize nextBoxNumber and displayBoxNumber
+    var nextBoxNumber = existingBoxNumber !== null ? existingBoxNumber : 1;
+    var displayBoxNumber = existingBoxNumber !== null ? String(existingBoxNumber).padStart(2, '0') : '...';
+    
+    console.log('📋 POPUP: Dialog opening:', {
+      isEditing: isEditing,
+      existingBoxNumber: existingBoxNumber,
+      displayBoxNumber: displayBoxNumber,
+      cfgBoxNumber: cfg.boxNumber,
+      cfgBoxNumberType: typeof cfg.boxNumber
+    });
     
     dialog.innerHTML = 
       '<h3 style="margin:0;padding:16px 20px;font-size:18px;font-weight:600;color:#333;border-bottom:1px solid #eee;flex-shrink:0;">Setup Agent Box #' + slotId + '</h3>' +
@@ -296,24 +310,29 @@ if (window.gridScriptLoaded) {
       }
     }, 100);
     
-    // Calculate and update the box number field
-    calculateNextBoxNumber(function(calculatedNumber) {
-      nextBoxNumber = calculatedNumber;
-      displayBoxNumber = String(nextBoxNumber).padStart(2, '0');
-      
-      var boxNumberInput = dialog.querySelector('input[readonly]');
-      if (boxNumberInput) {
-        boxNumberInput.value = displayBoxNumber;
-        console.log('✅ Updated box number display:', displayBoxNumber);
-      }
-      
-      // Also update the agent number field to match box number (if not already set)
-      var agentInput = document.getElementById('gs-agent');
-      if (agentInput && !agentInput.value) {
-        agentInput.value = String(nextBoxNumber);
-        console.log('✅ Set default agent number to match box number:', nextBoxNumber);
-      }
-    });
+    // Only calculate next box number for NEW boxes (not when editing existing ones)
+    if (!isEditing) {
+      console.log('🆕 CREATING new box - calculating next number from SQLite...');
+      calculateNextBoxNumber(function(calculatedNumber) {
+        nextBoxNumber = calculatedNumber;
+        displayBoxNumber = String(nextBoxNumber).padStart(2, '0');
+        
+        var boxNumberInput = dialog.querySelector('input[readonly]');
+        if (boxNumberInput) {
+          boxNumberInput.value = displayBoxNumber;
+          console.log('✅ Updated box number display:', displayBoxNumber);
+        }
+        
+        // Also update the agent number field to match box number (if not already set)
+        var agentInput = document.getElementById('gs-agent');
+        if (agentInput && !agentInput.value) {
+          agentInput.value = String(nextBoxNumber);
+          console.log('✅ Set default agent number to match box number:', nextBoxNumber);
+        }
+      });
+    } else {
+      console.log('📝 EDITING existing box - using stored boxNumber:', existingBoxNumber);
+    }
     
     // Tools render & handlers (integrated)
     cfg.tools = Array.isArray(cfg.tools) ? cfg.tools : [];
@@ -459,15 +478,20 @@ if (window.gridScriptLoaded) {
       var locationId = 'grid_' + gridSessionId + '_' + gridLayout + '_slot' + slotId;
       var locationLabel = gridLayout + ' Display Grid - Slot ' + slotId;
       
+      // Use existingBoxNumber for edits, or nextBoxNumber for new boxes
+      var effectiveBoxNumber = (existingBoxNumber !== null) ? existingBoxNumber : nextBoxNumber;
+      
+      console.log('💾 POPUP: Saving with boxNumber:', effectiveBoxNumber, '(isEditing:', isEditing, ')');
+      
       // Build complete configuration object with all metadata
       var newConfig = { 
         title: title, 
         agent: agent, 
         provider: provider, 
         model: model, 
-        boxNumber: nextBoxNumber,
+        boxNumber: effectiveBoxNumber,  // Use effectiveBoxNumber (preserves existing for edits)
         agentNumber: agentNumParsed,
-        identifier: 'AB' + String(nextBoxNumber).padStart(2, '0') + String(agentNumParsed).padStart(2, '0'),
+        identifier: 'AB' + String(effectiveBoxNumber).padStart(2, '0') + String(agentNumParsed).padStart(2, '0'),
         tools: (cfg.tools || []),
         locationId: locationId,
         locationLabel: locationLabel,
@@ -480,9 +504,9 @@ if (window.gridScriptLoaded) {
       // Update slot's data attribute with complete config
       slot.setAttribute('data-slot-config', JSON.stringify(newConfig));
       
-      // Update visual display
+      // Update visual display (use effectiveBoxNumber)
       var agentNumForAB = agent ? agent.replace('agent', '').padStart(2, '0') : '00';
-      var ab = 'AB' + String(nextBoxNumber).padStart(2, '0') + agentNumForAB;
+      var ab = 'AB' + String(effectiveBoxNumber).padStart(2, '0') + agentNumForAB;
       var abEl = slot.querySelector('span[style*="font-family: monospace"]');
       if (abEl) abEl.textContent = ab;
       
@@ -594,9 +618,13 @@ if (window.gridScriptLoaded) {
         console.log('✅ SQLITE SAVE: Success! Agent box saved to SQLite.');
         console.log('📦 Saved agent box:', agentBox.identifier, '| Total boxes in session:', response.totalBoxes);
         
-        // ✅ INCREMENT nextBoxNumber for next save
-        window.nextBoxNumber++;
-        console.log('📦 Incremented nextBoxNumber to:', window.nextBoxNumber);
+        // ✅ Only increment nextBoxNumber for NEW boxes (not when editing)
+        if (!isEditing) {
+          window.nextBoxNumber++;
+          console.log('📦 Incremented nextBoxNumber to:', window.nextBoxNumber, '(was new box)');
+        } else {
+          console.log('📝 Not incrementing nextBoxNumber (was editing existing box)');
+        }
         
         // Close dialog silently (no popup needed)
         overlay.remove();
@@ -646,9 +674,13 @@ if (window.gridScriptLoaded) {
           } else if (response && response.success) {
             console.log('✅ Save successful via background script!');
             
-            // ✅ INCREMENT nextBoxNumber for next save
-            window.nextBoxNumber++;
-            console.log('📦 Incremented nextBoxNumber to:', window.nextBoxNumber);
+            // ✅ Only increment nextBoxNumber for NEW boxes (not when editing)
+            if (!isEditing) {
+              window.nextBoxNumber++;
+              console.log('📦 Incremented nextBoxNumber to:', window.nextBoxNumber, '(was new box)');
+            } else {
+              console.log('📝 Not incrementing nextBoxNumber (was editing existing box)');
+            }
             console.log('📦 Saved agent box:', newConfig.identifier);
             
             // Close dialog silently
@@ -681,9 +713,13 @@ if (window.gridScriptLoaded) {
             .then(function(response) {
               console.log('✅ Save successful via window.opener function!');
               
-              // ✅ INCREMENT nextBoxNumber for next save
-              window.nextBoxNumber++;
-              console.log('📦 Incremented nextBoxNumber to:', window.nextBoxNumber);
+              // ✅ Only increment nextBoxNumber for NEW boxes (not when editing)
+              if (!isEditing) {
+                window.nextBoxNumber++;
+                console.log('📦 Incremented nextBoxNumber to:', window.nextBoxNumber, '(was new box)');
+              } else {
+                console.log('📝 Not incrementing nextBoxNumber (was editing existing box)');
+              }
               console.log('📦 Saved agent box:', newConfig.identifier);
               
               // Close dialog silently
@@ -705,9 +741,13 @@ if (window.gridScriptLoaded) {
                 console.log('✅ Grid: Save successful via postMessage!');
                 window.removeEventListener('message', responseHandler);
                 
-                // ✅ INCREMENT nextBoxNumber for next save
-                window.nextBoxNumber++;
-                console.log('📦 Incremented nextBoxNumber to:', window.nextBoxNumber);
+                // ✅ Only increment nextBoxNumber for NEW boxes (not when editing)
+                if (!isEditing) {
+                  window.nextBoxNumber++;
+                  console.log('📦 Incremented nextBoxNumber to:', window.nextBoxNumber, '(was new box)');
+                } else {
+                  console.log('📝 Not incrementing nextBoxNumber (was editing existing box)');
+                }
                 console.log('📦 Saved agent box:', event.data.identifier || newConfig.identifier);
                 
                 // Close dialog silently

@@ -1212,7 +1212,44 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             session.agentBoxes.push(msg.agentBox)
             console.log('🆕 BG: Added new agent box:', msg.agentBox.identifier)
           }
-
+          
+          // 🤖 AUTO-CREATE AGENT SHELL (Master Tab + Display Grid)
+          if (!session.agents) session.agents = []
+          
+          const agentNumber = msg.agentBox.agentNumber || 1
+          const agentKey = `agent${agentNumber}`
+          
+          console.log(`[TRACE BG] Checking for existing agent: key="${agentKey}", number=${agentNumber}`)
+          console.log(`[TRACE BG] Current agents in session:`, session.agents.map((a: any) => ({ key: a.key, number: a.number, name: a.name })))
+          
+          const existingAgent = session.agents.find((a: any) => {
+            const matches = a.key === agentKey || a.number === agentNumber
+            if (matches) {
+              console.log(`[TRACE BG] Found existing agent match:`, { key: a.key, number: a.number, name: a.name })
+            }
+            return matches
+          })
+          
+          if (!existingAgent) {
+            const newAgent = {
+              key: agentKey,
+              name: msg.agentBox.title || `Agent ${String(agentNumber).padStart(2, '0')}`,
+              icon: '🤖',
+              number: agentNumber,
+              kind: 'custom',
+              scope: 'session',
+              enabled: false,  // ← Start disabled, will be enabled when user configures
+              config: {}
+            }
+            
+            session.agents.push(newAgent)
+            console.log(`🤖 BG: Auto-created agent shell (disabled) for agent box ${msg.agentBox.identifier}`)
+            console.log(`[TRACE BG] New agent added:`, { key: newAgent.key, number: newAgent.number, name: newAgent.name })
+          } else {
+            console.log(`🤖 BG: Agent shell already exists for ${agentKey}, skipping auto-creation`)
+          }
+          
+>>>>>>> dc26ea5244137a289160528cea41adc4d181fae6
           // 🔍 DEBUG: Log the agentBox being saved
           console.log('📦 BG: AgentBox details:', {
             identifier: msg.agentBox.identifier,

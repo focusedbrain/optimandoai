@@ -520,26 +520,65 @@ app.whenReady().then(async () => {
       if (process.platform === 'win32') {
         app.setAppUserModelId('com.opengiraffe.desktop')
       }
-    } catch { }
-    createWindow()
-    createTray()
-    console.log('[MAIN] Window and tray created')
+    } catch {}
+  createWindow()
+  createTray()
+  console.log('[MAIN] Window and tray created')
+  
+  // Initialize LLM services
+  try {
+    console.log('[MAIN] ===== INITIALIZING LLM SERVICES =====')
+    const { registerLlmHandlers } = await import('./main/llm/ipc')
+    const { ollamaManager } = await import('./main/llm/ollama-manager')
+    
+    // Register IPC handlers
+    registerLlmHandlers()
+    console.log('[MAIN] LLM IPC handlers registered')
+    
+    // Check if Ollama is installed and auto-start if configured
+    const installed = await ollamaManager.checkInstalled()
+    console.log('[MAIN] Ollama installed:', installed)
+    
+    if (installed) {
+      try {
+        await ollamaManager.start()
+        console.log('[MAIN] Ollama started successfully')
+      } catch (error) {
+        console.warn('[MAIN] Failed to auto-start Ollama:', error)
+        // Not critical, user can start manually
+      }
+    } else {
+      console.warn('[MAIN] Ollama not found - repair flow will be needed')
+    }
+  } catch (error) {
+    console.error('[MAIN] Error initializing LLM services:', error)
+    // Continue app startup even if LLM init fails
+  }
 
-    // Initialize LLM services
-    try {
-      console.log('[MAIN] ===== INITIALIZING LLM SERVICES =====')
-      const { registerLlmHandlers } = await import('./main/llm/ipc')
-      const { ollamaManager } = await import('./main/llm/ollama-manager')
+  // Initialize OCR services
+  try {
+    console.log('[MAIN] ===== INITIALIZING OCR SERVICES =====')
+    const { registerOCRHandlers } = await import('./main/ocr/ipc')
+    registerOCRHandlers()
+    console.log('[MAIN] OCR IPC handlers registered')
+  } catch (error) {
+    console.error('[MAIN] Error initializing OCR services:', error)
+    // Continue app startup even if OCR init fails
+  }
 
-      // Register IPC handlers
-      registerLlmHandlers()
-      console.log('[MAIN] LLM IPC handlers registered')
-
-      // Check if Ollama is installed and auto-start if configured
-      const installed = await ollamaManager.checkInstalled()
-      console.log('[MAIN] Ollama installed:', installed)
-
-      if (installed) {
+  // WS bridge for extension (127.0.0.1:51247) with safe startup
+  try {
+    console.log('[MAIN] ===== ATTEMPTING TO START WEBSOCKET SERVER =====')
+    console.log('[MAIN] WebSocketServer available:', !!WebSocketServer)
+    if (WebSocketServer) {
+      console.log('[MAIN] Creating WebSocket server on 127.0.0.1:51247')
+      const wss = new WebSocketServer({ host: '127.0.0.1', port: 51247 })
+      console.log('[MAIN] WebSocket server created!')
+      console.log('[MAIN] WebSocket server listening and ready for connections')
+      
+      wss.on('error', (err: any) => {
+        console.error('[MAIN] WebSocket server error:', err)
+>>>>>>> dc26ea5244137a289160528cea41adc4d181fae6
         try {
           await ollamaManager.start()
           console.log('[MAIN] Ollama started successfully')
@@ -2200,6 +2239,586 @@ app.whenReady().then(async () => {
           console.error('[HTTP-VAULT] Error stack:', error?.stack)
           res.status(500).json({ success: false, error: error.message || 'Failed to get status', details: error?.stack })
         }
+      })
+
+      // POST /api/vault/item/create - Create a new item
+      httpApp.post('/api/vault/item/create', async (req, res) => {
+        try {
+          console.log('[HTTP-VAULT] POST /api/vault/item/create')
+          const { vaultService } = await import('./main/vault/rpc')
+          const item = await vaultService.createItem(req.body)
+          console.log('[HTTP-VAULT] Item created successfully')
+        
+          res.json({ success: true, data: item })
+        } catch (error: any) {
+          console.error('[HTTP-VAULT] ❌ Error in create item:', error)
+          console.error('[HTTP-VAULT] Error stack:', error?.stack)
+          res.status(500).json({ success: false, error: error.message || 'Failed to create item' })
+        }
+      })
+
+      // POST /api/vault/item/get - Get item by ID
+      httpApp.post('/api/vault/item/get', async (req, res) => {
+        try {
+          console.log('[HTTP-VAULT] POST /api/vault/item/get')
+          const { vaultService } = await import('./main/vault/rpc')
+        const item = await vaultService.getItem(req.body.id)
+        res.json({ success: true, data: item })
+      } catch (error: any) {
+        console.error('[HTTP-VAULT] Error in get item:', error)
+        res.status(500).json({ success: false, error: error.message || 'Failed to get item' })
+      }
+    })
+
+    // POST /api/vault/item/update - Update item
+    httpApp.post('/api/vault/item/update', async (req, res) => {
+      try {
+        console.log('[HTTP-VAULT] POST /api/vault/item/update')
+        const { vaultService } = await import('./main/vault/rpc')
+        const item = await vaultService.updateItem(req.body.id, req.body.updates)
+        res.json({ success: true, data: item })
+      } catch (error: any) {
+        console.error('[HTTP-VAULT] Error in update item:', error)
+        res.status(500).json({ success: false, error: error.message || 'Failed to update item' })
+      }
+    })
+
+    // POST /api/vault/item/delete - Delete item
+    httpApp.post('/api/vault/item/delete', async (req, res) => {
+      try {
+        console.log('[HTTP-VAULT] POST /api/vault/item/delete')
+        const { vaultService } = await import('./main/vault/rpc')
+        await vaultService.deleteItem(req.body.id)
+        res.json({ success: true })
+      } catch (error: any) {
+        console.error('[HTTP-VAULT] Error in delete item:', error)
+        res.status(500).json({ success: false, error: error.message || 'Failed to delete item' })
+      }
+    })
+
+    // POST /api/vault/containers - List containers
+    httpApp.post('/api/vault/containers', async (_req, res) => {
+      try {
+        console.log('[HTTP-VAULT] POST /api/vault/containers')
+        const { vaultService } = await import('./main/vault/rpc')
+        const containers = await vaultService.listContainers()
+        res.json({ success: true, data: containers })
+      } catch (error: any) {
+        console.error('[HTTP-VAULT] Error in containers:', error)
+        res.status(500).json({ success: false, error: error.message || 'Failed to list containers' })
+      }
+    })
+
+    // POST /api/vault/container/create - Create container
+    httpApp.post('/api/vault/container/create', async (req, res) => {
+      try {
+        console.log('[HTTP-VAULT] POST /api/vault/container/create')
+        const { vaultService } = await import('./main/vault/rpc')
+        const { type, name, favorite } = req.body
+        const container = vaultService.createContainer(type, name, favorite || false)
+        res.json({ success: true, data: container })
+      } catch (error: any) {
+        console.error('[HTTP-VAULT] Error in create container:', error)
+        res.status(500).json({ success: false, error: error.message || 'Failed to create container' })
+      }
+    })
+
+    // POST /api/vault/settings - Get settings
+    httpApp.post('/api/vault/settings/get', async (_req, res) => {
+      try {
+        console.log('[HTTP-VAULT] POST /api/vault/settings/get')
+        const { vaultService } = await import('./main/vault/rpc')
+        const settings = await vaultService.getSettings()
+        res.json({ success: true, data: settings })
+      } catch (error: any) {
+        console.error('[HTTP-VAULT] Error in get settings:', error)
+        res.status(500).json({ success: false, error: error.message || 'Failed to get settings' })
+      }
+    })
+
+    // POST /api/vault/settings/update - Update settings
+    httpApp.post('/api/vault/settings/update', async (req, res) => {
+      try {
+        console.log('[HTTP-VAULT] POST /api/vault/settings/update')
+        const { vaultService } = await import('./main/vault/rpc')
+        const settings = await vaultService.updateSettings(req.body)
+        res.json({ success: true, data: settings })
+      } catch (error: any) {
+        console.error('[HTTP-VAULT] Error in update settings:', error)
+        res.status(500).json({ success: false, error: error.message || 'Failed to update settings' })
+      }
+    })
+
+    // ===== ORCHESTRATOR HTTP API ENDPOINTS (Encrypted SQLite Backend) =====
+    // These endpoints provide encrypted storage for all orchestrator data
+    
+    // POST /api/orchestrator/connect - Connect to orchestrator database (auto-creates if doesn't exist)
+    httpApp.post('/api/orchestrator/connect', async (_req, res) => {
+      try {
+        console.log('[HTTP-ORCHESTRATOR] POST /api/orchestrator/connect')
+        const { getOrchestratorService } = await import('./main/orchestrator-db/service')
+        const service = getOrchestratorService()
+        await service.connect()
+        const status = service.getStatus()
+        res.json({ success: true, data: status })
+      } catch (error: any) {
+        console.error('[HTTP-ORCHESTRATOR] Error in connect:', error)
+        res.status(500).json({ success: false, error: error.message || 'Failed to connect' })
+      }
+    })
+
+    // GET /api/orchestrator/status - Get connection status
+    httpApp.get('/api/orchestrator/status', async (_req, res) => {
+      try {
+        console.log('[HTTP-ORCHESTRATOR] GET /api/orchestrator/status')
+        const { getOrchestratorService } = await import('./main/orchestrator-db/service')
+        const service = getOrchestratorService()
+        const status = service.getStatus()
+        res.json({ success: true, data: status })
+      } catch (error: any) {
+        console.error('[HTTP-ORCHESTRATOR] Error in status:', error)
+        res.status(500).json({ success: false, error: error.message || 'Failed to get status' })
+      }
+    })
+
+    // GET /api/orchestrator/get - Get value by key
+    httpApp.get('/api/orchestrator/get', async (req, res) => {
+      try {
+        const key = req.query.key as string
+        console.log('[HTTP-ORCHESTRATOR] GET /api/orchestrator/get', { key })
+        const { getOrchestratorService } = await import('./main/orchestrator-db/service')
+        const service = getOrchestratorService()
+        const value = await service.get(key)
+        res.json({ success: true, data: value })
+      } catch (error: any) {
+        console.error('[HTTP-ORCHESTRATOR] Error in get:', error)
+        res.status(500).json({ success: false, error: error.message || 'Failed to get value' })
+      }
+    })
+
+    // POST /api/orchestrator/set - Set value by key
+    httpApp.post('/api/orchestrator/set', async (req, res) => {
+      try {
+        const { key, value } = req.body
+        console.log('[HTTP-ORCHESTRATOR] POST /api/orchestrator/set', { key })
+        const { getOrchestratorService } = await import('./main/orchestrator-db/service')
+        const service = getOrchestratorService()
+        await service.set(key, value)
+        res.json({ success: true })
+      } catch (error: any) {
+        console.error('[HTTP-ORCHESTRATOR] Error in set:', error)
+        res.status(500).json({ success: false, error: error.message || 'Failed to set value' })
+      }
+    })
+
+    // GET /api/orchestrator/get-all - Get all key-value pairs
+    httpApp.get('/api/orchestrator/get-all', async (_req, res) => {
+      try {
+        console.log('[HTTP-ORCHESTRATOR] GET /api/orchestrator/get-all')
+        const { getOrchestratorService } = await import('./main/orchestrator-db/service')
+        const service = getOrchestratorService()
+        const data = await service.getAll()
+        res.json({ success: true, data })
+      } catch (error: any) {
+        console.error('[HTTP-ORCHESTRATOR] Error in get-all:', error)
+        res.status(500).json({ success: false, error: error.message || 'Failed to get all data' })
+      }
+    })
+
+    // POST /api/orchestrator/set-all - Set multiple key-value pairs
+    httpApp.post('/api/orchestrator/set-all', async (req, res) => {
+      try {
+        const { data } = req.body
+        console.log('[HTTP-ORCHESTRATOR] POST /api/orchestrator/set-all', { keyCount: Object.keys(data || {}).length })
+        const { getOrchestratorService } = await import('./main/orchestrator-db/service')
+        const service = getOrchestratorService()
+        await service.setAll(data)
+        res.json({ success: true })
+      } catch (error: any) {
+        console.error('[HTTP-ORCHESTRATOR] Error in set-all:', error)
+        res.status(500).json({ success: false, error: error.message || 'Failed to set all data' })
+      }
+    })
+
+    // POST /api/orchestrator/remove - Remove key(s)
+    httpApp.post('/api/orchestrator/remove', async (req, res) => {
+      try {
+        const { keys } = req.body
+        console.log('[HTTP-ORCHESTRATOR] POST /api/orchestrator/remove', { keys })
+        const { getOrchestratorService } = await import('./main/orchestrator-db/service')
+        const service = getOrchestratorService()
+        await service.remove(keys)
+        res.json({ success: true })
+      } catch (error: any) {
+        console.error('[HTTP-ORCHESTRATOR] Error in remove:', error)
+        res.status(500).json({ success: false, error: error.message || 'Failed to remove keys' })
+      }
+    })
+
+    // POST /api/orchestrator/migrate - Migrate data from Chrome storage
+    httpApp.post('/api/orchestrator/migrate', async (req, res) => {
+      try {
+        const { chromeData } = req.body
+        console.log('[HTTP-ORCHESTRATOR] POST /api/orchestrator/migrate', { keyCount: Object.keys(chromeData || {}).length })
+        const { getOrchestratorService } = await import('./main/orchestrator-db/service')
+        const service = getOrchestratorService()
+        await service.migrateFromChromeStorage(chromeData)
+        res.json({ success: true })
+      } catch (error: any) {
+        console.error('[HTTP-ORCHESTRATOR] Error in migrate:', error)
+        res.status(500).json({ success: false, error: error.message || 'Failed to migrate data' })
+      }
+    })
+
+    // POST /api/orchestrator/export - Export data (future-ready for JSON/YAML/MD)
+    httpApp.post('/api/orchestrator/export', async (req, res) => {
+      try {
+        const options = req.body
+        console.log('[HTTP-ORCHESTRATOR] POST /api/orchestrator/export', { format: options.format })
+        const { getOrchestratorService } = await import('./main/orchestrator-db/service')
+        const service = getOrchestratorService()
+        const exportData = await service.exportData(options)
+        res.json({ success: true, data: exportData })
+      } catch (error: any) {
+        console.error('[HTTP-ORCHESTRATOR] Error in export:', error)
+        res.status(500).json({ success: false, error: error.message || 'Failed to export data' })
+      }
+    })
+
+    // POST /api/orchestrator/import - Import data (future-ready for JSON/YAML/MD)
+    httpApp.post('/api/orchestrator/import', async (req, res) => {
+      try {
+        const { data } = req.body
+        console.log('[HTTP-ORCHESTRATOR] POST /api/orchestrator/import')
+        const { getOrchestratorService } = await import('./main/orchestrator-db/service')
+        const service = getOrchestratorService()
+        await service.importData(data)
+        res.json({ success: true })
+      } catch (error: any) {
+        console.error('[HTTP-ORCHESTRATOR] Error in import:', error)
+        res.status(500).json({ success: false, error: error.message || 'Failed to import data' })
+      }
+    })
+
+    // ==================== LLM API ENDPOINTS ====================
+    
+    // GET /api/llm/hardware - Get hardware information
+    httpApp.get('/api/llm/hardware', async (_req, res) => {
+      try {
+        const { hardwareService } = await import('./main/llm/hardware')
+        const hardware = await hardwareService.detect()
+        res.json({ ok: true, data: hardware })
+      } catch (error: any) {
+        console.error('[HTTP-LLM] Error in hardware detection:', error)
+        res.status(500).json({ ok: false, error: error.message })
+      }
+    })
+    
+    // GET /api/llm/status - Get Ollama status
+    httpApp.get('/api/llm/status', async (_req, res) => {
+      try {
+        const { ollamaManager } = await import('./main/llm/ollama-manager')
+        const status = await ollamaManager.getStatus()
+        res.json({ ok: true, data: status })
+      } catch (error: any) {
+        console.error('[HTTP-LLM] Error in get status:', error)
+        res.status(500).json({ ok: false, error: error.message })
+      }
+    })
+    
+    // POST /api/llm/start - Start Ollama server
+    httpApp.post('/api/llm/start', async (_req, res) => {
+      try {
+        const { ollamaManager } = await import('./main/llm/ollama-manager')
+        await ollamaManager.start()
+        res.json({ ok: true })
+      } catch (error: any) {
+        console.error('[HTTP-LLM] Error starting Ollama:', error)
+        res.status(500).json({ ok: false, error: error.message })
+      }
+    })
+    
+    // POST /api/llm/stop - Stop Ollama server
+    httpApp.post('/api/llm/stop', async (_req, res) => {
+      try {
+        const { ollamaManager } = await import('./main/llm/ollama-manager')
+        await ollamaManager.stop()
+        res.json({ ok: true })
+      } catch (error: any) {
+        console.error('[HTTP-LLM] Error stopping Ollama:', error)
+        res.status(500).json({ ok: false, error: error.message })
+      }
+    })
+    
+    // GET /api/llm/models - List installed models
+    httpApp.get('/api/llm/models', async (_req, res) => {
+      try {
+        const { ollamaManager } = await import('./main/llm/ollama-manager')
+        const models = await ollamaManager.listModels()
+        res.json({ ok: true, data: models })
+      } catch (error: any) {
+        console.error('[HTTP-LLM] Error listing models:', error)
+        res.status(500).json({ ok: false, error: error.message })
+      }
+    })
+    
+    // GET /api/llm/catalog - Get model catalog
+    httpApp.get('/api/llm/catalog', async (_req, res) => {
+      try {
+        const { MODEL_CATALOG } = await import('./main/llm/config')
+        res.json({ ok: true, data: MODEL_CATALOG })
+      } catch (error: any) {
+        console.error('[HTTP-LLM] Error getting catalog:', error)
+        res.status(500).json({ ok: false, error: error.message })
+      }
+    })
+    
+    // POST /api/llm/models/install - Install a model
+    httpApp.post('/api/llm/models/install', async (req, res) => {
+      try {
+        const { modelId } = req.body
+        console.log('[HTTP-LLM] Install request received - modelId:', modelId)
+        console.log('[HTTP-LLM] Full request body:', req.body)
+        
+        if (!modelId) {
+          res.status(400).json({ ok: false, error: 'modelId is required' })
+          return
+        }
+        
+        const { ollamaManager } = await import('./main/llm/ollama-manager')
+        
+        console.log('[HTTP-LLM] Starting model pull for:', modelId)
+        
+        // Start async installation
+        ollamaManager.pullModel(modelId, (progress) => {
+          console.log('[HTTP-LLM] Install progress:', progress)
+          // Progress is now stored in ollamaManager.downloadProgress
+        }).catch((error) => {
+          console.error('[HTTP-LLM] Model installation failed:', error)
+        })
+        
+        res.json({ ok: true, message: 'Installation started' })
+      } catch (error: any) {
+        console.error('[HTTP-LLM] Error installing model:', error)
+        res.status(500).json({ ok: false, error: error.message })
+      }
+    })
+    
+    // GET /api/llm/install-progress - Get current installation progress
+    httpApp.get('/api/llm/install-progress', async (_req, res) => {
+      try {
+        const { ollamaManager } = await import('./main/llm/ollama-manager')
+        const progress = ollamaManager.getDownloadProgress()
+        console.log('[HTTP-LLM] Returning progress:', progress)
+        res.json({ ok: true, progress })
+      } catch (error: any) {
+        console.error('[HTTP-LLM] Error getting install progress:', error)
+        res.status(500).json({ ok: false, error: error.message })
+      }
+    })
+    
+    // DELETE /api/llm/models/:modelId - Delete a model
+    httpApp.delete('/api/llm/models/:modelId', async (req, res) => {
+      try {
+        const { modelId } = req.params
+        const { ollamaManager } = await import('./main/llm/ollama-manager')
+        await ollamaManager.deleteModel(modelId)
+        res.json({ ok: true })
+      } catch (error: any) {
+        console.error('[HTTP-LLM] Error deleting model:', error)
+        res.status(500).json({ ok: false, error: error.message })
+      }
+    })
+    
+    // POST /api/llm/models/activate - Set active model
+    httpApp.post('/api/llm/models/activate', async (req, res) => {
+      try {
+        const { modelId } = req.body
+        if (!modelId) {
+          res.status(400).json({ ok: false, error: 'modelId is required' })
+          return
+        }
+        
+        // TODO: Store in config
+        console.log('[HTTP-LLM] Set active model:', modelId)
+        res.json({ ok: true })
+      } catch (error: any) {
+        console.error('[HTTP-LLM] Error setting active model:', error)
+        res.status(500).json({ ok: false, error: error.message })
+      }
+    })
+    
+    // GET /api/llm/first-available - Get first available installed model
+    httpApp.get('/api/llm/first-available', async (_req, res) => {
+      try {
+        const { ollamaManager } = await import('./main/llm/ollama-manager')
+        const models = await ollamaManager.listModels()
+        
+        if (models.length === 0) {
+          res.json({ ok: false, error: 'No models installed. Please install a model first.' })
+          return
+        }
+        
+        res.json({ ok: true, data: { modelId: models[0].name } })
+      } catch (error: any) {
+        console.error('[HTTP-LLM] Error getting first available model:', error)
+        res.status(500).json({ ok: false, error: error.message })
+      }
+    })
+    
+    // POST /api/llm/chat - Chat with model
+    httpApp.post('/api/llm/chat', async (req, res) => {
+      try {
+        const { modelId, messages } = req.body
+        if (!messages || !Array.isArray(messages)) {
+          res.status(400).json({ ok: false, error: 'messages array is required' })
+          return
+        }
+        
+        const { ollamaManager } = await import('./main/llm/ollama-manager')
+        
+        // If no modelId specified, try to use first available model
+        let activeModelId = modelId
+        if (!activeModelId) {
+          const models = await ollamaManager.listModels()
+          if (models.length === 0) {
+            res.status(400).json({ 
+              ok: false, 
+              error: 'No models installed. Please go to LLM Settings (Admin panel) and install a model first.' 
+            })
+            return
+          }
+          activeModelId = models[0].name
+          console.log('[HTTP-LLM] Auto-selected first available model:', activeModelId)
+        }
+        
+        const response = await ollamaManager.chat(activeModelId, messages)
+        res.json({ ok: true, data: response })
+      } catch (error: any) {
+        console.error('[HTTP-LLM] Error in chat:', error)
+        res.status(500).json({ ok: false, error: error.message })
+      }
+    })
+    
+    // GET /api/llm/performance/:modelId - Get performance estimate for model
+    httpApp.get('/api/llm/performance/:modelId', async (req, res) => {
+      try {
+        const { modelId } = req.params
+        const { hardwareService } = await import('./main/llm/hardware')
+        const { getModelConfig } = await import('./main/llm/config')
+        
+        const hardware = await hardwareService.detect()
+        const modelConfig = getModelConfig(modelId)
+        
+        if (!modelConfig) {
+          res.status(404).json({ ok: false, error: 'Model not found in catalog' })
+          return
+        }
+        
+        const estimate = hardwareService.estimatePerformance(modelConfig, hardware)
+        res.json({ ok: true, data: estimate })
+      } catch (error: any) {
+        console.error('[HTTP-LLM] Error getting performance estimate:', error)
+        res.status(500).json({ ok: false, error: error.message })
+      }
+    })
+    
+    // ===== OCR API Endpoints =====
+    
+    // GET /api/ocr/status - Get OCR service status
+    httpApp.get('/api/ocr/status', async (_req, res) => {
+      try {
+        const { ocrService } = await import('./main/ocr/ocr-service')
+        const { ocrRouter } = await import('./main/ocr/router')
+        const status = ocrService.getStatus()
+        const availableProviders = ocrRouter.getAvailableProviders()
+        res.json({ 
+          ok: true, 
+          data: { 
+            ...status, 
+            cloudAvailable: availableProviders.length > 0,
+            availableProviders 
+          } 
+        })
+      } catch (error: any) {
+        console.error('[HTTP-OCR] Error getting status:', error)
+        res.status(500).json({ ok: false, error: error.message })
+      }
+    })
+    
+    // GET /api/ocr/languages - Get supported OCR languages
+    httpApp.get('/api/ocr/languages', async (_req, res) => {
+      try {
+        const { ocrService } = await import('./main/ocr/ocr-service')
+        const languages = ocrService.getSupportedLanguages()
+        res.json({ ok: true, data: languages })
+      } catch (error: any) {
+        console.error('[HTTP-OCR] Error getting languages:', error)
+        res.status(500).json({ ok: false, error: error.message })
+      }
+    })
+    
+    // POST /api/ocr/process - Process an image with OCR
+    httpApp.post('/api/ocr/process', async (req, res) => {
+      try {
+        const { image, options } = req.body
+        
+        if (!image) {
+          res.status(400).json({ ok: false, error: 'image is required (base64 or dataUrl)' })
+          return
+        }
+        
+        const { ocrRouter } = await import('./main/ocr/router')
+        
+        // Determine input type
+        const input = image.startsWith('data:') 
+          ? { type: 'dataUrl' as const, dataUrl: image }
+          : { type: 'base64' as const, data: image }
+        
+        const result = await ocrRouter.processImage(input, options)
+        res.json({ ok: true, data: result })
+      } catch (error: any) {
+        console.error('[HTTP-OCR] Error processing image:', error)
+        res.status(500).json({ ok: false, error: error.message })
+      }
+    })
+    
+    // POST /api/ocr/config - Update OCR cloud configuration
+    httpApp.post('/api/ocr/config', async (req, res) => {
+      try {
+        const { ocrRouter } = await import('./main/ocr/router')
+        ocrRouter.setCloudConfig(req.body)
+        res.json({ ok: true })
+      } catch (error: any) {
+        console.error('[HTTP-OCR] Error setting config:', error)
+        res.status(500).json({ ok: false, error: error.message })
+      }
+    })
+    
+    // GET /api/ocr/routing - Check current routing decision
+    httpApp.get('/api/ocr/routing', async (req, res) => {
+      try {
+        const { ocrRouter } = await import('./main/ocr/router')
+        const forceLocal = req.query.forceLocal === 'true'
+        const forceCloud = req.query.forceCloud === 'true'
+        const decision = ocrRouter.shouldUseCloud({ forceLocal, forceCloud })
+        res.json({ ok: true, data: decision })
+      } catch (error: any) {
+        console.error('[HTTP-OCR] Error checking routing:', error)
+        res.status(500).json({ ok: false, error: error.message })
+      }
+    })
+
+    const HTTP_PORT = 51248
+    
+    // Simple function to start HTTP server with error handling
+    const startHttpServer = (port: number, attempt = 1): void => {
+      console.log(`[MAIN] Starting HTTP API server on port ${port} (attempt ${attempt})...`)
+      
+      const server = httpApp.listen(port, '127.0.0.1', () => {
+        console.log(`[MAIN] ✅ HTTP API server listening on http://127.0.0.1:${port}`)
+        console.log(`[MAIN] HTTP server is now listening on port ${port}`)
+>>>>>>> dc26ea5244137a289160528cea41adc4d181fae6
       })
 
       // POST /api/vault/create - Create new vault

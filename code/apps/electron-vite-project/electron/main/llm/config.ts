@@ -10,28 +10,151 @@ import { LlmModelConfig, LlmConfig, ModelTier } from './types'
  * Sorted by tier and resource requirements
  */
 export const MODEL_CATALOG: LlmModelConfig[] = [
-  // Lightweight models (1-3GB RAM)
+  // Ultra-Lightweight models (0.5-2GB RAM) - Heavily Quantized
   {
     id: 'tinyllama',
-    displayName: 'TinyLlama 1.1B',
+    displayName: 'TinyLlama 1.1B (Q4)',
     provider: 'TinyLlama',
     tier: 'lightweight',
     minRamGb: 1,
     recommendedRamGb: 2,
     diskSizeGb: 0.6,
     contextWindow: 2048,
-    description: 'Ultra-fast, best for very old hardware. Good for simple tasks.'
+    description: 'Ultra-fast, 4-bit quantized. Best for very old hardware. Good for simple tasks.'
+  },
+  {
+    id: 'tinydolphin',
+    displayName: 'TinyDolphin 1.1B (Q4)',
+    provider: 'Cognitive Computations',
+    tier: 'lightweight',
+    minRamGb: 1,
+    recommendedRamGb: 2,
+    diskSizeGb: 0.6,
+    contextWindow: 2048,
+    description: '4-bit quantized. 1.1B params. TinyLlama fine-tuned for helpfulness.'
+  },
+  {
+    id: 'all-minilm',
+    displayName: 'All-MiniLM-L6 (Embedding)',
+    provider: 'Microsoft',
+    tier: 'lightweight',
+    minRamGb: 0.3,
+    recommendedRamGb: 0.5,
+    diskSizeGb: 0.09,
+    contextWindow: 512,
+    description: 'Ultra-tiny. 0.09GB. Sentence embeddings. Perfect for semantic search on weak hardware.'
+  },
+  {
+    id: 'stablelm2:1.6b',
+    displayName: 'StableLM 2 1.6B (Q4)',
+    provider: 'Stability AI',
+    tier: 'lightweight',
+    minRamGb: 1,
+    recommendedRamGb: 1.5,
+    diskSizeGb: 1.0,
+    contextWindow: 4096,
+    description: '4-bit quantized. 1.6B params. Very fast, good quality for size.'
+  },
+  {
+    id: 'stablelm-zephyr:3b',
+    displayName: 'StableLM Zephyr 3B (Q4)',
+    provider: 'Stability AI',
+    tier: 'lightweight',
+    minRamGb: 1.5,
+    recommendedRamGb: 2.5,
+    diskSizeGb: 1.6,
+    contextWindow: 4096,
+    description: '4-bit quantized. 3B params. Chat-optimized version of StableLM.'
+  },
+  {
+    id: 'phi3-low',
+    displayName: 'Phi-3 Low-Spec 3.8B (Custom Q4)',
+    provider: 'Microsoft',
+    tier: 'lightweight',
+    minRamGb: 1.5,
+    recommendedRamGb: 2,
+    diskSizeGb: 2.3,
+    contextWindow: 1024,
+    description: 'Custom optimized 4-bit quantized. Reduced context (1024), batch (16), threads (4). Best performance/quality balance for low-spec.'
+  },
+  
+  // Lightweight models (2-3GB RAM) - 2B-3B params
+  {
+    id: 'gemma:2b',
+    displayName: 'Gemma 2B (Q4_0)',
+    provider: 'Google',
+    tier: 'lightweight',
+    minRamGb: 1.5,
+    recommendedRamGb: 2,
+    diskSizeGb: 1.4,
+    contextWindow: 8192,
+    description: '4-bit Q4_0 quantized. 2B params. Google quality, very efficient.'
+  },
+  {
+    id: 'gemma:2b-q2_K',
+    displayName: 'Gemma 2B (Q2_K - Ultra Compressed)',
+    provider: 'Google',
+    tier: 'lightweight',
+    minRamGb: 1,
+    recommendedRamGb: 1.5,
+    diskSizeGb: 0.9,
+    contextWindow: 8192,
+    description: '2-bit Q2_K quantized. 2B params. Extreme compression, slight quality loss. Fastest option.'
+  },
+  {
+    id: 'phi:2.7b',
+    displayName: 'Phi-2 2.7B (Q4)',
+    provider: 'Microsoft',
+    tier: 'lightweight',
+    minRamGb: 1.5,
+    recommendedRamGb: 2,
+    diskSizeGb: 1.6,
+    contextWindow: 2048,
+    description: '4-bit quantized. 2.7B params. Excellent for coding and reasoning despite small size.'
+  },
+  {
+    id: 'orca-mini',
+    displayName: 'Orca Mini 3B (Q4)',
+    provider: 'Microsoft',
+    tier: 'lightweight',
+    minRamGb: 1.5,
+    recommendedRamGb: 2.5,
+    diskSizeGb: 1.9,
+    contextWindow: 2048,
+    description: '4-bit quantized. 3B params. Trained on explanation dataset. Good for reasoning.'
+  },
+  {
+    id: 'openhermes:2.5-mistral-7b-q2_K',
+    displayName: 'OpenHermes 2.5 Mistral (Q2_K)',
+    provider: 'Teknium',
+    tier: 'lightweight',
+    minRamGb: 1.5,
+    recommendedRamGb: 2.5,
+    diskSizeGb: 1.8,
+    contextWindow: 8192,
+    description: '2-bit Q2_K quantized. 7B params ultra-compressed. Fine-tuned for helpfulness.'
   },
   {
     id: 'phi3:mini',
-    displayName: 'Phi-3 Mini 3.8B',
+    displayName: 'Phi-3 Mini 3.8B (Q4)',
     provider: 'Microsoft',
     tier: 'lightweight',
     minRamGb: 2,
     recommendedRamGb: 3,
     diskSizeGb: 2.3,
     contextWindow: 4096,
-    description: 'Very fast and capable. Recommended for low-end PCs.'
+    description: '4-bit quantized. 3.8B params. Very fast and capable for low-end PCs.'
+  },
+  {
+    id: 'phi3:3.8b-q2_K',
+    displayName: 'Phi-3 Mini 3.8B (Q2_K - Ultra Light)',
+    provider: 'Microsoft',
+    tier: 'lightweight',
+    minRamGb: 1.5,
+    recommendedRamGb: 2,
+    diskSizeGb: 1.5,
+    contextWindow: 4096,
+    description: '2-bit Q2_K quantized. 3.8B params. Extreme compression for weak hardware.'
   },
   
   // Balanced models (3-8GB RAM)
@@ -96,36 +219,36 @@ export const MODEL_CATALOG: LlmModelConfig[] = [
   // High-end models (16GB+ RAM)
   {
     id: 'mixtral:8x7b',
-    displayName: 'Mixtral 8x7B (MoE)',
+    displayName: 'Mixtral 8x7B MoE (Q4)',
     provider: 'Mistral',
     tier: 'high-end',
     minRamGb: 24,
     recommendedRamGb: 32,
     diskSizeGb: 26,
     contextWindow: 32768,
-    description: 'Mixture of Experts model. Excellent reasoning and coding.'
+    description: '4-bit quantized. Mixture of Experts model. Excellent reasoning and coding.'
   },
   {
     id: 'llama3.1:70b',
-    displayName: 'Llama 3.1 70B',
+    displayName: 'Llama 3.1 70B (Q4)',
     provider: 'Meta',
     tier: 'high-end',
     minRamGb: 48,
     recommendedRamGb: 64,
     diskSizeGb: 40,
     contextWindow: 131072,
-    description: 'Enterprise-grade model. Powerful capabilities, requires high-end hardware.'
+    description: '4-bit quantized. 70B params. Enterprise-grade. Powerful capabilities, requires high-end hardware.'
   },
   {
-    id: 'qwen2:72b',
-    displayName: 'Qwen 2 72B',
-    provider: 'Alibaba',
+    id: 'llama3.1:405b-q2_K',
+    displayName: 'Llama 3.1 405B (Q2_K)',
+    provider: 'Meta',
     tier: 'high-end',
-    minRamGb: 48,
-    recommendedRamGb: 64,
-    diskSizeGb: 41,
-    contextWindow: 32768,
-    description: 'Advanced reasoning and multilingual support. Top-tier performance.'
+    minRamGb: 128,
+    recommendedRamGb: 192,
+    diskSizeGb: 136,
+    contextWindow: 131072,
+    description: '2-bit Q2_K quantized. 405B params. Largest Llama model. Extreme hardware requirements.'
   }
 ]
 
