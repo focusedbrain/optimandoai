@@ -898,6 +898,35 @@ export interface ResolvedLlmConfig {
 }
 
 /**
+ * Image generation configuration resolved from an Agent Box
+ */
+export interface ResolvedImageConfig {
+  /** Image provider ID (comfyui, replicate, etc.) */
+  provider: string
+  
+  /** Image model/preset name */
+  model: string
+  
+  /** Provider type (local or cloud) */
+  providerType: 'local' | 'cloud'
+  
+  /** Agent Box ID this config comes from */
+  agentBoxId: string
+  
+  /** Agent Box number */
+  agentBoxNumber: number
+  
+  /** Agent Box title for display */
+  agentBoxTitle?: string
+  
+  /** Whether the image provider is available/enabled */
+  isAvailable: boolean
+  
+  /** Reason if not available */
+  unavailableReason?: string
+}
+
+/**
  * Reasoning configuration for an agent
  */
 export interface ResolvedReasoningConfig {

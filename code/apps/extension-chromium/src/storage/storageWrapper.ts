@@ -1,4 +1,5 @@
 import type { BackendConfig } from '@shared/core/storage/StorageAdapter';
+import type { ImageProvidersConfig } from '../types/imageProviders';
 
 /**
  * Hybrid Storage Wrapper
@@ -20,6 +21,8 @@ interface HybridBackendConfig {
       schema: string;
     };
   };
+  // Image generation providers configuration
+  imageProviders?: ImageProvidersConfig;
 }
 
 let cachedBackendConfig: HybridBackendConfig | null = null;

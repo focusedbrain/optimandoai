@@ -232,6 +232,8 @@ export interface AgentBox {
   color?: string
   provider?: string // LLM provider (OpenAI, Claude, etc.)
   model?: string // LLM model
+  imageProvider?: string // Image generation provider ID (comfyui, replicate, etc.)
+  imageModel?: string // Image model/preset for the selected provider
 }
 
 export interface RoutingDecision {
