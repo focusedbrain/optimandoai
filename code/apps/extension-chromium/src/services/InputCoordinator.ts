@@ -155,22 +155,22 @@ export class InputCoordinator {
 
   /**
    * Check if trigger's keyword conditions are met
-   * Returns true if:
-   * - No keywords configured (empty = match any content)
-   * - At least one keyword is found in the input text
+   * Returns { valid: boolean, matchedKeyword?: string }
+   * - valid=true if no keywords configured OR at least one keyword found
+   * - matchedKeyword contains the first keyword that was found (for display)
    */
-  private checkTriggerKeywords(trigger: any, input: string): boolean {
+  private checkTriggerKeywords(trigger: any, input: string): { valid: boolean; matchedKeyword?: string } {
     const inputLower = input.toLowerCase()
     
     // Check eventTagConditions for body_keywords
     if (trigger.eventTagConditions && Array.isArray(trigger.eventTagConditions)) {
       const keywordCondition = trigger.eventTagConditions.find((c: any) => c.type === 'body_keywords')
       if (keywordCondition && keywordCondition.keywords && keywordCondition.keywords.length > 0) {
-        const found = keywordCondition.keywords.some((kw: string) => 
+        const matchedKeyword = keywordCondition.keywords.find((kw: string) => 
           inputLower.includes(kw.toLowerCase())
         )
-        this.log(`Keyword check (eventTagConditions): keywords=${keywordCondition.keywords.join(',')}, found=${found}`)
-        return found
+        this.log(`Keyword check (eventTagConditions): keywords=${keywordCondition.keywords.join(',')}, matched=${matchedKeyword || 'none'}`)
+        return { valid: !!matchedKeyword, matchedKeyword }
       }
     }
     
@@ -178,9 +178,9 @@ export class InputCoordinator {
     if (trigger.keywords && typeof trigger.keywords === 'string' && trigger.keywords.trim()) {
       const keywords = trigger.keywords.split(',').map((k: string) => k.trim()).filter(Boolean)
       if (keywords.length > 0) {
-        const found = keywords.some((kw: string) => inputLower.includes(kw.toLowerCase()))
-        this.log(`Keyword check (trigger.keywords): keywords=${keywords.join(',')}, found=${found}`)
-        return found
+        const matchedKeyword = keywords.find((kw: string) => inputLower.includes(kw.toLowerCase()))
+        this.log(`Keyword check (trigger.keywords): keywords=${keywords.join(',')}, matched=${matchedKeyword || 'none'}`)
+        return { valid: !!matchedKeyword, matchedKeyword }
       }
     }
     
@@ -188,14 +188,14 @@ export class InputCoordinator {
     if (trigger.expectedContext && typeof trigger.expectedContext === 'string' && trigger.expectedContext.trim()) {
       const keywords = trigger.expectedContext.split(',').map((k: string) => k.trim()).filter(Boolean)
       if (keywords.length > 0) {
-        const found = keywords.some((kw: string) => inputLower.includes(kw.toLowerCase()))
-        this.log(`Keyword check (expectedContext): keywords=${keywords.join(',')}, found=${found}`)
-        return found
+        const matchedKeyword = keywords.find((kw: string) => inputLower.includes(kw.toLowerCase()))
+        this.log(`Keyword check (expectedContext): keywords=${keywords.join(',')}, matched=${matchedKeyword || 'none'}`)
+        return { valid: !!matchedKeyword, matchedKeyword }
       }
     }
     
-    // No keywords configured = always match
-    return true
+    // No keywords configured = always match (no keyword to display)
+    return { valid: true }
   }
 
   /**
@@ -300,6 +300,9 @@ export class InputCoordinator {
       }
     }
 
+    // Track matched keywords for display
+    const matchedKeywords: string[] = []
+    
     // Check unified triggers (new format)
     if (listening?.unifiedTriggers && inputTriggers.length > 0) {
       for (const trigger of listening.unifiedTriggers) {
@@ -309,8 +312,8 @@ export class InputCoordinator {
           t.toLowerCase() === triggerTag.toLowerCase()
         )) {
           // Check keyword conditions before accepting the match
-          const keywordsValid = this.checkTriggerKeywords(trigger, input)
-          if (!keywordsValid) {
+          const keywordResult = this.checkTriggerKeywords(trigger, input)
+          if (!keywordResult.valid) {
             this.log(`Agent "${agent.name}" trigger #${triggerTag} - keywords NOT matched, skipping`)
             continue
           }
@@ -318,6 +321,9 @@ export class InputCoordinator {
           this.log(`Agent "${agent.name}" matched unified trigger: #${triggerTag}`)
           if (!matchedTriggers.includes(triggerTag)) {
             matchedTriggers.push(triggerTag)
+          }
+          if (keywordResult.matchedKeyword && !matchedKeywords.includes(keywordResult.matchedKeyword)) {
+            matchedKeywords.push(keywordResult.matchedKeyword)
           }
           hasActiveMatch = true
         }
@@ -333,8 +339,8 @@ export class InputCoordinator {
           t.toLowerCase() === triggerTag.toLowerCase()
         )) {
           // Check keyword conditions before accepting the match
-          const keywordsValid = this.checkTriggerKeywords(trigger, input)
-          if (!keywordsValid) {
+          const keywordResult = this.checkTriggerKeywords(trigger, input)
+          if (!keywordResult.valid) {
             this.log(`Agent "${agent.name}" trigger #${triggerTag} - keywords NOT matched, skipping`)
             continue
           }
@@ -342,6 +348,9 @@ export class InputCoordinator {
           this.log(`Agent "${agent.name}" matched trigger: #${triggerTag}`)
           if (!matchedTriggers.includes(triggerTag)) {
             matchedTriggers.push(triggerTag)
+          }
+          if (keywordResult.matchedKeyword && !matchedKeywords.includes(keywordResult.matchedKeyword)) {
+            matchedKeywords.push(keywordResult.matchedKeyword)
           }
           hasActiveMatch = true
         }
@@ -351,7 +360,10 @@ export class InputCoordinator {
     // If we found any matching triggers, return the combined result
     if (matchedTriggers.length > 0) {
       const triggerList = matchedTriggers.map(t => `#${t}`).join(', ')
-      this.log(`Agent "${agent.name}" matched ${matchedTriggers.length} trigger(s): ${triggerList}`)
+      const keywordInfo = matchedKeywords.length > 0 
+        ? ` (keyword: ${matchedKeywords.join(', ')})` 
+        : ''
+      this.log(`Agent "${agent.name}" matched ${matchedTriggers.length} trigger(s): ${triggerList}${keywordInfo}`)
       return {
         hasListener: true,
         isListenerActive: true,
@@ -363,8 +375,8 @@ export class InputCoordinator {
         matchedTriggerNames: matchedTriggers, // ALL matched triggers
         matchType: hasPassiveMatch ? 'passive_trigger' : 'active_trigger',
         matchDetails: matchedTriggers.length === 1 
-          ? `Event trigger #${matchedTriggers[0]} matched`
-          : `Event triggers matched: ${triggerList}`
+          ? `Event trigger #${matchedTriggers[0]} matched${keywordInfo}`
+          : `Event triggers matched: ${triggerList}${keywordInfo}`
       }
     }
 
