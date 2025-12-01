@@ -950,6 +950,13 @@ export class InputCoordinator {
     
     const eventTagConditions = trigger.eventTagConditions || []
     
+    this.log(`Evaluating conditions for trigger:`, {
+      hasEventTagConditions: eventTagConditions.length,
+      hasKeywordsField: !!trigger.keywords,
+      keywordsValue: trigger.keywords,
+      hasExpectedContext: !!trigger.expectedContext
+    })
+    
     for (const condition of eventTagConditions) {
       let passed = true
       let details = ''
@@ -991,6 +998,7 @@ export class InputCoordinator {
             details = passed 
               ? `Keyword "${matchedKeyword}" found` 
               : `None of ${condition.keywords.length} keywords found`
+            this.log(`body_keywords check:`, { keywords: condition.keywords, searchText: searchText.substring(0, 50), passed, matchedKeyword })
           } else {
             passed = true
             details = 'No keywords configured'
@@ -1026,13 +1034,33 @@ export class InputCoordinator {
       if (!passed) allPassed = false
     }
     
-    // Also check legacy expectedContext if present
-    if (trigger.expectedContext && !eventTagConditions.some((c: any) => c.type === 'body_keywords')) {
+    // Check legacy trigger.keywords field (comma-separated string) if no body_keywords condition already processed
+    const hasBodyKeywordsCondition = conditions.some(c => c.type === 'body_keywords')
+    
+    if (!hasBodyKeywordsCondition && trigger.keywords && typeof trigger.keywords === 'string' && trigger.keywords.trim()) {
+      const keywords = trigger.keywords.split(',').map((k: string) => k.trim()).filter(Boolean)
+      if (keywords.length > 0) {
+        const searchText = classifiedInput.rawText.toLowerCase()
+        const matchedKeyword = keywords.find((kw: string) => searchText.includes(kw.toLowerCase()))
+        const passed = !!matchedKeyword
+        this.log(`Legacy keywords check:`, { keywords, searchText: searchText.substring(0, 50), passed, matchedKeyword })
+        conditions.push({
+          type: 'body_keywords',
+          passed,
+          details: passed ? `Keyword "${matchedKeyword}" found` : `None of ${keywords.length} keywords found - required for match`
+        })
+        if (!passed) allPassed = false
+      }
+    }
+    
+    // Also check legacy expectedContext if present and no keywords check done yet
+    if (!conditions.some(c => c.type === 'body_keywords') && trigger.expectedContext) {
       const keywords = trigger.expectedContext.split(',').map((k: string) => k.trim()).filter(Boolean)
       if (keywords.length > 0) {
         const searchText = classifiedInput.rawText.toLowerCase()
         const matchedKeyword = keywords.find((kw: string) => searchText.includes(kw.toLowerCase()))
         const passed = !!matchedKeyword
+        this.log(`ExpectedContext check:`, { keywords, passed })
         conditions.push({
           type: 'body_keywords',
           passed,
@@ -1046,6 +1074,8 @@ export class InputCoordinator {
     if (conditions.length === 0) {
       conditions.push({ type: 'none', passed: true, details: 'No conditions configured' })
     }
+    
+    this.log(`Condition evaluation result:`, { allPassed, conditionCount: conditions.length, conditions })
     
     return { allPassed, conditions }
   }
