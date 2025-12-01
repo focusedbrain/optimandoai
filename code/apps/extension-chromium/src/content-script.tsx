@@ -20606,7 +20606,88 @@ function initializeExtension() {
 
           // reportTo removed from Listener - only in Execution section now
 
+          // Collect unified triggers (new architecture) - CRITICAL: was missing in Save button handler!
+          const unifiedTriggers: any[] = []
+          document.querySelectorAll('#L-unified-triggers .unified-trigger-row').forEach((row: any, idx: number) => {
+            const type = row.querySelector('.trigger-type')?.value || 'direct_tag'
+            const tagValue = row.querySelector('.trigger-tag')?.value?.trim() || ''
+            const existingId = row.dataset.triggerId || ''
+            const triggerId = existingId || (tagValue ? `ID#${tagValue.replace('#', '')}` : `ID${String(idx + 1).padStart(2, '0')}`)
+            const trigger: any = { 
+              id: triggerId,
+              type, 
+              enabled: true 
+            }
+            
+            // Set tag/tagName based on type
+            if (type === 'direct_tag' || type === 'tag_and_condition') {
+              trigger.tag = tagValue.startsWith('#') ? tagValue : `#${tagValue}`
+              trigger.tagName = tagValue.replace('#', '')
+            }
+            
+            // Collect type-specific fields
+            trigger.channel = row.querySelector('.trigger-channel')?.value || 'chat'
+            trigger.emails = row.querySelector('.trigger-emails')?.value || ''
+            trigger.keywords = row.querySelector('.trigger-keywords')?.value || ''
+            trigger.websiteFilter = row.querySelector('.trigger-website')?.value || ''
+            trigger.wrcodeMatch = row.querySelector('.trigger-wrcode')?.value || ''
+            trigger.workflowId = row.querySelector('.trigger-workflow')?.value || ''
+            trigger.selector = row.querySelector('.trigger-selector')?.value || ''
+            trigger.command = row.querySelector('.trigger-command')?.value || ''
+            
+            // Collect sensor workflows for this trigger
+            const sensorWorkflows: any[] = []
+            const sensorContainer = row.querySelector('.trigger-sensor-workflows')
+            const sensorRows = sensorContainer ? sensorContainer.querySelectorAll('.trigger-sensor-row') : []
+            sensorRows.forEach((wfRow: any) => {
+              const wfType = wfRow.querySelector('.t-workflow-type-radio:checked')?.value || 'internal'
+              const wfId = wfRow.querySelector('.t-workflow-id')?.value || ''
+              const conditions: any[] = []
+              wfRow.querySelectorAll('.t-workflow-cond-row').forEach((condRow: any) => {
+                conditions.push({
+                  field: condRow.querySelector('.t-wcond-field')?.value || '',
+                  op: condRow.querySelector('.t-wcond-op')?.value || 'eq',
+                  value: condRow.querySelector('.t-wcond-value')?.value || '',
+                  action: condRow.querySelector('.t-wcond-action')?.value || 'continue',
+                  routeId: condRow.querySelector('.t-wcond-route-id')?.value || ''
+                })
+              })
+              if (wfId.trim()) {
+                sensorWorkflows.push({ type: wfType, workflowId: wfId, conditions })
+              }
+            })
+            trigger.sensorWorkflows = sensorWorkflows
+            
+            // Collect allowed actions for this trigger
+            const allowedActions: any[] = []
+            const actionsContainer = row.querySelector('.trigger-allowed-actions')
+            const actionRows = actionsContainer ? actionsContainer.querySelectorAll('.trigger-action-row') : []
+            actionRows.forEach((wfRow: any) => {
+              const wfType = wfRow.querySelector('.t-workflow-type-radio:checked')?.value || 'internal'
+              const wfId = wfRow.querySelector('.t-workflow-id')?.value || ''
+              const conditions: any[] = []
+              wfRow.querySelectorAll('.t-workflow-cond-row').forEach((condRow: any) => {
+                conditions.push({
+                  field: condRow.querySelector('.t-wcond-field')?.value || '',
+                  op: condRow.querySelector('.t-wcond-op')?.value || 'eq',
+                  value: condRow.querySelector('.t-wcond-value')?.value || '',
+                  action: condRow.querySelector('.t-wcond-action')?.value || 'continue',
+                  routeId: condRow.querySelector('.t-wcond-route-id')?.value || ''
+                })
+              })
+              if (wfId.trim()) {
+                allowedActions.push({ type: wfType, workflowId: wfId, conditions })
+              }
+            })
+            trigger.allowedActions = allowedActions
+            
+            unifiedTriggers.push(trigger)
+          })
           
+          if (unifiedTriggers.length > 0) {
+            listening.unifiedTriggers = unifiedTriggers
+            console.log(`✅ [SAVE] Collected ${unifiedTriggers.length} unified triggers`)
+          }
 
           console.log('📝 Listener config collected:', {
 
@@ -20624,7 +20705,9 @@ function initializeExtension() {
 
             activeTriggersCount: listening.active?.triggers?.length || 0,
 
-            passiveTriggersCount: listening.passive?.triggers?.length || 0
+            passiveTriggersCount: listening.passive?.triggers?.length || 0,
+
+            unifiedTriggersCount: listening.unifiedTriggers?.length || 0
 
           })
 
@@ -21512,7 +21595,8 @@ function initializeExtension() {
         await new Promise<void>((resolve) => {
 
           // Clear the draft from chrome.storage since we've committed it
-          storageRemove(autoSaveDraftKey, () => {
+          // Use chrome.storage.local.remove directly to avoid any routing issues
+          chrome.storage.local.remove(autoSaveDraftKey, () => {
 
             console.log('🗑️ Cleared auto-save draft:', autoSaveDraftKey)
 
