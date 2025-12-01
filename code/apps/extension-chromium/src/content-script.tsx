@@ -20785,7 +20785,7 @@ function initializeExtension() {
 
           })
 
-          draft.reasoning = { acceptFrom: accepts, goals: base.goals, role: base.role, rules: base.rules, custom: base.custom, applyFor: base.applyFor }
+          draft.reasoning = base
 
           ;(draft as any).reasoningSections = sections
 
