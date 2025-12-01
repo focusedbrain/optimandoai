@@ -11809,6 +11809,7 @@ function initializeExtension() {
               // Detailed verification for Apply For and Sections
               if (previouslySavedData.reasoning) {
                 console.log('  📝 R-Apply For:', previouslySavedData.reasoning.applyFor || '__any__')
+                console.log('  📝 R-Apply For List:', previouslySavedData.reasoning.applyForList || 'NOT SET')
               }
               if (previouslySavedData.reasoningSections) {
                 console.log('  📚 Reasoning Sections:', previouslySavedData.reasoningSections.length)
@@ -20877,6 +20878,8 @@ function initializeExtension() {
           console.log('📝 Reasoning config collected:', {
 
             applyFor: base.applyFor,
+
+            applyForList: base.applyForList,
 
             goalsLength: base.goals.length,
 
