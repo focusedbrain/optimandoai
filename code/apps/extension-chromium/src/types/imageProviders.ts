@@ -104,13 +104,16 @@ export interface ImageProvidersConfig {
 /**
  * Default local engine configurations
  * Users must install these tools from official sources
+ * 
+ * SECURITY NOTE: All local engines should bind to 127.0.0.1 (localhost) only.
+ * Never expose these services on 0.0.0.0 or forward ports externally.
  */
 export const DEFAULT_LOCAL_ENGINES: LocalImageEngineConfig[] = [
   {
     id: 'comfyui',
     name: 'comfyui',
     displayName: 'ComfyUI',
-    description: 'Node-based Stable Diffusion interface with advanced workflows. Most flexible option for power users.',
+    description: 'Node-based Stable Diffusion interface. Runs on localhost only (127.0.0.1:8188).',
     enabled: false,
     status: 'disconnected',
     endpoint: 'http://127.0.0.1:8188',

@@ -90,7 +90,7 @@ export function ImageEngineSettings({ theme = 'default' }: ImageEngineSettingsPr
     setTimeout(() => setNotification(null), 4000)
   }
 
-  // Test local engine connection
+  // Test local engine connection via Electron backend (avoids CORS issues)
   const testLocalEngine = async (engine: LocalImageEngineConfig) => {
     setTestingEngine(engine.id)
     
@@ -98,17 +98,33 @@ export function ImageEngineSettings({ theme = 'default' }: ImageEngineSettingsPr
       const testUrl = `${engine.endpoint}${engine.healthCheckPath}`
       console.log(`[ImageEngineSettings] Testing ${engine.displayName} at ${testUrl}`)
       
-      const controller = new AbortController()
-      const timeoutId = setTimeout(() => controller.abort(), 5000)
+      // Route through Electron backend to avoid CORS restrictions
+      // The extension can't directly fetch from localhost due to CORS
+      const proxyUrl = 'http://127.0.0.1:51248/api/image/test-local-engine'
       
-      const response = await fetch(testUrl, {
-        method: 'GET',
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), 8000)
+      
+      const response = await fetch(proxyUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          engineId: engine.id,
+          endpoint: engine.endpoint,
+          healthCheckPath: engine.healthCheckPath
+        }),
         signal: controller.signal
       })
       
       clearTimeout(timeoutId)
       
-      if (response.ok) {
+      if (!response.ok) {
+        throw new Error(`Electron app returned ${response.status}`)
+      }
+      
+      const result = await response.json()
+      
+      if (result.ok) {
         // Update engine status
         const updatedLocal = config.local.map(e => 
           e.id === engine.id 
@@ -118,14 +134,19 @@ export function ImageEngineSettings({ theme = 'default' }: ImageEngineSettingsPr
         await saveConfig({ ...config, local: updatedLocal })
         showNotification(`${engine.displayName} connected successfully!`, 'success')
       } else {
-        throw new Error(`HTTP ${response.status}`)
+        throw new Error(result.error || 'Connection failed')
       }
     } catch (err: any) {
       console.error(`[ImageEngineSettings] Failed to connect to ${engine.displayName}:`, err)
       
-      const errorMessage = err.name === 'AbortError' 
-        ? 'Connection timeout' 
-        : err.message || 'Connection failed'
+      let errorMessage = 'Connection failed'
+      if (err.name === 'AbortError') {
+        errorMessage = 'Connection timeout'
+      } else if (err.message?.includes('Failed to fetch') || err.message?.includes('NetworkError')) {
+        errorMessage = 'Electron app not running. Please start the desktop application first.'
+      } else {
+        errorMessage = err.message || 'Connection failed'
+      }
       
       const updatedLocal = config.local.map(e => 
         e.id === engine.id 
@@ -524,9 +545,22 @@ export function ImageEngineSettings({ theme = 'default' }: ImageEngineSettingsPr
               </div>
             ))}
 
-            {/* Legal notice */}
+            {/* Security & Legal notice */}
             <div style={{
               marginTop: '8px',
+              padding: '8px 10px',
+              background: 'rgba(239, 68, 68, 0.1)',
+              border: '1px solid rgba(239, 68, 68, 0.2)',
+              borderRadius: '6px',
+              fontSize: '9px',
+              opacity: 0.9,
+              lineHeight: '1.5'
+            }}>
+              🔒 <strong>Security:</strong> Local engines should bind to 127.0.0.1 only. 
+              Never use 0.0.0.0 or port-forward to external networks.
+            </div>
+            <div style={{
+              marginTop: '6px',
               padding: '8px 10px',
               background: 'rgba(59, 130, 246, 0.1)',
               border: '1px solid rgba(59, 130, 246, 0.2)',
