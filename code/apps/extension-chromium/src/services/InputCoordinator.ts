@@ -814,12 +814,22 @@ export class InputCoordinator {
     
     if (!listening) return triggers
     
-    // Check unified triggers format (new)
+    // Check unified triggers format (new) - stored as unifiedTriggers
+    if (listening.unifiedTriggers && Array.isArray(listening.unifiedTriggers)) {
+      const eventTagTriggers = listening.unifiedTriggers.filter((t: any) => 
+        t.type === 'direct_tag' || t.type === 'tag_and_condition'
+      )
+      triggers.push(...eventTagTriggers)
+      this.log(`Found ${eventTagTriggers.length} unified triggers for agent`)
+    }
+    
+    // Also check listening.triggers (alternative storage location)
     if (listening.triggers && Array.isArray(listening.triggers)) {
       const eventTagTriggers = listening.triggers.filter((t: any) => 
         t.type === 'direct_tag' || t.type === 'tag_and_condition'
       )
       triggers.push(...eventTagTriggers)
+      this.log(`Found ${eventTagTriggers.length} triggers for agent`)
     }
     
     // Check legacy passive triggers
@@ -835,6 +845,7 @@ export class InputCoordinator {
           })
         }
       }
+      this.log(`Found ${listening.passive.triggers.length} legacy passive triggers`)
     }
     
     // Check legacy active triggers
@@ -850,8 +861,10 @@ export class InputCoordinator {
           })
         }
       }
+      this.log(`Found ${listening.active.triggers.length} legacy active triggers`)
     }
     
+    this.log(`Total triggers extracted for agent "${agent.name}":`, triggers.length)
     return triggers
   }
 
@@ -1249,5 +1262,5 @@ export class InputCoordinator {
 /**
  * Default singleton instance
  */
-export const inputCoordinator = new InputCoordinator({ debug: false })
+export const inputCoordinator = new InputCoordinator({ debug: true })
 

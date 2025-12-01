@@ -1849,6 +1849,21 @@ function SidepanelOrchestrator() {
       // Route through event tag flow to detect matches with agent listeners
       // This checks all agents' triggers (#tags) and displays match feedback
       // =================================================================
+      
+      // Debug: Log all agents and their listener configurations
+      console.log('[Chat] DEBUG - Agents in session:', agents.map(a => ({
+        name: a.name,
+        number: a.number,
+        enabled: a.enabled,
+        hasListening: !!a.listening,
+        capabilities: a.capabilities,
+        passiveEnabled: a.listening?.passiveEnabled,
+        activeEnabled: a.listening?.activeEnabled,
+        passiveTriggers: a.listening?.passive?.triggers?.map((t: any) => t.tag?.name),
+        activeTriggers: a.listening?.active?.triggers?.map((t: any) => t.tag?.name),
+        unifiedTriggers: a.listening?.triggers?.map((t: any) => t.tag || t.tagName)
+      })))
+      
       if (nlpResult.input.triggers.length > 0) {
         console.log('[Chat] Detected triggers, running Event Tag routing:', nlpResult.input.triggers)
         
@@ -1863,7 +1878,8 @@ function SidepanelOrchestrator() {
           console.log('[Chat] Event Tag Routing Result:', {
             matchedAgents: eventTagResult.batch.results.length,
             triggersFound: eventTagResult.batch.triggersFound,
-            summary: eventTagResult.batch.summary
+            summary: eventTagResult.batch.summary,
+            allResults: eventTagResult.batch.results
           })
           
           // Display match detection feedback if any agents matched
@@ -1874,10 +1890,15 @@ function SidepanelOrchestrator() {
               text: matchFeedback
             }])
             scrollToBottom()
+          } else {
+            // Debug: Show why no matches were found
+            console.log('[Chat] No matches found. Summary:', eventTagResult.batch.summary)
           }
         } catch (eventTagError) {
-          console.warn('[Chat] Event Tag routing error (non-fatal):', eventTagError)
+          console.error('[Chat] Event Tag routing error:', eventTagError)
         }
+      } else {
+        console.log('[Chat] No triggers detected in input:', inputTextForNlp)
       }
       
       // =================================================================
