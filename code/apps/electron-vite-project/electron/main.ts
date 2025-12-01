@@ -11,6 +11,7 @@ import { beginOverlay, closeAllOverlays, showStreamTriggerOverlay } from './lmgt
 import { captureScreenshot, startRegionStream } from './lmgtfy/capture'
 import { loadPresets, upsertRegion } from './lmgtfy/presets'
 import { registerDbHandlers, testConnection, syncChromeDataToPostgres, getConfig, getPostgresAdapter } from './ipc/db'
+import { registerMiniAppHandlers } from './ipc/miniapp'
 import { handleVaultRPC } from './main/vault/rpc'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -102,6 +103,9 @@ async function createWindow() {
 
   // Database IPC handlers
   registerDbHandlers()
+  
+  // Mini-App / GlassView IPC handlers
+  registerMiniAppHandlers()
 
   // Overlay direct IPC (renderer->main) to drive capture + posting
   try {

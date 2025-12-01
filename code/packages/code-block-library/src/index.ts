@@ -3,6 +3,11 @@
  * 
  * Enterprise-grade React component library with advanced UI components
  * for building modern web applications.
+ * 
+ * Key exports:
+ * - Template System: useTemplateApp, MiniAppPanel, templateBuilder
+ * - Block Registry: blockRegistry
+ * - UI Blocks: SliderNavigation, IconTrigger, CodeHunkDisplay, etc.
  */
 
 // Export types
@@ -18,6 +23,12 @@ export * from './builder/TemplateBuilder';
 
 // Export parser
 export * from './parser/TemplateParser';
+
+// Export hooks for template-driven apps
+export * from './hooks/useTemplateApp.tsx';
+
+// Export integration components (MiniAppPanel, etc.)
+export * from './integration/MiniAppPanel';
 
 // Export individual blocks (for direct use if needed)
 export { ReactAppBootstrap, useApp } from './blocks/bootstrap/react-app.component';

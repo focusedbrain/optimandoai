@@ -1,12 +1,12 @@
 // Form Components
-export { FormBuilder } from './forms/FormBuilder';
-export type { FormBuilderProps, FormField } from './forms/FormBuilder';
+export { FormBuilder } from './FormBuilder';
+export type { FormBuilderProps, FormField } from './FormBuilder';
 
-export { MultiStepForm } from './forms/MultiStepForm';
-export type { MultiStepFormProps, MultiStepFormStep } from './forms/MultiStepForm';
+export { MultiStepForm } from './MultiStepForm';
+export type { MultiStepFormProps, MultiStepFormStep } from './MultiStepForm';
 
-export { FileUpload } from './forms/FileUpload';
-export type { FileUploadProps } from './forms/FileUpload';
+export { FileUpload } from './FileUpload';
+export type { FileUploadProps } from './FileUpload';
 
-export { DatePicker } from './forms/DatePicker';
-export type { DatePickerProps } from './forms/DatePicker';
+export { DatePicker } from './DatePicker';
+export type { DatePickerProps } from './DatePicker';

@@ -11,6 +11,7 @@ import { resolve, dirname } from 'path';
 import * as chokidar from 'chokidar';
 import { buildFromTemplate, validateTemplate, TemplateAST, BuildResult } from '@optimandoai/code-block-library';
 import { EventBus } from './EventBus';
+import { SidebarManager, MiniAppConfig, createGlassViewConfig } from './SidebarManager';
 
 const readFileAsync = promisify(readFile);
 
@@ -46,6 +47,7 @@ export interface LoadedTemplate {
 export class Orchestrator {
   private config: Required<OrchestratorConfig>;
   private eventBus: EventBus;
+  private sidebarManager: SidebarManager;
   private templateCache: Map<string, TemplateCache> = new Map();
   private loadedTemplates: Map<string, LoadedTemplate> = new Map();
   private fileWatcher?: chokidar.FSWatcher;
@@ -62,7 +64,9 @@ export class Orchestrator {
     };
     
     this.eventBus = new EventBus(this.config.debugMode);
+    this.sidebarManager = new SidebarManager(this.eventBus);
     this.setupEventListeners();
+    this.setupSidebarEventListeners();
     
     if (this.config.debugMode) {
       console.log('[Orchestrator] Initialized with config:', this.config);
@@ -79,6 +83,7 @@ export class Orchestrator {
       // Set up IPC handlers if Electron is available
       if (this.config.electronMain) {
         this.setupElectronIPC();
+        this.setupSidebarIPC();
       }
       
       // Start watching template files
@@ -90,6 +95,9 @@ export class Orchestrator {
       if (existsSync(this.config.templateDir)) {
         await this.preloadTemplates();
       }
+      
+      // Register default mini-apps
+      this.registerDefaultMiniApps();
       
       this.eventBus.emit('app:ready');
       console.log('[Orchestrator] ✅ Initialized successfully');
@@ -456,5 +464,151 @@ export class Orchestrator {
     } catch {
       return null;
     }
+  }
+  
+  // ========================================
+  // Sidebar Management Methods
+  // ========================================
+  
+  /**
+   * Get the sidebar manager instance
+   */
+  getSidebarManager(): SidebarManager {
+    return this.sidebarManager;
+  }
+  
+  /**
+   * Register a mini-app in the sidebar
+   */
+  registerMiniApp(config: MiniAppConfig): void {
+    this.sidebarManager.registerMiniApp(config);
+  }
+  
+  /**
+   * Show the sidebar with a specific mini-app
+   */
+  showSidebar(appId?: string): void {
+    this.sidebarManager.showSidebar(appId);
+  }
+  
+  /**
+   * Hide the sidebar
+   */
+  hideSidebar(): void {
+    this.sidebarManager.hideSidebar();
+  }
+  
+  /**
+   * Toggle the sidebar
+   */
+  toggleSidebar(appId?: string): void {
+    this.sidebarManager.toggleSidebar(appId);
+  }
+  
+  /**
+   * Register default mini-apps (GlassView, etc.)
+   */
+  private registerDefaultMiniApps(): void {
+    console.log('[Orchestrator] Registering default mini-apps');
+    
+    // Register GlassView mini-app
+    const glassViewConfig = createGlassViewConfig();
+    glassViewConfig.templatePath = resolve(this.config.templateDir, 'glassview.template.md');
+    this.sidebarManager.registerMiniApp(glassViewConfig);
+  }
+  
+  /**
+   * Set up sidebar-related event listeners
+   */
+  private setupSidebarEventListeners(): void {
+    // Handle template load requests from sidebar
+    this.eventBus.on('sidebar:load-template', async (templatePath: string, appId: string) => {
+      try {
+        const buildResult = await this.loadTemplate(templatePath);
+        this.eventBus.emit('sidebar:template-loaded', buildResult, appId);
+      } catch (error) {
+        this.eventBus.emit('sidebar:template-error', error, appId);
+      }
+    });
+    
+    // Handle template text load requests
+    this.eventBus.on('sidebar:load-template-text', async (templateText: string, appId: string) => {
+      try {
+        const buildResult = this.loadTemplateFromText(templateText, `sidebar:${appId}`);
+        this.eventBus.emit('sidebar:template-loaded', buildResult, appId);
+      } catch (error) {
+        this.eventBus.emit('sidebar:template-error', error, appId);
+      }
+    });
+    
+    // Handle AI requests from mini-apps
+    this.eventBus.on('ai:request', (prompt: string, context: any, appId: string) => {
+      console.log(`[Orchestrator] AI request from ${appId}:`, prompt);
+      // This would integrate with the AI service
+      // For now, emit a mock response
+      setTimeout(() => {
+        this.eventBus.emit('ai:response', `AI response for: ${prompt}`, appId);
+      }, 500);
+    });
+    
+    // Handle file open requests from mini-apps
+    this.eventBus.on('file:open', (filePath: string, line: number, appId: string) => {
+      console.log(`[Orchestrator] Open file request from ${appId}:`, filePath, 'line:', line);
+      // Send to Electron main process to open in editor
+      if (this.config.electronMain) {
+        const { shell } = this.config.electronMain;
+        // Open file in default editor
+        // Could also send to Cursor IDE via its extension API
+      }
+    });
+  }
+  
+  /**
+   * Set up sidebar-related IPC handlers for Electron
+   */
+  private setupSidebarIPC(): void {
+    if (!this.config.electronMain) return;
+    
+    const { ipcMain, BrowserWindow } = this.config.electronMain;
+    
+    // Set up IPC sender for sidebar manager
+    this.sidebarManager.setIpcSender((channel, data) => {
+      for (const window of BrowserWindow.getAllWindows()) {
+        window.webContents.send(channel, data);
+      }
+    });
+    
+    // Handle sidebar show/hide requests
+    ipcMain.on('sidebar:toggle', (event, appId?: string) => {
+      this.toggleSidebar(appId);
+    });
+    
+    ipcMain.on('sidebar:show', (event, appId?: string) => {
+      this.showSidebar(appId);
+    });
+    
+    ipcMain.on('sidebar:hide', () => {
+      this.hideSidebar();
+    });
+    
+    // Handle messages from mini-apps
+    ipcMain.on('sidebar:message', (event, { appId, message }) => {
+      this.sidebarManager.handleMiniAppMessage(appId, message);
+    });
+    
+    // Handle AI requests
+    ipcMain.handle('ai:request', async (event, { prompt, context }) => {
+      console.log('[Orchestrator] AI request via IPC:', prompt);
+      // This would call the actual AI service
+      return `AI response for: ${prompt}`;
+    });
+    
+    // Handle file open requests
+    ipcMain.on('file:open', (event, { path, line }) => {
+      console.log('[Orchestrator] File open via IPC:', path, 'line:', line);
+      // Open file in editor
+    });
+    
+    console.log('[Orchestrator] ✅ Sidebar IPC handlers set up');
   }
 }

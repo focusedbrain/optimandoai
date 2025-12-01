@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import './App.css'
 import LETmeGIRAFFETHATFORYOUIcons from './components/LETmeGIRAFFETHATFORYOUIcons'
+import GlassViewSidebar from './components/GlassViewSidebar'
 
 type ThemePreference = 'dark' | 'professional' | 'auto'
 
@@ -48,6 +49,7 @@ function ThemeSwitcher() {
 function App() {
   const [showSettings, setShowSettings] = useState(false)
   const [showPlans, setShowPlans] = useState(false)
+  const [showGlassView, setShowGlassView] = useState(false)
   const [captures, setCaptures] = useState<any[]>([])
   const [triggerPrompt, setTriggerPrompt] = useState<{ mode: 'screenshot'|'stream', rect: any, displayId: number } | null>(null)
   const [triggerName, setTriggerName] = useState('')
@@ -120,6 +122,18 @@ function App() {
         <div className="brand">OpenGiraffe</div>
         <div style={{ flex: 1 }} />
         <LETmeGIRAFFETHATFORYOUIcons onCapture={(p) => console.log('capture', p)} />
+        <button 
+          className="btn" 
+          onClick={() => setShowGlassView(!showGlassView)} 
+          style={{ 
+            marginLeft: 8, 
+            backgroundColor: showGlassView ? '#4ec9b0' : undefined,
+            color: showGlassView ? '#1e1e1e' : undefined
+          }}
+          title="Toggle GlassView Mini-App"
+        >
+          🔍 GlassView
+        </button>
         <button className="btn" onClick={() => setShowPlans(true)} style={{ marginLeft: 8 }}>Plans</button>
         <button className="btn" onClick={() => setShowSettings(true)} style={{ marginLeft: 8 }}>Settings</button>
       </div>
@@ -127,8 +141,22 @@ function App() {
         <aside className="sidebar">
           <div className="section-title">Navigation</div>
           <button className="btn">Action</button>
+          <div style={{ marginTop: 16 }}>
+            <div className="section-title">Mini-Apps</div>
+            <button 
+              className="btn" 
+              onClick={() => setShowGlassView(!showGlassView)}
+              style={{ 
+                width: '100%',
+                backgroundColor: showGlassView ? '#4ec9b0' : undefined,
+                color: showGlassView ? '#1e1e1e' : undefined
+              }}
+            >
+              🔍 GlassView
+            </button>
+          </div>
         </aside>
-        <main className="content">
+        <main className="content" style={{ flex: 1 }}>
           <h1>Main Content</h1>
           <p>This area remains unaffected by the theme background.</p>
           <div style={{ marginTop: 12 }}>
@@ -149,6 +177,16 @@ function App() {
             {JSON.stringify(captures, null, 2)}
           </pre>
         </main>
+        {/* GlassView Sidebar */}
+        {showGlassView && (
+          <div style={{ width: 380, flexShrink: 0 }}>
+            <GlassViewSidebar 
+              visible={showGlassView} 
+              onClose={() => setShowGlassView(false)} 
+              width={380}
+            />
+          </div>
+        )}
       </div>
       {showSettings && (
         <div className="modal-overlay" role="dialog" aria-modal="true" aria-label="Settings">
