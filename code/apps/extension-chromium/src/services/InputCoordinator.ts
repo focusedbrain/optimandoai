@@ -52,8 +52,10 @@ interface ListenerEvaluation {
   matchesExpectedContext: boolean
   /** Whether input matches applyFor criteria */
   matchesApplyFor: boolean
-  /** Name of matched trigger if any */
+  /** Name of matched trigger if any (first match for backward compatibility) */
   matchedTriggerName?: string
+  /** ALL matched trigger names */
+  matchedTriggerNames?: string[]
   /** Type of match */
   matchType: 'passive_trigger' | 'active_trigger' | 'expected_context' | 'apply_for' | 'no_listener' | 'none'
   /** Human-readable match details */
@@ -216,6 +218,11 @@ export class InputCoordinator {
       }
     }
 
+    // Collect ALL matching triggers (not just the first one)
+    const matchedTriggers: string[] = []
+    let hasPassiveMatch = false
+    let hasActiveMatch = false
+
     // Check passive triggers
     if (passiveEnabled && listening?.passive?.triggers && inputTriggers.length > 0) {
       for (const trigger of listening.passive.triggers) {
@@ -224,17 +231,10 @@ export class InputCoordinator {
           t.toLowerCase() === triggerName.toLowerCase()
         )) {
           this.log(`Agent "${agent.name}" matched passive trigger: #${triggerName}`)
-          return {
-            hasListener: true,
-            isListenerActive: true,
-            matchesPassiveTrigger: true,
-            matchesActiveTrigger: false,
-            matchesExpectedContext: false,
-            matchesApplyFor: true,
-            matchedTriggerName: triggerName,
-            matchType: 'passive_trigger',
-            matchDetails: `Passive trigger #${triggerName} matched`
+          if (!matchedTriggers.includes(triggerName)) {
+            matchedTriggers.push(triggerName)
           }
+          hasPassiveMatch = true
         }
       }
     }
@@ -247,17 +247,10 @@ export class InputCoordinator {
           t.toLowerCase() === triggerName.toLowerCase()
         )) {
           this.log(`Agent "${agent.name}" matched active trigger: #${triggerName}`)
-          return {
-            hasListener: true,
-            isListenerActive: true,
-            matchesPassiveTrigger: false,
-            matchesActiveTrigger: true,
-            matchesExpectedContext: false,
-            matchesApplyFor: true,
-            matchedTriggerName: triggerName,
-            matchType: 'active_trigger',
-            matchDetails: `Active trigger #${triggerName} matched`
+          if (!matchedTriggers.includes(triggerName)) {
+            matchedTriggers.push(triggerName)
           }
+          hasActiveMatch = true
         }
       }
     }
@@ -265,24 +258,16 @@ export class InputCoordinator {
     // Check unified triggers (new format)
     if (listening?.unifiedTriggers && inputTriggers.length > 0) {
       for (const trigger of listening.unifiedTriggers) {
-        // Get tag from various possible fields
         const triggerTag = trigger.tag?.replace('#', '') || trigger.tagName || ''
         
         if (triggerTag && inputTriggers.some(t => 
           t.toLowerCase() === triggerTag.toLowerCase()
         )) {
           this.log(`Agent "${agent.name}" matched unified trigger: #${triggerTag}`)
-          return {
-            hasListener: true,
-            isListenerActive: true,
-            matchesPassiveTrigger: false,
-            matchesActiveTrigger: true, // Treat unified as active
-            matchesExpectedContext: false,
-            matchesApplyFor: true,
-            matchedTriggerName: triggerTag,
-            matchType: 'active_trigger',
-            matchDetails: `Event trigger #${triggerTag} matched`
+          if (!matchedTriggers.includes(triggerTag)) {
+            matchedTriggers.push(triggerTag)
           }
+          hasActiveMatch = true
         }
       }
     }
@@ -296,18 +281,31 @@ export class InputCoordinator {
           t.toLowerCase() === triggerTag.toLowerCase()
         )) {
           this.log(`Agent "${agent.name}" matched trigger: #${triggerTag}`)
-          return {
-            hasListener: true,
-            isListenerActive: true,
-            matchesPassiveTrigger: false,
-            matchesActiveTrigger: true,
-            matchesExpectedContext: false,
-            matchesApplyFor: true,
-            matchedTriggerName: triggerTag,
-            matchType: 'active_trigger',
-            matchDetails: `Event trigger #${triggerTag} matched`
+          if (!matchedTriggers.includes(triggerTag)) {
+            matchedTriggers.push(triggerTag)
           }
+          hasActiveMatch = true
         }
+      }
+    }
+
+    // If we found any matching triggers, return the combined result
+    if (matchedTriggers.length > 0) {
+      const triggerList = matchedTriggers.map(t => `#${t}`).join(', ')
+      this.log(`Agent "${agent.name}" matched ${matchedTriggers.length} trigger(s): ${triggerList}`)
+      return {
+        hasListener: true,
+        isListenerActive: true,
+        matchesPassiveTrigger: hasPassiveMatch,
+        matchesActiveTrigger: hasActiveMatch,
+        matchesExpectedContext: false,
+        matchesApplyFor: true,
+        matchedTriggerName: matchedTriggers[0], // First for backward compatibility
+        matchedTriggerNames: matchedTriggers, // ALL matched triggers
+        matchType: hasPassiveMatch ? 'passive_trigger' : 'active_trigger',
+        matchDetails: matchedTriggers.length === 1 
+          ? `Event trigger #${matchedTriggers[0]} matched`
+          : `Event triggers matched: ${triggerList}`
       }
     }
 
@@ -776,6 +774,9 @@ export class InputCoordinator {
       
       agentsWithListeners++
       
+      // Collect ALL matching triggers for this agent
+      const matchedTriggersForAgent: Array<{tag: string, trigger: any, conditionResults: any}> = []
+      
       // Check each trigger for a match
       for (const trigger of eventTagTriggers) {
         const triggerTag = trigger.tag?.replace('#', '') || trigger.tagName || ''
@@ -803,18 +804,31 @@ export class InputCoordinator {
           continue
         }
         
+        // Add to matched triggers for this agent
+        matchedTriggersForAgent.push({ tag: triggerTag, trigger, conditionResults })
+      }
+      
+      // If we have any matching triggers for this agent, create a result
+      if (matchedTriggersForAgent.length > 0) {
         agentsMatched++
+        
+        // Use first trigger for config resolution (they share the same agent config)
+        const firstMatch = matchedTriggersForAgent[0]
         
         // Resolve LLM from connected Agent Box
         const llmConfig = this.resolveLlmFromAgentBox(agent, agentBoxes)
         
         // Resolve reasoning configuration
-        const reasoningConfig = this.resolveReasoningConfig(agent, trigger)
+        const reasoningConfig = this.resolveReasoningConfig(agent, firstMatch.trigger)
         
         // Resolve execution configuration
-        const executionConfig = this.resolveExecutionConfig(agent, trigger, agentBoxes)
+        const executionConfig = this.resolveExecutionConfig(agent, firstMatch.trigger, agentBoxes)
         
-        // Build the routing result
+        // Build list of all matched tags
+        const allMatchedTags = matchedTriggersForAgent.map(m => `#${m.tag}`)
+        const tagsDisplay = allMatchedTags.join(', ')
+        
+        // Build the routing result with ALL matched triggers
         const result: EventTagRoutingResult = {
           matched: true,
           agentId: agent.id,
@@ -822,25 +836,25 @@ export class InputCoordinator {
           agentIcon: '🤖', // Default icon
           agentNumber: agent.number,
           trigger: {
-            id: trigger.id || `ID#${triggerTag}`,
-            type: (trigger.type as TriggerType) || 'direct_tag',
-            tag: `#${triggerTag}`,
-            channel: (trigger.channel as EventChannel) || 'chat'
+            id: firstMatch.trigger.id || `ID#${firstMatch.tag}`,
+            type: (firstMatch.trigger.type as TriggerType) || 'direct_tag',
+            tag: tagsDisplay, // Show ALL matched tags
+            channel: (firstMatch.trigger.channel as EventChannel) || 'chat'
           },
-          conditionResults,
+          conditionResults: firstMatch.conditionResults,
           sensorContext: {}, // Will be populated by sensor workflows
           llmConfig,
           reasoningConfig,
           executionConfig,
-          matchDetails: `Event tag #${triggerTag} matched in ${trigger.channel || 'chat'} channel`,
+          matchDetails: matchedTriggersForAgent.length === 1
+            ? `Event tag #${firstMatch.tag} matched`
+            : `Event tags matched: ${tagsDisplay}`,
           timestamp: Date.now()
         }
         
         results.push(result)
-        this.log(`✓ Agent "${agent.name}" routed: LLM=${llmConfig.provider}/${llmConfig.model}, ReportTo=${executionConfig.reportTo.map(r => r.label).join(', ')}`)
-        
-        // Only match first trigger per agent to avoid duplicates
-        break
+        this.log(`✓ Agent "${agent.name}" matched ${matchedTriggersForAgent.length} trigger(s): ${tagsDisplay}`)
+        this.log(`  → LLM: ${llmConfig.provider}/${llmConfig.model}, ReportTo: ${executionConfig.reportTo.map(r => r.label).join(', ')}`)
       }
     }
     
