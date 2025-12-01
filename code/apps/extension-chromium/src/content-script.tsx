@@ -18337,6 +18337,31 @@ function initializeExtension() {
 
           
 
+          // Helper to normalize Apply For values (handle both old format "624" and new format "ID#624")
+          // CRITICAL: Defined at this scope level so both Reasoning and Execution can use it
+          const normalizeApplyForValue = (value: string, availableOptions: string[]): string => {
+            if (!value || value === '__any__') return value
+            // If exact match exists, use it
+            if (availableOptions.includes(value)) return value
+            // Try with ID# prefix if not already prefixed
+            if (!value.startsWith('ID#')) {
+              const prefixed = `ID#${value}`
+              if (availableOptions.includes(prefixed)) {
+                console.log(`  🔄 Normalized "${value}" to "${prefixed}"`)
+                return prefixed
+              }
+            }
+            // Try without ID# prefix if it has one
+            if (value.startsWith('ID#')) {
+              const unprefixed = value.substring(3)
+              if (availableOptions.includes(unprefixed)) {
+                console.log(`  🔄 Normalized "${value}" to "${unprefixed}"`)
+                return unprefixed
+              }
+            }
+            return value // Return original if no match found
+          }
+          
           // Restore Reasoning data
 
           if (previouslySavedData.reasoning) {
@@ -18403,30 +18428,6 @@ function initializeExtension() {
             // Calculate delay based on trigger count: each trigger takes ~150ms to restore
             const triggerCount = previouslySavedData.listening?.unifiedTriggers?.length || 0
             const triggerRestoreDelay = Math.max(1000, triggerCount * 150 + 500) // At least 1s, plus buffer
-            
-            // Helper to normalize Apply For values (handle both old format "624" and new format "ID#624")
-            const normalizeApplyForValue = (value: string, availableOptions: string[]): string => {
-              if (!value || value === '__any__') return value
-              // If exact match exists, use it
-              if (availableOptions.includes(value)) return value
-              // Try with ID# prefix if not already prefixed
-              if (!value.startsWith('ID#')) {
-                const prefixed = `ID#${value}`
-                if (availableOptions.includes(prefixed)) {
-                  console.log(`  🔄 Normalized "${value}" to "${prefixed}"`)
-                  return prefixed
-                }
-              }
-              // Try without ID# prefix if it has one
-              if (value.startsWith('ID#')) {
-                const unprefixed = value.substring(3)
-                if (availableOptions.includes(unprefixed)) {
-                  console.log(`  🔄 Normalized "${value}" to "${unprefixed}"`)
-                  return unprefixed
-                }
-              }
-              return value // Return original if no match found
-            }
             
             const rApplyForListToRestore = r.applyForList || (r.applyFor ? [r.applyFor] : ['__any__'])
             console.log(`  🔍 Main Reasoning applyForList to restore:`, rApplyForListToRestore)
