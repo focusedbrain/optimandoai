@@ -65,16 +65,11 @@ if (window.gridScriptLoaded) {
       return ['auto'];
     }
     
-    // Image provider model options
+    // Image provider model options (cloud APIs only - local engines not supported for security)
     function imageModelOptions(providerId) {
       if (!providerId) return [];
       var p = (providerId || '').toLowerCase();
-      // Local engines
-      if (p === 'comfyui') return ['Default Workflow', 'SDXL', 'SD 1.5', 'Flux'];
-      if (p === 'automatic1111') return ['SDXL', 'SD 1.5', 'Custom'];
-      if (p === 'sdnext') return ['SDXL', 'SD 1.5', 'Custom'];
-      if (p === 'invokeai') return ['SDXL', 'SD 1.5', 'Custom'];
-      // Cloud APIs
+      // Cloud APIs only
       if (p === 'replicate') return ['Flux Schnell', 'Flux Dev', 'SDXL'];
       if (p === 'banana') return ['SDXL Base', 'SD 1.5'];
       if (p === 'together') return ['Flux Schnell', 'Flux Dev'];
@@ -360,24 +355,13 @@ if (window.gridScriptLoaded) {
       var imageModelSelect = document.getElementById('gs-image-model');
       var imageNotice = document.getElementById('gs-image-notice');
       
-      // Load image providers from chrome storage
+      // Load image providers from chrome storage (cloud APIs only)
       if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
         chrome.storage.local.get(['imageProviders'], function(result) {
-          var imgConfig = result.imageProviders || { local: [], cloud: [] };
+          var imgConfig = result.imageProviders || { cloud: [] };
           var availableProviders = [];
           
-          // Collect enabled local engines
-          (imgConfig.local || []).forEach(function(engine) {
-            if (engine.enabled && engine.status === 'connected') {
-              availableProviders.push({
-                id: engine.id,
-                name: engine.displayName,
-                type: 'local'
-              });
-            }
-          });
-          
-          // Collect enabled cloud providers
+          // Collect enabled cloud providers only (local engines not supported for security)
           (imgConfig.cloud || []).forEach(function(provider) {
             if (provider.enabled && provider.status === 'connected') {
               availableProviders.push({
@@ -397,13 +381,12 @@ if (window.gridScriptLoaded) {
                 imageNotice.style.display = 'block';
               }
             } else {
-              // Populate image provider dropdown
-              imageProviderSelect.innerHTML = '<option value="">None (No image generation)</option>' +
-                availableProviders.map(function(p) {
-                  var selected = (cfg.imageProvider === p.id) ? ' selected' : '';
-                  var icon = p.type === 'local' ? '🖥️' : '☁️';
-                  return '<option value="' + p.id + '"' + selected + '>' + icon + ' ' + p.name + '</option>';
-                }).join('');
+// Populate image provider dropdown (cloud APIs only)
+            imageProviderSelect.innerHTML = '<option value="">None (No image generation)</option>' +
+              availableProviders.map(function(p) {
+                var selected = (cfg.imageProvider === p.id) ? ' selected' : '';
+                return '<option value="' + p.id + '"' + selected + '>☁️ ' + p.name + '</option>';
+              }).join('');
               
               // If there's a current image provider, populate the model dropdown
               if (cfg.imageProvider && imageModelSelect) {

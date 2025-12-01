@@ -1,16 +1,16 @@
 /**
  * Image Engine Settings Component
- * Manages local image generation engines and cloud image APIs
+ * Manages cloud image generation APIs only
+ * 
+ * NOTE: Local image engines (ComfyUI, Automatic1111, etc.) are intentionally NOT supported
+ * due to security concerns - they load untrusted dependencies at runtime.
  */
 
 import React, { useState, useEffect } from 'react'
 import {
-  LocalImageEngineConfig,
   CloudImageProviderConfig,
   ImageProvidersConfig,
-  DEFAULT_LOCAL_ENGINES,
-  DEFAULT_CLOUD_PROVIDERS,
-  getDefaultImageProvidersConfig
+  DEFAULT_CLOUD_PROVIDERS
 } from '../types/imageProviders'
 
 interface ImageEngineSettingsProps {
@@ -18,14 +18,11 @@ interface ImageEngineSettingsProps {
 }
 
 export function ImageEngineSettings({ theme = 'default' }: ImageEngineSettingsProps) {
-  const [config, setConfig] = useState<ImageProvidersConfig>(getDefaultImageProvidersConfig())
+  const [config, setConfig] = useState<ImageProvidersConfig>({ cloud: [...DEFAULT_CLOUD_PROVIDERS] })
   const [loading, setLoading] = useState(true)
-  const [testingEngine, setTestingEngine] = useState<string | null>(null)
   const [testingApi, setTestingApi] = useState<string | null>(null)
   const [notification, setNotification] = useState<{ message: string; type: 'success' | 'error' } | null>(null)
-  const [expandedLocal, setExpandedLocal] = useState(true)
-  const [expandedCloud, setExpandedCloud] = useState(true)
-  const [editingEndpoint, setEditingEndpoint] = useState<string | null>(null)
+  const [expandedCloud, setExpandedCloud] = useState(false) // Collapsed by default
   const [editingApiKey, setEditingApiKey] = useState<string | null>(null)
 
   const textColor = theme === 'default' || theme === 'dark' ? '#e5e5e5' : '#1f2937'
@@ -40,7 +37,7 @@ export function ImageEngineSettings({ theme = 'default' }: ImageEngineSettingsPr
   const loadConfig = async () => {
     try {
       const result = await chrome.storage.local.get(['imageProviders'])
-      if (result.imageProviders) {
+      if (result.imageProviders?.cloud) {
         // Merge with defaults to ensure all providers exist
         const merged = mergeWithDefaults(result.imageProviders)
         setConfig(merged)
@@ -53,22 +50,13 @@ export function ImageEngineSettings({ theme = 'default' }: ImageEngineSettingsPr
   }
 
   const mergeWithDefaults = (saved: Partial<ImageProvidersConfig>): ImageProvidersConfig => {
-    const defaults = getDefaultImageProvidersConfig()
-    
-    // Merge local engines
-    const localEngines = defaults.local.map(defaultEngine => {
-      const savedEngine = saved.local?.find(e => e.id === defaultEngine.id)
-      return savedEngine ? { ...defaultEngine, ...savedEngine } : defaultEngine
-    })
-    
     // Merge cloud providers
-    const cloudProviders = defaults.cloud.map(defaultProvider => {
+    const cloudProviders = DEFAULT_CLOUD_PROVIDERS.map(defaultProvider => {
       const savedProvider = saved.cloud?.find(p => p.id === defaultProvider.id)
       return savedProvider ? { ...defaultProvider, ...savedProvider } : defaultProvider
     })
     
     return {
-      local: localEngines,
       cloud: cloudProviders,
       defaultProviderId: saved.defaultProviderId,
       defaultModelId: saved.defaultModelId
@@ -88,87 +76,6 @@ export function ImageEngineSettings({ theme = 'default' }: ImageEngineSettingsPr
   const showNotification = (message: string, type: 'success' | 'error') => {
     setNotification({ message, type })
     setTimeout(() => setNotification(null), 4000)
-  }
-
-  // Test local engine connection via Electron backend (avoids CORS issues)
-  const testLocalEngine = async (engine: LocalImageEngineConfig) => {
-    setTestingEngine(engine.id)
-    
-    try {
-      const testUrl = `${engine.endpoint}${engine.healthCheckPath}`
-      console.log(`[ImageEngineSettings] Testing ${engine.displayName} at ${testUrl}`)
-      
-      // Route through Electron backend to avoid CORS restrictions
-      // The extension can't directly fetch from localhost due to CORS
-      const proxyUrl = 'http://127.0.0.1:51248/api/image/test-local-engine'
-      
-      const controller = new AbortController()
-      const timeoutId = setTimeout(() => controller.abort(), 8000)
-      
-      const response = await fetch(proxyUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          engineId: engine.id,
-          endpoint: engine.endpoint,
-          healthCheckPath: engine.healthCheckPath
-        }),
-        signal: controller.signal
-      })
-      
-      clearTimeout(timeoutId)
-      
-      if (!response.ok) {
-        throw new Error(`Electron app returned ${response.status}`)
-      }
-      
-      const result = await response.json()
-      
-      if (result.ok) {
-        // Update engine status
-        const updatedLocal = config.local.map(e => 
-          e.id === engine.id 
-            ? { ...e, status: 'connected' as const, enabled: true, statusMessage: 'Connected successfully' }
-            : e
-        )
-        await saveConfig({ ...config, local: updatedLocal })
-        showNotification(`${engine.displayName} connected successfully!`, 'success')
-      } else {
-        throw new Error(result.error || 'Connection failed')
-      }
-    } catch (err: any) {
-      console.error(`[ImageEngineSettings] Failed to connect to ${engine.displayName}:`, err)
-      
-      let errorMessage = 'Connection failed'
-      if (err.name === 'AbortError') {
-        errorMessage = 'Connection timeout'
-      } else if (err.message?.includes('Failed to fetch') || err.message?.includes('NetworkError')) {
-        errorMessage = 'Electron app not running. Please start the desktop application first.'
-      } else {
-        errorMessage = err.message || 'Connection failed'
-      }
-      
-      const updatedLocal = config.local.map(e => 
-        e.id === engine.id 
-          ? { ...e, status: 'error' as const, enabled: false, statusMessage: errorMessage }
-          : e
-      )
-      await saveConfig({ ...config, local: updatedLocal })
-      showNotification(`Failed to connect to ${engine.displayName}: ${errorMessage}`, 'error')
-    } finally {
-      setTestingEngine(null)
-    }
-  }
-
-  // Auto-detect all local engines
-  const autoDetectEngines = async () => {
-    showNotification('Scanning for local image engines...', 'success')
-    
-    for (const engine of config.local) {
-      await testLocalEngine(engine)
-      // Small delay between tests
-      await new Promise(resolve => setTimeout(resolve, 500))
-    }
   }
 
   // Test cloud API
@@ -259,17 +166,6 @@ export function ImageEngineSettings({ theme = 'default' }: ImageEngineSettingsPr
     }
   }
 
-  // Update local engine endpoint
-  const updateEngineEndpoint = async (engineId: string, endpoint: string) => {
-    const updatedLocal = config.local.map(e => 
-      e.id === engineId 
-        ? { ...e, endpoint, status: 'disconnected' as const }
-        : e
-    )
-    await saveConfig({ ...config, local: updatedLocal })
-    setEditingEndpoint(null)
-  }
-
   // Update cloud provider API key
   const updateApiKey = async (providerId: string, apiKey: string) => {
     const updatedCloud = config.cloud.map(p => 
@@ -282,18 +178,11 @@ export function ImageEngineSettings({ theme = 'default' }: ImageEngineSettingsPr
   }
 
   // Toggle provider enabled state
-  const toggleProvider = async (type: 'local' | 'cloud', providerId: string) => {
-    if (type === 'local') {
-      const updatedLocal = config.local.map(e => 
-        e.id === providerId ? { ...e, enabled: !e.enabled } : e
-      )
-      await saveConfig({ ...config, local: updatedLocal })
-    } else {
-      const updatedCloud = config.cloud.map(p => 
-        p.id === providerId ? { ...p, enabled: !p.enabled } : p
-      )
-      await saveConfig({ ...config, cloud: updatedCloud })
-    }
+  const toggleProvider = async (providerId: string) => {
+    const updatedCloud = config.cloud.map(p => 
+      p.id === providerId ? { ...p, enabled: !p.enabled } : p
+    )
+    await saveConfig({ ...config, cloud: updatedCloud })
   }
 
   // Get status badge color
@@ -326,256 +215,6 @@ export function ImageEngineSettings({ theme = 'default' }: ImageEngineSettingsPr
 
   return (
     <div style={{ color: textColor }}>
-      {/* Local Image Engines Section */}
-      <div style={{ marginBottom: '16px' }}>
-        <div 
-          style={{
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            padding: '10px 0',
-            cursor: 'pointer',
-            borderBottom: `1px solid ${borderColor}`
-          }}
-          onClick={() => setExpandedLocal(!expandedLocal)}
-        >
-          <h4 style={{ margin: 0, fontSize: '12px', fontWeight: '600', display: 'flex', alignItems: 'center', gap: '6px' }}>
-            🖥️ Local Image Engines
-            <span style={{ fontSize: '10px', opacity: 0.6, fontWeight: '400' }}>
-              (user-installed)
-            </span>
-          </h4>
-          <span style={{ fontSize: '10px', opacity: 0.7, transform: expandedLocal ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.2s' }}>
-            ▼
-          </span>
-        </div>
-
-        {expandedLocal && (
-          <div style={{ marginTop: '12px' }}>
-            {/* Auto-detect button */}
-            <button
-              onClick={autoDetectEngines}
-              disabled={!!testingEngine}
-              style={{
-                width: '100%',
-                padding: '8px 12px',
-                marginBottom: '12px',
-                background: 'rgba(59, 130, 246, 0.15)',
-                border: '1px solid rgba(59, 130, 246, 0.3)',
-                borderRadius: '6px',
-                color: textColor,
-                fontSize: '11px',
-                fontWeight: '500',
-                cursor: testingEngine ? 'wait' : 'pointer',
-                opacity: testingEngine ? 0.7 : 1,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: '6px'
-              }}
-            >
-              🔍 Auto-Detect Running Engines
-            </button>
-
-            {/* Engine Cards */}
-            {config.local.map(engine => (
-              <div
-                key={engine.id}
-                style={{
-                  background: bgCard,
-                  border: `1px solid ${engine.status === 'connected' ? 'rgba(34, 197, 94, 0.3)' : borderColor}`,
-                  borderRadius: '8px',
-                  padding: '12px',
-                  marginBottom: '8px'
-                }}
-              >
-                {/* Header */}
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
-                  <div>
-                    <div style={{ fontWeight: '600', fontSize: '13px', marginBottom: '2px' }}>
-                      {engine.displayName}
-                    </div>
-                    <div style={{ fontSize: '10px', opacity: 0.7, maxWidth: '280px' }}>
-                      {engine.description}
-                    </div>
-                  </div>
-                  <div style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '4px',
-                    padding: '3px 8px',
-                    background: `${getStatusColor(engine.status)}20`,
-                    borderRadius: '12px',
-                    fontSize: '10px',
-                    color: getStatusColor(engine.status),
-                    fontWeight: '500'
-                  }}>
-                    {getStatusIcon(engine.status)} {engine.status}
-                  </div>
-                </div>
-
-                {/* Endpoint */}
-                <div style={{ marginBottom: '8px' }}>
-                  <label style={{ display: 'block', fontSize: '10px', opacity: 0.7, marginBottom: '4px' }}>
-                    Endpoint URL
-                  </label>
-                  {editingEndpoint === engine.id ? (
-                    <div style={{ display: 'flex', gap: '4px' }}>
-                      <input
-                        type="text"
-                        defaultValue={engine.endpoint}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') {
-                            updateEngineEndpoint(engine.id, (e.target as HTMLInputElement).value)
-                          } else if (e.key === 'Escape') {
-                            setEditingEndpoint(null)
-                          }
-                        }}
-                        autoFocus
-                        style={{
-                          flex: 1,
-                          padding: '6px 8px',
-                          background: 'rgba(0,0,0,0.3)',
-                          border: '1px solid rgba(255,255,255,0.2)',
-                          borderRadius: '4px',
-                          color: textColor,
-                          fontSize: '11px'
-                        }}
-                      />
-                      <button
-                        onClick={() => setEditingEndpoint(null)}
-                        style={{
-                          padding: '4px 8px',
-                          background: 'rgba(255,255,255,0.1)',
-                          border: 'none',
-                          borderRadius: '4px',
-                          color: textColor,
-                          fontSize: '10px',
-                          cursor: 'pointer'
-                        }}
-                      >
-                        Cancel
-                      </button>
-                    </div>
-                  ) : (
-                    <div 
-                      style={{ 
-                        display: 'flex', 
-                        alignItems: 'center', 
-                        gap: '8px',
-                        padding: '6px 8px',
-                        background: 'rgba(0,0,0,0.2)',
-                        borderRadius: '4px',
-                        fontSize: '11px',
-                        fontFamily: 'monospace'
-                      }}
-                    >
-                      <span style={{ flex: 1 }}>{engine.endpoint}</span>
-                      <button
-                        onClick={() => setEditingEndpoint(engine.id)}
-                        style={{
-                          padding: '2px 6px',
-                          background: 'rgba(255,255,255,0.1)',
-                          border: 'none',
-                          borderRadius: '3px',
-                          color: textColor,
-                          fontSize: '9px',
-                          cursor: 'pointer'
-                        }}
-                      >
-                        Edit
-                      </button>
-                    </div>
-                  )}
-                </div>
-
-                {/* Actions */}
-                <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                  <button
-                    onClick={() => testLocalEngine(engine)}
-                    disabled={testingEngine === engine.id}
-                    style={{
-                      flex: 1,
-                      padding: '8px 12px',
-                      background: engine.status === 'connected' ? 'rgba(34, 197, 94, 0.2)' : 'rgba(59, 130, 246, 0.2)',
-                      border: `1px solid ${engine.status === 'connected' ? 'rgba(34, 197, 94, 0.4)' : 'rgba(59, 130, 246, 0.4)'}`,
-                      borderRadius: '4px',
-                      color: textColor,
-                      fontSize: '11px',
-                      fontWeight: '500',
-                      cursor: testingEngine === engine.id ? 'wait' : 'pointer',
-                      opacity: testingEngine === engine.id ? 0.7 : 1
-                    }}
-                  >
-                    {testingEngine === engine.id ? 'Testing...' : (engine.status === 'connected' ? '✓ Connected' : 'Test Connection')}
-                  </button>
-                  <a
-                    href={engine.installUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    style={{
-                      padding: '8px 12px',
-                      background: 'rgba(255,255,255,0.1)',
-                      border: `1px solid ${borderColor}`,
-                      borderRadius: '4px',
-                      color: textColor,
-                      fontSize: '11px',
-                      textDecoration: 'none',
-                      cursor: 'pointer'
-                    }}
-                  >
-                    Install Guide
-                  </a>
-                </div>
-
-                {/* Status message */}
-                {engine.statusMessage && engine.status === 'error' && (
-                  <div style={{
-                    marginTop: '8px',
-                    padding: '6px 8px',
-                    background: 'rgba(239, 68, 68, 0.1)',
-                    border: '1px solid rgba(239, 68, 68, 0.3)',
-                    borderRadius: '4px',
-                    fontSize: '10px',
-                    color: '#ef4444'
-                  }}>
-                    {engine.statusMessage}
-                  </div>
-                )}
-              </div>
-            ))}
-
-            {/* Security & Legal notice */}
-            <div style={{
-              marginTop: '8px',
-              padding: '8px 10px',
-              background: 'rgba(239, 68, 68, 0.1)',
-              border: '1px solid rgba(239, 68, 68, 0.2)',
-              borderRadius: '6px',
-              fontSize: '9px',
-              opacity: 0.9,
-              lineHeight: '1.5'
-            }}>
-              🔒 <strong>Security:</strong> Local engines should bind to 127.0.0.1 only. 
-              Never use 0.0.0.0 or port-forward to external networks.
-            </div>
-            <div style={{
-              marginTop: '6px',
-              padding: '8px 10px',
-              background: 'rgba(59, 130, 246, 0.1)',
-              border: '1px solid rgba(59, 130, 246, 0.2)',
-              borderRadius: '6px',
-              fontSize: '9px',
-              opacity: 0.8,
-              lineHeight: '1.5'
-            }}>
-              ℹ️ Local engines must be installed separately from their official sources. 
-              This orchestrator connects via HTTP/REST API and does not bundle or redistribute any engine software.
-            </div>
-          </div>
-        )}
-      </div>
-
       {/* Cloud Image APIs Section */}
       <div>
         <div 
@@ -602,6 +241,25 @@ export function ImageEngineSettings({ theme = 'default' }: ImageEngineSettingsPr
 
         {expandedCloud && (
           <div style={{ marginTop: '12px' }}>
+            {/* Info banner */}
+            <div style={{
+              padding: '10px 12px',
+              marginBottom: '12px',
+              background: 'rgba(59, 130, 246, 0.1)',
+              border: '1px solid rgba(59, 130, 246, 0.2)',
+              borderRadius: '8px',
+              fontSize: '10px',
+              lineHeight: '1.5'
+            }}>
+              <div style={{ fontWeight: '600', marginBottom: '4px' }}>
+                ✓ Secure Cloud APIs
+              </div>
+              <div style={{ opacity: 0.9 }}>
+                These are official, audited API services from established providers.
+                Your data is processed on their secure infrastructure.
+              </div>
+            </div>
+
             {/* Provider Cards */}
             {config.cloud.map(provider => (
               <div
@@ -627,7 +285,7 @@ export function ImageEngineSettings({ theme = 'default' }: ImageEngineSettingsPr
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                     {/* Enable toggle */}
                     <button
-                      onClick={() => toggleProvider('cloud', provider.id)}
+                      onClick={() => toggleProvider(provider.id)}
                       style={{
                         padding: '3px 8px',
                         background: provider.enabled ? 'rgba(34, 197, 94, 0.2)' : 'rgba(255,255,255,0.1)',
@@ -876,4 +534,3 @@ export function ImageEngineSettings({ theme = 'default' }: ImageEngineSettingsPr
     </div>
   )
 }
-

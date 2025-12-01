@@ -2610,62 +2610,6 @@ app.whenReady().then(async () => {
       }
     })
     
-    // ==================== IMAGE GENERATION API ENDPOINTS ====================
-    
-    // POST /api/image/test-local-engine - Test connection to a local image generation engine
-    // This is a proxy endpoint that avoids CORS issues for the extension
-    httpApp.post('/api/image/test-local-engine', async (req, res) => {
-      try {
-        const { engineId, endpoint, healthCheckPath } = req.body
-        console.log(`[HTTP-IMAGE] Testing local engine ${engineId} at ${endpoint}${healthCheckPath}`)
-        
-        if (!endpoint || !healthCheckPath) {
-          res.status(400).json({ ok: false, error: 'Missing endpoint or healthCheckPath' })
-          return
-        }
-        
-        const testUrl = `${endpoint}${healthCheckPath}`
-        
-        // Make request to the local engine (Electron has no CORS restrictions)
-        const controller = new AbortController()
-        const timeoutId = setTimeout(() => controller.abort(), 5000)
-        
-        try {
-          const response = await fetch(testUrl, {
-            method: 'GET',
-            signal: controller.signal
-          })
-          
-          clearTimeout(timeoutId)
-          
-          if (response.ok) {
-            console.log(`[HTTP-IMAGE] ✅ ${engineId} connected successfully`)
-            res.json({ ok: true, engineId, status: 'connected' })
-          } else {
-            console.log(`[HTTP-IMAGE] ❌ ${engineId} returned HTTP ${response.status}`)
-            res.json({ ok: false, error: `HTTP ${response.status}: ${response.statusText}` })
-          }
-        } catch (fetchError: any) {
-          clearTimeout(timeoutId)
-          
-          let errorMessage = 'Connection failed'
-          if (fetchError.name === 'AbortError') {
-            errorMessage = 'Connection timeout - engine not responding'
-          } else if (fetchError.code === 'ECONNREFUSED') {
-            errorMessage = 'Connection refused - engine not running'
-          } else if (fetchError.message) {
-            errorMessage = fetchError.message
-          }
-          
-          console.log(`[HTTP-IMAGE] ❌ ${engineId} error: ${errorMessage}`)
-          res.json({ ok: false, error: errorMessage })
-        }
-      } catch (error: any) {
-        console.error('[HTTP-IMAGE] Error testing local engine:', error)
-        res.status(500).json({ ok: false, error: error.message || 'Internal server error' })
-      }
-    })
-    
     // ===== OCR API Endpoints =====
     
     // GET /api/ocr/status - Get OCR service status

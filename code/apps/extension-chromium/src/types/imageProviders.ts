@@ -1,13 +1,13 @@
 /**
  * Image Provider Types and Configuration
- * Defines all image generation providers (local engines and cloud APIs)
+ * Cloud image generation APIs only
+ * 
+ * NOTE: Local image engines (ComfyUI, Automatic1111, SD.Next, InvokeAI) are 
+ * intentionally NOT supported due to security concerns:
+ * - They load untrusted dependencies at runtime
+ * - No audit trail for code execution
+ * - Potential for supply chain attacks
  */
-
-// Provider type discriminator
-export type ImageProviderType = 'local' | 'cloud'
-
-// Local engine identifiers
-export type LocalEngineId = 'comfyui' | 'automatic1111' | 'sdnext' | 'invokeai'
 
 // Cloud API provider identifiers
 export type CloudImageProviderId = 'replicate' | 'banana' | 'together' | 'openai-dalle' | 'stability'
@@ -32,31 +32,6 @@ export interface ImageModelConfig {
 }
 
 /**
- * Local image engine configuration
- */
-export interface LocalImageEngineConfig {
-  id: LocalEngineId
-  name: string
-  displayName: string
-  description: string
-  enabled: boolean
-  status: 'connected' | 'disconnected' | 'checking' | 'error'
-  statusMessage?: string
-  // Connection settings
-  endpoint: string
-  defaultPort: number
-  // Health check endpoint
-  healthCheckPath: string
-  // Models API endpoint (if available)
-  modelsApiPath?: string
-  // Registered models
-  models: ImageModelConfig[]
-  // Installation info
-  installUrl: string
-  docsUrl: string
-}
-
-/**
  * Cloud image API provider configuration
  */
 export interface CloudImageProviderConfig {
@@ -78,11 +53,11 @@ export interface CloudImageProviderConfig {
 }
 
 /**
- * Combined image provider (unified interface for both local and cloud)
+ * Image provider (unified interface for cloud providers)
  */
 export interface ImageProvider {
   id: string
-  type: ImageProviderType
+  type: 'cloud'
   name: string
   displayName: string
   enabled: boolean
@@ -94,7 +69,6 @@ export interface ImageProvider {
  * Image providers storage configuration
  */
 export interface ImageProvidersConfig {
-  local: LocalImageEngineConfig[]
   cloud: CloudImageProviderConfig[]
   // Default provider for new agent boxes
   defaultProviderId?: string
@@ -102,77 +76,8 @@ export interface ImageProvidersConfig {
 }
 
 /**
- * Default local engine configurations
- * Users must install these tools from official sources
- * 
- * SECURITY NOTE: All local engines should bind to 127.0.0.1 (localhost) only.
- * Never expose these services on 0.0.0.0 or forward ports externally.
- */
-export const DEFAULT_LOCAL_ENGINES: LocalImageEngineConfig[] = [
-  {
-    id: 'comfyui',
-    name: 'comfyui',
-    displayName: 'ComfyUI',
-    description: 'Node-based Stable Diffusion interface. Runs on localhost only (127.0.0.1:8188).',
-    enabled: false,
-    status: 'disconnected',
-    endpoint: 'http://127.0.0.1:8188',
-    defaultPort: 8188,
-    healthCheckPath: '/system_stats',
-    modelsApiPath: '/object_info',
-    models: [],
-    installUrl: 'https://github.com/comfyanonymous/ComfyUI',
-    docsUrl: 'https://github.com/comfyanonymous/ComfyUI#readme'
-  },
-  {
-    id: 'automatic1111',
-    name: 'automatic1111',
-    displayName: 'Automatic1111',
-    description: 'Popular Stable Diffusion Web UI with extensive features and extensions ecosystem.',
-    enabled: false,
-    status: 'disconnected',
-    endpoint: 'http://127.0.0.1:7860',
-    defaultPort: 7860,
-    healthCheckPath: '/sdapi/v1/sd-models',
-    modelsApiPath: '/sdapi/v1/sd-models',
-    models: [],
-    installUrl: 'https://github.com/AUTOMATIC1111/stable-diffusion-webui',
-    docsUrl: 'https://github.com/AUTOMATIC1111/stable-diffusion-webui/wiki'
-  },
-  {
-    id: 'sdnext',
-    name: 'sdnext',
-    displayName: 'SD.Next',
-    description: 'Advanced fork of Automatic1111 with additional features and optimizations.',
-    enabled: false,
-    status: 'disconnected',
-    endpoint: 'http://127.0.0.1:7861',
-    defaultPort: 7861,
-    healthCheckPath: '/sdapi/v1/sd-models',
-    modelsApiPath: '/sdapi/v1/sd-models',
-    models: [],
-    installUrl: 'https://github.com/vladmandic/automatic',
-    docsUrl: 'https://github.com/vladmandic/automatic/wiki'
-  },
-  {
-    id: 'invokeai',
-    name: 'invokeai',
-    displayName: 'InvokeAI',
-    description: 'Professional-grade creative AI platform with intuitive canvas interface.',
-    enabled: false,
-    status: 'disconnected',
-    endpoint: 'http://127.0.0.1:9090',
-    defaultPort: 9090,
-    healthCheckPath: '/api/v1/app/version',
-    modelsApiPath: '/api/v1/models',
-    models: [],
-    installUrl: 'https://invoke-ai.github.io/InvokeAI/',
-    docsUrl: 'https://invoke-ai.github.io/InvokeAI/installation/'
-  }
-]
-
-/**
  * Default cloud API provider configurations
+ * These are official, audited API services from established providers
  */
 export const DEFAULT_CLOUD_PROVIDERS: CloudImageProviderConfig[] = [
   {
@@ -255,34 +160,19 @@ export const DEFAULT_CLOUD_PROVIDERS: CloudImageProviderConfig[] = [
 ]
 
 /**
- * Get default image providers configuration
+ * Get default image providers configuration (cloud only)
  */
 export function getDefaultImageProvidersConfig(): ImageProvidersConfig {
   return {
-    local: [...DEFAULT_LOCAL_ENGINES],
     cloud: [...DEFAULT_CLOUD_PROVIDERS]
   }
 }
 
 /**
- * Get all enabled providers as unified list
+ * Get all enabled cloud providers
  */
 export function getEnabledImageProviders(config: ImageProvidersConfig): ImageProvider[] {
   const providers: ImageProvider[] = []
-  
-  for (const local of config.local) {
-    if (local.enabled && local.status === 'connected') {
-      providers.push({
-        id: local.id,
-        type: 'local',
-        name: local.name,
-        displayName: local.displayName,
-        enabled: local.enabled,
-        status: local.status,
-        models: local.models
-      })
-    }
-  }
   
   for (const cloud of config.cloud) {
     if (cloud.enabled && cloud.status === 'connected') {
@@ -300,4 +190,3 @@ export function getEnabledImageProviders(config: ImageProvidersConfig): ImagePro
   
   return providers
 }
-
