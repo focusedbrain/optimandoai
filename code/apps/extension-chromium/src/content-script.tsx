@@ -16002,13 +16002,16 @@ function initializeExtension() {
           }
           
           // Update trigger ID when tag changes (use tag as ID if provided)
+          // IMPORTANT: Use consistent ID#tagValue format to match trigger creation and restoration
           const updateTriggerId = () => {
             const tagInput = row.querySelector('.trigger-tag') as HTMLInputElement
             const idDisplay = row.querySelector('.trigger-id-display') as HTMLElement
             if (tagInput && idDisplay) {
               const tagValue = tagInput.value.trim()
               if (tagValue) {
-                const newId = tagValue.startsWith('#') ? tagValue.substring(1) : tagValue
+                // Strip # prefix if present, then add ID# prefix for consistency
+                const cleanTag = tagValue.startsWith('#') ? tagValue.substring(1) : tagValue
+                const newId = `ID#${cleanTag}`
                 row.dataset.triggerId = newId
                 idDisplay.textContent = newId
               }
