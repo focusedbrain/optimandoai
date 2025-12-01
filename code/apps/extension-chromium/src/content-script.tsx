@@ -16001,14 +16001,14 @@ function initializeExtension() {
             }
           }
           
-          // Update trigger ID when tag changes (use ID#tagName format for consistency)
+          // Update trigger ID when tag changes (use tag as ID if provided)
           const updateTriggerId = () => {
             const tagInput = row.querySelector('.trigger-tag') as HTMLInputElement
             const idDisplay = row.querySelector('.trigger-id-display') as HTMLElement
             if (tagInput && idDisplay) {
-              const tagValue = tagInput.value.trim().replace('#', '') // Remove # if user typed it
+              const tagValue = tagInput.value.trim()
               if (tagValue) {
-                const newId = `ID#${tagValue}` // Consistent format: ID#tagName
+                const newId = tagValue.startsWith('#') ? tagValue.substring(1) : tagValue
                 row.dataset.triggerId = newId
                 idDisplay.textContent = newId
               }
@@ -16920,13 +16920,12 @@ function initializeExtension() {
           })
           
           // Also include legacy active/passive tags for backward compatibility
-          const activeTags = Array.from(configOverlay.querySelectorAll('#L-active-list .act-row .act-tag')).map((el:any)=> (el.value||'').trim().replace('#', ''))
-          const passiveTags = Array.from(configOverlay.querySelectorAll('#L-passive-triggers .act-row .act-tag')).map((el:any)=> (el.value||'').trim().replace('#', ''))
+          const activeTags = Array.from(configOverlay.querySelectorAll('#L-active-list .act-row .act-tag')).map((el:any)=> (el.value||'').trim())
+          const passiveTags = Array.from(configOverlay.querySelectorAll('#L-passive-triggers .act-row .act-tag')).map((el:any)=> (el.value||'').trim())
           const legacyTags = [...activeTags, ...passiveTags].filter((v, i, a) => v && a.indexOf(v) === i)
           legacyTags.forEach(tag => {
-            const legacyId = `ID#${tag}` // Use consistent ID#tagName format
-            if (!triggers.some(t => t.id === legacyId)) {
-              triggers.push({ id: legacyId, label: `#${tag}`, channel: 'chat', type: 'direct_tag' })
+            if (!triggers.some(t => t.id === tag)) {
+              triggers.push({ id: tag, label: tag, channel: 'chat', type: 'direct_tag' })
             }
           })
           
@@ -18049,19 +18048,12 @@ function initializeExtension() {
                         return
                       }
                       
-                      // Set trigger ID - normalize to ID#tagName format for consistency
+                      // Set trigger ID
                       const idDisplay = row.querySelector('.trigger-id-display')
                       if (idDisplay && trigger.id) {
-                        // Normalize ID format: if it doesn't start with ID# and we have a tag, use ID#tagName
-                        let normalizedId = trigger.id
-                        const tagName = (trigger.tag || trigger.tagName || '').replace('#', '')
-                        if (tagName && !normalizedId.startsWith('ID#')) {
-                          normalizedId = `ID#${tagName}`
-                          console.log(`    🔄 Normalized trigger ID from "${trigger.id}" to "${normalizedId}"`)
-                        }
-                        idDisplay.textContent = normalizedId
-                        row.dataset.triggerId = normalizedId
-                        console.log(`    ✓ Set trigger ${idx + 1} ID: ${normalizedId}`)
+                        idDisplay.textContent = trigger.id
+                        row.dataset.triggerId = trigger.id
+                        console.log(`    ✓ Set trigger ${idx + 1} ID: ${trigger.id}`)
                       }
                       
                       // Set trigger type
@@ -18410,28 +18402,11 @@ function initializeExtension() {
                 setTimeout(() => {
                   const rApplyList = configOverlay.querySelector('#R-apply-list') as HTMLElement
                   
-                  // Helper to normalize Apply for value to ID#tagName format
-                  const normalizeApplyForValue = (value: string): string => {
-                    if (!value || value === '__any__') return value
-                    // If it doesn't start with ID#, normalize it
-                    if (!value.startsWith('ID#')) {
-                      const tagName = value.replace('#', '')
-                      return `ID#${tagName}`
-                    }
-                    return value
-                  }
-                  
                   // Set first value on existing select with validation
                   const firstSelect = configOverlay.querySelector('#R-apply') as HTMLSelectElement
                   if (firstSelect && rApplyForListToRestore[0]) {
-                    let valueToSet = normalizeApplyForValue(rApplyForListToRestore[0])
-                    let optionExists = Array.from(firstSelect.options).some(o => o.value === valueToSet)
-                    
-                    // If normalized value not found, try original value
-                    if (!optionExists) {
-                      valueToSet = rApplyForListToRestore[0]
-                      optionExists = Array.from(firstSelect.options).some(o => o.value === valueToSet)
-                    }
+                    const valueToSet = rApplyForListToRestore[0]
+                    const optionExists = Array.from(firstSelect.options).some(o => o.value === valueToSet)
                     
                     if (optionExists) {
                       firstSelect.value = valueToSet
@@ -18463,12 +18438,8 @@ function initializeExtension() {
                         
                         additionalSelects.forEach((sel, idx) => {
                           if (additionalValues[idx]) {
-                            let valueToSet = normalizeApplyForValue(additionalValues[idx])
-                            let optionExists = Array.from(sel.options).some(o => o.value === valueToSet)
-                            if (!optionExists) {
-                              valueToSet = additionalValues[idx]
-                              optionExists = Array.from(sel.options).some(o => o.value === valueToSet)
-                            }
+                            const valueToSet = additionalValues[idx]
+                            const optionExists = Array.from(sel.options).some(o => o.value === valueToSet)
                             if (optionExists) {
                               sel.value = valueToSet
                               console.log(`    ✓ Set additional Reasoning Apply For ${idx + 2} to: ${valueToSet}`)
@@ -18658,26 +18629,12 @@ function initializeExtension() {
                               console.log(`    🔄 Refreshed Apply For options for reasoning section ${sectionIdx + 1}`)
                             }
                             setTimeout(() => {
-                              // Helper to normalize Apply for value to ID#tagName format
-                              const normalizeApplyForValue = (value: string): string => {
-                                if (!value || value === '__any__') return value
-                                if (!value.startsWith('ID#')) {
-                                  const tagName = value.replace('#', '')
-                                  return `ID#${tagName}`
-                                }
-                                return value
-                              }
-                              
                               // Set first value on existing select with validation
                               const applySelect = newSection.querySelector('.R-apply') as HTMLSelectElement
                               const applyList = newSection.querySelector('.R-apply-list-sub') as HTMLElement
                               if (applySelect) {
-                                let valueToSet = normalizeApplyForValue(rSectionApplyForList[0])
-                                let optionExists = Array.from(applySelect.options).some(o => o.value === valueToSet)
-                                if (!optionExists) {
-                                  valueToSet = rSectionApplyForList[0]
-                                  optionExists = Array.from(applySelect.options).some(o => o.value === valueToSet)
-                                }
+                                const valueToSet = rSectionApplyForList[0]
+                                const optionExists = Array.from(applySelect.options).some(o => o.value === valueToSet)
                                 
                                 console.log(`    🔍 R-apply select found, current value: ${applySelect.value}`)
                                 console.log(`    🔍 Available options:`, Array.from(applySelect.options).map(o => o.value))
@@ -18709,12 +18666,8 @@ function initializeExtension() {
                                       
                                       additionalSelects.forEach((sel, idx) => {
                                         if (additionalValues[idx]) {
-                                          let val = normalizeApplyForValue(additionalValues[idx])
-                                          let exists = Array.from(sel.options).some(o => o.value === val)
-                                          if (!exists) {
-                                            val = additionalValues[idx]
-                                            exists = Array.from(sel.options).some(o => o.value === val)
-                                          }
+                                          const val = additionalValues[idx]
+                                          const exists = Array.from(sel.options).some(o => o.value === val)
                                           if (exists) {
                                             sel.value = val
                                             console.log(`      ✓ Set R-section ${sectionIdx + 1} Apply For ${idx + 2} to: ${val}`)
@@ -18928,28 +18881,11 @@ function initializeExtension() {
                 setTimeout(() => {
                   const eApplyList = configOverlay.querySelector('#E-apply-list') as HTMLElement
                   
-                  // Helper to normalize Apply for value to ID#tagName format
-                  const normalizeApplyForValue = (value: string): string => {
-                    if (!value || value === '__any__') return value
-                    // If it doesn't start with ID#, normalize it
-                    if (!value.startsWith('ID#')) {
-                      const tagName = value.replace('#', '')
-                      return `ID#${tagName}`
-                    }
-                    return value
-                  }
-                  
                   // Set first value on existing select with validation
                   const firstSelect = configOverlay.querySelector('#E-apply') as HTMLSelectElement
                   if (firstSelect && eApplyForListToRestore[0]) {
-                    let valueToSet = normalizeApplyForValue(eApplyForListToRestore[0])
-                    let optionExists = Array.from(firstSelect.options).some(o => o.value === valueToSet)
-                    
-                    // If normalized value not found, try original value
-                    if (!optionExists) {
-                      valueToSet = eApplyForListToRestore[0]
-                      optionExists = Array.from(firstSelect.options).some(o => o.value === valueToSet)
-                    }
+                    const valueToSet = eApplyForListToRestore[0]
+                    const optionExists = Array.from(firstSelect.options).some(o => o.value === valueToSet)
                     
                     if (optionExists) {
                       firstSelect.value = valueToSet
@@ -18981,12 +18917,8 @@ function initializeExtension() {
                         
                         additionalSelects.forEach((sel, idx) => {
                           if (additionalValues[idx]) {
-                            let valueToSet = normalizeApplyForValue(additionalValues[idx])
-                            let optionExists = Array.from(sel.options).some(o => o.value === valueToSet)
-                            if (!optionExists) {
-                              valueToSet = additionalValues[idx]
-                              optionExists = Array.from(sel.options).some(o => o.value === valueToSet)
-                            }
+                            const valueToSet = additionalValues[idx]
+                            const optionExists = Array.from(sel.options).some(o => o.value === valueToSet)
                             if (optionExists) {
                               sel.value = valueToSet
                               console.log(`    ✓ Set additional Execution Apply For ${idx + 2} to: ${valueToSet}`)
@@ -19154,26 +19086,12 @@ function initializeExtension() {
                               console.log(`    🔄 Refreshed Apply For options`)
                             }
                             setTimeout(() => {
-                              // Helper to normalize Apply for value to ID#tagName format
-                              const normalizeApplyForValue = (value: string): string => {
-                                if (!value || value === '__any__') return value
-                                if (!value.startsWith('ID#')) {
-                                  const tagName = value.replace('#', '')
-                                  return `ID#${tagName}`
-                                }
-                                return value
-                              }
-                              
                               // Set first value on existing select with validation
                               const applySelect = newSection.querySelector('.E-apply-sub') as HTMLSelectElement
                               const applyList = newSection.querySelector('.E-apply-list-sub') as HTMLElement
                               if (applySelect) {
-                                let valueToSet = normalizeApplyForValue(eSectionApplyForList[0])
-                                let optionExists = Array.from(applySelect.options).some(o => o.value === valueToSet)
-                                if (!optionExists) {
-                                  valueToSet = eSectionApplyForList[0]
-                                  optionExists = Array.from(applySelect.options).some(o => o.value === valueToSet)
-                                }
+                                const valueToSet = eSectionApplyForList[0]
+                                const optionExists = Array.from(applySelect.options).some(o => o.value === valueToSet)
                                 
                                 console.log(`    🔍 Apply select found, current value: ${applySelect.value}`)
                                 console.log(`    🔍 Available options:`, Array.from(applySelect.options).map(o => o.value))
@@ -19205,12 +19123,8 @@ function initializeExtension() {
                                       
                                       additionalSelects.forEach((sel, idx) => {
                                         if (additionalValues[idx]) {
-                                          let val = normalizeApplyForValue(additionalValues[idx])
-                                          let exists = Array.from(sel.options).some(o => o.value === val)
-                                          if (!exists) {
-                                            val = additionalValues[idx]
-                                            exists = Array.from(sel.options).some(o => o.value === val)
-                                          }
+                                          const val = additionalValues[idx]
+                                          const exists = Array.from(sel.options).some(o => o.value === val)
                                           if (exists) {
                                             sel.value = val
                                             console.log(`      ✓ Set E-section ${sectionIdx + 1} Apply For ${idx + 2} to: ${val}`)
