@@ -18391,6 +18391,30 @@ function initializeExtension() {
             const triggerCount = previouslySavedData.listening?.unifiedTriggers?.length || 0
             const triggerRestoreDelay = Math.max(1000, triggerCount * 150 + 500) // At least 1s, plus buffer
             
+            // Helper to normalize Apply For values (handle both old format "624" and new format "ID#624")
+            const normalizeApplyForValue = (value: string, availableOptions: string[]): string => {
+              if (!value || value === '__any__') return value
+              // If exact match exists, use it
+              if (availableOptions.includes(value)) return value
+              // Try with ID# prefix if not already prefixed
+              if (!value.startsWith('ID#')) {
+                const prefixed = `ID#${value}`
+                if (availableOptions.includes(prefixed)) {
+                  console.log(`  🔄 Normalized "${value}" to "${prefixed}"`)
+                  return prefixed
+                }
+              }
+              // Try without ID# prefix if it has one
+              if (value.startsWith('ID#')) {
+                const unprefixed = value.substring(3)
+                if (availableOptions.includes(unprefixed)) {
+                  console.log(`  🔄 Normalized "${value}" to "${unprefixed}"`)
+                  return unprefixed
+                }
+              }
+              return value // Return original if no match found
+            }
+            
             const rApplyForListToRestore = r.applyForList || (r.applyFor ? [r.applyFor] : ['__any__'])
             console.log(`  🔍 Main Reasoning applyForList to restore:`, rApplyForListToRestore)
             console.log(`  ⏱️ Waiting ${triggerRestoreDelay}ms for ${triggerCount} triggers to restore`)
@@ -18408,8 +18432,9 @@ function initializeExtension() {
                   // Set first value on existing select with validation
                   const firstSelect = configOverlay.querySelector('#R-apply') as HTMLSelectElement
                   if (firstSelect && rApplyForListToRestore[0]) {
-                    const valueToSet = rApplyForListToRestore[0]
-                    const optionExists = Array.from(firstSelect.options).some(o => o.value === valueToSet)
+                    const availableOptions = Array.from(firstSelect.options).map(o => o.value)
+                    const valueToSet = normalizeApplyForValue(rApplyForListToRestore[0], availableOptions)
+                    const optionExists = availableOptions.includes(valueToSet)
                     
                     if (optionExists) {
                       firstSelect.value = valueToSet
@@ -18441,13 +18466,14 @@ function initializeExtension() {
                         
                         additionalSelects.forEach((sel, idx) => {
                           if (additionalValues[idx]) {
-                            const valueToSet = additionalValues[idx]
-                            const optionExists = Array.from(sel.options).some(o => o.value === valueToSet)
+                            const availableOptions = Array.from(sel.options).map(o => o.value)
+                            const valueToSet = normalizeApplyForValue(additionalValues[idx], availableOptions)
+                            const optionExists = availableOptions.includes(valueToSet)
                             if (optionExists) {
                               sel.value = valueToSet
                               console.log(`    ✓ Set additional Reasoning Apply For ${idx + 2} to: ${valueToSet}`)
                             } else {
-                              console.warn(`    ⚠️ Additional Reasoning Apply For value "${valueToSet}" not found`)
+                              console.warn(`    ⚠️ Additional Reasoning Apply For value "${additionalValues[idx]}" not found`)
                             }
                           }
                         })
@@ -18887,15 +18913,16 @@ function initializeExtension() {
                   // Set first value on existing select with validation
                   const firstSelect = configOverlay.querySelector('#E-apply') as HTMLSelectElement
                   if (firstSelect && eApplyForListToRestore[0]) {
-                    const valueToSet = eApplyForListToRestore[0]
-                    const optionExists = Array.from(firstSelect.options).some(o => o.value === valueToSet)
+                    const availableOptions = Array.from(firstSelect.options).map(o => o.value)
+                    const valueToSet = normalizeApplyForValue(eApplyForListToRestore[0], availableOptions)
+                    const optionExists = availableOptions.includes(valueToSet)
                     
                     if (optionExists) {
                       firstSelect.value = valueToSet
                       console.log(`  ✓ Set first Execution Apply For to: ${valueToSet}`)
                     } else {
-                      console.warn(`  ⚠️ Execution Apply For value "${valueToSet}" not found in options. Available:`,
-                        Array.from(firstSelect.options).map(o => o.value))
+                      console.warn(`  ⚠️ Execution Apply For value "${eApplyForListToRestore[0]}" not found in options. Available:`,
+                        availableOptions)
                       // Keep the default __any__ value
                     }
                   }
@@ -18920,13 +18947,14 @@ function initializeExtension() {
                         
                         additionalSelects.forEach((sel, idx) => {
                           if (additionalValues[idx]) {
-                            const valueToSet = additionalValues[idx]
-                            const optionExists = Array.from(sel.options).some(o => o.value === valueToSet)
+                            const availableOptions = Array.from(sel.options).map(o => o.value)
+                            const valueToSet = normalizeApplyForValue(additionalValues[idx], availableOptions)
+                            const optionExists = availableOptions.includes(valueToSet)
                             if (optionExists) {
                               sel.value = valueToSet
                               console.log(`    ✓ Set additional Execution Apply For ${idx + 2} to: ${valueToSet}`)
                             } else {
-                              console.warn(`    ⚠️ Additional Execution Apply For value "${valueToSet}" not found`)
+                              console.warn(`    ⚠️ Additional Execution Apply For value "${additionalValues[idx]}" not found`)
                             }
                           }
                         })
