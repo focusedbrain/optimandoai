@@ -362,6 +362,7 @@ export async function loadSavedTriggers(): Promise<any[]> {
 
 /**
  * Load agents from the current session
+ * Uses SQLite as the single source of truth via background script messaging
  */
 export async function loadAgentsFromSession(): Promise<AgentConfig[]> {
   try {
@@ -373,76 +374,130 @@ export async function loadAgentsFromSession(): Promise<AgentConfig[]> {
       return []
     }
     
-    console.log('[ProcessFlow] Loading agents from session:', sessionKey)
+    console.log('[ProcessFlow] Loading agents from SQLite session:', sessionKey)
 
     return new Promise((resolve) => {
       try {
-        chrome.storage?.local?.get([sessionKey], (data: any) => {
-          const session = data?.[sessionKey]
-          if (!session) {
-            console.warn('[ProcessFlow] No session data found for key:', sessionKey)
-            resolve([])
+        // Load from SQLite via background script (single source of truth)
+        chrome.runtime?.sendMessage({ 
+          type: 'GET_SESSION_FROM_SQLITE', 
+          sessionKey 
+        }, (response) => {
+          if (chrome.runtime.lastError) {
+            console.warn('[ProcessFlow] Error loading from SQLite:', chrome.runtime.lastError.message)
+            // Fallback to chrome.storage.local
+            loadAgentsFromChromeStorage(sessionKey).then(resolve)
             return
           }
-
-          // Get agents from session
-          const agents: AgentConfig[] = session.agents || []
           
-          console.log('[ProcessFlow] Found', agents.length, 'agents in session')
+          if (!response?.success || !response?.session) {
+            console.warn('[ProcessFlow] No session data found in SQLite for key:', sessionKey)
+            // Fallback to chrome.storage.local
+            loadAgentsFromChromeStorage(sessionKey).then(resolve)
+            return
+          }
           
-          // Parse agent configs and extract proper number
-          const parsedAgents = agents.map((agent, index) => {
-            let parsed = { ...agent }
-            
-            // Debug: Log what config data exists for this agent
-            console.log(`[ProcessFlow] Agent ${index}: "${agent.name || agent.key}"`, {
-              hasConfig: !!agent.config,
-              configKeys: agent.config ? Object.keys(agent.config) : [],
-              hasInstructions: !!agent.config?.instructions,
-              instructionsType: agent.config?.instructions ? typeof agent.config.instructions : 'none',
-              enabled: agent.enabled
-            })
-            
-            // Parse config.instructions if it's a string
-            if (agent.config?.instructions) {
-              try {
-                const instructions = typeof agent.config.instructions === 'string'
-                  ? JSON.parse(agent.config.instructions)
-                  : agent.config.instructions
-                parsed = { ...parsed, ...instructions }
-                console.log(`[ProcessFlow] ✅ Parsed instructions for "${agent.name || agent.key}":`, {
-                  hasListening: !!instructions.listening,
-                  hasReasoning: !!instructions.reasoning,
-                  hasExecution: !!instructions.execution,
-                  triggers: instructions.listening?.passive?.triggers?.length || 0,
-                  activeTriggers: instructions.listening?.active?.triggers?.length || 0
-                })
-              } catch (e) {
-                console.warn('[ProcessFlow] Failed to parse agent config:', e)
-              }
-            } else {
-              console.warn(`[ProcessFlow] ⚠️ Agent "${agent.name || agent.key}" has NO config.instructions!`)
-            }
-            
-            // Extract proper agent number
-            parsed.number = extractAgentNumber(parsed, index)
-            
-            console.log(`[ProcessFlow] Agent "${parsed.name || parsed.key}": number=${parsed.number}, key=${parsed.key}, id=${parsed.id}, enabled=${parsed.enabled}`)
-            
-            return parsed
-          })
-
-          resolve(parsedAgents)
+          const session = response.session
+          const agents = parseAgentsFromSession(session)
+          console.log('[ProcessFlow] ✅ Loaded', agents.length, 'agents from SQLite')
+          resolve(agents)
         })
       } catch (e) {
-        console.warn('[ProcessFlow] Failed to load agents:', e)
-        resolve([])
+        console.warn('[ProcessFlow] Failed to load agents from SQLite:', e)
+        loadAgentsFromChromeStorage(sessionKey).then(resolve)
       }
     })
   } catch (e) {
     console.warn('[ProcessFlow] Error in loadAgentsFromSession:', e)
     return []
   }
+}
+
+/**
+ * Fallback: Load agents from chrome.storage.local
+ */
+async function loadAgentsFromChromeStorage(sessionKey: string): Promise<AgentConfig[]> {
+  return new Promise((resolve) => {
+    chrome.storage?.local?.get([sessionKey], (data: any) => {
+      const session = data?.[sessionKey]
+      if (!session) {
+        console.warn('[ProcessFlow] No session data in chrome.storage for key:', sessionKey)
+        resolve([])
+        return
+      }
+      const agents = parseAgentsFromSession(session)
+      console.log('[ProcessFlow] Loaded', agents.length, 'agents from chrome.storage (fallback)')
+      resolve(agents)
+    })
+  })
+}
+
+/**
+ * Parse agents from session data structure
+ */
+function parseAgentsFromSession(session: any): AgentConfig[] {
+  // Get agents from session
+  const agents: AgentConfig[] = session.agents || []
+  
+  console.log('[ProcessFlow] Found', agents.length, 'agents in session')
+  
+  // Parse agent configs and extract proper number
+  const parsedAgents = agents.map((agent: any, index: number) => {
+    let parsed = { ...agent }
+    
+    // Debug: Log what config data exists for this agent
+    console.log(`[ProcessFlow] Agent ${index}: "${agent.name || agent.key}"`, {
+      hasConfig: !!agent.config,
+      configKeys: agent.config ? Object.keys(agent.config) : [],
+      hasInstructions: !!agent.config?.instructions,
+      instructionsType: agent.config?.instructions ? typeof agent.config.instructions : 'none',
+      enabled: agent.enabled,
+      // Check for unified triggers directly on listening
+      hasListeningDirect: !!agent.listening,
+      unifiedTriggersCount: agent.listening?.unifiedTriggers?.length || 0
+    })
+    
+    // First check if listening/reasoning/execution are directly on the agent (new format)
+    if (agent.listening || agent.reasoning || agent.execution) {
+      console.log(`[ProcessFlow] ✅ Agent "${agent.name || agent.key}" has direct sections:`, {
+        hasListening: !!agent.listening,
+        hasReasoning: !!agent.reasoning,
+        hasExecution: !!agent.execution,
+        unifiedTriggers: agent.listening?.unifiedTriggers?.length || 0,
+        passiveTriggers: agent.listening?.passive?.triggers?.length || 0,
+        activeTriggers: agent.listening?.active?.triggers?.length || 0
+      })
+    }
+    
+    // Parse config.instructions if it's a string (legacy format)
+    if (agent.config?.instructions) {
+      try {
+        const instructions = typeof agent.config.instructions === 'string'
+          ? JSON.parse(agent.config.instructions)
+          : agent.config.instructions
+        parsed = { ...parsed, ...instructions }
+        console.log(`[ProcessFlow] ✅ Parsed instructions for "${agent.name || agent.key}":`, {
+          hasListening: !!instructions.listening,
+          hasReasoning: !!instructions.reasoning,
+          hasExecution: !!instructions.execution,
+          unifiedTriggers: instructions.listening?.unifiedTriggers?.length || 0,
+          triggers: instructions.listening?.passive?.triggers?.length || 0,
+          activeTriggers: instructions.listening?.active?.triggers?.length || 0
+        })
+      } catch (e) {
+        console.warn('[ProcessFlow] Failed to parse agent config:', e)
+      }
+    }
+    
+    // Extract proper agent number
+    parsed.number = extractAgentNumber(parsed, index)
+    
+    console.log(`[ProcessFlow] Agent "${parsed.name || parsed.key}": number=${parsed.number}, enabled=${parsed.enabled}`)
+    
+    return parsed
+  })
+
+  return parsedAgents
 }
 
 /**
