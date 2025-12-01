@@ -11909,7 +11909,15 @@ function initializeExtension() {
 
     
 
+    // Flag to prevent auto-save during restoration (race condition fix)
+    let isRestoringFromMemory = false
+    
     const autoSaveToChromeStorage = () => {
+      // CRITICAL: Skip auto-save during restoration to prevent overwriting correct data
+      if (isRestoringFromMemory) {
+        console.log(`⏸️ Skipping auto-save during restoration`)
+        return
+      }
 
       console.log(`🔔 autoSaveToChromeStorage called! Type: "${type}", Agent: "${agentName}", Scope: "${agentScope}", Key: "${autoSaveDraftKey}"`)
 
@@ -17462,11 +17470,15 @@ function initializeExtension() {
         requestAnimationFrame(() => {
 
           console.log('🔄 restoreFromMemory() called')
+          
+          // CRITICAL: Set flag to prevent auto-save during restoration
+          isRestoringFromMemory = true
+          console.log('🔒 Auto-save disabled during restoration')
 
           if (!previouslySavedData) {
 
             console.warn('⚠️ No previouslySavedData to restore!')
-
+            isRestoringFromMemory = false
             return
 
           }
@@ -19307,6 +19319,15 @@ function initializeExtension() {
           
 
           console.log('✅ Form data restored from memory')
+          
+          // CRITICAL: Clear restoration flag after all async operations complete
+          // Apply For restoration uses: triggerRestoreDelay (1000ms+) + 300ms + 200ms + buffer
+          const triggerCount = previouslySavedData.listening?.unifiedTriggers?.length || 0
+          const maxRestorationDelay = Math.max(1000, triggerCount * 150 + 500) + 300 + 200 + 500 // Add 500ms buffer
+          setTimeout(() => {
+            isRestoringFromMemory = false
+            console.log('🔓 Auto-save re-enabled after restoration complete')
+          }, maxRestorationDelay)
 
         })
 
