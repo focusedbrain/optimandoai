@@ -154,6 +154,51 @@ export class InputCoordinator {
   }
 
   /**
+   * Check if trigger's keyword conditions are met
+   * Returns true if:
+   * - No keywords configured (empty = match any content)
+   * - At least one keyword is found in the input text
+   */
+  private checkTriggerKeywords(trigger: any, input: string): boolean {
+    const inputLower = input.toLowerCase()
+    
+    // Check eventTagConditions for body_keywords
+    if (trigger.eventTagConditions && Array.isArray(trigger.eventTagConditions)) {
+      const keywordCondition = trigger.eventTagConditions.find((c: any) => c.type === 'body_keywords')
+      if (keywordCondition && keywordCondition.keywords && keywordCondition.keywords.length > 0) {
+        const found = keywordCondition.keywords.some((kw: string) => 
+          inputLower.includes(kw.toLowerCase())
+        )
+        this.log(`Keyword check (eventTagConditions): keywords=${keywordCondition.keywords.join(',')}, found=${found}`)
+        return found
+      }
+    }
+    
+    // Check trigger.keywords (string, comma-separated)
+    if (trigger.keywords && typeof trigger.keywords === 'string' && trigger.keywords.trim()) {
+      const keywords = trigger.keywords.split(',').map((k: string) => k.trim()).filter(Boolean)
+      if (keywords.length > 0) {
+        const found = keywords.some((kw: string) => inputLower.includes(kw.toLowerCase()))
+        this.log(`Keyword check (trigger.keywords): keywords=${keywords.join(',')}, found=${found}`)
+        return found
+      }
+    }
+    
+    // Check trigger.expectedContext (legacy, comma-separated)
+    if (trigger.expectedContext && typeof trigger.expectedContext === 'string' && trigger.expectedContext.trim()) {
+      const keywords = trigger.expectedContext.split(',').map((k: string) => k.trim()).filter(Boolean)
+      if (keywords.length > 0) {
+        const found = keywords.some((kw: string) => inputLower.includes(kw.toLowerCase()))
+        this.log(`Keyword check (expectedContext): keywords=${keywords.join(',')}, found=${found}`)
+        return found
+      }
+    }
+    
+    // No keywords configured = always match
+    return true
+  }
+
+  /**
    * Evaluate an agent's listener configuration against the input
    * 
    * This is the core decision logic for each agent:
@@ -263,6 +308,13 @@ export class InputCoordinator {
         if (triggerTag && inputTriggers.some(t => 
           t.toLowerCase() === triggerTag.toLowerCase()
         )) {
+          // Check keyword conditions before accepting the match
+          const keywordsValid = this.checkTriggerKeywords(trigger, input)
+          if (!keywordsValid) {
+            this.log(`Agent "${agent.name}" trigger #${triggerTag} - keywords NOT matched, skipping`)
+            continue
+          }
+          
           this.log(`Agent "${agent.name}" matched unified trigger: #${triggerTag}`)
           if (!matchedTriggers.includes(triggerTag)) {
             matchedTriggers.push(triggerTag)
@@ -280,6 +332,13 @@ export class InputCoordinator {
         if (triggerTag && inputTriggers.some(t => 
           t.toLowerCase() === triggerTag.toLowerCase()
         )) {
+          // Check keyword conditions before accepting the match
+          const keywordsValid = this.checkTriggerKeywords(trigger, input)
+          if (!keywordsValid) {
+            this.log(`Agent "${agent.name}" trigger #${triggerTag} - keywords NOT matched, skipping`)
+            continue
+          }
+          
           this.log(`Agent "${agent.name}" matched trigger: #${triggerTag}`)
           if (!matchedTriggers.includes(triggerTag)) {
             matchedTriggers.push(triggerTag)
