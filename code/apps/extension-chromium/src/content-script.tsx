@@ -21435,6 +21435,19 @@ function initializeExtension() {
 
           
 
+          // CRITICAL DEBUG: Log the draft object before stringify
+          console.log('🔍 DRAFT BEFORE STRINGIFY:', {
+            hasListening: !!draft.listening,
+            unifiedTriggersCount: draft.listening?.unifiedTriggers?.length || 0,
+            unifiedTriggerIds: draft.listening?.unifiedTriggers?.map((t:any) => t.id) || [],
+            hasReasoning: !!draft.reasoning,
+            rApplyFor: draft.reasoning?.applyFor,
+            rApplyForList: draft.reasoning?.applyForList,
+            hasExecution: !!draft.execution,
+            eApplyFor: draft.execution?.applyFor,
+            eApplyForList: draft.execution?.applyForList
+          })
+          
           dataToSave = JSON.stringify(draft)
 
         } else if (type === 'context') {
