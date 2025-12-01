@@ -21512,9 +21512,7 @@ function initializeExtension() {
         await new Promise<void>((resolve) => {
 
           // Clear the draft from chrome.storage since we've committed it
-
-          // Note: storageRemove not implemented yet, using storageSet with undefined
-          storageSet({ [autoSaveDraftKey]: undefined }, () => {
+          storageRemove(autoSaveDraftKey, () => {
 
             console.log('🗑️ Cleared auto-save draft:', autoSaveDraftKey)
 
