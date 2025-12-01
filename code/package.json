@@ -12,6 +12,7 @@
     "format:check": "prettier -c ."
   },
   "devDependencies": {
+    "electron": "^30.5.1",
     "eslint": "^9.34.0",
     "eslint-config-prettier": "^9.1.2",
     "husky": "^9.1.7",

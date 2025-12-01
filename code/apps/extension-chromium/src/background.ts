@@ -1249,7 +1249,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             console.log(`🤖 BG: Agent shell already exists for ${agentKey}, skipping auto-creation`)
           }
           
->>>>>>> dc26ea5244137a289160528cea41adc4d181fae6
           // 🔍 DEBUG: Log the agentBox being saved
           console.log('📦 BG: AgentBox details:', {
             identifier: msg.agentBox.identifier,

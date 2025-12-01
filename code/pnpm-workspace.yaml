@@ -1,4 +1,7 @@
-﻿packages:
-  - "apps/*"
-  - "packages/*"
-  - "!**/node_modules/**"
+packages:
+  - apps/*
+  - packages/*
+  - '!**/node_modules/**'
+
+ignoredBuiltDependencies:
+  - electron

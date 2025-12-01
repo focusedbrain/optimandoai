@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { createRoot } from 'react-dom/client'
 import { BackendSwitcher } from './components/BackendSwitcher'
+import { TemplateGlassView } from './components/TemplateGlassView'
 import { BackendSwitcherInline } from './components/BackendSwitcherInline'
 import { 
   routeInput, 
@@ -48,6 +49,7 @@ function SidepanelOrchestrator() {
   const [showMinimalUI, setShowMinimalUI] = useState(false) // Show minimal UI on display grids and Edge startpage
   const [viewMode, setViewMode] = useState<'app' | 'admin'>('app') // App or Admin view
   const [isAdminDisabled, setIsAdminDisabled] = useState(false) // Disable admin on display grids and Edge startpage
+  const [activeMiniApp, setActiveMiniApp] = useState<string | null>(null) // Active mini-app (null = show main UI, 'glassview' = show GlassView)
   
   // Command chat state
   const [dockedPanelMode, setDockedPanelMode] = useState<'command-chat' | 'mailguard'>('command-chat')
@@ -2406,8 +2408,29 @@ function SidepanelOrchestrator() {
 
   const addMiniApp = () => {
     console.log('🎯 Opening Add Mini App dialog...')
-    // TODO: Implement mini-app installation dialog
-    showNotification('Mini-app installation coming soon!', 'info')
+    // For now, directly open GlassView
+    setActiveMiniApp('glassview')
+  }
+
+  // Render GlassView mini-app when active
+  if (activeMiniApp === 'glassview') {
+    return (
+      <div style={{
+        width: '100%',
+        minHeight: '100vh',
+        fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
+        background: themeColors.background,
+        color: themeColors.text,
+        display: 'flex',
+        flexDirection: 'column'
+      }}>
+        <TemplateGlassView 
+          templateName="glassview"
+          onClose={() => setActiveMiniApp(null)}
+          onMessage={(msg) => console.log('[GlassView] Message:', msg)}
+        />
+      </div>
+    )
   }
 
   // Minimal UI for display grids and Edge startpage

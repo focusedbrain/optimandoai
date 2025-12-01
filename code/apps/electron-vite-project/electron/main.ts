@@ -581,32 +581,6 @@ app.whenReady().then(async () => {
       console.log('[MAIN] WebSocket server listening and ready for connections')
       
       wss.on('error', (err: any) => {
-        console.error('[MAIN] WebSocket server error:', err)
->>>>>>> dc26ea5244137a289160528cea41adc4d181fae6
-        try {
-          await ollamaManager.start()
-          console.log('[MAIN] Ollama started successfully')
-        } catch (error) {
-          console.warn('[MAIN] Failed to auto-start Ollama:', error)
-        }
-      } else {
-        console.warn('[MAIN] Ollama not found - repair flow will be needed')
-      }
-    } catch (error) {
-      console.error('[MAIN] Error initializing LLM services:', error)
-    }
-
-    // WS bridge for extension (127.0.0.1:51247) with safe startup
-    try {
-      console.log('[MAIN] ===== ATTEMPTING TO START WEBSOCKET SERVER =====')
-      console.log('[MAIN] WebSocketServer available:', !!WebSocketServer)
-      if (WebSocketServer) {
-        console.log('[MAIN] Creating WebSocket server on 127.0.0.1:51247')
-        const wss = new WebSocketServer({ host: '127.0.0.1', port: 51247 })
-        console.log('[MAIN] WebSocket server created!')
-        console.log('[MAIN] WebSocket server listening and ready for connections')
-
-        wss.on('error', (err: any) => {
           console.error('[MAIN] WebSocket server error:', err)
           try {
             const msg = String((err && (err.code || err.message)) || '')
@@ -2813,19 +2787,272 @@ app.whenReady().then(async () => {
       }
     })
 
-    const HTTP_PORT = 51248
+    // ==================== TEMPLATE API ENDPOINTS ====================
     
-    // Simple function to start HTTP server with error handling
-    const startHttpServer = (port: number, attempt = 1): void => {
-      console.log(`[MAIN] Starting HTTP API server on port ${port} (attempt ${attempt})...`)
-      
-      const server = httpApp.listen(port, '127.0.0.1', () => {
-        console.log(`[MAIN] ✅ HTTP API server listening on http://127.0.0.1:${port}`)
-        console.log(`[MAIN] HTTP server is now listening on port ${port}`)
->>>>>>> dc26ea5244137a289160528cea41adc4d181fae6
-      })
+    // GET /api/templates/:name - Get template by name
+    // Used by TemplateGlassView to load templates via HTTP (faster than WebSocket)
+    httpApp.get('/api/templates/:name', async (req, res) => {
+      try {
+        const templateName = req.params.name
+        console.log('[HTTP-TEMPLATE] GET /api/templates/', templateName)
+        
+        const fs = await import('fs')
+        const pathModule = await import('path')
+        
+        // Ensure template name is safe (no path traversal)
+        const safeName = templateName.replace(/[^a-zA-Z0-9_-]/g, '')
+        if (safeName !== templateName) {
+          console.warn('[HTTP-TEMPLATE] Invalid template name:', templateName)
+          res.status(400).json({ ok: false, error: 'Invalid template name' })
+          return
+        }
+        
+        // Template search paths (in priority order)
+        const searchPaths = [
+          // User templates directory
+          pathModule.join(app.getPath('userData'), 'templates', `${safeName}.template.md`),
+          // Public templates in app
+          pathModule.join(process.env.VITE_PUBLIC || '', 'templates', `${safeName}.template.md`),
+          // Dist-electron templates
+          pathModule.join(__dirname, '..', 'public', 'templates', `${safeName}.template.md`),
+          // Fallback without .template.md extension
+          pathModule.join(app.getPath('userData'), 'templates', `${safeName}.md`),
+          pathModule.join(process.env.VITE_PUBLIC || '', 'templates', `${safeName}.md`)
+        ]
+        
+        console.log('[HTTP-TEMPLATE] Searching in paths:', searchPaths)
+        
+        for (const templatePath of searchPaths) {
+          try {
+            if (fs.existsSync(templatePath)) {
+              console.log('[HTTP-TEMPLATE] Found template at:', templatePath)
+              const content = fs.readFileSync(templatePath, 'utf-8')
+              res.json({ ok: true, name: templateName, content, path: templatePath })
+              return
+            }
+          } catch (pathErr) {
+            // Skip invalid paths
+          }
+        }
+        
+        console.warn('[HTTP-TEMPLATE] Template not found:', templateName)
+        res.status(404).json({ ok: false, error: `Template '${templateName}' not found` })
+      } catch (error: any) {
+        console.error('[HTTP-TEMPLATE] Error loading template:', error)
+        res.status(500).json({ ok: false, error: error.message || 'Failed to load template' })
+      }
+    })
+    
+    // GET /api/templates - List all available templates
+    httpApp.get('/api/templates', async (_req, res) => {
+      try {
+        console.log('[HTTP-TEMPLATE] GET /api/templates (list all)')
+        
+        const fs = await import('fs')
+        const pathModule = await import('path')
+        
+        const templates: Array<{ name: string; path: string; size: number }> = []
+        
+        // Search directories
+        const searchDirs = [
+          pathModule.join(app.getPath('userData'), 'templates'),
+          pathModule.join(process.env.VITE_PUBLIC || '', 'templates'),
+          pathModule.join(__dirname, '..', 'public', 'templates')
+        ]
+        
+        for (const dir of searchDirs) {
+          try {
+            if (fs.existsSync(dir)) {
+              const files = fs.readdirSync(dir)
+              for (const file of files) {
+                if (file.endsWith('.template.md') || file.endsWith('.md')) {
+                  const filePath = pathModule.join(dir, file)
+                  const stats = fs.statSync(filePath)
+                  const name = file.replace('.template.md', '').replace('.md', '')
+                  
+                  // Avoid duplicates
+                  if (!templates.some(t => t.name === name)) {
+                    templates.push({
+                      name,
+                      path: filePath,
+                      size: stats.size
+                    })
+                  }
+                }
+              }
+            }
+          } catch (dirErr) {
+            // Skip invalid directories
+          }
+        }
+        
+        console.log('[HTTP-TEMPLATE] Found templates:', templates.length)
+        res.json({ ok: true, templates })
+      } catch (error: any) {
+        console.error('[HTTP-TEMPLATE] Error listing templates:', error)
+        res.status(500).json({ ok: false, error: error.message || 'Failed to list templates' })
+      }
+    })
+    
+    // POST /api/templates/:name - Save/update a template
+    httpApp.post('/api/templates/:name', async (req, res) => {
+      try {
+        const templateName = req.params.name
+        const { content } = req.body
+        
+        console.log('[HTTP-TEMPLATE] POST /api/templates/', templateName)
+        
+        if (!content || typeof content !== 'string') {
+          res.status(400).json({ ok: false, error: 'Content is required' })
+          return
+        }
+        
+        const fs = await import('fs')
+        const pathModule = await import('path')
+        
+        // Ensure template name is safe
+        const safeName = templateName.replace(/[^a-zA-Z0-9_-]/g, '')
+        if (safeName !== templateName) {
+          res.status(400).json({ ok: false, error: 'Invalid template name' })
+          return
+        }
+        
+        // Save to user templates directory
+        const templatesDir = pathModule.join(app.getPath('userData'), 'templates')
+        if (!fs.existsSync(templatesDir)) {
+          fs.mkdirSync(templatesDir, { recursive: true })
+        }
+        
+        const templatePath = pathModule.join(templatesDir, `${safeName}.template.md`)
+        fs.writeFileSync(templatePath, content, 'utf-8')
+        
+        console.log('[HTTP-TEMPLATE] Template saved:', templatePath)
+        
+        // Notify WebSocket clients about template change
+        try {
+          wsClients.forEach((client: any) => {
+            try {
+              client.send(JSON.stringify({
+                type: 'TEMPLATE_CHANGED',
+                payload: { name: templateName, content }
+              }))
+            } catch { }
+          })
+        } catch { }
+        
+        res.json({ ok: true, name: templateName, path: templatePath })
+      } catch (error: any) {
+        console.error('[HTTP-TEMPLATE] Error saving template:', error)
+        res.status(500).json({ ok: false, error: error.message || 'Failed to save template' })
+      }
+    })
+    
+    // DELETE /api/templates/:name - Delete a template
+    httpApp.delete('/api/templates/:name', async (req, res) => {
+      try {
+        const templateName = req.params.name
+        console.log('[HTTP-TEMPLATE] DELETE /api/templates/', templateName)
+        
+        const fs = await import('fs')
+        const pathModule = await import('path')
+        
+        // Ensure template name is safe
+        const safeName = templateName.replace(/[^a-zA-Z0-9_-]/g, '')
+        if (safeName !== templateName) {
+          res.status(400).json({ ok: false, error: 'Invalid template name' })
+          return
+        }
+        
+        // Only allow deletion from user templates directory
+        const templatePath = pathModule.join(app.getPath('userData'), 'templates', `${safeName}.template.md`)
+        
+        if (!fs.existsSync(templatePath)) {
+          res.status(404).json({ ok: false, error: 'Template not found' })
+          return
+        }
+        
+        fs.unlinkSync(templatePath)
+        console.log('[HTTP-TEMPLATE] Template deleted:', templatePath)
+        
+        res.json({ ok: true, name: templateName })
+      } catch (error: any) {
+        console.error('[HTTP-TEMPLATE] Error deleting template:', error)
+        res.status(500).json({ ok: false, error: error.message || 'Failed to delete template' })
+      }
+    })
 
-      // POST /api/vault/create - Create new vault
+    // ============ CURSOR/GIT API ENDPOINTS ============
+    
+    // GET /api/cursor/changed-files - Get list of changed files in a project
+    httpApp.get('/api/cursor/changed-files', async (req, res) => {
+      try {
+        const projectRoot = req.query.projectRoot as string || process.cwd();
+        console.log('[HTTP-CURSOR] GET /api/cursor/changed-files for:', projectRoot);
+        
+        // Import DiffService dynamically
+        const { DiffService } = await import('./main/services');
+        const localDiffService = new DiffService();
+        
+        const files = await localDiffService.getChangedFiles(projectRoot);
+        console.log('[HTTP-CURSOR] Found', files.length, 'changed files');
+        res.json({ ok: true, files });
+      } catch (error: any) {
+        console.error('[HTTP-CURSOR] Error getting changed files:', error);
+        res.status(500).json({ ok: false, error: error.message || 'Failed to get changed files' });
+      }
+    });
+    
+    // GET /api/cursor/diff - Get diff for a specific file
+    httpApp.get('/api/cursor/diff', async (req, res) => {
+      try {
+        const filePath = req.query.filePath as string;
+        const projectRoot = req.query.projectRoot as string || process.cwd();
+        
+        if (!filePath) {
+          return res.status(400).json({ ok: false, error: 'filePath query parameter required' });
+        }
+        
+        console.log('[HTTP-CURSOR] GET /api/cursor/diff for:', filePath);
+        
+        // Import DiffService dynamically
+        const { DiffService } = await import('./main/services');
+        const localDiffService = new DiffService();
+        
+        const diff = await localDiffService.getDiff(filePath, projectRoot);
+        res.json({ ok: true, diff, filePath });
+      } catch (error: any) {
+        console.error('[HTTP-CURSOR] Error getting diff:', error);
+        res.status(500).json({ ok: false, error: error.message || 'Failed to get diff' });
+      }
+    });
+    
+    // POST /api/cursor/set-project - Set the active project root
+    httpApp.post('/api/cursor/set-project', async (req, res) => {
+      try {
+        const { projectRoot } = req.body;
+        console.log('[HTTP-CURSOR] POST /api/cursor/set-project:', projectRoot);
+        
+        // Store the active project root (could be in-memory or persisted)
+        // For now, we'll broadcast it to connected clients
+        wsClients.forEach(client => {
+          try {
+            client.send(JSON.stringify({
+              type: 'PROJECT_ROOT_CHANGED',
+              projectRoot
+            }));
+          } catch (e) {
+            console.error('[HTTP-CURSOR] Error broadcasting project change:', e);
+          }
+        });
+        
+        res.json({ ok: true, projectRoot });
+      } catch (error: any) {
+        console.error('[HTTP-CURSOR] Error setting project:', error);
+        res.status(500).json({ ok: false, error: error.message });
+      }
+    });
+
+    // POST /api/vault/create - Create new vault
       httpApp.post('/api/vault/create', async (req, res) => {
         try {
           console.log('[HTTP-VAULT] POST /api/vault/create', { vaultName: req.body.vaultName })
