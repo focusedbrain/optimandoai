@@ -174,12 +174,18 @@ export class InputCoordinator {
     // Check if agent has listener capability
     const hasListenerCapability = agent.capabilities?.includes('listening') ?? false
     
-    // Check if any listener mode is enabled
+    // Check if any listener mode is enabled (legacy format)
     const passiveEnabled = listening?.passiveEnabled ?? false
     const activeEnabled = listening?.activeEnabled ?? false
-    const isListenerActive = passiveEnabled || activeEnabled
     
-    this.log(`Agent "${agent.name}" - hasListenerCapability: ${hasListenerCapability}, isListenerActive: ${isListenerActive}`)
+    // NEW: Also check for unified triggers (new format) - if any exist, listener is active
+    const hasUnifiedTriggers = (listening?.unifiedTriggers?.length ?? 0) > 0
+    const hasLegacyTriggers = (listening?.triggers?.length ?? 0) > 0
+    
+    // Listener is active if any trigger system has triggers
+    const isListenerActive = passiveEnabled || activeEnabled || hasUnifiedTriggers || hasLegacyTriggers
+    
+    this.log(`Agent "${agent.name}" - hasListenerCapability: ${hasListenerCapability}, isListenerActive: ${isListenerActive}, hasUnifiedTriggers: ${hasUnifiedTriggers}`)
 
     // RULE: If no listener capability OR listener not active -> always forward to reasoning
     if (!hasListenerCapability || !isListenerActive) {
@@ -251,6 +257,55 @@ export class InputCoordinator {
             matchedTriggerName: triggerName,
             matchType: 'active_trigger',
             matchDetails: `Active trigger #${triggerName} matched`
+          }
+        }
+      }
+    }
+
+    // Check unified triggers (new format)
+    if (listening?.unifiedTriggers && inputTriggers.length > 0) {
+      for (const trigger of listening.unifiedTriggers) {
+        // Get tag from various possible fields
+        const triggerTag = trigger.tag?.replace('#', '') || trigger.tagName || ''
+        
+        if (triggerTag && inputTriggers.some(t => 
+          t.toLowerCase() === triggerTag.toLowerCase()
+        )) {
+          this.log(`Agent "${agent.name}" matched unified trigger: #${triggerTag}`)
+          return {
+            hasListener: true,
+            isListenerActive: true,
+            matchesPassiveTrigger: false,
+            matchesActiveTrigger: true, // Treat unified as active
+            matchesExpectedContext: false,
+            matchesApplyFor: true,
+            matchedTriggerName: triggerTag,
+            matchType: 'active_trigger',
+            matchDetails: `Event trigger #${triggerTag} matched`
+          }
+        }
+      }
+    }
+    
+    // Also check listening.triggers (alternative storage)
+    if (listening?.triggers && Array.isArray(listening.triggers) && inputTriggers.length > 0) {
+      for (const trigger of listening.triggers) {
+        const triggerTag = trigger.tag?.replace('#', '') || trigger.tagName || trigger.name || ''
+        
+        if (triggerTag && inputTriggers.some(t => 
+          t.toLowerCase() === triggerTag.toLowerCase()
+        )) {
+          this.log(`Agent "${agent.name}" matched trigger: #${triggerTag}`)
+          return {
+            hasListener: true,
+            isListenerActive: true,
+            matchesPassiveTrigger: false,
+            matchesActiveTrigger: true,
+            matchesExpectedContext: false,
+            matchesApplyFor: true,
+            matchedTriggerName: triggerTag,
+            matchType: 'active_trigger',
+            matchDetails: `Event trigger #${triggerTag} matched`
           }
         }
       }
