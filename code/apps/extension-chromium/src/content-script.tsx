@@ -18162,6 +18162,24 @@ function initializeExtension() {
                         })
                       }
                       
+                      // Restore legacy trigger.keywords field (fallback if not in eventTagConditions)
+                      if (trigger.keywords && typeof trigger.keywords === 'string' && trigger.keywords.trim()) {
+                        const keywordsInput = row.querySelector('.trigger-keywords') as HTMLInputElement
+                        if (keywordsInput && !keywordsInput.value) {
+                          keywordsInput.value = trigger.keywords
+                          console.log(`    ✓ Restored keywords from trigger.keywords: ${trigger.keywords}`)
+                        }
+                      }
+                      
+                      // Restore legacy expectedContext field (fallback)
+                      if (trigger.expectedContext && typeof trigger.expectedContext === 'string' && trigger.expectedContext.trim()) {
+                        const keywordsInput = row.querySelector('.trigger-keywords') as HTMLInputElement
+                        if (keywordsInput && !keywordsInput.value) {
+                          keywordsInput.value = trigger.expectedContext
+                          console.log(`    ✓ Restored keywords from expectedContext: ${trigger.expectedContext}`)
+                        }
+                      }
+                      
                       // Restore workflow condition fields
                       if (trigger.workflowId) {
                         const wfInput = row.querySelector('.trigger-workflow') as HTMLInputElement
