@@ -5772,6 +5772,8 @@ function initializeExtension() {
 
               <option value="Local AI">Local AI</option>
 
+              <option value="Image AI">☁️ Image AI</option>
+
             </select>
 
           </div>
@@ -5865,6 +5867,8 @@ function initializeExtension() {
         case 'grok': return ['auto', 'grok-2-mini', 'grok-2']
 
         case 'local ai': return ['auto', 'tinyllama', 'tinydolphin', 'stablelm2:1.6b', 'stablelm-zephyr:3b', 'phi3:mini', 'gemma:2b', 'phi:2.7b', 'orca-mini', 'qwen2.5-coder:1.5b', 'deepseek-r1:1.5b', 'mistral:7b-instruct-q4_0', 'llama3.2', 'qwen2.5-coder:7b']
+
+        case 'image ai': return ['Nano Banana Pro', 'DALL·E 3', 'DALL·E 2', 'Flux Schnell', 'Flux Dev', 'SDXL', 'SD3 Medium', 'Stable Diffusion XL']
 
         default: return ['auto']
 
@@ -6441,6 +6445,10 @@ function initializeExtension() {
 
               <option value="Grok" ${agentBox.provider === 'Grok' ? 'selected' : ''}>Grok</option>
 
+              <option value="Local AI" ${agentBox.provider === 'Local AI' ? 'selected' : ''}>Local AI</option>
+
+              <option value="Image AI" ${agentBox.provider === 'Image AI' ? 'selected' : ''}>☁️ Image AI</option>
+
             </select>
 
           </div>
@@ -6554,6 +6562,10 @@ function initializeExtension() {
         case 'gemini': return ['auto', 'gemini-1.5-flash', 'gemini-1.5-pro']
 
         case 'grok': return ['auto', 'grok-2-mini', 'grok-2']
+
+        case 'local ai': return ['auto', 'tinyllama', 'tinydolphin', 'stablelm2:1.6b', 'stablelm-zephyr:3b', 'phi3:mini', 'gemma:2b', 'phi:2.7b', 'orca-mini', 'qwen2.5-coder:1.5b', 'deepseek-r1:1.5b', 'mistral:7b-instruct-q4_0', 'llama3.2', 'qwen2.5-coder:7b']
+
+        case 'image ai': return ['Nano Banana Pro', 'DALL·E 3', 'DALL·E 2', 'Flux Schnell', 'Flux Dev', 'SDXL', 'SD3 Medium', 'Stable Diffusion XL']
 
         default: return ['auto']
 
