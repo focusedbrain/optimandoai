@@ -11795,6 +11795,26 @@ function initializeExtension() {
         loadAgentConfig(agentName, agentScope, type, (loadedData) => {
 
           console.log('📂 loadAgentConfig returned:', loadedData ? `${loadedData.length} chars` : 'NULL')
+          
+          // CRITICAL DEBUG: Parse and examine loaded data
+          if (loadedData) {
+            try {
+              const parsed = JSON.parse(loadedData)
+              console.log('🔍 LOADED DATA EXAMINATION:', {
+                hasListening: !!parsed.listening,
+                unifiedTriggersCount: parsed.listening?.unifiedTriggers?.length || 0,
+                firstTriggerId: parsed.listening?.unifiedTriggers?.[0]?.id || 'NONE',
+                hasReasoning: !!parsed.reasoning,
+                rApplyFor: parsed.reasoning?.applyFor,
+                rApplyForList: parsed.reasoning?.applyForList,
+                hasExecution: !!parsed.execution,
+                eApplyFor: parsed.execution?.applyFor,
+                eApplyForList: parsed.execution?.applyForList
+              })
+            } catch (e) {
+              console.log('🔍 LOADED DATA: Could not parse for examination')
+            }
+          }
 
           const existingData = loadedData || ''
 
