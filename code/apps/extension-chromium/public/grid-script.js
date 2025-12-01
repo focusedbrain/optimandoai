@@ -66,27 +66,9 @@ if (window.gridScriptLoaded) {
       return ['auto'];
     }
     
-    // Image provider model options (cloud APIs only - local engines not supported for security)
-    function imageModelOptions(providerId) {
-      if (!providerId) return [];
-      var p = (providerId || '').toLowerCase();
-      // Cloud APIs only
-      if (p === 'replicate') return ['Flux Schnell', 'Flux Dev', 'SDXL'];
-      if (p === 'banana') return ['SDXL Base', 'SD 1.5'];
-      if (p === 'together') return ['Flux Schnell', 'Flux Dev'];
-      if (p === 'openai-dalle') return ['DALL·E 3', 'DALL·E 2'];
-      if (p === 'stability') return ['SD3 Medium', 'SDXL 1.0', 'SD 1.6'];
-      return [];
-    }
-    
     const providers = ['OpenAI', 'Claude', 'Gemini', 'Grok', 'Local AI', 'Image AI'];
     const currentProvider = cfg.provider || '';
     const models = currentProvider ? modelOptions(currentProvider) : [];
-    
-    // Image providers (will be populated from storage)
-    var imageProviders = [];
-    var currentImageProvider = cfg.imageProvider || '';
-    var currentImageModel = cfg.imageModel || '';
     
     // Defensive check: ensure providers array exists
     if (!providers || !Array.isArray(providers) || providers.length === 0) {
@@ -237,29 +219,6 @@ if (window.gridScriptLoaded) {
         '<button id="gs-finetune" style="background:transparent;border:0;color:#2563eb;text-decoration:underline;cursor:pointer;padding:0;font-size:12px">Finetune Model</button>' +
         '<div id="gs-finetune-fb" style="display:none;margin-top:6px;background:#fee2e2;color:#b91c1c;padding:6px 8px;border-radius:6px;font-size:12px">Finetuning is not available for this Model</div>' +
       '</div>' +
-      
-      // Image Generation Section
-      '<div style="margin-top:16px;padding-top:16px;border-top:1px solid #e5e7eb">' +
-        '<label style="display:block;margin-bottom:8px;font-weight:700;color:#1e3a5f;font-size:14px">🖼️ Image Generation (Optional)</label>' +
-        '<div id="gs-image-section" style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:8px">' +
-          '<div>' +
-            '<label style="display:block;margin-bottom:8px;font-weight:600;color:#444;font-size:14px">Image Provider</label>' +
-            '<select id="gs-image-provider" style="width:100%;padding:12px;border:2px solid #ddd;border-radius:8px;font-size:14px;cursor:pointer;transition:border-color 0.2s">' +
-              '<option value="">None (No image generation)</option>' +
-            '</select>' +
-          '</div>' +
-          '<div>' +
-            '<label style="display:block;margin-bottom:8px;font-weight:600;color:#444;font-size:14px">Image Model</label>' +
-            '<select id="gs-image-model" style="width:100%;padding:12px;border:2px solid #ddd;border-radius:8px;font-size:14px;cursor:pointer;transition:border-color 0.2s" disabled>' +
-              '<option value="" selected disabled>Select provider first</option>' +
-            '</select>' +
-          '</div>' +
-        '</div>' +
-        '<div id="gs-image-notice" style="display:none;margin-top:6px;background:#fef3c7;color:#92400e;padding:8px 10px;border-radius:6px;font-size:11px">' +
-          '⚠️ No image providers configured. <a href="#" id="gs-configure-images" style="color:#1d4ed8">Configure in Backend Settings</a>' +
-        '</div>' +
-      '</div>' +
-      
       '<div style="margin-top:8px;margin-bottom:14px;padding:12px;background:#f5f5f5;border-radius:8px;font-size:12px;color:#666">' +
         '<strong>Note:</strong> If no agent or LLM is selected, this box will use the global "Setup AI Agent" settings as fallback.' +
       '</div>' +
@@ -351,75 +310,7 @@ if (window.gridScriptLoaded) {
         console.log('✅ POPUP: Provider change handler attached');
       }
       
-      // Load and setup image providers
-      var imageProviderSelect = document.getElementById('gs-image-provider');
-      var imageModelSelect = document.getElementById('gs-image-model');
-      var imageNotice = document.getElementById('gs-image-notice');
-      
-      // Load image providers from chrome storage (cloud APIs only)
-      if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
-        chrome.storage.local.get(['imageProviders'], function(result) {
-          var imgConfig = result.imageProviders || { cloud: [] };
-          var availableProviders = [];
-          
-          // Collect enabled cloud providers only (local engines not supported for security)
-          (imgConfig.cloud || []).forEach(function(provider) {
-            if (provider.enabled && provider.status === 'connected') {
-              availableProviders.push({
-                id: provider.id,
-                name: provider.displayName,
-                type: 'cloud'
-              });
-            }
-          });
-          
-          console.log('🖼️ POPUP: Available image providers:', availableProviders);
-          
-          if (imageProviderSelect) {
-            if (availableProviders.length === 0) {
-              // Show notice if no providers configured
-              if (imageNotice) {
-                imageNotice.style.display = 'block';
-              }
-            } else {
-// Populate image provider dropdown (cloud APIs only)
-            imageProviderSelect.innerHTML = '<option value="">None (No image generation)</option>' +
-              availableProviders.map(function(p) {
-                var selected = (cfg.imageProvider === p.id) ? ' selected' : '';
-                return '<option value="' + p.id + '"' + selected + '>☁️ ' + p.name + '</option>';
-              }).join('');
-              
-              // If there's a current image provider, populate the model dropdown
-              if (cfg.imageProvider && imageModelSelect) {
-                var imgModels = imageModelOptions(cfg.imageProvider);
-                imageModelSelect.innerHTML = imgModels.map(function(m) {
-                  var selected = (cfg.imageModel === m) ? ' selected' : '';
-                  return '<option value="' + m + '"' + selected + '>' + m + '</option>';
-                }).join('');
-                imageModelSelect.disabled = false;
-              }
-            }
-            
-            // Handle image provider change
-            imageProviderSelect.onchange = function() {
-              var selectedProvider = this.value;
-              if (imageModelSelect) {
-                if (selectedProvider) {
-                  var imgModels = imageModelOptions(selectedProvider);
-                  imageModelSelect.innerHTML = imgModels.map(function(m) {
-                    return '<option value="' + m + '">' + m + '</option>';
-                  }).join('');
-                  imageModelSelect.disabled = false;
-                } else {
-                  imageModelSelect.innerHTML = '<option value="" selected disabled>Select provider first</option>';
-                  imageModelSelect.disabled = true;
-                }
-              }
-            };
-          }
-        });
-      }
-    }, 100);
+      }, 100);
     
     // Only calculate next box number for NEW boxes (not when editing existing ones)
     if (!isEditing) {
@@ -580,12 +471,6 @@ if (window.gridScriptLoaded) {
       var provider = document.getElementById('gs-provider').value;
       var model = document.getElementById('gs-model').value;
       
-      // Image generation settings
-      var imageProviderEl = document.getElementById('gs-image-provider');
-      var imageModelEl = document.getElementById('gs-image-model');
-      var imageProvider = imageProviderEl ? imageProviderEl.value : '';
-      var imageModel = imageModelEl ? imageModelEl.value : '';
-      
       var agent = agentNum ? ('agent' + agentNum) : '';
       var agentNumParsed = agent ? parseInt(agent.replace('agent', '')) : 0;
       
@@ -606,8 +491,6 @@ if (window.gridScriptLoaded) {
         agent: agent, 
         provider: provider, 
         model: model,
-        imageProvider: imageProvider,  // Image generation provider
-        imageModel: imageModel,        // Image generation model/preset
         boxNumber: effectiveBoxNumber,  // Use effectiveBoxNumber (preserves existing for edits)
         agentNumber: agentNumParsed,
         identifier: 'AB' + String(effectiveBoxNumber).padStart(2, '0') + String(agentNumParsed).padStart(2, '0'),
