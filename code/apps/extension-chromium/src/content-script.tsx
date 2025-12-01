@@ -3778,6 +3778,18 @@ function initializeExtension() {
                   console.log(`✅ VERIFIED: ${configType} successfully saved to session for ${agentKey}`)
 
                   console.log(`📏 Saved data size: ${savedAgent.config[configType].length} characters`)
+                  
+                  // Parse and log critical fields for debugging
+                  try {
+                    const parsed = JSON.parse(savedAgent.config[configType])
+                    console.log(`🔍 VERIFY - Unified triggers: ${parsed.listening?.unifiedTriggers?.length || 0}`)
+                    console.log(`🔍 VERIFY - R.applyFor: ${parsed.reasoning?.applyFor}`)
+                    console.log(`🔍 VERIFY - R.applyForList: ${JSON.stringify(parsed.reasoning?.applyForList)}`)
+                    console.log(`🔍 VERIFY - E.applyFor: ${parsed.execution?.applyFor}`)
+                    console.log(`🔍 VERIFY - E.applyForList: ${JSON.stringify(parsed.execution?.applyForList)}`)
+                  } catch (e) {
+                    console.warn('Could not parse saved data for verification')
+                  }
 
                 } else {
 
