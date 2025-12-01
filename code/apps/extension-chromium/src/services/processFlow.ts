@@ -32,6 +32,9 @@ import {
   type EventTagRoutingResult
 } from '../automation'
 
+// Re-export types needed by sidepanel
+export type { EventTagRoutingBatch, EventTagRoutingResult }
+
 // =============================================================================
 // New Automation System Integration
 // =============================================================================
