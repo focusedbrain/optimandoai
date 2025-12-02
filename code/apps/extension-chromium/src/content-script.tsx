@@ -26439,19 +26439,31 @@ ${pageText}
 
       ">
 
-        <div style="
+        <div id="miniapp-edit-container" style="
 
           background: linear-gradient(135deg, #1e3a5f 0%, #2d5a87 100%);
 
           border-radius: 16px;
 
-          width: 90%;
+          width: 95%;
 
-          max-width: 600px;
+          max-width: 1100px;
 
           color: white;
 
           box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+
+          height: 70vh;
+
+          min-height: 400px;
+
+          max-height: 95vh;
+
+          display: flex;
+
+          flex-direction: column;
+
+          position: relative;
 
         ">
 
@@ -26469,101 +26481,85 @@ ${pageText}
 
           </div>
 
-          <div style="padding: 20px;">
+          <div style="display: flex; flex: 1; overflow: hidden;">
 
-            <input type="hidden" id="edit-miniapp-id">
+            <!-- Left Panel: Form -->
 
-            <input type="hidden" id="edit-miniapp-display-id">
+            <div style="flex: 1; padding: 20px; overflow-y: auto; border-right: 1px solid rgba(255,255,255,0.15);">
 
-            <div style="margin-bottom: 16px;">
+              <input type="hidden" id="edit-miniapp-id">
 
-              <label style="display: block; margin-bottom: 8px; font-size: 14px; color: #FFD700; font-weight: bold;">📌 Mini-App Title</label>
+              <input type="hidden" id="edit-miniapp-display-id">
 
-              <input id="edit-title" type="text" style="
+              <div style="margin-bottom: 16px;">
 
-                width: 100%;
+                <label style="display: block; margin-bottom: 8px; font-size: 14px; color: #FFD700; font-weight: bold;">📌 Mini-App Title</label>
 
-                padding: 12px;
+                <input id="edit-title" type="text" style="
 
-                background: rgba(255,255,255,0.1);
+                  width: 100%;
 
-                border: 1px solid rgba(255,255,255,0.3);
-
-                border-radius: 8px;
-
-                color: white;
-
-                font-size: 14px;
-
-                box-sizing: border-box;
-
-              ">
-
-            </div>
-
-            <div style="margin-bottom: 20px;">
-
-              <label style="display: block; margin-bottom: 8px; font-size: 14px; color: #FFD700; font-weight: bold;">📝 Description</label>
-
-              <textarea id="edit-description" style="
-
-                width: 100%;
-
-                height: 200px;
-
-                padding: 12px;
-
-                background: rgba(255,255,255,0.1);
-
-                border: 1px solid rgba(255,255,255,0.3);
-
-                border-radius: 8px;
-
-                color: white;
-
-                font-size: 14px;
-
-                resize: vertical;
-
-                line-height: 1.5;
-
-                box-sizing: border-box;
-
-              "></textarea>
-
-            </div>
-
-            <div style="display: flex; gap: 12px; justify-content: space-between;">
-
-              <button id="delete-miniapp" style="
-
-                padding: 10px 20px;
-
-                background: rgba(239, 68, 68, 0.3);
-
-                border: 1px solid rgba(239, 68, 68, 0.5);
-
-                color: #fca5a5;
-
-                border-radius: 6px;
-
-                cursor: pointer;
-
-                font-size: 13px;
-
-              ">🗑️ Delete</button>
-
-              <div style="display: flex; gap: 12px;">
-
-                <button id="cancel-edit" style="
-
-                  padding: 10px 20px;
+                  padding: 12px;
 
                   background: rgba(255,255,255,0.1);
 
                   border: 1px solid rgba(255,255,255,0.3);
 
+                  border-radius: 8px;
+
                   color: white;
+
+                  font-size: 14px;
+
+                  box-sizing: border-box;
+
+                ">
+
+              </div>
+
+              <div style="margin-bottom: 20px;">
+
+                <label style="display: block; margin-bottom: 8px; font-size: 14px; color: #FFD700; font-weight: bold;">📝 Description</label>
+
+                <textarea id="edit-description" style="
+
+                  width: 100%;
+
+                  height: 180px;
+
+                  padding: 12px;
+
+                  background: rgba(255,255,255,0.1);
+
+                  border: 1px solid rgba(255,255,255,0.3);
+
+                  border-radius: 8px;
+
+                  color: white;
+
+                  font-size: 14px;
+
+                  resize: vertical;
+
+                  line-height: 1.5;
+
+                  box-sizing: border-box;
+
+                "></textarea>
+
+              </div>
+
+              <div style="display: flex; gap: 12px; justify-content: space-between;">
+
+                <button id="delete-miniapp" style="
+
+                  padding: 10px 20px;
+
+                  background: rgba(239, 68, 68, 0.3);
+
+                  border: 1px solid rgba(239, 68, 68, 0.5);
+
+                  color: #fca5a5;
 
                   border-radius: 6px;
 
@@ -26571,13 +26567,67 @@ ${pageText}
 
                   font-size: 13px;
 
-                ">Cancel</button>
+                ">🗑️ Delete</button>
 
-                <button id="update-miniapp" style="
+                <div style="display: flex; gap: 12px;">
 
-                  padding: 10px 20px;
+                  <button id="cancel-edit" style="
 
-                  background: linear-gradient(135deg, #4CAF50, #45a049);
+                    padding: 10px 20px;
+
+                    background: rgba(255,255,255,0.1);
+
+                    border: 1px solid rgba(255,255,255,0.3);
+
+                    color: white;
+
+                    border-radius: 6px;
+
+                    cursor: pointer;
+
+                    font-size: 13px;
+
+                  ">Cancel</button>
+
+                  <button id="update-miniapp" style="
+
+                    padding: 10px 20px;
+
+                    background: linear-gradient(135deg, #4CAF50, #45a049);
+
+                    border: none;
+
+                    color: white;
+
+                    border-radius: 6px;
+
+                    cursor: pointer;
+
+                    font-size: 13px;
+
+                    font-weight: bold;
+
+                  ">💾 Update</button>
+
+                </div>
+
+              </div>
+
+            </div>
+
+            <!-- Right Panel: Test Frame -->
+
+            <div style="width: 450px; flex-shrink: 0; padding: 20px; display: flex; flex-direction: column; background: rgba(0,0,0,0.15);">
+
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+
+                <h4 style="margin: 0; font-size: 15px; color: #90EE90;">🧪 Test Frame</h4>
+
+                <button id="run-miniapp-test" style="
+
+                  padding: 8px 16px;
+
+                  background: linear-gradient(135deg, #8B5CF6, #7C3AED);
 
                   border: none;
 
@@ -26587,15 +26637,95 @@ ${pageText}
 
                   cursor: pointer;
 
-                  font-size: 13px;
+                  font-size: 12px;
 
                   font-weight: bold;
 
-                ">💾 Update</button>
+                  display: flex;
+
+                  align-items: center;
+
+                  gap: 6px;
+
+                ">▶️ Run Test</button>
+
+              </div>
+
+              <div id="miniapp-test-output" style="
+
+                flex: 1;
+
+                background: rgba(0,0,0,0.3);
+
+                border: 1px solid rgba(255,255,255,0.1);
+
+                border-radius: 8px;
+
+                padding: 16px;
+
+                font-family: 'Consolas', 'Monaco', monospace;
+
+                font-size: 12px;
+
+                color: rgba(255,255,255,0.7);
+
+                overflow-y: auto;
+
+                min-height: 200px;
+
+              ">
+
+                <div style="color: rgba(255,255,255,0.4); text-align: center; padding: 40px 20px;">
+
+                  <div style="font-size: 32px; margin-bottom: 12px;">🔬</div>
+
+                  <div>Click "Run Test" to execute this mini-app</div>
+
+                  <div style="margin-top: 8px; font-size: 11px;">Test output will appear here</div>
+
+                </div>
+
+              </div>
+
+              <div style="margin-top: 12px; padding: 10px; background: rgba(255,255,255,0.05); border-radius: 6px; font-size: 11px; color: rgba(255,255,255,0.5);">
+
+                💡 <strong>Tip:</strong> Test your mini-app with sample data to verify it works correctly before using it on real pages.
 
               </div>
 
             </div>
+
+          </div>
+
+          <!-- Resize Handle -->
+
+          <div id="miniapp-resize-handle" style="
+
+            position: absolute;
+
+            bottom: 0;
+
+            left: 50%;
+
+            transform: translateX(-50%);
+
+            width: 60px;
+
+            height: 8px;
+
+            cursor: ns-resize;
+
+            display: flex;
+
+            align-items: center;
+
+            justify-content: center;
+
+            border-radius: 0 0 16px 16px;
+
+          ">
+
+            <div style="width: 40px; height: 4px; background: rgba(255,255,255,0.3); border-radius: 2px;"></div>
 
           </div>
 
@@ -26965,6 +27095,138 @@ ${pageText}
 
     
 
+    // Run Test button
+
+    overlay.querySelector('#run-miniapp-test')?.addEventListener('click', () => {
+
+      const testOutput = overlay.querySelector('#miniapp-test-output') as HTMLElement
+
+      const editTitle = overlay.querySelector('#edit-title') as HTMLInputElement
+
+      const editDesc = overlay.querySelector('#edit-description') as HTMLTextAreaElement
+
+      
+
+      if (testOutput) {
+
+        const title = editTitle?.value || 'Untitled'
+
+        const desc = editDesc?.value || 'No description'
+
+        const timestamp = new Date().toLocaleTimeString()
+
+        const shortDesc = desc.length > 200 ? desc.slice(0, 200) + '...' : desc
+
+        
+
+        testOutput.innerHTML = 
+
+          '<div style="color: #90EE90; margin-bottom: 12px;">' +
+
+            '<span style="color: rgba(255,255,255,0.5);">[</span>' + timestamp + '<span style="color: rgba(255,255,255,0.5);">]</span> 🚀 Starting test...' +
+
+          '</div>' +
+
+          '<div style="color: #FFD700; margin-bottom: 8px;">' +
+
+            '📱 Mini-App: <strong>' + title + '</strong>' +
+
+          '</div>' +
+
+          '<div style="color: rgba(255,255,255,0.6); margin-bottom: 12px; padding: 10px; background: rgba(0,0,0,0.2); border-radius: 4px; font-size: 11px;">' +
+
+            shortDesc +
+
+          '</div>' +
+
+          '<div style="color: #8B5CF6; margin-bottom: 8px;">' +
+
+            '⏳ Processing...' +
+
+          '</div>' +
+
+          '<div style="color: rgba(255,255,255,0.4); font-style: italic; margin-top: 16px; padding-top: 12px; border-top: 1px solid rgba(255,255,255,0.1);">' +
+
+            '💡 Test functionality will be integrated in a future update.' +
+
+          '</div>'
+
+      }
+
+    })
+
+    
+
+    // Resize handle functionality
+
+    const resizeHandle = overlay.querySelector('#miniapp-resize-handle') as HTMLElement
+
+    const editContainer = overlay.querySelector('#miniapp-edit-container') as HTMLElement
+
+    
+
+    if (resizeHandle && editContainer) {
+
+      let isResizing = false
+
+      let startY = 0
+
+      let startHeight = 0
+
+      
+
+      resizeHandle.addEventListener('mousedown', (e: MouseEvent) => {
+
+        isResizing = true
+
+        startY = e.clientY
+
+        startHeight = editContainer.offsetHeight
+
+        document.body.style.cursor = 'ns-resize'
+
+        document.body.style.userSelect = 'none'
+
+        e.preventDefault()
+
+      })
+
+      
+
+      document.addEventListener('mousemove', (e: MouseEvent) => {
+
+        if (!isResizing) return
+
+        
+
+        const deltaY = e.clientY - startY
+
+        const newHeight = Math.min(Math.max(startHeight + deltaY, 400), window.innerHeight * 0.95)
+
+        editContainer.style.height = newHeight + 'px'
+
+      })
+
+      
+
+      document.addEventListener('mouseup', () => {
+
+        if (isResizing) {
+
+          isResizing = false
+
+          document.body.style.cursor = ''
+
+          document.body.style.userSelect = ''
+
+        }
+
+      })
+
+    }
+
+    
+
     // Add hover effects
 
     const style = document.createElement('style')
@@ -26992,6 +27254,14 @@ ${pageText}
         background: rgba(255,80,80,0.4) !important;
 
         border-color: rgba(255,80,80,0.6) !important;
+
+      }
+
+      #miniapp-resize-handle:hover div {
+
+        background: rgba(255,255,255,0.5) !important;
+
+        width: 50px !important;
 
       }
 
