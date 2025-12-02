@@ -12180,13 +12180,23 @@ function initializeExtension() {
                 }
                 if (type === 'workflow_condition' || type === 'tag_and_condition') {
                   trigger.workflowId = row.querySelector('.trigger-workflow')?.value || ''
-                  const condRows = row.querySelectorAll('.trigger-conditions > div')
+                  // Collect conditions with their types (boolean, tag, signal)
+                  const condRows = row.querySelectorAll('.trigger-conditions .condition-row')
                   const conditions: any[] = []
                   condRows.forEach((cr: any) => {
-                    const field = cr.querySelector('.cond-field')?.value || ''
-                    const op = cr.querySelector('.cond-op')?.value || 'eq'
-                    const value = cr.querySelector('.cond-value')?.value || ''
-                    if (field.trim()) conditions.push({ field, op, value })
+                    const conditionType = cr.querySelector('.cond-type')?.value || 'boolean'
+                    if (conditionType === 'boolean') {
+                      const field = cr.querySelector('.cond-field')?.value || ''
+                      const op = cr.querySelector('.cond-op')?.value || 'eq'
+                      const value = cr.querySelector('.cond-value')?.value || ''
+                      if (field.trim()) conditions.push({ conditionType, field, op, value })
+                    } else if (conditionType === 'tag') {
+                      const tag = cr.querySelector('.cond-tag')?.value?.trim() || ''
+                      if (tag) conditions.push({ conditionType, tag: tag.startsWith('#') ? tag : `#${tag}` })
+                    } else if (conditionType === 'signal') {
+                      const signal = cr.querySelector('.cond-signal')?.value?.trim() || ''
+                      if (signal) conditions.push({ conditionType, signal })
+                    }
                   })
                   if (conditions.length > 0) trigger.conditions = conditions
                 }
@@ -13477,13 +13487,23 @@ function initializeExtension() {
               }
               if (type === 'workflow_condition' || type === 'tag_and_condition') {
                 trigger.workflowId = row.querySelector('.trigger-workflow')?.value || ''
-                const condRows = row.querySelectorAll('.trigger-conditions > div')
+                // Collect conditions with their types (boolean, tag, signal)
+                const condRows = row.querySelectorAll('.trigger-conditions .condition-row')
                 const conditions: any[] = []
                 condRows.forEach((cr: any) => {
-                  const field = cr.querySelector('.cond-field')?.value || ''
-                  const op = cr.querySelector('.cond-op')?.value || 'eq'
-                  const value = cr.querySelector('.cond-value')?.value || ''
-                  if (field.trim()) conditions.push({ field, op, value })
+                  const conditionType = cr.querySelector('.cond-type')?.value || 'boolean'
+                  if (conditionType === 'boolean') {
+                    const field = cr.querySelector('.cond-field')?.value || ''
+                    const op = cr.querySelector('.cond-op')?.value || 'eq'
+                    const value = cr.querySelector('.cond-value')?.value || ''
+                    if (field.trim()) conditions.push({ conditionType, field, op, value })
+                  } else if (conditionType === 'tag') {
+                    const tag = cr.querySelector('.cond-tag')?.value?.trim() || ''
+                    if (tag) conditions.push({ conditionType, tag: tag.startsWith('#') ? tag : `#${tag}` })
+                  } else if (conditionType === 'signal') {
+                    const signal = cr.querySelector('.cond-signal')?.value?.trim() || ''
+                    if (signal) conditions.push({ conditionType, signal })
+                  }
                 })
                 if (conditions.length > 0) trigger.conditions = conditions
               }
@@ -15853,43 +15873,107 @@ function initializeExtension() {
               `
               fieldsContainer.appendChild(wfRow)
               
-              // Conditions section
+              // Conditions section with condition type selector
               const condSection = document.createElement('div')
-              condSection.style.cssText = 'margin-top:8px;padding:8px;background:rgba(255,255,255,0.03);border-radius:6px;border:1px dashed rgba(255,255,255,0.15)'
+              condSection.className = 'workflow-conditions-section'
+              condSection.style.cssText = 'margin-top:10px;padding:10px;background:rgba(255,255,255,0.03);border-radius:8px;border:1px solid rgba(255,255,255,0.15)'
               condSection.innerHTML = `
-                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
-                  <span style="font-size:12px;color:rgba(255,255,255,0.9)">Conditions (when to activate)</span>
-                  <button class="add-condition-btn" style="background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.25);color:#fff;padding:3px 8px;border-radius:4px;cursor:pointer;font-size:11px">+ Condition</button>
+                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+                  <span style="font-size:12px;color:rgba(255,255,255,0.9);font-weight:600">Conditions (when to activate)</span>
+                  <button class="add-condition-btn" style="background:rgba(96,165,250,.3);border:1px solid rgba(96,165,250,.5);color:#fff;padding:4px 10px;border-radius:4px;cursor:pointer;font-size:11px;font-weight:500">+ Add Condition</button>
                 </div>
-                <div class="trigger-conditions" style="display:flex;flex-direction:column;gap:6px"></div>
+                <div class="trigger-conditions" style="display:flex;flex-direction:column;gap:8px"></div>
               `
               fieldsContainer.appendChild(condSection)
               
               // Add condition button handler
               const addCondBtn = condSection.querySelector('.add-condition-btn') as HTMLButtonElement
               const condList = condSection.querySelector('.trigger-conditions') as HTMLElement
-              addCondBtn?.addEventListener('click', () => {
+              
+              const createConditionRow = (initCond?: { conditionType?: string, field?: string, op?: string, value?: string, tag?: string, signal?: string }) => {
                 const condRow = document.createElement('div')
-                condRow.style.cssText = 'display:flex;gap:4px;align-items:center'
+                condRow.className = 'condition-row'
+                condRow.style.cssText = 'background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:6px;padding:8px'
+                
+                const condType = initCond?.conditionType || 'boolean'
+                
                 condRow.innerHTML = `
-                  <input type="text" placeholder="field" style="flex:1;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.35);color:#fff;padding:4px 6px;border-radius:4px;font-size:11px" class="cond-field">
-                  <select style="background:#fff;color:#0f172a;border:1px solid #cbd5e1;padding:4px;border-radius:4px;font-size:11px" class="cond-op">
-                    <option value="eq">equals</option>
-                    <option value="ne">not equals</option>
-                    <option value="contains">contains</option>
-                    <option value="gt">&gt;</option>
-                    <option value="lt">&lt;</option>
-                    <option value="exists">exists</option>
-                  </select>
-                  <input type="text" placeholder="value" style="flex:1;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.35);color:#fff;padding:4px 6px;border-radius:4px;font-size:11px" class="cond-value">
-                  <button style="background:#ef4444;border:none;color:#fff;padding:2px 6px;border-radius:4px;cursor:pointer;font-size:11px" onclick="this.parentElement.remove()">×</button>
+                  <div style="display:flex;gap:6px;align-items:center;margin-bottom:6px">
+                    <select class="cond-type" style="background:#fff;color:#0f172a;border:1px solid #cbd5e1;padding:5px 8px;border-radius:4px;font-size:11px;font-weight:500">
+                      <option value="boolean" ${condType === 'boolean' ? 'selected' : ''}>Boolean Condition</option>
+                      <option value="tag" ${condType === 'tag' ? 'selected' : ''}>Tag Detection</option>
+                      <option value="signal" ${condType === 'signal' ? 'selected' : ''}>Workflow Signal</option>
+                    </select>
+                    <button class="remove-cond-btn" style="background:#ef4444;border:none;color:#fff;padding:4px 8px;border-radius:4px;cursor:pointer;font-size:11px;margin-left:auto">×</button>
+                  </div>
+                  <div class="cond-fields" style="display:flex;gap:4px;align-items:center"></div>
                 `
-                condList.appendChild(condRow)
+                
+                const condTypeSelect = condRow.querySelector('.cond-type') as HTMLSelectElement
+                const condFields = condRow.querySelector('.cond-fields') as HTMLElement
+                const removeBtn = condRow.querySelector('.remove-cond-btn') as HTMLButtonElement
+                
+                removeBtn.addEventListener('click', () => condRow.remove())
+                
+                const renderConditionFields = (type: string) => {
+                  condFields.innerHTML = ''
+                  
+                  if (type === 'boolean') {
+                    // Boolean Condition: field + operator + value
+                    condFields.innerHTML = `
+                      <input type="text" placeholder="field" value="${initCond?.field || ''}" style="flex:1;background:rgba(255,255,255,.85);border:1px solid rgba(255,255,255,.5);color:#1e293b;padding:5px 8px;border-radius:4px;font-size:11px" class="cond-field">
+                      <select style="background:#fff;color:#0f172a;border:1px solid #cbd5e1;padding:5px 6px;border-radius:4px;font-size:11px;min-width:100px" class="cond-op">
+                        <option value="eq" ${initCond?.op === 'eq' ? 'selected' : ''}>equals</option>
+                        <option value="contains" ${initCond?.op === 'contains' ? 'selected' : ''}>contains</option>
+                        <option value="startsWith" ${initCond?.op === 'startsWith' ? 'selected' : ''}>startsWith</option>
+                        <option value="endsWith" ${initCond?.op === 'endsWith' ? 'selected' : ''}>endsWith</option>
+                        <option value="regex" ${initCond?.op === 'regex' ? 'selected' : ''}>matches regex</option>
+                        <option value="gt" ${initCond?.op === 'gt' ? 'selected' : ''}>number &gt;</option>
+                        <option value="gte" ${initCond?.op === 'gte' ? 'selected' : ''}>number &gt;=</option>
+                        <option value="lt" ${initCond?.op === 'lt' ? 'selected' : ''}>number &lt;</option>
+                        <option value="lte" ${initCond?.op === 'lte' ? 'selected' : ''}>number &lt;=</option>
+                        <option value="isTrue" ${initCond?.op === 'isTrue' ? 'selected' : ''}>is true</option>
+                        <option value="isFalse" ${initCond?.op === 'isFalse' ? 'selected' : ''}>is false</option>
+                      </select>
+                      <input type="text" placeholder="value" value="${initCond?.value || ''}" style="flex:1;background:rgba(255,255,255,.85);border:1px solid rgba(255,255,255,.5);color:#1e293b;padding:5px 8px;border-radius:4px;font-size:11px" class="cond-value">
+                    `
+                  } else if (type === 'tag') {
+                    // Tag Detection: just tag input with # prefix
+                    condFields.innerHTML = `
+                      <span style="background:rgba(96,165,250,.2);border:1px solid rgba(96,165,250,.4);padding:5px 10px;border-radius:4px;font-weight:700;color:#60a5fa">#</span>
+                      <input type="text" placeholder="tagname" value="${initCond?.tag?.replace('#', '') || ''}" style="flex:1;background:rgba(255,255,255,.85);border:1px solid rgba(255,255,255,.5);color:#1e293b;padding:5px 8px;border-radius:4px;font-size:11px" class="cond-tag">
+                      <span style="font-size:10px;color:rgba(255,255,255,0.6);margin-left:4px">Fires when tag is detected in content</span>
+                    `
+                  } else if (type === 'signal') {
+                    // Workflow Signal: just signal name input
+                    condFields.innerHTML = `
+                      <span style="background:rgba(168,85,247,.2);border:1px solid rgba(168,85,247,.4);padding:5px 10px;border-radius:4px;font-weight:700;color:#a855f7">⚡</span>
+                      <input type="text" placeholder="signal_name" value="${initCond?.signal || ''}" style="flex:1;background:rgba(255,255,255,.85);border:1px solid rgba(255,255,255,.5);color:#1e293b;padding:5px 8px;border-radius:4px;font-size:11px" class="cond-signal">
+                      <span style="font-size:10px;color:rgba(255,255,255,0.6);margin-left:4px">Fires when workflow emits this signal</span>
+                    `
+                  }
+                }
+                
+                // Render initial fields
+                renderConditionFields(condType)
+                
+                // Update fields when type changes
+                condTypeSelect.addEventListener('change', () => {
+                  renderConditionFields(condTypeSelect.value)
+                })
+                
+                return condRow
+              }
+              
+              addCondBtn?.addEventListener('click', () => {
+                condList.appendChild(createConditionRow())
               })
               
               // Restore conditions if any
               if (init?.conditions && init.conditions.length > 0) {
-                init.conditions.forEach((c: any) => addCondBtn?.click())
+                init.conditions.forEach((c: any) => {
+                  condList.appendChild(createConditionRow(c))
+                })
               }
             }
             
@@ -16084,7 +16168,9 @@ function initializeExtension() {
           }, 100)
           
           // Update fields when type changes
-          typeSel.addEventListener('change', () => renderFieldsForType(typeSel.value))
+          typeSel.addEventListener('change', () => {
+            renderFieldsForType(typeSel.value)
+          })
           
           // ========== SENSOR WORKFLOWS (Pre-processing) ==========
           const sensorSection = document.createElement('div')
@@ -16127,6 +16213,12 @@ function initializeExtension() {
           addActionBtn?.addEventListener('click', () => {
             actionsList.appendChild(createTriggerWorkflowRow('action'))
           })
+          
+          // ========== HIDE WORKFLOW SECTIONS ==========
+          // Sensor Workflows and Allowed Actions are hidden for all trigger types
+          // since these belong in the Reasoning section, not per-trigger in Listener
+          sensorSection.style.display = 'none'
+          actionsSection.style.display = 'none'
           
           // ========== SAVE BUTTON AT BOTTOM OF TRIGGER ==========
           const bottomSaveRow = document.createElement('div')
@@ -18185,6 +18277,9 @@ function initializeExtension() {
                         const wfInput = row.querySelector('.trigger-workflow') as HTMLInputElement
                         if (wfInput) wfInput.value = trigger.workflowId
                       }
+                      
+                      // Restore conditions (handled by createConditionRow in renderFieldsForType)
+                      // The conditions are passed via init parameter when makeUnifiedTriggerRow is called
                       
                       // Restore UI event fields
                       if (trigger.domSelector) {
@@ -20719,6 +20814,28 @@ function initializeExtension() {
             trigger.workflowId = row.querySelector('.trigger-workflow')?.value || ''
             trigger.selector = row.querySelector('.trigger-selector')?.value || ''
             trigger.command = row.querySelector('.trigger-command')?.value || ''
+            
+            // Collect workflow conditions with their types (boolean, tag, signal)
+            if (type === 'workflow_condition' || type === 'tag_and_condition') {
+              const condRows = row.querySelectorAll('.trigger-conditions .condition-row')
+              const conditions: any[] = []
+              condRows.forEach((cr: any) => {
+                const conditionType = cr.querySelector('.cond-type')?.value || 'boolean'
+                if (conditionType === 'boolean') {
+                  const field = cr.querySelector('.cond-field')?.value || ''
+                  const op = cr.querySelector('.cond-op')?.value || 'eq'
+                  const value = cr.querySelector('.cond-value')?.value || ''
+                  if (field.trim()) conditions.push({ conditionType, field, op, value })
+                } else if (conditionType === 'tag') {
+                  const tag = cr.querySelector('.cond-tag')?.value?.trim() || ''
+                  if (tag) conditions.push({ conditionType, tag: tag.startsWith('#') ? tag : `#${tag}` })
+                } else if (conditionType === 'signal') {
+                  const signal = cr.querySelector('.cond-signal')?.value?.trim() || ''
+                  if (signal) conditions.push({ conditionType, signal })
+                }
+              })
+              if (conditions.length > 0) trigger.conditions = conditions
+            }
             
             // Collect sensor workflows for this trigger
             const sensorWorkflows: any[] = []
