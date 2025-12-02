@@ -25989,17 +25989,11 @@ ${pageText}
 
         ">
 
-          <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 10px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
 
-            <div style="display: flex; align-items: center; gap: 10px;">
+            <h3 style="margin: 0; font-size: 16px; color: #FFD700; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding-right: 10px;">${app.title}</h3>
 
-              <span style="background: rgba(255,255,255,0.2); padding: 4px 8px; border-radius: 4px; font-size: 11px; font-weight: bold; color: #90EE90;">${app.displayId}</span>
-
-              <h3 style="margin: 0; font-size: 16px; color: #FFD700;">${app.title}</h3>
-
-            </div>
-
-            <div style="display: flex; align-items: center; gap: 8px;">
+            <div style="display: flex; align-items: center; gap: 8px; flex-shrink: 0;">
 
               <button class="edit-miniapp-btn" data-id="${app.id}" style="
 
@@ -26017,6 +26011,12 @@ ${pageText}
 
                 font-size: 11px;
 
+                height: 26px;
+
+                display: flex;
+
+                align-items: center;
+
               ">✏️ Edit</button>
 
               <button class="delete-miniapp-btn" data-id="${app.id}" style="
@@ -26033,9 +26033,15 @@ ${pageText}
 
                 cursor: pointer;
 
-                font-size: 13px;
+                font-size: 12px;
 
-                line-height: 1;
+                height: 26px;
+
+                display: flex;
+
+                align-items: center;
+
+                justify-content: center;
 
               " title="Delete mini-app">✕</button>
 
@@ -26107,9 +26113,11 @@ ${pageText}
 
           </p>
 
-          <div style="margin-top: 10px; font-size: 10px; color: rgba(255,255,255,0.5);">
+          <div style="margin-top: 10px; font-size: 10px; color: rgba(255,255,255,0.5); display: flex; justify-content: space-between; align-items: center;">
 
-            Updated: ${new Date(app.updatedAt).toLocaleDateString()}
+            <span>Updated: ${new Date(app.updatedAt).toLocaleDateString()}</span>
+
+            <span style="background: rgba(255,255,255,0.2); padding: 3px 8px; border-radius: 4px; font-size: 10px; font-weight: bold; color: #90EE90;">${app.displayId}</span>
 
           </div>
 
