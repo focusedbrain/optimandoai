@@ -9790,7 +9790,7 @@ function initializeExtension() {
 
   // This creates a tabbed interface where tabs ALWAYS stay visible
 
-  function openUnifiedAdminLightbox(initialTab: 'agents' | 'context' | 'memory' = 'agents') {
+  function openUnifiedAdminLightbox(initialTab: 'agents' | 'context' | 'memory' | 'miniapps' = 'agents') {
 
     // Remove any existing unified lightbox or individual lightboxes
 
@@ -9801,6 +9801,8 @@ function initializeExtension() {
     document.getElementById('context-lightbox')?.remove()
 
     document.getElementById('memory-lightbox')?.remove()
+
+    document.getElementById('miniapps-lightbox')?.remove()
 
     
 
@@ -9867,6 +9869,10 @@ function initializeExtension() {
     } else if (initialTab === 'memory') {
 
       openMemoryLightboxWithTabs()
+
+    } else if (initialTab === 'miniapps') {
+
+      openMiniAppsLightboxWithTabs()
 
     }
 
@@ -10052,9 +10058,61 @@ function initializeExtension() {
 
   
 
+  function openMiniAppsLightboxWithTabs() {
+
+    openMiniAppsLightboxOriginal()
+
+    
+
+    setTimeout(() => {
+
+      const miniappsLightbox = document.getElementById('miniapps-lightbox')
+
+      if (miniappsLightbox) {
+
+        const innerContainer = miniappsLightbox.querySelector('div[style*="border-radius"]') || miniappsLightbox.querySelector('div')
+
+        if (innerContainer) {
+
+          const unifiedTabs = createUnifiedTabs('miniapps')
+
+          const header = innerContainer.querySelector('div[style*="padding: 20px"]') || innerContainer.firstElementChild
+
+          if (header) {
+
+            if (header.nextSibling) {
+
+              innerContainer.insertBefore(unifiedTabs, header.nextSibling)
+
+            } else {
+
+              innerContainer.appendChild(unifiedTabs)
+
+            }
+
+          } else {
+
+            innerContainer.prepend(unifiedTabs)
+
+          }
+
+        }
+
+      } else {
+
+        console.warn('⚠️ Could not find miniapps-lightbox element')
+
+      }
+
+    }, 50)
+
+  }
+
+  
+
   // Create the unified tabs element
 
-  function createUnifiedTabs(activeTab: 'agents' | 'context' | 'memory') {
+  function createUnifiedTabs(activeTab: 'agents' | 'context' | 'memory' | 'miniapps') {
 
     const safeGradient = (() => {
 
@@ -10100,7 +10158,9 @@ function initializeExtension() {
 
       { id: 'context', label: '📝 Global Context Management' },
 
-      { id: 'memory', label: '🧠 Global Memory Management' }
+      { id: 'memory', label: '🧠 Global Memory Management' },
+
+      { id: 'miniapps', label: '📱 Mini-Apps' }
 
     ]
 
@@ -10137,6 +10197,8 @@ function initializeExtension() {
         document.getElementById('context-lightbox')?.remove()
 
         document.getElementById('memory-lightbox')?.remove()
+
+        document.getElementById('miniapps-lightbox')?.remove()
 
         
 
@@ -11089,6 +11151,14 @@ function initializeExtension() {
 
   
 
+  function openMiniAppsLightboxOriginal() {
+
+    openMiniAppsLightbox()
+
+  }
+
+  
+
   function openAgentsLightbox() {
 
     // Create agents lightbox
@@ -11131,9 +11201,11 @@ function initializeExtension() {
 
       position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
 
-      background: ${safeGradient}; z-index: 2147483649;
+      background: rgba(0,0,0,0.8); z-index: 2147483649;
 
       display: flex; align-items: center; justify-content: center;
+
+      backdrop-filter: blur(5px);
 
     `
 
@@ -25069,15 +25141,17 @@ ${pageText}
 
       position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
 
-      background: rgba(0,0,0,0.8); z-index: 2147483650; display:flex;align-items:center;justify-content:center;
+      background: rgba(0,0,0,0.8); z-index: 2147483649;
 
-      backdrop-filter: blur(6px);
+      display: flex; align-items: center; justify-content: center;
+
+      backdrop-filter: blur(5px);
 
     `
 
     overlay.innerHTML = `
 
-      <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 16px; width: 85vw; max-width: 900px; height: 80vh; color: white; overflow: hidden; box-shadow: 0 20px 40px rgba(0,0,0,0.4); display: flex; flex-direction: column;">
+      <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 16px; width: 90vw; max-width: 1200px; height: 85vh; color: white; overflow: hidden; box-shadow: 0 20px 40px rgba(0,0,0,0.4); display: flex; flex-direction: column;">
 
         <div style="padding: 20px; border-bottom: 1px solid rgba(255,255,255,0.3); display: flex; justify-content: space-between; align-items: center;">
 
@@ -25606,6 +25680,1316 @@ ${pageText}
       ;(drawer.querySelector('#do-embed') as HTMLButtonElement)?.addEventListener('click', ()=>{ SessionsStore.transition(item.id, 'Embedded'); renderSessions(); drawer.remove() })
 
     }
+
+  }
+
+
+
+  // Mini-Apps Lightbox
+
+  function openMiniAppsLightbox() {
+
+    console.log('📱 Opening Mini-Apps Management...')
+
+    
+
+    const sessionKey = getCurrentSessionKey()
+
+    
+
+    // Demo mini-apps data structure
+
+    interface MiniApp {
+
+      id: string
+
+      displayId: string  // MA01-{sessionId}, MA02-{sessionId}, etc.
+
+      title: string
+
+      description: string
+
+      scope: 'session' | 'account'
+
+      createdAt: string
+
+      updatedAt: string
+
+    }
+
+    
+
+    // Get short session ID for display
+
+    const getShortSessionId = (): string => {
+
+      if (!sessionKey) return 'GLB'
+
+      // Extract last 6 chars of session key for brevity
+
+      const match = sessionKey.match(/session_(.+)/)
+
+      if (match) {
+
+        const fullId = match[1]
+
+        return fullId.slice(-6).toUpperCase()
+
+      }
+
+      return sessionKey.slice(-6).toUpperCase()
+
+    }
+
+    
+
+    // Helper to generate next display ID with session identifier
+
+    const getNextDisplayId = (apps: MiniApp[], scope: 'session' | 'account'): string => {
+
+      const prefix = scope === 'account' ? 'ACC' : getShortSessionId()
+
+      const scopedApps = apps.filter(a => a.scope === scope)
+
+      if (scopedApps.length === 0) return `MA01-${prefix}`
+
+      const nums = scopedApps.map(a => {
+
+        const match = a.displayId?.match(/MA(\d+)/)
+
+        return match ? parseInt(match[1], 10) : 0
+
+      })
+
+      const maxNum = Math.max(...nums, 0)
+
+      return `MA${String(maxNum + 1).padStart(2, '0')}-${prefix}`
+
+    }
+
+    
+
+    // Storage keys for session and account mini-apps
+
+    const sessionStorageKey = sessionKey ? `miniapps_session_${sessionKey}` : null
+
+    const accountStorageKey = 'miniapps_account'
+
+    
+
+    // Load mini-apps from both session and account storage
+
+    let miniApps: MiniApp[] = []
+
+    
+
+    // Helper to save mini-apps by scope
+
+    const saveMiniApps = () => {
+
+      const sessionApps = miniApps.filter(a => a.scope === 'session')
+
+      const accountApps = miniApps.filter(a => a.scope === 'account')
+
+      if (sessionStorageKey) {
+
+        localStorage.setItem(sessionStorageKey, JSON.stringify(sessionApps))
+
+      }
+
+      localStorage.setItem(accountStorageKey, JSON.stringify(accountApps))
+
+    }
+
+    
+
+    try {
+
+      // Load session mini-apps
+
+      let sessionMiniApps: MiniApp[] = []
+
+      if (sessionStorageKey) {
+
+        const storedSession = localStorage.getItem(sessionStorageKey)
+
+        if (storedSession) {
+
+          sessionMiniApps = JSON.parse(storedSession)
+
+        }
+
+      }
+
+      
+
+      // Load account mini-apps
+
+      let accountMiniApps: MiniApp[] = []
+
+      const storedAccount = localStorage.getItem(accountStorageKey)
+
+      if (storedAccount) {
+
+        accountMiniApps = JSON.parse(storedAccount)
+
+      }
+
+      
+
+      // Combine both
+
+      miniApps = [...sessionMiniApps, ...accountMiniApps]
+
+      
+
+      // If no mini-apps exist at all, create demos
+
+      if (miniApps.length === 0) {
+
+        const shortId = getShortSessionId()
+
+        // Create demo mini-apps - 2 session-based, 2 account-based
+
+        miniApps = [
+
+          {
+
+            id: 'ma_' + Math.random().toString(36).slice(2),
+
+            displayId: `MA01-${shortId}`,
+
+            title: '📊 Data Analyzer',
+
+            description: 'Analyzes data from tables, charts, and spreadsheets on the page. Extracts key metrics, identifies trends, and provides summary statistics. Perfect for quick data insights.',
+
+            scope: 'session',
+
+            createdAt: new Date().toISOString(),
+
+            updatedAt: new Date().toISOString()
+
+          },
+
+          {
+
+            id: 'ma_' + Math.random().toString(36).slice(2),
+
+            displayId: `MA02-${shortId}`,
+
+            title: '✍️ Content Rewriter',
+
+            description: 'Rewrites selected text in different tones and styles. Supports formal, casual, professional, creative, and concise modes. Maintains the original meaning while improving clarity.',
+
+            scope: 'session',
+
+            createdAt: new Date().toISOString(),
+
+            updatedAt: new Date().toISOString()
+
+          },
+
+          {
+
+            id: 'ma_' + Math.random().toString(36).slice(2),
+
+            displayId: 'MA01-ACC',
+
+            title: '🔍 SEO Checker',
+
+            description: 'Scans the current page for SEO optimization opportunities. Checks meta tags, headings structure, keyword density, image alt texts, and provides actionable recommendations.',
+
+            scope: 'account',
+
+            createdAt: new Date().toISOString(),
+
+            updatedAt: new Date().toISOString()
+
+          },
+
+          {
+
+            id: 'ma_' + Math.random().toString(36).slice(2),
+
+            displayId: 'MA02-ACC',
+
+            title: '📝 Meeting Notes',
+
+            description: 'Formats raw meeting notes into structured documentation. Extracts action items, decisions made, attendees, and next steps. Creates shareable summaries.',
+
+            scope: 'account',
+
+            createdAt: new Date().toISOString(),
+
+            updatedAt: new Date().toISOString()
+
+          }
+
+        ]
+
+        // Save demo apps to appropriate storage
+
+        const sessionApps = miniApps.filter(a => a.scope === 'session')
+
+        const accountApps = miniApps.filter(a => a.scope === 'account')
+
+        if (sessionStorageKey) {
+
+          localStorage.setItem(sessionStorageKey, JSON.stringify(sessionApps))
+
+        }
+
+        localStorage.setItem(accountStorageKey, JSON.stringify(accountApps))
+
+      }
+
+    } catch (e) {
+
+      console.error('Error loading mini-apps:', e)
+
+    }
+
+    
+
+    const overlay = document.createElement('div')
+
+    overlay.id = 'miniapps-lightbox'
+
+    overlay.style.cssText = `
+
+      position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+
+      background: rgba(0,0,0,0.8); z-index: 2147483649;
+
+      display: flex; align-items: center; justify-content: center;
+
+      backdrop-filter: blur(5px);
+
+    `
+
+    
+
+    const renderMiniAppsList = () => {
+
+      return miniApps.map(app => `
+
+        <div class="miniapp-card" data-id="${app.id}" data-display-id="${app.displayId}" data-scope="${app.scope}" style="
+
+          background: rgba(255,255,255,0.1);
+
+          border: 1px solid ${app.scope === 'account' ? 'rgba(255,215,0,0.4)' : 'rgba(255,255,255,0.2)'};
+
+          border-radius: 12px;
+
+          padding: 16px;
+
+          cursor: pointer;
+
+          transition: all 0.2s ease;
+
+        ">
+
+          <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 10px;">
+
+            <div style="display: flex; align-items: center; gap: 10px;">
+
+              <span style="background: rgba(255,255,255,0.2); padding: 4px 8px; border-radius: 4px; font-size: 11px; font-weight: bold; color: #90EE90;">${app.displayId}</span>
+
+              <h3 style="margin: 0; font-size: 16px; color: #FFD700;">${app.title}</h3>
+
+            </div>
+
+            <div style="display: flex; align-items: center; gap: 8px;">
+
+              <button class="edit-miniapp-btn" data-id="${app.id}" style="
+
+                background: rgba(255,255,255,0.15);
+
+                border: 1px solid rgba(255,255,255,0.3);
+
+                color: white;
+
+                padding: 4px 10px;
+
+                border-radius: 6px;
+
+                cursor: pointer;
+
+                font-size: 11px;
+
+              ">✏️ Edit</button>
+
+              <button class="delete-miniapp-btn" data-id="${app.id}" style="
+
+                background: rgba(255,80,80,0.2);
+
+                border: 1px solid rgba(255,80,80,0.4);
+
+                color: #ff6b6b;
+
+                padding: 4px 8px;
+
+                border-radius: 6px;
+
+                cursor: pointer;
+
+                font-size: 13px;
+
+                line-height: 1;
+
+              " title="Delete mini-app">✕</button>
+
+            </div>
+
+          </div>
+
+          
+
+          <!-- Scope Toggle -->
+
+          <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 10px;" onclick="event.stopPropagation()">
+
+            <span style="font-size: 11px; color: rgba(255,255,255,0.6);">Scope:</span>
+
+            <div class="scope-toggle" data-id="${app.id}" style="
+
+              display: flex;
+
+              background: rgba(0,0,0,0.3);
+
+              border-radius: 12px;
+
+              padding: 2px;
+
+              cursor: pointer;
+
+            ">
+
+              <span class="scope-option ${app.scope === 'session' ? 'active' : ''}" data-scope="session" style="
+
+                padding: 3px 10px;
+
+                border-radius: 10px;
+
+                font-size: 10px;
+
+                font-weight: bold;
+
+                transition: all 0.2s ease;
+
+                ${app.scope === 'session' ? 'background: rgba(102,238,102,0.4); color: #90EE90;' : 'background: transparent; color: rgba(255,255,255,0.5);'}
+
+              ">🗂️ Session</span>
+
+              <span class="scope-option ${app.scope === 'account' ? 'active' : ''}" data-scope="account" style="
+
+                padding: 3px 10px;
+
+                border-radius: 10px;
+
+                font-size: 10px;
+
+                font-weight: bold;
+
+                transition: all 0.2s ease;
+
+                ${app.scope === 'account' ? 'background: rgba(255,215,0,0.4); color: #FFD700;' : 'background: transparent; color: rgba(255,255,255,0.5);'}
+
+              ">🏢 Account</span>
+
+            </div>
+
+          </div>
+
+          <p style="margin: 0; font-size: 13px; color: rgba(255,255,255,0.8); line-height: 1.5;">
+
+            ${app.description.length > 150 ? app.description.slice(0, 150) + '...' : app.description}
+
+          </p>
+
+          <div style="margin-top: 10px; font-size: 10px; color: rgba(255,255,255,0.5);">
+
+            Updated: ${new Date(app.updatedAt).toLocaleDateString()}
+
+          </div>
+
+        </div>
+
+      `).join('')
+
+    }
+
+    
+
+    overlay.innerHTML = `
+
+      <div style="
+
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
+
+        border-radius: 16px; width: 90vw; height: 85vh; max-width: 1200px; 
+
+        color: white; overflow: hidden; box-shadow: 0 20px 40px rgba(0,0,0,0.3); 
+
+        display: flex; flex-direction: column;
+
+      ">
+
+        <div style="padding: 20px; border-bottom: 1px solid rgba(255,255,255,0.3); display: flex; justify-content: space-between; align-items: center;">
+
+          <h2 style="margin: 0; font-size: 20px;">📱 Mini-Apps</h2>
+
+          <button id="close-miniapps-lightbox" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 30px; height: 30px; border-radius: 50%; cursor: pointer; font-size: 16px;">×</button>
+
+        </div>
+
+        
+
+        <div style="flex: 1; padding: 20px; overflow-y: auto;">
+
+          <!-- Mini-App Builder Button -->
+
+          <div style="margin-bottom: 20px;">
+
+            <button id="open-miniapp-builder" style="
+
+              background: linear-gradient(135deg, #4CAF50, #45a049);
+
+              border: none;
+
+              color: white;
+
+              padding: 12px 24px;
+
+              border-radius: 8px;
+
+              cursor: pointer;
+
+              font-size: 14px;
+
+              font-weight: bold;
+
+              transition: all 0.3s ease;
+
+              box-shadow: 0 4px 8px rgba(0,0,0,0.3);
+
+            ">🛠️ Mini-App Builder</button>
+
+          </div>
+
+          
+
+          <!-- Mini-Apps Grid -->
+
+          <div id="miniapps-grid" style="
+
+            display: grid;
+
+            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+
+            gap: 16px;
+
+          ">
+
+            ${renderMiniAppsList()}
+
+          </div>
+
+          
+
+          <!-- Empty State -->
+
+          ${miniApps.length === 0 ? `
+
+            <div style="
+
+              text-align: center;
+
+              padding: 40px;
+
+              background: rgba(255,255,255,0.05);
+
+              border: 2px dashed rgba(255,255,255,0.2);
+
+              border-radius: 12px;
+
+            ">
+
+              <p style="font-size: 14px; color: rgba(255,255,255,0.6);">
+
+                No mini-apps yet. Click "Mini-App Builder" to create your first one!
+
+              </p>
+
+            </div>
+
+          ` : ''}
+
+        </div>
+
+      </div>
+
+      
+
+      <!-- Mini-App Builder Modal -->
+
+      <div id="miniapp-builder-modal" style="
+
+        display: none;
+
+        position: fixed;
+
+        top: 0; left: 0; width: 100vw; height: 100vh;
+
+        background: rgba(0,0,0,0.6);
+
+        z-index: 2147483650;
+
+        align-items: center;
+
+        justify-content: center;
+
+      ">
+
+        <div style="
+
+          background: linear-gradient(135deg, #1e3a5f 0%, #2d5a87 100%);
+
+          border-radius: 16px;
+
+          width: 90%;
+
+          max-width: 600px;
+
+          color: white;
+
+          box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+
+        ">
+
+          <div style="padding: 20px; border-bottom: 1px solid rgba(255,255,255,0.2); display: flex; justify-content: space-between; align-items: center;">
+
+            <h3 style="margin: 0; font-size: 18px;">🛠️ Mini-App Builder</h3>
+
+            <button id="close-builder-modal" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 28px; height: 28px; border-radius: 50%; cursor: pointer; font-size: 14px;">×</button>
+
+          </div>
+
+          <div style="padding: 20px;">
+
+            <div style="margin-bottom: 16px;">
+
+              <label style="display: block; margin-bottom: 8px; font-size: 14px; color: #FFD700; font-weight: bold;">📌 Mini-App Title</label>
+
+              <input id="builder-title" type="text" placeholder="e.g., Email Summarizer" style="
+
+                width: 100%;
+
+                padding: 12px;
+
+                background: rgba(255,255,255,0.1);
+
+                border: 1px solid rgba(255,255,255,0.3);
+
+                border-radius: 8px;
+
+                color: white;
+
+                font-size: 14px;
+
+                box-sizing: border-box;
+
+              ">
+
+            </div>
+
+            <div style="margin-bottom: 16px;">
+
+              <label style="display: block; margin-bottom: 8px; font-size: 14px; color: #FFD700; font-weight: bold;">🎯 Scope</label>
+
+              <div style="display: flex; gap: 12px;">
+
+                <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; padding: 10px 16px; background: rgba(255,255,255,0.1); border-radius: 8px; border: 2px solid rgba(102,238,102,0.5);">
+
+                  <input type="radio" name="builder-scope" value="session" checked style="accent-color: #90EE90;">
+
+                  <span style="font-size: 13px;">🗂️ Session</span>
+
+                </label>
+
+                <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; padding: 10px 16px; background: rgba(255,255,255,0.1); border-radius: 8px; border: 2px solid rgba(255,215,0,0.3);">
+
+                  <input type="radio" name="builder-scope" value="account" style="accent-color: #FFD700;">
+
+                  <span style="font-size: 13px;">🏢 Account</span>
+
+                </label>
+
+              </div>
+
+            </div>
+
+            <div style="margin-bottom: 20px;">
+
+              <label style="display: block; margin-bottom: 8px; font-size: 14px; color: #FFD700; font-weight: bold;">📝 Description</label>
+
+              <textarea id="builder-description" placeholder="Describe what this mini-app does, how it works, and when to use it..." style="
+
+                width: 100%;
+
+                height: 180px;
+
+                padding: 12px;
+
+                background: rgba(255,255,255,0.1);
+
+                border: 1px solid rgba(255,255,255,0.3);
+
+                border-radius: 8px;
+
+                color: white;
+
+                font-size: 14px;
+
+                resize: vertical;
+
+                line-height: 1.5;
+
+                box-sizing: border-box;
+
+              "></textarea>
+
+            </div>
+
+            <div style="display: flex; gap: 12px; justify-content: flex-end;">
+
+              <button id="cancel-builder" style="
+
+                padding: 10px 20px;
+
+                background: rgba(255,255,255,0.1);
+
+                border: 1px solid rgba(255,255,255,0.3);
+
+                color: white;
+
+                border-radius: 6px;
+
+                cursor: pointer;
+
+                font-size: 13px;
+
+              ">Cancel</button>
+
+              <button id="save-miniapp" style="
+
+                padding: 10px 20px;
+
+                background: linear-gradient(135deg, #4CAF50, #45a049);
+
+                border: none;
+
+                color: white;
+
+                border-radius: 6px;
+
+                cursor: pointer;
+
+                font-size: 13px;
+
+                font-weight: bold;
+
+              ">💾 Save Mini-App</button>
+
+            </div>
+
+          </div>
+
+        </div>
+
+      </div>
+
+      
+
+      <!-- Mini-App Edit Modal -->
+
+      <div id="miniapp-edit-modal" style="
+
+        display: none;
+
+        position: fixed;
+
+        top: 0; left: 0; width: 100vw; height: 100vh;
+
+        background: rgba(0,0,0,0.6);
+
+        z-index: 2147483650;
+
+        align-items: center;
+
+        justify-content: center;
+
+      ">
+
+        <div style="
+
+          background: linear-gradient(135deg, #1e3a5f 0%, #2d5a87 100%);
+
+          border-radius: 16px;
+
+          width: 90%;
+
+          max-width: 600px;
+
+          color: white;
+
+          box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+
+        ">
+
+          <div style="padding: 20px; border-bottom: 1px solid rgba(255,255,255,0.2); display: flex; justify-content: space-between; align-items: center;">
+
+            <div style="display: flex; align-items: center; gap: 12px;">
+
+              <h3 style="margin: 0; font-size: 18px;">✏️ Edit Mini-App</h3>
+
+              <span id="edit-display-id-badge" style="background: rgba(144,238,144,0.3); padding: 4px 10px; border-radius: 4px; font-size: 12px; font-weight: bold; color: #90EE90;"></span>
+
+            </div>
+
+            <button id="close-edit-modal" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 28px; height: 28px; border-radius: 50%; cursor: pointer; font-size: 14px;">×</button>
+
+          </div>
+
+          <div style="padding: 20px;">
+
+            <input type="hidden" id="edit-miniapp-id">
+
+            <input type="hidden" id="edit-miniapp-display-id">
+
+            <div style="margin-bottom: 16px;">
+
+              <label style="display: block; margin-bottom: 8px; font-size: 14px; color: #FFD700; font-weight: bold;">📌 Mini-App Title</label>
+
+              <input id="edit-title" type="text" style="
+
+                width: 100%;
+
+                padding: 12px;
+
+                background: rgba(255,255,255,0.1);
+
+                border: 1px solid rgba(255,255,255,0.3);
+
+                border-radius: 8px;
+
+                color: white;
+
+                font-size: 14px;
+
+                box-sizing: border-box;
+
+              ">
+
+            </div>
+
+            <div style="margin-bottom: 20px;">
+
+              <label style="display: block; margin-bottom: 8px; font-size: 14px; color: #FFD700; font-weight: bold;">📝 Description</label>
+
+              <textarea id="edit-description" style="
+
+                width: 100%;
+
+                height: 200px;
+
+                padding: 12px;
+
+                background: rgba(255,255,255,0.1);
+
+                border: 1px solid rgba(255,255,255,0.3);
+
+                border-radius: 8px;
+
+                color: white;
+
+                font-size: 14px;
+
+                resize: vertical;
+
+                line-height: 1.5;
+
+                box-sizing: border-box;
+
+              "></textarea>
+
+            </div>
+
+            <div style="display: flex; gap: 12px; justify-content: space-between;">
+
+              <button id="delete-miniapp" style="
+
+                padding: 10px 20px;
+
+                background: rgba(239, 68, 68, 0.3);
+
+                border: 1px solid rgba(239, 68, 68, 0.5);
+
+                color: #fca5a5;
+
+                border-radius: 6px;
+
+                cursor: pointer;
+
+                font-size: 13px;
+
+              ">🗑️ Delete</button>
+
+              <div style="display: flex; gap: 12px;">
+
+                <button id="cancel-edit" style="
+
+                  padding: 10px 20px;
+
+                  background: rgba(255,255,255,0.1);
+
+                  border: 1px solid rgba(255,255,255,0.3);
+
+                  color: white;
+
+                  border-radius: 6px;
+
+                  cursor: pointer;
+
+                  font-size: 13px;
+
+                ">Cancel</button>
+
+                <button id="update-miniapp" style="
+
+                  padding: 10px 20px;
+
+                  background: linear-gradient(135deg, #4CAF50, #45a049);
+
+                  border: none;
+
+                  color: white;
+
+                  border-radius: 6px;
+
+                  cursor: pointer;
+
+                  font-size: 13px;
+
+                  font-weight: bold;
+
+                ">💾 Update</button>
+
+              </div>
+
+            </div>
+
+          </div>
+
+        </div>
+
+      </div>
+
+    `
+
+    
+
+    document.body.appendChild(overlay)
+
+    
+
+    // Function to refresh the grid
+
+    const refreshGrid = () => {
+
+      const grid = overlay.querySelector('#miniapps-grid')
+
+      if (grid) {
+
+        grid.innerHTML = renderMiniAppsList()
+
+        attachEditListeners()
+
+      }
+
+    }
+
+    
+
+    // Attach edit button listeners
+
+    const attachEditListeners = () => {
+
+      overlay.querySelectorAll('.edit-miniapp-btn').forEach(btn => {
+
+        btn.addEventListener('click', (e) => {
+
+          e.stopPropagation()
+
+          const id = (btn as HTMLElement).dataset.id
+
+          const app = miniApps.find(a => a.id === id)
+
+          if (app) {
+
+            const editModal = overlay.querySelector('#miniapp-edit-modal') as HTMLElement
+
+            const editId = overlay.querySelector('#edit-miniapp-id') as HTMLInputElement
+
+            const editTitle = overlay.querySelector('#edit-title') as HTMLInputElement
+
+            const editDesc = overlay.querySelector('#edit-description') as HTMLTextAreaElement
+
+            if (editModal && editId && editTitle && editDesc) {
+
+              editId.value = app.id
+
+              editTitle.value = app.title
+
+              editDesc.value = app.description
+
+              const displayIdBadge = overlay.querySelector('#edit-display-id-badge') as HTMLElement
+
+              if (displayIdBadge) displayIdBadge.textContent = app.displayId
+
+              editModal.style.display = 'flex'
+
+            }
+
+          }
+
+        })
+
+      })
+
+      
+
+      // Quick delete button listeners
+
+      overlay.querySelectorAll('.delete-miniapp-btn').forEach(btn => {
+
+        btn.addEventListener('click', (e) => {
+
+          e.stopPropagation()
+
+          const id = (btn as HTMLElement).dataset.id
+
+          if (id && confirm('Delete this mini-app?')) {
+
+            miniApps = miniApps.filter(a => a.id !== id)
+
+            saveMiniApps()
+
+            refreshGrid()
+
+          }
+
+        })
+
+      })
+
+      
+
+      // Card click to view details
+
+      overlay.querySelectorAll('.miniapp-card').forEach(card => {
+
+        card.addEventListener('click', () => {
+
+          const id = (card as HTMLElement).dataset.id
+
+          const app = miniApps.find(a => a.id === id)
+
+          if (app) {
+
+            const editModal = overlay.querySelector('#miniapp-edit-modal') as HTMLElement
+
+            const editId = overlay.querySelector('#edit-miniapp-id') as HTMLInputElement
+
+            const editTitle = overlay.querySelector('#edit-title') as HTMLInputElement
+
+            const editDesc = overlay.querySelector('#edit-description') as HTMLTextAreaElement
+
+            if (editModal && editId && editTitle && editDesc) {
+
+              editId.value = app.id
+
+              editTitle.value = app.title
+
+              editDesc.value = app.description
+
+              const displayIdBadge = overlay.querySelector('#edit-display-id-badge') as HTMLElement
+
+              if (displayIdBadge) displayIdBadge.textContent = app.displayId
+
+              editModal.style.display = 'flex'
+
+            }
+
+          }
+
+        })
+
+      })
+
+      
+
+      // Scope toggle listeners
+
+      overlay.querySelectorAll('.scope-toggle').forEach(toggle => {
+
+        toggle.addEventListener('click', (e) => {
+
+          e.stopPropagation()
+
+          const id = (toggle as HTMLElement).dataset.id
+
+          const clickedOption = (e.target as HTMLElement).closest('.scope-option') as HTMLElement
+
+          if (!clickedOption) return
+
+          
+
+          const newScope = clickedOption.dataset.scope as 'session' | 'account'
+
+          const app = miniApps.find(a => a.id === id)
+
+          if (app && app.scope !== newScope) {
+
+            // Update scope and regenerate displayId
+
+            app.scope = newScope
+
+            app.displayId = getNextDisplayId(miniApps.filter(a => a.id !== id), newScope)
+
+            app.updatedAt = new Date().toISOString()
+
+            saveMiniApps()
+
+            refreshGrid()
+
+          }
+
+        })
+
+      })
+
+    }
+
+    
+
+    attachEditListeners()
+
+    
+
+    // Close button
+
+    overlay.querySelector('#close-miniapps-lightbox')?.addEventListener('click', () => overlay.remove())
+
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove() })
+
+    
+
+    // Mini-App Builder Modal
+
+    const builderModal = overlay.querySelector('#miniapp-builder-modal') as HTMLElement
+
+    overlay.querySelector('#open-miniapp-builder')?.addEventListener('click', () => {
+
+      if (builderModal) builderModal.style.display = 'flex'
+
+    })
+
+    overlay.querySelector('#close-builder-modal')?.addEventListener('click', () => {
+
+      if (builderModal) builderModal.style.display = 'none'
+
+    })
+
+    overlay.querySelector('#cancel-builder')?.addEventListener('click', () => {
+
+      if (builderModal) builderModal.style.display = 'none'
+
+    })
+
+    
+
+    // Save new mini-app
+
+    overlay.querySelector('#save-miniapp')?.addEventListener('click', () => {
+
+      const titleInput = overlay.querySelector('#builder-title') as HTMLInputElement
+
+      const descInput = overlay.querySelector('#builder-description') as HTMLTextAreaElement
+
+      const scopeInput = overlay.querySelector('input[name="builder-scope"]:checked') as HTMLInputElement
+
+      if (titleInput && descInput) {
+
+        const title = titleInput.value.trim()
+
+        const description = descInput.value.trim()
+
+        const scope = (scopeInput?.value || 'session') as 'session' | 'account'
+
+        if (title && description) {
+
+          const newApp: MiniApp = {
+
+            id: 'ma_' + Math.random().toString(36).slice(2),
+
+            displayId: getNextDisplayId(miniApps, scope),
+
+            title,
+
+            description,
+
+            scope,
+
+            createdAt: new Date().toISOString(),
+
+            updatedAt: new Date().toISOString()
+
+          }
+
+          miniApps.push(newApp)
+
+          saveMiniApps()
+
+          titleInput.value = ''
+
+          descInput.value = ''
+
+          if (builderModal) builderModal.style.display = 'none'
+
+          refreshGrid()
+
+        }
+
+      }
+
+    })
+
+    
+
+    // Edit Modal
+
+    const editModal = overlay.querySelector('#miniapp-edit-modal') as HTMLElement
+
+    overlay.querySelector('#close-edit-modal')?.addEventListener('click', () => {
+
+      if (editModal) editModal.style.display = 'none'
+
+    })
+
+    overlay.querySelector('#cancel-edit')?.addEventListener('click', () => {
+
+      if (editModal) editModal.style.display = 'none'
+
+    })
+
+    
+
+    // Update mini-app
+
+    overlay.querySelector('#update-miniapp')?.addEventListener('click', () => {
+
+      const editId = overlay.querySelector('#edit-miniapp-id') as HTMLInputElement
+
+      const editTitle = overlay.querySelector('#edit-title') as HTMLInputElement
+
+      const editDesc = overlay.querySelector('#edit-description') as HTMLTextAreaElement
+
+      if (editId && editTitle && editDesc) {
+
+        const id = editId.value
+
+        const idx = miniApps.findIndex(a => a.id === id)
+
+        if (idx >= 0) {
+
+          miniApps[idx].title = editTitle.value.trim()
+
+          miniApps[idx].description = editDesc.value.trim()
+
+          miniApps[idx].updatedAt = new Date().toISOString()
+
+          saveMiniApps()
+
+          if (editModal) editModal.style.display = 'none'
+
+          refreshGrid()
+
+        }
+
+      }
+
+    })
+
+    
+
+    // Delete mini-app
+
+    overlay.querySelector('#delete-miniapp')?.addEventListener('click', () => {
+
+      const editId = overlay.querySelector('#edit-miniapp-id') as HTMLInputElement
+
+      if (editId) {
+
+        const id = editId.value
+
+        miniApps = miniApps.filter(a => a.id !== id)
+
+        saveMiniApps()
+
+        if (editModal) editModal.style.display = 'none'
+
+        refreshGrid()
+
+      }
+
+    })
+
+    
+
+    // Add hover effects
+
+    const style = document.createElement('style')
+
+    style.textContent = `
+
+      .miniapp-card:hover {
+
+        background: rgba(255,255,255,0.15) !important;
+
+        transform: translateY(-2px);
+
+        box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+
+      }
+
+      .edit-miniapp-btn:hover {
+
+        background: rgba(255,255,255,0.25) !important;
+
+      }
+
+      .delete-miniapp-btn:hover {
+
+        background: rgba(255,80,80,0.4) !important;
+
+        border-color: rgba(255,80,80,0.6) !important;
+
+      }
+
+    `
+
+    overlay.appendChild(style)
 
   }
 
