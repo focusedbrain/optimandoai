@@ -3052,6 +3052,58 @@ app.whenReady().then(async () => {
       }
     });
 
+    // ============================================================
+    // CURSOR EXTENSION EVENT ENDPOINT
+    // Receives real-time events from Cursor IDE extension
+    // ============================================================
+
+    // Store latest Cursor state for polling clients
+    let cursorState: { files: string[], projectRoot: string | null, lastUpdate: number } = {
+      files: [],
+      projectRoot: null,
+      lastUpdate: 0
+    };
+
+    // POST /api/cursor/event - Receive events from Cursor IDE extension
+    httpApp.post('/api/cursor/event', (req, res) => {
+      try {
+        const { type, ...data } = req.body;
+        console.log('[HTTP-CURSOR] POST /api/cursor/event:', type);
+
+        // Broadcast to all connected WebSocket clients (Chrome extension)
+        wsClients.forEach(client => {
+          try {
+            client.send(JSON.stringify({ type, ...data }));
+          } catch (e) {
+            console.error('[HTTP-CURSOR] Error broadcasting event:', e);
+          }
+        });
+
+        // Store state for files_changed events
+        if (type === 'cursor:files_changed') {
+          cursorState = {
+            files: data.files || [],
+            projectRoot: data.projectRoot || null,
+            lastUpdate: Date.now()
+          };
+        }
+
+        res.json({ ok: true, received: type });
+      } catch (error: any) {
+        console.error('[HTTP-CURSOR] Error in /api/cursor/event:', error);
+        res.status(500).json({ ok: false, error: error.message });
+      }
+    });
+
+    // GET /api/cursor/state - Get current Cursor state (for polling)
+    httpApp.get('/api/cursor/state', (req, res) => {
+      try {
+        res.json({ ok: true, ...cursorState });
+      } catch (error: any) {
+        res.status(500).json({ ok: false, error: error.message });
+      }
+    });
+
     // POST /api/vault/create - Create new vault
       httpApp.post('/api/vault/create', async (req, res) => {
         try {

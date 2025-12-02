@@ -1,0 +1,80 @@
+{
+  "name": "optimandoai-cursor",
+  "displayName": "OptimandoAI Cursor Integration",
+  "description": "Connects Cursor IDE to OptimandoAI Orchestrator for GlassView real-time code review",
+  "version": "0.0.1",
+  "publisher": "optimandoai",
+  "icon": "icon.png",
+  "engines": {
+    "vscode": "^1.80.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "optimandoai.sendChangedFiles",
+        "title": "OptimandoAI: Send Changed Files to GlassView"
+      },
+      {
+        "command": "optimandoai.sendCurrentFile",
+        "title": "OptimandoAI: Send Current File to GlassView"
+      },
+      {
+        "command": "optimandoai.reconnect",
+        "title": "OptimandoAI: Reconnect to Orchestrator"
+      },
+      {
+        "command": "optimandoai.showStatus",
+        "title": "OptimandoAI: Show Connection Status"
+      }
+    ],
+    "configuration": {
+      "title": "OptimandoAI",
+      "properties": {
+        "optimandoai.orchestratorHttpUrl": {
+          "type": "string",
+          "default": "http://127.0.0.1:51248",
+          "description": "Orchestrator HTTP API URL"
+        },
+        "optimandoai.orchestratorWsUrl": {
+          "type": "string",
+          "default": "ws://127.0.0.1:51247",
+          "description": "Orchestrator WebSocket URL"
+        },
+        "optimandoai.autoConnect": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically connect to Orchestrator on startup"
+        },
+        "optimandoai.sendOnSave": {
+          "type": "boolean",
+          "default": true,
+          "description": "Send file changes to GlassView on save"
+        },
+        "optimandoai.sendSelections": {
+          "type": "boolean",
+          "default": false,
+          "description": "Send code selections to GlassView (may be verbose)"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "package": "vsce package",
+    "lint": "eslint src --ext ts"
+  },
+  "devDependencies": {
+    "@types/node": "^18.0.0",
+    "@types/vscode": "^1.80.0",
+    "typescript": "^5.0.0"
+  }
+}

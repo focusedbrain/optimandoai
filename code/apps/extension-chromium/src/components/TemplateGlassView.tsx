@@ -87,6 +87,8 @@ export const TemplateGlassView: React.FC<TemplateGlassViewProps> = ({
   const [demoMode, setDemoMode] = useState(false);
   const [realDataMode, setRealDataMode] = useState(false);
   const [realDataLoading, setRealDataLoading] = useState(false);
+  const [projectRoot, setProjectRoot] = useState<string>('');
+  const [autoRefresh, setAutoRefresh] = useState(true);
   const [demoState, setDemoState] = useState({
     files: [] as string[],
     selectedIndex: 0,
@@ -98,13 +100,16 @@ export const TemplateGlassView: React.FC<TemplateGlassViewProps> = ({
   const bridge = useMemo<ExtendedOrchestratorBridge>(() => getSharedBridge(), []);
 
   // Load real data from Git via Orchestrator API
-  const loadRealData = async () => {
-    console.log('[TemplateGlassView] Loading real data from Git...');
-    setRealDataLoading(true);
+  const loadRealData = async (showLoading = true, preserveSelection = false) => {
+    console.log('[TemplateGlassView] Loading real data from Git...', projectRoot || 'default', { preserveSelection });
+    if (showLoading) setRealDataLoading(true);
     
     try {
       // Get changed files from the Orchestrator
-      const response = await fetch(`${HTTP_API_BASE}/api/cursor/changed-files`);
+      const url = projectRoot 
+        ? `${HTTP_API_BASE}/api/cursor/changed-files?projectRoot=${encodeURIComponent(projectRoot)}`
+        : `${HTTP_API_BASE}/api/cursor/changed-files`;
+      const response = await fetch(url);
       
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}: ${response.statusText}`);
@@ -119,21 +124,55 @@ export const TemplateGlassView: React.FC<TemplateGlassViewProps> = ({
         setDemoState(prev => ({
           ...prev,
           files: [],
-          diff: 'No changed files found in the current project.\n\nMake sure you:\n1. Have a Git repository initialized\n2. Have uncommitted changes\n3. The Orchestrator has access to your project folder',
+          diff: projectRoot 
+            ? `No changed files found in:\n${projectRoot}\n\nMake sure you have uncommitted changes.`
+            : 'No changed files found in the current project.\n\nMake sure you:\n1. Have a Git repository initialized\n2. Have uncommitted changes\n3. Set the correct project folder below',
           aiResponse: ''
         }));
       } else {
-        // Load diff for the first file
-        const firstFile = files[0];
-        const diffResponse = await fetch(`${HTTP_API_BASE}/api/cursor/diff?filePath=${encodeURIComponent(firstFile)}`);
-        const diffResult = await diffResponse.json();
+        // Determine which file to show
+        let newSelectedIndex = 0;
         
-        setDemoState({
-          files,
-          selectedIndex: 0,
-          diff: diffResult.diff || 'No diff available',
-          aiResponse: ''
-        });
+        if (preserveSelection) {
+          // Try to keep the same file selected
+          const currentFile = demoState.files[demoState.selectedIndex];
+          if (currentFile) {
+            const sameFileIndex = files.findIndex((f: string) => f === currentFile);
+            if (sameFileIndex !== -1) {
+              newSelectedIndex = sameFileIndex;
+            }
+          }
+        }
+        
+        const selectedFile = files[newSelectedIndex];
+        
+        // Only load diff if selection changed or this is initial load
+        const shouldLoadDiff = !preserveSelection || 
+          newSelectedIndex !== demoState.selectedIndex || 
+          demoState.files.length !== files.length ||
+          !demoState.diff;
+        
+        if (shouldLoadDiff) {
+          const diffUrl = projectRoot
+            ? `${HTTP_API_BASE}/api/cursor/diff?filePath=${encodeURIComponent(selectedFile)}&projectRoot=${encodeURIComponent(projectRoot)}`
+            : `${HTTP_API_BASE}/api/cursor/diff?filePath=${encodeURIComponent(selectedFile)}`;
+          const diffResponse = await fetch(diffUrl);
+          const diffResult = await diffResponse.json();
+          
+          setDemoState(prev => ({
+            ...prev,
+            files,
+            selectedIndex: newSelectedIndex,
+            diff: diffResult.diff || 'No diff available',
+          }));
+        } else {
+          // Just update the file list, keep everything else
+          setDemoState(prev => ({
+            ...prev,
+            files,
+            selectedIndex: newSelectedIndex,
+          }));
+        }
       }
       
       setRealDataMode(true);
@@ -148,14 +187,17 @@ export const TemplateGlassView: React.FC<TemplateGlassViewProps> = ({
       }));
       setRealDataMode(true);
     } finally {
-      setRealDataLoading(false);
+      if (showLoading) setRealDataLoading(false);
     }
   };
 
   // Load diff when file selection changes in real data mode
   const loadDiffForFile = async (filePath: string) => {
     try {
-      const response = await fetch(`${HTTP_API_BASE}/api/cursor/diff?filePath=${encodeURIComponent(filePath)}`);
+      const url = projectRoot
+        ? `${HTTP_API_BASE}/api/cursor/diff?filePath=${encodeURIComponent(filePath)}&projectRoot=${encodeURIComponent(projectRoot)}`
+        : `${HTTP_API_BASE}/api/cursor/diff?filePath=${encodeURIComponent(filePath)}`;
+      const response = await fetch(url);
       const result = await response.json();
       setDemoState(prev => ({
         ...prev,
@@ -165,6 +207,112 @@ export const TemplateGlassView: React.FC<TemplateGlassViewProps> = ({
       console.error('[TemplateGlassView] Error loading diff:', err);
     }
   };
+
+  // Auto-refresh effect for real data mode
+  useEffect(() => {
+    if (!realDataMode || !autoRefresh) return;
+    
+    const interval = setInterval(() => {
+      console.log('[TemplateGlassView] Auto-refreshing (preserving selection)...');
+      loadRealData(false, true); // Don't show loading spinner, preserve selection
+    }, 3000); // Refresh every 3 seconds
+    
+    return () => clearInterval(interval);
+  }, [realDataMode, autoRefresh, projectRoot, demoState.selectedIndex, demoState.files]);
+
+  // ============================================================
+  // CURSOR EXTENSION REAL-TIME LISTENER
+  // Connects to Orchestrator WebSocket to receive Cursor events
+  // ============================================================
+  useEffect(() => {
+    let ws: WebSocket | null = null;
+    let reconnectTimer: NodeJS.Timeout | null = null;
+    
+    const connectWebSocket = () => {
+      try {
+        ws = new WebSocket('ws://127.0.0.1:51247');
+        
+        ws.onopen = () => {
+          console.log('[TemplateGlassView] WebSocket connected to Orchestrator');
+        };
+        
+        ws.onmessage = (event) => {
+          try {
+            const message = JSON.parse(event.data);
+            console.log('[TemplateGlassView] Received event:', message.type);
+            
+            // Handle Cursor extension events
+            switch (message.type) {
+              case 'cursor:files_changed':
+                // Auto-detect project from Cursor
+                if (message.projectRoot && message.projectRoot !== projectRoot) {
+                  console.log('[TemplateGlassView] Auto-detected project:', message.projectRoot);
+                  setProjectRoot(message.projectRoot);
+                }
+                // Update files from Cursor
+                if (message.files && message.files.length > 0) {
+                  setDemoState(prev => ({
+                    ...prev,
+                    files: message.files,
+                    diff: prev.diff || 'Select a file to view diff'
+                  }));
+                  setRealDataMode(true);
+                  setDemoMode(false);
+                }
+                break;
+                
+              case 'cursor:file_saved':
+                // File was saved in Cursor - refresh
+                console.log('[TemplateGlassView] File saved:', message.filePath);
+                loadRealData(false, true);
+                break;
+                
+              case 'cursor:connected':
+                console.log('[TemplateGlassView] Cursor extension connected');
+                // Request initial files
+                if (ws && ws.readyState === WebSocket.OPEN) {
+                  ws.send(JSON.stringify({ type: 'REQUEST_FILES' }));
+                }
+                break;
+                
+              case 'cursor:diff':
+                // Received diff from Cursor
+                if (message.diff) {
+                  setDemoState(prev => ({
+                    ...prev,
+                    diff: message.diff
+                  }));
+                }
+                break;
+            }
+          } catch (err) {
+            console.error('[TemplateGlassView] Error parsing WebSocket message:', err);
+          }
+        };
+        
+        ws.onclose = () => {
+          console.log('[TemplateGlassView] WebSocket disconnected, reconnecting in 5s...');
+          reconnectTimer = setTimeout(connectWebSocket, 5000);
+        };
+        
+        ws.onerror = (error) => {
+          console.error('[TemplateGlassView] WebSocket error:', error);
+        };
+      } catch (err) {
+        console.error('[TemplateGlassView] Failed to connect WebSocket:', err);
+        reconnectTimer = setTimeout(connectWebSocket, 5000);
+      }
+    };
+    
+    // Connect on mount
+    connectWebSocket();
+    
+    // Cleanup
+    return () => {
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+      if (ws) ws.close();
+    };
+  }, []); // Only run once on mount
 
   // Activate demo mode with sample data
   const activateDemoMode = () => {
@@ -323,54 +471,80 @@ export const TemplateGlassView: React.FC<TemplateGlassViewProps> = ({
   // Render MiniAppPanel with template and real bridge
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-      {/* Mode Toggle Bar */}
+      {/* Mode Toggle Bar - Always visible at top */}
       {!demoMode && !realDataMode && (
         <div style={{
           display: 'flex',
-          justifyContent: 'flex-end',
-          padding: '4px 8px',
-          backgroundColor: '#2d2d2d',
+          flexDirection: 'column',
+          padding: '8px',
+          backgroundColor: '#1a1a2e',
           borderBottom: '1px solid #404040',
           gap: '8px',
         }}>
-          <button
-            onClick={loadRealData}
-            disabled={realDataLoading}
-            style={{
-              background: 'linear-gradient(135deg, #2563eb, #1d4ed8)',
-              color: '#e2e8f0',
-              border: '1px solid #3b82f6',
-              borderRadius: '4px',
-              padding: '4px 10px',
-              fontSize: '11px',
-              cursor: realDataLoading ? 'wait' : 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '4px',
-              opacity: realDataLoading ? 0.7 : 1,
-            }}
-            title="Load real Git changes from your project"
-          >
-            {realDataLoading ? '⏳ Loading...' : '📂 Load Real Data'}
-          </button>
-          <button
-            onClick={activateDemoMode}
-            style={{
-              background: 'linear-gradient(135deg, #4a5568, #2d3748)',
-              color: '#e2e8f0',
-              border: '1px solid #4a5568',
-              borderRadius: '4px',
-              padding: '4px 10px',
-              fontSize: '11px',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '4px',
-            }}
-            title="Load sample data to test GlassView features"
-          >
-            🧪 Demo Mode
-          </button>
+          {/* Project folder input - shown initially */}
+          <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+            <input
+              type="text"
+              value={projectRoot}
+              onChange={(e) => setProjectRoot(e.target.value)}
+              placeholder="Enter project path (e.g., D:\projects\myapp)"
+              style={{
+                flex: 1,
+                padding: '6px 10px',
+                fontSize: '12px',
+                backgroundColor: '#0f172a',
+                color: '#e2e8f0',
+                border: '1px solid #3b82f6',
+                borderRadius: '4px',
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  loadRealData();
+                }
+              }}
+            />
+          </div>
+          {/* Buttons row */}
+          <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+            <button
+              onClick={() => loadRealData()}
+              disabled={realDataLoading}
+              style={{
+                background: 'linear-gradient(135deg, #2563eb, #1d4ed8)',
+                color: '#e2e8f0',
+                border: '1px solid #3b82f6',
+                borderRadius: '4px',
+                padding: '6px 14px',
+                fontSize: '12px',
+                cursor: realDataLoading ? 'wait' : 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '4px',
+                opacity: realDataLoading ? 0.7 : 1,
+              }}
+              title={projectRoot ? `Load changes from: ${projectRoot}` : 'Load real Git changes from your project'}
+            >
+              {realDataLoading ? '⏳ Loading...' : '📂 Load Real Data'}
+            </button>
+            <button
+              onClick={activateDemoMode}
+              style={{
+                background: 'linear-gradient(135deg, #4a5568, #2d3748)',
+                color: '#e2e8f0',
+                border: '1px solid #4a5568',
+                borderRadius: '4px',
+                padding: '6px 14px',
+                fontSize: '12px',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '4px',
+              }}
+              title="Load sample data to test GlassView features"
+            >
+              🧪 Demo Mode
+            </button>
+          </div>
         </div>
       )}
       {/* Demo Mode Active Banner */}
@@ -406,42 +580,88 @@ export const TemplateGlassView: React.FC<TemplateGlassViewProps> = ({
       {realDataMode && !demoMode && (
         <div style={{
           display: 'flex',
-          justifyContent: 'center',
-          alignItems: 'center',
-          padding: '6px 8px',
+          flexDirection: 'column',
+          padding: '8px',
           backgroundColor: '#1e3a5f',
           borderBottom: '1px solid #3b82f6',
           gap: '8px',
         }}>
-          <span style={{ color: '#93c5fd', fontSize: '12px' }}>📂 Real Data Mode - Git Changes from Project</span>
-          <button
-            onClick={loadRealData}
-            style={{
-              background: 'transparent',
-              color: '#93c5fd',
-              border: '1px solid #3b82f6',
-              borderRadius: '4px',
-              padding: '2px 6px',
-              fontSize: '10px',
-              cursor: 'pointer',
-            }}
-          >
-            ↻ Refresh
-          </button>
-          <button
-            onClick={() => setRealDataMode(false)}
-            style={{
-              background: 'transparent',
-              color: '#93c5fd',
-              border: '1px solid #3b82f6',
-              borderRadius: '4px',
-              padding: '2px 6px',
-              fontSize: '10px',
-              cursor: 'pointer',
-            }}
-          >
-            Exit
-          </button>
+          {/* Top row with title and controls */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span style={{ color: '#93c5fd', fontSize: '12px' }}>📂 Real Data Mode</span>
+            <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+              {/* Auto-refresh toggle */}
+              <label style={{ display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer' }}>
+                <input
+                  type="checkbox"
+                  checked={autoRefresh}
+                  onChange={(e) => setAutoRefresh(e.target.checked)}
+                  style={{ width: '12px', height: '12px' }}
+                />
+                <span style={{ color: '#93c5fd', fontSize: '10px' }}>Auto</span>
+              </label>
+              <button
+                onClick={() => loadRealData(true)}
+                style={{
+                  background: 'transparent',
+                  color: '#93c5fd',
+                  border: '1px solid #3b82f6',
+                  borderRadius: '4px',
+                  padding: '2px 6px',
+                  fontSize: '10px',
+                  cursor: 'pointer',
+                }}
+              >
+                ↻
+              </button>
+              <button
+                onClick={() => setRealDataMode(false)}
+                style={{
+                  background: 'transparent',
+                  color: '#93c5fd',
+                  border: '1px solid #3b82f6',
+                  borderRadius: '4px',
+                  padding: '2px 6px',
+                  fontSize: '10px',
+                  cursor: 'pointer',
+                }}
+              >
+                Exit
+              </button>
+            </div>
+          </div>
+          {/* Project folder input */}
+          <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+            <input
+              type="text"
+              value={projectRoot}
+              onChange={(e) => setProjectRoot(e.target.value)}
+              placeholder="Project folder (e.g., D:\projects\myapp)"
+              style={{
+                flex: 1,
+                padding: '4px 8px',
+                fontSize: '11px',
+                backgroundColor: '#0f172a',
+                color: '#e2e8f0',
+                border: '1px solid #3b82f6',
+                borderRadius: '4px',
+              }}
+            />
+            <button
+              onClick={() => loadRealData(true)}
+              style={{
+                background: '#2563eb',
+                color: 'white',
+                border: 'none',
+                borderRadius: '4px',
+                padding: '4px 8px',
+                fontSize: '10px',
+                cursor: 'pointer',
+              }}
+            >
+              Load
+            </button>
+          </div>
         </div>
       )}
       

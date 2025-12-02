@@ -19,9 +19,16 @@ export class DiffService {
 				return 'This directory is not a Git repository. Initialize Git to see diffs:\n\ngit init\ngit add .\ngit commit -m "Initial commit"';
 			}
 			
-			// Get diff for the specific file
-			// We use relative path for git commands
-			const relativePath = path.relative(projectRoot, filePath);
+			// Determine the relative path for git commands
+			// If filePath is already relative, use it directly
+			// If filePath is absolute, make it relative to projectRoot
+			let relativePath: string;
+			if (path.isAbsolute(filePath)) {
+				relativePath = path.relative(projectRoot, filePath);
+			} else {
+				// Already relative - use as-is
+				relativePath = filePath;
+			}
 			console.log('[DiffService] Relative path:', relativePath);
 			
 			const diff = await git.diff([relativePath]);
