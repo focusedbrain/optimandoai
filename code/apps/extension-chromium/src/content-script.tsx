@@ -12200,12 +12200,47 @@ function initializeExtension() {
                   })
                   if (conditions.length > 0) trigger.conditions = conditions
                 }
-                if (type === 'ui_event') {
+                if (type === 'dom_event' || type === 'ui_event') {
                   trigger.domSelector = row.querySelector('.trigger-dom-selector')?.value || ''
                   trigger.domEvent = row.querySelector('.trigger-dom-event')?.value || 'click'
+                  trigger.domUrlFilter = row.querySelector('.trigger-dom-url-filter')?.value || ''
+                  trigger.domPayloadSelection = (row.querySelector('.trigger-dom-payload-selection') as HTMLInputElement)?.checked || false
+                  trigger.domPayloadSnippet = (row.querySelector('.trigger-dom-payload-snippet') as HTMLInputElement)?.checked || false
+                  trigger.domPayloadUrl = (row.querySelector('.trigger-dom-payload-url') as HTMLInputElement)?.checked || false
                 }
-                if (type === 'manual') {
-                  trigger.commandLabel = row.querySelector('.trigger-command')?.value || ''
+                if (type === 'dom_parser') {
+                  trigger.parserTrigger = row.querySelector('.trigger-parser-trigger')?.value || 'page_load'
+                  trigger.parserInterval = row.querySelector('.trigger-parser-interval')?.value || '5'
+                  trigger.domParseTarget = row.querySelector('.trigger-dom-parse-target')?.value || 'body'
+                  trigger.domParseSelector = row.querySelector('.trigger-dom-parse-selector')?.value || ''
+                  trigger.domUrlFilter = row.querySelector('.trigger-dom-url-filter')?.value || ''
+                  const parserRules: any[] = []
+                  row.querySelectorAll('.dom-parser-rule').forEach((ruleEl: any) => {
+                    const ruleType = ruleEl.querySelector('.dom-rule-type')?.value || 'keyword'
+                    const rule: any = { type: ruleType, output: ruleEl.querySelector('.dom-rule-output')?.value || 'boolean', outputValue: ruleEl.querySelector('.dom-rule-output-value')?.value || '' }
+                    if (ruleType === 'keyword') { rule.keywords = ruleEl.querySelector('.dom-rule-keywords')?.value || ''; rule.caseSensitive = (ruleEl.querySelector('.dom-rule-case-sensitive') as HTMLInputElement)?.checked || false }
+                    else if (ruleType === 'pattern') { rule.regex = ruleEl.querySelector('.dom-rule-regex')?.value || '' }
+                    else if (ruleType === 'element') { rule.elementSelector = ruleEl.querySelector('.dom-rule-element-selector')?.value || '' }
+                    else if (ruleType === 'attribute') { rule.attrSelector = ruleEl.querySelector('.dom-rule-attr-selector')?.value || ''; rule.attrName = ruleEl.querySelector('.dom-rule-attr-name')?.value || ''; rule.attrOp = ruleEl.querySelector('.dom-rule-attr-op')?.value || 'exists'; rule.attrValue = ruleEl.querySelector('.dom-rule-attr-value')?.value || '' }
+                    else if (ruleType === 'text_length') { rule.lengthOp = ruleEl.querySelector('.dom-rule-length-op')?.value || 'gt'; rule.lengthValue = ruleEl.querySelector('.dom-rule-length-value')?.value || '' }
+                    parserRules.push(rule)
+                  })
+                  trigger.domParserRules = parserRules
+                }
+                if (type === 'augmented_overlay') {
+                  trigger.overlayTriggerName = row.querySelector('.trigger-overlay-name')?.value || ''
+                  trigger.overlayModeButton = (row.querySelector('.trigger-overlay-mode-button') as HTMLInputElement)?.checked || false
+                  trigger.overlayButtonLabel = row.querySelector('.trigger-overlay-button-label')?.value || ''
+                  trigger.overlayModeEmpty = (row.querySelector('.trigger-overlay-mode-empty') as HTMLInputElement)?.checked || false
+                  trigger.overlayModeElement = (row.querySelector('.trigger-overlay-mode-element') as HTMLInputElement)?.checked !== false
+                  trigger.overlayModeSelection = (row.querySelector('.trigger-overlay-mode-selection') as HTMLInputElement)?.checked || false
+                  trigger.overlayPhrases = row.querySelector('.trigger-overlay-phrases')?.value || ''
+                  trigger.overlayUrlPattern = row.querySelector('.trigger-overlay-url-pattern')?.value || ''
+                  trigger.overlayWrcodeOnly = (row.querySelector('.trigger-overlay-wrcode-only') as HTMLInputElement)?.checked || false
+                  trigger.overlayPayloadSelection = (row.querySelector('.trigger-overlay-payload-selection') as HTMLInputElement)?.checked || false
+                  trigger.overlayPayloadContext = (row.querySelector('.trigger-overlay-payload-context') as HTMLInputElement)?.checked || false
+                  trigger.overlayPayloadUrl = (row.querySelector('.trigger-overlay-payload-url') as HTMLInputElement)?.checked || false
+                  trigger.overlayPayloadCoords = (row.querySelector('.trigger-overlay-payload-coords') as HTMLInputElement)?.checked || false
                 }
                 
                 // Collect Agent channel data
@@ -12381,13 +12416,25 @@ function initializeExtension() {
                 const wfId = wfRow.querySelector('.r-workflow-id')?.value || ''
                 const conditions: any[] = []
                 wfRow.querySelectorAll('.r-workflow-cond-row').forEach((condRow: any) => {
-                  conditions.push({
-                    field: condRow.querySelector('.r-wcond-field')?.value || '',
-                    op: condRow.querySelector('.r-wcond-op')?.value || 'eq',
-                    value: condRow.querySelector('.r-wcond-value')?.value || '',
+                  const conditionType = condRow.querySelector('.r-wcond-type')?.value || 'boolean'
+                  const cond: any = {
+                    conditionType,
                     action: condRow.querySelector('.r-wcond-action')?.value || 'continue',
-                    routeId: condRow.querySelector('.r-wcond-route-id')?.value || ''
-                  })
+                    routeId: condRow.querySelector('.r-wcond-route-id')?.value || '',
+                    outputHandling: condRow.querySelector('.r-wcond-output')?.value || 'attach',
+                    signalName: condRow.querySelector('.r-wcond-signal-name')?.value || ''
+                  }
+                  if (conditionType === 'boolean') {
+                    cond.field = condRow.querySelector('.r-wcond-field')?.value || ''
+                    cond.op = condRow.querySelector('.r-wcond-op')?.value || 'eq'
+                    cond.value = condRow.querySelector('.r-wcond-value')?.value || ''
+                  } else if (conditionType === 'tag') {
+                    const tag = condRow.querySelector('.r-wcond-tag')?.value?.trim() || ''
+                    cond.tag = tag.startsWith('#') ? tag : `#${tag}`
+                  } else if (conditionType === 'signal') {
+                    cond.signal = condRow.querySelector('.r-wcond-signal')?.value?.trim() || ''
+                  }
+                  conditions.push(cond)
                 })
                 base.reasoningWorkflows.push({ type: wfType, workflowId: wfId, conditions })
                 console.log(`  📦 [autoSave] Reasoning workflow: type=${wfType}, id=${wfId}, conditions=${conditions.length}`)
@@ -12423,13 +12470,25 @@ function initializeExtension() {
                   const wfId = wfRow.querySelector('.r-workflow-id')?.value || ''
                   const conditions: any[] = []
                   wfRow.querySelectorAll('.r-workflow-cond-row').forEach((condRow: any) => {
-                    conditions.push({
-                      field: condRow.querySelector('.r-wcond-field')?.value || '',
-                      op: condRow.querySelector('.r-wcond-op')?.value || 'eq',
-                      value: condRow.querySelector('.r-wcond-value')?.value || '',
+                    const conditionType = condRow.querySelector('.r-wcond-type')?.value || 'boolean'
+                    const cond: any = {
+                      conditionType,
                       action: condRow.querySelector('.r-wcond-action')?.value || 'continue',
-                      routeId: condRow.querySelector('.r-wcond-route-id')?.value || ''
-                    })
+                      routeId: condRow.querySelector('.r-wcond-route-id')?.value || '',
+                      outputHandling: condRow.querySelector('.r-wcond-output')?.value || 'attach',
+                      signalName: condRow.querySelector('.r-wcond-signal-name')?.value || ''
+                    }
+                    if (conditionType === 'boolean') {
+                      cond.field = condRow.querySelector('.r-wcond-field')?.value || ''
+                      cond.op = condRow.querySelector('.r-wcond-op')?.value || 'eq'
+                      cond.value = condRow.querySelector('.r-wcond-value')?.value || ''
+                    } else if (conditionType === 'tag') {
+                      const tag = condRow.querySelector('.r-wcond-tag')?.value?.trim() || ''
+                      cond.tag = tag.startsWith('#') ? tag : `#${tag}`
+                    } else if (conditionType === 'signal') {
+                      cond.signal = condRow.querySelector('.r-wcond-signal')?.value?.trim() || ''
+                    }
+                    conditions.push(cond)
                   })
                   sectionWorkflows.push({ type: wfType, workflowId: wfId, conditions })
                 })
@@ -12476,24 +12535,41 @@ function initializeExtension() {
               // Accept list removed from Execution section
               const eAccepts:string[] = []
 
-              // Collect execution workflows with new format (type, workflowId, conditions)
+              // Get main execution mode from section level
+              const eExecutionModeMain = (document.querySelector('#E-execution-mode-main') as HTMLSelectElement)?.value || 'agent_workflow'
+              
+              // Collect execution workflows with new format (type, workflowId, runWhenType, conditions)
+              // Note: type is always 'external' now (Internal Parser removed from Execution)
+              // Note: executionMode is now at section level, not per-workflow
               const eWorkflows: any[] = []
               document.querySelectorAll('#E-workflow-list .exec-workflow-row').forEach((wfRow: any) => {
-                const wfType = wfRow.querySelector('.e-workflow-type-radio:checked')?.value || 'internal'
+                const wfType = 'external' // Internal Parser removed - Execution only supports external workflows
                 const wfId = wfRow.querySelector('.e-workflow-id')?.value || ''
+                const runWhenType = wfRow.querySelector('.e-run-when-type')?.value || 'always'
                 const conditions: any[] = []
-                wfRow.querySelectorAll('.e-workflow-cond-row').forEach((condRow: any) => {
-                  conditions.push({
-                    field: condRow.querySelector('.e-wcond-field')?.value || '',
-                    op: condRow.querySelector('.e-wcond-op')?.value || 'eq',
-                    value: condRow.querySelector('.e-wcond-value')?.value || '',
-                    action: condRow.querySelector('.e-wcond-action')?.value || 'continue',
-                    routeId: condRow.querySelector('.e-wcond-route-id')?.value || ''
+                
+                if (runWhenType === 'boolean') {
+                  wfRow.querySelectorAll('.e-workflow-cond-row').forEach((condRow: any) => {
+                    conditions.push({
+                      type: 'boolean',
+                      field: condRow.querySelector('.e-wcond-field')?.value || '',
+                      op: condRow.querySelector('.e-wcond-op')?.value || 'eq',
+                      value: condRow.querySelector('.e-wcond-value')?.value || '',
+                      action: condRow.querySelector('.e-wcond-action')?.value || 'execute',
+                      routeId: condRow.querySelector('.e-wcond-route-id')?.value || ''
+                    })
                   })
-                })
-                eWorkflows.push({ type: wfType, workflowId: wfId, conditions })
+                } else if (runWhenType === 'tag') {
+                  const tag = wfRow.querySelector('.e-run-tag')?.value?.trim() || ''
+                  if (tag) conditions.push({ type: 'tag', tag: tag.startsWith('#') ? tag : `#${tag}` })
+                } else if (runWhenType === 'signal') {
+                  const signal = wfRow.querySelector('.e-run-signal')?.value?.trim() || ''
+                  if (signal) conditions.push({ type: 'signal', signal })
+                }
+                
+                eWorkflows.push({ type: wfType, workflowId: wfId, runWhenType, conditions })
               })
-              console.log(`🔍 [autoSave] Execution: Found ${eWorkflows.length} execution workflow rows`)
+              console.log(`🔍 [autoSave] Execution: Found ${eWorkflows.length} execution workflow rows, mode: ${eExecutionModeMain}`)
               
               // Legacy format for backward compatibility
               const eWfs:string[] = eWorkflows.map(w => w.workflowId).filter(v => v)
@@ -12548,21 +12624,35 @@ function initializeExtension() {
                 console.log('📝 [autoSave] Additional E-section Apply For values:', sectionApplyForList)
                 
                 // Collect workflows with new format for additional sections
+                // Note: type is always 'external' now (Internal Parser removed from Execution)
+                // Note: executionMode is now at main section level, not per-workflow
                 const sectionWorkflows: any[] = []
                 sec.querySelectorAll('.E-workflow-list-sub .exec-workflow-row').forEach((wfRow: any) => {
-                  const wfType = wfRow.querySelector('.e-workflow-type-radio:checked')?.value || 'internal'
+                  const wfType = 'external' // Internal Parser removed - Execution only supports external workflows
                   const wfId = wfRow.querySelector('.e-workflow-id')?.value || ''
+                  const runWhenType = wfRow.querySelector('.e-run-when-type')?.value || 'always'
                   const conditions: any[] = []
-                  wfRow.querySelectorAll('.e-workflow-cond-row').forEach((condRow: any) => {
-                    conditions.push({
-                      field: condRow.querySelector('.e-wcond-field')?.value || '',
-                      op: condRow.querySelector('.e-wcond-op')?.value || 'eq',
-                      value: condRow.querySelector('.e-wcond-value')?.value || '',
-                      action: condRow.querySelector('.e-wcond-action')?.value || 'continue',
-                      routeId: condRow.querySelector('.e-wcond-route-id')?.value || ''
+                  
+                  if (runWhenType === 'boolean') {
+                    wfRow.querySelectorAll('.e-workflow-cond-row').forEach((condRow: any) => {
+                      conditions.push({
+                        type: 'boolean',
+                        field: condRow.querySelector('.e-wcond-field')?.value || '',
+                        op: condRow.querySelector('.e-wcond-op')?.value || 'eq',
+                        value: condRow.querySelector('.e-wcond-value')?.value || '',
+                        action: condRow.querySelector('.e-wcond-action')?.value || 'execute',
+                        routeId: condRow.querySelector('.e-wcond-route-id')?.value || ''
+                      })
                     })
-                  })
-                  sectionWorkflows.push({ type: wfType, workflowId: wfId, conditions })
+                  } else if (runWhenType === 'tag') {
+                    const tag = wfRow.querySelector('.e-run-tag')?.value?.trim() || ''
+                    if (tag) conditions.push({ type: 'tag', tag: tag.startsWith('#') ? tag : `#${tag}` })
+                  } else if (runWhenType === 'signal') {
+                    const signal = wfRow.querySelector('.e-run-signal')?.value?.trim() || ''
+                    if (signal) conditions.push({ type: 'signal', signal })
+                  }
+                  
+                  sectionWorkflows.push({ type: wfType, workflowId: wfId, runWhenType, conditions })
                 })
                 
                 // Legacy format for backward compatibility
@@ -12597,6 +12687,7 @@ function initializeExtension() {
               draft.execution = { 
                 workflows: eWfs, 
                 executionWorkflows: eWorkflows,
+                executionMode: eExecutionModeMain,
                 acceptFrom: eAccepts, 
                 applyFor: eApplyForValues.length > 0 ? eApplyForValues[0] : '__any__',
                 applyForList: eApplyForValues.length > 0 ? eApplyForValues : ['__any__'],
@@ -13108,12 +13199,14 @@ function initializeExtension() {
 
       }
 
-      // Execution workflow row creator - styled like Reasoning Workflows with Internal/External radio buttons
-      const createExecutionWorkflowRow = (init?: { type?: string, workflowId?: string, conditions?: any[] }) => {
-        const workflowType = init?.type || 'internal'
+      // Execution workflow row creator - supports external workflow execution
+      // Note: Execution Mode is now at section level, not per-workflow
+      const createExecutionWorkflowRow = (init?: { type?: string, workflowId?: string, executionMode?: string, runWhenType?: string, conditions?: any[] }) => {
+        // Note: 'type' is kept for backward compatibility but always treated as 'external' now
+        // Note: 'executionMode' is now at section level, kept here for backward compatibility
         const workflowId = init?.workflowId || ''
+        const runWhenType = init?.runWhenType || 'always'
         const conditions = init?.conditions || []
-        const uniqueId = Math.random().toString(36).slice(2, 8)
         
         const row = document.createElement('div')
         row.className = 'exec-workflow-row'
@@ -13122,42 +13215,53 @@ function initializeExtension() {
         const header = document.createElement('div')
         header.style.cssText = 'display:flex;flex-direction:column;gap:8px;margin-bottom:8px'
         header.innerHTML = `
-          <div style="display:flex;justify-content:space-between;align-items:center">
-            <div style="display:flex;gap:16px;align-items:center">
-              <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
-                <input type="radio" name="e-wf-type-${uniqueId}" value="internal" class="e-workflow-type-radio" ${workflowType === 'internal' ? 'checked' : ''} style="margin:0">
-                <span style="font-size:13px;font-weight:500;color:#fff">🔧 Internal Parser</span>
-              </label>
-              <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
-                <input type="radio" name="e-wf-type-${uniqueId}" value="external" class="e-workflow-type-radio" ${workflowType === 'external' ? 'checked' : ''} style="margin:0">
-                <span style="font-size:13px;font-weight:500;color:#fff">🌐 External Workflow</span>
-              </label>
-              <span title="Internal Parser works with agents, mini-apps, and websites displayed in the master tab. Use External Workflow for external data sources and APIs." style="font-size:12px;opacity:0.9;cursor:help;background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.35);padding:0 6px;border-radius:50%">?</span>
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+            <div style="display:flex;align-items:center;gap:8px;flex:1">
+              <span style="font-size:12px;opacity:0.8;white-space:nowrap">🌐 Workflow:</span>
+              <input type="text" placeholder="Workflow ID or name" value="${workflowId}" style="flex:1;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.35);color:#fff;padding:6px 10px;border-radius:4px;font-size:13px" class="e-workflow-id">
             </div>
             <button style="background:#ef4444;border:none;color:#fff;padding:4px 10px;border-radius:4px;cursor:pointer;font-size:12px" class="e-workflow-del">✕</button>
           </div>
-          <div class="e-workflow-id-container" style="display:${workflowType === 'external' ? 'block' : 'none'}">
-            <input type="text" placeholder="Workflow ID or name" value="${workflowId}" style="width:100%;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.35);color:#fff;padding:6px 10px;border-radius:4px;font-size:13px" class="e-workflow-id">
-          </div>
         `
-        
-        // Wire up radio button toggle for workflow ID visibility
-        const radioButtons = header.querySelectorAll('.e-workflow-type-radio') as NodeListOf<HTMLInputElement>
-        const workflowIdContainer = header.querySelector('.e-workflow-id-container') as HTMLElement
-        radioButtons.forEach(radio => {
-          radio.addEventListener('change', () => {
-            workflowIdContainer.style.display = radio.value === 'external' ? 'block' : 'none'
-          })
-        })
         
         const conditionsWrap = document.createElement('div')
         conditionsWrap.style.cssText = 'margin-top:8px;padding-top:8px;border-top:1px dashed rgba(255,255,255,0.15)'
         conditionsWrap.innerHTML = `
-          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
-            <span style="font-size:12px;opacity:0.8">📋 Execute when (conditions):</span>
-            <button class="e-workflow-add-cond" style="background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.25);color:#fff;padding:3px 8px;border-radius:4px;cursor:pointer;font-size:11px">+ Add Condition</button>
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+            <span style="font-size:12px;opacity:0.8;white-space:nowrap">📋 Run when:</span>
+            <select class="e-run-when-type" style="background:#fff;color:#0f172a;border:1px solid #cbd5e1;padding:5px 8px;border-radius:4px;font-size:11px">
+              <option value="always" ${runWhenType === 'always' ? 'selected' : ''}>Always</option>
+              <option value="boolean" ${runWhenType === 'boolean' ? 'selected' : ''}>Boolean Condition</option>
+              <option value="tag" ${runWhenType === 'tag' ? 'selected' : ''}>Tag Detected</option>
+              <option value="signal" ${runWhenType === 'signal' ? 'selected' : ''}>Workflow Signal</option>
+            </select>
           </div>
-          <div class="e-workflow-conditions" style="display:flex;flex-direction:column;gap:6px"></div>
+          <div class="e-run-when-content">
+            <div class="e-run-when-always" style="display:${runWhenType === 'always' ? 'block' : 'none'};padding:8px;background:rgba(34,197,94,0.1);border:1px solid rgba(34,197,94,0.25);border-radius:4px">
+              <span style="font-size:11px;color:rgba(255,255,255,0.8)">✓ This workflow will always run when reached</span>
+            </div>
+            <div class="e-run-when-boolean" style="display:${runWhenType === 'boolean' ? 'block' : 'none'}">
+              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+                <span style="font-size:11px;opacity:0.7">Conditions (structured reasoning/execution input):</span>
+                <button class="e-workflow-add-cond" style="background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.25);color:#fff;padding:3px 8px;border-radius:4px;cursor:pointer;font-size:11px">+ Add Condition</button>
+              </div>
+              <div class="e-workflow-conditions" style="display:flex;flex-direction:column;gap:6px"></div>
+            </div>
+            <div class="e-run-when-tag" style="display:${runWhenType === 'tag' ? 'block' : 'none'};padding:8px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.1);border-radius:4px">
+              <div style="display:flex;align-items:center;gap:6px">
+                <span style="background:rgba(59,130,246,.2);border:1px solid rgba(59,130,246,.4);padding:5px 10px;border-radius:4px;font-weight:700;color:#3b82f6;font-size:12px">#</span>
+                <input type="text" placeholder="tag_name (e.g. create_chart)" class="e-run-tag" value="${conditions[0]?.tag?.replace('#', '') || ''}" style="flex:1;background:rgba(255,255,255,.85);border:1px solid rgba(255,255,255,.5);color:#1e293b;padding:6px 10px;border-radius:4px;font-size:12px">
+              </div>
+              <div style="font-size:10px;color:rgba(255,255,255,0.6);margin-top:4px">Runs when this exact tag is detected in reasoning output</div>
+            </div>
+            <div class="e-run-when-signal" style="display:${runWhenType === 'signal' ? 'block' : 'none'};padding:8px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.1);border-radius:4px">
+              <div style="display:flex;align-items:center;gap:6px">
+                <span style="background:rgba(168,85,247,.2);border:1px solid rgba(168,85,247,.4);padding:5px 10px;border-radius:4px;font-weight:700;color:#a855f7;font-size:12px">⚡</span>
+                <input type="text" placeholder="signal_name (e.g. chart.ready)" class="e-run-signal" value="${conditions[0]?.signal || ''}" style="flex:1;background:rgba(255,255,255,.85);border:1px solid rgba(255,255,255,.5);color:#1e293b;padding:6px 10px;border-radius:4px;font-size:12px">
+              </div>
+              <div style="font-size:10px;color:rgba(255,255,255,0.6);margin-top:4px">Runs when this workflow signal is emitted</div>
+            </div>
+          </div>
         `
         
         row.appendChild(header)
@@ -13166,28 +13270,49 @@ function initializeExtension() {
         // Wire up delete
         header.querySelector('.e-workflow-del')?.addEventListener('click', () => row.remove())
         
-        // Wire up add condition
+        // Wire up run when type selector
+        const runWhenTypeSelect = conditionsWrap.querySelector('.e-run-when-type') as HTMLSelectElement
+        const alwaysSection = conditionsWrap.querySelector('.e-run-when-always') as HTMLElement
+        const booleanSection = conditionsWrap.querySelector('.e-run-when-boolean') as HTMLElement
+        const tagSection = conditionsWrap.querySelector('.e-run-when-tag') as HTMLElement
+        const signalSection = conditionsWrap.querySelector('.e-run-when-signal') as HTMLElement
+        
+        runWhenTypeSelect?.addEventListener('change', () => {
+          const type = runWhenTypeSelect.value
+          alwaysSection.style.display = type === 'always' ? 'block' : 'none'
+          booleanSection.style.display = type === 'boolean' ? 'block' : 'none'
+          tagSection.style.display = type === 'tag' ? 'block' : 'none'
+          signalSection.style.display = type === 'signal' ? 'block' : 'none'
+        })
+        
+        // Wire up add condition (for Boolean Condition mode)
         const execCondList = conditionsWrap.querySelector('.e-workflow-conditions') as HTMLElement
         conditionsWrap.querySelector('.e-workflow-add-cond')?.addEventListener('click', () => {
           const condRow = document.createElement('div')
           condRow.className = 'e-workflow-cond-row'
           condRow.style.cssText = 'display:flex;flex-direction:column;gap:6px;font-size:12px;background:rgba(255,255,255,0.03);padding:8px;border-radius:4px;border:1px solid rgba(255,255,255,0.1)'
           condRow.innerHTML = `
-            <div style="display:flex;gap:6px;align-items:center">
+            <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
               <span style="opacity:0.7;white-space:nowrap">If</span>
-              <input type="text" placeholder="Expected Value" style="flex:1;background:rgba(255,255,255,.85);border:1px solid rgba(255,255,255,.5);color:#1e293b;padding:4px 8px;border-radius:3px;font-size:11px" class="e-wcond-field">
-              <select style="flex:1;background:#fff;color:#0f172a;border:1px solid #cbd5e1;padding:4px 8px;border-radius:3px;font-size:11px" class="e-wcond-op">
-                <option value="eq">==</option>
-                <option value="ne">!=</option>
+              <input type="text" placeholder="field (e.g. action_type)" style="flex:1;min-width:100px;background:rgba(255,255,255,.85);border:1px solid rgba(255,255,255,.5);color:#1e293b;padding:4px 8px;border-radius:3px;font-size:11px" class="e-wcond-field">
+              <select style="background:#fff;color:#0f172a;border:1px solid #cbd5e1;padding:4px 8px;border-radius:3px;font-size:11px" class="e-wcond-op">
+                <option value="eq">equals</option>
+                <option value="ne">not equals</option>
                 <option value="contains">contains</option>
-                <option value="gt">&gt;</option>
-                <option value="lt">&lt;</option>
-                <option value="exists">exists</option>
+                <option value="startsWith">starts with</option>
+                <option value="endsWith">ends with</option>
+                <option value="matches">matches regex</option>
+                <option value="gt">number &gt;</option>
+                <option value="gte">number &gt;=</option>
+                <option value="lt">number &lt;</option>
+                <option value="lte">number &lt;=</option>
+                <option value="isTrue">is true</option>
+                <option value="isFalse">is false</option>
               </select>
-              <input type="text" placeholder="value" style="flex:1;background:rgba(255,255,255,.85);border:1px solid rgba(255,255,255,.5);color:#1e293b;padding:4px 6px;border-radius:3px;font-size:11px" class="e-wcond-value">
+              <input type="text" placeholder="value" style="flex:1;min-width:80px;background:rgba(255,255,255,.85);border:1px solid rgba(255,255,255,.5);color:#1e293b;padding:4px 6px;border-radius:3px;font-size:11px" class="e-wcond-value">
               <span style="opacity:0.7;white-space:nowrap">→</span>
-              <select style="flex:1;background:#fff;color:#0f172a;border:1px solid #cbd5e1;padding:4px 8px;border-radius:3px;font-size:11px" class="e-wcond-action">
-                <option value="continue">Continue</option>
+              <select style="background:#fff;color:#0f172a;border:1px solid #cbd5e1;padding:4px 8px;border-radius:3px;font-size:11px" class="e-wcond-action">
+                <option value="execute">Execute Workflow</option>
                 <option value="skip">Skip</option>
                 <option value="route">Route to...</option>
               </select>
@@ -13210,28 +13335,32 @@ function initializeExtension() {
           execCondList.appendChild(condRow)
         })
         
-        // Pre-populate conditions if provided
-        conditions.forEach((c: any) => {
-          const addBtn = conditionsWrap.querySelector('.e-workflow-add-cond') as HTMLButtonElement
-          addBtn?.click()
-          const rows = execCondList.querySelectorAll('.e-workflow-cond-row')
-          const lastRow = rows[rows.length - 1]
-          if (lastRow) {
-            (lastRow.querySelector('.e-wcond-field') as HTMLInputElement).value = c.field || ''
-            ;(lastRow.querySelector('.e-wcond-op') as HTMLSelectElement).value = c.op || 'eq'
-            ;(lastRow.querySelector('.e-wcond-value') as HTMLInputElement).value = c.value || ''
-            
-            const actionSelect = lastRow.querySelector('.e-wcond-action') as HTMLSelectElement
-            const routeContainer = lastRow.querySelector('.e-wcond-route-container') as HTMLElement
-            actionSelect.value = c.action || 'continue'
-            
-            if (c.action === 'route') {
-              routeContainer.style.display = 'block'
-              const routeIdInput = lastRow.querySelector('.e-wcond-route-id') as HTMLInputElement
-              if (routeIdInput && c.routeId) routeIdInput.value = c.routeId
+        // Pre-populate conditions if provided (for Boolean Condition mode)
+        if (runWhenType === 'boolean' && conditions.length > 0) {
+          conditions.forEach((c: any) => {
+            const addBtn = conditionsWrap.querySelector('.e-workflow-add-cond') as HTMLButtonElement
+            addBtn?.click()
+            const rows = execCondList.querySelectorAll('.e-workflow-cond-row')
+            const lastRow = rows[rows.length - 1]
+            if (lastRow) {
+              (lastRow.querySelector('.e-wcond-field') as HTMLInputElement).value = c.field || ''
+              ;(lastRow.querySelector('.e-wcond-op') as HTMLSelectElement).value = c.op || 'eq'
+              ;(lastRow.querySelector('.e-wcond-value') as HTMLInputElement).value = c.value || ''
+              
+              const actionSelect = lastRow.querySelector('.e-wcond-action') as HTMLSelectElement
+              const routeContainer = lastRow.querySelector('.e-wcond-route-container') as HTMLElement
+              // Map old 'continue' value to new 'execute' for backward compatibility
+              const actionValue = (c.action === 'continue' || !c.action) ? 'execute' : c.action
+              actionSelect.value = actionValue
+              
+              if (c.action === 'route') {
+                routeContainer.style.display = 'block'
+                const routeIdInput = lastRow.querySelector('.e-wcond-route-id') as HTMLInputElement
+                if (routeIdInput && c.routeId) routeIdInput.value = c.routeId
+              }
             }
-          }
-        })
+          })
+        }
         
         return row
       }
@@ -13507,12 +13636,48 @@ function initializeExtension() {
                 })
                 if (conditions.length > 0) trigger.conditions = conditions
               }
-              if (type === 'ui_event') {
+              if (type === 'dom_event' || type === 'ui_event') {
                 trigger.domSelector = row.querySelector('.trigger-dom-selector')?.value || ''
                 trigger.domEvent = row.querySelector('.trigger-dom-event')?.value || 'click'
+                trigger.domUrlFilter = row.querySelector('.trigger-dom-url-filter')?.value || ''
+                trigger.domPayloadSelection = (row.querySelector('.trigger-dom-payload-selection') as HTMLInputElement)?.checked || false
+                trigger.domPayloadSnippet = (row.querySelector('.trigger-dom-payload-snippet') as HTMLInputElement)?.checked || false
+                trigger.domPayloadUrl = (row.querySelector('.trigger-dom-payload-url') as HTMLInputElement)?.checked || false
+                trigger.domPayloadParsed = (row.querySelector('.trigger-dom-payload-parsed') as HTMLInputElement)?.checked || false
+                trigger.domParserEnabled = (row.querySelector('.trigger-dom-parser-enabled') as HTMLInputElement)?.checked || false
+                trigger.domParseTarget = row.querySelector('.trigger-dom-parse-target')?.value || 'body'
+                trigger.domParseSelector = row.querySelector('.trigger-dom-parse-selector')?.value || ''
+                const parserRules: any[] = []
+                row.querySelectorAll('.dom-parser-rule').forEach((ruleEl: any) => {
+                  const ruleType = ruleEl.querySelector('.dom-rule-type')?.value || 'keyword'
+                  const rule: any = { type: ruleType, output: ruleEl.querySelector('.dom-rule-output')?.value || 'boolean', outputValue: ruleEl.querySelector('.dom-rule-output-value')?.value || '' }
+                  if (ruleType === 'keyword') { rule.keywords = ruleEl.querySelector('.dom-rule-keywords')?.value || ''; rule.caseSensitive = (ruleEl.querySelector('.dom-rule-case-sensitive') as HTMLInputElement)?.checked || false }
+                  else if (ruleType === 'pattern') { rule.regex = ruleEl.querySelector('.dom-rule-regex')?.value || '' }
+                  else if (ruleType === 'element') { rule.elementSelector = ruleEl.querySelector('.dom-rule-element-selector')?.value || '' }
+                  else if (ruleType === 'attribute') { rule.attrSelector = ruleEl.querySelector('.dom-rule-attr-selector')?.value || ''; rule.attrName = ruleEl.querySelector('.dom-rule-attr-name')?.value || ''; rule.attrOp = ruleEl.querySelector('.dom-rule-attr-op')?.value || 'exists'; rule.attrValue = ruleEl.querySelector('.dom-rule-attr-value')?.value || '' }
+                  else if (ruleType === 'text_length') { rule.lengthOp = ruleEl.querySelector('.dom-rule-length-op')?.value || 'gt'; rule.lengthValue = ruleEl.querySelector('.dom-rule-length-value')?.value || '' }
+                  parserRules.push(rule)
+                })
+                trigger.domParserRules = parserRules
+              }
+              if (type === 'augmented_overlay') {
+                trigger.overlayTriggerName = row.querySelector('.trigger-overlay-name')?.value || ''
+                trigger.overlayModeEmpty = (row.querySelector('.trigger-overlay-mode-empty') as HTMLInputElement)?.checked || false
+                trigger.overlayModeElement = (row.querySelector('.trigger-overlay-mode-element') as HTMLInputElement)?.checked !== false
+                trigger.overlayModeSelection = (row.querySelector('.trigger-overlay-mode-selection') as HTMLInputElement)?.checked || false
+                trigger.overlayPhrases = row.querySelector('.trigger-overlay-phrases')?.value || ''
+                trigger.overlayUrlPattern = row.querySelector('.trigger-overlay-url-pattern')?.value || ''
+                trigger.overlayWrcodeOnly = (row.querySelector('.trigger-overlay-wrcode-only') as HTMLInputElement)?.checked || false
+                trigger.overlayPayloadSelection = (row.querySelector('.trigger-overlay-payload-selection') as HTMLInputElement)?.checked || false
+                trigger.overlayPayloadContext = (row.querySelector('.trigger-overlay-payload-context') as HTMLInputElement)?.checked || false
+                trigger.overlayPayloadUrl = (row.querySelector('.trigger-overlay-payload-url') as HTMLInputElement)?.checked || false
+                trigger.overlayPayloadCoords = (row.querySelector('.trigger-overlay-payload-coords') as HTMLInputElement)?.checked || false
               }
               if (type === 'manual') {
+                trigger.manualMode = row.querySelector('.trigger-manual-mode')?.value || 'overlay_button'
                 trigger.commandLabel = row.querySelector('.trigger-command')?.value || ''
+                trigger.slashCommand = row.querySelector('.trigger-slash-command')?.value || ''
+                trigger.backendLabel = row.querySelector('.trigger-backend-label')?.value || ''
               }
               
               // Collect Agent channel data
@@ -13681,13 +13846,25 @@ function initializeExtension() {
               const wfId = wfRow.querySelector('.r-workflow-id')?.value || ''
               const conditions: any[] = []
               wfRow.querySelectorAll('.r-workflow-cond-row').forEach((condRow: any) => {
-                conditions.push({
-                  field: condRow.querySelector('.r-wcond-field')?.value || '',
-                  op: condRow.querySelector('.r-wcond-op')?.value || 'eq',
-                  value: condRow.querySelector('.r-wcond-value')?.value || '',
+                const conditionType = condRow.querySelector('.r-wcond-type')?.value || 'boolean'
+                const cond: any = {
+                  conditionType,
                   action: condRow.querySelector('.r-wcond-action')?.value || 'continue',
-                  routeId: condRow.querySelector('.r-wcond-route-id')?.value || ''
-                })
+                  routeId: condRow.querySelector('.r-wcond-route-id')?.value || '',
+                  outputHandling: condRow.querySelector('.r-wcond-output')?.value || 'attach',
+                  signalName: condRow.querySelector('.r-wcond-signal-name')?.value || ''
+                }
+                if (conditionType === 'boolean') {
+                  cond.field = condRow.querySelector('.r-wcond-field')?.value || ''
+                  cond.op = condRow.querySelector('.r-wcond-op')?.value || 'eq'
+                  cond.value = condRow.querySelector('.r-wcond-value')?.value || ''
+                } else if (conditionType === 'tag') {
+                  const tag = condRow.querySelector('.r-wcond-tag')?.value?.trim() || ''
+                  cond.tag = tag.startsWith('#') ? tag : `#${tag}`
+                } else if (conditionType === 'signal') {
+                  cond.signal = condRow.querySelector('.r-wcond-signal')?.value?.trim() || ''
+                }
+                conditions.push(cond)
               })
               base.reasoningWorkflows.push({ type: wfType, workflowId: wfId, conditions })
               console.log(`  📦 [syncPersistedFromDom] Reasoning workflow: type=${wfType}, id=${wfId}, conditions=${conditions.length}`)
@@ -13735,13 +13912,25 @@ function initializeExtension() {
                 const wfId = wfRow.querySelector('.r-workflow-id')?.value || ''
                 const conditions: any[] = []
                 wfRow.querySelectorAll('.r-workflow-cond-row').forEach((condRow: any) => {
-                  conditions.push({
-                    field: condRow.querySelector('.r-wcond-field')?.value || '',
-                    op: condRow.querySelector('.r-wcond-op')?.value || 'eq',
-                    value: condRow.querySelector('.r-wcond-value')?.value || '',
+                  const conditionType = condRow.querySelector('.r-wcond-type')?.value || 'boolean'
+                  const cond: any = {
+                    conditionType,
                     action: condRow.querySelector('.r-wcond-action')?.value || 'continue',
-                    routeId: condRow.querySelector('.r-wcond-route-id')?.value || ''
-                  })
+                    routeId: condRow.querySelector('.r-wcond-route-id')?.value || '',
+                    outputHandling: condRow.querySelector('.r-wcond-output')?.value || 'attach',
+                    signalName: condRow.querySelector('.r-wcond-signal-name')?.value || ''
+                  }
+                  if (conditionType === 'boolean') {
+                    cond.field = condRow.querySelector('.r-wcond-field')?.value || ''
+                    cond.op = condRow.querySelector('.r-wcond-op')?.value || 'eq'
+                    cond.value = condRow.querySelector('.r-wcond-value')?.value || ''
+                  } else if (conditionType === 'tag') {
+                    const tag = condRow.querySelector('.r-wcond-tag')?.value?.trim() || ''
+                    cond.tag = tag.startsWith('#') ? tag : `#${tag}`
+                  } else if (conditionType === 'signal') {
+                    cond.signal = condRow.querySelector('.r-wcond-signal')?.value?.trim() || ''
+                  }
+                  conditions.push(cond)
                 })
                 sectionWorkflows.push({ type: wfType, workflowId: wfId, conditions })
               })
@@ -13809,24 +13998,41 @@ function initializeExtension() {
             // Accept list removed from Execution section
             const eAccepts: string[] = []
 
-            // Collect execution workflows with new format (type, workflowId, conditions)
+            // Get main execution mode from section level
+            const eExecutionModeSyncMain = (document.querySelector('#E-execution-mode-main') as HTMLSelectElement)?.value || 'agent_workflow'
+            
+            // Collect execution workflows with new format (type, workflowId, runWhenType, conditions)
+            // Note: type is always 'external' now (Internal Parser removed from Execution)
+            // Note: executionMode is now at section level, not per-workflow
             const eWorkflowsSync: any[] = []
             document.querySelectorAll('#E-workflow-list .exec-workflow-row').forEach((wfRow: any) => {
-              const wfType = wfRow.querySelector('.e-workflow-type-radio:checked')?.value || 'internal'
+              const wfType = 'external' // Internal Parser removed - Execution only supports external workflows
               const wfId = wfRow.querySelector('.e-workflow-id')?.value || ''
+              const runWhenType = wfRow.querySelector('.e-run-when-type')?.value || 'always'
               const conditions: any[] = []
-              wfRow.querySelectorAll('.e-workflow-cond-row').forEach((condRow: any) => {
-                conditions.push({
-                  field: condRow.querySelector('.e-wcond-field')?.value || '',
-                  op: condRow.querySelector('.e-wcond-op')?.value || 'eq',
-                  value: condRow.querySelector('.e-wcond-value')?.value || '',
-                  action: condRow.querySelector('.e-wcond-action')?.value || 'continue',
-                  routeId: condRow.querySelector('.e-wcond-route-id')?.value || ''
+              
+              if (runWhenType === 'boolean') {
+                wfRow.querySelectorAll('.e-workflow-cond-row').forEach((condRow: any) => {
+                  conditions.push({
+                    type: 'boolean',
+                    field: condRow.querySelector('.e-wcond-field')?.value || '',
+                    op: condRow.querySelector('.e-wcond-op')?.value || 'eq',
+                    value: condRow.querySelector('.e-wcond-value')?.value || '',
+                    action: condRow.querySelector('.e-wcond-action')?.value || 'execute',
+                    routeId: condRow.querySelector('.e-wcond-route-id')?.value || ''
+                  })
                 })
-              })
-              eWorkflowsSync.push({ type: wfType, workflowId: wfId, conditions })
+              } else if (runWhenType === 'tag') {
+                const tag = wfRow.querySelector('.e-run-tag')?.value?.trim() || ''
+                if (tag) conditions.push({ type: 'tag', tag: tag.startsWith('#') ? tag : `#${tag}` })
+              } else if (runWhenType === 'signal') {
+                const signal = wfRow.querySelector('.e-run-signal')?.value?.trim() || ''
+                if (signal) conditions.push({ type: 'signal', signal })
+              }
+              
+              eWorkflowsSync.push({ type: wfType, workflowId: wfId, runWhenType, conditions })
             })
-            console.log(`🔍 [syncPersistedFromDom] Execution: Found ${eWorkflowsSync.length} execution workflow rows`)
+            console.log(`🔍 [syncPersistedFromDom] Execution: Found ${eWorkflowsSync.length} execution workflow rows, mode: ${eExecutionModeSyncMain}`)
             
             // Legacy format for backward compatibility
             const eWfs = eWorkflowsSync.map(w => w.workflowId).filter(v => v)
@@ -13912,21 +14118,35 @@ function initializeExtension() {
               })
 
               // Collect workflows with new format for additional sections
+              // Note: type is always 'external' now (Internal Parser removed from Execution)
+              // Note: executionMode is now at main section level, not per-workflow
               const sectionWorkflowsSync: any[] = []
               sec.querySelectorAll('.E-workflow-list-sub .exec-workflow-row').forEach((wfRow: any) => {
-                const wfType = wfRow.querySelector('.e-workflow-type-radio:checked')?.value || 'internal'
+                const wfType = 'external' // Internal Parser removed - Execution only supports external workflows
                 const wfId = wfRow.querySelector('.e-workflow-id')?.value || ''
+                const runWhenType = wfRow.querySelector('.e-run-when-type')?.value || 'always'
                 const conditions: any[] = []
-                wfRow.querySelectorAll('.e-workflow-cond-row').forEach((condRow: any) => {
-                  conditions.push({
-                    field: condRow.querySelector('.e-wcond-field')?.value || '',
-                    op: condRow.querySelector('.e-wcond-op')?.value || 'eq',
-                    value: condRow.querySelector('.e-wcond-value')?.value || '',
-                    action: condRow.querySelector('.e-wcond-action')?.value || 'continue',
-                    routeId: condRow.querySelector('.e-wcond-route-id')?.value || ''
+                
+                if (runWhenType === 'boolean') {
+                  wfRow.querySelectorAll('.e-workflow-cond-row').forEach((condRow: any) => {
+                    conditions.push({
+                      type: 'boolean',
+                      field: condRow.querySelector('.e-wcond-field')?.value || '',
+                      op: condRow.querySelector('.e-wcond-op')?.value || 'eq',
+                      value: condRow.querySelector('.e-wcond-value')?.value || '',
+                      action: condRow.querySelector('.e-wcond-action')?.value || 'execute',
+                      routeId: condRow.querySelector('.e-wcond-route-id')?.value || ''
+                    })
                   })
-                })
-                sectionWorkflowsSync.push({ type: wfType, workflowId: wfId, conditions })
+                } else if (runWhenType === 'tag') {
+                  const tag = wfRow.querySelector('.e-run-tag')?.value?.trim() || ''
+                  if (tag) conditions.push({ type: 'tag', tag: tag.startsWith('#') ? tag : `#${tag}` })
+                } else if (runWhenType === 'signal') {
+                  const signal = wfRow.querySelector('.e-run-signal')?.value?.trim() || ''
+                  if (signal) conditions.push({ type: 'signal', signal })
+                }
+                
+                sectionWorkflowsSync.push({ type: wfType, workflowId: wfId, runWhenType, conditions })
               })
               
               // Legacy format for backward compatibility
@@ -13954,6 +14174,7 @@ function initializeExtension() {
 
               workflows: eWfs, 
               executionWorkflows: eWorkflowsSync,
+              executionMode: eExecutionModeSyncMain,
 
               acceptFrom: eAccepts, 
 
@@ -14288,32 +14509,94 @@ function initializeExtension() {
         conditionsWrap.querySelector('.r-workflow-add-cond')?.addEventListener('click', () => {
           const condRow = document.createElement('div')
           condRow.className = 'r-workflow-cond-row'
-          condRow.style.cssText = 'display:flex;flex-direction:column;gap:6px;font-size:12px;background:rgba(255,255,255,0.03);padding:8px;border-radius:4px;border:1px solid rgba(255,255,255,0.1)'
+          condRow.style.cssText = 'display:flex;flex-direction:column;gap:8px;font-size:12px;background:rgba(255,255,255,0.03);padding:10px;border-radius:6px;border:1px solid rgba(255,255,255,0.1)'
           condRow.innerHTML = `
             <div style="display:flex;gap:6px;align-items:center">
-              <span style="opacity:0.7;white-space:nowrap">If</span>
-              <input type="text" placeholder="Expected Value" style="flex:1;background:rgba(255,255,255,.85);border:1px solid rgba(255,255,255,.5);color:#1e293b;padding:4px 8px;border-radius:3px;font-size:11px" class="r-wcond-field">
-              <select style="flex:1;background:#fff;color:#0f172a;border:1px solid #cbd5e1;padding:4px 8px;border-radius:3px;font-size:11px" class="r-wcond-op">
-                <option value="eq">==</option>
-                <option value="ne">!=</option>
-                <option value="contains">contains</option>
-                <option value="gt">&gt;</option>
-                <option value="lt">&lt;</option>
-                <option value="exists">exists</option>
+              <select class="r-wcond-type" style="background:#fff;color:#0f172a;border:1px solid #cbd5e1;padding:5px 8px;border-radius:4px;font-size:11px;font-weight:500">
+                <option value="boolean">Boolean Condition</option>
+                <option value="tag">Tag Detection</option>
+                <option value="signal">Workflow Signal</option>
               </select>
-              <input type="text" placeholder="value" style="flex:1;background:rgba(255,255,255,.85);border:1px solid rgba(255,255,255,.5);color:#1e293b;padding:4px 6px;border-radius:3px;font-size:11px" class="r-wcond-value">
-              <span style="opacity:0.7;white-space:nowrap">→</span>
-              <select style="flex:1;background:#fff;color:#0f172a;border:1px solid #cbd5e1;padding:4px 8px;border-radius:3px;font-size:11px" class="r-wcond-action">
-                <option value="continue">Continue</option>
+              <button style="background:#ef4444;border:none;color:#fff;padding:4px 8px;border-radius:4px;cursor:pointer;font-size:11px;margin-left:auto" class="r-wcond-del">✕</button>
+            </div>
+            <div class="r-wcond-fields" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap"></div>
+            <div style="display:flex;gap:8px;align-items:center;padding-top:6px;border-top:1px dashed rgba(255,255,255,0.1);flex-wrap:wrap">
+              <span style="opacity:0.7;white-space:nowrap;font-size:11px">→ Flow:</span>
+              <select style="background:#fff;color:#0f172a;border:1px solid #cbd5e1;padding:4px 8px;border-radius:3px;font-size:11px" class="r-wcond-action">
+                <option value="continue" selected>Continue</option>
                 <option value="skip">Skip</option>
                 <option value="route">Route to...</option>
               </select>
-              <button style="background:#ef4444;border:none;color:#fff;padding:2px 6px;border-radius:3px;cursor:pointer;font-size:10px" class="r-wcond-del">✕</button>
+              <span title="Controls how the reasoning process continues once this condition matches." style="font-size:10px;opacity:0.7;cursor:help;background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.35);padding:0 5px;border-radius:50%">?</span>
+              <span style="opacity:0.7;white-space:nowrap;font-size:11px;margin-left:8px">→ Output:</span>
+              <select style="background:#fff;color:#0f172a;border:1px solid #cbd5e1;padding:4px 8px;border-radius:3px;font-size:11px" class="r-wcond-output">
+                <option value="attach" selected>Attach to reasoning</option>
+                <option value="ignore">Ignore output</option>
+                <option value="save_session">Save to Session memory</option>
+                <option value="save_account">Save to Account memory</option>
+                <option value="emit">Emit signal</option>
+              </select>
+              <span title="Defines how the workflow's output is used in the reasoning step." style="font-size:10px;opacity:0.7;cursor:help;background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.35);padding:0 5px;border-radius:50%">?</span>
             </div>
             <div class="r-wcond-route-container" style="display:none;padding-left:20px">
               <input type="text" placeholder="Workflow ID to route to" style="width:100%;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.35);color:#fff;padding:6px 10px;border-radius:4px;font-size:12px" class="r-wcond-route-id">
             </div>
+            <div class="r-wcond-signal-container" style="display:none;padding-left:20px">
+              <div style="display:flex;align-items:center;gap:6px">
+                <span style="background:rgba(168,85,247,.2);border:1px solid rgba(168,85,247,.4);padding:4px 8px;border-radius:4px;font-weight:700;color:#a855f7;font-size:11px">⚡</span>
+                <input type="text" placeholder="signal_name" style="flex:1;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.35);color:#fff;padding:6px 10px;border-radius:4px;font-size:12px" class="r-wcond-signal-name">
+              </div>
+              <div style="font-size:10px;color:rgba(255,255,255,0.6);margin-top:4px;padding-left:32px">Emits as internal event/tag for the trigger system</div>
+            </div>
           `
+          
+          const condTypeSelect = condRow.querySelector('.r-wcond-type') as HTMLSelectElement
+          const condFields = condRow.querySelector('.r-wcond-fields') as HTMLElement
+          
+          // Render condition fields based on type
+          const renderConditionFields = (type: string) => {
+            condFields.innerHTML = ''
+            if (type === 'boolean') {
+              condFields.innerHTML = `
+                <span style="opacity:0.7;white-space:nowrap">If</span>
+                <input type="text" placeholder="field" style="flex:1;min-width:80px;background:rgba(255,255,255,.85);border:1px solid rgba(255,255,255,.5);color:#1e293b;padding:5px 8px;border-radius:4px;font-size:11px" class="r-wcond-field">
+                <select style="background:#fff;color:#0f172a;border:1px solid #cbd5e1;padding:5px 6px;border-radius:4px;font-size:11px;min-width:100px" class="r-wcond-op">
+                  <option value="eq">equals</option>
+                  <option value="contains">contains</option>
+                  <option value="startsWith">startsWith</option>
+                  <option value="endsWith">endsWith</option>
+                  <option value="regex">matches regex</option>
+                  <option value="gt">number &gt;</option>
+                  <option value="gte">number &gt;=</option>
+                  <option value="lt">number &lt;</option>
+                  <option value="lte">number &lt;=</option>
+                  <option value="isTrue">is true</option>
+                  <option value="isFalse">is false</option>
+                </select>
+                <input type="text" placeholder="value" style="flex:1;min-width:60px;background:rgba(255,255,255,.85);border:1px solid rgba(255,255,255,.5);color:#1e293b;padding:5px 8px;border-radius:4px;font-size:11px" class="r-wcond-value">
+              `
+            } else if (type === 'tag') {
+              condFields.innerHTML = `
+                <span style="background:rgba(96,165,250,.2);border:1px solid rgba(96,165,250,.4);padding:5px 10px;border-radius:4px;font-weight:700;color:#60a5fa">#</span>
+                <input type="text" placeholder="tagname" style="flex:1;background:rgba(255,255,255,.85);border:1px solid rgba(255,255,255,.5);color:#1e293b;padding:5px 8px;border-radius:4px;font-size:11px" class="r-wcond-tag">
+                <span style="font-size:10px;color:rgba(255,255,255,0.6)">Fires when tag is detected in content</span>
+              `
+            } else if (type === 'signal') {
+              condFields.innerHTML = `
+                <span style="background:rgba(168,85,247,.2);border:1px solid rgba(168,85,247,.4);padding:5px 10px;border-radius:4px;font-weight:700;color:#a855f7">⚡</span>
+                <input type="text" placeholder="signal_name" style="flex:1;background:rgba(255,255,255,.85);border:1px solid rgba(255,255,255,.5);color:#1e293b;padding:5px 8px;border-radius:4px;font-size:11px" class="r-wcond-signal">
+                <span style="font-size:10px;color:rgba(255,255,255,0.6)">Fires when workflow emits this signal</span>
+              `
+            }
+          }
+          
+          // Render initial fields
+          renderConditionFields('boolean')
+          
+          // Update fields when type changes
+          condTypeSelect.addEventListener('change', () => {
+            renderConditionFields(condTypeSelect.value)
+          })
           
           // Wire up delete
           condRow.querySelector('.r-wcond-del')?.addEventListener('click', () => condRow.remove())
@@ -14323,6 +14606,13 @@ function initializeExtension() {
           const routeContainer = condRow.querySelector('.r-wcond-route-container') as HTMLElement
           actionSelect?.addEventListener('change', () => {
             routeContainer.style.display = actionSelect.value === 'route' ? 'block' : 'none'
+          })
+          
+          // Wire up output handling change to show/hide signal input
+          const outputSelect = condRow.querySelector('.r-wcond-output') as HTMLSelectElement
+          const signalContainer = condRow.querySelector('.r-wcond-signal-container') as HTMLElement
+          outputSelect?.addEventListener('change', () => {
+            signalContainer.style.display = outputSelect.value === 'emit' ? 'block' : 'none'
           })
           
           workflowCondList.appendChild(condRow)
@@ -14335,10 +14625,33 @@ function initializeExtension() {
           const rows = workflowCondList.querySelectorAll('.r-workflow-cond-row')
           const lastRow = rows[rows.length - 1]
           if (lastRow) {
-            (lastRow.querySelector('.r-wcond-field') as HTMLInputElement).value = c.field || ''
-            ;(lastRow.querySelector('.r-wcond-op') as HTMLSelectElement).value = c.op || 'eq'
-            ;(lastRow.querySelector('.r-wcond-value') as HTMLInputElement).value = c.value || ''
+            // Restore condition type
+            const condTypeSelect = lastRow.querySelector('.r-wcond-type') as HTMLSelectElement
+            const condType = c.conditionType || 'boolean'
+            if (condTypeSelect) {
+              condTypeSelect.value = condType
+              condTypeSelect.dispatchEvent(new Event('change')) // Trigger field rendering
+            }
             
+            // Restore condition fields based on type
+            setTimeout(() => {
+              if (condType === 'boolean') {
+                const fieldInput = lastRow.querySelector('.r-wcond-field') as HTMLInputElement
+                const opSelect = lastRow.querySelector('.r-wcond-op') as HTMLSelectElement
+                const valueInput = lastRow.querySelector('.r-wcond-value') as HTMLInputElement
+                if (fieldInput) fieldInput.value = c.field || ''
+                if (opSelect) opSelect.value = c.op || 'eq'
+                if (valueInput) valueInput.value = c.value || ''
+              } else if (condType === 'tag') {
+                const tagInput = lastRow.querySelector('.r-wcond-tag') as HTMLInputElement
+                if (tagInput) tagInput.value = (c.tag || '').replace('#', '')
+              } else if (condType === 'signal') {
+                const signalInput = lastRow.querySelector('.r-wcond-signal') as HTMLInputElement
+                if (signalInput) signalInput.value = c.signal || ''
+              }
+            }, 10)
+            
+            // Restore Flow Action
             const actionSelect = lastRow.querySelector('.r-wcond-action') as HTMLSelectElement
             const routeContainer = lastRow.querySelector('.r-wcond-route-container') as HTMLElement
             actionSelect.value = c.action || 'continue'
@@ -14348,6 +14661,20 @@ function initializeExtension() {
               routeContainer.style.display = 'block'
               const routeIdInput = lastRow.querySelector('.r-wcond-route-id') as HTMLInputElement
               if (routeIdInput && c.routeId) routeIdInput.value = c.routeId
+            }
+            
+            // Restore Output Handling
+            const outputSelect = lastRow.querySelector('.r-wcond-output') as HTMLSelectElement
+            const signalContainer = lastRow.querySelector('.r-wcond-signal-container') as HTMLElement
+            if (outputSelect) {
+              outputSelect.value = c.outputHandling || 'attach'
+            }
+            
+            // Show signal container and set signal name if output is emit
+            if (c.outputHandling === 'emit') {
+              signalContainer.style.display = 'block'
+              const signalNameInput = lastRow.querySelector('.r-wcond-signal-name') as HTMLInputElement
+              if (signalNameInput && c.signalName) signalNameInput.value = c.signalName
             }
           }
         })
@@ -15209,7 +15536,19 @@ function initializeExtension() {
 
             </div>
 
-            <div style="margin-top:8px">
+            <div style="margin:12px 0;padding:10px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.1);border-radius:8px">
+              <div style="display:flex;align-items:center;gap:10px">
+                <span style="font-weight:600;font-size:13px;white-space:nowrap">Execution Mode:</span>
+                <select id="E-execution-mode-main" style="flex:1;max-width:280px;background:#fff;color:#0f172a;border:1px solid #cbd5e1;padding:6px 10px;border-radius:6px;font-size:12px">
+                  <option value="agent_only">Agent response only</option>
+                  <option value="agent_workflow" selected>Agent response + workflows</option>
+                  <option value="workflow_only">Workflows only (no agent response)</option>
+                </select>
+                <span title="Agent response only: returns output from Agent Box only (text, image, etc.). Agent response + workflows: calls both Agent Box and external workflows. Workflows only: calls external workflows without Agent Box response." style="font-size:12px;opacity:0.9;cursor:help;background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.35);padding:0 6px;border-radius:50%">?</span>
+              </div>
+            </div>
+
+            <div id="E-workflow-section" style="margin-top:8px">
 
               <div id="E-workflow-list" style="display:flex;flex-direction:column;gap:8px"></div>
 
@@ -15501,11 +15840,14 @@ function initializeExtension() {
             <option value="direct_tag">Event Trigger (Tag)</option>
             <option value="workflow_condition">Condition Trigger (Workflow)</option>
             <option value="tag_and_condition">Gated Trigger (Tag + Condition)</option>
-            <option value="ui_event">UI Event Trigger (DOM)</option>
-            <option value="manual">Manual Trigger (Command)</option>
+            <option value="dom_event">DOM Event Trigger</option>
+            <option value="dom_parser">DOM Parser</option>
+            <option value="augmented_overlay">Augmented Overlay</option>
             <option value="agent">Agent Trigger</option>
             <option value="miniapp">Mini-App Trigger</option>
           `
+          // Support legacy ui_event type
+          if (init?.type === 'ui_event') init.type = 'dom_event'
           if (init?.type) typeSel.value = init.type
           
           const delBtn = document.createElement('button')
@@ -15977,39 +16319,358 @@ function initializeExtension() {
               }
             }
             
-            if (type === 'ui_event') {
-              // DOM selector field
-              const domRow = document.createElement('div')
-              domRow.innerHTML = `
-                <label style="font-size:12px;color:rgba(255,255,255,0.9);display:block;margin-bottom:4px">CSS Selector</label>
-                <input class="trigger-dom-selector" placeholder="#button-id, .class-name, [data-attr]" value="${init?.domSelector || ''}" style="width:100%;background:rgba(255,255,255,.85);border:1px solid rgba(255,255,255,.5);color:#1e293b;padding:6px 10px;border-radius:6px;font-size:12px">
-              `
-              fieldsContainer.appendChild(domRow)
+            if (type === 'dom_event' || type === 'ui_event') {
+              // ========== DOM EVENT TRIGGER ==========
+              // For listening to user interactions on existing website elements
               
-              // DOM event type
-              const eventRow = document.createElement('div')
-              eventRow.innerHTML = `
-                <label style="font-size:12px;color:rgba(255,255,255,0.9);display:block;margin-bottom:4px">Event Type</label>
-                <select class="trigger-dom-event" style="width:100%;background:#fff;color:#0f172a;border:1px solid #cbd5e1;padding:6px 10px;border-radius:6px;font-size:12px">
-                  <option value="click" ${init?.domEvent === 'click' ? 'selected' : ''}>Click</option>
-                  <option value="scroll" ${init?.domEvent === 'scroll' ? 'selected' : ''}>Scroll</option>
-                  <option value="hover" ${init?.domEvent === 'hover' ? 'selected' : ''}>Hover</option>
-                  <option value="mutate" ${init?.domEvent === 'mutate' ? 'selected' : ''}>DOM Mutation</option>
-                  <option value="focus" ${init?.domEvent === 'focus' ? 'selected' : ''}>Focus</option>
-                  <option value="input" ${init?.domEvent === 'input' ? 'selected' : ''}>Input Change</option>
-                </select>
+              const domSection = document.createElement('div')
+              domSection.className = 'trigger-section'
+              domSection.style.cssText = 'padding:10px;background:rgba(234,179,8,0.08);border:1px solid rgba(234,179,8,0.25);border-radius:8px;margin-bottom:10px'
+              domSection.innerHTML = `
+                <div style="font-weight:600;font-size:13px;color:#eab308;margin-bottom:8px;display:flex;align-items:center;gap:6px">
+                  <span style="font-size:14px">🖱️</span> DOM Event Trigger
+                </div>
+                <div style="margin-bottom:8px">
+                  <label style="font-size:12px;color:rgba(255,255,255,0.9);display:block;margin-bottom:4px">Event Type</label>
+                  <select class="trigger-dom-event" style="width:100%;background:#fff;color:#0f172a;border:1px solid #cbd5e1;padding:8px 10px;border-radius:6px;font-size:12px">
+                    <option value="click" ${!init?.domEvent || init?.domEvent === 'click' ? 'selected' : ''}>Click</option>
+                    <option value="dblclick" ${init?.domEvent === 'dblclick' ? 'selected' : ''}>Double Click</option>
+                    <option value="hover" ${init?.domEvent === 'hover' ? 'selected' : ''}>Hover</option>
+                    <option value="focus" ${init?.domEvent === 'focus' ? 'selected' : ''}>Focus</option>
+                    <option value="blur" ${init?.domEvent === 'blur' ? 'selected' : ''}>Blur</option>
+                    <option value="input" ${init?.domEvent === 'input' ? 'selected' : ''}>Input Change</option>
+                    <option value="submit" ${init?.domEvent === 'submit' ? 'selected' : ''}>Form Submit</option>
+                    <option value="scroll" ${init?.domEvent === 'scroll' ? 'selected' : ''}>Scroll</option>
+                    <option value="mutate" ${init?.domEvent === 'mutate' ? 'selected' : ''}>DOM Mutation</option>
+                    <option value="load" ${init?.domEvent === 'load' ? 'selected' : ''}>Page Load</option>
+                  </select>
+                </div>
+                <div style="margin-bottom:8px">
+                  <label style="font-size:12px;color:rgba(255,255,255,0.9);display:block;margin-bottom:4px">CSS Selector <span style="opacity:0.6">(optional - leave empty for document-level events)</span></label>
+                  <input class="trigger-dom-selector" placeholder="#button-id, .class-name, [data-attr]" value="${init?.domSelector || ''}" style="width:100%;background:rgba(255,255,255,.85);border:1px solid rgba(255,255,255,.5);color:#1e293b;padding:8px 10px;border-radius:6px;font-size:12px">
+                </div>
+                <div style="margin-bottom:8px">
+                  <label style="font-size:12px;color:rgba(255,255,255,0.9);display:block;margin-bottom:4px">URL/Hostname Filter <span style="opacity:0.6">(optional)</span></label>
+                  <input class="trigger-dom-url-filter" placeholder="*.example.com, https://app.domain.com/*" value="${init?.domUrlFilter || ''}" style="width:100%;background:rgba(255,255,255,.85);border:1px solid rgba(255,255,255,.5);color:#1e293b;padding:8px 10px;border-radius:6px;font-size:12px">
+                </div>
+                <div>
+                  <label style="font-size:12px;color:rgba(255,255,255,0.9);display:block;margin-bottom:6px">Payload Options</label>
+                  <div style="display:flex;flex-wrap:wrap;gap:10px">
+                    <label style="display:flex;align-items:center;gap:4px;cursor:pointer">
+                      <input type="checkbox" class="trigger-dom-payload-selection" ${init?.domPayloadSelection ? 'checked' : ''} style="margin:0">
+                      <span style="font-size:11px;color:rgba(255,255,255,0.8)">Selection text</span>
+                    </label>
+                    <label style="display:flex;align-items:center;gap:4px;cursor:pointer">
+                      <input type="checkbox" class="trigger-dom-payload-snippet" ${init?.domPayloadSnippet ? 'checked' : ''} style="margin:0">
+                      <span style="font-size:11px;color:rgba(255,255,255,0.8)">DOM snippet</span>
+                    </label>
+                    <label style="display:flex;align-items:center;gap:4px;cursor:pointer">
+                      <input type="checkbox" class="trigger-dom-payload-url" ${init?.domPayloadUrl ? 'checked' : ''} style="margin:0">
+                      <span style="font-size:11px;color:rgba(255,255,255,0.8)">Page URL</span>
+                    </label>
+                  </div>
+                </div>
               `
-              fieldsContainer.appendChild(eventRow)
+              fieldsContainer.appendChild(domSection)
             }
             
-            if (type === 'manual') {
-              // Command label field
-              const cmdRow = document.createElement('div')
-              cmdRow.innerHTML = `
-                <label style="font-size:12px;color:rgba(255,255,255,0.9);display:block;margin-bottom:4px">Command/Button Label</label>
-                <input class="trigger-command" placeholder="e.g. Run Analysis, Process Invoice" value="${init?.commandLabel || ''}" style="width:100%;background:rgba(255,255,255,.85);border:1px solid rgba(255,255,255,.5);color:#1e293b;padding:6px 10px;border-radius:6px;font-size:12px">
+            if (type === 'dom_parser') {
+              // ========== DOM PARSER ==========
+              // Parses the website DOM and checks for patterns, keywords, and content
+              
+              const parserSection = document.createElement('div')
+              parserSection.className = 'trigger-section trigger-dom-parser-section'
+              parserSection.style.cssText = 'padding:10px;background:rgba(34,197,94,0.08);border:1px solid rgba(34,197,94,0.25);border-radius:8px;margin-bottom:10px'
+              parserSection.innerHTML = `
+                <div style="font-weight:600;font-size:13px;color:#22c55e;margin-bottom:8px;display:flex;align-items:center;gap:6px">
+                  <span style="font-size:14px">🔍</span> DOM Parser
+                  <span title="Parses the website DOM and checks for patterns, keywords, and content. Returns booleans, tags, or signals to trigger automations." style="font-size:10px;opacity:0.7;cursor:help;background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.35);padding:0 5px;border-radius:50%">?</span>
+                </div>
+                <div style="margin-bottom:8px">
+                  <label style="font-size:12px;color:rgba(255,255,255,0.9);display:block;margin-bottom:4px">Parse Trigger</label>
+                  <select class="trigger-parser-trigger" style="width:100%;background:#fff;color:#0f172a;border:1px solid #cbd5e1;padding:8px 10px;border-radius:6px;font-size:12px">
+                    <option value="page_load" ${!init?.parserTrigger || init?.parserTrigger === 'page_load' ? 'selected' : ''}>On Page Load</option>
+                    <option value="dom_change" ${init?.parserTrigger === 'dom_change' ? 'selected' : ''}>On DOM Change</option>
+                    <option value="interval" ${init?.parserTrigger === 'interval' ? 'selected' : ''}>On Interval</option>
+                    <option value="manual" ${init?.parserTrigger === 'manual' ? 'selected' : ''}>Manual / On Demand</option>
+                  </select>
+                </div>
+                <div class="parser-interval-row" style="margin-bottom:8px;display:${init?.parserTrigger === 'interval' ? 'flex' : 'none'};align-items:center;gap:8px">
+                  <label style="font-size:12px;color:rgba(255,255,255,0.9)">Every</label>
+                  <input type="number" class="trigger-parser-interval" placeholder="5" value="${init?.parserInterval || '5'}" style="width:60px;background:rgba(255,255,255,.85);border:1px solid rgba(255,255,255,.5);color:#1e293b;padding:6px 8px;border-radius:4px;font-size:12px">
+                  <span style="font-size:12px;color:rgba(255,255,255,0.9)">seconds</span>
+                </div>
+                <div style="margin-bottom:8px">
+                  <label style="font-size:12px;color:rgba(255,255,255,0.9);display:block;margin-bottom:4px">Parse Target</label>
+                  <select class="trigger-dom-parse-target" style="width:100%;background:#fff;color:#0f172a;border:1px solid #cbd5e1;padding:8px 10px;border-radius:6px;font-size:12px">
+                    <option value="body" ${!init?.domParseTarget || init?.domParseTarget === 'body' ? 'selected' : ''}>Page Body</option>
+                    <option value="selection" ${init?.domParseTarget === 'selection' ? 'selected' : ''}>Current Selection</option>
+                    <option value="selector" ${init?.domParseTarget === 'selector' ? 'selected' : ''}>Custom Selector</option>
+                    <option value="viewport" ${init?.domParseTarget === 'viewport' ? 'selected' : ''}>Visible Viewport</option>
+                  </select>
+                </div>
+                <div class="dom-parse-selector-row" style="margin-bottom:8px;display:${init?.domParseTarget === 'selector' ? 'block' : 'none'}">
+                  <label style="font-size:12px;color:rgba(255,255,255,0.9);display:block;margin-bottom:4px">Parse Selector</label>
+                  <input class="trigger-dom-parse-selector" placeholder=".content, #main, article" value="${init?.domParseSelector || ''}" style="width:100%;background:rgba(255,255,255,.85);border:1px solid rgba(255,255,255,.5);color:#1e293b;padding:8px 10px;border-radius:6px;font-size:12px">
+                </div>
+                <div style="margin-bottom:8px">
+                  <label style="font-size:12px;color:rgba(255,255,255,0.9);display:block;margin-bottom:4px">URL/Hostname Filter <span style="opacity:0.6">(optional)</span></label>
+                  <input class="trigger-dom-url-filter" placeholder="*.example.com, https://app.domain.com/*" value="${init?.domUrlFilter || ''}" style="width:100%;background:rgba(255,255,255,.85);border:1px solid rgba(255,255,255,.5);color:#1e293b;padding:8px 10px;border-radius:6px;font-size:12px">
+                </div>
+                <div style="border-top:1px dashed rgba(255,255,255,0.15);padding-top:10px;margin-top:10px">
+                  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+                    <span style="font-size:12px;color:rgba(255,255,255,0.9);font-weight:600">Pattern Rules</span>
+                    <button class="dom-parser-add-rule" style="background:rgba(34,197,94,.3);border:1px solid rgba(34,197,94,.5);color:#fff;padding:4px 10px;border-radius:4px;cursor:pointer;font-size:11px">+ Add Rule</button>
+                  </div>
+                  <div class="dom-parser-rules" style="display:flex;flex-direction:column;gap:8px"></div>
+                </div>
               `
-              fieldsContainer.appendChild(cmdRow)
+              fieldsContainer.appendChild(parserSection)
+              
+              // Toggle interval row
+              const parserTriggerSelect = parserSection.querySelector('.trigger-parser-trigger') as HTMLSelectElement
+              const intervalRow = parserSection.querySelector('.parser-interval-row') as HTMLElement
+              parserTriggerSelect?.addEventListener('change', () => {
+                intervalRow.style.display = parserTriggerSelect.value === 'interval' ? 'flex' : 'none'
+              })
+              
+              // Toggle parse selector row
+              const parseTargetSelect = parserSection.querySelector('.trigger-dom-parse-target') as HTMLSelectElement
+              const parseSelectorRow = parserSection.querySelector('.dom-parse-selector-row') as HTMLElement
+              parseTargetSelect?.addEventListener('change', () => {
+                parseSelectorRow.style.display = parseTargetSelect.value === 'selector' ? 'block' : 'none'
+              })
+              
+              // Add parser rule
+              const addRuleBtn = parserSection.querySelector('.dom-parser-add-rule') as HTMLButtonElement
+              const rulesContainer = parserSection.querySelector('.dom-parser-rules') as HTMLElement
+              
+              const createParserRule = (initRule?: any) => {
+                const rule = document.createElement('div')
+                rule.className = 'dom-parser-rule'
+                rule.style.cssText = 'background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.1);border-radius:6px;padding:8px'
+                rule.innerHTML = `
+                  <div style="display:flex;gap:6px;align-items:center;margin-bottom:6px">
+                    <select class="dom-rule-type" style="background:#fff;color:#0f172a;border:1px solid #cbd5e1;padding:5px 8px;border-radius:4px;font-size:11px">
+                      <option value="keyword" ${!initRule?.type || initRule?.type === 'keyword' ? 'selected' : ''}>Keyword Match</option>
+                      <option value="pattern" ${initRule?.type === 'pattern' ? 'selected' : ''}>Regex Pattern</option>
+                      <option value="element" ${initRule?.type === 'element' ? 'selected' : ''}>Element Exists</option>
+                      <option value="attribute" ${initRule?.type === 'attribute' ? 'selected' : ''}>Attribute Check</option>
+                      <option value="text_length" ${initRule?.type === 'text_length' ? 'selected' : ''}>Text Length</option>
+                    </select>
+                    <button class="dom-rule-del" style="background:#ef4444;border:none;color:#fff;padding:4px 8px;border-radius:4px;cursor:pointer;font-size:11px;margin-left:auto">✕</button>
+                  </div>
+                  <div class="dom-rule-fields" style="display:flex;flex-direction:column;gap:6px"></div>
+                  <div style="display:flex;gap:8px;align-items:center;margin-top:8px;padding-top:8px;border-top:1px dashed rgba(255,255,255,0.1)">
+                    <span style="font-size:11px;opacity:0.7">Output:</span>
+                    <select class="dom-rule-output" style="background:#fff;color:#0f172a;border:1px solid #cbd5e1;padding:4px 8px;border-radius:4px;font-size:11px">
+                      <option value="boolean" ${!initRule?.output || initRule?.output === 'boolean' ? 'selected' : ''}>Boolean (true/false)</option>
+                      <option value="tag" ${initRule?.output === 'tag' ? 'selected' : ''}>Emit Tag</option>
+                      <option value="signal" ${initRule?.output === 'signal' ? 'selected' : ''}>Emit Signal</option>
+                    </select>
+                    <input class="dom-rule-output-value" placeholder="tag/signal name" value="${initRule?.outputValue || ''}" style="flex:1;background:rgba(255,255,255,.85);border:1px solid rgba(255,255,255,.5);color:#1e293b;padding:4px 8px;border-radius:4px;font-size:11px;display:${initRule?.output === 'tag' || initRule?.output === 'signal' ? 'block' : 'none'}">
+                  </div>
+                `
+                
+                const ruleTypeSelect = rule.querySelector('.dom-rule-type') as HTMLSelectElement
+                const ruleFields = rule.querySelector('.dom-rule-fields') as HTMLElement
+                const outputSelect = rule.querySelector('.dom-rule-output') as HTMLSelectElement
+                const outputValue = rule.querySelector('.dom-rule-output-value') as HTMLInputElement
+                
+                outputSelect?.addEventListener('change', () => {
+                  outputValue.style.display = outputSelect.value === 'tag' || outputSelect.value === 'signal' ? 'block' : 'none'
+                })
+                
+                const renderRuleFields = (type: string) => {
+                  ruleFields.innerHTML = ''
+                  if (type === 'keyword') {
+                    ruleFields.innerHTML = `
+                      <input class="dom-rule-keywords" placeholder="invoice, payment, urgent (comma-separated)" value="${initRule?.keywords || ''}" style="width:100%;background:rgba(255,255,255,.85);border:1px solid rgba(255,255,255,.5);color:#1e293b;padding:6px 8px;border-radius:4px;font-size:11px">
+                      <label style="display:flex;align-items:center;gap:4px;cursor:pointer">
+                        <input type="checkbox" class="dom-rule-case-sensitive" ${initRule?.caseSensitive ? 'checked' : ''} style="margin:0">
+                        <span style="font-size:10px;color:rgba(255,255,255,0.7)">Case sensitive</span>
+                      </label>
+                    `
+                  } else if (type === 'pattern') {
+                    ruleFields.innerHTML = `
+                      <input class="dom-rule-regex" placeholder="e.g. \\$[0-9,]+\\.\\d{2}" value="${initRule?.regex || ''}" style="width:100%;background:rgba(255,255,255,.85);border:1px solid rgba(255,255,255,.5);color:#1e293b;padding:6px 8px;border-radius:4px;font-size:11px;font-family:monospace">
+                      <span style="font-size:10px;color:rgba(255,255,255,0.6)">JavaScript regex pattern</span>
+                    `
+                  } else if (type === 'element') {
+                    ruleFields.innerHTML = `
+                      <input class="dom-rule-element-selector" placeholder="CSS selector, e.g. .error-message, #success-banner" value="${initRule?.elementSelector || ''}" style="width:100%;background:rgba(255,255,255,.85);border:1px solid rgba(255,255,255,.5);color:#1e293b;padding:6px 8px;border-radius:4px;font-size:11px">
+                    `
+                  } else if (type === 'attribute') {
+                    ruleFields.innerHTML = `
+                      <div style="display:flex;gap:6px">
+                        <input class="dom-rule-attr-selector" placeholder="CSS selector" value="${initRule?.attrSelector || ''}" style="flex:1;background:rgba(255,255,255,.85);border:1px solid rgba(255,255,255,.5);color:#1e293b;padding:6px 8px;border-radius:4px;font-size:11px">
+                        <input class="dom-rule-attr-name" placeholder="attribute" value="${initRule?.attrName || ''}" style="width:80px;background:rgba(255,255,255,.85);border:1px solid rgba(255,255,255,.5);color:#1e293b;padding:6px 8px;border-radius:4px;font-size:11px">
+                        <select class="dom-rule-attr-op" style="background:#fff;color:#0f172a;border:1px solid #cbd5e1;padding:6px;border-radius:4px;font-size:11px">
+                          <option value="exists" ${initRule?.attrOp === 'exists' ? 'selected' : ''}>exists</option>
+                          <option value="equals" ${initRule?.attrOp === 'equals' ? 'selected' : ''}>equals</option>
+                          <option value="contains" ${initRule?.attrOp === 'contains' ? 'selected' : ''}>contains</option>
+                        </select>
+                        <input class="dom-rule-attr-value" placeholder="value" value="${initRule?.attrValue || ''}" style="flex:1;background:rgba(255,255,255,.85);border:1px solid rgba(255,255,255,.5);color:#1e293b;padding:6px 8px;border-radius:4px;font-size:11px">
+                      </div>
+                    `
+                  } else if (type === 'text_length') {
+                    ruleFields.innerHTML = `
+                      <div style="display:flex;gap:6px;align-items:center">
+                        <span style="font-size:11px;opacity:0.7">Text length</span>
+                        <select class="dom-rule-length-op" style="background:#fff;color:#0f172a;border:1px solid #cbd5e1;padding:6px;border-radius:4px;font-size:11px">
+                          <option value="gt" ${initRule?.lengthOp === 'gt' ? 'selected' : ''}>&gt;</option>
+                          <option value="gte" ${initRule?.lengthOp === 'gte' ? 'selected' : ''}>&gt;=</option>
+                          <option value="lt" ${initRule?.lengthOp === 'lt' ? 'selected' : ''}>&lt;</option>
+                          <option value="lte" ${initRule?.lengthOp === 'lte' ? 'selected' : ''}>&lt;=</option>
+                          <option value="eq" ${initRule?.lengthOp === 'eq' ? 'selected' : ''}>=</option>
+                        </select>
+                        <input class="dom-rule-length-value" type="number" placeholder="100" value="${initRule?.lengthValue || ''}" style="width:80px;background:rgba(255,255,255,.85);border:1px solid rgba(255,255,255,.5);color:#1e293b;padding:6px 8px;border-radius:4px;font-size:11px">
+                        <span style="font-size:11px;opacity:0.7">characters</span>
+                      </div>
+                    `
+                  }
+                }
+                
+                renderRuleFields(initRule?.type || 'keyword')
+                ruleTypeSelect?.addEventListener('change', () => renderRuleFields(ruleTypeSelect.value))
+                rule.querySelector('.dom-rule-del')?.addEventListener('click', () => rule.remove())
+                
+                return rule
+              }
+              
+              addRuleBtn?.addEventListener('click', () => rulesContainer.appendChild(createParserRule()))
+              
+              // Restore existing rules
+              if (init?.domParserRules?.length) {
+                init.domParserRules.forEach((r: any) => rulesContainer.appendChild(createParserRule(r)))
+              }
+            }
+            
+            if (type === 'augmented_overlay') {
+              // ========== AUGMENTED OVERLAY TRIGGER ==========
+              // Pointer-based overlay interactions with voice commands and overlay buttons
+              
+              const overlaySection = document.createElement('div')
+              overlaySection.className = 'trigger-section'
+              overlaySection.style.cssText = 'padding:10px;background:rgba(168,85,247,0.08);border:1px solid rgba(168,85,247,0.25);border-radius:8px;margin-bottom:10px'
+              overlaySection.innerHTML = `
+                <div style="font-weight:600;font-size:13px;color:#a855f7;margin-bottom:8px;display:flex;align-items:center;gap:6px">
+                  <span style="font-size:14px">🎯</span> Augmented Overlay
+                  <span title="Transparent overlay for voice commands, pointer context, and overlay buttons." style="font-size:10px;opacity:0.7;cursor:help;background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.35);padding:0 5px;border-radius:50%">?</span>
+                </div>
+                <div style="font-size:11px;color:rgba(255,255,255,0.7);margin-bottom:12px;padding:8px;background:rgba(168,85,247,0.1);border-radius:4px">
+                  Emits overlay event with pointer + utterance + optional elementId
+                </div>
+                <div style="margin-bottom:10px">
+                  <label style="font-size:12px;color:rgba(255,255,255,0.9);display:block;margin-bottom:4px">Interaction Modes <span style="opacity:0.6">(select one or more)</span></label>
+                  <div style="display:flex;flex-direction:column;gap:8px">
+                    <label style="display:flex;align-items:center;gap:8px;cursor:pointer;background:rgba(255,255,255,0.05);padding:8px 12px;border-radius:6px;border:1px solid rgba(255,255,255,0.1)">
+                      <input type="checkbox" class="trigger-overlay-mode-button" ${init?.overlayModeButton ? 'checked' : ''} style="margin:0">
+                      <div>
+                        <div style="font-size:12px;color:rgba(255,255,255,0.95);font-weight:500">⌘ Overlay Button</div>
+                        <div style="font-size:10px;color:rgba(255,255,255,0.6)">User clicks a button in the overlay UI</div>
+                      </div>
+                    </label>
+                    <label style="display:flex;align-items:center;gap:8px;cursor:pointer;background:rgba(255,255,255,0.05);padding:8px 12px;border-radius:6px;border:1px solid rgba(255,255,255,0.1)">
+                      <input type="checkbox" class="trigger-overlay-mode-empty" ${init?.overlayModeEmpty ? 'checked' : ''} style="margin:0">
+                      <div>
+                        <div style="font-size:12px;color:rgba(255,255,255,0.95);font-weight:500">🎤 Voice + Pointer (empty area)</div>
+                        <div style="font-size:10px;color:rgba(255,255,255,0.6)">User speaks while pointing at empty space</div>
+                      </div>
+                    </label>
+                    <label style="display:flex;align-items:center;gap:8px;cursor:pointer;background:rgba(255,255,255,0.05);padding:8px 12px;border-radius:6px;border:1px solid rgba(255,255,255,0.1)">
+                      <input type="checkbox" class="trigger-overlay-mode-element" ${init?.overlayModeElement !== false ? 'checked' : ''} style="margin:0">
+                      <div>
+                        <div style="font-size:12px;color:rgba(255,255,255,0.95);font-weight:500">🖱️ Voice + Element</div>
+                        <div style="font-size:10px;color:rgba(255,255,255,0.6)">User speaks while pointing at a specific element</div>
+                      </div>
+                    </label>
+                    <label style="display:flex;align-items:center;gap:8px;cursor:pointer;background:rgba(255,255,255,0.05);padding:8px 12px;border-radius:6px;border:1px solid rgba(255,255,255,0.1)">
+                      <input type="checkbox" class="trigger-overlay-mode-selection" ${init?.overlayModeSelection ? 'checked' : ''} style="margin:0">
+                      <div>
+                        <div style="font-size:12px;color:rgba(255,255,255,0.95);font-weight:500">✂️ Voice + Selection</div>
+                        <div style="font-size:10px;color:rgba(255,255,255,0.6)">User speaks while having text selected</div>
+                      </div>
+                    </label>
+                  </div>
+                </div>
+                <div class="overlay-button-fields" style="display:${init?.overlayModeButton ? 'block' : 'none'};margin-bottom:10px;padding:10px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.12);border-radius:6px">
+                  <label style="font-size:12px;color:rgba(255,255,255,0.9);display:block;margin-bottom:4px">Button Label / Icon</label>
+                  <input class="trigger-overlay-button-label" placeholder="e.g. Run Analysis, 📊, ✨ Quick Action" value="${init?.overlayButtonLabel || ''}" style="width:100%;background:rgba(255,255,255,.85);border:1px solid rgba(255,255,255,.5);color:#1e293b;padding:8px 10px;border-radius:6px;font-size:12px">
+                  <div style="font-size:10px;color:rgba(255,255,255,0.6);margin-top:4px">Button displayed in the overlay UI</div>
+                </div>
+                <div style="margin-bottom:10px">
+                  <label style="font-size:12px;color:rgba(255,255,255,0.9);display:block;margin-bottom:4px">Trigger Name <span style="color:#ef4444;font-size:10px">(required)</span></label>
+                  <input class="trigger-overlay-name" placeholder="e.g. ask_about_element, explain_selection" value="${init?.overlayTriggerName || ''}" style="width:100%;background:rgba(255,255,255,.85);border:1px solid rgba(255,255,255,.5);color:#1e293b;padding:8px 10px;border-radius:6px;font-size:12px">
+                  <div style="font-size:10px;color:rgba(255,255,255,0.6);margin-top:4px">Internal event identifier emitted when triggered</div>
+                </div>
+                <div class="overlay-voice-fields" style="display:${init?.overlayModeEmpty || init?.overlayModeElement !== false || init?.overlayModeSelection ? 'block' : 'none'};margin-bottom:10px">
+                  <label style="font-size:12px;color:rgba(255,255,255,0.9);display:block;margin-bottom:4px">Activation Phrases <span style="opacity:0.6">(for voice modes)</span></label>
+                  <textarea class="trigger-overlay-phrases" placeholder="what can I do here&#10;explain this&#10;help me with this" style="width:100%;min-height:60px;background:rgba(255,255,255,.85);border:1px solid rgba(255,255,255,.5);color:#1e293b;padding:8px 10px;border-radius:6px;font-size:12px;resize:vertical">${init?.overlayPhrases || ''}</textarea>
+                  <div style="font-size:10px;color:rgba(255,255,255,0.6);margin-top:4px">One phrase per line. Leave empty to match any voice input.</div>
+                </div>
+              `
+              fieldsContainer.appendChild(overlaySection)
+              
+              // Toggle button fields visibility
+              const buttonModeCheckbox = overlaySection.querySelector('.trigger-overlay-mode-button') as HTMLInputElement
+              const buttonFields = overlaySection.querySelector('.overlay-button-fields') as HTMLElement
+              const voiceFields = overlaySection.querySelector('.overlay-voice-fields') as HTMLElement
+              const voiceModes = [
+                overlaySection.querySelector('.trigger-overlay-mode-empty') as HTMLInputElement,
+                overlaySection.querySelector('.trigger-overlay-mode-element') as HTMLInputElement,
+                overlaySection.querySelector('.trigger-overlay-mode-selection') as HTMLInputElement
+              ]
+              
+              const updateFieldsVisibility = () => {
+                buttonFields.style.display = buttonModeCheckbox?.checked ? 'block' : 'none'
+                const anyVoiceMode = voiceModes.some(cb => cb?.checked)
+                voiceFields.style.display = anyVoiceMode ? 'block' : 'none'
+              }
+              
+              buttonModeCheckbox?.addEventListener('change', updateFieldsVisibility)
+              voiceModes.forEach(cb => cb?.addEventListener('change', updateFieldsVisibility))
+              
+              // ========== SCOPE ==========
+              const scopeSection = document.createElement('div')
+              scopeSection.style.cssText = 'padding:10px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.12);border-radius:8px;margin-bottom:10px'
+              scopeSection.innerHTML = `
+                <label style="font-size:12px;color:rgba(255,255,255,0.9);display:block;margin-bottom:6px">Scope <span style="opacity:0.6">(optional)</span></label>
+                <div style="margin-bottom:8px">
+                  <input class="trigger-overlay-url-pattern" placeholder="URL pattern, e.g. *.example.com, https://app.domain.com/*" value="${init?.overlayUrlPattern || ''}" style="width:100%;background:rgba(255,255,255,.85);border:1px solid rgba(255,255,255,.5);color:#1e293b;padding:8px 10px;border-radius:6px;font-size:12px">
+                </div>
+                <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+                  <input type="checkbox" class="trigger-overlay-wrcode-only" ${init?.overlayWrcodeOnly ? 'checked' : ''} style="margin:0">
+                  <span style="font-size:11px;color:rgba(255,255,255,0.8)">WRCode sites only</span>
+                </label>
+              `
+              fieldsContainer.appendChild(scopeSection)
+              
+              // ========== PAYLOAD OPTIONS ==========
+              const payloadSection = document.createElement('div')
+              payloadSection.style.cssText = 'padding:10px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.12);border-radius:8px'
+              payloadSection.innerHTML = `
+                <label style="font-size:12px;color:rgba(255,255,255,0.9);display:block;margin-bottom:6px">Payload Options</label>
+                <div style="display:flex;flex-wrap:wrap;gap:10px">
+                  <label style="display:flex;align-items:center;gap:4px;cursor:pointer">
+                    <input type="checkbox" class="trigger-overlay-payload-selection" ${init?.overlayPayloadSelection ? 'checked' : ''} style="margin:0">
+                    <span style="font-size:11px;color:rgba(255,255,255,0.8)">Selection text</span>
+                  </label>
+                  <label style="display:flex;align-items:center;gap:4px;cursor:pointer">
+                    <input type="checkbox" class="trigger-overlay-payload-context" ${init?.overlayPayloadContext ? 'checked' : ''} style="margin:0">
+                    <span style="font-size:11px;color:rgba(255,255,255,0.8)">DOM context</span>
+                  </label>
+                  <label style="display:flex;align-items:center;gap:4px;cursor:pointer">
+                    <input type="checkbox" class="trigger-overlay-payload-url" ${init?.overlayPayloadUrl ? 'checked' : ''} style="margin:0">
+                    <span style="font-size:11px;color:rgba(255,255,255,0.8)">Page URL</span>
+                  </label>
+                  <label style="display:flex;align-items:center;gap:4px;cursor:pointer">
+                    <input type="checkbox" class="trigger-overlay-payload-coords" ${init?.overlayPayloadCoords ? 'checked' : ''} style="margin:0">
+                    <span style="font-size:11px;color:rgba(255,255,255,0.8)">Pointer coordinates</span>
+                  </label>
+                </div>
+              `
+              fieldsContainer.appendChild(payloadSection)
             }
             
             if (type === 'agent') {
@@ -16306,12 +16967,16 @@ function initializeExtension() {
             } else if (type === 'workflow_condition') {
               const workflowId = row.querySelector('.trigger-workflow')?.value || ''
               label = workflowId ? `⚙️ ${workflowId}` : `Workflow (${id.substring(0, 8)}...)`
-            } else if (type === 'ui_event') {
-              const selector = row.querySelector('.trigger-selector')?.value || ''
-              label = selector ? `🖱️ ${selector.substring(0, 20)}...` : `UI Event (${id.substring(0, 8)}...)`
-            } else if (type === 'manual') {
-              const command = row.querySelector('.trigger-command')?.value || ''
-              label = command ? `⌘ ${command}` : `Manual (${id.substring(0, 8)}...)`
+            } else if (type === 'dom_event' || type === 'ui_event') {
+              const selector = row.querySelector('.trigger-dom-selector')?.value || ''
+              label = selector ? `🖱️ ${selector.substring(0, 20)}...` : `DOM Event (${id.substring(0, 8)}...)`
+            } else if (type === 'dom_parser') {
+              const rulesCount = row.querySelectorAll('.dom-parser-rule').length
+              label = `🔍 Parser (${rulesCount} rule${rulesCount !== 1 ? 's' : ''})`
+            } else if (type === 'augmented_overlay') {
+              const overlayName = row.querySelector('.trigger-overlay-name')?.value || ''
+              const buttonLabel = row.querySelector('.trigger-overlay-button-label')?.value || ''
+              label = overlayName ? `🎯 ${overlayName}` : (buttonLabel ? `⌘ ${buttonLabel}` : `Overlay (${id.substring(0, 8)}...)`)
             } else {
               label = `${type} (${id.substring(0, 8)}...)`
             }
@@ -16711,7 +17376,20 @@ function initializeExtension() {
 
         eWf && eWf.addEventListener('click', () => addWorkflowRow('#E-workflow-list'))
 
-
+        // Wire up main Execution Mode selector to show/hide workflow section
+        const eExecutionModeMain = configOverlay.querySelector('#E-execution-mode-main') as HTMLSelectElement | null
+        const eWorkflowSection = configOverlay.querySelector('#E-workflow-section') as HTMLElement | null
+        
+        const updateWorkflowSectionVisibility = () => {
+          const mode = eExecutionModeMain?.value || 'agent_workflow'
+          if (eWorkflowSection) {
+            eWorkflowSection.style.display = mode === 'agent_only' ? 'none' : 'block'
+          }
+        }
+        
+        eExecutionModeMain?.addEventListener('change', updateWorkflowSectionVisibility)
+        // Initialize visibility based on initial mode
+        updateWorkflowSectionVisibility()
 
         // Execution special destinations (addable rows)
 
@@ -17054,12 +17732,16 @@ function initializeExtension() {
             } else if (type === 'workflow_condition') {
               const workflowId = row.querySelector('.trigger-workflow')?.value || ''
               label = workflowId ? `⚙️ ${workflowId}` : `Workflow (${id.substring(0, 8)}...)`
-            } else if (type === 'ui_event') {
-              const selector = row.querySelector('.trigger-selector')?.value || ''
-              label = selector ? `🖱️ ${selector.substring(0, 20)}...` : `UI Event (${id.substring(0, 8)}...)`
-            } else if (type === 'manual') {
-              const command = row.querySelector('.trigger-command')?.value || ''
-              label = command ? `⌘ ${command}` : `Manual (${id.substring(0, 8)}...)`
+            } else if (type === 'dom_event' || type === 'ui_event') {
+              const selector = row.querySelector('.trigger-dom-selector')?.value || ''
+              label = selector ? `🖱️ ${selector.substring(0, 20)}...` : `DOM Event (${id.substring(0, 8)}...)`
+            } else if (type === 'dom_parser') {
+              const rulesCount = row.querySelectorAll('.dom-parser-rule').length
+              label = `🔍 Parser (${rulesCount} rule${rulesCount !== 1 ? 's' : ''})`
+            } else if (type === 'augmented_overlay') {
+              const overlayName = row.querySelector('.trigger-overlay-name')?.value || ''
+              const buttonLabel = row.querySelector('.trigger-overlay-button-label')?.value || ''
+              label = overlayName ? `🎯 ${overlayName}` : (buttonLabel ? `⌘ ${buttonLabel}` : `Overlay (${id.substring(0, 8)}...)`)
             } else {
               label = `${type} (${id.substring(0, 8)}...)`
             }
@@ -18281,7 +18963,7 @@ function initializeExtension() {
                       // Restore conditions (handled by createConditionRow in renderFieldsForType)
                       // The conditions are passed via init parameter when makeUnifiedTriggerRow is called
                       
-                      // Restore UI event fields
+                      // Restore DOM Event Trigger fields
                       if (trigger.domSelector) {
                         const domInput = row.querySelector('.trigger-dom-selector') as HTMLInputElement
                         if (domInput) domInput.value = trigger.domSelector
@@ -18290,11 +18972,102 @@ function initializeExtension() {
                         const eventSelect = row.querySelector('.trigger-dom-event') as HTMLSelectElement
                         if (eventSelect) eventSelect.value = trigger.domEvent
                       }
+                      if (trigger.domUrlFilter) {
+                        const urlInput = row.querySelector('.trigger-dom-url-filter') as HTMLInputElement
+                        if (urlInput) urlInput.value = trigger.domUrlFilter
+                      }
+                      if (trigger.domPayloadSelection) {
+                        const checkbox = row.querySelector('.trigger-dom-payload-selection') as HTMLInputElement
+                        if (checkbox) checkbox.checked = true
+                      }
+                      if (trigger.domPayloadSnippet) {
+                        const checkbox = row.querySelector('.trigger-dom-payload-snippet') as HTMLInputElement
+                        if (checkbox) checkbox.checked = true
+                      }
+                      if (trigger.domPayloadUrl) {
+                        const checkbox = row.querySelector('.trigger-dom-payload-url') as HTMLInputElement
+                        if (checkbox) checkbox.checked = true
+                      }
                       
-                      // Restore manual command
-                      if (trigger.commandLabel) {
-                        const cmdInput = row.querySelector('.trigger-command') as HTMLInputElement
-                        if (cmdInput) cmdInput.value = trigger.commandLabel
+                      // Restore DOM Parser fields
+                      if (trigger.domPayloadParsed) {
+                        const checkbox = row.querySelector('.trigger-dom-payload-parsed') as HTMLInputElement
+                        if (checkbox) checkbox.checked = true
+                      }
+                      if (trigger.domParserEnabled) {
+                        const checkbox = row.querySelector('.trigger-dom-parser-enabled') as HTMLInputElement
+                        if (checkbox) {
+                          checkbox.checked = true
+                          checkbox.dispatchEvent(new Event('change'))
+                        }
+                      }
+                      if (trigger.domParseTarget) {
+                        const select = row.querySelector('.trigger-dom-parse-target') as HTMLSelectElement
+                        if (select) {
+                          select.value = trigger.domParseTarget
+                          select.dispatchEvent(new Event('change'))
+                        }
+                      }
+                      if (trigger.domParseSelector) {
+                        const input = row.querySelector('.trigger-dom-parse-selector') as HTMLInputElement
+                        if (input) input.value = trigger.domParseSelector
+                      }
+                      
+                      // Restore Augmented Overlay fields
+                      if (trigger.overlayTriggerName) {
+                        const input = row.querySelector('.trigger-overlay-name') as HTMLInputElement
+                        if (input) input.value = trigger.overlayTriggerName
+                      }
+                      if (trigger.overlayModeButton) {
+                        const checkbox = row.querySelector('.trigger-overlay-mode-button') as HTMLInputElement
+                        if (checkbox) {
+                          checkbox.checked = true
+                          checkbox.dispatchEvent(new Event('change'))
+                        }
+                      }
+                      if (trigger.overlayButtonLabel) {
+                        const input = row.querySelector('.trigger-overlay-button-label') as HTMLInputElement
+                        if (input) input.value = trigger.overlayButtonLabel
+                      }
+                      if (trigger.overlayModeEmpty) {
+                        const checkbox = row.querySelector('.trigger-overlay-mode-empty') as HTMLInputElement
+                        if (checkbox) checkbox.checked = true
+                      }
+                      if (trigger.overlayModeElement !== undefined) {
+                        const checkbox = row.querySelector('.trigger-overlay-mode-element') as HTMLInputElement
+                        if (checkbox) checkbox.checked = trigger.overlayModeElement !== false
+                      }
+                      if (trigger.overlayModeSelection) {
+                        const checkbox = row.querySelector('.trigger-overlay-mode-selection') as HTMLInputElement
+                        if (checkbox) checkbox.checked = true
+                      }
+                      if (trigger.overlayPhrases) {
+                        const textarea = row.querySelector('.trigger-overlay-phrases') as HTMLTextAreaElement
+                        if (textarea) textarea.value = trigger.overlayPhrases
+                      }
+                      if (trigger.overlayUrlPattern) {
+                        const input = row.querySelector('.trigger-overlay-url-pattern') as HTMLInputElement
+                        if (input) input.value = trigger.overlayUrlPattern
+                      }
+                      if (trigger.overlayWrcodeOnly) {
+                        const checkbox = row.querySelector('.trigger-overlay-wrcode-only') as HTMLInputElement
+                        if (checkbox) checkbox.checked = true
+                      }
+                      if (trigger.overlayPayloadSelection) {
+                        const checkbox = row.querySelector('.trigger-overlay-payload-selection') as HTMLInputElement
+                        if (checkbox) checkbox.checked = true
+                      }
+                      if (trigger.overlayPayloadContext) {
+                        const checkbox = row.querySelector('.trigger-overlay-payload-context') as HTMLInputElement
+                        if (checkbox) checkbox.checked = true
+                      }
+                      if (trigger.overlayPayloadUrl) {
+                        const checkbox = row.querySelector('.trigger-overlay-payload-url') as HTMLInputElement
+                        if (checkbox) checkbox.checked = true
+                      }
+                      if (trigger.overlayPayloadCoords) {
+                        const checkbox = row.querySelector('.trigger-overlay-payload-coords') as HTMLInputElement
+                        if (checkbox) checkbox.checked = true
                       }
                       
                       // Restore agent source
@@ -19136,15 +19909,36 @@ function initializeExtension() {
               }, eTriggerRestoreDelay)
             }
 
-            // Restore Execution Workflows (new format with type, workflowId, conditions)
+            // Restore main Execution Mode
+            if (e.executionMode) {
+              const eExecutionModeSelect = configOverlay.querySelector('#E-execution-mode-main') as HTMLSelectElement
+              if (eExecutionModeSelect) {
+                // Map old values to new values for backward compatibility
+                let modeValue = e.executionMode
+                if (modeValue === 'text_only') modeValue = 'agent_only'
+                else if (modeValue === 'response_workflow') modeValue = 'agent_workflow'
+                else if (modeValue === 'workflow_only') modeValue = 'workflow_only'
+                
+                eExecutionModeSelect.value = modeValue
+                // Trigger visibility update
+                const eWorkflowSection = configOverlay.querySelector('#E-workflow-section') as HTMLElement
+                if (eWorkflowSection) {
+                  eWorkflowSection.style.display = modeValue === 'agent_only' ? 'none' : 'block'
+                }
+                console.log(`  ✓ Restored Execution Mode: ${modeValue}`)
+              }
+            }
+
+            // Restore Execution Workflows (new format with type, workflowId, runWhenType, conditions)
             if (e.executionWorkflows && e.executionWorkflows.length > 0) {
               const workflowList = configOverlay.querySelector('#E-workflow-list') as HTMLElement
               if (workflowList) {
                 workflowList.innerHTML = ''  // Clear first
                 e.executionWorkflows.forEach((wf: any, idx: number) => {
                   const wfRow = createExecutionWorkflowRow({
-                    type: wf.type || 'internal',
+                    type: wf.type || 'external',
                     workflowId: wf.workflowId || '',
+                    runWhenType: wf.runWhenType || (wf.conditions?.length > 0 ? 'boolean' : 'always'),
                     conditions: wf.conditions || []
                   })
                   workflowList.appendChild(wfRow)
@@ -19160,6 +19954,7 @@ function initializeExtension() {
                   const wfRow = createExecutionWorkflowRow({
                     type: 'external',
                     workflowId: workflowId,
+                    runWhenType: 'always',
                     conditions: []
                   })
                   workflowList.appendChild(wfRow)
@@ -19351,8 +20146,9 @@ function initializeExtension() {
                           if (wfListSub) {
                             eSection.executionWorkflows.forEach((wf: any, wfIdx: number) => {
                               const wfRow = createExecutionWorkflowRow({
-                                type: wf.type || 'internal',
+                                type: wf.type || 'external',
                                 workflowId: wf.workflowId || '',
+                                runWhenType: wf.runWhenType || (wf.conditions?.length > 0 ? 'boolean' : 'always'),
                                 conditions: wf.conditions || []
                               })
                               wfListSub.appendChild(wfRow)
@@ -19367,6 +20163,8 @@ function initializeExtension() {
                               const wfRow = createExecutionWorkflowRow({
                                 type: 'external',
                                 workflowId: workflowId,
+                                executionMode: 'response_workflow',
+                                runWhenType: 'always',
                                 conditions: []
                               })
                               wfListSub.appendChild(wfRow)
@@ -20812,8 +21610,55 @@ function initializeExtension() {
             trigger.websiteFilter = row.querySelector('.trigger-website')?.value || ''
             trigger.wrcodeMatch = row.querySelector('.trigger-wrcode')?.value || ''
             trigger.workflowId = row.querySelector('.trigger-workflow')?.value || ''
-            trigger.selector = row.querySelector('.trigger-selector')?.value || ''
             trigger.command = row.querySelector('.trigger-command')?.value || ''
+            
+            // DOM Event Trigger fields
+            if (type === 'dom_event' || type === 'ui_event') {
+              trigger.domSelector = row.querySelector('.trigger-dom-selector')?.value || ''
+              trigger.domEvent = row.querySelector('.trigger-dom-event')?.value || 'click'
+              trigger.domUrlFilter = row.querySelector('.trigger-dom-url-filter')?.value || ''
+              trigger.domPayloadSelection = (row.querySelector('.trigger-dom-payload-selection') as HTMLInputElement)?.checked || false
+              trigger.domPayloadSnippet = (row.querySelector('.trigger-dom-payload-snippet') as HTMLInputElement)?.checked || false
+              trigger.domPayloadUrl = (row.querySelector('.trigger-dom-payload-url') as HTMLInputElement)?.checked || false
+            }
+            
+            // DOM Parser fields
+            if (type === 'dom_parser') {
+              trigger.parserTrigger = row.querySelector('.trigger-parser-trigger')?.value || 'page_load'
+              trigger.parserInterval = row.querySelector('.trigger-parser-interval')?.value || '5'
+              trigger.domParseTarget = row.querySelector('.trigger-dom-parse-target')?.value || 'body'
+              trigger.domParseSelector = row.querySelector('.trigger-dom-parse-selector')?.value || ''
+              trigger.domUrlFilter = row.querySelector('.trigger-dom-url-filter')?.value || ''
+              const parserRules: any[] = []
+              row.querySelectorAll('.dom-parser-rule').forEach((ruleEl: any) => {
+                const ruleType = ruleEl.querySelector('.dom-rule-type')?.value || 'keyword'
+                const rule: any = { type: ruleType, output: ruleEl.querySelector('.dom-rule-output')?.value || 'boolean', outputValue: ruleEl.querySelector('.dom-rule-output-value')?.value || '' }
+                if (ruleType === 'keyword') { rule.keywords = ruleEl.querySelector('.dom-rule-keywords')?.value || ''; rule.caseSensitive = (ruleEl.querySelector('.dom-rule-case-sensitive') as HTMLInputElement)?.checked || false }
+                else if (ruleType === 'pattern') { rule.regex = ruleEl.querySelector('.dom-rule-regex')?.value || '' }
+                else if (ruleType === 'element') { rule.elementSelector = ruleEl.querySelector('.dom-rule-element-selector')?.value || '' }
+                else if (ruleType === 'attribute') { rule.attrSelector = ruleEl.querySelector('.dom-rule-attr-selector')?.value || ''; rule.attrName = ruleEl.querySelector('.dom-rule-attr-name')?.value || ''; rule.attrOp = ruleEl.querySelector('.dom-rule-attr-op')?.value || 'exists'; rule.attrValue = ruleEl.querySelector('.dom-rule-attr-value')?.value || '' }
+                else if (ruleType === 'text_length') { rule.lengthOp = ruleEl.querySelector('.dom-rule-length-op')?.value || 'gt'; rule.lengthValue = ruleEl.querySelector('.dom-rule-length-value')?.value || '' }
+                parserRules.push(rule)
+              })
+              trigger.domParserRules = parserRules
+            }
+            
+            // Augmented Overlay fields
+            if (type === 'augmented_overlay') {
+              trigger.overlayTriggerName = row.querySelector('.trigger-overlay-name')?.value || ''
+              trigger.overlayModeButton = (row.querySelector('.trigger-overlay-mode-button') as HTMLInputElement)?.checked || false
+              trigger.overlayButtonLabel = row.querySelector('.trigger-overlay-button-label')?.value || ''
+              trigger.overlayModeEmpty = (row.querySelector('.trigger-overlay-mode-empty') as HTMLInputElement)?.checked || false
+              trigger.overlayModeElement = (row.querySelector('.trigger-overlay-mode-element') as HTMLInputElement)?.checked !== false
+              trigger.overlayModeSelection = (row.querySelector('.trigger-overlay-mode-selection') as HTMLInputElement)?.checked || false
+              trigger.overlayPhrases = row.querySelector('.trigger-overlay-phrases')?.value || ''
+              trigger.overlayUrlPattern = row.querySelector('.trigger-overlay-url-pattern')?.value || ''
+              trigger.overlayWrcodeOnly = (row.querySelector('.trigger-overlay-wrcode-only') as HTMLInputElement)?.checked || false
+              trigger.overlayPayloadSelection = (row.querySelector('.trigger-overlay-payload-selection') as HTMLInputElement)?.checked || false
+              trigger.overlayPayloadContext = (row.querySelector('.trigger-overlay-payload-context') as HTMLInputElement)?.checked || false
+              trigger.overlayPayloadUrl = (row.querySelector('.trigger-overlay-payload-url') as HTMLInputElement)?.checked || false
+              trigger.overlayPayloadCoords = (row.querySelector('.trigger-overlay-payload-coords') as HTMLInputElement)?.checked || false
+            }
             
             // Collect workflow conditions with their types (boolean, tag, signal)
             if (type === 'workflow_condition' || type === 'tag_and_condition') {
@@ -20976,13 +21821,25 @@ function initializeExtension() {
             const wfId = wfRow.querySelector('.r-workflow-id')?.value || ''
             const conditions: any[] = []
             wfRow.querySelectorAll('.r-workflow-cond-row').forEach((condRow: any) => {
-              conditions.push({
-                field: condRow.querySelector('.r-wcond-field')?.value || '',
-                op: condRow.querySelector('.r-wcond-op')?.value || 'eq',
-                value: condRow.querySelector('.r-wcond-value')?.value || '',
+              const conditionType = condRow.querySelector('.r-wcond-type')?.value || 'boolean'
+              const cond: any = {
+                conditionType,
                 action: condRow.querySelector('.r-wcond-action')?.value || 'continue',
-                routeId: condRow.querySelector('.r-wcond-route-id')?.value || ''
-              })
+                routeId: condRow.querySelector('.r-wcond-route-id')?.value || '',
+                outputHandling: condRow.querySelector('.r-wcond-output')?.value || 'attach',
+                signalName: condRow.querySelector('.r-wcond-signal-name')?.value || ''
+              }
+              if (conditionType === 'boolean') {
+                cond.field = condRow.querySelector('.r-wcond-field')?.value || ''
+                cond.op = condRow.querySelector('.r-wcond-op')?.value || 'eq'
+                cond.value = condRow.querySelector('.r-wcond-value')?.value || ''
+              } else if (conditionType === 'tag') {
+                const tag = condRow.querySelector('.r-wcond-tag')?.value?.trim() || ''
+                cond.tag = tag.startsWith('#') ? tag : `#${tag}`
+              } else if (conditionType === 'signal') {
+                cond.signal = condRow.querySelector('.r-wcond-signal')?.value?.trim() || ''
+              }
+              conditions.push(cond)
             })
             base.reasoningWorkflows.push({ type: wfType, workflowId: wfId, conditions })
           })
@@ -21025,13 +21882,25 @@ function initializeExtension() {
               const wfId = wfRow.querySelector('.r-workflow-id')?.value || ''
               const conditions: any[] = []
               wfRow.querySelectorAll('.r-workflow-cond-row').forEach((condRow: any) => {
-                conditions.push({
-                  field: condRow.querySelector('.r-wcond-field')?.value || '',
-                  op: condRow.querySelector('.r-wcond-op')?.value || 'eq',
-                  value: condRow.querySelector('.r-wcond-value')?.value || '',
+                const conditionType = condRow.querySelector('.r-wcond-type')?.value || 'boolean'
+                const cond: any = {
+                  conditionType,
                   action: condRow.querySelector('.r-wcond-action')?.value || 'continue',
-                  routeId: condRow.querySelector('.r-wcond-route-id')?.value || ''
-                })
+                  routeId: condRow.querySelector('.r-wcond-route-id')?.value || '',
+                  outputHandling: condRow.querySelector('.r-wcond-output')?.value || 'attach',
+                  signalName: condRow.querySelector('.r-wcond-signal-name')?.value || ''
+                }
+                if (conditionType === 'boolean') {
+                  cond.field = condRow.querySelector('.r-wcond-field')?.value || ''
+                  cond.op = condRow.querySelector('.r-wcond-op')?.value || 'eq'
+                  cond.value = condRow.querySelector('.r-wcond-value')?.value || ''
+                } else if (conditionType === 'tag') {
+                  const tag = condRow.querySelector('.r-wcond-tag')?.value?.trim() || ''
+                  cond.tag = tag.startsWith('#') ? tag : `#${tag}`
+                } else if (conditionType === 'signal') {
+                  cond.signal = condRow.querySelector('.r-wcond-signal')?.value?.trim() || ''
+                }
+                conditions.push(cond)
               })
               sectionWorkflows.push({ type: wfType, workflowId: wfId, conditions })
             })
@@ -21107,24 +21976,41 @@ function initializeExtension() {
           // Accept From list removed from Execution section
           const eAccepts:string[] = []
           
-          // Collect execution workflows with new format (type, workflowId, conditions)
+          // Get main execution mode from section level
+          const eExecutionModeSaveMain = (document.querySelector('#E-execution-mode-main') as HTMLSelectElement)?.value || 'agent_workflow'
+          
+          // Collect execution workflows with new format (type, workflowId, runWhenType, conditions)
+          // Note: type is always 'external' now (Internal Parser removed from Execution)
+          // Note: executionMode is now at section level, not per-workflow
           const eWorkflowsSave: any[] = []
           document.querySelectorAll('#E-workflow-list .exec-workflow-row').forEach((wfRow: any) => {
-            const wfType = wfRow.querySelector('.e-workflow-type-radio:checked')?.value || 'internal'
+            const wfType = 'external' // Internal Parser removed - Execution only supports external workflows
             const wfId = wfRow.querySelector('.e-workflow-id')?.value || ''
+            const runWhenType = wfRow.querySelector('.e-run-when-type')?.value || 'always'
             const conditions: any[] = []
-            wfRow.querySelectorAll('.e-workflow-cond-row').forEach((condRow: any) => {
-              conditions.push({
-                field: condRow.querySelector('.e-wcond-field')?.value || '',
-                op: condRow.querySelector('.e-wcond-op')?.value || 'eq',
-                value: condRow.querySelector('.e-wcond-value')?.value || '',
-                action: condRow.querySelector('.e-wcond-action')?.value || 'continue',
-                routeId: condRow.querySelector('.e-wcond-route-id')?.value || ''
+            
+            if (runWhenType === 'boolean') {
+              wfRow.querySelectorAll('.e-workflow-cond-row').forEach((condRow: any) => {
+                conditions.push({
+                  type: 'boolean',
+                  field: condRow.querySelector('.e-wcond-field')?.value || '',
+                  op: condRow.querySelector('.e-wcond-op')?.value || 'eq',
+                  value: condRow.querySelector('.e-wcond-value')?.value || '',
+                  action: condRow.querySelector('.e-wcond-action')?.value || 'execute',
+                  routeId: condRow.querySelector('.e-wcond-route-id')?.value || ''
+                })
               })
-            })
-            eWorkflowsSave.push({ type: wfType, workflowId: wfId, conditions })
+            } else if (runWhenType === 'tag') {
+              const tag = wfRow.querySelector('.e-run-tag')?.value?.trim() || ''
+              if (tag) conditions.push({ type: 'tag', tag: tag.startsWith('#') ? tag : `#${tag}` })
+            } else if (runWhenType === 'signal') {
+              const signal = wfRow.querySelector('.e-run-signal')?.value?.trim() || ''
+              if (signal) conditions.push({ type: 'signal', signal })
+            }
+            
+            eWorkflowsSave.push({ type: wfType, workflowId: wfId, runWhenType, conditions })
           })
-          console.log(`🔍 [SAVE] Execution: Found ${eWorkflowsSave.length} execution workflow rows`)
+          console.log(`🔍 [SAVE] Execution: Found ${eWorkflowsSave.length} execution workflow rows, mode: ${eExecutionModeSaveMain}`)
           
           // Legacy format for backward compatibility
           const eWfs:string[] = eWorkflowsSave.map(w => w.workflowId).filter(v => v)
@@ -21178,21 +22064,35 @@ function initializeExtension() {
             console.log('📝 [SAVE] Additional E-section Apply For values:', sectionApplyForList)
 
             // Collect workflows with new format for additional sections
+            // Note: type is always 'external' now (Internal Parser removed from Execution)
+            // Note: executionMode is now at main section level, not per-workflow
             const sectionWorkflowsSave: any[] = []
             sec.querySelectorAll('.E-workflow-list-sub .exec-workflow-row').forEach((wfRow: any) => {
-              const wfType = wfRow.querySelector('.e-workflow-type-radio:checked')?.value || 'internal'
+              const wfType = 'external' // Internal Parser removed - Execution only supports external workflows
               const wfId = wfRow.querySelector('.e-workflow-id')?.value || ''
+              const runWhenType = wfRow.querySelector('.e-run-when-type')?.value || 'always'
               const conditions: any[] = []
-              wfRow.querySelectorAll('.e-workflow-cond-row').forEach((condRow: any) => {
-                conditions.push({
-                  field: condRow.querySelector('.e-wcond-field')?.value || '',
-                  op: condRow.querySelector('.e-wcond-op')?.value || 'eq',
-                  value: condRow.querySelector('.e-wcond-value')?.value || '',
-                  action: condRow.querySelector('.e-wcond-action')?.value || 'continue',
-                  routeId: condRow.querySelector('.e-wcond-route-id')?.value || ''
+              
+              if (runWhenType === 'boolean') {
+                wfRow.querySelectorAll('.e-workflow-cond-row').forEach((condRow: any) => {
+                  conditions.push({
+                    type: 'boolean',
+                    field: condRow.querySelector('.e-wcond-field')?.value || '',
+                    op: condRow.querySelector('.e-wcond-op')?.value || 'eq',
+                    value: condRow.querySelector('.e-wcond-value')?.value || '',
+                    action: condRow.querySelector('.e-wcond-action')?.value || 'execute',
+                    routeId: condRow.querySelector('.e-wcond-route-id')?.value || ''
+                  })
                 })
-              })
-              sectionWorkflowsSave.push({ type: wfType, workflowId: wfId, conditions })
+              } else if (runWhenType === 'tag') {
+                const tag = wfRow.querySelector('.e-run-tag')?.value?.trim() || ''
+                if (tag) conditions.push({ type: 'tag', tag: tag.startsWith('#') ? tag : `#${tag}` })
+              } else if (runWhenType === 'signal') {
+                const signal = wfRow.querySelector('.e-run-signal')?.value?.trim() || ''
+                if (signal) conditions.push({ type: 'signal', signal })
+              }
+              
+              sectionWorkflowsSave.push({ type: wfType, workflowId: wfId, runWhenType, conditions })
             })
             
             // Legacy format for backward compatibility
@@ -21256,6 +22156,7 @@ function initializeExtension() {
 
             workflows: eWfs,
             executionWorkflows: eWorkflowsSave,
+            executionMode: eExecutionModeSaveMain,
 
             applyFor: eApplyForValuesSave.length > 0 ? eApplyForValuesSave[0] : '__any__',
             applyForList: eApplyForValuesSave.length > 0 ? eApplyForValuesSave : ['__any__'],
