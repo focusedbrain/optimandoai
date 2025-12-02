@@ -26647,6 +26647,32 @@ ${pageText}
 
               </div>
 
+              <div style="margin-bottom: 16px;">
+
+                <label style="display: block; margin-bottom: 8px; font-size: 14px; color: #FFD700; font-weight: bold;">🎯 Scope</label>
+
+                <div style="display: flex; gap: 12px;">
+
+                  <label id="edit-scope-session-label" style="display: flex; align-items: center; gap: 8px; cursor: pointer; padding: 10px 16px; background: rgba(255,255,255,0.1); border-radius: 8px; border: 2px solid rgba(102,238,102,0.5);">
+
+                    <input type="radio" name="edit-scope" value="session" style="accent-color: #90EE90;">
+
+                    <span style="font-size: 13px;">🗂️ Session</span>
+
+                  </label>
+
+                  <label id="edit-scope-account-label" style="display: flex; align-items: center; gap: 8px; cursor: pointer; padding: 10px 16px; background: rgba(255,255,255,0.1); border-radius: 8px; border: 2px solid rgba(255,215,0,0.3);">
+
+                    <input type="radio" name="edit-scope" value="account" style="accent-color: #FFD700;">
+
+                    <span style="font-size: 13px;">🏢 Account</span>
+
+                  </label>
+
+                </div>
+
+              </div>
+
               <div style="margin-bottom: 20px;">
 
                 <label style="display: block; margin-bottom: 8px; font-size: 14px; color: #FFD700; font-weight: bold;">📝 Description</label>
@@ -26925,6 +26951,12 @@ ${pageText}
 
               if (displayIdBadge) displayIdBadge.textContent = app.displayId
 
+              // Set the scope radio button
+
+              const scopeRadio = overlay.querySelector('input[name="edit-scope"][value="' + app.scope + '"]') as HTMLInputElement
+
+              if (scopeRadio) scopeRadio.checked = true
+
               editModal.style.display = 'flex'
 
             }
@@ -26994,6 +27026,12 @@ ${pageText}
               const displayIdBadge = overlay.querySelector('#edit-display-id-badge') as HTMLElement
 
               if (displayIdBadge) displayIdBadge.textContent = app.displayId
+
+              // Set the scope radio button
+
+              const scopeRadio = overlay.querySelector('input[name="edit-scope"][value="' + app.scope + '"]') as HTMLInputElement
+
+              if (scopeRadio) scopeRadio.checked = true
 
               editModal.style.display = 'flex'
 
@@ -27305,6 +27343,8 @@ ${pageText}
 
       const editDesc = overlay.querySelector('#edit-description') as HTMLTextAreaElement
 
+      const editScopeInput = overlay.querySelector('input[name="edit-scope"]:checked') as HTMLInputElement
+
       if (editId && editTitle && editDesc) {
 
         const id = editId.value
@@ -27312,6 +27352,18 @@ ${pageText}
         const idx = miniApps.findIndex(a => a.id === id)
 
         if (idx >= 0) {
+
+          const newScope = (editScopeInput?.value || miniApps[idx].scope) as 'session' | 'account'
+
+          // If scope changed, update the displayId
+
+          if (newScope !== miniApps[idx].scope) {
+
+            miniApps[idx].scope = newScope
+
+            miniApps[idx].displayId = getNextDisplayId(miniApps.filter(a => a.id !== id), newScope)
+
+          }
 
           miniApps[idx].title = editTitle.value.trim()
 
