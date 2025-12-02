@@ -32677,9 +32677,11 @@ ${pageText}
 
           if (b.isActive) return 1
 
-          // Then sort by timestamp
-
-          return new Date(b.timestamp || 0).getTime() - new Date(a.timestamp || 0).getTime()
+          // Then sort by lastOpenedAt (when session was last opened/restored)
+          // Fall back to timestamp (creation time) if lastOpenedAt is not available
+          const aTime = new Date(a.lastOpenedAt || a.timestamp || 0).getTime()
+          const bTime = new Date(b.lastOpenedAt || b.timestamp || 0).getTime()
+          return bTime - aTime
 
         })
 
@@ -32692,6 +32694,10 @@ ${pageText}
         tabName: s.tabName,
 
         timestamp: s.timestamp,
+
+        lastOpenedAt: s.lastOpenedAt,
+
+        isActive: s.isActive,
 
         isLocked: s.isLocked,
 
@@ -33085,7 +33091,15 @@ ${pageText}
 
             console.log('✅ Active session key set to:', sessionId)
 
-
+            
+            // CRITICAL: Update lastOpenedAt timestamp for session sorting
+            const lastOpenedAt = new Date().toISOString()
+            sessionData.lastOpenedAt = lastOpenedAt
+            
+            // Save the updated lastOpenedAt to chrome.storage.local
+            storageSet({ [sessionId]: { ...sessionData, lastOpenedAt } }, () => {
+              console.log('✅ Updated lastOpenedAt for session:', sessionId, lastOpenedAt)
+            })
 
             // CRITICAL: Restore session data to currentTabData IMMEDIATELY before any window.open
 
@@ -33097,7 +33111,9 @@ ${pageText}
 
               tabId: currentTabData.tabId,  // Keep current tab ID
 
-              isLocked: true  // Ensure session is marked as locked when restored
+              isLocked: true,  // Ensure session is marked as locked when restored
+              
+              lastOpenedAt  // Include lastOpenedAt in currentTabData
 
             }
 
