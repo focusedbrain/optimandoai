@@ -26259,19 +26259,31 @@ ${pageText}
 
       ">
 
-        <div style="
+        <div id="miniapp-builder-container" style="
 
           background: linear-gradient(135deg, #1e3a5f 0%, #2d5a87 100%);
 
           border-radius: 16px;
 
-          width: 90%;
+          width: 95%;
 
-          max-width: 600px;
+          max-width: 1100px;
 
           color: white;
 
           box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+
+          height: 70vh;
+
+          min-height: 400px;
+
+          max-height: 95vh;
+
+          display: flex;
+
+          flex-direction: column;
+
+          position: relative;
 
         ">
 
@@ -26283,133 +26295,251 @@ ${pageText}
 
           </div>
 
-          <div style="padding: 20px;">
+          <div style="display: flex; flex: 1; overflow: hidden;">
 
-            <div style="margin-bottom: 16px;">
+            <!-- Left Panel: Form -->
 
-              <label style="display: block; margin-bottom: 8px; font-size: 14px; color: #FFD700; font-weight: bold;">📌 Mini-App Title</label>
+            <div style="flex: 1; padding: 20px; overflow-y: auto; border-right: 1px solid rgba(255,255,255,0.15);">
 
-              <input id="builder-title" type="text" placeholder="e.g., Email Summarizer" style="
+              <div style="margin-bottom: 16px;">
 
-                width: 100%;
+                <label style="display: block; margin-bottom: 8px; font-size: 14px; color: #FFD700; font-weight: bold;">📌 Mini-App Title</label>
 
-                padding: 12px;
+                <input id="builder-title" type="text" placeholder="e.g., Email Summarizer" style="
 
-                background: rgba(255,255,255,0.1);
+                  width: 100%;
 
-                border: 1px solid rgba(255,255,255,0.3);
+                  padding: 12px;
 
-                border-radius: 8px;
+                  background: rgba(255,255,255,0.1);
 
-                color: white;
+                  border: 1px solid rgba(255,255,255,0.3);
 
-                font-size: 14px;
+                  border-radius: 8px;
 
-                box-sizing: border-box;
+                  color: white;
 
-              ">
+                  font-size: 14px;
 
-            </div>
+                  box-sizing: border-box;
 
-            <div style="margin-bottom: 16px;">
+                ">
 
-              <label style="display: block; margin-bottom: 8px; font-size: 14px; color: #FFD700; font-weight: bold;">🎯 Scope</label>
+              </div>
 
-              <div style="display: flex; gap: 12px;">
+              <div style="margin-bottom: 16px;">
 
-                <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; padding: 10px 16px; background: rgba(255,255,255,0.1); border-radius: 8px; border: 2px solid rgba(102,238,102,0.5);">
+                <label style="display: block; margin-bottom: 8px; font-size: 14px; color: #FFD700; font-weight: bold;">🎯 Scope</label>
 
-                  <input type="radio" name="builder-scope" value="session" checked style="accent-color: #90EE90;">
+                <div style="display: flex; gap: 12px;">
 
-                  <span style="font-size: 13px;">🗂️ Session</span>
+                  <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; padding: 10px 16px; background: rgba(255,255,255,0.1); border-radius: 8px; border: 2px solid rgba(102,238,102,0.5);">
 
-                </label>
+                    <input type="radio" name="builder-scope" value="session" checked style="accent-color: #90EE90;">
 
-                <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; padding: 10px 16px; background: rgba(255,255,255,0.1); border-radius: 8px; border: 2px solid rgba(255,215,0,0.3);">
+                    <span style="font-size: 13px;">🗂️ Session</span>
 
-                  <input type="radio" name="builder-scope" value="account" style="accent-color: #FFD700;">
+                  </label>
 
-                  <span style="font-size: 13px;">🏢 Account</span>
+                  <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; padding: 10px 16px; background: rgba(255,255,255,0.1); border-radius: 8px; border: 2px solid rgba(255,215,0,0.3);">
 
-                </label>
+                    <input type="radio" name="builder-scope" value="account" style="accent-color: #FFD700;">
+
+                    <span style="font-size: 13px;">🏢 Account</span>
+
+                  </label>
+
+                </div>
+
+              </div>
+
+              <div style="margin-bottom: 20px;">
+
+                <label style="display: block; margin-bottom: 8px; font-size: 14px; color: #FFD700; font-weight: bold;">📝 Description</label>
+
+                <textarea id="builder-description" placeholder="Describe what this mini-app does, how it works, and when to use it..." style="
+
+                  width: 100%;
+
+                  height: 150px;
+
+                  padding: 12px;
+
+                  background: rgba(255,255,255,0.1);
+
+                  border: 1px solid rgba(255,255,255,0.3);
+
+                  border-radius: 8px;
+
+                  color: white;
+
+                  font-size: 14px;
+
+                  resize: vertical;
+
+                  line-height: 1.5;
+
+                  box-sizing: border-box;
+
+                "></textarea>
+
+              </div>
+
+              <div style="display: flex; gap: 12px; justify-content: flex-end;">
+
+                <button id="cancel-builder" style="
+
+                  padding: 10px 20px;
+
+                  background: rgba(255,255,255,0.1);
+
+                  border: 1px solid rgba(255,255,255,0.3);
+
+                  color: white;
+
+                  border-radius: 6px;
+
+                  cursor: pointer;
+
+                  font-size: 13px;
+
+                ">Cancel</button>
+
+                <button id="save-miniapp" style="
+
+                  padding: 10px 20px;
+
+                  background: linear-gradient(135deg, #4CAF50, #45a049);
+
+                  border: none;
+
+                  color: white;
+
+                  border-radius: 6px;
+
+                  cursor: pointer;
+
+                  font-size: 13px;
+
+                  font-weight: bold;
+
+                ">💾 Save Mini-App</button>
 
               </div>
 
             </div>
 
-            <div style="margin-bottom: 20px;">
+            <!-- Right Panel: Test Frame -->
 
-              <label style="display: block; margin-bottom: 8px; font-size: 14px; color: #FFD700; font-weight: bold;">📝 Description</label>
+            <div style="width: 450px; flex-shrink: 0; padding: 20px; display: flex; flex-direction: column; background: rgba(0,0,0,0.15);">
 
-              <textarea id="builder-description" placeholder="Describe what this mini-app does, how it works, and when to use it..." style="
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
 
-                width: 100%;
+                <h4 style="margin: 0; font-size: 15px; color: #90EE90;">🧪 Test Frame</h4>
 
-                height: 180px;
+                <button id="run-builder-test" style="
 
-                padding: 12px;
+                  padding: 8px 16px;
 
-                background: rgba(255,255,255,0.1);
+                  background: linear-gradient(135deg, #8B5CF6, #7C3AED);
 
-                border: 1px solid rgba(255,255,255,0.3);
+                  border: none;
+
+                  color: white;
+
+                  border-radius: 6px;
+
+                  cursor: pointer;
+
+                  font-size: 12px;
+
+                  font-weight: bold;
+
+                  display: flex;
+
+                  align-items: center;
+
+                  gap: 6px;
+
+                ">▶️ Run Test</button>
+
+              </div>
+
+              <div id="builder-test-output" style="
+
+                flex: 1;
+
+                background: rgba(0,0,0,0.3);
+
+                border: 1px solid rgba(255,255,255,0.1);
 
                 border-radius: 8px;
 
-                color: white;
+                padding: 16px;
 
-                font-size: 14px;
+                font-family: 'Consolas', 'Monaco', monospace;
 
-                resize: vertical;
+                font-size: 12px;
 
-                line-height: 1.5;
+                color: rgba(255,255,255,0.7);
 
-                box-sizing: border-box;
+                overflow-y: auto;
 
-              "></textarea>
+                min-height: 200px;
 
-            </div>
+              ">
 
-            <div style="display: flex; gap: 12px; justify-content: flex-end;">
+                <div style="color: rgba(255,255,255,0.4); text-align: center; padding: 40px 20px;">
 
-              <button id="cancel-builder" style="
+                  <div style="font-size: 32px; margin-bottom: 12px;">🔬</div>
 
-                padding: 10px 20px;
+                  <div>Click "Run Test" to execute this mini-app</div>
 
-                background: rgba(255,255,255,0.1);
+                  <div style="margin-top: 8px; font-size: 11px;">Test output will appear here</div>
 
-                border: 1px solid rgba(255,255,255,0.3);
+                </div>
 
-                color: white;
+              </div>
 
-                border-radius: 6px;
+              <div style="margin-top: 12px; padding: 10px; background: rgba(255,255,255,0.05); border-radius: 6px; font-size: 11px; color: rgba(255,255,255,0.5);">
 
-                cursor: pointer;
+                💡 <strong>Tip:</strong> Test your mini-app with sample data to verify it works correctly before saving.
 
-                font-size: 13px;
-
-              ">Cancel</button>
-
-              <button id="save-miniapp" style="
-
-                padding: 10px 20px;
-
-                background: linear-gradient(135deg, #4CAF50, #45a049);
-
-                border: none;
-
-                color: white;
-
-                border-radius: 6px;
-
-                cursor: pointer;
-
-                font-size: 13px;
-
-                font-weight: bold;
-
-              ">💾 Save Mini-App</button>
+              </div>
 
             </div>
+
+          </div>
+
+          <!-- Resize Handle -->
+
+          <div id="builder-resize-handle" style="
+
+            position: absolute;
+
+            bottom: 0;
+
+            left: 50%;
+
+            transform: translateX(-50%);
+
+            width: 60px;
+
+            height: 8px;
+
+            cursor: ns-resize;
+
+            display: flex;
+
+            align-items: center;
+
+            justify-content: center;
+
+            border-radius: 0 0 16px 16px;
+
+          ">
+
+            <div style="width: 40px; height: 4px; background: rgba(255,255,255,0.3); border-radius: 2px;"></div>
 
           </div>
 
@@ -27015,6 +27145,138 @@ ${pageText}
 
     
 
+    // Builder Test button
+
+    overlay.querySelector('#run-builder-test')?.addEventListener('click', () => {
+
+      const testOutput = overlay.querySelector('#builder-test-output') as HTMLElement
+
+      const titleInput = overlay.querySelector('#builder-title') as HTMLInputElement
+
+      const descInput = overlay.querySelector('#builder-description') as HTMLTextAreaElement
+
+      
+
+      if (testOutput) {
+
+        const title = titleInput?.value || 'Untitled'
+
+        const desc = descInput?.value || 'No description'
+
+        const timestamp = new Date().toLocaleTimeString()
+
+        const shortDesc = desc.length > 200 ? desc.slice(0, 200) + '...' : desc
+
+        
+
+        testOutput.innerHTML = 
+
+          '<div style="color: #90EE90; margin-bottom: 12px;">' +
+
+            '<span style="color: rgba(255,255,255,0.5);">[</span>' + timestamp + '<span style="color: rgba(255,255,255,0.5);">]</span> 🚀 Starting test...' +
+
+          '</div>' +
+
+          '<div style="color: #FFD700; margin-bottom: 8px;">' +
+
+            '📱 Mini-App: <strong>' + title + '</strong>' +
+
+          '</div>' +
+
+          '<div style="color: rgba(255,255,255,0.6); margin-bottom: 12px; padding: 10px; background: rgba(0,0,0,0.2); border-radius: 4px; font-size: 11px;">' +
+
+            shortDesc +
+
+          '</div>' +
+
+          '<div style="color: #8B5CF6; margin-bottom: 8px;">' +
+
+            '⏳ Processing...' +
+
+          '</div>' +
+
+          '<div style="color: rgba(255,255,255,0.4); font-style: italic; margin-top: 16px; padding-top: 12px; border-top: 1px solid rgba(255,255,255,0.1);">' +
+
+            '💡 Test functionality will be integrated in a future update.' +
+
+          '</div>'
+
+      }
+
+    })
+
+    
+
+    // Builder resize handle functionality
+
+    const builderResizeHandle = overlay.querySelector('#builder-resize-handle') as HTMLElement
+
+    const builderContainer = overlay.querySelector('#miniapp-builder-container') as HTMLElement
+
+    
+
+    if (builderResizeHandle && builderContainer) {
+
+      let isResizingBuilder = false
+
+      let startYBuilder = 0
+
+      let startHeightBuilder = 0
+
+      
+
+      builderResizeHandle.addEventListener('mousedown', (e: MouseEvent) => {
+
+        isResizingBuilder = true
+
+        startYBuilder = e.clientY
+
+        startHeightBuilder = builderContainer.offsetHeight
+
+        document.body.style.cursor = 'ns-resize'
+
+        document.body.style.userSelect = 'none'
+
+        e.preventDefault()
+
+      })
+
+      
+
+      document.addEventListener('mousemove', (e: MouseEvent) => {
+
+        if (!isResizingBuilder) return
+
+        
+
+        const deltaY = e.clientY - startYBuilder
+
+        const newHeight = Math.min(Math.max(startHeightBuilder + deltaY, 400), window.innerHeight * 0.95)
+
+        builderContainer.style.height = newHeight + 'px'
+
+      })
+
+      
+
+      document.addEventListener('mouseup', () => {
+
+        if (isResizingBuilder) {
+
+          isResizingBuilder = false
+
+          document.body.style.cursor = ''
+
+          document.body.style.userSelect = ''
+
+        }
+
+      })
+
+    }
+
+    
+
     // Edit Modal
 
     const editModal = overlay.querySelector('#miniapp-edit-modal') as HTMLElement
@@ -27257,7 +27519,9 @@ ${pageText}
 
       }
 
-      #miniapp-resize-handle:hover div {
+      #miniapp-resize-handle:hover div,
+
+      #builder-resize-handle:hover div {
 
         background: rgba(255,255,255,0.5) !important;
 
