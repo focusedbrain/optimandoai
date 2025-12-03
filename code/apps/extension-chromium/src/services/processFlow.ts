@@ -172,6 +172,7 @@ export interface AgentMatch {
 export interface AgentConfig {
   id: string
   name: string
+  description?: string // Human-readable description of the agent
   key?: string
   icon: string
   enabled: boolean

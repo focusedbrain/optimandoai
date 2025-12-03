@@ -12027,6 +12027,8 @@ function initializeExtension() {
 
               name: (document.getElementById('ag-name') as HTMLInputElement)?.value || agentName,
 
+              description: (document.getElementById('ag-description') as HTMLTextAreaElement)?.value || '',
+
               icon: (document.getElementById('ag-icon') as HTMLInputElement)?.value || '🤖',
 
               capabilities: [],
@@ -12286,6 +12288,57 @@ function initializeExtension() {
                   trigger.domParseTarget = row.querySelector('.trigger-dom-parse-target')?.value || 'body'
                   trigger.domParseSelector = row.querySelector('.trigger-dom-parse-selector')?.value || ''
                   trigger.domUrlFilter = row.querySelector('.trigger-dom-url-filter')?.value || ''
+                  
+                  // ============================================================
+                  // AI Chat Capture - Button Click Configuration
+                  // ============================================================
+                  
+                  // Site Filters (array from textarea, one per line)
+                  const siteFiltersText = (row.querySelector('.trigger-site-filters') as HTMLTextAreaElement)?.value || ''
+                  trigger.siteFilters = siteFiltersText.split('\n').map((s: string) => s.trim()).filter((s: string) => s)
+                  
+                  // Trigger Source - Button Selectors (array from textarea)
+                  const buttonSelectorsText = (row.querySelector('.trigger-button-selectors') as HTMLTextAreaElement)?.value || ''
+                  trigger.buttonSelectors = buttonSelectorsText.split('\n').map((s: string) => s.trim()).filter((s: string) => s)
+                  // Legacy single selector for backward compatibility
+                  trigger.buttonSelector = trigger.buttonSelectors[0] || ''
+                  
+                  // Trigger Source - Enter Key
+                  trigger.triggerOnEnterKey = (row.querySelector('.trigger-on-enter-key') as HTMLInputElement)?.checked || false
+                  trigger.enterKeyIgnoreShift = (row.querySelector('.trigger-enter-ignore-shift') as HTMLInputElement)?.checked !== false
+                  
+                  // Input Capture
+                  trigger.captureInput = (row.querySelector('.trigger-capture-input') as HTMLInputElement)?.checked !== false
+                  const inputSelectorsText = (row.querySelector('.trigger-input-selectors') as HTMLTextAreaElement)?.value || ''
+                  trigger.inputSelectors = inputSelectorsText.split('\n').map((s: string) => s.trim()).filter((s: string) => s)
+                  trigger.inputSelector = trigger.inputSelectors[0] || '' // Legacy
+                  
+                  // Output Capture
+                  trigger.captureOutput = (row.querySelector('.trigger-capture-output') as HTMLInputElement)?.checked || false
+                  const outputSelectorsText = (row.querySelector('.trigger-output-selectors') as HTMLTextAreaElement)?.value || ''
+                  trigger.outputSelectors = outputSelectorsText.split('\n').map((s: string) => s.trim()).filter((s: string) => s)
+                  trigger.outputSelector = trigger.outputSelectors[0] || '' // Legacy
+                  
+                  // Response Detection
+                  trigger.responseReadyMode = (row.querySelector('.trigger-response-ready-mode') as HTMLSelectElement)?.value || 'first_change'
+                  trigger.quietPeriodMs = parseInt((row.querySelector('.trigger-quiet-period-ms') as HTMLInputElement)?.value || '1500', 10)
+                  trigger.responseSignalSelector = (row.querySelector('.trigger-response-signal-selector') as HTMLInputElement)?.value || ''
+                  trigger.maxWaitTimeMs = parseInt((row.querySelector('.trigger-max-wait-time-ms') as HTMLInputElement)?.value || '60000', 10)
+                  
+                  // Legacy fields for backward compatibility
+                  trigger.outputWaitMethod = trigger.responseReadyMode === 'quiet_period' ? 'polling' : (trigger.responseReadyMode === 'selector_signal' ? 'mutation' : 'mutation')
+                  trigger.outputWaitDelay = String(trigger.quietPeriodMs)
+                  
+                  // Meta Capture
+                  trigger.captureUrl = (row.querySelector('.trigger-capture-url') as HTMLInputElement)?.checked !== false
+                  trigger.capturePageTitle = (row.querySelector('.trigger-capture-page-title') as HTMLInputElement)?.checked || false
+                  const metaSelectorsText = (row.querySelector('.trigger-meta-selectors') as HTMLTextAreaElement)?.value || ''
+                  trigger.metaSelectors = metaSelectorsText.split('\n').map((s: string) => s.trim()).filter((s: string) => s)
+                  
+                  // Sanitization
+                  trigger.sanitizeTrim = (row.querySelector('.trigger-sanitize-trim') as HTMLInputElement)?.checked !== false
+                  trigger.sanitizeStripMarkdown = (row.querySelector('.trigger-sanitize-strip-markdown') as HTMLInputElement)?.checked || false
+                  trigger.sanitizeRemoveBoilerplate = (row.querySelector('.trigger-sanitize-remove-boilerplate') as HTMLInputElement)?.checked || false
                   const parserRules: any[] = []
                   row.querySelectorAll('.dom-parser-rule').forEach((ruleEl: any) => {
                     const ruleType = ruleEl.querySelector('.dom-rule-type')?.value || 'keyword'
@@ -12883,6 +12936,7 @@ function initializeExtension() {
           <div style="background:rgba(255,255,255,0.08);padding:12px;border-radius:8px;display:grid;gap:8px;grid-template-columns:1fr 140px;align-items:center;">
 
             <label>Name (Command Identifier)
+              <span title="The command identifier used to reference this agent. Used in triggers like @agent-name or #agent-name. Should be lowercase with hyphens." style="font-size:11px;opacity:0.9;cursor:help;background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.35);padding:0 5px;border-radius:50%;margin-left:4px">?</span>
 
               <input id="ag-name" value="${(agentName||'').toString()}" style="width:100%;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.35);color:#fff;padding:8px;border-radius:6px">
 
@@ -12896,7 +12950,18 @@ function initializeExtension() {
 
           </div>
 
+          <!-- Description -->
 
+          <div style="background:rgba(255,255,255,0.08);padding:12px;border-radius:8px;">
+
+            <label>Description
+              <span title="A human-readable description of what this agent does, its purpose, and how it should be used. This helps other users and systems understand the agent's role." style="font-size:11px;opacity:0.9;cursor:help;background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.35);padding:0 5px;border-radius:50%;margin-left:4px">?</span>
+
+              <textarea id="ag-description" placeholder="Describe what this agent does..." style="width:100%;min-height:60px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.35);color:#fff;padding:8px;border-radius:6px;resize:vertical;font-family:inherit"></textarea>
+
+            </label>
+
+          </div>
 
           <!-- Capability toggles -->
 
@@ -13088,11 +13153,18 @@ function initializeExtension() {
 
         </div>
 
-        <div style="padding: 20px; border-top: 1px solid rgba(255,255,255,0.3); display: flex; justify-content: flex-end; gap: 15px; background: rgba(255,255,255,0.05);">
+        <div style="padding: 20px; border-top: 1px solid rgba(255,255,255,0.3); display: flex; justify-content: space-between; align-items: center; background: rgba(255,255,255,0.05);">
 
-          <button id="agent-config-cancel" style="padding: 12px 24px; background: rgba(255,255,255,0.2); border: none; color: white; border-radius: 6px; cursor: pointer; font-size: 12px;">Cancel</button>
+          <div style="display: flex; gap: 10px;">
+            <button id="ag-export-btn" type="button" style="padding: 10px 16px; background: rgba(59,130,246,0.3); border: 1px solid rgba(59,130,246,0.5); color: white; border-radius: 6px; cursor: pointer; font-size: 12px; display: flex; align-items: center; gap: 6px;" title="Export this agent configuration as JSON">📤 Export</button>
+            <button id="ag-import-btn" type="button" style="padding: 10px 16px; background: rgba(34,197,94,0.3); border: 1px solid rgba(34,197,94,0.5); color: white; border-radius: 6px; cursor: pointer; font-size: 12px; display: flex; align-items: center; gap: 6px;" title="Import agent configuration from JSON file">📥 Import</button>
+            <input type="file" id="ag-import-file" accept=".json" style="display: none;">
+          </div>
 
-          <button id="agent-config-save" style="padding: 12px 24px; background: #4CAF50; border: none; color: white; border-radius: 6px; cursor: pointer; font-size: 12px;">💾 Save</button>
+          <div style="display: flex; gap: 15px;">
+            <button id="agent-config-cancel" style="padding: 12px 24px; background: rgba(255,255,255,0.2); border: none; color: white; border-radius: 6px; cursor: pointer; font-size: 12px;">Cancel</button>
+            <button id="agent-config-save" style="padding: 12px 24px; background: #4CAF50; border: none; color: white; border-radius: 6px; cursor: pointer; font-size: 12px;">💾 Save</button>
+          </div>
 
         </div>
 
@@ -16464,6 +16536,7 @@ function initializeExtension() {
                     <option value="page_load" ${!init?.parserTrigger || init?.parserTrigger === 'page_load' ? 'selected' : ''}>On Page Load</option>
                     <option value="dom_change" ${init?.parserTrigger === 'dom_change' ? 'selected' : ''}>On DOM Change</option>
                     <option value="interval" ${init?.parserTrigger === 'interval' ? 'selected' : ''}>On Interval</option>
+                    <option value="button_click" ${init?.parserTrigger === 'button_click' ? 'selected' : ''}>On Button Click</option>
                     <option value="manual" ${init?.parserTrigger === 'manual' ? 'selected' : ''}>Manual / On Demand</option>
                   </select>
                 </div>
@@ -16472,38 +16545,327 @@ function initializeExtension() {
                   <input type="number" class="trigger-parser-interval" placeholder="5" value="${init?.parserInterval || '5'}" style="width:60px;background:rgba(255,255,255,.85);border:1px solid rgba(255,255,255,.5);color:#1e293b;padding:6px 8px;border-radius:4px;font-size:12px">
                   <span style="font-size:12px;color:rgba(255,255,255,0.9)">seconds</span>
                 </div>
-                <div style="margin-bottom:8px">
-                  <label style="font-size:12px;color:rgba(255,255,255,0.9);display:block;margin-bottom:4px">Parse Target</label>
-                  <select class="trigger-dom-parse-target" style="width:100%;background:#fff;color:#0f172a;border:1px solid #cbd5e1;padding:8px 10px;border-radius:6px;font-size:12px">
-                    <option value="body" ${!init?.domParseTarget || init?.domParseTarget === 'body' ? 'selected' : ''}>Page Body</option>
-                    <option value="selection" ${init?.domParseTarget === 'selection' ? 'selected' : ''}>Current Selection</option>
-                    <option value="selector" ${init?.domParseTarget === 'selector' ? 'selected' : ''}>Custom Selector</option>
-                    <option value="viewport" ${init?.domParseTarget === 'viewport' ? 'selected' : ''}>Visible Viewport</option>
-                  </select>
-                </div>
-                <div class="dom-parse-selector-row" style="margin-bottom:8px;display:${init?.domParseTarget === 'selector' ? 'block' : 'none'}">
-                  <label style="font-size:12px;color:rgba(255,255,255,0.9);display:block;margin-bottom:4px">Parse Selector</label>
-                  <input class="trigger-dom-parse-selector" placeholder=".content, #main, article" value="${init?.domParseSelector || ''}" style="width:100%;background:rgba(255,255,255,.85);border:1px solid rgba(255,255,255,.5);color:#1e293b;padding:8px 10px;border-radius:6px;font-size:12px">
-                </div>
-                <div style="margin-bottom:8px">
-                  <label style="font-size:12px;color:rgba(255,255,255,0.9);display:block;margin-bottom:4px">URL/Hostname Filter <span style="opacity:0.6">(optional)</span></label>
-                  <input class="trigger-dom-url-filter" placeholder="*.example.com, https://app.domain.com/*" value="${init?.domUrlFilter || ''}" style="width:100%;background:rgba(255,255,255,.85);border:1px solid rgba(255,255,255,.5);color:#1e293b;padding:8px 10px;border-radius:6px;font-size:12px">
-                </div>
-                <div style="border-top:1px dashed rgba(255,255,255,0.15);padding-top:10px;margin-top:10px">
-                  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
-                    <span style="font-size:12px;color:rgba(255,255,255,0.9);font-weight:600">Pattern Rules</span>
-                    <button class="dom-parser-add-rule" style="background:rgba(34,197,94,.3);border:1px solid rgba(34,197,94,.5);color:#fff;padding:4px 10px;border-radius:4px;cursor:pointer;font-size:11px">+ Add Rule</button>
+                <!-- ============================================================ -->
+                <!-- AI Chat Capture Panel - With Help Icons -->
+                <!-- ============================================================ -->
+                <div class="parser-button-click-row" style="margin-bottom:8px;display:${init?.parserTrigger === 'button_click' ? 'block' : 'none'};background:rgba(59,130,246,0.06);border:1px solid rgba(59,130,246,0.25);border-radius:8px;padding:12px">
+                  
+                  <!-- Header -->
+                  <div style="font-size:13px;color:#60a5fa;font-weight:600;margin-bottom:10px;display:flex;align-items:center;gap:6px">
+                    <span style="font-size:15px">🤖</span> AI Chat Capture
+                    <span title="Capture conversations from AI chat interfaces like ChatGPT, Claude, Gemini. When a user sends a message, this trigger captures both the question and the AI's response for analysis." style="font-size:10px;opacity:0.7;cursor:help;background:rgba(255,255,255,.2);border:1px solid rgba(255,255,255,.3);padding:0 5px;border-radius:50%">?</span>
                   </div>
-                  <div class="dom-parser-rules" style="display:flex;flex-direction:column;gap:8px"></div>
+                  <div style="font-size:10px;color:rgba(255,255,255,0.6);margin-bottom:12px;line-height:1.4">
+                    Capture conversations from AI chat interfaces (ChatGPT, Claude, Gemini, etc.)
+                  </div>
+
+                  <!-- ═══════════════ SITE FILTERS ═══════════════ -->
+                  <div style="margin-bottom:10px">
+                    <div style="font-size:11px;color:#a5b4fc;font-weight:600;margin-bottom:4px;display:flex;align-items:center;gap:4px">
+                      Site Filters <span style="font-weight:400;opacity:0.7">(optional)</span>
+                      <span title="Restrict capture to specific websites. Use glob patterns like *.openai.com/* to match domains. Leave empty to capture on all sites. Examples:&#10;• *.openai.com/* - all OpenAI pages&#10;• https://claude.ai/* - Claude AI&#10;• *gemini.google.com/* - Google Gemini" style="font-size:9px;opacity:0.6;cursor:help;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.25);padding:0 4px;border-radius:50%">?</span>
+                    </div>
+                    <textarea class="trigger-site-filters" placeholder="*.openai.com/*&#10;https://claude.ai/*&#10;*gemini.google.com/*" style="width:100%;min-height:45px;background:rgba(255,255,255,.9);border:1px solid rgba(255,255,255,.4);color:#1e293b;padding:6px 8px;border-radius:4px;font-size:10px;font-family:monospace;resize:vertical">${(init?.siteFilters || []).join('\n')}</textarea>
+                    <div style="font-size:9px;color:rgba(255,255,255,0.5);margin-top:2px">Only capture on these domains – one pattern per line. Leave empty to match all sites.</div>
+                  </div>
+
+                  <!-- ═══════════════ WHEN SHOULD CAPTURE START? ═══════════════ -->
+                  <div style="margin-bottom:10px;padding:10px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.1);border-radius:6px">
+                    <div style="font-size:11px;color:#a5b4fc;font-weight:600;margin-bottom:6px;display:flex;align-items:center;gap:4px">
+                      When should capture start?
+                      <span title="Define what triggers the capture. You can monitor send button clicks and/or Enter key presses. The capture starts the moment the user sends their message." style="font-size:9px;opacity:0.6;cursor:help;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.25);padding:0 4px;border-radius:50%">?</span>
+                    </div>
+                    <div style="font-size:9px;color:rgba(255,255,255,0.55);margin-bottom:8px">
+                      We start capture when a send button is clicked or Enter is pressed in the input.
+                    </div>
+                    
+                    <div style="margin-bottom:8px">
+                      <label style="font-size:10px;color:rgba(255,255,255,0.85);display:flex;align-items:center;gap:4px;margin-bottom:3px">
+                        Button Selectors
+                        <span title="CSS selectors to find the Send button. Right-click the button in your browser → Inspect → copy a unique selector.&#10;&#10;Common examples:&#10;• button[data-testid='send-button'] - ChatGPT&#10;• button[aria-label='Send Message'] - Claude&#10;• .send-button, #submit - Generic&#10;&#10;One selector per line. First match is used." style="font-size:9px;opacity:0.6;cursor:help;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.25);padding:0 4px;border-radius:50%">?</span>
+                      </label>
+                      <textarea class="trigger-button-selectors" placeholder="button[data-testid=&quot;send-button&quot;]&#10;.send-btn&#10;button[aria-label=&quot;Send&quot;]" style="width:100%;min-height:40px;background:rgba(255,255,255,.9);border:1px solid rgba(255,255,255,.4);color:#1e293b;padding:6px 8px;border-radius:4px;font-size:10px;font-family:monospace;resize:vertical">${(init?.buttonSelectors || (init?.buttonSelector ? [init.buttonSelector] : [])).join('\n')}</textarea>
+                      <div style="font-size:9px;color:rgba(255,255,255,0.5);margin-top:2px">CSS selectors for send buttons. First match wins.</div>
+                    </div>
+                    
+                    <div style="display:flex;flex-direction:column;gap:5px">
+                      <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+                        <input type="checkbox" class="trigger-on-enter-key" ${init?.triggerOnEnterKey ? 'checked' : ''} style="margin:0">
+                        <span style="font-size:10px;color:rgba(255,255,255,0.9)">Also trigger on Enter key in input field</span>
+                        <span title="Enable this if the chat sends messages when you press Enter. Most AI chats (ChatGPT, Claude) work this way." style="font-size:9px;opacity:0.6;cursor:help;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.25);padding:0 4px;border-radius:50%">?</span>
+                      </label>
+                      <label class="enter-shift-option" style="display:flex;align-items:center;gap:6px;cursor:pointer;margin-left:18px;opacity:${init?.triggerOnEnterKey ? '1' : '0.4'}">
+                        <input type="checkbox" class="trigger-enter-ignore-shift" ${init?.enterKeyIgnoreShift !== false ? 'checked' : ''} ${!init?.triggerOnEnterKey ? 'disabled' : ''} style="margin:0">
+                        <span style="font-size:10px;color:rgba(255,255,255,0.7)">Ignore Shift+Enter (allows newlines)</span>
+                        <span title="When checked, Shift+Enter creates a new line instead of sending. Only plain Enter triggers capture." style="font-size:9px;opacity:0.5;cursor:help;background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.2);padding:0 4px;border-radius:50%">?</span>
+                      </label>
+                    </div>
+                  </div>
+
+                  <!-- ═══════════════ INPUT CAPTURE ═══════════════ -->
+                  <div style="margin-bottom:10px;padding:10px;background:rgba(34,197,94,0.06);border:1px solid rgba(34,197,94,0.2);border-radius:6px">
+                    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
+                      <div style="font-size:11px;color:#4ade80;font-weight:600;display:flex;align-items:center;gap:4px">
+                        📥 Input Capture
+                        <span title="Capture the user's question/prompt when they send a message. This is the text the user typed before clicking Send." style="font-size:9px;opacity:0.6;cursor:help;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.25);padding:0 4px;border-radius:50%">?</span>
+                      </div>
+                      <label style="display:flex;align-items:center;gap:4px;cursor:pointer">
+                        <input type="checkbox" class="trigger-capture-input" ${init?.captureInput !== false ? 'checked' : ''} style="margin:0">
+                        <span style="font-size:9px;color:rgba(255,255,255,0.7)">Enabled</span>
+                      </label>
+                    </div>
+                    
+                    <div class="input-capture-fields" style="display:${init?.captureInput !== false ? 'block' : 'none'}">
+                      <label style="font-size:10px;color:rgba(255,255,255,0.85);display:flex;align-items:center;gap:4px;margin-bottom:3px">
+                        Input Selectors
+                        <span title="CSS selectors to find the text input/textarea where users type their message.&#10;&#10;Common examples:&#10;• textarea[data-id='root'] - ChatGPT&#10;• #prompt-textarea - Generic&#10;• [contenteditable='true'] - Rich text editors&#10;&#10;First selector with content is used." style="font-size:9px;opacity:0.6;cursor:help;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.25);padding:0 4px;border-radius:50%">?</span>
+                      </label>
+                      <textarea class="trigger-input-selectors" placeholder="textarea[data-id=&quot;root&quot;]&#10;#prompt-textarea&#10;.chat-input" style="width:100%;min-height:36px;background:rgba(255,255,255,.9);border:1px solid rgba(255,255,255,.4);color:#1e293b;padding:6px 8px;border-radius:4px;font-size:10px;font-family:monospace;resize:vertical">${(init?.inputSelectors || (init?.inputSelector ? [init.inputSelector] : [])).join('\n')}</textarea>
+                      <div style="font-size:9px;color:rgba(255,255,255,0.5);margin-top:2px">First selector matching a non-empty input field is used as the prompt source.</div>
+                    </div>
+                  </div>
+
+                  <!-- ═══════════════ OUTPUT CAPTURE ═══════════════ -->
+                  <div style="margin-bottom:10px;padding:10px;background:rgba(168,85,247,0.06);border:1px solid rgba(168,85,247,0.2);border-radius:6px">
+                    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
+                      <div style="font-size:11px;color:#c084fc;font-weight:600;display:flex;align-items:center;gap:4px">
+                        📤 Output Capture
+                        <span title="Capture the AI's response after it finishes generating. Enable this to analyze what the AI replied to the user's question." style="font-size:9px;opacity:0.6;cursor:help;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.25);padding:0 4px;border-radius:50%">?</span>
+                      </div>
+                      <label style="display:flex;align-items:center;gap:4px;cursor:pointer">
+                        <input type="checkbox" class="trigger-capture-output" ${init?.captureOutput ? 'checked' : ''} style="margin:0">
+                        <span style="font-size:9px;color:rgba(255,255,255,0.7)">Enabled</span>
+                      </label>
+                    </div>
+                    <div style="font-size:9px;color:rgba(255,255,255,0.5);margin-bottom:6px">Uses built-in defaults to detect AI responses in the chat area.</div>
+                    
+                    <div class="output-capture-fields" style="display:${init?.captureOutput ? 'block' : 'none'}">
+                      <div style="margin-bottom:8px">
+                        <label style="font-size:10px;color:rgba(255,255,255,0.85);display:flex;align-items:center;gap:4px;margin-bottom:3px">
+                          Output Selectors
+                          <span title="CSS selectors to find the AI's response messages.&#10;&#10;Common examples:&#10;• [data-message-author-role='assistant'] - ChatGPT&#10;• .markdown-body - Rendered markdown&#10;• .response-content, .assistant-message - Generic&#10;&#10;The LAST matching element (most recent response) is captured." style="font-size:9px;opacity:0.6;cursor:help;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.25);padding:0 4px;border-radius:50%">?</span>
+                        </label>
+                        <textarea class="trigger-output-selectors" placeholder="[data-message-author-role=&quot;assistant&quot;]&#10;.markdown-body&#10;.response-content" style="width:100%;min-height:36px;background:rgba(255,255,255,.9);border:1px solid rgba(255,255,255,.4);color:#1e293b;padding:6px 8px;border-radius:4px;font-size:10px;font-family:monospace;resize:vertical">${(init?.outputSelectors || (init?.outputSelector ? [init.outputSelector] : [])).join('\n')}</textarea>
+                        <div style="font-size:9px;color:rgba(255,255,255,0.5);margin-top:2px">Capture when first matching output element becomes non-empty or changes.</div>
+                      </div>
+                      
+                      <!-- Response Detection -->
+                      <div style="padding:8px;background:rgba(255,255,255,0.03);border-radius:4px">
+                        <div style="font-size:10px;color:rgba(255,255,255,0.75);margin-bottom:5px;display:flex;align-items:center;gap:4px">
+                          Response ready when:
+                          <span title="How to know when the AI has finished responding:&#10;&#10;• First change: Capture as soon as any response appears (fastest, may be incomplete)&#10;• Quiet period: Wait until text stops changing for X milliseconds (good for streaming)&#10;• Signal element: Wait for a specific element like 'Copy' button to appear (most reliable)" style="font-size:9px;opacity:0.6;cursor:help;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.25);padding:0 4px;border-radius:50%">?</span>
+                        </div>
+                        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:5px">
+                          <select class="trigger-response-ready-mode" style="background:#fff;color:#0f172a;border:1px solid #cbd5e1;padding:4px 8px;border-radius:4px;font-size:10px;min-width:130px">
+                            <option value="first_change" ${!init?.responseReadyMode || init?.responseReadyMode === 'first_change' ? 'selected' : ''}>First change</option>
+                            <option value="quiet_period" ${init?.responseReadyMode === 'quiet_period' ? 'selected' : ''}>Quiet period</option>
+                            <option value="selector_signal" ${init?.responseReadyMode === 'selector_signal' ? 'selected' : ''}>Signal element</option>
+                          </select>
+                          <span class="response-mode-desc" style="font-size:9px;color:rgba(255,255,255,0.45)">Capture immediately</span>
+                        </div>
+                        
+                        <div class="quiet-period-options" style="display:${init?.responseReadyMode === 'quiet_period' ? 'flex' : 'none'};gap:6px;align-items:center;margin-bottom:5px">
+                          <span style="font-size:10px;color:rgba(255,255,255,0.6)">Wait</span>
+                          <input type="number" class="trigger-quiet-period-ms" value="${init?.quietPeriodMs || '1500'}" style="width:60px;background:rgba(255,255,255,.9);border:1px solid rgba(255,255,255,.4);color:#1e293b;padding:3px 6px;border-radius:3px;font-size:10px">
+                          <span style="font-size:10px;color:rgba(255,255,255,0.6)">ms with no changes</span>
+                          <span title="Time to wait after the last text change before considering the response complete. 1500ms (1.5 seconds) works well for most AI chats." style="font-size:9px;opacity:0.5;cursor:help;background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.2);padding:0 4px;border-radius:50%">?</span>
+                        </div>
+                        
+                        <div class="selector-signal-options" style="display:${init?.responseReadyMode === 'selector_signal' ? 'block' : 'none'};margin-bottom:5px">
+                          <div style="display:flex;align-items:center;gap:4px;margin-bottom:2px">
+                            <span style="font-size:10px;color:rgba(255,255,255,0.6)">Signal selector:</span>
+                            <span title="CSS selector for an element that appears ONLY when the response is complete. Common examples:&#10;• button[aria-label='Copy'] - Copy button&#10;• .feedback-buttons - Thumbs up/down&#10;• .message-complete - Completion indicator" style="font-size:9px;opacity:0.5;cursor:help;background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.2);padding:0 4px;border-radius:50%">?</span>
+                          </div>
+                          <input class="trigger-response-signal-selector" placeholder="button[aria-label=&quot;Copy&quot;], .feedback-buttons" value="${init?.responseSignalSelector || ''}" style="width:100%;background:rgba(255,255,255,.9);border:1px solid rgba(255,255,255,.4);color:#1e293b;padding:4px 8px;border-radius:3px;font-size:10px">
+                        </div>
+                        
+                        <div style="display:flex;gap:6px;align-items:center">
+                          <span style="font-size:10px;color:rgba(255,255,255,0.6)">Max wait:</span>
+                          <input type="number" class="trigger-max-wait-time-ms" value="${init?.maxWaitTimeMs || '60000'}" style="width:70px;background:rgba(255,255,255,.9);border:1px solid rgba(255,255,255,.4);color:#1e293b;padding:3px 6px;border-radius:3px;font-size:10px">
+                          <span style="font-size:10px;color:rgba(255,255,255,0.6)">ms</span>
+                          <span title="Maximum time to wait for response. If exceeded, capture proceeds with whatever content is available. Default: 60000ms (1 minute)." style="font-size:9px;opacity:0.5;cursor:help;background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.2);padding:0 4px;border-radius:50%">?</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- ═══════════════ CONTEXT CAPTURE ═══════════════ -->
+                  <div style="margin-bottom:10px;padding:10px;background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.08);border-radius:6px">
+                    <div style="font-size:11px;color:#fbbf24;font-weight:600;margin-bottom:6px;display:flex;align-items:center;gap:4px">
+                      📋 Context Capture
+                      <span title="Capture additional metadata alongside the conversation. Useful for tracking which page, conversation, or AI model was used." style="font-size:9px;opacity:0.6;cursor:help;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.25);padding:0 4px;border-radius:50%">?</span>
+                    </div>
+                    
+                    <div style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:6px">
+                      <label style="display:flex;align-items:center;gap:4px;cursor:pointer">
+                        <input type="checkbox" class="trigger-capture-url" ${init?.captureUrl !== false ? 'checked' : ''} style="margin:0">
+                        <span style="font-size:10px;color:rgba(255,255,255,0.8)">Page URL</span>
+                        <span title="Include the full page URL in captured data (e.g., https://chat.openai.com/c/abc123)" style="font-size:8px;opacity:0.5;cursor:help;background:rgba(255,255,255,.1);padding:0 3px;border-radius:50%">?</span>
+                      </label>
+                      <label style="display:flex;align-items:center;gap:4px;cursor:pointer">
+                        <input type="checkbox" class="trigger-capture-page-title" ${init?.capturePageTitle ? 'checked' : ''} style="margin:0">
+                        <span style="font-size:10px;color:rgba(255,255,255,0.8)">Page Title</span>
+                        <span title="Include the browser tab title (e.g., 'ChatGPT - My Conversation')" style="font-size:8px;opacity:0.5;cursor:help;background:rgba(255,255,255,.1);padding:0 3px;border-radius:50%">?</span>
+                      </label>
+                    </div>
+                    
+                    <div>
+                      <label style="font-size:10px;color:rgba(255,255,255,0.75);display:flex;align-items:center;gap:4px;margin-bottom:2px">
+                        Context Selectors <span style="opacity:0.6">(optional)</span>
+                        <span title="Extra CSS selectors to capture additional page elements as context.&#10;&#10;Examples:&#10;• [data-conversation-id] - Conversation ID&#10;• .model-selector - Which AI model is selected&#10;• .system-prompt-indicator - System prompt info" style="font-size:9px;opacity:0.6;cursor:help;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.25);padding:0 4px;border-radius:50%">?</span>
+                      </label>
+                      <textarea class="trigger-meta-selectors" placeholder="[data-conversation-id]&#10;.model-selector" style="width:100%;min-height:32px;background:rgba(255,255,255,.9);border:1px solid rgba(255,255,255,.4);color:#1e293b;padding:5px 8px;border-radius:4px;font-size:10px;font-family:monospace;resize:vertical">${(init?.metaSelectors || []).join('\n')}</textarea>
+                    </div>
+                  </div>
+
+                  <!-- ═══════════════ SANITIZATION ═══════════════ -->
+                  <div style="margin-bottom:10px;padding:10px;background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.08);border-radius:6px">
+                    <div style="font-size:11px;color:#94a3b8;font-weight:600;margin-bottom:4px;display:flex;align-items:center;gap:4px">
+                      🧹 Sanitization
+                      <span title="Clean up captured text before sending to your agent. Removes unwanted formatting and noise." style="font-size:9px;opacity:0.6;cursor:help;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.25);padding:0 4px;border-radius:50%">?</span>
+                    </div>
+                    <div style="font-size:9px;color:rgba(255,255,255,0.45);margin-bottom:6px">Apply these cleanup steps before sending captured text to the agent.</div>
+                    
+                    <div style="display:flex;flex-wrap:wrap;gap:10px">
+                      <label style="display:flex;align-items:center;gap:4px;cursor:pointer">
+                        <input type="checkbox" class="trigger-sanitize-trim" ${init?.sanitizeTrim !== false ? 'checked' : ''} style="margin:0">
+                        <span style="font-size:10px;color:rgba(255,255,255,0.8)">Trim whitespace</span>
+                        <span title="Remove extra spaces, tabs, and blank lines from the beginning and end of captured text." style="font-size:8px;opacity:0.5;cursor:help;background:rgba(255,255,255,.1);padding:0 3px;border-radius:50%">?</span>
+                      </label>
+                      <label style="display:flex;align-items:center;gap:4px;cursor:pointer">
+                        <input type="checkbox" class="trigger-sanitize-strip-markdown" ${init?.sanitizeStripMarkdown ? 'checked' : ''} style="margin:0">
+                        <span style="font-size:10px;color:rgba(255,255,255,0.8)">Strip markdown</span>
+                        <span title="Remove markdown formatting like **bold**, *italic*, # headers, and code blocks. Gives you plain text." style="font-size:8px;opacity:0.5;cursor:help;background:rgba(255,255,255,.1);padding:0 3px;border-radius:50%">?</span>
+                      </label>
+                      <label style="display:flex;align-items:center;gap:4px;cursor:pointer">
+                        <input type="checkbox" class="trigger-sanitize-remove-boilerplate" ${init?.sanitizeRemoveBoilerplate ? 'checked' : ''} style="margin:0">
+                        <span style="font-size:10px;color:rgba(255,255,255,0.8)">Remove boilerplate</span>
+                        <span title="Try to remove common AI boilerplate phrases like 'As an AI language model...' or 'I hope this helps!'" style="font-size:8px;opacity:0.5;cursor:help;background:rgba(255,255,255,.1);padding:0 3px;border-radius:50%">?</span>
+                      </label>
+                    </div>
+                  </div>
+
+                  <!-- ═══════════════ DEVELOPER DEBUGGING ═══════════════ -->
+                  <div style="padding:10px;background:rgba(100,100,100,0.08);border:1px solid rgba(100,100,100,0.2);border-radius:6px">
+                    <div style="font-size:11px;color:#9ca3af;font-weight:600;margin-bottom:6px;display:flex;align-items:center;gap:4px">
+                      🔧 Developer Debugging
+                      <span title="Test your configuration on the current page. Use these tools to verify your selectors are working correctly before saving." style="font-size:9px;opacity:0.6;cursor:help;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.25);padding:0 4px;border-radius:50%">?</span>
+                    </div>
+                    
+                    <div style="display:flex;gap:8px;flex-wrap:wrap">
+                      <button type="button" class="btn-test-selectors" style="background:rgba(100,100,100,0.2);border:1px solid rgba(100,100,100,0.3);color:rgba(255,255,255,0.8);padding:5px 10px;border-radius:4px;cursor:pointer;font-size:10px">
+                        🎯 Test Selectors
+                      </button>
+                      <button type="button" class="btn-test-capture" style="background:rgba(100,100,100,0.2);border:1px solid rgba(100,100,100,0.3);color:rgba(255,255,255,0.8);padding:5px 10px;border-radius:4px;cursor:pointer;font-size:10px">
+                        ▶️ Run Test Capture
+                      </button>
+                    </div>
+                    <div class="debug-results" style="display:none;margin-top:8px;padding:8px;background:rgba(0,0,0,0.2);border-radius:4px;font-family:monospace;font-size:9px;color:rgba(255,255,255,0.7)"></div>
+                  </div>
+
+                </div>
+
+                <!-- Generic Page Body Parser Options (hidden in button_click mode) -->
+                <div class="generic-parser-options" style="display:${init?.parserTrigger === 'button_click' ? 'none' : 'block'}">
+                  <div style="margin-bottom:8px">
+                    <label style="font-size:12px;color:rgba(255,255,255,0.9);display:block;margin-bottom:4px">Parse Target</label>
+                    <select class="trigger-dom-parse-target" style="width:100%;background:#fff;color:#0f172a;border:1px solid #cbd5e1;padding:8px 10px;border-radius:6px;font-size:12px">
+                      <option value="body" ${!init?.domParseTarget || init?.domParseTarget === 'body' ? 'selected' : ''}>Page Body</option>
+                      <option value="selection" ${init?.domParseTarget === 'selection' ? 'selected' : ''}>Current Selection</option>
+                      <option value="selector" ${init?.domParseTarget === 'selector' ? 'selected' : ''}>Custom Selector</option>
+                      <option value="viewport" ${init?.domParseTarget === 'viewport' ? 'selected' : ''}>Visible Viewport</option>
+                    </select>
+                  </div>
+                  <div class="dom-parse-selector-row" style="margin-bottom:8px;display:${init?.domParseTarget === 'selector' ? 'block' : 'none'}">
+                    <label style="font-size:12px;color:rgba(255,255,255,0.9);display:block;margin-bottom:4px">Parse Selector</label>
+                    <input class="trigger-dom-parse-selector" placeholder=".content, #main, article" value="${init?.domParseSelector || ''}" style="width:100%;background:rgba(255,255,255,.85);border:1px solid rgba(255,255,255,.5);color:#1e293b;padding:8px 10px;border-radius:6px;font-size:12px">
+                  </div>
+                  <div style="margin-bottom:8px">
+                    <label style="font-size:12px;color:rgba(255,255,255,0.9);display:block;margin-bottom:4px">URL/Hostname Filter <span style="opacity:0.6">(optional)</span></label>
+                    <input class="trigger-dom-url-filter" placeholder="*.example.com, https://app.domain.com/*" value="${init?.domUrlFilter || ''}" style="width:100%;background:rgba(255,255,255,.85);border:1px solid rgba(255,255,255,.5);color:#1e293b;padding:8px 10px;border-radius:6px;font-size:12px">
+                  </div>
+                  <div style="border-top:1px dashed rgba(255,255,255,0.15);padding-top:10px;margin-top:10px">
+                    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+                      <span style="font-size:12px;color:rgba(255,255,255,0.9);font-weight:600">Pattern Rules</span>
+                      <button class="dom-parser-add-rule" style="background:rgba(34,197,94,.3);border:1px solid rgba(34,197,94,.5);color:#fff;padding:4px 10px;border-radius:4px;cursor:pointer;font-size:11px">+ Add Rule</button>
+                    </div>
+                    <div class="dom-parser-rules" style="display:flex;flex-direction:column;gap:8px"></div>
+                  </div>
                 </div>
               `
               fieldsContainer.appendChild(parserSection)
               
-              // Toggle interval row
+              // Toggle mode-specific sections based on trigger type
               const parserTriggerSelect = parserSection.querySelector('.trigger-parser-trigger') as HTMLSelectElement
               const intervalRow = parserSection.querySelector('.parser-interval-row') as HTMLElement
-              parserTriggerSelect?.addEventListener('change', () => {
-                intervalRow.style.display = parserTriggerSelect.value === 'interval' ? 'flex' : 'none'
+              const buttonClickRow = parserSection.querySelector('.parser-button-click-row') as HTMLElement
+              const genericParserOptions = parserSection.querySelector('.generic-parser-options') as HTMLElement
+              
+              const updateParserModeVisibility = () => {
+                const mode = parserTriggerSelect?.value || 'page_load'
+                const isButtonClick = mode === 'button_click'
+                
+                intervalRow.style.display = mode === 'interval' ? 'flex' : 'none'
+                buttonClickRow.style.display = isButtonClick ? 'block' : 'none'
+                // Hide generic parser options (Parse Target, URL Filter, Pattern Rules) in AI Chat Capture mode
+                if (genericParserOptions) genericParserOptions.style.display = isButtonClick ? 'none' : 'block'
+              }
+              parserTriggerSelect?.addEventListener('change', updateParserModeVisibility)
+              
+              // Toggle capture input fields visibility
+              const captureInputCheckbox = parserSection.querySelector('.trigger-capture-input') as HTMLInputElement
+              const inputCaptureFields = parserSection.querySelector('.input-capture-fields') as HTMLElement
+              captureInputCheckbox?.addEventListener('change', () => {
+                if (inputCaptureFields) inputCaptureFields.style.display = captureInputCheckbox.checked ? 'block' : 'none'
+              })
+              
+              // Toggle capture output fields visibility
+              const captureOutputCheckbox = parserSection.querySelector('.trigger-capture-output') as HTMLInputElement
+              const outputCaptureFields = parserSection.querySelector('.output-capture-fields') as HTMLElement
+              captureOutputCheckbox?.addEventListener('change', () => {
+                if (outputCaptureFields) outputCaptureFields.style.display = captureOutputCheckbox.checked ? 'block' : 'none'
+              })
+              
+              // Toggle Enter key options
+              const triggerOnEnterCheckbox = parserSection.querySelector('.trigger-on-enter-key') as HTMLInputElement
+              const enterIgnoreShiftCheckbox = parserSection.querySelector('.trigger-enter-ignore-shift') as HTMLInputElement
+              triggerOnEnterCheckbox?.addEventListener('change', () => {
+                if (enterIgnoreShiftCheckbox) {
+                  enterIgnoreShiftCheckbox.disabled = !triggerOnEnterCheckbox.checked
+                  const parentLabel = enterIgnoreShiftCheckbox.closest('label') as HTMLElement
+                  if (parentLabel) parentLabel.style.opacity = triggerOnEnterCheckbox.checked ? '1' : '0.5'
+                }
+              })
+              
+              // Toggle response ready mode options
+              const responseModeSelect = parserSection.querySelector('.trigger-response-ready-mode') as HTMLSelectElement
+              const responseModeDesc = parserSection.querySelector('.response-mode-desc') as HTMLElement
+              const quietPeriodOptions = parserSection.querySelector('.quiet-period-options') as HTMLElement
+              const selectorSignalOptions = parserSection.querySelector('.selector-signal-options') as HTMLElement
+              
+              const updateResponseModeUI = () => {
+                const mode = responseModeSelect?.value || 'first_change'
+                if (quietPeriodOptions) quietPeriodOptions.style.display = mode === 'quiet_period' ? 'flex' : 'none'
+                if (selectorSignalOptions) selectorSignalOptions.style.display = mode === 'selector_signal' ? 'block' : 'none'
+                if (responseModeDesc) {
+                  const descriptions: Record<string, string> = {
+                    'first_change': 'Capture as soon as content appears',
+                    'quiet_period': 'Wait until content stops changing',
+                    'selector_signal': 'Wait for signal element to appear'
+                  }
+                  responseModeDesc.textContent = descriptions[mode] || ''
+                }
+              }
+              responseModeSelect?.addEventListener('change', updateResponseModeUI)
+              
+              // Debug buttons (UI only - placeholder handlers)
+              const testSelectorsBtn = parserSection.querySelector('.btn-test-selectors') as HTMLButtonElement
+              const testCaptureBtn = parserSection.querySelector('.btn-test-capture') as HTMLButtonElement
+              testSelectorsBtn?.addEventListener('click', () => {
+                alert('Test Selectors: This feature will highlight matching elements on the current page. (Coming soon)')
+              })
+              testCaptureBtn?.addEventListener('click', () => {
+                alert('Test Capture: This feature will perform a test capture with current settings. (Coming soon)')
               })
               
               // Toggle parse selector row
@@ -20401,9 +20763,14 @@ function initializeExtension() {
 
           
 
-          // Set name and icon
+          // Set name, description and icon
 
           if (parsed.name) (configOverlay.querySelector('#ag-name') as HTMLInputElement).value = parsed.name
+
+          if (parsed.description) {
+            const descEl = configOverlay.querySelector('#ag-description') as HTMLTextAreaElement
+            if (descEl) descEl.value = parsed.description
+          }
 
           if (parsed.icon) (configOverlay.querySelector('#ag-icon') as HTMLInputElement).value = parsed.icon
 
@@ -21298,6 +21665,348 @@ function initializeExtension() {
 
     document.getElementById('agent-config-cancel').onclick = () => configOverlay.remove()
 
+    // Export handler
+    const exportBtn = document.getElementById('ag-export-btn')
+    if (exportBtn) {
+      exportBtn.onclick = async () => {
+        try {
+          console.log('📤 Exporting agent configuration...')
+          
+          // Collect current form data
+          syncPersistedFromDom()
+          
+          const exportData = {
+            ...previouslySavedData,
+            name: (document.getElementById('ag-name') as HTMLInputElement)?.value || agentName,
+            description: (document.getElementById('ag-description') as HTMLTextAreaElement)?.value || '',
+            icon: (document.getElementById('ag-icon') as HTMLInputElement)?.value || '🤖',
+          }
+          
+          // Build schema-aware export with hierarchical structure
+          // This creates a Merkle-tree-like structure where each element has its schema description
+          const buildSchemaExport = (data: any) => {
+            // Helper to wrap a value with its schema
+            const wrap = (key: string, value: any, desc: string, type: string, required: boolean = false) => ({
+              _schema: { id: key, description: desc, type, required },
+              value: value
+            })
+            
+            const result: any = {
+              _metadata: {
+                schemaVersion: '1.0.0',
+                exportedAt: new Date().toISOString(),
+                source: 'Optimando AI Extension',
+                formatVersion: '1.0.0',
+              },
+              _rootSchema: {
+                id: 'agent',
+                description: 'An AI Agent is a configurable unit that can listen for events, reason about context, and execute actions.',
+                type: 'object'
+              },
+              identity: {
+                _schema: { id: 'agent.identity', description: 'Core identifying information for the agent.', type: 'object' },
+                id: wrap('agent.id', data.id || '', 'Unique identifier for this agent.', 'string', true),
+                name: wrap('agent.name', data.name || '', 'The command identifier used to reference this agent.', 'string', true),
+                description: wrap('agent.description', data.description || '', 'A human-readable description of what this agent does.', 'string'),
+                icon: wrap('agent.icon', data.icon || '🤖', 'An emoji or icon to visually identify this agent.', 'string'),
+                number: wrap('agent.number', data.number ?? null, 'Numeric identifier for linking with Agent Boxes.', 'number'),
+                enabled: wrap('agent.enabled', data.enabled ?? true, 'Whether this agent is active.', 'boolean'),
+                capabilities: wrap('agent.capabilities', data.capabilities || [], 'Enabled sections for this agent.', 'array'),
+              }
+            }
+            
+            // Listener section
+            if (data.listening) {
+              result.listener = {
+                _schema: { id: 'agent.listening', description: 'Defines how this agent detects events and triggers.', type: 'object' },
+                passiveEnabled: wrap('agent.listening.passiveEnabled', data.listening.passiveEnabled ?? false, 'Enable passive event listening.', 'boolean'),
+                activeEnabled: wrap('agent.listening.activeEnabled', data.listening.activeEnabled ?? true, 'Enable active trigger listening.', 'boolean'),
+                expectedContext: wrap('agent.listening.expectedContext', data.listening.expectedContext || '', 'Keywords for semantic matching.', 'string'),
+                tags: wrap('agent.listening.tags', data.listening.tags || [], 'Input data types to process.', 'array'),
+                source: wrap('agent.listening.source', data.listening.source || 'all', 'Primary source for input events.', 'enum'),
+                website: wrap('agent.listening.website', data.listening.website || '', 'Website filter pattern.', 'string'),
+                unifiedTriggers: wrap('agent.listening.unifiedTriggers', data.listening.unifiedTriggers || [], 'Trigger configurations.', 'array'),
+                triggers: wrap('agent.listening.triggers', data.listening.triggers || [], 'Action triggers (legacy).', 'array'),
+              }
+            }
+            
+            // Reasoning section
+            if (data.reasoning) {
+              result.reasoning = {
+                _schema: { id: 'agent.reasoning', description: 'Configures how the agent processes and thinks about input.', type: 'object' },
+                applyFor: wrap('agent.reasoning.applyFor', data.reasoning.applyFor || '__any__', 'Triggers this section applies to.', 'enum'),
+                applyForList: wrap('agent.reasoning.applyForList', data.reasoning.applyForList || ['__any__'], 'Multiple triggers selection.', 'array'),
+                goals: wrap('agent.reasoning.goals', data.reasoning.goals || '', 'System instructions for the agent.', 'string'),
+                role: wrap('agent.reasoning.role', data.reasoning.role || '', 'Agent role/persona.', 'string'),
+                rules: wrap('agent.reasoning.rules', data.reasoning.rules || '', 'Hard requirements for the agent.', 'string'),
+                custom: wrap('agent.reasoning.custom', data.reasoning.custom || [], 'Additional key-value configuration.', 'array'),
+                acceptFrom: wrap('agent.reasoning.acceptFrom', data.reasoning.acceptFrom || [], 'Input sources filter.', 'array'),
+                memoryContext: wrap('agent.reasoning.memoryContext', data.reasoning.memoryContext || {}, 'Memory access configuration.', 'object'),
+                reasoningWorkflows: wrap('agent.reasoning.reasoningWorkflows', data.reasoning.reasoningWorkflows || [], 'Pre-reasoning workflows.', 'array'),
+              }
+            }
+            
+            // Additional reasoning sections
+            if (data.reasoningSections && data.reasoningSections.length > 0) {
+              result.reasoningSections = data.reasoningSections.map((sec: any, i: number) => ({
+                _schema: { id: `agent.reasoningSections.${i}`, description: `Additional reasoning section ${i + 1}.`, type: 'object' },
+                ...sec
+              }))
+            }
+            
+            // Execution section
+            if (data.execution) {
+              result.execution = {
+                _schema: { id: 'agent.execution', description: 'Configures how the agent delivers output and actions.', type: 'object' },
+                applyFor: wrap('agent.execution.applyFor', data.execution.applyFor || '__any__', 'Triggers this section applies to.', 'enum'),
+                applyForList: wrap('agent.execution.applyForList', data.execution.applyForList || ['__any__'], 'Multiple triggers selection.', 'array'),
+                executionMode: wrap('agent.execution.executionMode', data.execution.executionMode || 'agent_workflow', 'Output generation mode.', 'enum'),
+                specialDestinations: wrap('agent.execution.specialDestinations', data.execution.specialDestinations || [], 'Output destinations.', 'array'),
+                workflows: wrap('agent.execution.workflows', data.execution.workflows || [], 'Workflow IDs (legacy).', 'array'),
+                executionWorkflows: wrap('agent.execution.executionWorkflows', data.execution.executionWorkflows || [], 'Execution workflow configs.', 'array'),
+                executionSections: wrap('agent.execution.executionSections', data.execution.executionSections || [], 'Additional execution sections.', 'array'),
+              }
+            }
+            
+            // Context and memory settings
+            if (data.contextSettings) {
+              result.contextSettings = wrap('agent.contextSettings', data.contextSettings, 'Context access configuration.', 'object')
+            }
+            if (data.memorySettings) {
+              result.memorySettings = wrap('agent.memorySettings', data.memorySettings, 'Memory persistence settings.', 'object')
+            }
+            
+            // Include compact agent data for easy re-import
+            result._compactAgent = data
+            
+            return result
+          }
+          
+          const exportWithSchema = buildSchemaExport(exportData)
+          
+          // Create and download file
+          const json = JSON.stringify(exportWithSchema, null, 2)
+          const blob = new Blob([json], { type: 'application/json' })
+          const url = URL.createObjectURL(blob)
+          
+          const a = document.createElement('a')
+          a.href = url
+          a.download = `agent-${exportData.name || 'export'}-${new Date().toISOString().slice(0, 10)}.json`
+          document.body.appendChild(a)
+          a.click()
+          document.body.removeChild(a)
+          URL.revokeObjectURL(url)
+          
+          console.log('✅ Agent exported successfully!')
+          
+          // Show brief success feedback
+          const originalText = exportBtn.innerHTML
+          exportBtn.innerHTML = '✅ Exported!'
+          setTimeout(() => { exportBtn.innerHTML = originalText }, 2000)
+          
+        } catch (error) {
+          console.error('❌ Export failed:', error)
+          alert('Export failed. Check console for details.')
+        }
+      }
+    }
+
+    // Import handler
+    const importBtn = document.getElementById('ag-import-btn')
+    const importFile = document.getElementById('ag-import-file') as HTMLInputElement
+    
+    if (importBtn && importFile) {
+      importBtn.onclick = () => {
+        importFile.click()
+      }
+      
+      importFile.onchange = async (event) => {
+        const file = (event.target as HTMLInputElement).files?.[0]
+        if (!file) return
+        
+        try {
+          console.log('📥 Importing agent configuration from:', file.name)
+          
+          const text = await file.text()
+          const data = JSON.parse(text)
+          
+          // Extract agent data from various formats:
+          // 1. Schema-aware format: { _compactAgent: {...}, identity: {...}, listener: {...} }
+          // 2. Simple format: { agent: {...} }
+          // 3. Direct format: { name: "...", capabilities: [...] }
+          let agentData: any = null
+          
+          // Helper to extract value from schema-wrapped field
+          const extractVal = (field: any): any => {
+            if (field === undefined || field === null) return undefined
+            if (typeof field === 'object' && 'value' in field) return field.value
+            return field
+          }
+          
+          // Check for schema-aware format with _compactAgent
+          if (data._compactAgent) {
+            console.log('📋 Detected schema-aware format with _compactAgent')
+            agentData = data._compactAgent
+          }
+          // Check for schema-aware format with identity section
+          else if (data.identity && data.identity.name) {
+            console.log('📋 Detected schema-aware format with identity section')
+            agentData = {
+              id: extractVal(data.identity.id),
+              name: extractVal(data.identity.name),
+              description: extractVal(data.identity.description),
+              icon: extractVal(data.identity.icon),
+              number: extractVal(data.identity.number),
+              enabled: extractVal(data.identity.enabled),
+              capabilities: extractVal(data.identity.capabilities),
+            }
+            
+            // Extract listener section
+            if (data.listener) {
+              agentData.listening = {
+                passiveEnabled: extractVal(data.listener.passiveEnabled),
+                activeEnabled: extractVal(data.listener.activeEnabled),
+                expectedContext: extractVal(data.listener.expectedContext),
+                tags: extractVal(data.listener.tags),
+                source: extractVal(data.listener.source),
+                website: extractVal(data.listener.website),
+                unifiedTriggers: extractVal(data.listener.unifiedTriggers),
+                triggers: extractVal(data.listener.triggers),
+              }
+            }
+            
+            // Extract reasoning section
+            if (data.reasoning) {
+              agentData.reasoning = {
+                applyFor: extractVal(data.reasoning.applyFor),
+                applyForList: extractVal(data.reasoning.applyForList),
+                goals: extractVal(data.reasoning.goals),
+                role: extractVal(data.reasoning.role),
+                rules: extractVal(data.reasoning.rules),
+                custom: extractVal(data.reasoning.custom),
+                acceptFrom: extractVal(data.reasoning.acceptFrom),
+                memoryContext: extractVal(data.reasoning.memoryContext),
+                reasoningWorkflows: extractVal(data.reasoning.reasoningWorkflows),
+              }
+            }
+            
+            // Extract reasoning sections
+            if (data.reasoningSections) {
+              agentData.reasoningSections = data.reasoningSections
+            }
+            
+            // Extract execution section
+            if (data.execution) {
+              agentData.execution = {
+                applyFor: extractVal(data.execution.applyFor),
+                applyForList: extractVal(data.execution.applyForList),
+                executionMode: extractVal(data.execution.executionMode),
+                specialDestinations: extractVal(data.execution.specialDestinations),
+                workflows: extractVal(data.execution.workflows),
+                executionWorkflows: extractVal(data.execution.executionWorkflows),
+                executionSections: extractVal(data.execution.executionSections),
+              }
+            }
+            
+            // Extract settings
+            if (data.contextSettings) {
+              agentData.contextSettings = extractVal(data.contextSettings)
+            }
+            if (data.memorySettings) {
+              agentData.memorySettings = extractVal(data.memorySettings)
+            }
+          }
+          // Check for simple { agent: {...} } format
+          else if (data.agent) {
+            console.log('📋 Detected simple agent wrapper format')
+            agentData = data.agent
+          }
+          // Assume direct format
+          else if (data.name || data.id) {
+            console.log('📋 Detected direct agent format')
+            agentData = data
+          }
+          
+          // Validate imported data
+          if (!agentData || (!agentData.name && !agentData.id)) {
+            throw new Error('Invalid agent file: could not extract agent data with name or id')
+          }
+          
+          console.log('📦 Extracted agent data:', {
+            name: agentData.name,
+            hasListening: !!agentData.listening,
+            hasReasoning: !!agentData.reasoning,
+            hasExecution: !!agentData.execution,
+          })
+          
+          // Apply imported data to form
+          if (agentData.name) {
+            (document.getElementById('ag-name') as HTMLInputElement).value = agentData.name
+          }
+          
+          if (agentData.description) {
+            const descEl = document.getElementById('ag-description') as HTMLTextAreaElement
+            if (descEl) descEl.value = agentData.description
+          }
+          
+          if (agentData.icon) {
+            (document.getElementById('ag-icon') as HTMLInputElement).value = agentData.icon
+          }
+          
+          // Update capabilities checkboxes
+          if (agentData.capabilities) {
+            if (capL) (capL as HTMLInputElement).checked = agentData.capabilities.includes('listening')
+            if (capR) (capR as HTMLInputElement).checked = agentData.capabilities.includes('reasoning')
+            if (capE) (capE as HTMLInputElement).checked = agentData.capabilities.includes('execution')
+          }
+          
+          // Update previouslySavedData with imported data
+          previouslySavedData = agentData
+          
+          // Re-render the form to show imported data
+          render()
+          
+          // Restore imported values after render
+          setTimeout(() => {
+            if (agentData.listening) {
+              const passiveToggle = document.getElementById('L-toggle-passive') as HTMLInputElement
+              const activeToggle = document.getElementById('L-toggle-active') as HTMLInputElement
+              const contextEl = document.getElementById('L-context') as HTMLTextAreaElement
+              
+              if (passiveToggle) passiveToggle.checked = agentData.listening.passiveEnabled || false
+              if (activeToggle) activeToggle.checked = agentData.listening.activeEnabled !== false
+              if (contextEl) contextEl.value = agentData.listening.expectedContext || ''
+            }
+            
+            if (agentData.reasoning) {
+              const goalsEl = document.getElementById('R-goals') as HTMLTextAreaElement
+              const roleEl = document.getElementById('R-role') as HTMLInputElement
+              const rulesEl = document.getElementById('R-rules') as HTMLTextAreaElement
+              
+              if (goalsEl) goalsEl.value = agentData.reasoning.goals || ''
+              if (roleEl) roleEl.value = agentData.reasoning.role || ''
+              if (rulesEl) rulesEl.value = agentData.reasoning.rules || ''
+            }
+          }, 100)
+          
+          console.log('✅ Agent imported successfully!')
+          
+          // Show brief success feedback
+          const originalText = importBtn.innerHTML
+          importBtn.innerHTML = '✅ Imported!'
+          setTimeout(() => { importBtn.innerHTML = originalText }, 2000)
+          
+          // Reset file input for next import
+          importFile.value = ''
+          
+        } catch (error: any) {
+          console.error('❌ Import failed:', error)
+          alert(`Import failed: ${error.message || 'Invalid file format'}`)
+          importFile.value = ''
+        }
+      }
+    }
+
     // Save handler
 
     const saveBtn = document.getElementById('agent-config-save')
@@ -21373,6 +22082,8 @@ function initializeExtension() {
             id: agentName,
 
             name: (document.getElementById('ag-name') as HTMLInputElement)?.value || agentName,
+
+            description: (document.getElementById('ag-description') as HTMLTextAreaElement)?.value || '',
 
             icon: (document.getElementById('ag-icon') as HTMLInputElement)?.value || '🤖',
 
