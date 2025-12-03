@@ -241,22 +241,30 @@ export const ListenerSectionSchema: SchemaNode = {
 };
 
 export const ListenerElementsSchema: Record<string, SchemaNode> = {
+  /**
+   * @deprecated v2.1.0 - Use unifiedTriggers to define activation conditions.
+   * Kept for UI backward compatibility only.
+   */
   passiveEnabled: {
     id: 'agent.listening.passiveEnabled',
-    humanLabel: 'Passive Listener',
+    humanLabel: 'Passive Listener (deprecated)',
     machineKey: 'passiveEnabled',
-    description: 'When enabled, the agent listens for passive events like DOM changes, scroll, hover, and page events without explicit user invocation.',
+    description: '@deprecated - Use unifiedTriggers instead. This field is ignored in canonical exports.',
     type: 'boolean',
     required: false,
     default: false,
     parentId: 'agent.listening',
   },
   
+  /**
+   * @deprecated v2.1.0 - Use unifiedTriggers to define activation conditions.
+   * Kept for UI backward compatibility only.
+   */
   activeEnabled: {
     id: 'agent.listening.activeEnabled',
-    humanLabel: 'Active Listener',
+    humanLabel: 'Active Listener (deprecated)',
     machineKey: 'activeEnabled',
-    description: 'When enabled, the agent responds to explicit user actions like @mentions, #hashtags, and direct commands.',
+    description: '@deprecated - Use unifiedTriggers instead. This field is ignored in canonical exports.',
     type: 'boolean',
     required: false,
     default: true,
@@ -490,6 +498,32 @@ export const TriggerElementsSchema: Record<string, SchemaNode> = {
     },
   },
 
+  // --- Auto-Detection Configuration ---
+  
+  /** Enable automatic selector discovery */
+  autoDetectSelectors: {
+    id: 'agent.listening.trigger.autoDetectSelectors',
+    humanLabel: 'Auto-Detect Selectors',
+    machineKey: 'autoDetectSelectors',
+    description: 'Enable automatic discovery of button, input, and output selectors by monitoring user interactions.',
+    type: 'boolean',
+    required: false,
+    default: false,
+    parentId: 'agent.listening.trigger',
+  },
+  
+  /** Auto-detected selector results */
+  autoDetected: {
+    id: 'agent.listening.trigger.autoDetected',
+    humanLabel: 'Auto-Detected Selectors',
+    machineKey: 'autoDetected',
+    description: 'Results from automatic selector detection. Contains button, input, and output selectors discovered via click tracking and DOM observation.',
+    type: 'object',
+    required: false,
+    default: null,
+    parentId: 'agent.listening.trigger',
+  },
+  
   // --- Trigger Source Configuration ---
   
   /** CSS selectors for the submit/send button(s) to monitor */

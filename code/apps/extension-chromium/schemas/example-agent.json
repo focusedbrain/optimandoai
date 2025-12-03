@@ -1,0 +1,143 @@
+{
+  "$schema": "./agent.schema.json",
+  "_schemaVersion": "2.1.0",
+  "_exportedAt": "2025-12-03T17:00:00.000Z",
+  "_source": "Optimando AI Extension",
+  "_helper": "This is a real-world example agent. For creating new agents via LLM, use agent.template.json together with agent.schema.json. The template shows all available fields; the schema defines valid types.",
+  "id": "agent10",
+  "name": "knowledge-gap-analyzer",
+  "description": "Knowledge Gap Analyzer: This agent analyzes user inputs and identifies potential knowledge gaps. It evaluates the user's intent, detects issues in how questions are framed, and suggests improved approaches. Findings are displayed in agent boxes as text, plus a mini-app that visualizes a knowledge gap score from 1–10.",
+  "icon": "🔍",
+  "number": 10,
+  "enabled": true,
+  "capabilities": ["listening", "reasoning", "execution"],
+  "contextSettings": {
+    "agentContext": true,
+    "sessionContext": true,
+    "accountContext": false
+  },
+  "memorySettings": {
+    "agentEnabled": true,
+    "sessionEnabled": false,
+    "accountEnabled": false
+  },
+  "listening": {
+    "expectedContext": "knowledge gaps, question analysis, learning intent",
+    "tags": ["analysis", "knowledge"],
+    "sources": ["dom"],
+    "website": "*chatgpt.com/*",
+    "unifiedTriggers": [
+      {
+        "id": "ID01",
+        "type": "dom_parser",
+        "enabled": true,
+        "channel": "dom",
+        "emails": "",
+        "keywords": "",
+        "websiteFilter": "",
+        "wrcodeMatch": "",
+        "workflowId": "",
+        "command": "",
+        "parserTrigger": "button_click",
+        "parserInterval": 5,
+        "domParseTarget": "",
+        "domParseSelector": "",
+        "domUrlFilter": "",
+        "siteFilters": [
+          "https://chatgpt.com/*",
+          "https://chat.openai.com/*"
+        ],
+        "buttonSelectors": [
+          "button[data-testid='send-button']",
+          "button[aria-label='Send message']",
+          "form button[type='submit']"
+        ],
+        "autoDetectSelectors": false,
+        "triggerOnEnterKey": true,
+        "enterKeyIgnoreShift": true,
+        "captureInput": true,
+        "inputSelectors": [
+          "textarea[data-id='prompt-textarea']",
+          "textarea#prompt-textarea",
+          "div[contenteditable='true'][data-placeholder]",
+          "textarea[placeholder*='Message']"
+        ],
+        "captureOutput": true,
+        "outputSelectors": [
+          "div[data-message-author-role='assistant']",
+          "div.markdown.prose",
+          "div[class*='agent-turn'] div.markdown"
+        ],
+        "responseReadyMode": "quiet_period",
+        "quietPeriodMs": 2000,
+        "responseSignalSelector": "",
+        "maxWaitTimeMs": 120000,
+        "captureUrl": true,
+        "capturePageTitle": true,
+        "metaSelectors": [
+          "div[data-testid='conversation-title']",
+          "span[data-state='closed'][class*='model']"
+        ],
+        "sanitizeTrim": true,
+        "sanitizeStripMarkdown": false,
+        "sanitizeRemoveBoilerplate": false,
+        "domParserRules": [],
+        "sensorWorkflows": [],
+        "allowedActions": []
+      }
+    ],
+    "exampleFiles": []
+  },
+  "reasoningSections": [
+    {
+      "applyForList": ["ID01"],
+      "goals": "Analyze the user's question to identify knowledge gaps. Evaluate clarity, specificity, and assumptions. Provide actionable suggestions for improvement. Calculate a knowledge gap score from 1 (minimal gaps) to 10 (severe gaps).",
+      "role": "Knowledge Gap Analyst",
+      "rules": "Always be constructive and educational. Never criticize the user personally. Focus on improving the question quality. Provide specific, actionable recommendations.",
+      "custom": [],
+      "acceptFrom": ["dom"],
+      "memoryContext": {
+        "agentEnabled": true,
+        "sessionEnabled": false,
+        "accountEnabled": false
+      },
+      "reasoningWorkflows": []
+    }
+  ],
+  "executionSections": [
+    {
+      "applyForList": ["ID01"],
+      "executionMode": "agent_workflow",
+      "destinations": [
+        {
+          "kind": "agentBox",
+          "agents": ["agentBox01", "agentBox02"]
+        }
+      ],
+      "executionWorkflows": []
+    }
+  ],
+  "agentContextFiles": [],
+  "_schemaInfo": {
+    "enums": {
+      "listening.sources": ["all", "chat", "voice", "voicememo", "video", "email", "whatsapp", "pdf", "docs", "dom", "api", "workflow", "agent", "screenshot", "stream"],
+      "executionSection.executionMode": ["agent_workflow", "direct_response", "workflow_only", "hybrid"],
+      "trigger.type": ["direct_tag", "tag_and_condition", "workflow_condition", "dom_event", "dom_parser", "augmented_overlay", "agent", "miniapp", "manual"],
+      "trigger.parserTrigger": ["page_load", "dom_change", "interval", "button_click", "manual"],
+      "trigger.responseReadyMode": ["first_change", "quiet_period", "selector_signal"],
+      "destination.kind": ["agentBox", "chat", "email", "webhook", "storage", "notification"]
+    },
+    "numericFields": ["parserInterval", "quietPeriodMs", "maxWaitTimeMs", "number"],
+    "deprecatedFields": [
+      "passiveEnabled",
+      "activeEnabled",
+      "reasoning",
+      "execution",
+      "triggers",
+      "workflows",
+      "specialDestinations",
+      "applyFor"
+    ]
+  }
+}
+

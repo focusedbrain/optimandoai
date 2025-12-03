@@ -1,0 +1,166 @@
+{
+  "$schema": "./agent.schema.json",
+  "_schemaVersion": "2.1.0",
+  "_exportedAt": "2025-12-03T18:00:00.000Z",
+  "_source": "Optimando AI Extension - Canonical Template",
+  "_helper": "FOR LLM AGENT GENERATION: This file is an example agent that demonstrates the complete structure. It MUST be used together with agent.schema.json. When asking an LLM to generate new agents: (1) Provide BOTH agent.schema.json (defines valid fields and types) AND this agent.template.json (shows complete structure with all fields). (2) The LLM should COPY this template structure exactly, then modify only the VALUES (id, name, description, selectors, goals, rules, etc.). (3) Keep all field names and JSON structure valid against the schema. (4) TRIGGER TYPES: direct_tag (tag match), tag_and_condition (tag+filters), workflow_condition (workflow-based), dom_event (DOM clicks), dom_parser (AI chat capture), augmented_overlay (hover/selection), agent (listen to agent), miniapp (mini app), manual (command).",
+  
+  "id": "TEMPLATE-my-agent-id",
+  "name": "TEMPLATE-my-agent-name",
+  "description": "TEMPLATE: This is an example agent. Replace this description with what your agent does, when it activates, and what output it produces. Be specific for both humans and LLMs.",
+  "icon": "🤖",
+  "number": 1,
+  "enabled": true,
+  "capabilities": ["listening", "reasoning", "execution"],
+  
+  "contextSettings": {
+    "agentContext": true,
+    "sessionContext": true,
+    "accountContext": false
+  },
+  
+  "memorySettings": {
+    "agentEnabled": true,
+    "sessionEnabled": false,
+    "accountEnabled": false
+  },
+  
+  "listening": {
+    "expectedContext": "TEMPLATE: Keywords for semantic matching",
+    "tags": [],
+    "sources": ["dom"],
+    "website": "",
+    "unifiedTriggers": [
+      {
+        "id": "TRIGGER01",
+        "type": "dom_parser",
+        "enabled": true,
+        
+        "tag": "",
+        "tagName": "",
+        "channel": "dom",
+        "eventTagConditions": [],
+        "expectedContext": "",
+        
+        "workflowId": "",
+        "conditions": [],
+        
+        "domSelector": "",
+        "domEvent": "click",
+        "domUrlFilter": "",
+        "domPayloadSelection": false,
+        "domPayloadSnippet": false,
+        "domPayloadUrl": false,
+        "domPayloadParsed": false,
+        "domParserEnabled": false,
+        
+        "parserTrigger": "button_click",
+        "parserInterval": 5,
+        "domParseTarget": "",
+        "domParseSelector": "",
+        "siteFilters": ["https://example.com/*"],
+        "buttonSelectors": ["button[type='submit']", "button[aria-label='Send']"],
+        "buttonSelector": "",
+        "autoDetectSelectors": false,
+        "autoDetected": null,
+        "triggerOnEnterKey": true,
+        "enterKeyIgnoreShift": true,
+        "captureInput": true,
+        "inputSelectors": ["textarea", "input[type='text']"],
+        "inputSelector": "",
+        "captureOutput": true,
+        "outputSelectors": ["div.response", "div.output"],
+        "outputSelector": "",
+        "responseReadyMode": "quiet_period",
+        "quietPeriodMs": 2000,
+        "responseSignalSelector": "",
+        "maxWaitTimeMs": 60000,
+        "outputWaitMethod": "",
+        "outputWaitDelay": "",
+        "captureUrl": true,
+        "capturePageTitle": true,
+        "metaSelectors": [],
+        "sanitizeTrim": true,
+        "sanitizeStripMarkdown": false,
+        "sanitizeRemoveBoilerplate": false,
+        "domParserRules": [],
+        
+        "overlayTriggerName": "",
+        "overlayModeButton": false,
+        "overlayButtonLabel": "",
+        "overlayModeEmpty": false,
+        "overlayModeElement": true,
+        "overlayModeSelection": false,
+        "overlayPhrases": "",
+        "overlayUrlPattern": "",
+        "overlayWrcodeOnly": false,
+        "overlayPayloadSelection": false,
+        "overlayPayloadContext": false,
+        "overlayPayloadUrl": false,
+        "overlayPayloadCoords": false,
+        
+        "sourceAgent": "",
+        
+        "miniAppId": "",
+        "miniAppUiElements": [],
+        "miniAppConditions": [],
+        
+        "command": "",
+        "emails": "",
+        "keywords": "",
+        "websiteFilter": "",
+        "wrcodeMatch": "",
+        
+        "sensorWorkflows": [],
+        "allowedActions": []
+      }
+    ],
+    "exampleFiles": []
+  },
+  
+  "reasoningSections": [
+    {
+      "applyForList": ["TRIGGER01"],
+      "goals": "TEMPLATE: Define the main objective. What should this agent analyze, transform, or produce?",
+      "role": "TEMPLATE: Agent Role/Persona (e.g., 'Knowledge Gap Analyst', 'Code Reviewer')",
+      "rules": "TEMPLATE: List hard requirements. What must the agent always/never do?",
+      "custom": [],
+      "acceptFrom": ["dom"],
+      "memoryContext": {
+        "agentEnabled": true,
+        "sessionEnabled": false,
+        "accountEnabled": false
+      },
+      "reasoningWorkflows": []
+    }
+  ],
+  
+  "executionSections": [
+    {
+      "applyForList": ["TRIGGER01"],
+      "executionMode": "agent_workflow",
+      "destinations": [
+        {
+          "kind": "agentBox",
+          "agents": ["agentBox01"]
+        }
+      ],
+      "executionWorkflows": []
+    }
+  ],
+  
+  "agentContextFiles": [],
+  
+  "_schemaInfo": {
+    "enums": {
+      "trigger.type": ["direct_tag", "tag_and_condition", "workflow_condition", "dom_event", "dom_parser", "augmented_overlay", "agent", "miniapp", "manual"],
+      "trigger.parserTrigger": ["page_load", "dom_change", "interval", "button_click", "manual"],
+      "trigger.responseReadyMode": ["first_change", "quiet_period", "selector_signal"],
+      "listening.sources": ["all", "chat", "voice", "voicememo", "video", "email", "whatsapp", "pdf", "docs", "dom", "api", "workflow", "agent", "screenshot", "stream"],
+      "executionSection.executionMode": ["agent_workflow", "direct_response", "workflow_only", "hybrid"],
+      "destination.kind": ["agentBox", "chat", "email", "webhook", "storage", "notification"]
+    },
+    "numericFields": ["parserInterval", "quietPeriodMs", "maxWaitTimeMs", "number"],
+    "deprecatedFields": ["tagName", "buttonSelector", "inputSelector", "outputSelector", "outputWaitMethod", "outputWaitDelay"]
+  }
+}

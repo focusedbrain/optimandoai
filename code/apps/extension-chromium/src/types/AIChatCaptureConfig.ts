@@ -28,6 +28,23 @@ export interface SiteFiltersConfig {
 }
 
 // =============================================================================
+// Auto-Detection Configuration
+// =============================================================================
+
+/**
+ * Auto-detected selector results.
+ * Populated when autoDetectSelectors is enabled and detection runs.
+ */
+export interface AutoDetectedSelectors {
+  /** Auto-detected send button selector (via click tracking + NLP). */
+  button: string;
+  /** Auto-detected input selector (focused element at send time). */
+  input: string;
+  /** Auto-detected output selector (observed DOM changes after send). */
+  output: string;
+}
+
+// =============================================================================
 // Trigger Configuration
 // =============================================================================
 
@@ -36,6 +53,19 @@ export interface SiteFiltersConfig {
  * Defines how/when capture starts (button click or Enter key).
  */
 export interface TriggerConfig {
+  /**
+   * Enable automatic selector discovery.
+   * When true, tries to infer button/input/output selectors automatically.
+   * @default false
+   */
+  autoDetectSelectors: boolean;
+  
+  /**
+   * Auto-detected selectors from last detection run.
+   * Null if auto-detection hasn't run or found nothing.
+   */
+  autoDetected: AutoDetectedSelectors | null;
+  
   /**
    * CSS selectors for send/submit buttons.
    * First matching element wins.
@@ -267,6 +297,8 @@ export function getDefaultAIChatCaptureConfig(): AIChatCaptureConfig {
       patterns: [],
     },
     trigger: {
+      autoDetectSelectors: false,
+      autoDetected: null,
       buttonSelectors: [],
       triggerOnEnterKey: false,
       ignoreShiftEnter: true,
@@ -313,6 +345,8 @@ export function fromLegacyTriggerData(data: any): AIChatCaptureConfig {
   }
   
   // Trigger
+  config.trigger.autoDetectSelectors = data.autoDetectSelectors ?? false;
+  config.trigger.autoDetected = data.autoDetected ?? null;
   if (data.buttonSelectors?.length) {
     config.trigger.buttonSelectors = data.buttonSelectors;
   } else if (data.buttonSelector) {
@@ -366,6 +400,8 @@ export function toLegacyTriggerData(config: AIChatCaptureConfig): Record<string,
     siteFilters: config.siteFilters.patterns,
     
     // Trigger
+    autoDetectSelectors: config.trigger.autoDetectSelectors,
+    autoDetected: config.trigger.autoDetected,
     buttonSelectors: config.trigger.buttonSelectors,
     buttonSelector: config.trigger.buttonSelectors[0] ?? '',
     triggerOnEnterKey: config.trigger.triggerOnEnterKey,

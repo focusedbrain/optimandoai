@@ -1,0 +1,689 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://optimando.ai/schemas/agent.schema.json",
+  "title": "Optimando AI Agent Configuration",
+  "description": "Canonical schema for AI agent configurations (v2.1.0). An agent is an autonomous unit that: (1) LISTENS for events via triggers, (2) REASONS about input using goals/rules/persona, and (3) EXECUTES actions by routing output to destinations. Use agent.template.json as a starting point for new agents.",
+  "type": "object",
+  "required": ["_schemaVersion", "id", "name", "enabled", "capabilities", "contextSettings", "memorySettings"],
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "Reference to this schema file for validation."
+    },
+    "_schemaVersion": {
+      "type": "string",
+      "const": "2.1.0",
+      "description": "Schema version for compatibility checking."
+    },
+    "_exportedAt": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO timestamp when this agent was exported."
+    },
+    "_source": {
+      "type": "string",
+      "description": "Application that exported this agent configuration."
+    },
+    "_helper": {
+      "type": "string",
+      "description": "Usage instructions for LLMs generating agents."
+    },
+    "_schemaInfo": {
+      "type": "object",
+      "description": "Metadata about enums, numeric fields, and deprecated fields.",
+      "properties": {
+        "enums": { "type": "object" },
+        "numericFields": { "type": "array", "items": { "type": "string" } },
+        "deprecatedFields": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "id": {
+      "type": "string",
+      "description": "Unique identifier for this agent (e.g., 'agent01', 'my-agent'). Used internally for storage."
+    },
+    "name": {
+      "type": "string",
+      "description": "Command identifier to reference this agent. Used in @mentions and direct invocations."
+    },
+    "description": {
+      "type": "string",
+      "description": "Human-readable description of what this agent does and when to use it."
+    },
+    "icon": {
+      "type": "string",
+      "description": "Emoji or icon to visually identify this agent in the UI.",
+      "default": "🤖"
+    },
+    "number": {
+      "type": "integer",
+      "description": "Numeric identifier for linking with Agent Boxes in the grid display (1-12)."
+    },
+    "enabled": {
+      "type": "boolean",
+      "description": "Whether this agent is active and should respond to triggers.",
+      "default": true
+    },
+    "capabilities": {
+      "type": "array",
+      "description": "Enabled sections: 'listening' (triggers), 'reasoning' (AI processing), 'execution' (output routing).",
+      "items": {
+        "type": "string",
+        "enum": ["listening", "reasoning", "execution"]
+      },
+      "uniqueItems": true
+    },
+    "contextSettings": {
+      "type": "object",
+      "description": "Context access configuration - determines what context data the agent can read.",
+      "required": ["agentContext", "sessionContext", "accountContext"],
+      "properties": {
+        "agentContext": {
+          "type": "boolean",
+          "description": "Access agent-specific context (persistent across sessions).",
+          "default": false
+        },
+        "sessionContext": {
+          "type": "boolean",
+          "description": "Access session context (current browser session).",
+          "default": true
+        },
+        "accountContext": {
+          "type": "boolean",
+          "description": "Access account-level context (shared across all sessions).",
+          "default": false
+        }
+      }
+    },
+    "memorySettings": {
+      "type": "object",
+      "description": "Memory persistence configuration - determines where agent can store memories.",
+      "required": ["agentEnabled", "sessionEnabled", "accountEnabled"],
+      "properties": {
+        "agentEnabled": {
+          "type": "boolean",
+          "description": "Store memories in agent-specific storage.",
+          "default": true
+        },
+        "sessionEnabled": {
+          "type": "boolean",
+          "description": "Store memories in session storage.",
+          "default": false
+        },
+        "accountEnabled": {
+          "type": "boolean",
+          "description": "Store memories in account-level storage.",
+          "default": false
+        }
+      }
+    },
+    "listening": {
+      "type": "object",
+      "description": "LISTENER SECTION: Defines HOW and WHEN the agent activates via unifiedTriggers.",
+      "properties": {
+        "expectedContext": {
+          "type": "string",
+          "description": "Keywords or phrases for semantic matching when no explicit trigger is present."
+        },
+        "tags": {
+          "type": "array",
+          "description": "Input data types/tags this agent processes.",
+          "items": { "type": "string" }
+        },
+        "sources": {
+          "type": "array",
+          "description": "Input sources the agent listens on.",
+          "items": {
+            "type": "string",
+            "enum": ["all", "chat", "voice", "voicememo", "video", "email", "whatsapp", "pdf", "docs", "dom", "api", "workflow", "agent", "screenshot", "stream"]
+          }
+        },
+        "website": {
+          "type": "string",
+          "description": "Website filter pattern (glob) to restrict where triggers activate."
+        },
+        "unifiedTriggers": {
+          "type": "array",
+          "description": "Primary trigger list - the single source of truth for listener wiring.",
+          "items": { "$ref": "#/$defs/trigger" }
+        },
+        "exampleFiles": {
+          "type": "array",
+          "description": "Example files for providing context to the agent."
+        }
+      }
+    },
+    "reasoningSections": {
+      "type": "array",
+      "description": "REASONING SECTION: Defines HOW the agent thinks. Each section has 'applyForList' to specify which trigger IDs it handles.",
+      "items": { "$ref": "#/$defs/reasoningSection" }
+    },
+    "executionSections": {
+      "type": "array",
+      "description": "EXECUTION SECTION: Defines WHERE output goes. Each section has 'applyForList' to specify which trigger IDs it handles.",
+      "items": { "$ref": "#/$defs/executionSection" }
+    },
+    "agentContextFiles": {
+      "type": "array",
+      "description": "Files attached to the agent for additional context."
+    }
+  },
+  "$defs": {
+    "trigger": {
+      "type": "object",
+      "description": "A trigger defines when and how the agent should activate. Type determines which fields are relevant.",
+      "required": ["id", "type", "enabled"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier for this trigger (e.g., 'TRIGGER01', 'ID01')."
+        },
+        "type": {
+          "type": "string",
+          "enum": ["direct_tag", "tag_and_condition", "workflow_condition", "dom_event", "dom_parser", "augmented_overlay", "agent", "miniapp", "manual"],
+          "description": "Type of trigger: direct_tag (simple tag match), tag_and_condition (tag with filters), workflow_condition (workflow-based), dom_event (DOM clicks/events), dom_parser (capture AI chats), augmented_overlay (hover/selection), agent (listen to another agent), miniapp (mini app interaction), manual (command-based)."
+        },
+        "enabled": {
+          "type": "boolean",
+          "description": "Whether this trigger is active.",
+          "default": true
+        },
+        
+        "tag": {
+          "type": "string",
+          "description": "[direct_tag, tag_and_condition] Tag name with # prefix (e.g., '#invoice')."
+        },
+        "tagName": {
+          "type": "string",
+          "description": "[DEPRECATED] Legacy tag name without # prefix. Use 'tag' instead."
+        },
+        "channel": {
+          "type": "string",
+          "description": "[direct_tag, tag_and_condition, agent] Input channel (chat, dom, email, workflow, etc.)."
+        },
+        "eventTagConditions": {
+          "type": "array",
+          "description": "[tag_and_condition] Array of conditions for tag-based triggers.",
+          "items": { "$ref": "#/$defs/eventTagCondition" }
+        },
+        "expectedContext": {
+          "type": "string",
+          "description": "[direct_tag] Keywords for semantic matching (legacy, prefer eventTagConditions)."
+        },
+        
+        "workflowId": {
+          "type": "string",
+          "description": "[workflow_condition] ID of the workflow that triggers this."
+        },
+        "conditions": {
+          "type": "array",
+          "description": "[workflow_condition] Conditions that must be met.",
+          "items": { "$ref": "#/$defs/triggerCondition" }
+        },
+        
+        "domSelector": {
+          "type": "string",
+          "description": "[dom_event] CSS selector for the DOM element to monitor."
+        },
+        "domEvent": {
+          "type": "string",
+          "description": "[dom_event] Event type to listen for (click, change, submit, etc.)."
+        },
+        "domUrlFilter": {
+          "type": "string",
+          "description": "[dom_event, dom_parser] URL pattern to filter where trigger activates."
+        },
+        "domPayloadSelection": {
+          "type": "boolean",
+          "description": "[dom_event] Include selected text in payload."
+        },
+        "domPayloadSnippet": {
+          "type": "boolean",
+          "description": "[dom_event] Include element HTML snippet in payload."
+        },
+        "domPayloadUrl": {
+          "type": "boolean",
+          "description": "[dom_event] Include page URL in payload."
+        },
+        "domPayloadParsed": {
+          "type": "boolean",
+          "description": "[dom_event] Include parsed content in payload."
+        },
+        "domParserEnabled": {
+          "type": "boolean",
+          "description": "[dom_event] Enable DOM parser for this trigger."
+        },
+        
+        "parserTrigger": {
+          "type": "string",
+          "enum": ["page_load", "dom_change", "interval", "button_click", "manual"],
+          "description": "[dom_parser] When to trigger parsing: page_load, dom_change, interval, button_click, manual."
+        },
+        "parserInterval": {
+          "type": "integer",
+          "description": "[dom_parser] Interval in seconds for interval-based parsing.",
+          "minimum": 1
+        },
+        "domParseTarget": {
+          "type": "string",
+          "description": "[dom_parser] What to parse: 'body', 'selector', etc."
+        },
+        "domParseSelector": {
+          "type": "string",
+          "description": "[dom_parser] CSS selector for element to parse."
+        },
+        "siteFilters": {
+          "type": "array",
+          "description": "[dom_parser] URL patterns for sites this trigger activates on.",
+          "items": { "type": "string" }
+        },
+        "buttonSelectors": {
+          "type": "array",
+          "description": "[dom_parser button_click] CSS selectors for send/submit buttons. First match wins.",
+          "items": { "type": "string" }
+        },
+        "buttonSelector": {
+          "type": "string",
+          "description": "[DEPRECATED] Single button selector. Use 'buttonSelectors' array."
+        },
+        "autoDetectSelectors": {
+          "type": "boolean",
+          "description": "[dom_parser] Auto-detect selectors by scanning page DOM.",
+          "default": false
+        },
+        "autoDetected": {
+          "type": ["object", "null"],
+          "description": "[dom_parser] Auto-detected selector results.",
+          "properties": {
+            "siteFilter": { "type": "string" },
+            "button": { "type": "string" },
+            "input": { "type": "string" },
+            "output": { "type": "string" },
+            "context": { "type": "array", "items": { "type": "string" } }
+          }
+        },
+        "triggerOnEnterKey": {
+          "type": "boolean",
+          "description": "[dom_parser button_click] Also trigger on Enter key in input.",
+          "default": false
+        },
+        "enterKeyIgnoreShift": {
+          "type": "boolean",
+          "description": "[dom_parser button_click] Ignore Shift+Enter (allows newlines).",
+          "default": true
+        },
+        "captureInput": {
+          "type": "boolean",
+          "description": "[dom_parser] Capture the input/prompt text.",
+          "default": true
+        },
+        "inputSelectors": {
+          "type": "array",
+          "description": "[dom_parser] CSS selectors for input elements. First non-empty match used.",
+          "items": { "type": "string" }
+        },
+        "inputSelector": {
+          "type": "string",
+          "description": "[DEPRECATED] Single input selector. Use 'inputSelectors' array."
+        },
+        "captureOutput": {
+          "type": "boolean",
+          "description": "[dom_parser] Capture the AI response/output.",
+          "default": true
+        },
+        "outputSelectors": {
+          "type": "array",
+          "description": "[dom_parser] CSS selectors for output elements.",
+          "items": { "type": "string" }
+        },
+        "outputSelector": {
+          "type": "string",
+          "description": "[DEPRECATED] Single output selector. Use 'outputSelectors' array."
+        },
+        "responseReadyMode": {
+          "type": "string",
+          "enum": ["first_change", "quiet_period", "selector_signal"],
+          "description": "[dom_parser] How to detect response completion.",
+          "default": "quiet_period"
+        },
+        "quietPeriodMs": {
+          "type": "integer",
+          "description": "[dom_parser] Milliseconds to wait for DOM to stabilize.",
+          "default": 1500
+        },
+        "responseSignalSelector": {
+          "type": "string",
+          "description": "[dom_parser selector_signal] CSS selector that signals response ready."
+        },
+        "maxWaitTimeMs": {
+          "type": "integer",
+          "description": "[dom_parser] Maximum milliseconds to wait for response.",
+          "default": 60000
+        },
+        "outputWaitMethod": {
+          "type": "string",
+          "description": "[DEPRECATED] Use 'responseReadyMode' instead."
+        },
+        "outputWaitDelay": {
+          "type": ["string", "integer"],
+          "description": "[DEPRECATED] Use 'quietPeriodMs' instead."
+        },
+        "captureUrl": {
+          "type": "boolean",
+          "description": "[dom_parser] Include page URL in metadata.",
+          "default": true
+        },
+        "capturePageTitle": {
+          "type": "boolean",
+          "description": "[dom_parser] Include page title in metadata.",
+          "default": true
+        },
+        "metaSelectors": {
+          "type": "array",
+          "description": "[dom_parser] Additional CSS selectors for context.",
+          "items": { "type": "string" }
+        },
+        "sanitizeTrim": {
+          "type": "boolean",
+          "description": "[dom_parser] Trim whitespace from captured text.",
+          "default": true
+        },
+        "sanitizeStripMarkdown": {
+          "type": "boolean",
+          "description": "[dom_parser] Remove markdown formatting.",
+          "default": false
+        },
+        "sanitizeRemoveBoilerplate": {
+          "type": "boolean",
+          "description": "[dom_parser] Remove common boilerplate text.",
+          "default": false
+        },
+        "domParserRules": {
+          "type": "array",
+          "description": "[dom_parser] Pattern matching rules for parsed content."
+        },
+        
+        "overlayTriggerName": {
+          "type": "string",
+          "description": "[augmented_overlay] Display name for this overlay trigger."
+        },
+        "overlayModeButton": {
+          "type": "boolean",
+          "description": "[augmented_overlay] Show as button in overlay."
+        },
+        "overlayButtonLabel": {
+          "type": "string",
+          "description": "[augmented_overlay] Label text for overlay button."
+        },
+        "overlayModeEmpty": {
+          "type": "boolean",
+          "description": "[augmented_overlay] Activate on empty selection."
+        },
+        "overlayModeElement": {
+          "type": "boolean",
+          "description": "[augmented_overlay] Activate on element hover.",
+          "default": true
+        },
+        "overlayModeSelection": {
+          "type": "boolean",
+          "description": "[augmented_overlay] Activate on text selection."
+        },
+        "overlayPhrases": {
+          "type": "string",
+          "description": "[augmented_overlay] Trigger phrases for overlay activation."
+        },
+        "overlayUrlPattern": {
+          "type": "string",
+          "description": "[augmented_overlay] URL pattern for overlay activation."
+        },
+        "overlayWrcodeOnly": {
+          "type": "boolean",
+          "description": "[augmented_overlay] Only activate on WRCode elements."
+        },
+        "overlayPayloadSelection": {
+          "type": "boolean",
+          "description": "[augmented_overlay] Include selection in payload."
+        },
+        "overlayPayloadContext": {
+          "type": "boolean",
+          "description": "[augmented_overlay] Include context in payload."
+        },
+        "overlayPayloadUrl": {
+          "type": "boolean",
+          "description": "[augmented_overlay] Include URL in payload."
+        },
+        "overlayPayloadCoords": {
+          "type": "boolean",
+          "description": "[augmented_overlay] Include coordinates in payload."
+        },
+        
+        "sourceAgent": {
+          "type": "string",
+          "description": "[agent] Agent number to listen to (e.g., '01', '02')."
+        },
+        
+        "miniAppId": {
+          "type": "string",
+          "description": "[miniapp] MiniApp identifier."
+        },
+        "miniAppUiElements": {
+          "type": "array",
+          "description": "[miniapp] UI element configurations.",
+          "items": {
+            "type": "object",
+            "properties": {
+              "type": { "type": "string" },
+              "name": { "type": "string" },
+              "label": { "type": "string" }
+            }
+          }
+        },
+        "miniAppConditions": {
+          "type": "array",
+          "description": "[miniapp] Conditions for activation.",
+          "items": {
+            "type": "object",
+            "properties": {
+              "field": { "type": "string" },
+              "op": { "type": "string" },
+              "value": { "type": "string" }
+            }
+          }
+        },
+        
+        "command": {
+          "type": "string",
+          "description": "[manual] Command name for manual triggers."
+        },
+        "emails": {
+          "type": "string",
+          "description": "[tag_and_condition] Comma-separated email filter."
+        },
+        "keywords": {
+          "type": "string",
+          "description": "[tag_and_condition] Comma-separated keywords filter."
+        },
+        "websiteFilter": {
+          "type": "string",
+          "description": "[all types] URL pattern filter."
+        },
+        "wrcodeMatch": {
+          "type": "string",
+          "description": "[tag_and_condition] WRCode matching ('on' or '')."
+        },
+        
+        "sensorWorkflows": {
+          "type": "array",
+          "description": "[all types] Workflows to run before triggering (pre-processing)."
+        },
+        "allowedActions": {
+          "type": "array",
+          "description": "[all types] Workflows this trigger can execute."
+        }
+      }
+    },
+    "eventTagCondition": {
+      "type": "object",
+      "description": "A condition for tag-based triggers.",
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["wrcode_valid", "sender_whitelist", "body_keywords", "website_filter"],
+          "description": "Type of condition."
+        },
+        "required": { "type": "boolean" },
+        "allowedSenders": { "type": "array", "items": { "type": "string" } },
+        "keywords": { "type": "array", "items": { "type": "string" } },
+        "caseInsensitive": { "type": "boolean" },
+        "patterns": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "triggerCondition": {
+      "type": "object",
+      "description": "A condition for workflow triggers.",
+      "properties": {
+        "conditionType": {
+          "type": "string",
+          "enum": ["boolean", "tag", "signal"]
+        },
+        "field": { "type": "string" },
+        "op": { "type": "string" },
+        "value": { "type": "string" },
+        "tag": { "type": "string" },
+        "signal": { "type": "string" }
+      }
+    },
+    "reasoningSection": {
+      "type": "object",
+      "description": "Configures how the agent processes input for specific triggers.",
+      "required": ["applyForList"],
+      "properties": {
+        "applyForList": {
+          "type": "array",
+          "description": "Trigger IDs this section applies to. Use ['__any__'] for all.",
+          "items": { "type": "string" },
+          "minItems": 1
+        },
+        "goals": {
+          "type": "string",
+          "description": "System instructions/goals. Defines the primary objective."
+        },
+        "role": {
+          "type": "string",
+          "description": "Agent role/persona. Influences response style."
+        },
+        "rules": {
+          "type": "string",
+          "description": "Hard requirements and constraints."
+        },
+        "custom": {
+          "type": "array",
+          "description": "Additional key-value pairs.",
+          "items": {
+            "type": "object",
+            "properties": {
+              "key": { "type": "string" },
+              "value": { "type": "string" }
+            }
+          }
+        },
+        "acceptFrom": {
+          "type": "array",
+          "description": "Input sources to accept.",
+          "items": { "type": "string" }
+        },
+        "memoryContext": {
+          "type": "object",
+          "description": "Fine-grained memory access configuration for this reasoning section.",
+          "required": ["agentEnabled", "sessionEnabled", "accountEnabled"],
+          "properties": {
+            "agentEnabled": { 
+              "type": "boolean",
+              "description": "Enable access to agent-specific memory.",
+              "default": true
+            },
+            "sessionEnabled": { 
+              "type": "boolean",
+              "description": "Enable access to session memory.",
+              "default": false
+            },
+            "accountEnabled": { 
+              "type": "boolean",
+              "description": "Enable access to account-level memory.",
+              "default": false
+            }
+          }
+        },
+        "reasoningWorkflows": {
+          "type": "array",
+          "description": "Workflows to run during reasoning.",
+          "items": { "$ref": "#/$defs/workflow" }
+        }
+      }
+    },
+    "executionSection": {
+      "type": "object",
+      "description": "Configures how the agent delivers output for specific triggers.",
+      "required": ["applyForList", "executionMode"],
+      "properties": {
+        "applyForList": {
+          "type": "array",
+          "description": "Trigger IDs this section applies to. Use ['__any__'] for all.",
+          "items": { "type": "string" },
+          "minItems": 1
+        },
+        "executionMode": {
+          "type": "string",
+          "enum": ["agent_workflow", "direct_response", "workflow_only", "hybrid"],
+          "description": "How output is generated and delivered.",
+          "default": "agent_workflow"
+        },
+        "destinations": {
+          "type": "array",
+          "description": "Where to send output.",
+          "items": { "$ref": "#/$defs/destination" }
+        },
+        "executionWorkflows": {
+          "type": "array",
+          "description": "Workflows to run during execution.",
+          "items": { "$ref": "#/$defs/workflow" }
+        }
+      }
+    },
+    "destination": {
+      "type": "object",
+      "description": "Output destination for agent results.",
+      "required": ["kind"],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": ["agentBox", "chat", "email", "webhook", "storage", "notification"],
+          "description": "Destination type."
+        },
+        "agents": {
+          "type": "array",
+          "description": "Agent box IDs for agentBox destination.",
+          "items": { "type": "string" }
+        },
+        "email": { "type": "string" },
+        "webhook": { "type": "string" }
+      }
+    },
+    "workflow": {
+      "type": "object",
+      "description": "A workflow to run.",
+      "required": ["type", "workflowId"],
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["internal", "external"]
+        },
+        "workflowId": { "type": "string" },
+        "runWhenType": {
+          "type": "string",
+          "enum": ["always", "boolean", "tag", "signal"]
+        },
+        "conditions": { "type": "array" }
+      }
+    }
+  }
+}

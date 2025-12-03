@@ -12303,6 +12303,12 @@ function initializeExtension() {
                   // Legacy single selector for backward compatibility
                   trigger.buttonSelector = trigger.buttonSelectors[0] || ''
                   
+                  // Auto-Detect Selectors
+                  trigger.autoDetectSelectors = (row.querySelector('.trigger-auto-detect') as HTMLInputElement)?.checked || false
+                  // Preserve existing auto-detected values (they're set by the detection process)
+                  const autoDetectedResults = row.querySelector('.auto-detected-results') as any
+                  trigger.autoDetected = autoDetectedResults?._detected || null
+                  
                   // Trigger Source - Enter Key
                   trigger.triggerOnEnterKey = (row.querySelector('.trigger-on-enter-key') as HTMLInputElement)?.checked || false
                   trigger.enterKeyIgnoreShift = (row.querySelector('.trigger-enter-ignore-shift') as HTMLInputElement)?.checked !== false
@@ -13155,8 +13161,12 @@ function initializeExtension() {
 
         <div style="padding: 20px; border-top: 1px solid rgba(255,255,255,0.3); display: flex; justify-content: space-between; align-items: center; background: rgba(255,255,255,0.05);">
 
-          <div style="display: flex; gap: 10px;">
+          <div style="display: flex; gap: 10px; align-items: center;">
             <button id="ag-export-btn" type="button" style="padding: 10px 16px; background: rgba(59,130,246,0.3); border: 1px solid rgba(59,130,246,0.5); color: white; border-radius: 6px; cursor: pointer; font-size: 12px; display: flex; align-items: center; gap: 6px;" title="Export this agent configuration as JSON">📤 Export</button>
+            <div style="display: flex; gap: 4px; align-items: center;">
+              <button id="ag-schema-btn" type="button" style="padding: 8px 10px; background: rgba(147,51,234,0.3); border: 1px solid rgba(147,51,234,0.5); color: white; border-radius: 6px; cursor: pointer; font-size: 14px; display: flex; align-items: center; justify-content: center;" title="📋 SCHEMA: Download the master agent.schema.json. Upload this to an LLM along with the template (📄) to generate new agents.">📋</button>
+              <button id="ag-template-btn" type="button" style="padding: 8px 10px; background: rgba(245,158,11,0.3); border: 1px solid rgba(245,158,11,0.5); color: white; border-radius: 6px; cursor: pointer; font-size: 12px; display: flex; align-items: center; justify-content: center; position: relative;" title="📄 TEMPLATE: Download agent.template.json. To create new agents with AI: upload BOTH the schema (📋) AND this template to your LLM, then describe what agent you want.">📄<span style="position: absolute; top: -4px; right: -4px; font-size: 10px; background: rgba(245,158,11,0.8); border-radius: 50%; width: 14px; height: 14px; display: flex; align-items: center; justify-content: center;">?</span></button>
+            </div>
             <button id="ag-import-btn" type="button" style="padding: 10px 16px; background: rgba(34,197,94,0.3); border: 1px solid rgba(34,197,94,0.5); color: white; border-radius: 6px; cursor: pointer; font-size: 12px; display: flex; align-items: center; gap: 6px;" title="Import agent configuration from JSON file">📥 Import</button>
             <input type="file" id="ag-import-file" accept=".json" style="display: none;">
           </div>
@@ -14870,9 +14880,18 @@ function initializeExtension() {
 
           </div>
           
-          <!-- Hidden checkboxes for backward compatibility -->
-          <input id="AC-session" type="checkbox" style="display:none">
-          <input id="AC-account" type="checkbox" style="display:none">`
+          <!-- Hidden checkboxes for backward compatibility and save/restore -->
+          <!-- Context settings: default to true (enabled) for session and account -->
+          <input id="AC-session" type="checkbox" style="display:none" ${persistedACSession ? 'checked' : ''}>
+          <input id="AC-account" type="checkbox" style="display:none" ${persistedACAccount ? 'checked' : ''}>
+          <!-- Memory settings: synced from visible R-MEM-* checkboxes -->
+          <input id="MEM-session" type="checkbox" style="display:none" ${persistedMemSessionEnabled ? 'checked' : ''}>
+          <input id="MEM-session-read" type="checkbox" style="display:none" ${persistedMemSessionRead ? 'checked' : ''}>
+          <input id="MEM-session-write" type="checkbox" style="display:none" ${persistedMemSessionWrite ? 'checked' : ''}>
+          <input id="MEM-account" type="checkbox" style="display:none" ${persistedMemAccountEnabled ? 'checked' : ''}>
+          <input id="MEM-account-read" type="checkbox" style="display:none" ${persistedMemAccountRead ? 'checked' : ''}>
+          <input id="MEM-account-write" type="checkbox" style="display:none" ${persistedMemAccountWrite ? 'checked' : ''}>
+          `
 
         container.appendChild(agentCtxWrap)
 
@@ -16579,26 +16598,57 @@ function initializeExtension() {
                       We start capture when a send button is clicked or Enter is pressed in the input.
                     </div>
                     
-                    <div style="margin-bottom:8px">
-                      <label style="font-size:10px;color:rgba(255,255,255,0.85);display:flex;align-items:center;gap:4px;margin-bottom:3px">
-                        Button Selectors
-                        <span title="CSS selectors to find the Send button. Right-click the button in your browser → Inspect → copy a unique selector.&#10;&#10;Common examples:&#10;• button[data-testid='send-button'] - ChatGPT&#10;• button[aria-label='Send Message'] - Claude&#10;• .send-button, #submit - Generic&#10;&#10;One selector per line. First match is used." style="font-size:9px;opacity:0.6;cursor:help;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.25);padding:0 4px;border-radius:50%">?</span>
+                    <!-- Auto-Detect Toggle -->
+                    <div style="margin-bottom:10px;padding:8px;background:rgba(251,191,36,0.08);border:1px solid rgba(251,191,36,0.25);border-radius:5px">
+                      <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+                        <input type="checkbox" class="trigger-auto-detect" ${init?.autoDetectSelectors ? 'checked' : ''} style="margin:0">
+                        <span style="font-size:10px;color:#fbbf24;font-weight:600">⚡ Auto-Detect Selectors</span>
+                        <span title="Automatically discover selectors by scanning the page DOM.&#10;&#10;How it works:&#10;• Scans for common AI chat patterns (ChatGPT, Claude, Gemini)&#10;• Detects send buttons, input fields, and response areas&#10;• No interaction needed - just click the button&#10;&#10;Review results and apply to fields below." style="font-size:9px;opacity:0.6;cursor:help;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.25);padding:0 4px;border-radius:50%">?</span>
                       </label>
-                      <textarea class="trigger-button-selectors" placeholder="button[data-testid=&quot;send-button&quot;]&#10;.send-btn&#10;button[aria-label=&quot;Send&quot;]" style="width:100%;min-height:40px;background:rgba(255,255,255,.9);border:1px solid rgba(255,255,255,.4);color:#1e293b;padding:6px 8px;border-radius:4px;font-size:10px;font-family:monospace;resize:vertical">${(init?.buttonSelectors || (init?.buttonSelector ? [init.buttonSelector] : [])).join('\n')}</textarea>
-                      <div style="font-size:9px;color:rgba(255,255,255,0.5);margin-top:2px">CSS selectors for send buttons. First match wins.</div>
+                      <div class="auto-detect-panel" style="display:${init?.autoDetectSelectors ? 'block' : 'none'};margin-top:8px">
+                        <div style="font-size:9px;color:rgba(255,255,255,0.5);margin-bottom:6px">Scans the page DOM for common AI chat UI patterns (ChatGPT, Claude, Gemini, etc.)</div>
+                        <button type="button" class="btn-run-auto-detect" style="background:rgba(251,191,36,0.2);border:1px solid rgba(251,191,36,0.4);color:#fbbf24;padding:5px 12px;border-radius:4px;cursor:pointer;font-size:10px;font-weight:500">
+                          🔍 Scan Page for Selectors
+                        </button>
+                        <div class="auto-detect-status" style="display:none;margin-top:6px;padding:6px;background:rgba(0,0,0,0.15);border-radius:4px;font-size:9px;font-family:monospace"></div>
+                        <div class="auto-detected-results" style="display:${init?.autoDetected ? 'block' : 'none'};margin-top:8px;padding:8px;background:rgba(34,197,94,0.1);border:1px solid rgba(34,197,94,0.2);border-radius:4px">
+                          <div style="font-size:9px;color:#4ade80;font-weight:600;margin-bottom:6px">✓ Detected Elements:</div>
+                          <div style="font-size:9px;color:rgba(255,255,255,0.7);font-family:monospace;line-height:1.6">
+                            <div style="display:flex;gap:4px"><span style="color:#a5b4fc;min-width:55px">Site:</span> <span class="detected-site-filter" style="word-break:break-all">${init?.autoDetected?.siteFilter || '—'}</span></div>
+                            <div style="display:flex;gap:4px"><span style="color:#fbbf24;min-width:55px">Button:</span> <span class="detected-button-selector" style="word-break:break-all">${init?.autoDetected?.button || '—'}</span></div>
+                            <div style="display:flex;gap:4px"><span style="color:#4ade80;min-width:55px">Input:</span> <span class="detected-input-selector" style="word-break:break-all">${init?.autoDetected?.input || '—'}</span></div>
+                            <div style="display:flex;gap:4px"><span style="color:#c084fc;min-width:55px">Output:</span> <span class="detected-output-selector" style="word-break:break-all">${init?.autoDetected?.output || '—'}</span></div>
+                            <div style="display:flex;gap:4px"><span style="color:#fbbf24;min-width:55px">Context:</span> <span class="detected-context-selectors" style="word-break:break-all">${init?.autoDetected?.context?.join(', ') || '—'}</span></div>
+                          </div>
+                          <button type="button" class="btn-apply-detected" style="margin-top:8px;width:100%;background:rgba(34,197,94,0.2);border:1px solid rgba(34,197,94,0.3);color:#4ade80;padding:6px 10px;border-radius:4px;cursor:pointer;font-size:10px;font-weight:500">
+                            ✓ Apply to all fields
+                          </button>
+                        </div>
+                      </div>
                     </div>
                     
-                    <div style="display:flex;flex-direction:column;gap:5px">
-                      <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
-                        <input type="checkbox" class="trigger-on-enter-key" ${init?.triggerOnEnterKey ? 'checked' : ''} style="margin:0">
-                        <span style="font-size:10px;color:rgba(255,255,255,0.9)">Also trigger on Enter key in input field</span>
-                        <span title="Enable this if the chat sends messages when you press Enter. Most AI chats (ChatGPT, Claude) work this way." style="font-size:9px;opacity:0.6;cursor:help;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.25);padding:0 4px;border-radius:50%">?</span>
-                      </label>
-                      <label class="enter-shift-option" style="display:flex;align-items:center;gap:6px;cursor:pointer;margin-left:18px;opacity:${init?.triggerOnEnterKey ? '1' : '0.4'}">
-                        <input type="checkbox" class="trigger-enter-ignore-shift" ${init?.enterKeyIgnoreShift !== false ? 'checked' : ''} ${!init?.triggerOnEnterKey ? 'disabled' : ''} style="margin:0">
-                        <span style="font-size:10px;color:rgba(255,255,255,0.7)">Ignore Shift+Enter (allows newlines)</span>
-                        <span title="When checked, Shift+Enter creates a new line instead of sending. Only plain Enter triggers capture." style="font-size:9px;opacity:0.5;cursor:help;background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.2);padding:0 4px;border-radius:50%">?</span>
-                      </label>
+                    <div class="manual-selectors-section" style="opacity:${init?.autoDetectSelectors ? '0.7' : '1'}">
+                      <div style="margin-bottom:8px">
+                        <label style="font-size:10px;color:rgba(255,255,255,0.85);display:flex;align-items:center;gap:4px;margin-bottom:3px">
+                          Button Selectors
+                          <span title="CSS selectors to find the Send button. Right-click the button in your browser → Inspect → copy a unique selector.&#10;&#10;Common examples:&#10;• button[data-testid='send-button'] - ChatGPT&#10;• button[aria-label='Send Message'] - Claude&#10;• .send-button, #submit - Generic&#10;&#10;One selector per line. First match is used." style="font-size:9px;opacity:0.6;cursor:help;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.25);padding:0 4px;border-radius:50%">?</span>
+                        </label>
+                        <textarea class="trigger-button-selectors" placeholder="button[data-testid=&quot;send-button&quot;]&#10;.send-btn&#10;button[aria-label=&quot;Send&quot;]" style="width:100%;min-height:40px;background:rgba(255,255,255,.9);border:1px solid rgba(255,255,255,.4);color:#1e293b;padding:6px 8px;border-radius:4px;font-size:10px;font-family:monospace;resize:vertical">${(init?.buttonSelectors || (init?.buttonSelector ? [init.buttonSelector] : [])).join('\n')}</textarea>
+                        <div style="font-size:9px;color:rgba(255,255,255,0.5);margin-top:2px">CSS selectors for send buttons. First match wins.</div>
+                      </div>
+                      
+                      <div style="display:flex;flex-direction:column;gap:5px">
+                        <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+                          <input type="checkbox" class="trigger-on-enter-key" ${init?.triggerOnEnterKey ? 'checked' : ''} style="margin:0">
+                          <span style="font-size:10px;color:rgba(255,255,255,0.9)">Also trigger on Enter key in input field</span>
+                          <span title="Enable this if the chat sends messages when you press Enter. Most AI chats (ChatGPT, Claude) work this way." style="font-size:9px;opacity:0.6;cursor:help;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.25);padding:0 4px;border-radius:50%">?</span>
+                        </label>
+                        <label class="enter-shift-option" style="display:flex;align-items:center;gap:6px;cursor:pointer;margin-left:18px;opacity:${init?.triggerOnEnterKey ? '1' : '0.4'}">
+                          <input type="checkbox" class="trigger-enter-ignore-shift" ${init?.enterKeyIgnoreShift !== false ? 'checked' : ''} ${!init?.triggerOnEnterKey ? 'disabled' : ''} style="margin:0">
+                          <span style="font-size:10px;color:rgba(255,255,255,0.7)">Ignore Shift+Enter (allows newlines)</span>
+                          <span title="When checked, Shift+Enter creates a new line instead of sending. Only plain Enter triggers capture." style="font-size:9px;opacity:0.5;cursor:help;background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.2);padding:0 4px;border-radius:50%">?</span>
+                        </label>
+                      </div>
                     </div>
                   </div>
 
@@ -16834,6 +16884,306 @@ function initializeExtension() {
                   enterIgnoreShiftCheckbox.disabled = !triggerOnEnterCheckbox.checked
                   const parentLabel = enterIgnoreShiftCheckbox.closest('label') as HTMLElement
                   if (parentLabel) parentLabel.style.opacity = triggerOnEnterCheckbox.checked ? '1' : '0.5'
+                }
+              })
+              
+              // Auto-Detect Selectors toggle and buttons
+              const autoDetectCheckbox = parserSection.querySelector('.trigger-auto-detect') as HTMLInputElement
+              const autoDetectPanel = parserSection.querySelector('.auto-detect-panel') as HTMLElement
+              const manualSelectorsSection = parserSection.querySelector('.manual-selectors-section') as HTMLElement
+              const runAutoDetectBtn = parserSection.querySelector('.btn-run-auto-detect') as HTMLButtonElement
+              const autoDetectStatus = parserSection.querySelector('.auto-detect-status') as HTMLElement
+              const autoDetectedResults = parserSection.querySelector('.auto-detected-results') as HTMLElement
+              const applyDetectedBtn = parserSection.querySelector('.btn-apply-detected') as HTMLButtonElement
+              
+              autoDetectCheckbox?.addEventListener('change', () => {
+                if (autoDetectPanel) autoDetectPanel.style.display = autoDetectCheckbox.checked ? 'block' : 'none'
+                if (manualSelectorsSection) manualSelectorsSection.style.opacity = autoDetectCheckbox.checked ? '0.7' : '1'
+              })
+              
+              runAutoDetectBtn?.addEventListener('click', () => {
+                // Auto-detect by scanning the DOM for common AI chat UI patterns
+                if (autoDetectStatus) {
+                  autoDetectStatus.style.display = 'block'
+                  autoDetectStatus.innerHTML = '<span style="color:#fbbf24">⏳ Scanning page DOM...</span>'
+                }
+                
+                const generateSelector = (el: Element | null): string => {
+                  if (!el) return ''
+                  // Prefer stable selectors
+                  if (el.id && !el.id.includes(':')) return `#${el.id}`
+                  const testId = el.getAttribute('data-testid')
+                  if (testId) return `[data-testid="${testId}"]`
+                  const ariaLabel = el.getAttribute('aria-label')
+                  if (ariaLabel) return `${el.tagName.toLowerCase()}[aria-label="${ariaLabel}"]`
+                  const placeholder = el.getAttribute('placeholder')
+                  if (placeholder && el.tagName === 'TEXTAREA') return `textarea[placeholder="${placeholder}"]`
+                  if (el.className && typeof el.className === 'string') {
+                    const classes = el.className.split(' ').filter(c => c && !c.includes(':') && c.length < 40 && !c.match(/^[a-z]{20,}$/i))
+                    if (classes.length > 0) return `${el.tagName.toLowerCase()}.${classes[0]}`
+                  }
+                  return ''
+                }
+                
+                // ========== DETECT SITE FILTER ==========
+                const currentUrl = window.location.href
+                const hostname = window.location.hostname
+                let siteFilter = ''
+                // Generate a glob pattern for the current site
+                if (hostname.includes('openai.com') || hostname.includes('chatgpt.com')) {
+                  siteFilter = '*chatgpt.com/*'
+                } else if (hostname.includes('claude.ai')) {
+                  siteFilter = '*claude.ai/*'
+                } else if (hostname.includes('gemini.google.com')) {
+                  siteFilter = '*gemini.google.com/*'
+                } else if (hostname.includes('perplexity.ai')) {
+                  siteFilter = '*perplexity.ai/*'
+                } else if (hostname.includes('poe.com')) {
+                  siteFilter = '*poe.com/*'
+                } else if (hostname.includes('you.com')) {
+                  siteFilter = '*you.com/*'
+                } else if (hostname.includes('bing.com')) {
+                  siteFilter = '*bing.com/chat*'
+                } else if (hostname.includes('bard.google.com')) {
+                  siteFilter = '*bard.google.com/*'
+                } else {
+                  // Generic pattern for current domain
+                  siteFilter = `*${hostname}/*`
+                }
+                
+                // ========== DETECT SEND BUTTON ==========
+                const buttonPatterns = [
+                  '[data-testid*="send"]',
+                  '[data-testid*="submit"]',
+                  'button[aria-label*="Send"]',
+                  'button[aria-label*="send"]',
+                  'button[aria-label*="Submit"]',
+                  '[role="button"][aria-label*="Send"]',
+                  'button[data-testid="send-button"]',
+                  'button[data-testid="fruitjuice-send-button"]',
+                  'button[aria-label="Send Message"]',
+                  'button.send-button',
+                  'button[aria-label="Send message"]',
+                  'button[type="submit"]',
+                  'form button:last-of-type',
+                ]
+                
+                let detectedButton: Element | null = null
+                for (const pattern of buttonPatterns) {
+                  try {
+                    const el = document.querySelector(pattern)
+                    if (el && el.offsetParent !== null) {
+                      detectedButton = el.closest('button') || el
+                      break
+                    }
+                  } catch (e) { /* invalid selector */ }
+                }
+                
+                // ========== DETECT INPUT FIELD ==========
+                const inputPatterns = [
+                  '[data-testid*="prompt"]',
+                  '[data-testid*="input"]',
+                  '[data-testid*="composer"]',
+                  '#prompt-textarea',
+                  'textarea[data-id="root"]',
+                  'div[id="prompt-textarea"]',
+                  '[contenteditable="true"][aria-label*="message"]',
+                  'div.ProseMirror[contenteditable="true"]',
+                  'rich-textarea textarea',
+                  'textarea[aria-label*="prompt"]',
+                  'form textarea',
+                  'textarea:not([hidden])',
+                  '[contenteditable="true"]',
+                ]
+                
+                let detectedInput: Element | null = null
+                for (const pattern of inputPatterns) {
+                  try {
+                    const el = document.querySelector(pattern)
+                    if (el && el.offsetParent !== null) {
+                      detectedInput = el
+                      break
+                    }
+                  } catch (e) { /* invalid selector */ }
+                }
+                
+                // ========== DETECT OUTPUT AREA ==========
+                const outputPatterns = [
+                  '[data-message-author-role="assistant"]',
+                  'div[data-testid*="conversation-turn"]:last-of-type .markdown',
+                  '[data-testid="chat-message-content"]',
+                  '.font-claude-message',
+                  'message-content.model-response',
+                  '.response-content',
+                  '.markdown-body',
+                  '.prose',
+                  '[class*="message"][class*="assistant"]',
+                  '[class*="response"]',
+                  '[class*="answer"]',
+                  '[role="article"]',
+                ]
+                
+                let detectedOutput: Element | null = null
+                for (const pattern of outputPatterns) {
+                  try {
+                    const els = document.querySelectorAll(pattern)
+                    const el = els[els.length - 1]
+                    if (el && el.offsetParent !== null && (el.textContent?.length || 0) > 20) {
+                      detectedOutput = el
+                      break
+                    }
+                  } catch (e) { /* invalid selector */ }
+                }
+                
+                // ========== DETECT CONTEXT ELEMENTS ==========
+                const contextPatterns = [
+                  // Conversation ID
+                  { pattern: '[data-conversation-id]', name: 'conversation-id' },
+                  { pattern: '[data-testid*="conversation"]', name: 'conversation' },
+                  // Model selector
+                  { pattern: '[data-testid*="model"]', name: 'model-selector' },
+                  { pattern: 'select[aria-label*="model"]', name: 'model-select' },
+                  { pattern: '[class*="model-selector"]', name: 'model' },
+                  { pattern: 'button[aria-haspopup="menu"][class*="model"]', name: 'model-button' },
+                  // ChatGPT specific
+                  { pattern: '[data-testid="conversation-title"]', name: 'title' },
+                  { pattern: '.text-token-text-primary span', name: 'model-name' },
+                  // Claude specific
+                  { pattern: '[data-testid="model-selector"]', name: 'claude-model' },
+                  // Thread/chat info
+                  { pattern: '[aria-label*="conversation"]', name: 'conversation-info' },
+                  { pattern: '[class*="thread"]', name: 'thread' },
+                  { pattern: '[class*="chat-id"]', name: 'chat-id' },
+                ]
+                
+                const detectedContext: string[] = []
+                for (const { pattern } of contextPatterns) {
+                  try {
+                    const el = document.querySelector(pattern)
+                    if (el && el.offsetParent !== null) {
+                      const selector = generateSelector(el)
+                      if (selector && !detectedContext.includes(selector)) {
+                        detectedContext.push(selector)
+                      }
+                    }
+                  } catch (e) { /* invalid selector */ }
+                }
+                
+                // Generate selectors
+                const buttonSelector = generateSelector(detectedButton)
+                const inputSelector = generateSelector(detectedInput)
+                const outputSelector = generateSelector(detectedOutput)
+                
+                // Show results
+                setTimeout(() => {
+                  if (autoDetectStatus) {
+                    const foundCount = [siteFilter, buttonSelector, inputSelector, outputSelector].filter(Boolean).length + detectedContext.length
+                    if (foundCount > 0) {
+                      autoDetectStatus.innerHTML = `<span style="color:#4ade80">✓ DOM scan complete! Found ${foundCount} element${foundCount > 1 ? 's' : ''}.</span>`
+                      if (autoDetectedResults) {
+                        autoDetectedResults.style.display = 'block'
+                        const siteSpan = autoDetectedResults.querySelector('.detected-site-filter')
+                        const btnSpan = autoDetectedResults.querySelector('.detected-button-selector')
+                        const inputSpan = autoDetectedResults.querySelector('.detected-input-selector')
+                        const outputSpan = autoDetectedResults.querySelector('.detected-output-selector')
+                        const contextSpan = autoDetectedResults.querySelector('.detected-context-selectors')
+                        if (siteSpan) siteSpan.textContent = siteFilter || '(not found)'
+                        if (btnSpan) btnSpan.textContent = buttonSelector || '(not found)'
+                        if (inputSpan) inputSpan.textContent = inputSelector || '(not found)'
+                        if (outputSpan) outputSpan.textContent = outputSelector || '(not found)'
+                        if (contextSpan) contextSpan.textContent = detectedContext.length > 0 ? detectedContext.join(', ') : '(none found)'
+                        // Store all detected values
+                        ;(autoDetectedResults as any)._detected = { 
+                          siteFilter,
+                          button: buttonSelector, 
+                          input: inputSelector, 
+                          output: outputSelector,
+                          context: detectedContext
+                        }
+                      }
+                    } else {
+                      autoDetectStatus.innerHTML = '<span style="color:#f87171">✗ Could not detect AI chat elements. This may not be a supported chat interface.</span>'
+                    }
+                  }
+                }, 300)
+              })
+              
+              applyDetectedBtn?.addEventListener('click', () => {
+                const detected = (autoDetectedResults as any)?._detected as { 
+                  siteFilter: string
+                  button: string
+                  input: string
+                  output: string
+                  context: string[]
+                } | null
+                if (!detected) return
+                
+                // Apply Site Filter
+                const siteFiltersTextarea = parserSection.querySelector('.trigger-site-filters') as HTMLTextAreaElement
+                if (detected.siteFilter && siteFiltersTextarea && !siteFiltersTextarea.value.trim()) {
+                  siteFiltersTextarea.value = detected.siteFilter
+                }
+                
+                // Apply Button Selectors
+                const buttonSelectorsTextarea = parserSection.querySelector('.trigger-button-selectors') as HTMLTextAreaElement
+                if (detected.button && buttonSelectorsTextarea) {
+                  const existing = buttonSelectorsTextarea.value.trim()
+                  if (!existing) {
+                    buttonSelectorsTextarea.value = detected.button
+                  } else if (!existing.includes(detected.button)) {
+                    buttonSelectorsTextarea.value = `${detected.button}\n${existing}`
+                  }
+                }
+                
+                // Apply Input Selectors (to Input Capture section)
+                const inputSelectorsTextarea = parserSection.querySelector('.trigger-input-selectors') as HTMLTextAreaElement
+                if (detected.input && inputSelectorsTextarea) {
+                  const existing = inputSelectorsTextarea.value.trim()
+                  if (!existing) {
+                    inputSelectorsTextarea.value = detected.input
+                  } else if (!existing.includes(detected.input)) {
+                    inputSelectorsTextarea.value = `${detected.input}\n${existing}`
+                  }
+                }
+                
+                // Apply Output Selectors (to Output Capture section)
+                const outputSelectorsTextarea = parserSection.querySelector('.trigger-output-selectors') as HTMLTextAreaElement
+                if (detected.output && outputSelectorsTextarea) {
+                  const existing = outputSelectorsTextarea.value.trim()
+                  if (!existing) {
+                    outputSelectorsTextarea.value = detected.output
+                  } else if (!existing.includes(detected.output)) {
+                    outputSelectorsTextarea.value = `${detected.output}\n${existing}`
+                  }
+                }
+                
+                // Apply Context Selectors
+                const contextSelectorsTextarea = parserSection.querySelector('.trigger-meta-selectors') as HTMLTextAreaElement
+                if (detected.context?.length && contextSelectorsTextarea) {
+                  const existing = contextSelectorsTextarea.value.trim()
+                  const newSelectors = detected.context.filter(s => !existing.includes(s))
+                  if (newSelectors.length > 0) {
+                    contextSelectorsTextarea.value = existing 
+                      ? `${existing}\n${newSelectors.join('\n')}`
+                      : newSelectors.join('\n')
+                  }
+                }
+                
+                // Visual feedback
+                if (applyDetectedBtn) {
+                  const appliedCount = [
+                    detected.siteFilter,
+                    detected.button,
+                    detected.input,
+                    detected.output,
+                    ...(detected.context || [])
+                  ].filter(Boolean).length
+                  applyDetectedBtn.textContent = `✓ Applied ${appliedCount} selectors!`
+                  applyDetectedBtn.style.background = 'rgba(34,197,94,0.3)'
+                  setTimeout(() => {
+                    applyDetectedBtn.textContent = 'Apply to all fields'
+                    applyDetectedBtn.style.background = 'rgba(34,197,94,0.2)'
+                  }, 2000)
                 }
               })
               
@@ -18132,6 +18482,26 @@ function initializeExtension() {
         syncMemoryToggleState('R-MEM-account-read', 'R-MEM-account-read-state')
         syncMemoryToggleState('R-MEM-account-write', 'R-MEM-account-write-state')
 
+        // Sync visible R-MEM-* checkboxes to hidden MEM-* checkboxes for save/restore
+        const syncToHiddenCheckbox = (visibleId: string, hiddenId: string) => {
+          const visible = configOverlay.querySelector(`#${visibleId}`) as HTMLInputElement | null
+          const hidden = configOverlay.querySelector(`#${hiddenId}`) as HTMLInputElement | null
+          if (visible && hidden) {
+            const sync = () => { hidden.checked = visible.checked }
+            visible.addEventListener('change', sync)
+            sync() // Initialize
+          }
+        }
+        
+        // Session memory sync
+        syncToHiddenCheckbox('R-MEM-session', 'MEM-session')
+        syncToHiddenCheckbox('R-MEM-session-read', 'MEM-session-read')
+        syncToHiddenCheckbox('R-MEM-session-write', 'MEM-session-write')
+        // Account memory sync
+        syncToHiddenCheckbox('R-MEM-account', 'MEM-account')
+        syncToHiddenCheckbox('R-MEM-account-read', 'MEM-account-read')
+        syncToHiddenCheckbox('R-MEM-account-write', 'MEM-account-write')
+
 
 
         // Apply-for population based on unified triggers - use trigger IDs and tags
@@ -18761,70 +19131,60 @@ function initializeExtension() {
 
             const ms = previouslySavedData.memorySettings
 
+            console.log('  📝 Restoring memory settings:', ms)
+
+            // Get hidden checkboxes (for save logic)
             const memSession = configOverlay.querySelector('#MEM-session') as HTMLInputElement
-
             const memSessionRead = configOverlay.querySelector('#MEM-session-read') as HTMLInputElement
-
             const memSessionWrite = configOverlay.querySelector('#MEM-session-write') as HTMLInputElement
-
             const memAccount = configOverlay.querySelector('#MEM-account') as HTMLInputElement
-
             const memAccountRead = configOverlay.querySelector('#MEM-account-read') as HTMLInputElement
-
             const memAccountWrite = configOverlay.querySelector('#MEM-account-write') as HTMLInputElement
-
             
+            // Get visible checkboxes (for UI display)
+            const rMemSession = configOverlay.querySelector('#R-MEM-session') as HTMLInputElement
+            const rMemSessionRead = configOverlay.querySelector('#R-MEM-session-read') as HTMLInputElement
+            const rMemSessionWrite = configOverlay.querySelector('#R-MEM-session-write') as HTMLInputElement
+            const rMemAccount = configOverlay.querySelector('#R-MEM-account') as HTMLInputElement
+            const rMemAccountRead = configOverlay.querySelector('#R-MEM-account-read') as HTMLInputElement
+            const rMemAccountWrite = configOverlay.querySelector('#R-MEM-account-write') as HTMLInputElement
 
-            if (memSession && ms.sessionEnabled !== undefined) {
-
-              memSession.checked = ms.sessionEnabled
-
-              memSession.dispatchEvent(new Event('change'))
-
+            // Session enabled
+            if (ms.sessionEnabled !== undefined) {
+              if (memSession) memSession.checked = ms.sessionEnabled
+              if (rMemSession) { rMemSession.checked = ms.sessionEnabled; rMemSession.dispatchEvent(new Event('change')) }
               console.log(`  ✓ Restored Memory Session: ${ms.sessionEnabled}`)
-
             }
-
-            if (memSessionRead && ms.sessionRead !== undefined) {
-
-              memSessionRead.checked = ms.sessionRead
-
-              memSessionRead.dispatchEvent(new Event('change'))
-
+            
+            // Session read
+            if (ms.sessionRead !== undefined) {
+              if (memSessionRead) memSessionRead.checked = ms.sessionRead
+              if (rMemSessionRead) { rMemSessionRead.checked = ms.sessionRead; rMemSessionRead.dispatchEvent(new Event('change')) }
             }
-
-            if (memSessionWrite && ms.sessionWrite !== undefined) {
-
-              memSessionWrite.checked = ms.sessionWrite
-
-              memSessionWrite.dispatchEvent(new Event('change'))
-
+            
+            // Session write
+            if (ms.sessionWrite !== undefined) {
+              if (memSessionWrite) memSessionWrite.checked = ms.sessionWrite
+              if (rMemSessionWrite) { rMemSessionWrite.checked = ms.sessionWrite; rMemSessionWrite.dispatchEvent(new Event('change')) }
             }
-
-            if (memAccount && ms.accountEnabled !== undefined) {
-
-              memAccount.checked = ms.accountEnabled
-
-              memAccount.dispatchEvent(new Event('change'))
-
+            
+            // Account enabled
+            if (ms.accountEnabled !== undefined) {
+              if (memAccount) memAccount.checked = ms.accountEnabled
+              if (rMemAccount) { rMemAccount.checked = ms.accountEnabled; rMemAccount.dispatchEvent(new Event('change')) }
               console.log(`  ✓ Restored Memory Account: ${ms.accountEnabled}`)
-
             }
 
-            if (memAccountRead && ms.accountRead !== undefined) {
-
-              memAccountRead.checked = ms.accountRead
-
-              memAccountRead.dispatchEvent(new Event('change'))
-
+            // Account read
+            if (ms.accountRead !== undefined) {
+              if (memAccountRead) memAccountRead.checked = ms.accountRead
+              if (rMemAccountRead) { rMemAccountRead.checked = ms.accountRead; rMemAccountRead.dispatchEvent(new Event('change')) }
             }
 
-            if (memAccountWrite && ms.accountWrite !== undefined) {
-
-              memAccountWrite.checked = ms.accountWrite
-
-              memAccountWrite.dispatchEvent(new Event('change'))
-
+            // Account write
+            if (ms.accountWrite !== undefined) {
+              if (memAccountWrite) memAccountWrite.checked = ms.accountWrite
+              if (rMemAccountWrite) { rMemAccountWrite.checked = ms.accountWrite; rMemAccountWrite.dispatchEvent(new Event('change')) }
             }
 
           }
@@ -19445,6 +19805,152 @@ function initializeExtension() {
                       if (trigger.domParseSelector) {
                         const input = row.querySelector('.trigger-dom-parse-selector') as HTMLInputElement
                         if (input) input.value = trigger.domParseSelector
+                      }
+                      
+                      // ============================================================
+                      // Restore AI Chat Capture fields (DOM Parser button_click mode)
+                      // IMPORTANT: Set parserTrigger first, then wait for DOM to update
+                      // ============================================================
+                      if (trigger.parserTrigger) {
+                        const select = row.querySelector('.trigger-parser-trigger') as HTMLSelectElement
+                        if (select) {
+                          select.value = trigger.parserTrigger
+                          select.dispatchEvent(new Event('change'))
+                          
+                          // Wait for DOM to update after parserTrigger change, then restore AI Chat fields
+                          if (trigger.parserTrigger === 'button_click') {
+                            setTimeout(() => {
+                              console.log(`    🔄 Restoring AI Chat Capture fields for trigger ${idx + 1}...`)
+                              
+                              // Site Filters
+                              if (trigger.siteFilters && trigger.siteFilters.length > 0) {
+                                const textarea = row.querySelector('.trigger-site-filters') as HTMLTextAreaElement
+                                if (textarea) {
+                                  textarea.value = trigger.siteFilters.join('\n')
+                                  console.log(`      ✓ Restored siteFilters: ${trigger.siteFilters.length} patterns`)
+                                }
+                              }
+                              // Auto-Detect Selectors
+                              if (trigger.autoDetectSelectors) {
+                                const checkbox = row.querySelector('.trigger-auto-detect') as HTMLInputElement
+                                if (checkbox) {
+                                  checkbox.checked = true
+                                  checkbox.dispatchEvent(new Event('change'))
+                                }
+                              }
+                              // Button Selectors
+                              if (trigger.buttonSelectors && trigger.buttonSelectors.length > 0) {
+                                const textarea = row.querySelector('.trigger-button-selectors') as HTMLTextAreaElement
+                                if (textarea) {
+                                  textarea.value = trigger.buttonSelectors.join('\n')
+                                  console.log(`      ✓ Restored buttonSelectors: ${trigger.buttonSelectors.length} selectors`)
+                                }
+                              } else if (trigger.buttonSelector) {
+                                const textarea = row.querySelector('.trigger-button-selectors') as HTMLTextAreaElement
+                                if (textarea) textarea.value = trigger.buttonSelector
+                              }
+                              // Enter Key Detection
+                              if (trigger.triggerOnEnterKey) {
+                                const checkbox = row.querySelector('.trigger-on-enter-key') as HTMLInputElement
+                                if (checkbox) {
+                                  checkbox.checked = true
+                                  checkbox.dispatchEvent(new Event('change'))
+                                }
+                              }
+                              if (trigger.enterKeyIgnoreShift !== false) {
+                                const checkbox = row.querySelector('.trigger-enter-ignore-shift') as HTMLInputElement
+                                if (checkbox) checkbox.checked = true
+                              }
+                              // Input Capture
+                              if (trigger.captureInput !== false) {
+                                const checkbox = row.querySelector('.trigger-capture-input') as HTMLInputElement
+                                if (checkbox) {
+                                  checkbox.checked = true
+                                  checkbox.dispatchEvent(new Event('change'))
+                                }
+                              }
+                              if (trigger.inputSelectors && trigger.inputSelectors.length > 0) {
+                                const textarea = row.querySelector('.trigger-input-selectors') as HTMLTextAreaElement
+                                if (textarea) {
+                                  textarea.value = trigger.inputSelectors.join('\n')
+                                  console.log(`      ✓ Restored inputSelectors: ${trigger.inputSelectors.length} selectors`)
+                                }
+                              } else if (trigger.inputSelector) {
+                                const textarea = row.querySelector('.trigger-input-selectors') as HTMLTextAreaElement
+                                if (textarea) textarea.value = trigger.inputSelector
+                              }
+                              // Output Capture
+                              if (trigger.captureOutput) {
+                                const checkbox = row.querySelector('.trigger-capture-output') as HTMLInputElement
+                                if (checkbox) {
+                                  checkbox.checked = true
+                                  checkbox.dispatchEvent(new Event('change'))
+                                }
+                              }
+                              if (trigger.outputSelectors && trigger.outputSelectors.length > 0) {
+                                const textarea = row.querySelector('.trigger-output-selectors') as HTMLTextAreaElement
+                                if (textarea) {
+                                  textarea.value = trigger.outputSelectors.join('\n')
+                                  console.log(`      ✓ Restored outputSelectors: ${trigger.outputSelectors.length} selectors`)
+                                }
+                              } else if (trigger.outputSelector) {
+                                const textarea = row.querySelector('.trigger-output-selectors') as HTMLTextAreaElement
+                                if (textarea) textarea.value = trigger.outputSelector
+                              }
+                              // Response Detection
+                              if (trigger.responseReadyMode) {
+                                const select = row.querySelector('.trigger-response-ready-mode') as HTMLSelectElement
+                                if (select) {
+                                  select.value = trigger.responseReadyMode
+                                  select.dispatchEvent(new Event('change'))
+                                }
+                              }
+                              if (trigger.quietPeriodMs) {
+                                const input = row.querySelector('.trigger-quiet-period-ms') as HTMLInputElement
+                                if (input) input.value = String(trigger.quietPeriodMs)
+                              }
+                              if (trigger.responseSignalSelector) {
+                                const input = row.querySelector('.trigger-response-signal-selector') as HTMLInputElement
+                                if (input) input.value = trigger.responseSignalSelector
+                              }
+                              if (trigger.maxWaitTimeMs) {
+                                const input = row.querySelector('.trigger-max-wait-time-ms') as HTMLInputElement
+                                if (input) input.value = String(trigger.maxWaitTimeMs)
+                              }
+                              // Meta Capture
+                              if (trigger.captureUrl !== false) {
+                                const checkbox = row.querySelector('.trigger-capture-url') as HTMLInputElement
+                                if (checkbox) checkbox.checked = true
+                              }
+                              if (trigger.capturePageTitle) {
+                                const checkbox = row.querySelector('.trigger-capture-page-title') as HTMLInputElement
+                                if (checkbox) checkbox.checked = true
+                              }
+                              if (trigger.metaSelectors && trigger.metaSelectors.length > 0) {
+                                const textarea = row.querySelector('.trigger-meta-selectors') as HTMLTextAreaElement
+                                if (textarea) {
+                                  textarea.value = trigger.metaSelectors.join('\n')
+                                  console.log(`      ✓ Restored metaSelectors: ${trigger.metaSelectors.length} selectors`)
+                                }
+                              }
+                              // Sanitization
+                              if (trigger.sanitizeTrim !== false) {
+                                const checkbox = row.querySelector('.trigger-sanitize-trim') as HTMLInputElement
+                                if (checkbox) checkbox.checked = true
+                              }
+                              if (trigger.sanitizeStripMarkdown) {
+                                const checkbox = row.querySelector('.trigger-sanitize-strip-markdown') as HTMLInputElement
+                                if (checkbox) checkbox.checked = true
+                              }
+                              if (trigger.sanitizeRemoveBoilerplate) {
+                                const checkbox = row.querySelector('.trigger-sanitize-remove-boilerplate') as HTMLInputElement
+                                if (checkbox) checkbox.checked = true
+                              }
+                              
+                              console.log(`    ✓ AI Chat Capture fields restored for trigger ${idx + 1}`)
+                            }, 150) // Wait 150ms for DOM to update after parserTrigger change
+                          }
+                        }
                       }
                       
                       // Restore Augmented Overlay fields
@@ -21665,139 +22171,295 @@ function initializeExtension() {
 
     document.getElementById('agent-config-cancel').onclick = () => configOverlay.remove()
 
-    // Export handler
+    // Export handler - Uses canonical format (v2.1.0)
     const exportBtn = document.getElementById('ag-export-btn')
     if (exportBtn) {
       exportBtn.onclick = async () => {
         try {
-          console.log('📤 Exporting agent configuration...')
+          console.log('📤 Exporting agent configuration (canonical format v2.1.0)...')
           
-          // Collect current form data
-          syncPersistedFromDom()
-          
-          const exportData = {
-            ...previouslySavedData,
-            name: (document.getElementById('ag-name') as HTMLInputElement)?.value || agentName,
-            description: (document.getElementById('ag-description') as HTMLTextAreaElement)?.value || '',
-            icon: (document.getElementById('ag-icon') as HTMLInputElement)?.value || '🤖',
+          // Helper: normalize string numbers to actual numbers
+          const toNumber = (val: any, def: number): number => {
+            if (typeof val === 'number') return val
+            if (typeof val === 'string') {
+              const n = parseInt(val, 10)
+              return isNaN(n) ? def : n
+            }
+            return def
           }
           
-          // Build schema-aware export with hierarchical structure
-          // This creates a Merkle-tree-like structure where each element has its schema description
-          const buildSchemaExport = (data: any) => {
-            // Helper to wrap a value with its schema
-            const wrap = (key: string, value: any, desc: string, type: string, required: boolean = false) => ({
-              _schema: { id: key, description: desc, type, required },
-              value: value
-            })
-            
-            const result: any = {
-              _metadata: {
-                schemaVersion: '1.0.0',
-                exportedAt: new Date().toISOString(),
-                source: 'Optimando AI Extension',
-                formatVersion: '1.0.0',
-              },
-              _rootSchema: {
-                id: 'agent',
-                description: 'An AI Agent is a configurable unit that can listen for events, reason about context, and execute actions.',
-                type: 'object'
-              },
-              identity: {
-                _schema: { id: 'agent.identity', description: 'Core identifying information for the agent.', type: 'object' },
-                id: wrap('agent.id', data.id || '', 'Unique identifier for this agent.', 'string', true),
-                name: wrap('agent.name', data.name || '', 'The command identifier used to reference this agent.', 'string', true),
-                description: wrap('agent.description', data.description || '', 'A human-readable description of what this agent does.', 'string'),
-                icon: wrap('agent.icon', data.icon || '🤖', 'An emoji or icon to visually identify this agent.', 'string'),
-                number: wrap('agent.number', data.number ?? null, 'Numeric identifier for linking with Agent Boxes.', 'number'),
-                enabled: wrap('agent.enabled', data.enabled ?? true, 'Whether this agent is active.', 'boolean'),
-                capabilities: wrap('agent.capabilities', data.capabilities || [], 'Enabled sections for this agent.', 'array'),
-              }
+          // Helper: normalize applyFor/applyForList to just applyForList
+          const normalizeApplyForList = (applyFor?: string, applyForList?: string[]): string[] => {
+            if (applyForList && applyForList.length > 0) return applyForList
+            if (applyFor && applyFor !== '__any__') return [applyFor]
+            return ['__any__']
+          }
+          
+          // Helper: normalize destinations from specialDestinations
+          const normalizeDestinations = (destinations?: any[], specialDestinations?: any[]): any[] => {
+            const result: any[] = []
+            if (destinations && destinations.length > 0) result.push(...destinations)
+            if (specialDestinations && specialDestinations.length > 0) {
+              specialDestinations.forEach(sd => {
+                if (sd.kind && !result.some((d: any) => d.kind === sd.kind && JSON.stringify(d.agents) === JSON.stringify(sd.agents))) {
+                  result.push({ kind: sd.kind, agents: sd.agents || [], ...sd })
+                }
+              })
             }
-            
-            // Listener section
-            if (data.listening) {
-              result.listener = {
-                _schema: { id: 'agent.listening', description: 'Defines how this agent detects events and triggers.', type: 'object' },
-                passiveEnabled: wrap('agent.listening.passiveEnabled', data.listening.passiveEnabled ?? false, 'Enable passive event listening.', 'boolean'),
-                activeEnabled: wrap('agent.listening.activeEnabled', data.listening.activeEnabled ?? true, 'Enable active trigger listening.', 'boolean'),
-                expectedContext: wrap('agent.listening.expectedContext', data.listening.expectedContext || '', 'Keywords for semantic matching.', 'string'),
-                tags: wrap('agent.listening.tags', data.listening.tags || [], 'Input data types to process.', 'array'),
-                source: wrap('agent.listening.source', data.listening.source || 'all', 'Primary source for input events.', 'enum'),
-                website: wrap('agent.listening.website', data.listening.website || '', 'Website filter pattern.', 'string'),
-                unifiedTriggers: wrap('agent.listening.unifiedTriggers', data.listening.unifiedTriggers || [], 'Trigger configurations.', 'array'),
-                triggers: wrap('agent.listening.triggers', data.listening.triggers || [], 'Action triggers (legacy).', 'array'),
-              }
-            }
-            
-            // Reasoning section
-            if (data.reasoning) {
-              result.reasoning = {
-                _schema: { id: 'agent.reasoning', description: 'Configures how the agent processes and thinks about input.', type: 'object' },
-                applyFor: wrap('agent.reasoning.applyFor', data.reasoning.applyFor || '__any__', 'Triggers this section applies to.', 'enum'),
-                applyForList: wrap('agent.reasoning.applyForList', data.reasoning.applyForList || ['__any__'], 'Multiple triggers selection.', 'array'),
-                goals: wrap('agent.reasoning.goals', data.reasoning.goals || '', 'System instructions for the agent.', 'string'),
-                role: wrap('agent.reasoning.role', data.reasoning.role || '', 'Agent role/persona.', 'string'),
-                rules: wrap('agent.reasoning.rules', data.reasoning.rules || '', 'Hard requirements for the agent.', 'string'),
-                custom: wrap('agent.reasoning.custom', data.reasoning.custom || [], 'Additional key-value configuration.', 'array'),
-                acceptFrom: wrap('agent.reasoning.acceptFrom', data.reasoning.acceptFrom || [], 'Input sources filter.', 'array'),
-                memoryContext: wrap('agent.reasoning.memoryContext', data.reasoning.memoryContext || {}, 'Memory access configuration.', 'object'),
-                reasoningWorkflows: wrap('agent.reasoning.reasoningWorkflows', data.reasoning.reasoningWorkflows || [], 'Pre-reasoning workflows.', 'array'),
-              }
-            }
-            
-            // Additional reasoning sections
-            if (data.reasoningSections && data.reasoningSections.length > 0) {
-              result.reasoningSections = data.reasoningSections.map((sec: any, i: number) => ({
-                _schema: { id: `agent.reasoningSections.${i}`, description: `Additional reasoning section ${i + 1}.`, type: 'object' },
-                ...sec
-              }))
-            }
-            
-            // Execution section
-            if (data.execution) {
-              result.execution = {
-                _schema: { id: 'agent.execution', description: 'Configures how the agent delivers output and actions.', type: 'object' },
-                applyFor: wrap('agent.execution.applyFor', data.execution.applyFor || '__any__', 'Triggers this section applies to.', 'enum'),
-                applyForList: wrap('agent.execution.applyForList', data.execution.applyForList || ['__any__'], 'Multiple triggers selection.', 'array'),
-                executionMode: wrap('agent.execution.executionMode', data.execution.executionMode || 'agent_workflow', 'Output generation mode.', 'enum'),
-                specialDestinations: wrap('agent.execution.specialDestinations', data.execution.specialDestinations || [], 'Output destinations.', 'array'),
-                workflows: wrap('agent.execution.workflows', data.execution.workflows || [], 'Workflow IDs (legacy).', 'array'),
-                executionWorkflows: wrap('agent.execution.executionWorkflows', data.execution.executionWorkflows || [], 'Execution workflow configs.', 'array'),
-                executionSections: wrap('agent.execution.executionSections', data.execution.executionSections || [], 'Additional execution sections.', 'array'),
-              }
-            }
-            
-            // Context and memory settings
-            if (data.contextSettings) {
-              result.contextSettings = wrap('agent.contextSettings', data.contextSettings, 'Context access configuration.', 'object')
-            }
-            if (data.memorySettings) {
-              result.memorySettings = wrap('agent.memorySettings', data.memorySettings, 'Memory persistence settings.', 'object')
-            }
-            
-            // Include compact agent data for easy re-import
-            result._compactAgent = data
-            
             return result
           }
           
-          const exportWithSchema = buildSchemaExport(exportData)
+          // Helper: normalize a trigger (convert string numbers, remove legacy fields)
+          const normalizeTrigger = (trigger: any): any => {
+            const t: any = { ...trigger }
+            
+            // Normalize numeric fields
+            if (t.parserInterval !== undefined) t.parserInterval = toNumber(t.parserInterval, 5)
+            if (t.quietPeriodMs !== undefined) t.quietPeriodMs = toNumber(t.quietPeriodMs, 1500)
+            if (t.maxWaitTimeMs !== undefined) t.maxWaitTimeMs = toNumber(t.maxWaitTimeMs, 60000)
+            
+            // Remove legacy/redundant fields
+            delete t.buttonSelector
+            delete t.inputSelector
+            delete t.outputSelector
+            delete t.outputWaitMethod
+            delete t.outputWaitDelay
+            delete t.tagName
+            
+            return t
+          }
+          
+          // Helper: create canonical reasoning section
+          const toReasoningSection = (sec: any) => ({
+            applyForList: normalizeApplyForList(sec.applyFor, sec.applyForList),
+            goals: sec.goals || '',
+            role: sec.role || '',
+            rules: sec.rules || '',
+            custom: sec.custom || [],
+            acceptFrom: sec.acceptFrom || [],
+            memoryContext: {
+              agentEnabled: sec.memoryContext?.agentEnabled ?? false,
+              sessionEnabled: sec.memoryContext?.sessionEnabled ?? false,
+              accountEnabled: sec.memoryContext?.accountEnabled ?? false,
+            },
+            reasoningWorkflows: sec.reasoningWorkflows || [],
+          })
+          
+          // Helper: create canonical execution section
+          const toExecutionSection = (sec: any) => ({
+            applyForList: normalizeApplyForList(sec.applyFor, sec.applyForList),
+            executionMode: sec.executionMode || 'agent_workflow',
+            destinations: normalizeDestinations(sec.destinations, sec.specialDestinations),
+            executionWorkflows: sec.executionWorkflows || [],
+          })
+          
+          // Collect current form data
+          const rawData: any = {
+            id: agentName,
+            name: (document.getElementById('ag-name') as HTMLInputElement)?.value || agentName,
+            description: (document.getElementById('ag-description') as HTMLTextAreaElement)?.value || '',
+            icon: (document.getElementById('ag-icon') as HTMLInputElement)?.value || '🤖',
+            capabilities: [] as string[],
+          }
+          
+          // Get capabilities
+          if ((document.getElementById('cap-listening') as HTMLInputElement)?.checked) rawData.capabilities.push('listening')
+          if ((document.getElementById('cap-reasoning') as HTMLInputElement)?.checked) rawData.capabilities.push('reasoning')
+          if ((document.getElementById('cap-execution') as HTMLInputElement)?.checked) rawData.capabilities.push('execution')
+          
+          // Merge with previously saved data
+          if (previouslySavedData) {
+            rawData.listening = previouslySavedData.listening
+            rawData.reasoning = previouslySavedData.reasoning
+            rawData.reasoningSections = previouslySavedData.reasoningSections
+            rawData.execution = previouslySavedData.execution
+            rawData.executionSections = previouslySavedData.executionSections
+            rawData.contextSettings = previouslySavedData.contextSettings
+            rawData.memorySettings = previouslySavedData.memorySettings
+            rawData.agentContextFiles = previouslySavedData.agentContextFiles
+            rawData.number = previouslySavedData.number
+            rawData.enabled = previouslySavedData.enabled
+          }
+          
+          // Build canonical export (v2.1.0) with deduplication
+          
+          // Helper: deduplicate array while preserving order
+          const uniqueArray = (arr: string[]): string[] => [...new Set(arr)]
+          
+          // Helper: deduplicate triggers by ID (keep first occurrence)
+          const deduplicateTriggers = (triggers: any[]): any[] => {
+            const seen: Set<string> = new Set()
+            return triggers.filter(t => {
+              if (!t.id || seen.has(t.id)) return false
+              seen.add(t.id)
+              return true
+            })
+          }
+          
+          // Helper: check if two reasoning sections are structurally identical
+          const reasoningSectionKey = (sec: any): string => {
+            return JSON.stringify({
+              applyForList: (sec.applyForList || []).slice().sort(),
+              goals: sec.goals || '',
+              role: sec.role || '',
+              rules: sec.rules || '',
+              memoryContext: sec.memoryContext || {},
+              reasoningWorkflows: sec.reasoningWorkflows || []
+            })
+          }
+          
+          // Helper: check if two execution sections are structurally identical
+          const executionSectionKey = (sec: any): string => {
+            return JSON.stringify({
+              applyForList: (sec.applyForList || []).slice().sort(),
+              executionMode: sec.executionMode || 'agent_workflow',
+              destinations: sec.destinations || [],
+              executionWorkflows: sec.executionWorkflows || []
+            })
+          }
+          
+          const canonical: any = {
+            _schemaVersion: '2.1.0',
+            _exportedAt: new Date().toISOString(),
+            _source: 'Optimando AI Extension',
+            
+            // Identity
+            id: rawData.id || '',
+            name: rawData.name || '',
+            description: rawData.description || '',
+            icon: rawData.icon || '🤖',
+            number: typeof rawData.number === 'number' ? rawData.number : undefined,
+            enabled: rawData.enabled !== false,
+            capabilities: rawData.capabilities || [],
+            
+            // Normalized settings
+            contextSettings: {
+              agentContext: rawData.contextSettings?.agentContext ?? false,
+              sessionContext: rawData.contextSettings?.sessionContext ?? true,
+              accountContext: rawData.contextSettings?.accountContext ?? true,
+            },
+            memorySettings: {
+              agentEnabled: rawData.memorySettings?.agentEnabled ?? true,
+              sessionEnabled: rawData.memorySettings?.sessionEnabled ?? false,
+              accountEnabled: rawData.memorySettings?.accountEnabled ?? false,
+            },
+          }
+          
+          // Listening section (v2.1.0: no passiveEnabled/activeEnabled)
+          if (rawData.listening) {
+            // Deduplicate triggers by ID
+            const rawTriggers = (rawData.listening.unifiedTriggers || []).map(normalizeTrigger)
+            const uniqueTriggers = deduplicateTriggers(rawTriggers)
+            
+            canonical.listening = {
+              expectedContext: rawData.listening.expectedContext || '',
+              tags: rawData.listening.tags || [],
+              sources: rawData.listening.sources || ['all'],
+              website: rawData.listening.website || '',
+              // unifiedTriggers: deduplicated by ID
+              unifiedTriggers: uniqueTriggers,
+              exampleFiles: rawData.listening.exampleFiles,
+            }
+          }
+          
+          // Reasoning sections (v2.1.0: merged, deduplicated)
+          const allReasoningSections: any[] = []
+          const seenReasoningKeys = new Set<string>()
+          
+          const addReasoningSection = (sec: any) => {
+            const normalized = toReasoningSection(sec)
+            // Deduplicate applyForList
+            normalized.applyForList = uniqueArray(normalized.applyForList)
+            // Check for duplicate sections
+            const key = reasoningSectionKey(normalized)
+            if (!seenReasoningKeys.has(key)) {
+              seenReasoningKeys.add(key)
+              allReasoningSections.push(normalized)
+            }
+          }
+          
+          if (rawData.reasoning) {
+            addReasoningSection(rawData.reasoning)
+          }
+          if (rawData.reasoningSections && rawData.reasoningSections.length > 0) {
+            rawData.reasoningSections.forEach((sec: any) => addReasoningSection(sec))
+          }
+          if (allReasoningSections.length > 0) {
+            canonical.reasoningSections = allReasoningSections
+          }
+          
+          // Execution sections (v2.1.0: merged, deduplicated)
+          const allExecutionSections: any[] = []
+          const seenExecutionKeys = new Set<string>()
+          
+          const addExecutionSection = (sec: any) => {
+            const normalized = toExecutionSection(sec)
+            // Deduplicate applyForList
+            normalized.applyForList = uniqueArray(normalized.applyForList)
+            // Check for duplicate sections
+            const key = executionSectionKey(normalized)
+            if (!seenExecutionKeys.has(key)) {
+              seenExecutionKeys.add(key)
+              allExecutionSections.push(normalized)
+            }
+          }
+          
+          if (rawData.execution) {
+            addExecutionSection(rawData.execution)
+          }
+          if (rawData.executionSections && rawData.executionSections.length > 0) {
+            rawData.executionSections.forEach((sec: any) => addExecutionSection(sec))
+          }
+          if (allExecutionSections.length > 0) {
+            canonical.executionSections = allExecutionSections
+          }
+          
+          // Agent context files
+          if (rawData.agentContextFiles && rawData.agentContextFiles.length > 0) {
+            canonical.agentContextFiles = rawData.agentContextFiles
+          }
+          
+          // Schema metadata (for documentation, not part of canonical data)
+          canonical._schemaInfo = {
+            enums: {
+              'listening.sources': ['all', 'chat', 'voice', 'voicememo', 'video', 'email', 'whatsapp', 'pdf', 'docs', 'dom', 'api', 'workflow', 'agent', 'screenshot', 'stream'],
+              'executionSection.executionMode': ['agent_workflow', 'direct_response', 'workflow_only', 'hybrid'],
+              'trigger.type': ['direct_tag', 'tag_and_condition', 'workflow_condition', 'dom_event', 'dom_parser', 'augmented_overlay', 'agent', 'miniapp', 'manual'],
+              'trigger.parserTrigger': ['page_load', 'dom_change', 'interval', 'button_click', 'manual'],
+              'trigger.responseReadyMode': ['first_change', 'quiet_period', 'selector_signal'],
+              'destination.kind': ['agentBox', 'chat', 'email', 'webhook', 'storage', 'notification'],
+            },
+            numericFields: ['parserInterval', 'quietPeriodMs', 'maxWaitTimeMs', 'number'],
+            deprecatedFields: [
+              // v2.0.0 deprecated
+              'triggers', 'workflows', 'specialDestinations', 'applyFor',
+              'buttonSelector', 'inputSelector', 'outputSelector', 'outputWaitMethod', 'outputWaitDelay', 'tagName',
+              // v2.1.0 deprecated
+              'passiveEnabled', 'activeEnabled', 'reasoning', 'execution'
+            ],
+          }
           
           // Create and download file
-          const json = JSON.stringify(exportWithSchema, null, 2)
+          const json = JSON.stringify(canonical, null, 2)
           const blob = new Blob([json], { type: 'application/json' })
           const url = URL.createObjectURL(blob)
           
           const a = document.createElement('a')
           a.href = url
-          a.download = `agent-${exportData.name || 'export'}-${new Date().toISOString().slice(0, 10)}.json`
+          a.download = `agent-${canonical.name || 'export'}-${new Date().toISOString().slice(0, 10)}.json`
           document.body.appendChild(a)
           a.click()
           document.body.removeChild(a)
           URL.revokeObjectURL(url)
           
-          console.log('✅ Agent exported successfully!')
+          console.log('✅ Agent exported successfully (canonical format v2.1.0)!')
+          console.log('📋 Export summary:', {
+            name: canonical.name,
+            capabilities: canonical.capabilities,
+            triggersCount: canonical.listening?.unifiedTriggers?.length || 0,
+            reasoningSectionsCount: canonical.reasoningSections?.length || 0,
+            executionSectionsCount: canonical.executionSections?.length || 0,
+          })
           
           // Show brief success feedback
           const originalText = exportBtn.innerHTML
@@ -21806,12 +22468,12 @@ function initializeExtension() {
           
         } catch (error) {
           console.error('❌ Export failed:', error)
-          alert('Export failed. Check console for details.')
+          alert('Export failed: ' + (error instanceof Error ? error.message : 'Unknown error'))
         }
       }
     }
 
-    // Import handler
+    // Import handler - Supports canonical v2.1.0, v2.0.0 and legacy formats
     const importBtn = document.getElementById('ag-import-btn')
     const importFile = document.getElementById('ag-import-file') as HTMLInputElement
     
@@ -21830,101 +22492,206 @@ function initializeExtension() {
           const text = await file.text()
           const data = JSON.parse(text)
           
-          // Extract agent data from various formats:
-          // 1. Schema-aware format: { _compactAgent: {...}, identity: {...}, listener: {...} }
-          // 2. Simple format: { agent: {...} }
-          // 3. Direct format: { name: "...", capabilities: [...] }
+          // Detect format version
+          const schemaVersion = data._schemaVersion || '1.0.0'
+          console.log(`📋 Detected schema version: ${schemaVersion}`)
+          
           let agentData: any = null
           
-          // Helper to extract value from schema-wrapped field
-          const extractVal = (field: any): any => {
-            if (field === undefined || field === null) return undefined
-            if (typeof field === 'object' && 'value' in field) return field.value
-            return field
-          }
+          // Helper: convert canonical section to UI format (add applyFor from applyForList)
+          const toUIReasoningSection = (sec: any) => ({
+            applyFor: sec.applyForList?.[0] || '__any__',
+            applyForList: sec.applyForList || ['__any__'],
+            goals: sec.goals || '',
+            role: sec.role || '',
+            rules: sec.rules || '',
+            custom: sec.custom || [],
+            acceptFrom: sec.acceptFrom || [],
+            memoryContext: sec.memoryContext || {},
+            reasoningWorkflows: sec.reasoningWorkflows || [],
+          })
           
-          // Check for schema-aware format with _compactAgent
-          if (data._compactAgent) {
-            console.log('📋 Detected schema-aware format with _compactAgent')
-            agentData = data._compactAgent
-          }
-          // Check for schema-aware format with identity section
-          else if (data.identity && data.identity.name) {
-            console.log('📋 Detected schema-aware format with identity section')
+          const toUIExecutionSection = (sec: any) => ({
+            applyFor: sec.applyForList?.[0] || '__any__',
+            applyForList: sec.applyForList || ['__any__'],
+            executionMode: sec.executionMode || 'agent_workflow',
+            specialDestinations: sec.destinations || [],
+            executionWorkflows: sec.executionWorkflows || [],
+          })
+          
+          // V2.1.0 Canonical format (normalized structure)
+          if (schemaVersion === '2.1.0' && data.name) {
+            console.log('📋 Processing canonical v2.1.0 format')
             agentData = {
-              id: extractVal(data.identity.id),
-              name: extractVal(data.identity.name),
-              description: extractVal(data.identity.description),
-              icon: extractVal(data.identity.icon),
-              number: extractVal(data.identity.number),
-              enabled: extractVal(data.identity.enabled),
-              capabilities: extractVal(data.identity.capabilities),
+              id: data.id || '',
+              name: data.name || '',
+              description: data.description || '',
+              icon: data.icon || '🤖',
+              number: data.number,
+              enabled: data.enabled !== false,
+              capabilities: data.capabilities || [],
+              contextSettings: data.contextSettings,
+              memorySettings: data.memorySettings,
+              agentContextFiles: data.agentContextFiles,
             }
             
-            // Extract listener section
-            if (data.listener) {
+            // Import listening section (no passiveEnabled/activeEnabled in v2.1.0)
+            if (data.listening) {
               agentData.listening = {
-                passiveEnabled: extractVal(data.listener.passiveEnabled),
-                activeEnabled: extractVal(data.listener.activeEnabled),
-                expectedContext: extractVal(data.listener.expectedContext),
-                tags: extractVal(data.listener.tags),
-                source: extractVal(data.listener.source),
-                website: extractVal(data.listener.website),
-                unifiedTriggers: extractVal(data.listener.unifiedTriggers),
-                triggers: extractVal(data.listener.triggers),
+                expectedContext: data.listening.expectedContext || '',
+                tags: data.listening.tags || [],
+                sources: data.listening.sources || ['all'],
+                website: data.listening.website || '',
+                unifiedTriggers: data.listening.unifiedTriggers || [],
+                exampleFiles: data.listening.exampleFiles,
               }
             }
             
-            // Extract reasoning section
+            // Import reasoning sections (v2.1.0 uses only reasoningSections[])
+            // Map first element to 'reasoning' for UI, rest to 'reasoningSections'
+            if (data.reasoningSections && data.reasoningSections.length > 0) {
+              agentData.reasoning = toUIReasoningSection(data.reasoningSections[0])
+              if (data.reasoningSections.length > 1) {
+                agentData.reasoningSections = data.reasoningSections.slice(1).map(toUIReasoningSection)
+              }
+            }
+            
+            // Import execution sections (v2.1.0 uses only executionSections[])
+            // Map first element to 'execution' for UI, rest to 'executionSections'
+            if (data.executionSections && data.executionSections.length > 0) {
+              agentData.execution = toUIExecutionSection(data.executionSections[0])
+              if (data.executionSections.length > 1) {
+                agentData.executionSections = data.executionSections.slice(1).map(toUIExecutionSection)
+              }
+            }
+          }
+          // V2.0.0 Canonical format (direct structure)
+          else if (schemaVersion === '2.0.0' && data.name) {
+            console.log('📋 Processing canonical v2.0.0 format')
+            agentData = {
+              id: data.id || '',
+              name: data.name || '',
+              description: data.description || '',
+              icon: data.icon || '🤖',
+              number: data.number,
+              enabled: data.enabled !== false,
+              capabilities: data.capabilities || [],
+              contextSettings: data.contextSettings,
+              memorySettings: data.memorySettings,
+              agentContextFiles: data.agentContextFiles,
+            }
+            
+            // Import listening section (passiveEnabled/activeEnabled ignored, deprecated)
+            if (data.listening) {
+              agentData.listening = {
+                expectedContext: data.listening.expectedContext || '',
+                tags: data.listening.tags || [],
+                sources: data.listening.sources || ['all'],
+                website: data.listening.website || '',
+                unifiedTriggers: data.listening.unifiedTriggers || [],
+                exampleFiles: data.listening.exampleFiles,
+              }
+            }
+            
+            // Import reasoning section (expand applyForList to applyFor for UI)
             if (data.reasoning) {
-              agentData.reasoning = {
-                applyFor: extractVal(data.reasoning.applyFor),
-                applyForList: extractVal(data.reasoning.applyForList),
-                goals: extractVal(data.reasoning.goals),
-                role: extractVal(data.reasoning.role),
-                rules: extractVal(data.reasoning.rules),
-                custom: extractVal(data.reasoning.custom),
-                acceptFrom: extractVal(data.reasoning.acceptFrom),
-                memoryContext: extractVal(data.reasoning.memoryContext),
-                reasoningWorkflows: extractVal(data.reasoning.reasoningWorkflows),
-              }
+              agentData.reasoning = toUIReasoningSection(data.reasoning)
             }
             
-            // Extract reasoning sections
-            if (data.reasoningSections) {
-              agentData.reasoningSections = data.reasoningSections
+            // Import reasoning sections
+            if (data.reasoningSections && data.reasoningSections.length > 0) {
+              agentData.reasoningSections = data.reasoningSections.map(toUIReasoningSection)
             }
             
-            // Extract execution section
+            // Import execution section (expand applyForList and destinations)
             if (data.execution) {
-              agentData.execution = {
-                applyFor: extractVal(data.execution.applyFor),
-                applyForList: extractVal(data.execution.applyForList),
-                executionMode: extractVal(data.execution.executionMode),
-                specialDestinations: extractVal(data.execution.specialDestinations),
-                workflows: extractVal(data.execution.workflows),
-                executionWorkflows: extractVal(data.execution.executionWorkflows),
-                executionSections: extractVal(data.execution.executionSections),
-              }
+              agentData.execution = toUIExecutionSection(data.execution)
             }
             
-            // Extract settings
-            if (data.contextSettings) {
-              agentData.contextSettings = extractVal(data.contextSettings)
-            }
-            if (data.memorySettings) {
-              agentData.memorySettings = extractVal(data.memorySettings)
+            // Import execution sections
+            if (data.executionSections && data.executionSections.length > 0) {
+              agentData.executionSections = data.executionSections.map(toUIExecutionSection)
             }
           }
-          // Check for simple { agent: {...} } format
-          else if (data.agent) {
-            console.log('📋 Detected simple agent wrapper format')
-            agentData = data.agent
-          }
-          // Assume direct format
-          else if (data.name || data.id) {
-            console.log('📋 Detected direct agent format')
-            agentData = data
+          // Legacy formats
+          else {
+            // Helper to extract value from schema-wrapped field
+            const extractVal = (field: any): any => {
+              if (field === undefined || field === null) return undefined
+              if (typeof field === 'object' && 'value' in field) return field.value
+              return field
+            }
+            
+            // V1.0.0 with _compactAgent
+            if (data._compactAgent) {
+              console.log('📋 Detected v1.0.0 format with _compactAgent')
+              agentData = data._compactAgent
+            }
+            // V1.0.0 with identity section (schema-wrapped)
+            else if (data.identity && data.identity.name) {
+              console.log('📋 Detected v1.0.0 schema-wrapped format')
+              agentData = {
+                id: extractVal(data.identity.id),
+                name: extractVal(data.identity.name),
+                description: extractVal(data.identity.description),
+                icon: extractVal(data.identity.icon),
+                number: extractVal(data.identity.number),
+                enabled: extractVal(data.identity.enabled),
+                capabilities: extractVal(data.identity.capabilities),
+              }
+              
+              if (data.listener) {
+                agentData.listening = {
+                  // passiveEnabled/activeEnabled deprecated in v2.1.0
+                  expectedContext: extractVal(data.listener.expectedContext),
+                  tags: extractVal(data.listener.tags),
+                  sources: extractVal(data.listener.source) ? [extractVal(data.listener.source)] : ['all'],
+                  website: extractVal(data.listener.website),
+                  unifiedTriggers: extractVal(data.listener.unifiedTriggers),
+                }
+              }
+              
+              if (data.reasoning) {
+                agentData.reasoning = {
+                  applyFor: extractVal(data.reasoning.applyFor),
+                  applyForList: extractVal(data.reasoning.applyForList),
+                  goals: extractVal(data.reasoning.goals),
+                  role: extractVal(data.reasoning.role),
+                  rules: extractVal(data.reasoning.rules),
+                  custom: extractVal(data.reasoning.custom),
+                  acceptFrom: extractVal(data.reasoning.acceptFrom),
+                  memoryContext: extractVal(data.reasoning.memoryContext),
+                  reasoningWorkflows: extractVal(data.reasoning.reasoningWorkflows),
+                }
+              }
+              
+              if (data.reasoningSections) {
+                agentData.reasoningSections = data.reasoningSections
+              }
+              
+              if (data.execution) {
+                agentData.execution = {
+                  applyFor: extractVal(data.execution.applyFor),
+                  applyForList: extractVal(data.execution.applyForList),
+                  executionMode: extractVal(data.execution.executionMode),
+                  specialDestinations: extractVal(data.execution.specialDestinations),
+                  executionWorkflows: extractVal(data.execution.executionWorkflows),
+                }
+              }
+              
+              if (data.contextSettings) agentData.contextSettings = extractVal(data.contextSettings)
+              if (data.memorySettings) agentData.memorySettings = extractVal(data.memorySettings)
+            }
+            // Simple { agent: {...} } wrapper
+            else if (data.agent) {
+              console.log('📋 Detected simple agent wrapper format')
+              agentData = data.agent
+            }
+            // Direct format (no wrapper)
+            else if (data.name || data.id) {
+              console.log('📋 Detected direct agent format')
+              agentData = data
+            }
           }
           
           // Validate imported data
@@ -21934,7 +22701,9 @@ function initializeExtension() {
           
           console.log('📦 Extracted agent data:', {
             name: agentData.name,
+            version: schemaVersion,
             hasListening: !!agentData.listening,
+            triggersCount: agentData.listening?.unifiedTriggers?.length || 0,
             hasReasoning: !!agentData.reasoning,
             hasExecution: !!agentData.execution,
           })
@@ -22003,6 +22772,300 @@ function initializeExtension() {
           console.error('❌ Import failed:', error)
           alert(`Import failed: ${error.message || 'Invalid file format'}`)
           importFile.value = ''
+        }
+      }
+    }
+
+    // Schema download handler - downloads the master agent JSON schema
+    const schemaBtn = document.getElementById('ag-schema-btn')
+    if (schemaBtn) {
+      schemaBtn.onclick = async () => {
+        try {
+          console.log('📋 Downloading agent schema...')
+          
+          // The master agent schema (v2.1.0)
+          const agentSchema = {
+            "$schema": "http://json-schema.org/draft-07/schema#",
+            "$id": "https://optimando.ai/schemas/agent.schema.json",
+            "title": "Optimando AI Agent Configuration",
+            "description": "Canonical schema for AI agent configurations (v2.1.0). Agents are configurable units that listen for events, reason about context, and execute actions.",
+            "type": "object",
+            "required": ["_schemaVersion", "id", "name", "enabled", "capabilities", "contextSettings", "memorySettings"],
+            "properties": {
+              "$schema": { "type": "string", "description": "Reference to this schema file." },
+              "_schemaVersion": { "type": "string", "const": "2.1.0", "description": "Schema version." },
+              "_exportedAt": { "type": "string", "format": "date-time" },
+              "id": { "type": "string", "description": "Unique identifier for this agent." },
+              "name": { "type": "string", "description": "Command identifier to reference this agent." },
+              "description": { "type": "string", "description": "Human-readable description." },
+              "icon": { "type": "string", "description": "Emoji/icon for visual identification.", "default": "🤖" },
+              "number": { "type": "integer", "description": "Numeric ID for Agent Boxes." },
+              "enabled": { "type": "boolean", "default": true },
+              "capabilities": {
+                "type": "array",
+                "items": { "type": "string", "enum": ["listening", "reasoning", "execution"] }
+              },
+              "contextSettings": {
+                "type": "object",
+                "properties": {
+                  "agentContext": { "type": "boolean" },
+                  "sessionContext": { "type": "boolean" },
+                  "accountContext": { "type": "boolean" }
+                }
+              },
+              "memorySettings": {
+                "type": "object",
+                "properties": {
+                  "agentEnabled": { "type": "boolean" },
+                  "sessionEnabled": { "type": "boolean" },
+                  "accountEnabled": { "type": "boolean" }
+                }
+              },
+              "listening": {
+                "type": "object",
+                "description": "Listener configuration - how the agent detects events.",
+                "properties": {
+                  "expectedContext": { "type": "string" },
+                  "tags": { "type": "array", "items": { "type": "string" } },
+                  "sources": { 
+                    "type": "array", 
+                    "items": { "type": "string", "enum": ["all", "chat", "voice", "voicememo", "video", "email", "whatsapp", "pdf", "docs", "dom", "api", "workflow", "agent", "screenshot", "stream"] }
+                  },
+                  "website": { "type": "string" },
+                  "unifiedTriggers": {
+                    "type": "array",
+                    "description": "Primary trigger list - single source of truth for listener wiring.",
+                    "items": {
+                      "type": "object",
+                      "required": ["id", "type", "enabled"],
+                      "properties": {
+                        "id": { "type": "string" },
+                        "type": { "type": "string", "enum": ["direct_tag", "tag_and_condition", "workflow_condition", "dom_event", "dom_parser", "augmented_overlay", "agent", "miniapp", "manual"] },
+                        "enabled": { "type": "boolean" },
+                        "parserTrigger": { "type": "string", "enum": ["page_load", "dom_change", "interval", "button_click", "manual"] },
+                        "parserInterval": { "type": "integer" },
+                        "siteFilters": { "type": "array", "items": { "type": "string" } },
+                        "buttonSelectors": { "type": "array", "items": { "type": "string" } },
+                        "inputSelectors": { "type": "array", "items": { "type": "string" } },
+                        "outputSelectors": { "type": "array", "items": { "type": "string" } },
+                        "responseReadyMode": { "type": "string", "enum": ["first_change", "quiet_period", "selector_signal"] },
+                        "captureInput": { "type": "boolean" },
+                        "captureOutput": { "type": "boolean" },
+                        "captureUrl": { "type": "boolean" },
+                        "capturePageTitle": { "type": "boolean" }
+                      }
+                    }
+                  }
+                }
+              },
+              "reasoningSections": {
+                "type": "array",
+                "description": "Reasoning sections - how the agent processes input. First element is main section.",
+                "items": {
+                  "type": "object",
+                  "required": ["applyForList"],
+                  "properties": {
+                    "applyForList": { "type": "array", "items": { "type": "string" } },
+                    "goals": { "type": "string", "description": "System instructions/goals." },
+                    "role": { "type": "string", "description": "Agent role/persona." },
+                    "rules": { "type": "string", "description": "Hard requirements." },
+                    "custom": { "type": "array" },
+                    "acceptFrom": { "type": "array", "items": { "type": "string" } },
+                    "memoryContext": { "type": "object" },
+                    "reasoningWorkflows": { "type": "array" }
+                  }
+                }
+              },
+              "executionSections": {
+                "type": "array",
+                "description": "Execution sections - how the agent delivers output. First element is main section.",
+                "items": {
+                  "type": "object",
+                  "required": ["applyForList", "executionMode"],
+                  "properties": {
+                    "applyForList": { "type": "array", "items": { "type": "string" } },
+                    "executionMode": { "type": "string", "enum": ["agent_workflow", "direct_response", "workflow_only", "hybrid"] },
+                    "destinations": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "kind": { "type": "string", "enum": ["agentBox", "chat", "email", "webhook", "storage", "notification"] },
+                          "agents": { "type": "array", "items": { "type": "string" } }
+                        }
+                      }
+                    },
+                    "executionWorkflows": { "type": "array" }
+                  }
+                }
+              },
+              "agentContextFiles": { "type": "array" }
+            },
+            "_meta": {
+              "deprecatedFields": ["passiveEnabled", "activeEnabled", "reasoning", "execution", "triggers", "workflows", "specialDestinations", "applyFor"]
+            }
+          }
+          
+          const json = JSON.stringify(agentSchema, null, 2)
+          const blob = new Blob([json], { type: 'application/json' })
+          const url = URL.createObjectURL(blob)
+          
+          const a = document.createElement('a')
+          a.href = url
+          a.download = 'agent.schema.json'
+          document.body.appendChild(a)
+          a.click()
+          document.body.removeChild(a)
+          URL.revokeObjectURL(url)
+          
+          console.log('✅ Agent schema downloaded!')
+          
+          // Brief feedback
+          const originalText = schemaBtn.innerHTML
+          schemaBtn.innerHTML = '✓'
+          setTimeout(() => { schemaBtn.innerHTML = originalText }, 1500)
+          
+        } catch (error) {
+          console.error('❌ Schema download failed:', error)
+          alert('Schema download failed. Check console for details.')
+        }
+      }
+    }
+
+    // Template download handler - downloads a canonical example agent JSON
+    // Use this as a starting point for creating new agents or to show LLMs how agents should look
+    const templateBtn = document.getElementById('ag-template-btn')
+    if (templateBtn) {
+      templateBtn.onclick = async () => {
+        try {
+          console.log('📄 Downloading agent template...')
+          
+          // Canonical example agent (matches example-agent.json in schemas/)
+          const exampleAgent = {
+            "$schema": "./agent.schema.json",
+            "_schemaVersion": "2.1.0",
+            "_exportedAt": new Date().toISOString(),
+            "_source": "Optimando AI Extension - Template",
+            "id": "my-new-agent",
+            "name": "my-agent-name",
+            "description": "Describe what this agent does. Be specific about its purpose, when it activates, and what output it produces.",
+            "icon": "🤖",
+            "number": 1,
+            "enabled": true,
+            "capabilities": ["listening", "reasoning", "execution"],
+            "contextSettings": {
+              "agentContext": true,
+              "sessionContext": true,
+              "accountContext": false
+            },
+            "memorySettings": {
+              "agentEnabled": true,
+              "sessionEnabled": false,
+              "accountEnabled": false
+            },
+            "listening": {
+              "expectedContext": "keywords describing when this agent should activate",
+              "tags": [],
+              "sources": ["dom"],
+              "website": "*example.com/*",
+              "unifiedTriggers": [
+                {
+                  "id": "TRIGGER01",
+                  "type": "dom_parser",
+                  "enabled": true,
+                  "channel": "dom",
+                  "parserTrigger": "button_click",
+                  "siteFilters": ["https://example.com/*"],
+                  "buttonSelectors": ["button[type='submit']", "button[aria-label='Send']"],
+                  "autoDetectSelectors": false,
+                  "triggerOnEnterKey": true,
+                  "enterKeyIgnoreShift": true,
+                  "captureInput": true,
+                  "inputSelectors": ["textarea", "input[type='text']"],
+                  "captureOutput": true,
+                  "outputSelectors": ["div.response", "div.output"],
+                  "responseReadyMode": "quiet_period",
+                  "quietPeriodMs": 2000,
+                  "maxWaitTimeMs": 60000,
+                  "captureUrl": true,
+                  "capturePageTitle": true,
+                  "metaSelectors": [],
+                  "sanitizeTrim": true,
+                  "sanitizeStripMarkdown": false,
+                  "sanitizeRemoveBoilerplate": false,
+                  "domParserRules": [],
+                  "sensorWorkflows": [],
+                  "allowedActions": []
+                }
+              ],
+              "exampleFiles": []
+            },
+            "reasoningSections": [
+              {
+                "applyForList": ["TRIGGER01"],
+                "goals": "Define the main objective and instructions for how this agent should process input. Be specific about what analysis or transformation to perform.",
+                "role": "Agent Role/Persona",
+                "rules": "List any hard requirements, constraints, or formatting rules the agent must follow.",
+                "custom": [],
+                "acceptFrom": ["dom"],
+                "memoryContext": {
+                  "agentEnabled": true,
+                  "sessionEnabled": false,
+                  "accountEnabled": false
+                },
+                "reasoningWorkflows": []
+              }
+            ],
+            "executionSections": [
+              {
+                "applyForList": ["TRIGGER01"],
+                "executionMode": "agent_workflow",
+                "destinations": [
+                  {
+                    "kind": "agentBox",
+                    "agents": ["agentBox01"]
+                  }
+                ],
+                "executionWorkflows": []
+              }
+            ],
+            "agentContextFiles": [],
+            "_schemaInfo": {
+              "enums": {
+                "listening.sources": ["all", "chat", "voice", "voicememo", "video", "email", "whatsapp", "pdf", "docs", "dom", "api", "workflow", "agent", "screenshot", "stream"],
+                "executionSection.executionMode": ["agent_workflow", "direct_response", "workflow_only", "hybrid"],
+                "trigger.type": ["direct_tag", "tag_and_condition", "workflow_condition", "dom_event", "dom_parser", "augmented_overlay", "agent", "miniapp", "manual"],
+                "trigger.parserTrigger": ["page_load", "dom_change", "interval", "button_click", "manual"],
+                "trigger.responseReadyMode": ["first_change", "quiet_period", "selector_signal"],
+                "destination.kind": ["agentBox", "chat", "email", "webhook", "storage", "notification"]
+              },
+              "numericFields": ["parserInterval", "quietPeriodMs", "maxWaitTimeMs", "number"],
+              "deprecatedFields": ["passiveEnabled", "activeEnabled", "reasoning", "execution", "triggers", "workflows", "specialDestinations", "applyFor"]
+            }
+          }
+          
+          const json = JSON.stringify(exampleAgent, null, 2)
+          const blob = new Blob([json], { type: 'application/json' })
+          const url = URL.createObjectURL(blob)
+          
+          const a = document.createElement('a')
+          a.href = url
+          a.download = 'agent.template.json'
+          document.body.appendChild(a)
+          a.click()
+          document.body.removeChild(a)
+          URL.revokeObjectURL(url)
+          
+          console.log('✅ Agent template downloaded!')
+          
+          // Brief feedback
+          const originalHTML = templateBtn.innerHTML
+          templateBtn.innerHTML = '✓'
+          setTimeout(() => { templateBtn.innerHTML = originalHTML }, 1500)
+          
+        } catch (error) {
+          console.error('❌ Template download failed:', error)
+          alert('Template download failed. Check console for details.')
         }
       }
     }
@@ -22412,6 +23475,56 @@ function initializeExtension() {
               trigger.domParseTarget = row.querySelector('.trigger-dom-parse-target')?.value || 'body'
               trigger.domParseSelector = row.querySelector('.trigger-dom-parse-selector')?.value || ''
               trigger.domUrlFilter = row.querySelector('.trigger-dom-url-filter')?.value || ''
+              
+              // ============================================================
+              // AI Chat Capture - Button Click Configuration (CRITICAL!)
+              // ============================================================
+              // Site Filters
+              const siteFiltersText = (row.querySelector('.trigger-site-filters') as HTMLTextAreaElement)?.value || ''
+              trigger.siteFilters = siteFiltersText.split('\n').map((s: string) => s.trim()).filter((s: string) => s)
+              
+              // Button Selectors
+              const buttonSelectorsText = (row.querySelector('.trigger-button-selectors') as HTMLTextAreaElement)?.value || ''
+              trigger.buttonSelectors = buttonSelectorsText.split('\n').map((s: string) => s.trim()).filter((s: string) => s)
+              trigger.buttonSelector = trigger.buttonSelectors[0] || ''
+              
+              // Auto-Detect Selectors
+              trigger.autoDetectSelectors = (row.querySelector('.trigger-auto-detect') as HTMLInputElement)?.checked || false
+              
+              // Enter Key Detection
+              trigger.triggerOnEnterKey = (row.querySelector('.trigger-on-enter-key') as HTMLInputElement)?.checked || false
+              trigger.enterKeyIgnoreShift = (row.querySelector('.trigger-enter-ignore-shift') as HTMLInputElement)?.checked !== false
+              
+              // Input Capture
+              trigger.captureInput = (row.querySelector('.trigger-capture-input') as HTMLInputElement)?.checked !== false
+              const inputSelectorsText = (row.querySelector('.trigger-input-selectors') as HTMLTextAreaElement)?.value || ''
+              trigger.inputSelectors = inputSelectorsText.split('\n').map((s: string) => s.trim()).filter((s: string) => s)
+              trigger.inputSelector = trigger.inputSelectors[0] || ''
+              
+              // Output Capture
+              trigger.captureOutput = (row.querySelector('.trigger-capture-output') as HTMLInputElement)?.checked || false
+              const outputSelectorsText = (row.querySelector('.trigger-output-selectors') as HTMLTextAreaElement)?.value || ''
+              trigger.outputSelectors = outputSelectorsText.split('\n').map((s: string) => s.trim()).filter((s: string) => s)
+              trigger.outputSelector = trigger.outputSelectors[0] || ''
+              
+              // Response Detection
+              trigger.responseReadyMode = (row.querySelector('.trigger-response-ready-mode') as HTMLSelectElement)?.value || 'first_change'
+              trigger.quietPeriodMs = parseInt((row.querySelector('.trigger-quiet-period-ms') as HTMLInputElement)?.value || '1500', 10)
+              trigger.responseSignalSelector = (row.querySelector('.trigger-response-signal-selector') as HTMLInputElement)?.value || ''
+              trigger.maxWaitTimeMs = parseInt((row.querySelector('.trigger-max-wait-time-ms') as HTMLInputElement)?.value || '60000', 10)
+              
+              // Meta Capture
+              trigger.captureUrl = (row.querySelector('.trigger-capture-url') as HTMLInputElement)?.checked !== false
+              trigger.capturePageTitle = (row.querySelector('.trigger-capture-page-title') as HTMLInputElement)?.checked || false
+              const metaSelectorsText = (row.querySelector('.trigger-meta-selectors') as HTMLTextAreaElement)?.value || ''
+              trigger.metaSelectors = metaSelectorsText.split('\n').map((s: string) => s.trim()).filter((s: string) => s)
+              
+              // Sanitization
+              trigger.sanitizeTrim = (row.querySelector('.trigger-sanitize-trim') as HTMLInputElement)?.checked !== false
+              trigger.sanitizeStripMarkdown = (row.querySelector('.trigger-sanitize-strip-markdown') as HTMLInputElement)?.checked || false
+              trigger.sanitizeRemoveBoilerplate = (row.querySelector('.trigger-sanitize-remove-boilerplate') as HTMLInputElement)?.checked || false
+              
+              // Parser Rules
               const parserRules: any[] = []
               row.querySelectorAll('.dom-parser-rule').forEach((ruleEl: any) => {
                 const ruleType = ruleEl.querySelector('.dom-rule-type')?.value || 'keyword'
@@ -22424,6 +23537,8 @@ function initializeExtension() {
                 parserRules.push(rule)
               })
               trigger.domParserRules = parserRules
+              
+              console.log(`    📋 DOM Parser trigger saved with AI Chat Capture: siteFilters=${trigger.siteFilters?.length || 0}, buttonSelectors=${trigger.buttonSelectors?.length || 0}, inputSelectors=${trigger.inputSelectors?.length || 0}`)
             }
             
             // Augmented Overlay fields

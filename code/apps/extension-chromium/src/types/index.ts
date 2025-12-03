@@ -3,11 +3,19 @@
  * 
  * Central export point for all type definitions and utilities.
  * 
+ * JSON Schema: /schemas/agent.schema.json
+ * 
  * @module types
  */
 
 // Schema definitions
 export * from './AgentTypeSchema';
+
+// Canonical agent configuration (v2.1.0)
+export * from './CanonicalAgentConfig';
+
+// Agent validation
+export * from './AgentValidator';
 
 // Export/Import utilities
 export * from './AgentExportImport';
