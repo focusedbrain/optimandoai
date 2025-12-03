@@ -49,10 +49,11 @@ if (window.gridScriptV2Loaded) {
       if (p === 'gemini') return ['auto', 'gemini-1.5-flash', 'gemini-1.5-pro'];
       if (p === 'grok') return ['auto', 'grok-2-mini', 'grok-2'];
       if (p === 'local ai') return ['auto', 'tinyllama', 'tinydolphin', 'stablelm2:1.6b', 'stablelm-zephyr:3b', 'phi3:mini', 'gemma:2b', 'phi:2.7b', 'orca-mini', 'qwen2.5-coder:1.5b', 'deepseek-r1:1.5b', 'mistral:7b-instruct-q4_0', 'llama3.2', 'qwen2.5-coder:7b'];
+      if (p === 'image ai') return ['Nano Banana Pro', 'DALL·E 3', 'DALL·E 2', 'Flux Schnell', 'Flux Dev', 'SDXL', 'SD3 Medium', 'Stable Diffusion XL'];
       return ['auto'];
     }
     
-    const providers = ['OpenAI', 'Claude', 'Gemini', 'Grok', 'Local AI'];
+    const providers = ['OpenAI', 'Claude', 'Gemini', 'Grok', 'Local AI', 'Image AI'];
     const currentProvider = cfg.provider || '';
     const models = currentProvider ? modelOptions(currentProvider) : [];
     
@@ -210,7 +211,7 @@ if (window.gridScriptV2Loaded) {
       }).join('');
       console.log('🔄 POPUP V2: Updated models for provider:', provider);
     };
-
+    
     // Finetune feedback
     document.getElementById('gs-finetune').onclick = function(){
       var fb = document.getElementById('gs-finetune-fb');
@@ -310,7 +311,7 @@ if (window.gridScriptV2Loaded) {
         title: title, 
         agent: agent, 
         provider: provider, 
-        model: model, 
+        model: model,
         boxNumber: effectiveBoxNumber,  // ← Use effectiveBoxNumber (preserves existing for edits)
         agentNumber: agentNum ? parseInt(agentNum) : 0,
         identifier: 'AB' + String(effectiveBoxNumber).padStart(2, '0') + (agentNum ? String(agentNum).padStart(2, '0') : '00'),

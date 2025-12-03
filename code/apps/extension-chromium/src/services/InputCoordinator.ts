@@ -14,6 +14,19 @@
 
 import type { AgentConfig, AgentBox, AgentMatch, RoutingDecision } from './processFlow'
 import type { ClassifiedInput, AgentAllocation, AgentReasoning, OutputSlot } from '../nlp/types'
+import type {
+  EventTagRoutingResult,
+  EventTagRoutingInput,
+  EventTagRoutingBatch,
+  ResolvedLlmConfig,
+  ResolvedReasoningConfig,
+  ResolvedExecutionConfig,
+  OutputDestination,
+  EventChannel,
+  TriggerType,
+  UnifiedTriggerConfig,
+  EventTagCondition
+} from '../automation/types'
 
 /**
  * Configuration for the Input Coordinator
@@ -39,8 +52,10 @@ interface ListenerEvaluation {
   matchesExpectedContext: boolean
   /** Whether input matches applyFor criteria */
   matchesApplyFor: boolean
-  /** Name of matched trigger if any */
+  /** Name of matched trigger if any (first match for backward compatibility) */
   matchedTriggerName?: string
+  /** ALL matched trigger names */
+  matchedTriggerNames?: string[]
   /** Type of match */
   matchType: 'passive_trigger' | 'active_trigger' | 'expected_context' | 'apply_for' | 'no_listener' | 'none'
   /** Human-readable match details */
@@ -139,6 +154,51 @@ export class InputCoordinator {
   }
 
   /**
+   * Check if trigger's keyword conditions are met
+   * Returns { valid: boolean, matchedKeyword?: string }
+   * - valid=true if no keywords configured OR at least one keyword found
+   * - matchedKeyword contains the first keyword that was found (for display)
+   */
+  private checkTriggerKeywords(trigger: any, input: string): { valid: boolean; matchedKeyword?: string } {
+    const inputLower = input.toLowerCase()
+    
+    // Check eventTagConditions for body_keywords
+    if (trigger.eventTagConditions && Array.isArray(trigger.eventTagConditions)) {
+      const keywordCondition = trigger.eventTagConditions.find((c: any) => c.type === 'body_keywords')
+      if (keywordCondition && keywordCondition.keywords && keywordCondition.keywords.length > 0) {
+        const matchedKeyword = keywordCondition.keywords.find((kw: string) => 
+          inputLower.includes(kw.toLowerCase())
+        )
+        this.log(`Keyword check (eventTagConditions): keywords=${keywordCondition.keywords.join(',')}, matched=${matchedKeyword || 'none'}`)
+        return { valid: !!matchedKeyword, matchedKeyword }
+      }
+    }
+    
+    // Check trigger.keywords (string, comma-separated)
+    if (trigger.keywords && typeof trigger.keywords === 'string' && trigger.keywords.trim()) {
+      const keywords = trigger.keywords.split(',').map((k: string) => k.trim()).filter(Boolean)
+      if (keywords.length > 0) {
+        const matchedKeyword = keywords.find((kw: string) => inputLower.includes(kw.toLowerCase()))
+        this.log(`Keyword check (trigger.keywords): keywords=${keywords.join(',')}, matched=${matchedKeyword || 'none'}`)
+        return { valid: !!matchedKeyword, matchedKeyword }
+      }
+    }
+    
+    // Check trigger.expectedContext (legacy, comma-separated)
+    if (trigger.expectedContext && typeof trigger.expectedContext === 'string' && trigger.expectedContext.trim()) {
+      const keywords = trigger.expectedContext.split(',').map((k: string) => k.trim()).filter(Boolean)
+      if (keywords.length > 0) {
+        const matchedKeyword = keywords.find((kw: string) => inputLower.includes(kw.toLowerCase()))
+        this.log(`Keyword check (expectedContext): keywords=${keywords.join(',')}, matched=${matchedKeyword || 'none'}`)
+        return { valid: !!matchedKeyword, matchedKeyword }
+      }
+    }
+    
+    // No keywords configured = always match (no keyword to display)
+    return { valid: true }
+  }
+
+  /**
    * Evaluate an agent's listener configuration against the input
    * 
    * This is the core decision logic for each agent:
@@ -161,12 +221,18 @@ export class InputCoordinator {
     // Check if agent has listener capability
     const hasListenerCapability = agent.capabilities?.includes('listening') ?? false
     
-    // Check if any listener mode is enabled
+    // Check if any listener mode is enabled (legacy format)
     const passiveEnabled = listening?.passiveEnabled ?? false
     const activeEnabled = listening?.activeEnabled ?? false
-    const isListenerActive = passiveEnabled || activeEnabled
     
-    this.log(`Agent "${agent.name}" - hasListenerCapability: ${hasListenerCapability}, isListenerActive: ${isListenerActive}`)
+    // NEW: Also check for unified triggers (new format) - if any exist, listener is active
+    const hasUnifiedTriggers = (listening?.unifiedTriggers?.length ?? 0) > 0
+    const hasLegacyTriggers = (listening?.triggers?.length ?? 0) > 0
+    
+    // Listener is active if any trigger system has triggers
+    const isListenerActive = passiveEnabled || activeEnabled || hasUnifiedTriggers || hasLegacyTriggers
+    
+    this.log(`Agent "${agent.name}" - hasListenerCapability: ${hasListenerCapability}, isListenerActive: ${isListenerActive}, hasUnifiedTriggers: ${hasUnifiedTriggers}`)
 
     // RULE: If no listener capability OR listener not active -> always forward to reasoning
     if (!hasListenerCapability || !isListenerActive) {
@@ -197,6 +263,11 @@ export class InputCoordinator {
       }
     }
 
+    // Collect ALL matching triggers (not just the first one)
+    const matchedTriggers: string[] = []
+    let hasPassiveMatch = false
+    let hasActiveMatch = false
+
     // Check passive triggers
     if (passiveEnabled && listening?.passive?.triggers && inputTriggers.length > 0) {
       for (const trigger of listening.passive.triggers) {
@@ -205,17 +276,10 @@ export class InputCoordinator {
           t.toLowerCase() === triggerName.toLowerCase()
         )) {
           this.log(`Agent "${agent.name}" matched passive trigger: #${triggerName}`)
-          return {
-            hasListener: true,
-            isListenerActive: true,
-            matchesPassiveTrigger: true,
-            matchesActiveTrigger: false,
-            matchesExpectedContext: false,
-            matchesApplyFor: true,
-            matchedTriggerName: triggerName,
-            matchType: 'passive_trigger',
-            matchDetails: `Passive trigger #${triggerName} matched`
+          if (!matchedTriggers.includes(triggerName)) {
+            matchedTriggers.push(triggerName)
           }
+          hasPassiveMatch = true
         }
       }
     }
@@ -228,18 +292,91 @@ export class InputCoordinator {
           t.toLowerCase() === triggerName.toLowerCase()
         )) {
           this.log(`Agent "${agent.name}" matched active trigger: #${triggerName}`)
-          return {
-            hasListener: true,
-            isListenerActive: true,
-            matchesPassiveTrigger: false,
-            matchesActiveTrigger: true,
-            matchesExpectedContext: false,
-            matchesApplyFor: true,
-            matchedTriggerName: triggerName,
-            matchType: 'active_trigger',
-            matchDetails: `Active trigger #${triggerName} matched`
+          if (!matchedTriggers.includes(triggerName)) {
+            matchedTriggers.push(triggerName)
           }
+          hasActiveMatch = true
         }
+      }
+    }
+
+    // Track matched keywords for display
+    const matchedKeywords: string[] = []
+    
+    // Check unified triggers (new format)
+    if (listening?.unifiedTriggers && inputTriggers.length > 0) {
+      for (const trigger of listening.unifiedTriggers) {
+        const triggerTag = trigger.tag?.replace('#', '') || trigger.tagName || ''
+        
+        if (triggerTag && inputTriggers.some(t => 
+          t.toLowerCase() === triggerTag.toLowerCase()
+        )) {
+          // Check keyword conditions before accepting the match
+          const keywordResult = this.checkTriggerKeywords(trigger, input)
+          if (!keywordResult.valid) {
+            this.log(`Agent "${agent.name}" trigger #${triggerTag} - keywords NOT matched, skipping`)
+            continue
+          }
+          
+          this.log(`Agent "${agent.name}" matched unified trigger: #${triggerTag}`)
+          if (!matchedTriggers.includes(triggerTag)) {
+            matchedTriggers.push(triggerTag)
+          }
+          if (keywordResult.matchedKeyword && !matchedKeywords.includes(keywordResult.matchedKeyword)) {
+            matchedKeywords.push(keywordResult.matchedKeyword)
+          }
+          hasActiveMatch = true
+        }
+      }
+    }
+    
+    // Also check listening.triggers (alternative storage)
+    if (listening?.triggers && Array.isArray(listening.triggers) && inputTriggers.length > 0) {
+      for (const trigger of listening.triggers) {
+        const triggerTag = trigger.tag?.replace('#', '') || trigger.tagName || trigger.name || ''
+        
+        if (triggerTag && inputTriggers.some(t => 
+          t.toLowerCase() === triggerTag.toLowerCase()
+        )) {
+          // Check keyword conditions before accepting the match
+          const keywordResult = this.checkTriggerKeywords(trigger, input)
+          if (!keywordResult.valid) {
+            this.log(`Agent "${agent.name}" trigger #${triggerTag} - keywords NOT matched, skipping`)
+            continue
+          }
+          
+          this.log(`Agent "${agent.name}" matched trigger: #${triggerTag}`)
+          if (!matchedTriggers.includes(triggerTag)) {
+            matchedTriggers.push(triggerTag)
+          }
+          if (keywordResult.matchedKeyword && !matchedKeywords.includes(keywordResult.matchedKeyword)) {
+            matchedKeywords.push(keywordResult.matchedKeyword)
+          }
+          hasActiveMatch = true
+        }
+      }
+    }
+
+    // If we found any matching triggers, return the combined result
+    if (matchedTriggers.length > 0) {
+      const triggerList = matchedTriggers.map(t => `#${t}`).join(', ')
+      const keywordInfo = matchedKeywords.length > 0 
+        ? ` (keyword: ${matchedKeywords.join(', ')})` 
+        : ''
+      this.log(`Agent "${agent.name}" matched ${matchedTriggers.length} trigger(s): ${triggerList}${keywordInfo}`)
+      return {
+        hasListener: true,
+        isListenerActive: true,
+        matchesPassiveTrigger: hasPassiveMatch,
+        matchesActiveTrigger: hasActiveMatch,
+        matchesExpectedContext: false,
+        matchesApplyFor: true,
+        matchedTriggerName: matchedTriggers[0], // First for backward compatibility
+        matchedTriggerNames: matchedTriggers, // ALL matched triggers
+        matchType: hasPassiveMatch ? 'passive_trigger' : 'active_trigger',
+        matchDetails: matchedTriggers.length === 1 
+          ? `Event trigger #${matchedTriggers[0]} matched${keywordInfo}`
+          : `Event triggers matched: ${triggerList}${keywordInfo}`
       }
     }
 
@@ -648,10 +785,652 @@ export class InputCoordinator {
     
     return response
   }
+
+  // =============================================================================
+  // Event Tag Routing - Complete Flow Implementation
+  // =============================================================================
+
+  /**
+   * Route Event Tag triggers through the complete flow:
+   * 
+   * 1. WR Chat input → NLP parsing → ClassifiedInput with #tags
+   * 2. Check all agents' listeners in session for matching triggers
+   * 3. Evaluate eventTagConditions (WRCode, sender whitelist, keywords, website)
+   * 4. Collect sensor workflow context
+   * 5. Resolve LLM from connected Agent Box
+   * 6. Determine which Reasoning section applies (via applyFor)
+   * 7. Determine which Execution section applies (via applyFor)
+   * 8. Resolve output destinations from "Report to"
+   * 
+   * @param input - The routing input containing classified input, agents, and agent boxes
+   * @returns Batch result with all matched agents and their resolved configurations
+   */
+  routeEventTagTrigger(input: EventTagRoutingInput): EventTagRoutingBatch {
+    const startTime = Date.now()
+    const results: EventTagRoutingResult[] = []
+    
+    const { classifiedInput, agents, agentBoxes, currentUrl, sessionKey } = input
+    
+    // Extract triggers from the classified input (without # prefix for matching)
+    const triggersFound = classifiedInput.triggers || []
+    const triggerNames = triggersFound.map(t => t.startsWith('#') ? t.substring(1) : t)
+    
+    this.log('=== Event Tag Routing Start ===')
+    this.log(`Input: "${classifiedInput.rawText.substring(0, 50)}${classifiedInput.rawText.length > 50 ? '...' : ''}"`)
+    this.log(`Triggers found: ${triggersFound.length > 0 ? triggersFound.join(', ') : '(none)'}`)
+    this.log(`Agents to check: ${agents.length}`)
+    
+    let agentsWithListeners = 0
+    let agentsMatched = 0
+    let agentsSkipped = 0
+    
+    // Process each agent
+    for (const agent of agents) {
+      // Skip disabled agents
+      if (!agent.enabled) {
+        agentsSkipped++
+        this.log(`⊘ Skipping disabled agent: ${agent.name}`)
+        continue
+      }
+      
+      // Check if agent has any event tag triggers
+      const eventTagTriggers = this.extractEventTagTriggers(agent)
+      
+      if (eventTagTriggers.length === 0) {
+        // Agent has no event tag listeners - skip for this routing type
+        this.log(`⊘ Agent "${agent.name}" has no event tag triggers`)
+        agentsSkipped++
+        continue
+      }
+      
+      agentsWithListeners++
+      
+      // Collect ALL matching triggers for this agent
+      const matchedTriggersForAgent: Array<{tag: string, trigger: any, conditionResults: any}> = []
+      
+      // Check each trigger for a match
+      for (const trigger of eventTagTriggers) {
+        const triggerTag = trigger.tag?.replace('#', '') || trigger.tagName || ''
+        
+        if (!triggerTag) continue
+        
+        // Check if any input trigger matches this agent's trigger
+        const isMatch = triggerNames.some(t => 
+          t.toLowerCase() === triggerTag.toLowerCase()
+        )
+        
+        if (!isMatch) continue
+        
+        this.log(`✓ Trigger match: #${triggerTag} for agent "${agent.name}"`)
+        
+        // Evaluate event tag conditions
+        const conditionResults = this.evaluateEventTagConditions(
+          trigger,
+          classifiedInput,
+          currentUrl
+        )
+        
+        if (!conditionResults.allPassed) {
+          this.log(`✗ Conditions not met for agent "${agent.name}": ${conditionResults.conditions.map(c => `${c.type}:${c.passed}`).join(', ')}`)
+          continue
+        }
+        
+        // Add to matched triggers for this agent
+        matchedTriggersForAgent.push({ tag: triggerTag, trigger, conditionResults })
+      }
+      
+      // If we have any matching triggers for this agent, create a result
+      if (matchedTriggersForAgent.length > 0) {
+        agentsMatched++
+        
+        // Use first trigger for config resolution (they share the same agent config)
+        const firstMatch = matchedTriggersForAgent[0]
+        
+        // Resolve LLM from connected Agent Box
+        const llmConfig = this.resolveLlmFromAgentBox(agent, agentBoxes)
+        
+        // Resolve reasoning configuration
+        const reasoningConfig = this.resolveReasoningConfig(agent, firstMatch.trigger)
+        
+        // Resolve execution configuration
+        const executionConfig = this.resolveExecutionConfig(agent, firstMatch.trigger, agentBoxes)
+        
+        // Build list of all matched tags
+        const allMatchedTags = matchedTriggersForAgent.map(m => `#${m.tag}`)
+        const tagsDisplay = allMatchedTags.join(', ')
+        
+        // Build the routing result with ALL matched triggers
+        const result: EventTagRoutingResult = {
+          matched: true,
+          agentId: agent.id,
+          agentName: agent.name || agent.key || 'Unnamed Agent',
+          agentIcon: '🤖', // Default icon
+          agentNumber: agent.number,
+          trigger: {
+            id: firstMatch.trigger.id || `ID#${firstMatch.tag}`,
+            type: (firstMatch.trigger.type as TriggerType) || 'direct_tag',
+            tag: tagsDisplay, // Show ALL matched tags
+            channel: (firstMatch.trigger.channel as EventChannel) || 'chat'
+          },
+          conditionResults: firstMatch.conditionResults,
+          sensorContext: {}, // Will be populated by sensor workflows
+          llmConfig,
+          reasoningConfig,
+          executionConfig,
+          matchDetails: matchedTriggersForAgent.length === 1
+            ? `Event tag #${firstMatch.tag} matched`
+            : `Event tags matched: ${tagsDisplay}`,
+          timestamp: Date.now()
+        }
+        
+        results.push(result)
+        this.log(`✓ Agent "${agent.name}" matched ${matchedTriggersForAgent.length} trigger(s): ${tagsDisplay}`)
+        this.log(`  → LLM: ${llmConfig.provider}/${llmConfig.model}, ReportTo: ${executionConfig.reportTo.map(r => r.label).join(', ')}`)
+      }
+    }
+    
+    this.log(`=== Event Tag Routing Complete: ${results.length} match(es) ===`)
+    
+    return {
+      results,
+      summary: {
+        totalAgentsChecked: agents.length,
+        agentsWithListeners,
+        agentsMatched,
+        agentsSkipped
+      },
+      originalInput: classifiedInput.rawText,
+      triggersFound,
+      processingTimeMs: Date.now() - startTime
+    }
+  }
+
+  /**
+   * Extract event tag triggers from an agent's configuration
+   */
+  private extractEventTagTriggers(agent: any): any[] {
+    const triggers: any[] = []
+    const listening = agent.listening
+    
+    if (!listening) return triggers
+    
+    // Check unified triggers format (new) - stored as unifiedTriggers
+    if (listening.unifiedTriggers && Array.isArray(listening.unifiedTriggers)) {
+      const eventTagTriggers = listening.unifiedTriggers.filter((t: any) => 
+        t.type === 'direct_tag' || t.type === 'tag_and_condition'
+      )
+      triggers.push(...eventTagTriggers)
+      this.log(`Found ${eventTagTriggers.length} unified triggers for agent`)
+    }
+    
+    // Also check listening.triggers (alternative storage location)
+    if (listening.triggers && Array.isArray(listening.triggers)) {
+      const eventTagTriggers = listening.triggers.filter((t: any) => 
+        t.type === 'direct_tag' || t.type === 'tag_and_condition'
+      )
+      triggers.push(...eventTagTriggers)
+      this.log(`Found ${eventTagTriggers.length} triggers for agent`)
+    }
+    
+    // Check legacy passive triggers
+    if (listening.passiveEnabled && listening.passive?.triggers) {
+      for (const t of listening.passive.triggers) {
+        if (t.tag?.name) {
+          triggers.push({
+            type: 'direct_tag',
+            tag: t.tag.name,
+            tagName: t.tag.name,
+            channel: listening.source || 'chat',
+            enabled: true
+          })
+        }
+      }
+      this.log(`Found ${listening.passive.triggers.length} legacy passive triggers`)
+    }
+    
+    // Check legacy active triggers
+    if (listening.activeEnabled && listening.active?.triggers) {
+      for (const t of listening.active.triggers) {
+        if (t.tag?.name) {
+          triggers.push({
+            type: 'direct_tag',
+            tag: t.tag.name,
+            tagName: t.tag.name,
+            channel: listening.source || 'chat',
+            enabled: true
+          })
+        }
+      }
+      this.log(`Found ${listening.active.triggers.length} legacy active triggers`)
+    }
+    
+    this.log(`Total triggers extracted for agent "${agent.name}":`, triggers.length)
+    return triggers
+  }
+
+  /**
+   * Evaluate event tag conditions (WRCode, sender whitelist, keywords, website)
+   */
+  private evaluateEventTagConditions(
+    trigger: any,
+    classifiedInput: EventTagRoutingInput['classifiedInput'],
+    currentUrl?: string
+  ): EventTagRoutingResult['conditionResults'] {
+    const conditions: Array<{ type: string; passed: boolean; details: string }> = []
+    let allPassed = true
+    
+    const eventTagConditions = trigger.eventTagConditions || []
+    
+    this.log(`Evaluating conditions for trigger:`, {
+      hasEventTagConditions: eventTagConditions.length,
+      hasKeywordsField: !!trigger.keywords,
+      keywordsValue: trigger.keywords,
+      hasExpectedContext: !!trigger.expectedContext
+    })
+    
+    for (const condition of eventTagConditions) {
+      let passed = true
+      let details = ''
+      
+      switch (condition.type) {
+        case 'wrcode_valid':
+          // WRCode validation - check if email has valid WRCode stamp
+          // For now, skip if not required or if not an email channel
+          if (condition.required) {
+            // In a real implementation, this would check the WRCode validation result
+            passed = true // Placeholder - would check classifiedInput metadata
+            details = passed ? 'WRCode validation passed' : 'WRCode validation required but not present'
+          } else {
+            passed = true
+            details = 'WRCode not required'
+          }
+          break
+          
+        case 'sender_whitelist':
+          // Sender whitelist - only for email channel
+          if (condition.allowedSenders && condition.allowedSenders.length > 0) {
+            // Would check against sender address from classifiedInput
+            passed = true // Placeholder
+            details = `Sender whitelist check (${condition.allowedSenders.length} addresses)`
+          } else {
+            passed = true
+            details = 'No sender whitelist configured'
+          }
+          break
+          
+        case 'body_keywords':
+          // Keyword matching in the input text
+          if (condition.keywords && condition.keywords.length > 0) {
+            const searchText = classifiedInput.rawText.toLowerCase()
+            const matchedKeyword = condition.keywords.find((kw: string) => 
+              searchText.includes(kw.toLowerCase())
+            )
+            passed = !!matchedKeyword
+            details = passed 
+              ? `Keyword "${matchedKeyword}" found` 
+              : `None of ${condition.keywords.length} keywords found`
+            this.log(`body_keywords check:`, { keywords: condition.keywords, searchText: searchText.substring(0, 50), passed, matchedKeyword })
+          } else {
+            passed = true
+            details = 'No keywords configured'
+          }
+          break
+          
+        case 'website_filter':
+          // Website/URL pattern matching
+          if (condition.patterns && condition.patterns.length > 0 && currentUrl) {
+            const matchedPattern = condition.patterns.find((pattern: string) => {
+              const regex = new RegExp(pattern.replace(/\*/g, '.*'), 'i')
+              return regex.test(currentUrl)
+            })
+            passed = !!matchedPattern
+            details = passed 
+              ? `URL matches pattern "${matchedPattern}"` 
+              : `URL ${currentUrl} doesn't match any patterns`
+          } else if (!currentUrl) {
+            passed = true
+            details = 'No URL context available'
+          } else {
+            passed = true
+            details = 'No website filter configured'
+          }
+          break
+          
+        default:
+          passed = true
+          details = `Unknown condition type: ${condition.type}`
+      }
+      
+      conditions.push({ type: condition.type, passed, details })
+      if (!passed) allPassed = false
+    }
+    
+    // Check legacy trigger.keywords field (comma-separated string) if no body_keywords condition already processed
+    const hasBodyKeywordsCondition = conditions.some(c => c.type === 'body_keywords')
+    
+    if (!hasBodyKeywordsCondition && trigger.keywords && typeof trigger.keywords === 'string' && trigger.keywords.trim()) {
+      const keywords = trigger.keywords.split(',').map((k: string) => k.trim()).filter(Boolean)
+      if (keywords.length > 0) {
+        const searchText = classifiedInput.rawText.toLowerCase()
+        const matchedKeyword = keywords.find((kw: string) => searchText.includes(kw.toLowerCase()))
+        const passed = !!matchedKeyword
+        this.log(`Legacy keywords check:`, { keywords, searchText: searchText.substring(0, 50), passed, matchedKeyword })
+        conditions.push({
+          type: 'body_keywords',
+          passed,
+          details: passed ? `Keyword "${matchedKeyword}" found` : `None of ${keywords.length} keywords found - required for match`
+        })
+        if (!passed) allPassed = false
+      }
+    }
+    
+    // Also check legacy expectedContext if present and no keywords check done yet
+    if (!conditions.some(c => c.type === 'body_keywords') && trigger.expectedContext) {
+      const keywords = trigger.expectedContext.split(',').map((k: string) => k.trim()).filter(Boolean)
+      if (keywords.length > 0) {
+        const searchText = classifiedInput.rawText.toLowerCase()
+        const matchedKeyword = keywords.find((kw: string) => searchText.includes(kw.toLowerCase()))
+        const passed = !!matchedKeyword
+        this.log(`ExpectedContext check:`, { keywords, passed })
+        conditions.push({
+          type: 'body_keywords',
+          passed,
+          details: passed ? `Context keyword "${matchedKeyword}" found` : `None of ${keywords.length} context keywords found`
+        })
+        if (!passed) allPassed = false
+      }
+    }
+    
+    // If no conditions, all pass by default
+    if (conditions.length === 0) {
+      conditions.push({ type: 'none', passed: true, details: 'No conditions configured' })
+    }
+    
+    this.log(`Condition evaluation result:`, { allPassed, conditionCount: conditions.length, conditions })
+    
+    return { allPassed, conditions }
+  }
+
+  /**
+   * Resolve LLM configuration from the agent's connected Agent Box
+   */
+  private resolveLlmFromAgentBox(
+    agent: any,
+    agentBoxes: EventTagRoutingInput['agentBoxes']
+  ): ResolvedLlmConfig {
+    // Find agent boxes connected to this agent
+    const connectedBoxes = this.findAgentBoxesForAgent(agent, agentBoxes as AgentBox[])
+    
+    const primaryBox = connectedBoxes.find(box => box.enabled !== false)
+    
+    if (primaryBox && primaryBox.provider && primaryBox.model) {
+      return {
+        provider: primaryBox.provider,
+        model: primaryBox.model,
+        agentBoxId: primaryBox.id,
+        agentBoxNumber: primaryBox.boxNumber,
+        agentBoxTitle: primaryBox.title,
+        isAvailable: true
+      }
+    }
+    
+    // Fallback to default Ollama if no box configured
+    return {
+      provider: 'ollama',
+      model: 'llama3.2',
+      agentBoxId: primaryBox?.id || '',
+      agentBoxNumber: primaryBox?.boxNumber || 0,
+      agentBoxTitle: primaryBox?.title,
+      isAvailable: primaryBox ? true : false,
+      unavailableReason: primaryBox ? undefined : 'No Agent Box connected to this agent'
+    }
+  }
+
+  /**
+   * Resolve reasoning configuration for an agent
+   * Checks which reasoning section applies based on applyFor
+   */
+  private resolveReasoningConfig(
+    agent: any,
+    trigger: any
+  ): ResolvedReasoningConfig {
+    const reasoning = agent.reasoning || {}
+    const triggerId = trigger.id || `ID#${trigger.tag?.replace('#', '') || trigger.tagName || ''}`
+    
+    // Check if there are multiple reasoning sections
+    const reasoningSections = reasoning.sections || []
+    
+    // Find the section that applies to this trigger
+    let applicableSection = reasoningSections.find((section: any) => {
+      const applyForList = section.applyForList || [section.applyFor || '__any__']
+      return applyForList.includes(triggerId) || applyForList.includes('__any__')
+    })
+    
+    // If no matching section, use the main reasoning config
+    if (!applicableSection) {
+      applicableSection = reasoning
+    }
+    
+    return {
+      applyFor: applicableSection.applyFor || '__any__',
+      goals: applicableSection.goals || reasoning.goals || '',
+      role: applicableSection.role || reasoning.role || '',
+      rules: applicableSection.rules || reasoning.rules || '',
+      custom: applicableSection.custom || reasoning.custom || [],
+      memoryContext: {
+        sessionContext: {
+          read: applicableSection.memoryContext?.sessionContext?.read ?? false,
+          write: applicableSection.memoryContext?.sessionContext?.write ?? false
+        },
+        accountMemory: {
+          read: applicableSection.memoryContext?.accountMemory?.read ?? false,
+          write: applicableSection.memoryContext?.accountMemory?.write ?? false
+        },
+        agentMemory: { enabled: true }
+      },
+      reasoningWorkflows: applicableSection.reasoningWorkflows || []
+    }
+  }
+
+  /**
+   * Resolve execution configuration for an agent
+   * Checks which execution section applies and resolves report destinations
+   */
+  private resolveExecutionConfig(
+    agent: any,
+    trigger: any,
+    agentBoxes: EventTagRoutingInput['agentBoxes']
+  ): ResolvedExecutionConfig {
+    const execution = agent.execution || {}
+    const triggerId = trigger.id || `ID#${trigger.tag?.replace('#', '') || trigger.tagName || ''}`
+    
+    // Check if there are multiple execution sections
+    const executionSections = execution.executionSections || []
+    
+    // Find the section that applies to this trigger
+    let applicableSection = executionSections.find((section: any) => {
+      const applyForList = section.applyForList || [section.applyFor || '__any__']
+      return applyForList.includes(triggerId) || applyForList.includes('__any__')
+    })
+    
+    // If no matching section, use the main execution config
+    if (!applicableSection) {
+      applicableSection = execution
+    }
+    
+    // Resolve report destinations
+    const reportTo: OutputDestination[] = []
+    
+    // Check specialDestinations
+    const specialDestinations = applicableSection.specialDestinations || execution.specialDestinations || []
+    
+    for (const dest of specialDestinations) {
+      if (dest.kind === 'agentBox') {
+        // Resolve specific agent boxes
+        if (dest.agents && dest.agents.length > 0) {
+          for (const boxRef of dest.agents) {
+            const boxNumMatch = String(boxRef).match(/(\d+)/)
+            if (boxNumMatch) {
+              const boxNum = parseInt(boxNumMatch[1], 10)
+              const box = agentBoxes.find(b => b.boxNumber === boxNum)
+              if (box) {
+                reportTo.push({
+                  kind: 'agent_box',
+                  agentBoxId: box.id,
+                  agentBoxNumber: box.boxNumber,
+                  label: `Agent Box ${String(box.boxNumber).padStart(2, '0')}${box.title ? ` (${box.title})` : ''}`,
+                  enabled: box.enabled !== false
+                })
+              }
+            }
+          }
+        } else {
+          // Generic agent box - use agent's connected box
+          const connectedBoxes = this.findAgentBoxesForAgent(agent, agentBoxes as AgentBox[])
+          for (const box of connectedBoxes) {
+            reportTo.push({
+              kind: 'agent_box',
+              agentBoxId: box.id,
+              agentBoxNumber: box.boxNumber,
+              label: `Agent Box ${String(box.boxNumber).padStart(2, '0')}${box.title ? ` (${box.title})` : ''}`,
+              enabled: box.enabled !== false
+            })
+          }
+        }
+      } else if (dest.kind === 'wrChat' || dest.kind === 'commandChat') {
+        reportTo.push({
+          kind: 'wr_chat',
+          label: 'WR Chat (Command Chat)',
+          enabled: true
+        })
+      } else if (dest.kind === 'inlineChat') {
+        reportTo.push({
+          kind: 'inline_chat',
+          label: 'Inline Chat',
+          enabled: true
+        })
+      }
+    }
+    
+    // Check legacy reportTo in listening section
+    const listenerReportTo = agent.listening?.reportTo || []
+    for (const dest of listenerReportTo) {
+      const boxNumMatch = String(dest).match(/(?:box|Box)\s*(\d+)/i)
+      if (boxNumMatch) {
+        const boxNum = parseInt(boxNumMatch[1], 10)
+        const box = agentBoxes.find(b => b.boxNumber === boxNum)
+        if (box && !reportTo.some(r => r.agentBoxId === box.id)) {
+          reportTo.push({
+            kind: 'agent_box',
+            agentBoxId: box.id,
+            agentBoxNumber: box.boxNumber,
+            label: `Agent Box ${String(box.boxNumber).padStart(2, '0')}${box.title ? ` (${box.title})` : ''}`,
+            enabled: box.enabled !== false
+          })
+        }
+      }
+    }
+    
+    // Default to agent's connected box if no explicit reportTo
+    if (reportTo.length === 0) {
+      const connectedBoxes = this.findAgentBoxesForAgent(agent, agentBoxes as AgentBox[])
+      for (const box of connectedBoxes) {
+        reportTo.push({
+          kind: 'agent_box',
+          agentBoxId: box.id,
+          agentBoxNumber: box.boxNumber,
+          label: `Agent Box ${String(box.boxNumber).padStart(2, '0')}${box.title ? ` (${box.title})` : ''}`,
+          enabled: box.enabled !== false
+        })
+      }
+    }
+    
+    // If still no destinations, default to inline chat
+    if (reportTo.length === 0) {
+      reportTo.push({
+        kind: 'inline_chat',
+        label: 'Inline Chat',
+        enabled: true
+      })
+    }
+    
+    return {
+      applyFor: applicableSection.applyFor || '__any__',
+      workflows: applicableSection.workflows || execution.workflows || [],
+      reportTo
+    }
+  }
+
+  /**
+   * Run sensor workflows and collect context
+   * This is called after trigger matching but before reasoning
+   */
+  async collectSensorContext(
+    agent: any,
+    classifiedInput: EventTagRoutingInput['classifiedInput']
+  ): Promise<Record<string, any>> {
+    const sensorContext: Record<string, any> = {}
+    
+    const listening = agent.listening || {}
+    const sensorWorkflows = listening.sensorWorkflows || []
+    
+    if (sensorWorkflows.length === 0) {
+      return sensorContext
+    }
+    
+    this.log(`Running ${sensorWorkflows.length} sensor workflow(s) for agent "${agent.name}"`)
+    
+    // In a real implementation, this would execute each sensor workflow
+    // and collect their outputs into the context
+    for (const workflowId of sensorWorkflows) {
+      try {
+        // Placeholder - actual workflow execution would happen here
+        sensorContext[workflowId] = {
+          status: 'pending',
+          note: 'Sensor workflow execution not yet implemented'
+        }
+      } catch (error) {
+        sensorContext[workflowId] = {
+          status: 'error',
+          error: String(error)
+        }
+      }
+    }
+    
+    return sensorContext
+  }
+
+  /**
+   * Generate a summary response for the routing results
+   */
+  generateRoutingSummary(batch: EventTagRoutingBatch): string {
+    if (batch.results.length === 0) {
+      return ''
+    }
+    
+    if (batch.results.length === 1) {
+      const result = batch.results[0]
+      let summary = `Routing to ${result.agentIcon} **${result.agentName}**\n`
+      summary += `→ Trigger: ${result.trigger.tag} (${result.trigger.channel})\n`
+      summary += `→ LLM: ${result.llmConfig.provider}/${result.llmConfig.model}\n`
+      summary += `→ Output: ${result.executionConfig.reportTo.map(r => r.label).join(', ')}`
+      return summary
+    }
+    
+    let summary = `Your request matches ${batch.results.length} agents:\n\n`
+    for (const result of batch.results) {
+      summary += `${result.agentIcon} **${result.agentName}**\n`
+      summary += `   Trigger: ${result.trigger.tag}\n`
+      summary += `   LLM: ${result.llmConfig.provider}/${result.llmConfig.model}\n`
+      summary += `   → ${result.executionConfig.reportTo.map(r => r.label).join(', ')}\n\n`
+    }
+    
+    return summary
+  }
 }
 
 /**
  * Default singleton instance
  */
-export const inputCoordinator = new InputCoordinator({ debug: false })
+export const inputCoordinator = new InputCoordinator({ debug: true })
 

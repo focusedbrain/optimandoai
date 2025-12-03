@@ -16,6 +16,9 @@
 // Import the unified Input Coordinator
 import { InputCoordinator, inputCoordinator } from './InputCoordinator'
 
+// Import NLP Classifier for structured input parsing
+import { nlpClassifier } from '../nlp/NlpClassifier'
+
 // Import new automation system for enhanced features (kept for compatibility)
 import { 
   ListenerManager, 
@@ -24,8 +27,13 @@ import {
   ConditionEngine,
   LegacyConfigAdapter,
   type NormalizedEvent,
-  type AutomationConfig
+  type AutomationConfig,
+  type EventTagRoutingBatch,
+  type EventTagRoutingResult
 } from '../automation'
+
+// Re-export types needed by sidepanel
+export type { EventTagRoutingBatch, EventTagRoutingResult }
 
 // =============================================================================
 // New Automation System Integration
@@ -227,6 +235,8 @@ export interface AgentBox {
   color?: string
   provider?: string // LLM provider (OpenAI, Claude, etc.)
   model?: string // LLM model
+  imageProvider?: string // Image generation provider ID (comfyui, replicate, etc.)
+  imageModel?: string // Image model/preset for the selected provider
 }
 
 export interface RoutingDecision {
@@ -352,6 +362,7 @@ export async function loadSavedTriggers(): Promise<any[]> {
 
 /**
  * Load agents from the current session
+ * Uses SQLite as the single source of truth via background script messaging
  */
 export async function loadAgentsFromSession(): Promise<AgentConfig[]> {
   try {
@@ -363,76 +374,130 @@ export async function loadAgentsFromSession(): Promise<AgentConfig[]> {
       return []
     }
     
-    console.log('[ProcessFlow] Loading agents from session:', sessionKey)
+    console.log('[ProcessFlow] Loading agents from SQLite session:', sessionKey)
 
     return new Promise((resolve) => {
       try {
-        chrome.storage?.local?.get([sessionKey], (data: any) => {
-          const session = data?.[sessionKey]
-          if (!session) {
-            console.warn('[ProcessFlow] No session data found for key:', sessionKey)
-            resolve([])
+        // Load from SQLite via background script (single source of truth)
+        chrome.runtime?.sendMessage({ 
+          type: 'GET_SESSION_FROM_SQLITE', 
+          sessionKey 
+        }, (response) => {
+          if (chrome.runtime.lastError) {
+            console.warn('[ProcessFlow] Error loading from SQLite:', chrome.runtime.lastError.message)
+            // Fallback to chrome.storage.local
+            loadAgentsFromChromeStorage(sessionKey).then(resolve)
             return
           }
-
-          // Get agents from session
-          const agents: AgentConfig[] = session.agents || []
           
-          console.log('[ProcessFlow] Found', agents.length, 'agents in session')
+          if (!response?.success || !response?.session) {
+            console.warn('[ProcessFlow] No session data found in SQLite for key:', sessionKey)
+            // Fallback to chrome.storage.local
+            loadAgentsFromChromeStorage(sessionKey).then(resolve)
+            return
+          }
           
-          // Parse agent configs and extract proper number
-          const parsedAgents = agents.map((agent, index) => {
-            let parsed = { ...agent }
-            
-            // Debug: Log what config data exists for this agent
-            console.log(`[ProcessFlow] Agent ${index}: "${agent.name || agent.key}"`, {
-              hasConfig: !!agent.config,
-              configKeys: agent.config ? Object.keys(agent.config) : [],
-              hasInstructions: !!agent.config?.instructions,
-              instructionsType: agent.config?.instructions ? typeof agent.config.instructions : 'none',
-              enabled: agent.enabled
-            })
-            
-            // Parse config.instructions if it's a string
-            if (agent.config?.instructions) {
-              try {
-                const instructions = typeof agent.config.instructions === 'string'
-                  ? JSON.parse(agent.config.instructions)
-                  : agent.config.instructions
-                parsed = { ...parsed, ...instructions }
-                console.log(`[ProcessFlow] ✅ Parsed instructions for "${agent.name || agent.key}":`, {
-                  hasListening: !!instructions.listening,
-                  hasReasoning: !!instructions.reasoning,
-                  hasExecution: !!instructions.execution,
-                  triggers: instructions.listening?.passive?.triggers?.length || 0,
-                  activeTriggers: instructions.listening?.active?.triggers?.length || 0
-                })
-              } catch (e) {
-                console.warn('[ProcessFlow] Failed to parse agent config:', e)
-              }
-            } else {
-              console.warn(`[ProcessFlow] ⚠️ Agent "${agent.name || agent.key}" has NO config.instructions!`)
-            }
-            
-            // Extract proper agent number
-            parsed.number = extractAgentNumber(parsed, index)
-            
-            console.log(`[ProcessFlow] Agent "${parsed.name || parsed.key}": number=${parsed.number}, key=${parsed.key}, id=${parsed.id}, enabled=${parsed.enabled}`)
-            
-            return parsed
-          })
-
-          resolve(parsedAgents)
+          const session = response.session
+          const agents = parseAgentsFromSession(session)
+          console.log('[ProcessFlow] ✅ Loaded', agents.length, 'agents from SQLite')
+          resolve(agents)
         })
       } catch (e) {
-        console.warn('[ProcessFlow] Failed to load agents:', e)
-        resolve([])
+        console.warn('[ProcessFlow] Failed to load agents from SQLite:', e)
+        loadAgentsFromChromeStorage(sessionKey).then(resolve)
       }
     })
   } catch (e) {
     console.warn('[ProcessFlow] Error in loadAgentsFromSession:', e)
     return []
   }
+}
+
+/**
+ * Fallback: Load agents from chrome.storage.local
+ */
+async function loadAgentsFromChromeStorage(sessionKey: string): Promise<AgentConfig[]> {
+  return new Promise((resolve) => {
+    chrome.storage?.local?.get([sessionKey], (data: any) => {
+      const session = data?.[sessionKey]
+      if (!session) {
+        console.warn('[ProcessFlow] No session data in chrome.storage for key:', sessionKey)
+        resolve([])
+        return
+      }
+      const agents = parseAgentsFromSession(session)
+      console.log('[ProcessFlow] Loaded', agents.length, 'agents from chrome.storage (fallback)')
+      resolve(agents)
+    })
+  })
+}
+
+/**
+ * Parse agents from session data structure
+ */
+function parseAgentsFromSession(session: any): AgentConfig[] {
+  // Get agents from session
+  const agents: AgentConfig[] = session.agents || []
+  
+  console.log('[ProcessFlow] Found', agents.length, 'agents in session')
+  
+  // Parse agent configs and extract proper number
+  const parsedAgents = agents.map((agent: any, index: number) => {
+    let parsed = { ...agent }
+    
+    // Debug: Log what config data exists for this agent
+    console.log(`[ProcessFlow] Agent ${index}: "${agent.name || agent.key}"`, {
+      hasConfig: !!agent.config,
+      configKeys: agent.config ? Object.keys(agent.config) : [],
+      hasInstructions: !!agent.config?.instructions,
+      instructionsType: agent.config?.instructions ? typeof agent.config.instructions : 'none',
+      enabled: agent.enabled,
+      // Check for unified triggers directly on listening
+      hasListeningDirect: !!agent.listening,
+      unifiedTriggersCount: agent.listening?.unifiedTriggers?.length || 0
+    })
+    
+    // First check if listening/reasoning/execution are directly on the agent (new format)
+    if (agent.listening || agent.reasoning || agent.execution) {
+      console.log(`[ProcessFlow] ✅ Agent "${agent.name || agent.key}" has direct sections:`, {
+        hasListening: !!agent.listening,
+        hasReasoning: !!agent.reasoning,
+        hasExecution: !!agent.execution,
+        unifiedTriggers: agent.listening?.unifiedTriggers?.length || 0,
+        passiveTriggers: agent.listening?.passive?.triggers?.length || 0,
+        activeTriggers: agent.listening?.active?.triggers?.length || 0
+      })
+    }
+    
+    // Parse config.instructions if it's a string (legacy format)
+    if (agent.config?.instructions) {
+      try {
+        const instructions = typeof agent.config.instructions === 'string'
+          ? JSON.parse(agent.config.instructions)
+          : agent.config.instructions
+        parsed = { ...parsed, ...instructions }
+        console.log(`[ProcessFlow] ✅ Parsed instructions for "${agent.name || agent.key}":`, {
+          hasListening: !!instructions.listening,
+          hasReasoning: !!instructions.reasoning,
+          hasExecution: !!instructions.execution,
+          unifiedTriggers: instructions.listening?.unifiedTriggers?.length || 0,
+          triggers: instructions.listening?.passive?.triggers?.length || 0,
+          activeTriggers: instructions.listening?.active?.triggers?.length || 0
+        })
+      } catch (e) {
+        console.warn('[ProcessFlow] Failed to parse agent config:', e)
+      }
+    }
+    
+    // Extract proper agent number
+    parsed.number = extractAgentNumber(parsed, index)
+    
+    console.log(`[ProcessFlow] Agent "${parsed.name || parsed.key}": number=${parsed.number}, enabled=${parsed.enabled}`)
+    
+    return parsed
+  })
+
+  return parsedAgents
 }
 
 /**
@@ -839,6 +904,181 @@ export async function routeInput(
     inputType,
     targetAgentBoxes: []
   }
+}
+
+// =============================================================================
+// Event Tag Routing - New Wiring Flow
+// =============================================================================
+
+/**
+ * Route input through the complete Event Tag wiring flow:
+ * 
+ * 1. WR Chat input → NLP Classifier → ClassifiedInput with #tags
+ * 2. InputCoordinator.routeEventTagTrigger() → Match listeners
+ * 3. Evaluate conditions (WRCode, sender, keywords, website)
+ * 4. Collect sensor workflow context (placeholder)
+ * 5. Resolve LLM from connected Agent Box
+ * 6. Determine Reasoning section (via applyFor)
+ * 7. Determine Execution section (via applyFor)
+ * 8. Resolve output destinations (Report to)
+ * 
+ * This is the refactored flow that properly wires triggers to reasoning to execution.
+ */
+export async function routeEventTagInput(
+  input: string,
+  source: 'inline_chat' | 'ocr' | 'other' = 'inline_chat',
+  currentUrl?: string,
+  sessionKey?: string
+): Promise<{
+  batch: EventTagRoutingBatch
+  classificationTimeMs: number
+  routingTimeMs: number
+}> {
+  const classificationStart = Date.now()
+  
+  // Step 1: Classify input with NLP
+  const classificationResult = await nlpClassifier.classify(input, source, {
+    sourceUrl: currentUrl,
+    sessionKey
+  })
+  
+  const classificationTimeMs = Date.now() - classificationStart
+  const classifiedInput = classificationResult.input
+  
+  console.log('[ProcessFlow] Event Tag Routing - Input classified:', {
+    triggers: classifiedInput.triggers,
+    entities: classifiedInput.entities.length,
+    source: classifiedInput.source
+  })
+  
+  // Step 2: Load agents and agent boxes from session
+  const routingStart = Date.now()
+  const agents = await loadAgentsFromSession()
+  const agentBoxes = await loadAgentBoxesFromSession()
+  
+  // Step 3: Route through the Event Tag flow
+  const batch = inputCoordinator.routeEventTagTrigger({
+    classifiedInput: {
+      rawText: classifiedInput.rawText,
+      normalizedText: classifiedInput.normalizedText,
+      triggers: classifiedInput.triggers,
+      entities: classifiedInput.entities,
+      source: classifiedInput.source,
+      sourceUrl: classifiedInput.sourceUrl,
+      sessionKey: classifiedInput.sessionKey
+    },
+    agents: agents as any[],
+    agentBoxes: agentBoxes as any[],
+    currentUrl,
+    sessionKey
+  })
+  
+  const routingTimeMs = Date.now() - routingStart
+  
+  console.log('[ProcessFlow] Event Tag Routing complete:', {
+    matched: batch.results.length,
+    triggers: batch.triggersFound,
+    totalTimeMs: classificationTimeMs + routingTimeMs
+  })
+  
+  return {
+    batch,
+    classificationTimeMs,
+    routingTimeMs
+  }
+}
+
+/**
+ * Process a matched Event Tag routing result
+ * 
+ * This function takes a routing result and executes the complete flow:
+ * 1. Collect sensor workflow context (if configured)
+ * 2. Build the reasoning prompt (Goals, Role, Rules)
+ * 3. Call the LLM from the connected Agent Box
+ * 4. Route output to the configured destinations (Report to)
+ */
+export async function processEventTagMatch(
+  result: EventTagRoutingResult,
+  originalInput: string
+): Promise<{
+  success: boolean
+  output: string
+  llmUsed: { provider: string; model: string }
+  destinations: string[]
+  error?: string
+}> {
+  console.log('[ProcessFlow] Processing Event Tag match:', {
+    agent: result.agentName,
+    trigger: result.trigger.tag,
+    llm: `${result.llmConfig.provider}/${result.llmConfig.model}`,
+    reportTo: result.executionConfig.reportTo.map(r => r.label)
+  })
+  
+  // Check if LLM is available
+  if (!result.llmConfig.isAvailable) {
+    return {
+      success: false,
+      output: '',
+      llmUsed: { provider: result.llmConfig.provider, model: result.llmConfig.model },
+      destinations: [],
+      error: result.llmConfig.unavailableReason || 'LLM not available'
+    }
+  }
+  
+  // Build reasoning prompt from agent config
+  const { goals, role, rules, custom } = result.reasoningConfig
+  
+  let systemPrompt = ''
+  if (role) systemPrompt += `You are ${role}.\n\n`
+  if (goals) systemPrompt += `Goals:\n${goals}\n\n`
+  if (rules) systemPrompt += `Rules:\n${rules}\n\n`
+  if (custom && custom.length > 0) {
+    systemPrompt += 'Additional Context:\n'
+    for (const field of custom) {
+      systemPrompt += `${field.key}: ${field.value}\n`
+    }
+    systemPrompt += '\n'
+  }
+  
+  // Add sensor context if available
+  if (Object.keys(result.sensorContext).length > 0) {
+    systemPrompt += 'Sensor Context:\n'
+    systemPrompt += JSON.stringify(result.sensorContext, null, 2)
+    systemPrompt += '\n\n'
+  }
+  
+  console.log('[ProcessFlow] Built reasoning prompt:', {
+    systemPromptLength: systemPrompt.length,
+    hasGoals: !!goals,
+    hasRole: !!role,
+    hasRules: !!rules,
+    customFields: custom?.length || 0
+  })
+  
+  // TODO: Actually call the LLM here
+  // For now, return a placeholder indicating the wiring is complete
+  const placeholderOutput = `[Event Tag Routing Complete]\n\n` +
+    `Agent: ${result.agentName}\n` +
+    `Trigger: ${result.trigger.tag}\n` +
+    `Channel: ${result.trigger.channel}\n` +
+    `LLM: ${result.llmConfig.provider}/${result.llmConfig.model}\n\n` +
+    `System Prompt (${systemPrompt.length} chars):\n${systemPrompt.substring(0, 200)}...\n\n` +
+    `User Input: ${originalInput}\n\n` +
+    `Output will be sent to: ${result.executionConfig.reportTo.map(r => r.label).join(', ')}`
+  
+  return {
+    success: true,
+    output: placeholderOutput,
+    llmUsed: { provider: result.llmConfig.provider, model: result.llmConfig.model },
+    destinations: result.executionConfig.reportTo.map(r => r.label)
+  }
+}
+
+/**
+ * Generate a butler response summarizing Event Tag routing
+ */
+export function generateEventTagRoutingSummary(batch: EventTagRoutingBatch): string {
+  return inputCoordinator.generateRoutingSummary(batch)
 }
 
 /**

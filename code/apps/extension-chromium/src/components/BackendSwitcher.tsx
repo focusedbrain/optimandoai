@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { LlmSettings } from './LlmSettings';
+import { ImageEngineSettings } from './ImageEngineSettings';
 
 interface PostgresConnectionConfig {
   postgres?: {
@@ -39,6 +40,7 @@ export function BackendSwitcher({ theme = 'default' }: BackendSwitcherProps) {
   const [isTesting, setIsTesting] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
   const [activeTab, setActiveTab] = useState<'localdb' | 'vectordb' | 'llm' | 'automation'>('localdb');
+  const [llmSubTab, setLlmSubTab] = useState<'text' | 'image'>('text');
   const [notification, setNotification] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
   const [isInsertingTestData, setIsInsertingTestData] = useState(false);
   const [isLoadingStats, setIsLoadingStats] = useState(false);
@@ -269,7 +271,7 @@ export function BackendSwitcher({ theme = 'default' }: BackendSwitcherProps) {
                 >
                   {tab === 'localdb' && `Local DB ${config.postgres?.enabled ? '✓' : ''}`}
                   {tab === 'vectordb' && 'Vector DB'}
-                  {tab === 'llm' && 'LLM'}
+                  {tab === 'llm' && 'LLM & Images'}
                   {tab === 'automation' && 'Automation'}
                 </button>
               );
@@ -654,9 +656,69 @@ export function BackendSwitcher({ theme = 'default' }: BackendSwitcherProps) {
               </>
             )}
 
-            {/* LLM Tab */}
+            {/* LLM & Images Tab */}
             {activeTab === 'llm' && (
-              <LlmSettings theme={theme} bridge="http" />
+              <>
+                {/* Sub-tabs for Text AI and Image AI */}
+                <div style={{
+                  display: 'flex',
+                  gap: '4px',
+                  marginBottom: '12px',
+                  borderBottom: `1px solid ${borderColor}`,
+                  paddingBottom: '8px'
+                }}>
+                  <button
+                    onClick={() => setLlmSubTab('text')}
+                    style={{
+                      flex: 1,
+                      padding: '8px 12px',
+                      background: llmSubTab === 'text' ? 'rgba(59, 130, 246, 0.2)' : 'transparent',
+                      border: llmSubTab === 'text' ? '1px solid rgba(59, 130, 246, 0.4)' : `1px solid ${borderColor}`,
+                      borderRadius: '4px',
+                      color: textColor,
+                      fontSize: '11px',
+                      fontWeight: llmSubTab === 'text' ? '600' : '400',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '4px'
+                    }}
+                  >
+                    💬 Text AI (LLM)
+                  </button>
+                  <button
+                    onClick={() => setLlmSubTab('image')}
+                    style={{
+                      flex: 1,
+                      padding: '8px 12px',
+                      background: llmSubTab === 'image' ? 'rgba(59, 130, 246, 0.2)' : 'transparent',
+                      border: llmSubTab === 'image' ? '1px solid rgba(59, 130, 246, 0.4)' : `1px solid ${borderColor}`,
+                      borderRadius: '4px',
+                      color: textColor,
+                      fontSize: '11px',
+                      fontWeight: llmSubTab === 'image' ? '600' : '400',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '4px'
+                    }}
+                  >
+                    🖼️ Image AI
+                  </button>
+                </div>
+
+                {/* Text AI (LLM) Sub-tab */}
+                {llmSubTab === 'text' && (
+                  <LlmSettings theme={theme} bridge="http" />
+                )}
+
+                {/* Image AI Sub-tab */}
+                {llmSubTab === 'image' && (
+                  <ImageEngineSettings theme={theme} />
+                )}
+              </>
             )}
 
             {/* Other Tabs */}

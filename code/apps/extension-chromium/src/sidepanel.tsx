@@ -6,6 +6,7 @@ import { TemplateGlassView } from './components/TemplateGlassView'
 import { BackendSwitcherInline } from './components/BackendSwitcherInline'
 import { 
   routeInput, 
+  routeEventTagInput,
   getButlerSystemPrompt, 
   wrapInputForAgent,
   loadAgentsFromSession,
@@ -14,7 +15,8 @@ import {
   resolveModelForAgent,
   type RoutingDecision,
   type AgentMatch,
-  type AgentBox
+  type AgentBox,
+  type EventTagRoutingBatch
 } from './services/processFlow'
 import { nlpClassifier, type ClassifiedInput } from './nlp'
 import { inputCoordinator } from './services/InputCoordinator'
@@ -1334,6 +1336,54 @@ function SidepanelOrchestrator() {
   }
   
   /**
+   * Generate match detection feedback message for Event Tag routing
+   * Displays which agents matched which triggers in the chat
+   */
+  const generateEventTagMatchFeedback = (batch: EventTagRoutingBatch): string => {
+    if (batch.results.length === 0) {
+      return ''
+    }
+    
+    const lines: string[] = ['🟢 **Match Detected**\n']
+    
+    for (const result of batch.results) {
+      const agentNum = result.agentNumber 
+        ? `#${String(result.agentNumber).padStart(2, '0')}` 
+        : ''
+      const agentLabel = agentNum 
+        ? `Agent ${agentNum} (${result.agentName})` 
+        : result.agentName
+      
+      lines.push(`• **${agentLabel}** → matched \`${result.trigger.tag}\``)
+      lines.push(`  • Trigger type: Event Trigger (${result.trigger.type})`)
+      
+      // Show condition results
+      if (result.conditionResults.conditions.length > 0) {
+        const conditionSummary = result.conditionResults.allPassed 
+          ? '✓ All conditions passed' 
+          : '⚠️ Some conditions not met'
+        lines.push(`  • Conditions: ${conditionSummary}`)
+      }
+      
+      // Show LLM and destination info
+      if (result.llmConfig.isAvailable) {
+        lines.push(`  • LLM: ${result.llmConfig.provider}/${result.llmConfig.model}`)
+      }
+      if (result.executionConfig.reportTo.length > 0) {
+        const destinations = result.executionConfig.reportTo.map(r => r.label).join(', ')
+        lines.push(`  • Output: ${destinations}`)
+      }
+      
+      lines.push('') // Empty line between agents
+    }
+    
+    // Add summary
+    lines.push(`_${batch.results.length} agent(s) matched from ${batch.triggersFound.length} trigger(s) detected_`)
+    
+    return lines.join('\n')
+  }
+  
+  /**
    * Process input through an agent with reasoning wrapping
    * This is the core of the agent processing path
    */
@@ -1795,6 +1845,63 @@ function SidepanelOrchestrator() {
           `${a.agentName} → ${a.outputSlot.destination} (${a.llmModel})`
         )
       })
+      
+      // =================================================================
+      // STEP 3.6: EVENT TAG ROUTING (Input Coordinator)
+      // Route through event tag flow to detect matches with agent listeners
+      // This checks all agents' triggers (#tags) and displays match feedback
+      // =================================================================
+      
+      // Debug: Log all agents and their listener configurations
+      console.log('[Chat] DEBUG - Agents in session:', agents.map(a => ({
+        name: a.name,
+        number: a.number,
+        enabled: a.enabled,
+        hasListening: !!a.listening,
+        capabilities: a.capabilities,
+        passiveEnabled: a.listening?.passiveEnabled,
+        activeEnabled: a.listening?.activeEnabled,
+        passiveTriggers: a.listening?.passive?.triggers?.map((t: any) => t.tag?.name),
+        activeTriggers: a.listening?.active?.triggers?.map((t: any) => t.tag?.name),
+        unifiedTriggers: a.listening?.triggers?.map((t: any) => t.tag || t.tagName)
+      })))
+      
+      if (nlpResult.input.triggers.length > 0) {
+        console.log('[Chat] Detected triggers, running Event Tag routing:', nlpResult.input.triggers)
+        
+        try {
+          const eventTagResult = await routeEventTagInput(
+            inputTextForNlp,
+            ocrText ? 'ocr' : 'inline_chat',
+            currentUrl,
+            sessionName
+          )
+          
+          console.log('[Chat] Event Tag Routing Result:', {
+            matchedAgents: eventTagResult.batch.results.length,
+            triggersFound: eventTagResult.batch.triggersFound,
+            summary: eventTagResult.batch.summary,
+            allResults: eventTagResult.batch.results
+          })
+          
+          // Display match detection feedback if any agents matched
+          if (eventTagResult.batch.results.length > 0) {
+            const matchFeedback = generateEventTagMatchFeedback(eventTagResult.batch)
+            setChatMessages(prev => [...prev, {
+              role: 'assistant' as const,
+              text: matchFeedback
+            }])
+            scrollToBottom()
+          } else {
+            // Debug: Show why no matches were found
+            console.log('[Chat] No matches found. Summary:', eventTagResult.batch.summary)
+          }
+        } catch (eventTagError) {
+          console.error('[Chat] Event Tag routing error:', eventTagError)
+        }
+      } else {
+        console.log('[Chat] No triggers detected in input:', inputTextForNlp)
+      }
       
       // =================================================================
       // STEP 4: HANDLE ROUTING DECISION
