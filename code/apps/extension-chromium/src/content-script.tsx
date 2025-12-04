@@ -22488,39 +22488,95 @@ function initializeExtension() {
           
           // ─────────────────────────────────────────────────────────────────────
           // FIND CONNECTED AGENT BOXES
-          // A box is connected when:
-          // 1. Agent has agentBox destinations in execution section(s)
-          // 2. Agent Box exists in the session
-          // 3. Agent Box has agentNumber === agent.number (allocated to this agent)
+          // A box is connected when ALL conditions are met:
+          // 1. Box is explicitly referenced in agent's execution section destinations
+          // 2. Box exists in the session
+          // 3. Box has agentNumber === agent.number (allocated to this agent)
           // ─────────────────────────────────────────────────────────────────────
           
           const agentNumberValue = canonical.number
           
-          // Check if agent has agentBox destinations
-          const hasAgentBoxDestination = 
-            canonical.executionSections?.some((sec: any) => 
-              sec.destinations?.some((d: any) => d.kind === 'agentBox')
-            ) ||
-            previouslySavedData?.execution?.specialDestinations?.some((d: any) => d.kind === 'agentBox') ||
-            previouslySavedData?.execution?.executionSections?.some((sec: any) => 
-              sec.specialDestinations?.some((d: any) => d.kind === 'agentBox')
-            ) ||
-            false
+          // Helper: parse boxNumber from destination value (e.g., 'agentBox01' → 1)
+          const parseBoxNumber = (val: string): number | null => {
+            if (!val) return null
+            const match = val.match(/agentBox(\d+)/i) || val.match(/^AB(\d{2})/i) || val.match(/(\d+)/)
+            return match ? parseInt(match[1], 10) : null
+          }
           
-          // Get all agent boxes from the session
+          // Collect explicitly referenced box numbers from all agentBox destinations
+          const referencedBoxNumbers = new Set<number>()
+          
+          // From canonical executionSections
+          canonical.executionSections?.forEach((sec: any) => {
+            sec.destinations?.forEach((d: any) => {
+              if (d.kind === 'agentBox' && d.agents?.length > 0) {
+                d.agents.forEach((val: string) => {
+                  const boxNum = parseBoxNumber(val)
+                  if (boxNum !== null) referencedBoxNumbers.add(boxNum)
+                })
+              }
+            })
+          })
+          
+          // From main execution section specialDestinations
+          previouslySavedData?.execution?.specialDestinations?.forEach((d: any) => {
+            if (d.kind === 'agentBox' && d.agents?.length > 0) {
+              d.agents.forEach((val: string) => {
+                const boxNum = parseBoxNumber(val)
+                if (boxNum !== null) referencedBoxNumbers.add(boxNum)
+              })
+            }
+          })
+          
+          // From additional execution sections
+          previouslySavedData?.execution?.executionSections?.forEach((sec: any) => {
+            sec.specialDestinations?.forEach((d: any) => {
+              if (d.kind === 'agentBox' && d.agents?.length > 0) {
+                d.agents.forEach((val: string) => {
+                  const boxNum = parseBoxNumber(val)
+                  if (boxNum !== null) referencedBoxNumbers.add(boxNum)
+                })
+              }
+            })
+          })
+          
+          const hasAgentBoxDestination = referencedBoxNumbers.size > 0
+          
+          // Get all agent boxes from the session (fetch fresh from SQLite)
           const sessionKey = getCurrentSessionKey()
           let allBoxes: any[] = []
           
           if (sessionKey) {
             try {
-              const sessionData = await new Promise<any>((resolve) => {
-                storageGet([sessionKey], (result) => resolve(result[sessionKey] || {}))
+              // Fetch fresh data from SQLite via background script
+              const sqliteData = await new Promise<any>((resolve) => {
+                chrome.runtime.sendMessage({
+                  type: 'GET_SESSION_FROM_SQLITE',
+                  sessionKey: sessionKey
+                }, (response) => {
+                  if (chrome.runtime.lastError || !response?.success) {
+                    resolve(null)
+                  } else {
+                    resolve(response.session)
+                  }
+                })
               })
               
-              const sessionBoxes = sessionData.agentBoxes || []
+              // Use SQLite data if available, otherwise fall back to storage
+              let sessionBoxes: any[] = []
+              if (sqliteData?.agentBoxes) {
+                sessionBoxes = sqliteData.agentBoxes
+              } else {
+                // Fallback to chrome storage
+                const storageData = await new Promise<any>((resolve) => {
+                  storageGet([sessionKey], (result) => resolve(result[sessionKey] || {}))
+                })
+                sessionBoxes = storageData.agentBoxes || []
+              }
+              
               const tabBoxes = currentTabData.agentBoxes || []
               
-              // Combine and deduplicate by id
+              // Combine and deduplicate by id/identifier
               const seenIds = new Set<string>()
               allBoxes = [...sessionBoxes, ...tabBoxes].filter((box: any) => {
                 const boxId = box.id || box.identifier || `box-${box.boxNumber}`
@@ -22533,12 +22589,17 @@ function initializeExtension() {
             }
           }
           
-          // Find boxes allocated to this agent
+          // Find boxes that are BOTH:
+          // 1. Referenced in agent's destinations (by boxNumber)
+          // 2. Allocated to this agent (agentNumber matches)
           let connectedBoxes: any[] = []
           
-          if (agentNumberValue && allBoxes.length > 0) {
+          if (agentNumberValue && hasAgentBoxDestination && allBoxes.length > 0) {
             connectedBoxes = allBoxes.filter((box: any) => {
               if (box.enabled === false) return false
+              // Must be referenced in destinations
+              if (!referencedBoxNumbers.has(box.boxNumber)) return false
+              // Must be allocated to this agent
               return box.agentNumber === agentNumberValue
             })
           }
