@@ -22174,9 +22174,17 @@ function initializeExtension() {
     // Export handler - Shows dialog with connected agent boxes (v2.1.0)
     const exportBtn = document.getElementById('ag-export-btn')
     if (exportBtn) {
-      exportBtn.onclick = async () => {
-        try {
-          console.log('📤 Opening export dialog...')
+      exportBtn.onclick = () => {
+        // Show loading state immediately to prevent perceived freeze
+        const originalText = exportBtn.innerHTML
+        exportBtn.innerHTML = '⏳ Loading...'
+        ;(exportBtn as HTMLButtonElement).disabled = true
+        
+        // Defer heavy work to prevent UI freeze
+        requestAnimationFrame(() => {
+          setTimeout(async () => {
+            try {
+              console.log('📤 Opening export dialog...')
           
           // Helper: normalize string numbers to actual numbers
           const toNumber = (val: any, def: number): number => {
@@ -22748,10 +22756,20 @@ function initializeExtension() {
             setTimeout(() => { exportBtn.innerHTML = originalText }, 2000)
           })
           
-        } catch (error) {
-          console.error('❌ Export failed:', error)
-          alert('Export failed: ' + (error instanceof Error ? error.message : 'Unknown error'))
-        }
+            } catch (error) {
+              console.error('❌ Export failed:', error)
+              exportBtn.innerHTML = originalText
+              ;(exportBtn as HTMLButtonElement).disabled = false
+              alert('Export failed: ' + (error instanceof Error ? error.message : 'Unknown error'))
+            } finally {
+              // Restore button state if not already done
+              if (exportBtn.innerHTML === '⏳ Loading...') {
+                exportBtn.innerHTML = originalText
+                ;(exportBtn as HTMLButtonElement).disabled = false
+              }
+            }
+          }, 10) // Small delay to let UI update
+        })
       }
     }
 
@@ -23061,9 +23079,17 @@ function initializeExtension() {
     // Schema download handler - downloads the unified master schema (Agents + Agent Boxes + Mini Apps)
     const schemaBtn = document.getElementById('ag-schema-btn')
     if (schemaBtn) {
-      schemaBtn.onclick = async () => {
-        try {
-          console.log('📋 Downloading unified master schema...')
+      schemaBtn.onclick = () => {
+        // Show loading state immediately
+        const originalText = schemaBtn.innerHTML
+        schemaBtn.innerHTML = '⏳'
+        ;(schemaBtn as HTMLButtonElement).disabled = true
+        
+        // Defer heavy work to next frame to prevent UI freeze
+        requestAnimationFrame(() => {
+          setTimeout(() => {
+            try {
+              console.log('📋 Downloading unified master schema...')
           
           // Unified master schema (v2.1.0) - includes Agents, Agent Boxes, Mini Apps
           const masterSchema = {
@@ -23214,21 +23240,33 @@ function initializeExtension() {
           
           console.log('✅ Unified master schema downloaded!')
           
-          const originalText = schemaBtn.innerHTML
           schemaBtn.innerHTML = '✓'
+          ;(schemaBtn as HTMLButtonElement).disabled = false
           setTimeout(() => { schemaBtn.innerHTML = originalText }, 1500)
           
-        } catch (error) {
-          console.error('❌ Schema download failed:', error)
-          alert('Schema download failed. Check console for details.')
-        }
+            } catch (error) {
+              console.error('❌ Schema download failed:', error)
+              schemaBtn.innerHTML = originalText
+              ;(schemaBtn as HTMLButtonElement).disabled = false
+              alert('Schema download failed. Check console for details.')
+            }
+          }, 10) // Small delay to let UI update
+        })
       }
     }
 
     // Template download handler - downloads unified template with Agent + Agent Box
     const templateBtn = document.getElementById('ag-template-btn')
     if (templateBtn) {
-      templateBtn.onclick = async () => {
+      templateBtn.onclick = () => {
+        // Show loading state immediately
+        const originalText = templateBtn.innerHTML
+        templateBtn.innerHTML = '⏳'
+        ;(templateBtn as HTMLButtonElement).disabled = true
+        
+        // Defer heavy work to next frame to prevent UI freeze
+        requestAnimationFrame(() => {
+          setTimeout(() => {
         try {
           console.log('📄 Downloading unified template...')
           
@@ -23353,14 +23391,18 @@ function initializeExtension() {
           
           console.log('✅ Unified template downloaded!')
           
-          const originalHTML = templateBtn.innerHTML
           templateBtn.innerHTML = '✓'
-          setTimeout(() => { templateBtn.innerHTML = originalHTML }, 1500)
+          ;(templateBtn as HTMLButtonElement).disabled = false
+          setTimeout(() => { templateBtn.innerHTML = originalText }, 1500)
           
-        } catch (error) {
-          console.error('❌ Template download failed:', error)
-          alert('Template download failed. Check console for details.')
-        }
+            } catch (error) {
+              console.error('❌ Template download failed:', error)
+              templateBtn.innerHTML = originalText
+              ;(templateBtn as HTMLButtonElement).disabled = false
+              alert('Template download failed. Check console for details.')
+            }
+          }, 10) // Small delay to let UI update
+        })
       }
     }
 
