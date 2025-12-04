@@ -22318,6 +22318,27 @@ function initializeExtension() {
             })
           }
           
+          // Helper: extract agent number from ID or name (e.g., "agent1" → 1, "agent05" → 5)
+          const extractAgentNumber = (id: string, name?: string): number | undefined => {
+            // Try to extract from ID first (e.g., "agent1", "agent05", "agent-10")
+            const idMatch = (id || '').match(/agent[-_]?(\d+)/i)
+            if (idMatch) return parseInt(idMatch[1], 10)
+            
+            // Try name
+            const nameMatch = (name || '').match(/agent[-_]?(\d+)/i)
+            if (nameMatch) return parseInt(nameMatch[1], 10)
+            
+            // Try just number at end of string
+            const endMatch = (id || '').match(/(\d+)$/)
+            if (endMatch) return parseInt(endMatch[1], 10)
+            
+            return undefined
+          }
+          
+          // Get agent number: prefer explicit, then infer from ID/name
+          const inferredNumber = extractAgentNumber(rawData.id, rawData.name)
+          const agentNumber = typeof rawData.number === 'number' ? rawData.number : inferredNumber
+          
           const canonical: any = {
             _schemaVersion: '2.1.0',
             _exportedAt: new Date().toISOString(),
@@ -22328,7 +22349,7 @@ function initializeExtension() {
             name: rawData.name || '',
             description: rawData.description || '',
             icon: rawData.icon || '🤖',
-            number: typeof rawData.number === 'number' ? rawData.number : undefined,
+            number: agentNumber,
             enabled: rawData.enabled !== false,
             capabilities: rawData.capabilities || [],
             
