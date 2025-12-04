@@ -23076,333 +23076,57 @@ function initializeExtension() {
       }
     }
 
-    // Schema download handler - downloads the unified master schema (Agents + Agent Boxes + Mini Apps)
+    // Schema download handler - uses async TypeSystemService (lazy-loaded, cached)
     const schemaBtn = document.getElementById('ag-schema-btn')
     if (schemaBtn) {
-      schemaBtn.onclick = () => {
-        // Show loading state immediately
+      schemaBtn.onclick = async () => {
         const originalText = schemaBtn.innerHTML
         schemaBtn.innerHTML = '⏳'
         ;(schemaBtn as HTMLButtonElement).disabled = true
         
-        // Defer heavy work to next frame to prevent UI freeze
-        requestAnimationFrame(() => {
-          setTimeout(() => {
-            try {
-              console.log('📋 Downloading unified master schema...')
+        try {
+          console.log('📋 Downloading unified master schema (async)...')
           
-          // Unified master schema (v2.1.0) - includes Agents, Agent Boxes, Mini Apps
-          const masterSchema = {
-            "$schema": "http://json-schema.org/draft-07/schema#",
-            "$id": "https://optimando.ai/schemas/optimando.schema.json",
-            "title": "Optimando AI Master Schema",
-            "description": "Unified schema for all Optimando AI configurations (v2.1.0). Includes: Agents, Agent Boxes, Mini Apps, and their connections. For LLM generation: provide this schema + optimando.template.json.",
-            "type": "object",
-            "properties": {
-              "$schema": { "type": "string" },
-              "_schemaVersion": { "type": "string", "const": "2.1.0" },
-              "_exportedAt": { "type": "string", "format": "date-time" },
-              "_helper": { "type": "string", "description": "Usage instructions. Routing: Agent.number === AgentBox.agentNumber determines which boxes receive output." },
-              
-              "agents": {
-                "type": "array",
-                "description": "Array of Agent configurations.",
-                "items": {
-                  "type": "object",
-                  "required": ["id", "name", "enabled", "capabilities"],
-                  "properties": {
-                    "id": { "type": "string" },
-                    "name": { "type": "string" },
-                    "description": { "type": "string" },
-                    "icon": { "type": "string", "default": "🤖" },
-                    "number": { "type": "integer", "description": "CRITICAL: Links to AgentBox.agentNumber", "minimum": 1, "maximum": 99 },
-                    "enabled": { "type": "boolean" },
-                    "capabilities": { "type": "array", "items": { "type": "string", "enum": ["listening", "reasoning", "execution"] } },
-                    "contextSettings": { "type": "object" },
-                    "memorySettings": { "type": "object" },
-                    "listening": {
-                      "type": "object",
-                      "properties": {
-                        "expectedContext": { "type": "string" },
-                        "sources": { "type": "array", "items": { "type": "string", "enum": ["all", "chat", "voice", "voicememo", "video", "email", "whatsapp", "pdf", "docs", "dom", "api", "workflow", "agent", "screenshot", "stream"] } },
-                        "unifiedTriggers": {
-                          "type": "array",
-                          "items": {
-                            "type": "object",
-                            "properties": {
-                              "id": { "type": "string" },
-                              "type": { "type": "string", "enum": ["direct_tag", "tag_and_condition", "workflow_condition", "dom_event", "dom_parser", "augmented_overlay", "agent", "miniapp", "manual"] },
-                              "enabled": { "type": "boolean" },
-                              "parserTrigger": { "type": "string", "enum": ["page_load", "dom_change", "interval", "button_click", "manual"] },
-                              "responseReadyMode": { "type": "string", "enum": ["first_change", "quiet_period", "selector_signal"] },
-                              "captureInput": { "type": "boolean" },
-                              "captureOutput": { "type": "boolean" }
-                            }
-                          }
-                        }
-                      }
-                    },
-                    "reasoningSections": { "type": "array" },
-                    "executionSections": {
-                      "type": "array",
-                      "items": {
-                        "type": "object",
-                        "properties": {
-                          "applyForList": { "type": "array", "items": { "type": "string" } },
-                          "executionMode": { "type": "string", "enum": ["agent_workflow", "direct_response", "workflow_only", "hybrid"] },
-                          "destinations": {
-                            "type": "array",
-                            "items": {
-                              "type": "object",
-                              "properties": {
-                                "kind": { "type": "string", "enum": ["agentBox", "chat", "email", "webhook", "storage", "notification"] },
-                                "agents": { "type": "array", "description": "AgentBox identifiers (format ABxxyy)", "items": { "type": "string", "pattern": "^AB[0-9]{2}[0-9]{2}$" } }
-                              }
-                            }
-                          }
-                        }
-                      }
-                    }
-                  }
-                }
-              },
-              
-              "agentBoxes": {
-                "type": "array",
-                "description": "Array of Agent Box configurations. Connection: AgentBox.agentNumber must match Agent.number.",
-                "items": {
-                  "type": "object",
-                  "required": ["id", "boxNumber", "agentNumber", "identifier", "title", "enabled"],
-                  "properties": {
-                    "id": { "type": "string" },
-                    "boxNumber": { "type": "integer", "minimum": 1, "maximum": 99 },
-                    "agentNumber": { "type": "integer", "description": "CRITICAL: Must match Agent.number for routing", "minimum": 1, "maximum": 99 },
-                    "identifier": { "type": "string", "description": "Format ABxxyy (e.g., AB0101)", "pattern": "^AB[0-9]{2}[0-9]{2}$" },
-                    "agentId": { "type": "string" },
-                    "title": { "type": "string" },
-                    "color": { "type": "string", "pattern": "^#[0-9A-Fa-f]{6}$" },
-                    "enabled": { "type": "boolean" },
-                    "provider": { "type": "string", "enum": ["", "OpenAI", "Claude", "Gemini", "Grok", "Local AI", "Image AI"] },
-                    "model": { "type": "string" },
-                    "tools": { "type": "array", "items": { "type": "string" } },
-                    "source": { "type": "string", "enum": ["master_tab", "display_grid"] }
-                  }
-                }
-              },
-              
-              "miniApps": {
-                "type": "array",
-                "description": "Array of Mini App configurations. (Reserved for future)",
-                "items": {
-                  "type": "object",
-                  "properties": {
-                    "id": { "type": "string" },
-                    "name": { "type": "string" },
-                    "description": { "type": "string" },
-                    "enabled": { "type": "boolean" },
-                    "type": { "type": "string" },
-                    "config": { "type": "object" }
-                  }
-                }
-              },
-              
-              "connectionInfo": {
-                "type": "object",
-                "description": "Metadata about agent-to-box connections.",
-                "properties": {
-                  "agentToBoxMapping": { "type": "array" }
-                }
-              }
-            },
-            "_schemaInfo": {
-              "enums": {
-                "agent.capabilities": ["listening", "reasoning", "execution"],
-                "trigger.type": ["direct_tag", "tag_and_condition", "workflow_condition", "dom_event", "dom_parser", "augmented_overlay", "agent", "miniapp", "manual"],
-                "destination.kind": ["agentBox", "chat", "email", "webhook", "storage", "notification"],
-                "agentBox.provider": ["", "OpenAI", "Claude", "Gemini", "Grok", "Local AI", "Image AI"]
-              },
-              "connectionLogic": "Agent.number === AgentBox.agentNumber → output routes to that box",
-              "identifierFormat": "AgentBox.identifier = ABxxyy where xx=boxNumber, yy=agentNumber"
-            }
-          }
-          
-          const json = JSON.stringify(masterSchema, null, 2)
-          const blob = new Blob([json], { type: 'application/json' })
-          const url = URL.createObjectURL(blob)
-          
-          const a = document.createElement('a')
-          a.href = url
-          a.download = 'optimando.schema.json'
-          document.body.appendChild(a)
-          a.click()
-          document.body.removeChild(a)
-          URL.revokeObjectURL(url)
+          // Dynamic import for code splitting - schema only loaded when needed
+          const { downloadMasterSchema } = await import('./services/TypeSystemService')
+          await downloadMasterSchema()
           
           console.log('✅ Unified master schema downloaded!')
-          
           schemaBtn.innerHTML = '✓'
-          ;(schemaBtn as HTMLButtonElement).disabled = false
           setTimeout(() => { schemaBtn.innerHTML = originalText }, 1500)
-          
-            } catch (error) {
-              console.error('❌ Schema download failed:', error)
-              schemaBtn.innerHTML = originalText
-              ;(schemaBtn as HTMLButtonElement).disabled = false
-              alert('Schema download failed. Check console for details.')
-            }
-          }, 10) // Small delay to let UI update
-        })
+        } catch (error) {
+          console.error('❌ Schema download failed:', error)
+          alert('Schema download failed. Check console for details.')
+        } finally {
+          ;(schemaBtn as HTMLButtonElement).disabled = false
+        }
       }
     }
 
-    // Template download handler - downloads unified template with Agent + Agent Box
+    // Template download handler - uses async TypeSystemService (lazy-loaded, cached)
     const templateBtn = document.getElementById('ag-template-btn')
     if (templateBtn) {
-      templateBtn.onclick = () => {
-        // Show loading state immediately
+      templateBtn.onclick = async () => {
         const originalText = templateBtn.innerHTML
         templateBtn.innerHTML = '⏳'
         ;(templateBtn as HTMLButtonElement).disabled = true
         
-        // Defer heavy work to next frame to prevent UI freeze
-        requestAnimationFrame(() => {
-          setTimeout(() => {
         try {
-          console.log('📄 Downloading unified template...')
+          console.log('📄 Downloading unified template (async)...')
           
-          // Unified template with Agent + Agent Box connected
-          const unifiedTemplate = {
-            "$schema": "./optimando.schema.json",
-            "_schemaVersion": "2.1.0",
-            "_exportedAt": new Date().toISOString(),
-            "_source": "Optimando AI Extension - Unified Template",
-            "_helper": "UNIFIED TEMPLATE for LLM generation. Contains Agent + connected Agent Box. CRITICAL: Agent.number must equal AgentBox.agentNumber for routing. Provide this + optimando.schema.json to LLM for new agent generation.",
-            
-            "agents": [
-              {
-                "id": "my-agent-01",
-                "name": "my-agent-name",
-                "description": "TEMPLATE: Describe what this agent does, when it activates, and what output it produces.",
-                "icon": "🤖",
-                "number": 1,
-                "enabled": true,
-                "capabilities": ["listening", "reasoning", "execution"],
-                "contextSettings": { "agentContext": true, "sessionContext": true, "accountContext": false },
-                "memorySettings": { "agentEnabled": true, "sessionEnabled": false, "accountEnabled": false },
-                "listening": {
-                  "expectedContext": "TEMPLATE: Keywords for when agent should activate",
-                  "tags": [],
-                  "sources": ["dom"],
-                  "website": "",
-                  "unifiedTriggers": [
-                    {
-                      "id": "TRIGGER01",
-                      "type": "dom_parser",
-                      "enabled": true,
-                      "channel": "dom",
-                      "parserTrigger": "button_click",
-                      "siteFilters": ["*"],
-                      "buttonSelectors": [],
-                      "autoDetectSelectors": true,
-                      "triggerOnEnterKey": true,
-                      "captureInput": true,
-                      "inputSelectors": [],
-                      "captureOutput": true,
-                      "outputSelectors": [],
-                      "responseReadyMode": "quiet_period",
-                      "quietPeriodMs": 1500,
-                      "maxWaitTimeMs": 60000,
-                      "captureUrl": true,
-                      "capturePageTitle": true
-                    }
-                  ]
-                },
-                "reasoningSections": [
-                  {
-                    "applyForList": ["TRIGGER01"],
-                    "goals": "TEMPLATE: What should this agent achieve?",
-                    "role": "TEMPLATE: What persona should the agent assume?",
-                    "rules": "TEMPLATE: What constraints should the agent follow?",
-                    "custom": [],
-                    "acceptFrom": [],
-                    "memoryContext": { "agentEnabled": false, "sessionEnabled": false, "accountEnabled": false },
-                    "reasoningWorkflows": []
-                  }
-                ],
-                "executionSections": [
-                  {
-                    "applyForList": ["TRIGGER01"],
-                    "executionMode": "agent_workflow",
-                    "destinations": [{ "kind": "agentBox", "agents": ["AB0101"] }],
-                    "executionWorkflows": []
-                  }
-                ]
-              }
-            ],
-            
-            "agentBoxes": [
-              {
-                "id": "box-001",
-                "boxNumber": 1,
-                "agentNumber": 1,
-                "identifier": "AB0101",
-                "agentId": "my-agent-01",
-                "title": "🤖 My Agent Output",
-                "color": "#4CAF50",
-                "enabled": true,
-                "provider": "",
-                "model": "auto",
-                "tools": [],
-                "source": "master_tab",
-                "masterTabId": "01",
-                "tabIndex": 1
-              }
-            ],
-            
-            "miniApps": [],
-            
-            "connectionInfo": {
-              "agentToBoxMapping": [
-                { "agentNumber": 1, "agentId": "my-agent-01", "boxIdentifiers": ["AB0101"] }
-              ]
-            },
-            
-            "_schemaInfo": {
-              "enums": {
-                "trigger.type": ["direct_tag", "tag_and_condition", "workflow_condition", "dom_event", "dom_parser", "augmented_overlay", "agent", "miniapp", "manual"],
-                "destination.kind": ["agentBox", "chat", "email", "webhook", "storage", "notification"],
-                "agentBox.provider": ["", "OpenAI", "Claude", "Gemini", "Grok", "Local AI", "Image AI"]
-              },
-              "connectionLogic": "Agent.number === AgentBox.agentNumber → output routes to that box"
-            }
-          }
-          
-          const json = JSON.stringify(unifiedTemplate, null, 2)
-          const blob = new Blob([json], { type: 'application/json' })
-          const url = URL.createObjectURL(blob)
-          
-          const a = document.createElement('a')
-          a.href = url
-          a.download = 'optimando.template.json'
-          document.body.appendChild(a)
-          a.click()
-          document.body.removeChild(a)
-          URL.revokeObjectURL(url)
+          // Dynamic import for code splitting - template only loaded when needed
+          const { downloadUnifiedTemplate } = await import('./services/TypeSystemService')
+          await downloadUnifiedTemplate()
           
           console.log('✅ Unified template downloaded!')
-          
           templateBtn.innerHTML = '✓'
-          ;(templateBtn as HTMLButtonElement).disabled = false
           setTimeout(() => { templateBtn.innerHTML = originalText }, 1500)
-          
-            } catch (error) {
-              console.error('❌ Template download failed:', error)
-              templateBtn.innerHTML = originalText
-              ;(templateBtn as HTMLButtonElement).disabled = false
-              alert('Template download failed. Check console for details.')
-            }
-          }, 10) // Small delay to let UI update
-        })
+        } catch (error) {
+          console.error('❌ Template download failed:', error)
+          alert('Template download failed. Check console for details.')
+        } finally {
+          ;(templateBtn as HTMLButtonElement).disabled = false
+        }
       }
     }
 
@@ -41148,115 +40872,25 @@ ${pageText}
           exportData.displayGrids = sessionData.displayGrids || null
           
           // ─────────────────────────────────────────────────────────────────────
-          // CANONICAL TYPE SYSTEM EXPORT (v2.1.0)
+          // CANONICAL TYPE SYSTEM EXPORT (v2.1.0) - Async via TypeSystemService
           // Convert agents and agent boxes to the unified schema format
           // ─────────────────────────────────────────────────────────────────────
           
-          // Helper: Convert raw agent box to canonical format
-          const toCanonicalAgentBox = (box: any) => ({
-            _schemaVersion: '1.0.0' as const,
-            id: box.id || `box-${Date.now()}`,
-            boxNumber: typeof box.boxNumber === 'number' ? box.boxNumber : (box.number || 1),
-            agentNumber: typeof box.agentNumber === 'number' ? box.agentNumber : 1,
-            identifier: box.identifier || `AB${String(box.boxNumber || box.number || 1).padStart(2, '0')}${String(box.agentNumber || 1).padStart(2, '0')}`,
-            agentId: box.agentId || `agent${box.agentNumber || 1}`,
-            title: box.title || `Agent Box ${String(box.boxNumber || box.number || 1).padStart(2, '0')}`,
-            color: box.color || '#4CAF50',
-            enabled: box.enabled !== false,
-            provider: box.provider || '',
-            model: box.model || 'auto',
-            tools: Array.isArray(box.tools) ? box.tools : [],
-            source: box.source || 'master_tab',
-            masterTabId: box.masterTabId || '01',
-            tabIndex: typeof box.tabIndex === 'number' ? box.tabIndex : 1,
-            side: box.side || undefined,
-            slotId: box.slotId || undefined,
-            gridSessionId: box.gridSessionId || undefined,
-          })
+          // Import TypeSystemService dynamically for code splitting
+          const TypeSystemService = await import('./services/TypeSystemService')
           
-          // Helper: Convert raw agent to canonical format (v2.1.0)
-          const toCanonicalAgent = (agent: any) => {
-            // Extract number from agent key/name if not set
-            const inferNumber = (id: string, name?: string): number | undefined => {
-              const idMatch = (id || '').match(/agent[-_]?(\d+)/i)
-              if (idMatch) return parseInt(idMatch[1], 10)
-              const nameMatch = (name || '').match(/agent[-_]?(\d+)/i)
-              if (nameMatch) return parseInt(nameMatch[1], 10)
-              return undefined
-            }
-            
-            const agentNumber = typeof agent.number === 'number' ? agent.number : 
-                               inferNumber(agent.key || agent.id, agent.name)
-            
-            return {
-              _schemaVersion: '2.1.0' as const,
-              id: agent.key || agent.id || `agent-${Date.now()}`,
-              name: agent.name || agent.key || 'unnamed-agent',
-              description: agent.description || '',
-              icon: agent.icon || '🤖',
-              number: agentNumber,
-              enabled: agent.enabled !== false,
-              capabilities: agent.capabilities || ['listening', 'reasoning', 'execution'],
-              scope: agent.scope || 'session',
-              contextSettings: agent.contextSettings || agent.config?.contextSettings || {
-                agentContext: false,
-                sessionContext: true,
-                accountContext: false
-              },
-              memorySettings: agent.memorySettings || agent.config?.memorySettings || {
-                agentEnabled: true,
-                sessionEnabled: false,
-                accountEnabled: false
-              },
-              listening: agent.listening || agent.config?.listening || undefined,
-              reasoningSections: agent.reasoningSections || agent.config?.reasoningSections || 
-                (agent.reasoning ? [agent.reasoning] : undefined) ||
-                (agent.config?.reasoning ? [agent.config.reasoning] : undefined),
-              executionSections: agent.executionSections || agent.config?.executionSections ||
-                (agent.execution ? [agent.execution] : undefined) ||
-                (agent.config?.execution ? [agent.config.execution] : undefined),
-            }
-          }
-          
-          // Convert agent boxes to canonical format
+          // Convert to canonical format asynchronously (non-blocking)
           const rawBoxes = sessionData.agentBoxes || []
-          const canonicalAgentBoxes = rawBoxes.map(toCanonicalAgentBox)
-          
-          // Convert agents to canonical format
           const rawAgents = sessionData.agents || []
-          const canonicalAgents = rawAgents.map(toCanonicalAgent)
           
-          // Build connection info (agent.number → box.agentNumber mappings)
-          const connectionMap = new Map<number, { agentId: string, boxIdentifiers: string[] }>()
-          canonicalAgents.forEach((agent: any) => {
-            if (agent.number) {
-              connectionMap.set(agent.number, {
-                agentId: agent.id,
-                boxIdentifiers: []
-              })
-            }
-          })
-          canonicalAgentBoxes.forEach((box: any) => {
-            const mapping = connectionMap.get(box.agentNumber)
-            if (mapping) {
-              mapping.boxIdentifiers.push(box.identifier)
-            }
-          })
-          
-          const agentToBoxMapping = Array.from(connectionMap.entries()).map(([num, data]) => ({
-            agentNumber: num,
-            agentId: data.agentId,
-            boxIdentifiers: data.boxIdentifiers
-          }))
+          const { agents: canonicalAgents, agentBoxes: canonicalAgentBoxes, connectionInfo } = 
+            await TypeSystemService.convertToCanonicalFormat(rawAgents, rawBoxes)
           
           // Export in unified schema format
           exportData.agents = canonicalAgents
           exportData.agentBoxes = canonicalAgentBoxes
           exportData.miniApps = [] // Reserved for future
-          exportData.connectionInfo = {
-            agentToBoxMapping,
-            routingLogic: 'Agent.number === AgentBox.agentNumber → output routes to that box'
-          }
+          exportData.connectionInfo = connectionInfo
           
           // Add schema metadata for LLM understanding
           exportData._typeSystem = {
@@ -41274,10 +40908,10 @@ ${pageText}
             }
           }
           
-          console.log('📦 Converted to canonical format:', {
+          console.log('📦 Converted to canonical format (async):', {
             agents: canonicalAgents.length,
             agentBoxes: canonicalAgentBoxes.length,
-            connections: agentToBoxMapping.length
+            connections: connectionInfo.agentToBoxMapping?.length || 0
           })
           
           // Derive hybridViews from agent boxes
