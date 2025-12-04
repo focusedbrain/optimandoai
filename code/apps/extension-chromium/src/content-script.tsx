@@ -2827,8 +2827,23 @@ function initializeExtension() {
       } else {
 
         console.log('✅ Session saved to history:', sessionKey, completeSessionData.tabName)
-        console.log('[TRACE] Saved agents:', completeSessionData.agents.length);
 
+      }
+
+      // CRITICAL: Also sync to SQLite (single source of truth)
+      // This ensures agent configuration changes are persisted properly
+      if (chrome?.runtime) {
+        chrome.runtime.sendMessage({
+          type: 'SAVE_SESSION_TO_SQLITE',
+          sessionKey: sessionKey,
+          session: completeSessionData
+        }, (response) => {
+          if (chrome.runtime.lastError) {
+            console.warn('⚠️ SQLite sync failed:', chrome.runtime.lastError.message)
+          } else if (response?.success) {
+            console.log('✅ Session synced to SQLite')
+          }
+        })
       }
 
       if (callback) callback()
@@ -5332,74 +5347,61 @@ function initializeExtension() {
     }
 
     const deletedBox = currentTabData.agentBoxes[boxIndex]
-
-    // Remove from local memory
-    currentTabData.agentBoxes = currentTabData.agentBoxes.filter((box: any) => box.id !== agentId)
-
-    
-
-    // Also remove saved height
-
-    if (currentTabData.agentBoxHeights?.[agentId]) {
-
-      delete currentTabData.agentBoxHeights[agentId]
-
-    }
-
-    
-
-    // Save to localStorage for immediate UI persistence
-    try {
-      localStorage.setItem(`optimando-tab-${tabId}`, JSON.stringify(currentTabData))
-    } catch (e) {
-      console.warn('⚠️ Could not save to localStorage:', e)
-    }
-
-    renderAgentBoxes()
-
-    // Delete from SQLite database AND chrome.storage.local
     const sessionKey = getCurrentSessionKey()
 
-    if (sessionKey) {
-      // CRITICAL: Also update chrome.storage.local to remove the deleted box
-      // This prevents stale data from being re-saved when other operations
-      // load from chrome.storage.local and save back
-      storageGet([sessionKey], (result) => {
-        const session = result[sessionKey]
-        if (session && session.agentBoxes) {
-          // Remove the deleted box from chrome.storage.local session
-          session.agentBoxes = session.agentBoxes.filter((b: any) => 
-            b.id !== agentId && b.identifier !== deletedBox.identifier
-          )
-          storageSet({ [sessionKey]: session }, () => {
-            console.log('✅ Removed agent box from chrome.storage.local')
-          })
-        }
-      })
-
-      // Send to background script to delete from SQLite
-      chrome.runtime.sendMessage({
-        type: 'DELETE_AGENT_BOX_FROM_SQLITE',
-        sessionKey: sessionKey,
-        agentId: agentId,
-        identifier: deletedBox.identifier
-      }, (response) => {
-        if (response && response.success) {
-          console.log('✅ Agent box deleted from SQLite database')
-          
-          // Notify sidepanel to reload from SQLite
-          chrome.runtime.sendMessage({
-            type: 'RELOAD_SESSION_FROM_SQLITE',
-            sessionKey: sessionKey
-          })
-        } else {
-          console.error('❌ Failed to delete from SQLite:', response?.error)
-        }
-      })
-    } else {
-      console.error('❌ No session key found, cannot delete from SQLite')
+    if (!sessionKey) {
+      console.error('❌ No session key found, cannot delete')
+      return
     }
 
+    // SIMPLE APPROACH: Delete from SQLite (single source of truth)
+    // Then reload everything from SQLite
+    chrome.runtime.sendMessage({
+      type: 'DELETE_AGENT_BOX_FROM_SQLITE',
+      sessionKey: sessionKey,
+      agentId: agentId,
+      identifier: deletedBox.identifier
+    }, (response) => {
+      if (response && response.success) {
+        console.log('✅ Agent box deleted from SQLite')
+        
+        // Reload from SQLite to update UI with fresh data
+        reloadSessionFromSQLite(sessionKey)
+        
+        // Notify sidepanel
+        chrome.runtime.sendMessage({
+          type: 'RELOAD_SESSION_FROM_SQLITE',
+          sessionKey: sessionKey
+        })
+      } else {
+        console.error('❌ Failed to delete from SQLite:', response?.error)
+        alert('Failed to delete agent box. Please try again.')
+      }
+    })
+  }
+  
+  // Helper: Reload session data from SQLite (single source of truth)
+  function reloadSessionFromSQLite(sessionKey: string) {
+    chrome.runtime.sendMessage({
+      type: 'GET_SESSION_FROM_SQLITE',
+      sessionKey: sessionKey
+    }, (response) => {
+      if (chrome.runtime.lastError || !response?.success) {
+        console.error('❌ Failed to reload from SQLite:', chrome.runtime.lastError?.message)
+        return
+      }
+      
+      const sessionData = response.session
+      if (sessionData) {
+        // Update in-memory state with fresh SQLite data
+        currentTabData.agentBoxes = sessionData.agentBoxes || []
+        currentTabData.tabName = sessionData.tabName || currentTabData.tabName
+        
+        // Re-render UI
+        renderAgentBoxes()
+        console.log('✅ UI refreshed from SQLite:', currentTabData.agentBoxes.length, 'boxes')
+      }
+    })
   }
 
   // Delete display grid agent box (uses identifier instead of id)
@@ -5415,59 +5417,39 @@ function initializeExtension() {
     }
 
     const deletedBox = currentTabData.agentBoxes[boxIndex]
-
-    // Remove from local memory
-    currentTabData.agentBoxes = currentTabData.agentBoxes.filter((box: any) => 
-      box.identifier !== identifier && box.slotId !== slotId
-    )
-
-    // Save to localStorage
-    try {
-      localStorage.setItem(`optimando-tab-${tabId}`, JSON.stringify(currentTabData))
-    } catch (e) {
-      console.warn('⚠️ Could not save to localStorage:', e)
-    }
-
-    // Delete from SQLite database AND chrome.storage.local
     const sessionKey = getCurrentSessionKey()
 
-    if (sessionKey) {
-      // CRITICAL: Also update chrome.storage.local to remove the deleted box
-      storageGet([sessionKey], (result) => {
-        const session = result[sessionKey]
-        if (session && session.agentBoxes) {
-          session.agentBoxes = session.agentBoxes.filter((b: any) => 
-            b.identifier !== identifier && b.slotId !== slotId
-          )
-          storageSet({ [sessionKey]: session }, () => {
-            console.log('✅ Removed display grid box from chrome.storage.local')
-          })
-        }
-      })
-
-      chrome.runtime.sendMessage({
-        type: 'DELETE_DISPLAY_GRID_AGENT_BOX',
-        sessionKey: sessionKey,
-        identifier: identifier,
-        slotId: slotId,
-        gridSessionId: deletedBox.gridSessionId,
-        gridLayout: deletedBox.gridLayout
-      }, (response) => {
-        if (response && response.success) {
-          console.log('✅ Display grid agent box deleted from SQLite')
-
-          // Notify sidepanel to reload
-          chrome.runtime.sendMessage({
-            type: 'RELOAD_SESSION_FROM_SQLITE',
-            sessionKey: sessionKey
-          })
-        } else {
-          console.error('❌ Failed to delete from SQLite:', response?.error)
-        }
-      })
-    } else {
-      console.error('❌ No session key found, cannot delete from SQLite')
+    if (!sessionKey) {
+      console.error('❌ No session key found, cannot delete')
+      return
     }
+
+    // SIMPLE APPROACH: Delete from SQLite (single source of truth)
+    // Then reload everything from SQLite
+    chrome.runtime.sendMessage({
+      type: 'DELETE_DISPLAY_GRID_AGENT_BOX',
+      sessionKey: sessionKey,
+      identifier: identifier,
+      slotId: slotId,
+      gridSessionId: deletedBox.gridSessionId,
+      gridLayout: deletedBox.gridLayout
+    }, (response) => {
+      if (response && response.success) {
+        console.log('✅ Display grid agent box deleted from SQLite')
+
+        // Reload from SQLite to update UI with fresh data
+        reloadSessionFromSQLite(sessionKey)
+        
+        // Notify sidepanel
+        chrome.runtime.sendMessage({
+          type: 'RELOAD_SESSION_FROM_SQLITE',
+          sessionKey: sessionKey
+        })
+      } else {
+        console.error('❌ Failed to delete from SQLite:', response?.error)
+        alert('Failed to delete agent box. Please try again.')
+      }
+    })
   }
 
 
@@ -22445,14 +22427,16 @@ function initializeExtension() {
           }
           
           // ─────────────────────────────────────────────────────────────────────
-          // FIND CONNECTED AGENT BOXES
+          // FIND CONNECTED AGENT BOXES (ROBUST IMPLEMENTATION)
+          // ALWAYS fetch fresh data from SQLite to avoid stale state issues
           // A box is connected when ALL conditions are met:
           // 1. Box is explicitly referenced in agent's execution section destinations
-          // 2. Box exists in the session
+          // 2. Box exists in the session (active in SQLite)
           // 3. Box has agentNumber === agent.number (allocated to this agent)
           // ─────────────────────────────────────────────────────────────────────
           
           const agentNumberValue = canonical.number
+          const sessionKey = getCurrentSessionKey()
           
           // Helper: parse boxNumber from destination value (e.g., 'agentBox01' → 1)
           const parseBoxNumber = (val: string): number | null => {
@@ -22461,58 +22445,79 @@ function initializeExtension() {
             return match ? parseInt(match[1], 10) : null
           }
           
-          // Collect explicitly referenced box numbers from all agentBox destinations
-          const referencedBoxNumbers = new Set<number>()
-          
-          // From canonical executionSections
-          canonical.executionSections?.forEach((sec: any) => {
-            sec.destinations?.forEach((d: any) => {
-              if (d.kind === 'agentBox' && d.agents?.length > 0) {
-                d.agents.forEach((val: string) => {
-                  const boxNum = parseBoxNumber(val)
-                  if (boxNum !== null) referencedBoxNumbers.add(boxNum)
-                })
-              }
-            })
-          })
-          
-          // From main execution section specialDestinations
-          previouslySavedData?.execution?.specialDestinations?.forEach((d: any) => {
-            if (d.kind === 'agentBox' && d.agents?.length > 0) {
-              d.agents.forEach((val: string) => {
-                const boxNum = parseBoxNumber(val)
-                if (boxNum !== null) referencedBoxNumbers.add(boxNum)
+          // Helper: extract all agentBox destinations from any data structure
+          const extractAgentBoxDestinations = (data: any): Set<number> => {
+            const boxNumbers = new Set<number>()
+            
+            // Check canonical executionSections
+            data?.executionSections?.forEach((sec: any) => {
+              sec.destinations?.forEach((d: any) => {
+                if (d.kind === 'agentBox' && d.agents?.length > 0) {
+                  d.agents.forEach((val: string) => {
+                    const boxNum = parseBoxNumber(val)
+                    if (boxNum !== null) boxNumbers.add(boxNum)
+                  })
+                }
               })
-            }
-          })
-          
-          // From additional execution sections
-          previouslySavedData?.execution?.executionSections?.forEach((sec: any) => {
-            sec.specialDestinations?.forEach((d: any) => {
+              // Also check specialDestinations in sections
+              sec.specialDestinations?.forEach((d: any) => {
+                if (d.kind === 'agentBox' && d.agents?.length > 0) {
+                  d.agents.forEach((val: string) => {
+                    const boxNum = parseBoxNumber(val)
+                    if (boxNum !== null) boxNumbers.add(boxNum)
+                  })
+                }
+              })
+            })
+            
+            // Check legacy execution.specialDestinations
+            data?.execution?.specialDestinations?.forEach((d: any) => {
               if (d.kind === 'agentBox' && d.agents?.length > 0) {
                 d.agents.forEach((val: string) => {
                   const boxNum = parseBoxNumber(val)
-                  if (boxNum !== null) referencedBoxNumbers.add(boxNum)
+                  if (boxNum !== null) boxNumbers.add(boxNum)
                 })
               }
             })
-          })
+            
+            // Check legacy execution.executionSections
+            data?.execution?.executionSections?.forEach((sec: any) => {
+              sec.specialDestinations?.forEach((d: any) => {
+                if (d.kind === 'agentBox' && d.agents?.length > 0) {
+                  d.agents.forEach((val: string) => {
+                    const boxNum = parseBoxNumber(val)
+                    if (boxNum !== null) boxNumbers.add(boxNum)
+                  })
+                }
+              })
+              sec.destinations?.forEach((d: any) => {
+                if (d.kind === 'agentBox' && d.agents?.length > 0) {
+                  d.agents.forEach((val: string) => {
+                    const boxNum = parseBoxNumber(val)
+                    if (boxNum !== null) boxNumbers.add(boxNum)
+                  })
+                }
+              })
+            })
+            
+            return boxNumbers
+          }
           
-          const hasAgentBoxDestination = referencedBoxNumbers.size > 0
-          
-          // Get all agent boxes from the session (fetch fresh from SQLite)
-          const sessionKey = getCurrentSessionKey()
+          // Initialize results
           let allBoxes: any[] = []
+          let referencedBoxNumbers = new Set<number>()
+          let freshAgentConfig: any = null
           
+          // STEP 1: Fetch FRESH data from SQLite (single source of truth)
           if (sessionKey) {
             try {
-              // Fetch fresh data from SQLite via background script
               const sqliteData = await new Promise<any>((resolve) => {
                 chrome.runtime.sendMessage({
                   type: 'GET_SESSION_FROM_SQLITE',
                   sessionKey: sessionKey
                 }, (response) => {
                   if (chrome.runtime.lastError || !response?.success) {
+                    console.warn('⚠️ Could not fetch from SQLite:', chrome.runtime.lastError?.message)
                     resolve(null)
                   } else {
                     resolve(response.session)
@@ -22520,46 +22525,71 @@ function initializeExtension() {
                 })
               })
               
-              // Use SQLite data if available, otherwise fall back to storage
-              let sessionBoxes: any[] = []
-              if (sqliteData?.agentBoxes) {
-                sessionBoxes = sqliteData.agentBoxes
-              } else {
-                // Fallback to chrome storage
-                const storageData = await new Promise<any>((resolve) => {
-                  storageGet([sessionKey], (result) => resolve(result[sessionKey] || {}))
-                })
-                sessionBoxes = storageData.agentBoxes || []
+              if (sqliteData) {
+                // Get FRESH agent boxes from SQLite
+                allBoxes = sqliteData.agentBoxes || []
+                console.log(`📊 Export: Found ${allBoxes.length} agent boxes in SQLite`)
+                
+                // Get FRESH agent config from SQLite
+                const freshAgent = sqliteData.agents?.find((a: any) => 
+                  a.key === agentKey || a.name === agentKey
+                )
+                if (freshAgent?.config) {
+                  freshAgentConfig = freshAgent.config
+                  console.log(`📊 Export: Found fresh agent config in SQLite for ${agentKey}`)
+                }
               }
-              
-              const tabBoxes = currentTabData.agentBoxes || []
-              
-              // Combine and deduplicate by id/identifier
-              const seenIds = new Set<string>()
-              allBoxes = [...sessionBoxes, ...tabBoxes].filter((box: any) => {
-                const boxId = box.id || box.identifier || `box-${box.boxNumber}`
-                if (seenIds.has(boxId)) return false
-                seenIds.add(boxId)
-                return true
-              })
             } catch (e) {
-              console.warn('⚠️ Error loading boxes from session:', e)
+              console.warn('⚠️ Error fetching from SQLite:', e)
             }
           }
           
-          // Find boxes that are BOTH:
-          // 1. Referenced in agent's destinations (by boxNumber)
-          // 2. Allocated to this agent (agentNumber matches)
+          // STEP 2: Extract referenced box numbers from FRESH agent config (or fall back to current)
+          // Priority: SQLite agent config > canonical > previouslySavedData
+          if (freshAgentConfig) {
+            referencedBoxNumbers = extractAgentBoxDestinations(freshAgentConfig)
+            console.log(`📊 Export: Using FRESH config - Found ${referencedBoxNumbers.size} referenced boxes`)
+          } else {
+            // Fall back to canonical (derived from previouslySavedData)
+            referencedBoxNumbers = extractAgentBoxDestinations(canonical)
+            const prevRefs = extractAgentBoxDestinations(previouslySavedData)
+            prevRefs.forEach(n => referencedBoxNumbers.add(n))
+            console.log(`📊 Export: Using CACHED config - Found ${referencedBoxNumbers.size} referenced boxes`)
+          }
+          
+          const hasAgentBoxDestination = referencedBoxNumbers.size > 0
+          
+          // STEP 3: Find connected boxes (must be BOTH referenced AND allocated to this agent)
           let connectedBoxes: any[] = []
           
-          if (agentNumberValue && hasAgentBoxDestination && allBoxes.length > 0) {
+          if (agentNumberValue && allBoxes.length > 0) {
+            console.log(`📊 Export: Checking ${allBoxes.length} boxes for agent #${agentNumberValue}`)
+            console.log(`📊 Export: Referenced box numbers: [${Array.from(referencedBoxNumbers).join(', ')}]`)
+            
             connectedBoxes = allBoxes.filter((box: any) => {
+              // Skip disabled boxes
               if (box.enabled === false) return false
-              // Must be referenced in destinations
-              if (!referencedBoxNumbers.has(box.boxNumber)) return false
-              // Must be allocated to this agent
-              return box.agentNumber === agentNumberValue
+              
+              // Check if box is referenced in agent's destinations
+              const isReferenced = referencedBoxNumbers.has(box.boxNumber)
+              
+              // Check if box is allocated to this agent
+              const isAllocated = box.agentNumber === agentNumberValue
+              
+              // Log each box check for debugging
+              const matches = isReferenced && isAllocated
+              if (isReferenced || isAllocated) {
+                console.log(`  Box ${box.identifier || box.id}: boxNum=${box.boxNumber}, agentNum=${box.agentNumber} → referenced=${isReferenced}, allocated=${isAllocated}, connected=${matches}`)
+              }
+              
+              return matches
             })
+            
+            console.log(`📊 Export: Found ${connectedBoxes.length} connected boxes`)
+          } else if (!agentNumberValue) {
+            console.log(`⚠️ Export: Agent has no number assigned, cannot detect connections`)
+          } else if (allBoxes.length === 0) {
+            console.log(`⚠️ Export: No agent boxes found in session`)
           }
           
           

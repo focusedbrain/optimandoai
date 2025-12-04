@@ -1070,6 +1070,40 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       return true  // Keep message channel open for async response
     }
     
+    case 'SAVE_SESSION_TO_SQLITE': {
+      // Save full session data to SQLite (single source of truth)
+      const { sessionKey, session } = msg
+      
+      if (!sessionKey || !session) {
+        console.error('❌ BG: Missing sessionKey or session data')
+        try { sendResponse({ success: false, error: 'Missing data' }) } catch {}
+        return true
+      }
+      
+      // Save to SQLite via HTTP API
+      fetch('http://127.0.0.1:51248/api/orchestrator/set', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key: sessionKey, value: session })
+      })
+        .then(response => {
+          if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`)
+          }
+          return response.json()
+        })
+        .then(() => {
+          console.log('✅ BG: Session saved to SQLite:', sessionKey)
+          try { sendResponse({ success: true }) } catch {}
+        })
+        .catch((error: any) => {
+          console.error('❌ BG: Error saving session to SQLite:', error)
+          try { sendResponse({ success: false, error: String(error) }) } catch {}
+        })
+      
+      return true  // Keep message channel open for async response
+    }
+    
     case 'GET_ALL_SESSIONS_FROM_SQLITE': {
       console.log('📥 BG: GET_ALL_SESSIONS_FROM_SQLITE')
       
