@@ -22689,22 +22689,41 @@ function initializeExtension() {
             // Get selected boxes
             const checkboxes = exportDialog.querySelectorAll('.export-box-checkbox:checked') as NodeListOf<HTMLInputElement>
             const selectedBoxes: any[] = []
+            const selectedIdentifiers: string[] = []
             
             checkboxes.forEach((cb) => {
               const idx = parseInt(cb.getAttribute('data-box-idx') || '0')
               if (connectedBoxes[idx]) {
-                selectedBoxes.push(toCanonicalBox(connectedBoxes[idx]))
+                const canonicalBox = toCanonicalBox(connectedBoxes[idx])
+                selectedBoxes.push(canonicalBox)
+                selectedIdentifiers.push(canonicalBox.identifier)
               }
             })
+            
+            // Fix agent destinations to use actual box identifiers
+            // This ensures referential integrity between agent and boxes
+            const fixedAgent = JSON.parse(JSON.stringify(canonical))
+            if (fixedAgent.executionSections) {
+              fixedAgent.executionSections.forEach((sec: any) => {
+                if (sec.destinations) {
+                  sec.destinations.forEach((dest: any) => {
+                    if (dest.kind === 'agentBox') {
+                      // Replace placeholder agents array with actual identifiers
+                      dest.agents = selectedIdentifiers
+                    }
+                  })
+                }
+              })
+            }
             
             // Create combined export
             const combinedExport = {
               _exportVersion: '1.0.0',
               _exportedAt: new Date().toISOString(),
               _source: 'Optimando AI Extension',
-              _helper: 'This export contains an agent and its connected agent boxes. To import: (1) Import the agent configuration, (2) Import each agent box. The agent\'s output will route to boxes where agentBox.agentNumber matches agent.number.',
+              _helper: 'This export contains an agent and its connected agent boxes. ROUTING: (1) Agent has destinations with kind=agentBox, (2) Agent.number matches AgentBox.agentNumber determines which boxes receive output. The agents[] array contains AgentBox.identifier values (format ABxxyy) for reference.',
               
-              agent: canonical,
+              agent: fixedAgent,
               
               connectedAgentBoxes: selectedBoxes,
               
@@ -22712,13 +22731,15 @@ function initializeExtension() {
                 agentNumber: agentNumberValue,
                 connectedBoxCount: selectedBoxes.length,
                 hasAgentBoxDestination: hasAgentBoxDestination,
+                boxIdentifiers: selectedIdentifiers,
               }
             }
             
             downloadJson(combinedExport, `agent-with-boxes-${canonical.name || 'export'}-${new Date().toISOString().slice(0, 10)}.json`)
             console.log('✅ Agent + Agent Boxes exported successfully!', {
               agent: canonical.name,
-              boxCount: selectedBoxes.length
+              boxCount: selectedBoxes.length,
+              boxIdentifiers: selectedIdentifiers
             })
             closeDialog()
             

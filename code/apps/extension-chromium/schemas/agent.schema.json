@@ -651,21 +651,25 @@
     },
     "destination": {
       "type": "object",
-      "description": "Output destination for agent results.",
+      "description": "Output destination for agent results. For kind='agentBox', routing works in TWO levels: (1) presence of agentBox destination enables box routing, (2) agent.number === agentBox.agentNumber determines WHICH boxes receive output.",
       "required": ["kind"],
       "properties": {
         "kind": {
           "type": "string",
           "enum": ["agentBox", "chat", "email", "webhook", "storage", "notification"],
-          "description": "Destination type."
+          "description": "Destination type. Use 'agentBox' to route output to Agent Boxes."
         },
         "agents": {
           "type": "array",
-          "description": "Agent box IDs for agentBox destination.",
-          "items": { "type": "string" }
+          "description": "Agent Box identifiers (AgentBox.identifier format 'ABxxyy', e.g., 'AB0101'). These reference connected boxes. Note: actual routing uses agent.number matching agentBox.agentNumber - this array documents which boxes are targeted.",
+          "items": { 
+            "type": "string",
+            "pattern": "^AB[0-9]{2}[0-9]{2}$",
+            "description": "AgentBox identifier in format ABxxyy where xx=boxNumber, yy=agentNumber"
+          }
         },
-        "email": { "type": "string" },
-        "webhook": { "type": "string" }
+        "email": { "type": "string", "description": "Email address for email destination." },
+        "webhook": { "type": "string", "description": "Webhook URL for webhook destination." }
       }
     },
     "workflow": {
