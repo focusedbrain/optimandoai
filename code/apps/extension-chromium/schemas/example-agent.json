@@ -111,7 +111,7 @@
       "destinations": [
         {
           "kind": "agentBox",
-          "agents": ["agentBox01", "agentBox02"]
+          "agents": ["AB0101", "AB0201"]
         }
       ],
       "executionWorkflows": []

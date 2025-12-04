@@ -13164,8 +13164,12 @@ function initializeExtension() {
           <div style="display: flex; gap: 10px; align-items: center;">
             <button id="ag-export-btn" type="button" style="padding: 10px 16px; background: rgba(59,130,246,0.3); border: 1px solid rgba(59,130,246,0.5); color: white; border-radius: 6px; cursor: pointer; font-size: 12px; display: flex; align-items: center; gap: 6px;" title="Export this agent configuration as JSON">📤 Export</button>
             <div style="display: flex; gap: 4px; align-items: center;">
-              <button id="ag-schema-btn" type="button" style="padding: 8px 10px; background: rgba(147,51,234,0.3); border: 1px solid rgba(147,51,234,0.5); color: white; border-radius: 6px; cursor: pointer; font-size: 14px; display: flex; align-items: center; justify-content: center;" title="📋 SCHEMA: Download the master agent.schema.json. Upload this to an LLM along with the template (📄) to generate new agents.">📋</button>
-              <button id="ag-template-btn" type="button" style="padding: 8px 10px; background: rgba(245,158,11,0.3); border: 1px solid rgba(245,158,11,0.5); color: white; border-radius: 6px; cursor: pointer; font-size: 12px; display: flex; align-items: center; justify-content: center; position: relative;" title="📄 TEMPLATE: Download agent.template.json. To create new agents with AI: upload BOTH the schema (📋) AND this template to your LLM, then describe what agent you want.">📄<span style="position: absolute; top: -4px; right: -4px; font-size: 10px; background: rgba(245,158,11,0.8); border-radius: 50%; width: 14px; height: 14px; display: flex; align-items: center; justify-content: center;">?</span></button>
+              <span style="font-size: 10px; color: rgba(255,255,255,0.6); margin-right: 2px;">Agent:</span>
+              <button id="ag-schema-btn" type="button" style="padding: 8px 10px; background: rgba(147,51,234,0.3); border: 1px solid rgba(147,51,234,0.5); color: white; border-radius: 6px; cursor: pointer; font-size: 14px; display: flex; align-items: center; justify-content: center;" title="📋 AGENT SCHEMA: Download agent.schema.json. Upload to LLM with template to generate new agents.">📋</button>
+              <button id="ag-template-btn" type="button" style="padding: 8px 10px; background: rgba(245,158,11,0.3); border: 1px solid rgba(245,158,11,0.5); color: white; border-radius: 6px; cursor: pointer; font-size: 12px; display: flex; align-items: center; justify-content: center;" title="📄 AGENT TEMPLATE: Download agent.template.json example.">📄</button>
+              <span style="font-size: 10px; color: rgba(255,255,255,0.6); margin-left: 6px; margin-right: 2px;">Box:</span>
+              <button id="ag-box-schema-btn" type="button" style="padding: 8px 10px; background: rgba(16,185,129,0.3); border: 1px solid rgba(16,185,129,0.5); color: white; border-radius: 6px; cursor: pointer; font-size: 14px; display: flex; align-items: center; justify-content: center;" title="📦 AGENT BOX SCHEMA: Download agentbox.schema.json. Defines Agent Box structure for output routing.">📦</button>
+              <button id="ag-box-template-btn" type="button" style="padding: 8px 10px; background: rgba(6,182,212,0.3); border: 1px solid rgba(6,182,212,0.5); color: white; border-radius: 6px; cursor: pointer; font-size: 12px; display: flex; align-items: center; justify-content: center;" title="📄 AGENT BOX TEMPLATE: Download agentbox.template.json example.">🗃️</button>
             </div>
             <button id="ag-import-btn" type="button" style="padding: 10px 16px; background: rgba(34,197,94,0.3); border: 1px solid rgba(34,197,94,0.5); color: white; border-radius: 6px; cursor: pointer; font-size: 12px; display: flex; align-items: center; gap: 6px;" title="Import agent configuration from JSON file">📥 Import</button>
             <input type="file" id="ag-import-file" accept=".json" style="display: none;">
@@ -23305,7 +23309,7 @@ function initializeExtension() {
                 "destinations": [
                   {
                     "kind": "agentBox",
-                    "agents": ["agentBox01"]
+                    "agents": ["AB0101"]
                   }
                 ],
                 "executionWorkflows": []
@@ -23348,6 +23352,151 @@ function initializeExtension() {
         } catch (error) {
           console.error('❌ Template download failed:', error)
           alert('Template download failed. Check console for details.')
+        }
+      }
+    }
+
+    // Agent Box Schema download handler
+    const boxSchemaBtn = document.getElementById('ag-box-schema-btn')
+    if (boxSchemaBtn) {
+      boxSchemaBtn.onclick = async () => {
+        try {
+          console.log('📦 Downloading agent box schema...')
+          
+          const agentBoxSchema = {
+            "$schema": "http://json-schema.org/draft-07/schema#",
+            "$id": "https://optimando.ai/schemas/agentbox.schema.json",
+            "title": "Optimando AI Agent Box Configuration",
+            "description": "Schema for Agent Box configurations (v1.0.0). An Agent Box is a UI container that displays output from an allocated agent. CONNECTION: Agent.number === AgentBox.agentNumber determines routing.",
+            "type": "object",
+            "required": ["_schemaVersion", "id", "boxNumber", "agentNumber", "identifier", "title", "enabled"],
+            "properties": {
+              "$schema": { "type": "string", "description": "Reference to this schema file." },
+              "_schemaVersion": { "type": "string", "const": "1.0.0" },
+              "_exportedAt": { "type": "string", "format": "date-time" },
+              "_helper": { "type": "string", "description": "Usage instructions. Agent Box connects to Agent when agentNumber matches Agent's number field." },
+              "id": { "type": "string", "description": "Unique identifier (e.g., 'custom-1234567890-abc123')." },
+              "boxNumber": { "type": "integer", "description": "Sequential box number (1-99). Auto-incremented.", "minimum": 1, "maximum": 99 },
+              "agentNumber": { "type": "integer", "description": "CRITICAL: Links to Agent. When agent.number === agentNumber, output routes here.", "minimum": 1, "maximum": 99 },
+              "identifier": { "type": "string", "description": "Human-readable ID in format 'ABxxyy' (e.g., 'AB0101' = Box 1, Agent 1).", "pattern": "^AB[0-9]{2}[0-9]{2}$" },
+              "agentId": { "type": "string", "description": "Agent reference (e.g., 'agent1')." },
+              "title": { "type": "string", "description": "Display title in the UI." },
+              "color": { "type": "string", "description": "Hex color for accent (e.g., '#4CAF50').", "pattern": "^#[0-9A-Fa-f]{6}$" },
+              "enabled": { "type": "boolean", "default": true },
+              "provider": { "type": "string", "enum": ["", "OpenAI", "Claude", "Gemini", "Grok", "Local AI", "Image AI"], "description": "LLM provider override." },
+              "model": { "type": "string", "description": "Model within provider (e.g., 'gpt-4o', 'auto')." },
+              "tools": { "type": "array", "items": { "type": "string" }, "description": "Mini apps attached." },
+              "source": { "type": "string", "enum": ["master_tab", "display_grid"], "description": "Where box was created." },
+              "masterTabId": { "type": "string", "pattern": "^[0-9]{2}$", "description": "Master Tab ID ('01', '02', etc.)." },
+              "tabIndex": { "type": "integer", "minimum": 1 },
+              "side": { "type": "string", "enum": ["left", "right"], "description": "Side for hybrid tabs." },
+              "slotId": { "type": "string", "description": "Grid slot for display_grid boxes." },
+              "gridSessionId": { "type": "string" },
+              "locationId": { "type": "string" },
+              "locationLabel": { "type": "string" }
+            },
+            "_schemaInfo": {
+              "enums": {
+                "provider": ["", "OpenAI", "Claude", "Gemini", "Grok", "Local AI", "Image AI"],
+                "source": ["master_tab", "display_grid"],
+                "side": ["left", "right"]
+              },
+              "numericFields": ["boxNumber", "agentNumber", "tabIndex"],
+              "connectionLogic": "Agent.number === AgentBox.agentNumber → output routes to this box"
+            }
+          }
+          
+          const json = JSON.stringify(agentBoxSchema, null, 2)
+          const blob = new Blob([json], { type: 'application/json' })
+          const url = URL.createObjectURL(blob)
+          
+          const a = document.createElement('a')
+          a.href = url
+          a.download = 'agentbox.schema.json'
+          document.body.appendChild(a)
+          a.click()
+          document.body.removeChild(a)
+          URL.revokeObjectURL(url)
+          
+          console.log('✅ Agent Box schema downloaded!')
+          
+          const originalHTML = boxSchemaBtn.innerHTML
+          boxSchemaBtn.innerHTML = '✓'
+          setTimeout(() => { boxSchemaBtn.innerHTML = originalHTML }, 1500)
+          
+        } catch (error) {
+          console.error('❌ Agent Box schema download failed:', error)
+          alert('Agent Box schema download failed. Check console for details.')
+        }
+      }
+    }
+
+    // Agent Box Template download handler
+    const boxTemplateBtn = document.getElementById('ag-box-template-btn')
+    if (boxTemplateBtn) {
+      boxTemplateBtn.onclick = async () => {
+        try {
+          console.log('🗃️ Downloading agent box template...')
+          
+          const agentBoxTemplate = {
+            "$schema": "./agentbox.schema.json",
+            "_schemaVersion": "1.0.0",
+            "_exportedAt": new Date().toISOString(),
+            "_source": "Optimando AI Extension - Template",
+            "_helper": "TEMPLATE Agent Box. CRITICAL: Set 'agentNumber' to match the Agent's 'number' field you want output from. The identifier format is 'ABxxyy' where xx=boxNumber, yy=agentNumber.",
+            
+            "id": "my-agent-box-001",
+            "boxNumber": 1,
+            "agentNumber": 1,
+            "identifier": "AB0101",
+            "agentId": "agent1",
+            "title": "🤖 My Agent Box",
+            "color": "#4CAF50",
+            "enabled": true,
+            
+            "provider": "",
+            "model": "auto",
+            "tools": [],
+            
+            "source": "master_tab",
+            "masterTabId": "01",
+            "tabIndex": 1,
+            "side": "",
+            
+            "slotId": "",
+            "gridSessionId": "",
+            "locationId": "",
+            "locationLabel": "",
+            
+            "_connectionExample": {
+              "description": "To connect this box to an agent:",
+              "step1": "Set agentNumber to match the agent's number field",
+              "step2": "Ensure the agent has destinations: [{kind: 'agentBox', agents: ['AB0101']}]",
+              "routing": "When agent outputs, it routes to all boxes where agent.number === box.agentNumber"
+            }
+          }
+          
+          const json = JSON.stringify(agentBoxTemplate, null, 2)
+          const blob = new Blob([json], { type: 'application/json' })
+          const url = URL.createObjectURL(blob)
+          
+          const a = document.createElement('a')
+          a.href = url
+          a.download = 'agentbox.template.json'
+          document.body.appendChild(a)
+          a.click()
+          document.body.removeChild(a)
+          URL.revokeObjectURL(url)
+          
+          console.log('✅ Agent Box template downloaded!')
+          
+          const originalHTML = boxTemplateBtn.innerHTML
+          boxTemplateBtn.innerHTML = '✓'
+          setTimeout(() => { boxTemplateBtn.innerHTML = originalHTML }, 1500)
+          
+        } catch (error) {
+          console.error('❌ Agent Box template download failed:', error)
+          alert('Agent Box template download failed. Check console for details.')
         }
       }
     }
