@@ -6905,7 +6905,6 @@ function initializeExtension() {
         agentBox.agentNumber = parseInt(match[1], 10)
       }
 
-      console.log(`🔄 Agent allocation updated: Box ${agentBox.boxNumber || agentBox.number} → ${updates.agentId} (agentNumber: ${agentBox.agentNumber})`)
 
     }
     
@@ -6913,7 +6912,6 @@ function initializeExtension() {
     if (updates.agentNumber !== undefined) {
       agentBox.agentNumber = updates.agentNumber
       agentBox.agentId = `agent${updates.agentNumber}`
-      console.log(`🔄 Agent number updated: Box ${agentBox.boxNumber || agentBox.number} → Agent ${updates.agentNumber}`)
     }
 
     // Also check model for agent info (fallback)
@@ -6927,7 +6925,6 @@ function initializeExtension() {
         agentBox.agentId = `agent${match[1]}`
         agentBox.agentNumber = parseInt(match[1], 10)
 
-        console.log(`🔄 Agent allocation updated from model: Box ${agentBox.boxNumber || agentBox.number} → Agent ${match[1]}`)
 
       }
 
@@ -6945,12 +6942,6 @@ function initializeExtension() {
         type: 'SAVE_AGENT_BOX_TO_SQLITE',
         sessionKey: sessionKey,
         agentBox: agentBox
-      }, (response) => {
-        if (chrome.runtime.lastError) {
-          console.warn('⚠️ SQLite save failed:', chrome.runtime.lastError.message)
-        } else if (response?.success) {
-          console.log('✅ Agent box synced to SQLite:', agentBox.identifier || agentBox.id)
-        }
       })
     }
 
@@ -22552,7 +22543,6 @@ function initializeExtension() {
             })
           }
           
-          console.log(`📦 Export: Agent ${agentNumberValue}, ${allBoxes.length} boxes in session, ${connectedBoxes.length} connected`)
           
           // ─────────────────────────────────────────────────────────────────────
           // SHOW EXPORT DIALOG
