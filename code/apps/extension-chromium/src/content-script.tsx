@@ -6935,9 +6935,24 @@ function initializeExtension() {
 
     
 
-    // Save to storage and re-render (saveTabDataToStorage handles SQLite sync)
-
+    // Save to localStorage for immediate UI persistence
     saveTabDataToStorage()
+
+    // CRITICAL: Also sync to SQLite for persistence across sessions
+    const sessionKey = getCurrentSessionKey()
+    if (sessionKey) {
+      chrome.runtime.sendMessage({
+        type: 'SAVE_AGENT_BOX_TO_SQLITE',
+        sessionKey: sessionKey,
+        agentBox: agentBox
+      }, (response) => {
+        if (chrome.runtime.lastError) {
+          console.warn('⚠️ SQLite save failed:', chrome.runtime.lastError.message)
+        } else if (response?.success) {
+          console.log('✅ Agent box synced to SQLite:', agentBox.identifier || agentBox.id)
+        }
+      })
+    }
 
     renderAgentBoxes()
 
