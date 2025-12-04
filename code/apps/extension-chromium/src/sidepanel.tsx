@@ -3946,8 +3946,15 @@ Write your message with the confidence that it will be protected by WRGuard encr
                   }}
                 >
                   {chatMessages.length === 0 ? (
-                    <div style={{ fontSize: '13px', opacity: 0.6, textAlign: 'center', padding: '32px 20px' }}>
-                      Start a conversation...
+                    <div style={{ fontSize: '13px', opacity: dockedPanelMode === 'augmented-overlay' ? 0.8 : 0.6, textAlign: 'center', padding: '32px 20px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px' }}>
+                      {dockedPanelMode === 'augmented-overlay' ? (
+                        <>
+                          <span style={{ fontSize: '24px' }}>🎯</span>
+                          <span>Point with the cursor or select elements in order to ask questions or trigger automations directly in the UI.</span>
+                        </>
+                      ) : (
+                        'Start a conversation...'
+                      )}
                     </div>
                   ) : (
                     chatMessages.map((msg: any, i) => (
@@ -4666,8 +4673,15 @@ Write your message with the confidence that it will be protected by WRGuard encr
                   }}
                 >
                   {chatMessages.length === 0 ? (
-                    <div style={{ fontSize: '13px', opacity: 0.6, textAlign: 'center', padding: '32px 20px' }}>
-                      Start a conversation...
+                    <div style={{ fontSize: '13px', opacity: dockedPanelMode === 'augmented-overlay' ? 0.8 : 0.6, textAlign: 'center', padding: '32px 20px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px' }}>
+                      {dockedPanelMode === 'augmented-overlay' ? (
+                        <>
+                          <span style={{ fontSize: '24px' }}>🎯</span>
+                          <span>Point with the cursor or select elements in order to ask questions or trigger automations directly in the UI.</span>
+                        </>
+                      ) : (
+                        'Start a conversation...'
+                      )}
                     </div>
                   ) : (
                     chatMessages.map((msg: any, i) => (
