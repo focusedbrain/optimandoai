@@ -23346,7 +23346,7 @@ function initializeExtension() {
                 "boxNumber": 1,
                 "agentNumber": 1,
                 "identifier": "AB0101",
-                "agentId": "agent1",
+                "agentId": "my-agent-01",
                 "title": "🤖 My Agent Output",
                 "color": "#4CAF50",
                 "enabled": true,

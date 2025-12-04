@@ -178,7 +178,7 @@
         },
         "agentId": {
           "type": "string",
-          "description": "Agent reference (e.g., 'agent1')."
+          "description": "Must match the id of the connected Agent (agents[n].id). Used for referential integrity with connectionInfo.agentToBoxMapping."
         },
         "title": {
           "type": "string",
