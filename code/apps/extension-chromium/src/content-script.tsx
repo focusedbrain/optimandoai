@@ -41146,8 +41146,139 @@ ${pageText}
           exportData.uiConfig = sessionData.uiConfig || null
           exportData.helperTabs = sessionData.helperTabs || null
           exportData.displayGrids = sessionData.displayGrids || null
-          exportData.agentBoxes = sessionData.agentBoxes || []
-          exportData.agents = sessionData.agents || []
+          
+          // ─────────────────────────────────────────────────────────────────────
+          // CANONICAL TYPE SYSTEM EXPORT (v2.1.0)
+          // Convert agents and agent boxes to the unified schema format
+          // ─────────────────────────────────────────────────────────────────────
+          
+          // Helper: Convert raw agent box to canonical format
+          const toCanonicalAgentBox = (box: any) => ({
+            _schemaVersion: '1.0.0' as const,
+            id: box.id || `box-${Date.now()}`,
+            boxNumber: typeof box.boxNumber === 'number' ? box.boxNumber : (box.number || 1),
+            agentNumber: typeof box.agentNumber === 'number' ? box.agentNumber : 1,
+            identifier: box.identifier || `AB${String(box.boxNumber || box.number || 1).padStart(2, '0')}${String(box.agentNumber || 1).padStart(2, '0')}`,
+            agentId: box.agentId || `agent${box.agentNumber || 1}`,
+            title: box.title || `Agent Box ${String(box.boxNumber || box.number || 1).padStart(2, '0')}`,
+            color: box.color || '#4CAF50',
+            enabled: box.enabled !== false,
+            provider: box.provider || '',
+            model: box.model || 'auto',
+            tools: Array.isArray(box.tools) ? box.tools : [],
+            source: box.source || 'master_tab',
+            masterTabId: box.masterTabId || '01',
+            tabIndex: typeof box.tabIndex === 'number' ? box.tabIndex : 1,
+            side: box.side || undefined,
+            slotId: box.slotId || undefined,
+            gridSessionId: box.gridSessionId || undefined,
+          })
+          
+          // Helper: Convert raw agent to canonical format (v2.1.0)
+          const toCanonicalAgent = (agent: any) => {
+            // Extract number from agent key/name if not set
+            const inferNumber = (id: string, name?: string): number | undefined => {
+              const idMatch = (id || '').match(/agent[-_]?(\d+)/i)
+              if (idMatch) return parseInt(idMatch[1], 10)
+              const nameMatch = (name || '').match(/agent[-_]?(\d+)/i)
+              if (nameMatch) return parseInt(nameMatch[1], 10)
+              return undefined
+            }
+            
+            const agentNumber = typeof agent.number === 'number' ? agent.number : 
+                               inferNumber(agent.key || agent.id, agent.name)
+            
+            return {
+              _schemaVersion: '2.1.0' as const,
+              id: agent.key || agent.id || `agent-${Date.now()}`,
+              name: agent.name || agent.key || 'unnamed-agent',
+              description: agent.description || '',
+              icon: agent.icon || '🤖',
+              number: agentNumber,
+              enabled: agent.enabled !== false,
+              capabilities: agent.capabilities || ['listening', 'reasoning', 'execution'],
+              scope: agent.scope || 'session',
+              contextSettings: agent.contextSettings || agent.config?.contextSettings || {
+                agentContext: false,
+                sessionContext: true,
+                accountContext: false
+              },
+              memorySettings: agent.memorySettings || agent.config?.memorySettings || {
+                agentEnabled: true,
+                sessionEnabled: false,
+                accountEnabled: false
+              },
+              listening: agent.listening || agent.config?.listening || undefined,
+              reasoningSections: agent.reasoningSections || agent.config?.reasoningSections || 
+                (agent.reasoning ? [agent.reasoning] : undefined) ||
+                (agent.config?.reasoning ? [agent.config.reasoning] : undefined),
+              executionSections: agent.executionSections || agent.config?.executionSections ||
+                (agent.execution ? [agent.execution] : undefined) ||
+                (agent.config?.execution ? [agent.config.execution] : undefined),
+            }
+          }
+          
+          // Convert agent boxes to canonical format
+          const rawBoxes = sessionData.agentBoxes || []
+          const canonicalAgentBoxes = rawBoxes.map(toCanonicalAgentBox)
+          
+          // Convert agents to canonical format
+          const rawAgents = sessionData.agents || []
+          const canonicalAgents = rawAgents.map(toCanonicalAgent)
+          
+          // Build connection info (agent.number → box.agentNumber mappings)
+          const connectionMap = new Map<number, { agentId: string, boxIdentifiers: string[] }>()
+          canonicalAgents.forEach((agent: any) => {
+            if (agent.number) {
+              connectionMap.set(agent.number, {
+                agentId: agent.id,
+                boxIdentifiers: []
+              })
+            }
+          })
+          canonicalAgentBoxes.forEach((box: any) => {
+            const mapping = connectionMap.get(box.agentNumber)
+            if (mapping) {
+              mapping.boxIdentifiers.push(box.identifier)
+            }
+          })
+          
+          const agentToBoxMapping = Array.from(connectionMap.entries()).map(([num, data]) => ({
+            agentNumber: num,
+            agentId: data.agentId,
+            boxIdentifiers: data.boxIdentifiers
+          }))
+          
+          // Export in unified schema format
+          exportData.agents = canonicalAgents
+          exportData.agentBoxes = canonicalAgentBoxes
+          exportData.miniApps = [] // Reserved for future
+          exportData.connectionInfo = {
+            agentToBoxMapping,
+            routingLogic: 'Agent.number === AgentBox.agentNumber → output routes to that box'
+          }
+          
+          // Add schema metadata for LLM understanding
+          exportData._typeSystem = {
+            schemaVersion: '2.1.0',
+            schemaUrl: 'https://optimando.ai/schemas/optimando.schema.json',
+            description: 'Session export using unified Optimando schema. Agents and Agent Boxes are in canonical format for LLM-based generation and import.',
+            _schemaInfo: {
+              enums: {
+                'agent.capabilities': ['listening', 'reasoning', 'execution'],
+                'trigger.type': ['direct_tag', 'tag_and_condition', 'workflow_condition', 'dom_event', 'dom_parser', 'augmented_overlay', 'agent', 'miniapp', 'manual'],
+                'destination.kind': ['agentBox', 'chat', 'email', 'webhook', 'storage', 'notification'],
+                'agentBox.provider': ['', 'OpenAI', 'Claude', 'Gemini', 'Grok', 'Local AI', 'Image AI'],
+                'agentBox.source': ['master_tab', 'display_grid']
+              }
+            }
+          }
+          
+          console.log('📦 Converted to canonical format:', {
+            agents: canonicalAgents.length,
+            agentBoxes: canonicalAgentBoxes.length,
+            connections: agentToBoxMapping.length
+          })
           
           // Derive hybridViews from agent boxes
           // Find all unique masterTabId values (excluding "01" which is the main tab)
