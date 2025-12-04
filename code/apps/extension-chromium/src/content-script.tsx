@@ -42762,6 +42762,7 @@ ${pageText}
           <div style="display:flex; align-items:center; gap:8px; color:${theme==='professional'?'#0f172a':'white'}; flex:1; min-width:0;">
             <select id="ccd-mode-select" style="font-size:11px; font-weight:600; height:28px; flex-shrink:0; background:${theme==='professional'?'rgba(15,23,42,0.08)':'rgba(255,255,255,0.15)'}; border:1px solid ${br}; color:${theme==='professional'?'#0f172a':'inherit'}; border-radius:6px; padding:0 22px 0 8px; cursor:pointer; outline:none; appearance:none; -webkit-appearance:none; background-image:url(&quot;data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 12 12'%3E%3Cpath fill='${theme==='professional'?'%230f172a':'%23ffffff'}' d='M3 4.5L6 7.5L9 4.5'/%3E%3C/svg%3E&quot;); background-repeat:no-repeat; background-position:right 6px center;">
               <option value="command-chat" style="background:#1e293b; color:white;">💬 WR Chat</option>
+              <option value="augmented-overlay" style="background:#1e293b; color:white;">🎯 Augmented Overlay</option>
               <option value="mailguard" style="background:#1e293b; color:white;">🛡️ WR MailGuard</option>
             </select>
             <div id="ccd-chat-controls" style="display:flex; gap:6px; align-items:center;">
@@ -42783,6 +42784,23 @@ ${pageText}
             <input id="ccd-file" type="file" multiple style="display:none" />
             <button id="ccd-attach" title="Attach" style="height:36px; background:${theme==='professional'?'#e2e8f0':'rgba(255,255,255,0.15)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; cursor:pointer;">📎</button>
             <button id="ccd-send" class="send-btn">Send</button>
+          </div>
+        </div>
+
+        <!-- Augmented Overlay View -->
+        <div id="ccd-overlay-view" style="display:none;">
+          <div id="ccd-overlay-messages" style="height:160px; overflow:auto; display:flex; flex-direction:column; gap:6px; background:${theme==='professional'?'#f8fafc':'rgba(255,255,255,0.06)'}; border-left:0; border-right:0; border-top:0; padding:8px;">
+            <div id="ccd-overlay-hint" style="padding:12px 14px; font-size:12px; opacity:0.8; font-style:italic; background:${theme==='professional'?'rgba(59,130,246,0.08)':'rgba(59,130,246,0.15)'}; border-radius:6px; display:flex; align-items:flex-start; gap:8px; line-height:1.5;">
+              <span style="font-size:16px;">🎯</span>
+              <span>Point with the cursor and select elements in order to ask questions or trigger automations directly in the UI.</span>
+            </div>
+          </div>
+          <div id="ccd-overlay-resize-handle" style="height:5px; background:${theme==='professional'?'#e2e8f0':'rgba(255,255,255,0.15)'}; cursor:ns-resize; border-top:1px solid ${br}; border-bottom:1px solid ${br};"></div>
+          <div id="ccd-overlay-compose" style="display:grid; grid-template-columns:1fr 36px 68px; gap:6px; align-items:center; padding:8px;">
+            <textarea id="ccd-overlay-input" placeholder="Ask about the selected element..." style="box-sizing:border-box; height:36px; resize:vertical; background:${theme==='professional'?'#ffffff':'rgba(255,255,255,0.08)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; padding:8px; font-size:12px;"></textarea>
+            <input id="ccd-overlay-file" type="file" multiple style="display:none" />
+            <button id="ccd-overlay-attach" title="Attach" style="height:36px; background:${theme==='professional'?'#e2e8f0':'rgba(255,255,255,0.15)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; cursor:pointer;">📎</button>
+            <button id="ccd-overlay-send" class="send-btn">Send</button>
           </div>
         </div>
 
@@ -42908,9 +42926,10 @@ ${pageText}
         }
       }
 
-      // Mode switching between Command Chat and MailGuard (docked)
+      // Mode switching between Command Chat, Augmented Overlay, and MailGuard (docked)
       const ccdModeSelect = container.querySelector('#ccd-mode-select') as HTMLSelectElement | null
       const ccdChatView = container.querySelector('#ccd-chat-view') as HTMLElement | null
+      const ccdOverlayView = container.querySelector('#ccd-overlay-view') as HTMLElement | null
       const ccdMailguardView = container.querySelector('#ccd-mailguard-view') as HTMLElement | null
       const ccdChatControls = container.querySelector('#ccd-chat-controls') as HTMLElement | null
       
@@ -42952,17 +42971,23 @@ ${pageText}
         })
       }
       
-      if (ccdModeSelect && ccdChatView && ccdMailguardView) {
+      if (ccdModeSelect && ccdChatView && ccdOverlayView && ccdMailguardView) {
         ccdModeSelect.addEventListener('change', () => {
           const mode = ccdModeSelect.value
+          // Hide all views first
+          ccdChatView.style.display = 'none'
+          ccdOverlayView.style.display = 'none'
+          ccdMailguardView.style.display = 'none'
+          if (ccdChatControls) ccdChatControls.style.display = 'none'
+          
           if (mode === 'command-chat') {
             ccdChatView.style.display = 'block'
-            ccdMailguardView.style.display = 'none'
             if (ccdChatControls) ccdChatControls.style.display = 'flex'
-          } else {
-            ccdChatView.style.display = 'none'
+          } else if (mode === 'augmented-overlay') {
+            ccdOverlayView.style.display = 'block'
+            if (ccdChatControls) ccdChatControls.style.display = 'flex'
+          } else if (mode === 'mailguard') {
             ccdMailguardView.style.display = 'flex'
-            if (ccdChatControls) ccdChatControls.style.display = 'none'
             ccdUpdateMgHint()
           }
         })
@@ -43440,6 +43465,7 @@ ${pageText}
 
             <select id="ccf-mode-select" style="font-size:11px; font-weight:600; background:${theme==='professional'?'rgba(15,23,42,0.08)':'rgba(255,255,255,0.15)'}; border:1px solid ${br}; color:${theme==='professional'?'#0f172a':'inherit'}; border-radius:5px; padding:4px 20px 4px 6px; cursor:pointer; outline:none; appearance:none; -webkit-appearance:none; background-image:url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 12 12'%3E%3Cpath fill='${theme==='professional'?'%230f172a':'%23ffffff'}' d='M3 4.5L6 7.5L9 4.5'/%3E%3C/svg%3E\"); background-repeat:no-repeat; background-position:right 5px center;">
               <option value="command-chat" style="background:#1e293b; color:white;">💬 WR Chat</option>
+              <option value="augmented-overlay" style="background:#1e293b; color:white;">🎯 Augmented Overlay</option>
               <option value="mailguard" style="background:#1e293b; color:white;">🛡️ WR MailGuard</option>
             </select>
 
@@ -43465,6 +43491,20 @@ ${pageText}
           <div id="ccf-compose" style="display:grid; grid-template-columns:1fr 68px; gap:6px; align-items:center; padding:8px;">
             <textarea id="ccf-input" placeholder="Type..." style="box-sizing:border-box; height:36px; resize:vertical; background:${theme==='professional'?'#ffffff':'rgba(255,255,255,0.08)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; padding:8px; font-size:12px;"></textarea>
             <button id="ccf-send" class="send-btn">Send</button>
+          </div>
+        </div>
+
+        <!-- Augmented Overlay View -->
+        <div id="ccf-overlay-view" style="display:none;">
+          <div id="ccf-overlay-messages" style="height:160px; overflow:auto; display:flex; flex-direction:column; gap:6px; background:${theme==='professional'?'#f8fafc':'rgba(255,255,255,0.06)'}; border-left:0; border-right:0; border-top:0; border-bottom:1px solid ${br}; padding:8px;">
+            <div id="ccf-overlay-hint" style="padding:12px 14px; font-size:12px; opacity:0.8; font-style:italic; background:${theme==='professional'?'rgba(59,130,246,0.08)':'rgba(59,130,246,0.15)'}; border-radius:6px; display:flex; align-items:flex-start; gap:8px; line-height:1.5;">
+              <span style="font-size:16px;">🎯</span>
+              <span>Point with the cursor and select elements in order to ask questions or trigger automations directly in the UI.</span>
+            </div>
+          </div>
+          <div id="ccf-overlay-compose" style="display:grid; grid-template-columns:1fr 68px; gap:6px; align-items:center; padding:8px;">
+            <textarea id="ccf-overlay-input" placeholder="Ask about the selected element..." style="box-sizing:border-box; height:36px; resize:vertical; background:${theme==='professional'?'#ffffff':'rgba(255,255,255,0.08)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; padding:8px; font-size:12px;"></textarea>
+            <button id="ccf-overlay-send" class="send-btn">Send</button>
           </div>
         </div>
 
@@ -43665,9 +43705,10 @@ ${pageText}
 
       ;(box.querySelector('#ccf-close') as HTMLButtonElement | null)?.addEventListener('click', ()=> box.remove())
 
-      // Mode switching between Command Chat and MailGuard
+      // Mode switching between Command Chat, Augmented Overlay, and MailGuard
       const modeSelect = box.querySelector('#ccf-mode-select') as HTMLSelectElement | null
       const chatView = box.querySelector('#ccf-chat-view') as HTMLElement | null
+      const overlayView = box.querySelector('#ccf-overlay-view') as HTMLElement | null
       const mailguardView = box.querySelector('#ccf-mailguard-view') as HTMLElement | null
       const chatControls = box.querySelector('#ccf-chat-controls') as HTMLElement | null
       
@@ -43709,17 +43750,23 @@ ${pageText}
         })
       }
       
-      if (modeSelect && chatView && mailguardView) {
+      if (modeSelect && chatView && overlayView && mailguardView) {
         modeSelect.addEventListener('change', () => {
           const mode = modeSelect.value
+          // Hide all views first
+          chatView.style.display = 'none'
+          overlayView.style.display = 'none'
+          mailguardView.style.display = 'none'
+          if (chatControls) chatControls.style.display = 'none'
+          
           if (mode === 'command-chat') {
             chatView.style.display = 'block'
-            mailguardView.style.display = 'none'
             if (chatControls) chatControls.style.display = 'flex'
-          } else {
-            chatView.style.display = 'none'
+          } else if (mode === 'augmented-overlay') {
+            overlayView.style.display = 'block'
+            if (chatControls) chatControls.style.display = 'flex'
+          } else if (mode === 'mailguard') {
             mailguardView.style.display = 'flex'
-            if (chatControls) chatControls.style.display = 'none'
             updateMgHint()
           }
         })
