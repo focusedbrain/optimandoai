@@ -1,0 +1,198 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://optimando.ai/schemas/agentbox.schema.json",
+  "title": "Optimando AI Agent Box Configuration",
+  "description": "Schema for Agent Box configurations (v1.0.0). An Agent Box is a UI container that displays output from an allocated agent and optionally uses a specific LLM provider/model. Agent Boxes connect to Agents via the agentNumber field: when an Agent has 'number: X' and an Agent Box has 'agentNumber: X', output from that Agent routes to that Box. Agent Boxes can be created on Master Tabs or Display Grids.",
+  "type": "object",
+  "required": ["_schemaVersion", "id", "boxNumber", "agentNumber", "identifier", "title", "enabled"],
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "Reference to this schema file for validation."
+    },
+    "_schemaVersion": {
+      "type": "string",
+      "const": "1.0.0",
+      "description": "Schema version for compatibility checking."
+    },
+    "_exportedAt": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO timestamp when this agent box was exported."
+    },
+    "_source": {
+      "type": "string",
+      "description": "Application that exported this agent box configuration."
+    },
+    "_helper": {
+      "type": "string",
+      "description": "Usage instructions for understanding this agent box configuration. This field explains how Agent Boxes connect to Agents: the Agent Box's 'agentNumber' must match the Agent's 'number' field. When an agent with destinations [{kind: 'agentBox', agents: ['agentBox01']}] outputs, it routes to all Agent Boxes whose agentNumber matches the agent's number."
+    },
+
+    "id": {
+      "type": "string",
+      "description": "Unique identifier for this agent box instance (e.g., 'custom-1234567890-abc123def'). Auto-generated when creating boxes."
+    },
+    "boxNumber": {
+      "type": "integer",
+      "description": "Sequential box number within the session (1, 2, 3...). Auto-incremented when creating new boxes. Used for display ordering and the identifier.",
+      "minimum": 1,
+      "maximum": 99
+    },
+    "agentNumber": {
+      "type": "integer",
+      "description": "The agent number this box is allocated to. CRITICAL: This links the box to an Agent - when agent.number equals box.agentNumber, the agent's output routes to this box.",
+      "minimum": 1,
+      "maximum": 99
+    },
+    "identifier": {
+      "type": "string",
+      "description": "Human-readable identifier in format 'ABxxyy' where xx=boxNumber and yy=agentNumber (e.g., 'AB0101' means Box 1 allocated to Agent 1).",
+      "pattern": "^AB[0-9]{2}[0-9]{2}$"
+    },
+    "agentId": {
+      "type": "string",
+      "description": "Agent reference string (e.g., 'agent1', 'agent5'). Derived from agentNumber."
+    },
+    "title": {
+      "type": "string",
+      "description": "Display title for the agent box (e.g., '🤖 My Assistant', 'Agent Box 01'). Shown in the UI header."
+    },
+    "color": {
+      "type": "string",
+      "description": "Hex color code for the box border/accent (e.g., '#4CAF50', '#2196F3').",
+      "pattern": "^#[0-9A-Fa-f]{6}$"
+    },
+    "enabled": {
+      "type": "boolean",
+      "description": "Whether this agent box is active and should receive output from its allocated agent.",
+      "default": true
+    },
+
+    "provider": {
+      "type": "string",
+      "description": "LLM provider to use for this box. If not set, uses the global default or the allocated agent's settings.",
+      "enum": ["", "OpenAI", "Claude", "Gemini", "Grok", "Local AI", "Image AI"]
+    },
+    "model": {
+      "type": "string",
+      "description": "Specific model to use within the provider (e.g., 'gpt-4o', 'claude-3-5-sonnet', 'auto'). 'auto' lets the system choose."
+    },
+    "tools": {
+      "type": "array",
+      "description": "Mini apps/tools attached to this agent box. These extend the agent's capabilities.",
+      "items": { "type": "string" }
+    },
+
+    "source": {
+      "type": "string",
+      "description": "Where this agent box was created: 'master_tab' for boxes on Master Tabs, 'display_grid' for boxes in Display Grids.",
+      "enum": ["master_tab", "display_grid"]
+    },
+    "masterTabId": {
+      "type": "string",
+      "description": "Which Master Tab this box belongs to ('01' for main, '02', '03' for hybrid tabs).",
+      "pattern": "^[0-9]{2}$"
+    },
+    "tabIndex": {
+      "type": "integer",
+      "description": "Tab index for positioning (1 = main Master Tab, 2+ = Hybrid Master Tabs).",
+      "minimum": 1
+    },
+    "side": {
+      "type": "string",
+      "description": "For Hybrid Master Tabs: which side the box appears on.",
+      "enum": ["left", "right"]
+    },
+    "tabUrl": {
+      "type": "string",
+      "description": "URL of the tab where this box was created. Used for identification and filtering."
+    },
+
+    "slotId": {
+      "type": "string",
+      "description": "For Display Grid boxes: the grid slot identifier this box occupies."
+    },
+    "gridSessionId": {
+      "type": "string",
+      "description": "For Display Grid boxes: the display grid session this box belongs to."
+    },
+    "locationId": {
+      "type": "string",
+      "description": "Human-readable location identifier for the box."
+    },
+    "locationLabel": {
+      "type": "string",
+      "description": "Display label for the box's location."
+    },
+
+    "outputId": {
+      "type": "string",
+      "description": "DOM element ID for the output container (auto-generated as 'id-output')."
+    },
+    "number": {
+      "type": "integer",
+      "description": "[DEPRECATED] Use boxNumber instead. Kept for backwards compatibility.",
+      "minimum": 1
+    }
+  },
+  "$defs": {
+    "llmProvider": {
+      "type": "object",
+      "description": "LLM provider configuration for agent boxes.",
+      "properties": {
+        "provider": {
+          "type": "string",
+          "enum": ["OpenAI", "Claude", "Gemini", "Grok", "Local AI", "Image AI"],
+          "description": "The LLM provider service."
+        },
+        "models": {
+          "type": "object",
+          "description": "Available models per provider.",
+          "properties": {
+            "OpenAI": {
+              "type": "array",
+              "items": { "type": "string" },
+              "default": ["auto", "gpt-4o-mini", "gpt-4o"]
+            },
+            "Claude": {
+              "type": "array",
+              "items": { "type": "string" },
+              "default": ["auto", "claude-3-5-sonnet", "claude-3-opus"]
+            },
+            "Gemini": {
+              "type": "array",
+              "items": { "type": "string" },
+              "default": ["auto", "gemini-1.5-flash", "gemini-1.5-pro"]
+            },
+            "Grok": {
+              "type": "array",
+              "items": { "type": "string" },
+              "default": ["auto", "grok-2-mini", "grok-2"]
+            },
+            "Local AI": {
+              "type": "array",
+              "items": { "type": "string" },
+              "default": ["auto", "tinyllama", "mistral:7b-instruct-q4_0", "llama3.2"]
+            },
+            "Image AI": {
+              "type": "array",
+              "items": { "type": "string" },
+              "default": ["Nano Banana Pro", "DALL·E 3", "Flux Schnell"]
+            }
+          }
+        }
+      }
+    }
+  },
+  "_schemaInfo": {
+    "enums": {
+      "provider": ["", "OpenAI", "Claude", "Gemini", "Grok", "Local AI", "Image AI"],
+      "source": ["master_tab", "display_grid"],
+      "side": ["left", "right"]
+    },
+    "numericFields": ["boxNumber", "agentNumber", "tabIndex", "number"],
+    "deprecatedFields": ["number"]
+  }
+}
+

@@ -1,0 +1,29 @@
+{
+  "$schema": "./agentbox.schema.json",
+  "_schemaVersion": "1.0.0",
+  "_helper": "This is a template Agent Box configuration. Use with agentbox.schema.json for LLM-based generation. The CRITICAL connection field is 'agentNumber' - this must match the 'number' field of the Agent whose output you want to display in this box. Multiple boxes can share the same agentNumber to create multi-display setups.",
+
+  "id": "TEMPLATE-box-001",
+  "boxNumber": 1,
+  "agentNumber": 1,
+  "identifier": "AB0101",
+  "agentId": "agent1",
+  "title": "🤖 My Assistant",
+  "color": "#4CAF50",
+  "enabled": true,
+
+  "provider": "",
+  "model": "auto",
+  "tools": [],
+
+  "source": "master_tab",
+  "masterTabId": "01",
+  "tabIndex": 1,
+  "side": "",
+
+  "slotId": "",
+  "gridSessionId": "",
+  "locationId": "",
+  "locationLabel": ""
+}
+

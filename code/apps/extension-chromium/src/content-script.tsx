@@ -22171,12 +22171,12 @@ function initializeExtension() {
 
     document.getElementById('agent-config-cancel').onclick = () => configOverlay.remove()
 
-    // Export handler - Uses canonical format (v2.1.0)
+    // Export handler - Shows dialog with connected agent boxes (v2.1.0)
     const exportBtn = document.getElementById('ag-export-btn')
     if (exportBtn) {
       exportBtn.onclick = async () => {
         try {
-          console.log('📤 Exporting agent configuration (canonical format v2.1.0)...')
+          console.log('📤 Opening export dialog...')
           
           // Helper: normalize string numbers to actual numbers
           const toNumber = (val: any, def: number): number => {
@@ -22439,32 +22439,272 @@ function initializeExtension() {
             ],
           }
           
-          // Create and download file
-          const json = JSON.stringify(canonical, null, 2)
-          const blob = new Blob([json], { type: 'application/json' })
-          const url = URL.createObjectURL(blob)
+          // ─────────────────────────────────────────────────────────────────────
+          // FIND CONNECTED AGENT BOXES
+          // A connected agent box is when:
+          // 1. Agent has destinations with kind: 'agentBox'
+          // 2. Agent's 'number' matches AgentBox's 'agentNumber'
+          // 3. The AgentBox exists in the session
+          // ─────────────────────────────────────────────────────────────────────
           
-          const a = document.createElement('a')
-          a.href = url
-          a.download = `agent-${canonical.name || 'export'}-${new Date().toISOString().slice(0, 10)}.json`
-          document.body.appendChild(a)
-          a.click()
-          document.body.removeChild(a)
-          URL.revokeObjectURL(url)
+          // Check if agent has agentBox destinations
+          const hasAgentBoxDestination = canonical.executionSections?.some((sec: any) => 
+            sec.destinations?.some((d: any) => d.kind === 'agentBox')
+          ) ?? false
           
-          console.log('✅ Agent exported successfully (canonical format v2.1.0)!')
-          console.log('📋 Export summary:', {
-            name: canonical.name,
-            capabilities: canonical.capabilities,
-            triggersCount: canonical.listening?.unifiedTriggers?.length || 0,
-            reasoningSectionsCount: canonical.reasoningSections?.length || 0,
-            executionSectionsCount: canonical.executionSections?.length || 0,
+          const agentNumberValue = canonical.number
+          
+          // Get all agent boxes from current session
+          const sessionKey = getCurrentSessionKey()
+          let connectedBoxes: any[] = []
+          
+          if (sessionKey && agentNumberValue && hasAgentBoxDestination) {
+            try {
+              // Get boxes from session storage
+              const sessionData = await new Promise<any>((resolve) => {
+                storageGet([sessionKey], (result) => resolve(result[sessionKey] || {}))
+              })
+              
+              const allBoxes = [
+                ...(sessionData.agentBoxes || []),
+                ...(currentTabData.agentBoxes || [])
+              ]
+              
+              // Deduplicate by id
+              const seenIds = new Set<string>()
+              connectedBoxes = allBoxes.filter((box: any) => {
+                if (!box.id || seenIds.has(box.id)) return false
+                seenIds.add(box.id)
+                // Connection: agentNumber matches and box is enabled
+                return box.agentNumber === agentNumberValue && box.enabled !== false
+              })
+              
+              console.log(`📦 Found ${connectedBoxes.length} connected agent boxes for agent number ${agentNumberValue}`)
+            } catch (e) {
+              console.warn('⚠️ Could not load agent boxes from session:', e)
+            }
+          }
+          
+          // ─────────────────────────────────────────────────────────────────────
+          // SHOW EXPORT DIALOG
+          // ─────────────────────────────────────────────────────────────────────
+          
+          const exportDialog = document.createElement('div')
+          exportDialog.id = 'agent-export-dialog'
+          exportDialog.style.cssText = `
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.8);
+            z-index: 2147483647;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+          `
+          
+          const hasBoxesToShow = connectedBoxes.length > 0
+          
+          exportDialog.innerHTML = `
+            <div style="background: white; border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.3); max-width: 550px; width: 90%; max-height: 85vh; display: flex; flex-direction: column;">
+              <h3 style="margin: 0; padding: 20px 24px; color: #333; font-size: 18px; text-align: center; border-bottom: 1px solid #eee; flex-shrink: 0;">
+                📤 Export Agent Configuration
+              </h3>
+              
+              <div style="flex: 1; overflow-y: auto; padding: 20px 24px;">
+                <!-- Agent Summary -->
+                <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 14px; margin-bottom: 16px;">
+                  <div style="font-weight: bold; color: #334155; margin-bottom: 8px;">
+                    ${canonical.icon || '🤖'} ${canonical.name || 'Agent'}
+                  </div>
+                  <div style="font-size: 12px; color: #64748b; line-height: 1.5;">
+                    <div>ID: <code style="background: #e2e8f0; padding: 2px 6px; border-radius: 4px;">${canonical.id}</code></div>
+                    <div>Agent Number: <strong>${agentNumberValue || 'Not set'}</strong></div>
+                    <div>Triggers: ${canonical.listening?.unifiedTriggers?.length || 0}</div>
+                    <div>Has AgentBox Destination: ${hasAgentBoxDestination ? '✅ Yes' : '❌ No'}</div>
+                  </div>
+                </div>
+                
+                ${hasBoxesToShow ? `
+                <!-- Connected Agent Boxes Section -->
+                <div style="margin-bottom: 16px;">
+                  <div style="font-weight: bold; color: #334155; margin-bottom: 10px; display: flex; align-items: center; gap: 8px;">
+                    <span>📦 Connected Agent Boxes (${connectedBoxes.length})</span>
+                    <span style="font-size: 11px; color: #64748b; font-weight: normal;">(agentNumber = ${agentNumberValue})</span>
+                  </div>
+                  <div style="font-size: 11px; color: #64748b; margin-bottom: 10px;">
+                    These boxes receive output from this agent. Select which to include in export:
+                  </div>
+                  <div id="export-boxes-list" style="display: flex; flex-direction: column; gap: 8px;">
+                    ${connectedBoxes.map((box: any, idx: number) => `
+                      <label style="display: flex; align-items: center; gap: 10px; padding: 10px; background: #fff; border: 1px solid #e2e8f0; border-radius: 6px; cursor: pointer; transition: all 0.15s;">
+                        <input type="checkbox" class="export-box-checkbox" data-box-idx="${idx}" checked style="width: 16px; height: 16px; accent-color: #2563eb;">
+                        <div style="flex: 1;">
+                          <div style="font-weight: 500; color: #334155; font-size: 13px;">
+                            <span style="display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: ${box.color || '#4CAF50'}; margin-right: 6px;"></span>
+                            ${box.title || `Agent Box ${String(box.boxNumber).padStart(2, '0')}`}
+                          </div>
+                          <div style="font-size: 11px; color: #94a3b8;">
+                            ${box.identifier || 'AB??'} • Box #${box.boxNumber} → Agent #${box.agentNumber}
+                            ${box.provider ? ` • ${box.provider}/${box.model || 'auto'}` : ''}
+                          </div>
+                        </div>
+                      </label>
+                    `).join('')}
+                  </div>
+                </div>
+                ` : `
+                <!-- No Connected Boxes -->
+                <div style="background: #fffbeb; border: 1px solid #fcd34d; border-radius: 8px; padding: 14px; margin-bottom: 16px; font-size: 13px; color: #92400e;">
+                  ${!agentNumberValue ? `
+                    <strong>⚠️ Agent Number not set</strong><br>
+                    Set an Agent Number in the form to enable Agent Box connections.
+                  ` : !hasAgentBoxDestination ? `
+                    <strong>ℹ️ No Agent Box destinations</strong><br>
+                    Add an "agentBox" destination in the Execution section to route output to boxes.
+                  ` : `
+                    <strong>ℹ️ No connected Agent Boxes found</strong><br>
+                    Create an Agent Box with agentNumber = ${agentNumberValue} to connect it to this agent.
+                  `}
+                </div>
+                `}
+                
+                <!-- Export Format Info -->
+                <div style="background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 8px; padding: 12px; font-size: 12px; color: #1e40af;">
+                  <strong>Export includes:</strong>
+                  <ul style="margin: 6px 0 0 0; padding-left: 20px; line-height: 1.6;">
+                    <li>Agent configuration (canonical v2.1.0 format)</li>
+                    ${hasBoxesToShow ? '<li>Selected Agent Box configurations</li>' : ''}
+                    <li>Schema references for LLM generation</li>
+                  </ul>
+                </div>
+              </div>
+              
+              <div style="padding: 16px 24px; border-top: 1px solid #eee; flex-shrink: 0; display: flex; gap: 10px; justify-content: flex-end;">
+                <button id="export-cancel-btn" style="padding: 10px 20px; background: #f1f5f9; border: 1px solid #cbd5e1; color: #475569; border-radius: 6px; cursor: pointer; font-size: 14px;">
+                  Cancel
+                </button>
+                ${hasBoxesToShow ? `
+                <button id="export-agent-only-btn" style="padding: 10px 20px; background: #e2e8f0; border: none; color: #334155; border-radius: 6px; cursor: pointer; font-size: 14px;">
+                  Agent Only
+                </button>
+                <button id="export-with-boxes-btn" style="padding: 10px 20px; background: #2563eb; border: none; color: white; border-radius: 6px; cursor: pointer; font-size: 14px; font-weight: 500;">
+                  Export with Boxes
+                </button>
+                ` : `
+                <button id="export-agent-only-btn" style="padding: 10px 20px; background: #2563eb; border: none; color: white; border-radius: 6px; cursor: pointer; font-size: 14px; font-weight: 500;">
+                  Export Agent
+                </button>
+                `}
+              </div>
+            </div>
+          `
+          
+          document.body.appendChild(exportDialog)
+          
+          // ─────────────────────────────────────────────────────────────────────
+          // EXPORT DIALOG HANDLERS
+          // ─────────────────────────────────────────────────────────────────────
+          
+          const closeDialog = () => exportDialog.remove()
+          
+          exportDialog.querySelector('#export-cancel-btn')?.addEventListener('click', closeDialog)
+          exportDialog.addEventListener('click', (e) => {
+            if (e.target === exportDialog) closeDialog()
           })
           
-          // Show brief success feedback
-          const originalText = exportBtn.innerHTML
-          exportBtn.innerHTML = '✅ Exported!'
-          setTimeout(() => { exportBtn.innerHTML = originalText }, 2000)
+          // Helper to download JSON
+          const downloadJson = (data: any, filename: string) => {
+            const json = JSON.stringify(data, null, 2)
+            const blob = new Blob([json], { type: 'application/json' })
+            const url = URL.createObjectURL(blob)
+            const a = document.createElement('a')
+            a.href = url
+            a.download = filename
+            document.body.appendChild(a)
+            a.click()
+            document.body.removeChild(a)
+            URL.revokeObjectURL(url)
+          }
+          
+          // Helper to convert raw box to canonical format
+          const toCanonicalBox = (box: any): any => ({
+            _schemaVersion: '1.0.0',
+            id: box.id,
+            boxNumber: box.boxNumber || box.number || 1,
+            agentNumber: box.agentNumber || 1,
+            identifier: box.identifier || `AB${String(box.boxNumber || 1).padStart(2, '0')}${String(box.agentNumber || 1).padStart(2, '0')}`,
+            agentId: box.agentId || `agent${box.agentNumber || 1}`,
+            title: box.title || `Agent Box ${String(box.boxNumber || 1).padStart(2, '0')}`,
+            color: box.color || '#4CAF50',
+            enabled: box.enabled !== false,
+            provider: box.provider || '',
+            model: box.model || 'auto',
+            tools: box.tools || [],
+            source: box.source || 'master_tab',
+            masterTabId: box.masterTabId || '01',
+            tabIndex: box.tabIndex || 1,
+            side: box.side,
+            slotId: box.slotId,
+            gridSessionId: box.gridSessionId,
+            locationId: box.locationId,
+            locationLabel: box.locationLabel,
+          })
+          
+          // Export agent only
+          exportDialog.querySelector('#export-agent-only-btn')?.addEventListener('click', () => {
+            downloadJson(canonical, `agent-${canonical.name || 'export'}-${new Date().toISOString().slice(0, 10)}.json`)
+            console.log('✅ Agent exported successfully (canonical format v2.1.0)!')
+            closeDialog()
+            
+            const originalText = exportBtn.innerHTML
+            exportBtn.innerHTML = '✅ Exported!'
+            setTimeout(() => { exportBtn.innerHTML = originalText }, 2000)
+          })
+          
+          // Export with selected boxes
+          exportDialog.querySelector('#export-with-boxes-btn')?.addEventListener('click', () => {
+            // Get selected boxes
+            const checkboxes = exportDialog.querySelectorAll('.export-box-checkbox:checked') as NodeListOf<HTMLInputElement>
+            const selectedBoxes: any[] = []
+            
+            checkboxes.forEach((cb) => {
+              const idx = parseInt(cb.getAttribute('data-box-idx') || '0')
+              if (connectedBoxes[idx]) {
+                selectedBoxes.push(toCanonicalBox(connectedBoxes[idx]))
+              }
+            })
+            
+            // Create combined export
+            const combinedExport = {
+              _exportVersion: '1.0.0',
+              _exportedAt: new Date().toISOString(),
+              _source: 'Optimando AI Extension',
+              _helper: 'This export contains an agent and its connected agent boxes. To import: (1) Import the agent configuration, (2) Import each agent box. The agent\'s output will route to boxes where agentBox.agentNumber matches agent.number.',
+              
+              agent: canonical,
+              
+              connectedAgentBoxes: selectedBoxes,
+              
+              connectionInfo: {
+                agentNumber: agentNumberValue,
+                connectedBoxCount: selectedBoxes.length,
+                hasAgentBoxDestination: hasAgentBoxDestination,
+              }
+            }
+            
+            downloadJson(combinedExport, `agent-with-boxes-${canonical.name || 'export'}-${new Date().toISOString().slice(0, 10)}.json`)
+            console.log('✅ Agent + Agent Boxes exported successfully!', {
+              agent: canonical.name,
+              boxCount: selectedBoxes.length
+            })
+            closeDialog()
+            
+            const originalText = exportBtn.innerHTML
+            exportBtn.innerHTML = '✅ Exported!'
+            setTimeout(() => { exportBtn.innerHTML = originalText }, 2000)
+          })
           
         } catch (error) {
           console.error('❌ Export failed:', error)
