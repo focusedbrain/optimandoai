@@ -5323,34 +5323,18 @@ function initializeExtension() {
 
 
   function deleteAgentBox(agentId: string) {
-
-    console.log('🗑️🗑️🗑️ deleteAgentBox called for:', agentId)
-    console.log('🗑️🗑️🗑️ Current agent boxes BEFORE delete:', JSON.stringify(currentTabData.agentBoxes, null, 2))
-
     // Find the box before removing it so we can get its identifier
     const boxIndex = currentTabData.agentBoxes.findIndex((box: any) => box.id === agentId)
 
     if (boxIndex === -1) {
-      console.error('❌❌❌ Agent box not found in currentTabData:', agentId)
-      console.error('❌❌❌ Available IDs:', currentTabData.agentBoxes.map((b: any) => b.id))
+      console.error('❌ Agent box not found:', agentId)
       return
     }
 
     const deletedBox = currentTabData.agentBoxes[boxIndex]
 
-    console.log('🔍🔍🔍 Deleted box details:', {
-      id: deletedBox.id,
-      identifier: deletedBox.identifier,
-      boxNumber: deletedBox.boxNumber,
-      title: deletedBox.title,
-      source: deletedBox.source
-    })
-
     // Remove from local memory
     currentTabData.agentBoxes = currentTabData.agentBoxes.filter((box: any) => box.id !== agentId)
-
-    console.log('✅✅✅ Removed from currentTabData, remaining:', currentTabData.agentBoxes.length)
-    console.log('✅✅✅ Remaining boxes:', currentTabData.agentBoxes.map((b: any) => ({ id: b.id, identifier: b.identifier })))
 
     
 
@@ -5367,123 +5351,99 @@ function initializeExtension() {
     // Save to localStorage for immediate UI persistence
     try {
       localStorage.setItem(`optimando-tab-${tabId}`, JSON.stringify(currentTabData))
-      console.log('💾💾💾 Saved to localStorage')
     } catch (e) {
       console.warn('⚠️ Could not save to localStorage:', e)
     }
 
     renderAgentBoxes()
-    console.log('🎨🎨🎨 UI re-rendered')
 
-    // Delete from SQLite database (single source of truth)
-
+    // Delete from SQLite database AND chrome.storage.local
     const sessionKey = getCurrentSessionKey()
-    console.log('🔑🔑🔑 Session key:', sessionKey)
 
     if (sessionKey) {
-
-      console.log('🗑️🗑️🗑️ Deleting from SQLite database, session:', sessionKey)
-
-      console.log('🗑️🗑️🗑️ Agent box identifier:', deletedBox.identifier)
-
-      console.log('🗑️🗑️🗑️ Agent ID:', agentId)
-
-      
-
-      // Send to background script to delete from SQLite
-
-      chrome.runtime.sendMessage({
-
-        type: 'DELETE_AGENT_BOX_FROM_SQLITE',
-
-        sessionKey: sessionKey,
-
-        agentId: agentId,
-
-        identifier: deletedBox.identifier
-
-      }, (response) => {
-
-        console.log('📨📨📨 Response from background:', JSON.stringify(response, null, 2))
-
-        if (response && response.success) {
-
-          console.log('✅✅✅ Agent box deleted from SQLite database')
-
-          
-
-          // Notify sidepanel to reload from SQLite
-
-          chrome.runtime.sendMessage({
-
-            type: 'RELOAD_SESSION_FROM_SQLITE',
-
-            sessionKey: sessionKey
-
+      // CRITICAL: Also update chrome.storage.local to remove the deleted box
+      // This prevents stale data from being re-saved when other operations
+      // load from chrome.storage.local and save back
+      storageGet([sessionKey], (result) => {
+        const session = result[sessionKey]
+        if (session && session.agentBoxes) {
+          // Remove the deleted box from chrome.storage.local session
+          session.agentBoxes = session.agentBoxes.filter((b: any) => 
+            b.id !== agentId && b.identifier !== deletedBox.identifier
+          )
+          storageSet({ [sessionKey]: session }, () => {
+            console.log('✅ Removed agent box from chrome.storage.local')
           })
-
-        } else {
-
-          console.error('❌❌❌ Failed to delete from SQLite:', response?.error)
-
         }
-
       })
 
+      // Send to background script to delete from SQLite
+      chrome.runtime.sendMessage({
+        type: 'DELETE_AGENT_BOX_FROM_SQLITE',
+        sessionKey: sessionKey,
+        agentId: agentId,
+        identifier: deletedBox.identifier
+      }, (response) => {
+        if (response && response.success) {
+          console.log('✅ Agent box deleted from SQLite database')
+          
+          // Notify sidepanel to reload from SQLite
+          chrome.runtime.sendMessage({
+            type: 'RELOAD_SESSION_FROM_SQLITE',
+            sessionKey: sessionKey
+          })
+        } else {
+          console.error('❌ Failed to delete from SQLite:', response?.error)
+        }
+      })
     } else {
-      console.error('❌❌❌ No session key found, cannot delete from SQLite')
-      console.error('❌❌❌ This is a CRITICAL error - box will not be deleted from database!')
+      console.error('❌ No session key found, cannot delete from SQLite')
     }
 
   }
 
   // Delete display grid agent box (uses identifier instead of id)
   function deleteDisplayGridAgentBox(identifier: string, slotId: string) {
-    console.log('🗑️🗑️🗑️ deleteDisplayGridAgentBox called for:', identifier, 'slotId:', slotId)
-    console.log('🗑️🗑️🗑️ Current agent boxes BEFORE delete:', JSON.stringify(currentTabData.agentBoxes, null, 2))
-
     // Find the box by identifier (display grid boxes use identifier, not id)
     const boxIndex = currentTabData.agentBoxes.findIndex((box: any) => 
       box.identifier === identifier || box.slotId === slotId
     )
 
     if (boxIndex === -1) {
-      console.error('❌❌❌ Display grid agent box not found:', identifier)
-      console.error('❌❌❌ Available identifiers:', currentTabData.agentBoxes.map((b: any) => b.identifier))
+      console.error('❌ Display grid agent box not found:', identifier)
       return
     }
 
     const deletedBox = currentTabData.agentBoxes[boxIndex]
-
-    console.log('🔍🔍🔍 Deleted display grid box details:', {
-      identifier: deletedBox.identifier,
-      boxNumber: deletedBox.boxNumber,
-      title: deletedBox.title,
-      source: deletedBox.source,
-      slotId: deletedBox.slotId
-    })
 
     // Remove from local memory
     currentTabData.agentBoxes = currentTabData.agentBoxes.filter((box: any) => 
       box.identifier !== identifier && box.slotId !== slotId
     )
 
-    console.log('✅✅✅ Removed from currentTabData, remaining:', currentTabData.agentBoxes.length)
-
     // Save to localStorage
     try {
       localStorage.setItem(`optimando-tab-${tabId}`, JSON.stringify(currentTabData))
-      console.log('💾💾💾 Saved to localStorage')
     } catch (e) {
       console.warn('⚠️ Could not save to localStorage:', e)
     }
 
-    // Delete from SQLite database
+    // Delete from SQLite database AND chrome.storage.local
     const sessionKey = getCurrentSessionKey()
-    console.log('🔑🔑🔑 Session key:', sessionKey)
 
     if (sessionKey) {
-      console.log('🗑️🗑️🗑️ Deleting display grid box from SQLite:', identifier)
+      // CRITICAL: Also update chrome.storage.local to remove the deleted box
+      storageGet([sessionKey], (result) => {
+        const session = result[sessionKey]
+        if (session && session.agentBoxes) {
+          session.agentBoxes = session.agentBoxes.filter((b: any) => 
+            b.identifier !== identifier && b.slotId !== slotId
+          )
+          storageSet({ [sessionKey]: session }, () => {
+            console.log('✅ Removed display grid box from chrome.storage.local')
+          })
+        }
+      })
 
       chrome.runtime.sendMessage({
         type: 'DELETE_DISPLAY_GRID_AGENT_BOX',
@@ -5493,10 +5453,8 @@ function initializeExtension() {
         gridSessionId: deletedBox.gridSessionId,
         gridLayout: deletedBox.gridLayout
       }, (response) => {
-        console.log('📨📨📨 Response from background:', JSON.stringify(response, null, 2))
-
         if (response && response.success) {
-          console.log('✅✅✅ Display grid agent box deleted from SQLite')
+          console.log('✅ Display grid agent box deleted from SQLite')
 
           // Notify sidepanel to reload
           chrome.runtime.sendMessage({
@@ -5504,11 +5462,11 @@ function initializeExtension() {
             sessionKey: sessionKey
           })
         } else {
-          console.error('❌❌❌ Failed to delete from SQLite:', response?.error)
+          console.error('❌ Failed to delete from SQLite:', response?.error)
         }
       })
     } else {
-      console.error('❌❌❌ No session key found, cannot delete from SQLite')
+      console.error('❌ No session key found, cannot delete from SQLite')
     }
   }
 
