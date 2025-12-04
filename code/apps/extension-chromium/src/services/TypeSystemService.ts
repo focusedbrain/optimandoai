@@ -400,3 +400,4 @@ export async function downloadUnifiedTemplate(): Promise<void> {
   downloadJson(template, 'optimando.template.json')
 }
 
+
