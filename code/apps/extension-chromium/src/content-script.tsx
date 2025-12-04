@@ -5338,32 +5338,49 @@ function initializeExtension() {
 
 
   function deleteAgentBox(agentId: string) {
+    console.log('🗑️ deleteAgentBox called with agentId:', agentId)
+    
     // Find the box before removing it so we can get its identifier
     const boxIndex = currentTabData.agentBoxes.findIndex((box: any) => box.id === agentId)
 
     if (boxIndex === -1) {
-      console.error('❌ Agent box not found:', agentId)
+      console.error('❌ Agent box not found in currentTabData:', agentId)
+      console.log('Available boxes:', currentTabData.agentBoxes.map((b: any) => ({ id: b.id, identifier: b.identifier })))
       return
     }
 
     const deletedBox = currentTabData.agentBoxes[boxIndex]
     const sessionKey = getCurrentSessionKey()
 
+    console.log('🗑️ Deleting box:', { 
+      agentId, 
+      identifier: deletedBox.identifier, 
+      boxNumber: deletedBox.boxNumber,
+      sessionKey 
+    })
+
     if (!sessionKey) {
       console.error('❌ No session key found, cannot delete')
+      alert('No active session. Cannot delete agent box.')
       return
     }
 
-    // SIMPLE APPROACH: Delete from SQLite (single source of truth)
-    // Then reload everything from SQLite
+    // Delete from SQLite (single source of truth)
     chrome.runtime.sendMessage({
       type: 'DELETE_AGENT_BOX_FROM_SQLITE',
       sessionKey: sessionKey,
       agentId: agentId,
       identifier: deletedBox.identifier
     }, (response) => {
+      // Check for chrome runtime errors
+      if (chrome.runtime.lastError) {
+        console.error('❌ Chrome runtime error:', chrome.runtime.lastError.message)
+        alert('Failed to delete: ' + chrome.runtime.lastError.message)
+        return
+      }
+      
       if (response && response.success) {
-        console.log('✅ Agent box deleted from SQLite')
+        console.log('✅ Agent box deleted from SQLite successfully')
         
         // Reload from SQLite to update UI with fresh data
         reloadSessionFromSQLite(sessionKey)
@@ -5374,8 +5391,8 @@ function initializeExtension() {
           sessionKey: sessionKey
         })
       } else {
-        console.error('❌ Failed to delete from SQLite:', response?.error)
-        alert('Failed to delete agent box. Please try again.')
+        console.error('❌ Failed to delete from SQLite:', response?.error || 'Unknown error')
+        alert('Failed to delete agent box: ' + (response?.error || 'Unknown error'))
       }
     })
   }
@@ -5406,6 +5423,8 @@ function initializeExtension() {
 
   // Delete display grid agent box (uses identifier instead of id)
   function deleteDisplayGridAgentBox(identifier: string, slotId: string) {
+    console.log('🗑️ deleteDisplayGridAgentBox called:', { identifier, slotId })
+    
     // Find the box by identifier (display grid boxes use identifier, not id)
     const boxIndex = currentTabData.agentBoxes.findIndex((box: any) => 
       box.identifier === identifier || box.slotId === slotId
@@ -5413,19 +5432,27 @@ function initializeExtension() {
 
     if (boxIndex === -1) {
       console.error('❌ Display grid agent box not found:', identifier)
+      console.log('Available boxes:', currentTabData.agentBoxes.map((b: any) => ({ id: b.id, identifier: b.identifier, slotId: b.slotId })))
       return
     }
 
     const deletedBox = currentTabData.agentBoxes[boxIndex]
     const sessionKey = getCurrentSessionKey()
 
+    console.log('🗑️ Deleting display grid box:', { 
+      identifier: deletedBox.identifier, 
+      boxNumber: deletedBox.boxNumber,
+      slotId,
+      sessionKey 
+    })
+
     if (!sessionKey) {
       console.error('❌ No session key found, cannot delete')
+      alert('No active session. Cannot delete agent box.')
       return
     }
 
-    // SIMPLE APPROACH: Delete from SQLite (single source of truth)
-    // Then reload everything from SQLite
+    // Delete from SQLite (single source of truth)
     chrome.runtime.sendMessage({
       type: 'DELETE_DISPLAY_GRID_AGENT_BOX',
       sessionKey: sessionKey,
@@ -5434,8 +5461,15 @@ function initializeExtension() {
       gridSessionId: deletedBox.gridSessionId,
       gridLayout: deletedBox.gridLayout
     }, (response) => {
+      // Check for chrome runtime errors
+      if (chrome.runtime.lastError) {
+        console.error('❌ Chrome runtime error:', chrome.runtime.lastError.message)
+        alert('Failed to delete: ' + chrome.runtime.lastError.message)
+        return
+      }
+      
       if (response && response.success) {
-        console.log('✅ Display grid agent box deleted from SQLite')
+        console.log('✅ Display grid agent box deleted from SQLite successfully')
 
         // Reload from SQLite to update UI with fresh data
         reloadSessionFromSQLite(sessionKey)
@@ -5446,8 +5480,8 @@ function initializeExtension() {
           sessionKey: sessionKey
         })
       } else {
-        console.error('❌ Failed to delete from SQLite:', response?.error)
-        alert('Failed to delete agent box. Please try again.')
+        console.error('❌ Failed to delete from SQLite:', response?.error || 'Unknown error')
+        alert('Failed to delete agent box: ' + (response?.error || 'Unknown error'))
       }
     })
   }
@@ -5571,37 +5605,33 @@ function initializeExtension() {
     
 
     // Start with box number 1 by default, will be updated after loading session
-
     let nextBoxNumber = 1
 
-    
-
-    // Load session data to get correct next box number BEFORE showing dialog
-
-    if (sessionKey && chrome?.storage?.local) {
-
-      storageGet([sessionKey], (result) => {
-
-        if (result[sessionKey]) {
-
-          const session = result[sessionKey]
-
-          const maxBoxNumber = findMaxBoxNumber(session)
-
-          nextBoxNumber = maxBoxNumber + 1
-
-          console.log('📦 Next agent box number calculated:', nextBoxNumber, 'from max:', maxBoxNumber)
-
+    // Load session data from SQLite (single source of truth) to get correct next box number
+    if (sessionKey && chrome?.runtime) {
+      chrome.runtime.sendMessage({
+        type: 'GET_SESSION_FROM_SQLITE',
+        sessionKey: sessionKey
+      }, (response) => {
+        if (chrome.runtime.lastError) {
+          console.warn('⚠️ Could not fetch from SQLite:', chrome.runtime.lastError.message)
+          showDialog()
+          return
         }
-
+        
+        if (response?.success && response.session) {
+          const session = response.session
+          const maxBoxNumber = findMaxBoxNumber(session)
+          nextBoxNumber = maxBoxNumber + 1
+          console.log('📦 Next agent box number calculated from SQLite:', nextBoxNumber, 'from max:', maxBoxNumber)
+        } else {
+          console.log('📦 No session in SQLite, starting with box number 1')
+        }
+        
         showDialog()
-
       })
-
     } else {
-
       showDialog()
-
     }
 
     
