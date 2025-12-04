@@ -6610,25 +6610,27 @@ function initializeExtension() {
     })
 
     
-    // Handle delete
-
+    // Handle delete from edit dialog
     overlay.querySelector('#delete-agent-box')?.addEventListener('click', () => {
-
       // Show confirmation dialog
       const confirmDelete = confirm('Are you sure you want to delete this agent box?')
 
       if (confirmDelete) {
+        console.log('🗑️ Delete button clicked in edit dialog')
+        console.log('🗑️ agentId:', agentId)
+        console.log('🗑️ agentBox:', agentBox)
 
-        console.log('🗑️ Deleting agent box from setup dialog:', agentId)
-
-        // Close the dialog
+        // Close the dialog first
         overlay.remove()
 
-        // Delete the agent box
-        deleteAgentBox(agentId)
-
+        // Delete the agent box using the same function as the X button
+        if (agentId) {
+          deleteAgentBox(agentId)
+        } else {
+          console.error('❌ No agentId available for delete!')
+          alert('Error: Could not delete - no agent ID')
+        }
       }
-
     })
 
     // Tools lightbox
