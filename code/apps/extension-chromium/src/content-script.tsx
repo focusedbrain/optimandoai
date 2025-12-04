@@ -6388,17 +6388,14 @@ function initializeExtension() {
           <label style="display: block; margin-bottom: 8px; color: #555; font-weight: bold;">Agent Number:</label>
 
           <input id="edit-agent-number" type="number" value="${
-
-            agentBox.agentId && agentBox.agentId.match(/agent(\d+)/) 
-
-              ? agentBox.agentId.match(/agent(\d+)/)[1] 
-
-              : agentBox.model && agentBox.model.match(/agent(\d+)/)
-
-                ? agentBox.model.match(/agent(\d+)/)[1]
-
-                : agentBox.agentNumber || 1
-
+            // PRIORITY: Use agentNumber first (primary source), then fall back to parsing agentId/model
+            agentBox.agentNumber 
+              ? agentBox.agentNumber
+              : agentBox.agentId && agentBox.agentId.match(/agent(\d+)/) 
+                ? agentBox.agentId.match(/agent(\d+)/)[1] 
+                : agentBox.model && agentBox.model.match(/agent(\d+)/)
+                  ? agentBox.model.match(/agent(\d+)/)[1]
+                  : agentBox.boxNumber || 1
           }" min="1" max="99" style="width: 100%; padding: 10px; border: 2px solid #ddd; border-radius: 6px; font-size: 14px;">
 
           <div style="font-size: 11px; color: #888; margin-top: 4px;">Which agent to allocate to this box</div>
@@ -6865,7 +6862,7 @@ function initializeExtension() {
 
 
 
-  function updateAgentBox(agentId: string, updates: { number?: number, title?: string, color?: string, provider?: string, model?: string, agentId?: string }) {
+  function updateAgentBox(agentId: string, updates: { number?: number, title?: string, color?: string, provider?: string, model?: string, agentId?: string, agentNumber?: number }) {
 
     const agentBoxIndex = currentTabData.agentBoxes.findIndex((box: any) => box.id === agentId)
 
@@ -6896,13 +6893,27 @@ function initializeExtension() {
     
 
     // Update agent allocation if explicitly provided
+    // CRITICAL: Update BOTH agentId AND agentNumber for proper connection detection
 
     if (updates.agentId !== undefined) {
 
       agentBox.agentId = updates.agentId
+      
+      // Extract numeric agentNumber from agentId (e.g., "agent1" → 1)
+      const match = updates.agentId.match(/agent(\d+)/i)
+      if (match) {
+        agentBox.agentNumber = parseInt(match[1], 10)
+      }
 
-      console.log(`🔄 Agent allocation updated: Box ${agentBox.number} → ${updates.agentId}`)
+      console.log(`🔄 Agent allocation updated: Box ${agentBox.boxNumber || agentBox.number} → ${updates.agentId} (agentNumber: ${agentBox.agentNumber})`)
 
+    }
+    
+    // Also update agentNumber directly if provided
+    if (updates.agentNumber !== undefined) {
+      agentBox.agentNumber = updates.agentNumber
+      agentBox.agentId = `agent${updates.agentNumber}`
+      console.log(`🔄 Agent number updated: Box ${agentBox.boxNumber || agentBox.number} → Agent ${updates.agentNumber}`)
     }
 
     // Also check model for agent info (fallback)
@@ -6914,8 +6925,9 @@ function initializeExtension() {
       if (match) {
 
         agentBox.agentId = `agent${match[1]}`
+        agentBox.agentNumber = parseInt(match[1], 10)
 
-        console.log(`🔄 Agent allocation updated from model: Box ${agentBox.number} → Agent ${match[1]}`)
+        console.log(`🔄 Agent allocation updated from model: Box ${agentBox.boxNumber || agentBox.number} → Agent ${match[1]}`)
 
       }
 
