@@ -173,6 +173,7 @@ setInterval(fetchAvailableModels, 10000)
 // Mode switching elements
 const modeSelect = document.getElementById('mode-select')
 const chatView = document.getElementById('chat-view')
+const overlayView = document.getElementById('overlay-view')
 const mailguardView = document.getElementById('mailguard-view')
 const chatControls = document.getElementById('chat-controls')
 
@@ -194,14 +195,20 @@ let mgAttachmentsList = []
 if (modeSelect) {
   modeSelect.addEventListener('change', () => {
     const mode = modeSelect.value
+    // Hide all views first
+    chatView.classList.add('hidden')
+    overlayView?.classList.remove('active')
+    mailguardView.classList.remove('active')
+    if (chatControls) chatControls.style.display = 'none'
+    
     if (mode === 'command-chat') {
       chatView.classList.remove('hidden')
-      mailguardView.classList.remove('active')
       if (chatControls) chatControls.style.display = 'flex'
-    } else {
-      chatView.classList.add('hidden')
+    } else if (mode === 'augmented-overlay') {
+      overlayView?.classList.add('active')
+      if (chatControls) chatControls.style.display = 'flex'
+    } else if (mode === 'mailguard') {
       mailguardView.classList.add('active')
-      if (chatControls) chatControls.style.display = 'none'
       updateMgHint()
       updateMgSendBtn()
     }

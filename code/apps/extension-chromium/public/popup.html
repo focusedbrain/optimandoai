@@ -140,6 +140,12 @@
       .chat-view { display:flex; flex-direction:column; flex:1; }
       .chat-view.hidden { display:none; }
       
+      /* Augmented Overlay styles */
+      .overlay-view { display:none; flex-direction:column; flex:1; }
+      .overlay-view.active { display:flex; }
+      .overlay-hint { padding:16px; font-size:13px; opacity:0.9; font-style:italic; background:rgba(59,130,246,0.12); display:flex; align-items:flex-start; gap:12px; line-height:1.6; border-radius:8px; margin:12px; }
+      .overlay-hint-icon { font-size:24px; flex-shrink:0; }
+      
       /* MailGuard styles */
       .mailguard-view { display:none; flex-direction:column; flex:1; }
       .mailguard-view.active { display:flex; }
@@ -180,6 +186,7 @@
       <div class="toolkit">
         <select id="mode-select" class="mode-select">
           <option value="command-chat">💬 WR Chat</option>
+          <option value="augmented-overlay">🎯 Augmented Overlay</option>
           <option value="mailguard">🛡️ WR MailGuard</option>
         </select>
         <div id="chat-controls" style="display:flex; gap:8px; align-items:center;">
@@ -210,6 +217,29 @@
               <div class="send-dropdown-header">SELECT MODEL</div>
               <div id="model-list"></div>
             </div>
+          </div>
+        </div>
+      </div>
+      
+      <!-- Augmented Overlay View -->
+      <div id="overlay-view" class="overlay-view">
+        <div id="overlay-msgs" class="messages">
+          <div class="overlay-hint">
+            <span class="overlay-hint-icon">🎯</span>
+            <span>Point with the cursor and select elements in order to ask questions or trigger automations directly in the UI.</span>
+          </div>
+        </div>
+        <div class="composer">
+          <textarea id="overlay-ta" class="ta" placeholder="Ask about the selected element..."></textarea>
+          <input id="overlay-file" type="file" multiple style="display:none" />
+          <button id="overlay-up" class="btn" title="Attach">📎</button>
+          <button id="overlay-mic" class="btn" title="Voice input">🎙️</button>
+          <div class="send-wrapper">
+            <button id="overlay-send" class="send-main" title="Send message">
+              <span class="send-text">Send</span>
+              <span class="send-model">auto</span>
+            </button>
+            <button class="send-dropdown-btn" title="Select model">▾</button>
           </div>
         </div>
       </div>
