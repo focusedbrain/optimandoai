@@ -22470,7 +22470,7 @@ function initializeExtension() {
           
           // ─────────────────────────────────────────────────────────────────────
           // FIND CONNECTED AGENT BOXES
-          // A box is connected when ALL THREE conditions are met:
+          // A box is connected when:
           // 1. Agent has agentBox destinations in execution section(s)
           // 2. Agent Box exists in the session
           // 3. Agent Box has agentNumber === agent.number (allocated to this agent)
@@ -22478,78 +22478,23 @@ function initializeExtension() {
           
           const agentNumberValue = canonical.number
           
-          console.log('═══════════════════════════════════════════════════════════')
-          console.log('📦 EXPORT: Finding Connected Agent Boxes')
-          console.log('═══════════════════════════════════════════════════════════')
-          console.log(`📦 Agent being exported: ${canonical.name || canonical.id}`)
-          console.log(`📦 Agent Number: ${agentNumberValue}`)
+          // Check if agent has agentBox destinations
+          const hasAgentBoxDestination = 
+            canonical.executionSections?.some((sec: any) => 
+              sec.destinations?.some((d: any) => d.kind === 'agentBox')
+            ) ||
+            previouslySavedData?.execution?.specialDestinations?.some((d: any) => d.kind === 'agentBox') ||
+            previouslySavedData?.execution?.executionSections?.some((sec: any) => 
+              sec.specialDestinations?.some((d: any) => d.kind === 'agentBox')
+            ) ||
+            false
           
-          // ─────────────────────────────────────────────────────────────────────
-          // STEP 1: Check if agent has agentBox destinations in execution sections
-          // ─────────────────────────────────────────────────────────────────────
-          console.log('\n📦 STEP 1: Checking agent execution sections for agentBox destinations...')
-          
-          // Check canonical executionSections
-          const canonicalDests: any[] = []
-          canonical.executionSections?.forEach((sec: any, idx: number) => {
-            console.log(`   Canonical section ${idx + 1}: destinations =`, sec.destinations)
-            sec.destinations?.forEach((d: any) => {
-              if (d.kind === 'agentBox') {
-                canonicalDests.push(d)
-                console.log(`   ✓ Found agentBox destination:`, d)
-              }
-            })
-          })
-          
-          // Check raw agentData execution.specialDestinations
-          const rawMainDests: any[] = []
-          const mainExecDests = agentData.execution?.specialDestinations || []
-          console.log(`   Raw execution.specialDestinations:`, mainExecDests)
-          mainExecDests.forEach((d: any) => {
-            if (d.kind === 'agentBox') {
-              rawMainDests.push(d)
-              console.log(`   ✓ Found agentBox destination in main section:`, d)
-            }
-          })
-          
-          // Check raw agentData execution.executionSections
-          const rawSectionDests: any[] = []
-          const additionalSections = agentData.execution?.executionSections || []
-          console.log(`   Raw execution.executionSections count:`, additionalSections.length)
-          additionalSections.forEach((sec: any, idx: number) => {
-            const secDests = sec.specialDestinations || []
-            console.log(`   Section ${idx + 1} specialDestinations:`, secDests)
-            secDests.forEach((d: any) => {
-              if (d.kind === 'agentBox') {
-                rawSectionDests.push(d)
-                console.log(`   ✓ Found agentBox destination in section ${idx + 1}:`, d)
-              }
-            })
-          })
-          
-          const allAgentBoxDests = [...canonicalDests, ...rawMainDests, ...rawSectionDests]
-          const hasAgentBoxDestination = allAgentBoxDests.length > 0
-          
-          console.log(`\n📦 STEP 1 RESULT: hasAgentBoxDestination = ${hasAgentBoxDestination}`)
-          console.log(`   Total agentBox destinations found: ${allAgentBoxDests.length}`)
-          
-          if (!hasAgentBoxDestination) {
-            console.log('   ⚠️ No agentBox destinations found in agent execution sections!')
-          }
-          
-          // ─────────────────────────────────────────────────────────────────────
-          // STEP 2: Get all agent boxes from the session
-          // ─────────────────────────────────────────────────────────────────────
-          console.log('\n📦 STEP 2: Loading agent boxes from session...')
-          
+          // Get all agent boxes from the session
           const sessionKey = getCurrentSessionKey()
-          console.log(`   Session key: ${sessionKey}`)
-          
           let allBoxes: any[] = []
           
           if (sessionKey) {
             try {
-              // Get boxes from session storage
               const sessionData = await new Promise<any>((resolve) => {
                 storageGet([sessionKey], (result) => resolve(result[sessionKey] || {}))
               })
@@ -22557,10 +22502,7 @@ function initializeExtension() {
               const sessionBoxes = sessionData.agentBoxes || []
               const tabBoxes = currentTabData.agentBoxes || []
               
-              console.log(`   Boxes in session storage: ${sessionBoxes.length}`)
-              console.log(`   Boxes in currentTabData: ${tabBoxes.length}`)
-              
-              // Combine and deduplicate
+              // Combine and deduplicate by id
               const seenIds = new Set<string>()
               allBoxes = [...sessionBoxes, ...tabBoxes].filter((box: any) => {
                 const boxId = box.id || box.identifier || `box-${box.boxNumber}`
@@ -22568,68 +22510,22 @@ function initializeExtension() {
                 seenIds.add(boxId)
                 return true
               })
-              
-              console.log(`   Total unique boxes: ${allBoxes.length}`)
-              
-              if (allBoxes.length > 0) {
-                console.log('   Box details:')
-                allBoxes.forEach((b: any) => {
-                  console.log(`     - Box #${b.boxNumber}: agentNumber=${b.agentNumber}, enabled=${b.enabled !== false}, title="${b.title || ''}", id=${b.id}`)
-                })
-              } else {
-                console.log('   ⚠️ No agent boxes found in session!')
-              }
             } catch (e) {
-              console.warn('   ⚠️ Error loading boxes from session:', e)
+              console.warn('⚠️ Error loading boxes from session:', e)
             }
-          } else {
-            console.log('   ⚠️ No session key available!')
           }
           
-          console.log(`\n📦 STEP 2 RESULT: Found ${allBoxes.length} boxes in session`)
-          
-          // ─────────────────────────────────────────────────────────────────────
-          // STEP 3: Find boxes allocated to this agent (agentNumber matches)
-          // ─────────────────────────────────────────────────────────────────────
-          console.log('\n📦 STEP 3: Finding boxes allocated to this agent...')
-          console.log(`   Looking for boxes with agentNumber = ${agentNumberValue}`)
-          
+          // Find boxes allocated to this agent
           let connectedBoxes: any[] = []
           
-          if (agentNumberValue && hasAgentBoxDestination && allBoxes.length > 0) {
+          if (agentNumberValue && allBoxes.length > 0) {
             connectedBoxes = allBoxes.filter((box: any) => {
-              // Skip disabled boxes
-              if (box.enabled === false) {
-                console.log(`   ✗ Box #${box.boxNumber}: DISABLED`)
-                return false
-              }
-              
-              // Check if box is allocated to this agent
-              if (box.agentNumber === agentNumberValue) {
-                console.log(`   ✓ Box #${box.boxNumber}: CONNECTED (agentNumber ${box.agentNumber} === ${agentNumberValue})`)
-                return true
-              } else {
-                console.log(`   ✗ Box #${box.boxNumber}: NOT ALLOCATED (agentNumber ${box.agentNumber} !== ${agentNumberValue})`)
-                return false
-              }
+              if (box.enabled === false) return false
+              return box.agentNumber === agentNumberValue
             })
-          } else {
-            if (!agentNumberValue) {
-              console.log('   ⚠️ Cannot match: Agent has no number set')
-            }
-            if (!hasAgentBoxDestination) {
-              console.log('   ⚠️ Cannot match: Agent has no agentBox destinations')
-            }
-            if (allBoxes.length === 0) {
-              console.log('   ⚠️ Cannot match: No boxes in session')
-            }
           }
           
-          console.log(`\n📦 STEP 3 RESULT: Found ${connectedBoxes.length} connected boxes`)
-          
-          console.log('\n═══════════════════════════════════════════════════════════')
-          console.log(`📦 FINAL RESULT: ${connectedBoxes.length} connected agent boxes`)
-          console.log('═══════════════════════════════════════════════════════════\n')
+          console.log(`📦 Export: Agent ${agentNumberValue}, ${allBoxes.length} boxes in session, ${connectedBoxes.length} connected`)
           
           // ─────────────────────────────────────────────────────────────────────
           // SHOW EXPORT DIALOG
