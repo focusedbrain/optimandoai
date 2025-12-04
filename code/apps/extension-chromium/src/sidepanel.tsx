@@ -3699,6 +3699,7 @@ Write your message with the confidence that it will be protected by WRGuard encr
                   }}
                 >
                   <option value="command-chat" style={{ background: '#1e293b', color: 'white' }}>💬 WR Chat</option>
+                  <option value="augmented-overlay" style={{ background: '#1e293b', color: 'white' }}>🎯 Augmented Overlay</option>
                   <option value="mailguard" style={{ background: '#1e293b', color: 'white' }}>🛡️ WR MailGuard</option>
                 </select>
               </div>
@@ -4418,6 +4419,7 @@ Write your message with the confidence that it will be protected by WRGuard encr
                   }}
                 >
                   <option value="command-chat" style={{ background: '#1e293b', color: 'white' }}>💬 WR Chat</option>
+                  <option value="augmented-overlay" style={{ background: '#1e293b', color: 'white' }}>🎯 Augmented Overlay</option>
                   <option value="mailguard" style={{ background: '#1e293b', color: 'white' }}>🛡️ WR MailGuard</option>
                 </select>
               </div>
