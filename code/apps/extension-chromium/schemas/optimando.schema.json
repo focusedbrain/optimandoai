@@ -1,0 +1,395 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://optimando.ai/schemas/optimando.schema.json",
+  "title": "Optimando AI Master Schema",
+  "description": "Unified schema for all Optimando AI configurations (v2.1.0). Includes: Agents, Agent Boxes, and their connections. For LLM generation: provide this schema + optimando.template.json to create complete agent setups.",
+  "type": "object",
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "Reference to this schema file for validation."
+    },
+    "_schemaVersion": {
+      "type": "string",
+      "const": "2.1.0",
+      "description": "Schema version for compatibility checking."
+    },
+    "_exportedAt": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO timestamp when this configuration was exported."
+    },
+    "_source": {
+      "type": "string",
+      "description": "Application that exported this configuration."
+    },
+    "_helper": {
+      "type": "string",
+      "description": "Usage instructions for LLMs. This unified schema defines Agents, Agent Boxes, and their connections. The routing logic: Agent.number === AgentBox.agentNumber determines which boxes receive agent output."
+    },
+
+    "agents": {
+      "type": "array",
+      "description": "Array of Agent configurations. Each agent listens for events, reasons about context, and executes actions.",
+      "items": { "$ref": "#/$defs/agent" }
+    },
+
+    "agentBoxes": {
+      "type": "array",
+      "description": "Array of Agent Box configurations. Each box displays output from an allocated agent. Connection: AgentBox.agentNumber must match Agent.number.",
+      "items": { "$ref": "#/$defs/agentBox" }
+    },
+
+    "miniApps": {
+      "type": "array",
+      "description": "Array of Mini App configurations. (Reserved for future use)",
+      "items": { "$ref": "#/$defs/miniApp" }
+    },
+
+    "connectionInfo": {
+      "type": "object",
+      "description": "Metadata about connections between agents and boxes.",
+      "properties": {
+        "agentToBoxMapping": {
+          "type": "array",
+          "description": "Explicit agent-to-box connections for documentation.",
+          "items": {
+            "type": "object",
+            "properties": {
+              "agentNumber": { "type": "integer" },
+              "agentId": { "type": "string" },
+              "boxIdentifiers": { "type": "array", "items": { "type": "string" } }
+            }
+          }
+        }
+      }
+    }
+  },
+
+  "$defs": {
+    "agent": {
+      "type": "object",
+      "description": "Agent configuration. An agent: (1) LISTENS for events via triggers, (2) REASONS about input using goals/rules/persona, (3) EXECUTES actions by routing output to destinations.",
+      "required": ["id", "name", "enabled", "capabilities"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier (e.g., 'agent01', 'my-agent')."
+        },
+        "name": {
+          "type": "string",
+          "description": "Command identifier for @mentions and invocations."
+        },
+        "description": {
+          "type": "string",
+          "description": "Human-readable description of what this agent does."
+        },
+        "icon": {
+          "type": "string",
+          "description": "Emoji/icon for visual identification.",
+          "default": "🤖"
+        },
+        "number": {
+          "type": "integer",
+          "description": "CRITICAL: Links to Agent Boxes. Agent.number === AgentBox.agentNumber enables routing.",
+          "minimum": 1,
+          "maximum": 99
+        },
+        "enabled": {
+          "type": "boolean",
+          "default": true
+        },
+        "capabilities": {
+          "type": "array",
+          "items": { "type": "string", "enum": ["listening", "reasoning", "execution"] },
+          "description": "Enabled sections: listening (triggers), reasoning (AI), execution (output)."
+        },
+        "contextSettings": {
+          "type": "object",
+          "properties": {
+            "agentContext": { "type": "boolean", "default": false },
+            "sessionContext": { "type": "boolean", "default": true },
+            "accountContext": { "type": "boolean", "default": false }
+          }
+        },
+        "memorySettings": {
+          "type": "object",
+          "properties": {
+            "agentEnabled": { "type": "boolean", "default": true },
+            "sessionEnabled": { "type": "boolean", "default": false },
+            "accountEnabled": { "type": "boolean", "default": false }
+          }
+        },
+        "listening": {
+          "type": "object",
+          "description": "LISTENER: Defines when the agent activates.",
+          "properties": {
+            "expectedContext": { "type": "string" },
+            "tags": { "type": "array", "items": { "type": "string" } },
+            "sources": {
+              "type": "array",
+              "items": { "type": "string", "enum": ["all", "chat", "voice", "voicememo", "video", "email", "whatsapp", "pdf", "docs", "dom", "api", "workflow", "agent", "screenshot", "stream"] }
+            },
+            "website": { "type": "string" },
+            "unifiedTriggers": {
+              "type": "array",
+              "items": { "$ref": "#/$defs/trigger" }
+            }
+          }
+        },
+        "reasoningSections": {
+          "type": "array",
+          "description": "REASONING: Defines how the agent thinks.",
+          "items": { "$ref": "#/$defs/reasoningSection" }
+        },
+        "executionSections": {
+          "type": "array",
+          "description": "EXECUTION: Defines where output goes.",
+          "items": { "$ref": "#/$defs/executionSection" }
+        }
+      }
+    },
+
+    "agentBox": {
+      "type": "object",
+      "description": "Agent Box configuration. A UI container that displays output from an allocated agent.",
+      "required": ["id", "boxNumber", "agentNumber", "identifier", "title", "enabled"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier (e.g., 'custom-1234567890-abc123')."
+        },
+        "boxNumber": {
+          "type": "integer",
+          "description": "Sequential box number (1-99).",
+          "minimum": 1,
+          "maximum": 99
+        },
+        "agentNumber": {
+          "type": "integer",
+          "description": "CRITICAL: Links to Agent. When Agent.number === agentNumber, output routes here.",
+          "minimum": 1,
+          "maximum": 99
+        },
+        "identifier": {
+          "type": "string",
+          "description": "Human-readable ID format 'ABxxyy' (e.g., 'AB0101' = Box 1, Agent 1).",
+          "pattern": "^AB[0-9]{2}[0-9]{2}$"
+        },
+        "agentId": {
+          "type": "string",
+          "description": "Agent reference (e.g., 'agent1')."
+        },
+        "title": {
+          "type": "string",
+          "description": "Display title in UI header."
+        },
+        "color": {
+          "type": "string",
+          "description": "Hex color for accent (e.g., '#4CAF50').",
+          "pattern": "^#[0-9A-Fa-f]{6}$"
+        },
+        "enabled": {
+          "type": "boolean",
+          "default": true
+        },
+        "provider": {
+          "type": "string",
+          "enum": ["", "OpenAI", "Claude", "Gemini", "Grok", "Local AI", "Image AI"],
+          "description": "LLM provider override (empty = use agent/global default)."
+        },
+        "model": {
+          "type": "string",
+          "description": "Model within provider (e.g., 'gpt-4o', 'auto')."
+        },
+        "tools": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Mini apps attached to this box."
+        },
+        "source": {
+          "type": "string",
+          "enum": ["master_tab", "display_grid"]
+        },
+        "masterTabId": {
+          "type": "string",
+          "pattern": "^[0-9]{2}$"
+        },
+        "tabIndex": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "side": {
+          "type": "string",
+          "enum": ["left", "right"]
+        }
+      }
+    },
+
+    "miniApp": {
+      "type": "object",
+      "description": "Mini App configuration. (Reserved for future expansion)",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "enabled": { "type": "boolean", "default": true },
+        "type": { "type": "string" },
+        "config": { "type": "object" }
+      }
+    },
+
+    "trigger": {
+      "type": "object",
+      "description": "Trigger configuration for agent activation.",
+      "required": ["id", "type", "enabled"],
+      "properties": {
+        "id": { "type": "string", "description": "Unique trigger identifier (e.g., 'TRIGGER01')." },
+        "type": {
+          "type": "string",
+          "enum": ["direct_tag", "tag_and_condition", "workflow_condition", "dom_event", "dom_parser", "augmented_overlay", "agent", "miniapp", "manual"],
+          "description": "Trigger type."
+        },
+        "enabled": { "type": "boolean", "default": true },
+        "tag": { "type": "string" },
+        "channel": { "type": "string" },
+        "domSelector": { "type": "string" },
+        "domEvent": { "type": "string" },
+        "domUrlFilter": { "type": "string" },
+        "parserTrigger": {
+          "type": "string",
+          "enum": ["page_load", "dom_change", "interval", "button_click", "manual"]
+        },
+        "parserInterval": { "type": "integer", "default": 5 },
+        "domParseTarget": { "type": "string" },
+        "domParseSelector": { "type": "string" },
+        "siteFilters": { "type": "array", "items": { "type": "string" } },
+        "buttonSelectors": { "type": "array", "items": { "type": "string" } },
+        "autoDetectSelectors": { "type": "boolean" },
+        "triggerOnEnterKey": { "type": "boolean" },
+        "enterKeyIgnoreShift": { "type": "boolean" },
+        "captureInput": { "type": "boolean" },
+        "inputSelectors": { "type": "array", "items": { "type": "string" } },
+        "captureOutput": { "type": "boolean" },
+        "outputSelectors": { "type": "array", "items": { "type": "string" } },
+        "responseReadyMode": {
+          "type": "string",
+          "enum": ["first_change", "quiet_period", "selector_signal"]
+        },
+        "quietPeriodMs": { "type": "integer", "default": 1500 },
+        "responseSignalSelector": { "type": "string" },
+        "maxWaitTimeMs": { "type": "integer", "default": 60000 },
+        "captureUrl": { "type": "boolean" },
+        "capturePageTitle": { "type": "boolean" },
+        "metaSelectors": { "type": "array", "items": { "type": "string" } },
+        "sanitizeTrim": { "type": "boolean" },
+        "sanitizeStripMarkdown": { "type": "boolean" },
+        "sanitizeRemoveBoilerplate": { "type": "boolean" },
+        "overlayTriggerName": { "type": "string" },
+        "overlayModeButton": { "type": "boolean" },
+        "overlayModeEmpty": { "type": "boolean" },
+        "overlayModeElement": { "type": "boolean" },
+        "overlayModeSelection": { "type": "boolean" }
+      }
+    },
+
+    "reasoningSection": {
+      "type": "object",
+      "description": "Reasoning configuration for a set of triggers.",
+      "properties": {
+        "applyForList": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Trigger IDs this section applies to. Use ['__any__'] for all."
+        },
+        "goals": { "type": "string", "description": "What the agent should achieve." },
+        "role": { "type": "string", "description": "Persona/role the agent assumes." },
+        "rules": { "type": "string", "description": "Constraints and guidelines." },
+        "custom": { "type": "array", "items": { "type": "object" } },
+        "acceptFrom": { "type": "array", "items": { "type": "string" } },
+        "memoryContext": {
+          "type": "object",
+          "properties": {
+            "agentEnabled": { "type": "boolean", "default": false },
+            "sessionEnabled": { "type": "boolean", "default": false },
+            "accountEnabled": { "type": "boolean", "default": false }
+          }
+        },
+        "reasoningWorkflows": { "type": "array", "items": { "$ref": "#/$defs/workflow" } }
+      }
+    },
+
+    "executionSection": {
+      "type": "object",
+      "description": "Execution configuration for a set of triggers.",
+      "required": ["applyForList", "executionMode"],
+      "properties": {
+        "applyForList": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Trigger IDs this section applies to."
+        },
+        "executionMode": {
+          "type": "string",
+          "enum": ["agent_workflow", "direct_response", "workflow_only", "hybrid"],
+          "default": "agent_workflow"
+        },
+        "destinations": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/destination" }
+        },
+        "executionWorkflows": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/workflow" }
+        }
+      }
+    },
+
+    "destination": {
+      "type": "object",
+      "description": "Output destination. For kind='agentBox': routing uses Agent.number === AgentBox.agentNumber.",
+      "required": ["kind"],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": ["agentBox", "chat", "email", "webhook", "storage", "notification"]
+        },
+        "agents": {
+          "type": "array",
+          "description": "AgentBox identifiers (format 'ABxxyy'). Documents which boxes are targeted.",
+          "items": { "type": "string", "pattern": "^AB[0-9]{2}[0-9]{2}$" }
+        },
+        "email": { "type": "string" },
+        "webhook": { "type": "string" }
+      }
+    },
+
+    "workflow": {
+      "type": "object",
+      "properties": {
+        "type": { "type": "string", "enum": ["internal", "external"] },
+        "workflowId": { "type": "string" },
+        "config": { "type": "object" }
+      }
+    }
+  },
+
+  "_schemaInfo": {
+    "enums": {
+      "agent.capabilities": ["listening", "reasoning", "execution"],
+      "agent.listening.sources": ["all", "chat", "voice", "voicememo", "video", "email", "whatsapp", "pdf", "docs", "dom", "api", "workflow", "agent", "screenshot", "stream"],
+      "trigger.type": ["direct_tag", "tag_and_condition", "workflow_condition", "dom_event", "dom_parser", "augmented_overlay", "agent", "miniapp", "manual"],
+      "trigger.parserTrigger": ["page_load", "dom_change", "interval", "button_click", "manual"],
+      "trigger.responseReadyMode": ["first_change", "quiet_period", "selector_signal"],
+      "executionSection.executionMode": ["agent_workflow", "direct_response", "workflow_only", "hybrid"],
+      "destination.kind": ["agentBox", "chat", "email", "webhook", "storage", "notification"],
+      "agentBox.provider": ["", "OpenAI", "Claude", "Gemini", "Grok", "Local AI", "Image AI"],
+      "agentBox.source": ["master_tab", "display_grid"],
+      "agentBox.side": ["left", "right"]
+    },
+    "numericFields": ["agent.number", "agentBox.boxNumber", "agentBox.agentNumber", "trigger.parserInterval", "trigger.quietPeriodMs", "trigger.maxWaitTimeMs"],
+    "connectionLogic": "Agent.number === AgentBox.agentNumber → output routes to that box",
+    "identifierFormat": "AgentBox.identifier = 'ABxxyy' where xx=boxNumber, yy=agentNumber"
+  }
+}
+

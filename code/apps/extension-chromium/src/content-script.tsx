@@ -13164,12 +13164,8 @@ function initializeExtension() {
           <div style="display: flex; gap: 10px; align-items: center;">
             <button id="ag-export-btn" type="button" style="padding: 10px 16px; background: rgba(59,130,246,0.3); border: 1px solid rgba(59,130,246,0.5); color: white; border-radius: 6px; cursor: pointer; font-size: 12px; display: flex; align-items: center; gap: 6px;" title="Export this agent configuration as JSON">📤 Export</button>
             <div style="display: flex; gap: 4px; align-items: center;">
-              <span style="font-size: 10px; color: rgba(255,255,255,0.6); margin-right: 2px;">Agent:</span>
-              <button id="ag-schema-btn" type="button" style="padding: 8px 10px; background: rgba(147,51,234,0.3); border: 1px solid rgba(147,51,234,0.5); color: white; border-radius: 6px; cursor: pointer; font-size: 14px; display: flex; align-items: center; justify-content: center;" title="📋 AGENT SCHEMA: Download agent.schema.json. Upload to LLM with template to generate new agents.">📋</button>
-              <button id="ag-template-btn" type="button" style="padding: 8px 10px; background: rgba(245,158,11,0.3); border: 1px solid rgba(245,158,11,0.5); color: white; border-radius: 6px; cursor: pointer; font-size: 12px; display: flex; align-items: center; justify-content: center;" title="📄 AGENT TEMPLATE: Download agent.template.json example.">📄</button>
-              <span style="font-size: 10px; color: rgba(255,255,255,0.6); margin-left: 6px; margin-right: 2px;">Box:</span>
-              <button id="ag-box-schema-btn" type="button" style="padding: 8px 10px; background: rgba(16,185,129,0.3); border: 1px solid rgba(16,185,129,0.5); color: white; border-radius: 6px; cursor: pointer; font-size: 14px; display: flex; align-items: center; justify-content: center;" title="📦 AGENT BOX SCHEMA: Download agentbox.schema.json. Defines Agent Box structure for output routing.">📦</button>
-              <button id="ag-box-template-btn" type="button" style="padding: 8px 10px; background: rgba(6,182,212,0.3); border: 1px solid rgba(6,182,212,0.5); color: white; border-radius: 6px; cursor: pointer; font-size: 12px; display: flex; align-items: center; justify-content: center;" title="📄 AGENT BOX TEMPLATE: Download agentbox.template.json example.">🗃️</button>
+              <button id="ag-schema-btn" type="button" style="padding: 8px 10px; background: rgba(147,51,234,0.3); border: 1px solid rgba(147,51,234,0.5); color: white; border-radius: 6px; cursor: pointer; font-size: 14px; display: flex; align-items: center; justify-content: center;" title="📋 MASTER SCHEMA: Download optimando.schema.json - unified schema for Agents, Agent Boxes, and Mini Apps. Upload to LLM with template for generation.">📋</button>
+              <button id="ag-template-btn" type="button" style="padding: 8px 10px; background: rgba(245,158,11,0.3); border: 1px solid rgba(245,158,11,0.5); color: white; border-radius: 6px; cursor: pointer; font-size: 12px; display: flex; align-items: center; justify-content: center;" title="📄 TEMPLATE: Download optimando.template.json - unified example with Agent + Agent Box connected.">📄</button>
             </div>
             <button id="ag-import-btn" type="button" style="padding: 10px 16px; background: rgba(34,197,94,0.3); border: 1px solid rgba(34,197,94,0.5); color: white; border-radius: 6px; cursor: pointer; font-size: 12px; display: flex; align-items: center; gap: 6px;" title="Import agent configuration from JSON file">📥 Import</button>
             <input type="file" id="ag-import-file" accept=".json" style="display: none;">
@@ -23062,151 +23058,162 @@ function initializeExtension() {
       }
     }
 
-    // Schema download handler - downloads the master agent JSON schema
+    // Schema download handler - downloads the unified master schema (Agents + Agent Boxes + Mini Apps)
     const schemaBtn = document.getElementById('ag-schema-btn')
     if (schemaBtn) {
       schemaBtn.onclick = async () => {
         try {
-          console.log('📋 Downloading agent schema...')
+          console.log('📋 Downloading unified master schema...')
           
-          // The master agent schema (v2.1.0)
-          const agentSchema = {
+          // Unified master schema (v2.1.0) - includes Agents, Agent Boxes, Mini Apps
+          const masterSchema = {
             "$schema": "http://json-schema.org/draft-07/schema#",
-            "$id": "https://optimando.ai/schemas/agent.schema.json",
-            "title": "Optimando AI Agent Configuration",
-            "description": "Canonical schema for AI agent configurations (v2.1.0). Agents are configurable units that listen for events, reason about context, and execute actions.",
+            "$id": "https://optimando.ai/schemas/optimando.schema.json",
+            "title": "Optimando AI Master Schema",
+            "description": "Unified schema for all Optimando AI configurations (v2.1.0). Includes: Agents, Agent Boxes, Mini Apps, and their connections. For LLM generation: provide this schema + optimando.template.json.",
             "type": "object",
-            "required": ["_schemaVersion", "id", "name", "enabled", "capabilities", "contextSettings", "memorySettings"],
             "properties": {
-              "$schema": { "type": "string", "description": "Reference to this schema file." },
-              "_schemaVersion": { "type": "string", "const": "2.1.0", "description": "Schema version." },
+              "$schema": { "type": "string" },
+              "_schemaVersion": { "type": "string", "const": "2.1.0" },
               "_exportedAt": { "type": "string", "format": "date-time" },
-              "id": { "type": "string", "description": "Unique identifier for this agent." },
-              "name": { "type": "string", "description": "Command identifier to reference this agent." },
-              "description": { "type": "string", "description": "Human-readable description." },
-              "icon": { "type": "string", "description": "Emoji/icon for visual identification.", "default": "🤖" },
-              "number": { "type": "integer", "description": "Numeric ID for Agent Boxes." },
-              "enabled": { "type": "boolean", "default": true },
-              "capabilities": {
+              "_helper": { "type": "string", "description": "Usage instructions. Routing: Agent.number === AgentBox.agentNumber determines which boxes receive output." },
+              
+              "agents": {
                 "type": "array",
-                "items": { "type": "string", "enum": ["listening", "reasoning", "execution"] }
-              },
-              "contextSettings": {
-                "type": "object",
-                "properties": {
-                  "agentContext": { "type": "boolean" },
-                  "sessionContext": { "type": "boolean" },
-                  "accountContext": { "type": "boolean" }
-                }
-              },
-              "memorySettings": {
-                "type": "object",
-                "properties": {
-                  "agentEnabled": { "type": "boolean" },
-                  "sessionEnabled": { "type": "boolean" },
-                  "accountEnabled": { "type": "boolean" }
-                }
-              },
-              "listening": {
-                "type": "object",
-                "description": "Listener configuration - how the agent detects events.",
-                "properties": {
-                  "expectedContext": { "type": "string" },
-                  "tags": { "type": "array", "items": { "type": "string" } },
-                  "sources": { 
-                    "type": "array", 
-                    "items": { "type": "string", "enum": ["all", "chat", "voice", "voicememo", "video", "email", "whatsapp", "pdf", "docs", "dom", "api", "workflow", "agent", "screenshot", "stream"] }
-                  },
-                  "website": { "type": "string" },
-                  "unifiedTriggers": {
-                    "type": "array",
-                    "description": "Primary trigger list - single source of truth for listener wiring.",
-                    "items": {
+                "description": "Array of Agent configurations.",
+                "items": {
+                  "type": "object",
+                  "required": ["id", "name", "enabled", "capabilities"],
+                  "properties": {
+                    "id": { "type": "string" },
+                    "name": { "type": "string" },
+                    "description": { "type": "string" },
+                    "icon": { "type": "string", "default": "🤖" },
+                    "number": { "type": "integer", "description": "CRITICAL: Links to AgentBox.agentNumber", "minimum": 1, "maximum": 99 },
+                    "enabled": { "type": "boolean" },
+                    "capabilities": { "type": "array", "items": { "type": "string", "enum": ["listening", "reasoning", "execution"] } },
+                    "contextSettings": { "type": "object" },
+                    "memorySettings": { "type": "object" },
+                    "listening": {
                       "type": "object",
-                      "required": ["id", "type", "enabled"],
                       "properties": {
-                        "id": { "type": "string" },
-                        "type": { "type": "string", "enum": ["direct_tag", "tag_and_condition", "workflow_condition", "dom_event", "dom_parser", "augmented_overlay", "agent", "miniapp", "manual"] },
-                        "enabled": { "type": "boolean" },
-                        "parserTrigger": { "type": "string", "enum": ["page_load", "dom_change", "interval", "button_click", "manual"] },
-                        "parserInterval": { "type": "integer" },
-                        "siteFilters": { "type": "array", "items": { "type": "string" } },
-                        "buttonSelectors": { "type": "array", "items": { "type": "string" } },
-                        "inputSelectors": { "type": "array", "items": { "type": "string" } },
-                        "outputSelectors": { "type": "array", "items": { "type": "string" } },
-                        "responseReadyMode": { "type": "string", "enum": ["first_change", "quiet_period", "selector_signal"] },
-                        "captureInput": { "type": "boolean" },
-                        "captureOutput": { "type": "boolean" },
-                        "captureUrl": { "type": "boolean" },
-                        "capturePageTitle": { "type": "boolean" }
+                        "expectedContext": { "type": "string" },
+                        "sources": { "type": "array", "items": { "type": "string", "enum": ["all", "chat", "voice", "voicememo", "video", "email", "whatsapp", "pdf", "docs", "dom", "api", "workflow", "agent", "screenshot", "stream"] } },
+                        "unifiedTriggers": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "id": { "type": "string" },
+                              "type": { "type": "string", "enum": ["direct_tag", "tag_and_condition", "workflow_condition", "dom_event", "dom_parser", "augmented_overlay", "agent", "miniapp", "manual"] },
+                              "enabled": { "type": "boolean" },
+                              "parserTrigger": { "type": "string", "enum": ["page_load", "dom_change", "interval", "button_click", "manual"] },
+                              "responseReadyMode": { "type": "string", "enum": ["first_change", "quiet_period", "selector_signal"] },
+                              "captureInput": { "type": "boolean" },
+                              "captureOutput": { "type": "boolean" }
+                            }
+                          }
+                        }
+                      }
+                    },
+                    "reasoningSections": { "type": "array" },
+                    "executionSections": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "applyForList": { "type": "array", "items": { "type": "string" } },
+                          "executionMode": { "type": "string", "enum": ["agent_workflow", "direct_response", "workflow_only", "hybrid"] },
+                          "destinations": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "kind": { "type": "string", "enum": ["agentBox", "chat", "email", "webhook", "storage", "notification"] },
+                                "agents": { "type": "array", "description": "AgentBox identifiers (format ABxxyy)", "items": { "type": "string", "pattern": "^AB[0-9]{2}[0-9]{2}$" } }
+                              }
+                            }
+                          }
+                        }
                       }
                     }
                   }
                 }
               },
-              "reasoningSections": {
+              
+              "agentBoxes": {
                 "type": "array",
-                "description": "Reasoning sections - how the agent processes input. First element is main section.",
+                "description": "Array of Agent Box configurations. Connection: AgentBox.agentNumber must match Agent.number.",
                 "items": {
                   "type": "object",
-                  "required": ["applyForList"],
+                  "required": ["id", "boxNumber", "agentNumber", "identifier", "title", "enabled"],
                   "properties": {
-                    "applyForList": { "type": "array", "items": { "type": "string" } },
-                    "goals": { "type": "string", "description": "System instructions/goals." },
-                    "role": { "type": "string", "description": "Agent role/persona." },
-                    "rules": { "type": "string", "description": "Hard requirements." },
-                    "custom": { "type": "array" },
-                    "acceptFrom": { "type": "array", "items": { "type": "string" } },
-                    "memoryContext": { "type": "object" },
-                    "reasoningWorkflows": { "type": "array" }
+                    "id": { "type": "string" },
+                    "boxNumber": { "type": "integer", "minimum": 1, "maximum": 99 },
+                    "agentNumber": { "type": "integer", "description": "CRITICAL: Must match Agent.number for routing", "minimum": 1, "maximum": 99 },
+                    "identifier": { "type": "string", "description": "Format ABxxyy (e.g., AB0101)", "pattern": "^AB[0-9]{2}[0-9]{2}$" },
+                    "agentId": { "type": "string" },
+                    "title": { "type": "string" },
+                    "color": { "type": "string", "pattern": "^#[0-9A-Fa-f]{6}$" },
+                    "enabled": { "type": "boolean" },
+                    "provider": { "type": "string", "enum": ["", "OpenAI", "Claude", "Gemini", "Grok", "Local AI", "Image AI"] },
+                    "model": { "type": "string" },
+                    "tools": { "type": "array", "items": { "type": "string" } },
+                    "source": { "type": "string", "enum": ["master_tab", "display_grid"] }
                   }
                 }
               },
-              "executionSections": {
+              
+              "miniApps": {
                 "type": "array",
-                "description": "Execution sections - how the agent delivers output. First element is main section.",
+                "description": "Array of Mini App configurations. (Reserved for future)",
                 "items": {
                   "type": "object",
-                  "required": ["applyForList", "executionMode"],
                   "properties": {
-                    "applyForList": { "type": "array", "items": { "type": "string" } },
-                    "executionMode": { "type": "string", "enum": ["agent_workflow", "direct_response", "workflow_only", "hybrid"] },
-                    "destinations": {
-                      "type": "array",
-                      "items": {
-                        "type": "object",
-                        "properties": {
-                          "kind": { "type": "string", "enum": ["agentBox", "chat", "email", "webhook", "storage", "notification"] },
-                          "agents": { "type": "array", "items": { "type": "string" } }
-                        }
-                      }
-                    },
-                    "executionWorkflows": { "type": "array" }
+                    "id": { "type": "string" },
+                    "name": { "type": "string" },
+                    "description": { "type": "string" },
+                    "enabled": { "type": "boolean" },
+                    "type": { "type": "string" },
+                    "config": { "type": "object" }
                   }
                 }
               },
-              "agentContextFiles": { "type": "array" }
+              
+              "connectionInfo": {
+                "type": "object",
+                "description": "Metadata about agent-to-box connections.",
+                "properties": {
+                  "agentToBoxMapping": { "type": "array" }
+                }
+              }
             },
-            "_meta": {
-              "deprecatedFields": ["passiveEnabled", "activeEnabled", "reasoning", "execution", "triggers", "workflows", "specialDestinations", "applyFor"]
+            "_schemaInfo": {
+              "enums": {
+                "agent.capabilities": ["listening", "reasoning", "execution"],
+                "trigger.type": ["direct_tag", "tag_and_condition", "workflow_condition", "dom_event", "dom_parser", "augmented_overlay", "agent", "miniapp", "manual"],
+                "destination.kind": ["agentBox", "chat", "email", "webhook", "storage", "notification"],
+                "agentBox.provider": ["", "OpenAI", "Claude", "Gemini", "Grok", "Local AI", "Image AI"]
+              },
+              "connectionLogic": "Agent.number === AgentBox.agentNumber → output routes to that box",
+              "identifierFormat": "AgentBox.identifier = ABxxyy where xx=boxNumber, yy=agentNumber"
             }
           }
           
-          const json = JSON.stringify(agentSchema, null, 2)
+          const json = JSON.stringify(masterSchema, null, 2)
           const blob = new Blob([json], { type: 'application/json' })
           const url = URL.createObjectURL(blob)
           
           const a = document.createElement('a')
           a.href = url
-          a.download = 'agent.schema.json'
+          a.download = 'optimando.schema.json'
           document.body.appendChild(a)
           a.click()
           document.body.removeChild(a)
           URL.revokeObjectURL(url)
           
-          console.log('✅ Agent schema downloaded!')
+          console.log('✅ Unified master schema downloaded!')
           
-          // Brief feedback
           const originalText = schemaBtn.innerHTML
           schemaBtn.innerHTML = '✓'
           setTimeout(() => { schemaBtn.innerHTML = originalText }, 1500)
@@ -23218,133 +23225,134 @@ function initializeExtension() {
       }
     }
 
-    // Template download handler - downloads a canonical example agent JSON
-    // Use this as a starting point for creating new agents or to show LLMs how agents should look
+    // Template download handler - downloads unified template with Agent + Agent Box
     const templateBtn = document.getElementById('ag-template-btn')
     if (templateBtn) {
       templateBtn.onclick = async () => {
         try {
-          console.log('📄 Downloading agent template...')
+          console.log('📄 Downloading unified template...')
           
-          // Canonical example agent (matches example-agent.json in schemas/)
-          const exampleAgent = {
-            "$schema": "./agent.schema.json",
+          // Unified template with Agent + Agent Box connected
+          const unifiedTemplate = {
+            "$schema": "./optimando.schema.json",
             "_schemaVersion": "2.1.0",
             "_exportedAt": new Date().toISOString(),
-            "_source": "Optimando AI Extension - Template",
-            "id": "my-new-agent",
-            "name": "my-agent-name",
-            "description": "Describe what this agent does. Be specific about its purpose, when it activates, and what output it produces.",
-            "icon": "🤖",
-            "number": 1,
-            "enabled": true,
-            "capabilities": ["listening", "reasoning", "execution"],
-            "contextSettings": {
-              "agentContext": true,
-              "sessionContext": true,
-              "accountContext": false
-            },
-            "memorySettings": {
-              "agentEnabled": true,
-              "sessionEnabled": false,
-              "accountEnabled": false
-            },
-            "listening": {
-              "expectedContext": "keywords describing when this agent should activate",
-              "tags": [],
-              "sources": ["dom"],
-              "website": "*example.com/*",
-              "unifiedTriggers": [
-                {
-                  "id": "TRIGGER01",
-                  "type": "dom_parser",
-                  "enabled": true,
-                  "channel": "dom",
-                  "parserTrigger": "button_click",
-                  "siteFilters": ["https://example.com/*"],
-                  "buttonSelectors": ["button[type='submit']", "button[aria-label='Send']"],
-                  "autoDetectSelectors": false,
-                  "triggerOnEnterKey": true,
-                  "enterKeyIgnoreShift": true,
-                  "captureInput": true,
-                  "inputSelectors": ["textarea", "input[type='text']"],
-                  "captureOutput": true,
-                  "outputSelectors": ["div.response", "div.output"],
-                  "responseReadyMode": "quiet_period",
-                  "quietPeriodMs": 2000,
-                  "maxWaitTimeMs": 60000,
-                  "captureUrl": true,
-                  "capturePageTitle": true,
-                  "metaSelectors": [],
-                  "sanitizeTrim": true,
-                  "sanitizeStripMarkdown": false,
-                  "sanitizeRemoveBoilerplate": false,
-                  "domParserRules": [],
-                  "sensorWorkflows": [],
-                  "allowedActions": []
-                }
-              ],
-              "exampleFiles": []
-            },
-            "reasoningSections": [
+            "_source": "Optimando AI Extension - Unified Template",
+            "_helper": "UNIFIED TEMPLATE for LLM generation. Contains Agent + connected Agent Box. CRITICAL: Agent.number must equal AgentBox.agentNumber for routing. Provide this + optimando.schema.json to LLM for new agent generation.",
+            
+            "agents": [
               {
-                "applyForList": ["TRIGGER01"],
-                "goals": "Define the main objective and instructions for how this agent should process input. Be specific about what analysis or transformation to perform.",
-                "role": "Agent Role/Persona",
-                "rules": "List any hard requirements, constraints, or formatting rules the agent must follow.",
-                "custom": [],
-                "acceptFrom": ["dom"],
-                "memoryContext": {
-                  "agentEnabled": true,
-                  "sessionEnabled": false,
-                  "accountEnabled": false
+                "id": "my-agent-01",
+                "name": "my-agent-name",
+                "description": "TEMPLATE: Describe what this agent does, when it activates, and what output it produces.",
+                "icon": "🤖",
+                "number": 1,
+                "enabled": true,
+                "capabilities": ["listening", "reasoning", "execution"],
+                "contextSettings": { "agentContext": true, "sessionContext": true, "accountContext": false },
+                "memorySettings": { "agentEnabled": true, "sessionEnabled": false, "accountEnabled": false },
+                "listening": {
+                  "expectedContext": "TEMPLATE: Keywords for when agent should activate",
+                  "tags": [],
+                  "sources": ["dom"],
+                  "website": "",
+                  "unifiedTriggers": [
+                    {
+                      "id": "TRIGGER01",
+                      "type": "dom_parser",
+                      "enabled": true,
+                      "channel": "dom",
+                      "parserTrigger": "button_click",
+                      "siteFilters": ["*"],
+                      "buttonSelectors": [],
+                      "autoDetectSelectors": true,
+                      "triggerOnEnterKey": true,
+                      "captureInput": true,
+                      "inputSelectors": [],
+                      "captureOutput": true,
+                      "outputSelectors": [],
+                      "responseReadyMode": "quiet_period",
+                      "quietPeriodMs": 1500,
+                      "maxWaitTimeMs": 60000,
+                      "captureUrl": true,
+                      "capturePageTitle": true
+                    }
+                  ]
                 },
-                "reasoningWorkflows": []
-              }
-            ],
-            "executionSections": [
-              {
-                "applyForList": ["TRIGGER01"],
-                "executionMode": "agent_workflow",
-                "destinations": [
+                "reasoningSections": [
                   {
-                    "kind": "agentBox",
-                    "agents": ["AB0101"]
+                    "applyForList": ["TRIGGER01"],
+                    "goals": "TEMPLATE: What should this agent achieve?",
+                    "role": "TEMPLATE: What persona should the agent assume?",
+                    "rules": "TEMPLATE: What constraints should the agent follow?",
+                    "custom": [],
+                    "acceptFrom": [],
+                    "memoryContext": { "agentEnabled": false, "sessionEnabled": false, "accountEnabled": false },
+                    "reasoningWorkflows": []
                   }
                 ],
-                "executionWorkflows": []
+                "executionSections": [
+                  {
+                    "applyForList": ["TRIGGER01"],
+                    "executionMode": "agent_workflow",
+                    "destinations": [{ "kind": "agentBox", "agents": ["AB0101"] }],
+                    "executionWorkflows": []
+                  }
+                ]
               }
             ],
-            "agentContextFiles": [],
+            
+            "agentBoxes": [
+              {
+                "id": "box-001",
+                "boxNumber": 1,
+                "agentNumber": 1,
+                "identifier": "AB0101",
+                "agentId": "agent1",
+                "title": "🤖 My Agent Output",
+                "color": "#4CAF50",
+                "enabled": true,
+                "provider": "",
+                "model": "auto",
+                "tools": [],
+                "source": "master_tab",
+                "masterTabId": "01",
+                "tabIndex": 1
+              }
+            ],
+            
+            "miniApps": [],
+            
+            "connectionInfo": {
+              "agentToBoxMapping": [
+                { "agentNumber": 1, "agentId": "my-agent-01", "boxIdentifiers": ["AB0101"] }
+              ]
+            },
+            
             "_schemaInfo": {
               "enums": {
-                "listening.sources": ["all", "chat", "voice", "voicememo", "video", "email", "whatsapp", "pdf", "docs", "dom", "api", "workflow", "agent", "screenshot", "stream"],
-                "executionSection.executionMode": ["agent_workflow", "direct_response", "workflow_only", "hybrid"],
                 "trigger.type": ["direct_tag", "tag_and_condition", "workflow_condition", "dom_event", "dom_parser", "augmented_overlay", "agent", "miniapp", "manual"],
-                "trigger.parserTrigger": ["page_load", "dom_change", "interval", "button_click", "manual"],
-                "trigger.responseReadyMode": ["first_change", "quiet_period", "selector_signal"],
-                "destination.kind": ["agentBox", "chat", "email", "webhook", "storage", "notification"]
+                "destination.kind": ["agentBox", "chat", "email", "webhook", "storage", "notification"],
+                "agentBox.provider": ["", "OpenAI", "Claude", "Gemini", "Grok", "Local AI", "Image AI"]
               },
-              "numericFields": ["parserInterval", "quietPeriodMs", "maxWaitTimeMs", "number"],
-              "deprecatedFields": ["passiveEnabled", "activeEnabled", "reasoning", "execution", "triggers", "workflows", "specialDestinations", "applyFor"]
+              "connectionLogic": "Agent.number === AgentBox.agentNumber → output routes to that box"
             }
           }
           
-          const json = JSON.stringify(exampleAgent, null, 2)
+          const json = JSON.stringify(unifiedTemplate, null, 2)
           const blob = new Blob([json], { type: 'application/json' })
           const url = URL.createObjectURL(blob)
           
           const a = document.createElement('a')
           a.href = url
-          a.download = 'agent.template.json'
+          a.download = 'optimando.template.json'
           document.body.appendChild(a)
           a.click()
           document.body.removeChild(a)
           URL.revokeObjectURL(url)
           
-          console.log('✅ Agent template downloaded!')
+          console.log('✅ Unified template downloaded!')
           
-          // Brief feedback
           const originalHTML = templateBtn.innerHTML
           templateBtn.innerHTML = '✓'
           setTimeout(() => { templateBtn.innerHTML = originalHTML }, 1500)
@@ -23352,151 +23360,6 @@ function initializeExtension() {
         } catch (error) {
           console.error('❌ Template download failed:', error)
           alert('Template download failed. Check console for details.')
-        }
-      }
-    }
-
-    // Agent Box Schema download handler
-    const boxSchemaBtn = document.getElementById('ag-box-schema-btn')
-    if (boxSchemaBtn) {
-      boxSchemaBtn.onclick = async () => {
-        try {
-          console.log('📦 Downloading agent box schema...')
-          
-          const agentBoxSchema = {
-            "$schema": "http://json-schema.org/draft-07/schema#",
-            "$id": "https://optimando.ai/schemas/agentbox.schema.json",
-            "title": "Optimando AI Agent Box Configuration",
-            "description": "Schema for Agent Box configurations (v1.0.0). An Agent Box is a UI container that displays output from an allocated agent. CONNECTION: Agent.number === AgentBox.agentNumber determines routing.",
-            "type": "object",
-            "required": ["_schemaVersion", "id", "boxNumber", "agentNumber", "identifier", "title", "enabled"],
-            "properties": {
-              "$schema": { "type": "string", "description": "Reference to this schema file." },
-              "_schemaVersion": { "type": "string", "const": "1.0.0" },
-              "_exportedAt": { "type": "string", "format": "date-time" },
-              "_helper": { "type": "string", "description": "Usage instructions. Agent Box connects to Agent when agentNumber matches Agent's number field." },
-              "id": { "type": "string", "description": "Unique identifier (e.g., 'custom-1234567890-abc123')." },
-              "boxNumber": { "type": "integer", "description": "Sequential box number (1-99). Auto-incremented.", "minimum": 1, "maximum": 99 },
-              "agentNumber": { "type": "integer", "description": "CRITICAL: Links to Agent. When agent.number === agentNumber, output routes here.", "minimum": 1, "maximum": 99 },
-              "identifier": { "type": "string", "description": "Human-readable ID in format 'ABxxyy' (e.g., 'AB0101' = Box 1, Agent 1).", "pattern": "^AB[0-9]{2}[0-9]{2}$" },
-              "agentId": { "type": "string", "description": "Agent reference (e.g., 'agent1')." },
-              "title": { "type": "string", "description": "Display title in the UI." },
-              "color": { "type": "string", "description": "Hex color for accent (e.g., '#4CAF50').", "pattern": "^#[0-9A-Fa-f]{6}$" },
-              "enabled": { "type": "boolean", "default": true },
-              "provider": { "type": "string", "enum": ["", "OpenAI", "Claude", "Gemini", "Grok", "Local AI", "Image AI"], "description": "LLM provider override." },
-              "model": { "type": "string", "description": "Model within provider (e.g., 'gpt-4o', 'auto')." },
-              "tools": { "type": "array", "items": { "type": "string" }, "description": "Mini apps attached." },
-              "source": { "type": "string", "enum": ["master_tab", "display_grid"], "description": "Where box was created." },
-              "masterTabId": { "type": "string", "pattern": "^[0-9]{2}$", "description": "Master Tab ID ('01', '02', etc.)." },
-              "tabIndex": { "type": "integer", "minimum": 1 },
-              "side": { "type": "string", "enum": ["left", "right"], "description": "Side for hybrid tabs." },
-              "slotId": { "type": "string", "description": "Grid slot for display_grid boxes." },
-              "gridSessionId": { "type": "string" },
-              "locationId": { "type": "string" },
-              "locationLabel": { "type": "string" }
-            },
-            "_schemaInfo": {
-              "enums": {
-                "provider": ["", "OpenAI", "Claude", "Gemini", "Grok", "Local AI", "Image AI"],
-                "source": ["master_tab", "display_grid"],
-                "side": ["left", "right"]
-              },
-              "numericFields": ["boxNumber", "agentNumber", "tabIndex"],
-              "connectionLogic": "Agent.number === AgentBox.agentNumber → output routes to this box"
-            }
-          }
-          
-          const json = JSON.stringify(agentBoxSchema, null, 2)
-          const blob = new Blob([json], { type: 'application/json' })
-          const url = URL.createObjectURL(blob)
-          
-          const a = document.createElement('a')
-          a.href = url
-          a.download = 'agentbox.schema.json'
-          document.body.appendChild(a)
-          a.click()
-          document.body.removeChild(a)
-          URL.revokeObjectURL(url)
-          
-          console.log('✅ Agent Box schema downloaded!')
-          
-          const originalHTML = boxSchemaBtn.innerHTML
-          boxSchemaBtn.innerHTML = '✓'
-          setTimeout(() => { boxSchemaBtn.innerHTML = originalHTML }, 1500)
-          
-        } catch (error) {
-          console.error('❌ Agent Box schema download failed:', error)
-          alert('Agent Box schema download failed. Check console for details.')
-        }
-      }
-    }
-
-    // Agent Box Template download handler
-    const boxTemplateBtn = document.getElementById('ag-box-template-btn')
-    if (boxTemplateBtn) {
-      boxTemplateBtn.onclick = async () => {
-        try {
-          console.log('🗃️ Downloading agent box template...')
-          
-          const agentBoxTemplate = {
-            "$schema": "./agentbox.schema.json",
-            "_schemaVersion": "1.0.0",
-            "_exportedAt": new Date().toISOString(),
-            "_source": "Optimando AI Extension - Template",
-            "_helper": "TEMPLATE Agent Box. CRITICAL: Set 'agentNumber' to match the Agent's 'number' field you want output from. The identifier format is 'ABxxyy' where xx=boxNumber, yy=agentNumber.",
-            
-            "id": "my-agent-box-001",
-            "boxNumber": 1,
-            "agentNumber": 1,
-            "identifier": "AB0101",
-            "agentId": "agent1",
-            "title": "🤖 My Agent Box",
-            "color": "#4CAF50",
-            "enabled": true,
-            
-            "provider": "",
-            "model": "auto",
-            "tools": [],
-            
-            "source": "master_tab",
-            "masterTabId": "01",
-            "tabIndex": 1,
-            "side": "",
-            
-            "slotId": "",
-            "gridSessionId": "",
-            "locationId": "",
-            "locationLabel": "",
-            
-            "_connectionExample": {
-              "description": "To connect this box to an agent:",
-              "step1": "Set agentNumber to match the agent's number field",
-              "step2": "Ensure the agent has destinations: [{kind: 'agentBox', agents: ['AB0101']}]",
-              "routing": "When agent outputs, it routes to all boxes where agent.number === box.agentNumber"
-            }
-          }
-          
-          const json = JSON.stringify(agentBoxTemplate, null, 2)
-          const blob = new Blob([json], { type: 'application/json' })
-          const url = URL.createObjectURL(blob)
-          
-          const a = document.createElement('a')
-          a.href = url
-          a.download = 'agentbox.template.json'
-          document.body.appendChild(a)
-          a.click()
-          document.body.removeChild(a)
-          URL.revokeObjectURL(url)
-          
-          console.log('✅ Agent Box template downloaded!')
-          
-          const originalHTML = boxTemplateBtn.innerHTML
-          boxTemplateBtn.innerHTML = '✓'
-          setTimeout(() => { boxTemplateBtn.innerHTML = originalHTML }, 1500)
-          
-        } catch (error) {
-          console.error('❌ Agent Box template download failed:', error)
-          alert('Agent Box template download failed. Check console for details.')
         }
       }
     }

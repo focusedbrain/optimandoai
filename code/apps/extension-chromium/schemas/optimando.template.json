@@ -1,0 +1,154 @@
+{
+  "$schema": "./optimando.schema.json",
+  "_schemaVersion": "2.1.0",
+  "_exportedAt": "2025-12-04T12:00:00.000Z",
+  "_source": "Optimando AI Extension - Unified Template",
+  "_helper": "UNIFIED TEMPLATE for LLM agent generation. This file demonstrates a complete agent setup with connected Agent Box. To generate new agents: (1) Provide BOTH optimando.schema.json AND this template to your LLM. (2) The LLM should copy this structure and modify VALUES only. (3) CRITICAL CONNECTION: Agent.number must equal AgentBox.agentNumber for routing to work. (4) The destination.agents array should contain AgentBox.identifier values (format 'ABxxyy').",
+
+  "agents": [
+    {
+      "id": "my-agent-01",
+      "name": "my-agent-name",
+      "description": "TEMPLATE: Describe what this agent does, when it activates, and what output it produces.",
+      "icon": "🤖",
+      "number": 1,
+      "enabled": true,
+      "capabilities": ["listening", "reasoning", "execution"],
+
+      "contextSettings": {
+        "agentContext": true,
+        "sessionContext": true,
+        "accountContext": false
+      },
+
+      "memorySettings": {
+        "agentEnabled": true,
+        "sessionEnabled": false,
+        "accountEnabled": false
+      },
+
+      "listening": {
+        "expectedContext": "TEMPLATE: Keywords for semantic matching when agent should activate",
+        "tags": [],
+        "sources": ["dom"],
+        "website": "",
+        "unifiedTriggers": [
+          {
+            "id": "TRIGGER01",
+            "type": "dom_parser",
+            "enabled": true,
+            "tag": "",
+            "channel": "dom",
+            
+            "parserTrigger": "button_click",
+            "parserInterval": 5,
+            "domParseTarget": "ai_chat",
+            "domParseSelector": "",
+            
+            "siteFilters": ["*"],
+            "buttonSelectors": [],
+            "autoDetectSelectors": true,
+            "triggerOnEnterKey": true,
+            "enterKeyIgnoreShift": true,
+            
+            "captureInput": true,
+            "inputSelectors": [],
+            "captureOutput": true,
+            "outputSelectors": [],
+            
+            "responseReadyMode": "quiet_period",
+            "quietPeriodMs": 1500,
+            "responseSignalSelector": "",
+            "maxWaitTimeMs": 60000,
+            
+            "captureUrl": true,
+            "capturePageTitle": true,
+            "metaSelectors": [],
+            
+            "sanitizeTrim": true,
+            "sanitizeStripMarkdown": false,
+            "sanitizeRemoveBoilerplate": true
+          }
+        ]
+      },
+
+      "reasoningSections": [
+        {
+          "applyForList": ["TRIGGER01"],
+          "goals": "TEMPLATE: What should this agent achieve? Be specific.",
+          "role": "TEMPLATE: What persona should the agent assume? (e.g., 'helpful assistant', 'expert analyst')",
+          "rules": "TEMPLATE: What constraints and guidelines should the agent follow?",
+          "custom": [],
+          "acceptFrom": [],
+          "memoryContext": {
+            "agentEnabled": false,
+            "sessionEnabled": false,
+            "accountEnabled": false
+          },
+          "reasoningWorkflows": []
+        }
+      ],
+
+      "executionSections": [
+        {
+          "applyForList": ["TRIGGER01"],
+          "executionMode": "agent_workflow",
+          "destinations": [
+            {
+              "kind": "agentBox",
+              "agents": ["AB0101"]
+            }
+          ],
+          "executionWorkflows": []
+        }
+      ]
+    }
+  ],
+
+  "agentBoxes": [
+    {
+      "id": "box-001",
+      "boxNumber": 1,
+      "agentNumber": 1,
+      "identifier": "AB0101",
+      "agentId": "agent1",
+      "title": "🤖 My Agent Output",
+      "color": "#4CAF50",
+      "enabled": true,
+
+      "provider": "",
+      "model": "auto",
+      "tools": [],
+
+      "source": "master_tab",
+      "masterTabId": "01",
+      "tabIndex": 1,
+      "side": ""
+    }
+  ],
+
+  "miniApps": [],
+
+  "connectionInfo": {
+    "agentToBoxMapping": [
+      {
+        "agentNumber": 1,
+        "agentId": "my-agent-01",
+        "boxIdentifiers": ["AB0101"]
+      }
+    ]
+  },
+
+  "_schemaInfo": {
+    "enums": {
+      "trigger.type": ["direct_tag", "tag_and_condition", "workflow_condition", "dom_event", "dom_parser", "augmented_overlay", "agent", "miniapp", "manual"],
+      "trigger.parserTrigger": ["page_load", "dom_change", "interval", "button_click", "manual"],
+      "trigger.responseReadyMode": ["first_change", "quiet_period", "selector_signal"],
+      "executionSection.executionMode": ["agent_workflow", "direct_response", "workflow_only", "hybrid"],
+      "destination.kind": ["agentBox", "chat", "email", "webhook", "storage", "notification"],
+      "agentBox.provider": ["", "OpenAI", "Claude", "Gemini", "Grok", "Local AI", "Image AI"]
+    },
+    "connectionLogic": "Agent.number === AgentBox.agentNumber → output routes to that box"
+  }
+}
+
