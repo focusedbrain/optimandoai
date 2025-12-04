@@ -42792,7 +42792,7 @@ ${pageText}
           <div id="ccd-overlay-messages" style="height:160px; overflow:auto; display:flex; flex-direction:column; gap:6px; background:${theme==='professional'?'#f8fafc':'rgba(255,255,255,0.06)'}; border-left:0; border-right:0; border-top:0; padding:8px;">
             <div id="ccd-overlay-hint" style="padding:12px 14px; font-size:12px; opacity:0.8; font-style:italic; background:${theme==='professional'?'rgba(59,130,246,0.08)':'rgba(59,130,246,0.15)'}; border-radius:6px; display:flex; align-items:flex-start; gap:8px; line-height:1.5;">
               <span style="font-size:16px;">🎯</span>
-              <span>Point with the cursor and select elements in order to ask questions or trigger automations directly in the UI.</span>
+              <span>Point with the cursor or select elements in order to ask questions or trigger automations directly in the UI.</span>
             </div>
           </div>
           <div id="ccd-overlay-resize-handle" style="height:5px; background:${theme==='professional'?'#e2e8f0':'rgba(255,255,255,0.15)'}; cursor:ns-resize; border-top:1px solid ${br}; border-bottom:1px solid ${br};"></div>
@@ -43499,7 +43499,7 @@ ${pageText}
           <div id="ccf-overlay-messages" style="height:160px; overflow:auto; display:flex; flex-direction:column; gap:6px; background:${theme==='professional'?'#f8fafc':'rgba(255,255,255,0.06)'}; border-left:0; border-right:0; border-top:0; border-bottom:1px solid ${br}; padding:8px;">
             <div id="ccf-overlay-hint" style="padding:12px 14px; font-size:12px; opacity:0.8; font-style:italic; background:${theme==='professional'?'rgba(59,130,246,0.08)':'rgba(59,130,246,0.15)'}; border-radius:6px; display:flex; align-items:flex-start; gap:8px; line-height:1.5;">
               <span style="font-size:16px;">🎯</span>
-              <span>Point with the cursor and select elements in order to ask questions or trigger automations directly in the UI.</span>
+              <span>Point with the cursor or select elements in order to ask questions or trigger automations directly in the UI.</span>
             </div>
           </div>
           <div id="ccf-overlay-compose" style="display:grid; grid-template-columns:1fr 68px; gap:6px; align-items:center; padding:8px;">

@@ -2931,7 +2931,7 @@ function SidepanelOrchestrator() {
                     {dockedPanelMode === 'augmented-overlay' ? (
                       <>
                         <span style={{ fontSize: '24px' }}>🎯</span>
-                        <span>Point with the cursor and select elements in order to ask questions or trigger automations directly in the UI.</span>
+                        <span>Point with the cursor or select elements in order to ask questions or trigger automations directly in the UI.</span>
                       </>
                     ) : (
                       'Start a conversation...'
