@@ -22470,55 +22470,91 @@ function initializeExtension() {
           
           // ─────────────────────────────────────────────────────────────────────
           // FIND CONNECTED AGENT BOXES
-          // A connected agent box is when:
-          // 1. Agent has destinations with kind: 'agentBox' AND box identifier in agents[]
-          // 2. OR Agent's 'number' matches AgentBox's 'agentNumber'
-          // 3. The AgentBox exists in the session
+          // A connected agent box is when BOTH conditions are met:
+          // 1. Agent has destinations with kind: 'agentBox' referencing specific boxes
+          // 2. Agent Box exists in session AND has agentNumber === agent.number
           // ─────────────────────────────────────────────────────────────────────
           
-          // Check if agent has agentBox destinations
-          const hasAgentBoxDestination = canonical.executionSections?.some((sec: any) => 
-            sec.destinations?.some((d: any) => d.kind === 'agentBox')
-          ) ?? false
+          // Helper: parse boxNumber from destination value (e.g., 'agentBox01' → 1, 'AB0101' → 1)
+          const parseBoxNumber = (val: string): number | null => {
+            if (!val) return null
+            // Format: agentBox01, agentBox02, etc.
+            const agentBoxMatch = val.match(/agentBox(\d+)/i)
+            if (agentBoxMatch) return parseInt(agentBoxMatch[1], 10)
+            // Format: AB0101 (first 2 digits are box number)
+            const identifierMatch = val.match(/^AB(\d{2})/i)
+            if (identifierMatch) return parseInt(identifierMatch[1], 10)
+            // Just a number
+            const numMatch = val.match(/(\d+)/)
+            if (numMatch) return parseInt(numMatch[1], 10)
+            return null
+          }
+          
+          // Check if agent has agentBox destinations (from canonical or raw data)
+          const hasAgentBoxDestination = 
+            canonical.executionSections?.some((sec: any) => 
+              sec.destinations?.some((d: any) => d.kind === 'agentBox')
+            ) ||
+            agentData.execution?.specialDestinations?.some((d: any) => d.kind === 'agentBox') ||
+            agentData.execution?.executionSections?.some((sec: any) => 
+              sec.specialDestinations?.some((d: any) => d.kind === 'agentBox')
+            ) ||
+            false
           
           const agentNumberValue = canonical.number
           
-          // Collect all explicitly referenced box identifiers from destinations
-          const explicitBoxIdentifiers = new Set<string>()
+          // Collect all explicitly referenced box NUMBERS from destinations
+          // These come from the dropdown values like 'agentBox01', 'agentBox02', etc.
+          const explicitBoxNumbers = new Set<number>()
+          
+          // From canonical executionSections (normalized destinations)
           canonical.executionSections?.forEach((sec: any) => {
             sec.destinations?.forEach((d: any) => {
               if (d.kind === 'agentBox' && d.agents?.length > 0) {
-                d.agents.forEach((id: string) => explicitBoxIdentifiers.add(id))
+                d.agents.forEach((val: string) => {
+                  const boxNum = parseBoxNumber(val)
+                  if (boxNum !== null) explicitBoxNumbers.add(boxNum)
+                })
               }
             })
           })
           
-          // Also check main execution section if it has specialDestinations
+          // From main execution section specialDestinations (raw data)
           const mainExecDests = agentData.execution?.specialDestinations || []
           mainExecDests.forEach((d: any) => {
             if (d.kind === 'agentBox' && d.agents?.length > 0) {
-              d.agents.forEach((id: string) => explicitBoxIdentifiers.add(id))
+              d.agents.forEach((val: string) => {
+                const boxNum = parseBoxNumber(val)
+                if (boxNum !== null) explicitBoxNumbers.add(boxNum)
+              })
             }
           })
           
-          // Also check additional execution sections
+          // From additional execution sections (raw data)
           const additionalSections = agentData.execution?.executionSections || []
           additionalSections.forEach((sec: any) => {
             const secDests = sec.specialDestinations || []
             secDests.forEach((d: any) => {
               if (d.kind === 'agentBox' && d.agents?.length > 0) {
-                d.agents.forEach((id: string) => explicitBoxIdentifiers.add(id))
+                d.agents.forEach((val: string) => {
+                  const boxNum = parseBoxNumber(val)
+                  if (boxNum !== null) explicitBoxNumbers.add(boxNum)
+                })
               }
             })
           })
           
-          console.log(`📦 Explicit box identifiers from destinations:`, Array.from(explicitBoxIdentifiers))
+          console.log(`📦 Agent number: ${agentNumberValue}`)
+          console.log(`📦 Has agentBox destination: ${hasAgentBoxDestination}`)
+          console.log(`📦 Explicit box numbers from destinations:`, Array.from(explicitBoxNumbers))
           
           // Get all agent boxes from current session
           const sessionKey = getCurrentSessionKey()
+          console.log(`📦 Session key: ${sessionKey}`)
           let connectedBoxes: any[] = []
           
-          if (sessionKey && (agentNumberValue || explicitBoxIdentifiers.size > 0) && hasAgentBoxDestination) {
+          // Find connected boxes if we have either agent number or explicit references
+          if (sessionKey && (agentNumberValue || explicitBoxNumbers.size > 0)) {
             try {
               // Get boxes from session storage
               const sessionData = await new Promise<any>((resolve) => {
@@ -22530,30 +22566,45 @@ function initializeExtension() {
                 ...(currentTabData.agentBoxes || [])
               ]
               
-              // Deduplicate by id
+              console.log(`📦 Total boxes in session/tab: ${allBoxes.length}`)
+              allBoxes.forEach((b: any) => {
+                console.log(`   - Box ${b.boxNumber}: agentNumber=${b.agentNumber}, enabled=${b.enabled !== false}, id=${b.id}`)
+              })
+              
+              // Deduplicate by id or identifier (some boxes might have different id formats)
               const seenIds = new Set<string>()
+              const seenIdentifiers = new Set<string>()
               connectedBoxes = allBoxes.filter((box: any) => {
-                if (!box.id || seenIds.has(box.id)) return false
-                seenIds.add(box.id)
+                // Handle various deduplication cases
+                const boxId = box.id || box.identifier || `box-${box.boxNumber}`
+                if (seenIds.has(boxId)) return false
+                if (box.identifier && seenIdentifiers.has(box.identifier)) return false
+                seenIds.add(boxId)
+                if (box.identifier) seenIdentifiers.add(box.identifier)
+                
                 // Skip disabled boxes
-                if (box.enabled === false) return false
-                
-                // Connection 1: Box identifier is explicitly referenced in destinations
-                if (box.identifier && explicitBoxIdentifiers.has(box.identifier)) {
-                  return true
+                if (box.enabled === false) {
+                  console.log(`📦 ✗ Box ${box.boxNumber} skipped (disabled)`)
+                  return false
                 }
                 
-                // Connection 2: agentNumber matches (fallback for boxes without explicit reference)
+                // Connection 1: Box has this agent allocated (agentNumber matches)
                 if (agentNumberValue && box.agentNumber === agentNumberValue) {
+                  console.log(`📦 ✓ Box ${box.boxNumber} connected via agentNumber match (${box.agentNumber} === ${agentNumberValue})`)
                   return true
                 }
                 
+                // Connection 2: Box is explicitly referenced in agent's destinations
+                if (explicitBoxNumbers.has(box.boxNumber)) {
+                  console.log(`📦 ✓ Box ${box.boxNumber} connected via explicit destination reference`)
+                  return true
+                }
+                
+                console.log(`📦 ✗ Box ${box.boxNumber} not connected (agentNumber=${box.agentNumber}, needed=${agentNumberValue})`)
                 return false
               })
               
-              console.log(`📦 Found ${connectedBoxes.length} connected agent boxes:`)
-              console.log(`   - By explicit identifier: ${connectedBoxes.filter((b: any) => explicitBoxIdentifiers.has(b.identifier)).length}`)
-              console.log(`   - By agentNumber match: ${connectedBoxes.filter((b: any) => b.agentNumber === agentNumberValue).length}`)
+              console.log(`📦 Found ${connectedBoxes.length} connected agent boxes total`)
             } catch (e) {
               console.warn('⚠️ Could not load agent boxes from session:', e)
             }
