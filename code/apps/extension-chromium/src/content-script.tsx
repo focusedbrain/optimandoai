@@ -819,119 +819,64 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   // Handle DELETE AGENT BOX request from sidepanel
-
   else if (message.type === 'DELETE_AGENT_BOX') {
-
-    try {
-
-      const agentId = message.data?.agentId
-
-      if (!agentId) {
-
-        console.error('❌ No agent ID provided for deletion')
-
-        sendResponse({ success: false, error: 'No agent ID provided' })
-
-        return
-
-      }
-
-      console.log('🗑️ Deleting agent box:', agentId)
-
-      // Remove from currentTabData
-
-      const boxIndex = currentTabData.agentBoxes.findIndex((box: any) => box.id === agentId)
-
-      if (boxIndex === -1) {
-
-        console.warn('⚠️ Agent box not found in currentTabData:', agentId)
-
-        sendResponse({ success: false, error: 'Agent box not found' })
-
-        return
-
-      }
-
-      const deletedBox = currentTabData.agentBoxes[boxIndex]
-
-      console.log('🔍 Deleted box details:', {
-        id: deletedBox.id,
-        identifier: deletedBox.identifier,
-        boxNumber: deletedBox.boxNumber,
-        title: deletedBox.title
-      })
-
-      currentTabData.agentBoxes.splice(boxIndex, 1)
-
-      console.log('✅ Removed from currentTabData, remaining:', currentTabData.agentBoxes.length)
-
-      // Save to localStorage for immediate UI persistence
-      try {
-        localStorage.setItem(`optimando-tab-${tabId}`, JSON.stringify(currentTabData))
-      } catch (e) {
-        console.warn('⚠️ Could not save to localStorage:', e)
-      }
-
-      // Get session key and delete from SQLite
-
-      const sessionKey = getCurrentSessionKey()
-
-      if (sessionKey) {
-
-        console.log('🗑️ Deleting from SQLite database, session:', sessionKey)
-
-        console.log('🗑️ Agent box identifier:', deletedBox.identifier)
-
-        
-
-        // Send to background script to delete from SQLite
-
-        chrome.runtime.sendMessage({
-
-          type: 'DELETE_AGENT_BOX_FROM_SQLITE',
-
-          sessionKey: sessionKey,
-
-          agentId: agentId,
-
-          identifier: deletedBox.identifier
-
-        }, (response) => {
-
-          if (response && response.success) {
-
-            console.log('✅ Agent box deleted from SQLite database')
-
-          } else {
-
-            console.error('❌ Failed to delete from SQLite:', response?.error)
-
-          }
-
-        })
-
-      }
-
-      // Notify sidepanel to update its list
-
-      chrome.runtime.sendMessage({
-
-        type: 'UPDATE_AGENT_BOXES',
-
-        data: currentTabData.agentBoxes || []
-
-      })
-
-      sendResponse({ success: true })
-
-    } catch (e) {
-
-      console.error('❌ Error deleting agent box:', e)
-
-      sendResponse({ success: false, error: String(e) })
-
+    const agentId = message.data?.agentId
+    
+    if (!agentId) {
+      console.error('❌ No agent ID provided for deletion')
+      sendResponse({ success: false, error: 'No agent ID provided' })
+      return
     }
-
+    
+    console.log('🗑️ DELETE_AGENT_BOX from sidepanel:', agentId)
+    
+    // Find the box to get its identifier
+    const boxIndex = currentTabData.agentBoxes.findIndex((box: any) => box.id === agentId)
+    if (boxIndex === -1) {
+      console.warn('⚠️ Agent box not found:', agentId)
+      sendResponse({ success: false, error: 'Agent box not found' })
+      return
+    }
+    
+    const deletedBox = currentTabData.agentBoxes[boxIndex]
+    const sessionKey = getCurrentSessionKey()
+    
+    if (!sessionKey) {
+      console.error('❌ No session key found')
+      sendResponse({ success: false, error: 'No session key' })
+      return
+    }
+    
+    // Delete from SQLite (single source of truth)
+    chrome.runtime.sendMessage({
+      type: 'DELETE_AGENT_BOX_FROM_SQLITE',
+      sessionKey: sessionKey,
+      agentId: agentId,
+      identifier: deletedBox.identifier
+    }, (response) => {
+      if (chrome.runtime.lastError) {
+        console.error('❌ Runtime error:', chrome.runtime.lastError.message)
+        return
+      }
+      
+      if (response && response.success) {
+        console.log('✅ Agent box deleted from SQLite')
+        
+        // Reload from SQLite to update UI
+        reloadSessionFromSQLite(sessionKey)
+        
+        // Notify sidepanel
+        chrome.runtime.sendMessage({
+          type: 'RELOAD_SESSION_FROM_SQLITE',
+          sessionKey: sessionKey
+        })
+      } else {
+        console.error('❌ Failed to delete:', response?.error)
+      }
+    })
+    
+    // Return true to indicate async response
+    sendResponse({ success: true, message: 'Delete initiated' })
   }
 
   // Handle CREATE NEW SESSION request from sidepanel - use the ORIGINAL startNewSession function
