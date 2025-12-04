@@ -783,34 +783,54 @@ function SidepanelOrchestrator() {
       }
       // Listen for reload request after deletion
       else if (message.type === 'RELOAD_SESSION_FROM_SQLITE') {
-        console.log('🔄 Sidepanel: Reloading session from SQLite after deletion')
-        // Reload directly from SQLite (single source of truth)
-        chrome.runtime.sendMessage({ type: 'GET_ALL_SESSIONS_FROM_SQLITE' }, (response) => {
-          if (chrome.runtime.lastError) {
-            console.error('❌ Error reloading from SQLite:', chrome.runtime.lastError.message)
-            return
-          }
-          
-          if (!response?.success || !response?.sessions) {
-            console.log('⚠️ No sessions found in SQLite')
-            return
-          }
-          
-          // Find the most recent session
-          const sessionsArray = Object.entries(response.sessions)
-            .map(([key, session]: [string, any]) => ({ key, ...session }))
-            .filter((s: any) => s.timestamp)
-            .sort((a: any, b: any) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
-          
-          if (sessionsArray.length > 0) {
-            const mostRecent = sessionsArray[0]
-            console.log('✅ Reloaded session from SQLite:', mostRecent.tabName, 'with', mostRecent.agentBoxes?.length || 0, 'boxes')
-            setSessionName(mostRecent.tabName || 'Session')
-            setSessionKey(mostRecent.key)
-            setIsLocked(mostRecent.isLocked || false)
-            setAgentBoxes(mostRecent.agentBoxes || [])
-          }
-        })
+        const targetSessionKey = message.sessionKey
+        console.log('🔄 Sidepanel: Reloading session from SQLite after deletion, key:', targetSessionKey)
+        
+        // Use specific session key if provided, otherwise get current
+        if (targetSessionKey) {
+          // Fetch the specific session from SQLite
+          chrome.runtime.sendMessage({ 
+            type: 'GET_SESSION_FROM_SQLITE',
+            sessionKey: targetSessionKey 
+          }, (response) => {
+            if (chrome.runtime.lastError) {
+              console.error('❌ Error reloading from SQLite:', chrome.runtime.lastError.message)
+              return
+            }
+            
+            if (!response?.success || !response?.session) {
+              console.log('⚠️ Session not found in SQLite:', targetSessionKey)
+              return
+            }
+            
+            const session = response.session
+            console.log('✅ Reloaded session from SQLite:', session.tabName, 'with', session.agentBoxes?.length || 0, 'boxes')
+            setSessionName(session.tabName || 'Session')
+            setSessionKey(targetSessionKey)
+            setIsLocked(session.isLocked || false)
+            setAgentBoxes(session.agentBoxes || [])
+          })
+        } else {
+          // Fallback: get all sessions and pick most recent
+          chrome.runtime.sendMessage({ type: 'GET_ALL_SESSIONS_FROM_SQLITE' }, (response) => {
+            if (chrome.runtime.lastError || !response?.success || !response?.sessions) {
+              return
+            }
+            
+            const sessionsArray = Object.entries(response.sessions)
+              .map(([key, session]: [string, any]) => ({ key, ...session }))
+              .filter((s: any) => s.timestamp)
+              .sort((a: any, b: any) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+            
+            if (sessionsArray.length > 0) {
+              const mostRecent = sessionsArray[0]
+              setSessionName(mostRecent.tabName || 'Session')
+              setSessionKey(mostRecent.key)
+              setIsLocked(mostRecent.isLocked || false)
+              setAgentBoxes(mostRecent.agentBoxes || [])
+            }
+          })
+        }
       }
     }
 
