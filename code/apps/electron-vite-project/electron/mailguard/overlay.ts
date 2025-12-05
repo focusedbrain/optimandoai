@@ -189,13 +189,13 @@ function getOverlayHtml(): string {
       top: 16px;
       right: 16px;
       background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
-      border: 1px solid rgba(34, 197, 94, 0.6);
+      border: 1px solid rgba(168, 85, 247, 0.6);
       border-radius: 8px;
       padding: 12px 20px;
       display: flex;
       align-items: center;
       gap: 12px;
-      color: #22c55e;
+      color: #a855f7;
       font-size: 13px;
       font-weight: 600;
       letter-spacing: 0.3px;
@@ -224,15 +224,15 @@ function getOverlayHtml(): string {
       text-transform: uppercase;
     }
     #status-badge .status {
-      color: #22c55e;
+      color: #a855f7;
     }
     
     /* Toggle switch */
     .toggle-track {
       width: 44px;
       height: 24px;
-      background: #14532d;
-      border: 1px solid #22c55e;
+      background: #3b0764;
+      border: 1px solid #a855f7;
       border-radius: 12px;
       position: relative;
       transition: all 0.2s ease;
@@ -240,7 +240,7 @@ function getOverlayHtml(): string {
     .toggle-thumb {
       width: 18px;
       height: 18px;
-      background: #22c55e;
+      background: #a855f7;
       border-radius: 50%;
       position: absolute;
       top: 2px;
@@ -334,7 +334,7 @@ function getOverlayHtml(): string {
       gap: 14px;
     }
     .modal-title .shield { 
-      color: #22c55e; 
+      color: #a855f7; 
       font-size: 24px;
     }
     .modal-title .title-text {
@@ -355,7 +355,7 @@ function getOverlayHtml(): string {
       color: #fff;
     }
     .modal-title .verified {
-      background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%);
+      background: linear-gradient(135deg, #a855f7 0%, #9333ea 100%);
       color: #fff;
       font-size: 9px;
       font-weight: 700;
@@ -389,8 +389,8 @@ function getOverlayHtml(): string {
     }
     
     .safe-notice {
-      background: #f0fdf4;
-      border: 1px solid #22c55e;
+      background: #faf5ff;
+      border: 1px solid #a855f7;
       border-radius: 10px;
       padding: 14px 18px;
       margin-bottom: 20px;
@@ -398,7 +398,7 @@ function getOverlayHtml(): string {
       align-items: center;
       gap: 12px;
       font-size: 13px;
-      color: #166534;
+      color: #6b21a8;
     }
     .safe-notice .icon { font-size: 20px; }
     
@@ -706,12 +706,12 @@ function getOverlayHtml(): string {
       const isFullEmail = email.body && email.body.length > 200 && !email.body.includes('[Email Preview]')
       
       const apiInfoBox = isFullEmail 
-        ? '<div class="api-info-box" style="border-color: #22c55e; background: linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%);">' +
+        ? '<div class="api-info-box" style="border-color: #a855f7; background: linear-gradient(135deg, #faf5ff 0%, #f3e8ff 100%);">' +
             '<div class="api-info-header">' +
               '<span class="icon">✅</span>' +
-              '<span class="title" style="color: #166534;">Full Email via Gmail API</span>' +
+              '<span class="title" style="color: #6b21a8;">Full Email via Gmail API</span>' +
             '</div>' +
-            '<div class="api-info-text" style="color: #14532d;">' +
+            '<div class="api-info-text" style="color: #581c87;">' +
               'This email was fetched securely via the Gmail API. No tracking pixels, scripts, or active content were executed.' +
             '</div>' +
           '</div>'

@@ -369,11 +369,16 @@ async function extractEmailContent(rowId: string): Promise<SanitizedEmail | null
     const dateEl = row.querySelector('.xW span[title], .apt span[title], td.xW span, .xW.xY span')
     const date = dateEl?.getAttribute('title') || dateEl?.textContent?.trim() || ''
     
-    // Check for attachment indicator
-    const hasAttachment = row.querySelector('.yf, .aKS, [aria-label*="attachment"], [aria-label*="Anhang"]') !== null
-    const attachments: { name: string; type: string }[] = hasAttachment 
-      ? [{ name: 'Attachment(s) present', type: 'unknown' }] 
-      : []
+    // Check for attachment indicator - look for paperclip icon specifically
+    // Gmail uses various selectors for attachment indicators
+    const attachmentIcon = row.querySelector('.brd[data-tooltip*="Attachment"], .aZo .aZs, [data-tooltip*="attachment" i], .bqX .yf img[alt*="Attachment" i]')
+    const hasAttachment = attachmentIcon !== null
+    
+    // Only include attachments array if there are actual attachments
+    // Empty array means no attachments section will be shown
+    const attachments: { name: string; type: string }[] = []
+    // Note: We can't get attachment details from the inbox row preview
+    // Full attachment info requires the Gmail API
     
     // Return preview data - email is never opened
     return { 
@@ -382,7 +387,7 @@ async function extractEmailContent(rowId: string): Promise<SanitizedEmail | null
       subject, 
       date, 
       body: snippet, // Only the snippet, full content requires API
-      attachments 
+      attachments  // Always empty for preview - real attachments come from API
     }
   } catch (err) {
     console.error('[MailGuard] Error extracting preview:', err)
