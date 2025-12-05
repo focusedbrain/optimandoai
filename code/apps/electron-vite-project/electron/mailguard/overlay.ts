@@ -179,8 +179,8 @@ function getOverlayHtml(): string {
       height: 100%;
       overflow: hidden;
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      /* Light transparent overlay - professional tint */
-      background: rgba(10, 20, 40, 0.12);
+      /* Slightly darker professional tint */
+      background: rgba(10, 20, 40, 0.22);
       cursor: default;
     }
     
@@ -236,7 +236,7 @@ function getOverlayHtml(): string {
     #hover-buttons {
       position: fixed;
       display: none;
-      gap: 8px;
+      gap: 6px;
       z-index: 9998;
     }
     #hover-buttons.visible {
@@ -245,24 +245,23 @@ function getOverlayHtml(): string {
     .hover-btn {
       background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
       border: 1px solid rgba(59, 130, 246, 0.7);
-      border-radius: 8px;
-      padding: 14px 20px;
+      border-radius: 6px;
+      padding: 8px 14px;
       color: #fff;
-      font-size: 13px;
+      font-size: 12px;
       font-weight: 600;
       cursor: pointer;
       display: flex;
       align-items: center;
-      gap: 10px;
-      box-shadow: 0 4px 20px rgba(0,0,0,0.4), 0 0 0 1px rgba(255,255,255,0.05) inset;
+      gap: 6px;
+      box-shadow: 0 3px 12px rgba(0,0,0,0.4);
       white-space: nowrap;
-      letter-spacing: 0.3px;
     }
     .hover-btn:hover {
       background: linear-gradient(135deg, #1d4ed8 0%, #2563eb 100%);
       border-color: #3b82f6;
     }
-    .hover-btn .icon { font-size: 18px; }
+    .hover-btn .icon { font-size: 14px; }
     
     /* Lightbox overlay */
     #lightbox {
