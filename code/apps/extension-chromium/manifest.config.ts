@@ -29,6 +29,12 @@ export default defineManifest({
       js: ['src/content-script.tsx'],
       css: [],
       run_at: 'document_end'
+    },
+    {
+      matches: ['https://mail.google.com/*'],
+      js: ['src/mailguard-content-script.ts'],
+      css: [],
+      run_at: 'document_end'
     }
   ],
   background: {
