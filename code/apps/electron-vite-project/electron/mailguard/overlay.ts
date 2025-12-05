@@ -205,16 +205,12 @@ function getOverlayHtml(): string {
     }
     #status-badge:hover {
       border-color: rgba(239, 68, 68, 0.8);
-      color: #ef4444;
+    }
+    #status-badge:hover .toggle-track {
+      background: #7f1d1d;
+      border-color: #dc2626;
     }
     #status-badge .icon { font-size: 18px; }
-    #status-badge .pulse {
-      width: 8px;
-      height: 8px;
-      background: #22c55e;
-      border-radius: 50%;
-      box-shadow: 0 0 8px #22c55e;
-    }
     #status-badge .label {
       display: flex;
       flex-direction: column;
@@ -229,6 +225,38 @@ function getOverlayHtml(): string {
     }
     #status-badge .status {
       color: #22c55e;
+    }
+    
+    /* Toggle switch */
+    .toggle-track {
+      width: 44px;
+      height: 24px;
+      background: #14532d;
+      border: 1px solid #22c55e;
+      border-radius: 12px;
+      position: relative;
+      transition: all 0.2s ease;
+    }
+    .toggle-thumb {
+      width: 18px;
+      height: 18px;
+      background: #22c55e;
+      border-radius: 50%;
+      position: absolute;
+      top: 2px;
+      right: 3px;
+      transition: all 0.2s ease;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+    }
+    #status-badge:hover .toggle-thumb {
+      background: #ef4444;
+      right: auto;
+      left: 3px;
+    }
+    .toggle-label {
+      font-size: 10px;
+      color: rgba(255,255,255,0.7);
+      margin-left: 4px;
     }
     
     /* Hover button container */
@@ -478,14 +506,17 @@ function getOverlayHtml(): string {
   </style>
 </head>
 <body>
-  <!-- Status Badge -->
-  <div id="status-badge" title="Click to disable (or press Escape)">
-    <span class="pulse"></span>
+  <!-- Status Badge with Toggle -->
+  <div id="status-badge" title="Click to turn OFF protection">
     <span class="icon">🛡️</span>
     <div class="label">
       <span class="brand">WR MailGuard</span>
       <span class="status">Protection Active</span>
     </div>
+    <div class="toggle-track">
+      <div class="toggle-thumb"></div>
+    </div>
+    <span class="toggle-label">ON</span>
   </div>
   
   <!-- Hover Buttons -->
