@@ -292,6 +292,20 @@ async function createWindow() {
       console.log('[MAIN] MailGuard lightbox closed')
       closeLightbox()
     })
+    
+    // Handle Gmail API setup request (placeholder for future implementation)
+    ipcMain.on('mailguard-api-setup', () => {
+      console.log('[MAIN] Gmail API setup requested')
+      // Show a dialog with coming soon message
+      const { dialog } = require('electron')
+      dialog.showMessageBox({
+        type: 'info',
+        title: 'Gmail API Setup',
+        message: 'Gmail API Integration Coming Soon',
+        detail: 'This feature will allow you to view full email content securely without rendering the email in your browser.\n\nThe setup wizard will guide you through:\n• Creating a Google Cloud project\n• Enabling the Gmail API\n• Authorizing WR MailGuard to read your emails\n\nStay tuned for updates!',
+        buttons: ['OK']
+      })
+    })
   } catch {}
   // Old IPC handlers (now using simple overlay for screenshots)
   registerHandler(LmgtfyChannels.SelectScreenshot, async () => {

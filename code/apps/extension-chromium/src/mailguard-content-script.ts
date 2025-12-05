@@ -313,8 +313,12 @@ function stopRowPositionUpdates(): void {
 }
 
 // =============================================================================
-// Email Content Extraction
+// Email Content Extraction (Preview-Only Mode)
 // =============================================================================
+
+// IMPORTANT: This extracts ONLY preview info from inbox rows.
+// The email is NEVER opened/rendered for security.
+// Full content requires Gmail API setup (future feature).
 
 async function extractEmailContent(rowId: string): Promise<SanitizedEmail | null> {
   const row = emailRowElements.get(rowId)
@@ -324,90 +328,45 @@ async function extractEmailContent(rowId: string): Promise<SanitizedEmail | null
   }
   
   try {
-    // Click the email row to open and load full content
-    // The Electron overlay blocks the view, so user won't see the opened email
-    const clickTarget = row.querySelector('td.xY, .a4W') || row
-    ;(clickTarget as HTMLElement).click()
+    // Extract sender from inbox row
+    const senderEl = row.querySelector('[email], .yP, .zF, .bA4 span[email], span[name], .yW span')
+    const from = senderEl?.getAttribute('email') || 
+                 senderEl?.getAttribute('name') || 
+                 senderEl?.textContent?.trim() || 
+                 '(Unknown sender)'
     
-    // Wait for email to fully load
-    await new Promise(resolve => setTimeout(resolve, 1500))
+    // Extract subject from inbox row
+    const subjectEl = row.querySelector('.bog, .bqe, .y6 span:first-child, .xT .y6')
+    const subject = subjectEl?.textContent?.trim() || '(No subject)'
     
-    // Extract full email content
-    const from = extractSender()
-    const to = extractRecipients()
-    const subject = extractSubject()
-    const date = extractDate()
-    const bodyHtml = extractBodyHtml()
-    const body = sanitizeHtmlToText(bodyHtml)
-    const attachments = extractAttachments()
+    // Extract snippet/preview from inbox row
+    const snippetEl = row.querySelector('.y2, .Zt, .xT .y2')
+    const snippet = snippetEl?.textContent?.trim() || ''
     
-    // Navigate back to inbox immediately
-    // The overlay is still blocking, so user never sees the opened email
-    goBackToInbox()
+    // Extract date from inbox row
+    const dateEl = row.querySelector('.xW span[title], .apt span[title], td.xW span, .xW.xY span')
+    const date = dateEl?.getAttribute('title') || dateEl?.textContent?.trim() || ''
     
-    return { from, to, subject, date, body, attachments }
+    // Check for attachment indicator
+    const hasAttachment = row.querySelector('.yf, .aKS, [aria-label*="attachment"], [aria-label*="Anhang"]') !== null
+    const attachments: { name: string; type: string }[] = hasAttachment 
+      ? [{ name: 'Attachment(s) present', type: 'unknown' }] 
+      : []
+    
+    // Return preview data - email is never opened
+    return { 
+      from, 
+      to: '', // Not available in preview
+      subject, 
+      date, 
+      body: snippet, // Only the snippet, full content requires API
+      attachments 
+    }
   } catch (err) {
-    console.error('[MailGuard] Error extracting email:', err)
-    goBackToInbox()
+    console.error('[MailGuard] Error extracting preview:', err)
     return null
   }
 }
-
-function extractSender(): string {
-  const senderEl = document.querySelector('.gD, [email], h3.iw span[email]')
-  return senderEl?.getAttribute('email') || 
-         senderEl?.getAttribute('name') || 
-         senderEl?.textContent?.trim() || 
-         '(Unknown sender)'
-}
-
-function extractRecipients(): string {
-  const toEls = document.querySelectorAll('.g2 span[email], .hb span[email]')
-  if (toEls.length === 0) return '(Recipients not available)'
-  return Array.from(toEls).map(el => el.getAttribute('email') || el.textContent?.trim()).join(', ')
-}
-
-function extractSubject(): string {
-  const subjectEl = document.querySelector('h2.hP, .ha h2, [data-thread-perm-id] h2')
-  return subjectEl?.textContent?.trim() || '(No subject)'
-}
-
-function extractDate(): string {
-  const dateEl = document.querySelector('.g3, .gH .g3, span.g3')
-  return dateEl?.getAttribute('title') || dateEl?.textContent?.trim() || ''
-}
-
-function extractBodyHtml(): string {
-  // Try multiple selectors for email body
-  const bodyEl = document.querySelector('.a3s.aiL, .a3s, div[data-message-id] .a3s, .ii.gt')
-  return bodyEl?.innerHTML || ''
-}
-
-function extractAttachments(): { name: string; type: string }[] {
-  const attachments: { name: string; type: string }[] = []
-  const attachmentEls = document.querySelectorAll('.aQH .aV3, .aZo, [download]')
-  attachmentEls.forEach(el => {
-    const name = el.getAttribute('download') || el.textContent?.trim() || 'Attachment'
-    const type = name.split('.').pop() || 'unknown'
-    attachments.push({ name, type })
-  })
-  return attachments
-}
-
-function goBackToInbox(): void {
-  // Navigate back to inbox using multiple methods
-  const backBtn = document.querySelector('[aria-label*="Back"], [aria-label*="Zurück"], .lS')
-  if (backBtn) {
-    (backBtn as HTMLElement).click()
-  } else {
-    // Fallback: use browser back or navigate to inbox
-    const currentUrl = window.location.href
-    const inboxUrl = currentUrl.split('#')[0] + '#inbox'
-    window.location.href = inboxUrl
-  }
-}
-
-// Email extraction functions moved above with extractEmailContent
 
 // =============================================================================
 // HTML Sanitization

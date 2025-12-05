@@ -482,6 +482,56 @@ function getOverlayHtml(): string {
       border-color: #3b82f6;
     }
     
+    /* Info box for Gmail API setup */
+    .api-info-box {
+      background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%);
+      border: 1px solid #3b82f6;
+      border-radius: 12px;
+      padding: 18px 20px;
+      margin-top: 20px;
+    }
+    .api-info-header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 12px;
+    }
+    .api-info-header .icon {
+      font-size: 20px;
+    }
+    .api-info-header .title {
+      font-size: 14px;
+      font-weight: 600;
+      color: #1e40af;
+    }
+    .api-info-text {
+      font-size: 13px;
+      color: #1e3a8a;
+      line-height: 1.6;
+      margin-bottom: 14px;
+    }
+    .api-setup-btn {
+      background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+      color: #fff;
+      border: none;
+      border-radius: 8px;
+      padding: 10px 18px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      box-shadow: 0 2px 8px rgba(37, 99, 235, 0.3);
+      transition: all 0.2s ease;
+    }
+    .api-setup-btn:hover {
+      background: linear-gradient(135deg, #1d4ed8 0%, #1e40af 100%);
+      transform: translateY(-1px);
+      box-shadow: 0 4px 12px rgba(37, 99, 235, 0.4);
+    }
+    .api-setup-btn .icon { font-size: 14px; }
+    
     .loading {
       display: flex;
       flex-direction: column;
@@ -652,16 +702,42 @@ function getOverlayHtml(): string {
         attachmentsHtml = '<div class="attachments"><div class="attachments-title"><span>📎</span>Attachments</div><div class="attachment-list">' + items + '</div></div>';
       }
       
+      // Info box explaining this is preview-only and how to get full content
+      const apiInfoBox = 
+        '<div class="api-info-box">' +
+          '<div class="api-info-header">' +
+            '<span class="icon">ℹ️</span>' +
+            '<span class="title">Preview Mode</span>' +
+          '</div>' +
+          '<div class="api-info-text">' +
+            'For your protection, only the email preview is shown. The full email content was never loaded or rendered, preventing tracking pixels, scripts, and other potentially harmful content from executing.<br><br>' +
+            'To view full email content securely, you can set up Gmail API access. This allows WR MailGuard to fetch email data directly without rendering it in your browser.' +
+          '</div>' +
+          '<button class="api-setup-btn" id="btn-api-setup">' +
+            '<span class="icon">⚙️</span>' +
+            '<span>Set up Gmail API</span>' +
+          '</button>' +
+        '</div>';
+      
       emailContent.innerHTML = 
-        '<div class="safe-notice"><span class="icon">🛡️</span><span>This is a sanitized view. Scripts, tracking, and active content have been removed.</span></div>' +
+        '<div class="safe-notice"><span class="icon">🛡️</span><span>This is a secure preview. The email was never opened or rendered.</span></div>' +
         '<div class="email-meta">' +
           '<div class="meta-row"><span class="meta-label">From:</span><span class="meta-value">' + escapeHtml(email.from || '(unknown)') + '</span></div>' +
-          '<div class="meta-row"><span class="meta-label">To:</span><span class="meta-value">' + escapeHtml(email.to || '(unknown)') + '</span></div>' +
+          (email.to ? '<div class="meta-row"><span class="meta-label">To:</span><span class="meta-value">' + escapeHtml(email.to) + '</span></div>' : '') +
           '<div class="meta-row"><span class="meta-label">Date:</span><span class="meta-value">' + escapeHtml(email.date || '(unknown)') + '</span></div>' +
         '</div>' +
         '<div class="subject">' + escapeHtml(email.subject || '(no subject)') + '</div>' +
-        '<div class="email-body">' + escapeHtml(email.body || '(no content)') + '</div>' +
-        attachmentsHtml;
+        '<div class="email-body">' + escapeHtml(email.body || '(no preview available)') + '</div>' +
+        attachmentsHtml +
+        apiInfoBox;
+      
+      // Handle API setup button click
+      const apiSetupBtn = document.getElementById('btn-api-setup');
+      if (apiSetupBtn) {
+        apiSetupBtn.addEventListener('click', () => {
+          ipcRenderer.send('mailguard-api-setup');
+        });
+      }
     });
     
     // Close lightbox command
