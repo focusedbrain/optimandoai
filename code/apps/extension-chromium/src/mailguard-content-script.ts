@@ -352,16 +352,24 @@ function sanitizeHtmlToText(html: string): string {
   temp.innerHTML = html
   
   // Remove dangerous elements
-  const dangerous = temp.querySelectorAll('script, style, iframe, object, embed, form, input, button')
+  const dangerous = temp.querySelectorAll('script, style, iframe, object, embed, form, input, button, head, meta, link')
   dangerous.forEach(el => el.remove())
+  
+  // Also remove hidden elements
+  const hidden = temp.querySelectorAll('[style*="display:none"], [style*="display: none"], [hidden]')
+  hidden.forEach(el => el.remove())
   
   let text = processNodeToText(temp)
   
-  // Clean up whitespace
+  // Aggressive whitespace cleanup
   text = text
-    .replace(/\n{3,}/g, '\n\n')
-    .replace(/[ \t]+/g, ' ')
-    .replace(/\n /g, '\n')
+    .replace(/\r\n/g, '\n')           // Normalize line endings
+    .replace(/\n{3,}/g, '\n\n')       // Max 2 consecutive newlines
+    .replace(/[ \t]+/g, ' ')          // Collapse horizontal whitespace
+    .replace(/\n +/g, '\n')           // Remove leading spaces after newlines
+    .replace(/ +\n/g, '\n')           // Remove trailing spaces before newlines
+    .replace(/^\n+/, '')              // Remove leading newlines
+    .replace(/\n+$/, '')              // Remove trailing newlines
     .trim()
   
   return text
@@ -372,10 +380,17 @@ function processNodeToText(node: Node): string {
   
   node.childNodes.forEach(child => {
     if (child.nodeType === Node.TEXT_NODE) {
-      result += child.textContent || ''
+      const text = child.textContent || ''
+      // Collapse whitespace in text nodes
+      result += text.replace(/\s+/g, ' ')
     } else if (child.nodeType === Node.ELEMENT_NODE) {
       const el = child as Element
       const tagName = el.tagName.toLowerCase()
+      
+      // Skip certain elements entirely
+      if (['script', 'style', 'head', 'meta', 'link', 'noscript'].includes(tagName)) {
+        return
+      }
       
       // Skip hidden elements
       try {
@@ -383,16 +398,16 @@ function processNodeToText(node: Node): string {
         if (style.display === 'none' || style.visibility === 'hidden') return
       } catch {}
       
-      const blockTags = ['p', 'div', 'br', 'tr', 'li', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'blockquote', 'pre']
-      const isBlock = blockTags.includes(tagName)
-      
+      // Handle specific tags
       if (tagName === 'br') {
         result += '\n'
+      } else if (tagName === 'hr') {
+        result += '\n---\n'
       } else if (tagName === 'a') {
         const href = el.getAttribute('href') || ''
         const linkText = el.textContent?.trim() || ''
-        if (href && linkText && href !== linkText) {
-          result += `${linkText} (${href})`
+        if (href && linkText && !href.startsWith('mailto:') && href !== linkText) {
+          result += `${linkText}`
         } else {
           result += linkText || href
         }
@@ -400,11 +415,21 @@ function processNodeToText(node: Node): string {
         const alt = el.getAttribute('alt')
         if (alt) result += `[Image: ${alt}]`
       } else if (tagName === 'li') {
-        result += '\n• ' + processNodeToText(child)
+        result += '\n• ' + processNodeToText(child).trim()
+      } else if (['p', 'div', 'tr', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'blockquote'].includes(tagName)) {
+        // Block elements get single newline before/after
+        const content = processNodeToText(child).trim()
+        if (content) {
+          result += '\n' + content + '\n'
+        }
+      } else if (['ul', 'ol'].includes(tagName)) {
+        result += '\n' + processNodeToText(child)
+      } else if (tagName === 'table') {
+        result += '\n' + processNodeToText(child) + '\n'
+      } else if (tagName === 'td' || tagName === 'th') {
+        result += processNodeToText(child).trim() + ' '
       } else {
-        if (isBlock) result += '\n'
         result += processNodeToText(child)
-        if (isBlock) result += '\n'
       }
     }
   })

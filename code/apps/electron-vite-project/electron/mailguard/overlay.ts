@@ -149,40 +149,57 @@ function getOverlayHtml(): string {
       height: 100%;
       overflow: hidden;
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      /* Light transparent overlay - can see through clearly */
-      background: rgba(15, 23, 42, 0.15);
+      /* Light transparent overlay - professional tint */
+      background: rgba(10, 20, 40, 0.12);
       cursor: default;
     }
     
-    /* Status badge - compact */
+    /* Professional status badge */
     #status-badge {
       position: fixed;
-      top: 12px;
-      right: 12px;
-      background: rgba(15, 23, 42, 0.95);
-      border: 1px solid #22c55e;
-      border-radius: 10px;
-      padding: 10px 16px;
+      top: 16px;
+      right: 16px;
+      background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+      border: 1px solid rgba(34, 197, 94, 0.6);
+      border-radius: 8px;
+      padding: 12px 20px;
       display: flex;
       align-items: center;
-      gap: 10px;
+      gap: 12px;
       color: #22c55e;
-      font-size: 12px;
+      font-size: 13px;
       font-weight: 600;
-      box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+      letter-spacing: 0.3px;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.4), 0 0 0 1px rgba(255,255,255,0.05) inset;
       z-index: 9999;
       cursor: pointer;
     }
     #status-badge:hover {
-      border-color: #ef4444;
+      border-color: rgba(239, 68, 68, 0.8);
       color: #ef4444;
     }
-    #status-badge .icon { font-size: 16px; }
+    #status-badge .icon { font-size: 18px; }
     #status-badge .pulse {
-      width: 6px;
-      height: 6px;
+      width: 8px;
+      height: 8px;
       background: #22c55e;
       border-radius: 50%;
+      box-shadow: 0 0 8px #22c55e;
+    }
+    #status-badge .label {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+    #status-badge .brand {
+      font-size: 10px;
+      color: rgba(255,255,255,0.5);
+      font-weight: 500;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+    }
+    #status-badge .status {
+      color: #22c55e;
     }
     
     /* Hover button container */
@@ -196,24 +213,26 @@ function getOverlayHtml(): string {
       display: flex;
     }
     .hover-btn {
-      background: rgba(15, 23, 42, 0.95);
-      border: 1px solid #3b82f6;
+      background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+      border: 1px solid rgba(59, 130, 246, 0.7);
       border-radius: 8px;
-      padding: 12px 18px;
+      padding: 14px 20px;
       color: #fff;
       font-size: 13px;
       font-weight: 600;
       cursor: pointer;
       display: flex;
       align-items: center;
-      gap: 8px;
-      box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+      gap: 10px;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.4), 0 0 0 1px rgba(255,255,255,0.05) inset;
       white-space: nowrap;
+      letter-spacing: 0.3px;
     }
     .hover-btn:hover {
-      background: #3b82f6;
+      background: linear-gradient(135deg, #1d4ed8 0%, #2563eb 100%);
+      border-color: #3b82f6;
     }
-    .hover-btn .icon { font-size: 16px; }
+    .hover-btn .icon { font-size: 18px; }
     
     /* Lightbox overlay */
     #lightbox {
@@ -247,32 +266,48 @@ function getOverlayHtml(): string {
     
     .modal-header {
       padding: 20px 24px;
-      background: #0f172a;
+      background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
       display: flex;
       justify-content: space-between;
       align-items: center;
       border-bottom: 2px solid #3b82f6;
     }
     .modal-title {
-      font-size: 16px;
-      font-weight: 600;
-      color: #fff;
       display: flex;
       align-items: center;
-      gap: 12px;
+      gap: 14px;
     }
     .modal-title .shield { 
       color: #22c55e; 
-      font-size: 22px;
+      font-size: 24px;
+    }
+    .modal-title .title-text {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+    .modal-title .brand {
+      font-size: 10px;
+      color: rgba(255,255,255,0.5);
+      font-weight: 500;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+    }
+    .modal-title .main-title {
+      font-size: 16px;
+      font-weight: 600;
+      color: #fff;
     }
     .modal-title .verified {
-      background: #22c55e;
+      background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%);
       color: #fff;
-      font-size: 10px;
-      font-weight: 600;
-      padding: 3px 8px;
+      font-size: 9px;
+      font-weight: 700;
+      padding: 4px 10px;
       border-radius: 12px;
       text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-left: 8px;
     }
     .close-btn {
       background: rgba(255,255,255,0.1);
@@ -419,7 +454,10 @@ function getOverlayHtml(): string {
   <div id="status-badge" title="Click to disable (or press Escape)">
     <span class="pulse"></span>
     <span class="icon">🛡️</span>
-    <span>MailGuard</span>
+    <div class="label">
+      <span class="brand">WR MailGuard</span>
+      <span class="status">Protection Active</span>
+    </div>
   </div>
   
   <!-- Hover Buttons -->
@@ -436,8 +474,11 @@ function getOverlayHtml(): string {
       <div class="modal-header">
         <div class="modal-title">
           <span class="shield">🛡️</span>
-          <span>Secure Email Viewer</span>
-          <span class="verified">Verified Safe</span>
+          <div class="title-text">
+            <span class="brand">WR MailGuard</span>
+            <span class="main-title">Secure Email Viewer</span>
+          </div>
+          <span class="verified">Sanitized</span>
         </div>
         <button class="close-btn" id="close-lightbox">×</button>
       </div>
