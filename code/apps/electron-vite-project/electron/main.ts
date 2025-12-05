@@ -316,7 +316,8 @@ async function createWindow() {
                     subject: fullMessage.subject,
                     date: fullMessage.date,
                     body: fullMessage.bodyText,
-                    attachments: [] // Attachments handled separately
+                    attachments: [], // Attachments handled separately
+                    isFromApi: true  // Mark as API-fetched
                   })
                   return
                 }
@@ -346,7 +347,8 @@ async function createWindow() {
                 subject: email.subject,
                 date: email.date,
                 body: email.body,
-                attachments: email.attachments.map(a => ({ name: a.name, type: a.type }))
+                attachments: email.attachments.map(a => ({ name: a.name, type: a.type })),
+                isFromApi: true  // Mark as API-fetched
               })
               return
             }

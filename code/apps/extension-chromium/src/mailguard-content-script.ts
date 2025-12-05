@@ -113,6 +113,11 @@ function sendToBackground(message: any): Promise<any> {
   return new Promise((resolve) => {
     try {
       chrome.runtime.sendMessage(message, (response) => {
+        if (chrome.runtime.lastError) {
+          console.error('[MailGuard] Runtime error:', chrome.runtime.lastError.message)
+          resolve(null)
+          return
+        }
         resolve(response)
       })
     } catch (err) {

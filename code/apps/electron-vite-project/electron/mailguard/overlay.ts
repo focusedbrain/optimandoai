@@ -70,6 +70,7 @@ export interface SanitizedEmail {
   date: string
   body: string
   attachments: { name: string; type: string }[]
+  isFromApi?: boolean  // Flag to indicate if email was fetched via API
 }
 
 /**
@@ -750,7 +751,8 @@ function getOverlayHtml(): string {
       }
       
       // Info box - shows different content based on whether this is preview or full email
-      const isFullEmail = email.body && email.body.length > 200 && !email.body.includes('[Email Preview]')
+      // Check for explicit flag or specific markers that indicate API-fetched content
+      const isFullEmail = email.isFromApi === true || (email.body && email.body.includes('--- Full email content fetched via Gmail API ---'))
       
       const apiInfoBox = isFullEmail 
         ? '<div class="api-info-box" style="border-color: ' + themeColors.primary + '; background: linear-gradient(135deg, ' + themeColors.bgLight + ' 0%, ' + themeColors.bgLight + ' 100%);">' +
