@@ -66,8 +66,8 @@ export function activateMailGuard(targetDisplay?: Display): void {
   mailguardOverlay.setAlwaysOnTop(true, 'screen-saver')
   mailguardOverlay.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
   
-  // Allow mouse events to pass through except on our UI elements
-  mailguardOverlay.setIgnoreMouseEvents(true, { forward: true })
+  // Capture ALL mouse events - users cannot click through to Gmail
+  mailguardOverlay.setIgnoreMouseEvents(false)
 
   const htmlContent = getOverlayHtml()
   mailguardOverlay.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(htmlContent))
@@ -141,73 +141,190 @@ function getOverlayHtml(): string {
 <html>
 <head>
   <meta charset="utf-8">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     html, body {
       width: 100%;
       height: 100%;
-      background: transparent;
       overflow: hidden;
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      /* Dark transparent overlay covering everything */
+      background: rgba(15, 23, 42, 0.85);
+      cursor: not-allowed;
     }
     
-    /* Status badge */
+    /* Scan line effect for cybersecurity feel */
+    body::before {
+      content: '';
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: repeating-linear-gradient(
+        0deg,
+        transparent,
+        transparent 2px,
+        rgba(0, 0, 0, 0.03) 2px,
+        rgba(0, 0, 0, 0.03) 4px
+      );
+      pointer-events: none;
+      z-index: 1;
+    }
+    
+    /* Subtle grid pattern */
+    body::after {
+      content: '';
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background-image: 
+        linear-gradient(rgba(59, 130, 246, 0.03) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(59, 130, 246, 0.03) 1px, transparent 1px);
+      background-size: 50px 50px;
+      pointer-events: none;
+      z-index: 1;
+    }
+    
+    /* Status badge - premium floating card */
     #status-badge {
       position: fixed;
-      top: 10px;
-      right: 10px;
-      background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
-      border: 1px solid #22c55e;
-      border-radius: 20px;
-      padding: 8px 16px;
+      top: 20px;
+      right: 20px;
+      background: linear-gradient(135deg, rgba(15, 23, 42, 0.98) 0%, rgba(30, 41, 59, 0.98) 100%);
+      border: 1px solid rgba(34, 197, 94, 0.5);
+      border-radius: 16px;
+      padding: 14px 24px;
       display: flex;
       align-items: center;
-      gap: 8px;
+      gap: 14px;
       color: #22c55e;
-      font-size: 12px;
-      box-shadow: 0 4px 15px rgba(0,0,0,0.4);
+      font-size: 13px;
+      font-weight: 600;
+      letter-spacing: 0.5px;
+      box-shadow: 
+        0 4px 20px rgba(0,0,0,0.4),
+        0 0 40px rgba(34, 197, 94, 0.15),
+        inset 0 1px 0 rgba(255,255,255,0.05);
       z-index: 9999;
-      pointer-events: auto;
       cursor: pointer;
+      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+      backdrop-filter: blur(20px);
     }
     #status-badge:hover {
-      border-color: #ef4444;
+      border-color: rgba(239, 68, 68, 0.7);
       color: #ef4444;
+      box-shadow: 
+        0 4px 25px rgba(0,0,0,0.5),
+        0 0 50px rgba(239, 68, 68, 0.2);
+      transform: translateY(-2px);
+    }
+    #status-badge .icon {
+      font-size: 20px;
+      filter: drop-shadow(0 0 8px currentColor);
+    }
+    #status-badge .pulse {
+      width: 8px;
+      height: 8px;
+      background: #22c55e;
+      border-radius: 50%;
+      animation: pulse 2s ease-in-out infinite;
+      box-shadow: 0 0 10px #22c55e;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.5; transform: scale(1.2); }
+    }
+    
+    /* Protection message */
+    #protection-message {
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      text-align: center;
+      color: rgba(255,255,255,0.6);
+      z-index: 100;
+      pointer-events: none;
+    }
+    #protection-message .shield-large {
+      font-size: 64px;
+      margin-bottom: 20px;
+      filter: drop-shadow(0 0 30px rgba(59, 130, 246, 0.5));
+      animation: float 3s ease-in-out infinite;
+    }
+    @keyframes float {
+      0%, 100% { transform: translateY(0); }
+      50% { transform: translateY(-10px); }
+    }
+    #protection-message h2 {
+      font-size: 28px;
+      font-weight: 700;
+      color: #fff;
+      margin-bottom: 12px;
+      letter-spacing: -0.5px;
+    }
+    #protection-message p {
+      font-size: 15px;
+      color: rgba(255,255,255,0.5);
+      max-width: 400px;
+      line-height: 1.6;
+    }
+    #protection-message .hint {
+      margin-top: 30px;
+      padding: 16px 24px;
+      background: rgba(59, 130, 246, 0.1);
+      border: 1px solid rgba(59, 130, 246, 0.3);
+      border-radius: 12px;
+      font-size: 13px;
+      color: #3b82f6;
     }
     
     /* Hover button container */
     #hover-buttons {
       position: fixed;
       display: none;
-      gap: 8px;
+      gap: 10px;
       z-index: 9998;
-      pointer-events: auto;
     }
     #hover-buttons.visible {
       display: flex;
     }
     .hover-btn {
-      background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
-      border: 1px solid #3b82f6;
-      border-radius: 8px;
-      padding: 10px 16px;
+      background: linear-gradient(135deg, rgba(15, 23, 42, 0.98) 0%, rgba(30, 41, 59, 0.98) 100%);
+      border: 1px solid rgba(59, 130, 246, 0.5);
+      border-radius: 12px;
+      padding: 14px 22px;
       color: #fff;
-      font-size: 12px;
-      font-weight: 500;
+      font-size: 13px;
+      font-weight: 600;
       cursor: pointer;
       display: flex;
       align-items: center;
-      gap: 8px;
-      box-shadow: 0 4px 20px rgba(0,0,0,0.5);
-      transition: all 0.15s;
+      gap: 10px;
+      box-shadow: 
+        0 8px 32px rgba(0,0,0,0.4),
+        0 0 40px rgba(59, 130, 246, 0.15);
+      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
       white-space: nowrap;
+      backdrop-filter: blur(20px);
+      letter-spacing: 0.3px;
     }
     .hover-btn:hover {
-      background: #3b82f6;
-      transform: translateY(-2px);
-      box-shadow: 0 6px 25px rgba(59,130,246,0.5);
+      background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+      border-color: #3b82f6;
+      transform: translateY(-3px) scale(1.02);
+      box-shadow: 
+        0 12px 40px rgba(59, 130, 246, 0.4),
+        0 0 60px rgba(59, 130, 246, 0.3);
     }
-    .hover-btn .icon { font-size: 16px; }
+    .hover-btn .icon { 
+      font-size: 18px;
+      filter: drop-shadow(0 0 6px currentColor);
+    }
     
     /* Lightbox overlay */
     #lightbox {
@@ -216,94 +333,129 @@ function getOverlayHtml(): string {
       left: 0;
       width: 100%;
       height: 100%;
-      background: rgba(0,0,0,0.8);
+      background: rgba(0, 0, 0, 0.9);
       display: none;
       justify-content: center;
       align-items: center;
       z-index: 10000;
       padding: 40px;
+      backdrop-filter: blur(10px);
     }
     #lightbox.visible {
       display: flex;
+      animation: fadeIn 0.3s ease;
+    }
+    @keyframes fadeIn {
+      from { opacity: 0; }
+      to { opacity: 1; }
     }
     
     .modal {
-      background: #fff;
-      border-radius: 16px;
+      background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+      border-radius: 24px;
       max-width: 900px;
       width: 100%;
       max-height: 85vh;
       display: flex;
       flex-direction: column;
-      box-shadow: 0 25px 100px rgba(0,0,0,0.6);
+      box-shadow: 
+        0 25px 100px rgba(0,0,0,0.5),
+        0 0 0 1px rgba(255,255,255,0.1);
       overflow: hidden;
+      animation: modalSlide 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    @keyframes modalSlide {
+      from { opacity: 0; transform: scale(0.95) translateY(20px); }
+      to { opacity: 1; transform: scale(1) translateY(0); }
     }
     
     .modal-header {
-      padding: 20px 24px;
-      background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+      padding: 24px 28px;
+      background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
       display: flex;
       justify-content: space-between;
       align-items: center;
-      border-bottom: 2px solid #3b82f6;
+      border-bottom: 1px solid rgba(59, 130, 246, 0.3);
     }
     .modal-title {
       font-size: 18px;
-      font-weight: 600;
+      font-weight: 700;
       color: #fff;
       display: flex;
       align-items: center;
-      gap: 12px;
+      gap: 14px;
+      letter-spacing: -0.3px;
     }
-    .modal-title .shield { color: #22c55e; font-size: 24px; }
+    .modal-title .shield { 
+      color: #22c55e; 
+      font-size: 26px;
+      filter: drop-shadow(0 0 10px rgba(34, 197, 94, 0.5));
+    }
+    .modal-title .verified {
+      background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%);
+      color: #fff;
+      font-size: 10px;
+      font-weight: 700;
+      padding: 4px 10px;
+      border-radius: 20px;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+    }
     .close-btn {
-      background: rgba(255,255,255,0.1);
-      border: 1px solid rgba(255,255,255,0.2);
-      width: 36px;
-      height: 36px;
-      border-radius: 50%;
+      background: rgba(255,255,255,0.05);
+      border: 1px solid rgba(255,255,255,0.1);
+      width: 40px;
+      height: 40px;
+      border-radius: 12px;
       font-size: 20px;
       cursor: pointer;
-      color: #fff;
+      color: rgba(255,255,255,0.7);
       display: flex;
       align-items: center;
       justify-content: center;
-      transition: all 0.15s;
+      transition: all 0.2s;
     }
     .close-btn:hover {
       background: #ef4444;
       border-color: #ef4444;
+      color: #fff;
+      transform: rotate(90deg);
     }
     
     .modal-body {
-      padding: 24px;
+      padding: 28px;
       overflow-y: auto;
       flex: 1;
     }
     
     .safe-notice {
       background: linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%);
-      border: 1px solid #22c55e;
-      border-radius: 10px;
-      padding: 14px 18px;
-      margin-bottom: 24px;
+      border: 1px solid rgba(34, 197, 94, 0.3);
+      border-radius: 14px;
+      padding: 18px 22px;
+      margin-bottom: 28px;
       display: flex;
       align-items: center;
-      gap: 14px;
-      font-size: 13px;
+      gap: 16px;
+      font-size: 14px;
       color: #166534;
+      font-weight: 500;
     }
-    .safe-notice .icon { font-size: 20px; }
+    .safe-notice .icon { 
+      font-size: 24px;
+      filter: drop-shadow(0 0 8px rgba(34, 197, 94, 0.4));
+    }
     
     .email-meta {
-      background: #f8fafc;
-      border-radius: 10px;
-      padding: 18px;
-      margin-bottom: 20px;
+      background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+      border-radius: 14px;
+      padding: 20px;
+      margin-bottom: 24px;
+      border: 1px solid #e2e8f0;
     }
     .meta-row {
       display: flex;
-      margin-bottom: 10px;
+      margin-bottom: 12px;
       font-size: 14px;
     }
     .meta-row:last-child { margin-bottom: 0; }
@@ -311,47 +463,57 @@ function getOverlayHtml(): string {
       color: #64748b;
       width: 80px;
       flex-shrink: 0;
-      font-weight: 500;
+      font-weight: 600;
+      text-transform: uppercase;
+      font-size: 11px;
+      letter-spacing: 0.5px;
+      padding-top: 2px;
     }
     .meta-value {
       color: #1e293b;
       word-break: break-word;
+      font-weight: 500;
     }
     
     .subject {
-      font-size: 22px;
-      font-weight: 600;
-      color: #1e293b;
-      margin: 20px 0;
+      font-size: 24px;
+      font-weight: 700;
+      color: #0f172a;
+      margin: 24px 0;
       line-height: 1.4;
+      letter-spacing: -0.5px;
     }
     
     .email-body {
       font-size: 15px;
-      line-height: 1.8;
+      line-height: 1.9;
       color: #374151;
       white-space: pre-wrap;
       word-wrap: break-word;
-      padding: 20px;
-      background: #fafafa;
-      border-radius: 10px;
+      padding: 24px;
+      background: #fff;
+      border-radius: 14px;
       border: 1px solid #e5e7eb;
       min-height: 200px;
+      box-shadow: inset 0 2px 4px rgba(0,0,0,0.02);
     }
     
     .attachments {
-      margin-top: 24px;
-      padding-top: 24px;
+      margin-top: 28px;
+      padding-top: 28px;
       border-top: 1px solid #e5e7eb;
     }
     .attachments-title {
-      font-size: 15px;
-      font-weight: 600;
-      color: #1e293b;
-      margin-bottom: 14px;
+      font-size: 14px;
+      font-weight: 700;
+      color: #0f172a;
+      margin-bottom: 16px;
       display: flex;
       align-items: center;
       gap: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      font-size: 12px;
     }
     .attachment-list {
       display: flex;
@@ -359,21 +521,24 @@ function getOverlayHtml(): string {
       gap: 12px;
     }
     .attachment-item {
-      background: #f1f5f9;
+      background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
       border: 1px solid #e2e8f0;
-      border-radius: 10px;
-      padding: 12px 16px;
+      border-radius: 12px;
+      padding: 14px 18px;
       display: flex;
       align-items: center;
       gap: 12px;
       cursor: pointer;
-      transition: all 0.15s;
+      transition: all 0.2s;
       font-size: 13px;
       color: #475569;
+      font-weight: 500;
     }
     .attachment-item:hover {
-      background: #e2e8f0;
+      background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%);
       border-color: #3b82f6;
+      transform: translateY(-2px);
+      box-shadow: 0 4px 12px rgba(59, 130, 246, 0.15);
     }
     
     .loading {
@@ -384,11 +549,11 @@ function getOverlayHtml(): string {
       padding: 80px;
       color: #64748b;
       font-size: 15px;
-      gap: 20px;
+      gap: 24px;
     }
     .spinner {
-      width: 48px;
-      height: 48px;
+      width: 56px;
+      height: 56px;
       border: 4px solid #e2e8f0;
       border-top-color: #3b82f6;
       border-radius: 50%;
@@ -400,21 +565,26 @@ function getOverlayHtml(): string {
   </style>
 </head>
 <body>
+  <!-- Protection Message in Center -->
+  <div id="protection-message">
+    <div class="shield-large">🛡️</div>
+    <h2>WR MailGuard Active</h2>
+    <p>Your inbox is protected. Hover over any email to safely preview its contents without executing scripts or loading tracking pixels.</p>
+    <div class="hint">💡 Hover over emails to see the "Open Safe Email" button</div>
+  </div>
+  
   <!-- Status Badge -->
   <div id="status-badge" title="Click to disable MailGuard">
-    <span>🛡️</span>
-    <span>MailGuard Active</span>
+    <span class="pulse"></span>
+    <span class="icon">🛡️</span>
+    <span>MAILGUARD PRO</span>
   </div>
   
   <!-- Hover Buttons -->
   <div id="hover-buttons">
     <button class="hover-btn" id="btn-safe-email">
-      <span class="icon">🛡️</span>
+      <span class="icon">🔒</span>
       Open Safe Email
-    </button>
-    <button class="hover-btn" id="btn-safe-pdf" style="display:none">
-      <span class="icon">📄</span>
-      View Safe PDF
     </button>
   </div>
   
@@ -424,14 +594,15 @@ function getOverlayHtml(): string {
       <div class="modal-header">
         <div class="modal-title">
           <span class="shield">🛡️</span>
-          Safe Email View
+          <span>Secure Email Viewer</span>
+          <span class="verified">Verified Safe</span>
         </div>
         <button class="close-btn" id="close-lightbox">×</button>
       </div>
       <div class="modal-body" id="email-content">
         <div class="loading">
           <div class="spinner"></div>
-          <span>Loading email safely...</span>
+          <span>Scanning and sanitizing email...</span>
         </div>
       </div>
     </div>
@@ -449,6 +620,7 @@ function getOverlayHtml(): string {
     const lightbox = document.getElementById('lightbox');
     const emailContent = document.getElementById('email-content');
     const closeBtn = document.getElementById('close-lightbox');
+    const protectionMessage = document.getElementById('protection-message');
     
     // Handle badge click - disable MailGuard
     badge.addEventListener('click', () => {
@@ -459,7 +631,7 @@ function getOverlayHtml(): string {
     btnSafeEmail.addEventListener('click', () => {
       if (hoveredRowId) {
         lightbox.classList.add('visible');
-        emailContent.innerHTML = '<div class="loading"><div class="spinner"></div><span>Loading email safely...</span></div>';
+        emailContent.innerHTML = '<div class="loading"><div class="spinner"></div><span>Scanning and sanitizing email content...</span></div>';
         ipcRenderer.send('mailguard-open-email', hoveredRowId);
       }
     });
@@ -479,9 +651,14 @@ function getOverlayHtml(): string {
     
     // Escape to close lightbox
     document.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape' && lightbox.classList.contains('visible')) {
-        lightbox.classList.remove('visible');
-        ipcRenderer.send('mailguard-lightbox-closed');
+      if (e.key === 'Escape') {
+        if (lightbox.classList.contains('visible')) {
+          lightbox.classList.remove('visible');
+          ipcRenderer.send('mailguard-lightbox-closed');
+        } else {
+          // Escape also disables MailGuard
+          ipcRenderer.send('mailguard-disable');
+        }
       }
     });
     
@@ -504,10 +681,12 @@ function getOverlayHtml(): string {
       
       if (found) {
         hoveredRowId = found.id;
-        // Position buttons at the right side of the row
-        hoverButtons.style.left = (found.x + found.width - 180) + 'px';
-        hoverButtons.style.top = (found.y + found.height / 2 - 20) + 'px';
+        // Position buttons at the center-right of the row
+        hoverButtons.style.left = (found.x + found.width - 200) + 'px';
+        hoverButtons.style.top = (found.y + found.height / 2 - 24) + 'px';
         hoverButtons.classList.add('visible');
+        // Hide center message when showing buttons
+        protectionMessage.style.opacity = '0.3';
       } else {
         // Only hide if not hovering over the buttons themselves
         const btnRect = hoverButtons.getBoundingClientRect();
@@ -515,6 +694,7 @@ function getOverlayHtml(): string {
               y >= btnRect.top && y <= btnRect.bottom)) {
           hoverButtons.classList.remove('visible');
           hoveredRowId = null;
+          protectionMessage.style.opacity = '1';
         }
       }
     });
