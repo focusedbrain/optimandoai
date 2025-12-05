@@ -81,14 +81,14 @@ function showActivationBanner(): void {
         right: 0;
         z-index: 2147483647;
         background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
-        border-bottom: 2px solid #22c55e;
+        border-bottom: 2px solid #a855f7;
         padding: 14px 24px;
         display: flex;
         align-items: center;
         justify-content: center;
         gap: 24px;
         font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-        box-shadow: 0 4px 20px rgba(0,0,0,0.4), 0 0 40px rgba(34, 197, 94, 0.15);
+        box-shadow: 0 4px 20px rgba(0,0,0,0.4), 0 0 40px rgba(168, 85, 247, 0.15);
         animation: slideDown 0.3s ease;
       }
       @keyframes slideDown {
@@ -112,7 +112,7 @@ function showActivationBanner(): void {
       }
       .title {
         font-weight: 600;
-        color: #22c55e;
+        color: #a855f7;
         margin-bottom: 2px;
       }
       .desc {
@@ -133,14 +133,14 @@ function showActivationBanner(): void {
         border: none;
       }
       .btn-primary {
-        background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%);
+        background: linear-gradient(135deg, #a855f7 0%, #9333ea 100%);
         color: #fff;
-        box-shadow: 0 2px 10px rgba(34, 197, 94, 0.3);
+        box-shadow: 0 2px 10px rgba(168, 85, 247, 0.3);
       }
       .btn-primary:hover {
-        background: linear-gradient(135deg, #16a34a 0%, #15803d 100%);
+        background: linear-gradient(135deg, #9333ea 0%, #7c3aed 100%);
         transform: translateY(-1px);
-        box-shadow: 0 4px 15px rgba(34, 197, 94, 0.4);
+        box-shadow: 0 4px 15px rgba(168, 85, 247, 0.4);
       }
       .btn-secondary {
         background: transparent;
@@ -190,8 +190,8 @@ function showStatusMarker(): void {
     bottom: 20px;
     left: 20px;
     z-index: 2147483647;
-    background: linear-gradient(135deg, #166534 0%, #14532d 100%);
-    color: #22c55e;
+    background: linear-gradient(135deg, #581c87 0%, #3b0764 100%);
+    color: #a855f7;
     padding: 10px 16px;
     border-radius: 10px;
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
@@ -200,7 +200,7 @@ function showStatusMarker(): void {
     align-items: center;
     gap: 10px;
     box-shadow: 0 4px 15px rgba(0,0,0,0.3);
-    border: 1px solid #22c55e;
+    border: 1px solid #a855f7;
   `
   marker.innerHTML = '<span style="font-size:16px">🛡️</span> MailGuard Active - Electron Overlay Running'
   document.body.appendChild(marker)
