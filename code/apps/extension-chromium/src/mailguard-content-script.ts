@@ -259,18 +259,33 @@ function startRowPositionUpdates(): void {
     }, 200)
   }, { passive: true })
   
-  // Watch for navigation changes - check every 300ms
-  let lastHostname = window.location.hostname
+  // CRITICAL: Deactivate when page is about to unload (navigation away)
+  window.addEventListener('beforeunload', () => {
+    if (isMailGuardActive) {
+      console.log('[MailGuard] Page unloading, deactivating...')
+      sendToBackground({ type: 'MAILGUARD_DEACTIVATE' })
+    }
+  })
+  
+  // Deactivate when tab visibility changes (user switches tabs)
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden && isMailGuardActive) {
+      console.log('[MailGuard] Tab hidden, deactivating...')
+      deactivateMailGuard()
+    }
+  })
+  
+  // Watch for URL changes within the SPA
+  let lastUrl = window.location.href
   setInterval(() => {
     if (!isMailGuardActive) return
     
-    const currentHostname = window.location.hostname
-    
-    // If hostname changed (navigated to different site), deactivate immediately
-    if (currentHostname !== lastHostname) {
-      console.log('[MailGuard] Hostname changed from', lastHostname, 'to', currentHostname)
-      lastHostname = currentHostname
+    const currentUrl = window.location.href
+    if (currentUrl !== lastUrl) {
+      console.log('[MailGuard] URL changed from', lastUrl, 'to', currentUrl)
+      lastUrl = currentUrl
       
+      // If we're no longer on a supported site, deactivate
       if (!isOnSupportedEmailSite()) {
         console.log('[MailGuard] Navigated away from email site, deactivating...')
         deactivateMailGuard()

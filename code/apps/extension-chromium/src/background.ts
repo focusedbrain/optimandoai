@@ -335,6 +335,34 @@ chrome.tabs.onActivated.addListener((activeInfo) => {
   chrome.action.setBadgeBackgroundColor({
     color: isActive ? '#00FF00' : '#FF0000'
   });
+  
+  // MAILGUARD: Deactivate overlay when switching to a different tab
+  // Check if the new tab is NOT Gmail - if so, deactivate MailGuard
+  chrome.tabs.get(tabId, (tab) => {
+    if (chrome.runtime.lastError) return;
+    const url = tab?.url || '';
+    if (!url.includes('mail.google.com')) {
+      console.log('[BG] 🛡️ Tab switched away from Gmail, deactivating MailGuard');
+      if (WS_ENABLED && ws && ws.readyState === WebSocket.OPEN) {
+        try { ws.send(JSON.stringify({ type: 'MAILGUARD_DEACTIVATE' })) } catch {}
+      }
+    }
+  });
+});
+
+// MAILGUARD: Also deactivate when navigating away from Gmail
+chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+  // Only react to URL changes
+  if (changeInfo.url) {
+    const newUrl = changeInfo.url;
+    // If navigating away from Gmail, deactivate MailGuard
+    if (!newUrl.includes('mail.google.com')) {
+      console.log('[BG] 🛡️ Navigated away from Gmail, deactivating MailGuard');
+      if (WS_ENABLED && ws && ws.readyState === WebSocket.OPEN) {
+        try { ws.send(JSON.stringify({ type: 'MAILGUARD_DEACTIVATE' })) } catch {}
+      }
+    }
+  }
 });
 
 // Handle messages from content script
@@ -718,6 +746,15 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         try { sendResponse({ success: true }) } catch {}
       } else {
         try { sendResponse({ success: false, active: false }) } catch {}
+      }
+      break
+    }
+    
+    case 'MAILGUARD_CLOSE_LIGHTBOX': {
+      // Forward close lightbox command to Electron
+      console.log('[BG] 🛡️ Closing MailGuard lightbox')
+      if (WS_ENABLED && ws && ws.readyState === WebSocket.OPEN) {
+        try { ws.send(JSON.stringify({ type: 'MAILGUARD_CLOSE_LIGHTBOX' })) } catch {}
       }
       break
     }

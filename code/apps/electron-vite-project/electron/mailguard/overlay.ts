@@ -143,8 +143,7 @@ export function updateEmailRows(rows: EmailRowRect[]): void {
 export function showSanitizedEmail(email: SanitizedEmail): void {
   if (mailguardOverlay) {
     mailguardOverlay.webContents.send('mailguard-show-email', email)
-    // Enable mouse events on overlay when lightbox is open
-    mailguardOverlay.setIgnoreMouseEvents(false)
+    // Mouse events are always captured (setIgnoreMouseEvents(false) on creation)
   }
 }
 
@@ -154,8 +153,8 @@ export function showSanitizedEmail(email: SanitizedEmail): void {
 export function closeLightbox(): void {
   if (mailguardOverlay) {
     mailguardOverlay.webContents.send('mailguard-close-lightbox')
-    // Re-enable mouse passthrough
-    mailguardOverlay.setIgnoreMouseEvents(true, { forward: true })
+    // IMPORTANT: Keep blocking mouse events - never allow passthrough
+    // The overlay must ALWAYS block direct Gmail interaction
   }
 }
 
