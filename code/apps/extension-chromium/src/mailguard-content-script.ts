@@ -785,8 +785,11 @@ class WRMailGuardController {
   async init(): Promise<void> {
     console.log('[MailGuard] Initializing on:', window.location.hostname);
     
-    if (window.location.hostname !== CURRENT_DOMAIN) {
-      console.log('[MailGuard] Not on Gmail, exiting');
+    // The manifest already restricts this to mail.google.com/*
+    // but double-check anyway
+    const hostname = window.location.hostname;
+    if (!hostname.includes('mail.google.com') && !hostname.includes('gmail')) {
+      console.log('[MailGuard] Not on Gmail, exiting. Hostname:', hostname);
       return;
     }
     
@@ -794,7 +797,9 @@ class WRMailGuardController {
       this.settings = await loadSettings();
       console.log('[MailGuard] Settings loaded:', this.settings);
       
-      if (this.settings.enabledDomains.includes(CURRENT_DOMAIN)) {
+      const domain = hostname; // Use actual hostname
+      if (this.settings.enabledDomains.includes(domain) || 
+          this.settings.enabledDomains.includes(CURRENT_DOMAIN)) {
         console.log('[MailGuard] Already enabled, activating protection');
         this.activate();
       } else {
@@ -1088,22 +1093,95 @@ class WRMailGuardController {
 // Initialize
 // =============================================================================
 
-function init(): void {
-  console.log('[MailGuard] Content script loaded');
+function showLoadMarker(): void {
+  // Add a visible marker to prove the script loaded
+  const marker = document.createElement('div');
+  marker.id = 'wr-mailguard-load-marker';
+  marker.style.cssText = `
+    position: fixed;
+    bottom: 20px;
+    left: 20px;
+    z-index: 2147483647;
+    background: #22c55e;
+    color: white;
+    padding: 8px 16px;
+    border-radius: 6px;
+    font-family: sans-serif;
+    font-size: 12px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+    animation: fadeInOut 3s forwards;
+  `;
+  marker.innerHTML = '🛡️ WR MailGuard loaded';
+  
+  const style = document.createElement('style');
+  style.textContent = `
+    @keyframes fadeInOut {
+      0% { opacity: 0; transform: translateY(10px); }
+      15% { opacity: 1; transform: translateY(0); }
+      85% { opacity: 1; }
+      100% { opacity: 0; }
+    }
+  `;
+  document.head.appendChild(style);
+  document.body.appendChild(marker);
+  
+  setTimeout(() => marker.remove(), 3000);
+}
+
+async function waitForGmailReady(): Promise<boolean> {
+  console.log('[MailGuard] Waiting for Gmail to be ready...');
+  
+  // Wait for Gmail's main UI container to appear
+  const maxAttempts = 30; // 30 seconds max
+  for (let i = 0; i < maxAttempts; i++) {
+    // Check for Gmail's main app container
+    const gmailContainer = document.querySelector('div[role="main"], div.aeN, div.nH');
+    const inboxRows = document.querySelectorAll('tr.zA, div[role="row"]');
+    
+    if (gmailContainer || inboxRows.length > 0) {
+      console.log('[MailGuard] Gmail UI detected');
+      return true;
+    }
+    
+    // Also check if we're on the loading screen
+    const loadingScreen = document.querySelector('#loading, .zia');
+    if (loadingScreen) {
+      console.log('[MailGuard] Gmail still loading...');
+    }
+    
+    await new Promise(resolve => setTimeout(resolve, 1000));
+  }
+  
+  console.log('[MailGuard] Gmail UI not detected after timeout');
+  return false;
+}
+
+async function init(): Promise<void> {
+  console.log('[MailGuard] Content script loaded on:', window.location.href);
+  console.log('[MailGuard] Hostname:', window.location.hostname);
+  
+  // Show visual confirmation that script loaded
+  if (document.body) {
+    showLoadMarker();
+  } else {
+    document.addEventListener('DOMContentLoaded', showLoadMarker);
+  }
   
   try {
+    // Wait for Gmail's UI to be ready
+    const ready = await waitForGmailReady();
+    if (!ready) {
+      console.log('[MailGuard] Gmail did not load, but showing banner anyway');
+    }
+    
     const controller = new WRMailGuardController();
-    controller.init().catch(err => {
-      console.error('[MailGuard] Controller init error:', err);
-    });
+    await controller.init();
   } catch (err) {
     console.error('[MailGuard] Fatal error:', err);
   }
 }
 
-// Run when DOM is ready
-if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', init);
-} else {
-  init();
-}
+// Run immediately - the manifest specifies run_at: document_end
+// so DOM should be available
+console.log('[MailGuard] Script executing, readyState:', document.readyState);
+init().catch(err => console.error('[MailGuard] Init promise rejected:', err));
