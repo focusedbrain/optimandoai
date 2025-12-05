@@ -358,7 +358,7 @@ async function sendNow(){
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         model: activeModel,
-        messages: [{ role: 'user', content: text }],
+        messages: [{ role: 'system', content: "your are a philosopher" },{ role: 'user', content: text }],// todo: added { role: 'system', content: "your are a philosopher" } to test from where the request is going
         stream: false
       })
     })
