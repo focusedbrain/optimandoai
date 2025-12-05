@@ -705,7 +705,37 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       console.log('[BG] 🛡️ Window info:', msg.windowInfo)
       console.log('[BG] 🛡️ Theme:', msg.theme)
       console.log('[BG] WS_ENABLED:', WS_ENABLED, 'ws:', !!ws, 'readyState:', ws?.readyState, 'OPEN:', WebSocket.OPEN)
-      if (WS_ENABLED && ws && ws.readyState === WebSocket.OPEN) {
+      
+      // If WebSocket isn't connected, try to reconnect immediately
+      if (WS_ENABLED && (!ws || ws.readyState !== WebSocket.OPEN)) {
+        console.log('[BG] 🛡️ WebSocket not connected, attempting quick reconnect...')
+        connectToWebSocketServer()
+        
+        // Wait a bit for connection to establish (up to 2 seconds)
+        let waitAttempts = 0
+        const waitForConnection = () => {
+          waitAttempts++
+          if (ws && ws.readyState === WebSocket.OPEN) {
+            // Connected! Send the activate message
+            console.log('[BG] 🛡️ Quick reconnect succeeded, sending MAILGUARD_ACTIVATE...')
+            try { 
+              ws.send(JSON.stringify({ type: 'MAILGUARD_ACTIVATE', windowInfo: msg.windowInfo, theme: msg.theme || 'default' })) 
+              console.log('[BG] 🛡️ MAILGUARD_ACTIVATE sent successfully')
+            } catch (e) {
+              console.error('[BG] 🛡️ Error sending MAILGUARD_ACTIVATE:', e)
+            }
+            try { sendResponse({ success: true }) } catch {}
+          } else if (waitAttempts < 10) {
+            // Keep waiting (200ms intervals, max 2 seconds)
+            setTimeout(waitForConnection, 200)
+          } else {
+            // Timed out
+            console.log('[BG] 🛡️ Quick reconnect failed after 2s')
+            try { sendResponse({ success: false, error: 'Could not connect to Electron. Make sure OpenGiraffe is running.' }) } catch {}
+          }
+        }
+        setTimeout(waitForConnection, 200)
+      } else if (WS_ENABLED && ws && ws.readyState === WebSocket.OPEN) {
         console.log('[BG] 🛡️ Sending MAILGUARD_ACTIVATE to Electron with window position and theme...')
         try { 
           ws.send(JSON.stringify({ type: 'MAILGUARD_ACTIVATE', windowInfo: msg.windowInfo, theme: msg.theme || 'default' })) 
@@ -715,8 +745,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         }
         try { sendResponse({ success: true }) } catch {}
       } else {
-        console.log('[BG] 🛡️ Cannot activate - WebSocket not connected')
-        try { sendResponse({ success: false, error: 'Electron not connected. WebSocket state: ' + (ws ? ws.readyState : 'null') }) } catch {}
+        console.log('[BG] 🛡️ Cannot activate - WebSocket disabled or not available')
+        try { sendResponse({ success: false, error: 'WebSocket disabled or not available' }) } catch {}
       }
       break
     }

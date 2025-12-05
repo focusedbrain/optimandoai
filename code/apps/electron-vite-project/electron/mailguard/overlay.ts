@@ -14,16 +14,17 @@ let isActive = false
 let browserWindowOffset = { x: 0, y: 0, chromeHeight: 0 }
 let currentTheme: 'default' | 'dark' | 'professional' = 'default'
 
-// Theme color configurations
+// Theme color configurations - matching sidebar colors exactly
 const themeColors = {
   default: {
-    primary: '#a855f7',
-    primaryDark: '#9333ea',
-    primaryDarker: '#7c3aed',
-    bgDark: '#3b0764',
+    // Matching sidebar gradient: #c084fc -> #a855f7 -> #9333ea
+    primary: '#c084fc',
+    primaryDark: '#a855f7',
+    primaryDarker: '#9333ea',
+    bgDark: 'rgba(118,75,162,0.35)',
     bgLight: '#faf5ff',
-    textDark: '#581c87',
-    textMedium: '#6b21a8'
+    textDark: '#7c3aed',
+    textMedium: '#9333ea'
   },
   professional: {
     // Light theme with dark slate accents

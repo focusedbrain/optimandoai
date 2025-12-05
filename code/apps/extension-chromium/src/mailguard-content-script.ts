@@ -44,17 +44,18 @@ let rowUpdateInterval: ReturnType<typeof setInterval> | null = null
 let emailRowElements: Map<string, Element> = new Map()
 let currentTheme: 'default' | 'dark' | 'professional' = 'default'
 
-// Theme color configurations
+// Theme color configurations - matching sidebar colors exactly
 const themeColors = {
   default: {
-    primary: '#a855f7',
-    primaryDark: '#9333ea',
-    primaryDarker: '#7c3aed',
-    bgDark: '#3b0764',
-    bgLight: '#581c87',
-    shadowColor: 'rgba(168, 85, 247, 0.15)',
-    shadowColorMedium: 'rgba(168, 85, 247, 0.3)',
-    shadowColorStrong: 'rgba(168, 85, 247, 0.4)'
+    // Matching sidebar gradient: #c084fc -> #a855f7 -> #9333ea
+    primary: '#c084fc',
+    primaryDark: '#a855f7',
+    primaryDarker: '#9333ea',
+    bgDark: 'rgba(118,75,162,0.35)',
+    bgLight: 'rgba(118,75,162,0.25)',
+    shadowColor: 'rgba(192, 132, 252, 0.2)',
+    shadowColorMedium: 'rgba(168, 85, 247, 0.35)',
+    shadowColorStrong: 'rgba(147, 51, 234, 0.45)'
   },
   professional: {
     // Light theme with dark slate accents
@@ -566,6 +567,8 @@ async function activateMailGuard(): Promise<void> {
   console.log('[MailGuard] Activating...')
   dismissBanner()
   
+  const colors = themeColors[currentTheme]
+  
   // Show "connecting" status
   const statusDiv = document.createElement('div')
   statusDiv.id = 'mailguard-connecting'
@@ -575,13 +578,13 @@ async function activateMailGuard(): Promise<void> {
     left: 50%;
     transform: translateX(-50%);
     z-index: 2147483647;
-    background: #3b82f6;
+    background: linear-gradient(135deg, ${colors.primaryDark} 0%, ${colors.primaryDarker} 100%);
     color: #fff;
     padding: 12px 24px;
     border-radius: 8px;
     font-family: sans-serif;
     font-size: 14px;
-    box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+    box-shadow: 0 4px 15px ${colors.shadowColorMedium};
     display: flex;
     align-items: center;
     gap: 10px;
@@ -594,41 +597,57 @@ async function activateMailGuard(): Promise<void> {
   style.textContent = '@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }'
   document.head.appendChild(style)
   
-  try {
-    // Get window position to determine which display to use
-    const windowInfo = {
-      screenX: window.screenX,
-      screenY: window.screenY,
-      innerWidth: window.innerWidth,
-      innerHeight: window.innerHeight,
-      outerWidth: window.outerWidth,
-      outerHeight: window.outerHeight
-    }
-    console.log('[MailGuard] Window position:', windowInfo)
-    console.log('[MailGuard] Sending MAILGUARD_ACTIVATE to background with theme:', currentTheme)
-    const response = await sendToBackground({ type: 'MAILGUARD_ACTIVATE', windowInfo, theme: currentTheme })
-    console.log('[MailGuard] Response from background:', response)
-    
-    statusDiv.remove()
-    
-    if (response?.success) {
-      isMailGuardActive = true
-      showStatusMarker()
-      startRowPositionUpdates()
-      
-      // Send initial row positions
-      const rows = getEmailRowPositions()
-      console.log('[MailGuard] Sending', rows.length, 'email rows to Electron')
-      sendToBackground({ type: 'MAILGUARD_UPDATE_ROWS', rows })
-    } else {
-      console.error('[MailGuard] Failed to activate:', response)
-      showActivationError(response?.error || 'Unknown error - check if OpenGiraffe is running')
-    }
-  } catch (err) {
-    console.error('[MailGuard] Exception during activation:', err)
-    statusDiv.remove()
-    showActivationError('Exception: ' + String(err))
+  // Get window position to determine which display to use
+  const windowInfo = {
+    screenX: window.screenX,
+    screenY: window.screenY,
+    innerWidth: window.innerWidth,
+    innerHeight: window.innerHeight,
+    outerWidth: window.outerWidth,
+    outerHeight: window.outerHeight
   }
+  console.log('[MailGuard] Window position:', windowInfo)
+  console.log('[MailGuard] Sending MAILGUARD_ACTIVATE to background with theme:', currentTheme)
+  
+  // Retry logic - try up to 3 times with increasing delay
+  const maxRetries = 3
+  let lastError = ''
+  
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      if (attempt > 1) {
+        statusDiv.innerHTML = `<span style="animation: spin 1s linear infinite; display: inline-block;">⏳</span> Connecting... (attempt ${attempt}/${maxRetries})`
+        // Wait before retry (500ms, 1000ms, 1500ms)
+        await new Promise(r => setTimeout(r, attempt * 500))
+      }
+      
+      const response = await sendToBackground({ type: 'MAILGUARD_ACTIVATE', windowInfo, theme: currentTheme })
+      console.log('[MailGuard] Response from background (attempt', attempt, '):', response)
+      
+      if (response?.success) {
+        statusDiv.remove()
+        isMailGuardActive = true
+        showStatusMarker()
+        startRowPositionUpdates()
+        
+        // Send initial row positions
+        const rows = getEmailRowPositions()
+        console.log('[MailGuard] Sending', rows.length, 'email rows to Electron')
+        sendToBackground({ type: 'MAILGUARD_UPDATE_ROWS', rows })
+        return // Success!
+      } else {
+        lastError = response?.error || 'Unknown error'
+        console.log('[MailGuard] Attempt', attempt, 'failed:', lastError)
+      }
+    } catch (err) {
+      lastError = String(err)
+      console.error('[MailGuard] Attempt', attempt, 'exception:', err)
+    }
+  }
+  
+  // All retries failed
+  statusDiv.remove()
+  showActivationError(lastError || 'Connection failed after multiple attempts. Make sure OpenGiraffe is running.')
 }
 
 function showActivationError(message: string): void {
