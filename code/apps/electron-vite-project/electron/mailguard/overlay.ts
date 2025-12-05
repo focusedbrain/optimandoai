@@ -463,8 +463,8 @@ function getOverlayHtml(): string {
   <!-- Hover Buttons -->
   <div id="hover-buttons">
     <button class="hover-btn" id="btn-safe-email">
-      <span class="icon">🔒</span>
-      Open Safe Email
+      <span class="icon">🛡️</span>
+      View Sanitized Email
     </button>
   </div>
   

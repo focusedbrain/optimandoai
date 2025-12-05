@@ -233,6 +233,13 @@ function startRowPositionUpdates(): void {
   rowUpdateInterval = setInterval(() => {
     if (!isMailGuardActive) return
     
+    // Check if we're still on Gmail inbox - deactivate if navigated away
+    if (!isOnGmailInbox()) {
+      console.log('[MailGuard] No longer on Gmail inbox, deactivating...')
+      deactivateMailGuard()
+      return
+    }
+    
     const rows = getEmailRowPositions()
     sendToBackground({ type: 'MAILGUARD_UPDATE_ROWS', rows })
   }, 1000)
@@ -249,6 +256,34 @@ function startRowPositionUpdates(): void {
       sendToBackground({ type: 'MAILGUARD_UPDATE_ROWS', rows })
     }, 200) // Throttle to max 5 updates per second
   }, { passive: true })
+  
+  // Watch for navigation changes
+  let lastUrl = window.location.href
+  const urlObserver = setInterval(() => {
+    if (!isMailGuardActive) return
+    
+    const currentUrl = window.location.href
+    if (currentUrl !== lastUrl) {
+      lastUrl = currentUrl
+      
+      // If navigated away from Gmail, deactivate
+      if (!window.location.hostname.includes('mail.google.com')) {
+        console.log('[MailGuard] Navigated away from Gmail, deactivating...')
+        deactivateMailGuard()
+      }
+    }
+  }, 500)
+}
+
+function isOnGmailInbox(): boolean {
+  // Check if we're on Gmail and viewing inbox/mail list (not an open email)
+  if (!window.location.hostname.includes('mail.google.com')) {
+    return false
+  }
+  
+  // Check for inbox elements
+  const inboxRows = document.querySelectorAll('tr.zA, div[role="row"]')
+  return inboxRows.length > 0
 }
 
 function stopRowPositionUpdates(): void {
@@ -270,12 +305,15 @@ async function extractEmailContent(rowId: string): Promise<SanitizedEmail | null
   }
   
   try {
-    // Click the row to open the email
+    // Store original URL to detect if we're still in inbox
+    const originalUrl = window.location.href
+    
+    // Click the row to open the email (needed to load full content)
     const clickTarget = row.querySelector('td.xY, .a4W') || row
     ;(clickTarget as HTMLElement).click()
     
     // Wait for email to load
-    await new Promise(resolve => setTimeout(resolve, 1500))
+    await new Promise(resolve => setTimeout(resolve, 1200))
     
     // Extract email metadata and content
     const from = extractSender()
@@ -286,10 +324,65 @@ async function extractEmailContent(rowId: string): Promise<SanitizedEmail | null
     const body = sanitizeHtmlToText(bodyHtml)
     const attachments = extractAttachments()
     
+    // CRITICAL: Go back to inbox IMMEDIATELY after extraction
+    // This must happen before we return, so user never sees opened email
+    await forceBackToInbox()
+    
     return { from, to, subject, date, body, attachments }
   } catch (err) {
     console.error('[MailGuard] Error extracting email:', err)
+    // Try to go back even on error
+    await forceBackToInbox()
     return null
+  }
+}
+
+async function forceBackToInbox(): Promise<void> {
+  console.log('[MailGuard] Forcing back to inbox...')
+  
+  // Try multiple methods aggressively
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      // Check if we're already in inbox view (no email open)
+      const emailView = document.querySelector('.nH.if, .adn.ads, .ade')
+      if (!emailView) {
+        console.log('[MailGuard] Already in inbox view')
+        return
+      }
+      
+      // Method 1: Click back button
+      const backButton = document.querySelector(
+        '[aria-label="Back to Inbox"], [aria-label="Back to Sent Mail"], ' +
+        '[aria-label="Zurück zum Posteingang"], [aria-label="Back"], ' +
+        '[data-tooltip="Back to inbox"], .lS'
+      ) as HTMLElement
+      if (backButton) {
+        backButton.click()
+        await new Promise(resolve => setTimeout(resolve, 400))
+        continue
+      }
+      
+      // Method 2: Press Escape key
+      const escEvent = new KeyboardEvent('keydown', { 
+        key: 'Escape', 
+        code: 'Escape',
+        keyCode: 27,
+        bubbles: true,
+        cancelable: true
+      })
+      document.dispatchEvent(escEvent)
+      document.body.dispatchEvent(escEvent)
+      await new Promise(resolve => setTimeout(resolve, 300))
+      
+      // Method 3: Navigate to inbox URL directly
+      if (window.location.hash && !window.location.hash.includes('#inbox')) {
+        window.location.hash = '#inbox'
+        await new Promise(resolve => setTimeout(resolve, 500))
+      }
+      
+    } catch (err) {
+      console.error('[MailGuard] Error in forceBackToInbox attempt', attempt, err)
+    }
   }
 }
 
