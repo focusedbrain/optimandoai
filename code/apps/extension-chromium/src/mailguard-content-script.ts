@@ -203,19 +203,30 @@ function getEmailRowPositions(): EmailRowRect[] {
   const rows: EmailRowRect[] = []
   emailRowElements.clear()
   
+  // Get browser window offset on screen
+  const screenOffsetX = window.screenX || window.screenLeft || 0
+  const screenOffsetY = window.screenY || window.screenTop || 0
+  
+  // Account for browser chrome (address bar, tabs, etc.)
+  // outerHeight - innerHeight gives us the chrome height
+  const chromeHeight = window.outerHeight - window.innerHeight
+  const chromeWidth = window.outerWidth - window.innerWidth
+  
   // Find Gmail inbox rows - try different selectors
   const rowElements = document.querySelectorAll('tr.zA, tr[role="row"], div[role="row"]')
   
   rowElements.forEach((row, index) => {
     const rect = row.getBoundingClientRect()
     
-    // Only include visible rows
+    // Only include visible rows in viewport
     if (rect.width > 0 && rect.height > 0 && rect.top >= 0 && rect.bottom <= window.innerHeight) {
       const id = `row-${index}`
+      
+      // Convert viewport coordinates to screen coordinates
       rows.push({
         id,
-        x: rect.left,
-        y: rect.top,
+        x: rect.left + screenOffsetX + (chromeWidth / 2),
+        y: rect.top + screenOffsetY + chromeHeight,
         width: rect.width,
         height: rect.height
       })
@@ -341,49 +352,74 @@ async function forceBackToInbox(): Promise<void> {
   console.log('[MailGuard] Forcing back to inbox...')
   
   // Try multiple methods aggressively
-  for (let attempt = 0; attempt < 3; attempt++) {
+  for (let attempt = 0; attempt < 5; attempt++) {
+    await new Promise(resolve => setTimeout(resolve, 200))
+    
     try {
-      // Check if we're already in inbox view (no email open)
-      const emailView = document.querySelector('.nH.if, .adn.ads, .ade')
-      if (!emailView) {
-        console.log('[MailGuard] Already in inbox view')
+      // Check if we're already in inbox view by looking for email list
+      const inboxTable = document.querySelector('table.F.cf.zt')
+      const emailRows = document.querySelectorAll('tr.zA')
+      if (inboxTable && emailRows.length > 0) {
+        console.log('[MailGuard] Back in inbox view')
         return
       }
       
-      // Method 1: Click back button
-      const backButton = document.querySelector(
-        '[aria-label="Back to Inbox"], [aria-label="Back to Sent Mail"], ' +
-        '[aria-label="Zurück zum Posteingang"], [aria-label="Back"], ' +
-        '[data-tooltip="Back to inbox"], .lS'
-      ) as HTMLElement
-      if (backButton) {
-        backButton.click()
-        await new Promise(resolve => setTimeout(resolve, 400))
-        continue
+      console.log('[MailGuard] Attempt', attempt + 1, 'to go back to inbox')
+      
+      // Method 1: Click any back/close button
+      const backButtons = document.querySelectorAll(
+        '[aria-label*="Back"], [aria-label*="Zurück"], [aria-label*="Close"], ' +
+        '[data-tooltip*="Back"], [data-tooltip*="back"], ' +
+        '.lS, .T-I.J-J5-Ji.T-I-ax7'
+      )
+      for (const btn of backButtons) {
+        if ((btn as HTMLElement).offsetParent !== null) { // Check if visible
+          console.log('[MailGuard] Clicking back button:', btn)
+          ;(btn as HTMLElement).click()
+          await new Promise(resolve => setTimeout(resolve, 300))
+          break
+        }
       }
       
-      // Method 2: Press Escape key
-      const escEvent = new KeyboardEvent('keydown', { 
-        key: 'Escape', 
-        code: 'Escape',
-        keyCode: 27,
-        bubbles: true,
-        cancelable: true
-      })
-      document.dispatchEvent(escEvent)
-      document.body.dispatchEvent(escEvent)
-      await new Promise(resolve => setTimeout(resolve, 300))
+      // Method 2: Press Escape key multiple times
+      for (let i = 0; i < 3; i++) {
+        const escEvent = new KeyboardEvent('keydown', { 
+          key: 'Escape', 
+          code: 'Escape',
+          keyCode: 27,
+          which: 27,
+          bubbles: true,
+          cancelable: true
+        })
+        document.dispatchEvent(escEvent)
+        document.body.dispatchEvent(escEvent)
+        await new Promise(resolve => setTimeout(resolve, 100))
+      }
       
-      // Method 3: Navigate to inbox URL directly
-      if (window.location.hash && !window.location.hash.includes('#inbox')) {
-        window.location.hash = '#inbox'
-        await new Promise(resolve => setTimeout(resolve, 500))
+      // Method 3: Use browser history back
+      if (attempt >= 2) {
+        console.log('[MailGuard] Using history.back()')
+        window.history.back()
+        await new Promise(resolve => setTimeout(resolve, 400))
+      }
+      
+      // Method 4: Navigate to inbox URL directly (last resort)
+      if (attempt >= 3) {
+        console.log('[MailGuard] Navigating directly to inbox')
+        const currentUrl = window.location.href
+        const inboxUrl = currentUrl.split('#')[0] + '#inbox'
+        if (window.location.href !== inboxUrl) {
+          window.location.href = inboxUrl
+          await new Promise(resolve => setTimeout(resolve, 600))
+        }
       }
       
     } catch (err) {
       console.error('[MailGuard] Error in forceBackToInbox attempt', attempt, err)
     }
   }
+  
+  console.log('[MailGuard] Could not confirm return to inbox after 5 attempts')
 }
 
 function extractSender(): string {
