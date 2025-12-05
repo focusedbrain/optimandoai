@@ -111,12 +111,32 @@ export interface CanonicalContextSettings {
   accountContext: boolean;
 }
 
-/** Unified destination structure */
+/**
+ * Unified destination structure.
+ * 
+ * For kind='agentBox', routing works in TWO levels:
+ * 1. Presence of agentBox destination ENABLES box routing
+ * 2. agent.number === agentBox.agentNumber determines WHICH boxes receive output
+ * 
+ * The agents[] array contains AgentBox.identifier values (format 'ABxxyy')
+ * for documentation/reference purposes.
+ */
 export interface CanonicalDestination {
   kind: DestinationKind;
+  
+  /**
+   * For kind='agentBox': Array of AgentBox.identifier values (format 'ABxxyy').
+   * Example: ['AB0101', 'AB0201'] references boxes with identifiers AB0101 and AB0201.
+   * Note: actual routing uses agent.number matching agentBox.agentNumber.
+   */
   agents?: string[];
+  
+  /** For kind='email': target email address */
   email?: string;
+  
+  /** For kind='webhook': target webhook URL */
   webhook?: string;
+  
   [key: string]: any;
 }
 

@@ -819,119 +819,64 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   // Handle DELETE AGENT BOX request from sidepanel
-
   else if (message.type === 'DELETE_AGENT_BOX') {
-
-    try {
-
-      const agentId = message.data?.agentId
-
-      if (!agentId) {
-
-        console.error('❌ No agent ID provided for deletion')
-
-        sendResponse({ success: false, error: 'No agent ID provided' })
-
-        return
-
-      }
-
-      console.log('🗑️ Deleting agent box:', agentId)
-
-      // Remove from currentTabData
-
-      const boxIndex = currentTabData.agentBoxes.findIndex((box: any) => box.id === agentId)
-
-      if (boxIndex === -1) {
-
-        console.warn('⚠️ Agent box not found in currentTabData:', agentId)
-
-        sendResponse({ success: false, error: 'Agent box not found' })
-
-        return
-
-      }
-
-      const deletedBox = currentTabData.agentBoxes[boxIndex]
-
-      console.log('🔍 Deleted box details:', {
-        id: deletedBox.id,
-        identifier: deletedBox.identifier,
-        boxNumber: deletedBox.boxNumber,
-        title: deletedBox.title
-      })
-
-      currentTabData.agentBoxes.splice(boxIndex, 1)
-
-      console.log('✅ Removed from currentTabData, remaining:', currentTabData.agentBoxes.length)
-
-      // Save to localStorage for immediate UI persistence
-      try {
-        localStorage.setItem(`optimando-tab-${tabId}`, JSON.stringify(currentTabData))
-      } catch (e) {
-        console.warn('⚠️ Could not save to localStorage:', e)
-      }
-
-      // Get session key and delete from SQLite
-
-      const sessionKey = getCurrentSessionKey()
-
-      if (sessionKey) {
-
-        console.log('🗑️ Deleting from SQLite database, session:', sessionKey)
-
-        console.log('🗑️ Agent box identifier:', deletedBox.identifier)
-
-        
-
-        // Send to background script to delete from SQLite
-
-        chrome.runtime.sendMessage({
-
-          type: 'DELETE_AGENT_BOX_FROM_SQLITE',
-
-          sessionKey: sessionKey,
-
-          agentId: agentId,
-
-          identifier: deletedBox.identifier
-
-        }, (response) => {
-
-          if (response && response.success) {
-
-            console.log('✅ Agent box deleted from SQLite database')
-
-          } else {
-
-            console.error('❌ Failed to delete from SQLite:', response?.error)
-
-          }
-
-        })
-
-      }
-
-      // Notify sidepanel to update its list
-
-      chrome.runtime.sendMessage({
-
-        type: 'UPDATE_AGENT_BOXES',
-
-        data: currentTabData.agentBoxes || []
-
-      })
-
-      sendResponse({ success: true })
-
-    } catch (e) {
-
-      console.error('❌ Error deleting agent box:', e)
-
-      sendResponse({ success: false, error: String(e) })
-
+    const agentId = message.data?.agentId
+    
+    if (!agentId) {
+      console.error('❌ No agent ID provided for deletion')
+      sendResponse({ success: false, error: 'No agent ID provided' })
+      return
     }
-
+    
+    console.log('🗑️ DELETE_AGENT_BOX from sidepanel:', agentId)
+    
+    // Find the box to get its identifier
+    const boxIndex = currentTabData.agentBoxes.findIndex((box: any) => box.id === agentId)
+    if (boxIndex === -1) {
+      console.warn('⚠️ Agent box not found:', agentId)
+      sendResponse({ success: false, error: 'Agent box not found' })
+      return
+    }
+    
+    const deletedBox = currentTabData.agentBoxes[boxIndex]
+    const sessionKey = getCurrentSessionKey()
+    
+    if (!sessionKey) {
+      console.error('❌ No session key found')
+      sendResponse({ success: false, error: 'No session key' })
+      return
+    }
+    
+    // Delete from SQLite (single source of truth)
+    chrome.runtime.sendMessage({
+      type: 'DELETE_AGENT_BOX_FROM_SQLITE',
+      sessionKey: sessionKey,
+      agentId: agentId,
+      identifier: deletedBox.identifier
+    }, (response) => {
+      if (chrome.runtime.lastError) {
+        console.error('❌ Runtime error:', chrome.runtime.lastError.message)
+        return
+      }
+      
+      if (response && response.success) {
+        console.log('✅ Agent box deleted from SQLite')
+        
+        // Reload from SQLite to update UI
+        reloadSessionFromSQLite(sessionKey)
+        
+        // Notify sidepanel
+        chrome.runtime.sendMessage({
+          type: 'RELOAD_SESSION_FROM_SQLITE',
+          sessionKey: sessionKey
+        })
+      } else {
+        console.error('❌ Failed to delete:', response?.error)
+      }
+    })
+    
+    // Return true to indicate async response
+    sendResponse({ success: true, message: 'Delete initiated' })
   }
 
   // Handle CREATE NEW SESSION request from sidepanel - use the ORIGINAL startNewSession function
@@ -2827,8 +2772,23 @@ function initializeExtension() {
       } else {
 
         console.log('✅ Session saved to history:', sessionKey, completeSessionData.tabName)
-        console.log('[TRACE] Saved agents:', completeSessionData.agents.length);
 
+      }
+
+      // CRITICAL: Also sync to SQLite (single source of truth)
+      // This ensures agent configuration changes are persisted properly
+      if (chrome?.runtime) {
+        chrome.runtime.sendMessage({
+          type: 'SAVE_SESSION_TO_SQLITE',
+          sessionKey: sessionKey,
+          session: completeSessionData
+        }, (response) => {
+          if (chrome.runtime.lastError) {
+            console.warn('⚠️ SQLite sync failed:', chrome.runtime.lastError.message)
+          } else if (response?.success) {
+            console.log('✅ Session synced to SQLite')
+          }
+        })
       }
 
       if (callback) callback()
@@ -5323,193 +5283,152 @@ function initializeExtension() {
 
 
   function deleteAgentBox(agentId: string) {
-
-    console.log('🗑️🗑️🗑️ deleteAgentBox called for:', agentId)
-    console.log('🗑️🗑️🗑️ Current agent boxes BEFORE delete:', JSON.stringify(currentTabData.agentBoxes, null, 2))
-
+    console.log('🗑️ deleteAgentBox called with agentId:', agentId)
+    
     // Find the box before removing it so we can get its identifier
     const boxIndex = currentTabData.agentBoxes.findIndex((box: any) => box.id === agentId)
 
     if (boxIndex === -1) {
-      console.error('❌❌❌ Agent box not found in currentTabData:', agentId)
-      console.error('❌❌❌ Available IDs:', currentTabData.agentBoxes.map((b: any) => b.id))
+      console.error('❌ Agent box not found in currentTabData:', agentId)
+      console.log('Available boxes:', currentTabData.agentBoxes.map((b: any) => ({ id: b.id, identifier: b.identifier })))
       return
     }
 
     const deletedBox = currentTabData.agentBoxes[boxIndex]
+    const sessionKey = getCurrentSessionKey()
 
-    console.log('🔍🔍🔍 Deleted box details:', {
-      id: deletedBox.id,
-      identifier: deletedBox.identifier,
+    console.log('🗑️ Deleting box:', { 
+      agentId, 
+      identifier: deletedBox.identifier, 
       boxNumber: deletedBox.boxNumber,
-      title: deletedBox.title,
-      source: deletedBox.source
+      sessionKey 
     })
 
-    // Remove from local memory
-    currentTabData.agentBoxes = currentTabData.agentBoxes.filter((box: any) => box.id !== agentId)
-
-    console.log('✅✅✅ Removed from currentTabData, remaining:', currentTabData.agentBoxes.length)
-    console.log('✅✅✅ Remaining boxes:', currentTabData.agentBoxes.map((b: any) => ({ id: b.id, identifier: b.identifier })))
-
-    
-
-    // Also remove saved height
-
-    if (currentTabData.agentBoxHeights?.[agentId]) {
-
-      delete currentTabData.agentBoxHeights[agentId]
-
+    if (!sessionKey) {
+      console.error('❌ No session key found, cannot delete')
+      alert('No active session. Cannot delete agent box.')
+      return
     }
 
-    
-
-    // Save to localStorage for immediate UI persistence
-    try {
-      localStorage.setItem(`optimando-tab-${tabId}`, JSON.stringify(currentTabData))
-      console.log('💾💾💾 Saved to localStorage')
-    } catch (e) {
-      console.warn('⚠️ Could not save to localStorage:', e)
-    }
-
-    renderAgentBoxes()
-    console.log('🎨🎨🎨 UI re-rendered')
-
-    // Delete from SQLite database (single source of truth)
-
-    const sessionKey = getCurrentSessionKey()
-    console.log('🔑🔑🔑 Session key:', sessionKey)
-
-    if (sessionKey) {
-
-      console.log('🗑️🗑️🗑️ Deleting from SQLite database, session:', sessionKey)
-
-      console.log('🗑️🗑️🗑️ Agent box identifier:', deletedBox.identifier)
-
-      console.log('🗑️🗑️🗑️ Agent ID:', agentId)
-
+    // Delete from SQLite (single source of truth)
+    chrome.runtime.sendMessage({
+      type: 'DELETE_AGENT_BOX_FROM_SQLITE',
+      sessionKey: sessionKey,
+      agentId: agentId,
+      identifier: deletedBox.identifier
+    }, (response) => {
+      // Check for chrome runtime errors
+      if (chrome.runtime.lastError) {
+        console.error('❌ Chrome runtime error:', chrome.runtime.lastError.message)
+        alert('Failed to delete: ' + chrome.runtime.lastError.message)
+        return
+      }
       
-
-      // Send to background script to delete from SQLite
-
-      chrome.runtime.sendMessage({
-
-        type: 'DELETE_AGENT_BOX_FROM_SQLITE',
-
-        sessionKey: sessionKey,
-
-        agentId: agentId,
-
-        identifier: deletedBox.identifier
-
-      }, (response) => {
-
-        console.log('📨📨📨 Response from background:', JSON.stringify(response, null, 2))
-
-        if (response && response.success) {
-
-          console.log('✅✅✅ Agent box deleted from SQLite database')
-
-          
-
-          // Notify sidepanel to reload from SQLite
-
-          chrome.runtime.sendMessage({
-
-            type: 'RELOAD_SESSION_FROM_SQLITE',
-
-            sessionKey: sessionKey
-
-          })
-
-        } else {
-
-          console.error('❌❌❌ Failed to delete from SQLite:', response?.error)
-
-        }
-
-      })
-
-    } else {
-      console.error('❌❌❌ No session key found, cannot delete from SQLite')
-      console.error('❌❌❌ This is a CRITICAL error - box will not be deleted from database!')
-    }
-
+      if (response && response.success) {
+        console.log('✅ Agent box deleted from SQLite successfully')
+        
+        // Reload from SQLite to update UI with fresh data
+        reloadSessionFromSQLite(sessionKey)
+        
+        // Notify sidepanel
+        chrome.runtime.sendMessage({
+          type: 'RELOAD_SESSION_FROM_SQLITE',
+          sessionKey: sessionKey
+        })
+      } else {
+        console.error('❌ Failed to delete from SQLite:', response?.error || 'Unknown error')
+        alert('Failed to delete agent box: ' + (response?.error || 'Unknown error'))
+      }
+    })
+  }
+  
+  // Helper: Reload session data from SQLite (single source of truth)
+  function reloadSessionFromSQLite(sessionKey: string) {
+    chrome.runtime.sendMessage({
+      type: 'GET_SESSION_FROM_SQLITE',
+      sessionKey: sessionKey
+    }, (response) => {
+      if (chrome.runtime.lastError || !response?.success) {
+        console.error('❌ Failed to reload from SQLite:', chrome.runtime.lastError?.message)
+        return
+      }
+      
+      const sessionData = response.session
+      if (sessionData) {
+        // Update in-memory state with fresh SQLite data
+        currentTabData.agentBoxes = sessionData.agentBoxes || []
+        currentTabData.tabName = sessionData.tabName || currentTabData.tabName
+        
+        // Re-render UI
+        renderAgentBoxes()
+        console.log('✅ UI refreshed from SQLite:', currentTabData.agentBoxes.length, 'boxes')
+      }
+    })
   }
 
   // Delete display grid agent box (uses identifier instead of id)
   function deleteDisplayGridAgentBox(identifier: string, slotId: string) {
-    console.log('🗑️🗑️🗑️ deleteDisplayGridAgentBox called for:', identifier, 'slotId:', slotId)
-    console.log('🗑️🗑️🗑️ Current agent boxes BEFORE delete:', JSON.stringify(currentTabData.agentBoxes, null, 2))
-
+    console.log('🗑️ deleteDisplayGridAgentBox called:', { identifier, slotId })
+    
     // Find the box by identifier (display grid boxes use identifier, not id)
     const boxIndex = currentTabData.agentBoxes.findIndex((box: any) => 
       box.identifier === identifier || box.slotId === slotId
     )
 
     if (boxIndex === -1) {
-      console.error('❌❌❌ Display grid agent box not found:', identifier)
-      console.error('❌❌❌ Available identifiers:', currentTabData.agentBoxes.map((b: any) => b.identifier))
+      console.error('❌ Display grid agent box not found:', identifier)
+      console.log('Available boxes:', currentTabData.agentBoxes.map((b: any) => ({ id: b.id, identifier: b.identifier, slotId: b.slotId })))
       return
     }
 
     const deletedBox = currentTabData.agentBoxes[boxIndex]
+    const sessionKey = getCurrentSessionKey()
 
-    console.log('🔍🔍🔍 Deleted display grid box details:', {
-      identifier: deletedBox.identifier,
+    console.log('🗑️ Deleting display grid box:', { 
+      identifier: deletedBox.identifier, 
       boxNumber: deletedBox.boxNumber,
-      title: deletedBox.title,
-      source: deletedBox.source,
-      slotId: deletedBox.slotId
+      slotId,
+      sessionKey 
     })
 
-    // Remove from local memory
-    currentTabData.agentBoxes = currentTabData.agentBoxes.filter((box: any) => 
-      box.identifier !== identifier && box.slotId !== slotId
-    )
-
-    console.log('✅✅✅ Removed from currentTabData, remaining:', currentTabData.agentBoxes.length)
-
-    // Save to localStorage
-    try {
-      localStorage.setItem(`optimando-tab-${tabId}`, JSON.stringify(currentTabData))
-      console.log('💾💾💾 Saved to localStorage')
-    } catch (e) {
-      console.warn('⚠️ Could not save to localStorage:', e)
+    if (!sessionKey) {
+      console.error('❌ No session key found, cannot delete')
+      alert('No active session. Cannot delete agent box.')
+      return
     }
 
-    // Delete from SQLite database
-    const sessionKey = getCurrentSessionKey()
-    console.log('🔑🔑🔑 Session key:', sessionKey)
+    // Delete from SQLite (single source of truth)
+    chrome.runtime.sendMessage({
+      type: 'DELETE_DISPLAY_GRID_AGENT_BOX',
+      sessionKey: sessionKey,
+      identifier: identifier,
+      slotId: slotId,
+      gridSessionId: deletedBox.gridSessionId,
+      gridLayout: deletedBox.gridLayout
+    }, (response) => {
+      // Check for chrome runtime errors
+      if (chrome.runtime.lastError) {
+        console.error('❌ Chrome runtime error:', chrome.runtime.lastError.message)
+        alert('Failed to delete: ' + chrome.runtime.lastError.message)
+        return
+      }
+      
+      if (response && response.success) {
+        console.log('✅ Display grid agent box deleted from SQLite successfully')
 
-    if (sessionKey) {
-      console.log('🗑️🗑️🗑️ Deleting display grid box from SQLite:', identifier)
-
-      chrome.runtime.sendMessage({
-        type: 'DELETE_DISPLAY_GRID_AGENT_BOX',
-        sessionKey: sessionKey,
-        identifier: identifier,
-        slotId: slotId,
-        gridSessionId: deletedBox.gridSessionId,
-        gridLayout: deletedBox.gridLayout
-      }, (response) => {
-        console.log('📨📨📨 Response from background:', JSON.stringify(response, null, 2))
-
-        if (response && response.success) {
-          console.log('✅✅✅ Display grid agent box deleted from SQLite')
-
-          // Notify sidepanel to reload
-          chrome.runtime.sendMessage({
-            type: 'RELOAD_SESSION_FROM_SQLITE',
-            sessionKey: sessionKey
-          })
-        } else {
-          console.error('❌❌❌ Failed to delete from SQLite:', response?.error)
-        }
-      })
-    } else {
-      console.error('❌❌❌ No session key found, cannot delete from SQLite')
-    }
+        // Reload from SQLite to update UI with fresh data
+        reloadSessionFromSQLite(sessionKey)
+        
+        // Notify sidepanel
+        chrome.runtime.sendMessage({
+          type: 'RELOAD_SESSION_FROM_SQLITE',
+          sessionKey: sessionKey
+        })
+      } else {
+        console.error('❌ Failed to delete from SQLite:', response?.error || 'Unknown error')
+        alert('Failed to delete agent box: ' + (response?.error || 'Unknown error'))
+      }
+    })
   }
 
 
@@ -5631,37 +5550,33 @@ function initializeExtension() {
     
 
     // Start with box number 1 by default, will be updated after loading session
-
     let nextBoxNumber = 1
 
-    
-
-    // Load session data to get correct next box number BEFORE showing dialog
-
-    if (sessionKey && chrome?.storage?.local) {
-
-      storageGet([sessionKey], (result) => {
-
-        if (result[sessionKey]) {
-
-          const session = result[sessionKey]
-
-          const maxBoxNumber = findMaxBoxNumber(session)
-
-          nextBoxNumber = maxBoxNumber + 1
-
-          console.log('📦 Next agent box number calculated:', nextBoxNumber, 'from max:', maxBoxNumber)
-
+    // Load session data from SQLite (single source of truth) to get correct next box number
+    if (sessionKey && chrome?.runtime) {
+      chrome.runtime.sendMessage({
+        type: 'GET_SESSION_FROM_SQLITE',
+        sessionKey: sessionKey
+      }, (response) => {
+        if (chrome.runtime.lastError) {
+          console.warn('⚠️ Could not fetch from SQLite:', chrome.runtime.lastError.message)
+          showDialog()
+          return
         }
-
+        
+        if (response?.success && response.session) {
+          const session = response.session
+          const maxBoxNumber = findMaxBoxNumber(session)
+          nextBoxNumber = maxBoxNumber + 1
+          console.log('📦 Next agent box number calculated from SQLite:', nextBoxNumber, 'from max:', maxBoxNumber)
+        } else {
+          console.log('📦 No session in SQLite, starting with box number 1')
+        }
+        
         showDialog()
-
       })
-
     } else {
-
       showDialog()
-
     }
 
     
@@ -6388,17 +6303,14 @@ function initializeExtension() {
           <label style="display: block; margin-bottom: 8px; color: #555; font-weight: bold;">Agent Number:</label>
 
           <input id="edit-agent-number" type="number" value="${
-
-            agentBox.agentId && agentBox.agentId.match(/agent(\d+)/) 
-
-              ? agentBox.agentId.match(/agent(\d+)/)[1] 
-
-              : agentBox.model && agentBox.model.match(/agent(\d+)/)
-
-                ? agentBox.model.match(/agent(\d+)/)[1]
-
-                : agentBox.agentNumber || 1
-
+            // PRIORITY: Use agentNumber first (primary source), then fall back to parsing agentId/model
+            agentBox.agentNumber 
+              ? agentBox.agentNumber
+              : agentBox.agentId && agentBox.agentId.match(/agent(\d+)/) 
+                ? agentBox.agentId.match(/agent(\d+)/)[1] 
+                : agentBox.model && agentBox.model.match(/agent(\d+)/)
+                  ? agentBox.model.match(/agent(\d+)/)[1]
+                  : agentBox.boxNumber || 1
           }" min="1" max="99" style="width: 100%; padding: 10px; border: 2px solid #ddd; border-radius: 6px; font-size: 14px;">
 
           <div style="font-size: 11px; color: #888; margin-top: 4px;">Which agent to allocate to this box</div>
@@ -6698,25 +6610,27 @@ function initializeExtension() {
     })
 
     
-    // Handle delete
-
+    // Handle delete from edit dialog
     overlay.querySelector('#delete-agent-box')?.addEventListener('click', () => {
-
       // Show confirmation dialog
       const confirmDelete = confirm('Are you sure you want to delete this agent box?')
 
       if (confirmDelete) {
+        console.log('🗑️ Delete button clicked in edit dialog')
+        console.log('🗑️ agentId:', agentId)
+        console.log('🗑️ agentBox:', agentBox)
 
-        console.log('🗑️ Deleting agent box from setup dialog:', agentId)
-
-        // Close the dialog
+        // Close the dialog first
         overlay.remove()
 
-        // Delete the agent box
-        deleteAgentBox(agentId)
-
+        // Delete the agent box using the same function as the X button
+        if (agentId) {
+          deleteAgentBox(agentId)
+        } else {
+          console.error('❌ No agentId available for delete!')
+          alert('Error: Could not delete - no agent ID')
+        }
       }
-
     })
 
     // Tools lightbox
@@ -6865,7 +6779,7 @@ function initializeExtension() {
 
 
 
-  function updateAgentBox(agentId: string, updates: { number?: number, title?: string, color?: string, provider?: string, model?: string, agentId?: string }) {
+  function updateAgentBox(agentId: string, updates: { number?: number, title?: string, color?: string, provider?: string, model?: string, agentId?: string, agentNumber?: number }) {
 
     const agentBoxIndex = currentTabData.agentBoxes.findIndex((box: any) => box.id === agentId)
 
@@ -6896,13 +6810,25 @@ function initializeExtension() {
     
 
     // Update agent allocation if explicitly provided
+    // CRITICAL: Update BOTH agentId AND agentNumber for proper connection detection
 
     if (updates.agentId !== undefined) {
 
       agentBox.agentId = updates.agentId
+      
+      // Extract numeric agentNumber from agentId (e.g., "agent1" → 1)
+      const match = updates.agentId.match(/agent(\d+)/i)
+      if (match) {
+        agentBox.agentNumber = parseInt(match[1], 10)
+      }
 
-      console.log(`🔄 Agent allocation updated: Box ${agentBox.number} → ${updates.agentId}`)
 
+    }
+    
+    // Also update agentNumber directly if provided
+    if (updates.agentNumber !== undefined) {
+      agentBox.agentNumber = updates.agentNumber
+      agentBox.agentId = `agent${updates.agentNumber}`
     }
 
     // Also check model for agent info (fallback)
@@ -6914,8 +6840,8 @@ function initializeExtension() {
       if (match) {
 
         agentBox.agentId = `agent${match[1]}`
+        agentBox.agentNumber = parseInt(match[1], 10)
 
-        console.log(`🔄 Agent allocation updated from model: Box ${agentBox.number} → Agent ${match[1]}`)
 
       }
 
@@ -6923,9 +6849,18 @@ function initializeExtension() {
 
     
 
-    // Save to storage and re-render (saveTabDataToStorage handles SQLite sync)
-
+    // Save to localStorage for immediate UI persistence
     saveTabDataToStorage()
+
+    // CRITICAL: Also sync to SQLite for persistence across sessions
+    const sessionKey = getCurrentSessionKey()
+    if (sessionKey) {
+      chrome.runtime.sendMessage({
+        type: 'SAVE_AGENT_BOX_TO_SQLITE',
+        sessionKey: sessionKey,
+        agentBox: agentBox
+      })
+    }
 
     renderAgentBoxes()
 
@@ -13164,8 +13099,8 @@ function initializeExtension() {
           <div style="display: flex; gap: 10px; align-items: center;">
             <button id="ag-export-btn" type="button" style="padding: 10px 16px; background: rgba(59,130,246,0.3); border: 1px solid rgba(59,130,246,0.5); color: white; border-radius: 6px; cursor: pointer; font-size: 12px; display: flex; align-items: center; gap: 6px;" title="Export this agent configuration as JSON">📤 Export</button>
             <div style="display: flex; gap: 4px; align-items: center;">
-              <button id="ag-schema-btn" type="button" style="padding: 8px 10px; background: rgba(147,51,234,0.3); border: 1px solid rgba(147,51,234,0.5); color: white; border-radius: 6px; cursor: pointer; font-size: 14px; display: flex; align-items: center; justify-content: center;" title="📋 SCHEMA: Download the master agent.schema.json. Upload this to an LLM along with the template (📄) to generate new agents.">📋</button>
-              <button id="ag-template-btn" type="button" style="padding: 8px 10px; background: rgba(245,158,11,0.3); border: 1px solid rgba(245,158,11,0.5); color: white; border-radius: 6px; cursor: pointer; font-size: 12px; display: flex; align-items: center; justify-content: center; position: relative;" title="📄 TEMPLATE: Download agent.template.json. To create new agents with AI: upload BOTH the schema (📋) AND this template to your LLM, then describe what agent you want.">📄<span style="position: absolute; top: -4px; right: -4px; font-size: 10px; background: rgba(245,158,11,0.8); border-radius: 50%; width: 14px; height: 14px; display: flex; align-items: center; justify-content: center;">?</span></button>
+              <button id="ag-schema-btn" type="button" style="padding: 8px 10px; background: rgba(147,51,234,0.3); border: 1px solid rgba(147,51,234,0.5); color: white; border-radius: 6px; cursor: pointer; font-size: 14px; display: flex; align-items: center; justify-content: center;" title="📋 MASTER SCHEMA: Download optimando.schema.json - unified schema for Agents, Agent Boxes, and Mini Apps. Upload to LLM with template for generation.">📋</button>
+              <button id="ag-template-btn" type="button" style="padding: 8px 10px; background: rgba(245,158,11,0.3); border: 1px solid rgba(245,158,11,0.5); color: white; border-radius: 6px; cursor: pointer; font-size: 12px; display: flex; align-items: center; justify-content: center;" title="📄 TEMPLATE: Download optimando.template.json - unified example with Agent + Agent Box connected.">📄</button>
             </div>
             <button id="ag-import-btn" type="button" style="padding: 10px 16px; background: rgba(34,197,94,0.3); border: 1px solid rgba(34,197,94,0.5); color: white; border-radius: 6px; cursor: pointer; font-size: 12px; display: flex; align-items: center; gap: 6px;" title="Import agent configuration from JSON file">📥 Import</button>
             <input type="file" id="ag-import-file" accept=".json" style="display: none;">
@@ -22171,12 +22106,20 @@ function initializeExtension() {
 
     document.getElementById('agent-config-cancel').onclick = () => configOverlay.remove()
 
-    // Export handler - Uses canonical format (v2.1.0)
+    // Export handler - Shows dialog with connected agent boxes (v2.1.0)
     const exportBtn = document.getElementById('ag-export-btn')
     if (exportBtn) {
-      exportBtn.onclick = async () => {
-        try {
-          console.log('📤 Exporting agent configuration (canonical format v2.1.0)...')
+      exportBtn.onclick = () => {
+        // Show loading state immediately to prevent perceived freeze
+        const originalText = exportBtn.innerHTML
+        exportBtn.innerHTML = '⏳ Loading...'
+        ;(exportBtn as HTMLButtonElement).disabled = true
+        
+        // Defer heavy work to prevent UI freeze
+        requestAnimationFrame(() => {
+          setTimeout(async () => {
+            try {
+              console.log('📤 Opening export dialog...')
           
           // Helper: normalize string numbers to actual numbers
           const toNumber = (val: any, def: number): number => {
@@ -22318,6 +22261,27 @@ function initializeExtension() {
             })
           }
           
+          // Helper: extract agent number from ID or name (e.g., "agent1" → 1, "agent05" → 5)
+          const extractAgentNumber = (id: string, name?: string): number | undefined => {
+            // Try to extract from ID first (e.g., "agent1", "agent05", "agent-10")
+            const idMatch = (id || '').match(/agent[-_]?(\d+)/i)
+            if (idMatch) return parseInt(idMatch[1], 10)
+            
+            // Try name
+            const nameMatch = (name || '').match(/agent[-_]?(\d+)/i)
+            if (nameMatch) return parseInt(nameMatch[1], 10)
+            
+            // Try just number at end of string
+            const endMatch = (id || '').match(/(\d+)$/)
+            if (endMatch) return parseInt(endMatch[1], 10)
+            
+            return undefined
+          }
+          
+          // Get agent number: prefer explicit, then infer from ID/name
+          const inferredNumber = extractAgentNumber(rawData.id, rawData.name)
+          const agentNumber = typeof rawData.number === 'number' ? rawData.number : inferredNumber
+          
           const canonical: any = {
             _schemaVersion: '2.1.0',
             _exportedAt: new Date().toISOString(),
@@ -22328,7 +22292,7 @@ function initializeExtension() {
             name: rawData.name || '',
             description: rawData.description || '',
             icon: rawData.icon || '🤖',
-            number: typeof rawData.number === 'number' ? rawData.number : undefined,
+            number: agentNumber,
             enabled: rawData.enabled !== false,
             capabilities: rawData.capabilities || [],
             
@@ -22439,37 +22403,429 @@ function initializeExtension() {
             ],
           }
           
-          // Create and download file
-          const json = JSON.stringify(canonical, null, 2)
-          const blob = new Blob([json], { type: 'application/json' })
-          const url = URL.createObjectURL(blob)
+          // ─────────────────────────────────────────────────────────────────────
+          // FIND CONNECTED AGENT BOXES (ROBUST IMPLEMENTATION)
+          // ALWAYS fetch fresh data from SQLite to avoid stale state issues
+          // A box is connected when ALL conditions are met:
+          // 1. Box is explicitly referenced in agent's execution section destinations
+          // 2. Box exists in the session (active in SQLite)
+          // 3. Box has agentNumber === agent.number (allocated to this agent)
+          // ─────────────────────────────────────────────────────────────────────
           
-          const a = document.createElement('a')
-          a.href = url
-          a.download = `agent-${canonical.name || 'export'}-${new Date().toISOString().slice(0, 10)}.json`
-          document.body.appendChild(a)
-          a.click()
-          document.body.removeChild(a)
-          URL.revokeObjectURL(url)
+          const agentNumberValue = canonical.number
+          const sessionKey = getCurrentSessionKey()
           
-          console.log('✅ Agent exported successfully (canonical format v2.1.0)!')
-          console.log('📋 Export summary:', {
-            name: canonical.name,
-            capabilities: canonical.capabilities,
-            triggersCount: canonical.listening?.unifiedTriggers?.length || 0,
-            reasoningSectionsCount: canonical.reasoningSections?.length || 0,
-            executionSectionsCount: canonical.executionSections?.length || 0,
+          // Helper: parse boxNumber from destination value (e.g., 'agentBox01' → 1)
+          const parseBoxNumber = (val: string): number | null => {
+            if (!val) return null
+            const match = val.match(/agentBox(\d+)/i) || val.match(/^AB(\d{2})/i) || val.match(/(\d+)/)
+            return match ? parseInt(match[1], 10) : null
+          }
+          
+          // Helper: extract all agentBox destinations from any data structure
+          const extractAgentBoxDestinations = (data: any): Set<number> => {
+            const boxNumbers = new Set<number>()
+            
+            // Check canonical executionSections
+            data?.executionSections?.forEach((sec: any) => {
+              sec.destinations?.forEach((d: any) => {
+                if (d.kind === 'agentBox' && d.agents?.length > 0) {
+                  d.agents.forEach((val: string) => {
+                    const boxNum = parseBoxNumber(val)
+                    if (boxNum !== null) boxNumbers.add(boxNum)
+                  })
+                }
+              })
+              // Also check specialDestinations in sections
+              sec.specialDestinations?.forEach((d: any) => {
+                if (d.kind === 'agentBox' && d.agents?.length > 0) {
+                  d.agents.forEach((val: string) => {
+                    const boxNum = parseBoxNumber(val)
+                    if (boxNum !== null) boxNumbers.add(boxNum)
+                  })
+                }
+              })
+            })
+            
+            // Check legacy execution.specialDestinations
+            data?.execution?.specialDestinations?.forEach((d: any) => {
+              if (d.kind === 'agentBox' && d.agents?.length > 0) {
+                d.agents.forEach((val: string) => {
+                  const boxNum = parseBoxNumber(val)
+                  if (boxNum !== null) boxNumbers.add(boxNum)
+                })
+              }
+            })
+            
+            // Check legacy execution.executionSections
+            data?.execution?.executionSections?.forEach((sec: any) => {
+              sec.specialDestinations?.forEach((d: any) => {
+                if (d.kind === 'agentBox' && d.agents?.length > 0) {
+                  d.agents.forEach((val: string) => {
+                    const boxNum = parseBoxNumber(val)
+                    if (boxNum !== null) boxNumbers.add(boxNum)
+                  })
+                }
+              })
+              sec.destinations?.forEach((d: any) => {
+                if (d.kind === 'agentBox' && d.agents?.length > 0) {
+                  d.agents.forEach((val: string) => {
+                    const boxNum = parseBoxNumber(val)
+                    if (boxNum !== null) boxNumbers.add(boxNum)
+                  })
+                }
+              })
+            })
+            
+            return boxNumbers
+          }
+          
+          // Initialize results
+          let allBoxes: any[] = []
+          let referencedBoxNumbers = new Set<number>()
+          let freshAgentConfig: any = null
+          
+          // STEP 1: Fetch FRESH data from SQLite (single source of truth)
+          if (sessionKey) {
+            try {
+              const sqliteData = await new Promise<any>((resolve) => {
+                chrome.runtime.sendMessage({
+                  type: 'GET_SESSION_FROM_SQLITE',
+                  sessionKey: sessionKey
+                }, (response) => {
+                  if (chrome.runtime.lastError || !response?.success) {
+                    console.warn('⚠️ Could not fetch from SQLite:', chrome.runtime.lastError?.message)
+                    resolve(null)
+                  } else {
+                    resolve(response.session)
+                  }
+                })
+              })
+              
+              if (sqliteData) {
+                // Get FRESH agent boxes from SQLite
+                allBoxes = sqliteData.agentBoxes || []
+                console.log(`📊 Export: Found ${allBoxes.length} agent boxes in SQLite`)
+                
+                // Get FRESH agent config from SQLite
+                const freshAgent = sqliteData.agents?.find((a: any) => 
+                  a.key === agentKey || a.name === agentKey
+                )
+                if (freshAgent?.config) {
+                  freshAgentConfig = freshAgent.config
+                  console.log(`📊 Export: Found fresh agent config in SQLite for ${agentKey}`)
+                }
+              }
+            } catch (e) {
+              console.warn('⚠️ Error fetching from SQLite:', e)
+            }
+          }
+          
+          // STEP 2: Extract referenced box numbers from FRESH agent config (or fall back to current)
+          // Priority: SQLite agent config > canonical > previouslySavedData
+          if (freshAgentConfig) {
+            referencedBoxNumbers = extractAgentBoxDestinations(freshAgentConfig)
+            console.log(`📊 Export: Using FRESH config - Found ${referencedBoxNumbers.size} referenced boxes`)
+          } else {
+            // Fall back to canonical (derived from previouslySavedData)
+            referencedBoxNumbers = extractAgentBoxDestinations(canonical)
+            const prevRefs = extractAgentBoxDestinations(previouslySavedData)
+            prevRefs.forEach(n => referencedBoxNumbers.add(n))
+            console.log(`📊 Export: Using CACHED config - Found ${referencedBoxNumbers.size} referenced boxes`)
+          }
+          
+          const hasAgentBoxDestination = referencedBoxNumbers.size > 0
+          
+          // STEP 3: Find connected boxes (must be BOTH referenced AND allocated to this agent)
+          let connectedBoxes: any[] = []
+          
+          if (agentNumberValue && allBoxes.length > 0) {
+            console.log(`📊 Export: Checking ${allBoxes.length} boxes for agent #${agentNumberValue}`)
+            console.log(`📊 Export: Referenced box numbers: [${Array.from(referencedBoxNumbers).join(', ')}]`)
+            
+            connectedBoxes = allBoxes.filter((box: any) => {
+              // Skip disabled boxes
+              if (box.enabled === false) return false
+              
+              // Check if box is referenced in agent's destinations
+              const isReferenced = referencedBoxNumbers.has(box.boxNumber)
+              
+              // Check if box is allocated to this agent
+              const isAllocated = box.agentNumber === agentNumberValue
+              
+              // Log each box check for debugging
+              const matches = isReferenced && isAllocated
+              if (isReferenced || isAllocated) {
+                console.log(`  Box ${box.identifier || box.id}: boxNum=${box.boxNumber}, agentNum=${box.agentNumber} → referenced=${isReferenced}, allocated=${isAllocated}, connected=${matches}`)
+              }
+              
+              return matches
+            })
+            
+            console.log(`📊 Export: Found ${connectedBoxes.length} connected boxes`)
+          } else if (!agentNumberValue) {
+            console.log(`⚠️ Export: Agent has no number assigned, cannot detect connections`)
+          } else if (allBoxes.length === 0) {
+            console.log(`⚠️ Export: No agent boxes found in session`)
+          }
+          
+          
+          // ─────────────────────────────────────────────────────────────────────
+          // SHOW EXPORT DIALOG
+          // ─────────────────────────────────────────────────────────────────────
+          
+          const exportDialog = document.createElement('div')
+          exportDialog.id = 'agent-export-dialog'
+          exportDialog.style.cssText = `
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.8);
+            z-index: 2147483647;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+          `
+          
+          const hasBoxesToShow = connectedBoxes.length > 0
+          
+          exportDialog.innerHTML = `
+            <div style="background: white; border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.3); max-width: 550px; width: 90%; max-height: 85vh; display: flex; flex-direction: column;">
+              <h3 style="margin: 0; padding: 20px 24px; color: #333; font-size: 18px; text-align: center; border-bottom: 1px solid #eee; flex-shrink: 0;">
+                📤 Export Agent Configuration
+              </h3>
+              
+              <div style="flex: 1; overflow-y: auto; padding: 20px 24px;">
+                <!-- Agent Summary -->
+                <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 14px; margin-bottom: 16px;">
+                  <div style="font-weight: bold; color: #334155; margin-bottom: 8px;">
+                    ${canonical.icon || '🤖'} ${canonical.name || 'Agent'}
+                  </div>
+                  <div style="font-size: 12px; color: #64748b; line-height: 1.5;">
+                    <div>ID: <code style="background: #e2e8f0; padding: 2px 6px; border-radius: 4px;">${canonical.id}</code></div>
+                    <div>Agent Number: <strong>${agentNumberValue || 'Not set'}</strong></div>
+                    <div>Triggers: ${canonical.listening?.unifiedTriggers?.length || 0}</div>
+                    <div>Has AgentBox Destination: ${hasAgentBoxDestination ? '✅ Yes' : '❌ No'}</div>
+                  </div>
+                </div>
+                
+                ${hasBoxesToShow ? `
+                <!-- Connected Agent Boxes Section -->
+                <div style="margin-bottom: 16px;">
+                  <div style="font-weight: bold; color: #334155; margin-bottom: 10px; display: flex; align-items: center; gap: 8px;">
+                    <span>📦 Connected Agent Boxes (${connectedBoxes.length})</span>
+                    <span style="font-size: 11px; color: #64748b; font-weight: normal;">(agentNumber = ${agentNumberValue})</span>
+                  </div>
+                  <div style="font-size: 11px; color: #64748b; margin-bottom: 10px;">
+                    These boxes receive output from this agent. Select which to include in export:
+                  </div>
+                  <div id="export-boxes-list" style="display: flex; flex-direction: column; gap: 8px;">
+                    ${connectedBoxes.map((box: any, idx: number) => `
+                      <label style="display: flex; align-items: center; gap: 10px; padding: 10px; background: #fff; border: 1px solid #e2e8f0; border-radius: 6px; cursor: pointer; transition: all 0.15s;">
+                        <input type="checkbox" class="export-box-checkbox" data-box-idx="${idx}" checked style="width: 16px; height: 16px; accent-color: #2563eb;">
+                        <div style="flex: 1;">
+                          <div style="font-weight: 500; color: #334155; font-size: 13px;">
+                            <span style="display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: ${box.color || '#4CAF50'}; margin-right: 6px;"></span>
+                            ${box.title || `Agent Box ${String(box.boxNumber).padStart(2, '0')}`}
+                          </div>
+                          <div style="font-size: 11px; color: #94a3b8;">
+                            ${box.identifier || 'AB??'} • Box #${box.boxNumber} → Agent #${box.agentNumber}
+                            ${box.provider ? ` • ${box.provider}/${box.model || 'auto'}` : ''}
+                          </div>
+                        </div>
+                      </label>
+                    `).join('')}
+                  </div>
+                </div>
+                ` : `
+                <!-- No Connected Boxes -->
+                <div style="background: #fffbeb; border: 1px solid #fcd34d; border-radius: 8px; padding: 14px; margin-bottom: 16px; font-size: 13px; color: #92400e;">
+                  ${!agentNumberValue ? `
+                    <strong>⚠️ Agent Number not set</strong><br>
+                    Set an Agent Number in the form to enable Agent Box connections.
+                  ` : !hasAgentBoxDestination ? `
+                    <strong>ℹ️ No Agent Box destinations</strong><br>
+                    Add an "agentBox" destination in the Execution section to route output to boxes.
+                  ` : `
+                    <strong>ℹ️ No connected Agent Boxes found</strong><br>
+                    Create an Agent Box with agentNumber = ${agentNumberValue} to connect it to this agent.
+                  `}
+                </div>
+                `}
+                
+                <!-- Export Format Info -->
+                <div style="background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 8px; padding: 12px; font-size: 12px; color: #1e40af;">
+                  <strong>Export includes:</strong>
+                  <ul style="margin: 6px 0 0 0; padding-left: 20px; line-height: 1.6;">
+                    <li>Agent configuration (canonical v2.1.0 format)</li>
+                    ${hasBoxesToShow ? '<li>Selected Agent Box configurations</li>' : ''}
+                    <li>Schema references for LLM generation</li>
+                  </ul>
+                </div>
+              </div>
+              
+              <div style="padding: 16px 24px; border-top: 1px solid #eee; flex-shrink: 0; display: flex; gap: 10px; justify-content: flex-end;">
+                <button id="export-cancel-btn" style="padding: 10px 20px; background: #f1f5f9; border: 1px solid #cbd5e1; color: #475569; border-radius: 6px; cursor: pointer; font-size: 14px;">
+                  Cancel
+                </button>
+                ${hasBoxesToShow ? `
+                <button id="export-agent-only-btn" style="padding: 10px 20px; background: #e2e8f0; border: none; color: #334155; border-radius: 6px; cursor: pointer; font-size: 14px;">
+                  Agent Only
+                </button>
+                <button id="export-with-boxes-btn" style="padding: 10px 20px; background: #2563eb; border: none; color: white; border-radius: 6px; cursor: pointer; font-size: 14px; font-weight: 500;">
+                  Export with Boxes
+                </button>
+                ` : `
+                <button id="export-agent-only-btn" style="padding: 10px 20px; background: #2563eb; border: none; color: white; border-radius: 6px; cursor: pointer; font-size: 14px; font-weight: 500;">
+                  Export Agent
+                </button>
+                `}
+              </div>
+            </div>
+          `
+          
+          document.body.appendChild(exportDialog)
+          
+          // ─────────────────────────────────────────────────────────────────────
+          // EXPORT DIALOG HANDLERS
+          // ─────────────────────────────────────────────────────────────────────
+          
+          const closeDialog = () => exportDialog.remove()
+          
+          exportDialog.querySelector('#export-cancel-btn')?.addEventListener('click', closeDialog)
+          exportDialog.addEventListener('click', (e) => {
+            if (e.target === exportDialog) closeDialog()
           })
           
-          // Show brief success feedback
-          const originalText = exportBtn.innerHTML
-          exportBtn.innerHTML = '✅ Exported!'
-          setTimeout(() => { exportBtn.innerHTML = originalText }, 2000)
+          // Helper to download JSON
+          const downloadJson = (data: any, filename: string) => {
+            const json = JSON.stringify(data, null, 2)
+            const blob = new Blob([json], { type: 'application/json' })
+            const url = URL.createObjectURL(blob)
+            const a = document.createElement('a')
+            a.href = url
+            a.download = filename
+            document.body.appendChild(a)
+            a.click()
+            document.body.removeChild(a)
+            URL.revokeObjectURL(url)
+          }
           
-        } catch (error) {
-          console.error('❌ Export failed:', error)
-          alert('Export failed: ' + (error instanceof Error ? error.message : 'Unknown error'))
-        }
+          // Helper to convert raw box to canonical format
+          const toCanonicalBox = (box: any): any => ({
+            _schemaVersion: '1.0.0',
+            id: box.id,
+            boxNumber: box.boxNumber || box.number || 1,
+            agentNumber: box.agentNumber || 1,
+            identifier: box.identifier || `AB${String(box.boxNumber || 1).padStart(2, '0')}${String(box.agentNumber || 1).padStart(2, '0')}`,
+            agentId: box.agentId || `agent${box.agentNumber || 1}`,
+            title: box.title || `Agent Box ${String(box.boxNumber || 1).padStart(2, '0')}`,
+            color: box.color || '#4CAF50',
+            enabled: box.enabled !== false,
+            provider: box.provider || '',
+            model: box.model || 'auto',
+            tools: box.tools || [],
+            source: box.source || 'master_tab',
+            masterTabId: box.masterTabId || '01',
+            tabIndex: box.tabIndex || 1,
+            side: box.side,
+            slotId: box.slotId,
+            gridSessionId: box.gridSessionId,
+            locationId: box.locationId,
+            locationLabel: box.locationLabel,
+          })
+          
+          // Export agent only
+          exportDialog.querySelector('#export-agent-only-btn')?.addEventListener('click', () => {
+            downloadJson(canonical, `agent-${canonical.name || 'export'}-${new Date().toISOString().slice(0, 10)}.json`)
+            console.log('✅ Agent exported successfully (canonical format v2.1.0)!')
+            closeDialog()
+            
+            const originalText = exportBtn.innerHTML
+            exportBtn.innerHTML = '✅ Exported!'
+            setTimeout(() => { exportBtn.innerHTML = originalText }, 2000)
+          })
+          
+          // Export with selected boxes
+          exportDialog.querySelector('#export-with-boxes-btn')?.addEventListener('click', () => {
+            // Get selected boxes
+            const checkboxes = exportDialog.querySelectorAll('.export-box-checkbox:checked') as NodeListOf<HTMLInputElement>
+            const selectedBoxes: any[] = []
+            const selectedIdentifiers: string[] = []
+            
+            checkboxes.forEach((cb) => {
+              const idx = parseInt(cb.getAttribute('data-box-idx') || '0')
+              if (connectedBoxes[idx]) {
+                const canonicalBox = toCanonicalBox(connectedBoxes[idx])
+                selectedBoxes.push(canonicalBox)
+                selectedIdentifiers.push(canonicalBox.identifier)
+              }
+            })
+            
+            // Fix agent destinations to use actual box identifiers
+            // This ensures referential integrity between agent and boxes
+            const fixedAgent = JSON.parse(JSON.stringify(canonical))
+            if (fixedAgent.executionSections) {
+              fixedAgent.executionSections.forEach((sec: any) => {
+                if (sec.destinations) {
+                  sec.destinations.forEach((dest: any) => {
+                    if (dest.kind === 'agentBox') {
+                      // Replace placeholder agents array with actual identifiers
+                      dest.agents = selectedIdentifiers
+                    }
+                  })
+                }
+              })
+            }
+            
+            // Create combined export
+            const combinedExport = {
+              _exportVersion: '1.0.0',
+              _exportedAt: new Date().toISOString(),
+              _source: 'Optimando AI Extension',
+              _helper: 'This export contains an agent and its connected agent boxes. ROUTING: (1) Agent has destinations with kind=agentBox, (2) Agent.number matches AgentBox.agentNumber determines which boxes receive output. The agents[] array contains AgentBox.identifier values (format ABxxyy) for reference.',
+              
+              agent: fixedAgent,
+              
+              connectedAgentBoxes: selectedBoxes,
+              
+              connectionInfo: {
+                agentNumber: agentNumberValue,
+                connectedBoxCount: selectedBoxes.length,
+                hasAgentBoxDestination: hasAgentBoxDestination,
+                boxIdentifiers: selectedIdentifiers,
+              }
+            }
+            
+            downloadJson(combinedExport, `agent-with-boxes-${canonical.name || 'export'}-${new Date().toISOString().slice(0, 10)}.json`)
+            console.log('✅ Agent + Agent Boxes exported successfully!', {
+              agent: canonical.name,
+              boxCount: selectedBoxes.length,
+              boxIdentifiers: selectedIdentifiers
+            })
+            closeDialog()
+            
+            const originalText = exportBtn.innerHTML
+            exportBtn.innerHTML = '✅ Exported!'
+            setTimeout(() => { exportBtn.innerHTML = originalText }, 2000)
+          })
+          
+            } catch (error) {
+              console.error('❌ Export failed:', error)
+              exportBtn.innerHTML = originalText
+              ;(exportBtn as HTMLButtonElement).disabled = false
+              alert('Export failed: ' + (error instanceof Error ? error.message : 'Unknown error'))
+            } finally {
+              // Restore button state if not already done
+              if (exportBtn.innerHTML === '⏳ Loading...') {
+                exportBtn.innerHTML = originalText
+                ;(exportBtn as HTMLButtonElement).disabled = false
+              }
+            }
+          }, 10) // Small delay to let UI update
+        })
       }
     }
 
@@ -22776,296 +23132,56 @@ function initializeExtension() {
       }
     }
 
-    // Schema download handler - downloads the master agent JSON schema
+    // Schema download handler - uses async TypeSystemService (lazy-loaded, cached)
     const schemaBtn = document.getElementById('ag-schema-btn')
     if (schemaBtn) {
       schemaBtn.onclick = async () => {
+        const originalText = schemaBtn.innerHTML
+        schemaBtn.innerHTML = '⏳'
+        ;(schemaBtn as HTMLButtonElement).disabled = true
+        
         try {
-          console.log('📋 Downloading agent schema...')
+          console.log('📋 Downloading unified master schema (async)...')
           
-          // The master agent schema (v2.1.0)
-          const agentSchema = {
-            "$schema": "http://json-schema.org/draft-07/schema#",
-            "$id": "https://optimando.ai/schemas/agent.schema.json",
-            "title": "Optimando AI Agent Configuration",
-            "description": "Canonical schema for AI agent configurations (v2.1.0). Agents are configurable units that listen for events, reason about context, and execute actions.",
-            "type": "object",
-            "required": ["_schemaVersion", "id", "name", "enabled", "capabilities", "contextSettings", "memorySettings"],
-            "properties": {
-              "$schema": { "type": "string", "description": "Reference to this schema file." },
-              "_schemaVersion": { "type": "string", "const": "2.1.0", "description": "Schema version." },
-              "_exportedAt": { "type": "string", "format": "date-time" },
-              "id": { "type": "string", "description": "Unique identifier for this agent." },
-              "name": { "type": "string", "description": "Command identifier to reference this agent." },
-              "description": { "type": "string", "description": "Human-readable description." },
-              "icon": { "type": "string", "description": "Emoji/icon for visual identification.", "default": "🤖" },
-              "number": { "type": "integer", "description": "Numeric ID for Agent Boxes." },
-              "enabled": { "type": "boolean", "default": true },
-              "capabilities": {
-                "type": "array",
-                "items": { "type": "string", "enum": ["listening", "reasoning", "execution"] }
-              },
-              "contextSettings": {
-                "type": "object",
-                "properties": {
-                  "agentContext": { "type": "boolean" },
-                  "sessionContext": { "type": "boolean" },
-                  "accountContext": { "type": "boolean" }
-                }
-              },
-              "memorySettings": {
-                "type": "object",
-                "properties": {
-                  "agentEnabled": { "type": "boolean" },
-                  "sessionEnabled": { "type": "boolean" },
-                  "accountEnabled": { "type": "boolean" }
-                }
-              },
-              "listening": {
-                "type": "object",
-                "description": "Listener configuration - how the agent detects events.",
-                "properties": {
-                  "expectedContext": { "type": "string" },
-                  "tags": { "type": "array", "items": { "type": "string" } },
-                  "sources": { 
-                    "type": "array", 
-                    "items": { "type": "string", "enum": ["all", "chat", "voice", "voicememo", "video", "email", "whatsapp", "pdf", "docs", "dom", "api", "workflow", "agent", "screenshot", "stream"] }
-                  },
-                  "website": { "type": "string" },
-                  "unifiedTriggers": {
-                    "type": "array",
-                    "description": "Primary trigger list - single source of truth for listener wiring.",
-                    "items": {
-                      "type": "object",
-                      "required": ["id", "type", "enabled"],
-                      "properties": {
-                        "id": { "type": "string" },
-                        "type": { "type": "string", "enum": ["direct_tag", "tag_and_condition", "workflow_condition", "dom_event", "dom_parser", "augmented_overlay", "agent", "miniapp", "manual"] },
-                        "enabled": { "type": "boolean" },
-                        "parserTrigger": { "type": "string", "enum": ["page_load", "dom_change", "interval", "button_click", "manual"] },
-                        "parserInterval": { "type": "integer" },
-                        "siteFilters": { "type": "array", "items": { "type": "string" } },
-                        "buttonSelectors": { "type": "array", "items": { "type": "string" } },
-                        "inputSelectors": { "type": "array", "items": { "type": "string" } },
-                        "outputSelectors": { "type": "array", "items": { "type": "string" } },
-                        "responseReadyMode": { "type": "string", "enum": ["first_change", "quiet_period", "selector_signal"] },
-                        "captureInput": { "type": "boolean" },
-                        "captureOutput": { "type": "boolean" },
-                        "captureUrl": { "type": "boolean" },
-                        "capturePageTitle": { "type": "boolean" }
-                      }
-                    }
-                  }
-                }
-              },
-              "reasoningSections": {
-                "type": "array",
-                "description": "Reasoning sections - how the agent processes input. First element is main section.",
-                "items": {
-                  "type": "object",
-                  "required": ["applyForList"],
-                  "properties": {
-                    "applyForList": { "type": "array", "items": { "type": "string" } },
-                    "goals": { "type": "string", "description": "System instructions/goals." },
-                    "role": { "type": "string", "description": "Agent role/persona." },
-                    "rules": { "type": "string", "description": "Hard requirements." },
-                    "custom": { "type": "array" },
-                    "acceptFrom": { "type": "array", "items": { "type": "string" } },
-                    "memoryContext": { "type": "object" },
-                    "reasoningWorkflows": { "type": "array" }
-                  }
-                }
-              },
-              "executionSections": {
-                "type": "array",
-                "description": "Execution sections - how the agent delivers output. First element is main section.",
-                "items": {
-                  "type": "object",
-                  "required": ["applyForList", "executionMode"],
-                  "properties": {
-                    "applyForList": { "type": "array", "items": { "type": "string" } },
-                    "executionMode": { "type": "string", "enum": ["agent_workflow", "direct_response", "workflow_only", "hybrid"] },
-                    "destinations": {
-                      "type": "array",
-                      "items": {
-                        "type": "object",
-                        "properties": {
-                          "kind": { "type": "string", "enum": ["agentBox", "chat", "email", "webhook", "storage", "notification"] },
-                          "agents": { "type": "array", "items": { "type": "string" } }
-                        }
-                      }
-                    },
-                    "executionWorkflows": { "type": "array" }
-                  }
-                }
-              },
-              "agentContextFiles": { "type": "array" }
-            },
-            "_meta": {
-              "deprecatedFields": ["passiveEnabled", "activeEnabled", "reasoning", "execution", "triggers", "workflows", "specialDestinations", "applyFor"]
-            }
-          }
+          // Dynamic import for code splitting - schema only loaded when needed
+          const { downloadMasterSchema } = await import('./services/TypeSystemService')
+          await downloadMasterSchema()
           
-          const json = JSON.stringify(agentSchema, null, 2)
-          const blob = new Blob([json], { type: 'application/json' })
-          const url = URL.createObjectURL(blob)
-          
-          const a = document.createElement('a')
-          a.href = url
-          a.download = 'agent.schema.json'
-          document.body.appendChild(a)
-          a.click()
-          document.body.removeChild(a)
-          URL.revokeObjectURL(url)
-          
-          console.log('✅ Agent schema downloaded!')
-          
-          // Brief feedback
-          const originalText = schemaBtn.innerHTML
+          console.log('✅ Unified master schema downloaded!')
           schemaBtn.innerHTML = '✓'
           setTimeout(() => { schemaBtn.innerHTML = originalText }, 1500)
-          
         } catch (error) {
           console.error('❌ Schema download failed:', error)
           alert('Schema download failed. Check console for details.')
+        } finally {
+          ;(schemaBtn as HTMLButtonElement).disabled = false
         }
       }
     }
 
-    // Template download handler - downloads a canonical example agent JSON
-    // Use this as a starting point for creating new agents or to show LLMs how agents should look
+    // Template download handler - uses async TypeSystemService (lazy-loaded, cached)
     const templateBtn = document.getElementById('ag-template-btn')
     if (templateBtn) {
       templateBtn.onclick = async () => {
+        const originalText = templateBtn.innerHTML
+        templateBtn.innerHTML = '⏳'
+        ;(templateBtn as HTMLButtonElement).disabled = true
+        
         try {
-          console.log('📄 Downloading agent template...')
+          console.log('📄 Downloading unified template (async)...')
           
-          // Canonical example agent (matches example-agent.json in schemas/)
-          const exampleAgent = {
-            "$schema": "./agent.schema.json",
-            "_schemaVersion": "2.1.0",
-            "_exportedAt": new Date().toISOString(),
-            "_source": "Optimando AI Extension - Template",
-            "id": "my-new-agent",
-            "name": "my-agent-name",
-            "description": "Describe what this agent does. Be specific about its purpose, when it activates, and what output it produces.",
-            "icon": "🤖",
-            "number": 1,
-            "enabled": true,
-            "capabilities": ["listening", "reasoning", "execution"],
-            "contextSettings": {
-              "agentContext": true,
-              "sessionContext": true,
-              "accountContext": false
-            },
-            "memorySettings": {
-              "agentEnabled": true,
-              "sessionEnabled": false,
-              "accountEnabled": false
-            },
-            "listening": {
-              "expectedContext": "keywords describing when this agent should activate",
-              "tags": [],
-              "sources": ["dom"],
-              "website": "*example.com/*",
-              "unifiedTriggers": [
-                {
-                  "id": "TRIGGER01",
-                  "type": "dom_parser",
-                  "enabled": true,
-                  "channel": "dom",
-                  "parserTrigger": "button_click",
-                  "siteFilters": ["https://example.com/*"],
-                  "buttonSelectors": ["button[type='submit']", "button[aria-label='Send']"],
-                  "autoDetectSelectors": false,
-                  "triggerOnEnterKey": true,
-                  "enterKeyIgnoreShift": true,
-                  "captureInput": true,
-                  "inputSelectors": ["textarea", "input[type='text']"],
-                  "captureOutput": true,
-                  "outputSelectors": ["div.response", "div.output"],
-                  "responseReadyMode": "quiet_period",
-                  "quietPeriodMs": 2000,
-                  "maxWaitTimeMs": 60000,
-                  "captureUrl": true,
-                  "capturePageTitle": true,
-                  "metaSelectors": [],
-                  "sanitizeTrim": true,
-                  "sanitizeStripMarkdown": false,
-                  "sanitizeRemoveBoilerplate": false,
-                  "domParserRules": [],
-                  "sensorWorkflows": [],
-                  "allowedActions": []
-                }
-              ],
-              "exampleFiles": []
-            },
-            "reasoningSections": [
-              {
-                "applyForList": ["TRIGGER01"],
-                "goals": "Define the main objective and instructions for how this agent should process input. Be specific about what analysis or transformation to perform.",
-                "role": "Agent Role/Persona",
-                "rules": "List any hard requirements, constraints, or formatting rules the agent must follow.",
-                "custom": [],
-                "acceptFrom": ["dom"],
-                "memoryContext": {
-                  "agentEnabled": true,
-                  "sessionEnabled": false,
-                  "accountEnabled": false
-                },
-                "reasoningWorkflows": []
-              }
-            ],
-            "executionSections": [
-              {
-                "applyForList": ["TRIGGER01"],
-                "executionMode": "agent_workflow",
-                "destinations": [
-                  {
-                    "kind": "agentBox",
-                    "agents": ["agentBox01"]
-                  }
-                ],
-                "executionWorkflows": []
-              }
-            ],
-            "agentContextFiles": [],
-            "_schemaInfo": {
-              "enums": {
-                "listening.sources": ["all", "chat", "voice", "voicememo", "video", "email", "whatsapp", "pdf", "docs", "dom", "api", "workflow", "agent", "screenshot", "stream"],
-                "executionSection.executionMode": ["agent_workflow", "direct_response", "workflow_only", "hybrid"],
-                "trigger.type": ["direct_tag", "tag_and_condition", "workflow_condition", "dom_event", "dom_parser", "augmented_overlay", "agent", "miniapp", "manual"],
-                "trigger.parserTrigger": ["page_load", "dom_change", "interval", "button_click", "manual"],
-                "trigger.responseReadyMode": ["first_change", "quiet_period", "selector_signal"],
-                "destination.kind": ["agentBox", "chat", "email", "webhook", "storage", "notification"]
-              },
-              "numericFields": ["parserInterval", "quietPeriodMs", "maxWaitTimeMs", "number"],
-              "deprecatedFields": ["passiveEnabled", "activeEnabled", "reasoning", "execution", "triggers", "workflows", "specialDestinations", "applyFor"]
-            }
-          }
+          // Dynamic import for code splitting - template only loaded when needed
+          const { downloadUnifiedTemplate } = await import('./services/TypeSystemService')
+          await downloadUnifiedTemplate()
           
-          const json = JSON.stringify(exampleAgent, null, 2)
-          const blob = new Blob([json], { type: 'application/json' })
-          const url = URL.createObjectURL(blob)
-          
-          const a = document.createElement('a')
-          a.href = url
-          a.download = 'agent.template.json'
-          document.body.appendChild(a)
-          a.click()
-          document.body.removeChild(a)
-          URL.revokeObjectURL(url)
-          
-          console.log('✅ Agent template downloaded!')
-          
-          // Brief feedback
-          const originalHTML = templateBtn.innerHTML
+          console.log('✅ Unified template downloaded!')
           templateBtn.innerHTML = '✓'
-          setTimeout(() => { templateBtn.innerHTML = originalHTML }, 1500)
-          
+          setTimeout(() => { templateBtn.innerHTML = originalText }, 1500)
         } catch (error) {
           console.error('❌ Template download failed:', error)
           alert('Template download failed. Check console for details.')
+        } finally {
+          ;(templateBtn as HTMLButtonElement).disabled = false
         }
       }
     }
@@ -40810,8 +40926,49 @@ ${pageText}
           exportData.uiConfig = sessionData.uiConfig || null
           exportData.helperTabs = sessionData.helperTabs || null
           exportData.displayGrids = sessionData.displayGrids || null
-          exportData.agentBoxes = sessionData.agentBoxes || []
-          exportData.agents = sessionData.agents || []
+          
+          // ─────────────────────────────────────────────────────────────────────
+          // CANONICAL TYPE SYSTEM EXPORT (v2.1.0) - Async via TypeSystemService
+          // Convert agents and agent boxes to the unified schema format
+          // ─────────────────────────────────────────────────────────────────────
+          
+          // Import TypeSystemService dynamically for code splitting
+          const TypeSystemService = await import('./services/TypeSystemService')
+          
+          // Convert to canonical format asynchronously (non-blocking)
+          const rawBoxes = sessionData.agentBoxes || []
+          const rawAgents = sessionData.agents || []
+          
+          const { agents: canonicalAgents, agentBoxes: canonicalAgentBoxes, connectionInfo } = 
+            await TypeSystemService.convertToCanonicalFormat(rawAgents, rawBoxes)
+          
+          // Export in unified schema format
+          exportData.agents = canonicalAgents
+          exportData.agentBoxes = canonicalAgentBoxes
+          exportData.miniApps = [] // Reserved for future
+          exportData.connectionInfo = connectionInfo
+          
+          // Add schema metadata for LLM understanding
+          exportData._typeSystem = {
+            schemaVersion: '2.1.0',
+            schemaUrl: 'https://optimando.ai/schemas/optimando.schema.json',
+            description: 'Session export using unified Optimando schema. Agents and Agent Boxes are in canonical format for LLM-based generation and import.',
+            _schemaInfo: {
+              enums: {
+                'agent.capabilities': ['listening', 'reasoning', 'execution'],
+                'trigger.type': ['direct_tag', 'tag_and_condition', 'workflow_condition', 'dom_event', 'dom_parser', 'augmented_overlay', 'agent', 'miniapp', 'manual'],
+                'destination.kind': ['agentBox', 'chat', 'email', 'webhook', 'storage', 'notification'],
+                'agentBox.provider': ['', 'OpenAI', 'Claude', 'Gemini', 'Grok', 'Local AI', 'Image AI'],
+                'agentBox.source': ['master_tab', 'display_grid']
+              }
+            }
+          }
+          
+          console.log('📦 Converted to canonical format (async):', {
+            agents: canonicalAgents.length,
+            agentBoxes: canonicalAgentBoxes.length,
+            connections: connectionInfo.agentToBoxMapping?.length || 0
+          })
           
           // Derive hybridViews from agent boxes
           // Find all unique masterTabId values (excluding "01" which is the main tab)
@@ -42661,6 +42818,7 @@ ${pageText}
           <div style="display:flex; align-items:center; gap:8px; color:${theme==='professional'?'#0f172a':'white'}; flex:1; min-width:0;">
             <select id="ccd-mode-select" style="font-size:11px; font-weight:600; height:28px; flex-shrink:0; background:${theme==='professional'?'rgba(15,23,42,0.08)':'rgba(255,255,255,0.15)'}; border:1px solid ${br}; color:${theme==='professional'?'#0f172a':'inherit'}; border-radius:6px; padding:0 22px 0 8px; cursor:pointer; outline:none; appearance:none; -webkit-appearance:none; background-image:url(&quot;data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 12 12'%3E%3Cpath fill='${theme==='professional'?'%230f172a':'%23ffffff'}' d='M3 4.5L6 7.5L9 4.5'/%3E%3C/svg%3E&quot;); background-repeat:no-repeat; background-position:right 6px center;">
               <option value="command-chat" style="background:#1e293b; color:white;">💬 WR Chat</option>
+              <option value="augmented-overlay" style="background:#1e293b; color:white;">🎯 Augmented Overlay</option>
               <option value="mailguard" style="background:#1e293b; color:white;">🛡️ WR MailGuard</option>
             </select>
             <div id="ccd-chat-controls" style="display:flex; gap:6px; align-items:center;">
@@ -42682,6 +42840,23 @@ ${pageText}
             <input id="ccd-file" type="file" multiple style="display:none" />
             <button id="ccd-attach" title="Attach" style="height:36px; background:${theme==='professional'?'#e2e8f0':'rgba(255,255,255,0.15)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; cursor:pointer;">📎</button>
             <button id="ccd-send" class="send-btn">Send</button>
+          </div>
+        </div>
+
+        <!-- Augmented Overlay View -->
+        <div id="ccd-overlay-view" style="display:none;">
+          <div id="ccd-overlay-messages" style="height:160px; overflow:auto; display:flex; flex-direction:column; gap:6px; background:${theme==='professional'?'#f8fafc':'rgba(255,255,255,0.06)'}; border-left:0; border-right:0; border-top:0; padding:8px;">
+            <div id="ccd-overlay-hint" style="padding:12px 14px; font-size:12px; opacity:0.8; font-style:italic; background:${theme==='professional'?'rgba(59,130,246,0.08)':'rgba(59,130,246,0.15)'}; border-radius:6px; display:flex; align-items:flex-start; gap:8px; line-height:1.5;">
+              <span style="font-size:16px;">🎯</span>
+              <span>Point with the cursor or select elements in order to ask questions or trigger automations directly in the UI.</span>
+            </div>
+          </div>
+          <div id="ccd-overlay-resize-handle" style="height:5px; background:${theme==='professional'?'#e2e8f0':'rgba(255,255,255,0.15)'}; cursor:ns-resize; border-top:1px solid ${br}; border-bottom:1px solid ${br};"></div>
+          <div id="ccd-overlay-compose" style="display:grid; grid-template-columns:1fr 36px 68px; gap:6px; align-items:center; padding:8px;">
+            <textarea id="ccd-overlay-input" placeholder="Ask about the selected element..." style="box-sizing:border-box; height:36px; resize:vertical; background:${theme==='professional'?'#ffffff':'rgba(255,255,255,0.08)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; padding:8px; font-size:12px;"></textarea>
+            <input id="ccd-overlay-file" type="file" multiple style="display:none" />
+            <button id="ccd-overlay-attach" title="Attach" style="height:36px; background:${theme==='professional'?'#e2e8f0':'rgba(255,255,255,0.15)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; cursor:pointer;">📎</button>
+            <button id="ccd-overlay-send" class="send-btn">Send</button>
           </div>
         </div>
 
@@ -42807,9 +42982,10 @@ ${pageText}
         }
       }
 
-      // Mode switching between Command Chat and MailGuard (docked)
+      // Mode switching between Command Chat, Augmented Overlay, and MailGuard (docked)
       const ccdModeSelect = container.querySelector('#ccd-mode-select') as HTMLSelectElement | null
       const ccdChatView = container.querySelector('#ccd-chat-view') as HTMLElement | null
+      const ccdOverlayView = container.querySelector('#ccd-overlay-view') as HTMLElement | null
       const ccdMailguardView = container.querySelector('#ccd-mailguard-view') as HTMLElement | null
       const ccdChatControls = container.querySelector('#ccd-chat-controls') as HTMLElement | null
       
@@ -42851,17 +43027,23 @@ ${pageText}
         })
       }
       
-      if (ccdModeSelect && ccdChatView && ccdMailguardView) {
+      if (ccdModeSelect && ccdChatView && ccdOverlayView && ccdMailguardView) {
         ccdModeSelect.addEventListener('change', () => {
           const mode = ccdModeSelect.value
+          // Hide all views first
+          ccdChatView.style.display = 'none'
+          ccdOverlayView.style.display = 'none'
+          ccdMailguardView.style.display = 'none'
+          if (ccdChatControls) ccdChatControls.style.display = 'none'
+          
           if (mode === 'command-chat') {
             ccdChatView.style.display = 'block'
-            ccdMailguardView.style.display = 'none'
             if (ccdChatControls) ccdChatControls.style.display = 'flex'
-          } else {
-            ccdChatView.style.display = 'none'
+          } else if (mode === 'augmented-overlay') {
+            ccdOverlayView.style.display = 'block'
+            if (ccdChatControls) ccdChatControls.style.display = 'flex'
+          } else if (mode === 'mailguard') {
             ccdMailguardView.style.display = 'flex'
-            if (ccdChatControls) ccdChatControls.style.display = 'none'
             ccdUpdateMgHint()
           }
         })
@@ -43339,6 +43521,7 @@ ${pageText}
 
             <select id="ccf-mode-select" style="font-size:11px; font-weight:600; background:${theme==='professional'?'rgba(15,23,42,0.08)':'rgba(255,255,255,0.15)'}; border:1px solid ${br}; color:${theme==='professional'?'#0f172a':'inherit'}; border-radius:5px; padding:4px 20px 4px 6px; cursor:pointer; outline:none; appearance:none; -webkit-appearance:none; background-image:url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 12 12'%3E%3Cpath fill='${theme==='professional'?'%230f172a':'%23ffffff'}' d='M3 4.5L6 7.5L9 4.5'/%3E%3C/svg%3E\"); background-repeat:no-repeat; background-position:right 5px center;">
               <option value="command-chat" style="background:#1e293b; color:white;">💬 WR Chat</option>
+              <option value="augmented-overlay" style="background:#1e293b; color:white;">🎯 Augmented Overlay</option>
               <option value="mailguard" style="background:#1e293b; color:white;">🛡️ WR MailGuard</option>
             </select>
 
@@ -43364,6 +43547,20 @@ ${pageText}
           <div id="ccf-compose" style="display:grid; grid-template-columns:1fr 68px; gap:6px; align-items:center; padding:8px;">
             <textarea id="ccf-input" placeholder="Type..." style="box-sizing:border-box; height:36px; resize:vertical; background:${theme==='professional'?'#ffffff':'rgba(255,255,255,0.08)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; padding:8px; font-size:12px;"></textarea>
             <button id="ccf-send" class="send-btn">Send</button>
+          </div>
+        </div>
+
+        <!-- Augmented Overlay View -->
+        <div id="ccf-overlay-view" style="display:none;">
+          <div id="ccf-overlay-messages" style="height:160px; overflow:auto; display:flex; flex-direction:column; gap:6px; background:${theme==='professional'?'#f8fafc':'rgba(255,255,255,0.06)'}; border-left:0; border-right:0; border-top:0; border-bottom:1px solid ${br}; padding:8px;">
+            <div id="ccf-overlay-hint" style="padding:12px 14px; font-size:12px; opacity:0.8; font-style:italic; background:${theme==='professional'?'rgba(59,130,246,0.08)':'rgba(59,130,246,0.15)'}; border-radius:6px; display:flex; align-items:flex-start; gap:8px; line-height:1.5;">
+              <span style="font-size:16px;">🎯</span>
+              <span>Point with the cursor or select elements in order to ask questions or trigger automations directly in the UI.</span>
+            </div>
+          </div>
+          <div id="ccf-overlay-compose" style="display:grid; grid-template-columns:1fr 68px; gap:6px; align-items:center; padding:8px;">
+            <textarea id="ccf-overlay-input" placeholder="Ask about the selected element..." style="box-sizing:border-box; height:36px; resize:vertical; background:${theme==='professional'?'#ffffff':'rgba(255,255,255,0.08)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; padding:8px; font-size:12px;"></textarea>
+            <button id="ccf-overlay-send" class="send-btn">Send</button>
           </div>
         </div>
 
@@ -43564,9 +43761,10 @@ ${pageText}
 
       ;(box.querySelector('#ccf-close') as HTMLButtonElement | null)?.addEventListener('click', ()=> box.remove())
 
-      // Mode switching between Command Chat and MailGuard
+      // Mode switching between Command Chat, Augmented Overlay, and MailGuard
       const modeSelect = box.querySelector('#ccf-mode-select') as HTMLSelectElement | null
       const chatView = box.querySelector('#ccf-chat-view') as HTMLElement | null
+      const overlayView = box.querySelector('#ccf-overlay-view') as HTMLElement | null
       const mailguardView = box.querySelector('#ccf-mailguard-view') as HTMLElement | null
       const chatControls = box.querySelector('#ccf-chat-controls') as HTMLElement | null
       
@@ -43608,17 +43806,23 @@ ${pageText}
         })
       }
       
-      if (modeSelect && chatView && mailguardView) {
+      if (modeSelect && chatView && overlayView && mailguardView) {
         modeSelect.addEventListener('change', () => {
           const mode = modeSelect.value
+          // Hide all views first
+          chatView.style.display = 'none'
+          overlayView.style.display = 'none'
+          mailguardView.style.display = 'none'
+          if (chatControls) chatControls.style.display = 'none'
+          
           if (mode === 'command-chat') {
             chatView.style.display = 'block'
-            mailguardView.style.display = 'none'
             if (chatControls) chatControls.style.display = 'flex'
-          } else {
-            chatView.style.display = 'none'
+          } else if (mode === 'augmented-overlay') {
+            overlayView.style.display = 'block'
+            if (chatControls) chatControls.style.display = 'flex'
+          } else if (mode === 'mailguard') {
             mailguardView.style.display = 'flex'
-            if (chatControls) chatControls.style.display = 'none'
             updateMgHint()
           }
         })

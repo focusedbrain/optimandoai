@@ -14,6 +14,9 @@ export * from './AgentTypeSchema';
 // Canonical agent configuration (v2.1.0)
 export * from './CanonicalAgentConfig';
 
+// Canonical agent box configuration (v1.0.0)
+export * from './CanonicalAgentBoxConfig';
+
 // Agent validation
 export * from './AgentValidator';
 

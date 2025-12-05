@@ -54,7 +54,7 @@ function SidepanelOrchestrator() {
   const [activeMiniApp, setActiveMiniApp] = useState<string | null>(null) // Active mini-app (null = show main UI, 'glassview' = show GlassView)
   
   // Command chat state
-  const [dockedPanelMode, setDockedPanelMode] = useState<'command-chat' | 'mailguard'>('command-chat')
+  const [dockedPanelMode, setDockedPanelMode] = useState<'command-chat' | 'augmented-overlay' | 'mailguard'>('command-chat')
   const [chatMessages, setChatMessages] = useState<Array<{role: 'user' | 'assistant', text: string, imageUrl?: string}>>([])
   const [chatInput, setChatInput] = useState('')
   const [chatHeight, setChatHeight] = useState(200)
@@ -785,8 +785,54 @@ function SidepanelOrchestrator() {
       }
       // Listen for reload request after deletion
       else if (message.type === 'RELOAD_SESSION_FROM_SQLITE') {
-        console.log('🔄 Sidepanel: Reloading session from SQLite after deletion')
-        loadSessionDataFromStorage()
+        const targetSessionKey = message.sessionKey
+        console.log('🔄 Sidepanel: Reloading session from SQLite after deletion, key:', targetSessionKey)
+        
+        // Use specific session key if provided, otherwise get current
+        if (targetSessionKey) {
+          // Fetch the specific session from SQLite
+          chrome.runtime.sendMessage({ 
+            type: 'GET_SESSION_FROM_SQLITE',
+            sessionKey: targetSessionKey 
+          }, (response) => {
+            if (chrome.runtime.lastError) {
+              console.error('❌ Error reloading from SQLite:', chrome.runtime.lastError.message)
+              return
+            }
+            
+            if (!response?.success || !response?.session) {
+              console.log('⚠️ Session not found in SQLite:', targetSessionKey)
+              return
+            }
+            
+            const session = response.session
+            console.log('✅ Reloaded session from SQLite:', session.tabName, 'with', session.agentBoxes?.length || 0, 'boxes')
+            setSessionName(session.tabName || 'Session')
+            setSessionKey(targetSessionKey)
+            setIsLocked(session.isLocked || false)
+            setAgentBoxes(session.agentBoxes || [])
+          })
+        } else {
+          // Fallback: get all sessions and pick most recent
+          chrome.runtime.sendMessage({ type: 'GET_ALL_SESSIONS_FROM_SQLITE' }, (response) => {
+            if (chrome.runtime.lastError || !response?.success || !response?.sessions) {
+              return
+            }
+            
+            const sessionsArray = Object.entries(response.sessions)
+              .map(([key, session]: [string, any]) => ({ key, ...session }))
+              .filter((s: any) => s.timestamp)
+              .sort((a: any, b: any) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+            
+            if (sessionsArray.length > 0) {
+              const mostRecent = sessionsArray[0]
+              setSessionName(mostRecent.tabName || 'Session')
+              setSessionKey(mostRecent.key)
+              setIsLocked(mostRecent.isLocked || false)
+              setAgentBoxes(mostRecent.agentBoxes || [])
+            }
+          })
+        }
       }
     }
 
@@ -2682,7 +2728,7 @@ function SidepanelOrchestrator() {
                 <div style={{ display: 'flex', alignItems: 'center' }}>
                   <select
                     value={dockedPanelMode}
-                    onChange={(e) => setDockedPanelMode(e.target.value as 'command-chat' | 'mailguard')}
+                    onChange={(e) => setDockedPanelMode(e.target.value as 'command-chat' | 'augmented-overlay' | 'mailguard')}
                     style={{
                       fontSize: '11px',
                       fontWeight: '600',
@@ -2703,11 +2749,12 @@ function SidepanelOrchestrator() {
                     }}
                   >
                     <option value="command-chat" style={{ background: '#1e293b', color: 'white' }}>💬 WR Chat</option>
+                    <option value="augmented-overlay" style={{ background: '#1e293b', color: 'white' }}>🎯 Augmented Overlay</option>
                     <option value="mailguard" style={{ background: '#1e293b', color: 'white' }}>🛡️ WR MailGuard</option>
                   </select>
                 </div>
                 <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexShrink: 0 }}>
-                  {dockedPanelMode === 'command-chat' && <>
+                  {(dockedPanelMode === 'command-chat' || dockedPanelMode === 'augmented-overlay') && <>
                     <button 
                       onClick={handleBucketClick}
                       title="Context Bucket: Embed context directly into the session"
@@ -2931,7 +2978,7 @@ function SidepanelOrchestrator() {
               </div>
 
               {/* Command Chat Content - Section 1 (showMinimalUI) */}
-              {dockedPanelMode === 'command-chat' ? (
+              {(dockedPanelMode === 'command-chat' || dockedPanelMode === 'augmented-overlay') ? (
               <>
               {/* Messages Area */}
               <div 
@@ -2949,8 +2996,15 @@ function SidepanelOrchestrator() {
                 }}
               >
                 {chatMessages.length === 0 ? (
-                  <div style={{ fontSize: '13px', opacity: 0.6, textAlign: 'center', padding: '32px 20px' }}>
-                    Start a conversation...
+                  <div style={{ fontSize: '13px', opacity: dockedPanelMode === 'augmented-overlay' ? 0.8 : 0.6, textAlign: 'center', padding: '32px 20px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px' }}>
+                    {dockedPanelMode === 'augmented-overlay' ? (
+                      <>
+                        <span style={{ fontSize: '24px' }}>🎯</span>
+                        <span>Point with the cursor or select elements in order to ask questions or trigger automations directly in the UI.</span>
+                      </>
+                    ) : (
+                      'Start a conversation...'
+                    )}
                   </div>
                 ) : (
                   chatMessages.map((msg: any, i) => (
@@ -3714,6 +3768,7 @@ Write your message with the confidence that it will be protected by WRGuard encr
                   }}
                 >
                   <option value="command-chat" style={{ background: '#1e293b', color: 'white' }}>💬 WR Chat</option>
+                  <option value="augmented-overlay" style={{ background: '#1e293b', color: 'white' }}>🎯 Augmented Overlay</option>
                   <option value="mailguard" style={{ background: '#1e293b', color: 'white' }}>🛡️ WR MailGuard</option>
                 </select>
               </div>
@@ -3942,7 +3997,7 @@ Write your message with the confidence that it will be protected by WRGuard encr
             </div>
 
             {/* SECTION 2 - Conditional Content based on mode */}
-            {dockedPanelMode === 'command-chat' ? (
+            {(dockedPanelMode === 'command-chat' || dockedPanelMode === 'augmented-overlay') ? (
               <>
                 {/* Messages Area */}
                 <div 
@@ -3960,8 +4015,15 @@ Write your message with the confidence that it will be protected by WRGuard encr
                   }}
                 >
                   {chatMessages.length === 0 ? (
-                    <div style={{ fontSize: '13px', opacity: 0.6, textAlign: 'center', padding: '32px 20px' }}>
-                      Start a conversation...
+                    <div style={{ fontSize: '13px', opacity: dockedPanelMode === 'augmented-overlay' ? 0.8 : 0.6, textAlign: 'center', padding: '32px 20px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px' }}>
+                      {dockedPanelMode === 'augmented-overlay' ? (
+                        <>
+                          <span style={{ fontSize: '24px' }}>🎯</span>
+                          <span>Point with the cursor or select elements in order to ask questions or trigger automations directly in the UI.</span>
+                        </>
+                      ) : (
+                        'Start a conversation...'
+                      )}
                     </div>
                   ) : (
                     chatMessages.map((msg: any, i) => (
@@ -4433,6 +4495,7 @@ Write your message with the confidence that it will be protected by WRGuard encr
                   }}
                 >
                   <option value="command-chat" style={{ background: '#1e293b', color: 'white' }}>💬 WR Chat</option>
+                  <option value="augmented-overlay" style={{ background: '#1e293b', color: 'white' }}>🎯 Augmented Overlay</option>
                   <option value="mailguard" style={{ background: '#1e293b', color: 'white' }}>🛡️ WR MailGuard</option>
                 </select>
               </div>
@@ -4661,7 +4724,7 @@ Write your message with the confidence that it will be protected by WRGuard encr
             </div>
 
             {/* SECTION 3 - Conditional Content based on mode */}
-            {dockedPanelMode === 'command-chat' ? (
+            {(dockedPanelMode === 'command-chat' || dockedPanelMode === 'augmented-overlay') ? (
               <>
                 {/* Messages Area */}
                 <div 
@@ -4679,8 +4742,15 @@ Write your message with the confidence that it will be protected by WRGuard encr
                   }}
                 >
                   {chatMessages.length === 0 ? (
-                    <div style={{ fontSize: '13px', opacity: 0.6, textAlign: 'center', padding: '32px 20px' }}>
-                      Start a conversation...
+                    <div style={{ fontSize: '13px', opacity: dockedPanelMode === 'augmented-overlay' ? 0.8 : 0.6, textAlign: 'center', padding: '32px 20px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px' }}>
+                      {dockedPanelMode === 'augmented-overlay' ? (
+                        <>
+                          <span style={{ fontSize: '24px' }}>🎯</span>
+                          <span>Point with the cursor or select elements in order to ask questions or trigger automations directly in the UI.</span>
+                        </>
+                      ) : (
+                        'Start a conversation...'
+                      )}
                     </div>
                   ) : (
                     chatMessages.map((msg: any, i) => (
