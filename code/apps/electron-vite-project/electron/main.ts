@@ -12,6 +12,7 @@ import { captureScreenshot, startRegionStream } from './lmgtfy/capture'
 import { loadPresets, upsertRegion } from './lmgtfy/presets'
 import { registerDbHandlers, testConnection, syncChromeDataToPostgres, getConfig, getPostgresAdapter } from './ipc/db'
 import { handleVaultRPC } from './main/vault/rpc'
+import { activateMailGuard, deactivateMailGuard, updateEmailRows, showSanitizedEmail, closeLightbox, isMailGuardActive } from './mailguard/overlay'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -260,6 +261,36 @@ async function createWindow() {
           return
         }
       } catch {}
+    })
+    
+    // ===== MAILGUARD IPC HANDLERS =====
+    // Handle when user clicks disable in MailGuard overlay
+    ipcMain.on('mailguard-disable', () => {
+      console.log('[MAIN] MailGuard disable requested from overlay')
+      deactivateMailGuard()
+      // Notify extension that MailGuard was disabled
+      wsClients.forEach(client => {
+        try {
+          client.send(JSON.stringify({ type: 'MAILGUARD_DEACTIVATED' }))
+        } catch {}
+      })
+    })
+    
+    // Handle when user clicks "Open Safe Email" button
+    ipcMain.on('mailguard-open-email', (_e, rowId: string) => {
+      console.log('[MAIN] MailGuard open email requested for row:', rowId)
+      // Forward to extension to extract email content
+      wsClients.forEach(client => {
+        try {
+          client.send(JSON.stringify({ type: 'MAILGUARD_EXTRACT_EMAIL', rowId }))
+        } catch {}
+      })
+    })
+    
+    // Handle when lightbox is closed
+    ipcMain.on('mailguard-lightbox-closed', () => {
+      console.log('[MAIN] MailGuard lightbox closed')
+      closeLightbox()
     })
   } catch {}
   // Old IPC handlers (now using simple overlay for screenshots)
@@ -725,6 +756,54 @@ app.whenReady().then(async () => {
                   }))
                 } catch {}
               }
+            }
+            
+            // ===== MAILGUARD HANDLERS =====
+            if (msg.type === 'MAILGUARD_ACTIVATE') {
+              console.log('[MAIN] ===== MAILGUARD_ACTIVATE received =====')
+              try {
+                activateMailGuard()
+                socket.send(JSON.stringify({ type: 'MAILGUARD_ACTIVATED' }))
+                console.log('[MAIN] ✅ MailGuard activated')
+              } catch (err: any) {
+                console.error('[MAIN] ❌ Error activating MailGuard:', err)
+                socket.send(JSON.stringify({ type: 'MAILGUARD_ERROR', error: err?.message || 'Unknown error' }))
+              }
+            }
+            
+            if (msg.type === 'MAILGUARD_DEACTIVATE') {
+              console.log('[MAIN] ===== MAILGUARD_DEACTIVATE received =====')
+              try {
+                deactivateMailGuard()
+                socket.send(JSON.stringify({ type: 'MAILGUARD_DEACTIVATED' }))
+                console.log('[MAIN] ✅ MailGuard deactivated')
+              } catch (err: any) {
+                console.error('[MAIN] ❌ Error deactivating MailGuard:', err)
+              }
+            }
+            
+            if (msg.type === 'MAILGUARD_UPDATE_ROWS') {
+              // Content script sends email row positions
+              try {
+                updateEmailRows(msg.rows || [])
+              } catch (err: any) {
+                console.error('[MAIN] Error updating email rows:', err)
+              }
+            }
+            
+            if (msg.type === 'MAILGUARD_EMAIL_CONTENT') {
+              // Content script sends sanitized email content
+              console.log('[MAIN] Received sanitized email content')
+              try {
+                showSanitizedEmail(msg.email)
+              } catch (err: any) {
+                console.error('[MAIN] Error showing sanitized email:', err)
+              }
+            }
+            
+            if (msg.type === 'MAILGUARD_STATUS') {
+              // Check if MailGuard is active
+              socket.send(JSON.stringify({ type: 'MAILGUARD_STATUS_RESPONSE', active: isMailGuardActive() }))
             }
             if (msg.type === 'SAVE_TRIGGER') {
               // Extension sends back trigger to save in Electron's presets

@@ -113,6 +113,45 @@ function connectToWebSocketServer() {
               // Send to sidepanel/popup
               try { chrome.runtime.sendMessage(message) } catch {}
             })
+          } 
+          // ===== MAILGUARD HANDLERS =====
+          else if (data.type === 'MAILGUARD_ACTIVATED') {
+            console.log('[BG] 🛡️ MailGuard activated')
+            // Forward to Gmail tab
+            chrome.tabs.query({ url: 'https://mail.google.com/*' }, (tabs) => {
+              tabs.forEach(tab => {
+                if (tab.id) {
+                  try { chrome.tabs.sendMessage(tab.id, { type: 'MAILGUARD_ACTIVATED' }) } catch {}
+                }
+              })
+            })
+          } else if (data.type === 'MAILGUARD_DEACTIVATED') {
+            console.log('[BG] 🛡️ MailGuard deactivated')
+            chrome.tabs.query({ url: 'https://mail.google.com/*' }, (tabs) => {
+              tabs.forEach(tab => {
+                if (tab.id) {
+                  try { chrome.tabs.sendMessage(tab.id, { type: 'MAILGUARD_DEACTIVATED' }) } catch {}
+                }
+              })
+            })
+          } else if (data.type === 'MAILGUARD_EXTRACT_EMAIL') {
+            console.log('[BG] 🛡️ MailGuard extract email request:', data.rowId)
+            // Forward to Gmail tab to extract email
+            chrome.tabs.query({ url: 'https://mail.google.com/*', active: true }, (tabs) => {
+              const tab = tabs[0]
+              if (tab?.id) {
+                try { chrome.tabs.sendMessage(tab.id, { type: 'MAILGUARD_EXTRACT_EMAIL', rowId: data.rowId }) } catch {}
+              }
+            })
+          } else if (data.type === 'MAILGUARD_STATUS_RESPONSE') {
+            console.log('[BG] 🛡️ MailGuard status:', data.active)
+            chrome.tabs.query({ url: 'https://mail.google.com/*' }, (tabs) => {
+              tabs.forEach(tab => {
+                if (tab.id) {
+                  try { chrome.tabs.sendMessage(tab.id, { type: 'MAILGUARD_STATUS_RESPONSE', active: data.active }) } catch {}
+                }
+              })
+            })
           }
         }
       } catch (error) {
@@ -622,6 +661,57 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       sendResponse({ success: true, data: status });
       chrome.runtime.sendMessage({ type: 'STATUS_UPDATE', data: status });
       break;
+
+    // ===== MAILGUARD MESSAGE HANDLERS =====
+    case 'MAILGUARD_ACTIVATE': {
+      console.log('[BG] 🛡️ MailGuard activate request')
+      if (WS_ENABLED && ws && ws.readyState === WebSocket.OPEN) {
+        try { ws.send(JSON.stringify({ type: 'MAILGUARD_ACTIVATE' })) } catch {}
+        try { sendResponse({ success: true }) } catch {}
+      } else {
+        try { sendResponse({ success: false, error: 'Electron not connected' }) } catch {}
+      }
+      break
+    }
+    
+    case 'MAILGUARD_DEACTIVATE': {
+      console.log('[BG] 🛡️ MailGuard deactivate request')
+      if (WS_ENABLED && ws && ws.readyState === WebSocket.OPEN) {
+        try { ws.send(JSON.stringify({ type: 'MAILGUARD_DEACTIVATE' })) } catch {}
+        try { sendResponse({ success: true }) } catch {}
+      } else {
+        try { sendResponse({ success: false, error: 'Electron not connected' }) } catch {}
+      }
+      break
+    }
+    
+    case 'MAILGUARD_UPDATE_ROWS': {
+      // Content script sends email row positions to forward to Electron
+      if (WS_ENABLED && ws && ws.readyState === WebSocket.OPEN) {
+        try { ws.send(JSON.stringify({ type: 'MAILGUARD_UPDATE_ROWS', rows: msg.rows })) } catch {}
+      }
+      break
+    }
+    
+    case 'MAILGUARD_EMAIL_CONTENT': {
+      // Content script sends sanitized email content to forward to Electron
+      console.log('[BG] 🛡️ Forwarding sanitized email to Electron')
+      if (WS_ENABLED && ws && ws.readyState === WebSocket.OPEN) {
+        try { ws.send(JSON.stringify({ type: 'MAILGUARD_EMAIL_CONTENT', email: msg.email })) } catch {}
+      }
+      break
+    }
+    
+    case 'MAILGUARD_STATUS': {
+      // Check if MailGuard is active
+      if (WS_ENABLED && ws && ws.readyState === WebSocket.OPEN) {
+        try { ws.send(JSON.stringify({ type: 'MAILGUARD_STATUS' })) } catch {}
+        try { sendResponse({ success: true }) } catch {}
+      } else {
+        try { sendResponse({ success: false, active: false }) } catch {}
+      }
+      break
+    }
 
     case 'DISPLAY_GRIDS_OPENED': {
       // Display grids were opened - minimize sidepanel (only on display grid tabs, not master tabs)
