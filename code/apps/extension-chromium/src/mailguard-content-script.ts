@@ -443,8 +443,18 @@ async function activateMailGuard(): Promise<void> {
   document.head.appendChild(style)
   
   try {
+    // Get window position to determine which display to use
+    const windowInfo = {
+      screenX: window.screenX,
+      screenY: window.screenY,
+      innerWidth: window.innerWidth,
+      innerHeight: window.innerHeight,
+      outerWidth: window.outerWidth,
+      outerHeight: window.outerHeight
+    }
+    console.log('[MailGuard] Window position:', windowInfo)
     console.log('[MailGuard] Sending MAILGUARD_ACTIVATE to background...')
-    const response = await sendToBackground({ type: 'MAILGUARD_ACTIVATE' })
+    const response = await sendToBackground({ type: 'MAILGUARD_ACTIVATE', windowInfo })
     console.log('[MailGuard] Response from background:', response)
     
     statusDiv.remove()

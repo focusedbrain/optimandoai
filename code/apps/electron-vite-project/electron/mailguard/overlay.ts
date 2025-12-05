@@ -7,7 +7,7 @@
  * - Displays sanitized emails in a lightbox
  */
 
-import { BrowserWindow, screen } from 'electron'
+import { BrowserWindow, screen, Display } from 'electron'
 
 let mailguardOverlay: BrowserWindow | null = null
 let isActive = false
@@ -30,17 +30,18 @@ export interface SanitizedEmail {
 }
 
 /**
- * Activate MailGuard overlay on the primary display
+ * Activate MailGuard overlay on the specified display (or primary if not specified)
  */
-export function activateMailGuard(): void {
+export function activateMailGuard(targetDisplay?: Display): void {
   if (mailguardOverlay) {
-    console.log('[MAILGUARD] Already active')
-    return
+    console.log('[MAILGUARD] Already active, closing existing overlay first')
+    mailguardOverlay.close()
+    mailguardOverlay = null
   }
 
-  console.log('[MAILGUARD] Activating overlay...')
-  const primaryDisplay = screen.getPrimaryDisplay()
-  const { x, y, width, height } = primaryDisplay.bounds
+  const display = targetDisplay || screen.getPrimaryDisplay()
+  console.log('[MAILGUARD] Activating overlay on display:', display.id, 'bounds:', display.bounds)
+  const { x, y, width, height } = display.bounds
 
   mailguardOverlay = new BrowserWindow({
     x,

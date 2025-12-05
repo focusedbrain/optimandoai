@@ -761,10 +761,19 @@ app.whenReady().then(async () => {
             // ===== MAILGUARD HANDLERS =====
             if (msg.type === 'MAILGUARD_ACTIVATE') {
               console.log('[MAIN] ===== MAILGUARD_ACTIVATE received =====')
+              console.log('[MAIN] Window info from extension:', msg.windowInfo)
               try {
-                activateMailGuard()
+                // Find the display where the browser window is located
+                let targetDisplay = screen.getPrimaryDisplay()
+                if (msg.windowInfo) {
+                  const { screenX, screenY } = msg.windowInfo
+                  // Find the display that contains this point
+                  targetDisplay = screen.getDisplayNearestPoint({ x: screenX, y: screenY })
+                  console.log('[MAIN] Target display:', targetDisplay.id, 'at', targetDisplay.bounds)
+                }
+                activateMailGuard(targetDisplay)
                 socket.send(JSON.stringify({ type: 'MAILGUARD_ACTIVATED' }))
-                console.log('[MAIN] ✅ MailGuard activated')
+                console.log('[MAIN] ✅ MailGuard activated on display', targetDisplay.id)
               } catch (err: any) {
                 console.error('[MAIN] ❌ Error activating MailGuard:', err)
                 socket.send(JSON.stringify({ type: 'MAILGUARD_ERROR', error: err?.message || 'Unknown error' }))
