@@ -11,6 +11,7 @@ import { BrowserWindow, screen, Display } from 'electron'
 
 let mailguardOverlay: BrowserWindow | null = null
 let isActive = false
+let browserWindowOffset = { x: 0, y: 0, chromeHeight: 0 }
 
 export interface EmailRowRect {
   id: string
@@ -18,6 +19,15 @@ export interface EmailRowRect {
   y: number
   width: number
   height: number
+}
+
+export interface WindowInfo {
+  screenX: number
+  screenY: number
+  innerWidth: number
+  innerHeight: number
+  outerWidth: number
+  outerHeight: number
 }
 
 export interface SanitizedEmail {
@@ -32,7 +42,7 @@ export interface SanitizedEmail {
 /**
  * Activate MailGuard overlay on the specified display (or primary if not specified)
  */
-export function activateMailGuard(targetDisplay?: Display): void {
+export function activateMailGuard(targetDisplay?: Display, windowInfo?: WindowInfo): void {
   if (mailguardOverlay) {
     console.log('[MAILGUARD] Already active, closing existing overlay first')
     mailguardOverlay.close()
@@ -41,7 +51,21 @@ export function activateMailGuard(targetDisplay?: Display): void {
 
   const display = targetDisplay || screen.getPrimaryDisplay()
   console.log('[MAILGUARD] Activating overlay on display:', display.id, 'bounds:', display.bounds)
+  console.log('[MAILGUARD] Window info:', windowInfo)
   const { x, y, width, height } = display.bounds
+  
+  // Calculate browser window offset relative to display
+  if (windowInfo) {
+    const chromeHeight = windowInfo.outerHeight - windowInfo.innerHeight
+    browserWindowOffset = {
+      x: windowInfo.screenX - x,
+      y: windowInfo.screenY - y + chromeHeight,
+      chromeHeight
+    }
+    console.log('[MAILGUARD] Browser window offset:', browserWindowOffset)
+  } else {
+    browserWindowOffset = { x: 0, y: 0, chromeHeight: 0 }
+  }
 
   mailguardOverlay = new BrowserWindow({
     x,
@@ -103,7 +127,13 @@ export function deactivateMailGuard(): void {
  */
 export function updateEmailRows(rows: EmailRowRect[]): void {
   if (mailguardOverlay) {
-    mailguardOverlay.webContents.send('mailguard-rows', rows)
+    // Apply browser window offset to convert viewport coords to screen coords
+    const adjustedRows = rows.map(row => ({
+      ...row,
+      x: row.x + browserWindowOffset.x,
+      y: row.y + browserWindowOffset.y
+    }))
+    mailguardOverlay.webContents.send('mailguard-rows', adjustedRows)
   }
 }
 

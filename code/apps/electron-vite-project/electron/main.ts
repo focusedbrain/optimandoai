@@ -771,7 +771,7 @@ app.whenReady().then(async () => {
                   targetDisplay = screen.getDisplayNearestPoint({ x: screenX, y: screenY })
                   console.log('[MAIN] Target display:', targetDisplay.id, 'at', targetDisplay.bounds)
                 }
-                activateMailGuard(targetDisplay)
+                activateMailGuard(targetDisplay, msg.windowInfo)
                 socket.send(JSON.stringify({ type: 'MAILGUARD_ACTIVATED' }))
                 console.log('[MAIN] ✅ MailGuard activated on display', targetDisplay.id)
               } catch (err: any) {

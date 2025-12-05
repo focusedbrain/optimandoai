@@ -203,15 +203,6 @@ function getEmailRowPositions(): EmailRowRect[] {
   const rows: EmailRowRect[] = []
   emailRowElements.clear()
   
-  // Get browser window offset on screen
-  const screenOffsetX = window.screenX || window.screenLeft || 0
-  const screenOffsetY = window.screenY || window.screenTop || 0
-  
-  // Account for browser chrome (address bar, tabs, etc.)
-  // outerHeight - innerHeight gives us the chrome height
-  const chromeHeight = window.outerHeight - window.innerHeight
-  const chromeWidth = window.outerWidth - window.innerWidth
-  
   // Find Gmail inbox rows - try different selectors
   const rowElements = document.querySelectorAll('tr.zA, tr[role="row"], div[role="row"]')
   
@@ -222,11 +213,11 @@ function getEmailRowPositions(): EmailRowRect[] {
     if (rect.width > 0 && rect.height > 0 && rect.top >= 0 && rect.bottom <= window.innerHeight) {
       const id = `row-${index}`
       
-      // Convert viewport coordinates to screen coordinates
+      // Use viewport coordinates - the overlay script will handle screen positioning
       rows.push({
         id,
-        x: rect.left + screenOffsetX + (chromeWidth / 2),
-        y: rect.top + screenOffsetY + chromeHeight,
+        x: rect.left,
+        y: rect.top,
         width: rect.width,
         height: rect.height
       })
