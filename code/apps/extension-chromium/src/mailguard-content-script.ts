@@ -229,19 +229,25 @@ function getEmailRowPositions(): EmailRowRect[] {
 function startRowPositionUpdates(): void {
   if (rowUpdateInterval) return
   
-  // Update row positions every 500ms
+  // Update row positions every 1000ms (reduced from 500ms for performance)
   rowUpdateInterval = setInterval(() => {
     if (!isMailGuardActive) return
     
     const rows = getEmailRowPositions()
     sendToBackground({ type: 'MAILGUARD_UPDATE_ROWS', rows })
-  }, 500)
+  }, 1000)
   
-  // Also update on scroll
+  // Throttled scroll handler
+  let scrollTimeout: ReturnType<typeof setTimeout> | null = null
   window.addEventListener('scroll', () => {
     if (!isMailGuardActive) return
-    const rows = getEmailRowPositions()
-    sendToBackground({ type: 'MAILGUARD_UPDATE_ROWS', rows })
+    if (scrollTimeout) return // Skip if already scheduled
+    
+    scrollTimeout = setTimeout(() => {
+      scrollTimeout = null
+      const rows = getEmailRowPositions()
+      sendToBackground({ type: 'MAILGUARD_UPDATE_ROWS', rows })
+    }, 200) // Throttle to max 5 updates per second
   }, { passive: true })
 }
 
