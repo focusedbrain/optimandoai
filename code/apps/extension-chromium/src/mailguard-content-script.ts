@@ -57,14 +57,15 @@ const themeColors = {
     shadowColorStrong: 'rgba(168, 85, 247, 0.4)'
   },
   professional: {
-    primary: '#3b82f6',
-    primaryDark: '#2563eb',
-    primaryDarker: '#1d4ed8',
-    bgDark: '#1e3a5f',
-    bgLight: '#1e40af',
-    shadowColor: 'rgba(59, 130, 246, 0.15)',
-    shadowColorMedium: 'rgba(59, 130, 246, 0.3)',
-    shadowColorStrong: 'rgba(59, 130, 246, 0.4)'
+    // Light theme with dark slate accents
+    primary: '#0f172a',
+    primaryDark: '#1e293b',
+    primaryDarker: '#334155',
+    bgDark: '#e2e8f0',
+    bgLight: '#f1f5f9',
+    shadowColor: 'rgba(15, 23, 42, 0.1)',
+    shadowColorMedium: 'rgba(15, 23, 42, 0.15)',
+    shadowColorStrong: 'rgba(15, 23, 42, 0.2)'
   },
   dark: {
     primary: '#64748b',

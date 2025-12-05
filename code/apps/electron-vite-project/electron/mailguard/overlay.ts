@@ -26,13 +26,14 @@ const themeColors = {
     textMedium: '#6b21a8'
   },
   professional: {
-    primary: '#3b82f6',
-    primaryDark: '#2563eb',
-    primaryDarker: '#1d4ed8',
-    bgDark: '#1e3a5f',
-    bgLight: '#eff6ff',
-    textDark: '#1e40af',
-    textMedium: '#1d4ed8'
+    // Light theme with dark slate accents
+    primary: '#0f172a',
+    primaryDark: '#1e293b',
+    primaryDarker: '#334155',
+    bgDark: '#e2e8f0',
+    bgLight: '#f8fafc',
+    textDark: '#0f172a',
+    textMedium: '#1e293b'
   },
   dark: {
     primary: '#64748b',
