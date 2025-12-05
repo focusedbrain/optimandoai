@@ -702,22 +702,33 @@ function getOverlayHtml(): string {
         attachmentsHtml = '<div class="attachments"><div class="attachments-title"><span>📎</span>Attachments</div><div class="attachment-list">' + items + '</div></div>';
       }
       
-      // Info box explaining this is preview-only and how to get full content
-      const apiInfoBox = 
-        '<div class="api-info-box">' +
-          '<div class="api-info-header">' +
-            '<span class="icon">ℹ️</span>' +
-            '<span class="title">Preview Mode</span>' +
-          '</div>' +
-          '<div class="api-info-text">' +
-            'For your protection, only the email preview is shown. The full email content was never loaded or rendered, preventing tracking pixels, scripts, and other potentially harmful content from executing.<br><br>' +
-            'To view full email content securely, you can set up Gmail API access. This allows WR MailGuard to fetch email data directly without rendering it in your browser.' +
-          '</div>' +
-          '<button class="api-setup-btn" id="btn-api-setup">' +
-            '<span class="icon">⚙️</span>' +
-            '<span>Set up Gmail API</span>' +
-          '</button>' +
-        '</div>';
+      // Info box - shows different content based on whether this is preview or full email
+      const isFullEmail = email.body && email.body.length > 200 && !email.body.includes('[Email Preview]')
+      
+      const apiInfoBox = isFullEmail 
+        ? '<div class="api-info-box" style="border-color: #22c55e; background: linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%);">' +
+            '<div class="api-info-header">' +
+              '<span class="icon">✅</span>' +
+              '<span class="title" style="color: #166534;">Full Email via Gmail API</span>' +
+            '</div>' +
+            '<div class="api-info-text" style="color: #14532d;">' +
+              'This email was fetched securely via the Gmail API. No tracking pixels, scripts, or active content were executed.' +
+            '</div>' +
+          '</div>'
+        : '<div class="api-info-box">' +
+            '<div class="api-info-header">' +
+              '<span class="icon">ℹ️</span>' +
+              '<span class="title">Preview Mode</span>' +
+            '</div>' +
+            '<div class="api-info-text">' +
+              'For your protection, only the email preview is shown. The full email content was never loaded or rendered.<br><br>' +
+              'To view full email content securely, set up Gmail API access.' +
+            '</div>' +
+            '<button class="api-setup-btn" id="btn-api-setup">' +
+              '<span class="icon">⚙️</span>' +
+              '<span>Set up Gmail API</span>' +
+            '</button>' +
+          '</div>';
       
       emailContent.innerHTML = 
         '<div class="safe-notice"><span class="icon">🛡️</span><span>This is a secure preview. The email was never opened or rendered.</span></div>' +

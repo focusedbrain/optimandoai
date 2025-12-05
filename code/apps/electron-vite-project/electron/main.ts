@@ -14,6 +14,9 @@ import { registerDbHandlers, testConnection, syncChromeDataToPostgres, getConfig
 import { handleVaultRPC } from './main/vault/rpc'
 import { activateMailGuard, deactivateMailGuard, updateEmailRows, showSanitizedEmail, closeLightbox, isMailGuardActive } from './mailguard/overlay'
 
+// Storage for email row preview data (for Gmail API matching)
+const emailRowPreviewData = new Map<string, { from: string; subject: string }>()
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 // The built directory structure
@@ -277,9 +280,39 @@ async function createWindow() {
     })
     
     // Handle when user clicks "Open Safe Email" button
-    ipcMain.on('mailguard-open-email', (_e, rowId: string) => {
+    ipcMain.on('mailguard-open-email', async (_e, rowId: string) => {
       console.log('[MAIN] MailGuard open email requested for row:', rowId)
-      // Forward to extension to extract email content
+      
+      // Try Gmail API first if authenticated
+      try {
+        const { isGmailApiAuthenticated, findEmailByPreview } = await import('./mailguard/gmail-api')
+        
+        if (isGmailApiAuthenticated()) {
+          console.log('[MAIN] Gmail API is authenticated, trying to fetch via API...')
+          
+          // Get the preview data for this row from storage
+          const rowData = emailRowPreviewData.get(rowId)
+          if (rowData && rowData.from && rowData.subject) {
+            const email = await findEmailByPreview(rowData.from, rowData.subject)
+            if (email) {
+              console.log('[MAIN] Fetched email via Gmail API')
+              showSanitizedEmail({
+                from: email.from,
+                to: email.to,
+                subject: email.subject,
+                date: email.date,
+                body: email.body,
+                attachments: email.attachments.map(a => ({ name: a.name, type: a.type }))
+              })
+              return
+            }
+          }
+        }
+      } catch (err) {
+        console.log('[MAIN] Gmail API not available, falling back to preview:', err)
+      }
+      
+      // Fall back to extension preview extraction
       wsClients.forEach(client => {
         try {
           client.send(JSON.stringify({ type: 'MAILGUARD_EXTRACT_EMAIL', rowId }))
@@ -287,23 +320,177 @@ async function createWindow() {
       })
     })
     
+    
     // Handle when lightbox is closed
     ipcMain.on('mailguard-lightbox-closed', () => {
       console.log('[MAIN] MailGuard lightbox closed')
       closeLightbox()
     })
     
-    // Handle Gmail API setup request (placeholder for future implementation)
-    ipcMain.on('mailguard-api-setup', () => {
+    // Handle Gmail API setup request
+    ipcMain.on('mailguard-api-setup', async () => {
       console.log('[MAIN] Gmail API setup requested')
-      // Show a dialog with coming soon message
-      const { dialog } = require('electron')
-      dialog.showMessageBox({
+      const { dialog, BrowserWindow } = require('electron')
+      const { 
+        isGmailApiAuthenticated, 
+        setOAuthCredentials, 
+        startOAuthFlow,
+        disconnectGmailApi
+      } = await import('./mailguard/gmail-api')
+      
+      // Check current status
+      const authenticated = isGmailApiAuthenticated()
+      
+      if (authenticated) {
+        // Already connected - offer to disconnect
+        const result = await dialog.showMessageBox({
+          type: 'info',
+          title: 'Gmail API Connected',
+          message: 'Gmail API is Connected',
+          detail: 'WR MailGuard is connected to your Gmail account. Full email content will be fetched securely via the API.',
+          buttons: ['Disconnect', 'Keep Connected']
+        })
+        
+        if (result.response === 0) {
+          const { deleteCredentialsFromDisk } = await import('./mailguard/gmail-api')
+          disconnectGmailApi()
+          deleteCredentialsFromDisk()
+          dialog.showMessageBox({
+            type: 'info',
+            title: 'Disconnected',
+            message: 'Gmail API Disconnected',
+            detail: 'You have been disconnected from the Gmail API. Only email previews will be shown.'
+          })
+        }
+        return
+      }
+      
+      // Show setup instructions
+      const setupResult = await dialog.showMessageBox({
         type: 'info',
         title: 'Gmail API Setup',
-        message: 'Gmail API Integration Coming Soon',
-        detail: 'This feature will allow you to view full email content securely without rendering the email in your browser.\n\nThe setup wizard will guide you through:\n• Creating a Google Cloud project\n• Enabling the Gmail API\n• Authorizing WR MailGuard to read your emails\n\nStay tuned for updates!',
-        buttons: ['OK']
+        message: 'Set up Gmail API for Full Email Content',
+        detail: 'To view full email content securely, you need to:\n\n1. Go to Google Cloud Console (console.cloud.google.com)\n2. Create a new project\n3. Enable the Gmail API\n4. Create OAuth 2.0 credentials (Desktop app)\n5. Enter your Client ID and Client Secret below\n\nThis is a one-time setup. Your emails will be fetched directly via API without being rendered.',
+        buttons: ['Enter Credentials', 'Open Google Cloud Console', 'Cancel']
+      })
+      
+      if (setupResult.response === 1) {
+        // Open Google Cloud Console
+        require('electron').shell.openExternal('https://console.cloud.google.com/apis/credentials')
+        return
+      }
+      
+      if (setupResult.response === 2) {
+        return
+      }
+      
+      // Show credentials input dialog
+      const credWindow = new BrowserWindow({
+        width: 500,
+        height: 400,
+        webPreferences: {
+          nodeIntegration: true,
+          contextIsolation: false
+        },
+        title: 'Gmail API Credentials',
+        modal: true,
+        parent: BrowserWindow.getFocusedWindow() || undefined
+      })
+      
+      const html = `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <style>
+            * { box-sizing: border-box; margin: 0; padding: 0; }
+            body { 
+              font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+              padding: 30px;
+              background: #f8fafc;
+            }
+            h2 { color: #0f172a; margin-bottom: 8px; font-size: 20px; }
+            p { color: #64748b; font-size: 13px; margin-bottom: 24px; }
+            label { display: block; color: #374151; font-size: 13px; font-weight: 500; margin-bottom: 6px; }
+            input { 
+              width: 100%; 
+              padding: 10px 12px; 
+              border: 1px solid #d1d5db; 
+              border-radius: 6px; 
+              font-size: 14px;
+              margin-bottom: 16px;
+            }
+            input:focus { outline: none; border-color: #3b82f6; }
+            .buttons { display: flex; gap: 10px; margin-top: 10px; }
+            button {
+              flex: 1;
+              padding: 10px 16px;
+              border: none;
+              border-radius: 6px;
+              font-size: 14px;
+              font-weight: 500;
+              cursor: pointer;
+            }
+            .primary { background: #2563eb; color: white; }
+            .primary:hover { background: #1d4ed8; }
+            .secondary { background: #e5e7eb; color: #374151; }
+            .secondary:hover { background: #d1d5db; }
+          </style>
+        </head>
+        <body>
+          <h2>Enter Gmail API Credentials</h2>
+          <p>Enter the OAuth 2.0 credentials from your Google Cloud project.</p>
+          
+          <label>Client ID</label>
+          <input type="text" id="clientId" placeholder="xxxxx.apps.googleusercontent.com">
+          
+          <label>Client Secret</label>
+          <input type="password" id="clientSecret" placeholder="GOCSPX-xxxxx">
+          
+          <div class="buttons">
+            <button class="secondary" onclick="window.close()">Cancel</button>
+            <button class="primary" onclick="submitCredentials()">Connect</button>
+          </div>
+          
+          <script>
+            const { ipcRenderer } = require('electron');
+            function submitCredentials() {
+              const clientId = document.getElementById('clientId').value.trim();
+              const clientSecret = document.getElementById('clientSecret').value.trim();
+              if (clientId && clientSecret) {
+                ipcRenderer.send('gmail-credentials-submit', { clientId, clientSecret });
+              }
+            }
+          </script>
+        </body>
+        </html>
+      `
+      
+      credWindow.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html))
+      
+      // Handle credentials submission
+      ipcMain.once('gmail-credentials-submit', async (_e, { clientId, clientSecret }) => {
+        credWindow.close()
+        
+        try {
+          const { saveCredentialsToDisk } = await import('./mailguard/gmail-api')
+          setOAuthCredentials(clientId, clientSecret)
+          await startOAuthFlow()
+          saveCredentialsToDisk() // Persist credentials
+          
+          dialog.showMessageBox({
+            type: 'info',
+            title: 'Success',
+            message: 'Gmail API Connected!',
+            detail: 'WR MailGuard is now connected to your Gmail account. Full email content will be fetched securely.'
+          })
+        } catch (err: any) {
+          dialog.showMessageBox({
+            type: 'error',
+            title: 'Connection Failed',
+            message: 'Could not connect to Gmail API',
+            detail: err.message || 'Unknown error occurred'
+          })
+        }
       })
     })
   } catch {}
@@ -570,6 +757,16 @@ app.whenReady().then(async () => {
   createTray()
   console.log('[MAIN] Window and tray created')
   
+  // Load Gmail API credentials if saved
+  try {
+    const { loadCredentialsFromDisk } = await import('./mailguard/gmail-api')
+    if (loadCredentialsFromDisk()) {
+      console.log('[MAIN] Gmail API credentials loaded from disk')
+    }
+  } catch (err) {
+    console.log('[MAIN] Could not load Gmail API credentials:', err)
+  }
+  
   // Initialize LLM services
   try {
     console.log('[MAIN] ===== INITIALIZING LLM SERVICES =====')
@@ -808,7 +1005,18 @@ app.whenReady().then(async () => {
             if (msg.type === 'MAILGUARD_UPDATE_ROWS') {
               // Content script sends email row positions
               try {
-                updateEmailRows(msg.rows || [])
+                const rows = msg.rows || []
+                updateEmailRows(rows)
+                
+                // Store preview data for Gmail API matching
+                rows.forEach((row: any) => {
+                  if (row.id && (row.from || row.subject)) {
+                    emailRowPreviewData.set(row.id, { 
+                      from: row.from || '', 
+                      subject: row.subject || '' 
+                    })
+                  }
+                })
               } catch (err: any) {
                 console.error('[MAIN] Error updating email rows:', err)
               }

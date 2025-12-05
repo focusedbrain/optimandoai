@@ -20,6 +20,9 @@ interface EmailRowRect {
   y: number
   width: number
   height: number
+  // Preview data for Gmail API matching
+  from?: string
+  subject?: string
 }
 
 interface SanitizedEmail {
@@ -77,15 +80,15 @@ function showActivationBanner(): void {
         left: 0;
         right: 0;
         z-index: 2147483647;
-        background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
-        border-bottom: 2px solid #3b82f6;
+        background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+        border-bottom: 2px solid #22c55e;
         padding: 14px 24px;
         display: flex;
         align-items: center;
         justify-content: center;
         gap: 24px;
         font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-        box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+        box-shadow: 0 4px 20px rgba(0,0,0,0.4), 0 0 40px rgba(34, 197, 94, 0.15);
         animation: slideDown 0.3s ease;
       }
       @keyframes slideDown {
@@ -100,9 +103,16 @@ function showActivationBanner(): void {
       }
       .icon { font-size: 28px; }
       .text { font-size: 14px; }
+      .brand {
+        font-size: 10px;
+        color: rgba(255,255,255,0.5);
+        font-weight: 500;
+        letter-spacing: 1px;
+        text-transform: uppercase;
+      }
       .title {
         font-weight: 600;
-        color: #3b82f6;
+        color: #22c55e;
         margin-bottom: 2px;
       }
       .desc {
@@ -117,18 +127,20 @@ function showActivationBanner(): void {
         padding: 10px 20px;
         border-radius: 8px;
         font-size: 13px;
-        font-weight: 500;
+        font-weight: 600;
         cursor: pointer;
         transition: all 0.15s;
         border: none;
       }
       .btn-primary {
-        background: #3b82f6;
+        background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%);
         color: #fff;
+        box-shadow: 0 2px 10px rgba(34, 197, 94, 0.3);
       }
       .btn-primary:hover {
-        background: #2563eb;
+        background: linear-gradient(135deg, #16a34a 0%, #15803d 100%);
         transform: translateY(-1px);
+        box-shadow: 0 4px 15px rgba(34, 197, 94, 0.4);
       }
       .btn-secondary {
         background: transparent;
@@ -144,7 +156,8 @@ function showActivationBanner(): void {
       <div class="content">
         <span class="icon">🛡️</span>
         <div class="text">
-          <div class="title">Enable WR MailGuard Protection?</div>
+          <div class="brand">WR MAILGUARD</div>
+          <div class="title">Enable Email Protection?</div>
           <div class="desc">View emails safely - scripts, tracking, and active content will be blocked</div>
         </div>
       </div>
@@ -213,13 +226,22 @@ function getEmailRowPositions(): EmailRowRect[] {
     if (rect.width > 0 && rect.height > 0 && rect.top >= 0 && rect.bottom <= window.innerHeight) {
       const id = `row-${index}`
       
+      // Extract preview data for Gmail API matching
+      const senderEl = row.querySelector('[email], .yP, .zF, .bA4 span[email], span[name], .yW span')
+      const from = senderEl?.getAttribute('email') || senderEl?.textContent?.trim() || ''
+      
+      const subjectEl = row.querySelector('.bog, .bqe, .y6 span:first-child, .xT .y6')
+      const subject = subjectEl?.textContent?.trim() || ''
+      
       // Use viewport coordinates - the overlay script will handle screen positioning
       rows.push({
         id,
         x: rect.left,
         y: rect.top,
         width: rect.width,
-        height: rect.height
+        height: rect.height,
+        from,
+        subject
       })
       emailRowElements.set(id, row)
     }
