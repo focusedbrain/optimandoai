@@ -777,6 +777,15 @@ app.whenReady().then(async () => {
     registerLlmHandlers()
     console.log('[MAIN] LLM IPC handlers registered')
     
+    // Register Email Gateway handlers
+    try {
+      const { registerEmailHandlers } = await import('./main/email/ipc')
+      registerEmailHandlers()
+      console.log('[MAIN] Email Gateway IPC handlers registered')
+    } catch (emailErr) {
+      console.error('[MAIN] Failed to register email handlers:', emailErr)
+    }
+    
     // Check if Ollama is installed and auto-start if configured
     const installed = await ollamaManager.checkInstalled()
     console.log('[MAIN] Ollama installed:', installed)
