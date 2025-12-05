@@ -73,6 +73,19 @@ function SidepanelOrchestrator() {
   const [mailguardBodyHeight, setMailguardBodyHeight] = useState(200)
   const [isResizingMailguard, setIsResizingMailguard] = useState(false)
   const mailguardFileRef = useRef<HTMLInputElement>(null)
+  
+  // Email Gateway state
+  const [emailAccounts, setEmailAccounts] = useState<Array<{
+    id: string
+    displayName: string
+    email: string
+    provider: 'gmail' | 'microsoft365' | 'imap'
+    status: 'active' | 'error' | 'disabled'
+    lastError?: string
+  }>>([])
+  const [isLoadingEmailAccounts, setIsLoadingEmailAccounts] = useState(false)
+  const [showEmailSetupWizard, setShowEmailSetupWizard] = useState(false)
+  const [emailSetupStep, setEmailSetupStep] = useState<'provider' | 'credentials' | 'connecting'>('provider')
   const [masterTabId, setMasterTabId] = useState<string | null>(null) // For Master Tab (01), (02), (03), etc. (01 = first tab, doesn't show title in UI)
   const [showTriggerPrompt, setShowTriggerPrompt] = useState<{mode: string, rect: any, imageUrl: string, videoUrl?: string, createTrigger: boolean, addCommand: boolean, name?: string, command?: string, bounds?: any} | null>(null)
   const [createTriggerChecked, setCreateTriggerChecked] = useState(false)
@@ -104,6 +117,75 @@ function SidepanelOrchestrator() {
     sessionNameRef.current = sessionName
     connectionStatusRef.current = connectionStatus
   })
+  
+  // Load email accounts from Electron via WebSocket
+  const loadEmailAccounts = async () => {
+    setIsLoadingEmailAccounts(true)
+    try {
+      // Send request to Electron via background script
+      const response = await chrome.runtime.sendMessage({ 
+        type: 'EMAIL_LIST_ACCOUNTS' 
+      })
+      if (response?.ok && response?.data) {
+        setEmailAccounts(response.data)
+      }
+    } catch (err) {
+      console.error('[Sidepanel] Failed to load email accounts:', err)
+    } finally {
+      setIsLoadingEmailAccounts(false)
+    }
+  }
+  
+  // Load email accounts when MailGuard mode is selected
+  useEffect(() => {
+    if (dockedPanelMode === 'mailguard') {
+      loadEmailAccounts()
+    }
+  }, [dockedPanelMode])
+  
+  // Connect Gmail account via Electron
+  const connectGmailAccount = async () => {
+    setEmailSetupStep('connecting')
+    try {
+      const response = await chrome.runtime.sendMessage({ 
+        type: 'EMAIL_CONNECT_GMAIL' 
+      })
+      if (response?.ok) {
+        setShowEmailSetupWizard(false)
+        setEmailSetupStep('provider')
+        loadEmailAccounts()
+        setNotification({ message: 'Gmail connected successfully!', type: 'success' })
+        setTimeout(() => setNotification(null), 3000)
+      } else {
+        setNotification({ message: response?.error || 'Failed to connect Gmail', type: 'error' })
+        setTimeout(() => setNotification(null), 5000)
+        setEmailSetupStep('provider')
+      }
+    } catch (err: any) {
+      console.error('[Sidepanel] Failed to connect Gmail:', err)
+      setNotification({ message: err.message || 'Failed to connect Gmail', type: 'error' })
+      setTimeout(() => setNotification(null), 5000)
+      setEmailSetupStep('provider')
+    }
+  }
+  
+  // Disconnect email account
+  const disconnectEmailAccount = async (accountId: string) => {
+    try {
+      const response = await chrome.runtime.sendMessage({ 
+        type: 'EMAIL_DELETE_ACCOUNT',
+        accountId
+      })
+      if (response?.ok) {
+        loadEmailAccounts()
+        setNotification({ message: 'Account disconnected', type: 'info' })
+        setTimeout(() => setNotification(null), 3000)
+      }
+    } catch (err) {
+      console.error('[Sidepanel] Failed to disconnect account:', err)
+    }
+  }
+  
   const [isLlmLoading, setIsLlmLoading] = useState(false)
   const [llmError, setLlmError] = useState<string | null>(null)
   const [llmRefreshTrigger, setLlmRefreshTrigger] = useState(0)
@@ -3291,13 +3373,336 @@ function SidepanelOrchestrator() {
               </>
               ) : (
                 /* WR MailGuard Email Editor - Section 1 (showMinimalUI) */
-                <div style={{ display: 'flex', flexDirection: 'column', flex: 1, background: theme === 'default' ? 'rgba(118,75,162,0.15)' : (theme === 'professional' ? '#f8fafc' : 'rgba(255,255,255,0.04)') }}>
+                <div style={{ display: 'flex', flexDirection: 'column', flex: 1, background: theme === 'default' ? 'rgba(118,75,162,0.15)' : (theme === 'professional' ? '#f8fafc' : 'rgba(255,255,255,0.04)'), overflowY: 'auto' }}>
                   <style>{`
                     .mg-input::placeholder, .mg-textarea::placeholder {
                       color: ${theme === 'professional' ? '#64748b' : 'rgba(255,255,255,0.5)'};
                       opacity: 1;
                     }
                   `}</style>
+                  
+                  {/* ========================================== */}
+                  {/* EMAIL ACCOUNTS SECTION */}
+                  {/* ========================================== */}
+                  <div style={{ 
+                    padding: '16px 18px', 
+                    borderBottom: theme === 'professional' ? '1px solid rgba(15,23,42,0.1)' : '1px solid rgba(255,255,255,0.1)',
+                    background: theme === 'professional' ? 'rgba(59,130,246,0.05)' : 'rgba(59,130,246,0.1)'
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <span style={{ fontSize: '16px' }}>🔗</span>
+                        <span style={{ fontSize: '13px', fontWeight: '600', color: theme === 'professional' ? '#0f172a' : 'white' }}>Connected Email Accounts</span>
+                      </div>
+                      <button
+                        onClick={() => setShowEmailSetupWizard(true)}
+                        style={{
+                          background: 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)',
+                          border: 'none',
+                          color: 'white',
+                          borderRadius: '6px',
+                          padding: '6px 12px',
+                          fontSize: '11px',
+                          fontWeight: '600',
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '4px'
+                        }}
+                      >
+                        <span>+</span> Connect Email
+                      </button>
+                    </div>
+                    
+                    {isLoadingEmailAccounts ? (
+                      <div style={{ padding: '12px', textAlign: 'center', opacity: 0.6, fontSize: '12px' }}>
+                        Loading accounts...
+                      </div>
+                    ) : emailAccounts.length === 0 ? (
+                      <div style={{ 
+                        padding: '20px', 
+                        background: theme === 'professional' ? 'white' : 'rgba(255,255,255,0.05)',
+                        borderRadius: '8px',
+                        border: theme === 'professional' ? '1px dashed rgba(15,23,42,0.2)' : '1px dashed rgba(255,255,255,0.2)',
+                        textAlign: 'center'
+                      }}>
+                        <div style={{ fontSize: '24px', marginBottom: '8px' }}>📧</div>
+                        <div style={{ fontSize: '13px', color: theme === 'professional' ? '#64748b' : 'rgba(255,255,255,0.7)', marginBottom: '4px' }}>No email accounts connected</div>
+                        <div style={{ fontSize: '11px', color: theme === 'professional' ? '#94a3b8' : 'rgba(255,255,255,0.5)' }}>
+                          Connect your Gmail to view emails securely in MailGuard
+                        </div>
+                      </div>
+                    ) : (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                        {emailAccounts.map(account => (
+                          <div 
+                            key={account.id} 
+                            style={{ 
+                              display: 'flex', 
+                              alignItems: 'center', 
+                              justifyContent: 'space-between',
+                              padding: '10px 12px',
+                              background: theme === 'professional' ? 'white' : 'rgba(255,255,255,0.08)',
+                              borderRadius: '8px',
+                              border: account.status === 'active' 
+                                ? (theme === 'professional' ? '1px solid rgba(34,197,94,0.3)' : '1px solid rgba(34,197,94,0.4)')
+                                : (theme === 'professional' ? '1px solid rgba(239,68,68,0.3)' : '1px solid rgba(239,68,68,0.4)')
+                            }}
+                          >
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                              <span style={{ fontSize: '18px' }}>
+                                {account.provider === 'gmail' ? '📧' : account.provider === 'microsoft365' ? '📨' : '✉️'}
+                              </span>
+                              <div>
+                                <div style={{ fontSize: '13px', fontWeight: '500', color: theme === 'professional' ? '#0f172a' : 'white' }}>
+                                  {account.email || account.displayName}
+                                </div>
+                                <div style={{ 
+                                  fontSize: '10px', 
+                                  display: 'flex', 
+                                  alignItems: 'center', 
+                                  gap: '6px',
+                                  marginTop: '2px'
+                                }}>
+                                  <span style={{ 
+                                    width: '6px', 
+                                    height: '6px', 
+                                    borderRadius: '50%', 
+                                    background: account.status === 'active' ? '#22c55e' : '#ef4444' 
+                                  }} />
+                                  <span style={{ color: theme === 'professional' ? '#64748b' : 'rgba(255,255,255,0.6)' }}>
+                                    {account.status === 'active' ? 'Connected' : account.lastError || 'Error'}
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
+                            <button
+                              onClick={() => disconnectEmailAccount(account.id)}
+                              title="Disconnect account"
+                              style={{
+                                background: 'transparent',
+                                border: 'none',
+                                color: theme === 'professional' ? '#94a3b8' : 'rgba(255,255,255,0.5)',
+                                cursor: 'pointer',
+                                padding: '4px',
+                                fontSize: '14px'
+                              }}
+                            >
+                              ✕
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    
+                    {/* Info about MailGuard protection */}
+                    {emailAccounts.length > 0 && (
+                      <div style={{ 
+                        marginTop: '12px', 
+                        padding: '10px 12px', 
+                        background: theme === 'professional' ? 'rgba(34,197,94,0.1)' : 'rgba(34,197,94,0.15)',
+                        borderRadius: '6px',
+                        border: '1px solid rgba(34,197,94,0.2)',
+                        display: 'flex',
+                        alignItems: 'flex-start',
+                        gap: '8px'
+                      }}>
+                        <span style={{ fontSize: '14px' }}>🛡️</span>
+                        <div style={{ fontSize: '11px', color: theme === 'professional' ? '#166534' : 'rgba(255,255,255,0.8)', lineHeight: '1.5' }}>
+                          <strong>MailGuard Active:</strong> When you visit Gmail, full email content will be fetched securely via the API. No tracking pixels or scripts will execute.
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                  
+                  {/* Email Setup Wizard Modal */}
+                  {showEmailSetupWizard && (
+                    <div style={{
+                      position: 'fixed',
+                      inset: 0,
+                      background: 'rgba(0,0,0,0.7)',
+                      zIndex: 2147483651,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      backdropFilter: 'blur(4px)'
+                    }}>
+                      <div style={{
+                        width: '380px',
+                        maxHeight: '85vh',
+                        background: theme === 'professional' ? '#ffffff' : 'linear-gradient(135deg, #1e293b 0%, #0f172a 100%)',
+                        borderRadius: '16px',
+                        border: theme === 'professional' ? '1px solid #e2e8f0' : '1px solid rgba(255,255,255,0.15)',
+                        boxShadow: '0 25px 50px rgba(0,0,0,0.4)',
+                        overflow: 'hidden'
+                      }}>
+                        {/* Header */}
+                        <div style={{
+                          padding: '20px',
+                          background: 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)',
+                          color: 'white',
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center'
+                        }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                            <span style={{ fontSize: '24px' }}>📧</span>
+                            <div>
+                              <div style={{ fontSize: '16px', fontWeight: '600' }}>Connect Your Email</div>
+                              <div style={{ fontSize: '11px', opacity: 0.9 }}>Secure access via official API</div>
+                            </div>
+                          </div>
+                          <button
+                            onClick={() => { setShowEmailSetupWizard(false); setEmailSetupStep('provider'); }}
+                            style={{
+                              background: 'rgba(255,255,255,0.2)',
+                              border: 'none',
+                              color: 'white',
+                              width: '28px',
+                              height: '28px',
+                              borderRadius: '6px',
+                              cursor: 'pointer',
+                              fontSize: '16px'
+                            }}
+                          >
+                            ×
+                          </button>
+                        </div>
+                        
+                        {/* Content */}
+                        <div style={{ padding: '20px' }}>
+                          {emailSetupStep === 'provider' && (
+                            <>
+                              <div style={{ fontSize: '13px', color: theme === 'professional' ? '#64748b' : 'rgba(255,255,255,0.7)', marginBottom: '16px' }}>
+                                Choose your email provider to connect securely:
+                              </div>
+                              
+                              {/* Gmail Option */}
+                              <button
+                                onClick={connectGmailAccount}
+                                style={{
+                                  width: '100%',
+                                  padding: '14px 16px',
+                                  background: theme === 'professional' ? '#fff' : 'rgba(255,255,255,0.08)',
+                                  border: theme === 'professional' ? '1px solid #e2e8f0' : '1px solid rgba(255,255,255,0.15)',
+                                  borderRadius: '10px',
+                                  cursor: 'pointer',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '12px',
+                                  marginBottom: '10px',
+                                  textAlign: 'left',
+                                  transition: 'all 0.15s'
+                                }}
+                              >
+                                <span style={{ fontSize: '24px' }}>📧</span>
+                                <div>
+                                  <div style={{ fontSize: '14px', fontWeight: '600', color: theme === 'professional' ? '#0f172a' : 'white' }}>Gmail</div>
+                                  <div style={{ fontSize: '11px', color: theme === 'professional' ? '#64748b' : 'rgba(255,255,255,0.6)' }}>Connect via Google OAuth</div>
+                                </div>
+                                <span style={{ marginLeft: 'auto', fontSize: '14px', color: theme === 'professional' ? '#94a3b8' : 'rgba(255,255,255,0.4)' }}>→</span>
+                              </button>
+                              
+                              {/* Microsoft 365 Option */}
+                              <button
+                                disabled
+                                style={{
+                                  width: '100%',
+                                  padding: '14px 16px',
+                                  background: theme === 'professional' ? '#f8fafc' : 'rgba(255,255,255,0.04)',
+                                  border: theme === 'professional' ? '1px solid #e2e8f0' : '1px solid rgba(255,255,255,0.1)',
+                                  borderRadius: '10px',
+                                  cursor: 'not-allowed',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '12px',
+                                  marginBottom: '10px',
+                                  textAlign: 'left',
+                                  opacity: 0.6
+                                }}
+                              >
+                                <span style={{ fontSize: '24px' }}>📨</span>
+                                <div>
+                                  <div style={{ fontSize: '14px', fontWeight: '600', color: theme === 'professional' ? '#0f172a' : 'white' }}>Microsoft 365 / Outlook</div>
+                                  <div style={{ fontSize: '11px', color: theme === 'professional' ? '#64748b' : 'rgba(255,255,255,0.6)' }}>Coming soon</div>
+                                </div>
+                              </button>
+                              
+                              {/* IMAP Option */}
+                              <button
+                                disabled
+                                style={{
+                                  width: '100%',
+                                  padding: '14px 16px',
+                                  background: theme === 'professional' ? '#f8fafc' : 'rgba(255,255,255,0.04)',
+                                  border: theme === 'professional' ? '1px solid #e2e8f0' : '1px solid rgba(255,255,255,0.1)',
+                                  borderRadius: '10px',
+                                  cursor: 'not-allowed',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '12px',
+                                  textAlign: 'left',
+                                  opacity: 0.6
+                                }}
+                              >
+                                <span style={{ fontSize: '24px' }}>✉️</span>
+                                <div>
+                                  <div style={{ fontSize: '14px', fontWeight: '600', color: theme === 'professional' ? '#0f172a' : 'white' }}>Other (IMAP)</div>
+                                  <div style={{ fontSize: '11px', color: theme === 'professional' ? '#64748b' : 'rgba(255,255,255,0.6)' }}>Web.de, GMX, Yahoo, etc. - Coming soon</div>
+                                </div>
+                              </button>
+                              
+                              {/* Security note */}
+                              <div style={{ 
+                                marginTop: '16px', 
+                                padding: '12px', 
+                                background: theme === 'professional' ? 'rgba(59,130,246,0.1)' : 'rgba(59,130,246,0.15)',
+                                borderRadius: '8px',
+                                border: '1px solid rgba(59,130,246,0.2)'
+                              }}>
+                                <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px' }}>
+                                  <span style={{ fontSize: '14px' }}>🔒</span>
+                                  <div style={{ fontSize: '11px', color: theme === 'professional' ? '#1e40af' : 'rgba(255,255,255,0.8)', lineHeight: '1.5' }}>
+                                    <strong>Security:</strong> Your emails are never rendered with scripts or tracking. All content is sanitized locally before display.
+                                  </div>
+                                </div>
+                              </div>
+                            </>
+                          )}
+                          
+                          {emailSetupStep === 'connecting' && (
+                            <div style={{ textAlign: 'center', padding: '40px 20px' }}>
+                              <div style={{ 
+                                width: '48px', 
+                                height: '48px', 
+                                border: '3px solid rgba(59,130,246,0.3)',
+                                borderTopColor: '#3b82f6',
+                                borderRadius: '50%',
+                                animation: 'spin 1s linear infinite',
+                                margin: '0 auto 20px'
+                              }} />
+                              <div style={{ fontSize: '14px', color: theme === 'professional' ? '#0f172a' : 'white', marginBottom: '8px' }}>
+                                Connecting to Gmail...
+                              </div>
+                              <div style={{ fontSize: '12px', color: theme === 'professional' ? '#64748b' : 'rgba(255,255,255,0.6)' }}>
+                                Please complete the authorization in the popup window
+                              </div>
+                              <style>{`
+                                @keyframes spin {
+                                  to { transform: rotate(360deg); }
+                                }
+                              `}</style>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                  
+                  {/* ========================================== */}
+                  {/* EMAIL COMPOSER SECTION */}
+                  {/* ========================================== */}
+                  
                   {/* Inline helper text when not composing */}
                   {!mailguardTo && !mailguardSubject && !mailguardBody && mailguardAttachments.length === 0 && (
                     <div style={{ padding: '16px 18px', fontSize: '13px', opacity: 0.7, fontStyle: 'italic', borderBottom: theme === 'professional' ? '1px solid rgba(15,23,42,0.1)' : '1px solid rgba(255,255,255,0.1)', background: theme === 'professional' ? 'rgba(168,85,247,0.08)' : 'rgba(168,85,247,0.15)', display: 'flex', alignItems: 'center', gap: '10px' }}>

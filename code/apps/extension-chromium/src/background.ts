@@ -55,6 +55,15 @@ function connectToWebSocketServer() {
           return
         }
         
+        // Check if this is an email gateway response
+        if (data.id && globalThis.emailCallbacks && globalThis.emailCallbacks.has(data.id)) {
+          console.log('[BG] 📧 Email response received for ID:', data.id)
+          const callback = globalThis.emailCallbacks.get(data.id)
+          globalThis.emailCallbacks.delete(data.id)
+          callback(data) // Send response back to sidepanel
+          return
+        }
+        
         if (data && data.type) {
           console.log(`[BG] Message type: ${data.type}`);
           if (data.type === 'pong') {
@@ -755,6 +764,100 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       console.log('[BG] 🛡️ Closing MailGuard lightbox')
       if (WS_ENABLED && ws && ws.readyState === WebSocket.OPEN) {
         try { ws.send(JSON.stringify({ type: 'MAILGUARD_CLOSE_LIGHTBOX' })) } catch {}
+      }
+      break
+    }
+    
+    // ===== EMAIL GATEWAY MESSAGE HANDLERS =====
+    case 'EMAIL_LIST_ACCOUNTS': {
+      console.log('[BG] 📧 Email list accounts request')
+      if (WS_ENABLED && ws && ws.readyState === WebSocket.OPEN) {
+        const requestId = `email_list_${Date.now()}`
+        try {
+          ws.send(JSON.stringify({ type: 'EMAIL_LIST_ACCOUNTS', id: requestId }))
+          
+          // Store callback for response
+          if (!globalThis.emailCallbacks) globalThis.emailCallbacks = new Map()
+          globalThis.emailCallbacks.set(requestId, sendResponse)
+          
+          return true // Keep channel open
+        } catch (e) {
+          console.error('[BG] Error sending EMAIL_LIST_ACCOUNTS:', e)
+          sendResponse({ ok: false, error: 'Failed to send request' })
+        }
+      } else {
+        sendResponse({ ok: false, error: 'Electron not connected' })
+      }
+      break
+    }
+    
+    case 'EMAIL_CONNECT_GMAIL': {
+      console.log('[BG] 📧 Email connect Gmail request')
+      if (WS_ENABLED && ws && ws.readyState === WebSocket.OPEN) {
+        const requestId = `email_gmail_${Date.now()}`
+        try {
+          ws.send(JSON.stringify({ type: 'EMAIL_CONNECT_GMAIL', id: requestId }))
+          
+          // Store callback for response
+          if (!globalThis.emailCallbacks) globalThis.emailCallbacks = new Map()
+          globalThis.emailCallbacks.set(requestId, sendResponse)
+          
+          return true // Keep channel open
+        } catch (e) {
+          console.error('[BG] Error sending EMAIL_CONNECT_GMAIL:', e)
+          sendResponse({ ok: false, error: 'Failed to send request' })
+        }
+      } else {
+        sendResponse({ ok: false, error: 'Electron not connected' })
+      }
+      break
+    }
+    
+    case 'EMAIL_DELETE_ACCOUNT': {
+      console.log('[BG] 📧 Email delete account request:', msg.accountId)
+      if (WS_ENABLED && ws && ws.readyState === WebSocket.OPEN) {
+        const requestId = `email_delete_${Date.now()}`
+        try {
+          ws.send(JSON.stringify({ type: 'EMAIL_DELETE_ACCOUNT', id: requestId, accountId: msg.accountId }))
+          
+          // Store callback for response
+          if (!globalThis.emailCallbacks) globalThis.emailCallbacks = new Map()
+          globalThis.emailCallbacks.set(requestId, sendResponse)
+          
+          return true // Keep channel open
+        } catch (e) {
+          console.error('[BG] Error sending EMAIL_DELETE_ACCOUNT:', e)
+          sendResponse({ ok: false, error: 'Failed to send request' })
+        }
+      } else {
+        sendResponse({ ok: false, error: 'Electron not connected' })
+      }
+      break
+    }
+    
+    case 'EMAIL_GET_MESSAGE': {
+      console.log('[BG] 📧 Email get message request:', msg.accountId, msg.messageId)
+      if (WS_ENABLED && ws && ws.readyState === WebSocket.OPEN) {
+        const requestId = `email_msg_${Date.now()}`
+        try {
+          ws.send(JSON.stringify({ 
+            type: 'EMAIL_GET_MESSAGE', 
+            id: requestId, 
+            accountId: msg.accountId, 
+            messageId: msg.messageId 
+          }))
+          
+          // Store callback for response
+          if (!globalThis.emailCallbacks) globalThis.emailCallbacks = new Map()
+          globalThis.emailCallbacks.set(requestId, sendResponse)
+          
+          return true // Keep channel open
+        } catch (e) {
+          console.error('[BG] Error sending EMAIL_GET_MESSAGE:', e)
+          sendResponse({ ok: false, error: 'Failed to send request' })
+        }
+      } else {
+        sendResponse({ ok: false, error: 'Electron not connected' })
       }
       break
     }

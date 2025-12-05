@@ -283,19 +283,63 @@ async function createWindow() {
     ipcMain.on('mailguard-open-email', async (_e, rowId: string) => {
       console.log('[MAIN] MailGuard open email requested for row:', rowId)
       
-      // Try Gmail API first if authenticated
+      // Try Email Gateway first (new secure pipeline)
+      try {
+        const { emailGateway } = await import('./main/email/gateway')
+        const accounts = await emailGateway.listAccounts()
+        
+        if (accounts.length > 0) {
+          console.log('[MAIN] Email Gateway has connected accounts, trying to fetch via API...')
+          
+          // Get the preview data for this row from storage
+          const rowData = emailRowPreviewData.get(rowId)
+          if (rowData && (rowData.from || rowData.subject)) {
+            // Use first active Gmail account
+            const gmailAccount = accounts.find(a => a.provider === 'gmail' && a.status === 'active')
+            
+            if (gmailAccount) {
+              // Search for the message by from/subject
+              const messages = await emailGateway.listMessages(gmailAccount.id, {
+                from: rowData.from,
+                subject: rowData.subject,
+                limit: 1
+              })
+              
+              if (messages.length > 0) {
+                // Fetch full message
+                const fullMessage = await emailGateway.getMessage(gmailAccount.id, messages[0].id)
+                if (fullMessage) {
+                  console.log('[MAIN] Fetched email via Email Gateway')
+                  showSanitizedEmail({
+                    from: `${fullMessage.from.name || ''} <${fullMessage.from.email}>`.trim(),
+                    to: fullMessage.to.map(t => t.email).join(', '),
+                    subject: fullMessage.subject,
+                    date: fullMessage.date,
+                    body: fullMessage.bodyText,
+                    attachments: [] // Attachments handled separately
+                  })
+                  return
+                }
+              }
+            }
+          }
+        }
+      } catch (err) {
+        console.log('[MAIN] Email Gateway not available:', err)
+      }
+      
+      // Try legacy Gmail API as fallback
       try {
         const { isGmailApiAuthenticated, findEmailByPreview } = await import('./mailguard/gmail-api')
         
         if (isGmailApiAuthenticated()) {
-          console.log('[MAIN] Gmail API is authenticated, trying to fetch via API...')
+          console.log('[MAIN] Fallback: Gmail API is authenticated, trying to fetch...')
           
-          // Get the preview data for this row from storage
           const rowData = emailRowPreviewData.get(rowId)
           if (rowData && rowData.from && rowData.subject) {
             const email = await findEmailByPreview(rowData.from, rowData.subject)
             if (email) {
-              console.log('[MAIN] Fetched email via Gmail API')
+              console.log('[MAIN] Fetched email via legacy Gmail API')
               showSanitizedEmail({
                 from: email.from,
                 to: email.to,
@@ -309,7 +353,7 @@ async function createWindow() {
           }
         }
       } catch (err) {
-        console.log('[MAIN] Gmail API not available, falling back to preview:', err)
+        console.log('[MAIN] Legacy Gmail API not available, falling back to preview:', err)
       }
       
       // Fall back to extension preview extraction
@@ -330,7 +374,52 @@ async function createWindow() {
     // Handle Gmail API setup request
     ipcMain.on('mailguard-api-setup', async () => {
       console.log('[MAIN] Gmail API setup requested')
-      const { dialog, BrowserWindow } = require('electron')
+      const { dialog } = require('electron')
+      
+      // Check if Email Gateway has connected accounts
+      try {
+        const { emailGateway } = await import('./main/email/gateway')
+        const accounts = await emailGateway.listAccounts()
+        const gmailAccount = accounts.find(a => a.provider === 'gmail')
+        
+        if (gmailAccount) {
+          // Already connected - offer to disconnect
+          const result = await dialog.showMessageBox({
+            type: 'info',
+            title: 'Gmail Connected',
+            message: 'Gmail is Connected',
+            detail: `WR MailGuard is connected to ${gmailAccount.email || gmailAccount.displayName}. Full email content is being fetched securely via the Gmail API.`,
+            buttons: ['Disconnect', 'Keep Connected']
+          })
+          
+          if (result.response === 0) {
+            await emailGateway.deleteAccount(gmailAccount.id)
+            dialog.showMessageBox({
+              type: 'info',
+              title: 'Disconnected',
+              message: 'Gmail Disconnected',
+              detail: 'You have been disconnected from Gmail. Only email previews will be shown.'
+            })
+          }
+          return
+        }
+        
+        // No account - start setup
+        const account = await emailGateway.connectGmailAccount('Gmail')
+        if (account) {
+          dialog.showMessageBox({
+            type: 'info',
+            title: 'Gmail Connected!',
+            message: 'Successfully connected to Gmail',
+            detail: 'Full email content will now be fetched securely via the Gmail API. No tracking pixels or scripts will execute.'
+          })
+        }
+        return
+      } catch (err: any) {
+        console.log('[MAIN] Email Gateway not available, falling back to legacy setup:', err.message)
+      }
+      
+      // Fallback to legacy gmail-api setup
       const { 
         isGmailApiAuthenticated, 
         setOAuthCredentials, 
@@ -1045,6 +1134,57 @@ app.whenReady().then(async () => {
               // Check if MailGuard is active
               socket.send(JSON.stringify({ type: 'MAILGUARD_STATUS_RESPONSE', active: isMailGuardActive() }))
             }
+            
+            // ===== EMAIL GATEWAY HANDLERS =====
+            if (msg.type === 'EMAIL_LIST_ACCOUNTS') {
+              console.log('[MAIN] 📧 Received EMAIL_LIST_ACCOUNTS request')
+              try {
+                const { emailGateway } = await import('./main/email/gateway')
+                const accounts = await emailGateway.listAccounts()
+                socket.send(JSON.stringify({ id: msg.id, ok: true, data: accounts }))
+              } catch (err: any) {
+                console.error('[MAIN] Error listing email accounts:', err)
+                socket.send(JSON.stringify({ id: msg.id, ok: false, error: err.message }))
+              }
+            }
+            
+            if (msg.type === 'EMAIL_CONNECT_GMAIL') {
+              console.log('[MAIN] 📧 Received EMAIL_CONNECT_GMAIL request')
+              try {
+                const { emailGateway } = await import('./main/email/gateway')
+                // This will open the OAuth setup dialog
+                const account = await emailGateway.connectGmailAccount()
+                socket.send(JSON.stringify({ id: msg.id, ok: true, data: account }))
+              } catch (err: any) {
+                console.error('[MAIN] Error connecting Gmail:', err)
+                socket.send(JSON.stringify({ id: msg.id, ok: false, error: err.message }))
+              }
+            }
+            
+            if (msg.type === 'EMAIL_DELETE_ACCOUNT') {
+              console.log('[MAIN] 📧 Received EMAIL_DELETE_ACCOUNT request:', msg.accountId)
+              try {
+                const { emailGateway } = await import('./main/email/gateway')
+                await emailGateway.deleteAccount(msg.accountId)
+                socket.send(JSON.stringify({ id: msg.id, ok: true }))
+              } catch (err: any) {
+                console.error('[MAIN] Error deleting email account:', err)
+                socket.send(JSON.stringify({ id: msg.id, ok: false, error: err.message }))
+              }
+            }
+            
+            if (msg.type === 'EMAIL_GET_MESSAGE') {
+              console.log('[MAIN] 📧 Received EMAIL_GET_MESSAGE request:', msg.accountId, msg.messageId)
+              try {
+                const { emailGateway } = await import('./main/email/gateway')
+                const message = await emailGateway.getMessage(msg.accountId, msg.messageId)
+                socket.send(JSON.stringify({ id: msg.id, ok: true, data: message }))
+              } catch (err: any) {
+                console.error('[MAIN] Error getting email message:', err)
+                socket.send(JSON.stringify({ id: msg.id, ok: false, error: err.message }))
+              }
+            }
+            
             if (msg.type === 'SAVE_TRIGGER') {
               // Extension sends back trigger to save in Electron's presets
               // (can be from Electron overlay with displayId, or extension-native without displayId)
