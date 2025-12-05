@@ -42,6 +42,67 @@ let isMailGuardActive = false
 let banner: HTMLElement | null = null
 let rowUpdateInterval: ReturnType<typeof setInterval> | null = null
 let emailRowElements: Map<string, Element> = new Map()
+let currentTheme: 'default' | 'dark' | 'professional' = 'default'
+
+// Theme color configurations
+const themeColors = {
+  default: {
+    primary: '#a855f7',
+    primaryDark: '#9333ea',
+    primaryDarker: '#7c3aed',
+    bgDark: '#3b0764',
+    bgLight: '#581c87',
+    shadowColor: 'rgba(168, 85, 247, 0.15)',
+    shadowColorMedium: 'rgba(168, 85, 247, 0.3)',
+    shadowColorStrong: 'rgba(168, 85, 247, 0.4)'
+  },
+  professional: {
+    primary: '#3b82f6',
+    primaryDark: '#2563eb',
+    primaryDarker: '#1d4ed8',
+    bgDark: '#1e3a5f',
+    bgLight: '#1e40af',
+    shadowColor: 'rgba(59, 130, 246, 0.15)',
+    shadowColorMedium: 'rgba(59, 130, 246, 0.3)',
+    shadowColorStrong: 'rgba(59, 130, 246, 0.4)'
+  },
+  dark: {
+    primary: '#64748b',
+    primaryDark: '#475569',
+    primaryDarker: '#334155',
+    bgDark: '#1e293b',
+    bgLight: '#334155',
+    shadowColor: 'rgba(100, 116, 139, 0.15)',
+    shadowColorMedium: 'rgba(100, 116, 139, 0.3)',
+    shadowColorStrong: 'rgba(100, 116, 139, 0.4)'
+  }
+}
+
+// Load theme from storage
+async function loadTheme(): Promise<void> {
+  try {
+    const result = await chrome.storage.local.get(['optimando-ui-theme'])
+    currentTheme = (result['optimando-ui-theme'] as 'default' | 'dark' | 'professional') || 'default'
+    console.log('[MailGuard] Theme loaded:', currentTheme)
+  } catch (err) {
+    console.log('[MailGuard] Could not load theme, using default')
+    currentTheme = 'default'
+  }
+}
+
+// Listen for theme changes
+chrome.storage.onChanged.addListener((changes, namespace) => {
+  if (namespace === 'local' && changes['optimando-ui-theme']) {
+    currentTheme = changes['optimando-ui-theme'].newValue || 'default'
+    console.log('[MailGuard] Theme changed to:', currentTheme)
+    // Refresh banner if visible
+    if (banner) {
+      banner.remove()
+      banner = null
+      showActivationBanner()
+    }
+  }
+})
 
 // =============================================================================
 // Communication with Background Script
@@ -67,6 +128,8 @@ function sendToBackground(message: any): Promise<any> {
 function showActivationBanner(): void {
   if (banner) return
   
+  const colors = themeColors[currentTheme]
+  
   banner = document.createElement('div')
   banner.id = 'wr-mailguard-banner'
   
@@ -81,14 +144,14 @@ function showActivationBanner(): void {
         right: 0;
         z-index: 2147483647;
         background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
-        border-bottom: 2px solid #a855f7;
+        border-bottom: 2px solid ${colors.primary};
         padding: 14px 24px;
         display: flex;
         align-items: center;
         justify-content: center;
         gap: 24px;
         font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-        box-shadow: 0 4px 20px rgba(0,0,0,0.4), 0 0 40px rgba(168, 85, 247, 0.15);
+        box-shadow: 0 4px 20px rgba(0,0,0,0.4), 0 0 40px ${colors.shadowColor};
         animation: slideDown 0.3s ease;
       }
       @keyframes slideDown {
@@ -112,7 +175,7 @@ function showActivationBanner(): void {
       }
       .title {
         font-weight: 600;
-        color: #a855f7;
+        color: ${colors.primary};
         margin-bottom: 2px;
       }
       .desc {
@@ -133,14 +196,14 @@ function showActivationBanner(): void {
         border: none;
       }
       .btn-primary {
-        background: linear-gradient(135deg, #a855f7 0%, #9333ea 100%);
+        background: linear-gradient(135deg, ${colors.primary} 0%, ${colors.primaryDark} 100%);
         color: #fff;
-        box-shadow: 0 2px 10px rgba(168, 85, 247, 0.3);
+        box-shadow: 0 2px 10px ${colors.shadowColorMedium};
       }
       .btn-primary:hover {
-        background: linear-gradient(135deg, #9333ea 0%, #7c3aed 100%);
+        background: linear-gradient(135deg, ${colors.primaryDark} 0%, ${colors.primaryDarker} 100%);
         transform: translateY(-1px);
-        box-shadow: 0 4px 15px rgba(168, 85, 247, 0.4);
+        box-shadow: 0 4px 15px ${colors.shadowColorStrong};
       }
       .btn-secondary {
         background: transparent;
@@ -190,8 +253,8 @@ function showStatusMarker(): void {
     bottom: 20px;
     left: 20px;
     z-index: 2147483647;
-    background: linear-gradient(135deg, #581c87 0%, #3b0764 100%);
-    color: #a855f7;
+    background: linear-gradient(135deg, ${themeColors[currentTheme].bgLight} 0%, ${themeColors[currentTheme].bgDark} 100%);
+    color: ${themeColors[currentTheme].primary};
     padding: 10px 16px;
     border-radius: 10px;
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
@@ -200,7 +263,7 @@ function showStatusMarker(): void {
     align-items: center;
     gap: 10px;
     box-shadow: 0 4px 15px rgba(0,0,0,0.3);
-    border: 1px solid #a855f7;
+    border: 1px solid ${themeColors[currentTheme].primary};
   `
   marker.innerHTML = '<span style="font-size:16px">🛡️</span> MailGuard Active - Electron Overlay Running'
   document.body.appendChild(marker)
@@ -536,8 +599,8 @@ async function activateMailGuard(): Promise<void> {
       outerHeight: window.outerHeight
     }
     console.log('[MailGuard] Window position:', windowInfo)
-    console.log('[MailGuard] Sending MAILGUARD_ACTIVATE to background...')
-    const response = await sendToBackground({ type: 'MAILGUARD_ACTIVATE', windowInfo })
+    console.log('[MailGuard] Sending MAILGUARD_ACTIVATE to background with theme:', currentTheme)
+    const response = await sendToBackground({ type: 'MAILGUARD_ACTIVATE', windowInfo, theme: currentTheme })
     console.log('[MailGuard] Response from background:', response)
     
     statusDiv.remove()
@@ -649,6 +712,9 @@ async function init(): Promise<void> {
     console.log('[MailGuard] Not on Gmail, exiting')
     return
   }
+  
+  // Load theme first
+  await loadTheme()
   
   // Wait for Gmail to be ready
   await waitForGmailReady()

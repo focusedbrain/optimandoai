@@ -12,6 +12,38 @@ import { BrowserWindow, screen, Display } from 'electron'
 let mailguardOverlay: BrowserWindow | null = null
 let isActive = false
 let browserWindowOffset = { x: 0, y: 0, chromeHeight: 0 }
+let currentTheme: 'default' | 'dark' | 'professional' = 'default'
+
+// Theme color configurations
+const themeColors = {
+  default: {
+    primary: '#a855f7',
+    primaryDark: '#9333ea',
+    primaryDarker: '#7c3aed',
+    bgDark: '#3b0764',
+    bgLight: '#faf5ff',
+    textDark: '#581c87',
+    textMedium: '#6b21a8'
+  },
+  professional: {
+    primary: '#3b82f6',
+    primaryDark: '#2563eb',
+    primaryDarker: '#1d4ed8',
+    bgDark: '#1e3a5f',
+    bgLight: '#eff6ff',
+    textDark: '#1e40af',
+    textMedium: '#1d4ed8'
+  },
+  dark: {
+    primary: '#64748b',
+    primaryDark: '#475569',
+    primaryDarker: '#334155',
+    bgDark: '#1e293b',
+    bgLight: '#f1f5f9',
+    textDark: '#334155',
+    textMedium: '#475569'
+  }
+}
 
 export interface EmailRowRect {
   id: string
@@ -42,12 +74,16 @@ export interface SanitizedEmail {
 /**
  * Activate MailGuard overlay on the specified display (or primary if not specified)
  */
-export function activateMailGuard(targetDisplay?: Display, windowInfo?: WindowInfo): void {
+export function activateMailGuard(targetDisplay?: Display, windowInfo?: WindowInfo, theme?: string): void {
   if (mailguardOverlay) {
     console.log('[MAILGUARD] Already active, closing existing overlay first')
     mailguardOverlay.close()
     mailguardOverlay = null
   }
+
+  // Set current theme
+  currentTheme = (theme as 'default' | 'dark' | 'professional') || 'default'
+  console.log('[MAILGUARD] Using theme:', currentTheme)
 
   const display = targetDisplay || screen.getPrimaryDisplay()
   console.log('[MAILGUARD] Activating overlay on display:', display.id, 'bounds:', display.bounds)
@@ -166,6 +202,7 @@ export function isMailGuardActive(): boolean {
  * Generate the overlay HTML with embedded styles and scripts
  */
 function getOverlayHtml(): string {
+  const colors = themeColors[currentTheme]
   return `<!DOCTYPE html>
 <html>
 <head>
@@ -189,13 +226,13 @@ function getOverlayHtml(): string {
       top: 16px;
       right: 16px;
       background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
-      border: 1px solid rgba(168, 85, 247, 0.6);
+      border: 1px solid ${colors.primary}99;
       border-radius: 8px;
       padding: 12px 20px;
       display: flex;
       align-items: center;
       gap: 12px;
-      color: #a855f7;
+      color: ${colors.primary};
       font-size: 13px;
       font-weight: 600;
       letter-spacing: 0.3px;
@@ -224,15 +261,15 @@ function getOverlayHtml(): string {
       text-transform: uppercase;
     }
     #status-badge .status {
-      color: #a855f7;
+      color: ${colors.primary};
     }
     
     /* Toggle switch */
     .toggle-track {
       width: 44px;
       height: 24px;
-      background: #3b0764;
-      border: 1px solid #a855f7;
+      background: ${colors.bgDark};
+      border: 1px solid ${colors.primary};
       border-radius: 12px;
       position: relative;
       transition: all 0.2s ease;
@@ -240,7 +277,7 @@ function getOverlayHtml(): string {
     .toggle-thumb {
       width: 18px;
       height: 18px;
-      background: #a855f7;
+      background: ${colors.primary};
       border-radius: 50%;
       position: absolute;
       top: 2px;
@@ -334,7 +371,7 @@ function getOverlayHtml(): string {
       gap: 14px;
     }
     .modal-title .shield { 
-      color: #a855f7; 
+      color: ${colors.primary}; 
       font-size: 24px;
     }
     .modal-title .title-text {
@@ -355,7 +392,7 @@ function getOverlayHtml(): string {
       color: #fff;
     }
     .modal-title .verified {
-      background: linear-gradient(135deg, #a855f7 0%, #9333ea 100%);
+      background: linear-gradient(135deg, ${colors.primary} 0%, ${colors.primaryDark} 100%);
       color: #fff;
       font-size: 9px;
       font-weight: 700;
@@ -389,8 +426,8 @@ function getOverlayHtml(): string {
     }
     
     .safe-notice {
-      background: #faf5ff;
-      border: 1px solid #a855f7;
+      background: ${colors.bgLight};
+      border: 1px solid ${colors.primary};
       border-radius: 10px;
       padding: 14px 18px;
       margin-bottom: 20px;
@@ -398,7 +435,7 @@ function getOverlayHtml(): string {
       align-items: center;
       gap: 12px;
       font-size: 13px;
-      color: #6b21a8;
+      color: ${colors.textMedium};
     }
     .safe-notice .icon { font-size: 20px; }
     
@@ -603,6 +640,15 @@ function getOverlayHtml(): string {
   <script>
     const { ipcRenderer } = require('electron');
     
+    // Theme colors injected from Electron
+    const themeColors = {
+      primary: '${colors.primary}',
+      primaryDark: '${colors.primaryDark}',
+      bgLight: '${colors.bgLight}',
+      textDark: '${colors.textDark}',
+      textMedium: '${colors.textMedium}'
+    };
+    
     let currentRows = [];
     let hoveredRowId = null;
     
@@ -706,12 +752,12 @@ function getOverlayHtml(): string {
       const isFullEmail = email.body && email.body.length > 200 && !email.body.includes('[Email Preview]')
       
       const apiInfoBox = isFullEmail 
-        ? '<div class="api-info-box" style="border-color: #a855f7; background: linear-gradient(135deg, #faf5ff 0%, #f3e8ff 100%);">' +
+        ? '<div class="api-info-box" style="border-color: ' + themeColors.primary + '; background: linear-gradient(135deg, ' + themeColors.bgLight + ' 0%, ' + themeColors.bgLight + ' 100%);">' +
             '<div class="api-info-header">' +
               '<span class="icon">✅</span>' +
-              '<span class="title" style="color: #6b21a8;">Full Email via Gmail API</span>' +
+              '<span class="title" style="color: ' + themeColors.textMedium + ';">Full Email via Gmail API</span>' +
             '</div>' +
-            '<div class="api-info-text" style="color: #581c87;">' +
+            '<div class="api-info-text" style="color: ' + themeColors.textDark + ';">' +
               'This email was fetched securely via the Gmail API. No tracking pixels, scripts, or active content were executed.' +
             '</div>' +
           '</div>'
