@@ -414,38 +414,91 @@ async function activateMailGuard(): Promise<void> {
   console.log('[MailGuard] Activating...')
   dismissBanner()
   
-  const response = await sendToBackground({ type: 'MAILGUARD_ACTIVATE' })
+  // Show "connecting" status
+  const statusDiv = document.createElement('div')
+  statusDiv.id = 'mailguard-connecting'
+  statusDiv.style.cssText = `
+    position: fixed;
+    top: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 2147483647;
+    background: #3b82f6;
+    color: #fff;
+    padding: 12px 24px;
+    border-radius: 8px;
+    font-family: sans-serif;
+    font-size: 14px;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  `
+  statusDiv.innerHTML = '<span style="animation: spin 1s linear infinite; display: inline-block;">⏳</span> Connecting to OpenGiraffe...'
+  document.body.appendChild(statusDiv)
   
-  if (response?.success) {
-    isMailGuardActive = true
-    showStatusMarker()
-    startRowPositionUpdates()
+  // Add spin animation
+  const style = document.createElement('style')
+  style.textContent = '@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }'
+  document.head.appendChild(style)
+  
+  try {
+    console.log('[MailGuard] Sending MAILGUARD_ACTIVATE to background...')
+    const response = await sendToBackground({ type: 'MAILGUARD_ACTIVATE' })
+    console.log('[MailGuard] Response from background:', response)
     
-    // Send initial row positions
-    const rows = getEmailRowPositions()
-    sendToBackground({ type: 'MAILGUARD_UPDATE_ROWS', rows })
-  } else {
-    console.error('[MailGuard] Failed to activate:', response?.error)
-    // Show error message
-    const errorDiv = document.createElement('div')
-    errorDiv.style.cssText = `
-      position: fixed;
-      top: 20px;
-      left: 50%;
-      transform: translateX(-50%);
-      z-index: 2147483647;
-      background: #ef4444;
-      color: #fff;
-      padding: 12px 24px;
-      border-radius: 8px;
-      font-family: sans-serif;
-      font-size: 14px;
-      box-shadow: 0 4px 15px rgba(0,0,0,0.3);
-    `
-    errorDiv.textContent = 'Failed to connect to Electron app. Make sure OpenGiraffe is running.'
-    document.body.appendChild(errorDiv)
-    setTimeout(() => errorDiv.remove(), 5000)
+    statusDiv.remove()
+    
+    if (response?.success) {
+      isMailGuardActive = true
+      showStatusMarker()
+      startRowPositionUpdates()
+      
+      // Send initial row positions
+      const rows = getEmailRowPositions()
+      console.log('[MailGuard] Sending', rows.length, 'email rows to Electron')
+      sendToBackground({ type: 'MAILGUARD_UPDATE_ROWS', rows })
+    } else {
+      console.error('[MailGuard] Failed to activate:', response)
+      showActivationError(response?.error || 'Unknown error - check if OpenGiraffe is running')
+    }
+  } catch (err) {
+    console.error('[MailGuard] Exception during activation:', err)
+    statusDiv.remove()
+    showActivationError('Exception: ' + String(err))
   }
+}
+
+function showActivationError(message: string): void {
+  const errorDiv = document.createElement('div')
+  errorDiv.style.cssText = `
+    position: fixed;
+    top: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 2147483647;
+    background: #ef4444;
+    color: #fff;
+    padding: 16px 24px;
+    border-radius: 8px;
+    font-family: sans-serif;
+    font-size: 14px;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+    max-width: 500px;
+    text-align: center;
+  `
+  errorDiv.innerHTML = `
+    <div style="font-weight: 600; margin-bottom: 8px;">⚠️ MailGuard Activation Failed</div>
+    <div style="font-size: 12px; opacity: 0.9;">${message}</div>
+    <div style="font-size: 11px; margin-top: 10px; opacity: 0.7;">
+      Make sure OpenGiraffe (Electron app) is running and try reloading the extension.
+    </div>
+  `
+  document.body.appendChild(errorDiv)
+  setTimeout(() => {
+    errorDiv.remove()
+    showActivationBanner() // Show banner again so user can retry
+  }, 8000)
 }
 
 function deactivateMailGuard(): void {

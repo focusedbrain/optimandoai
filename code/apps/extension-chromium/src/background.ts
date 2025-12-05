@@ -664,12 +664,20 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
     // ===== MAILGUARD MESSAGE HANDLERS =====
     case 'MAILGUARD_ACTIVATE': {
-      console.log('[BG] 🛡️ MailGuard activate request')
+      console.log('[BG] 🛡️ MailGuard activate request received')
+      console.log('[BG] WS_ENABLED:', WS_ENABLED, 'ws:', !!ws, 'readyState:', ws?.readyState, 'OPEN:', WebSocket.OPEN)
       if (WS_ENABLED && ws && ws.readyState === WebSocket.OPEN) {
-        try { ws.send(JSON.stringify({ type: 'MAILGUARD_ACTIVATE' })) } catch {}
+        console.log('[BG] 🛡️ Sending MAILGUARD_ACTIVATE to Electron...')
+        try { 
+          ws.send(JSON.stringify({ type: 'MAILGUARD_ACTIVATE' })) 
+          console.log('[BG] 🛡️ MAILGUARD_ACTIVATE sent successfully')
+        } catch (e) {
+          console.error('[BG] 🛡️ Error sending MAILGUARD_ACTIVATE:', e)
+        }
         try { sendResponse({ success: true }) } catch {}
       } else {
-        try { sendResponse({ success: false, error: 'Electron not connected' }) } catch {}
+        console.log('[BG] 🛡️ Cannot activate - WebSocket not connected')
+        try { sendResponse({ success: false, error: 'Electron not connected. WebSocket state: ' + (ws ? ws.readyState : 'null') }) } catch {}
       }
       break
     }
