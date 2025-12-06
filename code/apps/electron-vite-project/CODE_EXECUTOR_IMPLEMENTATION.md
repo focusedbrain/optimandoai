@@ -16,8 +16,12 @@ The Code Executor feature allows users to generate and execute code through natu
 **Key Functions:**
 
 ```typescript
-// Default folder for generated code
-const DEFAULT_CODE_FOLDER = 'C:\\Users\\sushovanwin\\Documents\\test_code_generate'
+// Default folder for generated code - uses system temp directory
+const DEFAULT_CODE_FOLDER = path.join(os.tmpdir(), 'optimandoai-generated-code')
+// Resolves to:
+// - Windows: C:\Users\<username>\AppData\Local\Temp\optimandoai-generated-code
+// - macOS: /var/folders/.../optimandoai-generated-code
+// - Linux: /tmp/optimandoai-generated-code
 
 // Get/Set the code folder
 export function getCodeFolder(): string
@@ -257,7 +261,7 @@ curl -X POST http://127.0.0.1:51248/api/code-executor/run \
   "data": {
     "success": true,
     "output": "1\n3\n5\n7\n9\n",
-    "filePath": "C:\\Users\\sushovanwin\\Documents\\test_code_generate\\generated_123456.py",
+    "filePath": "<system-temp>/optimandoai-generated-code/generated_123456.py",
     "language": "python",
     "executionTime": 222,
     "isMiniApp": false
@@ -294,10 +298,15 @@ OUTPUT FORMAT:
 
 ## File Storage
 
-Generated code files are stored in:
+Generated code files are stored in the system temp directory:
 ```
-C:\Users\sushovanwin\Documents\test_code_generate\
+<system-temp>/optimandoai-generated-code/
 ```
+
+**Platform-specific locations:**
+- **Windows:** `C:\Users\<username>\AppData\Local\Temp\optimandoai-generated-code\`
+- **macOS:** `/var/folders/.../<random>/optimandoai-generated-code/`
+- **Linux:** `/tmp/optimandoai-generated-code/`
 
 Naming convention:
 ```

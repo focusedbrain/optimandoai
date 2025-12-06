@@ -14,8 +14,8 @@ import * as fs from 'fs'
 import * as path from 'path'
 import * as os from 'os'
 
-// Default temp folder for generated code
-const DEFAULT_CODE_FOLDER = 'C:\\Users\\sushovanwin\\Documents\\test_code_generate'
+// Default temp folder for generated code - uses system temp directory
+const DEFAULT_CODE_FOLDER = path.join(os.tmpdir(), 'optimandoai-generated-code')
 
 // Configurable code folder path
 let codeFolderPath = DEFAULT_CODE_FOLDER
