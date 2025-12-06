@@ -543,3 +543,4 @@ export interface IEmailGateway {
   handleOAuthCallback(provider: 'gmail' | 'microsoft365', code: string): Promise<EmailAccountInfo>
 }
 
+

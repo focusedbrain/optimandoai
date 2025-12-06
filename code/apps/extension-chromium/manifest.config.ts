@@ -13,7 +13,8 @@ export default defineManifest({
     'windows',
     'system.display',
     'sidePanel',
-    'tabs'
+    'tabs',
+    'alarms'
   ],
   side_panel: {
     default_path: 'src/sidepanel.html'

@@ -214,3 +214,4 @@ export function supportsTextExtraction(mimeType: string): boolean {
   return getSupportedExtractionTypes().includes(mimeType)
 }
 
+

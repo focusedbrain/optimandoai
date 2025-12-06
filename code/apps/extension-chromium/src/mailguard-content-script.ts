@@ -41,8 +41,10 @@ interface SanitizedEmail {
 let isMailGuardActive = false
 let banner: HTMLElement | null = null
 let rowUpdateInterval: ReturnType<typeof setInterval> | null = null
+let urlCheckInterval: ReturnType<typeof setInterval> | null = null
 let emailRowElements: Map<string, Element> = new Map()
 let currentTheme: 'default' | 'dark' | 'professional' = 'default'
+let listenersInitialized = false
 
 // Theme color configurations - matching sidebar colors exactly
 const themeColors = {
@@ -238,7 +240,7 @@ function showActivationBanner(): void {
     </div>
   `
   
-  shadow.getElementById('enable')?.addEventListener('click', activateMailGuard)
+  shadow.getElementById('enable')?.addEventListener('click', () => activateMailGuard())
   shadow.getElementById('dismiss')?.addEventListener('click', dismissBanner)
   
   document.body.appendChild(banner)
@@ -320,23 +322,10 @@ function getEmailRowPositions(): EmailRowRect[] {
   return rows
 }
 
-function startRowPositionUpdates(): void {
-  if (rowUpdateInterval) return
-  
-  // Update row positions every 1000ms
-  rowUpdateInterval = setInterval(() => {
-    if (!isMailGuardActive) return
-    
-    // Check if we're still on a supported email site
-    if (!isOnSupportedEmailSite()) {
-      console.log('[MailGuard] No longer on supported email site, deactivating...')
-      deactivateMailGuard()
-      return
-    }
-    
-    const rows = getEmailRowPositions()
-    sendToBackground({ type: 'MAILGUARD_UPDATE_ROWS', rows })
-  }, 1000)
+// Initialize event listeners once (they check isMailGuardActive internally)
+function initializeListeners(): void {
+  if (listenersInitialized) return
+  listenersInitialized = true
   
   // Throttled scroll handler
   let scrollTimeout: ReturnType<typeof setTimeout> | null = null
@@ -367,23 +356,50 @@ function startRowPositionUpdates(): void {
     }
   })
   
-  // Watch for URL changes within the SPA
-  let lastUrl = window.location.href
-  setInterval(() => {
+  console.log('[MailGuard] Event listeners initialized')
+}
+
+function startRowPositionUpdates(): void {
+  // Initialize listeners once
+  initializeListeners()
+  
+  // Don't start if already running
+  if (rowUpdateInterval) return
+  
+  // Update row positions every 1000ms
+  rowUpdateInterval = setInterval(() => {
     if (!isMailGuardActive) return
     
-    const currentUrl = window.location.href
-    if (currentUrl !== lastUrl) {
-      console.log('[MailGuard] URL changed from', lastUrl, 'to', currentUrl)
-      lastUrl = currentUrl
-      
-      // If we're no longer on a supported site, deactivate
-      if (!isOnSupportedEmailSite()) {
-        console.log('[MailGuard] Navigated away from email site, deactivating...')
-        deactivateMailGuard()
-      }
+    // Check if we're still on a supported email site
+    if (!isOnSupportedEmailSite()) {
+      console.log('[MailGuard] No longer on supported email site, deactivating...')
+      deactivateMailGuard()
+      return
     }
-  }, 300)
+    
+    const rows = getEmailRowPositions()
+    sendToBackground({ type: 'MAILGUARD_UPDATE_ROWS', rows })
+  }, 1000)
+  
+  // Watch for URL changes within the SPA
+  if (!urlCheckInterval) {
+    let lastUrl = window.location.href
+    urlCheckInterval = setInterval(() => {
+      if (!isMailGuardActive) return
+      
+      const currentUrl = window.location.href
+      if (currentUrl !== lastUrl) {
+        console.log('[MailGuard] URL changed from', lastUrl, 'to', currentUrl)
+        lastUrl = currentUrl
+        
+        // If we're no longer on a supported site, deactivate
+        if (!isOnSupportedEmailSite()) {
+          console.log('[MailGuard] Navigated away from email site, deactivating...')
+          deactivateMailGuard()
+        }
+      }
+    }, 300)
+  }
 }
 
 // List of supported email sites where MailGuard can be active
@@ -402,6 +418,8 @@ function stopRowPositionUpdates(): void {
     clearInterval(rowUpdateInterval)
     rowUpdateInterval = null
   }
+  // Note: We don't clear urlCheckInterval as it's harmless when inactive
+  // and we don't remove event listeners - they just check isMailGuardActive
 }
 
 // =============================================================================
@@ -565,6 +583,15 @@ function processNodeToText(node: Node): string {
 
 async function activateMailGuard(): Promise<void> {
   console.log('[MailGuard] Activating...')
+  
+  // If already active, just dismiss banner and show status
+  if (isMailGuardActive) {
+    console.log('[MailGuard] Already active')
+    dismissBanner()
+    showStatusMarker()
+    return
+  }
+  
   dismissBanner()
   
   const colors = themeColors[currentTheme]
@@ -594,8 +621,11 @@ async function activateMailGuard(): Promise<void> {
   
   // Add spin animation
   const style = document.createElement('style')
+  style.id = 'mailguard-spin-style'
   style.textContent = '@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }'
-  document.head.appendChild(style)
+  if (!document.getElementById('mailguard-spin-style')) {
+    document.head.appendChild(style)
+  }
   
   // Get window position to determine which display to use
   const windowInfo = {
@@ -609,23 +639,27 @@ async function activateMailGuard(): Promise<void> {
   console.log('[MailGuard] Window position:', windowInfo)
   console.log('[MailGuard] Sending MAILGUARD_ACTIVATE to background with theme:', currentTheme)
   
-  // Retry logic - try up to 3 times with increasing delay
-  const maxRetries = 3
+  // More aggressive retry logic - try up to 5 times
+  const maxRetries = 5
   let lastError = ''
   
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
       if (attempt > 1) {
         statusDiv.innerHTML = `<span style="animation: spin 1s linear infinite; display: inline-block;">⏳</span> Connecting... (attempt ${attempt}/${maxRetries})`
-        // Wait before retry (500ms, 1000ms, 1500ms)
-        await new Promise(r => setTimeout(r, attempt * 500))
+        // Progressive delay: 300ms, 600ms, 900ms, 1200ms
+        await new Promise(r => setTimeout(r, attempt * 300))
       }
       
+      // The background script now handles connection retries internally
       const response = await sendToBackground({ type: 'MAILGUARD_ACTIVATE', windowInfo, theme: currentTheme })
       console.log('[MailGuard] Response from background (attempt', attempt, '):', response)
       
       if (response?.success) {
+        statusDiv.innerHTML = '<span style="color: #4ade80;">✓</span> Connected!'
+        await new Promise(r => setTimeout(r, 500))
         statusDiv.remove()
+        
         isMailGuardActive = true
         showStatusMarker()
         startRowPositionUpdates()
@@ -638,6 +672,12 @@ async function activateMailGuard(): Promise<void> {
       } else {
         lastError = response?.error || 'Unknown error'
         console.log('[MailGuard] Attempt', attempt, 'failed:', lastError)
+        
+        // If it's a connection error, the background is already retrying
+        // Wait a bit longer for it to succeed
+        if (lastError.includes('connect') || lastError.includes('OpenGiraffe')) {
+          await new Promise(r => setTimeout(r, 500))
+        }
       }
     } catch (err) {
       lastError = String(err)
@@ -647,7 +687,7 @@ async function activateMailGuard(): Promise<void> {
   
   // All retries failed
   statusDiv.remove()
-  showActivationError(lastError || 'Connection failed after multiple attempts. Make sure OpenGiraffe is running.')
+  showActivationError(lastError || 'Connection failed. Please ensure the OpenGiraffe app is running and try again.')
 }
 
 function showActivationError(message: string): void {
@@ -698,6 +738,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg.type === 'MAILGUARD_ACTIVATED') {
     console.log('[MailGuard] Activation confirmed by Electron')
     isMailGuardActive = true
+    dismissBanner() // Make sure banner is removed when activated
     showStatusMarker()
     startRowPositionUpdates()
   } else if (msg.type === 'MAILGUARD_DEACTIVATED') {
@@ -713,7 +754,8 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       }
     })
   } else if (msg.type === 'MAILGUARD_STATUS_RESPONSE') {
-    if (msg.active && !isMailGuardActive) {
+    console.log('[MailGuard] Status response:', msg.active)
+    if (msg.active) {
       isMailGuardActive = true
       dismissBanner()
       showStatusMarker()
