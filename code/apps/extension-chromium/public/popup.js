@@ -726,5 +726,143 @@ function showTriggerPromptUI(mode, rect, displayId, imageUrl, videoUrl, createTr
 
 // Allow cancel from the popup (×) to stop selection in Electron/content
 
+// ===== EMAIL ACCOUNTS SECTION =====
+const mgConnectEmail = document.getElementById('mg-connect-email')
+const mgAccountsList = document.getElementById('mg-accounts-list')
+const mgAccountsLoading = document.getElementById('mg-accounts-loading')
+const mgAccountsEmpty = document.getElementById('mg-accounts-empty')
+const mgAccountsContent = document.getElementById('mg-accounts-content')
+const mgAccountsActive = document.getElementById('mg-accounts-active')
+const mgEmailWizard = document.getElementById('mg-email-wizard')
+const mgWizardClose = document.getElementById('mg-wizard-close')
+const mgConnectGmail = document.getElementById('mg-connect-gmail')
 
+let emailAccounts = []
+
+// Load email accounts from Electron
+async function loadEmailAccounts() {
+  if (mgAccountsLoading) mgAccountsLoading.style.display = 'block'
+  if (mgAccountsEmpty) mgAccountsEmpty.style.display = 'none'
+  if (mgAccountsContent) mgAccountsContent.style.display = 'none'
+  if (mgAccountsActive) mgAccountsActive.style.display = 'none'
+  
+  try {
+    const response = await new Promise((resolve) => {
+      chrome.runtime?.sendMessage({ type: 'EMAIL_LIST_ACCOUNTS' }, resolve)
+    })
+    
+    if (response?.ok && response?.data) {
+      emailAccounts = response.data
+    } else {
+      emailAccounts = []
+    }
+  } catch (err) {
+    console.log('[Popup] Failed to load email accounts:', err)
+    emailAccounts = []
+  }
+  
+  renderEmailAccounts()
+}
+
+// Render email accounts list
+function renderEmailAccounts() {
+  if (mgAccountsLoading) mgAccountsLoading.style.display = 'none'
+  
+  if (emailAccounts.length === 0) {
+    if (mgAccountsEmpty) mgAccountsEmpty.style.display = 'block'
+    if (mgAccountsContent) mgAccountsContent.style.display = 'none'
+    if (mgAccountsActive) mgAccountsActive.style.display = 'none'
+  } else {
+    if (mgAccountsEmpty) mgAccountsEmpty.style.display = 'none'
+    if (mgAccountsContent) {
+      mgAccountsContent.style.display = 'flex'
+      mgAccountsContent.innerHTML = emailAccounts.map(account => `
+        <div style="display:flex; align-items:center; justify-content:space-between; padding:10px 12px; background:rgba(255,255,255,0.08); border-radius:8px; border:1px solid ${account.status === 'active' ? 'rgba(34,197,94,0.4)' : 'rgba(239,68,68,0.4)'};">
+          <div style="display:flex; align-items:center; gap:10px;">
+            <span style="font-size:18px;">${account.provider === 'gmail' ? '📧' : '✉️'}</span>
+            <div>
+              <div style="font-size:13px; font-weight:500;">${account.email || account.displayName || 'Account'}</div>
+              <div style="font-size:10px; display:flex; align-items:center; gap:6px; margin-top:2px;">
+                <span style="width:6px; height:6px; border-radius:50%; background:${account.status === 'active' ? '#22c55e' : '#ef4444'};"></span>
+                <span style="opacity:0.6;">${account.status === 'active' ? 'Connected' : (account.lastError || 'Error')}</span>
+              </div>
+            </div>
+          </div>
+          <button onclick="disconnectEmailAccount('${account.id}')" style="background:transparent; border:none; opacity:0.5; cursor:pointer; font-size:14px; color:var(--text);">✕</button>
+        </div>
+      `).join('')
+    }
+    if (mgAccountsActive) mgAccountsActive.style.display = 'flex'
+  }
+}
+
+// Connect Gmail account
+async function connectGmailAccount() {
+  try {
+    if (mgEmailWizard) mgEmailWizard.style.display = 'none'
+    
+    const response = await new Promise((resolve) => {
+      chrome.runtime?.sendMessage({ type: 'EMAIL_CONNECT_GMAIL' }, resolve)
+    })
+    
+    if (response?.ok) {
+      setTimeout(loadEmailAccounts, 1000)
+    } else {
+      console.log('[Popup] Gmail connection failed:', response?.error)
+    }
+  } catch (err) {
+    console.log('[Popup] Failed to connect Gmail:', err)
+  }
+}
+
+// Disconnect email account (make it global for onclick)
+window.disconnectEmailAccount = async function(accountId) {
+  try {
+    const response = await new Promise((resolve) => {
+      chrome.runtime?.sendMessage({ type: 'EMAIL_DELETE_ACCOUNT', accountId }, resolve)
+    })
+    
+    if (response?.ok) {
+      loadEmailAccounts()
+    }
+  } catch (err) {
+    console.log('[Popup] Failed to disconnect account:', err)
+  }
+}
+
+// Email wizard event listeners
+if (mgConnectEmail) {
+  mgConnectEmail.onclick = () => {
+    if (mgEmailWizard) mgEmailWizard.style.display = 'flex'
+  }
+}
+
+if (mgWizardClose) {
+  mgWizardClose.onclick = () => {
+    if (mgEmailWizard) mgEmailWizard.style.display = 'none'
+  }
+}
+
+if (mgConnectGmail) {
+  mgConnectGmail.onclick = connectGmailAccount
+}
+
+// Load accounts when switching to mailguard mode
+if (modeSelect) {
+  const originalHandler = modeSelect.onchange
+  modeSelect.addEventListener('change', () => {
+    if (modeSelect.value === 'mailguard') {
+      loadEmailAccounts()
+    }
+  })
+}
+
+// Listen for account updates from Electron
+try {
+  chrome.runtime?.onMessage.addListener((msg) => {
+    if (msg?.type === 'EMAIL_ACCOUNTS_UPDATED') {
+      loadEmailAccounts()
+    }
+  })
+} catch {}
 
