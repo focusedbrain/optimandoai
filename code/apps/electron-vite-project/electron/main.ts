@@ -1074,8 +1074,7 @@ app.whenReady().then(async () => {
               console.log(`[MAIN] Processing message type: ${msg.type}`)
 
               // Send message type log for ALL messages - CRITICAL for debugging
-            }
-            
+
             // ===== MAILGUARD HANDLERS =====
             if (msg.type === 'MAILGUARD_ACTIVATE') {
               console.log('[MAIN] ===== MAILGUARD_ACTIVATE received =====')
@@ -1216,8 +1215,9 @@ app.whenReady().then(async () => {
                   isOpen: socket.readyState === socket.OPEN
                 })
               }
+            }
 
-              if (msg.type === 'ping') {
+            if (msg.type === 'ping') {
                 console.log('[MAIN] Ping received, sending pong');
                 try { socket.send(JSON.stringify({ type: 'pong' })) } catch (e) {
                   console.error('[MAIN] Error sending pong:', e)
@@ -3168,6 +3168,134 @@ app.whenReady().then(async () => {
       }
     })
     
+    // ===== Code Executor API Endpoints =====
+    
+    // GET /api/code-executor/folder - Get current code folder path
+    httpApp.get('/api/code-executor/folder', async (_req, res) => {
+      try {
+        const { getCodeFolderPath } = await import('./main/code-executor/index')
+        res.json({ ok: true, data: getCodeFolderPath() })
+      } catch (error: any) {
+        console.error('[HTTP-CodeExecutor] Error getting folder:', error)
+        res.status(500).json({ ok: false, error: error.message })
+      }
+    })
+    
+    // POST /api/code-executor/folder - Set code folder path
+    httpApp.post('/api/code-executor/folder', async (req, res) => {
+      try {
+        const { folderPath } = req.body
+        if (!folderPath) {
+          res.status(400).json({ ok: false, error: 'folderPath is required' })
+          return
+        }
+        const { setCodeFolderPath } = await import('./main/code-executor/index')
+        setCodeFolderPath(folderPath)
+        res.json({ ok: true, data: folderPath })
+      } catch (error: any) {
+        console.error('[HTTP-CodeExecutor] Error setting folder:', error)
+        res.status(500).json({ ok: false, error: error.message })
+      }
+    })
+    
+    // GET /api/code-executor/files - List generated files
+    httpApp.get('/api/code-executor/files', async (_req, res) => {
+      try {
+        const { listGeneratedFiles } = await import('./main/code-executor/index')
+        const files = listGeneratedFiles()
+        res.json({ ok: true, data: files })
+      } catch (error: any) {
+        console.error('[HTTP-CodeExecutor] Error listing files:', error)
+        res.status(500).json({ ok: false, error: error.message })
+      }
+    })
+    
+    // POST /api/code-executor/run - Execute full code generation + execution flow
+    httpApp.post('/api/code-executor/run', async (req, res) => {
+      try {
+        const { query, modelId, outputFolder } = req.body
+        
+        if (!query) {
+          res.status(400).json({ ok: false, error: 'query is required' })
+          return
+        }
+        
+        console.log('[HTTP-CodeExecutor] Starting code generation flow...')
+        console.log('[HTTP-CodeExecutor] Query:', query)
+        
+        const { getCodeGenerationSystemPrompt, executeGeneratedCode } = await import('./main/code-executor/index')
+        const { ollamaManager } = await import('./main/llm/ollama-manager')
+        
+        // Get available model
+        let activeModelId = modelId
+        if (!activeModelId) {
+          const models = await ollamaManager.listModels()
+          if (models.length === 0) {
+            res.status(400).json({ 
+              ok: false, 
+              error: 'No AI models installed. Please install a model first.' 
+            })
+            return
+          }
+          activeModelId = models[0].name
+        }
+        
+        console.log('[HTTP-CodeExecutor] Using model:', activeModelId)
+        
+        // Generate code using AI
+        const systemPrompt = getCodeGenerationSystemPrompt()
+        const messages: Array<{ role: 'system' | 'user' | 'assistant', content: string }> = [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: query }
+        ]
+        
+        console.log('[HTTP-CodeExecutor] Calling AI for code generation...')
+        const aiResponse = await ollamaManager.chat(activeModelId, messages)
+        
+        if (!aiResponse || !aiResponse.content) {
+          res.status(500).json({ ok: false, error: 'AI did not return a response' })
+          return
+        }
+        
+        console.log('[HTTP-CodeExecutor] AI response received, executing code...')
+        
+        // Execute the generated code
+        const result = await executeGeneratedCode(aiResponse.content, outputFolder)
+        
+        console.log('[HTTP-CodeExecutor] Execution complete:', result.success ? 'SUCCESS' : 'FAILED')
+        
+        res.json({ ok: true, data: result })
+        
+      } catch (error: any) {
+        console.error('[HTTP-CodeExecutor] Error:', error)
+        res.status(500).json({ ok: false, error: error.message })
+      }
+    })
+    
+    // POST /api/code-executor/cleanup - Clean up old generated files
+    httpApp.post('/api/code-executor/cleanup', async (req, res) => {
+      try {
+        const { olderThanDays = 7 } = req.body
+        const { cleanupOldFiles } = await import('./main/code-executor/index')
+        const deletedCount = cleanupOldFiles(olderThanDays)
+        res.json({ ok: true, data: { deletedCount } })
+      } catch (error: any) {
+        console.error('[HTTP-CodeExecutor] Error cleaning up:', error)
+        res.status(500).json({ ok: false, error: error.message })
+      }
+    })
+    
+    // GET /api/code-executor/system-prompt - Get the system prompt template
+    httpApp.get('/api/code-executor/system-prompt', async (_req, res) => {
+      try {
+        const { getCodeGenerationSystemPrompt } = await import('./main/code-executor/index')
+        res.json({ ok: true, data: getCodeGenerationSystemPrompt() })
+      } catch (error: any) {
+        console.error('[HTTP-CodeExecutor] Error getting system prompt:', error)
+        res.status(500).json({ ok: false, error: error.message })
+      }
+    })
+    
     // ===== OCR API Endpoints =====
     
     // GET /api/ocr/status - Get OCR service status
@@ -3563,7 +3691,7 @@ app.whenReady().then(async () => {
     });
 
     // GET /api/cursor/state - Get current Cursor state (for polling)
-    httpApp.get('/api/cursor/state', (req, res) => {
+    httpApp.get('/api/cursor/state', (_req, res) => {
       try {
         res.json({ ok: true, ...cursorState });
       } catch (error: any) {

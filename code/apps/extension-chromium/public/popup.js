@@ -175,7 +175,19 @@ const modeSelect = document.getElementById('mode-select')
 const chatView = document.getElementById('chat-view')
 const overlayView = document.getElementById('overlay-view')
 const mailguardView = document.getElementById('mailguard-view')
+const codeExecutorView = document.getElementById('code-executor-view')
 const chatControls = document.getElementById('chat-controls')
+
+// Code Executor elements
+const codeTa = document.getElementById('code-ta')
+const codeSend = document.getElementById('code-send')
+const codeModelLabel = document.getElementById('code-model-label')
+const codeResult = document.getElementById('code-result')
+const codeResultStatus = document.getElementById('code-result-status')
+const codeResultLang = document.getElementById('code-result-lang')
+const codeResultOutput = document.getElementById('code-result-output')
+const codeResultOpen = document.getElementById('code-result-open')
+const codeResultMiniapp = document.getElementById('code-result-miniapp')
 
 // MailGuard elements
 const mgTo = document.getElementById('mg-to')
@@ -199,6 +211,7 @@ if (modeSelect) {
     chatView.classList.add('hidden')
     overlayView?.classList.remove('active')
     mailguardView.classList.remove('active')
+    codeExecutorView?.classList.remove('active')
     if (chatControls) chatControls.style.display = 'none'
     
     if (mode === 'command-chat') {
@@ -207,6 +220,9 @@ if (modeSelect) {
     } else if (mode === 'augmented-overlay') {
       overlayView?.classList.add('active')
       if (chatControls) chatControls.style.display = 'flex'
+    } else if (mode === 'code-executor') {
+      codeExecutorView?.classList.add('active')
+      updateCodeModelLabel()
     } else if (mode === 'mailguard') {
       mailguardView.classList.add('active')
       updateMgHint()
@@ -358,15 +374,15 @@ async function sendNow(){
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         model: activeModel,
-        messages: [{ role: 'system', content: "your are a philosopher" },{ role: 'user', content: text }],// todo: added { role: 'system', content: "your are a philosopher" } to test from where the request is going
+        messages: [{ role: 'user', content: text }],
         stream: false
       })
     })
     
     const result = await response.json()
     
-    if (result.ok && result.data?.message?.content) {
-      row('assistant', result.data.message.content)
+    if (result.ok && result.data?.content) { // todo: modified this line to result.data?.content. Revert after testing. revert to result.data?.message?.content.
+      row('assistant', result.data.content) // todo: modified this line to result.data.content. Revert after testing. revert to result.data.message.content.
     } else {
       row('assistant', '⚠️ Error: ' + (result.error || 'Failed to get response'))
     }
@@ -865,4 +881,222 @@ try {
     }
   })
 } catch {}
+
+
+// =====================================================
+// CODE EXECUTOR MODE
+// =====================================================
+
+// Update code model label
+function updateCodeModelLabel() {
+  if (codeModelLabel) {
+    codeModelLabel.textContent = availableModels.length > 0 ? getShortModelName(activeModel) : 'No model'
+  }
+}
+
+// Code execution state
+let isCodeExecuting = false
+let lastCodeResult = null
+
+// Add row to code executor messages
+function codeRow(role, text) {
+  const codeExecutorMsgs = document.getElementById('code-executor-msgs')
+  if (!codeExecutorMsgs) return
+  
+  const r = document.createElement('div')
+  r.className = 'row ' + (role === 'user' ? 'user' : 'assistant')
+  const b = document.createElement('div')
+  b.className = 'bubble ' + (role === 'user' ? 'user' : 'assistant')
+  b.textContent = text
+  r.appendChild(b)
+  codeExecutorMsgs.appendChild(r)
+  codeExecutorMsgs.scrollTop = codeExecutorMsgs.scrollHeight
+}
+
+// Show/hide code result panel
+function showCodeResult(result) {
+  if (!codeResult) return
+  
+  lastCodeResult = result
+  codeResult.style.display = 'block'
+  
+  // Update status
+  if (codeResultStatus) {
+    if (result.success) {
+      codeResultStatus.textContent = '✓ Executed successfully'
+      codeResultStatus.className = 'code-result-status success'
+    } else {
+      codeResultStatus.textContent = '✗ Execution failed'
+      codeResultStatus.className = 'code-result-status error'
+    }
+  }
+  
+  // Update language badge
+  if (codeResultLang) {
+    codeResultLang.textContent = result.language || 'unknown'
+  }
+  
+  // Update output
+  if (codeResultOutput) {
+    if (result.error) {
+      codeResultOutput.textContent = `Error: ${result.error}\n\n${result.output || ''}`
+    } else {
+      codeResultOutput.textContent = result.output || '(No output)'
+    }
+  }
+  
+  // Show/hide action buttons
+  if (codeResultOpen) {
+    codeResultOpen.style.display = result.filePath ? 'inline-block' : 'none'
+  }
+  
+  if (codeResultMiniapp) {
+    codeResultMiniapp.style.display = result.isMiniApp ? 'inline-block' : 'none'
+  }
+}
+
+// Hide code result panel
+function hideCodeResult() {
+  if (codeResult) {
+    codeResult.style.display = 'none'
+  }
+  lastCodeResult = null
+}
+
+// Execute code generation + run flow
+async function executeCode() {
+  const query = (codeTa?.value || '').trim()
+  
+  if (!query) {
+    codeRow('assistant', '💡 Please describe what code you want me to generate. For example:\n• "Print odd numbers from 1 to 10"\n• "Create a simple calculator app"\n• "Generate fibonacci sequence in JavaScript"')
+    return
+  }
+  
+  if (isCodeExecuting) return
+  
+  // Check if model is available
+  if (!activeModel || availableModels.length === 0) {
+    codeRow('assistant', '⚠️ No AI model available. Please install a model in LLM Settings first.')
+    return
+  }
+  
+  // Show user query
+  codeRow('user', query)
+  codeTa.value = ''
+  
+  // Hide previous result
+  hideCodeResult()
+  
+  // Update UI state
+  isCodeExecuting = true
+  if (codeSend) {
+    codeSend.disabled = true
+    const sendText = codeSend.querySelector('.send-text')
+    if (sendText) sendText.textContent = '⏳ Generating...'
+  }
+  
+  try {
+    const baseUrl = 'http://127.0.0.1:51248'
+    
+    // Show progress message
+    codeRow('assistant', '🔄 Generating code and executing...')
+    
+    const response = await fetch(`${baseUrl}/api/code-executor/run`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        query: query,
+        modelId: activeModel
+      })
+    })
+    
+    const result = await response.json()
+    
+    // Remove the "generating" message
+    const codeExecutorMsgs = document.getElementById('code-executor-msgs')
+    if (codeExecutorMsgs && codeExecutorMsgs.lastChild) {
+      codeExecutorMsgs.removeChild(codeExecutorMsgs.lastChild)
+    }
+    
+    if (result.ok && result.data) {
+      const execResult = result.data
+      
+      // Show success message
+      if (execResult.success) {
+        codeRow('assistant', `✅ Code generated and executed successfully!\n📁 Saved to: ${execResult.filePath}\n⏱️ Execution time: ${execResult.executionTime}ms`)
+      } else {
+        codeRow('assistant', `⚠️ Code generated but execution had issues.\n📁 Saved to: ${execResult.filePath}`)
+      }
+      
+      // Show result panel
+      showCodeResult(execResult)
+      
+    } else {
+      codeRow('assistant', '❌ Error: ' + (result.error || 'Failed to generate or execute code'))
+    }
+    
+  } catch (err) {
+    console.error('[CodeExecutor] Error:', err)
+    codeRow('assistant', '❌ Failed to connect to the code executor. Make sure the Electron app is running.')
+  } finally {
+    isCodeExecuting = false
+    if (codeSend) {
+      codeSend.disabled = false
+      const sendText = codeSend.querySelector('.send-text')
+      if (sendText) sendText.textContent = 'Generate & Run'
+    }
+  }
+}
+
+// Code executor event listeners
+if (codeSend) {
+  codeSend.onclick = executeCode
+}
+
+if (codeTa) {
+  codeTa.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault()
+      executeCode()
+    }
+  })
+}
+
+// Open file button handler
+if (codeResultOpen) {
+  codeResultOpen.onclick = async () => {
+    if (!lastCodeResult?.filePath) return
+    
+    try {
+      // Try to open via Electron
+      const baseUrl = 'http://127.0.0.1:51248'
+      // For now, just show the path - we can add folder opening later
+      alert(`File saved at:\n${lastCodeResult.filePath}`)
+    } catch (err) {
+      console.error('[CodeExecutor] Error opening file:', err)
+    }
+  }
+}
+
+// Open mini app button handler
+if (codeResultMiniapp) {
+  codeResultMiniapp.onclick = async () => {
+    if (!lastCodeResult?.miniAppUrl) return
+    
+    try {
+      // Open in new tab
+      window.open(lastCodeResult.miniAppUrl, '_blank')
+    } catch (err) {
+      console.error('[CodeExecutor] Error opening mini app:', err)
+    }
+  }
+}
+
+// Update code model label when models change
+const originalFetchModels = fetchAvailableModels
+fetchAvailableModels = async function() {
+  await originalFetchModels()
+  updateCodeModelLabel()
+}
+
 

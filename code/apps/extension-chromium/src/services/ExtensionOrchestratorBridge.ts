@@ -139,7 +139,7 @@ export function createExtensionBridge(): OrchestratorBridge {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            messages: [{ role: 'system', content: "your are a comedian" },{ role: 'user', content: prompt }],// todo: added { role: 'system', content: "your are a comedian" } to test from where the request is going
+            messages: [{ role: 'user', content: prompt }],
             context,
             stream: false
           })

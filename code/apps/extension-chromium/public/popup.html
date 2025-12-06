@@ -146,6 +146,26 @@
       .overlay-hint { padding:16px; font-size:13px; opacity:0.9; font-style:italic; background:rgba(59,130,246,0.12); display:flex; align-items:flex-start; gap:12px; line-height:1.6; border-radius:8px; margin:12px; }
       .overlay-hint-icon { font-size:24px; flex-shrink:0; }
       
+      /* Code Executor styles */
+      .code-executor-view { display:none; flex-direction:column; flex:1; }
+      .code-executor-view.active { display:flex; }
+      .code-hint { padding:14px; font-size:12px; background:rgba(34,197,94,0.12); display:flex; align-items:flex-start; gap:12px; line-height:1.5; border-radius:8px; margin:12px; border:1px solid rgba(34,197,94,0.25); }
+      .code-hint-icon { font-size:24px; flex-shrink:0; }
+      .code-hint-content { flex:1; }
+      .code-result { margin:0 12px 12px; background:var(--surface); border:1px solid var(--border); border-radius:8px; overflow:hidden; }
+      .code-result-header { display:flex; align-items:center; gap:8px; padding:10px 12px; background:rgba(0,0,0,0.2); border-bottom:1px solid var(--border); font-size:11px; }
+      .code-result-status { font-weight:600; }
+      .code-result-status.success { color:#22c55e; }
+      .code-result-status.error { color:#ef4444; }
+      .code-result-lang { background:rgba(255,255,255,0.1); padding:2px 8px; border-radius:4px; font-size:10px; font-weight:600; text-transform:uppercase; }
+      .code-result-btn { background:var(--btn-surface); border:1px solid var(--border); color:var(--text); padding:4px 10px; border-radius:4px; font-size:10px; cursor:pointer; margin-left:auto; }
+      .code-result-btn:hover { background:rgba(255,255,255,0.15); }
+      .code-result-btn-primary { background:linear-gradient(135deg, #22c55e 0%, #16a34a 100%); border-color:#15803d; color:#052e16; }
+      .code-result-btn-primary:hover { opacity:0.9; }
+      .code-result-output { margin:0; padding:12px; font-size:12px; font-family:'Consolas', 'Monaco', monospace; white-space:pre-wrap; word-break:break-word; max-height:200px; overflow:auto; background:rgba(0,0,0,0.15); color:var(--text); }
+      .code-send-btn { background:linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%) !important; border-color:#7c3aed !important; color:#ffffff !important; }
+      .code-send-btn:hover { opacity:0.9; }
+      
       /* MailGuard styles */
       .mailguard-view { display:none; flex-direction:column; flex:1; }
       .mailguard-view.active { display:flex; }
@@ -186,6 +206,7 @@
       <div class="toolkit">
         <select id="mode-select" class="mode-select">
           <option value="command-chat">💬 WR Chat</option>
+          <option value="code-executor">🚀 Code Executor</option>
           <option value="augmented-overlay">🎯 Augmented Overlay</option>
           <option value="mailguard">🛡️ WR MailGuard</option>
         </select>
@@ -240,6 +261,40 @@
               <span class="send-model">auto</span>
             </button>
             <button class="send-dropdown-btn" title="Select model">▾</button>
+          </div>
+        </div>
+      </div>
+      
+      <!-- Code Executor View -->
+      <div id="code-executor-view" class="code-executor-view">
+        <div id="code-executor-msgs" class="messages">
+          <div class="code-hint">
+            <span class="code-hint-icon">🚀</span>
+            <div class="code-hint-content">
+              <strong>Code Executor Mode</strong><br/>
+              Ask AI to generate and run code for you. Examples:<br/>
+              • "Print odd numbers from 1 to 10"<br/>
+              • "Create a calculator app"<br/>
+              • "Generate fibonacci sequence in JavaScript"
+            </div>
+          </div>
+        </div>
+        <div id="code-result" class="code-result" style="display:none;">
+          <div class="code-result-header">
+            <span id="code-result-status">✓ Executed</span>
+            <span id="code-result-lang" class="code-result-lang">python</span>
+            <button id="code-result-open" class="code-result-btn" title="Open file" style="display:none;">📂 Open</button>
+            <button id="code-result-miniapp" class="code-result-btn code-result-btn-primary" title="Open Mini App" style="display:none;">🚀 Open App</button>
+          </div>
+          <pre id="code-result-output" class="code-result-output"></pre>
+        </div>
+        <div class="composer">
+          <textarea id="code-ta" class="ta" placeholder="Describe what code you want to generate and run..."></textarea>
+          <div class="send-wrapper">
+            <button id="code-send" class="send-main code-send-btn" title="Generate & Execute">
+              <span class="send-text">Generate & Run</span>
+              <span id="code-model-label" class="send-model">No model</span>
+            </button>
           </div>
         </div>
       </div>
