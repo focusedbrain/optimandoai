@@ -2,9 +2,113 @@ import { app, BrowserWindow, globalShortcut, Tray, Menu, Notification, screen } 
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 import os from 'node:os'
-import { exec } from 'node:child_process'
+import { exec, execSync } from 'node:child_process'
 import { WebSocketServer } from 'ws'
 import express from 'express'
+import * as net from 'net'
+
+// ============================================================================
+// ROBUST PORT MANAGEMENT - Ensure clean startup
+// ============================================================================
+
+const WS_PORT = 51247
+const HTTP_PORT = 51248
+
+/**
+ * Check if a port is available
+ */
+function isPortAvailable(port: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const server = net.createServer()
+    server.once('error', () => resolve(false))
+    server.once('listening', () => {
+      server.close()
+      resolve(true)
+    })
+    server.listen(port, '127.0.0.1')
+  })
+}
+
+/**
+ * Kill process using a specific port (Windows-specific)
+ */
+async function killProcessOnPort(port: number): Promise<void> {
+  if (process.platform !== 'win32') {
+    try {
+      execSync(`lsof -ti:${port} | xargs kill -9 2>/dev/null || true`, { stdio: 'ignore' })
+    } catch {}
+    return
+  }
+  
+  try {
+    // Find PID using the port
+    const result = execSync(`netstat -ano | findstr :${port} | findstr LISTENING`, { encoding: 'utf-8' })
+    const lines = result.trim().split('\n')
+    const pids = new Set<string>()
+    
+    for (const line of lines) {
+      const parts = line.trim().split(/\s+/)
+      const pid = parts[parts.length - 1]
+      if (pid && /^\d+$/.test(pid) && pid !== '0') {
+        pids.add(pid)
+      }
+    }
+    
+    for (const pid of pids) {
+      try {
+        execSync(`taskkill /F /PID ${pid}`, { stdio: 'ignore' })
+        console.log(`[PORT-CLEANUP] Killed process ${pid} on port ${port}`)
+      } catch {}
+    }
+  } catch {
+    // No process found on port, which is fine
+  }
+}
+
+/**
+ * Ensure ports are available before starting servers
+ */
+async function ensurePortsAvailable(): Promise<void> {
+  console.log('[PORT-CLEANUP] Checking port availability...')
+  
+  let needsWait = false
+  
+  // Check and clean WebSocket port
+  if (!(await isPortAvailable(WS_PORT))) {
+    console.log(`[PORT-CLEANUP] Port ${WS_PORT} is in use, cleaning up...`)
+    await killProcessOnPort(WS_PORT)
+    needsWait = true
+  }
+  
+  // Check and clean HTTP port
+  if (!(await isPortAvailable(HTTP_PORT))) {
+    console.log(`[PORT-CLEANUP] Port ${HTTP_PORT} is in use, cleaning up...`)
+    await killProcessOnPort(HTTP_PORT)
+    needsWait = true
+  }
+  
+  // Wait for OS to release ports - need longer delay on Windows
+  if (needsWait) {
+    console.log('[PORT-CLEANUP] Waiting for OS to release ports...')
+    await new Promise(r => setTimeout(r, 3000))
+    
+    // Verify ports are now available
+    for (let retry = 0; retry < 5; retry++) {
+      const wsAvailable = await isPortAvailable(WS_PORT)
+      const httpAvailable = await isPortAvailable(HTTP_PORT)
+      
+      if (wsAvailable && httpAvailable) {
+        console.log('[PORT-CLEANUP] Ports are now available')
+        break
+      }
+      
+      console.log(`[PORT-CLEANUP] Ports still not available, waiting... (${retry + 1}/5)`)
+      await new Promise(r => setTimeout(r, 2000))
+    }
+  }
+  
+  console.log('[PORT-CLEANUP] Ports are ready')
+}
 // WS bridge removed to avoid port conflicts; extension fallback/deep-link is used
 import { registerHandler, LmgtfyChannels, emitCapture } from './lmgtfy/ipc'
 import { beginOverlay, closeAllOverlays, showStreamTriggerOverlay } from './lmgtfy/overlay'
@@ -51,6 +155,36 @@ let isAppQuitting = false
 // Set flag when app is actually quitting
 app.on('before-quit', () => {
   isAppQuitting = true
+})
+
+// Graceful shutdown - close WebSocket connections
+process.on('SIGTERM', () => {
+  console.log('[MAIN] Received SIGTERM, shutting down gracefully...')
+  isAppQuitting = true
+  wsClients.forEach(client => {
+    try { client.close() } catch {}
+  })
+  app.quit()
+})
+
+process.on('SIGINT', () => {
+  console.log('[MAIN] Received SIGINT, shutting down gracefully...')
+  isAppQuitting = true
+  wsClients.forEach(client => {
+    try { client.close() } catch {}
+  })
+  app.quit()
+})
+
+// Handle uncaught exceptions to prevent crashes
+process.on('uncaughtException', (err) => {
+  console.error('[MAIN] Uncaught exception:', err)
+  // Don't exit - try to keep running
+})
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('[MAIN] Unhandled rejection at:', promise, 'reason:', reason)
+  // Don't exit - try to keep running
 })
 
 
@@ -949,13 +1083,16 @@ app.whenReady().then(async () => {
     // Continue app startup even if OCR init fails
   }
 
+  // Ensure ports are available before starting servers
+  await ensurePortsAvailable()
+  
   // WS bridge for extension (127.0.0.1:51247) with safe startup
   try {
     console.log('[MAIN] ===== ATTEMPTING TO START WEBSOCKET SERVER =====')
     console.log('[MAIN] WebSocketServer available:', !!WebSocketServer)
     if (WebSocketServer) {
-      console.log('[MAIN] Creating WebSocket server on 127.0.0.1:51247')
-      const wss = new WebSocketServer({ host: '127.0.0.1', port: 51247 })
+      console.log('[MAIN] Creating WebSocket server on 127.0.0.1:', WS_PORT)
+      const wss = new WebSocketServer({ host: '127.0.0.1', port: WS_PORT })
       console.log('[MAIN] WebSocket server created!')
       console.log('[MAIN] WebSocket server listening and ready for connections')
       
@@ -3416,64 +3553,37 @@ app.whenReady().then(async () => {
         res.status(500).json({ ok: false, error: error.message })
       }
     })
-
-    const HTTP_PORT = 51248
     
     // Simple function to start HTTP server with error handling
+    let httpServerStarted = false
+    
     const startHttpServer = (port: number, attempt = 1): void => {
+      if (httpServerStarted) {
+        console.log('[MAIN] HTTP server already started, skipping duplicate start')
+        return
+      }
+      
       console.log(`[MAIN] Starting HTTP API server on port ${port} (attempt ${attempt})...`)
       
       const server = httpApp.listen(port, '127.0.0.1', () => {
+        httpServerStarted = true
         console.log(`[MAIN] ✅ HTTP API server listening on http://127.0.0.1:${port}`)
-        console.log(`[MAIN] HTTP server is now listening on port ${port}`)
       })
       
-      server.on('error', (err: any) => {
+      server.once('error', (err: any) => {
+        if (httpServerStarted) return // Ignore errors if already started successfully
+        
         if (err.code === 'EADDRINUSE') {
           console.error(`[MAIN] Port ${port} is already in use`)
           
-          // Try to free the port on Windows
-          if (process.platform === 'win32' && attempt === 1) {
-            console.log(`[MAIN] Attempting to free port ${port}...`)
-            exec(`netstat -ano | findstr :${port}`, (_error: any, stdout: string) => {
-              if (stdout) {
-                const lines = stdout.trim().split('\n')
-                const pids = new Set<string>()
-                lines.forEach(line => {
-                  const parts = line.trim().split(/\s+/)
-                  if (parts.length > 0) {
-                    const pid = parts[parts.length - 1]
-                    if (pid && pid !== '0') pids.add(pid)
-                  }
-                })
-                if (pids.size > 0) {
-                  console.log(`[MAIN] Found processes using port ${port}: ${Array.from(pids).join(', ')}`)
-                  pids.forEach(pid => {
-                    exec(`taskkill /F /PID ${pid}`, () => {})
-                  })
-                  // Wait and retry
-                  setTimeout(() => {
-                    console.log(`[MAIN] Retrying after cleanup...`)
-                    startHttpServer(port, attempt + 1)
-                  }, 2000)
-                  return
-                }
-              }
-              // If cleanup didn't work, try alternative port
-              console.log(`[MAIN] Trying alternative port ${port + 1}...`)
-              startHttpServer(port + 1, 1)
-            })
+          if (attempt < 3) {
+            console.log(`[MAIN] Trying alternative port ${port + 1}... (attempt ${attempt + 1})`)
+            setTimeout(() => startHttpServer(port + 1, attempt + 1), 1000)
           } else {
-            // Try alternative port
-            if (attempt < 3) {
-              console.log(`[MAIN] Trying alternative port ${port + 1}...`)
-              startHttpServer(port + 1, attempt + 1)
-            } else {
-              console.error(`[MAIN] ❌ Failed to start HTTP server after ${attempt} attempts`)
-            }
+            console.error(`[MAIN] ❌ Failed to start HTTP server after ${attempt} attempts`)
           }
         } else {
-          console.error('[MAIN] HTTP server error:', err.message, err.stack)
+          console.error('[MAIN] HTTP server error:', err.message)
         }
       })
     }
