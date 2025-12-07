@@ -85,30 +85,48 @@ if (window.gridScriptV2Loaded) {
   }
   
   /**
+   * Get session key dynamically (script loads before DOMContentLoaded sets window.sessionKey)
+   */
+  function getCurrentSessionKey() {
+    var key = window.sessionKey || 
+              (window.GRID_CONFIG && window.GRID_CONFIG.sessionKey) || 
+              parentSessionKey || 
+              '';
+    return key;
+  }
+  
+  /**
    * Calculate next box number from SQLite (single source of truth)
    */
   function calculateNextBoxNumber(callback) {
-    console.log('🔍 V2: calculateNextBoxNumber called, sessionKey:', parentSessionKey);
+    // Get session key DYNAMICALLY each time - fixes timing issue where script loads before DOMContentLoaded
+    var currentSessionKey = getCurrentSessionKey();
     
-    if (!parentSessionKey) {
+    console.log('🔍 V2: calculateNextBoxNumber called');
+    console.log('🔍 V2: currentSessionKey (dynamic):', currentSessionKey);
+    console.log('🔍 V2: parentSessionKey (captured at load):', parentSessionKey);
+    console.log('🔍 V2: window.sessionKey:', window.sessionKey);
+    console.log('🔍 V2: window.GRID_CONFIG:', JSON.stringify(window.GRID_CONFIG));
+    
+    if (!currentSessionKey) {
       var fallbackNumber = (typeof window.nextBoxNumber !== 'undefined') ? window.nextBoxNumber : 1;
-      console.log('⚠️ V2: No session key, using fallback:', fallbackNumber);
+      console.log('⚠️ V2: No session key available, using fallback:', fallbackNumber);
       callback(fallbackNumber);
       return;
     }
     
-    console.log('🔍 V2: Calculating next box number from SQLite...');
+    console.log('🔍 V2: Calculating next box number from SQLite with key:', currentSessionKey);
     
     // First try via background script
     if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
       chrome.runtime.sendMessage({
         type: 'GET_SESSION_FROM_SQLITE',
-        sessionKey: parentSessionKey
+        sessionKey: currentSessionKey
       }, function(response) {
         if (chrome.runtime.lastError) {
           console.error('❌ V2: Background script error:', chrome.runtime.lastError.message);
           // Fall back to direct HTTP API
-          getSessionFromHttpApi(parentSessionKey, function(session) {
+          getSessionFromHttpApi(currentSessionKey, function(session) {
             if (session) {
               var max = findMaxBoxNumber(session);
               var next = max + 1;
@@ -126,7 +144,7 @@ if (window.gridScriptV2Loaded) {
         if (!response || !response.success || !response.session) {
           console.log('⚠️ V2: No session from background, trying HTTP API...');
           // Fall back to direct HTTP API
-          getSessionFromHttpApi(parentSessionKey, function(session) {
+          getSessionFromHttpApi(currentSessionKey, function(session) {
             if (session) {
               var max = findMaxBoxNumber(session);
               var next = max + 1;
@@ -142,6 +160,9 @@ if (window.gridScriptV2Loaded) {
         }
         
         var session = response.session;
+        console.log('🔍 V2: Session data from SQLite:', JSON.stringify(session, null, 2));
+        console.log('🔍 V2: Session agentBoxes:', session?.agentBoxes);
+        console.log('🔍 V2: Session agentBoxes count:', session?.agentBoxes?.length || 0);
         var max = findMaxBoxNumber(session);
         var next = max + 1;
         console.log('✅ V2: From background script: next box number =', next, 'from max:', max);
@@ -150,7 +171,7 @@ if (window.gridScriptV2Loaded) {
     } else {
       // No chrome.runtime, try direct HTTP API
       console.log('⚠️ V2: No chrome.runtime, trying HTTP API...');
-      getSessionFromHttpApi(parentSessionKey, function(session) {
+      getSessionFromHttpApi(currentSessionKey, function(session) {
         if (session) {
           var max = findMaxBoxNumber(session);
           var next = max + 1;
@@ -189,10 +210,28 @@ if (window.gridScriptV2Loaded) {
     var existingBoxNumber = (typeof cfg.boxNumber === 'number') ? cfg.boxNumber : null;
     var isEditing = existingBoxNumber !== null;
     
+    // CRITICAL DEBUG: Show current state
+    var debugSessionKey = getCurrentSessionKey();
+    console.log('========================================');
+    console.log('🔍 DEBUG: openGridSlotEditor state:');
+    console.log('  slotId:', slotId);
+    console.log('  isEditing:', isEditing);
+    console.log('  existingBoxNumber:', existingBoxNumber);
+    console.log('  sessionKey:', debugSessionKey);
+    console.log('  window.sessionKey:', window.sessionKey);
+    console.log('  window.GRID_CONFIG:', window.GRID_CONFIG);
+    console.log('  window.nextBoxNumber:', window.nextBoxNumber);
+    console.log('========================================');
+    
+    if (!debugSessionKey) {
+      alert('ERROR: No session key! Cannot calculate box number correctly.\n\nwindow.sessionKey: ' + window.sessionKey + '\nwindow.GRID_CONFIG: ' + JSON.stringify(window.GRID_CONFIG));
+    }
+    
     // For new boxes, calculate the next box number from SQLite
     if (!isEditing) {
       console.log('🆕 V2: CREATING new box - calculating next number from SQLite...');
       calculateNextBoxNumber(function(calculatedNumber) {
+        console.log('🔢 V2: calculateNextBoxNumber returned:', calculatedNumber);
         nextBoxNumber = calculatedNumber;
         showV2Dialog(slotId, slot, cfg, calculatedNumber, false);
       });
@@ -538,12 +577,14 @@ if (window.gridScriptV2Loaded) {
       
       // 🆕 KEY FIX: Use SAVE_AGENT_BOX_TO_SQLITE instead of GRID_SAVE
       if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
+        // Get session key DYNAMICALLY (fixes timing issue)
+        var saveSessionKey = getCurrentSessionKey();
         console.log('📤 V2: Sending SAVE_AGENT_BOX_TO_SQLITE via chrome.runtime.sendMessage...');
-        console.log('📤 V2: Using parentSessionKey:', parentSessionKey);
+        console.log('📤 V2: Using sessionKey:', saveSessionKey);
         
         chrome.runtime.sendMessage({
           type: 'SAVE_AGENT_BOX_TO_SQLITE',
-          sessionKey: parentSessionKey,
+          sessionKey: saveSessionKey,
           agentBox: agentBox,
           gridMetadata: {
             layout: window.gridLayout,

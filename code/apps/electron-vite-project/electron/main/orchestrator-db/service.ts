@@ -101,16 +101,25 @@ export class OrchestratorService {
    * Get value by key (from settings table)
    */
   async get<T = any>(key: string): Promise<T | undefined> {
-    await this.ensureConnected()
+    try {
+      await this.ensureConnected()
+    } catch (connectError: any) {
+      console.error(`[ORCHESTRATOR] Failed to connect in get("${key}"):`, connectError?.message || connectError)
+      throw new Error(`Database connection failed: ${connectError?.message || connectError}`)
+    }
 
     try {
+      console.log(`[ORCHESTRATOR] get("${key}") - connected: ${this.connected}, hasDb: ${!!this.db}`)
       const row = this.db.prepare('SELECT value_json FROM settings WHERE key = ?').get(key)
       if (!row) {
+        console.log(`[ORCHESTRATOR] get("${key}") - key not found, returning undefined`)
         return undefined
       }
-      return JSON.parse(row.value_json) as T
+      const parsed = JSON.parse(row.value_json) as T
+      console.log(`[ORCHESTRATOR] get("${key}") - found data`)
+      return parsed
     } catch (error: any) {
-      console.error(`[ORCHESTRATOR] Error getting key "${key}":`, error)
+      console.error(`[ORCHESTRATOR] Error getting key "${key}":`, error?.message || error)
       throw error
     }
   }
@@ -119,9 +128,15 @@ export class OrchestratorService {
    * Set value by key (to settings table)
    */
   async set<T = any>(key: string, value: T): Promise<void> {
-    await this.ensureConnected()
+    try {
+      await this.ensureConnected()
+    } catch (connectError: any) {
+      console.error(`[ORCHESTRATOR] Failed to connect in set("${key}"):`, connectError?.message || connectError)
+      throw new Error(`Database connection failed: ${connectError?.message || connectError}`)
+    }
 
     try {
+      console.log(`[ORCHESTRATOR] set("${key}") - connected: ${this.connected}, hasDb: ${!!this.db}`)
       const now = Date.now()
       const valueJson = JSON.stringify(value)
       this.db.prepare('INSERT OR REPLACE INTO settings (key, value_json, updated_at) VALUES (?, ?, ?)').run(
@@ -129,9 +144,9 @@ export class OrchestratorService {
         valueJson,
         now
       )
-      console.log(`[ORCHESTRATOR] Set key "${key}"`)
+      console.log(`[ORCHESTRATOR] Set key "${key}" successfully`)
     } catch (error: any) {
-      console.error(`[ORCHESTRATOR] Error setting key "${key}":`, error)
+      console.error(`[ORCHESTRATOR] Error setting key "${key}":`, error?.message || error)
       throw error
     }
   }
