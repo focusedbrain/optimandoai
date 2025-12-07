@@ -10,11 +10,160 @@ if (window.gridScriptV2Loaded) {
   // Get data from global variables (set by grid-display-v2.html)
   var sessionId = window.gridSessionId || window.sessionId || 'unknown';
   var layout = window.gridLayout || window.layout || 'unknown';
-  var sessionKey = window.sessionKey || '';
+  var parentSessionKey = window.sessionKey || (window.GRID_CONFIG && window.GRID_CONFIG.sessionKey) || '';
   var nextBoxNumber = window.nextBoxNumber || 1;
   
-  console.log('✅ Grid V2 loaded successfully:', { layout, sessionId, sessionKey, nextBoxNumber });
+  console.log('✅ Grid V2 loaded successfully:', { layout, sessionId, parentSessionKey, nextBoxNumber });
   document.title = 'AI Grid V2 - ' + layout.toUpperCase();
+  
+  /**
+   * Calculate max box number from session data
+   */
+  function findMaxBoxNumber(session) {
+    var maxBoxNumber = 0;
+    
+    // Check all agent boxes
+    if (session.agentBoxes && Array.isArray(session.agentBoxes)) {
+      session.agentBoxes.forEach(function(box) {
+        var boxNum = box.boxNumber || box.number || 0;
+        if (boxNum > maxBoxNumber) maxBoxNumber = boxNum;
+      });
+      console.log('  ✓ V2: Checked', session.agentBoxes.length, 'agent boxes, max:', maxBoxNumber);
+    }
+    
+    // Check display grid slots
+    if (session.displayGrids && Array.isArray(session.displayGrids)) {
+      session.displayGrids.forEach(function(grid) {
+        if (grid.config && grid.config.slots) {
+          Object.values(grid.config.slots).forEach(function(slot) {
+            var boxNum = slot.boxNumber || 0;
+            if (boxNum > maxBoxNumber) maxBoxNumber = boxNum;
+          });
+        }
+      });
+    }
+    
+    return maxBoxNumber;
+  }
+  
+  /**
+   * Try to get session directly from HTTP API
+   */
+  function getSessionFromHttpApi(sessionKey, callback) {
+    console.log('🔄 V2: Trying direct HTTP API for session:', sessionKey);
+    
+    var ports = [51248, 51249, 51250];
+    var currentPortIndex = 0;
+    
+    function tryNextPort() {
+      if (currentPortIndex >= ports.length) {
+        console.error('❌ V2: All HTTP ports failed');
+        callback(null);
+        return;
+      }
+      
+      var port = ports[currentPortIndex];
+      var url = 'http://127.0.0.1:' + port + '/api/orchestrator/get?key=' + encodeURIComponent(sessionKey);
+      
+      fetch(url)
+        .then(function(response) {
+          if (!response.ok) throw new Error('HTTP ' + response.status);
+          return response.json();
+        })
+        .then(function(result) {
+          console.log('✅ V2: HTTP API success on port', port);
+          callback(result.data || null);
+        })
+        .catch(function(err) {
+          console.log('⚠️ V2: Port', port, 'failed:', err.message);
+          currentPortIndex++;
+          tryNextPort();
+        });
+    }
+    
+    tryNextPort();
+  }
+  
+  /**
+   * Calculate next box number from SQLite (single source of truth)
+   */
+  function calculateNextBoxNumber(callback) {
+    console.log('🔍 V2: calculateNextBoxNumber called, sessionKey:', parentSessionKey);
+    
+    if (!parentSessionKey) {
+      var fallbackNumber = (typeof window.nextBoxNumber !== 'undefined') ? window.nextBoxNumber : 1;
+      console.log('⚠️ V2: No session key, using fallback:', fallbackNumber);
+      callback(fallbackNumber);
+      return;
+    }
+    
+    console.log('🔍 V2: Calculating next box number from SQLite...');
+    
+    // First try via background script
+    if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
+      chrome.runtime.sendMessage({
+        type: 'GET_SESSION_FROM_SQLITE',
+        sessionKey: parentSessionKey
+      }, function(response) {
+        if (chrome.runtime.lastError) {
+          console.error('❌ V2: Background script error:', chrome.runtime.lastError.message);
+          // Fall back to direct HTTP API
+          getSessionFromHttpApi(parentSessionKey, function(session) {
+            if (session) {
+              var max = findMaxBoxNumber(session);
+              var next = max + 1;
+              console.log('✅ V2: From HTTP API: next box number =', next);
+              callback(next);
+            } else {
+              var fallbackNumber = (typeof window.nextBoxNumber !== 'undefined' && window.nextBoxNumber > 1) ? window.nextBoxNumber : 1;
+              console.log('⚠️ V2: HTTP API failed, using fallback:', fallbackNumber);
+              callback(fallbackNumber);
+            }
+          });
+          return;
+        }
+        
+        if (!response || !response.success || !response.session) {
+          console.log('⚠️ V2: No session from background, trying HTTP API...');
+          // Fall back to direct HTTP API
+          getSessionFromHttpApi(parentSessionKey, function(session) {
+            if (session) {
+              var max = findMaxBoxNumber(session);
+              var next = max + 1;
+              console.log('✅ V2: From HTTP API: next box number =', next);
+              callback(next);
+            } else {
+              var fallbackNumber = (typeof window.nextBoxNumber !== 'undefined' && window.nextBoxNumber > 1) ? window.nextBoxNumber : 1;
+              console.log('⚠️ V2: HTTP API failed, using fallback:', fallbackNumber);
+              callback(fallbackNumber);
+            }
+          });
+          return;
+        }
+        
+        var session = response.session;
+        var max = findMaxBoxNumber(session);
+        var next = max + 1;
+        console.log('✅ V2: From background script: next box number =', next, 'from max:', max);
+        callback(next);
+      });
+    } else {
+      // No chrome.runtime, try direct HTTP API
+      console.log('⚠️ V2: No chrome.runtime, trying HTTP API...');
+      getSessionFromHttpApi(parentSessionKey, function(session) {
+        if (session) {
+          var max = findMaxBoxNumber(session);
+          var next = max + 1;
+          console.log('✅ V2: From HTTP API: next box number =', next);
+          callback(next);
+        } else {
+          var fallbackNumber = (typeof window.nextBoxNumber !== 'undefined') ? window.nextBoxNumber : 1;
+          console.log('⚠️ V2: Using window fallback:', fallbackNumber);
+          callback(fallbackNumber);
+        }
+      });
+    }
+  }
   
   // Define openGridSlotEditor function immediately
   window.openGridSlotEditor = function(slotId) {
@@ -36,6 +185,25 @@ if (window.gridScriptV2Loaded) {
       cfg = {};
     }
     
+    // Check if this is an EXISTING box (editing) or a NEW box (creating)
+    var existingBoxNumber = (typeof cfg.boxNumber === 'number') ? cfg.boxNumber : null;
+    var isEditing = existingBoxNumber !== null;
+    
+    // For new boxes, calculate the next box number from SQLite
+    if (!isEditing) {
+      console.log('🆕 V2: CREATING new box - calculating next number from SQLite...');
+      calculateNextBoxNumber(function(calculatedNumber) {
+        nextBoxNumber = calculatedNumber;
+        showV2Dialog(slotId, slot, cfg, calculatedNumber, false);
+      });
+    } else {
+      console.log('📝 V2: EDITING existing box - using stored boxNumber:', existingBoxNumber);
+      showV2Dialog(slotId, slot, cfg, existingBoxNumber, true);
+    }
+  };
+  
+  // Helper function to show the dialog
+  function showV2Dialog(slotId, slot, cfg, effectiveBoxNumber, isEditing) {
     const overlay = document.createElement('div');
     overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.8);z-index:9999;display:flex;align-items:center;justify-content:center;';
     
@@ -53,22 +221,8 @@ if (window.gridScriptV2Loaded) {
       return ['auto'];
     }
     
-    const providers = ['OpenAI', 'Claude', 'Gemini', 'Grok', 'Local AI', 'Image AI'];
-    const currentProvider = cfg.provider || '';
-    const models = currentProvider ? modelOptions(currentProvider) : [];
-    
-    // Check if this is an EXISTING box (editing) or a NEW box (creating)
-    // If editing, use the existing boxNumber; if creating, use the global nextBoxNumber
-    var existingBoxNumber = (typeof cfg.boxNumber === 'number') ? cfg.boxNumber : null;
-    var effectiveBoxNumber = existingBoxNumber !== null ? existingBoxNumber : nextBoxNumber;
-    var isEditing = existingBoxNumber !== null;
-    
-    // Display the correct box number
-    const displayBoxNumber = String(effectiveBoxNumber).padStart(2, '0');
-    
     console.log('📋 POPUP V2: Form will show:', {
       isEditing: isEditing,
-      existingBoxNumber: existingBoxNumber,
       effectiveBoxNumber: effectiveBoxNumber,
       boxNumber: displayBoxNumber,
       title: cfg.title || ('Display Port ' + slotId),
@@ -427,7 +581,7 @@ if (window.gridScriptV2Loaded) {
       overlay.remove();
       console.log('✅ POPUP V2: Dialog closed');
     };
-  };
+  }
   
   console.log('✅ openGridSlotEditor V2 function defined and available globally');
 
