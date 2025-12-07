@@ -539,10 +539,11 @@ if (window.gridScriptV2Loaded) {
       // 🆕 KEY FIX: Use SAVE_AGENT_BOX_TO_SQLITE instead of GRID_SAVE
       if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
         console.log('📤 V2: Sending SAVE_AGENT_BOX_TO_SQLITE via chrome.runtime.sendMessage...');
+        console.log('📤 V2: Using parentSessionKey:', parentSessionKey);
         
         chrome.runtime.sendMessage({
           type: 'SAVE_AGENT_BOX_TO_SQLITE',
-          sessionKey: sessionKey,
+          sessionKey: parentSessionKey,
           agentBox: agentBox,
           gridMetadata: {
             layout: window.gridLayout,
