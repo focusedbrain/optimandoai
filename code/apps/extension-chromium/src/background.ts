@@ -165,8 +165,14 @@ function connectToWebSocketServer(forceReconnect = false): Promise<boolean> {
             // ===== MAILGUARD HANDLERS =====
             else if (data.type === 'MAILGUARD_ACTIVATED') {
               console.log('[BG] 🛡️ MailGuard activated')
-              chrome.tabs.query({ url: 'https://mail.google.com/*' }, (tabs) => {
-                tabs.forEach(tab => {
+              // Query all email tabs (Gmail and Outlook)
+              chrome.tabs.query({}, (tabs) => {
+                tabs.filter(t => 
+                  t.url?.includes('mail.google.com') || 
+                  t.url?.includes('outlook.live.com') ||
+                  t.url?.includes('outlook.office.com') ||
+                  t.url?.includes('outlook.office365.com')
+                ).forEach(tab => {
                   if (tab.id) {
                     try { chrome.tabs.sendMessage(tab.id, { type: 'MAILGUARD_ACTIVATED' }) } catch {}
                   }
@@ -174,8 +180,14 @@ function connectToWebSocketServer(forceReconnect = false): Promise<boolean> {
               })
             } else if (data.type === 'MAILGUARD_DEACTIVATED') {
               console.log('[BG] 🛡️ MailGuard deactivated')
-              chrome.tabs.query({ url: 'https://mail.google.com/*' }, (tabs) => {
-                tabs.forEach(tab => {
+              // Query all email tabs (Gmail and Outlook)
+              chrome.tabs.query({}, (tabs) => {
+                tabs.filter(t => 
+                  t.url?.includes('mail.google.com') || 
+                  t.url?.includes('outlook.live.com') ||
+                  t.url?.includes('outlook.office.com') ||
+                  t.url?.includes('outlook.office365.com')
+                ).forEach(tab => {
                   if (tab.id) {
                     try { chrome.tabs.sendMessage(tab.id, { type: 'MAILGUARD_DEACTIVATED' }) } catch {}
                   }
@@ -183,16 +195,31 @@ function connectToWebSocketServer(forceReconnect = false): Promise<boolean> {
               })
             } else if (data.type === 'MAILGUARD_EXTRACT_EMAIL') {
               console.log('[BG] 🛡️ MailGuard extract email request:', data.rowId)
-              chrome.tabs.query({ url: 'https://mail.google.com/*', active: true }, (tabs) => {
-                const tab = tabs[0]
-                if (tab?.id) {
-                  try { chrome.tabs.sendMessage(tab.id, { type: 'MAILGUARD_EXTRACT_EMAIL', rowId: data.rowId }) } catch {}
+              // Query both Gmail and Outlook tabs
+              chrome.tabs.query({ active: true }, (tabs) => {
+                const emailTab = tabs.find(t => 
+                  t.url?.includes('mail.google.com') || 
+                  t.url?.includes('outlook.live.com') ||
+                  t.url?.includes('outlook.office.com') ||
+                  t.url?.includes('outlook.office365.com')
+                )
+                if (emailTab?.id) {
+                  console.log('[BG] 🛡️ Sending extract request to tab:', emailTab.url)
+                  try { chrome.tabs.sendMessage(emailTab.id, { type: 'MAILGUARD_EXTRACT_EMAIL', rowId: data.rowId }) } catch {}
+                } else {
+                  console.log('[BG] 🛡️ No email tab found for extraction')
                 }
               })
             } else if (data.type === 'MAILGUARD_STATUS_RESPONSE') {
               console.log('[BG] 🛡️ MailGuard status:', data.active)
-              chrome.tabs.query({ url: 'https://mail.google.com/*' }, (tabs) => {
-                tabs.forEach(tab => {
+              // Query all email tabs (Gmail and Outlook)
+              chrome.tabs.query({}, (tabs) => {
+                tabs.filter(t => 
+                  t.url?.includes('mail.google.com') || 
+                  t.url?.includes('outlook.live.com') ||
+                  t.url?.includes('outlook.office.com') ||
+                  t.url?.includes('outlook.office365.com')
+                ).forEach(tab => {
                   if (tab.id) {
                     try { chrome.tabs.sendMessage(tab.id, { type: 'MAILGUARD_STATUS_RESPONSE', active: data.active }) } catch {}
                   }

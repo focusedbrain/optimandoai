@@ -500,52 +500,116 @@ async function extractEmailContent(rowId: string): Promise<SanitizedEmail | null
   }
   
   const provider = getCurrentEmailProvider()
+  console.log('[MailGuard] Extracting content for provider:', provider, 'rowId:', rowId)
+  
   if (provider === 'unknown') return null
   
   const selectors = EMAIL_SELECTORS[provider]
   
   try {
-    // Extract sender from inbox row using site-specific selectors
-    const senderEl = row.querySelector(selectors.sender)
-    const from = senderEl?.getAttribute('email') || 
-                 senderEl?.getAttribute('name') ||
-                 senderEl?.getAttribute('title') || 
-                 senderEl?.textContent?.trim() || 
-                 '(Unknown sender)'
+    let from = ''
+    let subject = ''
+    let snippet = ''
+    let date = ''
     
-    // Extract subject from inbox row
-    const subjectEl = row.querySelector(selectors.subject)
-    const subject = subjectEl?.textContent?.trim() || '(No subject)'
-    
-    // Extract snippet/preview from inbox row
-    const snippetEl = row.querySelector(selectors.snippet)
-    const snippet = snippetEl?.textContent?.trim() || ''
-    
-    // Extract date from inbox row
-    const dateEl = row.querySelector(selectors.date)
-    const date = dateEl?.getAttribute('title') || 
-                 dateEl?.getAttribute('datetime') ||
-                 dateEl?.textContent?.trim() || ''
+    if (provider === 'outlook') {
+      // Outlook-specific extraction with fallbacks
+      // Try to find sender - look for any element with email-like title or specific classes
+      const senderEl = row.querySelector(selectors.sender) || 
+                       row.querySelector('[title*="@"]') ||
+                       row.querySelector('span[class*="sender"]') ||
+                       row.querySelector('span[class*="from"]')
+      from = senderEl?.getAttribute('title') || 
+             senderEl?.textContent?.trim() || 
+             '(Unknown sender)'
+      
+      // Try to find subject - usually the largest/boldest text
+      const subjectEl = row.querySelector(selectors.subject) ||
+                        row.querySelector('[class*="subject"]') ||
+                        row.querySelector('[class*="Subject"]')
+      subject = subjectEl?.textContent?.trim() || ''
+      
+      // If no subject found, try to get it from the row's text content
+      if (!subject) {
+        // Get all text spans and find likely subject (usually second line)
+        const allSpans = Array.from(row.querySelectorAll('span'))
+        for (const span of allSpans) {
+          const text = span.textContent?.trim() || ''
+          // Skip if it looks like an email address or date
+          if (text.length > 10 && !text.includes('@') && !/^\d/.test(text)) {
+            subject = text
+            break
+          }
+        }
+      }
+      
+      // Try to find snippet/preview
+      const snippetEl = row.querySelector(selectors.snippet) ||
+                        row.querySelector('[class*="preview"]') ||
+                        row.querySelector('[class*="snippet"]')
+      snippet = snippetEl?.textContent?.trim() || ''
+      
+      // Try to find date
+      const dateEl = row.querySelector(selectors.date) ||
+                     row.querySelector('time') ||
+                     row.querySelector('[datetime]')
+      date = dateEl?.getAttribute('datetime') || 
+             dateEl?.getAttribute('title') ||
+             dateEl?.textContent?.trim() || ''
+      
+      // Fallback: extract all text from the row if we don't have good data
+      if (!subject && !snippet) {
+        const allText = row.textContent?.trim() || ''
+        // Split by newlines and try to parse
+        const lines = allText.split(/\n/).map(l => l.trim()).filter(l => l.length > 0)
+        if (lines.length >= 2) {
+          from = from || lines[0]
+          subject = lines[1] || '(No subject)'
+          snippet = lines.slice(2).join(' ')
+        }
+      }
+      
+      console.log('[MailGuard] Outlook extraction result:', { from, subject: subject.substring(0, 50), snippet: snippet.substring(0, 50), date })
+    } else {
+      // Gmail extraction (original logic)
+      const senderEl = row.querySelector(selectors.sender)
+      from = senderEl?.getAttribute('email') || 
+             senderEl?.getAttribute('name') ||
+             senderEl?.getAttribute('title') || 
+             senderEl?.textContent?.trim() || 
+             '(Unknown sender)'
+      
+      const subjectEl = row.querySelector(selectors.subject)
+      subject = subjectEl?.textContent?.trim() || '(No subject)'
+      
+      const snippetEl = row.querySelector(selectors.snippet)
+      snippet = snippetEl?.textContent?.trim() || ''
+      
+      const dateEl = row.querySelector(selectors.date)
+      date = dateEl?.getAttribute('title') || 
+             dateEl?.getAttribute('datetime') ||
+             dateEl?.textContent?.trim() || ''
+    }
     
     // Check for attachment indicator using site-specific selectors
     const attachmentIcon = row.querySelector(selectors.attachment)
     const hasAttachment = attachmentIcon !== null
     
     // Only include attachments array if there are actual attachments
-    // Empty array means no attachments section will be shown
     const attachments: { name: string; type: string }[] = []
-    // Note: We can't get attachment details from the inbox row preview
-    // Full attachment info requires the Email API
     
     // Return preview data - email is never opened
-    return { 
+    const result = { 
       from, 
       to: '', // Not available in preview
-      subject, 
+      subject: subject || '(No subject)', 
       date, 
-      body: snippet, // Only the snippet, full content requires API
-      attachments  // Always empty for preview - real attachments come from API
+      body: snippet || '(Preview not available - connect email API for full content)', 
+      attachments
     }
+    
+    console.log('[MailGuard] Email extraction complete:', result.subject.substring(0, 50))
+    return result
   } catch (err) {
     console.error('[MailGuard] Error extracting preview:', err)
     return null
@@ -819,8 +883,36 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     console.log('[MailGuard] Email extraction requested for row:', msg.rowId)
     extractEmailContent(msg.rowId).then(email => {
       if (email) {
+        console.log('[MailGuard] Sending extracted email content')
         sendToBackground({ type: 'MAILGUARD_EMAIL_CONTENT', email })
+      } else {
+        // Send a fallback response so the overlay doesn't hang
+        console.log('[MailGuard] Extraction failed, sending fallback')
+        sendToBackground({ 
+          type: 'MAILGUARD_EMAIL_CONTENT', 
+          email: {
+            from: '(Could not extract)',
+            to: '',
+            subject: '(Preview not available)',
+            date: '',
+            body: 'Could not extract email preview. Try connecting your email provider API for full content.',
+            attachments: []
+          }
+        })
       }
+    }).catch(err => {
+      console.error('[MailGuard] Extraction error:', err)
+      sendToBackground({ 
+        type: 'MAILGUARD_EMAIL_CONTENT', 
+        email: {
+          from: '(Error)',
+          to: '',
+          subject: '(Extraction error)',
+          date: '',
+          body: 'An error occurred while extracting email preview: ' + (err?.message || 'Unknown error'),
+          attachments: []
+        }
+      })
     })
   } else if (msg.type === 'MAILGUARD_STATUS_RESPONSE') {
     console.log('[MailGuard] Status response:', msg.active)
@@ -883,7 +975,7 @@ async function waitForEmailUIReady(provider: EmailProvider): Promise<void> {
     }
   }
   
-  const selectors = readinessSelectors[provider] || readinessSelectors.gmail
+  const selectors = (provider !== 'unknown' ? readinessSelectors[provider] : null) || readinessSelectors.gmail
   
   for (let i = 0; i < 30; i++) {
     const container = document.querySelector(selectors.container)
