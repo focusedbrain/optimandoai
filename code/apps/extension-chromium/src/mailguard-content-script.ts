@@ -1,13 +1,18 @@
 /**
- * WR MailGuard - Content Script for Gmail
+ * WR MailGuard - Content Script for Email Protection
  * 
  * This content script:
- * 1. Detects when user is on Gmail
+ * 1. Detects when user is on Gmail or Outlook
  * 2. Shows activation banner
  * 3. Communicates with Electron via the background script to:
  *    - Activate/deactivate the Electron overlay
  *    - Send email row positions for hover detection
  *    - Extract and sanitize email content when requested
+ * 
+ * Supported email providers:
+ * - Gmail (mail.google.com)
+ * - Outlook.com (outlook.live.com)
+ * - Microsoft 365 (outlook.office.com, outlook.office365.com)
  */
 
 // =============================================================================
@@ -288,8 +293,14 @@ function getEmailRowPositions(): EmailRowRect[] {
   const rows: EmailRowRect[] = []
   emailRowElements.clear()
   
-  // Find Gmail inbox rows - try different selectors
-  const rowElements = document.querySelectorAll('tr.zA, tr[role="row"], div[role="row"]')
+  const provider = getCurrentEmailProvider()
+  if (provider === 'unknown') return rows
+  
+  // Get site-specific row selector
+  const rowSelector = EMAIL_ROW_SELECTORS[provider]
+  const selectors = EMAIL_SELECTORS[provider]
+  
+  const rowElements = document.querySelectorAll(rowSelector)
   
   rowElements.forEach((row, index) => {
     const rect = row.getBoundingClientRect()
@@ -298,11 +309,13 @@ function getEmailRowPositions(): EmailRowRect[] {
     if (rect.width > 0 && rect.height > 0 && rect.top >= 0 && rect.bottom <= window.innerHeight) {
       const id = `row-${index}`
       
-      // Extract preview data for Gmail API matching
-      const senderEl = row.querySelector('[email], .yP, .zF, .bA4 span[email], span[name], .yW span')
-      const from = senderEl?.getAttribute('email') || senderEl?.textContent?.trim() || ''
+      // Extract preview data using site-specific selectors
+      const senderEl = row.querySelector(selectors.sender)
+      const from = senderEl?.getAttribute('email') || 
+                   senderEl?.getAttribute('title') || 
+                   senderEl?.textContent?.trim() || ''
       
-      const subjectEl = row.querySelector('.bog, .bqe, .y6 span:first-child, .xT .y6')
+      const subjectEl = row.querySelector(selectors.subject)
       const subject = subjectEl?.textContent?.trim() || ''
       
       // Use viewport coordinates - the overlay script will handle screen positioning
@@ -404,13 +417,50 @@ function startRowPositionUpdates(): void {
 
 // List of supported email sites where MailGuard can be active
 const SUPPORTED_EMAIL_SITES = [
-  'mail.google.com'
-  // Future: 'outlook.live.com', 'outlook.office.com', etc.
+  'mail.google.com',
+  'outlook.live.com',
+  'outlook.office.com',
+  'outlook.office365.com'
 ]
+
+type EmailProvider = 'gmail' | 'outlook' | 'unknown'
+
+function getCurrentEmailProvider(): EmailProvider {
+  const hostname = window.location.hostname
+  if (hostname.includes('mail.google.com')) return 'gmail'
+  if (hostname.includes('outlook.live.com') || 
+      hostname.includes('outlook.office.com') || 
+      hostname.includes('outlook.office365.com')) return 'outlook'
+  return 'unknown'
+}
 
 function isOnSupportedEmailSite(): boolean {
   const hostname = window.location.hostname
   return SUPPORTED_EMAIL_SITES.some(site => hostname.includes(site))
+}
+
+// Site-specific selectors for email rows
+const EMAIL_ROW_SELECTORS = {
+  gmail: 'tr.zA, tr[role="row"], div[role="row"]',
+  outlook: '[data-convid], [role="listitem"][aria-selected], div[data-item-index], .jGG6V, .hcptT'
+}
+
+// Site-specific selectors for email content extraction
+const EMAIL_SELECTORS = {
+  gmail: {
+    sender: '[email], .yP, .zF, .bA4 span[email], span[name], .yW span',
+    subject: '.bog, .bqe, .y6 span:first-child, .xT .y6',
+    snippet: '.y2, .Zt, .xT .y2',
+    date: '.xW span[title], .apt span[title], td.xW span, .xW.xY span',
+    attachment: '.brd[data-tooltip*="Attachment"], .aZo .aZs, [data-tooltip*="attachment" i], .bqX .yf img[alt*="Attachment" i]'
+  },
+  outlook: {
+    sender: '[data-testid="AvatarContactName"], .OZZZK, .hcptT span[title], .jGG6V span.OZZZK, span.OZZZK',
+    subject: '[data-testid="subjectLine"], .hcptT span.ms-font-m, .jGG6V span.lvHighlightSubjectClass, span.lvHighlightSubjectClass, .JHrmG',
+    snippet: '.LgbsSe, .hcptT .ms-font-s, .jGG6V span.ms-font-s:not(.OZZZK), .Jzv0o',
+    date: '[data-testid="sentDateTime"], .l8Tnu, .hcptT time, .jGG6V time, time.l8Tnu',
+    attachment: '[data-testid="attachmentIndicator"], .FTOXx, [aria-label*="attachment" i], .has-attachment'
+  }
 }
 
 function stopRowPositionUpdates(): void {
@@ -437,36 +487,43 @@ async function extractEmailContent(rowId: string): Promise<SanitizedEmail | null
     return null
   }
   
+  const provider = getCurrentEmailProvider()
+  if (provider === 'unknown') return null
+  
+  const selectors = EMAIL_SELECTORS[provider]
+  
   try {
-    // Extract sender from inbox row
-    const senderEl = row.querySelector('[email], .yP, .zF, .bA4 span[email], span[name], .yW span')
+    // Extract sender from inbox row using site-specific selectors
+    const senderEl = row.querySelector(selectors.sender)
     const from = senderEl?.getAttribute('email') || 
-                 senderEl?.getAttribute('name') || 
+                 senderEl?.getAttribute('name') ||
+                 senderEl?.getAttribute('title') || 
                  senderEl?.textContent?.trim() || 
                  '(Unknown sender)'
     
     // Extract subject from inbox row
-    const subjectEl = row.querySelector('.bog, .bqe, .y6 span:first-child, .xT .y6')
+    const subjectEl = row.querySelector(selectors.subject)
     const subject = subjectEl?.textContent?.trim() || '(No subject)'
     
     // Extract snippet/preview from inbox row
-    const snippetEl = row.querySelector('.y2, .Zt, .xT .y2')
+    const snippetEl = row.querySelector(selectors.snippet)
     const snippet = snippetEl?.textContent?.trim() || ''
     
     // Extract date from inbox row
-    const dateEl = row.querySelector('.xW span[title], .apt span[title], td.xW span, .xW.xY span')
-    const date = dateEl?.getAttribute('title') || dateEl?.textContent?.trim() || ''
+    const dateEl = row.querySelector(selectors.date)
+    const date = dateEl?.getAttribute('title') || 
+                 dateEl?.getAttribute('datetime') ||
+                 dateEl?.textContent?.trim() || ''
     
-    // Check for attachment indicator - look for paperclip icon specifically
-    // Gmail uses various selectors for attachment indicators
-    const attachmentIcon = row.querySelector('.brd[data-tooltip*="Attachment"], .aZo .aZs, [data-tooltip*="attachment" i], .bqX .yf img[alt*="Attachment" i]')
+    // Check for attachment indicator using site-specific selectors
+    const attachmentIcon = row.querySelector(selectors.attachment)
     const hasAttachment = attachmentIcon !== null
     
     // Only include attachments array if there are actual attachments
     // Empty array means no attachments section will be shown
     const attachments: { name: string; type: string }[] = []
     // Note: We can't get attachment details from the inbox row preview
-    // Full attachment info requires the Gmail API
+    // Full attachment info requires the Email API
     
     // Return preview data - email is never opened
     return { 
@@ -772,19 +829,20 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
 // =============================================================================
 
 async function init(): Promise<void> {
-  console.log('[MailGuard] Initializing on:', window.location.hostname)
+  const provider = getCurrentEmailProvider()
+  console.log('[MailGuard] Initializing on:', window.location.hostname, '- Provider:', provider)
   
-  // Only run on Gmail
-  if (!window.location.hostname.includes('mail.google.com')) {
-    console.log('[MailGuard] Not on Gmail, exiting')
+  // Only run on supported email sites
+  if (provider === 'unknown') {
+    console.log('[MailGuard] Not on a supported email site, exiting')
     return
   }
   
   // Load theme first
   await loadTheme()
   
-  // Wait for Gmail to be ready
-  await waitForGmailReady()
+  // Wait for email UI to be ready
+  await waitForEmailUIReady(provider)
   
   // Check if MailGuard is already active in Electron
   await sendToBackground({ type: 'MAILGUARD_STATUS' })
@@ -797,24 +855,38 @@ async function init(): Promise<void> {
   }, 1000)
 }
 
-async function waitForGmailReady(): Promise<void> {
-  console.log('[MailGuard] Waiting for Gmail UI...')
+async function waitForEmailUIReady(provider: EmailProvider): Promise<void> {
+  console.log(`[MailGuard] Waiting for ${provider} UI...`)
+  
+  // Provider-specific container and row selectors for readiness detection
+  const readinessSelectors = {
+    gmail: {
+      container: 'div[role="main"], div.aeN, div.nH',
+      rows: 'tr.zA, div[role="row"]'
+    },
+    outlook: {
+      container: '[data-app-section="MessageList"], div[role="main"], .jGG6V, .ms-FocusZone',
+      rows: '[data-convid], [role="listitem"], div[data-item-index]'
+    }
+  }
+  
+  const selectors = readinessSelectors[provider] || readinessSelectors.gmail
   
   for (let i = 0; i < 30; i++) {
-    const container = document.querySelector('div[role="main"], div.aeN, div.nH')
-    const rows = document.querySelectorAll('tr.zA, div[role="row"]')
+    const container = document.querySelector(selectors.container)
+    const rows = document.querySelectorAll(selectors.rows)
     
     if (container || rows.length > 0) {
-      console.log('[MailGuard] Gmail UI ready')
+      console.log(`[MailGuard] ${provider} UI ready`)
       return
     }
     
     await new Promise(resolve => setTimeout(resolve, 1000))
   }
   
-  console.log('[MailGuard] Gmail UI detection timeout, proceeding anyway')
+  console.log(`[MailGuard] ${provider} UI detection timeout, proceeding anyway`)
 }
 
 // Start initialization
-console.log('[MailGuard] Content script loaded')
+console.log('[MailGuard] Content script loaded on:', window.location.hostname)
 init().catch(err => console.error('[MailGuard] Init error:', err))
