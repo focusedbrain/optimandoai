@@ -889,98 +889,170 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       break
     }
     
-    // ===== EMAIL GATEWAY MESSAGE HANDLERS =====
+    // ===== EMAIL GATEWAY MESSAGE HANDLERS (using HTTP API for reliability) =====
     case 'EMAIL_LIST_ACCOUNTS': {
-      console.log('[BG] 📧 Email list accounts request')
-      if (WS_ENABLED && ws && ws.readyState === WebSocket.OPEN) {
-        const requestId = `email_list_${Date.now()}`
-        try {
-          ws.send(JSON.stringify({ type: 'EMAIL_LIST_ACCOUNTS', id: requestId }))
-          
-          // Store callback for response
-          if (!globalThis.emailCallbacks) globalThis.emailCallbacks = new Map()
-          globalThis.emailCallbacks.set(requestId, sendResponse)
-          
-          return true // Keep channel open
-        } catch (e) {
-          console.error('[BG] Error sending EMAIL_LIST_ACCOUNTS:', e)
-          sendResponse({ ok: false, error: 'Failed to send request' })
-        }
-      } else {
-        sendResponse({ ok: false, error: 'Electron not connected' })
-      }
-      break
+      console.log('[BG] 📧 Email list accounts request (via HTTP)')
+      
+      // Try HTTP API first (more reliable than WebSocket)
+      fetch('http://127.0.0.1:51248/api/email/accounts')
+        .then(res => res.json())
+        .then(data => {
+          console.log('[BG] 📧 Email accounts response:', data)
+          sendResponse(data)
+        })
+        .catch(err => {
+          console.error('[BG] 📧 Email list error:', err)
+          sendResponse({ ok: false, error: err.message || 'Failed to fetch accounts' })
+        })
+      
+      return true // Keep channel open for async response
     }
     
     case 'EMAIL_CONNECT_GMAIL': {
-      console.log('[BG] 📧 Email connect Gmail request')
-      if (WS_ENABLED && ws && ws.readyState === WebSocket.OPEN) {
-        const requestId = `email_gmail_${Date.now()}`
-        try {
-          ws.send(JSON.stringify({ type: 'EMAIL_CONNECT_GMAIL', id: requestId }))
-          
-          // Store callback for response
-          if (!globalThis.emailCallbacks) globalThis.emailCallbacks = new Map()
-          globalThis.emailCallbacks.set(requestId, sendResponse)
-          
-          return true // Keep channel open
-        } catch (e) {
-          console.error('[BG] Error sending EMAIL_CONNECT_GMAIL:', e)
-          sendResponse({ ok: false, error: 'Failed to send request' })
-        }
-      } else {
-        sendResponse({ ok: false, error: 'Electron not connected' })
-      }
-      break
+      console.log('[BG] 📧 Email connect Gmail request (via HTTP)')
+      
+      fetch('http://127.0.0.1:51248/api/email/accounts/connect/gmail', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ displayName: msg.displayName || 'Gmail Account' })
+      })
+        .then(res => res.json())
+        .then(data => {
+          console.log('[BG] 📧 Gmail connect response:', data)
+          sendResponse(data)
+        })
+        .catch(err => {
+          console.error('[BG] 📧 Gmail connect error:', err)
+          sendResponse({ ok: false, error: err.message || 'Failed to connect Gmail' })
+        })
+      
+      return true // Keep channel open for async response
+    }
+    
+    case 'EMAIL_CONNECT_OUTLOOK': {
+      console.log('[BG] 📧 Email connect Outlook request (via HTTP)')
+      
+      fetch('http://127.0.0.1:51248/api/email/accounts/connect/outlook', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ displayName: msg.displayName || 'Outlook Account' })
+      })
+        .then(res => res.json())
+        .then(data => {
+          console.log('[BG] 📧 Outlook connect response:', data)
+          sendResponse(data)
+        })
+        .catch(err => {
+          console.error('[BG] 📧 Outlook connect error:', err)
+          sendResponse({ ok: false, error: err.message || 'Failed to connect Outlook' })
+        })
+      
+      return true // Keep channel open for async response
+    }
+    
+    case 'EMAIL_CONNECT_IMAP': {
+      console.log('[BG] 📧 Email connect IMAP request (via HTTP)')
+      
+      fetch('http://127.0.0.1:51248/api/email/accounts/connect/imap', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          displayName: msg.displayName,
+          email: msg.email,
+          host: msg.host,
+          port: msg.port,
+          username: msg.username,
+          password: msg.password,
+          security: msg.security
+        })
+      })
+        .then(res => res.json())
+        .then(data => {
+          console.log('[BG] 📧 IMAP connect response:', data)
+          sendResponse(data)
+        })
+        .catch(err => {
+          console.error('[BG] 📧 IMAP connect error:', err)
+          sendResponse({ ok: false, error: err.message || 'Failed to connect IMAP' })
+        })
+      
+      return true // Keep channel open for async response
     }
     
     case 'EMAIL_DELETE_ACCOUNT': {
-      console.log('[BG] 📧 Email delete account request:', msg.accountId)
-      if (WS_ENABLED && ws && ws.readyState === WebSocket.OPEN) {
-        const requestId = `email_delete_${Date.now()}`
-        try {
-          ws.send(JSON.stringify({ type: 'EMAIL_DELETE_ACCOUNT', id: requestId, accountId: msg.accountId }))
-          
-          // Store callback for response
-          if (!globalThis.emailCallbacks) globalThis.emailCallbacks = new Map()
-          globalThis.emailCallbacks.set(requestId, sendResponse)
-          
-          return true // Keep channel open
-        } catch (e) {
-          console.error('[BG] Error sending EMAIL_DELETE_ACCOUNT:', e)
-          sendResponse({ ok: false, error: 'Failed to send request' })
-        }
-      } else {
-        sendResponse({ ok: false, error: 'Electron not connected' })
-      }
-      break
+      console.log('[BG] 📧 Email delete account request (via HTTP):', msg.accountId)
+      
+      fetch(`http://127.0.0.1:51248/api/email/accounts/${msg.accountId}`, {
+        method: 'DELETE'
+      })
+        .then(res => res.json())
+        .then(data => {
+          console.log('[BG] 📧 Delete account response:', data)
+          sendResponse(data)
+        })
+        .catch(err => {
+          console.error('[BG] 📧 Delete account error:', err)
+          sendResponse({ ok: false, error: err.message || 'Failed to delete account' })
+        })
+      
+      return true // Keep channel open for async response
+    }
+    
+    case 'EMAIL_GET_PRESETS': {
+      console.log('[BG] 📧 Email get IMAP presets request (via HTTP)')
+      
+      fetch('http://127.0.0.1:51248/api/email/presets')
+        .then(res => res.json())
+        .then(data => {
+          console.log('[BG] 📧 IMAP presets response:', data)
+          sendResponse(data)
+        })
+        .catch(err => {
+          console.error('[BG] 📧 IMAP presets error:', err)
+          sendResponse({ ok: false, error: err.message || 'Failed to fetch presets' })
+        })
+      
+      return true // Keep channel open for async response
     }
     
     case 'EMAIL_GET_MESSAGE': {
-      console.log('[BG] 📧 Email get message request:', msg.accountId, msg.messageId)
-      if (WS_ENABLED && ws && ws.readyState === WebSocket.OPEN) {
-        const requestId = `email_msg_${Date.now()}`
-        try {
-          ws.send(JSON.stringify({ 
-            type: 'EMAIL_GET_MESSAGE', 
-            id: requestId, 
-            accountId: msg.accountId, 
-            messageId: msg.messageId 
-          }))
-          
-          // Store callback for response
-          if (!globalThis.emailCallbacks) globalThis.emailCallbacks = new Map()
-          globalThis.emailCallbacks.set(requestId, sendResponse)
-          
-          return true // Keep channel open
-        } catch (e) {
-          console.error('[BG] Error sending EMAIL_GET_MESSAGE:', e)
-          sendResponse({ ok: false, error: 'Failed to send request' })
-        }
-      } else {
-        sendResponse({ ok: false, error: 'Electron not connected' })
-      }
-      break
+      console.log('[BG] 📧 Email get message request (via HTTP):', msg.accountId, msg.messageId)
+      
+      fetch(`http://127.0.0.1:51248/api/email/accounts/${msg.accountId}/messages/${msg.messageId}`)
+        .then(res => res.json())
+        .then(data => {
+          console.log('[BG] 📧 Get message response:', data)
+          sendResponse(data)
+        })
+        .catch(err => {
+          console.error('[BG] 📧 Get message error:', err)
+          sendResponse({ ok: false, error: err.message || 'Failed to fetch message' })
+        })
+      
+      return true // Keep channel open for async response
+    }
+    
+    case 'EMAIL_LIST_MESSAGES': {
+      console.log('[BG] 📧 Email list messages request (via HTTP):', msg.accountId)
+      
+      const params = new URLSearchParams()
+      if (msg.folder) params.append('folder', msg.folder)
+      if (msg.limit) params.append('limit', String(msg.limit))
+      if (msg.from) params.append('from', msg.from)
+      if (msg.subject) params.append('subject', msg.subject)
+      
+      fetch(`http://127.0.0.1:51248/api/email/accounts/${msg.accountId}/messages?${params}`)
+        .then(res => res.json())
+        .then(data => {
+          console.log('[BG] 📧 List messages response:', data)
+          sendResponse(data)
+        })
+        .catch(err => {
+          console.error('[BG] 📧 List messages error:', err)
+          sendResponse({ ok: false, error: err.message || 'Failed to list messages' })
+        })
+      
+      return true // Keep channel open for async response
     }
 
     case 'DISPLAY_GRIDS_OPENED': {

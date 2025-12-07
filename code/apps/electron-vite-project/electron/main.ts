@@ -3158,6 +3158,177 @@ app.whenReady().then(async () => {
       }
     })
 
+    // ===== EMAIL GATEWAY API Endpoints =====
+    
+    // GET /api/email/accounts - List all email accounts
+    httpApp.get('/api/email/accounts', async (_req, res) => {
+      try {
+        console.log('[HTTP-EMAIL] GET /api/email/accounts')
+        const { emailGateway } = await import('./main/email/gateway')
+        const accounts = await emailGateway.listAccounts()
+        res.json({ ok: true, data: accounts })
+      } catch (error: any) {
+        console.error('[HTTP-EMAIL] Error listing accounts:', error)
+        res.status(500).json({ ok: false, error: error.message })
+      }
+    })
+    
+    // GET /api/email/accounts/:id - Get single account
+    httpApp.get('/api/email/accounts/:id', async (req, res) => {
+      try {
+        const { id } = req.params
+        console.log('[HTTP-EMAIL] GET /api/email/accounts/:id', id)
+        const { emailGateway } = await import('./main/email/gateway')
+        const account = await emailGateway.getAccount(id)
+        if (!account) {
+          res.status(404).json({ ok: false, error: 'Account not found' })
+          return
+        }
+        res.json({ ok: true, data: account })
+      } catch (error: any) {
+        console.error('[HTTP-EMAIL] Error getting account:', error)
+        res.status(500).json({ ok: false, error: error.message })
+      }
+    })
+    
+    // POST /api/email/accounts/connect/gmail - Connect Gmail account via OAuth
+    httpApp.post('/api/email/accounts/connect/gmail', async (req, res) => {
+      try {
+        console.log('[HTTP-EMAIL] POST /api/email/accounts/connect/gmail')
+        const { displayName } = req.body
+        const { emailGateway } = await import('./main/email/gateway')
+        const account = await emailGateway.connectGmailAccount(displayName || 'Gmail Account')
+        res.json({ ok: true, data: account })
+      } catch (error: any) {
+        console.error('[HTTP-EMAIL] Error connecting Gmail:', error)
+        res.status(500).json({ ok: false, error: error.message })
+      }
+    })
+    
+    // POST /api/email/accounts/connect/outlook - Connect Outlook account via OAuth
+    httpApp.post('/api/email/accounts/connect/outlook', async (req, res) => {
+      try {
+        console.log('[HTTP-EMAIL] POST /api/email/accounts/connect/outlook')
+        const { displayName } = req.body
+        const { emailGateway } = await import('./main/email/gateway')
+        // @ts-ignore - Will be implemented
+        const account = await emailGateway.connectOutlookAccount(displayName || 'Outlook Account')
+        res.json({ ok: true, data: account })
+      } catch (error: any) {
+        console.error('[HTTP-EMAIL] Error connecting Outlook:', error)
+        res.status(500).json({ ok: false, error: error.message })
+      }
+    })
+    
+    // POST /api/email/accounts/connect/imap - Connect IMAP account
+    httpApp.post('/api/email/accounts/connect/imap', async (req, res) => {
+      try {
+        console.log('[HTTP-EMAIL] POST /api/email/accounts/connect/imap')
+        const { displayName, email, host, port, username, password, security } = req.body
+        
+        if (!email || !host || !username || !password) {
+          res.status(400).json({ ok: false, error: 'Missing required fields: email, host, username, password' })
+          return
+        }
+        
+        const { emailGateway } = await import('./main/email/gateway')
+        // @ts-ignore - Will be implemented
+        const account = await emailGateway.connectImapAccount({
+          displayName: displayName || email,
+          email,
+          host,
+          port: port || 993,
+          username,
+          password,
+          security: security || 'ssl'
+        })
+        res.json({ ok: true, data: account })
+      } catch (error: any) {
+        console.error('[HTTP-EMAIL] Error connecting IMAP:', error)
+        res.status(500).json({ ok: false, error: error.message })
+      }
+    })
+    
+    // DELETE /api/email/accounts/:id - Delete email account
+    httpApp.delete('/api/email/accounts/:id', async (req, res) => {
+      try {
+        const { id } = req.params
+        console.log('[HTTP-EMAIL] DELETE /api/email/accounts/:id', id)
+        const { emailGateway } = await import('./main/email/gateway')
+        await emailGateway.deleteAccount(id)
+        res.json({ ok: true })
+      } catch (error: any) {
+        console.error('[HTTP-EMAIL] Error deleting account:', error)
+        res.status(500).json({ ok: false, error: error.message })
+      }
+    })
+    
+    // POST /api/email/accounts/:id/test - Test account connection
+    httpApp.post('/api/email/accounts/:id/test', async (req, res) => {
+      try {
+        const { id } = req.params
+        console.log('[HTTP-EMAIL] POST /api/email/accounts/:id/test', id)
+        const { emailGateway } = await import('./main/email/gateway')
+        const result = await emailGateway.testConnection(id)
+        res.json({ ok: true, data: result })
+      } catch (error: any) {
+        console.error('[HTTP-EMAIL] Error testing connection:', error)
+        res.status(500).json({ ok: false, error: error.message })
+      }
+    })
+    
+    // GET /api/email/accounts/:id/messages - List messages
+    httpApp.get('/api/email/accounts/:id/messages', async (req, res) => {
+      try {
+        const { id } = req.params
+        const options = {
+          folder: req.query.folder as string,
+          limit: req.query.limit ? parseInt(req.query.limit as string) : 50,
+          from: req.query.from as string,
+          subject: req.query.subject as string,
+          unreadOnly: req.query.unreadOnly === 'true',
+          hasAttachments: req.query.hasAttachments === 'true'
+        }
+        console.log('[HTTP-EMAIL] GET /api/email/accounts/:id/messages', id, options)
+        const { emailGateway } = await import('./main/email/gateway')
+        const messages = await emailGateway.listMessages(id, options)
+        res.json({ ok: true, data: messages })
+      } catch (error: any) {
+        console.error('[HTTP-EMAIL] Error listing messages:', error)
+        res.status(500).json({ ok: false, error: error.message })
+      }
+    })
+    
+    // GET /api/email/accounts/:id/messages/:messageId - Get single message
+    httpApp.get('/api/email/accounts/:id/messages/:messageId', async (req, res) => {
+      try {
+        const { id, messageId } = req.params
+        console.log('[HTTP-EMAIL] GET /api/email/accounts/:id/messages/:messageId', id, messageId)
+        const { emailGateway } = await import('./main/email/gateway')
+        const message = await emailGateway.getMessage(id, messageId)
+        if (!message) {
+          res.status(404).json({ ok: false, error: 'Message not found' })
+          return
+        }
+        res.json({ ok: true, data: message })
+      } catch (error: any) {
+        console.error('[HTTP-EMAIL] Error getting message:', error)
+        res.status(500).json({ ok: false, error: error.message })
+      }
+    })
+    
+    // GET /api/email/presets - Get IMAP provider presets
+    httpApp.get('/api/email/presets', async (_req, res) => {
+      try {
+        console.log('[HTTP-EMAIL] GET /api/email/presets')
+        const { IMAP_PRESETS } = await import('./main/email/types')
+        res.json({ ok: true, data: IMAP_PRESETS })
+      } catch (error: any) {
+        console.error('[HTTP-EMAIL] Error getting presets:', error)
+        res.status(500).json({ ok: false, error: error.message })
+      }
+    })
+
     const HTTP_PORT = 51248
     
     // Simple function to start HTTP server with error handling
