@@ -106,6 +106,30 @@ export const IMAP_PRESETS: Record<string, ImapPreset> = {
     smtpHost: 'smtp.aol.com',
     smtpPort: 587
   },
+  'gmail.com': {
+    name: 'Gmail (App Password)',
+    host: 'imap.gmail.com',
+    port: 993,
+    security: 'ssl',
+    smtpHost: 'smtp.gmail.com',
+    smtpPort: 587
+  },
+  'outlook.com': {
+    name: 'Outlook.com / Hotmail',
+    host: 'outlook.office365.com',
+    port: 993,
+    security: 'ssl',
+    smtpHost: 'smtp.office365.com',
+    smtpPort: 587
+  },
+  'office365': {
+    name: 'Microsoft 365 (Work/School)',
+    host: 'outlook.office365.com',
+    port: 993,
+    security: 'ssl',
+    smtpHost: 'smtp.office365.com',
+    smtpPort: 587
+  },
   'custom': {
     name: 'Custom IMAP',
     host: '',

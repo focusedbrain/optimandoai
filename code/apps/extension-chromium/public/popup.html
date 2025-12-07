@@ -272,28 +272,88 @@
         
         <!-- Email Setup Wizard Modal -->
         <div id="mg-email-wizard" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.7); z-index:9999; align-items:center; justify-content:center;">
-          <div style="width:340px; background:linear-gradient(135deg, #1e293b 0%, #0f172a 100%); border-radius:12px; border:1px solid rgba(255,255,255,0.15); overflow:hidden;">
-            <div style="padding:16px; background:linear-gradient(135deg, #3b82f6 0%, #2563eb 100%); display:flex; justify-content:space-between; align-items:center;">
+          <div style="width:360px; max-height:90vh; overflow-y:auto; background:linear-gradient(135deg, #1e293b 0%, #0f172a 100%); border-radius:12px; border:1px solid rgba(255,255,255,0.15); overflow:hidden;">
+            <div style="padding:16px; background:linear-gradient(135deg, #3b82f6 0%, #2563eb 100%); display:flex; justify-content:space-between; align-items:center; position:sticky; top:0;">
               <div style="display:flex; align-items:center; gap:8px;">
                 <span style="font-size:20px;">📧</span>
                 <span style="font-weight:600; color:white;">Connect Your Email</span>
               </div>
               <button id="mg-wizard-close" style="background:rgba(255,255,255,0.2); border:none; color:white; width:24px; height:24px; border-radius:4px; cursor:pointer; font-size:14px;">×</button>
             </div>
-            <div style="padding:16px;">
+            
+            <!-- Provider Selection Step -->
+            <div id="mg-wizard-provider" style="padding:16px;">
+              <!-- Gmail OAuth -->
               <button id="mg-connect-gmail" style="width:100%; padding:12px; background:rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.15); border-radius:8px; cursor:pointer; display:flex; align-items:center; gap:10px; margin-bottom:8px; color:white;">
                 <span style="font-size:20px;">📧</span>
-                <div style="text-align:left;">
+                <div style="text-align:left; flex:1;">
                   <div style="font-weight:600;">Gmail</div>
                   <div style="font-size:11px; opacity:0.6;">Connect via Google OAuth</div>
                 </div>
+                <span style="opacity:0.4;">→</span>
               </button>
-              <div style="margin-top:12px; padding:10px; background:rgba(59,130,246,0.15); border-radius:6px; border:1px solid rgba(59,130,246,0.2);">
+              
+              <!-- Outlook OAuth -->
+              <button id="mg-connect-outlook" style="width:100%; padding:12px; background:rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.15); border-radius:8px; cursor:pointer; display:flex; align-items:center; gap:10px; margin-bottom:8px; color:white;">
+                <span style="font-size:20px;">📨</span>
+                <div style="text-align:left; flex:1;">
+                  <div style="font-weight:600;">Microsoft 365 / Outlook</div>
+                  <div style="font-size:11px; opacity:0.6;">Connect via Microsoft OAuth</div>
+                </div>
+                <span style="opacity:0.4;">→</span>
+              </button>
+              
+              <!-- IMAP / Other -->
+              <button id="mg-connect-imap-btn" style="width:100%; padding:12px; background:rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.15); border-radius:8px; cursor:pointer; display:flex; align-items:center; gap:10px; margin-bottom:12px; color:white;">
+                <span style="font-size:20px;">✉️</span>
+                <div style="text-align:left; flex:1;">
+                  <div style="font-weight:600;">Other (IMAP)</div>
+                  <div style="font-size:11px; opacity:0.6;">Web.de, GMX, Yahoo, T-Online, etc.</div>
+                </div>
+                <span style="opacity:0.4;">→</span>
+              </button>
+              
+              <div style="padding:10px; background:rgba(59,130,246,0.15); border-radius:6px; border:1px solid rgba(59,130,246,0.2);">
                 <div style="display:flex; align-items:flex-start; gap:6px;">
                   <span>🔒</span>
                   <div style="font-size:11px; opacity:0.8; line-height:1.4; color:white;">Your emails are never rendered with scripts or tracking. All content is sanitized locally.</div>
                 </div>
               </div>
+            </div>
+            
+            <!-- IMAP Credentials Step -->
+            <div id="mg-wizard-imap" style="display:none; padding:16px;">
+              <button id="mg-imap-back" style="background:none; border:none; color:#60a5fa; font-size:12px; cursor:pointer; padding:0; margin-bottom:10px; text-align:left;">← Back</button>
+              
+              <select id="mg-imap-preset" style="width:100%; padding:10px; background:rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.15); border-radius:6px; color:white; font-size:13px; margin-bottom:10px;">
+                <option value="">Select a preset...</option>
+                <!-- Options populated dynamically -->
+              </select>
+              
+              <input id="mg-imap-email" type="email" placeholder="Email Address *" style="width:100%; padding:10px; background:rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.15); border-radius:6px; color:white; font-size:13px; margin-bottom:8px; box-sizing:border-box;" />
+              
+              <div style="display:grid; grid-template-columns:2fr 1fr; gap:8px; margin-bottom:8px;">
+                <input id="mg-imap-host" type="text" placeholder="IMAP Server *" style="padding:10px; background:rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.15); border-radius:6px; color:white; font-size:13px;" />
+                <input id="mg-imap-port" type="number" placeholder="Port" value="993" style="padding:10px; background:rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.15); border-radius:6px; color:white; font-size:13px;" />
+              </div>
+              
+              <input id="mg-imap-username" type="text" placeholder="Username *" style="width:100%; padding:10px; background:rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.15); border-radius:6px; color:white; font-size:13px; margin-bottom:8px; box-sizing:border-box;" />
+              
+              <input id="mg-imap-password" type="password" placeholder="Password / App Password *" style="width:100%; padding:10px; background:rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.15); border-radius:6px; color:white; font-size:13px; margin-bottom:12px; box-sizing:border-box;" />
+              
+              <button id="mg-imap-connect" style="width:100%; padding:12px; background:linear-gradient(135deg, #3b82f6, #8b5cf6); border:none; border-radius:6px; color:white; font-weight:600; cursor:pointer;">Connect Email Account</button>
+              
+              <div style="font-size:11px; opacity:0.6; line-height:1.4; padding:8px; background:rgba(59,130,246,0.1); border-radius:4px; margin-top:10px; color:white;">
+                🔒 <strong>Tip:</strong> For accounts with 2FA, use an App Password.
+              </div>
+            </div>
+            
+            <!-- Connecting Step -->
+            <div id="mg-wizard-connecting" style="display:none; text-align:center; padding:30px;">
+              <div style="width:40px; height:40px; border:3px solid rgba(59,130,246,0.3); border-top-color:#3b82f6; border-radius:50%; animation:spin 1s linear infinite; margin:0 auto 16px;"></div>
+              <div style="font-weight:600; margin-bottom:6px; color:white;">Connecting...</div>
+              <div style="font-size:12px; opacity:0.6; color:white;">Please wait...</div>
+              <style>@keyframes spin { to { transform: rotate(360deg); } }</style>
             </div>
           </div>
         </div>

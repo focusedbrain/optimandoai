@@ -32,6 +32,7 @@ import {
 } from './types'
 import { IEmailProvider, RawEmailMessage } from './providers/base'
 import { GmailProvider, gmailProvider, saveOAuthConfig } from './providers/gmail'
+import { outlookProvider, saveOutlookOAuthConfig } from './providers/outlook'
 import { ImapProvider } from './providers/imap'
 import {
   sanitizeHtmlToText,
@@ -449,10 +450,37 @@ class EmailGateway implements IEmailGateway {
   /**
    * Start Outlook/Microsoft 365 OAuth flow and create account
    */
-  async connectOutlookAccount(_displayName?: string): Promise<EmailAccountInfo> {
-    // TODO: Implement Microsoft OAuth flow
-    // For now, throw an informative error
-    throw new Error('Microsoft 365/Outlook integration coming soon. Please use IMAP for now.')
+  async connectOutlookAccount(displayName?: string): Promise<EmailAccountInfo> {
+    const { oauth, email } = await outlookProvider.startOAuthFlow()
+    
+    // Create account config
+    const account: Omit<EmailAccountConfig, 'id' | 'createdAt' | 'updatedAt'> = {
+      displayName: displayName || 'Outlook Account',
+      email: email,
+      provider: 'microsoft365',
+      authType: 'oauth2',
+      oauth,
+      folders: {
+        monitored: ['inbox'],
+        inbox: 'inbox',
+        sent: 'sentitems'
+      },
+      sync: {
+        maxAgeDays: 30,
+        analyzePdfs: true,
+        batchSize: 50
+      },
+      status: 'active'
+    }
+    
+    return this.addAccount(account)
+  }
+  
+  /**
+   * Set up Outlook OAuth credentials (Azure AD app)
+   */
+  setOutlookOAuthCredentials(clientId: string, clientSecret?: string): void {
+    saveOutlookOAuthConfig(clientId, clientSecret)
   }
   
   /**

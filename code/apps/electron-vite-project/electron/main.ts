@@ -45,6 +45,14 @@ let activeStop: null | (() => Promise<string>) = null
 var wsClients: any[] = (globalThis as any).__og_ws_clients__ || [];
 (globalThis as any).__og_ws_clients__ = wsClients;
 
+// Flag to track when app is actually quitting (from tray menu "Quit")
+let isAppQuitting = false
+
+// Set flag when app is actually quitting
+app.on('before-quit', () => {
+  isAppQuitting = true
+})
+
 
 function handleDeepLink(raw: string) {
   try {
@@ -70,15 +78,32 @@ function handleDeepLink(raw: string) {
   } catch {}
 }
 
+// Check if app was started with --hidden flag (auto-start on login)
+const startHidden = process.argv.includes('--hidden')
+
 async function createWindow() {
   win = new BrowserWindow({
     icon: path.join(process.env.VITE_PUBLIC, 'electron-vite.svg'),
     webPreferences: {
       preload: path.join(__dirname, 'preload.mjs'),
     },
-    show: true, // Show window immediately to prevent crash
+    show: !startHidden, // Start hidden if launched with --hidden flag
     width: 800,
     height: 600,
+  })
+  
+  // If started hidden, minimize to tray
+  if (startHidden) {
+    console.log('[MAIN] Started in hidden mode (auto-start), running in system tray')
+  }
+  
+  // When user clicks X, hide to tray instead of quitting
+  win.on('close', (event) => {
+    if (!isAppQuitting) {
+      event.preventDefault()
+      win?.hide()
+      console.log('[MAIN] Window hidden to system tray')
+    }
   })
 
   // Test active push message to Renderer-process.
@@ -699,6 +724,9 @@ function updateTrayMenu() {
       })
     }
     
+    // Get current auto-start setting
+    const loginSettings = app.getLoginItemSettings()
+    
     const menu = Menu.buildFromTemplate([
       { label: 'Show', click: () => { if (!win) return; win.show(); win.focus() } },
       { type: 'separator' },
@@ -710,6 +738,19 @@ function updateTrayMenu() {
         { label: '📌 Saved Triggers', enabled: false },
         ...triggerMenuItems,
       ] : []),
+      { type: 'separator' },
+      { 
+        label: '🚀 Start on Login', 
+        type: 'checkbox' as const,
+        checked: loginSettings.openAtLogin,
+        click: (menuItem) => {
+          app.setLoginItemSettings({ 
+            openAtLogin: menuItem.checked, 
+            args: ['--hidden'] 
+          })
+          console.log('[MAIN] Auto-start on login:', menuItem.checked ? 'enabled' : 'disabled')
+        }
+      },
       { type: 'separator' },
       { label: 'Quit', role: 'quit' as const },
     ])
@@ -3197,8 +3238,32 @@ app.whenReady().then(async () => {
         console.log('[HTTP-EMAIL] POST /api/email/accounts/connect/gmail')
         const { displayName } = req.body
         const { emailGateway } = await import('./main/email/gateway')
-        const account = await emailGateway.connectGmailAccount(displayName || 'Gmail Account')
-        res.json({ ok: true, data: account })
+        
+        // Try to connect - if credentials not set, show setup dialog
+        try {
+          const account = await emailGateway.connectGmailAccount(displayName || 'Gmail Account')
+          res.json({ ok: true, data: account })
+        } catch (credError: any) {
+          if (credError.message?.includes('OAuth client credentials not configured')) {
+            // Show setup dialog
+            const { showGmailSetupDialog } = await import('./main/email/ipc')
+            const result = await showGmailSetupDialog()
+            if (result.success) {
+              // Try connecting again after setup
+              const accounts = await emailGateway.listAccounts()
+              const gmailAccount = accounts.find(a => a.provider === 'gmail')
+              if (gmailAccount) {
+                res.json({ ok: true, data: gmailAccount })
+              } else {
+                res.json({ ok: false, error: 'Setup completed but account not found' })
+              }
+            } else {
+              res.json({ ok: false, error: 'Setup cancelled' })
+            }
+          } else {
+            throw credError
+          }
+        }
       } catch (error: any) {
         console.error('[HTTP-EMAIL] Error connecting Gmail:', error)
         res.status(500).json({ ok: false, error: error.message })
@@ -3211,9 +3276,32 @@ app.whenReady().then(async () => {
         console.log('[HTTP-EMAIL] POST /api/email/accounts/connect/outlook')
         const { displayName } = req.body
         const { emailGateway } = await import('./main/email/gateway')
-        // @ts-ignore - Will be implemented
-        const account = await emailGateway.connectOutlookAccount(displayName || 'Outlook Account')
-        res.json({ ok: true, data: account })
+        
+        // Try to connect - if credentials not set, show setup dialog
+        try {
+          const account = await emailGateway.connectOutlookAccount(displayName || 'Outlook Account')
+          res.json({ ok: true, data: account })
+        } catch (credError: any) {
+          if (credError.message?.includes('OAuth client credentials not configured')) {
+            // Show setup dialog
+            const { showOutlookSetupDialog } = await import('./main/email/ipc')
+            const result = await showOutlookSetupDialog()
+            if (result.success) {
+              // Try connecting again after setup
+              const accounts = await emailGateway.listAccounts()
+              const outlookAccount = accounts.find(a => a.provider === 'microsoft365')
+              if (outlookAccount) {
+                res.json({ ok: true, data: outlookAccount })
+              } else {
+                res.json({ ok: false, error: 'Setup completed but account not found' })
+              }
+            } else {
+              res.json({ ok: false, error: 'Setup cancelled' })
+            }
+          } else {
+            throw credError
+          }
+        }
       } catch (error: any) {
         console.error('[HTTP-EMAIL] Error connecting Outlook:', error)
         res.status(500).json({ ok: false, error: error.message })
@@ -3232,7 +3320,6 @@ app.whenReady().then(async () => {
         }
         
         const { emailGateway } = await import('./main/email/gateway')
-        // @ts-ignore - Will be implemented
         const account = await emailGateway.connectImapAccount({
           displayName: displayName || email,
           email,

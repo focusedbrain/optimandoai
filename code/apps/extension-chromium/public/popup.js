@@ -796,22 +796,185 @@ function renderEmailAccounts() {
   }
 }
 
+// Wizard elements
+const mgWizardProvider = document.getElementById('mg-wizard-provider')
+const mgWizardImap = document.getElementById('mg-wizard-imap')
+const mgWizardConnecting = document.getElementById('mg-wizard-connecting')
+const mgConnectOutlook = document.getElementById('mg-connect-outlook')
+const mgConnectImapBtn = document.getElementById('mg-connect-imap-btn')
+const mgImapBack = document.getElementById('mg-imap-back')
+const mgImapPreset = document.getElementById('mg-imap-preset')
+const mgImapEmail = document.getElementById('mg-imap-email')
+const mgImapHost = document.getElementById('mg-imap-host')
+const mgImapPort = document.getElementById('mg-imap-port')
+const mgImapUsername = document.getElementById('mg-imap-username')
+const mgImapPassword = document.getElementById('mg-imap-password')
+const mgImapConnect = document.getElementById('mg-imap-connect')
+
+// IMAP presets storage
+let imapPresets = {}
+
+// Show wizard step
+function showWizardStep(step) {
+  if (mgWizardProvider) mgWizardProvider.style.display = step === 'provider' ? 'block' : 'none'
+  if (mgWizardImap) mgWizardImap.style.display = step === 'imap' ? 'block' : 'none'
+  if (mgWizardConnecting) mgWizardConnecting.style.display = step === 'connecting' ? 'block' : 'none'
+}
+
+// Reset wizard to initial state
+function resetWizard() {
+  showWizardStep('provider')
+  if (mgImapEmail) mgImapEmail.value = ''
+  if (mgImapHost) mgImapHost.value = ''
+  if (mgImapPort) mgImapPort.value = '993'
+  if (mgImapUsername) mgImapUsername.value = ''
+  if (mgImapPassword) mgImapPassword.value = ''
+  if (mgImapPreset) mgImapPreset.value = ''
+}
+
+// Load IMAP presets
+async function loadImapPresets() {
+  try {
+    const response = await new Promise((resolve) => {
+      chrome.runtime?.sendMessage({ type: 'EMAIL_GET_PRESETS' }, resolve)
+    })
+    
+    if (response?.ok && response?.data) {
+      imapPresets = response.data
+      populatePresetDropdown()
+    }
+  } catch (err) {
+    console.log('[Popup] Failed to load IMAP presets:', err)
+  }
+}
+
+// Populate preset dropdown
+function populatePresetDropdown() {
+  if (!mgImapPreset) return
+  
+  // Clear existing options except first
+  while (mgImapPreset.options.length > 1) {
+    mgImapPreset.remove(1)
+  }
+  
+  // Add preset options
+  for (const [key, preset] of Object.entries(imapPresets)) {
+    if (key !== 'custom') {
+      const option = document.createElement('option')
+      option.value = key
+      option.textContent = preset.name
+      mgImapPreset.appendChild(option)
+    }
+  }
+  
+  // Add custom option at the end
+  const customOption = document.createElement('option')
+  customOption.value = 'custom'
+  customOption.textContent = 'Custom IMAP Server'
+  mgImapPreset.appendChild(customOption)
+}
+
+// Apply IMAP preset
+function applyImapPreset(presetKey) {
+  const preset = imapPresets[presetKey]
+  if (preset) {
+    if (mgImapHost) mgImapHost.value = preset.host || ''
+    if (mgImapPort) mgImapPort.value = preset.port || 993
+  }
+}
+
 // Connect Gmail account
 async function connectGmailAccount() {
   try {
-    if (mgEmailWizard) mgEmailWizard.style.display = 'none'
+    showWizardStep('connecting')
     
     const response = await new Promise((resolve) => {
       chrome.runtime?.sendMessage({ type: 'EMAIL_CONNECT_GMAIL' }, resolve)
     })
     
     if (response?.ok) {
+      if (mgEmailWizard) mgEmailWizard.style.display = 'none'
+      resetWizard()
       setTimeout(loadEmailAccounts, 1000)
     } else {
       console.log('[Popup] Gmail connection failed:', response?.error)
+      alert(response?.error || 'Failed to connect Gmail')
+      showWizardStep('provider')
     }
   } catch (err) {
     console.log('[Popup] Failed to connect Gmail:', err)
+    alert('Failed to connect Gmail: ' + err.message)
+    showWizardStep('provider')
+  }
+}
+
+// Connect Outlook account
+async function connectOutlookAccount() {
+  try {
+    showWizardStep('connecting')
+    
+    const response = await new Promise((resolve) => {
+      chrome.runtime?.sendMessage({ type: 'EMAIL_CONNECT_OUTLOOK' }, resolve)
+    })
+    
+    if (response?.ok) {
+      if (mgEmailWizard) mgEmailWizard.style.display = 'none'
+      resetWizard()
+      setTimeout(loadEmailAccounts, 1000)
+    } else {
+      console.log('[Popup] Outlook connection failed:', response?.error)
+      alert(response?.error || 'Failed to connect Outlook')
+      showWizardStep('provider')
+    }
+  } catch (err) {
+    console.log('[Popup] Failed to connect Outlook:', err)
+    alert('Failed to connect Outlook: ' + err.message)
+    showWizardStep('provider')
+  }
+}
+
+// Connect IMAP account
+async function connectImapAccount() {
+  const email = mgImapEmail?.value?.trim()
+  const host = mgImapHost?.value?.trim()
+  const port = parseInt(mgImapPort?.value) || 993
+  const username = mgImapUsername?.value?.trim() || email
+  const password = mgImapPassword?.value
+  
+  if (!email || !host || !password) {
+    alert('Please fill in all required fields')
+    return
+  }
+  
+  try {
+    showWizardStep('connecting')
+    
+    const response = await new Promise((resolve) => {
+      chrome.runtime?.sendMessage({
+        type: 'EMAIL_CONNECT_IMAP',
+        displayName: email,
+        email,
+        host,
+        port,
+        username,
+        password,
+        security: 'ssl'
+      }, resolve)
+    })
+    
+    if (response?.ok) {
+      if (mgEmailWizard) mgEmailWizard.style.display = 'none'
+      resetWizard()
+      setTimeout(loadEmailAccounts, 1000)
+    } else {
+      console.log('[Popup] IMAP connection failed:', response?.error)
+      alert(response?.error || 'Failed to connect email')
+      showWizardStep('imap')
+    }
+  } catch (err) {
+    console.log('[Popup] Failed to connect IMAP:', err)
+    alert('Failed to connect: ' + err.message)
+    showWizardStep('imap')
   }
 }
 
@@ -833,13 +996,17 @@ window.disconnectEmailAccount = async function(accountId) {
 // Email wizard event listeners
 if (mgConnectEmail) {
   mgConnectEmail.onclick = () => {
-    if (mgEmailWizard) mgEmailWizard.style.display = 'flex'
+    if (mgEmailWizard) {
+      resetWizard()
+      mgEmailWizard.style.display = 'flex'
+    }
   }
 }
 
 if (mgWizardClose) {
   mgWizardClose.onclick = () => {
     if (mgEmailWizard) mgEmailWizard.style.display = 'none'
+    resetWizard()
   }
 }
 
@@ -847,9 +1014,44 @@ if (mgConnectGmail) {
   mgConnectGmail.onclick = connectGmailAccount
 }
 
+if (mgConnectOutlook) {
+  mgConnectOutlook.onclick = connectOutlookAccount
+}
+
+if (mgConnectImapBtn) {
+  mgConnectImapBtn.onclick = () => {
+    loadImapPresets()
+    showWizardStep('imap')
+  }
+}
+
+if (mgImapBack) {
+  mgImapBack.onclick = () => {
+    showWizardStep('provider')
+  }
+}
+
+if (mgImapPreset) {
+  mgImapPreset.onchange = (e) => {
+    applyImapPreset(e.target.value)
+  }
+}
+
+if (mgImapEmail) {
+  mgImapEmail.oninput = (e) => {
+    // Auto-fill username with email
+    if (mgImapUsername && !mgImapUsername.value) {
+      mgImapUsername.value = e.target.value
+    }
+  }
+}
+
+if (mgImapConnect) {
+  mgImapConnect.onclick = connectImapAccount
+}
+
 // Load accounts when switching to mailguard mode
 if (modeSelect) {
-  const originalHandler = modeSelect.onchange
   modeSelect.addEventListener('change', () => {
     if (modeSelect.value === 'mailguard') {
       loadEmailAccounts()
