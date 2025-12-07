@@ -855,7 +855,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     case 'MAILGUARD_UPDATE_ROWS': {
       // Content script sends email row positions to forward to Electron
       if (WS_ENABLED && ws && ws.readyState === WebSocket.OPEN) {
-        try { ws.send(JSON.stringify({ type: 'MAILGUARD_UPDATE_ROWS', rows: msg.rows })) } catch {}
+        try { ws.send(JSON.stringify({ type: 'MAILGUARD_UPDATE_ROWS', rows: msg.rows, provider: msg.provider || 'gmail' })) } catch {}
       }
       break
     }

@@ -1148,9 +1148,10 @@ app.whenReady().then(async () => {
               // Content script sends email row positions
               try {
                 const rows = msg.rows || []
-                updateEmailRows(rows)
+                const provider = msg.provider || 'gmail'
+                updateEmailRows(rows, provider)
                 
-                // Store preview data for Gmail API matching
+                // Store preview data for Email API matching
                 rows.forEach((row: any) => {
                   if (row.id && (row.from || row.subject)) {
                     emailRowPreviewData.set(row.id, { 

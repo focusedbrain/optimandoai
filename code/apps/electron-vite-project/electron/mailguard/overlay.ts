@@ -164,7 +164,7 @@ export function deactivateMailGuard(): void {
 /**
  * Update email row positions (called from content script via WebSocket)
  */
-export function updateEmailRows(rows: EmailRowRect[]): void {
+export function updateEmailRows(rows: EmailRowRect[], provider: string = 'gmail'): void {
   if (mailguardOverlay) {
     // Apply browser window offset to convert viewport coords to screen coords
     const adjustedRows = rows.map(row => ({
@@ -172,7 +172,7 @@ export function updateEmailRows(rows: EmailRowRect[]): void {
       x: row.x + browserWindowOffset.x,
       y: row.y + browserWindowOffset.y
     }))
-    mailguardOverlay.webContents.send('mailguard-rows', adjustedRows)
+    mailguardOverlay.webContents.send('mailguard-rows', { rows: adjustedRows, provider })
   }
 }
 
@@ -653,6 +653,7 @@ function getOverlayHtml(): string {
     };
     
     let currentRows = [];
+    let currentProvider = 'gmail';
     let hoveredRowId = null;
     
     const badge = document.getElementById('status-badge');
@@ -721,9 +722,17 @@ function getOverlayHtml(): string {
       
       if (found) {
         hoveredRowId = found.id;
-        // Position buttons at the center-right of the row
-        hoverButtons.style.left = (found.x + found.width - 180) + 'px';
-        hoverButtons.style.top = (found.y + found.height / 2 - 22) + 'px';
+        // Position buttons based on email provider
+        if (currentProvider === 'outlook') {
+          // Outlook: Position button on the left side of the row (reading pane is on right)
+          // Also account for Outlook's narrower row width
+          hoverButtons.style.left = (found.x + 20) + 'px';
+          hoverButtons.style.top = (found.y + found.height / 2 - 22) + 'px';
+        } else {
+          // Gmail: Position buttons at the center-right of the row
+          hoverButtons.style.left = (found.x + found.width - 180) + 'px';
+          hoverButtons.style.top = (found.y + found.height / 2 - 22) + 'px';
+        }
         hoverButtons.classList.add('visible');
       } else {
         // Only hide if not hovering over the buttons themselves
@@ -737,8 +746,10 @@ function getOverlayHtml(): string {
     });
     
     // Receive email row positions from content script
-    ipcRenderer.on('mailguard-rows', (event, rows) => {
-      currentRows = rows;
+    ipcRenderer.on('mailguard-rows', (event, data) => {
+      // data is now { rows, provider } object
+      currentRows = data.rows || data;
+      currentProvider = data.provider || 'gmail';
     });
     
     // Receive sanitized email to display

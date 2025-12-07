@@ -302,6 +302,11 @@ function getEmailRowPositions(): EmailRowRect[] {
   
   const rowElements = document.querySelectorAll(rowSelector)
   
+  // Debug: log how many elements found
+  if (rowElements.length === 0) {
+    console.log(`[MailGuard] No email rows found with selector: ${rowSelector}`)
+  }
+  
   rowElements.forEach((row, index) => {
     const rect = row.getBoundingClientRect()
     
@@ -391,7 +396,8 @@ function startRowPositionUpdates(): void {
     }
     
     const rows = getEmailRowPositions()
-    sendToBackground({ type: 'MAILGUARD_UPDATE_ROWS', rows })
+    const provider = getCurrentEmailProvider()
+    sendToBackground({ type: 'MAILGUARD_UPDATE_ROWS', rows, provider })
   }, 1000)
   
   // Watch for URL changes within the SPA
@@ -440,9 +446,10 @@ function isOnSupportedEmailSite(): boolean {
 }
 
 // Site-specific selectors for email rows
+// Outlook uses different layouts - message list items are typically in a virtualized list
 const EMAIL_ROW_SELECTORS = {
   gmail: 'tr.zA, tr[role="row"], div[role="row"]',
-  outlook: '[data-convid], [role="listitem"][aria-selected], div[data-item-index], .jGG6V, .hcptT'
+  outlook: '[data-convid], div[role="option"][aria-selected], div[role="listitem"], div[data-item-index], [aria-label*="message" i][role="option"], .customScrollBar div[tabindex="0"][role="option"]'
 }
 
 // Site-specific selectors for email content extraction
@@ -455,11 +462,16 @@ const EMAIL_SELECTORS = {
     attachment: '.brd[data-tooltip*="Attachment"], .aZo .aZs, [data-tooltip*="attachment" i], .bqX .yf img[alt*="Attachment" i]'
   },
   outlook: {
-    sender: '[data-testid="AvatarContactName"], .OZZZK, .hcptT span[title], .jGG6V span.OZZZK, span.OZZZK',
-    subject: '[data-testid="subjectLine"], .hcptT span.ms-font-m, .jGG6V span.lvHighlightSubjectClass, span.lvHighlightSubjectClass, .JHrmG',
-    snippet: '.LgbsSe, .hcptT .ms-font-s, .jGG6V span.ms-font-s:not(.OZZZK), .Jzv0o',
-    date: '[data-testid="sentDateTime"], .l8Tnu, .hcptT time, .jGG6V time, time.l8Tnu',
-    attachment: '[data-testid="attachmentIndicator"], .FTOXx, [aria-label*="attachment" i], .has-attachment'
+    // Outlook sender - look for name elements with email attribute or title
+    sender: '[title*="@"], span[title*="@"], [data-testid*="sender"], [data-testid*="name"], .OZZZK, .XbIp4',
+    // Outlook subject - various class names used
+    subject: '[data-testid*="subject"], .JHrmG, .lvHighlightSubjectClass, span[id*="subject"]',
+    // Outlook snippet/preview
+    snippet: '[data-testid*="preview"], .LgbsSe, .Jzv0o, .yaDWK',
+    // Outlook date - time elements or spans with date
+    date: 'time, span[aria-label*="received"], [data-testid*="date"], .l8Tnu',
+    // Outlook attachment indicator
+    attachment: '[data-testid*="attachment"], [aria-label*="attachment" i], svg[aria-label*="attachment" i], .FTOXx'
   }
 }
 
@@ -865,8 +877,9 @@ async function waitForEmailUIReady(provider: EmailProvider): Promise<void> {
       rows: 'tr.zA, div[role="row"]'
     },
     outlook: {
-      container: '[data-app-section="MessageList"], div[role="main"], .jGG6V, .ms-FocusZone',
-      rows: '[data-convid], [role="listitem"], div[data-item-index]'
+      // Outlook uses various selectors depending on version
+      container: '[data-app-section="MessageList"], div[role="main"], [role="complementary"], div[data-app-section="ConversationContainer"], #MainModule',
+      rows: '[data-convid], div[role="option"], div[role="listitem"], [aria-label*="message" i]'
     }
   }
   
@@ -876,8 +889,10 @@ async function waitForEmailUIReady(provider: EmailProvider): Promise<void> {
     const container = document.querySelector(selectors.container)
     const rows = document.querySelectorAll(selectors.rows)
     
+    console.log(`[MailGuard] ${provider} UI check ${i+1}/30: container=${!!container}, rows=${rows.length}`)
+    
     if (container || rows.length > 0) {
-      console.log(`[MailGuard] ${provider} UI ready`)
+      console.log(`[MailGuard] ${provider} UI ready - found ${rows.length} potential email rows`)
       return
     }
     
