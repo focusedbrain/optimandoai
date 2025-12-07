@@ -35957,17 +35957,37 @@ ${pageText}
 
     
 
-    // Calculate next box number from session
+    // Calculate next box number from SQLite (single source of truth)
 
     const sessionKey = getCurrentSessionKey()
 
     
 
-    if (sessionKey && chrome?.storage?.local) {
+    if (sessionKey && chrome?.runtime) {
 
-      storageGet([sessionKey], (result) => {
+      // Use SQLite via background script (same as master tab form)
 
-        const session = result[sessionKey] || {}
+      chrome.runtime.sendMessage({
+
+        type: 'GET_SESSION_FROM_SQLITE',
+
+        sessionKey: sessionKey
+
+      }, (response) => {
+
+        if (chrome.runtime.lastError) {
+
+          console.warn('⚠️ Could not fetch from SQLite:', chrome.runtime.lastError.message)
+
+          openGridWindowWithExtensionURL(layout, sessionId, currentTheme, sessionKey, 1)
+
+          return
+
+        }
+
+        
+
+        const session = response?.session || {}
 
         
 
@@ -36011,7 +36031,7 @@ ${pageText}
 
         const nextBoxNumber = maxBoxNumber + 1
 
-        console.log('📦 Calculated next box number for grid:', nextBoxNumber, 'from max:', maxBoxNumber)
+        console.log('📦 Calculated next box number for grid from SQLite:', nextBoxNumber, 'from max:', maxBoxNumber)
 
         
 
@@ -36027,9 +36047,9 @@ ${pageText}
 
       // Fallback without session
 
-      const sessionKey = getCurrentSessionKey() || 'session_fallback'
+      const fallbackSessionKey = getCurrentSessionKey() || 'session_fallback'
 
-      openGridWindowWithExtensionURL(layout, sessionId, currentTheme, sessionKey, 1)
+      openGridWindowWithExtensionURL(layout, sessionId, currentTheme, fallbackSessionKey, 1)
 
     }
 
@@ -36105,17 +36125,37 @@ ${pageText}
 
     
 
-    // Calculate next box number from session
+    // Calculate next box number from SQLite (single source of truth)
 
     const sessionKey = getCurrentSessionKey()
 
     
 
-    if (sessionKey && chrome?.storage?.local) {
+    if (sessionKey && chrome?.runtime) {
 
-      storageGet([sessionKey], (result) => {
+      // Use SQLite via background script (same as master tab form)
 
-        const session = result[sessionKey] || {}
+      chrome.runtime.sendMessage({
+
+        type: 'GET_SESSION_FROM_SQLITE',
+
+        sessionKey: sessionKey
+
+      }, (response) => {
+
+        if (chrome.runtime.lastError) {
+
+          console.warn('⚠️ V2: Could not fetch from SQLite:', chrome.runtime.lastError.message)
+
+          openGridWindow_v2(layout, sessionId, currentTheme, sessionKey, 1)
+
+          return
+
+        }
+
+        
+
+        const session = response?.session || {}
 
         
 
@@ -36159,7 +36199,7 @@ ${pageText}
 
         const nextBoxNumber = maxBoxNumber + 1
 
-        console.log('📦 V2: Calculated next box number:', nextBoxNumber, 'from max:', maxBoxNumber)
+        console.log('📦 V2: Calculated next box number from SQLite:', nextBoxNumber, 'from max:', maxBoxNumber)
 
         
 
@@ -36171,7 +36211,11 @@ ${pageText}
 
     } else {
 
-      openGridWindow_v2(layout, sessionId, currentTheme, '', 1)
+      // Fallback without session
+
+      const fallbackSessionKey = getCurrentSessionKey() || 'session_fallback'
+
+      openGridWindow_v2(layout, sessionId, currentTheme, fallbackSessionKey, 1)
 
     }
 

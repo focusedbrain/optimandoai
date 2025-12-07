@@ -95,66 +95,152 @@ if (window.gridScriptLoaded) {
      * 2. session.displayGrids[].config.slots - Backup check for display grid slots
      * Returns: The next box number (max + 1), or 1 if none exist
      */
+    /**
+     * Calculate max box number from session data
+     */
+    function findMaxBoxNumber(session) {
+      var maxBoxNumber = 0;
+      
+      // Check all agent boxes
+      if (session.agentBoxes && Array.isArray(session.agentBoxes)) {
+        session.agentBoxes.forEach(function(box) {
+          var boxNum = box.boxNumber || box.number || 0;
+          if (boxNum > maxBoxNumber) maxBoxNumber = boxNum;
+        });
+        console.log('  ✓ Checked', session.agentBoxes.length, 'agent boxes, max:', maxBoxNumber);
+      }
+      
+      // Check all display grid slots (backup check)
+      if (session.displayGrids && Array.isArray(session.displayGrids)) {
+        session.displayGrids.forEach(function(grid) {
+          if (grid.config && grid.config.slots) {
+            Object.values(grid.config.slots).forEach(function(slot) {
+              var boxNum = slot.boxNumber || 0;
+              if (boxNum > maxBoxNumber) maxBoxNumber = boxNum;
+            });
+          }
+        });
+        console.log('  ✓ Checked', session.displayGrids.length, 'display grids');
+      }
+      
+      return maxBoxNumber;
+    }
+    
+    /**
+     * Try to get session directly from HTTP API (bypass background script)
+     */
+    function getSessionFromHttpApi(sessionKey, callback) {
+      console.log('🔄 Trying direct HTTP API for session:', sessionKey);
+      
+      // Try multiple ports in case of port conflicts
+      var ports = [51248, 51249, 51250];
+      var currentPortIndex = 0;
+      
+      function tryNextPort() {
+        if (currentPortIndex >= ports.length) {
+          console.error('❌ All HTTP ports failed');
+          callback(null);
+          return;
+        }
+        
+        var port = ports[currentPortIndex];
+        var url = 'http://127.0.0.1:' + port + '/api/orchestrator/get?key=' + encodeURIComponent(sessionKey);
+        
+        fetch(url)
+          .then(function(response) {
+            if (!response.ok) throw new Error('HTTP ' + response.status);
+            return response.json();
+          })
+          .then(function(result) {
+            console.log('✅ HTTP API success on port', port);
+            callback(result.data || null);
+          })
+          .catch(function(err) {
+            console.log('⚠️ Port', port, 'failed:', err.message);
+            currentPortIndex++;
+            tryNextPort();
+          });
+      }
+      
+      tryNextPort();
+    }
+    
     function calculateNextBoxNumber(callback) {
+      console.log('🔍 calculateNextBoxNumber called, sessionKey:', parentSessionKey);
+      
       if (!parentSessionKey) {
         var fallbackNumber = (typeof window.nextBoxNumber !== 'undefined') ? window.nextBoxNumber : 1;
-        console.log('⚠️ Using fallback box number:', fallbackNumber);
+        console.log('⚠️ No session key, using fallback:', fallbackNumber);
         callback(fallbackNumber);
         return;
       }
       
-      console.log('🔍 Calculating next box number from SQLite via background...');
+      console.log('🔍 Calculating next box number from SQLite...');
       
-      // Use message passing to get session from SQLite
-      chrome.runtime.sendMessage({
-        type: 'GET_SESSION_FROM_SQLITE',
-        sessionKey: parentSessionKey
-      }, function(response) {
-        if (chrome.runtime.lastError) {
-          console.error('❌ Error getting session:', chrome.runtime.lastError.message);
-          // Try to use existing window.nextBoxNumber if available
-          var fallbackNumber = (typeof window.nextBoxNumber !== 'undefined' && window.nextBoxNumber > 1) ? window.nextBoxNumber : 1;
-          console.log('⚠️ Using fallback box number:', fallbackNumber);
-          callback(fallbackNumber);
-          return;
-        }
-        
-        if (!response || !response.success || !response.session) {
-          console.log('⚠️ No session found, using fallback');
-          var fallbackNumber = (typeof window.nextBoxNumber !== 'undefined' && window.nextBoxNumber > 1) ? window.nextBoxNumber : 1;
-          callback(fallbackNumber);
-          return;
-        }
-        
-        var session = response.session;
-        var maxBoxNumber = 0;
-        
-        // Check all agent boxes
-        if (session.agentBoxes && Array.isArray(session.agentBoxes)) {
-          session.agentBoxes.forEach(function(box) {
-            var boxNum = box.boxNumber || box.number || 0;
-            if (boxNum > maxBoxNumber) maxBoxNumber = boxNum;
-          });
-          console.log('  ✓ Checked', session.agentBoxes.length, 'agent boxes from SQLite, max:', maxBoxNumber);
-        }
-        
-        // Check all display grid slots (backup check)
-        if (session.displayGrids && Array.isArray(session.displayGrids)) {
-          session.displayGrids.forEach(function(grid) {
-            if (grid.config && grid.config.slots) {
-              Object.values(grid.config.slots).forEach(function(slot) {
-                var boxNum = slot.boxNumber || 0;
-                if (boxNum > maxBoxNumber) maxBoxNumber = boxNum;
-              });
-            }
-          });
-          console.log('  ✓ Checked', session.displayGrids.length, 'display grids from SQLite');
-        }
-        
-        var nextNum = maxBoxNumber + 1;
-        console.log('✅ Calculated next box number from SQLite:', nextNum, 'from max:', maxBoxNumber);
-        callback(nextNum);
-      });
+      // First try via background script
+      if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
+        chrome.runtime.sendMessage({
+          type: 'GET_SESSION_FROM_SQLITE',
+          sessionKey: parentSessionKey
+        }, function(response) {
+          if (chrome.runtime.lastError) {
+            console.error('❌ Background script error:', chrome.runtime.lastError.message);
+            // Fall back to direct HTTP API
+            getSessionFromHttpApi(parentSessionKey, function(session) {
+              if (session) {
+                var max = findMaxBoxNumber(session);
+                var next = max + 1;
+                console.log('✅ From HTTP API: next box number =', next);
+                callback(next);
+              } else {
+                var fallbackNumber = (typeof window.nextBoxNumber !== 'undefined' && window.nextBoxNumber > 1) ? window.nextBoxNumber : 1;
+                console.log('⚠️ HTTP API failed, using fallback:', fallbackNumber);
+                callback(fallbackNumber);
+              }
+            });
+            return;
+          }
+          
+          if (!response || !response.success || !response.session) {
+            console.log('⚠️ No session from background, trying HTTP API...');
+            // Fall back to direct HTTP API
+            getSessionFromHttpApi(parentSessionKey, function(session) {
+              if (session) {
+                var max = findMaxBoxNumber(session);
+                var next = max + 1;
+                console.log('✅ From HTTP API: next box number =', next);
+                callback(next);
+              } else {
+                var fallbackNumber = (typeof window.nextBoxNumber !== 'undefined' && window.nextBoxNumber > 1) ? window.nextBoxNumber : 1;
+                console.log('⚠️ HTTP API failed, using fallback:', fallbackNumber);
+                callback(fallbackNumber);
+              }
+            });
+            return;
+          }
+          
+          var session = response.session;
+          var max = findMaxBoxNumber(session);
+          var next = max + 1;
+          console.log('✅ From background script: next box number =', next, 'from max:', max);
+          callback(next);
+        });
+      } else {
+        // No chrome.runtime, try direct HTTP API
+        console.log('⚠️ No chrome.runtime, trying HTTP API...');
+        getSessionFromHttpApi(parentSessionKey, function(session) {
+          if (session) {
+            var max = findMaxBoxNumber(session);
+            var next = max + 1;
+            console.log('✅ From HTTP API: next box number =', next);
+            callback(next);
+          } else {
+            var fallbackNumber = (typeof window.nextBoxNumber !== 'undefined') ? window.nextBoxNumber : 1;
+            console.log('⚠️ Using window fallback:', fallbackNumber);
+            callback(fallbackNumber);
+          }
+        });
+      }
     }
     
     // Check if this is an EXISTING box (editing) or a NEW box (creating)
