@@ -365,7 +365,7 @@ export class OllamaManager {
           messages,
           stream: false
         }),
-        signal: AbortSignal.timeout(120000) // 2 minute timeout
+        signal: AbortSignal.timeout(300000) // 5 minute timeout for larger models
       })
       
       if (!response.ok) {

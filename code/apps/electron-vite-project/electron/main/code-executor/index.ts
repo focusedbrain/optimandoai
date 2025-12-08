@@ -48,100 +48,177 @@ export interface GeneratedCode {
  * System prompt template for code generation
  */
 export function getCodeGenerationSystemPrompt(): string {
-  return `You are an expert code generator. Your task is to generate executable code based on the user's request.
+  return `You are a code generator. Output ONLY a code block, no explanations.
 
 RULES:
-1. Generate ONLY the code, no explanations before or after
-2. The code must be complete and executable
-3. Wrap your code in a code block with the language identifier
-4. If the user doesn't specify a language, use Python by default
-5. For simple outputs (print, calculations), use Python or JavaScript
-6. For UI/visual apps, generate HTML with embedded CSS and JavaScript
-7. Include all necessary imports/dependencies
-8. Make the code self-contained and runnable
+1. Output ONLY the code block with language identifier
+2. Use Python by default unless specified otherwise
+3. For UI apps, use minimal HTML with inline styles
+4. Keep code short and simple
 
-OUTPUT FORMAT:
+FORMAT:
 \`\`\`<language>
-<your complete code here>
+<code>
 \`\`\`
 
 EXAMPLES:
 
-User: "print odd numbers between 1 to 10"
+User: "print odd numbers 1 to 10"
 \`\`\`python
-for i in range(1, 11):
-    if i % 2 != 0:
-        print(i)
+for i in range(1,11,2): print(i)
 \`\`\`
 
-User: "create a calculator app"
+User: "calculator app"
 \`\`\`html
-<!DOCTYPE html>
-<html>
-<head>
-    <title>Calculator</title>
-    <style>
-        /* styles here */
-    </style>
-</head>
-<body>
-    <!-- calculator UI here -->
-    <script>
-        // calculator logic here
-    </script>
-</body>
-</html>
+<!DOCTYPE html><html><head><title>Calc</title><style>body{font-family:sans-serif;display:flex;justify-content:center;padding:20px}#calc{background:#333;padding:20px;border-radius:10px}#display{width:200px;height:40px;font-size:24px;text-align:right;margin-bottom:10px}button{width:50px;height:50px;font-size:20px;margin:2px;cursor:pointer}</style></head><body><div id="calc"><input id="display" readonly><br><button onclick="c('7')">7</button><button onclick="c('8')">8</button><button onclick="c('9')">9</button><button onclick="c('/')">/</button><br><button onclick="c('4')">4</button><button onclick="c('5')">5</button><button onclick="c('6')">6</button><button onclick="c('*')">*</button><br><button onclick="c('1')">1</button><button onclick="c('2')">2</button><button onclick="c('3')">3</button><button onclick="c('-')">-</button><br><button onclick="c('0')">0</button><button onclick="c('.')">.</button><button onclick="calc()">=</button><button onclick="c('+')">+</button><br><button onclick="clr()" style="width:106px">C</button></div><script>let d=document.getElementById('display');function c(v){d.value+=v}function clr(){d.value=''}function calc(){try{d.value=eval(d.value)}catch{d.value='Error'}}</script></body></html>
 \`\`\`
 
-User: "fibonacci sequence first 10 numbers in javascript"
-\`\`\`javascript
-function fibonacci(n) {
-    const seq = [0, 1];
-    for (let i = 2; i < n; i++) {
-        seq.push(seq[i-1] + seq[i-2]);
-    }
-    return seq.slice(0, n);
-}
-console.log(fibonacci(10).join(', '));
+User: "fibonacci 10 numbers"
+\`\`\`python
+a,b=0,1
+for _ in range(10):print(a);a,b=b,a+b
 \`\`\`
 
-Now generate code for the user's request. Remember: ONLY output the code block, nothing else.`
+Generate code now. ONLY the code block.`
 }
 
 /**
  * Extract code from AI response
  */
 export function extractCodeFromResponse(response: string): GeneratedCode | null {
-  // Match code blocks with language identifier
-  const codeBlockRegex = /```(\w+)\n([\s\S]*?)```/
-  const match = response.match(codeBlockRegex)
+  console.log('[CodeExecutor] Extracting code from AI response...')
+  console.log('[CodeExecutor] Response length:', response.length)
+  console.log('[CodeExecutor] Response preview:', response.substring(0, 500))
   
-  if (!match) {
-    // Try without language identifier
-    const simpleMatch = response.match(/```\n?([\s\S]*?)```/)
-    if (simpleMatch) {
-      return {
-        code: simpleMatch[1].trim(),
-        language: 'python',  // Default to Python
-        filename: `generated_${Date.now()}.py`,
-        isMiniApp: false
+  // Try multiple regex patterns to match code blocks
+  const patterns = [
+    /```(\w+)\s*\n([\s\S]*?)```/,           // Standard: ```python\ncode```
+    /```(\w+)\s*\r?\n([\s\S]*?)```/,         // With optional \r
+    /```(\w+)([\s\S]*?)```/,                 // No newline after language
+    /```\s*(\w+)\s*\n([\s\S]*?)```/,         // Spaces around language
+  ]
+  
+  for (const regex of patterns) {
+    const match = response.match(regex)
+    if (match && match[1] && match[2]) {
+      const language = match[1].toLowerCase().trim()
+      const code = match[2].trim()
+      
+      if (code.length > 0) {
+        console.log('[CodeExecutor] Found code block with language:', language)
+        console.log('[CodeExecutor] Code length:', code.length)
+        
+        const langConfig = getLanguageConfig(language)
+        return {
+          code,
+          language,
+          filename: `generated_${Date.now()}${langConfig.extension}`,
+          isMiniApp: langConfig.isMiniApp
+        }
       }
     }
-    return null
   }
   
-  const language = match[1].toLowerCase()
-  const code = match[2].trim()
+  // Try without language identifier
+  const simplePatterns = [
+    /```\n?([\s\S]*?)```/,
+    /```([\s\S]*?)```/,
+  ]
   
-  // Determine file extension and if it's a mini app
-  const langConfig = getLanguageConfig(language)
-  
-  return {
-    code,
-    language,
-    filename: `generated_${Date.now()}${langConfig.extension}`,
-    isMiniApp: langConfig.isMiniApp
+  for (const regex of simplePatterns) {
+    const match = response.match(regex)
+    if (match && match[1] && match[1].trim().length > 0) {
+      const code = match[1].trim()
+      console.log('[CodeExecutor] Found code block without language, defaulting to Python')
+      
+      // Try to detect language from content
+      let language = 'python'
+      if (code.includes('<!DOCTYPE') || code.includes('<html')) {
+        language = 'html'
+      } else if (code.includes('console.log') || code.includes('function ') || code.includes('=>')) {
+        language = 'javascript'
+      }
+      
+      const langConfig = getLanguageConfig(language)
+      return {
+        code,
+        language,
+        filename: `generated_${Date.now()}${langConfig.extension}`,
+        isMiniApp: langConfig.isMiniApp
+      }
+    }
   }
+  
+  // Clean up any backticks from the response before fallback detection
+  let cleanedResponse = response.trim()
+  // Remove opening code block markers like ```html, ```python, etc.
+  cleanedResponse = cleanedResponse.replace(/^```\w*\s*\n?/gm, '')
+  // Remove closing code block markers
+  cleanedResponse = cleanedResponse.replace(/\n?```\s*$/gm, '')
+  cleanedResponse = cleanedResponse.trim()
+  
+  // VALIDATION: Check if this looks like an error/echo response, not actual code
+  const invalidPatterns = [
+    /^\d+\|user\|/,           // Conversation format like "01|user|..."
+    /^I want to/i,            // User prompt echo
+    /^Create a/i,             // User prompt echo
+    /^Generate a/i,           // User prompt echo
+    /^Please/i,               // Polite request echo
+    /^Make a/i,               // User prompt echo
+    /^I need/i,               // User prompt echo
+    /^Can you/i,              // Question echo
+  ]
+  
+  for (const pattern of invalidPatterns) {
+    if (pattern.test(cleanedResponse)) {
+      console.log('[CodeExecutor] Detected invalid response (prompt echo or conversation format)')
+      console.log('[CodeExecutor] Response starts with:', cleanedResponse.substring(0, 100))
+      return null
+    }
+  }
+  
+  // Last resort: if response looks like ACTUAL code without backticks
+  // Must contain actual HTML structure, not just text mentioning HTML
+  if ((cleanedResponse.includes('<!DOCTYPE') || cleanedResponse.startsWith('<html') || cleanedResponse.startsWith('<HTML')) 
+      && cleanedResponse.includes('</html>')) {
+    console.log('[CodeExecutor] Detected raw HTML (cleaned backticks)')
+    return {
+      code: cleanedResponse,
+      language: 'html',
+      filename: `generated_${Date.now()}.html`,
+      isMiniApp: true
+    }
+  }
+  
+  // Python detection - must have actual Python syntax patterns
+  if ((cleanedResponse.includes('def ') && cleanedResponse.includes(':')) 
+      || (cleanedResponse.includes('print(') && cleanedResponse.includes(')'))
+      || (cleanedResponse.includes('for ') && cleanedResponse.includes(' in ') && cleanedResponse.includes(':'))) {
+    console.log('[CodeExecutor] Detected raw Python (cleaned backticks)')
+    return {
+      code: cleanedResponse,
+      language: 'python',
+      filename: `generated_${Date.now()}.py`,
+      isMiniApp: false
+    }
+  }
+  
+  // JavaScript detection - must have actual JS syntax
+  if ((cleanedResponse.includes('function ') && cleanedResponse.includes('{'))
+      || (cleanedResponse.includes('const ') && cleanedResponse.includes('='))
+      || (cleanedResponse.includes('console.log(') && cleanedResponse.includes(')'))) {
+    console.log('[CodeExecutor] Detected JavaScript code')
+    return {
+      code: cleanedResponse,
+      language: 'javascript',
+      filename: `generated_${Date.now()}.js`,
+      isMiniApp: false
+    }
+  }
+  
+  console.log('[CodeExecutor] Could not extract valid code from response')
+  console.log('[CodeExecutor] Full response:', response)
+  return null
 }
 
 interface LanguageConfig {

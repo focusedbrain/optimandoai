@@ -75,7 +75,25 @@ export function registerCodeExecutorHandlers(): void
 
 ## Modified Files
 
-### 1. `electron/main.ts`
+### 1. `electron/main/llm/ollama-manager.ts`
+**Location:** `d:\projects\Oscar\optimandoai\code\apps\electron-vite-project\electron\main\llm\ollama-manager.ts`
+
+**Changes Made:**
+
+Increased chat timeout from 2 minutes to 5 minutes (line ~368):
+```typescript
+// Before
+signal: AbortSignal.timeout(120000) // 2 minute timeout
+
+// After
+signal: AbortSignal.timeout(300000) // 5 minute timeout for larger models
+```
+
+**Reason:** The `qwen2.5-coder:7b` model needs more time to generate complex code like calculator apps.
+
+---
+
+### 2. `electron/main.ts`
 **Location:** `d:\projects\Oscar\optimandoai\code\apps\electron-vite-project\electron\main.ts`
 
 **Changes Made:**
@@ -160,7 +178,7 @@ httpApp.get('/api/cursor/state', (_req, res) => {
 
 ---
 
-### 2. `extension-chromium/public/popup.html`
+### 3. `extension-chromium/public/popup.html`
 **Location:** `d:\projects\Oscar\optimandoai\code\apps\extension-chromium\public\popup.html`
 
 **Changes Made:**
@@ -191,7 +209,7 @@ Added CSS styles for the code executor UI.
 
 ---
 
-### 3. `extension-chromium/public/popup.js`
+### 4. `extension-chromium/public/popup.js`
 **Location:** `d:\projects\Oscar\optimandoai\code\apps\extension-chromium\public\popup.js`
 
 **Changes Made:**
@@ -351,6 +369,113 @@ Invoke-WebRequest -Uri "http://127.0.0.1:51248/api/code-executor/run" -Method PO
 2. **AI response formatting**: Sometimes the AI may not return code in the expected markdown format (`\`\`\`language ... \`\`\``). The system will return an error asking to retry.
 
 3. **Calculator mini-app quality**: The quality of generated mini-apps depends on the AI model. Consider using a more capable model for complex UI requests.
+
+4. **Timeout with larger models**: Complex code generation (like HTML apps) can take longer with larger models. The system now has a **5-minute timeout** for both the frontend (popup.js) and backend (ollama-manager.ts) to accommodate larger models like `qwen2.5-coder:7b`.
+
+---
+
+## Recommended Models
+
+| Model | Size | Quality | Speed | Install Command |
+|-------|------|---------|-------|-----------------|
+| `qwen2.5-coder:7b` | ~4.5GB | ⭐⭐⭐⭐ | Fast | `ollama pull qwen2.5-coder:7b` |
+| `qwen2.5-coder:14b` | ~9GB | ⭐⭐⭐⭐⭐ | Medium | `ollama pull qwen2.5-coder:14b` |
+| `codellama:7b` | ~4GB | ⭐⭐⭐ | Fast | `ollama pull codellama:7b` |
+| `deepseek-coder-v2` | ~16GB | ⭐⭐⭐⭐⭐ | Slow | `ollama pull deepseek-coder-v2` |
+
+**Note:** `phi3:mini` is not recommended for code generation as it's too small and often produces incorrect output.
+
+---
+
+## Recent Updates (December 2025)
+
+### Timeout Fix (Updated to 5 minutes)
+- **Files Modified:**
+  1. `extension-chromium/public/popup.js` - Frontend fetch timeout
+  2. `electron/main/llm/ollama-manager.ts` - Backend Ollama API timeout
+
+- **Changes:**
+  - Increased popup fetch timeout from 3 minutes → **5 minutes** (300000ms)
+  - Increased Ollama manager chat timeout from 2 minutes → **5 minutes** (300000ms)
+
+- **Reason:** The 120-second Ollama timeout was causing failures for complex code generation with `qwen2.5-coder:7b`. Both timeouts now match at 5 minutes.
+
+**popup.js:**
+```javascript
+// Create AbortController with 5-minute timeout for larger models
+const controller = new AbortController()
+const timeoutId = setTimeout(() => controller.abort(), 300000) // 5 minute timeout
+
+const response = await fetch(`${baseUrl}/api/code-executor/run`, {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ query, modelId: activeModel }),
+  signal: controller.signal
+})
+
+clearTimeout(timeoutId) // Clear timeout on success
+```
+
+**ollama-manager.ts (line ~368):**
+```typescript
+// Before
+signal: AbortSignal.timeout(120000) // 2 minute timeout
+
+// After
+signal: AbortSignal.timeout(300000) // 5 minute timeout for larger models
+```
+
+### Improved Code Extraction
+- **File:** `electron/main/code-executor/index.ts`
+- **Changes:**
+  1. Added multiple regex patterns to match different code block formats
+  2. Auto-detects language from content if not specified
+  3. Cleans up backtick markers from truncated responses
+  4. Validates responses to reject prompt echoes and conversation formats
+  5. Better logging for debugging
+
+```typescript
+// Validation: Reject invalid responses (prompt echoes, conversation formats)
+const invalidPatterns = [
+  /^\d+\|user\|/,           // Conversation format like "01|user|..."
+  /^I want to/i,            // User prompt echo
+  /^Create a/i,             // User prompt echo
+  /^Generate a/i,           // User prompt echo
+  /^Please/i,               // Polite request echo
+]
+
+// Stricter code detection - must have actual syntax patterns
+// HTML: Must have both opening and closing tags
+if ((cleanedResponse.includes('<!DOCTYPE') || cleanedResponse.startsWith('<html')) 
+    && cleanedResponse.includes('</html>')) {
+  // Valid HTML
+}
+
+// Python: Must have actual Python syntax
+if ((cleanedResponse.includes('def ') && cleanedResponse.includes(':')) 
+    || (cleanedResponse.includes('print(') && cleanedResponse.includes(')'))) {
+  // Valid Python
+}
+```
+
+### Optimized System Prompt
+- **File:** `electron/main/code-executor/index.ts`
+- **Change:** Simplified system prompt with complete working examples (especially for calculator)
+- **Reason:** Faster generation and better output from smaller models
+
+```typescript
+// New optimized prompt includes a complete minified calculator example
+// so the AI can copy/adapt instead of generating from scratch
+```
+
+### Better Error Messages
+- **File:** `extension-chromium/public/popup.js`
+- **Change:** Timeout errors now show helpful suggestions
+```javascript
+if (err.name === 'AbortError') {
+  codeRow('assistant', '❌ Request timed out. Try:\n• A simpler prompt\n• A faster model')
+}
+```
 
 ---
 

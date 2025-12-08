@@ -999,7 +999,11 @@ async function executeCode() {
     const baseUrl = 'http://127.0.0.1:51248'
     
     // Show progress message
-    codeRow('assistant', '🔄 Generating code and executing...')
+    codeRow('assistant', '🔄 Generating code and executing... (this may take up to 2 minutes for complex apps)')
+    
+    // Create AbortController with 3-minute timeout for larger models
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), 300000) // 5 minute timeout for larger models
     
     const response = await fetch(`${baseUrl}/api/code-executor/run`, {
       method: 'POST',
@@ -1007,8 +1011,11 @@ async function executeCode() {
       body: JSON.stringify({
         query: query,
         modelId: activeModel
-      })
+      }),
+      signal: controller.signal
     })
+    
+    clearTimeout(timeoutId) // Clear timeout on success
     
     const result = await response.json()
     
@@ -1037,7 +1044,12 @@ async function executeCode() {
     
   } catch (err) {
     console.error('[CodeExecutor] Error:', err)
-    codeRow('assistant', '❌ Failed to connect to the code executor. Make sure the Electron app is running.')
+    // Check if it's an abort error (timeout)
+    if (err.name === 'AbortError') {
+      codeRow('assistant', '❌ Request timed out. The model is taking too long. Try:\n• A simpler prompt (e.g., "calculator html")\n• A faster model (e.g., codellama:7b)')
+    } else {
+      codeRow('assistant', '❌ Failed to connect to the code executor. Make sure the Electron app is running.')
+    }
   } finally {
     isCodeExecuting = false
     if (codeSend) {
