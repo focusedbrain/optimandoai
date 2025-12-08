@@ -1,13 +1,18 @@
 /**
- * WR MailGuard - Content Script for Gmail
+ * WR MailGuard - Content Script for Email Protection
  * 
  * This content script:
- * 1. Detects when user is on Gmail
+ * 1. Detects when user is on Gmail or Outlook
  * 2. Shows activation banner
  * 3. Communicates with Electron via the background script to:
  *    - Activate/deactivate the Electron overlay
  *    - Send email row positions for hover detection
  *    - Extract and sanitize email content when requested
+ * 
+ * Supported email providers:
+ * - Gmail (mail.google.com)
+ * - Outlook.com (outlook.live.com)
+ * - Microsoft 365 (outlook.office.com, outlook.office365.com)
  */
 
 // =============================================================================
@@ -41,8 +46,10 @@ interface SanitizedEmail {
 let isMailGuardActive = false
 let banner: HTMLElement | null = null
 let rowUpdateInterval: ReturnType<typeof setInterval> | null = null
+let urlCheckInterval: ReturnType<typeof setInterval> | null = null
 let emailRowElements: Map<string, Element> = new Map()
 let currentTheme: 'default' | 'dark' | 'professional' = 'default'
+let listenersInitialized = false
 
 // Theme color configurations - matching sidebar colors exactly
 const themeColors = {
@@ -238,7 +245,7 @@ function showActivationBanner(): void {
     </div>
   `
   
-  shadow.getElementById('enable')?.addEventListener('click', activateMailGuard)
+  shadow.getElementById('enable')?.addEventListener('click', () => activateMailGuard())
   shadow.getElementById('dismiss')?.addEventListener('click', dismissBanner)
   
   document.body.appendChild(banner)
@@ -286,8 +293,19 @@ function getEmailRowPositions(): EmailRowRect[] {
   const rows: EmailRowRect[] = []
   emailRowElements.clear()
   
-  // Find Gmail inbox rows - try different selectors
-  const rowElements = document.querySelectorAll('tr.zA, tr[role="row"], div[role="row"]')
+  const provider = getCurrentEmailProvider()
+  if (provider === 'unknown') return rows
+  
+  // Get site-specific row selector
+  const rowSelector = EMAIL_ROW_SELECTORS[provider]
+  const selectors = EMAIL_SELECTORS[provider]
+  
+  const rowElements = document.querySelectorAll(rowSelector)
+  
+  // Debug: log how many elements found
+  if (rowElements.length === 0) {
+    console.log(`[MailGuard] No email rows found with selector: ${rowSelector}`)
+  }
   
   rowElements.forEach((row, index) => {
     const rect = row.getBoundingClientRect()
@@ -296,11 +314,13 @@ function getEmailRowPositions(): EmailRowRect[] {
     if (rect.width > 0 && rect.height > 0 && rect.top >= 0 && rect.bottom <= window.innerHeight) {
       const id = `row-${index}`
       
-      // Extract preview data for Gmail API matching
-      const senderEl = row.querySelector('[email], .yP, .zF, .bA4 span[email], span[name], .yW span')
-      const from = senderEl?.getAttribute('email') || senderEl?.textContent?.trim() || ''
+      // Extract preview data using site-specific selectors
+      const senderEl = row.querySelector(selectors.sender)
+      const from = senderEl?.getAttribute('email') || 
+                   senderEl?.getAttribute('title') || 
+                   senderEl?.textContent?.trim() || ''
       
-      const subjectEl = row.querySelector('.bog, .bqe, .y6 span:first-child, .xT .y6')
+      const subjectEl = row.querySelector(selectors.subject)
       const subject = subjectEl?.textContent?.trim() || ''
       
       // Use viewport coordinates - the overlay script will handle screen positioning
@@ -320,23 +340,10 @@ function getEmailRowPositions(): EmailRowRect[] {
   return rows
 }
 
-function startRowPositionUpdates(): void {
-  if (rowUpdateInterval) return
-  
-  // Update row positions every 1000ms
-  rowUpdateInterval = setInterval(() => {
-    if (!isMailGuardActive) return
-    
-    // Check if we're still on a supported email site
-    if (!isOnSupportedEmailSite()) {
-      console.log('[MailGuard] No longer on supported email site, deactivating...')
-      deactivateMailGuard()
-      return
-    }
-    
-    const rows = getEmailRowPositions()
-    sendToBackground({ type: 'MAILGUARD_UPDATE_ROWS', rows })
-  }, 1000)
+// Initialize event listeners once (they check isMailGuardActive internally)
+function initializeListeners(): void {
+  if (listenersInitialized) return
+  listenersInitialized = true
   
   // Throttled scroll handler
   let scrollTimeout: ReturnType<typeof setTimeout> | null = null
@@ -367,34 +374,105 @@ function startRowPositionUpdates(): void {
     }
   })
   
-  // Watch for URL changes within the SPA
-  let lastUrl = window.location.href
-  setInterval(() => {
+  console.log('[MailGuard] Event listeners initialized')
+}
+
+function startRowPositionUpdates(): void {
+  // Initialize listeners once
+  initializeListeners()
+  
+  // Don't start if already running
+  if (rowUpdateInterval) return
+  
+  // Update row positions every 1000ms
+  rowUpdateInterval = setInterval(() => {
     if (!isMailGuardActive) return
     
-    const currentUrl = window.location.href
-    if (currentUrl !== lastUrl) {
-      console.log('[MailGuard] URL changed from', lastUrl, 'to', currentUrl)
-      lastUrl = currentUrl
-      
-      // If we're no longer on a supported site, deactivate
-      if (!isOnSupportedEmailSite()) {
-        console.log('[MailGuard] Navigated away from email site, deactivating...')
-        deactivateMailGuard()
-      }
+    // Check if we're still on a supported email site
+    if (!isOnSupportedEmailSite()) {
+      console.log('[MailGuard] No longer on supported email site, deactivating...')
+      deactivateMailGuard()
+      return
     }
-  }, 300)
+    
+    const rows = getEmailRowPositions()
+    const provider = getCurrentEmailProvider()
+    sendToBackground({ type: 'MAILGUARD_UPDATE_ROWS', rows, provider })
+  }, 1000)
+  
+  // Watch for URL changes within the SPA
+  if (!urlCheckInterval) {
+    let lastUrl = window.location.href
+    urlCheckInterval = setInterval(() => {
+      if (!isMailGuardActive) return
+      
+      const currentUrl = window.location.href
+      if (currentUrl !== lastUrl) {
+        console.log('[MailGuard] URL changed from', lastUrl, 'to', currentUrl)
+        lastUrl = currentUrl
+        
+        // If we're no longer on a supported site, deactivate
+        if (!isOnSupportedEmailSite()) {
+          console.log('[MailGuard] Navigated away from email site, deactivating...')
+          deactivateMailGuard()
+        }
+      }
+    }, 300)
+  }
 }
 
 // List of supported email sites where MailGuard can be active
 const SUPPORTED_EMAIL_SITES = [
-  'mail.google.com'
-  // Future: 'outlook.live.com', 'outlook.office.com', etc.
+  'mail.google.com',
+  'outlook.live.com',
+  'outlook.office.com',
+  'outlook.office365.com'
 ]
+
+type EmailProvider = 'gmail' | 'outlook' | 'unknown'
+
+function getCurrentEmailProvider(): EmailProvider {
+  const hostname = window.location.hostname
+  if (hostname.includes('mail.google.com')) return 'gmail'
+  if (hostname.includes('outlook.live.com') || 
+      hostname.includes('outlook.office.com') || 
+      hostname.includes('outlook.office365.com')) return 'outlook'
+  return 'unknown'
+}
 
 function isOnSupportedEmailSite(): boolean {
   const hostname = window.location.hostname
   return SUPPORTED_EMAIL_SITES.some(site => hostname.includes(site))
+}
+
+// Site-specific selectors for email rows
+// Outlook uses different layouts - message list items are typically in a virtualized list
+const EMAIL_ROW_SELECTORS = {
+  gmail: 'tr.zA, tr[role="row"], div[role="row"]',
+  outlook: '[data-convid], div[role="option"][aria-selected], div[role="listitem"], div[data-item-index], [aria-label*="message" i][role="option"], .customScrollBar div[tabindex="0"][role="option"]'
+}
+
+// Site-specific selectors for email content extraction
+const EMAIL_SELECTORS = {
+  gmail: {
+    sender: '[email], .yP, .zF, .bA4 span[email], span[name], .yW span',
+    subject: '.bog, .bqe, .y6 span:first-child, .xT .y6',
+    snippet: '.y2, .Zt, .xT .y2',
+    date: '.xW span[title], .apt span[title], td.xW span, .xW.xY span',
+    attachment: '.brd[data-tooltip*="Attachment"], .aZo .aZs, [data-tooltip*="attachment" i], .bqX .yf img[alt*="Attachment" i]'
+  },
+  outlook: {
+    // Outlook sender - look for name elements with email attribute or title
+    sender: '[title*="@"], span[title*="@"], [data-testid*="sender"], [data-testid*="name"], .OZZZK, .XbIp4',
+    // Outlook subject - various class names used
+    subject: '[data-testid*="subject"], .JHrmG, .lvHighlightSubjectClass, span[id*="subject"]',
+    // Outlook snippet/preview
+    snippet: '[data-testid*="preview"], .LgbsSe, .Jzv0o, .yaDWK',
+    // Outlook date - time elements or spans with date
+    date: 'time, span[aria-label*="received"], [data-testid*="date"], .l8Tnu',
+    // Outlook attachment indicator
+    attachment: '[data-testid*="attachment"], [aria-label*="attachment" i], svg[aria-label*="attachment" i], .FTOXx'
+  }
 }
 
 function stopRowPositionUpdates(): void {
@@ -402,6 +480,8 @@ function stopRowPositionUpdates(): void {
     clearInterval(rowUpdateInterval)
     rowUpdateInterval = null
   }
+  // Note: We don't clear urlCheckInterval as it's harmless when inactive
+  // and we don't remove event listeners - they just check isMailGuardActive
 }
 
 // =============================================================================
@@ -419,46 +499,117 @@ async function extractEmailContent(rowId: string): Promise<SanitizedEmail | null
     return null
   }
   
+  const provider = getCurrentEmailProvider()
+  console.log('[MailGuard] Extracting content for provider:', provider, 'rowId:', rowId)
+  
+  if (provider === 'unknown') return null
+  
+  const selectors = EMAIL_SELECTORS[provider]
+  
   try {
-    // Extract sender from inbox row
-    const senderEl = row.querySelector('[email], .yP, .zF, .bA4 span[email], span[name], .yW span')
-    const from = senderEl?.getAttribute('email') || 
-                 senderEl?.getAttribute('name') || 
-                 senderEl?.textContent?.trim() || 
-                 '(Unknown sender)'
+    let from = ''
+    let subject = ''
+    let snippet = ''
+    let date = ''
     
-    // Extract subject from inbox row
-    const subjectEl = row.querySelector('.bog, .bqe, .y6 span:first-child, .xT .y6')
-    const subject = subjectEl?.textContent?.trim() || '(No subject)'
+    if (provider === 'outlook') {
+      // Outlook-specific extraction with fallbacks
+      // Try to find sender - look for any element with email-like title or specific classes
+      const senderEl = row.querySelector(selectors.sender) || 
+                       row.querySelector('[title*="@"]') ||
+                       row.querySelector('span[class*="sender"]') ||
+                       row.querySelector('span[class*="from"]')
+      from = senderEl?.getAttribute('title') || 
+             senderEl?.textContent?.trim() || 
+             '(Unknown sender)'
+      
+      // Try to find subject - usually the largest/boldest text
+      const subjectEl = row.querySelector(selectors.subject) ||
+                        row.querySelector('[class*="subject"]') ||
+                        row.querySelector('[class*="Subject"]')
+      subject = subjectEl?.textContent?.trim() || ''
+      
+      // If no subject found, try to get it from the row's text content
+      if (!subject) {
+        // Get all text spans and find likely subject (usually second line)
+        const allSpans = Array.from(row.querySelectorAll('span'))
+        for (const span of allSpans) {
+          const text = span.textContent?.trim() || ''
+          // Skip if it looks like an email address or date
+          if (text.length > 10 && !text.includes('@') && !/^\d/.test(text)) {
+            subject = text
+            break
+          }
+        }
+      }
+      
+      // Try to find snippet/preview
+      const snippetEl = row.querySelector(selectors.snippet) ||
+                        row.querySelector('[class*="preview"]') ||
+                        row.querySelector('[class*="snippet"]')
+      snippet = snippetEl?.textContent?.trim() || ''
+      
+      // Try to find date
+      const dateEl = row.querySelector(selectors.date) ||
+                     row.querySelector('time') ||
+                     row.querySelector('[datetime]')
+      date = dateEl?.getAttribute('datetime') || 
+             dateEl?.getAttribute('title') ||
+             dateEl?.textContent?.trim() || ''
+      
+      // Fallback: extract all text from the row if we don't have good data
+      if (!subject && !snippet) {
+        const allText = row.textContent?.trim() || ''
+        // Split by newlines and try to parse
+        const lines = allText.split(/\n/).map(l => l.trim()).filter(l => l.length > 0)
+        if (lines.length >= 2) {
+          from = from || lines[0]
+          subject = lines[1] || '(No subject)'
+          snippet = lines.slice(2).join(' ')
+        }
+      }
+      
+      console.log('[MailGuard] Outlook extraction result:', { from, subject: subject.substring(0, 50), snippet: snippet.substring(0, 50), date })
+    } else {
+      // Gmail extraction (original logic)
+      const senderEl = row.querySelector(selectors.sender)
+      from = senderEl?.getAttribute('email') || 
+             senderEl?.getAttribute('name') ||
+             senderEl?.getAttribute('title') || 
+             senderEl?.textContent?.trim() || 
+             '(Unknown sender)'
+      
+      const subjectEl = row.querySelector(selectors.subject)
+      subject = subjectEl?.textContent?.trim() || '(No subject)'
+      
+      const snippetEl = row.querySelector(selectors.snippet)
+      snippet = snippetEl?.textContent?.trim() || ''
+      
+      const dateEl = row.querySelector(selectors.date)
+      date = dateEl?.getAttribute('title') || 
+             dateEl?.getAttribute('datetime') ||
+             dateEl?.textContent?.trim() || ''
+    }
     
-    // Extract snippet/preview from inbox row
-    const snippetEl = row.querySelector('.y2, .Zt, .xT .y2')
-    const snippet = snippetEl?.textContent?.trim() || ''
-    
-    // Extract date from inbox row
-    const dateEl = row.querySelector('.xW span[title], .apt span[title], td.xW span, .xW.xY span')
-    const date = dateEl?.getAttribute('title') || dateEl?.textContent?.trim() || ''
-    
-    // Check for attachment indicator - look for paperclip icon specifically
-    // Gmail uses various selectors for attachment indicators
-    const attachmentIcon = row.querySelector('.brd[data-tooltip*="Attachment"], .aZo .aZs, [data-tooltip*="attachment" i], .bqX .yf img[alt*="Attachment" i]')
+    // Check for attachment indicator using site-specific selectors
+    const attachmentIcon = row.querySelector(selectors.attachment)
     const hasAttachment = attachmentIcon !== null
     
     // Only include attachments array if there are actual attachments
-    // Empty array means no attachments section will be shown
     const attachments: { name: string; type: string }[] = []
-    // Note: We can't get attachment details from the inbox row preview
-    // Full attachment info requires the Gmail API
     
     // Return preview data - email is never opened
-    return { 
+    const result = { 
       from, 
       to: '', // Not available in preview
-      subject, 
+      subject: subject || '(No subject)', 
       date, 
-      body: snippet, // Only the snippet, full content requires API
-      attachments  // Always empty for preview - real attachments come from API
+      body: snippet || '(Preview not available - connect email API for full content)', 
+      attachments
     }
+    
+    console.log('[MailGuard] Email extraction complete:', result.subject.substring(0, 50))
+    return result
   } catch (err) {
     console.error('[MailGuard] Error extracting preview:', err)
     return null
@@ -565,6 +716,15 @@ function processNodeToText(node: Node): string {
 
 async function activateMailGuard(): Promise<void> {
   console.log('[MailGuard] Activating...')
+  
+  // If already active, just dismiss banner and show status
+  if (isMailGuardActive) {
+    console.log('[MailGuard] Already active')
+    dismissBanner()
+    showStatusMarker()
+    return
+  }
+  
   dismissBanner()
   
   const colors = themeColors[currentTheme]
@@ -594,8 +754,11 @@ async function activateMailGuard(): Promise<void> {
   
   // Add spin animation
   const style = document.createElement('style')
+  style.id = 'mailguard-spin-style'
   style.textContent = '@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }'
-  document.head.appendChild(style)
+  if (!document.getElementById('mailguard-spin-style')) {
+    document.head.appendChild(style)
+  }
   
   // Get window position to determine which display to use
   const windowInfo = {
@@ -609,23 +772,27 @@ async function activateMailGuard(): Promise<void> {
   console.log('[MailGuard] Window position:', windowInfo)
   console.log('[MailGuard] Sending MAILGUARD_ACTIVATE to background with theme:', currentTheme)
   
-  // Retry logic - try up to 3 times with increasing delay
-  const maxRetries = 3
+  // More aggressive retry logic - try up to 5 times
+  const maxRetries = 5
   let lastError = ''
   
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
       if (attempt > 1) {
         statusDiv.innerHTML = `<span style="animation: spin 1s linear infinite; display: inline-block;">⏳</span> Connecting... (attempt ${attempt}/${maxRetries})`
-        // Wait before retry (500ms, 1000ms, 1500ms)
-        await new Promise(r => setTimeout(r, attempt * 500))
+        // Progressive delay: 300ms, 600ms, 900ms, 1200ms
+        await new Promise(r => setTimeout(r, attempt * 300))
       }
       
+      // The background script now handles connection retries internally
       const response = await sendToBackground({ type: 'MAILGUARD_ACTIVATE', windowInfo, theme: currentTheme })
       console.log('[MailGuard] Response from background (attempt', attempt, '):', response)
       
       if (response?.success) {
+        statusDiv.innerHTML = '<span style="color: #4ade80;">✓</span> Connected!'
+        await new Promise(r => setTimeout(r, 500))
         statusDiv.remove()
+        
         isMailGuardActive = true
         showStatusMarker()
         startRowPositionUpdates()
@@ -638,6 +805,12 @@ async function activateMailGuard(): Promise<void> {
       } else {
         lastError = response?.error || 'Unknown error'
         console.log('[MailGuard] Attempt', attempt, 'failed:', lastError)
+        
+        // If it's a connection error, the background is already retrying
+        // Wait a bit longer for it to succeed
+        if (lastError.includes('connect') || lastError.includes('OpenGiraffe')) {
+          await new Promise(r => setTimeout(r, 500))
+        }
       }
     } catch (err) {
       lastError = String(err)
@@ -647,7 +820,7 @@ async function activateMailGuard(): Promise<void> {
   
   // All retries failed
   statusDiv.remove()
-  showActivationError(lastError || 'Connection failed after multiple attempts. Make sure OpenGiraffe is running.')
+  showActivationError(lastError || 'Connection failed. Please ensure the OpenGiraffe app is running and try again.')
 }
 
 function showActivationError(message: string): void {
@@ -698,6 +871,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg.type === 'MAILGUARD_ACTIVATED') {
     console.log('[MailGuard] Activation confirmed by Electron')
     isMailGuardActive = true
+    dismissBanner() // Make sure banner is removed when activated
     showStatusMarker()
     startRowPositionUpdates()
   } else if (msg.type === 'MAILGUARD_DEACTIVATED') {
@@ -709,11 +883,40 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     console.log('[MailGuard] Email extraction requested for row:', msg.rowId)
     extractEmailContent(msg.rowId).then(email => {
       if (email) {
+        console.log('[MailGuard] Sending extracted email content')
         sendToBackground({ type: 'MAILGUARD_EMAIL_CONTENT', email })
+      } else {
+        // Send a fallback response so the overlay doesn't hang
+        console.log('[MailGuard] Extraction failed, sending fallback')
+        sendToBackground({ 
+          type: 'MAILGUARD_EMAIL_CONTENT', 
+          email: {
+            from: '(Could not extract)',
+            to: '',
+            subject: '(Preview not available)',
+            date: '',
+            body: 'Could not extract email preview. Try connecting your email provider API for full content.',
+            attachments: []
+          }
+        })
       }
+    }).catch(err => {
+      console.error('[MailGuard] Extraction error:', err)
+      sendToBackground({ 
+        type: 'MAILGUARD_EMAIL_CONTENT', 
+        email: {
+          from: '(Error)',
+          to: '',
+          subject: '(Extraction error)',
+          date: '',
+          body: 'An error occurred while extracting email preview: ' + (err?.message || 'Unknown error'),
+          attachments: []
+        }
+      })
     })
   } else if (msg.type === 'MAILGUARD_STATUS_RESPONSE') {
-    if (msg.active && !isMailGuardActive) {
+    console.log('[MailGuard] Status response:', msg.active)
+    if (msg.active) {
       isMailGuardActive = true
       dismissBanner()
       showStatusMarker()
@@ -730,19 +933,20 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
 // =============================================================================
 
 async function init(): Promise<void> {
-  console.log('[MailGuard] Initializing on:', window.location.hostname)
+  const provider = getCurrentEmailProvider()
+  console.log('[MailGuard] Initializing on:', window.location.hostname, '- Provider:', provider)
   
-  // Only run on Gmail
-  if (!window.location.hostname.includes('mail.google.com')) {
-    console.log('[MailGuard] Not on Gmail, exiting')
+  // Only run on supported email sites
+  if (provider === 'unknown') {
+    console.log('[MailGuard] Not on a supported email site, exiting')
     return
   }
   
   // Load theme first
   await loadTheme()
   
-  // Wait for Gmail to be ready
-  await waitForGmailReady()
+  // Wait for email UI to be ready
+  await waitForEmailUIReady(provider)
   
   // Check if MailGuard is already active in Electron
   await sendToBackground({ type: 'MAILGUARD_STATUS' })
@@ -755,24 +959,41 @@ async function init(): Promise<void> {
   }, 1000)
 }
 
-async function waitForGmailReady(): Promise<void> {
-  console.log('[MailGuard] Waiting for Gmail UI...')
+async function waitForEmailUIReady(provider: EmailProvider): Promise<void> {
+  console.log(`[MailGuard] Waiting for ${provider} UI...`)
+  
+  // Provider-specific container and row selectors for readiness detection
+  const readinessSelectors = {
+    gmail: {
+      container: 'div[role="main"], div.aeN, div.nH',
+      rows: 'tr.zA, div[role="row"]'
+    },
+    outlook: {
+      // Outlook uses various selectors depending on version
+      container: '[data-app-section="MessageList"], div[role="main"], [role="complementary"], div[data-app-section="ConversationContainer"], #MainModule',
+      rows: '[data-convid], div[role="option"], div[role="listitem"], [aria-label*="message" i]'
+    }
+  }
+  
+  const selectors = (provider !== 'unknown' ? readinessSelectors[provider] : null) || readinessSelectors.gmail
   
   for (let i = 0; i < 30; i++) {
-    const container = document.querySelector('div[role="main"], div.aeN, div.nH')
-    const rows = document.querySelectorAll('tr.zA, div[role="row"]')
+    const container = document.querySelector(selectors.container)
+    const rows = document.querySelectorAll(selectors.rows)
+    
+    console.log(`[MailGuard] ${provider} UI check ${i+1}/30: container=${!!container}, rows=${rows.length}`)
     
     if (container || rows.length > 0) {
-      console.log('[MailGuard] Gmail UI ready')
+      console.log(`[MailGuard] ${provider} UI ready - found ${rows.length} potential email rows`)
       return
     }
     
     await new Promise(resolve => setTimeout(resolve, 1000))
   }
   
-  console.log('[MailGuard] Gmail UI detection timeout, proceeding anyway')
+  console.log(`[MailGuard] ${provider} UI detection timeout, proceeding anyway`)
 }
 
 // Start initialization
-console.log('[MailGuard] Content script loaded')
+console.log('[MailGuard] Content script loaded on:', window.location.hostname)
 init().catch(err => console.error('[MailGuard] Init error:', err))

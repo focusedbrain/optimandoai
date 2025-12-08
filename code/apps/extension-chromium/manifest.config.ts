@@ -13,7 +13,8 @@ export default defineManifest({
     'windows',
     'system.display',
     'sidePanel',
-    'tabs'
+    'tabs',
+    'alarms'
   ],
   side_panel: {
     default_path: 'src/sidepanel.html'
@@ -31,7 +32,12 @@ export default defineManifest({
       run_at: 'document_end'
     },
     {
-      matches: ['https://mail.google.com/*'],
+      matches: [
+        'https://mail.google.com/*',
+        'https://outlook.live.com/*',
+        'https://outlook.office.com/*',
+        'https://outlook.office365.com/*'
+      ],
       js: ['src/mailguard-content-script.ts'],
       css: [],
       run_at: 'document_end'

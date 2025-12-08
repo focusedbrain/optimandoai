@@ -2,230 +2,316 @@ let ws: WebSocket | null = null;
 let isConnecting = false;
 let autoConnectInterval: ReturnType<typeof setInterval> | null = null;
 let heartbeatInterval: ReturnType<typeof setInterval> | null = null;
+let connectionAttempts = 0;
+let lastConnectionTime = 0;
 // Feature flag to completely disable WebSocket auto-connection
 const WS_ENABLED = true;
 // Track sidebar visibility per tab
 const tabSidebarStatus = new Map<number, boolean>();
 
-// Connect to external WebSocket server (not the desktop app)
-function connectToWebSocketServer() {
-  if (!WS_ENABLED) return;
-  if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) return;
-  if (isConnecting) return;
-
-  isConnecting = true;
-
-  // Connect to external WebSocket server (you can change this URL)
-  const wsUrl = 'ws://localhost:51247/';
-
-  try {
-    console.log(`🔗 Verbinde mit WebSocket-Server: ${wsUrl}`);
-
-    ws = new WebSocket(wsUrl);
-
-    ws.addEventListener('open', () => {
-      isConnecting = false;
-      console.log('✅ WebSocket-Verbindung geöffnet');
-
-      // Send initial message
-      ws?.send(JSON.stringify({ type: 'ping', from: 'extension' }));
-
-      // Start heartbeat to keep connection alive
-      startHeartbeat();
-
-      // Update extension badge
-      chrome.action.setBadgeText({ text: 'ON' });
-      chrome.action.setBadgeBackgroundColor({ color: '#00FF00' });
-    });
-
-    ws.addEventListener('message', (e) => {
-      try {
-        const payload = String(e.data)
-        console.log(`[BG] ===== WEBSOCKET MESSAGE RECEIVED FROM ELECTRON =====`)
-        console.log(`[BG] 📨 Raw payload: ${payload}`)
-        const data = JSON.parse(payload)
-        console.log(`[BG] Parsed data:`, JSON.stringify(data, null, 2))
-
-        // Check if this is a vault RPC response
-        if (data.id && globalThis.vaultRpcCallbacks && globalThis.vaultRpcCallbacks.has(data.id)) {
-          console.log('[BG] Vault RPC response received for ID:', data.id)
-          const callback = globalThis.vaultRpcCallbacks.get(data.id)
-          globalThis.vaultRpcCallbacks.delete(data.id)
-          callback(data) // Send response back to content script
-          return
+// Robust WebSocket connection with exponential backoff
+function connectToWebSocketServer(forceReconnect = false): Promise<boolean> {
+  return new Promise((resolve) => {
+    if (!WS_ENABLED) {
+      resolve(false);
+      return;
+    }
+    
+    // If already connected, resolve immediately
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      console.log('[BG] ✅ WebSocket already connected');
+      resolve(true);
+      return;
+    }
+    
+    // If connecting, wait for result
+    if (ws && ws.readyState === WebSocket.CONNECTING && !forceReconnect) {
+      console.log('[BG] ⏳ WebSocket connection in progress...');
+      // Wait up to 3 seconds for connection
+      const checkInterval = setInterval(() => {
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          clearInterval(checkInterval);
+          resolve(true);
         }
-        
-        // Check if this is an email gateway response
-        if (data.id && globalThis.emailCallbacks && globalThis.emailCallbacks.has(data.id)) {
-          console.log('[BG] 📧 Email response received for ID:', data.id)
-          const callback = globalThis.emailCallbacks.get(data.id)
-          globalThis.emailCallbacks.delete(data.id)
-          callback(data) // Send response back to sidepanel
-          return
-        }
-        
-        if (data && data.type) {
-          console.log(`[BG] Message type: ${data.type}`);
-          if (data.type === 'pong') {
-            console.log('[BG] 🏓 Pong erhalten - Verbindung ist aktiv')
-            // Forward pong to UI for diagnostic test
-            try { chrome.runtime.sendMessage({ type: 'pong' }) } catch (forwardErr) {
-              console.error('[BG] Error forwarding pong:', forwardErr)
-            }
-          } else if (data.type === 'ELECTRON_LOG') {
-            // Forward Electron logs to console and UI for debugging
-            console.log('[BG] 📋 Electron Log:', data.message, data.rawMessage || data.parsedMessage || '')
-            try { chrome.runtime.sendMessage({ type: 'ELECTRON_LOG', data }) } catch { }
-          } else if (data.type === 'SELECTION_RESULT' || data.type === 'SELECTION_RESULT_IMAGE' || data.type === 'SELECTION_RESULT_VIDEO') {
-            const kind = data.kind || (data.type.includes('VIDEO') ? 'video' : 'image')
-            const dataUrl = data.dataUrl || data.url || null
-            chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-              const tabId = tabs[0]?.id
-              if (!tabId) return
-              try { chrome.tabs.sendMessage(tabId, { type: 'ELECTRON_SELECTION_RESULT', kind, dataUrl }) } catch { }
-            })
-            // Forward to popup chat as well so it appends immediately
-            try { chrome.runtime.sendMessage({ type: 'COMMAND_POPUP_APPEND', kind, url: dataUrl }) } catch { }
-            // Also send to sidepanel if it's open
-            try { chrome.runtime.sendMessage({ type: 'ELECTRON_SELECTION_RESULT', kind, dataUrl }) } catch { }
-          } else if (data.type === 'TRIGGERS_UPDATED') {
-            try { chrome.runtime.sendMessage({ type: 'TRIGGERS_UPDATED' }) } catch { }
-          } else if (data.type === 'SHOW_TRIGGER_PROMPT') {
-            // Forward trigger prompt request to content script and sidepanel
-            // Include the tab URL so they can decide whether to show modal or inline
-            console.log('📝 Received SHOW_TRIGGER_PROMPT from Electron:', data)
-            // Get active tab info
-            chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-              const tabId = tabs[0]?.id
-              const tabUrl = tabs[0]?.url || ''
-              if (!tabId) return
-
-              const message = {
-                type: 'SHOW_TRIGGER_PROMPT',
-                mode: data.mode,
-                rect: data.rect,
-                displayId: data.displayId,
-                imageUrl: data.imageUrl,
-                videoUrl: data.videoUrl,
-                createTrigger: data.createTrigger,
-                addCommand: data.addCommand,
-                tabUrl: tabUrl // Include tab URL for restricted page detection
-              }
-
-              // Send to content script
-              try {
-                chrome.tabs.sendMessage(tabId, message)
-              } catch (e) {
-                console.log('❌ Failed to send SHOW_TRIGGER_PROMPT to content script:', e)
-              }
-
-              // Send to sidepanel/popup
-              try { chrome.runtime.sendMessage(message) } catch { }
-            })
-
-          } else if (data.type === 'FILE_CHANGED' || data.type === 'WATCHING_STARTED' || data.type === 'WATCHING_STOPPED' || data.type === 'DIFF_RESULT' || data.type === 'DIFF_ERROR' || data.type === 'WATCHING_ERROR' || data.type === 'TEMPLATE_RESULT' || data.type === 'TEMPLATE_ERROR' || data.type === 'TEMPLATES_LIST' || data.type === 'TEMPLATES_ERROR' || data.type === 'TEMPLATE_CHANGED') {
-            // Forward file watching and template events to sidepanel
-            console.log('[BG] Forwarding event to sidepanel:', data.type);
-            try { chrome.runtime.sendMessage(data) } catch { }
-          } 
-          // ===== MAILGUARD HANDLERS =====
-          else if (data.type === 'MAILGUARD_ACTIVATED') {
-            console.log('[BG] 🛡️ MailGuard activated')
-            // Forward to Gmail tab
-            chrome.tabs.query({ url: 'https://mail.google.com/*' }, (tabs) => {
-              tabs.forEach(tab => {
-                if (tab.id) {
-                  try { chrome.tabs.sendMessage(tab.id, { type: 'MAILGUARD_ACTIVATED' }) } catch {}
-                }
-              })
-            })
-          } else if (data.type === 'MAILGUARD_DEACTIVATED') {
-            console.log('[BG] 🛡️ MailGuard deactivated')
-            chrome.tabs.query({ url: 'https://mail.google.com/*' }, (tabs) => {
-              tabs.forEach(tab => {
-                if (tab.id) {
-                  try { chrome.tabs.sendMessage(tab.id, { type: 'MAILGUARD_DEACTIVATED' }) } catch {}
-                }
-              })
-            })
-          } else if (data.type === 'MAILGUARD_EXTRACT_EMAIL') {
-            console.log('[BG] 🛡️ MailGuard extract email request:', data.rowId)
-            // Forward to Gmail tab to extract email
-            chrome.tabs.query({ url: 'https://mail.google.com/*', active: true }, (tabs) => {
-              const tab = tabs[0]
-              if (tab?.id) {
-                try { chrome.tabs.sendMessage(tab.id, { type: 'MAILGUARD_EXTRACT_EMAIL', rowId: data.rowId }) } catch {}
-              }
-            })
-          } else if (data.type === 'MAILGUARD_STATUS_RESPONSE') {
-            console.log('[BG] 🛡️ MailGuard status:', data.active)
-            chrome.tabs.query({ url: 'https://mail.google.com/*' }, (tabs) => {
-              tabs.forEach(tab => {
-                if (tab.id) {
-                  try { chrome.tabs.sendMessage(tab.id, { type: 'MAILGUARD_STATUS_RESPONSE', active: data.active }) } catch {}
-                }
-              })
-            })
-          }
-        }
-      } catch (error) {
-        // ignore
-      }
-    });
-
-    ws.addEventListener('error', (error) => {
-      console.log(`❌ WebSocket-Fehler: ${error}`);
-      isConnecting = false;
-
-      // Update extension badge
-      chrome.action.setBadgeText({ text: 'OFF' });
-      chrome.action.setBadgeBackgroundColor({ color: '#FF0000' });
-    });
-
-    ws.addEventListener('close', (event) => {
-      console.log(`🔌 WebSocket-Verbindung geschlossen (Code: ${event.code}, Reason: ${event.reason})`);
-      ws = null;
-      isConnecting = false;
-
-      // Stop heartbeat
-      stopHeartbeat();
-
-      // Update extension badge
-      chrome.action.setBadgeText({ text: 'OFF' });
-      chrome.action.setBadgeBackgroundColor({ color: '#FF0000' });
-
-      // Try to reconnect after a short delay
+      }, 100);
       setTimeout(() => {
-        if (!ws || ws.readyState !== WebSocket.OPEN) {
-          console.log('🔄 Versuche automatische Wiederverbindung...');
-          connectToWebSocketServer();
+        clearInterval(checkInterval);
+        resolve(ws?.readyState === WebSocket.OPEN);
+      }, 3000);
+      return;
+    }
+    
+    if (isConnecting && !forceReconnect) {
+      resolve(false);
+      return;
+    }
+
+    // Force close existing connection if reconnecting
+    if (forceReconnect && ws) {
+      try { ws.close(); } catch {}
+      ws = null;
+    }
+
+    isConnecting = true;
+    connectionAttempts++;
+
+    const wsUrl = 'ws://localhost:51247/';
+
+    try {
+      console.log(`[BG] 🔗 Connecting to WebSocket (attempt ${connectionAttempts}): ${wsUrl}`);
+
+      ws = new WebSocket(wsUrl);
+      
+      const connectionTimeout = setTimeout(() => {
+        if (ws && ws.readyState === WebSocket.CONNECTING) {
+          console.log('[BG] ⏱️ Connection timeout, closing...');
+          try { ws.close(); } catch {}
+          ws = null;
+          isConnecting = false;
+          resolve(false);
         }
-      }, 2000);
-    });
+      }, 5000);
 
-  } catch (error) {
-    console.log(`❌ Fehler beim Verbinden: ${error}`);
-    isConnecting = false;
+      ws.addEventListener('open', () => {
+        clearTimeout(connectionTimeout);
+        isConnecting = false;
+        connectionAttempts = 0; // Reset on success
+        lastConnectionTime = Date.now();
+        console.log('[BG] ✅ WebSocket connected successfully!');
 
-    // Update extension badge
-    chrome.action.setBadgeBackgroundColor({ color: '#FF0000' });
-  }
+        // Send initial ping
+        ws?.send(JSON.stringify({ type: 'ping', from: 'extension', timestamp: Date.now() }));
+
+        // Start heartbeat
+        startHeartbeat();
+
+        // Update badge
+        chrome.action.setBadgeText({ text: 'ON' });
+        chrome.action.setBadgeBackgroundColor({ color: '#00FF00' });
+        
+        // Store connection state
+        chrome.storage.local.set({ ws_connected: true, ws_last_connect: Date.now() });
+        
+        resolve(true);
+      });
+
+      ws.addEventListener('message', (e) => {
+        try {
+          const payload = String(e.data)
+          const data = JSON.parse(payload)
+          
+          // Check if this is a vault RPC response
+          if (data.id && globalThis.vaultRpcCallbacks && globalThis.vaultRpcCallbacks.has(data.id)) {
+            console.log('[BG] Vault RPC response received for ID:', data.id)
+            const callback = globalThis.vaultRpcCallbacks.get(data.id)
+            globalThis.vaultRpcCallbacks.delete(data.id)
+            callback(data)
+            return
+          }
+          
+          // Check if this is an email gateway response
+          if (data.id && globalThis.emailCallbacks && globalThis.emailCallbacks.has(data.id)) {
+            console.log('[BG] 📧 Email response received for ID:', data.id)
+            const callback = globalThis.emailCallbacks.get(data.id)
+            globalThis.emailCallbacks.delete(data.id)
+            callback(data)
+            return
+          }
+          
+          if (data && data.type) {
+            if (data.type === 'pong') {
+              // Connection is alive
+              try { chrome.runtime.sendMessage({ type: 'pong' }) } catch {}
+            } else if (data.type === 'ELECTRON_LOG') {
+              console.log('[BG] 📋 Electron Log:', data.message, data.rawMessage || data.parsedMessage || '')
+              try { chrome.runtime.sendMessage({ type: 'ELECTRON_LOG', data }) } catch {}
+            } else if (data.type === 'SELECTION_RESULT' || data.type === 'SELECTION_RESULT_IMAGE' || data.type === 'SELECTION_RESULT_VIDEO') {
+              const kind = data.kind || (data.type.includes('VIDEO') ? 'video' : 'image')
+              const dataUrl = data.dataUrl || data.url || null
+              chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+                const tabId = tabs[0]?.id
+                if (!tabId) return
+                try { chrome.tabs.sendMessage(tabId, { type: 'ELECTRON_SELECTION_RESULT', kind, dataUrl }) } catch {}
+              })
+              try { chrome.runtime.sendMessage({ type: 'COMMAND_POPUP_APPEND', kind, url: dataUrl }) } catch {}
+              try { chrome.runtime.sendMessage({ type: 'ELECTRON_SELECTION_RESULT', kind, dataUrl }) } catch {}
+            } else if (data.type === 'TRIGGERS_UPDATED') {
+              try { chrome.runtime.sendMessage({ type: 'TRIGGERS_UPDATED' }) } catch {}
+            } else if (data.type === 'SHOW_TRIGGER_PROMPT') {
+              console.log('📝 Received SHOW_TRIGGER_PROMPT from Electron:', data)
+              chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+                const tabId = tabs[0]?.id
+                const tabUrl = tabs[0]?.url || ''
+                if (!tabId) return
+                
+                const message = { 
+                  type: 'SHOW_TRIGGER_PROMPT', 
+                  mode: data.mode, 
+                  rect: data.rect, 
+                  displayId: data.displayId, 
+                  imageUrl: data.imageUrl, 
+                  videoUrl: data.videoUrl,
+                  createTrigger: data.createTrigger,
+                  addCommand: data.addCommand,
+                  tabUrl: tabUrl
+                }
+                
+                try { chrome.tabs.sendMessage(tabId, message) } catch (e) {
+                  console.log('❌ Failed to send SHOW_TRIGGER_PROMPT to content script:', e)
+                }
+                try { chrome.runtime.sendMessage(message) } catch {}
+              })
+            } 
+            // ===== MAILGUARD HANDLERS =====
+            else if (data.type === 'MAILGUARD_ACTIVATED') {
+              console.log('[BG] 🛡️ MailGuard activated')
+              // Query all email tabs (Gmail and Outlook)
+              chrome.tabs.query({}, (tabs) => {
+                tabs.filter(t => 
+                  t.url?.includes('mail.google.com') || 
+                  t.url?.includes('outlook.live.com') ||
+                  t.url?.includes('outlook.office.com') ||
+                  t.url?.includes('outlook.office365.com')
+                ).forEach(tab => {
+                  if (tab.id) {
+                    try { chrome.tabs.sendMessage(tab.id, { type: 'MAILGUARD_ACTIVATED' }) } catch {}
+                  }
+                })
+              })
+            } else if (data.type === 'MAILGUARD_DEACTIVATED') {
+              console.log('[BG] 🛡️ MailGuard deactivated')
+              // Query all email tabs (Gmail and Outlook)
+              chrome.tabs.query({}, (tabs) => {
+                tabs.filter(t => 
+                  t.url?.includes('mail.google.com') || 
+                  t.url?.includes('outlook.live.com') ||
+                  t.url?.includes('outlook.office.com') ||
+                  t.url?.includes('outlook.office365.com')
+                ).forEach(tab => {
+                  if (tab.id) {
+                    try { chrome.tabs.sendMessage(tab.id, { type: 'MAILGUARD_DEACTIVATED' }) } catch {}
+                  }
+                })
+              })
+            } else if (data.type === 'MAILGUARD_EXTRACT_EMAIL') {
+              console.log('[BG] 🛡️ MailGuard extract email request:', data.rowId)
+              // Query both Gmail and Outlook tabs
+              chrome.tabs.query({ active: true }, (tabs) => {
+                const emailTab = tabs.find(t => 
+                  t.url?.includes('mail.google.com') || 
+                  t.url?.includes('outlook.live.com') ||
+                  t.url?.includes('outlook.office.com') ||
+                  t.url?.includes('outlook.office365.com')
+                )
+                if (emailTab?.id) {
+                  console.log('[BG] 🛡️ Sending extract request to tab:', emailTab.url)
+                  try { chrome.tabs.sendMessage(emailTab.id, { type: 'MAILGUARD_EXTRACT_EMAIL', rowId: data.rowId }) } catch {}
+                } else {
+                  console.log('[BG] 🛡️ No email tab found for extraction')
+                }
+              })
+            } else if (data.type === 'MAILGUARD_STATUS_RESPONSE') {
+              console.log('[BG] 🛡️ MailGuard status:', data.active)
+              // Query all email tabs (Gmail and Outlook)
+              chrome.tabs.query({}, (tabs) => {
+                tabs.filter(t => 
+                  t.url?.includes('mail.google.com') || 
+                  t.url?.includes('outlook.live.com') ||
+                  t.url?.includes('outlook.office.com') ||
+                  t.url?.includes('outlook.office365.com')
+                ).forEach(tab => {
+                  if (tab.id) {
+                    try { chrome.tabs.sendMessage(tab.id, { type: 'MAILGUARD_STATUS_RESPONSE', active: data.active }) } catch {}
+                  }
+                })
+              })
+            }
+          }
+        } catch (error) {
+          // ignore parse errors
+        }
+      });
+
+      ws.addEventListener('error', (error) => {
+        clearTimeout(connectionTimeout);
+        console.log(`[BG] ❌ WebSocket error`);
+        isConnecting = false;
+        chrome.action.setBadgeText({ text: 'OFF' });
+        chrome.action.setBadgeBackgroundColor({ color: '#FF0000' });
+        chrome.storage.local.set({ ws_connected: false });
+        resolve(false);
+      });
+
+      ws.addEventListener('close', (event) => {
+        clearTimeout(connectionTimeout);
+        console.log(`[BG] 🔌 WebSocket closed (Code: ${event.code})`);
+        ws = null;
+        isConnecting = false;
+        
+        stopHeartbeat();
+
+        chrome.action.setBadgeText({ text: 'OFF' });
+        chrome.action.setBadgeBackgroundColor({ color: '#FF0000' });
+        chrome.storage.local.set({ ws_connected: false });
+        
+        // Quick reconnect with exponential backoff (max 5 seconds)
+        const delay = Math.min(500 * Math.pow(1.5, connectionAttempts), 5000);
+        console.log(`[BG] 🔄 Reconnecting in ${delay}ms...`);
+        setTimeout(() => {
+          if (!ws || ws.readyState !== WebSocket.OPEN) {
+            connectToWebSocketServer();
+          }
+        }, delay);
+        
+        resolve(false);
+      });
+
+    } catch (error) {
+      console.log(`[BG] ❌ Connection error: ${error}`);
+      isConnecting = false;
+      chrome.action.setBadgeBackgroundColor({ color: '#FF0000' });
+      resolve(false);
+    }
+  });
 }
 
-// Start heartbeat to keep connection alive
+// Ensure connection is ready (with retries)
+async function ensureConnection(maxRetries = 3): Promise<boolean> {
+  for (let i = 0; i < maxRetries; i++) {
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      return true;
+    }
+    
+    console.log(`[BG] 🔄 Ensuring connection (attempt ${i + 1}/${maxRetries})...`);
+    const connected = await connectToWebSocketServer(i > 0); // Force reconnect after first attempt
+    
+    if (connected) {
+      return true;
+    }
+    
+    // Wait before retry
+    if (i < maxRetries - 1) {
+      await new Promise(r => setTimeout(r, 500));
+    }
+  }
+  return false;
+}
+
+// Start heartbeat to keep connection alive (more frequent)
 function startHeartbeat() {
   if (!WS_ENABLED) return;
   stopHeartbeat(); // Clear any existing heartbeat
-
+  
+  // Send heartbeat every 15 seconds to keep connection alive
   heartbeatInterval = setInterval(() => {
     if (ws && ws.readyState === WebSocket.OPEN) {
-      console.log('🏓 Sende Ping...');
       ws.send(JSON.stringify({ type: 'ping', from: 'extension', timestamp: Date.now() }));
     } else {
-      console.log('🔌 WebSocket nicht verbunden - stoppe Heartbeat');
+      console.log('[BG] 💔 Heartbeat: connection lost, reconnecting...');
       stopHeartbeat();
+      connectToWebSocketServer();
     }
-  }, 30000); // Send ping every 30 seconds
+  }, 15000);
 }
 
 // Stop heartbeat
@@ -236,25 +322,24 @@ function stopHeartbeat() {
   }
 }
 
-// Start automatic connection
+// Start automatic connection with aggressive retry
 function startAutoConnect() {
   if (!WS_ENABLED) return;
-  console.log('🚀 Starte automatische WebSocket-Verbindung...');
+  console.log('[BG] 🚀 Starting WebSocket auto-connect...');
 
-  // Try to connect immediately
+  // Connect immediately
   connectToWebSocketServer();
 
-  // Then retry every 10 seconds
+  // Retry every 3 seconds if not connected
   if (autoConnectInterval) {
     clearInterval(autoConnectInterval);
   }
 
   autoConnectInterval = setInterval(() => {
     if (!ws || ws.readyState !== WebSocket.OPEN) {
-      console.log('🔄 Versuche erneute Verbindung...');
       connectToWebSocketServer();
     }
-  }, 10000); // 10 seconds
+  }, 3000); // Check every 3 seconds
 }
 
 // Toggle sidebars visibility for current tab
@@ -290,20 +375,57 @@ function toggleSidebars() {
   });
 }
 
+// Keep service worker alive with alarms (survives suspension)
+function setupKeepAlive() {
+  // Create an alarm that fires every 25 seconds to keep service worker active
+  chrome.alarms.create('keepAlive', { periodInMinutes: 0.4 }); // ~24 seconds
+  
+  // Also create a connection check alarm
+  chrome.alarms.create('checkConnection', { periodInMinutes: 0.1 }); // ~6 seconds
+}
+
+// Handle alarms
+chrome.alarms.onAlarm.addListener((alarm) => {
+  if (alarm.name === 'keepAlive') {
+    // Just wake up - the alarm listener itself keeps the service worker alive
+    console.log('[BG] ⏰ Keep-alive ping');
+  } else if (alarm.name === 'checkConnection') {
+    // Check and reconnect if needed
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+      console.log('[BG] ⏰ Connection check: not connected, reconnecting...');
+      connectToWebSocketServer();
+    }
+  }
+});
+
 // Start connection when extension loads
 chrome.runtime.onStartup.addListener(() => {
-  console.log('🚀 Extension gestartet');
+  console.log('[BG] 🚀 Extension started');
+  setupKeepAlive();
   if (WS_ENABLED) {
-    try { connectToWebSocketServer() } catch { }
+    connectToWebSocketServer();
   }
 });
 
 chrome.runtime.onInstalled.addListener(() => {
-  console.log('📦 Extension installiert');
+  console.log('[BG] 📦 Extension installed');
+  setupKeepAlive();
   if (WS_ENABLED) {
-    try { connectToWebSocketServer() } catch { }
+    connectToWebSocketServer();
   }
 });
+
+// Also try to connect when service worker wakes up for any reason
+if (WS_ENABLED) {
+  console.log('[BG] 🔌 Service worker active, checking connection...');
+  setupKeepAlive();
+  // Small delay to let things initialize
+  setTimeout(() => {
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+      connectToWebSocketServer();
+    }
+  }, 100);
+}
 
 // Track if display grids are active per tab
 const tabDisplayGridsActive = new Map<number, boolean>();
@@ -737,51 +859,41 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       console.log('[BG] 🛡️ MailGuard activate request received')
       console.log('[BG] 🛡️ Window info:', msg.windowInfo)
       console.log('[BG] 🛡️ Theme:', msg.theme)
-      console.log('[BG] WS_ENABLED:', WS_ENABLED, 'ws:', !!ws, 'readyState:', ws?.readyState, 'OPEN:', WebSocket.OPEN)
       
-      // If WebSocket isn't connected, try to reconnect immediately
-      if (WS_ENABLED && (!ws || ws.readyState !== WebSocket.OPEN)) {
-        console.log('[BG] 🛡️ WebSocket not connected, attempting quick reconnect...')
-        connectToWebSocketServer()
-        
-        // Wait a bit for connection to establish (up to 2 seconds)
-        let waitAttempts = 0
-        const waitForConnection = () => {
-          waitAttempts++
-          if (ws && ws.readyState === WebSocket.OPEN) {
-            // Connected! Send the activate message
-            console.log('[BG] 🛡️ Quick reconnect succeeded, sending MAILGUARD_ACTIVATE...')
-            try { 
-              ws.send(JSON.stringify({ type: 'MAILGUARD_ACTIVATE', windowInfo: msg.windowInfo, theme: msg.theme || 'default' })) 
-              console.log('[BG] 🛡️ MAILGUARD_ACTIVATE sent successfully')
-            } catch (e) {
-              console.error('[BG] 🛡️ Error sending MAILGUARD_ACTIVATE:', e)
-            }
-            try { sendResponse({ success: true }) } catch {}
-          } else if (waitAttempts < 10) {
-            // Keep waiting (200ms intervals, max 2 seconds)
-            setTimeout(waitForConnection, 200)
-          } else {
-            // Timed out
-            console.log('[BG] 🛡️ Quick reconnect failed after 2s')
-            try { sendResponse({ success: false, error: 'Could not connect to Electron. Make sure OpenGiraffe is running.' }) } catch {}
-          }
-        }
-        setTimeout(waitForConnection, 200)
-      } else if (WS_ENABLED && ws && ws.readyState === WebSocket.OPEN) {
-        console.log('[BG] 🛡️ Sending MAILGUARD_ACTIVATE to Electron with window position and theme...')
-        try { 
-          ws.send(JSON.stringify({ type: 'MAILGUARD_ACTIVATE', windowInfo: msg.windowInfo, theme: msg.theme || 'default' })) 
-          console.log('[BG] 🛡️ MAILGUARD_ACTIVATE sent successfully')
-        } catch (e) {
-          console.error('[BG] 🛡️ Error sending MAILGUARD_ACTIVATE:', e)
-        }
-        try { sendResponse({ success: true }) } catch {}
-      } else {
-        console.log('[BG] 🛡️ Cannot activate - WebSocket disabled or not available')
-        try { sendResponse({ success: false, error: 'WebSocket disabled or not available' }) } catch {}
+      if (!WS_ENABLED) {
+        console.log('[BG] 🛡️ WebSocket disabled')
+        try { sendResponse({ success: false, error: 'WebSocket disabled' }) } catch {}
+        break
       }
-      break
+      
+      // Use robust connection with retries
+      ensureConnection(5).then((connected) => {
+        if (connected && ws && ws.readyState === WebSocket.OPEN) {
+          console.log('[BG] 🛡️ Connection ready, sending MAILGUARD_ACTIVATE...')
+          try { 
+            ws.send(JSON.stringify({ 
+              type: 'MAILGUARD_ACTIVATE', 
+              windowInfo: msg.windowInfo, 
+              theme: msg.theme || 'default' 
+            })) 
+            console.log('[BG] 🛡️ MAILGUARD_ACTIVATE sent successfully!')
+            try { sendResponse({ success: true }) } catch {}
+          } catch (e) {
+            console.error('[BG] 🛡️ Error sending MAILGUARD_ACTIVATE:', e)
+            try { sendResponse({ success: false, error: 'Failed to send message' }) } catch {}
+          }
+        } else {
+          console.log('[BG] 🛡️ Connection failed after retries')
+          try { 
+            sendResponse({ 
+              success: false, 
+              error: 'Could not connect to OpenGiraffe. Make sure the Electron app is running.' 
+            }) 
+          } catch {}
+        }
+      })
+      
+      return true // Keep channel open for async response
     }
     
     case 'MAILGUARD_DEACTIVATE': {
@@ -798,7 +910,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     case 'MAILGUARD_UPDATE_ROWS': {
       // Content script sends email row positions to forward to Electron
       if (WS_ENABLED && ws && ws.readyState === WebSocket.OPEN) {
-        try { ws.send(JSON.stringify({ type: 'MAILGUARD_UPDATE_ROWS', rows: msg.rows })) } catch {}
+        try { ws.send(JSON.stringify({ type: 'MAILGUARD_UPDATE_ROWS', rows: msg.rows, provider: msg.provider || 'gmail' })) } catch {}
       }
       break
     }
@@ -832,98 +944,170 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       break
     }
     
-    // ===== EMAIL GATEWAY MESSAGE HANDLERS =====
+    // ===== EMAIL GATEWAY MESSAGE HANDLERS (using HTTP API for reliability) =====
     case 'EMAIL_LIST_ACCOUNTS': {
-      console.log('[BG] 📧 Email list accounts request')
-      if (WS_ENABLED && ws && ws.readyState === WebSocket.OPEN) {
-        const requestId = `email_list_${Date.now()}`
-        try {
-          ws.send(JSON.stringify({ type: 'EMAIL_LIST_ACCOUNTS', id: requestId }))
-          
-          // Store callback for response
-          if (!globalThis.emailCallbacks) globalThis.emailCallbacks = new Map()
-          globalThis.emailCallbacks.set(requestId, sendResponse)
-          
-          return true // Keep channel open
-        } catch (e) {
-          console.error('[BG] Error sending EMAIL_LIST_ACCOUNTS:', e)
-          sendResponse({ ok: false, error: 'Failed to send request' })
-        }
-      } else {
-        sendResponse({ ok: false, error: 'Electron not connected' })
-      }
-      break
+      console.log('[BG] 📧 Email list accounts request (via HTTP)')
+      
+      // Try HTTP API first (more reliable than WebSocket)
+      fetch('http://127.0.0.1:51248/api/email/accounts')
+        .then(res => res.json())
+        .then(data => {
+          console.log('[BG] 📧 Email accounts response:', data)
+          sendResponse(data)
+        })
+        .catch(err => {
+          console.error('[BG] 📧 Email list error:', err)
+          sendResponse({ ok: false, error: err.message || 'Failed to fetch accounts' })
+        })
+      
+      return true // Keep channel open for async response
     }
     
     case 'EMAIL_CONNECT_GMAIL': {
-      console.log('[BG] 📧 Email connect Gmail request')
-      if (WS_ENABLED && ws && ws.readyState === WebSocket.OPEN) {
-        const requestId = `email_gmail_${Date.now()}`
-        try {
-          ws.send(JSON.stringify({ type: 'EMAIL_CONNECT_GMAIL', id: requestId }))
-          
-          // Store callback for response
-          if (!globalThis.emailCallbacks) globalThis.emailCallbacks = new Map()
-          globalThis.emailCallbacks.set(requestId, sendResponse)
-          
-          return true // Keep channel open
-        } catch (e) {
-          console.error('[BG] Error sending EMAIL_CONNECT_GMAIL:', e)
-          sendResponse({ ok: false, error: 'Failed to send request' })
-        }
-      } else {
-        sendResponse({ ok: false, error: 'Electron not connected' })
-      }
-      break
+      console.log('[BG] 📧 Email connect Gmail request (via HTTP)')
+      
+      fetch('http://127.0.0.1:51248/api/email/accounts/connect/gmail', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ displayName: msg.displayName || 'Gmail Account' })
+      })
+        .then(res => res.json())
+        .then(data => {
+          console.log('[BG] 📧 Gmail connect response:', data)
+          sendResponse(data)
+        })
+        .catch(err => {
+          console.error('[BG] 📧 Gmail connect error:', err)
+          sendResponse({ ok: false, error: err.message || 'Failed to connect Gmail' })
+        })
+      
+      return true // Keep channel open for async response
+    }
+    
+    case 'EMAIL_CONNECT_OUTLOOK': {
+      console.log('[BG] 📧 Email connect Outlook request (via HTTP)')
+      
+      fetch('http://127.0.0.1:51248/api/email/accounts/connect/outlook', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ displayName: msg.displayName || 'Outlook Account' })
+      })
+        .then(res => res.json())
+        .then(data => {
+          console.log('[BG] 📧 Outlook connect response:', data)
+          sendResponse(data)
+        })
+        .catch(err => {
+          console.error('[BG] 📧 Outlook connect error:', err)
+          sendResponse({ ok: false, error: err.message || 'Failed to connect Outlook' })
+        })
+      
+      return true // Keep channel open for async response
+    }
+    
+    case 'EMAIL_CONNECT_IMAP': {
+      console.log('[BG] 📧 Email connect IMAP request (via HTTP)')
+      
+      fetch('http://127.0.0.1:51248/api/email/accounts/connect/imap', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          displayName: msg.displayName,
+          email: msg.email,
+          host: msg.host,
+          port: msg.port,
+          username: msg.username,
+          password: msg.password,
+          security: msg.security
+        })
+      })
+        .then(res => res.json())
+        .then(data => {
+          console.log('[BG] 📧 IMAP connect response:', data)
+          sendResponse(data)
+        })
+        .catch(err => {
+          console.error('[BG] 📧 IMAP connect error:', err)
+          sendResponse({ ok: false, error: err.message || 'Failed to connect IMAP' })
+        })
+      
+      return true // Keep channel open for async response
     }
     
     case 'EMAIL_DELETE_ACCOUNT': {
-      console.log('[BG] 📧 Email delete account request:', msg.accountId)
-      if (WS_ENABLED && ws && ws.readyState === WebSocket.OPEN) {
-        const requestId = `email_delete_${Date.now()}`
-        try {
-          ws.send(JSON.stringify({ type: 'EMAIL_DELETE_ACCOUNT', id: requestId, accountId: msg.accountId }))
-          
-          // Store callback for response
-          if (!globalThis.emailCallbacks) globalThis.emailCallbacks = new Map()
-          globalThis.emailCallbacks.set(requestId, sendResponse)
-          
-          return true // Keep channel open
-        } catch (e) {
-          console.error('[BG] Error sending EMAIL_DELETE_ACCOUNT:', e)
-          sendResponse({ ok: false, error: 'Failed to send request' })
-        }
-      } else {
-        sendResponse({ ok: false, error: 'Electron not connected' })
-      }
-      break
+      console.log('[BG] 📧 Email delete account request (via HTTP):', msg.accountId)
+      
+      fetch(`http://127.0.0.1:51248/api/email/accounts/${msg.accountId}`, {
+        method: 'DELETE'
+      })
+        .then(res => res.json())
+        .then(data => {
+          console.log('[BG] 📧 Delete account response:', data)
+          sendResponse(data)
+        })
+        .catch(err => {
+          console.error('[BG] 📧 Delete account error:', err)
+          sendResponse({ ok: false, error: err.message || 'Failed to delete account' })
+        })
+      
+      return true // Keep channel open for async response
+    }
+    
+    case 'EMAIL_GET_PRESETS': {
+      console.log('[BG] 📧 Email get IMAP presets request (via HTTP)')
+      
+      fetch('http://127.0.0.1:51248/api/email/presets')
+        .then(res => res.json())
+        .then(data => {
+          console.log('[BG] 📧 IMAP presets response:', data)
+          sendResponse(data)
+        })
+        .catch(err => {
+          console.error('[BG] 📧 IMAP presets error:', err)
+          sendResponse({ ok: false, error: err.message || 'Failed to fetch presets' })
+        })
+      
+      return true // Keep channel open for async response
     }
     
     case 'EMAIL_GET_MESSAGE': {
-      console.log('[BG] 📧 Email get message request:', msg.accountId, msg.messageId)
-      if (WS_ENABLED && ws && ws.readyState === WebSocket.OPEN) {
-        const requestId = `email_msg_${Date.now()}`
-        try {
-          ws.send(JSON.stringify({ 
-            type: 'EMAIL_GET_MESSAGE', 
-            id: requestId, 
-            accountId: msg.accountId, 
-            messageId: msg.messageId 
-          }))
-          
-          // Store callback for response
-          if (!globalThis.emailCallbacks) globalThis.emailCallbacks = new Map()
-          globalThis.emailCallbacks.set(requestId, sendResponse)
-          
-          return true // Keep channel open
-        } catch (e) {
-          console.error('[BG] Error sending EMAIL_GET_MESSAGE:', e)
-          sendResponse({ ok: false, error: 'Failed to send request' })
-        }
-      } else {
-        sendResponse({ ok: false, error: 'Electron not connected' })
-      }
-      break
+      console.log('[BG] 📧 Email get message request (via HTTP):', msg.accountId, msg.messageId)
+      
+      fetch(`http://127.0.0.1:51248/api/email/accounts/${msg.accountId}/messages/${msg.messageId}`)
+        .then(res => res.json())
+        .then(data => {
+          console.log('[BG] 📧 Get message response:', data)
+          sendResponse(data)
+        })
+        .catch(err => {
+          console.error('[BG] 📧 Get message error:', err)
+          sendResponse({ ok: false, error: err.message || 'Failed to fetch message' })
+        })
+      
+      return true // Keep channel open for async response
+    }
+    
+    case 'EMAIL_LIST_MESSAGES': {
+      console.log('[BG] 📧 Email list messages request (via HTTP):', msg.accountId)
+      
+      const params = new URLSearchParams()
+      if (msg.folder) params.append('folder', msg.folder)
+      if (msg.limit) params.append('limit', String(msg.limit))
+      if (msg.from) params.append('from', msg.from)
+      if (msg.subject) params.append('subject', msg.subject)
+      
+      fetch(`http://127.0.0.1:51248/api/email/accounts/${msg.accountId}/messages?${params}`)
+        .then(res => res.json())
+        .then(data => {
+          console.log('[BG] 📧 List messages response:', data)
+          sendResponse(data)
+        })
+        .catch(err => {
+          console.error('[BG] 📧 List messages error:', err)
+          sendResponse({ ok: false, error: err.message || 'Failed to list messages' })
+        })
+      
+      return true // Keep channel open for async response
     }
 
     case 'DISPLAY_GRIDS_OPENED': {

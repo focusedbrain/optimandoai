@@ -2,9 +2,113 @@ import { app, BrowserWindow, globalShortcut, Tray, Menu, Notification, screen } 
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 import os from 'node:os'
-import { exec } from 'node:child_process'
+import { exec, execSync } from 'node:child_process'
 import { WebSocketServer } from 'ws'
 import express from 'express'
+import * as net from 'net'
+
+// ============================================================================
+// ROBUST PORT MANAGEMENT - Ensure clean startup
+// ============================================================================
+
+const WS_PORT = 51247
+const HTTP_PORT = 51248
+
+/**
+ * Check if a port is available
+ */
+function isPortAvailable(port: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const server = net.createServer()
+    server.once('error', () => resolve(false))
+    server.once('listening', () => {
+      server.close()
+      resolve(true)
+    })
+    server.listen(port, '127.0.0.1')
+  })
+}
+
+/**
+ * Kill process using a specific port (Windows-specific)
+ */
+async function killProcessOnPort(port: number): Promise<void> {
+  if (process.platform !== 'win32') {
+    try {
+      execSync(`lsof -ti:${port} | xargs kill -9 2>/dev/null || true`, { stdio: 'ignore' })
+    } catch {}
+    return
+  }
+  
+  try {
+    // Find PID using the port
+    const result = execSync(`netstat -ano | findstr :${port} | findstr LISTENING`, { encoding: 'utf-8' })
+    const lines = result.trim().split('\n')
+    const pids = new Set<string>()
+    
+    for (const line of lines) {
+      const parts = line.trim().split(/\s+/)
+      const pid = parts[parts.length - 1]
+      if (pid && /^\d+$/.test(pid) && pid !== '0') {
+        pids.add(pid)
+      }
+    }
+    
+    for (const pid of pids) {
+      try {
+        execSync(`taskkill /F /PID ${pid}`, { stdio: 'ignore' })
+        console.log(`[PORT-CLEANUP] Killed process ${pid} on port ${port}`)
+      } catch {}
+    }
+  } catch {
+    // No process found on port, which is fine
+  }
+}
+
+/**
+ * Ensure ports are available before starting servers
+ */
+async function ensurePortsAvailable(): Promise<void> {
+  console.log('[PORT-CLEANUP] Checking port availability...')
+  
+  let needsWait = false
+  
+  // Check and clean WebSocket port
+  if (!(await isPortAvailable(WS_PORT))) {
+    console.log(`[PORT-CLEANUP] Port ${WS_PORT} is in use, cleaning up...`)
+    await killProcessOnPort(WS_PORT)
+    needsWait = true
+  }
+  
+  // Check and clean HTTP port
+  if (!(await isPortAvailable(HTTP_PORT))) {
+    console.log(`[PORT-CLEANUP] Port ${HTTP_PORT} is in use, cleaning up...`)
+    await killProcessOnPort(HTTP_PORT)
+    needsWait = true
+  }
+  
+  // Wait for OS to release ports - need longer delay on Windows
+  if (needsWait) {
+    console.log('[PORT-CLEANUP] Waiting for OS to release ports...')
+    await new Promise(r => setTimeout(r, 3000))
+    
+    // Verify ports are now available
+    for (let retry = 0; retry < 5; retry++) {
+      const wsAvailable = await isPortAvailable(WS_PORT)
+      const httpAvailable = await isPortAvailable(HTTP_PORT)
+      
+      if (wsAvailable && httpAvailable) {
+        console.log('[PORT-CLEANUP] Ports are now available')
+        break
+      }
+      
+      console.log(`[PORT-CLEANUP] Ports still not available, waiting... (${retry + 1}/5)`)
+      await new Promise(r => setTimeout(r, 2000))
+    }
+  }
+  
+  console.log('[PORT-CLEANUP] Ports are ready')
+}
 // WS bridge removed to avoid port conflicts; extension fallback/deep-link is used
 import { registerHandler, LmgtfyChannels, emitCapture } from './lmgtfy/ipc'
 import { beginOverlay, closeAllOverlays, showStreamTriggerOverlay } from './lmgtfy/overlay'
@@ -46,6 +150,44 @@ let activeStop: null | (() => Promise<string>) = null
 var wsClients: any[] = (globalThis as any).__og_ws_clients__ || [];
 (globalThis as any).__og_ws_clients__ = wsClients;
 
+// Flag to track when app is actually quitting (from tray menu "Quit")
+let isAppQuitting = false
+
+// Set flag when app is actually quitting
+app.on('before-quit', () => {
+  isAppQuitting = true
+})
+
+// Graceful shutdown - close WebSocket connections
+process.on('SIGTERM', () => {
+  console.log('[MAIN] Received SIGTERM, shutting down gracefully...')
+  isAppQuitting = true
+  wsClients.forEach(client => {
+    try { client.close() } catch {}
+  })
+  app.quit()
+})
+
+process.on('SIGINT', () => {
+  console.log('[MAIN] Received SIGINT, shutting down gracefully...')
+  isAppQuitting = true
+  wsClients.forEach(client => {
+    try { client.close() } catch {}
+  })
+  app.quit()
+})
+
+// Handle uncaught exceptions to prevent crashes
+process.on('uncaughtException', (err) => {
+  console.error('[MAIN] Uncaught exception:', err)
+  // Don't exit - try to keep running
+})
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('[MAIN] Unhandled rejection at:', promise, 'reason:', reason)
+  // Don't exit - try to keep running
+})
+
 
 function handleDeepLink(raw: string) {
   try {
@@ -71,15 +213,32 @@ function handleDeepLink(raw: string) {
   } catch { }
 }
 
+// Check if app was started with --hidden flag (auto-start on login)
+const startHidden = process.argv.includes('--hidden')
+
 async function createWindow() {
   win = new BrowserWindow({
     icon: path.join(process.env.VITE_PUBLIC, 'electron-vite.svg'),
     webPreferences: {
       preload: path.join(__dirname, 'preload.mjs'),
     },
-    show: true, // Show window immediately to prevent crash
+    show: !startHidden, // Start hidden if launched with --hidden flag
     width: 800,
     height: 600,
+  })
+  
+  // If started hidden, minimize to tray
+  if (startHidden) {
+    console.log('[MAIN] Started in hidden mode (auto-start), running in system tray')
+  }
+  
+  // When user clicks X, hide to tray instead of quitting
+  win.on('close', (event) => {
+    if (!isAppQuitting) {
+      event.preventDefault()
+      win?.hide()
+      console.log('[MAIN] Window hidden to system tray')
+    }
   })
 
   // Test active push message to Renderer-process.
@@ -702,7 +861,10 @@ function updateTrayMenu() {
         })
       })
     }
-
+    
+    // Get current auto-start setting
+    const loginSettings = app.getLoginItemSettings()
+    
     const menu = Menu.buildFromTemplate([
       { label: 'Show', click: () => { if (!win) return; win.show(); win.focus() } },
       { type: 'separator' },
@@ -714,6 +876,19 @@ function updateTrayMenu() {
         { label: '📌 Saved Triggers', enabled: false },
         ...triggerMenuItems,
       ] : []),
+      { type: 'separator' },
+      { 
+        label: '🚀 Start on Login', 
+        type: 'checkbox' as const,
+        checked: loginSettings.openAtLogin,
+        click: (menuItem) => {
+          app.setLoginItemSettings({ 
+            openAtLogin: menuItem.checked, 
+            args: ['--hidden'] 
+          })
+          console.log('[MAIN] Auto-start on login:', menuItem.checked ? 'enabled' : 'disabled')
+        }
+      },
       { type: 'separator' },
       { label: 'Quit', role: 'quit' as const },
     ])
@@ -912,13 +1087,16 @@ app.whenReady().then(async () => {
     // Continue app startup even if OCR init fails
   }
 
+  // Ensure ports are available before starting servers
+  await ensurePortsAvailable()
+  
   // WS bridge for extension (127.0.0.1:51247) with safe startup
   try {
     console.log('[MAIN] ===== ATTEMPTING TO START WEBSOCKET SERVER =====')
     console.log('[MAIN] WebSocketServer available:', !!WebSocketServer)
     if (WebSocketServer) {
-      console.log('[MAIN] Creating WebSocket server on 127.0.0.1:51247')
-      const wss = new WebSocketServer({ host: '127.0.0.1', port: 51247 })
+      console.log('[MAIN] Creating WebSocket server on 127.0.0.1:', WS_PORT)
+      const wss = new WebSocketServer({ host: '127.0.0.1', port: WS_PORT })
       console.log('[MAIN] WebSocket server created!')
       console.log('[MAIN] WebSocket server listening and ready for connections')
       
@@ -1113,9 +1291,10 @@ app.whenReady().then(async () => {
               // Content script sends email row positions
               try {
                 const rows = msg.rows || []
-                updateEmailRows(rows)
+                const provider = msg.provider || 'gmail'
+                updateEmailRows(rows, provider)
                 
-                // Store preview data for Gmail API matching
+                // Store preview data for Email API matching
                 rows.forEach((row: any) => {
                   if (row.id && (row.from || row.subject)) {
                     emailRowPreviewData.set(row.id, { 
@@ -3711,6 +3890,253 @@ app.whenReady().then(async () => {
           console.error('[HTTP-VAULT] Error message:', error?.message)
           console.error('[HTTP-VAULT] Error stack:', error?.stack)
           res.status(500).json({ success: false, error: error?.message || error?.toString() || 'Failed to create vault' })
+    // ===== EMAIL GATEWAY API Endpoints =====
+    
+    // GET /api/email/accounts - List all email accounts
+    httpApp.get('/api/email/accounts', async (_req, res) => {
+      try {
+        console.log('[HTTP-EMAIL] GET /api/email/accounts')
+        const { emailGateway } = await import('./main/email/gateway')
+        const accounts = await emailGateway.listAccounts()
+        res.json({ ok: true, data: accounts })
+      } catch (error: any) {
+        console.error('[HTTP-EMAIL] Error listing accounts:', error)
+        res.status(500).json({ ok: false, error: error.message })
+      }
+    })
+    
+    // GET /api/email/accounts/:id - Get single account
+    httpApp.get('/api/email/accounts/:id', async (req, res) => {
+      try {
+        const { id } = req.params
+        console.log('[HTTP-EMAIL] GET /api/email/accounts/:id', id)
+        const { emailGateway } = await import('./main/email/gateway')
+        const account = await emailGateway.getAccount(id)
+        if (!account) {
+          res.status(404).json({ ok: false, error: 'Account not found' })
+          return
+        }
+        res.json({ ok: true, data: account })
+      } catch (error: any) {
+        console.error('[HTTP-EMAIL] Error getting account:', error)
+        res.status(500).json({ ok: false, error: error.message })
+      }
+    })
+    
+    // POST /api/email/accounts/connect/gmail - Connect Gmail account via OAuth
+    httpApp.post('/api/email/accounts/connect/gmail', async (req, res) => {
+      try {
+        console.log('[HTTP-EMAIL] POST /api/email/accounts/connect/gmail')
+        const { displayName } = req.body
+        const { emailGateway } = await import('./main/email/gateway')
+        
+        // Try to connect - if credentials not set, show setup dialog
+        try {
+          const account = await emailGateway.connectGmailAccount(displayName || 'Gmail Account')
+          res.json({ ok: true, data: account })
+        } catch (credError: any) {
+          if (credError.message?.includes('OAuth client credentials not configured')) {
+            // Show setup dialog
+            const { showGmailSetupDialog } = await import('./main/email/ipc')
+            const result = await showGmailSetupDialog()
+            if (result.success) {
+              // Try connecting again after setup
+              const accounts = await emailGateway.listAccounts()
+              const gmailAccount = accounts.find(a => a.provider === 'gmail')
+              if (gmailAccount) {
+                res.json({ ok: true, data: gmailAccount })
+              } else {
+                res.json({ ok: false, error: 'Setup completed but account not found' })
+              }
+            } else {
+              res.json({ ok: false, error: 'Setup cancelled' })
+            }
+          } else {
+            throw credError
+          }
+        }
+      } catch (error: any) {
+        console.error('[HTTP-EMAIL] Error connecting Gmail:', error)
+        res.status(500).json({ ok: false, error: error.message })
+      }
+    })
+    
+    // POST /api/email/accounts/connect/outlook - Connect Outlook account via OAuth
+    httpApp.post('/api/email/accounts/connect/outlook', async (req, res) => {
+      try {
+        console.log('[HTTP-EMAIL] POST /api/email/accounts/connect/outlook')
+        const { displayName } = req.body
+        const { emailGateway } = await import('./main/email/gateway')
+        
+        // Try to connect - if credentials not set, show setup dialog
+        try {
+          const account = await emailGateway.connectOutlookAccount(displayName || 'Outlook Account')
+          res.json({ ok: true, data: account })
+        } catch (credError: any) {
+          if (credError.message?.includes('OAuth client credentials not configured')) {
+            // Show setup dialog
+            const { showOutlookSetupDialog } = await import('./main/email/ipc')
+            const result = await showOutlookSetupDialog()
+            if (result.success) {
+              // Try connecting again after setup
+              const accounts = await emailGateway.listAccounts()
+              const outlookAccount = accounts.find(a => a.provider === 'microsoft365')
+              if (outlookAccount) {
+                res.json({ ok: true, data: outlookAccount })
+              } else {
+                res.json({ ok: false, error: 'Setup completed but account not found' })
+              }
+            } else {
+              res.json({ ok: false, error: 'Setup cancelled' })
+            }
+          } else {
+            throw credError
+          }
+        }
+      } catch (error: any) {
+        console.error('[HTTP-EMAIL] Error connecting Outlook:', error)
+        res.status(500).json({ ok: false, error: error.message })
+      }
+    })
+    
+    // POST /api/email/accounts/connect/imap - Connect IMAP account
+    httpApp.post('/api/email/accounts/connect/imap', async (req, res) => {
+      try {
+        console.log('[HTTP-EMAIL] POST /api/email/accounts/connect/imap')
+        const { displayName, email, host, port, username, password, security } = req.body
+        
+        if (!email || !host || !username || !password) {
+          res.status(400).json({ ok: false, error: 'Missing required fields: email, host, username, password' })
+          return
+        }
+        
+        const { emailGateway } = await import('./main/email/gateway')
+        const account = await emailGateway.connectImapAccount({
+          displayName: displayName || email,
+          email,
+          host,
+          port: port || 993,
+          username,
+          password,
+          security: security || 'ssl'
+        })
+        res.json({ ok: true, data: account })
+      } catch (error: any) {
+        console.error('[HTTP-EMAIL] Error connecting IMAP:', error)
+        res.status(500).json({ ok: false, error: error.message })
+      }
+    })
+    
+    // DELETE /api/email/accounts/:id - Delete email account
+    httpApp.delete('/api/email/accounts/:id', async (req, res) => {
+      try {
+        const { id } = req.params
+        console.log('[HTTP-EMAIL] DELETE /api/email/accounts/:id', id)
+        const { emailGateway } = await import('./main/email/gateway')
+        await emailGateway.deleteAccount(id)
+        res.json({ ok: true })
+      } catch (error: any) {
+        console.error('[HTTP-EMAIL] Error deleting account:', error)
+        res.status(500).json({ ok: false, error: error.message })
+      }
+    })
+    
+    // POST /api/email/accounts/:id/test - Test account connection
+    httpApp.post('/api/email/accounts/:id/test', async (req, res) => {
+      try {
+        const { id } = req.params
+        console.log('[HTTP-EMAIL] POST /api/email/accounts/:id/test', id)
+        const { emailGateway } = await import('./main/email/gateway')
+        const result = await emailGateway.testConnection(id)
+        res.json({ ok: true, data: result })
+      } catch (error: any) {
+        console.error('[HTTP-EMAIL] Error testing connection:', error)
+        res.status(500).json({ ok: false, error: error.message })
+      }
+    })
+    
+    // GET /api/email/accounts/:id/messages - List messages
+    httpApp.get('/api/email/accounts/:id/messages', async (req, res) => {
+      try {
+        const { id } = req.params
+        const options = {
+          folder: req.query.folder as string,
+          limit: req.query.limit ? parseInt(req.query.limit as string) : 50,
+          from: req.query.from as string,
+          subject: req.query.subject as string,
+          unreadOnly: req.query.unreadOnly === 'true',
+          hasAttachments: req.query.hasAttachments === 'true'
+        }
+        console.log('[HTTP-EMAIL] GET /api/email/accounts/:id/messages', id, options)
+        const { emailGateway } = await import('./main/email/gateway')
+        const messages = await emailGateway.listMessages(id, options)
+        res.json({ ok: true, data: messages })
+      } catch (error: any) {
+        console.error('[HTTP-EMAIL] Error listing messages:', error)
+        res.status(500).json({ ok: false, error: error.message })
+      }
+    })
+    
+    // GET /api/email/accounts/:id/messages/:messageId - Get single message
+    httpApp.get('/api/email/accounts/:id/messages/:messageId', async (req, res) => {
+      try {
+        const { id, messageId } = req.params
+        console.log('[HTTP-EMAIL] GET /api/email/accounts/:id/messages/:messageId', id, messageId)
+        const { emailGateway } = await import('./main/email/gateway')
+        const message = await emailGateway.getMessage(id, messageId)
+        if (!message) {
+          res.status(404).json({ ok: false, error: 'Message not found' })
+          return
+        }
+        res.json({ ok: true, data: message })
+      } catch (error: any) {
+        console.error('[HTTP-EMAIL] Error getting message:', error)
+        res.status(500).json({ ok: false, error: error.message })
+      }
+    })
+    
+    // GET /api/email/presets - Get IMAP provider presets
+    httpApp.get('/api/email/presets', async (_req, res) => {
+      try {
+        console.log('[HTTP-EMAIL] GET /api/email/presets')
+        const { IMAP_PRESETS } = await import('./main/email/types')
+        res.json({ ok: true, data: IMAP_PRESETS })
+      } catch (error: any) {
+        console.error('[HTTP-EMAIL] Error getting presets:', error)
+        res.status(500).json({ ok: false, error: error.message })
+      }
+    })
+    
+    // Simple function to start HTTP server with error handling
+    let httpServerStarted = false
+    
+    const startHttpServer = (port: number, attempt = 1): void => {
+      if (httpServerStarted) {
+        console.log('[MAIN] HTTP server already started, skipping duplicate start')
+        return
+      }
+      
+      console.log(`[MAIN] Starting HTTP API server on port ${port} (attempt ${attempt})...`)
+      
+      const server = httpApp.listen(port, '127.0.0.1', () => {
+        httpServerStarted = true
+        console.log(`[MAIN] ✅ HTTP API server listening on http://127.0.0.1:${port}`)
+      })
+      
+      server.once('error', (err: any) => {
+        if (httpServerStarted) return // Ignore errors if already started successfully
+        
+        if (err.code === 'EADDRINUSE') {
+          console.error(`[MAIN] Port ${port} is already in use`)
+          
+          if (attempt < 3) {
+            console.log(`[MAIN] Trying alternative port ${port + 1}... (attempt ${attempt + 1})`)
+            setTimeout(() => startHttpServer(port + 1, attempt + 1), 1000)
+          } else {
+            console.error(`[MAIN] ❌ Failed to start HTTP server after ${attempt} attempts`)
+          }
+        } else {
+          console.error('[MAIN] HTTP server error:', err.message)
         }
       })
 

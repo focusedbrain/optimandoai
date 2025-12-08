@@ -84,11 +84,12 @@ export class OrchestratorService {
   }
 
   /**
-   * Ensure connection before operations
+   * Ensure connection before operations - auto-connects if not connected
    */
-  private ensureConnected(): void {
+  private async ensureConnected(): Promise<void> {
     if (!this.connected || !this.db) {
-      throw new Error('Not connected to orchestrator database. Call connect() first.')
+      console.log('[ORCHESTRATOR] Auto-connecting...')
+      await this.connect()
     }
   }
 
@@ -100,16 +101,25 @@ export class OrchestratorService {
    * Get value by key (from settings table)
    */
   async get<T = any>(key: string): Promise<T | undefined> {
-    this.ensureConnected()
+    try {
+      await this.ensureConnected()
+    } catch (connectError: any) {
+      console.error(`[ORCHESTRATOR] Failed to connect in get("${key}"):`, connectError?.message || connectError)
+      throw new Error(`Database connection failed: ${connectError?.message || connectError}`)
+    }
 
     try {
+      console.log(`[ORCHESTRATOR] get("${key}") - connected: ${this.connected}, hasDb: ${!!this.db}`)
       const row = this.db.prepare('SELECT value_json FROM settings WHERE key = ?').get(key)
       if (!row) {
+        console.log(`[ORCHESTRATOR] get("${key}") - key not found, returning undefined`)
         return undefined
       }
-      return JSON.parse(row.value_json) as T
+      const parsed = JSON.parse(row.value_json) as T
+      console.log(`[ORCHESTRATOR] get("${key}") - found data`)
+      return parsed
     } catch (error: any) {
-      console.error(`[ORCHESTRATOR] Error getting key "${key}":`, error)
+      console.error(`[ORCHESTRATOR] Error getting key "${key}":`, error?.message || error)
       throw error
     }
   }
@@ -118,9 +128,15 @@ export class OrchestratorService {
    * Set value by key (to settings table)
    */
   async set<T = any>(key: string, value: T): Promise<void> {
-    this.ensureConnected()
+    try {
+      await this.ensureConnected()
+    } catch (connectError: any) {
+      console.error(`[ORCHESTRATOR] Failed to connect in set("${key}"):`, connectError?.message || connectError)
+      throw new Error(`Database connection failed: ${connectError?.message || connectError}`)
+    }
 
     try {
+      console.log(`[ORCHESTRATOR] set("${key}") - connected: ${this.connected}, hasDb: ${!!this.db}`)
       const now = Date.now()
       const valueJson = JSON.stringify(value)
       this.db.prepare('INSERT OR REPLACE INTO settings (key, value_json, updated_at) VALUES (?, ?, ?)').run(
@@ -128,9 +144,9 @@ export class OrchestratorService {
         valueJson,
         now
       )
-      console.log(`[ORCHESTRATOR] Set key "${key}"`)
+      console.log(`[ORCHESTRATOR] Set key "${key}" successfully`)
     } catch (error: any) {
-      console.error(`[ORCHESTRATOR] Error setting key "${key}":`, error)
+      console.error(`[ORCHESTRATOR] Error setting key "${key}":`, error?.message || error)
       throw error
     }
   }
@@ -139,7 +155,7 @@ export class OrchestratorService {
    * Get all key-value pairs (from settings table)
    */
   async getAll(): Promise<Record<string, any>> {
-    this.ensureConnected()
+    await this.ensureConnected()
 
     try {
       const rows = this.db.prepare('SELECT key, value_json FROM settings').all()
@@ -158,7 +174,7 @@ export class OrchestratorService {
    * Set multiple key-value pairs at once
    */
   async setAll(data: Record<string, any>): Promise<void> {
-    this.ensureConnected()
+    await this.ensureConnected()
 
     try {
       const now = Date.now()
@@ -184,7 +200,7 @@ export class OrchestratorService {
    * Remove key(s)
    */
   async remove(keys: string | string[]): Promise<void> {
-    this.ensureConnected()
+    await this.ensureConnected()
 
     try {
       const keysArray = Array.isArray(keys) ? keys : [keys]
@@ -205,7 +221,7 @@ export class OrchestratorService {
    * Clear all data from settings table
    */
   async clear(): Promise<void> {
-    this.ensureConnected()
+    await this.ensureConnected()
 
     try {
       this.db.prepare('DELETE FROM settings').run()
@@ -224,7 +240,7 @@ export class OrchestratorService {
    * List all sessions
    */
   async listSessions(): Promise<Session[]> {
-    this.ensureConnected()
+    await this.ensureConnected()
 
     try {
       const rows = this.db.prepare('SELECT id, name, config_json, created_at, updated_at, tags FROM sessions ORDER BY updated_at DESC').all()
@@ -246,7 +262,7 @@ export class OrchestratorService {
    * Get session by ID
    */
   async getSession(id: string): Promise<Session | undefined> {
-    this.ensureConnected()
+    await this.ensureConnected()
 
     try {
       const row = this.db.prepare('SELECT id, name, config_json, created_at, updated_at, tags FROM sessions WHERE id = ?').get(id)
@@ -271,7 +287,7 @@ export class OrchestratorService {
    * Save/update session
    */
   async saveSession(session: Session): Promise<void> {
-    this.ensureConnected()
+    await this.ensureConnected()
 
     try {
       const now = Date.now()
@@ -301,7 +317,7 @@ export class OrchestratorService {
    * Delete session
    */
   async deleteSession(id: string): Promise<void> {
-    this.ensureConnected()
+    await this.ensureConnected()
 
     try {
       this.db.prepare('DELETE FROM sessions WHERE id = ?').run(id)
@@ -321,7 +337,7 @@ export class OrchestratorService {
    * @param chromeData All data from chrome.storage.local
    */
   async migrateFromChromeStorage(chromeData: Record<string, any>): Promise<void> {
-    this.ensureConnected()
+    await this.ensureConnected()
 
     try {
       console.log(`[ORCHESTRATOR] Migrating ${Object.keys(chromeData).length} keys from Chrome storage...`)
@@ -344,7 +360,7 @@ export class OrchestratorService {
    * Export data to JSON/YAML/MD format
    */
   async exportData(options: ExportOptions): Promise<ExportData> {
-    this.ensureConnected()
+    await this.ensureConnected()
 
     try {
       const exportData: ExportData = {
@@ -391,7 +407,7 @@ export class OrchestratorService {
    * Import data from JSON format
    */
   async importData(data: ExportData): Promise<void> {
-    this.ensureConnected()
+    await this.ensureConnected()
 
     try {
       console.log('[ORCHESTRATOR] Importing data...')

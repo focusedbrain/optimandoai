@@ -73,13 +73,23 @@
         
         console.log('📋 Grid V2 params:', { layout, sessionId, theme, sessionKey, nextBoxNumber });
         
-        // Store globally for grid-script-v2.js
+        // Store globally for grid-script-v2.js AND grid-script.js
         window.gridLayout = layout;
         window.gridSessionId = sessionId;
         window.sessionId = sessionId;
         window.layout = layout;
         window.nextBoxNumber = nextBoxNumber;
         window.sessionKey = sessionKey;
+        
+        // CRITICAL: Set GRID_CONFIG for grid-script.js compatibility
+        window.GRID_CONFIG = {
+            layout: layout,
+            sessionId: sessionId,
+            theme: theme,
+            sessionKey: sessionKey,
+            nextBoxNumber: nextBoxNumber
+        };
+        console.log('✅ Set GRID_CONFIG for grid-script.js:', window.GRID_CONFIG);
         
         // Layout configurations
         const layouts = {

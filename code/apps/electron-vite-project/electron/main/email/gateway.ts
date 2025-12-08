@@ -32,6 +32,8 @@ import {
 } from './types'
 import { IEmailProvider, RawEmailMessage } from './providers/base'
 import { GmailProvider, gmailProvider, saveOAuthConfig } from './providers/gmail'
+import { outlookProvider, saveOutlookOAuthConfig } from './providers/outlook'
+import { ImapProvider } from './providers/imap'
 import {
   sanitizeHtmlToText,
   sanitizeSubject,
@@ -445,6 +447,103 @@ class EmailGateway implements IEmailGateway {
     return this.addAccount(account)
   }
   
+  /**
+   * Start Outlook/Microsoft 365 OAuth flow and create account
+   */
+  async connectOutlookAccount(displayName?: string): Promise<EmailAccountInfo> {
+    const { oauth, email } = await outlookProvider.startOAuthFlow()
+    
+    // Create account config
+    const account: Omit<EmailAccountConfig, 'id' | 'createdAt' | 'updatedAt'> = {
+      displayName: displayName || 'Outlook Account',
+      email: email,
+      provider: 'microsoft365',
+      authType: 'oauth2',
+      oauth,
+      folders: {
+        monitored: ['inbox'],
+        inbox: 'inbox',
+        sent: 'sentitems'
+      },
+      sync: {
+        maxAgeDays: 30,
+        analyzePdfs: true,
+        batchSize: 50
+      },
+      status: 'active'
+    }
+    
+    return this.addAccount(account)
+  }
+  
+  /**
+   * Set up Outlook OAuth credentials (Azure AD app)
+   */
+  setOutlookOAuthCredentials(clientId: string, clientSecret?: string): void {
+    saveOutlookOAuthConfig(clientId, clientSecret)
+  }
+  
+  /**
+   * Connect IMAP account with credentials
+   */
+  async connectImapAccount(config: {
+    displayName: string
+    email: string
+    host: string
+    port: number
+    username: string
+    password: string
+    security: 'ssl' | 'starttls' | 'none'
+    smtpHost?: string
+    smtpPort?: number
+  }): Promise<EmailAccountInfo> {
+    // Create account config for IMAP
+    const account: Omit<EmailAccountConfig, 'id' | 'createdAt' | 'updatedAt'> = {
+      displayName: config.displayName || config.email,
+      email: config.email,
+      provider: 'imap',
+      authType: 'password',
+      imap: {
+        host: config.host,
+        port: config.port,
+        security: config.security,
+        username: config.username,
+        password: config.password
+      },
+      smtp: config.smtpHost ? {
+        host: config.smtpHost,
+        port: config.smtpPort || 587,
+        security: config.security,
+        username: config.username,
+        password: config.password
+      } : undefined,
+      folders: {
+        monitored: ['INBOX'],
+        inbox: 'INBOX',
+        sent: 'Sent'
+      },
+      sync: {
+        maxAgeDays: 30,
+        analyzePdfs: true,
+        batchSize: 50
+      },
+      status: 'active'
+    }
+    
+    // Add account and test connection
+    const addedAccount = await this.addAccount(account)
+    
+    // Test the connection
+    const testResult = await this.testConnection(addedAccount.id)
+    if (!testResult.success) {
+      // Delete the account if connection fails
+      await this.deleteAccount(addedAccount.id)
+      throw new Error(`Connection failed: ${testResult.error}`)
+    }
+    
+    return addedAccount
+  }
+  
   // =================================================================
   // Private Helpers
   // =================================================================
@@ -463,10 +562,9 @@ class EmailGateway implements IEmailGateway {
         return new GmailProvider()
       case 'microsoft365':
         // TODO: Implement Microsoft provider
-        throw new Error('Microsoft 365 provider not yet implemented')
+        throw new Error('Microsoft 365 provider not yet implemented. Please use IMAP or Gmail.')
       case 'imap':
-        // TODO: Implement IMAP provider
-        throw new Error('IMAP provider not yet implemented')
+        return new ImapProvider()
       default:
         throw new Error(`Unknown provider: ${account.provider}`)
     }
