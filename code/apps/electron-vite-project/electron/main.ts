@@ -3339,6 +3339,72 @@ app.whenReady().then(async () => {
 
     // ===== EMAIL GATEWAY API Endpoints =====
     
+    // GET /api/email/credentials/gmail - Check if Gmail OAuth credentials are configured
+    httpApp.get('/api/email/credentials/gmail', async (_req, res) => {
+      try {
+        console.log('[HTTP-EMAIL] GET /api/email/credentials/gmail')
+        const fs = await import('fs')
+        const path = await import('path')
+        const configPath = path.join(app.getPath('userData'), 'email-oauth-config.json')
+        const exists = fs.existsSync(configPath)
+        res.json({ ok: true, data: { configured: exists } })
+      } catch (error: any) {
+        console.error('[HTTP-EMAIL] Error checking Gmail credentials:', error)
+        res.status(500).json({ ok: false, error: error.message })
+      }
+    })
+    
+    // POST /api/email/credentials/gmail - Save Gmail OAuth credentials
+    httpApp.post('/api/email/credentials/gmail', async (req, res) => {
+      try {
+        console.log('[HTTP-EMAIL] POST /api/email/credentials/gmail')
+        const { clientId, clientSecret } = req.body
+        if (!clientId || !clientSecret) {
+          res.status(400).json({ ok: false, error: 'clientId and clientSecret are required' })
+          return
+        }
+        const { saveOAuthConfig } = await import('./main/email/providers/gmail')
+        saveOAuthConfig(clientId, clientSecret)
+        res.json({ ok: true })
+      } catch (error: any) {
+        console.error('[HTTP-EMAIL] Error saving Gmail credentials:', error)
+        res.status(500).json({ ok: false, error: error.message })
+      }
+    })
+    
+    // GET /api/email/credentials/outlook - Check if Outlook OAuth credentials are configured
+    httpApp.get('/api/email/credentials/outlook', async (_req, res) => {
+      try {
+        console.log('[HTTP-EMAIL] GET /api/email/credentials/outlook')
+        const fs = await import('fs')
+        const path = await import('path')
+        const configPath = path.join(app.getPath('userData'), 'outlook-oauth-config.json')
+        const exists = fs.existsSync(configPath)
+        res.json({ ok: true, data: { configured: exists } })
+      } catch (error: any) {
+        console.error('[HTTP-EMAIL] Error checking Outlook credentials:', error)
+        res.status(500).json({ ok: false, error: error.message })
+      }
+    })
+    
+    // POST /api/email/credentials/outlook - Save Outlook OAuth credentials
+    httpApp.post('/api/email/credentials/outlook', async (req, res) => {
+      try {
+        console.log('[HTTP-EMAIL] POST /api/email/credentials/outlook')
+        const { clientId, clientSecret } = req.body
+        if (!clientId) {
+          res.status(400).json({ ok: false, error: 'clientId is required' })
+          return
+        }
+        const { saveOutlookOAuthConfig } = await import('./main/email/providers/outlook')
+        saveOutlookOAuthConfig(clientId, clientSecret)
+        res.json({ ok: true })
+      } catch (error: any) {
+        console.error('[HTTP-EMAIL] Error saving Outlook credentials:', error)
+        res.status(500).json({ ok: false, error: error.message })
+      }
+    })
+    
     // GET /api/email/accounts - List all email accounts
     httpApp.get('/api/email/accounts', async (_req, res) => {
       try {

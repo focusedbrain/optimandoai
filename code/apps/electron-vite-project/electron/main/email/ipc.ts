@@ -623,11 +623,21 @@ export async function showGmailSetupDialog(): Promise<{ success: boolean }> {
     
     win.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html))
     
-    ipcMain.once('gmail-setup-complete', (_e, result) => {
+    let resolved = false
+    
+    const handleComplete = (_e: any, result: any) => {
+      if (resolved) return
+      resolved = true
+      ipcMain.removeListener('gmail-setup-complete', handleComplete)
       resolve(result)
-    })
+    }
+    
+    ipcMain.once('gmail-setup-complete', handleComplete)
     
     win.on('closed', () => {
+      if (resolved) return
+      resolved = true
+      ipcMain.removeListener('gmail-setup-complete', handleComplete)
       resolve({ success: false })
     })
   })
@@ -882,11 +892,21 @@ export async function showOutlookSetupDialog(): Promise<{ success: boolean }> {
     
     win.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html))
     
-    ipcMain.once('outlook-setup-complete', (_e, result) => {
+    let resolved = false
+    
+    const handleComplete = (_e: any, result: any) => {
+      if (resolved) return
+      resolved = true
+      ipcMain.removeListener('outlook-setup-complete', handleComplete)
       resolve(result)
-    })
+    }
+    
+    ipcMain.once('outlook-setup-complete', handleComplete)
     
     win.on('closed', () => {
+      if (resolved) return
+      resolved = true
+      ipcMain.removeListener('outlook-setup-complete', handleComplete)
       resolve({ success: false })
     })
   })

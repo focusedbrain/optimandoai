@@ -1162,6 +1162,62 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       return true // Keep channel open for async response
     }
     
+    case 'EMAIL_CHECK_GMAIL_CREDENTIALS': {
+      console.log('[BG] 📧 Check Gmail credentials')
+      
+      fetchWithElectronAutoStart('http://127.0.0.1:51248/api/email/credentials/gmail')
+        .then(result => {
+          console.log('[BG] 📧 Gmail credentials check response:', result)
+          sendResponse(result.ok ? { ok: true, data: result.data } : { ok: false, error: result.error })
+        })
+      
+      return true
+    }
+    
+    case 'EMAIL_SAVE_GMAIL_CREDENTIALS': {
+      console.log('[BG] 📧 Save Gmail credentials')
+      
+      fetchWithElectronAutoStart('http://127.0.0.1:51248/api/email/credentials/gmail', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ clientId: msg.clientId, clientSecret: msg.clientSecret })
+      })
+        .then(result => {
+          console.log('[BG] 📧 Gmail credentials save response:', result)
+          sendResponse(result.ok ? { ok: true } : { ok: false, error: result.error })
+        })
+      
+      return true
+    }
+    
+    case 'EMAIL_CHECK_OUTLOOK_CREDENTIALS': {
+      console.log('[BG] 📧 Check Outlook credentials')
+      
+      fetchWithElectronAutoStart('http://127.0.0.1:51248/api/email/credentials/outlook')
+        .then(result => {
+          console.log('[BG] 📧 Outlook credentials check response:', result)
+          sendResponse(result.ok ? { ok: true, data: result.data } : { ok: false, error: result.error })
+        })
+      
+      return true
+    }
+    
+    case 'EMAIL_SAVE_OUTLOOK_CREDENTIALS': {
+      console.log('[BG] 📧 Save Outlook credentials')
+      
+      fetchWithElectronAutoStart('http://127.0.0.1:51248/api/email/credentials/outlook', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ clientId: msg.clientId, clientSecret: msg.clientSecret })
+      })
+        .then(result => {
+          console.log('[BG] 📧 Outlook credentials save response:', result)
+          sendResponse(result.ok ? { ok: true } : { ok: false, error: result.error })
+        })
+      
+      return true
+    }
+    
     case 'EMAIL_GET_PRESETS': {
       console.log('[BG] 📧 Email get IMAP presets request (via HTTP)')
       

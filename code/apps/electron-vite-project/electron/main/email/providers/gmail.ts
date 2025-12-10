@@ -314,49 +314,69 @@ export class GmailProvider extends BaseEmailProvider {
       throw new Error('OAuth client credentials not configured')
     }
     
+    // Clean up any existing server from previous attempts
+    this.cleanup()
+    
     return new Promise((resolve, reject) => {
+      let resolved = false
+      let timeoutId: NodeJS.Timeout | null = null
+      
+      const cleanupAndReject = (err: Error) => {
+        if (resolved) return
+        resolved = true
+        if (timeoutId) clearTimeout(timeoutId)
+        this.cleanup()
+        reject(err)
+      }
+      
+      const cleanupAndResolve = (tokens: EmailAccountConfig['oauth']) => {
+        if (resolved) return
+        resolved = true
+        if (timeoutId) clearTimeout(timeoutId)
+        this.cleanup()
+        resolve(tokens)
+      }
+      
+      // Set timeout for the entire flow (5 minutes)
+      timeoutId = setTimeout(() => {
+        cleanupAndReject(new Error('OAuth timed out - please try again'))
+      }, 5 * 60 * 1000)
+      
       // Start local server for callback
       this.startLocalServer()
         .then(codePromise => {
-          // Open auth window
+          // Open in system browser instead of Electron window
           const authUrl = this.buildAuthUrl(oauthConfig.clientId, email)
+          console.log('[Gmail] Opening OAuth in system browser...')
           
-          this.authWindow = new BrowserWindow({
-            width: 600,
-            height: 700,
-            webPreferences: {
-              nodeIntegration: false,
-              contextIsolation: true
-            },
-            title: 'Sign in with Google'
-          })
-          
-          this.authWindow.loadURL(authUrl)
-          
-          this.authWindow.on('closed', () => {
-            this.authWindow = null
-            if (this.localServer) {
-              this.localServer.close()
-              this.localServer = null
-            }
-          })
+          // Use shell.openExternal to open in default browser
+          const { shell } = require('electron')
+          shell.openExternal(authUrl)
           
           return codePromise
         })
         .then(code => this.exchangeCodeForTokens(oauthConfig, code))
         .then(tokens => {
-          if (this.authWindow) {
-            this.authWindow.close()
-          }
-          resolve(tokens)
+          cleanupAndResolve(tokens)
         })
         .catch(err => {
-          if (this.authWindow) {
-            this.authWindow.close()
-          }
-          reject(err)
+          cleanupAndReject(err)
         })
     })
+  }
+  
+  /**
+   * Clean up OAuth resources
+   */
+  private cleanup(): void {
+    if (this.authWindow) {
+      try { this.authWindow.close() } catch {}
+      this.authWindow = null
+    }
+    if (this.localServer) {
+      try { this.localServer.close() } catch {}
+      this.localServer = null
+    }
   }
   
   private buildAuthUrl(clientId: string, email?: string): string {
