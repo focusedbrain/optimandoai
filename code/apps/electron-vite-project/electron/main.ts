@@ -2,7 +2,7 @@ import { app, BrowserWindow, globalShortcut, Tray, Menu, Notification, screen } 
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 import os from 'node:os'
-import { exec, execSync } from 'node:child_process'
+import { execSync } from 'node:child_process'
 import { WebSocketServer } from 'ws'
 import express from 'express'
 import * as net from 'net'

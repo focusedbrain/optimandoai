@@ -8,6 +8,149 @@ let lastConnectionTime = 0;
 const WS_ENABLED = true;
 // Track sidebar visibility per tab
 const tabSidebarStatus = new Map<number, boolean>();
+// Track if we've already tried to launch Electron this session
+let electronLaunchAttempted = false;
+let electronLaunchInProgress = false;
+
+/**
+ * Check if Electron HTTP API is available
+ */
+async function isElectronRunning(): Promise<boolean> {
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 2000);
+    const response = await fetch('http://127.0.0.1:51248/api/orchestrator/status', {
+      method: 'GET',
+      signal: controller.signal
+    });
+    clearTimeout(timeoutId);
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Try to launch Electron app via protocol handler
+ * Returns true if Electron becomes available, false otherwise
+ */
+async function ensureElectronRunning(): Promise<boolean> {
+  // First check if already running
+  if (await isElectronRunning()) {
+    console.log('[BG] ✅ Electron app is already running');
+    return true;
+  }
+  
+  // Prevent concurrent launch attempts
+  if (electronLaunchInProgress) {
+    console.log('[BG] ⏳ Electron launch already in progress, waiting...');
+    // Wait for the other launch attempt to complete
+    for (let i = 0; i < 30; i++) {
+      await new Promise(r => setTimeout(r, 500));
+      if (!electronLaunchInProgress) break;
+      if (await isElectronRunning()) return true;
+    }
+    return isElectronRunning();
+  }
+  
+  electronLaunchInProgress = true;
+  console.log('[BG] 🚀 Electron app not running, attempting to launch...');
+  
+  try {
+    // Use protocol handler to launch Electron app
+    // The opengiraffe:// protocol is registered by the Electron app
+    // In service worker context, we use chrome.tabs API to trigger the protocol
+    try {
+      // Create a temporary tab to trigger the protocol, then close it
+      const tab = await chrome.tabs.create({ 
+        url: 'opengiraffe://start',
+        active: false 
+      });
+      // Close the tab after a short delay (protocol handler should have launched by then)
+      setTimeout(() => {
+        if (tab.id) {
+          chrome.tabs.remove(tab.id).catch(() => {});
+        }
+      }, 500);
+    } catch (tabErr) {
+      console.log('[BG] Could not create tab for protocol launch:', tabErr);
+      // Fallback: try to message content scripts to trigger protocol
+      try {
+        const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+        if (tabs[0]?.id) {
+          chrome.tabs.sendMessage(tabs[0].id, { 
+            type: 'LAUNCH_ELECTRON_PROTOCOL',
+            url: 'opengiraffe://start'
+          }).catch(() => {});
+        }
+      } catch {}
+    }
+    
+    // Wait for Electron to become available (up to 15 seconds)
+    console.log('[BG] ⏳ Waiting for Electron to start...');
+    for (let i = 0; i < 30; i++) {
+      await new Promise(r => setTimeout(r, 500));
+      if (await isElectronRunning()) {
+        console.log('[BG] ✅ Electron app is now running');
+        electronLaunchAttempted = true;
+        electronLaunchInProgress = false;
+        return true;
+      }
+    }
+    
+    console.log('[BG] ❌ Electron app did not start within timeout');
+    electronLaunchAttempted = true;
+    electronLaunchInProgress = false;
+    return false;
+  } catch (err) {
+    console.error('[BG] ❌ Failed to launch Electron:', err);
+    electronLaunchInProgress = false;
+    return false;
+  }
+}
+
+/**
+ * Execute an HTTP request to Electron, auto-starting if needed
+ */
+async function fetchWithElectronAutoStart(
+  url: string, 
+  options: RequestInit = {}
+): Promise<{ ok: boolean; data?: any; error?: string }> {
+  // Ensure Electron is running
+  const electronRunning = await ensureElectronRunning();
+  if (!electronRunning) {
+    return { 
+      ok: false, 
+      error: 'Electron app is not running. Please start OpenGiraffe manually or check if it is installed.' 
+    };
+  }
+  
+  try {
+    const response = await fetch(url, options);
+    const contentType = response.headers.get('content-type') || '';
+    
+    if (!response.ok) {
+      const text = await response.text();
+      console.error('[BG] HTTP error:', response.status, text.slice(0, 200));
+      return { ok: false, error: `Server error (${response.status}): ${text.slice(0, 100)}` };
+    }
+    
+    if (!contentType.includes('application/json')) {
+      const text = await response.text();
+      console.error('[BG] Non-JSON response:', contentType, text.slice(0, 200));
+      return { ok: false, error: 'Invalid response from server' };
+    }
+    
+    const data = await response.json();
+    return { ok: true, data };
+  } catch (err: any) {
+    console.error('[BG] Fetch error:', err);
+    if (err.message?.includes('Failed to fetch') || err.name === 'AbortError') {
+      return { ok: false, error: 'Cannot connect to Electron app. Please ensure OpenGiraffe is running.' };
+    }
+    return { ok: false, error: err.message || 'Request failed' };
+  }
+}
 
 // Robust WebSocket connection with exponential backoff
 function connectToWebSocketServer(forceReconnect = false): Promise<boolean> {
@@ -916,71 +1059,67 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       break
     }
     
-    // ===== EMAIL GATEWAY MESSAGE HANDLERS (using HTTP API for reliability) =====
+    // ===== EMAIL GATEWAY MESSAGE HANDLERS (using HTTP API with auto-start) =====
     case 'EMAIL_LIST_ACCOUNTS': {
-      console.log('[BG] 📧 Email list accounts request (via HTTP)')
+      console.log('[BG] 📧 Email list accounts request (with auto-start)')
       
-      // Try HTTP API first (more reliable than WebSocket)
-      fetch('http://127.0.0.1:51248/api/email/accounts')
-        .then(res => res.json())
-        .then(data => {
-          console.log('[BG] 📧 Email accounts response:', data)
-          sendResponse(data)
-        })
-        .catch(err => {
-          console.error('[BG] 📧 Email list error:', err)
-          sendResponse({ ok: false, error: err.message || 'Failed to fetch accounts' })
+      fetchWithElectronAutoStart('http://127.0.0.1:51248/api/email/accounts')
+        .then(result => {
+          console.log('[BG] 📧 Email accounts response:', result)
+          if (result.ok) {
+            sendResponse(result.data)
+          } else {
+            sendResponse({ ok: false, error: result.error })
+          }
         })
       
       return true // Keep channel open for async response
     }
     
     case 'EMAIL_CONNECT_GMAIL': {
-      console.log('[BG] 📧 Email connect Gmail request (via HTTP)')
+      console.log('[BG] 📧 Email connect Gmail request (with auto-start)')
       
-      fetch('http://127.0.0.1:51248/api/email/accounts/connect/gmail', {
+      fetchWithElectronAutoStart('http://127.0.0.1:51248/api/email/accounts/connect/gmail', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ displayName: msg.displayName || 'Gmail Account' })
       })
-        .then(res => res.json())
-        .then(data => {
-          console.log('[BG] 📧 Gmail connect response:', data)
-          sendResponse(data)
-        })
-        .catch(err => {
-          console.error('[BG] 📧 Gmail connect error:', err)
-          sendResponse({ ok: false, error: err.message || 'Failed to connect Gmail' })
+        .then(result => {
+          console.log('[BG] 📧 Gmail connect response:', result)
+          if (result.ok) {
+            sendResponse(result.data)
+          } else {
+            sendResponse({ ok: false, error: result.error })
+          }
         })
       
       return true // Keep channel open for async response
     }
     
     case 'EMAIL_CONNECT_OUTLOOK': {
-      console.log('[BG] 📧 Email connect Outlook request (via HTTP)')
+      console.log('[BG] 📧 Email connect Outlook request (with auto-start)')
       
-      fetch('http://127.0.0.1:51248/api/email/accounts/connect/outlook', {
+      fetchWithElectronAutoStart('http://127.0.0.1:51248/api/email/accounts/connect/outlook', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ displayName: msg.displayName || 'Outlook Account' })
       })
-        .then(res => res.json())
-        .then(data => {
-          console.log('[BG] 📧 Outlook connect response:', data)
-          sendResponse(data)
-        })
-        .catch(err => {
-          console.error('[BG] 📧 Outlook connect error:', err)
-          sendResponse({ ok: false, error: err.message || 'Failed to connect Outlook' })
+        .then(result => {
+          console.log('[BG] 📧 Outlook connect response:', result)
+          if (result.ok) {
+            sendResponse(result.data)
+          } else {
+            sendResponse({ ok: false, error: result.error })
+          }
         })
       
       return true // Keep channel open for async response
     }
     
     case 'EMAIL_CONNECT_IMAP': {
-      console.log('[BG] 📧 Email connect IMAP request (via HTTP)')
+      console.log('[BG] 📧 Email connect IMAP request (with auto-start)')
       
-      fetch('http://127.0.0.1:51248/api/email/accounts/connect/imap', {
+      fetchWithElectronAutoStart('http://127.0.0.1:51248/api/email/accounts/connect/imap', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -993,33 +1132,31 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           security: msg.security
         })
       })
-        .then(res => res.json())
-        .then(data => {
-          console.log('[BG] 📧 IMAP connect response:', data)
-          sendResponse(data)
-        })
-        .catch(err => {
-          console.error('[BG] 📧 IMAP connect error:', err)
-          sendResponse({ ok: false, error: err.message || 'Failed to connect IMAP' })
+        .then(result => {
+          console.log('[BG] 📧 IMAP connect response:', result)
+          if (result.ok) {
+            sendResponse(result.data)
+          } else {
+            sendResponse({ ok: false, error: result.error })
+          }
         })
       
       return true // Keep channel open for async response
     }
     
     case 'EMAIL_DELETE_ACCOUNT': {
-      console.log('[BG] 📧 Email delete account request (via HTTP):', msg.accountId)
+      console.log('[BG] 📧 Email delete account request (with auto-start):', msg.accountId)
       
-      fetch(`http://127.0.0.1:51248/api/email/accounts/${msg.accountId}`, {
+      fetchWithElectronAutoStart(`http://127.0.0.1:51248/api/email/accounts/${msg.accountId}`, {
         method: 'DELETE'
       })
-        .then(res => res.json())
-        .then(data => {
-          console.log('[BG] 📧 Delete account response:', data)
-          sendResponse(data)
-        })
-        .catch(err => {
-          console.error('[BG] 📧 Delete account error:', err)
-          sendResponse({ ok: false, error: err.message || 'Failed to delete account' })
+        .then(result => {
+          console.log('[BG] 📧 Delete account response:', result)
+          if (result.ok) {
+            sendResponse(result.data)
+          } else {
+            sendResponse({ ok: false, error: result.error })
+          }
         })
       
       return true // Keep channel open for async response
