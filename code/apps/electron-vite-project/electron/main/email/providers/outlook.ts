@@ -23,6 +23,7 @@ import {
   SendEmailPayload, 
   SendResult 
 } from '../types'
+import { sanitizeHtmlToText } from '../sanitizer'
 
 /**
  * Microsoft Graph API scopes
@@ -32,6 +33,7 @@ const OUTLOOK_SCOPES = [
   'profile',
   'email',
   'offline_access',
+  'https://graph.microsoft.com/User.Read',
   'https://graph.microsoft.com/Mail.Read',
   'https://graph.microsoft.com/Mail.ReadWrite',
   'https://graph.microsoft.com/Mail.Send'
@@ -153,8 +155,15 @@ export class OutlookProvider extends BaseEmailProvider {
     // Build query parameters
     const params = new URLSearchParams()
     params.append('$top', String(options?.limit || 50))
-    params.append('$orderby', 'receivedDateTime desc')
     params.append('$select', 'id,conversationId,subject,from,toRecipients,ccRecipients,receivedDateTime,body,isRead,flag,isDraft,hasAttachments')
+    
+    // Check if we'll be using $search (Microsoft Graph doesn't allow $orderby with $search)
+    const useSearch = !!(options?.search || options?.from || options?.subject)
+    
+    // Only add $orderby if NOT using $search
+    if (!useSearch) {
+      params.append('$orderby', 'receivedDateTime desc')
+    }
     
     // Build filter
     const filters: string[] = []
@@ -184,11 +193,11 @@ export class OutlookProvider extends BaseEmailProvider {
     }
     
     // Handle search
-    if (options?.search || options?.from || options?.subject) {
+    if (useSearch) {
       const searchTerms: string[] = []
-      if (options.search) searchTerms.push(options.search)
-      if (options.from) searchTerms.push(`from:${options.from}`)
-      if (options.subject) searchTerms.push(`subject:${options.subject}`)
+      if (options?.search) searchTerms.push(options.search)
+      if (options?.from) searchTerms.push(`from:${options.from}`)
+      if (options?.subject) searchTerms.push(`subject:${options.subject}`)
       params.append('$search', `"${searchTerms.join(' ')}"`)
     }
     
@@ -361,14 +370,26 @@ export class OutlookProvider extends BaseEmailProvider {
       console.log('[Outlook] Tokens received!')
       
       // Get user email from profile
+      console.log('[Outlook] Setting access token and fetching profile...')
       this.accessToken = tokens.accessToken
-      const profile = await this.graphApiRequest('GET', '/me')
-      const email = profile.mail || profile.userPrincipalName || ''
-      console.log('[Outlook] User email:', email)
+      this.refreshToken = tokens.refreshToken
+      this.tokenExpiresAt = tokens.expiresAt
       
-      this.cleanup()
-      return { oauth: tokens, email }
+      try {
+        const profile = await this.graphApiRequest('GET', '/me')
+        const email = profile.mail || profile.userPrincipalName || ''
+        console.log('[Outlook] User email:', email)
+        
+        this.cleanup()
+        return { oauth: tokens, email }
+      } catch (profileErr: any) {
+        console.error('[Outlook] Failed to get profile:', profileErr.message || profileErr)
+        // Still return the tokens even if profile fetch fails
+        this.cleanup()
+        return { oauth: tokens, email: '' }
+      }
     } catch (err: any) {
+      console.error('[Outlook] OAuth flow error:', err.message || err)
       this.cleanup()
       throw err
     }
@@ -453,7 +474,7 @@ export class OutlookProvider extends BaseEmailProvider {
     
     // Start server and wait for it to be ready
     await new Promise<void>((resolve, reject) => {
-      console.log('[Outlook] About to listen on port 58925...')
+      console.log('[Outlook] About to listen on port 51249...')
       this.localServer!.listen(51249, '127.0.0.1', () => {
         console.log('[Outlook] OAuth callback server listening on port 51249')
         resolve()
@@ -678,7 +699,7 @@ export class OutlookProvider extends BaseEmailProvider {
       } : undefined,
       date: new Date(raw.receivedDateTime),
       bodyHtml: raw.body?.contentType === 'html' ? raw.body.content : undefined,
-      bodyText: raw.body?.contentType === 'text' ? raw.body.content : this.stripHtml(raw.body?.content || ''),
+      bodyText: raw.body?.contentType === 'text' ? raw.body.content : sanitizeHtmlToText(raw.body?.content || ''),
       flags: {
         seen: raw.isRead || false,
         flagged: raw.flag?.flagStatus === 'flagged',
@@ -696,14 +717,6 @@ export class OutlookProvider extends BaseEmailProvider {
     }
   }
   
-  private stripHtml(html: string): string {
-    return html
-      .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
-      .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
-      .replace(/<[^>]+>/g, ' ')
-      .replace(/\s+/g, ' ')
-      .trim()
-  }
 }
 
 export const outlookProvider = new OutlookProvider()

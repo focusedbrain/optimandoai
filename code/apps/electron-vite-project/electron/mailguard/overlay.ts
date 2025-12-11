@@ -486,6 +486,52 @@ function getOverlayHtml(): string {
       min-height: 200px;
     }
     
+    /* Link reveal buttons */
+    .link-reveal-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 2px 8px;
+      margin: 0 2px;
+      background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+      color: white;
+      border: none;
+      border-radius: 4px;
+      font-size: 11px;
+      font-weight: 500;
+      cursor: pointer;
+      vertical-align: middle;
+      transition: all 0.2s ease;
+    }
+    .link-reveal-btn:hover {
+      transform: scale(1.05);
+      box-shadow: 0 2px 8px rgba(99, 102, 241, 0.4);
+    }
+    .link-reveal-btn .icon {
+      font-size: 10px;
+    }
+    
+    .link-url-revealed {
+      display: inline-block;
+      margin: 4px 0;
+      padding: 6px 10px;
+      background: #fef3c7;
+      border: 1px solid #f59e0b;
+      border-radius: 6px;
+      font-family: monospace;
+      font-size: 12px;
+      color: #92400e;
+      word-break: break-all;
+      max-width: 100%;
+    }
+    .link-url-revealed .label {
+      font-size: 10px;
+      color: #b45309;
+      font-family: sans-serif;
+      display: block;
+      margin-bottom: 2px;
+    }
+    
     .attachments {
       margin-top: 20px;
       padding-top: 20px;
@@ -764,16 +810,16 @@ function getOverlayHtml(): string {
       
       // Info box - shows different content based on whether this is preview or full email
       // Check for explicit flag or specific markers that indicate API-fetched content
-      const isFullEmail = email.isFromApi === true || (email.body && email.body.includes('--- Full email content fetched via Gmail API ---'))
+      const isFullEmail = email.isFromApi === true || (email.body && (email.body.includes('--- Full email content fetched via') || email.body.length > 500))
       
       const apiInfoBox = isFullEmail 
         ? '<div class="api-info-box" style="border-color: ' + themeColors.primary + '; background: linear-gradient(135deg, ' + themeColors.bgLight + ' 0%, ' + themeColors.bgLight + ' 100%);">' +
             '<div class="api-info-header">' +
               '<span class="icon">✅</span>' +
-              '<span class="title" style="color: ' + themeColors.textMedium + ';">Full Email via Gmail API</span>' +
+              '<span class="title" style="color: ' + themeColors.textMedium + ';">Full Email via Secure API</span>' +
             '</div>' +
             '<div class="api-info-text" style="color: ' + themeColors.textDark + ';">' +
-              'This email was fetched securely via the Gmail API. No tracking pixels, scripts, or active content were executed.' +
+              'This email was fetched securely via the Email API. No tracking pixels, scripts, or active content were executed.' +
             '</div>' +
           '</div>'
         : '<div class="api-info-box">' +
@@ -783,13 +829,27 @@ function getOverlayHtml(): string {
             '</div>' +
             '<div class="api-info-text">' +
               'For your protection, only the email preview is shown. The full email content was never loaded or rendered.<br><br>' +
-              'To view full email content securely, set up Gmail API access.' +
+              'To view full email content securely, connect your email account in the WR Chat sidebar.' +
             '</div>' +
             '<button class="api-setup-btn" id="btn-api-setup">' +
               '<span class="icon">⚙️</span>' +
-              '<span>Set up Gmail API</span>' +
+              '<span>Connect Email Account</span>' +
             '</button>' +
           '</div>';
+      
+      // Process body text - convert link markers to buttons
+      let bodyHtml = escapeHtml(email.body || '(no preview available)');
+      
+      // Replace {{LINK_BUTTON:url}} markers with reveal buttons
+      let linkCounter = 0;
+      bodyHtml = bodyHtml.replace(/\{\{LINK_BUTTON:([^}]+)\}\}/g, (match, url) => {
+        linkCounter++;
+        const safeUrl = escapeHtml(url);
+        return '<button class="link-reveal-btn" data-link-id="link-' + linkCounter + '" data-url="' + safeUrl + '">' +
+               '<span class="icon">🔗</span><span>Show Link</span></button>' +
+               '<span id="link-' + linkCounter + '" class="link-url-revealed" style="display: none;">' +
+               '<span class="label">Link URL (not clickable for security):</span>' + safeUrl + '</span>';
+      });
       
       emailContent.innerHTML = 
         '<div class="safe-notice"><span class="icon">🛡️</span><span>This is a secure preview. The email was never opened or rendered.</span></div>' +
@@ -799,9 +859,26 @@ function getOverlayHtml(): string {
           '<div class="meta-row"><span class="meta-label">Date:</span><span class="meta-value">' + escapeHtml(email.date || '(unknown)') + '</span></div>' +
         '</div>' +
         '<div class="subject">' + escapeHtml(email.subject || '(no subject)') + '</div>' +
-        '<div class="email-body">' + escapeHtml(email.body || '(no preview available)') + '</div>' +
+        '<div class="email-body">' + bodyHtml + '</div>' +
         attachmentsHtml +
         apiInfoBox;
+      
+      // Handle link reveal button clicks
+      document.querySelectorAll('.link-reveal-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          const linkId = btn.getAttribute('data-link-id');
+          const urlSpan = document.getElementById(linkId);
+          if (urlSpan) {
+            if (urlSpan.style.display === 'none') {
+              urlSpan.style.display = 'inline-block';
+              btn.innerHTML = '<span class="icon">🔗</span><span>Hide Link</span>';
+            } else {
+              urlSpan.style.display = 'none';
+              btn.innerHTML = '<span class="icon">🔗</span><span>Show Link</span>';
+            }
+          }
+        });
+      });
       
       // Handle API setup button click
       const apiSetupBtn = document.getElementById('btn-api-setup');
