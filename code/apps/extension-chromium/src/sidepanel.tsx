@@ -3628,7 +3628,7 @@ function SidepanelOrchestrator() {
                         <div style={{ fontSize: '24px', marginBottom: '8px' }}>📧</div>
                         <div style={{ fontSize: '13px', color: theme === 'professional' ? '#64748b' : 'rgba(255,255,255,0.7)', marginBottom: '4px' }}>No email accounts connected</div>
                         <div style={{ fontSize: '11px', color: theme === 'professional' ? '#94a3b8' : 'rgba(255,255,255,0.5)' }}>
-                          Connect your Gmail to view emails securely in MailGuard
+                          Connect your email account to view emails securely in MailGuard
                         </div>
                       </div>
                     ) : (
@@ -3708,7 +3708,7 @@ function SidepanelOrchestrator() {
                       }}>
                         <span style={{ fontSize: '14px' }}>🛡️</span>
                         <div style={{ fontSize: '11px', color: theme === 'professional' ? '#166534' : 'rgba(255,255,255,0.8)', lineHeight: '1.5' }}>
-                          <strong>MailGuard Active:</strong> When you visit Gmail, full email content will be fetched securely via the API. No tracking pixels or scripts will execute.
+                          <strong>MailGuard Active:</strong> When you view emails, full content will be fetched securely via the API. No tracking pixels or scripts will execute.
                         </div>
                       </div>
                     )}
@@ -4594,7 +4594,7 @@ Write your message with the confidence that it will be protected by WRGuard encr
                       <div style={{ fontSize: '24px', marginBottom: '8px' }}>📧</div>
                       <div style={{ fontSize: '13px', color: theme === 'professional' ? '#64748b' : 'rgba(255,255,255,0.7)', marginBottom: '4px' }}>No email accounts connected</div>
                       <div style={{ fontSize: '11px', color: theme === 'professional' ? '#94a3b8' : 'rgba(255,255,255,0.5)' }}>
-                        Connect your Gmail to view emails securely in MailGuard
+                        Connect your email account to view emails securely in MailGuard
                       </div>
                     </div>
                   ) : (
@@ -4674,7 +4674,7 @@ Write your message with the confidence that it will be protected by WRGuard encr
                     }}>
                       <span style={{ fontSize: '14px' }}>🛡️</span>
                       <div style={{ fontSize: '11px', color: theme === 'professional' ? '#166534' : 'rgba(255,255,255,0.8)', lineHeight: '1.5' }}>
-                        <strong>MailGuard Active:</strong> When you visit Gmail, full email content will be fetched securely via the API.
+                        <strong>MailGuard Active:</strong> When you view emails, full content will be fetched securely via the API.
                       </div>
                     </div>
                   )}
@@ -5460,7 +5460,7 @@ Write your message with the confidence that it will be protected by WRGuard encr
                       <div style={{ fontSize: '24px', marginBottom: '8px' }}>📧</div>
                       <div style={{ fontSize: '13px', color: theme === 'professional' ? '#64748b' : 'rgba(255,255,255,0.7)', marginBottom: '4px' }}>No email accounts connected</div>
                       <div style={{ fontSize: '11px', color: theme === 'professional' ? '#94a3b8' : 'rgba(255,255,255,0.5)' }}>
-                        Connect your Gmail to view emails securely in MailGuard
+                        Connect your email account to view emails securely in MailGuard
                       </div>
                     </div>
                   ) : (
@@ -5540,7 +5540,7 @@ Write your message with the confidence that it will be protected by WRGuard encr
                     }}>
                       <span style={{ fontSize: '14px' }}>🛡️</span>
                       <div style={{ fontSize: '11px', color: theme === 'professional' ? '#166534' : 'rgba(255,255,255,0.8)', lineHeight: '1.5' }}>
-                        <strong>MailGuard Active:</strong> When you visit Gmail, full email content will be fetched securely via the API.
+                        <strong>MailGuard Active:</strong> When you view emails, full content will be fetched securely via the API.
                       </div>
                     </div>
                   )}

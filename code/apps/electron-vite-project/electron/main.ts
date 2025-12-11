@@ -1,4 +1,4 @@
-import { app, BrowserWindow, globalShortcut, Tray, Menu, Notification, screen } from 'electron'
+import { app, BrowserWindow, globalShortcut, Tray, Menu, Notification, screen, dialog, shell } from 'electron'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 import os from 'node:os'
@@ -448,44 +448,69 @@ async function createWindow() {
         const accounts = await emailGateway.listAccounts()
         
         if (accounts.length > 0) {
-          console.log('[MAIN] Email Gateway has connected accounts, trying to fetch via API...')
+          console.log('[MAIN] Email Gateway has', accounts.length, 'connected accounts, trying to fetch via API...')
           
           // Get the preview data for this row from storage
           const rowData = emailRowPreviewData.get(rowId)
           if (rowData && (rowData.from || rowData.subject)) {
-            // Use first active Gmail account
-            const gmailAccount = accounts.find(a => a.provider === 'gmail' && a.status === 'active')
+            // Try all active accounts (Gmail, Outlook, etc.)
+            const activeAccounts = accounts.filter(a => a.status === 'active')
+            console.log('[MAIN] Active accounts:', activeAccounts.map(a => `${a.provider}:${a.email}`))
             
-            if (gmailAccount) {
-              // Search for the message by from/subject
-              const messages = await emailGateway.listMessages(gmailAccount.id, {
-                from: rowData.from,
-                subject: rowData.subject,
-                limit: 1
-              })
-              
-              if (messages.length > 0) {
-                // Fetch full message
-                const fullMessage = await emailGateway.getMessage(gmailAccount.id, messages[0].id)
-                if (fullMessage) {
-                  console.log('[MAIN] Fetched email via Email Gateway')
-                  showSanitizedEmail({
-                    from: `${fullMessage.from.name || ''} <${fullMessage.from.email}>`.trim(),
-                    to: fullMessage.to.map(t => t.email).join(', '),
-                    subject: fullMessage.subject,
-                    date: fullMessage.date,
-                    body: fullMessage.bodyText,
-                    attachments: [], // Attachments handled separately
-                    isFromApi: true  // Mark as API-fetched
-                  })
-                  return
+            for (const account of activeAccounts) {
+              try {
+                console.log('[MAIN] Trying to fetch via', account.provider, 'account:', account.email)
+                console.log('[MAIN] Search criteria - from:', rowData.from, 'subject:', rowData.subject || '(empty)')
+                
+                // Search for the message by from (and subject if available)
+                // If subject is empty, search by sender only and get recent messages
+                const searchOptions: any = {
+                  limit: rowData.subject ? 1 : 10  // Get more if no subject to filter
                 }
+                if (rowData.from) searchOptions.from = rowData.from
+                if (rowData.subject) searchOptions.subject = rowData.subject
+                
+                const messages = await emailGateway.listMessages(account.id, searchOptions)
+                
+                console.log('[MAIN] Search returned', messages.length, 'messages')
+                if (messages.length > 0) {
+                  // If no subject was in search, try to find best match by sender
+                  let bestMatch = messages[0]
+                  if (!rowData.subject && messages.length > 1) {
+                    console.log('[MAIN] Multiple messages found, using most recent from sender')
+                  }
+                  
+                  // Fetch full message
+                  const fullMessage = await emailGateway.getMessage(account.id, bestMatch.id)
+                  if (fullMessage) {
+                    console.log('[MAIN] ✅ Fetched email via Email Gateway (' + account.provider + ')')
+                    console.log('[MAIN] Email subject:', fullMessage.subject)
+                    showSanitizedEmail({
+                      from: `${fullMessage.from.name || ''} <${fullMessage.from.email}>`.trim(),
+                      to: fullMessage.to.map(t => t.email).join(', '),
+                      subject: fullMessage.subject,
+                      date: fullMessage.date,
+                      body: fullMessage.bodyText,
+                      attachments: [], // Attachments handled separately
+                      isFromApi: true  // Mark as API-fetched
+                    })
+                    return
+                  }
+                } else {
+                  console.log('[MAIN] No messages found matching criteria')
+                }
+              } catch (accountErr: any) {
+                console.log('[MAIN] Failed to fetch from', account.provider, ':', accountErr?.message || accountErr)
               }
             }
+          } else {
+            console.log('[MAIN] No row data available for rowId:', rowId)
           }
+        } else {
+          console.log('[MAIN] No connected accounts found')
         }
-      } catch (err) {
-        console.log('[MAIN] Email Gateway not available:', err)
+      } catch (err: any) {
+        console.log('[MAIN] Email Gateway error:', err?.message || err)
       }
       
       // Try legacy Gmail API as fallback
@@ -518,10 +543,14 @@ async function createWindow() {
       }
       
       // Fall back to extension preview extraction
+      console.log('[MAIN] Falling back to extension preview extraction for row:', rowId)
       wsClients.forEach(client => {
         try {
           client.send(JSON.stringify({ type: 'MAILGUARD_EXTRACT_EMAIL', rowId }))
-        } catch {}
+          console.log('[MAIN] Sent MAILGUARD_EXTRACT_EMAIL to WebSocket client')
+        } catch (wsErr) {
+          console.log('[MAIN] WebSocket send error:', wsErr)
+        }
       })
     })
     
@@ -532,49 +561,46 @@ async function createWindow() {
       closeLightbox()
     })
     
-    // Handle Gmail API setup request
+    // Handle Email API setup request (from overlay "Connect Email Account" button)
     ipcMain.on('mailguard-api-setup', async () => {
-      console.log('[MAIN] Gmail API setup requested')
-      const { dialog } = require('electron')
+      console.log('[MAIN] Email API setup requested')
       
       // Check if Email Gateway has connected accounts
       try {
         const { emailGateway } = await import('./main/email/gateway')
         const accounts = await emailGateway.listAccounts()
-        const gmailAccount = accounts.find(a => a.provider === 'gmail')
+        const activeAccounts = accounts.filter(a => a.status === 'active')
         
-        if (gmailAccount) {
-          // Already connected - offer to disconnect
+        if (activeAccounts.length > 0) {
+          // Already connected - show info and option to manage
+          const accountList = activeAccounts.map(a => `• ${a.provider === 'microsoft365' ? 'Outlook' : a.provider}: ${a.email || a.displayName}`).join('\n')
           const result = await dialog.showMessageBox({
             type: 'info',
-            title: 'Gmail Connected',
-            message: 'Gmail is Connected',
-            detail: `WR MailGuard is connected to ${gmailAccount.email || gmailAccount.displayName}. Full email content is being fetched securely via the Gmail API.`,
-            buttons: ['Disconnect', 'Keep Connected']
+            title: 'Email Connected',
+            message: 'Email Accounts Connected',
+            detail: `WR MailGuard is connected to:\n${accountList}\n\nFull email content is being fetched securely via the API. To manage accounts, open the WR Chat sidebar → Email section.`,
+            buttons: ['OK', 'Manage Accounts']
           })
           
-          if (result.response === 0) {
-            await emailGateway.deleteAccount(gmailAccount.id)
+          if (result.response === 1) {
+            // User wants to manage - just close dialog, they can use sidebar
             dialog.showMessageBox({
               type: 'info',
-              title: 'Disconnected',
-              message: 'Gmail Disconnected',
-              detail: 'You have been disconnected from Gmail. Only email previews will be shown.'
+              title: 'Manage Accounts',
+              message: 'Open WR Chat Sidebar',
+              detail: 'To add or remove email accounts, click the WR Chat extension icon and go to the Email section.'
             })
           }
           return
         }
         
-        // No account - start setup
-        const account = await emailGateway.connectGmailAccount('Gmail')
-        if (account) {
-          dialog.showMessageBox({
-            type: 'info',
-            title: 'Gmail Connected!',
-            message: 'Successfully connected to Gmail',
-            detail: 'Full email content will now be fetched securely via the Gmail API. No tracking pixels or scripts will execute.'
-          })
-        }
+        // No accounts - show setup instructions
+        dialog.showMessageBox({
+          type: 'info',
+          title: 'Connect Email',
+          message: 'Set up Email Connection',
+          detail: 'To view full email content securely:\n\n1. Click the WR Chat extension icon\n2. Go to the Email section\n3. Click "Connect Email"\n4. Choose Gmail or Outlook\n\nOnce connected, full email content will be fetched via the secure API.'
+        })
         return
       } catch (err: any) {
         console.log('[MAIN] Email Gateway not available, falling back to legacy setup:', err.message)
@@ -626,7 +652,7 @@ async function createWindow() {
       
       if (setupResult.response === 1) {
         // Open Google Cloud Console
-        require('electron').shell.openExternal('https://console.cloud.google.com/apis/credentials')
+        shell.openExternal('https://console.cloud.google.com/apis/credentials')
         return
       }
       

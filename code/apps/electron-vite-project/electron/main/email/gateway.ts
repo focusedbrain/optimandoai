@@ -32,7 +32,7 @@ import {
 } from './types'
 import { IEmailProvider, RawEmailMessage } from './providers/base'
 import { GmailProvider, gmailProvider, saveOAuthConfig } from './providers/gmail'
-import { outlookProvider, saveOutlookOAuthConfig } from './providers/outlook'
+import { OutlookProvider, outlookProvider, saveOutlookOAuthConfig } from './providers/outlook'
 import { ImapProvider } from './providers/imap'
 import {
   sanitizeHtmlToText,
@@ -112,15 +112,23 @@ class EmailGateway implements IEmailGateway {
       updatedAt: now
     }
     
-    // Validate and test connection
+    // Add account first so testConnection can find it
+    this.accounts.push(account)
+    console.log('[EmailGateway] Added account:', account.id, account.email, account.provider)
+    
+    // Now test connection
     const testResult = await this.testConnection(account.id)
     if (!testResult.success) {
+      console.log('[EmailGateway] Connection test failed:', testResult.error)
       account.status = 'error'
       account.lastError = testResult.error
+    } else {
+      console.log('[EmailGateway] Connection test successful')
+      account.status = 'active'
     }
     
-    this.accounts.push(account)
     saveAccounts(this.accounts)
+    console.log('[EmailGateway] Saved', this.accounts.length, 'accounts')
     
     return this.toAccountInfo(account)
   }
@@ -561,8 +569,7 @@ class EmailGateway implements IEmailGateway {
       case 'gmail':
         return new GmailProvider()
       case 'microsoft365':
-        // TODO: Implement Microsoft provider
-        throw new Error('Microsoft 365 provider not yet implemented. Please use IMAP or Gmail.')
+        return new OutlookProvider()
       case 'imap':
         return new ImapProvider()
       default:
