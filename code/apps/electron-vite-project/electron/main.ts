@@ -438,6 +438,23 @@ async function createWindow() {
       })
     })
     
+    // Handle scroll events from overlay - forward to browser via WebSocket
+    ipcMain.on('mailguard-scroll', (_e, scrollData: { deltaX: number; deltaY: number; x: number; y: number }) => {
+      console.log('[MAIN] Scroll event received from overlay, deltaY:', scrollData.deltaY)
+      // Forward scroll event to content script via WebSocket
+      wsClients.forEach(client => {
+        try {
+          client.send(JSON.stringify({ 
+            type: 'MAILGUARD_SCROLL', 
+            deltaX: scrollData.deltaX,
+            deltaY: scrollData.deltaY,
+            x: scrollData.x,
+            y: scrollData.y
+          }))
+        } catch {}
+      })
+    })
+    
     // Handle when user clicks "Open Safe Email" button
     ipcMain.on('mailguard-open-email', async (_e, rowId: string) => {
       console.log('[MAIN] MailGuard open email requested for row:', rowId)

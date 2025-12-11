@@ -353,6 +353,34 @@ function connectToWebSocketServer(forceReconnect = false): Promise<boolean> {
                   console.log('[BG] 🛡️ No email tab found for extraction')
                 }
               })
+            } else if (data.type === 'MAILGUARD_SCROLL') {
+              // Forward scroll events to email tabs for passthrough scrolling
+              console.log('[BG] 🛡️ MAILGUARD_SCROLL received, forwarding to tabs...')
+              chrome.tabs.query({}, (tabs) => {
+                const emailTabs = tabs.filter(t => 
+                  t.url?.includes('mail.google.com') || 
+                  t.url?.includes('outlook.live.com') ||
+                  t.url?.includes('outlook.office.com') ||
+                  t.url?.includes('outlook.office365.com')
+                )
+                console.log('[BG] 🛡️ Found', emailTabs.length, 'email tabs')
+                emailTabs.forEach(tab => {
+                  if (tab.id) {
+                    console.log('[BG] 🛡️ Sending scroll to tab:', tab.id, tab.url)
+                    try { 
+                      chrome.tabs.sendMessage(tab.id, { 
+                        type: 'MAILGUARD_SCROLL', 
+                        deltaX: data.deltaX,
+                        deltaY: data.deltaY,
+                        x: data.x,
+                        y: data.y
+                      }) 
+                    } catch (e) {
+                      console.log('[BG] 🛡️ Failed to send scroll:', e)
+                    }
+                  }
+                })
+              })
             } else if (data.type === 'MAILGUARD_STATUS_RESPONSE') {
               console.log('[BG] 🛡️ MailGuard status:', data.active)
               // Query all email tabs (Gmail and Outlook)

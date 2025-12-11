@@ -104,11 +104,13 @@ chrome.storage.onChanged.addListener((changes, namespace) => {
   if (namespace === 'local' && changes['optimando-ui-theme']) {
     currentTheme = changes['optimando-ui-theme'].newValue || 'default'
     console.log('[MailGuard] Theme changed to:', currentTheme)
-    // Refresh banner if visible
+    // Refresh banner if visible (use re-enable banner since auto-enable is now default)
     if (banner) {
       banner.remove()
       banner = null
-      showActivationBanner()
+      if (userManuallyDisabled) {
+        showReEnableBanner()
+      }
     }
   }
 })
@@ -254,6 +256,58 @@ function showActivationBanner(): void {
 function dismissBanner(): void {
   banner?.remove()
   banner = null
+}
+
+function showReEnableBanner(): void {
+  if (banner) return
+  
+  const colors = themeColors[currentTheme]
+  
+  banner = document.createElement('div')
+  banner.id = 'wr-mailguard-reenable-banner'
+  
+  const shadow = banner.attachShadow({ mode: 'closed' })
+  shadow.innerHTML = `
+    <style>
+      * { box-sizing: border-box; margin: 0; padding: 0; }
+      .reenable-banner {
+        position: fixed;
+        bottom: 20px;
+        right: 20px;
+        background: linear-gradient(135deg, ${colors.primary} 0%, ${colors.primaryDark} 100%);
+        color: white;
+        padding: 12px 18px;
+        border-radius: 12px;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+        font-size: 13px;
+        font-weight: 500;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        box-shadow: 0 4px 20px rgba(0,0,0,0.25);
+        cursor: pointer;
+        z-index: 2147483647;
+        transition: transform 0.2s ease, box-shadow 0.2s ease;
+      }
+      .reenable-banner:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 6px 24px rgba(0,0,0,0.3);
+      }
+      .icon { font-size: 16px; }
+    </style>
+    <div class="reenable-banner" id="reenable">
+      <span class="icon">🛡️</span>
+      <span>Re-enable MailGuard Protection</span>
+    </div>
+  `
+  
+  shadow.getElementById('reenable')?.addEventListener('click', () => {
+    userManuallyDisabled = false
+    dismissBanner()
+    activateMailGuard()
+  })
+  
+  document.body.appendChild(banner)
 }
 
 function showStatusMarker(): void {
@@ -851,16 +905,19 @@ function showActivationError(message: string): void {
   document.body.appendChild(errorDiv)
   setTimeout(() => {
     errorDiv.remove()
-    showActivationBanner() // Show banner again so user can retry
+    showReEnableBanner() // Show re-enable option so user can retry
   }, 8000)
 }
+
+let userManuallyDisabled = false
 
 function deactivateMailGuard(): void {
   console.log('[MailGuard] Deactivating...')
   isMailGuardActive = false
+  userManuallyDisabled = true // User explicitly disabled - don't auto-re-enable
   stopRowPositionUpdates()
   sendToBackground({ type: 'MAILGUARD_DEACTIVATE' })
-  showActivationBanner()
+  showReEnableBanner()
 }
 
 // =============================================================================
@@ -877,8 +934,70 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   } else if (msg.type === 'MAILGUARD_DEACTIVATED') {
     console.log('[MailGuard] Deactivation confirmed')
     isMailGuardActive = false
+    userManuallyDisabled = true
     stopRowPositionUpdates()
-    showActivationBanner()
+    showReEnableBanner()
+  } else if (msg.type === 'MAILGUARD_SCROLL') {
+    // Perform scroll on the email list - forwarded from overlay
+    console.log('[MailGuard] Scroll request received, deltaY:', msg.deltaY)
+    
+    // For Outlook, we need to find the scrollable container
+    // Outlook uses virtualized lists, so we need to find the right element
+    const scrollAmount = msg.deltaY
+    
+    // Try to find scrollable elements by checking actual scrollability
+    const allElements = document.querySelectorAll('*')
+    let scrolled = false
+    
+    // First try known Outlook/Gmail selectors
+    const prioritySelectors = [
+      // Outlook selectors
+      '[data-app-section="MessageList"] > div',
+      '[data-app-section="MessageList"]',
+      'div[role="list"]',
+      'div[aria-label*="message" i]',
+      'div[aria-label*="Message" i]',
+      // Gmail selectors
+      '.aeN',
+      '.bkK',
+      'div[role="main"]'
+    ]
+    
+    for (const selector of prioritySelectors) {
+      const elements = document.querySelectorAll(selector)
+      for (const el of elements) {
+        const htmlEl = el as HTMLElement
+        if (htmlEl.scrollHeight > htmlEl.clientHeight + 10) {
+          console.log('[MailGuard] Scrolling via selector:', selector, 'scrollHeight:', htmlEl.scrollHeight, 'clientHeight:', htmlEl.clientHeight)
+          htmlEl.scrollTop += scrollAmount
+          scrolled = true
+          break
+        }
+      }
+      if (scrolled) break
+    }
+    
+    // If still not scrolled, try to find any scrollable div
+    if (!scrolled) {
+      for (const el of allElements) {
+        const htmlEl = el as HTMLElement
+        const style = window.getComputedStyle(htmlEl)
+        const isScrollable = (style.overflowY === 'auto' || style.overflowY === 'scroll') && 
+                            htmlEl.scrollHeight > htmlEl.clientHeight + 50
+        if (isScrollable && htmlEl.offsetWidth > 200) {
+          console.log('[MailGuard] Found scrollable element:', htmlEl.className || htmlEl.tagName)
+          htmlEl.scrollTop += scrollAmount
+          scrolled = true
+          break
+        }
+      }
+    }
+    
+    // Ultimate fallback
+    if (!scrolled) {
+      console.log('[MailGuard] Fallback: scrolling window')
+      window.scrollBy(0, scrollAmount)
+    }
   } else if (msg.type === 'MAILGUARD_EXTRACT_EMAIL') {
     console.log('[MailGuard] Email extraction requested for row:', msg.rowId)
     extractEmailContent(msg.rowId).then(email => {
@@ -951,12 +1070,17 @@ async function init(): Promise<void> {
   // Check if MailGuard is already active in Electron
   await sendToBackground({ type: 'MAILGUARD_STATUS' })
   
-  // If not active, show activation banner
+  // Auto-enable MailGuard protection when on email page
+  // Users can disable via Escape key or clicking the status badge
   setTimeout(() => {
-    if (!isMailGuardActive) {
-      showActivationBanner()
+    if (!isMailGuardActive && !userManuallyDisabled) {
+      console.log('[MailGuard] Auto-enabling protection on email page')
+      activateMailGuard()
+    } else if (userManuallyDisabled) {
+      console.log('[MailGuard] User previously disabled protection, showing re-enable option')
+      showReEnableBanner()
     }
-  }, 1000)
+  }, 1500) // Slightly longer delay to ensure email UI is fully ready
 }
 
 async function waitForEmailUIReady(provider: EmailProvider): Promise<void> {
