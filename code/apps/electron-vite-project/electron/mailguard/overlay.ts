@@ -7,7 +7,7 @@
  * - Displays sanitized emails in a lightbox
  */
 
-import { BrowserWindow, screen, Display, ipcMain } from 'electron'
+import { BrowserWindow, screen, Display } from 'electron'
 import * as path from 'path'
 import * as fs from 'fs'
 import * as os from 'os'
@@ -870,8 +870,16 @@ function getOverlayHtml(): string {
       }
     });
     
-    // Track mouse position and show/hide hover buttons
+    // Throttle utility - limit function calls to max once per interval (16ms = ~60fps)
+    let lastMouseMoveTime = 0;
+    const MOUSE_MOVE_THROTTLE = 16; // ~60fps
+    
+    // Track mouse position and show/hide hover buttons (throttled for performance)
     document.addEventListener('mousemove', (e) => {
+      const now = Date.now();
+      if (now - lastMouseMoveTime < MOUSE_MOVE_THROTTLE) return;
+      lastMouseMoveTime = now;
+      
       if (lightbox.classList.contains('visible')) return;
       
       const x = e.clientX;

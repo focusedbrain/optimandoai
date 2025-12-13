@@ -8,6 +8,16 @@ import express from 'express'
 import * as net from 'net'
 
 // ============================================================================
+// DEBUG MODE - Set to true for verbose logging (impacts performance)
+// ============================================================================
+const DEBUG_MODE = false
+
+/** Conditional debug logging - only logs when DEBUG_MODE is true */
+function debugLog(...args: any[]): void {
+  if (DEBUG_MODE) console.log(...args)
+}
+
+// ============================================================================
 // ROBUST PORT MANAGEMENT - Ensure clean startup
 // ============================================================================
 
@@ -440,7 +450,7 @@ async function createWindow() {
     
     // Handle scroll events from overlay - forward to browser via WebSocket
     ipcMain.on('mailguard-scroll', (_e, scrollData: { deltaX: number; deltaY: number; x: number; y: number }) => {
-      console.log('[MAIN] Scroll event received from overlay, deltaY:', scrollData.deltaY)
+      debugLog('[MAIN] Scroll event received from overlay, deltaY:', scrollData.deltaY)
       // Forward scroll event to content script via WebSocket
       wsClients.forEach(client => {
         try {
@@ -564,7 +574,7 @@ async function createWindow() {
       wsClients.forEach(client => {
         try {
           client.send(JSON.stringify({ type: 'MAILGUARD_EXTRACT_EMAIL', rowId }))
-          console.log('[MAIN] Sent MAILGUARD_EXTRACT_EMAIL to WebSocket client')
+          debugLog('[MAIN] Sent MAILGUARD_EXTRACT_EMAIL to WebSocket client')
         } catch (wsErr) {
           console.log('[MAIN] WebSocket send error:', wsErr)
         }
@@ -1347,7 +1357,7 @@ app.whenReady().then(async () => {
             
             if (msg.type === 'MAILGUARD_EMAIL_CONTENT') {
               // Content script sends sanitized email content
-              console.log('[MAIN] Received sanitized email content')
+              debugLog('[MAIN] Received sanitized email content')
               try {
                 showSanitizedEmail(msg.email)
               } catch (err: any) {

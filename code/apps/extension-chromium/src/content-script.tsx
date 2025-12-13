@@ -150,7 +150,7 @@ function testExtensionConnection(): boolean {
   }
 }
 
-// Set up periodic connection check (every 2 seconds)
+// Set up periodic connection check (every 10 seconds - only needs to detect extension reload)
 const connectionCheckInterval = setInterval(() => {
   if (!testExtensionConnection() && !extensionInvalidated) {
     console.log('🔌 Extension context invalidated (extension was reloaded) - Auto-refreshing page...')
@@ -159,7 +159,7 @@ const connectionCheckInterval = setInterval(() => {
     // Auto-refresh immediately (no notification badge)
     window.location.reload()
   }
-}, 2000)
+}, 10000)
 
 // Clean up interval when page unloads
 window.addEventListener('beforeunload', () => {
@@ -36927,7 +36927,7 @@ ${pageText}
 
     }
 
-  }, 1000)
+  }, 3000) // Reduced from 1s to 3s for performance
 
   
 
@@ -45094,9 +45094,9 @@ function handleElectronGridSave(config: any) {
 
 
 
-// Check for Electron app data every 2 seconds
+// Check for Electron app data every 5 seconds (reduced from 2s for performance)
 
-setInterval(checkForElectronGridConfig, 2000)
+setInterval(checkForElectronGridConfig, 5000)
 
 
 

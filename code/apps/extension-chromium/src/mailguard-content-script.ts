@@ -40,6 +40,14 @@ interface SanitizedEmail {
 }
 
 // =============================================================================
+// Debug Mode - Set to true for verbose logging
+// =============================================================================
+const DEBUG_MODE = false
+function debugLog(...args: any[]): void {
+  if (DEBUG_MODE) console.log(...args)
+}
+
+// =============================================================================
 // State
 // =============================================================================
 
@@ -438,7 +446,7 @@ function startRowPositionUpdates(): void {
   // Don't start if already running
   if (rowUpdateInterval) return
   
-  // Update row positions every 1000ms
+  // Update row positions every 2000ms (reduced from 1s for performance)
   rowUpdateInterval = setInterval(() => {
     if (!isMailGuardActive) return
     
@@ -452,9 +460,9 @@ function startRowPositionUpdates(): void {
     const rows = getEmailRowPositions()
     const provider = getCurrentEmailProvider()
     sendToBackground({ type: 'MAILGUARD_UPDATE_ROWS', rows, provider })
-  }, 1000)
+  }, 2000)
   
-  // Watch for URL changes within the SPA
+  // Watch for URL changes within the SPA (1s is enough to detect navigation)
   if (!urlCheckInterval) {
     let lastUrl = window.location.href
     urlCheckInterval = setInterval(() => {
@@ -471,7 +479,7 @@ function startRowPositionUpdates(): void {
           deactivateMailGuard()
         }
       }
-    }, 300)
+    }, 1000)
   }
 }
 
@@ -939,7 +947,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     showReEnableBanner()
   } else if (msg.type === 'MAILGUARD_SCROLL') {
     // Perform scroll on the email list - forwarded from overlay
-    console.log('[MailGuard] Scroll request received, deltaY:', msg.deltaY)
+    debugLog('[MailGuard] Scroll request received, deltaY:', msg.deltaY)
     
     // For Outlook, we need to find the scrollable container
     // Outlook uses virtualized lists, so we need to find the right element
@@ -968,7 +976,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       for (const el of elements) {
         const htmlEl = el as HTMLElement
         if (htmlEl.scrollHeight > htmlEl.clientHeight + 10) {
-          console.log('[MailGuard] Scrolling via selector:', selector, 'scrollHeight:', htmlEl.scrollHeight, 'clientHeight:', htmlEl.clientHeight)
+          debugLog('[MailGuard] Scrolling via selector:', selector, 'scrollHeight:', htmlEl.scrollHeight, 'clientHeight:', htmlEl.clientHeight)
           htmlEl.scrollTop += scrollAmount
           scrolled = true
           break
@@ -985,7 +993,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         const isScrollable = (style.overflowY === 'auto' || style.overflowY === 'scroll') && 
                             htmlEl.scrollHeight > htmlEl.clientHeight + 50
         if (isScrollable && htmlEl.offsetWidth > 200) {
-          console.log('[MailGuard] Found scrollable element:', htmlEl.className || htmlEl.tagName)
+          debugLog('[MailGuard] Found scrollable element:', htmlEl.className || htmlEl.tagName)
           htmlEl.scrollTop += scrollAmount
           scrolled = true
           break
@@ -995,7 +1003,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     
     // Ultimate fallback
     if (!scrolled) {
-      console.log('[MailGuard] Fallback: scrolling window')
+      debugLog('[MailGuard] Fallback: scrolling window')
       window.scrollBy(0, scrollAmount)
     }
   } else if (msg.type === 'MAILGUARD_EXTRACT_EMAIL') {
