@@ -606,6 +606,16 @@ export class OutlookProvider extends BaseEmailProvider {
                 this.refreshToken = json.refresh_token
               }
               this.tokenExpiresAt = Date.now() + (json.expires_in * 1000)
+              
+              // Persist new tokens via callback
+              if (this.onTokenRefresh && this.refreshToken) {
+                this.onTokenRefresh({
+                  accessToken: this.accessToken!,
+                  refreshToken: this.refreshToken,
+                  expiresAt: this.tokenExpiresAt
+                })
+              }
+              
               resolve()
             }
           } catch (err) {

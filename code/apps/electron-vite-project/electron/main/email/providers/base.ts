@@ -170,6 +170,16 @@ export interface IEmailProvider {
 }
 
 /**
+ * Token refresh callback type
+ * Called when OAuth tokens are refreshed so they can be persisted
+ */
+export type TokenRefreshCallback = (newTokens: {
+  accessToken: string
+  refreshToken: string
+  expiresAt: number
+}) => void
+
+/**
  * Base implementation with common helper methods
  */
 export abstract class BaseEmailProvider implements IEmailProvider {
@@ -177,6 +187,12 @@ export abstract class BaseEmailProvider implements IEmailProvider {
   
   protected connected: boolean = false
   protected config: EmailAccountConfig | null = null
+  
+  /**
+   * Optional callback for when OAuth tokens are refreshed
+   * Set by the gateway to persist new tokens to disk
+   */
+  public onTokenRefresh?: TokenRefreshCallback
   
   abstract connect(config: EmailAccountConfig): Promise<void>
   abstract disconnect(): Promise<void>

@@ -543,7 +543,21 @@ export class GmailProvider extends BaseEmailProvider {
               reject(new Error(json.error_description || json.error))
             } else {
               this.accessToken = json.access_token
+              // Google may return a new refresh token
+              if (json.refresh_token) {
+                this.refreshToken = json.refresh_token
+              }
               this.tokenExpiresAt = Date.now() + (json.expires_in * 1000)
+              
+              // Persist new tokens via callback
+              if (this.onTokenRefresh && this.refreshToken) {
+                this.onTokenRefresh({
+                  accessToken: this.accessToken!,
+                  refreshToken: this.refreshToken,
+                  expiresAt: this.tokenExpiresAt
+                })
+              }
+              
               resolve()
             }
           } catch (err) {
