@@ -15,6 +15,8 @@ let electronLaunchInProgress = false;
 let mailGuardShouldBeActive = false;
 let lastMailGuardWindowInfo: any = null;
 let lastMailGuardTheme: string = 'default';
+// Track which tab has MailGuard activated (for hide/show on tab switch)
+let mailGuardActiveTabId: number | null = null;
 
 // =================================================================
 // Production-Grade Connection Health Monitor
@@ -1003,9 +1005,22 @@ chrome.tabs.onActivated.addListener((activeInfo) => {
     color: isActive ? '#00FF00' : '#FF0000'
   });
   
-  // NOTE: We do NOT auto-deactivate MailGuard when switching tabs
-  // The overlay is managed by Electron and the content script handles deactivation
-  // when the user actually leaves the email site (beforeunload event)
+  // Hide/show MailGuard overlay based on which tab is active
+  if (mailGuardShouldBeActive && mailGuardActiveTabId !== null) {
+    if (tabId === mailGuardActiveTabId) {
+      // User switched back to the email tab - show overlay
+      console.log('[BG] 🛡️ Tab switch: showing MailGuard overlay (back to email tab)');
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        try { ws.send(JSON.stringify({ type: 'MAILGUARD_SHOW' })) } catch {}
+      }
+    } else {
+      // User switched to a different tab - hide overlay
+      console.log('[BG] 🛡️ Tab switch: hiding MailGuard overlay (left email tab)');
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        try { ws.send(JSON.stringify({ type: 'MAILGUARD_HIDE' })) } catch {}
+      }
+    }
+  }
 });
 
 // Handle messages from content script
@@ -1344,6 +1359,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       lastMailGuardWindowInfo = msg.windowInfo;
       lastMailGuardTheme = msg.theme || 'default';
       
+      // Track which tab has MailGuard active (for hide/show on tab switch)
+      mailGuardActiveTabId = sender.tab?.id ?? null;
+      console.log('[BG] 🛡️ MailGuard active on tab:', mailGuardActiveTabId);
+      
       if (!WS_ENABLED) {
         console.log('[BG] 🛡️ WebSocket disabled')
         try { sendResponse({ success: false, error: 'WebSocket disabled' }) } catch {}
@@ -1385,6 +1404,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       // Clear the stored state so it doesn't auto-restore
       mailGuardShouldBeActive = false;
       lastMailGuardWindowInfo = null;
+      mailGuardActiveTabId = null;  // Clear active tab tracking
       
       if (WS_ENABLED && ws && ws.readyState === WebSocket.OPEN) {
         try { ws.send(JSON.stringify({ type: 'MAILGUARD_DEACTIVATE' })) } catch {}

@@ -231,6 +231,27 @@ export function deactivateMailGuard(): void {
 }
 
 /**
+ * Hide the overlay (when user switches to a different tab)
+ * The overlay is not destroyed, just hidden - can be shown again quickly
+ */
+export function hideOverlay(): void {
+  if (mailguardOverlay) {
+    console.log('[MAILGUARD] Hiding overlay (tab switch)')
+    mailguardOverlay.hide()
+  }
+}
+
+/**
+ * Show the overlay (when user switches back to the email tab)
+ */
+export function showOverlay(): void {
+  if (mailguardOverlay) {
+    console.log('[MAILGUARD] Showing overlay (tab switch back)')
+    mailguardOverlay.show()
+  }
+}
+
+/**
  * Update the protected area - resize overlay to only cover email list + content preview
  * The overlay is positioned from the email list's left edge to the browser's right edge,
  * leaving the sidebar completely free for interaction.

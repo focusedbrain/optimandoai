@@ -166,7 +166,7 @@ import { captureScreenshot, startRegionStream } from './lmgtfy/capture'
 import { loadPresets, upsertRegion } from './lmgtfy/presets'
 import { registerDbHandlers, testConnection, syncChromeDataToPostgres, getConfig, getPostgresAdapter } from './ipc/db'
 import { handleVaultRPC } from './main/vault/rpc'
-import { activateMailGuard, deactivateMailGuard, updateEmailRows, updateProtectedArea, updateWindowPosition, showSanitizedEmail, closeLightbox, isMailGuardActive } from './mailguard/overlay'
+import { activateMailGuard, deactivateMailGuard, updateEmailRows, updateProtectedArea, updateWindowPosition, showSanitizedEmail, closeLightbox, isMailGuardActive, hideOverlay, showOverlay } from './mailguard/overlay'
 
 // Storage for email row preview data (for Gmail API matching)
 const emailRowPreviewData = new Map<string, { from: string; subject: string }>()
@@ -1460,6 +1460,18 @@ app.whenReady().then(async () => {
             if (msg.type === 'MAILGUARD_STATUS') {
               // Check if MailGuard is active
               socket.send(JSON.stringify({ type: 'MAILGUARD_STATUS_RESPONSE', active: isMailGuardActive() }))
+            }
+            
+            if (msg.type === 'MAILGUARD_HIDE') {
+              // Hide overlay when user switches to a different tab
+              console.log('[MAIN] 🛡️ Hiding MailGuard overlay (tab switch)')
+              hideOverlay()
+            }
+            
+            if (msg.type === 'MAILGUARD_SHOW') {
+              // Show overlay when user switches back to email tab
+              console.log('[MAIN] 🛡️ Showing MailGuard overlay (tab switch back)')
+              showOverlay()
             }
             
             // ===== EMAIL GATEWAY HANDLERS =====
