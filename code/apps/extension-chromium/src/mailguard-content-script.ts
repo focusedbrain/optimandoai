@@ -569,12 +569,9 @@ function startRowPositionUpdates(): void {
   rowUpdateInterval = setInterval(() => {
     if (!isMailGuardActive) return
     
-    // Check if we're still on a supported email site
-    if (!isOnSupportedEmailSite()) {
-      console.log('[MailGuard] No longer on supported email site, deactivating...')
-      deactivateMailGuard()
-      return
-    }
+    // NOTE: We do NOT auto-deactivate here - the beforeunload event handles
+    // deactivation when leaving the site. The user wants protection to stay active
+    // while navigating within the email site.
     
     const rows = getEmailRowPositions()
     const provider = getCurrentEmailProvider()
