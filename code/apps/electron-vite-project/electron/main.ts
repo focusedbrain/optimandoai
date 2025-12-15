@@ -8,6 +8,27 @@ import express from 'express'
 import * as net from 'net'
 
 // ============================================================================
+// SINGLE INSTANCE LOCK - Prevent multiple instances from running
+// ============================================================================
+const gotTheLock = app.requestSingleInstanceLock()
+
+if (!gotTheLock) {
+  console.log('[MAIN] Another instance is already running. Exiting.')
+  app.quit()
+} else {
+  app.on('second-instance', (_event, _commandLine, _workingDirectory) => {
+    // Someone tried to run a second instance, focus the existing window
+    console.log('[MAIN] Second instance detected, focusing existing window')
+    const windows = BrowserWindow.getAllWindows()
+    if (windows.length > 0) {
+      const mainWindow = windows[0]
+      if (mainWindow.isMinimized()) mainWindow.restore()
+      mainWindow.focus()
+    }
+  })
+}
+
+// ============================================================================
 // DEBUG MODE - Set to true for verbose logging (impacts performance)
 // ============================================================================
 const DEBUG_MODE = false
@@ -76,10 +97,29 @@ async function killProcessOnPort(port: number): Promise<void> {
 }
 
 /**
+ * Kill any stale OpenGiraffe/electron processes that might be holding ports
+ */
+async function killStaleProcesses(): Promise<void> {
+  if (process.platform !== 'win32') return
+  
+  try {
+    // Kill any OpenGiraffe processes (renamed electron) except current process
+    const currentPid = process.pid
+    execSync(`wmic process where "name='OpenGiraffe.exe' and processid!=${currentPid}" delete`, { stdio: 'ignore' })
+    console.log('[PORT-CLEANUP] Killed stale OpenGiraffe processes')
+  } catch {
+    // No processes found or wmic not available
+  }
+}
+
+/**
  * Ensure ports are available before starting servers
  */
 async function ensurePortsAvailable(): Promise<void> {
   console.log('[PORT-CLEANUP] Checking port availability...')
+  
+  // First, try to kill any stale processes by name
+  await killStaleProcesses()
   
   let needsWait = false
   
