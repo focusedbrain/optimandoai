@@ -68,6 +68,9 @@ let emailRowElements: Map<string, Element> = new Map()
 let currentTheme: 'default' | 'dark' | 'professional' = 'default'
 let listenersInitialized = false
 
+// Track if overlay is hidden for lightbox
+let overlayHiddenForLightbox = false
+
 // =============================================================================
 // Immediate Click Blocking (runs before overlay is ready)
 // =============================================================================
@@ -125,6 +128,81 @@ function blockEmailClick(e: Event): void {
   // Capture phase listeners to block clicks before they reach email elements
   document.addEventListener('click', blockEmailClick, true)
   document.addEventListener('mousedown', blockEmailClick, true)
+})()
+
+// =============================================================================
+// Lightbox Detection - Hide overlay when sidepanel lightboxes are open
+// =============================================================================
+
+/**
+ * Selectors that identify lightbox/overlay elements from the sidepanel
+ * These should be hidden behind the MailGuard overlay
+ */
+const LIGHTBOX_SELECTORS = [
+  '#agents-lightbox',
+  '#settings-lightbox', 
+  '#memory-lightbox',
+  '#context-lightbox',
+  '#sessions-lightbox',
+  '#reasoning-lightbox',
+  '#helpergrid-lightbox',
+  '#miniapps-lightbox',
+  '#whitelist-lightbox',
+  '#wrvault-lightbox',
+  '.lightbox-overlay'  // Generic class used by many lightboxes
+]
+
+/**
+ * Check if any lightbox is currently visible
+ */
+function isAnyLightboxOpen(): boolean {
+  return LIGHTBOX_SELECTORS.some(sel => document.querySelector(sel) !== null)
+}
+
+/**
+ * Send message to hide/show overlay for lightbox
+ */
+function sendLightboxOverlayState(hidden: boolean): void {
+  if (hidden === overlayHiddenForLightbox) return  // No change
+  
+  overlayHiddenForLightbox = hidden
+  const messageType = hidden ? 'MAILGUARD_HIDE_FOR_LIGHTBOX' : 'MAILGUARD_SHOW_AFTER_LIGHTBOX'
+  
+  console.log(`[MailGuard] ${hidden ? 'Hiding' : 'Showing'} overlay for lightbox`)
+  
+  try {
+    chrome.runtime.sendMessage({ type: messageType })
+  } catch (e) {
+    console.error('[MailGuard] Error sending lightbox overlay state:', e)
+  }
+}
+
+// Observe DOM for lightbox elements
+;(function setupLightboxObserver() {
+  const hostname = window.location.hostname
+  const isEmailSite = IMMEDIATE_BLOCK_SITES.some(site => hostname.includes(site))
+  
+  if (!isEmailSite) return
+  
+  // Initial check
+  if (isAnyLightboxOpen()) {
+    sendLightboxOverlayState(true)
+  }
+  
+  // Observe for changes
+  const observer = new MutationObserver(() => {
+    const lightboxOpen = isAnyLightboxOpen()
+    sendLightboxOverlayState(lightboxOpen)
+  })
+  
+  // Start observing when body is available
+  if (document.body) {
+    observer.observe(document.body, { childList: true, subtree: true })
+  } else {
+    document.addEventListener('DOMContentLoaded', () => {
+      observer.observe(document.body, { childList: true, subtree: true })
+    })
+  }
 })()
 
 // Theme color configurations - matching sidebar colors exactly

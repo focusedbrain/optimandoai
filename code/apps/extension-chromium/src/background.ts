@@ -1454,6 +1454,25 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       break
     }
     
+    case 'MAILGUARD_HIDE_FOR_LIGHTBOX': {
+      // Hide overlay when a lightbox is opened from sidepanel
+      // Click blocking remains active in the content script
+      console.log('[BG] 🛡️ Hiding overlay for lightbox')
+      if (WS_ENABLED && ws && ws.readyState === WebSocket.OPEN) {
+        try { ws.send(JSON.stringify({ type: 'MAILGUARD_HIDE' })) } catch {}
+      }
+      break
+    }
+    
+    case 'MAILGUARD_SHOW_AFTER_LIGHTBOX': {
+      // Show overlay after lightbox is closed
+      console.log('[BG] 🛡️ Showing overlay after lightbox closed')
+      if (WS_ENABLED && ws && ws.readyState === WebSocket.OPEN) {
+        try { ws.send(JSON.stringify({ type: 'MAILGUARD_SHOW' })) } catch {}
+      }
+      break
+    }
+    
     case 'MAILGUARD_EMAIL_CONTENT': {
       // Content script sends sanitized email content to forward to Electron
       console.log('[BG] 🛡️ Forwarding sanitized email to Electron')
