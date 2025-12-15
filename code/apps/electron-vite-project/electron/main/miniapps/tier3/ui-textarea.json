@@ -1,0 +1,21 @@
+{
+  "id": "ui-textarea-v1",
+  "type": "atomic",
+  "group": "ui.input",
+  "security": "low",
+
+  "intent_tags": ["input", "textarea"],
+  "description": "Captures multiline text input and stores it in local runtime state.",
+
+  "ui": {
+    "kind": "textarea",
+    "placeholder": "Enter text"
+  },
+
+  "behaviour": {
+    "onChange": {
+      "action": "state.set",
+      "key": "textarea_value"
+    }
+  }
+}

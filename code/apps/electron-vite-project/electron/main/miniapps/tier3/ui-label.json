@@ -1,0 +1,17 @@
+{
+  "id": "ui-label-v1",
+  "type": "atomic",
+  "group": "ui.text",
+  "security": "low",
+
+  "intent_tags": ["text", "label"],
+  "description": "Displays static text such as a label or heading. No interaction or state.",
+
+  "ui": {
+    "kind": "text",
+    "role": "label",
+    "value": "Label"
+  },
+
+  "behaviour": {}
+}

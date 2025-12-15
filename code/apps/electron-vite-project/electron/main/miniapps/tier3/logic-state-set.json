@@ -1,0 +1,16 @@
+{
+  "id": "logic-state-set-v1",
+  "type": "atomic",
+  "group": "logic.state",
+  "security": "medium",
+
+  "intent_tags": ["state", "memory"],
+  "description": "Stores a value from runtime context into session-level state when triggered by an event.",
+
+  "behaviour": {
+    "onEvent:button_clicked": {
+      "action": "state.persist",
+      "source": "textarea_value"
+    }
+  }
+}

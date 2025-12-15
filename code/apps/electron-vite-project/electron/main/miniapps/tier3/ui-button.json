@@ -1,0 +1,21 @@
+{
+  "id": "ui-button-v1",
+  "type": "atomic",
+  "group": "ui.button",
+  "security": "low",
+
+  "intent_tags": ["button", "click"],
+  "description": "Renders a button and emits a click event without defining what happens next.",
+
+  "ui": {
+    "kind": "button",
+    "label": "Submit"
+  },
+
+  "behaviour": {
+    "onClick": {
+      "action": "event.emit",
+      "event": "button_clicked"
+    }
+  }
+}

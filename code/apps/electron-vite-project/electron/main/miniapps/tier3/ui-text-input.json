@@ -1,0 +1,22 @@
+{
+  "id": "ui-text-input-v1",
+  "type": "atomic",
+  "group": "ui.input",
+  "security": "low",
+
+  "intent_tags": ["input", "text"],
+  "description": "Captures a single-line text input from the user and stores it in local runtime state.",
+
+  "ui": {
+    "kind": "input",
+    "inputType": "text",
+    "placeholder": "Enter text"
+  },
+
+  "behaviour": {
+    "onChange": {
+      "action": "state.set",
+      "key": "text_value"
+    }
+  }
+}
