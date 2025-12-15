@@ -12,21 +12,107 @@ const tabSidebarStatus = new Map<number, boolean>();
 let electronLaunchAttempted = false;
 let electronLaunchInProgress = false;
 
+// =================================================================
+// Production-Grade HTTP Client for Electron Communication
+// =================================================================
+
+const ELECTRON_BASE_URL = 'http://127.0.0.1:51248';
+
+// Retry configuration
+const DEFAULT_RETRY_CONFIG = {
+  maxRetries: 3,
+  baseDelayMs: 500,
+  maxDelayMs: 4000,
+  timeoutMs: 30000
+};
+
+// OAuth-specific configuration (longer timeouts for user interaction)
+const OAUTH_RETRY_CONFIG = {
+  maxRetries: 1,  // Don't retry OAuth flows
+  baseDelayMs: 0,
+  maxDelayMs: 0,
+  timeoutMs: 6 * 60 * 1000  // 6 minutes for OAuth
+};
+
 /**
  * Check if Electron HTTP API is available
+ * Uses health endpoint first, falls back to orchestrator status for compatibility
  */
 async function isElectronRunning(): Promise<boolean> {
   try {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 2000);
-    const response = await fetch('http://127.0.0.1:51248/api/orchestrator/status', {
+    
+    // Try health endpoint first (new)
+    try {
+      const response = await fetch(`${ELECTRON_BASE_URL}/api/health`, {
+        method: 'GET',
+        signal: controller.signal
+      });
+      clearTimeout(timeoutId);
+      if (response.ok) {
+        const data = await response.json();
+        return data.ok === true;
+      }
+    } catch {
+      // Health endpoint might not exist yet, try fallback
+    }
+    
+    // Fallback to orchestrator status (old endpoint)
+    const controller2 = new AbortController();
+    const timeoutId2 = setTimeout(() => controller2.abort(), 2000);
+    const response = await fetch(`${ELECTRON_BASE_URL}/api/orchestrator/status`, {
       method: 'GET',
-      signal: controller.signal
+      signal: controller2.signal
     });
-    clearTimeout(timeoutId);
+    clearTimeout(timeoutId2);
     return response.ok;
   } catch {
     return false;
+  }
+}
+
+/**
+ * Check if Electron is ready for operations (not in the middle of OAuth flow)
+ */
+async function isElectronReady(): Promise<{ running: boolean; ready: boolean; oauthInProgress: boolean }> {
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 2000);
+    
+    // Try health endpoint first
+    try {
+      const response = await fetch(`${ELECTRON_BASE_URL}/api/health`, {
+        method: 'GET',
+        signal: controller.signal
+      });
+      clearTimeout(timeoutId);
+      if (response.ok) {
+        const data = await response.json();
+        return {
+          running: true,
+          ready: data.ready === true,
+          oauthInProgress: data.services?.oauth?.flowInProgress === true
+        };
+      }
+    } catch {
+      // Health endpoint might not exist yet
+    }
+    
+    // Fallback: if orchestrator status responds, assume ready (old behavior)
+    const controller2 = new AbortController();
+    const timeoutId2 = setTimeout(() => controller2.abort(), 2000);
+    const response = await fetch(`${ELECTRON_BASE_URL}/api/orchestrator/status`, {
+      method: 'GET',
+      signal: controller2.signal
+    });
+    clearTimeout(timeoutId2);
+    if (response.ok) {
+      return { running: true, ready: true, oauthInProgress: false };
+    }
+    return { running: false, ready: false, oauthInProgress: false };
+  } catch {
+    return { running: false, ready: false, oauthInProgress: false };
   }
 }
 
@@ -110,46 +196,192 @@ async function ensureElectronRunning(): Promise<boolean> {
 }
 
 /**
- * Execute an HTTP request to Electron, auto-starting if needed
+ * Calculate exponential backoff delay
  */
-async function fetchWithElectronAutoStart(
-  url: string, 
-  options: RequestInit = {}
-): Promise<{ ok: boolean; data?: any; error?: string }> {
+function calculateBackoff(attempt: number, baseDelay: number, maxDelay: number): number {
+  const delay = Math.min(baseDelay * Math.pow(2, attempt), maxDelay);
+  // Add jitter (±25%)
+  const jitter = delay * 0.25 * (Math.random() * 2 - 1);
+  return Math.floor(delay + jitter);
+}
+
+/**
+ * Production-grade HTTP request to Electron with retry logic
+ * 
+ * Features:
+ * - Exponential backoff with jitter
+ * - Configurable retries and timeouts
+ * - Auto-launch Electron if not running
+ * - Health check before long operations
+ * - Clear error messages for users
+ */
+async function electronRequest(
+  endpoint: string,
+  options: RequestInit = {},
+  config: {
+    maxRetries?: number;
+    baseDelayMs?: number;
+    maxDelayMs?: number;
+    timeoutMs?: number;
+    checkHealthFirst?: boolean;
+  } = {}
+): Promise<{ ok: boolean; data?: any; error?: string; errorCode?: string }> {
+  const {
+    maxRetries = DEFAULT_RETRY_CONFIG.maxRetries,
+    baseDelayMs = DEFAULT_RETRY_CONFIG.baseDelayMs,
+    maxDelayMs = DEFAULT_RETRY_CONFIG.maxDelayMs,
+    timeoutMs = DEFAULT_RETRY_CONFIG.timeoutMs,
+    checkHealthFirst = false
+  } = config;
+
+  const url = `${ELECTRON_BASE_URL}${endpoint}`;
+  let lastError: string = 'Unknown error';
+  let lastErrorCode: string = 'UNKNOWN';
+
   // Ensure Electron is running
   const electronRunning = await ensureElectronRunning();
   if (!electronRunning) {
     return { 
       ok: false, 
-      error: 'Electron app is not running. Please start OpenGiraffe manually or check if it is installed.' 
+      error: 'OpenGiraffe desktop app is not running. Please start it manually or check if it is installed.',
+      errorCode: 'ELECTRON_NOT_RUNNING'
     };
   }
-  
-  try {
-    const response = await fetch(url, options);
-    const contentType = response.headers.get('content-type') || '';
-    
-    if (!response.ok) {
-      const text = await response.text();
-      console.error('[BG] HTTP error:', response.status, text.slice(0, 200));
-      return { ok: false, error: `Server error (${response.status}): ${text.slice(0, 100)}` };
+
+  // Check health before long operations (like OAuth)
+  if (checkHealthFirst) {
+    const health = await isElectronReady();
+    if (health.oauthInProgress) {
+      return {
+        ok: false,
+        error: 'Another authentication flow is in progress. Please complete or cancel it first.',
+        errorCode: 'OAUTH_IN_PROGRESS'
+      };
     }
-    
-    if (!contentType.includes('application/json')) {
-      const text = await response.text();
-      console.error('[BG] Non-JSON response:', contentType, text.slice(0, 200));
-      return { ok: false, error: 'Invalid response from server' };
-    }
-    
-    const data = await response.json();
-    return { ok: true, data };
-  } catch (err: any) {
-    console.error('[BG] Fetch error:', err);
-    if (err.message?.includes('Failed to fetch') || err.name === 'AbortError') {
-      return { ok: false, error: 'Cannot connect to Electron app. Please ensure OpenGiraffe is running.' };
-    }
-    return { ok: false, error: err.message || 'Request failed' };
   }
+
+  // Retry loop with exponential backoff
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    if (attempt > 0) {
+      const delay = calculateBackoff(attempt - 1, baseDelayMs, maxDelayMs);
+      console.log(`[BG] Retry ${attempt}/${maxRetries} after ${delay}ms...`);
+      await new Promise(r => setTimeout(r, delay));
+      
+      // Check if Electron is still running before retry
+      if (!(await isElectronRunning())) {
+        console.log('[BG] Electron stopped running, attempting to restart...');
+        if (!(await ensureElectronRunning())) {
+          return {
+            ok: false,
+            error: 'OpenGiraffe desktop app stopped unexpectedly. Please restart it.',
+            errorCode: 'ELECTRON_STOPPED'
+          };
+        }
+      }
+    }
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => {
+      console.log(`[BG] Request timeout after ${timeoutMs}ms: ${endpoint}`);
+      controller.abort();
+    }, timeoutMs);
+
+    try {
+      const response = await fetch(url, {
+        ...options,
+        signal: controller.signal
+      });
+      clearTimeout(timeoutId);
+
+      const contentType = response.headers.get('content-type') || '';
+
+      if (!response.ok) {
+        const text = await response.text();
+        console.error(`[BG] HTTP ${response.status}:`, text.slice(0, 200));
+        
+        // Don't retry client errors (4xx)
+        if (response.status >= 400 && response.status < 500) {
+          return { 
+            ok: false, 
+            error: `Request failed: ${text.slice(0, 100)}`,
+            errorCode: `HTTP_${response.status}`
+          };
+        }
+        
+        lastError = `Server error (${response.status})`;
+        lastErrorCode = `HTTP_${response.status}`;
+        continue; // Retry on server errors (5xx)
+      }
+
+      if (!contentType.includes('application/json')) {
+        const text = await response.text();
+        console.error('[BG] Non-JSON response:', contentType, text.slice(0, 200));
+        lastError = 'Invalid response from server';
+        lastErrorCode = 'INVALID_RESPONSE';
+        continue;
+      }
+
+      const data = await response.json();
+      return { ok: true, data };
+
+    } catch (err: any) {
+      clearTimeout(timeoutId);
+      console.error(`[BG] Request error (attempt ${attempt + 1}):`, err.name, err.message);
+
+      if (err.name === 'AbortError') {
+        lastError = `Request timed out after ${Math.round(timeoutMs / 1000)} seconds`;
+        lastErrorCode = 'TIMEOUT';
+        // Don't retry timeouts for OAuth flows
+        if (timeoutMs >= OAUTH_RETRY_CONFIG.timeoutMs) {
+          return { ok: false, error: lastError + '. The operation may still be in progress.', errorCode: lastErrorCode };
+        }
+        continue;
+      }
+
+      if (err.message?.includes('Failed to fetch') || err.message?.includes('NetworkError')) {
+        lastError = 'Cannot connect to OpenGiraffe desktop app';
+        lastErrorCode = 'NETWORK_ERROR';
+        continue;
+      }
+
+      lastError = err.message || 'Request failed';
+      lastErrorCode = 'REQUEST_ERROR';
+    }
+  }
+
+  // All retries exhausted
+  return { 
+    ok: false, 
+    error: `${lastError}. Please try again or restart OpenGiraffe.`,
+    errorCode: lastErrorCode
+  };
+}
+
+/**
+ * Convenience wrapper for OAuth operations with appropriate timeouts
+ */
+async function electronOAuthRequest(
+  endpoint: string,
+  options: RequestInit = {}
+): Promise<{ ok: boolean; data?: any; error?: string; errorCode?: string }> {
+  return electronRequest(endpoint, options, {
+    ...OAUTH_RETRY_CONFIG,
+    checkHealthFirst: true
+  });
+}
+
+/**
+ * Legacy wrapper for backward compatibility
+ * @deprecated Use electronRequest instead
+ */
+async function fetchWithElectronAutoStart(
+  url: string, 
+  options: RequestInit = {},
+  timeoutMs: number = 30000
+): Promise<{ ok: boolean; data?: any; error?: string }> {
+  // Extract endpoint from URL
+  const endpoint = url.replace(ELECTRON_BASE_URL, '');
+  return electronRequest(endpoint, options, { timeoutMs });
 }
 
 // Robust WebSocket connection with exponential backoff
@@ -1088,16 +1320,17 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     }
     
     // ===== EMAIL GATEWAY MESSAGE HANDLERS (using HTTP API with auto-start) =====
+    // ===== EMAIL GATEWAY MESSAGE HANDLERS (using robust HTTP client) =====
     case 'EMAIL_LIST_ACCOUNTS': {
-      console.log('[BG] 📧 Email list accounts request (with auto-start)')
+      console.log('[BG] 📧 Email list accounts request')
       
-      fetchWithElectronAutoStart('http://127.0.0.1:51248/api/email/accounts')
+      electronRequest('/api/email/accounts')
         .then(result => {
-          console.log('[BG] 📧 Email accounts response:', result)
+          console.log('[BG] 📧 Email accounts response:', result.ok ? 'success' : result.error)
           if (result.ok) {
             sendResponse(result.data)
           } else {
-            sendResponse({ ok: false, error: result.error })
+            sendResponse({ ok: false, error: result.error, errorCode: result.errorCode })
           }
         })
       
@@ -1105,19 +1338,20 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     }
     
     case 'EMAIL_CONNECT_GMAIL': {
-      console.log('[BG] 📧 Email connect Gmail request (with auto-start)')
+      console.log('[BG] 📧 Email connect Gmail request (OAuth flow)')
       
-      fetchWithElectronAutoStart('http://127.0.0.1:51248/api/email/accounts/connect/gmail', {
+      // Use OAuth-specific request with health check
+      electronOAuthRequest('/api/email/accounts/connect/gmail', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ displayName: msg.displayName || 'Gmail Account' })
       })
         .then(result => {
-          console.log('[BG] 📧 Gmail connect response:', result)
+          console.log('[BG] 📧 Gmail connect response:', result.ok ? 'success' : result.error)
           if (result.ok) {
             sendResponse(result.data)
           } else {
-            sendResponse({ ok: false, error: result.error })
+            sendResponse({ ok: false, error: result.error, errorCode: result.errorCode })
           }
         })
       
@@ -1125,19 +1359,20 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     }
     
     case 'EMAIL_CONNECT_OUTLOOK': {
-      console.log('[BG] 📧 Email connect Outlook request (with auto-start)')
+      console.log('[BG] 📧 Email connect Outlook request (OAuth flow)')
       
-      fetchWithElectronAutoStart('http://127.0.0.1:51248/api/email/accounts/connect/outlook', {
+      // Use OAuth-specific request with health check
+      electronOAuthRequest('/api/email/accounts/connect/outlook', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ displayName: msg.displayName || 'Outlook Account' })
       })
         .then(result => {
-          console.log('[BG] 📧 Outlook connect response:', result)
+          console.log('[BG] 📧 Outlook connect response:', result.ok ? 'success' : result.error)
           if (result.ok) {
             sendResponse(result.data)
           } else {
-            sendResponse({ ok: false, error: result.error })
+            sendResponse({ ok: false, error: result.error, errorCode: result.errorCode })
           }
         })
       
@@ -1145,9 +1380,9 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     }
     
     case 'EMAIL_CONNECT_IMAP': {
-      console.log('[BG] 📧 Email connect IMAP request (with auto-start)')
+      console.log('[BG] 📧 Email connect IMAP request')
       
-      fetchWithElectronAutoStart('http://127.0.0.1:51248/api/email/accounts/connect/imap', {
+      electronRequest('/api/email/accounts/connect/imap', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1161,11 +1396,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         })
       })
         .then(result => {
-          console.log('[BG] 📧 IMAP connect response:', result)
+          console.log('[BG] 📧 IMAP connect response:', result.ok ? 'success' : result.error)
           if (result.ok) {
             sendResponse(result.data)
           } else {
-            sendResponse({ ok: false, error: result.error })
+            sendResponse({ ok: false, error: result.error, errorCode: result.errorCode })
           }
         })
       
@@ -1173,17 +1408,17 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     }
     
     case 'EMAIL_DELETE_ACCOUNT': {
-      console.log('[BG] 📧 Email delete account request (with auto-start):', msg.accountId)
+      console.log('[BG] 📧 Email delete account request:', msg.accountId)
       
-      fetchWithElectronAutoStart(`http://127.0.0.1:51248/api/email/accounts/${msg.accountId}`, {
+      electronRequest(`/api/email/accounts/${msg.accountId}`, {
         method: 'DELETE'
       })
         .then(result => {
-          console.log('[BG] 📧 Delete account response:', result)
+          console.log('[BG] 📧 Delete account response:', result.ok ? 'success' : result.error)
           if (result.ok) {
             sendResponse(result.data)
           } else {
-            sendResponse({ ok: false, error: result.error })
+            sendResponse({ ok: false, error: result.error, errorCode: result.errorCode })
           }
         })
       
@@ -1193,9 +1428,9 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     case 'EMAIL_CHECK_GMAIL_CREDENTIALS': {
       console.log('[BG] 📧 Check Gmail credentials')
       
-      fetchWithElectronAutoStart('http://127.0.0.1:51248/api/email/credentials/gmail')
+      electronRequest('/api/email/credentials/gmail')
         .then(result => {
-          console.log('[BG] 📧 Gmail credentials check response:', result)
+          console.log('[BG] 📧 Gmail credentials check:', result.ok ? 'configured' : 'not configured')
           sendResponse(result.ok ? { ok: true, data: result.data } : { ok: false, error: result.error })
         })
       
@@ -1205,13 +1440,13 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     case 'EMAIL_SAVE_GMAIL_CREDENTIALS': {
       console.log('[BG] 📧 Save Gmail credentials')
       
-      fetchWithElectronAutoStart('http://127.0.0.1:51248/api/email/credentials/gmail', {
+      electronRequest('/api/email/credentials/gmail', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ clientId: msg.clientId, clientSecret: msg.clientSecret })
       })
         .then(result => {
-          console.log('[BG] 📧 Gmail credentials save response:', result)
+          console.log('[BG] 📧 Gmail credentials save:', result.ok ? 'success' : result.error)
           sendResponse(result.ok ? { ok: true } : { ok: false, error: result.error })
         })
       
@@ -1221,9 +1456,9 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     case 'EMAIL_CHECK_OUTLOOK_CREDENTIALS': {
       console.log('[BG] 📧 Check Outlook credentials')
       
-      fetchWithElectronAutoStart('http://127.0.0.1:51248/api/email/credentials/outlook')
+      electronRequest('/api/email/credentials/outlook')
         .then(result => {
-          console.log('[BG] 📧 Outlook credentials check response:', result)
+          console.log('[BG] 📧 Outlook credentials check:', result.ok ? 'configured' : 'not configured')
           sendResponse(result.ok ? { ok: true, data: result.data } : { ok: false, error: result.error })
         })
       
@@ -1233,13 +1468,13 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     case 'EMAIL_SAVE_OUTLOOK_CREDENTIALS': {
       console.log('[BG] 📧 Save Outlook credentials')
       
-      fetchWithElectronAutoStart('http://127.0.0.1:51248/api/email/credentials/outlook', {
+      electronRequest('/api/email/credentials/outlook', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ clientId: msg.clientId, clientSecret: msg.clientSecret })
       })
         .then(result => {
-          console.log('[BG] 📧 Outlook credentials save response:', result)
+          console.log('[BG] 📧 Outlook credentials save:', result.ok ? 'success' : result.error)
           sendResponse(result.ok ? { ok: true } : { ok: false, error: result.error })
         })
       

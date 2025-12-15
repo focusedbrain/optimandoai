@@ -163,14 +163,33 @@ var wsClients: any[] = (globalThis as any).__og_ws_clients__ || [];
 let isAppQuitting = false
 
 // Set flag when app is actually quitting
-app.on('before-quit', () => {
+app.on('before-quit', async () => {
   isAppQuitting = true
+  
+  // Shutdown OAuth server manager
+  try {
+    const { oauthServerManager } = await import('./main/email/oauth-server')
+    await oauthServerManager.shutdown()
+    console.log('[MAIN] OAuth server manager shutdown complete')
+  } catch (err) {
+    console.error('[MAIN] Error shutting down OAuth server:', err)
+  }
 })
 
-// Graceful shutdown - close WebSocket connections
-process.on('SIGTERM', () => {
+// Graceful shutdown - close WebSocket connections and OAuth server
+process.on('SIGTERM', async () => {
   console.log('[MAIN] Received SIGTERM, shutting down gracefully...')
   isAppQuitting = true
+  
+  // Shutdown OAuth server manager
+  try {
+    const { oauthServerManager } = await import('./main/email/oauth-server')
+    await oauthServerManager.shutdown()
+    console.log('[MAIN] OAuth server manager shutdown complete')
+  } catch (err) {
+    console.error('[MAIN] Error shutting down OAuth server:', err)
+  }
+  
   wsClients.forEach(client => {
     try { client.close() } catch {}
   })
@@ -975,8 +994,14 @@ app.on('open-url', (event, url) => {
   handleDeepLink(url)
 })
 
-app.on('will-quit', () => {
+app.on('will-quit', async () => {
   globalShortcut.unregisterAll()
+  
+  // Final cleanup of OAuth server (in case before-quit didn't run)
+  try {
+    const { oauthServerManager } = await import('./main/email/oauth-server')
+    await oauthServerManager.shutdown()
+  } catch {}
 })
 
 app.on('activate', () => {
@@ -1763,6 +1788,43 @@ app.whenReady().then(async () => {
         return
       }
       next()
+    })
+
+    // =================================================================
+    // Health Check Endpoint - Production-grade service status
+    // =================================================================
+    
+    // GET /api/health - Check if Electron app is running and services are ready
+    httpApp.get('/api/health', async (_req, res) => {
+      try {
+        const { oauthServerManager } = await import('./main/email/oauth-server')
+        
+        // Check service status
+        const oauthFlowInProgress = oauthServerManager.isFlowInProgress()
+        const oauthState = oauthServerManager.getState()
+        
+        res.json({
+          ok: true,
+          timestamp: Date.now(),
+          version: app.getVersion(),
+          services: {
+            http: true,
+            oauth: {
+              serverRunning: oauthServerManager.isServerRunning(),
+              flowInProgress: oauthFlowInProgress,
+              state: oauthState
+            }
+          },
+          ready: !oauthFlowInProgress  // Ready for new operations if no OAuth flow in progress
+        })
+      } catch (error: any) {
+        console.error('[HTTP-HEALTH] Error:', error)
+        res.status(500).json({
+          ok: false,
+          timestamp: Date.now(),
+          error: error.message || 'Health check failed'
+        })
+      }
     })
 
     // POST /api/db/test-connection - Test PostgreSQL connection
@@ -3490,19 +3552,30 @@ app.whenReady().then(async () => {
     })
     
     // POST /api/email/accounts/connect/gmail - Connect Gmail account via OAuth
+    // Note: OAuth flows can take several minutes as user completes login in browser
     httpApp.post('/api/email/accounts/connect/gmail', async (req, res) => {
       try {
         console.log('[HTTP-EMAIL] POST /api/email/accounts/connect/gmail')
+        
+        // Set longer timeout for OAuth flows (6 minutes to be safe)
+        // This prevents the connection from timing out while user completes OAuth in browser
+        req.setTimeout(6 * 60 * 1000)
+        res.setTimeout(6 * 60 * 1000)
+        
         const { displayName } = req.body
         const { emailGateway } = await import('./main/email/gateway')
         
         // Try to connect - if credentials not set, show setup dialog
         try {
+          console.log('[HTTP-EMAIL] Starting Gmail OAuth flow...')
           const account = await emailGateway.connectGmailAccount(displayName || 'Gmail Account')
+          console.log('[HTTP-EMAIL] Gmail OAuth flow completed successfully')
           res.json({ ok: true, data: account })
         } catch (credError: any) {
+          console.log('[HTTP-EMAIL] OAuth error:', credError.message)
           if (credError.message?.includes('OAuth client credentials not configured')) {
             // Show setup dialog
+            console.log('[HTTP-EMAIL] Showing Gmail setup dialog...')
             const { showGmailSetupDialog } = await import('./main/email/ipc')
             const result = await showGmailSetupDialog()
             if (result.success) {
@@ -3528,19 +3601,30 @@ app.whenReady().then(async () => {
     })
     
     // POST /api/email/accounts/connect/outlook - Connect Outlook account via OAuth
+    // Note: OAuth flows can take several minutes as user completes login in browser
     httpApp.post('/api/email/accounts/connect/outlook', async (req, res) => {
       try {
         console.log('[HTTP-EMAIL] POST /api/email/accounts/connect/outlook')
+        
+        // Set longer timeout for OAuth flows (6 minutes to be safe)
+        // This prevents the connection from timing out while user completes OAuth in browser
+        req.setTimeout(6 * 60 * 1000)
+        res.setTimeout(6 * 60 * 1000)
+        
         const { displayName } = req.body
         const { emailGateway } = await import('./main/email/gateway')
         
         // Try to connect - if credentials not set, show setup dialog
         try {
+          console.log('[HTTP-EMAIL] Starting Outlook OAuth flow...')
           const account = await emailGateway.connectOutlookAccount(displayName || 'Outlook Account')
+          console.log('[HTTP-EMAIL] Outlook OAuth flow completed successfully')
           res.json({ ok: true, data: account })
         } catch (credError: any) {
+          console.log('[HTTP-EMAIL] OAuth error:', credError.message)
           if (credError.message?.includes('OAuth client credentials not configured')) {
             // Show setup dialog
+            console.log('[HTTP-EMAIL] Showing Outlook setup dialog...')
             const { showOutlookSetupDialog } = await import('./main/email/ipc')
             const result = await showOutlookSetupDialog()
             if (result.success) {
@@ -3687,6 +3771,13 @@ app.whenReady().then(async () => {
       const server = httpApp.listen(port, '127.0.0.1', () => {
         httpServerStarted = true
         console.log(`[MAIN] ✅ HTTP API server listening on http://127.0.0.1:${port}`)
+        
+        // Set longer server-level timeout (10 minutes) to support OAuth flows
+        // This is the maximum time the server will wait for a request to complete
+        // Individual routes can have shorter timeouts as needed
+        server.timeout = 10 * 60 * 1000 // 10 minutes
+        server.keepAliveTimeout = 10 * 60 * 1000 // 10 minutes
+        console.log('[MAIN] HTTP server timeout set to 10 minutes for OAuth support')
       })
       
       server.once('error', (err: any) => {
