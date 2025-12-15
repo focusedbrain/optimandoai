@@ -190,8 +190,26 @@ export function activateMailGuard(targetDisplay?: Display, windowInfo?: WindowIn
   })
 
   mailguardOverlay.on('closed', () => {
+    console.log('[MAILGUARD] ⚠️ Overlay window was closed')
     mailguardOverlay = null
     isActive = false
+    storedWindowInfo = null
+    lastEmailListBounds = null
+  })
+  
+  // Handle unexpected crashes
+  mailguardOverlay.webContents.on('crashed', () => {
+    console.error('[MAILGUARD] ❌ Overlay crashed!')
+    mailguardOverlay = null
+    isActive = false
+  })
+  
+  mailguardOverlay.webContents.on('unresponsive', () => {
+    console.error('[MAILGUARD] ⚠️ Overlay became unresponsive')
+  })
+  
+  mailguardOverlay.webContents.on('responsive', () => {
+    console.log('[MAILGUARD] ✅ Overlay is responsive again')
   })
   
   isActive = true

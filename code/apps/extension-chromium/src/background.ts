@@ -1370,6 +1370,18 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       break
     }
     
+    case 'MAILGUARD_CHECK_STATUS': {
+      // Content script wants to verify overlay is still active
+      if (WS_ENABLED && ws && ws.readyState === WebSocket.OPEN) {
+        try { ws.send(JSON.stringify({ type: 'MAILGUARD_STATUS' })) } catch {}
+        try { sendResponse({ connected: true }) } catch {}
+      } else {
+        // WebSocket not connected - overlay might have disappeared
+        try { sendResponse({ connected: false }) } catch {}
+      }
+      break
+    }
+    
     case 'MAILGUARD_UPDATE_BOUNDS': {
       // Content script sends email list container bounds to forward to Electron
       // This is used to position the overlay only over the email list area (not sidebar)

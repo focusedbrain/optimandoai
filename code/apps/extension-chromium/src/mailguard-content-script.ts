@@ -356,6 +356,42 @@ function showStatusMarker(): void {
   setTimeout(() => marker.remove(), 4000)
 }
 
+/**
+ * Show a warning when connection to Electron is lost
+ * The overlay might have disappeared but we keep the protection state
+ */
+function showConnectionWarning(): void {
+  const existing = document.getElementById('wr-mailguard-connection-warning')
+  if (existing) return // Already showing
+  
+  const warning = document.createElement('div')
+  warning.id = 'wr-mailguard-connection-warning'
+  warning.style.cssText = `
+    position: fixed;
+    bottom: 20px;
+    left: 20px;
+    z-index: 2147483647;
+    background: linear-gradient(135deg, #fef3c7 0%, #fbbf24 100%);
+    color: #92400e;
+    padding: 12px 18px;
+    border-radius: 10px;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    font-size: 13px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+    border: 2px solid #f59e0b;
+  `
+  warning.innerHTML = '<span style="font-size:16px">⚠️</span> Connection lost - Overlay may be inactive. Check if OpenGiraffe is running.'
+  document.body.appendChild(warning)
+}
+
+function hideConnectionWarning(): void {
+  const warning = document.getElementById('wr-mailguard-connection-warning')
+  if (warning) warning.remove()
+}
+
 // =============================================================================
 // Email Row Detection and Position Reporting
 // =============================================================================
@@ -622,13 +658,28 @@ function startRowPositionUpdates(): void {
   if (rowUpdateInterval) return
   
   // Update row positions every 2000ms (reduced from 1s for performance)
-  rowUpdateInterval = setInterval(() => {
+  // Also check connection status to show warning if connection lost
+  let connectionLostWarningShown = false
+  
+  rowUpdateInterval = setInterval(async () => {
     if (!isMailGuardActive) return
     
-    // NOTE: We do NOT auto-deactivate here - the beforeunload event handles
-    // deactivation when leaving the site. The user wants protection to stay active
-    // while navigating within the email site.
+    // Check connection status periodically
+    const statusResponse = await sendToBackground({ type: 'MAILGUARD_CHECK_STATUS' })
     
+    if (!statusResponse?.connected && !connectionLostWarningShown) {
+      // Connection lost - show warning but DON'T deactivate
+      console.log('[MailGuard] ⚠️ Connection to Electron lost, but keeping protection state')
+      showConnectionWarning()
+      connectionLostWarningShown = true
+    } else if (statusResponse?.connected && connectionLostWarningShown) {
+      // Connection restored
+      console.log('[MailGuard] ✅ Connection restored')
+      hideConnectionWarning()
+      connectionLostWarningShown = false
+    }
+    
+    // Always try to update rows (will silently fail if not connected)
     const rows = getEmailRowPositions()
     const provider = getCurrentEmailProvider()
     sendToBackground({ type: 'MAILGUARD_UPDATE_ROWS', rows, provider })
