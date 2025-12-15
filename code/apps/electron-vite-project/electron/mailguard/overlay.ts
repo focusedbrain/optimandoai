@@ -7,7 +7,7 @@
  * - Displays sanitized emails in a lightbox
  */
 
-import { BrowserWindow, screen, Display, ipcMain } from 'electron'
+import { BrowserWindow, screen, Display } from 'electron'
 import * as path from 'path'
 import * as fs from 'fs'
 import * as os from 'os'
@@ -16,28 +16,15 @@ let mailguardOverlay: BrowserWindow | null = null
 let isActive = false
 let browserWindowOffset = { x: 0, y: 0, chromeHeight: 0 }
 let currentTheme: 'default' | 'dark' | 'professional' = 'default'
-// Track the sidebar width for mouse passthrough (sidebar is on the left)
-let sidebarWidth = 0
-
-// Handle mouse region changes from overlay renderer
-// When mouse is in sidebar, enable passthrough; otherwise block
-ipcMain.on('mailguard-mouse-region', (event, region: string) => {
-  if (!mailguardOverlay) return
-  
-  if (region === 'sidebar') {
-    // Enable mouse passthrough for sidebar interaction
-    mailguardOverlay.setIgnoreMouseEvents(true, { forward: true })
-  } else {
-    // Block mouse events in protected area (email list + content)
-    mailguardOverlay.setIgnoreMouseEvents(false)
-  }
-})
+// Store the browser window info for overlay positioning
+let storedWindowInfo: WindowInfo | null = null
 
 /**
- * Bounds for the protected email list area (used to determine sidebar passthrough zone)
+ * Bounds for the protected email list area
+ * Used to position the overlay to cover email list + content preview (excluding sidebar)
  */
 export interface ProtectedAreaBounds {
-  x: number  // Left edge of email list (= sidebar width in viewport coords)
+  x: number  // Left edge of email list in viewport coords (= sidebar width)
   y: number
   width: number
   height: number
@@ -107,8 +94,8 @@ export interface SanitizedEmail {
 
 /**
  * Activate MailGuard overlay on the specified display (or primary if not specified)
- * The overlay covers the full browser content area, with mouse passthrough enabled
- * for the sidebar region (determined by email list bounds).
+ * The overlay is initially sized to the browser content area, then resized to only
+ * cover the email list + content preview area when bounds are received.
  */
 export function activateMailGuard(targetDisplay?: Display, windowInfo?: WindowInfo, theme?: string): void {
   if (mailguardOverlay) {
@@ -124,29 +111,48 @@ export function activateMailGuard(targetDisplay?: Display, windowInfo?: WindowIn
   const display = targetDisplay || screen.getPrimaryDisplay()
   console.log('[MAILGUARD] Activating overlay on display:', display.id, 'bounds:', display.bounds)
   console.log('[MAILGUARD] Window info:', windowInfo)
-  const { x, y, width, height } = display.bounds
   
-  // Calculate browser window offset relative to display
+  // Store window info for later use when resizing overlay
+  storedWindowInfo = windowInfo || null
+  
+  // Calculate initial overlay position - start with browser content area
+  let overlayX: number
+  let overlayY: number
+  let overlayWidth: number
+  let overlayHeight: number
+  
   if (windowInfo) {
     const chromeHeight = windowInfo.outerHeight - windowInfo.innerHeight
     browserWindowOffset = {
-      x: windowInfo.screenX - x,
-      y: windowInfo.screenY - y + chromeHeight,
+      x: 0,
+      y: 0,
       chromeHeight
     }
-    console.log('[MAILGUARD] Browser window offset:', browserWindowOffset)
+    
+    // Initial position: browser content area
+    overlayX = windowInfo.screenX
+    overlayY = windowInfo.screenY + chromeHeight
+    overlayWidth = windowInfo.innerWidth
+    overlayHeight = windowInfo.innerHeight
+    
+    console.log('[MAILGUARD] Initial overlay over browser content:', {
+      x: overlayX, y: overlayY, width: overlayWidth, height: overlayHeight
+    })
   } else {
+    // Fallback to display bounds
+    const { x, y, width, height } = display.bounds
+    overlayX = x
+    overlayY = y
+    overlayWidth = width
+    overlayHeight = height
     browserWindowOffset = { x: 0, y: 0, chromeHeight: 0 }
   }
-  
-  // Reset sidebar width
-  sidebarWidth = 0
 
   mailguardOverlay = new BrowserWindow({
-    x,
-    y,
-    width,
-    height,
+    x: Math.round(overlayX),
+    y: Math.round(overlayY),
+    width: Math.round(overlayWidth),
+    height: Math.round(overlayHeight),
     frame: false,
     transparent: true,
     resizable: false,
@@ -200,29 +206,53 @@ export function deactivateMailGuard(): void {
     mailguardOverlay = null
   }
   isActive = false
-  sidebarWidth = 0
+  storedWindowInfo = null
 }
 
 /**
- * Update the sidebar passthrough zone based on email list bounds
- * The sidebar is the area to the LEFT of the email list (bounds.x = sidebar width)
+ * Update the protected area - resize overlay to only cover email list + content preview
+ * The overlay is positioned from the email list's left edge to the browser's right edge,
+ * leaving the sidebar completely free for interaction.
  */
 export function updateProtectedArea(bounds: ProtectedAreaBounds): void {
-  if (!mailguardOverlay) {
-    console.log('[MAILGUARD] Cannot update protected area - overlay not active')
+  if (!mailguardOverlay || !storedWindowInfo) {
+    console.log('[MAILGUARD] Cannot update protected area - overlay not active or no window info')
     return
   }
   
-  // The email list's x position tells us where the sidebar ends
-  // Store this so we can send it to the overlay for mouse passthrough
-  const newSidebarWidth = Math.round(bounds.x)
+  // Calculate overlay position:
+  // - X starts at email list left edge (sidebar ends here)
+  // - Width extends to the right edge of the browser window
+  // - Y and height cover the full browser content height
+  const chromeHeight = storedWindowInfo.outerHeight - storedWindowInfo.innerHeight
   
-  if (newSidebarWidth !== sidebarWidth) {
-    sidebarWidth = newSidebarWidth
-    console.log('[MAILGUARD] Sidebar passthrough zone updated:', sidebarWidth, 'px')
+  const overlayX = storedWindowInfo.screenX + bounds.x
+  const overlayY = storedWindowInfo.screenY + chromeHeight
+  const overlayWidth = storedWindowInfo.innerWidth - bounds.x  // From email list to right edge
+  const overlayHeight = storedWindowInfo.innerHeight
+  
+  console.log('[MAILGUARD] Resizing overlay to cover email list + content area:', {
+    sidebarWidth: bounds.x,
+    overlay: { x: overlayX, y: overlayY, width: overlayWidth, height: overlayHeight }
+  })
+  
+  try {
+    mailguardOverlay.setBounds({
+      x: Math.round(overlayX),
+      y: Math.round(overlayY),
+      width: Math.round(overlayWidth),
+      height: Math.round(overlayHeight)
+    })
     
-    // Send sidebar width to overlay for mouse passthrough handling
-    mailguardOverlay.webContents.send('mailguard-sidebar-width', sidebarWidth)
+    // Update browser window offset for email row positioning
+    // Since overlay now starts at email list, offset needs adjustment
+    browserWindowOffset = {
+      x: -bounds.x,  // Rows are in viewport coords, overlay starts at bounds.x
+      y: 0,
+      chromeHeight
+    }
+  } catch (err) {
+    console.error('[MAILGUARD] Error resizing overlay:', err)
   }
 }
 
@@ -1092,30 +1122,6 @@ function getOverlayHtml(): string {
     // Close lightbox command
     ipcRenderer.on('mailguard-close-lightbox', () => {
       lightbox.classList.remove('visible');
-    });
-    
-    // Sidebar passthrough handling
-    let sidebarWidth = 0;
-    let isInSidebar = false;
-    
-    ipcRenderer.on('mailguard-sidebar-width', (event, width) => {
-      sidebarWidth = width;
-      console.log('[OVERLAY] Sidebar passthrough width set to:', sidebarWidth);
-    });
-    
-    // Track mouse position to enable passthrough in sidebar area
-    document.addEventListener('mousemove', (e) => {
-      if (sidebarWidth <= 0) return; // No sidebar info yet
-      
-      // Mouse is in sidebar if x position is less than sidebar width
-      // (accounting for browser window offset which is already applied)
-      const inSidebar = e.clientX < sidebarWidth;
-      
-      if (inSidebar !== isInSidebar) {
-        isInSidebar = inSidebar;
-        // Notify main process to toggle mouse event handling
-        ipcRenderer.send('mailguard-mouse-region', inSidebar ? 'sidebar' : 'protected');
-      }
     });
     
     function escapeHtml(text) {
