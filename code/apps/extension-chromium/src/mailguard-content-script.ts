@@ -500,6 +500,26 @@ function getEmailListBounds(): ProtectedAreaBounds | null {
   }
 }
 
+// Track last known window position to detect moves
+let lastWindowX = window.screenX
+let lastWindowY = window.screenY
+let lastWindowWidth = window.outerWidth
+let lastWindowHeight = window.outerHeight
+let windowPositionInterval: ReturnType<typeof setInterval> | null = null
+
+// Send current window position to keep overlay anchored
+function sendWindowPosition(): void {
+  const windowInfo = {
+    screenX: window.screenX,
+    screenY: window.screenY,
+    innerWidth: window.innerWidth,
+    innerHeight: window.innerHeight,
+    outerWidth: window.outerWidth,
+    outerHeight: window.outerHeight
+  }
+  sendToBackground({ type: 'MAILGUARD_WINDOW_POSITION', windowInfo })
+}
+
 // Initialize event listeners once (they check isMailGuardActive internally)
 function initializeListeners(): void {
   if (listenersInitialized) return
@@ -532,6 +552,10 @@ function initializeListeners(): void {
     
     resizeTimeout = setTimeout(() => {
       resizeTimeout = null
+      
+      // Send updated window position on resize
+      sendWindowPosition()
+      
       const bounds = getEmailListBounds()
       if (bounds) {
         console.log('[MailGuard] Window resized, updating bounds')
@@ -542,6 +566,38 @@ function initializeListeners(): void {
       sendToBackground({ type: 'MAILGUARD_UPDATE_ROWS', rows })
     }, 200)
   }, { passive: true })
+  
+  // Window position tracking - detect when browser window is moved
+  // There's no native "window move" event, so we poll for position changes
+  if (!windowPositionInterval) {
+    windowPositionInterval = setInterval(() => {
+      if (!isMailGuardActive) return
+      
+      const currentX = window.screenX
+      const currentY = window.screenY
+      const currentWidth = window.outerWidth
+      const currentHeight = window.outerHeight
+      
+      // Check if window position or size changed
+      if (currentX !== lastWindowX || currentY !== lastWindowY ||
+          currentWidth !== lastWindowWidth || currentHeight !== lastWindowHeight) {
+        console.log('[MailGuard] Window moved/resized, updating overlay position')
+        lastWindowX = currentX
+        lastWindowY = currentY
+        lastWindowWidth = currentWidth
+        lastWindowHeight = currentHeight
+        
+        // Send updated window position
+        sendWindowPosition()
+        
+        // Also update bounds since position changed
+        const bounds = getEmailListBounds()
+        if (bounds) {
+          sendToBackground({ type: 'MAILGUARD_UPDATE_BOUNDS', bounds })
+        }
+      }
+    }, 100) // Check every 100ms for smooth tracking
+  }
   
   // CRITICAL: Deactivate when page is about to unload (navigation away from site entirely)
   window.addEventListener('beforeunload', () => {

@@ -18,6 +18,8 @@ let browserWindowOffset = { x: 0, y: 0, chromeHeight: 0 }
 let currentTheme: 'default' | 'dark' | 'professional' = 'default'
 // Store the browser window info for overlay positioning
 let storedWindowInfo: WindowInfo | null = null
+// Store the last known email list bounds for repositioning when window moves
+let lastEmailListBounds: ProtectedAreaBounds | null = null
 
 /**
  * Bounds for the protected email list area
@@ -207,6 +209,7 @@ export function deactivateMailGuard(): void {
   }
   isActive = false
   storedWindowInfo = null
+  lastEmailListBounds = null
 }
 
 /**
@@ -219,6 +222,9 @@ export function updateProtectedArea(bounds: ProtectedAreaBounds): void {
     console.log('[MAILGUARD] Cannot update protected area - overlay not active or no window info')
     return
   }
+  
+  // Store bounds for use when window moves
+  lastEmailListBounds = bounds
   
   // Calculate overlay position:
   // - X starts at email list left edge (sidebar ends here)
@@ -253,6 +259,47 @@ export function updateProtectedArea(bounds: ProtectedAreaBounds): void {
     }
   } catch (err) {
     console.error('[MAILGUARD] Error resizing overlay:', err)
+  }
+}
+
+/**
+ * Update the browser window position - keeps overlay anchored to browser window
+ * Called when the browser window is moved or resized
+ */
+export function updateWindowPosition(windowInfo: WindowInfo): void {
+  if (!mailguardOverlay) {
+    return
+  }
+  
+  // Update stored window info
+  storedWindowInfo = windowInfo
+  
+  // If we have email list bounds, recalculate overlay position
+  if (lastEmailListBounds) {
+    const chromeHeight = windowInfo.outerHeight - windowInfo.innerHeight
+    
+    const overlayX = windowInfo.screenX + lastEmailListBounds.x
+    const overlayY = windowInfo.screenY + chromeHeight
+    const overlayWidth = windowInfo.innerWidth - lastEmailListBounds.x
+    const overlayHeight = windowInfo.innerHeight
+    
+    try {
+      mailguardOverlay.setBounds({
+        x: Math.round(overlayX),
+        y: Math.round(overlayY),
+        width: Math.round(overlayWidth),
+        height: Math.round(overlayHeight)
+      })
+      
+      // Update offset for row positioning
+      browserWindowOffset = {
+        x: -lastEmailListBounds.x,
+        y: 0,
+        chromeHeight
+      }
+    } catch (err) {
+      console.error('[MAILGUARD] Error updating overlay position:', err)
+    }
   }
 }
 

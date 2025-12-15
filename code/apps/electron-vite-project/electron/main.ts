@@ -166,7 +166,7 @@ import { captureScreenshot, startRegionStream } from './lmgtfy/capture'
 import { loadPresets, upsertRegion } from './lmgtfy/presets'
 import { registerDbHandlers, testConnection, syncChromeDataToPostgres, getConfig, getPostgresAdapter } from './ipc/db'
 import { handleVaultRPC } from './main/vault/rpc'
-import { activateMailGuard, deactivateMailGuard, updateEmailRows, updateProtectedArea, showSanitizedEmail, closeLightbox, isMailGuardActive } from './mailguard/overlay'
+import { activateMailGuard, deactivateMailGuard, updateEmailRows, updateProtectedArea, updateWindowPosition, showSanitizedEmail, closeLightbox, isMailGuardActive } from './mailguard/overlay'
 
 // Storage for email row preview data (for Gmail API matching)
 const emailRowPreviewData = new Map<string, { from: string; subject: string }>()
@@ -1431,6 +1431,19 @@ app.whenReady().then(async () => {
                 }
               } catch (err: any) {
                 console.error('[MAIN] Error updating protected area bounds:', err)
+              }
+            }
+            
+            if (msg.type === 'MAILGUARD_WINDOW_POSITION') {
+              // Content script sends browser window position updates
+              // This keeps the overlay anchored to the browser window when it moves
+              try {
+                const windowInfo = msg.windowInfo
+                if (windowInfo) {
+                  updateWindowPosition(windowInfo)
+                }
+              } catch (err: any) {
+                console.error('[MAIN] Error updating window position:', err)
               }
             }
             

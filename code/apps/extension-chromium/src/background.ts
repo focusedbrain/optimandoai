@@ -1380,6 +1380,15 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       break
     }
     
+    case 'MAILGUARD_WINDOW_POSITION': {
+      // Content script sends browser window position updates for overlay anchoring
+      // This keeps the overlay locked to the browser window when it moves
+      if (WS_ENABLED && ws && ws.readyState === WebSocket.OPEN) {
+        try { ws.send(JSON.stringify({ type: 'MAILGUARD_WINDOW_POSITION', windowInfo: msg.windowInfo })) } catch {}
+      }
+      break
+    }
+    
     case 'MAILGUARD_EMAIL_CONTENT': {
       // Content script sends sanitized email content to forward to Electron
       console.log('[BG] 🛡️ Forwarding sanitized email to Electron')
