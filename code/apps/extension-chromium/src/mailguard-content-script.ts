@@ -543,7 +543,7 @@ function initializeListeners(): void {
     }, 200)
   }, { passive: true })
   
-  // CRITICAL: Deactivate when page is about to unload (navigation away)
+  // CRITICAL: Deactivate when page is about to unload (navigation away from site entirely)
   window.addEventListener('beforeunload', () => {
     if (isMailGuardActive) {
       console.log('[MailGuard] Page unloading, deactivating...')
@@ -551,13 +551,9 @@ function initializeListeners(): void {
     }
   })
   
-  // Deactivate when tab visibility changes (user switches tabs)
-  document.addEventListener('visibilitychange', () => {
-    if (document.hidden && isMailGuardActive) {
-      console.log('[MailGuard] Tab hidden, deactivating...')
-      deactivateMailGuard()
-    }
-  })
+  // NOTE: We intentionally do NOT deactivate on tab visibility change
+  // The user wants protection to remain active even when switching tabs
+  // The overlay will be hidden by the OS when the browser is not in focus
   
   console.log('[MailGuard] Event listeners initialized')
 }
@@ -585,7 +581,7 @@ function startRowPositionUpdates(): void {
     sendToBackground({ type: 'MAILGUARD_UPDATE_ROWS', rows, provider })
   }, 2000)
   
-  // Watch for URL changes within the SPA (1s is enough to detect navigation)
+  // Watch for URL changes within the SPA - update positions when navigating
   if (!urlCheckInterval) {
     let lastUrl = window.location.href
     urlCheckInterval = setInterval(() => {
@@ -593,13 +589,19 @@ function startRowPositionUpdates(): void {
       
       const currentUrl = window.location.href
       if (currentUrl !== lastUrl) {
-        console.log('[MailGuard] URL changed from', lastUrl, 'to', currentUrl)
+        console.log('[MailGuard] URL changed, updating positions...')
         lastUrl = currentUrl
         
-        // If we're no longer on a supported site, deactivate
-        if (!isOnSupportedEmailSite()) {
-          console.log('[MailGuard] Navigated away from email site, deactivating...')
-          deactivateMailGuard()
+        // Just update row positions - the site check in rowUpdateInterval handles deactivation
+        // We don't want to deactivate just because the user navigated within the inbox
+        const rows = getEmailRowPositions()
+        const provider = getCurrentEmailProvider()
+        sendToBackground({ type: 'MAILGUARD_UPDATE_ROWS', rows, provider })
+        
+        // Also update bounds in case layout changed
+        const bounds = getEmailListBounds()
+        if (bounds) {
+          sendToBackground({ type: 'MAILGUARD_UPDATE_BOUNDS', bounds })
         }
       }
     }, 1000)
