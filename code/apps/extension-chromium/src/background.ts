@@ -11,6 +11,10 @@ const tabSidebarStatus = new Map<number, boolean>();
 // Track if we've already tried to launch Electron this session
 let electronLaunchAttempted = false;
 let electronLaunchInProgress = false;
+// Track if MailGuard should be active (persists across reconnections)
+let mailGuardShouldBeActive = false;
+let lastMailGuardWindowInfo: any = null;
+let lastMailGuardTheme: string = 'default';
 
 // =================================================================
 // Production-Grade Connection Health Monitor
@@ -561,7 +565,7 @@ function connectToWebSocketServer(forceReconnect = false): Promise<boolean> {
         // Send initial ping
         ws?.send(JSON.stringify({ type: 'ping', from: 'extension', timestamp: Date.now() }));
 
-        // Start heartbeat
+        // Start heartbeat (more frequent for stability)
         startHeartbeat();
 
         // Update badge
@@ -570,6 +574,20 @@ function connectToWebSocketServer(forceReconnect = false): Promise<boolean> {
         
         // Store connection state
         chrome.storage.local.set({ ws_connected: true, ws_last_connect: Date.now() });
+        
+        // Auto-restore MailGuard if it was active before disconnect
+        if (mailGuardShouldBeActive && lastMailGuardWindowInfo) {
+          console.log('[BG] 🛡️ Auto-restoring MailGuard overlay after reconnection...');
+          try {
+            ws?.send(JSON.stringify({ 
+              type: 'MAILGUARD_ACTIVATE', 
+              windowInfo: lastMailGuardWindowInfo,
+              theme: lastMailGuardTheme
+            }));
+          } catch (err) {
+            console.error('[BG] Failed to restore MailGuard:', err);
+          }
+        }
         
         resolve(true);
       });
@@ -804,21 +822,27 @@ async function ensureConnection(maxRetries = 3): Promise<boolean> {
   return false;
 }
 
-// Start heartbeat to keep connection alive (more frequent)
+// Start heartbeat to keep connection alive (more frequent for stability)
 function startHeartbeat() {
   if (!WS_ENABLED) return;
   stopHeartbeat();
   
-  // Send heartbeat every 15 seconds to keep connection alive
+  // Send heartbeat every 5 seconds to keep connection alive and detect drops quickly
   heartbeatInterval = setInterval(() => {
     if (ws && ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({ type: 'ping', from: 'extension', timestamp: Date.now() }));
+      try {
+        ws.send(JSON.stringify({ type: 'ping', from: 'extension', timestamp: Date.now() }));
+      } catch (err) {
+        console.log('[BG] 💔 Heartbeat send failed, reconnecting...');
+        stopHeartbeat();
+        connectToWebSocketServer();
+      }
     } else {
       console.log('[BG] 💔 Heartbeat: connection lost, reconnecting...');
       stopHeartbeat();
       connectToWebSocketServer();
     }
-  }, 15000);
+  }, 5000);  // 5 seconds for faster detection
 }
 
 // Stop heartbeat
@@ -1315,6 +1339,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       console.log('[BG] 🛡️ Window info:', msg.windowInfo)
       console.log('[BG] 🛡️ Theme:', msg.theme)
       
+      // Store state for auto-restore after reconnection
+      mailGuardShouldBeActive = true;
+      lastMailGuardWindowInfo = msg.windowInfo;
+      lastMailGuardTheme = msg.theme || 'default';
+      
       if (!WS_ENABLED) {
         console.log('[BG] 🛡️ WebSocket disabled')
         try { sendResponse({ success: false, error: 'WebSocket disabled' }) } catch {}
@@ -1353,6 +1382,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     
     case 'MAILGUARD_DEACTIVATE': {
       console.log('[BG] 🛡️ MailGuard deactivate request')
+      // Clear the stored state so it doesn't auto-restore
+      mailGuardShouldBeActive = false;
+      lastMailGuardWindowInfo = null;
+      
       if (WS_ENABLED && ws && ws.readyState === WebSocket.OPEN) {
         try { ws.send(JSON.stringify({ type: 'MAILGUARD_DEACTIVATE' })) } catch {}
         try { sendResponse({ success: true }) } catch {}
