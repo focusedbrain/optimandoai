@@ -1394,6 +1394,16 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       break
     }
     
+    case 'MAILGUARD_UPDATE_BOUNDS': {
+      // Content script sends email list container bounds to forward to Electron
+      // This is used to position the overlay only over the email list area (not sidebar)
+      console.log('[BG] 🛡️ Forwarding email list bounds to Electron')
+      if (WS_ENABLED && ws && ws.readyState === WebSocket.OPEN) {
+        try { ws.send(JSON.stringify({ type: 'MAILGUARD_UPDATE_BOUNDS', bounds: msg.bounds })) } catch {}
+      }
+      break
+    }
+    
     case 'MAILGUARD_EMAIL_CONTENT': {
       // Content script sends sanitized email content to forward to Electron
       console.log('[BG] 🛡️ Forwarding sanitized email to Electron')

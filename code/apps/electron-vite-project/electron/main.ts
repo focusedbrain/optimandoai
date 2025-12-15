@@ -166,7 +166,7 @@ import { captureScreenshot, startRegionStream } from './lmgtfy/capture'
 import { loadPresets, upsertRegion } from './lmgtfy/presets'
 import { registerDbHandlers, testConnection, syncChromeDataToPostgres, getConfig, getPostgresAdapter } from './ipc/db'
 import { handleVaultRPC } from './main/vault/rpc'
-import { activateMailGuard, deactivateMailGuard, updateEmailRows, showSanitizedEmail, closeLightbox, isMailGuardActive } from './mailguard/overlay'
+import { activateMailGuard, deactivateMailGuard, updateEmailRows, updateProtectedArea, showSanitizedEmail, closeLightbox, isMailGuardActive } from './mailguard/overlay'
 
 // Storage for email row preview data (for Gmail API matching)
 const emailRowPreviewData = new Map<string, { from: string; subject: string }>()
@@ -1417,6 +1417,20 @@ app.whenReady().then(async () => {
                 })
               } catch (err: any) {
                 console.error('[MAIN] Error updating email rows:', err)
+              }
+            }
+            
+            if (msg.type === 'MAILGUARD_UPDATE_BOUNDS') {
+              // Content script sends email list container bounds
+              // This is used to position the overlay only over the email list area (not sidebar)
+              try {
+                const bounds = msg.bounds
+                if (bounds) {
+                  console.log('[MAIN] 🛡️ Updating protected area bounds:', bounds)
+                  updateProtectedArea(bounds)
+                }
+              } catch (err: any) {
+                console.error('[MAIN] Error updating protected area bounds:', err)
               }
             }
             

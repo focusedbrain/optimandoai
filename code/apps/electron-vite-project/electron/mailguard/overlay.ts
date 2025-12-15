@@ -16,6 +16,21 @@ let mailguardOverlay: BrowserWindow | null = null
 let isActive = false
 let browserWindowOffset = { x: 0, y: 0, chromeHeight: 0 }
 let currentTheme: 'default' | 'dark' | 'professional' = 'default'
+// Track the protected area (email list bounds) for targeted overlay positioning
+let protectedAreaBounds: ProtectedAreaBounds | null = null
+
+/**
+ * Bounds for the protected email list area
+ * The overlay will be positioned to only cover this area, leaving the sidebar accessible
+ */
+export interface ProtectedAreaBounds {
+  x: number
+  y: number
+  width: number
+  height: number
+  screenX: number  // Browser window screenX
+  screenY: number  // Browser window screenY
+}
 
 // Theme color configurations - matching sidebar colors exactly
 const themeColors = {
@@ -79,6 +94,8 @@ export interface SanitizedEmail {
 
 /**
  * Activate MailGuard overlay on the specified display (or primary if not specified)
+ * The overlay starts positioned over the browser window's content area,
+ * and will be refined to only cover the email list when bounds are received.
  */
 export function activateMailGuard(targetDisplay?: Display, windowInfo?: WindowInfo, theme?: string): void {
   if (mailguardOverlay) {
@@ -94,26 +111,47 @@ export function activateMailGuard(targetDisplay?: Display, windowInfo?: WindowIn
   const display = targetDisplay || screen.getPrimaryDisplay()
   console.log('[MAILGUARD] Activating overlay on display:', display.id, 'bounds:', display.bounds)
   console.log('[MAILGUARD] Window info:', windowInfo)
-  const { x, y, width, height } = display.bounds
   
-  // Calculate browser window offset relative to display
+  // Calculate browser window offset and initial overlay position
+  let overlayX: number
+  let overlayY: number
+  let overlayWidth: number
+  let overlayHeight: number
+  
   if (windowInfo) {
+    // Position overlay over the browser window's content area (not full screen)
+    // This leaves other windows (like taskbar) accessible
     const chromeHeight = windowInfo.outerHeight - windowInfo.innerHeight
     browserWindowOffset = {
-      x: windowInfo.screenX - x,
-      y: windowInfo.screenY - y + chromeHeight,
+      x: 0,
+      y: 0,
       chromeHeight
     }
-    console.log('[MAILGUARD] Browser window offset:', browserWindowOffset)
+    
+    // Start with the browser window's content area
+    overlayX = windowInfo.screenX
+    overlayY = windowInfo.screenY + chromeHeight
+    overlayWidth = windowInfo.innerWidth
+    overlayHeight = windowInfo.innerHeight
+    
+    console.log('[MAILGUARD] Initial overlay positioned over browser content area:', {
+      x: overlayX, y: overlayY, width: overlayWidth, height: overlayHeight
+    })
   } else {
+    // Fallback to full display
+    const { x, y, width, height } = display.bounds
+    overlayX = x
+    overlayY = y
+    overlayWidth = width
+    overlayHeight = height
     browserWindowOffset = { x: 0, y: 0, chromeHeight: 0 }
   }
 
   mailguardOverlay = new BrowserWindow({
-    x,
-    y,
-    width,
-    height,
+    x: Math.round(overlayX),
+    y: Math.round(overlayY),
+    width: Math.round(overlayWidth),
+    height: Math.round(overlayHeight),
     frame: false,
     transparent: true,
     resizable: false,
@@ -167,6 +205,56 @@ export function deactivateMailGuard(): void {
     mailguardOverlay = null
   }
   isActive = false
+  protectedAreaBounds = null
+}
+
+/**
+ * Update the protected area bounds and resize the overlay accordingly
+ * This positions the overlay to only cover the email list area, leaving the sidebar accessible
+ */
+export function updateProtectedArea(bounds: ProtectedAreaBounds): void {
+  if (!mailguardOverlay) {
+    console.log('[MAILGUARD] Cannot update protected area - overlay not active')
+    return
+  }
+  
+  protectedAreaBounds = bounds
+  
+  // Calculate screen coordinates for the overlay
+  // The bounds are in viewport coordinates, we need to convert to screen coordinates
+  const chromeHeight = browserWindowOffset.chromeHeight
+  const screenX = bounds.screenX + bounds.x
+  const screenY = bounds.screenY + chromeHeight + bounds.y
+  
+  // Add a small padding around the protected area
+  const padding = 5
+  const overlayX = Math.max(0, screenX - padding)
+  const overlayY = Math.max(0, screenY - padding)
+  const overlayWidth = bounds.width + (padding * 2)
+  const overlayHeight = bounds.height + (padding * 2)
+  
+  console.log('[MAILGUARD] Updating protected area:', {
+    viewportBounds: bounds,
+    screenPosition: { x: overlayX, y: overlayY, width: overlayWidth, height: overlayHeight }
+  })
+  
+  // Resize and reposition the overlay window
+  try {
+    mailguardOverlay.setBounds({
+      x: Math.round(overlayX),
+      y: Math.round(overlayY),
+      width: Math.round(overlayWidth),
+      height: Math.round(overlayHeight)
+    })
+    
+    // Notify the overlay content that bounds have changed
+    mailguardOverlay.webContents.send('mailguard-bounds-updated', {
+      width: overlayWidth,
+      height: overlayHeight
+    })
+  } catch (err) {
+    console.error('[MAILGUARD] Error updating overlay bounds:', err)
+  }
 }
 
 /**

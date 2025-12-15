@@ -30,6 +30,15 @@ interface EmailRowRect {
   subject?: string
 }
 
+interface ProtectedAreaBounds {
+  x: number
+  y: number
+  width: number
+  height: number
+  screenX: number
+  screenY: number
+}
+
 interface SanitizedEmail {
   from: string
   to: string
@@ -402,12 +411,101 @@ function getEmailRowPositions(): EmailRowRect[] {
   return rows
 }
 
+// =============================================================================
+// Email List Container Detection (for overlay positioning)
+// =============================================================================
+
+// Selectors for email list containers (excludes sidebar)
+const EMAIL_LIST_CONTAINER_SELECTORS = {
+  gmail: [
+    'div[role="main"]',           // Main content area
+    'div.aeN',                    // Email list wrapper
+    'div.AO',                     // Alternate list wrapper
+    'table.F.cf.zt'               // Email table
+  ],
+  outlook: [
+    '[data-app-section="MessageList"]',     // Message list section
+    'div[role="main"]',                      // Main content
+    '[data-app-section="ConversationContainer"]',
+    '.jGG6V',                                // Message list container class
+    '#MailList'                              // Mail list ID
+  ]
+}
+
+/**
+ * Get the bounds of the email list container (excluding sidebar)
+ * This is used to position the overlay only over the email list area
+ */
+function getEmailListBounds(): ProtectedAreaBounds | null {
+  const provider = getCurrentEmailProvider()
+  if (provider === 'unknown') return null
+  
+  const selectors = EMAIL_LIST_CONTAINER_SELECTORS[provider]
+  let container: Element | null = null
+  
+  // Try each selector until we find a valid container
+  for (const selector of selectors) {
+    const el = document.querySelector(selector)
+    if (el) {
+      const rect = el.getBoundingClientRect()
+      // Ensure it's a reasonably sized container (not just a tiny element)
+      if (rect.width > 200 && rect.height > 100) {
+        container = el
+        break
+      }
+    }
+  }
+  
+  // Fallback: calculate bounds from visible email rows
+  if (!container) {
+    const rows = getEmailRowPositions()
+    if (rows.length > 0) {
+      const minX = Math.min(...rows.map(r => r.x))
+      const minY = Math.min(...rows.map(r => r.y))
+      const maxX = Math.max(...rows.map(r => r.x + r.width))
+      const maxY = Math.max(...rows.map(r => r.y + r.height))
+      
+      console.log('[MailGuard] Using fallback bounds from email rows')
+      return {
+        x: minX,
+        y: minY,
+        width: maxX - minX,
+        height: maxY - minY,
+        screenX: window.screenX,
+        screenY: window.screenY
+      }
+    }
+    
+    console.log('[MailGuard] Could not detect email list container')
+    return null
+  }
+  
+  const rect = container.getBoundingClientRect()
+  
+  console.log(`[MailGuard] Email list container found:`, {
+    selector: container.tagName,
+    x: rect.left,
+    y: rect.top,
+    width: rect.width,
+    height: rect.height
+  })
+  
+  return {
+    x: rect.left,
+    y: rect.top,
+    width: rect.width,
+    height: rect.height,
+    screenX: window.screenX,
+    screenY: window.screenY
+  }
+}
+
 // Initialize event listeners once (they check isMailGuardActive internally)
 function initializeListeners(): void {
   if (listenersInitialized) return
   listenersInitialized = true
   
-  // Throttled scroll handler
+  // Throttled scroll handler - update rows and bounds
   let scrollTimeout: ReturnType<typeof setTimeout> | null = null
   window.addEventListener('scroll', () => {
     if (!isMailGuardActive) return
@@ -415,6 +513,31 @@ function initializeListeners(): void {
     
     scrollTimeout = setTimeout(() => {
       scrollTimeout = null
+      const rows = getEmailRowPositions()
+      sendToBackground({ type: 'MAILGUARD_UPDATE_ROWS', rows })
+      
+      // Also update bounds on scroll (in case of virtual scrolling changing container size)
+      const bounds = getEmailListBounds()
+      if (bounds) {
+        sendToBackground({ type: 'MAILGUARD_UPDATE_BOUNDS', bounds })
+      }
+    }, 200)
+  }, { passive: true })
+  
+  // Throttled resize handler - update bounds when window resizes
+  let resizeTimeout: ReturnType<typeof setTimeout> | null = null
+  window.addEventListener('resize', () => {
+    if (!isMailGuardActive) return
+    if (resizeTimeout) return
+    
+    resizeTimeout = setTimeout(() => {
+      resizeTimeout = null
+      const bounds = getEmailListBounds()
+      if (bounds) {
+        console.log('[MailGuard] Window resized, updating bounds')
+        sendToBackground({ type: 'MAILGUARD_UPDATE_BOUNDS', bounds })
+      }
+      // Also update rows as their positions may have changed
       const rows = getEmailRowPositions()
       sendToBackground({ type: 'MAILGUARD_UPDATE_ROWS', rows })
     }, 200)
@@ -858,6 +981,13 @@ async function activateMailGuard(): Promise<void> {
         isMailGuardActive = true
         showStatusMarker()
         startRowPositionUpdates()
+        
+        // Send initial protected area bounds (for overlay positioning)
+        const bounds = getEmailListBounds()
+        if (bounds) {
+          console.log('[MailGuard] Sending protected area bounds to Electron')
+          sendToBackground({ type: 'MAILGUARD_UPDATE_BOUNDS', bounds })
+        }
         
         // Send initial row positions
         const rows = getEmailRowPositions()
