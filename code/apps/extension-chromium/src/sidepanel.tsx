@@ -87,7 +87,9 @@ function SidepanelOrchestrator() {
   }>>([])
   const [isLoadingEmailAccounts, setIsLoadingEmailAccounts] = useState(false)
   const [showEmailSetupWizard, setShowEmailSetupWizard] = useState(false)
-  const [emailSetupStep, setEmailSetupStep] = useState<'provider' | 'credentials' | 'connecting'>('provider')
+  const [emailSetupStep, setEmailSetupStep] = useState<'provider' | 'credentials' | 'connecting' | 'gmail-credentials' | 'outlook-credentials'>('provider')
+  const [gmailCredentials, setGmailCredentials] = useState({ clientId: '', clientSecret: '' })
+  const [outlookCredentials, setOutlookCredentials] = useState({ clientId: '', clientSecret: '' })
   const [masterTabId, setMasterTabId] = useState<string | null>(null) // For Master Tab (01), (02), (03), etc. (01 = first tab, doesn't show title in UI)
   const [showTriggerPrompt, setShowTriggerPrompt] = useState<{mode: string, rect: any, imageUrl: string, videoUrl?: string, createTrigger: boolean, addCommand: boolean, name?: string, command?: string, bounds?: any} | null>(null)
   const [createTriggerChecked, setCreateTriggerChecked] = useState(false)
@@ -169,6 +171,55 @@ function SidepanelOrchestrator() {
     }
   }
   
+  // Check if Gmail credentials are configured, show inline form if not
+  const startGmailConnect = async () => {
+    try {
+      const response = await chrome.runtime.sendMessage({ type: 'EMAIL_CHECK_GMAIL_CREDENTIALS' })
+      if (response?.ok && response?.data?.configured) {
+        // Credentials exist, proceed with OAuth
+        connectGmailAccount()
+      } else {
+        // Show inline credentials form
+        setEmailSetupStep('gmail-credentials')
+      }
+    } catch (err) {
+      console.error('[Sidepanel] Failed to check Gmail credentials:', err)
+      // Show form anyway
+      setEmailSetupStep('gmail-credentials')
+    }
+  }
+  
+  // Save Gmail credentials and connect
+  const saveGmailCredentialsAndConnect = async () => {
+    if (!gmailCredentials.clientId || !gmailCredentials.clientSecret) {
+      setNotification({ message: 'Please enter both Client ID and Client Secret', type: 'error' })
+      setTimeout(() => setNotification(null), 3000)
+      return
+    }
+    
+    setEmailSetupStep('connecting')
+    try {
+      // Save credentials
+      const saveResponse = await chrome.runtime.sendMessage({
+        type: 'EMAIL_SAVE_GMAIL_CREDENTIALS',
+        clientId: gmailCredentials.clientId,
+        clientSecret: gmailCredentials.clientSecret
+      })
+      
+      if (!saveResponse?.ok) {
+        throw new Error(saveResponse?.error || 'Failed to save credentials')
+      }
+      
+      // Now connect
+      await connectGmailAccount()
+    } catch (err: any) {
+      console.error('[Sidepanel] Failed to save Gmail credentials:', err)
+      setNotification({ message: err.message || 'Failed to save credentials', type: 'error' })
+      setTimeout(() => setNotification(null), 5000)
+      setEmailSetupStep('gmail-credentials')
+    }
+  }
+  
   // Connect Gmail account via Electron
   const connectGmailAccount = async () => {
     setEmailSetupStep('connecting')
@@ -179,6 +230,7 @@ function SidepanelOrchestrator() {
       if (response?.ok) {
         setShowEmailSetupWizard(false)
         setEmailSetupStep('provider')
+        setGmailCredentials({ clientId: '', clientSecret: '' })
         loadEmailAccounts()
         setNotification({ message: 'Gmail connected successfully!', type: 'success' })
         setTimeout(() => setNotification(null), 3000)
@@ -195,6 +247,55 @@ function SidepanelOrchestrator() {
     }
   }
   
+  // Check if Outlook credentials are configured, show inline form if not
+  const startOutlookConnect = async () => {
+    try {
+      const response = await chrome.runtime.sendMessage({ type: 'EMAIL_CHECK_OUTLOOK_CREDENTIALS' })
+      if (response?.ok && response?.data?.configured) {
+        // Credentials exist, proceed with OAuth
+        connectOutlookAccount()
+      } else {
+        // Show inline credentials form
+        setEmailSetupStep('outlook-credentials')
+      }
+    } catch (err) {
+      console.error('[Sidepanel] Failed to check Outlook credentials:', err)
+      // Show form anyway
+      setEmailSetupStep('outlook-credentials')
+    }
+  }
+  
+  // Save Outlook credentials and connect
+  const saveOutlookCredentialsAndConnect = async () => {
+    if (!outlookCredentials.clientId) {
+      setNotification({ message: 'Please enter the Client ID', type: 'error' })
+      setTimeout(() => setNotification(null), 3000)
+      return
+    }
+    
+    setEmailSetupStep('connecting')
+    try {
+      // Save credentials
+      const saveResponse = await chrome.runtime.sendMessage({
+        type: 'EMAIL_SAVE_OUTLOOK_CREDENTIALS',
+        clientId: outlookCredentials.clientId,
+        clientSecret: outlookCredentials.clientSecret
+      })
+      
+      if (!saveResponse?.ok) {
+        throw new Error(saveResponse?.error || 'Failed to save credentials')
+      }
+      
+      // Now connect
+      await connectOutlookAccount()
+    } catch (err: any) {
+      console.error('[Sidepanel] Failed to save Outlook credentials:', err)
+      setNotification({ message: err.message || 'Failed to save credentials', type: 'error' })
+      setTimeout(() => setNotification(null), 5000)
+      setEmailSetupStep('outlook-credentials')
+    }
+  }
+  
   // Connect Outlook account via Electron
   const connectOutlookAccount = async () => {
     setEmailSetupStep('connecting')
@@ -205,6 +306,7 @@ function SidepanelOrchestrator() {
       if (response?.ok) {
         setShowEmailSetupWizard(false)
         setEmailSetupStep('provider')
+        setOutlookCredentials({ clientId: '', clientSecret: '' })
         loadEmailAccounts()
         setNotification({ message: 'Outlook connected successfully!', type: 'success' })
         setTimeout(() => setNotification(null), 3000)
@@ -3549,7 +3651,7 @@ function SidepanelOrchestrator() {
                         <div style={{ fontSize: '24px', marginBottom: '8px' }}>📧</div>
                         <div style={{ fontSize: '13px', color: theme === 'professional' ? '#64748b' : 'rgba(255,255,255,0.7)', marginBottom: '4px' }}>No email accounts connected</div>
                         <div style={{ fontSize: '11px', color: theme === 'professional' ? '#94a3b8' : 'rgba(255,255,255,0.5)' }}>
-                          Connect your Gmail to view emails securely in MailGuard
+                          Connect your email account to view emails securely in MailGuard
                         </div>
                       </div>
                     ) : (
@@ -3629,7 +3731,7 @@ function SidepanelOrchestrator() {
                       }}>
                         <span style={{ fontSize: '14px' }}>🛡️</span>
                         <div style={{ fontSize: '11px', color: theme === 'professional' ? '#166534' : 'rgba(255,255,255,0.8)', lineHeight: '1.5' }}>
-                          <strong>MailGuard Active:</strong> When you visit Gmail, full email content will be fetched securely via the API. No tracking pixels or scripts will execute.
+                          <strong>MailGuard Active:</strong> When you view emails, full content will be fetched securely via the API. No tracking pixels or scripts will execute.
                         </div>
                       </div>
                     )}
@@ -4515,7 +4617,7 @@ Write your message with the confidence that it will be protected by WRGuard encr
                       <div style={{ fontSize: '24px', marginBottom: '8px' }}>📧</div>
                       <div style={{ fontSize: '13px', color: theme === 'professional' ? '#64748b' : 'rgba(255,255,255,0.7)', marginBottom: '4px' }}>No email accounts connected</div>
                       <div style={{ fontSize: '11px', color: theme === 'professional' ? '#94a3b8' : 'rgba(255,255,255,0.5)' }}>
-                        Connect your Gmail to view emails securely in MailGuard
+                        Connect your email account to view emails securely in MailGuard
                       </div>
                     </div>
                   ) : (
@@ -4595,7 +4697,7 @@ Write your message with the confidence that it will be protected by WRGuard encr
                     }}>
                       <span style={{ fontSize: '14px' }}>🛡️</span>
                       <div style={{ fontSize: '11px', color: theme === 'professional' ? '#166534' : 'rgba(255,255,255,0.8)', lineHeight: '1.5' }}>
-                        <strong>MailGuard Active:</strong> When you visit Gmail, full email content will be fetched securely via the API.
+                        <strong>MailGuard Active:</strong> When you view emails, full content will be fetched securely via the API.
                       </div>
                     </div>
                   )}
@@ -5381,7 +5483,7 @@ Write your message with the confidence that it will be protected by WRGuard encr
                       <div style={{ fontSize: '24px', marginBottom: '8px' }}>📧</div>
                       <div style={{ fontSize: '13px', color: theme === 'professional' ? '#64748b' : 'rgba(255,255,255,0.7)', marginBottom: '4px' }}>No email accounts connected</div>
                       <div style={{ fontSize: '11px', color: theme === 'professional' ? '#94a3b8' : 'rgba(255,255,255,0.5)' }}>
-                        Connect your Gmail to view emails securely in MailGuard
+                        Connect your email account to view emails securely in MailGuard
                       </div>
                     </div>
                   ) : (
@@ -5461,7 +5563,7 @@ Write your message with the confidence that it will be protected by WRGuard encr
                     }}>
                       <span style={{ fontSize: '14px' }}>🛡️</span>
                       <div style={{ fontSize: '11px', color: theme === 'professional' ? '#166534' : 'rgba(255,255,255,0.8)', lineHeight: '1.5' }}>
-                        <strong>MailGuard Active:</strong> When you visit Gmail, full email content will be fetched securely via the API.
+                        <strong>MailGuard Active:</strong> When you view emails, full content will be fetched securely via the API.
                       </div>
                     </div>
                   )}
@@ -6351,7 +6453,7 @@ Write your message with the confidence that it will be protected by WRGuard encr
                   
                   {/* Gmail Option */}
                   <button
-                    onClick={connectGmailAccount}
+                    onClick={startGmailConnect}
                     style={{
                       width: '100%',
                       padding: '14px 16px',
@@ -6377,7 +6479,7 @@ Write your message with the confidence that it will be protected by WRGuard encr
                   
                   {/* Microsoft 365 Option */}
                   <button
-                    onClick={connectOutlookAccount}
+                    onClick={startOutlookConnect}
                     style={{
                       width: '100%',
                       padding: '14px 16px',
@@ -6633,6 +6735,172 @@ Write your message with the confidence that it will be protected by WRGuard encr
                   }}>
                     🔒 <strong>Tip:</strong> For Gmail, Yahoo, and other accounts with 2FA, use an App Password instead of your regular password.
                   </div>
+                </div>
+              )}
+              
+              {/* Gmail OAuth Credentials Form */}
+              {emailSetupStep === 'gmail-credentials' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                  <button
+                    onClick={() => setEmailSetupStep('provider')}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: '6px',
+                      background: 'none', border: 'none',
+                      color: theme === 'professional' ? '#3b82f6' : '#60a5fa',
+                      fontSize: '13px', cursor: 'pointer', padding: '0', marginBottom: '8px'
+                    }}
+                  >
+                    ← Back to providers
+                  </button>
+                  
+                  <div style={{ 
+                    padding: '12px', 
+                    background: theme === 'professional' ? 'rgba(234,179,8,0.1)' : 'rgba(234,179,8,0.15)',
+                    borderRadius: '8px', border: '1px solid rgba(234,179,8,0.3)', marginBottom: '8px'
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px' }}>
+                      <span>⚙️</span>
+                      <div style={{ fontSize: '11px', color: theme === 'professional' ? '#854d0e' : 'rgba(255,255,255,0.9)', lineHeight: '1.5' }}>
+                        <strong>One-time setup:</strong> You need a Google Cloud OAuth Client ID. 
+                        <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener" 
+                           style={{ color: theme === 'professional' ? '#3b82f6' : '#60a5fa', marginLeft: '4px' }}>
+                          Get it here →
+                        </a>
+                      </div>
+                    </div>
+                  </div>
+                  
+                  <div>
+                    <label style={{ fontSize: '12px', fontWeight: '600', color: theme === 'professional' ? '#64748b' : 'rgba(255,255,255,0.7)', marginBottom: '4px', display: 'block' }}>
+                      Client ID *
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="xxxxxxxxx.apps.googleusercontent.com"
+                      value={gmailCredentials.clientId}
+                      onChange={(e) => setGmailCredentials(prev => ({ ...prev, clientId: e.target.value }))}
+                      style={{
+                        width: '100%', padding: '10px 12px',
+                        background: theme === 'professional' ? '#fff' : 'rgba(255,255,255,0.08)',
+                        border: theme === 'professional' ? '1px solid #e2e8f0' : '1px solid rgba(255,255,255,0.15)',
+                        borderRadius: '8px', fontSize: '13px', color: theme === 'professional' ? '#0f172a' : 'white'
+                      }}
+                    />
+                  </div>
+                  
+                  <div>
+                    <label style={{ fontSize: '12px', fontWeight: '600', color: theme === 'professional' ? '#64748b' : 'rgba(255,255,255,0.7)', marginBottom: '4px', display: 'block' }}>
+                      Client Secret *
+                    </label>
+                    <input
+                      type="password"
+                      placeholder="GOCSPX-xxxxxxxxx"
+                      value={gmailCredentials.clientSecret}
+                      onChange={(e) => setGmailCredentials(prev => ({ ...prev, clientSecret: e.target.value }))}
+                      style={{
+                        width: '100%', padding: '10px 12px',
+                        background: theme === 'professional' ? '#fff' : 'rgba(255,255,255,0.08)',
+                        border: theme === 'professional' ? '1px solid #e2e8f0' : '1px solid rgba(255,255,255,0.15)',
+                        borderRadius: '8px', fontSize: '13px', color: theme === 'professional' ? '#0f172a' : 'white'
+                      }}
+                    />
+                  </div>
+                  
+                  <button
+                    onClick={saveGmailCredentialsAndConnect}
+                    style={{
+                      width: '100%', padding: '12px',
+                      background: 'linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%)',
+                      border: 'none', borderRadius: '8px',
+                      color: 'white', fontSize: '14px', fontWeight: '600',
+                      cursor: 'pointer', marginTop: '8px'
+                    }}
+                  >
+                    Save & Connect Gmail
+                  </button>
+                </div>
+              )}
+              
+              {/* Outlook OAuth Credentials Form */}
+              {emailSetupStep === 'outlook-credentials' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                  <button
+                    onClick={() => setEmailSetupStep('provider')}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: '6px',
+                      background: 'none', border: 'none',
+                      color: theme === 'professional' ? '#3b82f6' : '#60a5fa',
+                      fontSize: '13px', cursor: 'pointer', padding: '0', marginBottom: '8px'
+                    }}
+                  >
+                    ← Back to providers
+                  </button>
+                  
+                  <div style={{ 
+                    padding: '12px', 
+                    background: theme === 'professional' ? 'rgba(234,179,8,0.1)' : 'rgba(234,179,8,0.15)',
+                    borderRadius: '8px', border: '1px solid rgba(234,179,8,0.3)', marginBottom: '8px'
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px' }}>
+                      <span>⚙️</span>
+                      <div style={{ fontSize: '11px', color: theme === 'professional' ? '#854d0e' : 'rgba(255,255,255,0.9)', lineHeight: '1.5' }}>
+                        <strong>One-time setup:</strong> You need an Azure AD App Registration. 
+                        <a href="https://portal.azure.com/#blade/Microsoft_AAD_RegisteredApps/ApplicationsListBlade" target="_blank" rel="noopener" 
+                           style={{ color: theme === 'professional' ? '#3b82f6' : '#60a5fa', marginLeft: '4px' }}>
+                          Get it here →
+                        </a>
+                      </div>
+                    </div>
+                  </div>
+                  
+                  <div>
+                    <label style={{ fontSize: '12px', fontWeight: '600', color: theme === 'professional' ? '#64748b' : 'rgba(255,255,255,0.7)', marginBottom: '4px', display: 'block' }}>
+                      Application (Client) ID *
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+                      value={outlookCredentials.clientId}
+                      onChange={(e) => setOutlookCredentials(prev => ({ ...prev, clientId: e.target.value }))}
+                      style={{
+                        width: '100%', padding: '10px 12px',
+                        background: theme === 'professional' ? '#fff' : 'rgba(255,255,255,0.08)',
+                        border: theme === 'professional' ? '1px solid #e2e8f0' : '1px solid rgba(255,255,255,0.15)',
+                        borderRadius: '8px', fontSize: '13px', color: theme === 'professional' ? '#0f172a' : 'white'
+                      }}
+                    />
+                  </div>
+                  
+                  <div>
+                    <label style={{ fontSize: '12px', fontWeight: '600', color: theme === 'professional' ? '#64748b' : 'rgba(255,255,255,0.7)', marginBottom: '4px', display: 'block' }}>
+                      Client Secret (optional for public clients)
+                    </label>
+                    <input
+                      type="password"
+                      placeholder="Leave empty for public client apps"
+                      value={outlookCredentials.clientSecret}
+                      onChange={(e) => setOutlookCredentials(prev => ({ ...prev, clientSecret: e.target.value }))}
+                      style={{
+                        width: '100%', padding: '10px 12px',
+                        background: theme === 'professional' ? '#fff' : 'rgba(255,255,255,0.08)',
+                        border: theme === 'professional' ? '1px solid #e2e8f0' : '1px solid rgba(255,255,255,0.15)',
+                        borderRadius: '8px', fontSize: '13px', color: theme === 'professional' ? '#0f172a' : 'white'
+                      }}
+                    />
+                  </div>
+                  
+                  <button
+                    onClick={saveOutlookCredentialsAndConnect}
+                    style={{
+                      width: '100%', padding: '12px',
+                      background: 'linear-gradient(135deg, #0078d4 0%, #004578 100%)',
+                      border: 'none', borderRadius: '8px',
+                      color: 'white', fontSize: '14px', fontWeight: '600',
+                      cursor: 'pointer', marginTop: '8px'
+                    }}
+                  >
+                    Save & Connect Outlook
+                  </button>
                 </div>
               )}
               

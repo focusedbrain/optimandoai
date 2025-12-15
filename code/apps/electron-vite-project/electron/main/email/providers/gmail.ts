@@ -5,7 +5,7 @@
  * Uses OAuth2 for authentication - never stores passwords.
  */
 
-import { BrowserWindow, app } from 'electron'
+import { BrowserWindow, app, shell } from 'electron'
 import * as https from 'https'
 import * as http from 'http'
 import * as url from 'url'
@@ -314,55 +314,74 @@ export class GmailProvider extends BaseEmailProvider {
       throw new Error('OAuth client credentials not configured')
     }
     
-    return new Promise((resolve, reject) => {
-      // Start local server for callback
-      this.startLocalServer()
-        .then(codePromise => {
-          // Open auth window
-          const authUrl = this.buildAuthUrl(oauthConfig.clientId, email)
-          
-          this.authWindow = new BrowserWindow({
-            width: 600,
-            height: 700,
-            webPreferences: {
-              nodeIntegration: false,
-              contextIsolation: true
-            },
-            title: 'Sign in with Google'
-          })
-          
-          this.authWindow.loadURL(authUrl)
-          
-          this.authWindow.on('closed', () => {
-            this.authWindow = null
-            if (this.localServer) {
-              this.localServer.close()
-              this.localServer = null
-            }
-          })
-          
-          return codePromise
-        })
-        .then(code => this.exchangeCodeForTokens(oauthConfig, code))
-        .then(tokens => {
-          if (this.authWindow) {
-            this.authWindow.close()
-          }
-          resolve(tokens)
-        })
-        .catch(err => {
-          if (this.authWindow) {
-            this.authWindow.close()
-          }
-          reject(err)
-        })
+    // Clean up any existing server from previous attempts
+    this.cleanup()
+    
+    console.log('[Gmail] Starting OAuth flow...')
+    
+    // Start local server
+    console.log('[Gmail] Starting local callback server...')
+    await this.startLocalServer()
+    console.log('[Gmail] Local server ready!')
+    
+    // Open browser
+    const authUrl = this.buildAuthUrl(oauthConfig.clientId, email)
+    console.log('[Gmail] Opening OAuth in system browser:', authUrl.substring(0, 100) + '...')
+    
+    try {
+      await shell.openExternal(authUrl)
+      console.log('[Gmail] Browser opened successfully')
+    } catch (err: any) {
+      console.error('[Gmail] Failed to open browser:', err)
+      this.cleanup()
+      throw new Error('Failed to open browser for authentication')
+    }
+    
+    // Set timeout for getting the code
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      setTimeout(() => {
+        this.cleanup()
+        reject(new Error('OAuth timed out - please try again'))
+      }, 5 * 60 * 1000)
     })
+    
+    try {
+      // Wait for auth code with timeout
+      console.log('[Gmail] Waiting for auth code from browser callback...')
+      const code = await Promise.race([this.waitForAuthCode(), timeoutPromise])
+      console.log('[Gmail] Auth code received!')
+      
+      // Exchange code for tokens
+      console.log('[Gmail] Exchanging code for tokens...')
+      const tokens = await this.exchangeCodeForTokens(oauthConfig, code)
+      console.log('[Gmail] Tokens received!')
+      
+      this.cleanup()
+      return tokens
+    } catch (err: any) {
+      this.cleanup()
+      throw err
+    }
+  }
+  
+  /**
+   * Clean up OAuth resources
+   */
+  private cleanup(): void {
+    if (this.authWindow) {
+      try { this.authWindow.close() } catch {}
+      this.authWindow = null
+    }
+    if (this.localServer) {
+      try { this.localServer.close() } catch {}
+      this.localServer = null
+    }
   }
   
   private buildAuthUrl(clientId: string, email?: string): string {
     const params = new URLSearchParams({
       client_id: clientId,
-      redirect_uri: 'http://localhost:58924/oauth/callback',
+      redirect_uri: 'http://127.0.0.1:58924/oauth/callback',
       response_type: 'code',
       scope: GMAIL_SCOPES.join(' '),
       access_type: 'offline',
@@ -373,42 +392,62 @@ export class GmailProvider extends BaseEmailProvider {
     return `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`
   }
   
-  private startLocalServer(): Promise<Promise<string>> {
-    return new Promise((resolve, reject) => {
-      let codeResolver: (code: string) => void
-      let codeRejecter: (err: Error) => void
-      
-      const codePromise = new Promise<string>((res, rej) => {
-        codeResolver = res
-        codeRejecter = rej
-      })
-      
-      this.localServer = http.createServer((req, res) => {
-        const parsedUrl = url.parse(req.url || '', true)
-        
-        if (parsedUrl.pathname === '/oauth/callback') {
-          const code = parsedUrl.query.code as string
-          const error = parsedUrl.query.error as string
-          
-          if (error) {
-            res.writeHead(200, { 'Content-Type': 'text/html' })
-            res.end('<html><body><h1>Authorization Failed</h1><p>You can close this window.</p></body></html>')
-            codeRejecter(new Error(error))
-          } else if (code) {
-            res.writeHead(200, { 'Content-Type': 'text/html' })
-            res.end('<html><body><h1>Success!</h1><p>You can close this window and return to WR Code.</p></body></html>')
-            codeResolver(code)
-          }
-        }
-      })
-      
-      this.localServer.listen(58924, '127.0.0.1', () => {
-        console.log('[Gmail] OAuth callback server listening on port 58924')
-        resolve(codePromise)
-      })
-      
-      this.localServer.on('error', reject)
+  private codeResolver: ((code: string) => void) | null = null
+  private codeRejecter: ((err: Error) => void) | null = null
+  private codePromise: Promise<string> | null = null
+
+  private async startLocalServer(): Promise<void> {
+    console.log('[Gmail] startLocalServer called')
+    
+    // Create a promise that will be resolved when we get the auth code
+    this.codePromise = new Promise<string>((res, rej) => {
+      this.codeResolver = res
+      this.codeRejecter = rej
     })
+    
+    console.log('[Gmail] Creating HTTP server...')
+    this.localServer = http.createServer((req, res) => {
+      console.log('[Gmail] Received request:', req.url)
+      const parsedUrl = url.parse(req.url || '', true)
+      
+      if (parsedUrl.pathname === '/oauth/callback') {
+        const code = parsedUrl.query.code as string
+        const error = parsedUrl.query.error as string
+        
+        if (error) {
+          console.log('[Gmail] OAuth error:', error)
+          res.writeHead(200, { 'Content-Type': 'text/html' })
+          res.end('<html><body><h1>Authorization Failed</h1><p>You can close this window.</p></body></html>')
+          if (this.codeRejecter) this.codeRejecter(new Error(error))
+        } else if (code) {
+          console.log('[Gmail] OAuth code received!')
+          res.writeHead(200, { 'Content-Type': 'text/html' })
+          res.end('<html><body><h1>Success!</h1><p>You can close this window and return to WR Code.</p></body></html>')
+          if (this.codeResolver) this.codeResolver(code)
+        }
+      }
+    })
+    
+    // Start server and wait for it to be ready
+    await new Promise<void>((resolve, reject) => {
+      console.log('[Gmail] About to listen on port 58924...')
+      this.localServer!.listen(58924, '127.0.0.1', () => {
+        console.log('[Gmail] OAuth callback server listening on port 58924')
+        resolve()
+      })
+      this.localServer!.on('error', (err) => {
+        console.error('[Gmail] Server error:', err)
+        reject(err)
+      })
+    })
+    console.log('[Gmail] Server started successfully!')
+  }
+  
+  private async waitForAuthCode(): Promise<string> {
+    if (!this.codePromise) {
+      throw new Error('Server not started')
+    }
+    return this.codePromise
   }
   
   private async exchangeCodeForTokens(
@@ -420,7 +459,7 @@ export class GmailProvider extends BaseEmailProvider {
         code,
         client_id: oauthConfig.clientId,
         client_secret: oauthConfig.clientSecret,
-        redirect_uri: 'http://localhost:58924/oauth/callback',
+        redirect_uri: 'http://127.0.0.1:58924/oauth/callback',
         grant_type: 'authorization_code'
       }).toString()
       
@@ -504,7 +543,21 @@ export class GmailProvider extends BaseEmailProvider {
               reject(new Error(json.error_description || json.error))
             } else {
               this.accessToken = json.access_token
+              // Google may return a new refresh token
+              if (json.refresh_token) {
+                this.refreshToken = json.refresh_token
+              }
               this.tokenExpiresAt = Date.now() + (json.expires_in * 1000)
+              
+              // Persist new tokens via callback
+              if (this.onTokenRefresh && this.refreshToken) {
+                this.onTokenRefresh({
+                  accessToken: this.accessToken!,
+                  refreshToken: this.refreshToken,
+                  expiresAt: this.tokenExpiresAt
+                })
+              }
+              
               resolve()
             }
           } catch (err) {

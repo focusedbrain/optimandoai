@@ -8,6 +8,9 @@
  */
 
 import { BrowserWindow, screen, Display } from 'electron'
+import * as path from 'path'
+import * as fs from 'fs'
+import * as os from 'os'
 
 let mailguardOverlay: BrowserWindow | null = null
 let isActive = false
@@ -129,11 +132,16 @@ export function activateMailGuard(targetDisplay?: Display, windowInfo?: WindowIn
   mailguardOverlay.setAlwaysOnTop(true, 'screen-saver')
   mailguardOverlay.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
   
-  // Capture ALL mouse events - users cannot click through to Gmail
+  // Block ALL mouse events - solid protection against accidental email clicks
+  // Scroll events are forwarded manually via IPC
   mailguardOverlay.setIgnoreMouseEvents(false)
 
+  // Write overlay HTML to temp file for proper node integration
   const htmlContent = getOverlayHtml()
-  mailguardOverlay.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(htmlContent))
+  const tempDir = os.tmpdir()
+  const overlayPath = path.join(tempDir, 'mailguard-overlay.html')
+  fs.writeFileSync(overlayPath, htmlContent, 'utf-8')
+  mailguardOverlay.loadFile(overlayPath)
 
   mailguardOverlay.once('ready-to-show', () => {
     mailguardOverlay?.show()
@@ -144,7 +152,7 @@ export function activateMailGuard(targetDisplay?: Display, windowInfo?: WindowIn
     mailguardOverlay = null
     isActive = false
   })
-
+  
   isActive = true
   console.log('[MAILGUARD] Overlay activated')
 }
@@ -214,13 +222,14 @@ function getOverlayHtml(): string {
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     html, body {
-      width: 100%;
-      height: 100%;
+      width: 100vw;
+      height: 100vh;
       overflow: hidden;
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      /* Slightly darker professional tint */
-      background: rgba(10, 20, 40, 0.22);
+      /* Light protective tint - reduced opacity for better visibility */
+      background: rgba(10, 20, 40, 0.08);
       cursor: default;
+      pointer-events: auto;
     }
     
     /* Professional status badge */
@@ -486,6 +495,52 @@ function getOverlayHtml(): string {
       min-height: 200px;
     }
     
+    /* Link reveal buttons */
+    .link-reveal-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 2px 8px;
+      margin: 0 2px;
+      background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+      color: white;
+      border: none;
+      border-radius: 4px;
+      font-size: 11px;
+      font-weight: 500;
+      cursor: pointer;
+      vertical-align: middle;
+      transition: all 0.2s ease;
+    }
+    .link-reveal-btn:hover {
+      transform: scale(1.05);
+      box-shadow: 0 2px 8px rgba(99, 102, 241, 0.4);
+    }
+    .link-reveal-btn .icon {
+      font-size: 10px;
+    }
+    
+    .link-url-revealed {
+      display: inline-block;
+      margin: 4px 0;
+      padding: 6px 10px;
+      background: #fef3c7;
+      border: 1px solid #f59e0b;
+      border-radius: 6px;
+      font-family: monospace;
+      font-size: 12px;
+      color: #92400e;
+      word-break: break-all;
+      max-width: 100%;
+    }
+    .link-url-revealed .label {
+      font-size: 10px;
+      color: #b45309;
+      font-family: sans-serif;
+      display: block;
+      margin-bottom: 2px;
+    }
+    
     .attachments {
       margin-top: 20px;
       padding-top: 20px;
@@ -593,9 +648,61 @@ function getOverlayHtml(): string {
     @keyframes spin {
       to { transform: rotate(360deg); }
     }
+    
+    /* Scroll controls - positioned for Outlook email list */
+    #scroll-controls {
+      position: fixed;
+      left: 580px; /* Approximately where Outlook email list ends */
+      top: 45%;
+      transform: translateY(-50%);
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      z-index: 9999;
+      background: rgba(15, 23, 42, 0.95);
+      padding: 10px 8px;
+      border-radius: 28px;
+      border: 2px solid rgba(139, 92, 246, 0.5);
+      box-shadow: 0 4px 25px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(255,255,255,0.1);
+    }
+    .scroll-btn {
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+      border: none;
+      color: white;
+      font-size: 16px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 2px 8px rgba(99, 102, 241, 0.4);
+      transition: all 0.15s ease;
+    }
+    .scroll-btn:hover {
+      transform: scale(1.1);
+      background: linear-gradient(135deg, #818cf8 0%, #a78bfa 100%);
+    }
+    .scroll-btn:active {
+      transform: scale(0.9);
+    }
+    .scroll-label {
+      text-align: center;
+      font-size: 9px;
+      color: rgba(255,255,255,0.7);
+      padding: 2px 0;
+    }
   </style>
 </head>
 <body>
+  <!-- Scroll Controls -->
+  <div id="scroll-controls">
+    <button class="scroll-btn" id="scroll-up" title="Scroll Up">▲</button>
+    <span class="scroll-label">Scroll</span>
+    <button class="scroll-btn" id="scroll-down" title="Scroll Down">▼</button>
+  </div>
+  
   <!-- Status Badge with Toggle -->
   <div id="status-badge" title="Click to turn OFF protection">
     <span class="icon">🛡️</span>
@@ -668,6 +775,66 @@ function getOverlayHtml(): string {
       ipcRenderer.send('mailguard-disable');
     });
     
+    // Scroll controls
+    const scrollUpBtn = document.getElementById('scroll-up');
+    const scrollDownBtn = document.getElementById('scroll-down');
+    const scrollControlsEl2 = document.getElementById('scroll-controls');
+    let scrollInterval = null;
+    let isScrolling = false;
+    let lockedPosition = null;
+    let lockTimeout = null;
+    
+    function startScrolling(direction) {
+      isScrolling = true;
+      // Clear any pending unlock timeout
+      if (lockTimeout) {
+        clearTimeout(lockTimeout);
+        lockTimeout = null;
+      }
+      // Lock position when scrolling starts
+      if (scrollControlsEl2 && !lockedPosition) {
+        lockedPosition = {
+          left: scrollControlsEl2.style.left,
+          top: scrollControlsEl2.style.top
+        };
+      }
+      // Scroll immediately
+      ipcRenderer.send('mailguard-scroll', { deltaX: 0, deltaY: direction * 200, x: 0, y: 0 });
+      // Then continue scrolling while held
+      scrollInterval = setInterval(() => {
+        ipcRenderer.send('mailguard-scroll', { deltaX: 0, deltaY: direction * 200, x: 0, y: 0 });
+      }, 80);
+    }
+    
+    function stopScrolling() {
+      if (scrollInterval) {
+        clearInterval(scrollInterval);
+        scrollInterval = null;
+      }
+      // Clear any pending unlock timeout and set new one
+      if (lockTimeout) {
+        clearTimeout(lockTimeout);
+      }
+      // Keep position locked for 10 seconds after LAST scroll action
+      lockTimeout = setTimeout(() => {
+        isScrolling = false;
+        lockedPosition = null;
+        lockTimeout = null;
+      }, 10000);
+    }
+    
+    if (scrollUpBtn) {
+      scrollUpBtn.addEventListener('mousedown', (e) => { e.preventDefault(); startScrolling(-1); });
+      scrollUpBtn.addEventListener('mouseup', stopScrolling);
+      scrollUpBtn.addEventListener('mouseleave', stopScrolling);
+    }
+    
+    if (scrollDownBtn) {
+      scrollDownBtn.addEventListener('mousedown', (e) => { e.preventDefault(); startScrolling(1); });
+      scrollDownBtn.addEventListener('mouseup', stopScrolling);
+      scrollDownBtn.addEventListener('mouseleave', stopScrolling);
+    }
+    
     // Handle safe email button click
     btnSafeEmail.addEventListener('click', () => {
       if (hoveredRowId) {
@@ -703,8 +870,16 @@ function getOverlayHtml(): string {
       }
     });
     
-    // Track mouse position and show/hide hover buttons
+    // Throttle utility - limit function calls to max once per interval (16ms = ~60fps)
+    let lastMouseMoveTime = 0;
+    const MOUSE_MOVE_THROTTLE = 16; // ~60fps
+    
+    // Track mouse position and show/hide hover buttons (throttled for performance)
     document.addEventListener('mousemove', (e) => {
+      const now = Date.now();
+      if (now - lastMouseMoveTime < MOUSE_MOVE_THROTTLE) return;
+      lastMouseMoveTime = now;
+      
       if (lightbox.classList.contains('visible')) return;
       
       const x = e.clientX;
@@ -750,6 +925,20 @@ function getOverlayHtml(): string {
       // data is now { rows, provider } object
       currentRows = data.rows || data;
       currentProvider = data.provider || 'gmail';
+      
+      // Position scroll controls based on email list position
+      // But DON'T update position while user is scrolling
+      const scrollControlsEl = document.getElementById('scroll-controls');
+      if (scrollControlsEl && currentRows.length > 0 && !isScrolling) {
+        const firstRow = currentRows[0];
+        const lastRow = currentRows[currentRows.length - 1];
+        // Position at the right edge of the email list
+        const listRight = firstRow.x + firstRow.width + 10;
+        const listCenterY = (firstRow.y + lastRow.y + lastRow.height) / 2;
+        scrollControlsEl.style.left = listRight + 'px';
+        scrollControlsEl.style.top = listCenterY + 'px';
+        scrollControlsEl.style.transform = 'translateY(-50%)';
+      }
     });
     
     // Receive sanitized email to display
@@ -764,16 +953,16 @@ function getOverlayHtml(): string {
       
       // Info box - shows different content based on whether this is preview or full email
       // Check for explicit flag or specific markers that indicate API-fetched content
-      const isFullEmail = email.isFromApi === true || (email.body && email.body.includes('--- Full email content fetched via Gmail API ---'))
+      const isFullEmail = email.isFromApi === true || (email.body && (email.body.includes('--- Full email content fetched via') || email.body.length > 500))
       
       const apiInfoBox = isFullEmail 
         ? '<div class="api-info-box" style="border-color: ' + themeColors.primary + '; background: linear-gradient(135deg, ' + themeColors.bgLight + ' 0%, ' + themeColors.bgLight + ' 100%);">' +
             '<div class="api-info-header">' +
               '<span class="icon">✅</span>' +
-              '<span class="title" style="color: ' + themeColors.textMedium + ';">Full Email via Gmail API</span>' +
+              '<span class="title" style="color: ' + themeColors.textMedium + ';">Full Email via Secure API</span>' +
             '</div>' +
             '<div class="api-info-text" style="color: ' + themeColors.textDark + ';">' +
-              'This email was fetched securely via the Gmail API. No tracking pixels, scripts, or active content were executed.' +
+              'This email was fetched securely via the Email API. No tracking pixels, scripts, or active content were executed.' +
             '</div>' +
           '</div>'
         : '<div class="api-info-box">' +
@@ -783,13 +972,27 @@ function getOverlayHtml(): string {
             '</div>' +
             '<div class="api-info-text">' +
               'For your protection, only the email preview is shown. The full email content was never loaded or rendered.<br><br>' +
-              'To view full email content securely, set up Gmail API access.' +
+              'To view full email content securely, connect your email account in the WR Chat sidebar.' +
             '</div>' +
             '<button class="api-setup-btn" id="btn-api-setup">' +
               '<span class="icon">⚙️</span>' +
-              '<span>Set up Gmail API</span>' +
+              '<span>Connect Email Account</span>' +
             '</button>' +
           '</div>';
+      
+      // Process body text - convert link markers to buttons
+      let bodyHtml = escapeHtml(email.body || '(no preview available)');
+      
+      // Replace {{LINK_BUTTON:url}} markers with reveal buttons
+      let linkCounter = 0;
+      bodyHtml = bodyHtml.replace(/\{\{LINK_BUTTON:([^}]+)\}\}/g, (match, url) => {
+        linkCounter++;
+        const safeUrl = escapeHtml(url);
+        return '<button class="link-reveal-btn" data-link-id="link-' + linkCounter + '" data-url="' + safeUrl + '">' +
+               '<span class="icon">🔗</span><span>Show Link</span></button>' +
+               '<span id="link-' + linkCounter + '" class="link-url-revealed" style="display: none;">' +
+               '<span class="label">Link URL (not clickable for security):</span>' + safeUrl + '</span>';
+      });
       
       emailContent.innerHTML = 
         '<div class="safe-notice"><span class="icon">🛡️</span><span>This is a secure preview. The email was never opened or rendered.</span></div>' +
@@ -799,9 +1002,26 @@ function getOverlayHtml(): string {
           '<div class="meta-row"><span class="meta-label">Date:</span><span class="meta-value">' + escapeHtml(email.date || '(unknown)') + '</span></div>' +
         '</div>' +
         '<div class="subject">' + escapeHtml(email.subject || '(no subject)') + '</div>' +
-        '<div class="email-body">' + escapeHtml(email.body || '(no preview available)') + '</div>' +
+        '<div class="email-body">' + bodyHtml + '</div>' +
         attachmentsHtml +
         apiInfoBox;
+      
+      // Handle link reveal button clicks
+      document.querySelectorAll('.link-reveal-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          const linkId = btn.getAttribute('data-link-id');
+          const urlSpan = document.getElementById(linkId);
+          if (urlSpan) {
+            if (urlSpan.style.display === 'none') {
+              urlSpan.style.display = 'inline-block';
+              btn.innerHTML = '<span class="icon">🔗</span><span>Hide Link</span>';
+            } else {
+              urlSpan.style.display = 'none';
+              btn.innerHTML = '<span class="icon">🔗</span><span>Show Link</span>';
+            }
+          }
+        });
+      });
       
       // Handle API setup button click
       const apiSetupBtn = document.getElementById('btn-api-setup');

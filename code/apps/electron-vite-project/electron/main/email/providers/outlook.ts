@@ -5,7 +5,7 @@
  * Uses OAuth2 for authentication - never stores passwords.
  */
 
-import { BrowserWindow, app } from 'electron'
+import { BrowserWindow, app, shell } from 'electron'
 import * as https from 'https'
 import * as http from 'http'
 import * as url from 'url'
@@ -23,6 +23,7 @@ import {
   SendEmailPayload, 
   SendResult 
 } from '../types'
+import { sanitizeHtmlToText } from '../sanitizer'
 
 /**
  * Microsoft Graph API scopes
@@ -32,6 +33,7 @@ const OUTLOOK_SCOPES = [
   'profile',
   'email',
   'offline_access',
+  'https://graph.microsoft.com/User.Read',
   'https://graph.microsoft.com/Mail.Read',
   'https://graph.microsoft.com/Mail.ReadWrite',
   'https://graph.microsoft.com/Mail.Send'
@@ -47,12 +49,17 @@ function getOutlookOAuthConfigPath(): string {
 /**
  * Load OAuth client credentials for Outlook
  */
-function loadOutlookOAuthConfig(): { clientId: string; clientSecret?: string } | null {
+function loadOutlookOAuthConfig(): { clientId: string; clientSecret?: string; tenantId?: string } | null {
   try {
     const configPath = getOutlookOAuthConfigPath()
+    console.log('[Outlook] Loading OAuth config from:', configPath)
     if (fs.existsSync(configPath)) {
-      return JSON.parse(fs.readFileSync(configPath, 'utf-8'))
+      const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'))
+      console.log('[Outlook] Loaded config, clientId:', config.clientId?.substring(0, 8) + '...')
+      console.log('[Outlook] TenantId:', config.tenantId || 'common')
+      return config
     }
+    console.log('[Outlook] Config file does not exist')
   } catch (err) {
     console.error('[Outlook] Error loading OAuth config:', err)
   }
@@ -61,11 +68,16 @@ function loadOutlookOAuthConfig(): { clientId: string; clientSecret?: string } |
 
 /**
  * Save OAuth client credentials for Outlook
+ * @param tenantId - Optional tenant ID. Use 'common' for multi-tenant, 'organizations' for any org, or specific tenant ID
  */
-export function saveOutlookOAuthConfig(clientId: string, clientSecret?: string): void {
+export function saveOutlookOAuthConfig(clientId: string, clientSecret?: string, tenantId?: string): void {
   try {
     const configPath = getOutlookOAuthConfigPath()
-    fs.writeFileSync(configPath, JSON.stringify({ clientId, clientSecret }), 'utf-8')
+    console.log('[Outlook] Saving OAuth config to:', configPath)
+    console.log('[Outlook] ClientId:', clientId?.substring(0, 8) + '...')
+    console.log('[Outlook] TenantId:', tenantId || 'common (default)')
+    fs.writeFileSync(configPath, JSON.stringify({ clientId, clientSecret, tenantId: tenantId || 'organizations' }), 'utf-8')
+    console.log('[Outlook] OAuth config saved successfully')
   } catch (err) {
     console.error('[Outlook] Error saving OAuth config:', err)
   }
@@ -143,8 +155,15 @@ export class OutlookProvider extends BaseEmailProvider {
     // Build query parameters
     const params = new URLSearchParams()
     params.append('$top', String(options?.limit || 50))
-    params.append('$orderby', 'receivedDateTime desc')
     params.append('$select', 'id,conversationId,subject,from,toRecipients,ccRecipients,receivedDateTime,body,isRead,flag,isDraft,hasAttachments')
+    
+    // Check if we'll be using $search (Microsoft Graph doesn't allow $orderby with $search)
+    const useSearch = !!(options?.search || options?.from || options?.subject)
+    
+    // Only add $orderby if NOT using $search
+    if (!useSearch) {
+      params.append('$orderby', 'receivedDateTime desc')
+    }
     
     // Build filter
     const filters: string[] = []
@@ -174,11 +193,11 @@ export class OutlookProvider extends BaseEmailProvider {
     }
     
     // Handle search
-    if (options?.search || options?.from || options?.subject) {
+    if (useSearch) {
       const searchTerms: string[] = []
-      if (options.search) searchTerms.push(options.search)
-      if (options.from) searchTerms.push(`from:${options.from}`)
-      if (options.subject) searchTerms.push(`subject:${options.subject}`)
+      if (options?.search) searchTerms.push(options.search)
+      if (options?.from) searchTerms.push(`from:${options.from}`)
+      if (options?.subject) searchTerms.push(`subject:${options.subject}`)
       params.append('$search', `"${searchTerms.join(' ')}"`)
     }
     
@@ -305,59 +324,89 @@ export class OutlookProvider extends BaseEmailProvider {
       throw new Error('Outlook OAuth client credentials not configured. Please set up an Azure AD application.')
     }
     
-    return new Promise((resolve, reject) => {
-      // Start local server for callback
-      this.startLocalServer()
-        .then(codePromise => {
-          // Open auth window
-          const authUrl = this.buildAuthUrl(oauthConfig.clientId)
-          
-          this.authWindow = new BrowserWindow({
-            width: 600,
-            height: 700,
-            webPreferences: {
-              nodeIntegration: false,
-              contextIsolation: true
-            },
-            title: 'Sign in with Microsoft'
-          })
-          
-          this.authWindow.loadURL(authUrl)
-          
-          this.authWindow.on('closed', () => {
-            this.authWindow = null
-            if (this.localServer) {
-              this.localServer.close()
-              this.localServer = null
-            }
-          })
-          
-          return codePromise
-        })
-        .then(code => this.exchangeCodeForTokens(oauthConfig, code))
-        .then(async (tokens) => {
-          if (this.authWindow) {
-            this.authWindow.close()
-          }
-          
-          if (!tokens) {
-            throw new Error('Failed to exchange authorization code for tokens')
-          }
-          
-          // Get user email from profile
-          this.accessToken = tokens.accessToken
-          const profile = await this.graphApiRequest('GET', '/me')
-          const email = profile.mail || profile.userPrincipalName || ''
-          
-          resolve({ oauth: tokens, email })
-        })
-        .catch(err => {
-          if (this.authWindow) {
-            this.authWindow.close()
-          }
-          reject(err)
-        })
+    // Clean up any existing server from previous attempts
+    this.cleanup()
+    
+    console.log('[Outlook] Starting OAuth flow...')
+    
+    // Start local server
+    console.log('[Outlook] Starting local callback server...')
+    await this.startLocalServer()
+    console.log('[Outlook] Local server ready!')
+    
+    // Open browser
+    const authUrl = this.buildAuthUrl(oauthConfig.clientId, oauthConfig.tenantId)
+    console.log('[Outlook] Opening OAuth in system browser:', authUrl.substring(0, 100) + '...')
+    
+    try {
+      await shell.openExternal(authUrl)
+      console.log('[Outlook] Browser opened successfully')
+    } catch (err: any) {
+      console.error('[Outlook] Failed to open browser:', err)
+      this.cleanup()
+      throw new Error('Failed to open browser for authentication')
+    }
+    
+    // Set timeout for getting the code
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      setTimeout(() => {
+        this.cleanup()
+        reject(new Error('OAuth timed out - please try again'))
+      }, 5 * 60 * 1000)
     })
+    
+    try {
+      // Wait for auth code with timeout
+      console.log('[Outlook] Waiting for auth code from browser callback...')
+      const code = await Promise.race([this.waitForAuthCode(), timeoutPromise])
+      console.log('[Outlook] Auth code received!')
+      
+      // Exchange code for tokens
+      console.log('[Outlook] Exchanging code for tokens...')
+      const tokens = await this.exchangeCodeForTokens(oauthConfig, code)
+      if (!tokens) {
+        throw new Error('Failed to exchange authorization code for tokens')
+      }
+      console.log('[Outlook] Tokens received!')
+      
+      // Get user email from profile
+      console.log('[Outlook] Setting access token and fetching profile...')
+      this.accessToken = tokens.accessToken
+      this.refreshToken = tokens.refreshToken
+      this.tokenExpiresAt = tokens.expiresAt
+      
+      try {
+        const profile = await this.graphApiRequest('GET', '/me')
+        const email = profile.mail || profile.userPrincipalName || ''
+        console.log('[Outlook] User email:', email)
+        
+        this.cleanup()
+        return { oauth: tokens, email }
+      } catch (profileErr: any) {
+        console.error('[Outlook] Failed to get profile:', profileErr.message || profileErr)
+        // Still return the tokens even if profile fetch fails
+        this.cleanup()
+        return { oauth: tokens, email: '' }
+      }
+    } catch (err: any) {
+      console.error('[Outlook] OAuth flow error:', err.message || err)
+      this.cleanup()
+      throw err
+    }
+  }
+  
+  /**
+   * Clean up OAuth resources
+   */
+  private cleanup(): void {
+    if (this.authWindow) {
+      try { this.authWindow.close() } catch {}
+      this.authWindow = null
+    }
+    if (this.localServer) {
+      try { this.localServer.close() } catch {}
+      this.localServer = null
+    }
   }
   
   /**
@@ -371,68 +420,90 @@ export class OutlookProvider extends BaseEmailProvider {
     return profile.mail || profile.userPrincipalName || ''
   }
   
-  private buildAuthUrl(clientId: string): string {
+  private buildAuthUrl(clientId: string, tenantId?: string): string {
+    const tenant = tenantId || 'organizations'
     const params = new URLSearchParams({
       client_id: clientId,
-      redirect_uri: 'http://localhost:58925/oauth/callback',
+      redirect_uri: 'http://localhost:51249/callback',
       response_type: 'code',
       scope: OUTLOOK_SCOPES.join(' '),
       response_mode: 'query',
       prompt: 'consent'
     })
     
-    return `https://login.microsoftonline.com/common/oauth2/v2.0/authorize?${params.toString()}`
+    console.log('[Outlook] Using tenant:', tenant)
+    return `https://login.microsoftonline.com/${tenant}/oauth2/v2.0/authorize?${params.toString()}`
   }
   
-  private startLocalServer(): Promise<Promise<string>> {
-    return new Promise((resolve, reject) => {
-      let codeResolver: (code: string) => void
-      let codeRejecter: (err: Error) => void
-      
-      const codePromise = new Promise<string>((res, rej) => {
-        codeResolver = res
-        codeRejecter = rej
-      })
-      
-      this.localServer = http.createServer((req, res) => {
-        const parsedUrl = url.parse(req.url || '', true)
-        
-        if (parsedUrl.pathname === '/oauth/callback') {
-          const code = parsedUrl.query.code as string
-          const error = parsedUrl.query.error as string
-          const errorDescription = parsedUrl.query.error_description as string
-          
-          if (error) {
-            res.writeHead(200, { 'Content-Type': 'text/html' })
-            res.end(`<html><body><h1>Authorization Failed</h1><p>${errorDescription || error}</p><p>You can close this window.</p></body></html>`)
-            codeRejecter(new Error(errorDescription || error))
-          } else if (code) {
-            res.writeHead(200, { 'Content-Type': 'text/html' })
-            res.end('<html><body><h1>Success!</h1><p>You can close this window and return to WR Code.</p></body></html>')
-            codeResolver(code)
-          }
-        }
-      })
-      
-      // Use a different port than Gmail to avoid conflicts
-      this.localServer.listen(58925, '127.0.0.1', () => {
-        console.log('[Outlook] OAuth callback server listening on port 58925')
-        resolve(codePromise)
-      })
-      
-      this.localServer.on('error', reject)
+  private codeResolver: ((code: string) => void) | null = null
+  private codeRejecter: ((err: Error) => void) | null = null
+  private codePromise: Promise<string> | null = null
+
+  private async startLocalServer(): Promise<void> {
+    console.log('[Outlook] startLocalServer called')
+    
+    // Create a promise that will be resolved when we get the auth code
+    this.codePromise = new Promise<string>((res, rej) => {
+      this.codeResolver = res
+      this.codeRejecter = rej
     })
+    
+    console.log('[Outlook] Creating HTTP server...')
+    this.localServer = http.createServer((req, res) => {
+      console.log('[Outlook] Received request:', req.url)
+      const parsedUrl = url.parse(req.url || '', true)
+      
+      if (parsedUrl.pathname === '/callback') {
+        const code = parsedUrl.query.code as string
+        const error = parsedUrl.query.error as string
+        const errorDescription = parsedUrl.query.error_description as string
+        
+        if (error) {
+          console.log('[Outlook] OAuth error:', error)
+          res.writeHead(200, { 'Content-Type': 'text/html' })
+          res.end(`<html><body><h1>Authorization Failed</h1><p>${errorDescription || error}</p><p>You can close this window.</p></body></html>`)
+          if (this.codeRejecter) this.codeRejecter(new Error(errorDescription || error))
+        } else if (code) {
+          console.log('[Outlook] OAuth code received!')
+          res.writeHead(200, { 'Content-Type': 'text/html' })
+          res.end('<html><body><h1>Success!</h1><p>You can close this window and return to WR Code.</p></body></html>')
+          if (this.codeResolver) this.codeResolver(code)
+        }
+      }
+    })
+    
+    // Start server and wait for it to be ready
+    await new Promise<void>((resolve, reject) => {
+      console.log('[Outlook] About to listen on port 51249...')
+      this.localServer!.listen(51249, '127.0.0.1', () => {
+        console.log('[Outlook] OAuth callback server listening on port 51249')
+        resolve()
+      })
+      this.localServer!.on('error', (err) => {
+        console.error('[Outlook] Server error:', err)
+        reject(err)
+      })
+    })
+    console.log('[Outlook] Server started successfully!')
+  }
+  
+  private async waitForAuthCode(): Promise<string> {
+    if (!this.codePromise) {
+      throw new Error('Server not started')
+    }
+    return this.codePromise
   }
   
   private async exchangeCodeForTokens(
-    oauthConfig: { clientId: string; clientSecret?: string },
+    oauthConfig: { clientId: string; clientSecret?: string; tenantId?: string },
     code: string
   ): Promise<EmailAccountConfig['oauth']> {
+    const tenant = oauthConfig.tenantId || 'organizations'
     return new Promise((resolve, reject) => {
       const postParams: Record<string, string> = {
         code,
         client_id: oauthConfig.clientId,
-        redirect_uri: 'http://localhost:58925/oauth/callback',
+        redirect_uri: 'http://localhost:51249/callback',
         grant_type: 'authorization_code',
         scope: OUTLOOK_SCOPES.join(' ')
       }
@@ -446,7 +517,7 @@ export class OutlookProvider extends BaseEmailProvider {
       
       const options = {
         hostname: 'login.microsoftonline.com',
-        path: '/common/oauth2/v2.0/token',
+        path: `/${tenant}/oauth2/v2.0/token`,
         method: 'POST',
         headers: {
           'Content-Type': 'application/x-www-form-urlencoded',
@@ -496,6 +567,7 @@ export class OutlookProvider extends BaseEmailProvider {
       throw new Error('Cannot refresh token: missing credentials')
     }
     
+    const tenant = oauthConfig.tenantId || 'organizations'
     return new Promise((resolve, reject) => {
       const postParams: Record<string, string> = {
         client_id: oauthConfig.clientId,
@@ -512,7 +584,7 @@ export class OutlookProvider extends BaseEmailProvider {
       
       const options = {
         hostname: 'login.microsoftonline.com',
-        path: '/common/oauth2/v2.0/token',
+        path: `/${tenant}/oauth2/v2.0/token`,
         method: 'POST',
         headers: {
           'Content-Type': 'application/x-www-form-urlencoded',
@@ -534,6 +606,16 @@ export class OutlookProvider extends BaseEmailProvider {
                 this.refreshToken = json.refresh_token
               }
               this.tokenExpiresAt = Date.now() + (json.expires_in * 1000)
+              
+              // Persist new tokens via callback
+              if (this.onTokenRefresh && this.refreshToken) {
+                this.onTokenRefresh({
+                  accessToken: this.accessToken!,
+                  refreshToken: this.refreshToken,
+                  expiresAt: this.tokenExpiresAt
+                })
+              }
+              
               resolve()
             }
           } catch (err) {
@@ -627,7 +709,7 @@ export class OutlookProvider extends BaseEmailProvider {
       } : undefined,
       date: new Date(raw.receivedDateTime),
       bodyHtml: raw.body?.contentType === 'html' ? raw.body.content : undefined,
-      bodyText: raw.body?.contentType === 'text' ? raw.body.content : this.stripHtml(raw.body?.content || ''),
+      bodyText: raw.body?.contentType === 'text' ? raw.body.content : sanitizeHtmlToText(raw.body?.content || ''),
       flags: {
         seen: raw.isRead || false,
         flagged: raw.flag?.flagStatus === 'flagged',
@@ -645,14 +727,6 @@ export class OutlookProvider extends BaseEmailProvider {
     }
   }
   
-  private stripHtml(html: string): string {
-    return html
-      .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
-      .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
-      .replace(/<[^>]+>/g, ' ')
-      .replace(/\s+/g, ' ')
-      .trim()
-  }
 }
 
 export const outlookProvider = new OutlookProvider()

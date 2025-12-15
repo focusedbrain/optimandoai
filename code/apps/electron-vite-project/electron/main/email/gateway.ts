@@ -32,7 +32,7 @@ import {
 } from './types'
 import { IEmailProvider, RawEmailMessage } from './providers/base'
 import { GmailProvider, gmailProvider, saveOAuthConfig } from './providers/gmail'
-import { outlookProvider, saveOutlookOAuthConfig } from './providers/outlook'
+import { OutlookProvider, outlookProvider, saveOutlookOAuthConfig } from './providers/outlook'
 import { ImapProvider } from './providers/imap'
 import {
   sanitizeHtmlToText,
@@ -47,7 +47,10 @@ import { extractPdfText, isPdfFile, supportsTextExtraction } from './pdf-extract
  * Storage file for email accounts
  */
 function getAccountsPath(): string {
-  return path.join(app.getPath('userData'), 'email-accounts.json')
+  const userData = app.getPath('userData')
+  const accountsPath = path.join(userData, 'email-accounts.json')
+  console.log('[EmailGateway] getAccountsPath() =', accountsPath)
+  return accountsPath
 }
 
 /**
@@ -56,9 +59,13 @@ function getAccountsPath(): string {
 function loadAccounts(): EmailAccountConfig[] {
   try {
     const accountsPath = getAccountsPath()
+    console.log('[EmailGateway] Loading accounts from:', accountsPath)
     if (fs.existsSync(accountsPath)) {
       const data = JSON.parse(fs.readFileSync(accountsPath, 'utf-8'))
+      console.log('[EmailGateway] Loaded', data.accounts?.length || 0, 'accounts from disk')
       return data.accounts || []
+    } else {
+      console.log('[EmailGateway] No accounts file found, starting fresh')
     }
   } catch (err) {
     console.error('[EmailGateway] Error loading accounts:', err)
@@ -72,7 +79,16 @@ function loadAccounts(): EmailAccountConfig[] {
 function saveAccounts(accounts: EmailAccountConfig[]): void {
   try {
     const accountsPath = getAccountsPath()
+    console.log('[EmailGateway] Saving', accounts.length, 'accounts to:', accountsPath)
+    
+    // Ensure directory exists
+    const dir = path.dirname(accountsPath)
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true })
+    }
+    
     fs.writeFileSync(accountsPath, JSON.stringify({ accounts }, null, 2), 'utf-8')
+    console.log('[EmailGateway] Accounts saved successfully')
   } catch (err) {
     console.error('[EmailGateway] Error saving accounts:', err)
   }
@@ -112,15 +128,23 @@ class EmailGateway implements IEmailGateway {
       updatedAt: now
     }
     
-    // Validate and test connection
+    // Add account first so testConnection can find it
+    this.accounts.push(account)
+    console.log('[EmailGateway] Added account:', account.id, account.email, account.provider)
+    
+    // Now test connection
     const testResult = await this.testConnection(account.id)
     if (!testResult.success) {
+      console.log('[EmailGateway] Connection test failed:', testResult.error)
       account.status = 'error'
       account.lastError = testResult.error
+    } else {
+      console.log('[EmailGateway] Connection test successful')
+      account.status = 'active'
     }
     
-    this.accounts.push(account)
     saveAccounts(this.accounts)
+    console.log('[EmailGateway] Saved', this.accounts.length, 'accounts')
     
     return this.toAccountInfo(account)
   }
@@ -561,8 +585,7 @@ class EmailGateway implements IEmailGateway {
       case 'gmail':
         return new GmailProvider()
       case 'microsoft365':
-        // TODO: Implement Microsoft provider
-        throw new Error('Microsoft 365 provider not yet implemented. Please use IMAP or Gmail.')
+        return new OutlookProvider()
       case 'imap':
         return new ImapProvider()
       default:
@@ -575,6 +598,25 @@ class EmailGateway implements IEmailGateway {
     
     if (!provider) {
       provider = await this.getProvider(account)
+      
+      // Set up token refresh callback to persist new tokens
+      if ('onTokenRefresh' in provider) {
+        (provider as any).onTokenRefresh = (newTokens: { accessToken: string; refreshToken: string; expiresAt: number }) => {
+          console.log('[EmailGateway] Token refreshed for account:', account.id)
+          // Update account in memory
+          account.oauth = {
+            ...account.oauth!,
+            accessToken: newTokens.accessToken,
+            refreshToken: newTokens.refreshToken,
+            expiresAt: newTokens.expiresAt
+          }
+          account.updatedAt = Date.now()
+          // Persist to disk
+          saveAccounts(this.accounts)
+          console.log('[EmailGateway] New tokens persisted to disk')
+        }
+      }
+      
       await provider.connect(account)
       this.providers.set(account.id, provider)
     } else if (!provider.isConnected()) {

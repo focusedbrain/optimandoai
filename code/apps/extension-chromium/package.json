@@ -19,6 +19,7 @@
   "dependencies": {
     "@optimandoai/code-block-library": "workspace:*",
     "@shared/core": "workspace:*",
+    "@tensorflow/tfjs": "^4.22.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "webextension-polyfill": "^0.12.0",

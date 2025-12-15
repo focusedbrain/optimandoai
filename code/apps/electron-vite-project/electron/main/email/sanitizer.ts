@@ -174,10 +174,47 @@ function removeTrackingPixels(html: string): string {
 }
 
 /**
- * Extract link URLs and convert to text references
+ * Patterns for design/logo/tracking links to skip
+ */
+const SKIP_LINK_PATTERNS = [
+  // Image files
+  /\.(png|jpg|jpeg|gif|svg|ico|webp|bmp)(\?|$)/i,
+  // Logo/design patterns
+  /logo/i,
+  /icon/i,
+  /banner/i,
+  /header/i,
+  /footer/i,
+  /spacer/i,
+  /pixel/i,
+  // Social media icons
+  /facebook.*icon/i,
+  /twitter.*icon/i,
+  /linkedin.*icon/i,
+  /instagram.*icon/i,
+  // Tracking/unsubscribe
+  /unsubscribe/i,
+  /view.*browser/i,
+  /email.*preferences/i,
+  // CDN/static assets
+  /cdn\./i,
+  /static\./i,
+  /assets\./i
+]
+
+/**
+ * Check if a link should be skipped (design elements, logos, etc.)
+ */
+function shouldSkipLink(url: string, text: string): boolean {
+  const combined = `${url} ${text}`.toLowerCase()
+  return SKIP_LINK_PATTERNS.some(pattern => pattern.test(combined))
+}
+
+/**
+ * Extract link URLs and convert to revealable link markers
+ * Uses special format: text {{LINK_BUTTON:url}} that overlay will render as buttons
  */
 function convertLinksToText(html: string): string {
-  // Convert <a href="url">text</a> to "text [url]"
   return html.replace(/<a\s+[^>]*href\s*=\s*["']([^"']*)["'][^>]*>([\s\S]*?)<\/a>/gi, 
     (_, url, text) => {
       const cleanText = text.replace(/<[^>]*>/g, '').trim()
@@ -188,12 +225,23 @@ function convertLinksToText(html: string): string {
         return cleanText
       }
       
-      // If text is the same as URL, just show once
-      if (cleanText === cleanUrl) {
-        return `[${cleanUrl}]`
+      // Skip design elements, logos, images
+      if (shouldSkipLink(cleanUrl, cleanText)) {
+        return cleanText
       }
       
-      return cleanText ? `${cleanText} [${cleanUrl}]` : `[${cleanUrl}]`
+      // Skip if URL is empty or just #
+      if (!cleanUrl || cleanUrl === '#') {
+        return cleanText
+      }
+      
+      // Skip if text is empty (likely an image link)
+      if (!cleanText) {
+        return ''
+      }
+      
+      // Return text with a link marker that overlay will render as a button
+      return `${cleanText} {{LINK_BUTTON:${cleanUrl}}}`
     }
   )
 }
