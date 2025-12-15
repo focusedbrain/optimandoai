@@ -387,32 +387,7 @@ function showReEnableBanner(): void {
 }
 
 function showStatusMarker(): void {
-  const existing = document.getElementById('wr-mailguard-status-marker')
-  if (existing) existing.remove()
-  
-  const marker = document.createElement('div')
-  marker.id = 'wr-mailguard-status-marker'
-  marker.style.cssText = `
-    position: fixed;
-    bottom: 20px;
-    left: 20px;
-    z-index: 2147483647;
-    background: linear-gradient(135deg, ${themeColors[currentTheme].bgLight} 0%, ${themeColors[currentTheme].bgDark} 100%);
-    color: ${themeColors[currentTheme].primary};
-    padding: 10px 16px;
-    border-radius: 10px;
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-    font-size: 12px;
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    box-shadow: 0 4px 15px rgba(0,0,0,0.3);
-    border: 1px solid ${themeColors[currentTheme].primary};
-  `
-  marker.innerHTML = '<span style="font-size:16px">🛡️</span> MailGuard Active - Electron Overlay Running'
-  document.body.appendChild(marker)
-  
-  setTimeout(() => marker.remove(), 4000)
+  // Status marker disabled - user has indicator elsewhere
 }
 
 /**
