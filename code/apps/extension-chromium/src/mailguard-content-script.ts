@@ -68,6 +68,65 @@ let emailRowElements: Map<string, Element> = new Map()
 let currentTheme: 'default' | 'dark' | 'professional' = 'default'
 let listenersInitialized = false
 
+// =============================================================================
+// Immediate Click Blocking (runs before overlay is ready)
+// =============================================================================
+
+// Track if the Electron overlay is ready (set to true when MAILGUARD_ACTIVATED received)
+let overlayReady = false
+
+// Supported email sites for immediate blocking check
+const IMMEDIATE_BLOCK_SITES = ['mail.google.com', 'outlook.live.com', 'outlook.office.com', 'outlook.office365.com']
+
+/**
+ * Check if an element is part of an email row/item that should be blocked
+ */
+function isEmailElement(el: HTMLElement | null): boolean {
+  if (!el) return false
+  
+  // Gmail: email rows are tr.zA or have role="row"
+  // Outlook: email items have data-convid or role="option"
+  const emailSelectors = [
+    'tr.zA', 'tr[role="row"]', 'div[role="row"]',  // Gmail
+    '[data-convid]', 'div[role="option"]', 'div[role="listitem"]', 'div[data-item-index]'  // Outlook
+  ]
+  
+  return emailSelectors.some(sel => el.closest(sel) !== null)
+}
+
+/**
+ * Block email clicks during the activation delay
+ * This handler runs in the capture phase to intercept clicks before they reach email elements
+ */
+function blockEmailClick(e: Event): void {
+  if (overlayReady) return // Overlay is ready, don't block
+  
+  const target = e.target as HTMLElement
+  
+  // Check if click is on an email row or email link
+  if (isEmailElement(target)) {
+    e.preventDefault()
+    e.stopPropagation()
+    e.stopImmediatePropagation()
+    console.log('[MailGuard] Blocked email click during activation delay')
+  }
+}
+
+// Immediately block email clicks until overlay is ready
+// This runs as soon as the content script loads
+;(function blockEmailClicksImmediately() {
+  const hostname = window.location.hostname
+  const isEmailSite = IMMEDIATE_BLOCK_SITES.some(site => hostname.includes(site))
+  
+  if (!isEmailSite) return
+  
+  console.log('[MailGuard] Installing immediate click blocker on email site')
+  
+  // Capture phase listeners to block clicks before they reach email elements
+  document.addEventListener('click', blockEmailClick, true)
+  document.addEventListener('mousedown', blockEmailClick, true)
+})()
+
 // Theme color configurations - matching sidebar colors exactly
 const themeColors = {
   default: {
@@ -1157,6 +1216,7 @@ let userManuallyDisabled = false
 
 function deactivateMailGuard(): void {
   console.log('[MailGuard] Deactivating...')
+  overlayReady = false  // Re-enable click blocking until next activation
   isMailGuardActive = false
   userManuallyDisabled = true // User explicitly disabled - don't auto-re-enable
   stopRowPositionUpdates()
@@ -1171,12 +1231,14 @@ function deactivateMailGuard(): void {
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg.type === 'MAILGUARD_ACTIVATED') {
     console.log('[MailGuard] Activation confirmed by Electron')
+    overlayReady = true  // Allow email clicks now - Electron overlay is protecting
     isMailGuardActive = true
     dismissBanner() // Make sure banner is removed when activated
     showStatusMarker()
     startRowPositionUpdates()
   } else if (msg.type === 'MAILGUARD_DEACTIVATED') {
     console.log('[MailGuard] Deactivation confirmed')
+    overlayReady = false  // Re-enable click blocking
     isMailGuardActive = false
     userManuallyDisabled = true
     stopRowPositionUpdates()
