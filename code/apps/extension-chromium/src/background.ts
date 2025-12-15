@@ -13,6 +13,110 @@ let electronLaunchAttempted = false;
 let electronLaunchInProgress = false;
 
 // =================================================================
+// Production-Grade Connection Health Monitor
+// =================================================================
+
+let healthMonitorInterval: ReturnType<typeof setInterval> | null = null;
+let lastHealthCheck = 0;
+let consecutiveFailures = 0;
+let isElectronHealthy = false;
+
+const HEALTH_CHECK_INTERVAL = 30000;  // Check every 30 seconds
+const MAX_CONSECUTIVE_FAILURES = 3;   // After 3 failures, try to restart
+const HEALTH_CHECK_TIMEOUT = 5000;    // 5 second timeout for health checks
+
+/**
+ * Start the background health monitor
+ * This ensures Electron stays running and auto-restarts if needed
+ */
+function startHealthMonitor(): void {
+  if (healthMonitorInterval) {
+    console.log('[BG-HEALTH] Monitor already running');
+    return;
+  }
+  
+  console.log('[BG-HEALTH] Starting connection health monitor');
+  
+  // Initial health check after 5 seconds
+  setTimeout(() => performHealthCheck(), 5000);
+  
+  // Regular health checks
+  healthMonitorInterval = setInterval(() => {
+    performHealthCheck();
+  }, HEALTH_CHECK_INTERVAL);
+}
+
+/**
+ * Perform a health check and handle failures
+ */
+async function performHealthCheck(): Promise<void> {
+  lastHealthCheck = Date.now();
+  
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), HEALTH_CHECK_TIMEOUT);
+    
+    // Try the primary endpoint first
+    let healthy = false;
+    
+    try {
+      const response = await fetch(`${ELECTRON_BASE_URL}/api/orchestrator/status`, {
+        method: 'GET',
+        signal: controller.signal
+      });
+      healthy = response.ok;
+    } catch {
+      healthy = false;
+    }
+    
+    clearTimeout(timeoutId);
+    
+    if (healthy) {
+      if (!isElectronHealthy || consecutiveFailures > 0) {
+        console.log('[BG-HEALTH] ✅ Electron connection restored');
+      }
+      isElectronHealthy = true;
+      consecutiveFailures = 0;
+    } else {
+      throw new Error('Health check failed');
+    }
+  } catch {
+    consecutiveFailures++;
+    isElectronHealthy = false;
+    console.log(`[BG-HEALTH] ❌ Health check failed (${consecutiveFailures}/${MAX_CONSECUTIVE_FAILURES})`);
+    
+    if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
+      console.log('[BG-HEALTH] 🔄 Max failures reached, attempting recovery...');
+      consecutiveFailures = 0;  // Reset to prevent spam
+      
+      // Try to restart Electron
+      electronLaunchAttempted = false;  // Allow new launch attempt
+      const launched = await ensureElectronRunning();
+      if (launched) {
+        console.log('[BG-HEALTH] ✅ Electron recovered successfully');
+        isElectronHealthy = true;
+      } else {
+        console.log('[BG-HEALTH] ⚠️ Could not recover Electron, will retry next interval');
+      }
+    }
+  }
+}
+
+/**
+ * Get current connection status
+ */
+function getConnectionStatus(): { healthy: boolean; lastCheck: number; failures: number } {
+  return {
+    healthy: isElectronHealthy,
+    lastCheck: lastHealthCheck,
+    failures: consecutiveFailures
+  };
+}
+
+// Start health monitor when extension loads
+startHealthMonitor();
+
+// =================================================================
 // Production-Grade HTTP Client for Electron Communication
 // =================================================================
 
