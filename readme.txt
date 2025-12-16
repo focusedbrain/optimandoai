@@ -31,9 +31,9 @@ The documentation describing these models is open-licensed; the runtime is not.
 
 🗂 Repository Contents
 
-optimandoai-research-paper-v168.pdf — Full scientific paper
+optimandoai-research-paper-v171.pdf — Full scientific paper
 
-optimandoai-research-paper-v168.pdf.ots — OpenTimestamps proof of authorship
+optimandoai-research-paper-v171.pdf.ots — OpenTimestamps proof of authorship
 
 DOCUMENTATION-LICENSE.txt — CC BY-SA 4.0 license for conceptual documentation
 

@@ -8,6 +8,27 @@ import express from 'express'
 import * as net from 'net'
 
 // ============================================================================
+// SINGLE INSTANCE LOCK - Prevent multiple instances from running
+// ============================================================================
+const gotTheLock = app.requestSingleInstanceLock()
+
+if (!gotTheLock) {
+  console.log('[MAIN] Another instance is already running. Exiting.')
+  app.quit()
+} else {
+  app.on('second-instance', (_event, _commandLine, _workingDirectory) => {
+    // Someone tried to run a second instance, focus the existing window
+    console.log('[MAIN] Second instance detected, focusing existing window')
+    const windows = BrowserWindow.getAllWindows()
+    if (windows.length > 0) {
+      const mainWindow = windows[0]
+      if (mainWindow.isMinimized()) mainWindow.restore()
+      mainWindow.focus()
+    }
+  })
+}
+
+// ============================================================================
 // DEBUG MODE - Set to true for verbose logging (impacts performance)
 // ============================================================================
 const DEBUG_MODE = false
@@ -76,10 +97,29 @@ async function killProcessOnPort(port: number): Promise<void> {
 }
 
 /**
+ * Kill any stale OpenGiraffe/electron processes that might be holding ports
+ */
+async function killStaleProcesses(): Promise<void> {
+  if (process.platform !== 'win32') return
+  
+  try {
+    // Kill any OpenGiraffe processes (renamed electron) except current process
+    const currentPid = process.pid
+    execSync(`wmic process where "name='OpenGiraffe.exe' and processid!=${currentPid}" delete`, { stdio: 'ignore' })
+    console.log('[PORT-CLEANUP] Killed stale OpenGiraffe processes')
+  } catch {
+    // No processes found or wmic not available
+  }
+}
+
+/**
  * Ensure ports are available before starting servers
  */
 async function ensurePortsAvailable(): Promise<void> {
   console.log('[PORT-CLEANUP] Checking port availability...')
+  
+  // First, try to kill any stale processes by name
+  await killStaleProcesses()
   
   let needsWait = false
   
@@ -127,7 +167,7 @@ import { loadPresets, upsertRegion } from './lmgtfy/presets'
 import { registerDbHandlers, testConnection, syncChromeDataToPostgres, getConfig, getPostgresAdapter } from './ipc/db'
 import { registerMiniAppHandlers } from './ipc/miniapp'
 import { handleVaultRPC } from './main/vault/rpc'
-import { activateMailGuard, deactivateMailGuard, updateEmailRows, showSanitizedEmail, closeLightbox, isMailGuardActive } from './mailguard/overlay'
+import { activateMailGuard, deactivateMailGuard, updateEmailRows, updateProtectedArea, updateWindowPosition, showSanitizedEmail, closeLightbox, isMailGuardActive, hideOverlay, showOverlay } from './mailguard/overlay'
 
 // Storage for email row preview data (for Gmail API matching)
 const emailRowPreviewData = new Map<string, { from: string; subject: string }>()
@@ -164,14 +204,33 @@ var wsClients: any[] = (globalThis as any).__og_ws_clients__ || [];
 let isAppQuitting = false
 
 // Set flag when app is actually quitting
-app.on('before-quit', () => {
+app.on('before-quit', async () => {
   isAppQuitting = true
+  
+  // Shutdown OAuth server manager
+  try {
+    const { oauthServerManager } = await import('./main/email/oauth-server')
+    await oauthServerManager.shutdown()
+    console.log('[MAIN] OAuth server manager shutdown complete')
+  } catch (err) {
+    console.error('[MAIN] Error shutting down OAuth server:', err)
+  }
 })
 
-// Graceful shutdown - close WebSocket connections
-process.on('SIGTERM', () => {
+// Graceful shutdown - close WebSocket connections and OAuth server
+process.on('SIGTERM', async () => {
   console.log('[MAIN] Received SIGTERM, shutting down gracefully...')
   isAppQuitting = true
+  
+  // Shutdown OAuth server manager
+  try {
+    const { oauthServerManager } = await import('./main/email/oauth-server')
+    await oauthServerManager.shutdown()
+    console.log('[MAIN] OAuth server manager shutdown complete')
+  } catch (err) {
+    console.error('[MAIN] Error shutting down OAuth server:', err)
+  }
+  
   wsClients.forEach(client => {
     try { client.close() } catch {}
   })
@@ -979,8 +1038,14 @@ app.on('open-url', (event, url) => {
   handleDeepLink(url)
 })
 
-app.on('will-quit', () => {
+app.on('will-quit', async () => {
   globalShortcut.unregisterAll()
+  
+  // Final cleanup of OAuth server (in case before-quit didn't run)
+  try {
+    const { oauthServerManager } = await import('./main/email/oauth-server')
+    await oauthServerManager.shutdown()
+  } catch {}
 })
 
 app.on('activate', () => {
@@ -1361,6 +1426,33 @@ app.whenReady().then(async () => {
               }
             }
             
+            if (msg.type === 'MAILGUARD_UPDATE_BOUNDS') {
+              // Content script sends email list container bounds
+              // This is used to position the overlay only over the email list area (not sidebar)
+              try {
+                const bounds = msg.bounds
+                if (bounds) {
+                  console.log('[MAIN] 🛡️ Updating protected area bounds:', bounds)
+                  updateProtectedArea(bounds)
+                }
+              } catch (err: any) {
+                console.error('[MAIN] Error updating protected area bounds:', err)
+              }
+            }
+            
+            if (msg.type === 'MAILGUARD_WINDOW_POSITION') {
+              // Content script sends browser window position updates
+              // This keeps the overlay anchored to the browser window when it moves
+              try {
+                const windowInfo = msg.windowInfo
+                if (windowInfo) {
+                  updateWindowPosition(windowInfo)
+                }
+              } catch (err: any) {
+                console.error('[MAIN] Error updating window position:', err)
+              }
+            }
+            
             if (msg.type === 'MAILGUARD_EMAIL_CONTENT') {
               // Content script sends sanitized email content
               debugLog('[MAIN] Received sanitized email content')
@@ -1374,6 +1466,18 @@ app.whenReady().then(async () => {
             if (msg.type === 'MAILGUARD_STATUS') {
               // Check if MailGuard is active
               socket.send(JSON.stringify({ type: 'MAILGUARD_STATUS_RESPONSE', active: isMailGuardActive() }))
+            }
+            
+            if (msg.type === 'MAILGUARD_HIDE') {
+              // Hide overlay when user switches to a different tab
+              console.log('[MAIN] 🛡️ Hiding MailGuard overlay (tab switch)')
+              hideOverlay()
+            }
+            
+            if (msg.type === 'MAILGUARD_SHOW') {
+              // Show overlay when user switches back to email tab
+              console.log('[MAIN] 🛡️ Showing MailGuard overlay (tab switch back)')
+              showOverlay()
             }
             
             // ===== EMAIL GATEWAY HANDLERS =====
@@ -1937,13 +2041,67 @@ app.whenReady().then(async () => {
       const httpApp = express()
       httpApp.use(express.json({ limit: '50mb' }))
 
-      // CORS middleware - allow extension origin
-      httpApp.use((req, res, next) => {
-        res.header('Access-Control-Allow-Origin', '*')
-        res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
-        res.header('Access-Control-Allow-Headers', 'Content-Type')
-        if (req.method === 'OPTIONS') {
-          res.sendStatus(200)
+    // =================================================================
+    // Health Check Endpoint - Production-grade service status
+    // =================================================================
+    
+    // GET /api/health - Check if Electron app is running and services are ready
+    httpApp.get('/api/health', async (_req, res) => {
+      try {
+        const { oauthServerManager } = await import('./main/email/oauth-server')
+        
+        // Check service status
+        const oauthFlowInProgress = oauthServerManager.isFlowInProgress()
+        const oauthState = oauthServerManager.getState()
+        
+        res.json({
+          ok: true,
+          timestamp: Date.now(),
+          version: app.getVersion(),
+          services: {
+            http: true,
+            oauth: {
+              serverRunning: oauthServerManager.isServerRunning(),
+              flowInProgress: oauthFlowInProgress,
+              state: oauthState
+            }
+          },
+          ready: !oauthFlowInProgress  // Ready for new operations if no OAuth flow in progress
+        })
+      } catch (error: any) {
+        console.error('[HTTP-HEALTH] Error:', error)
+        res.status(500).json({
+          ok: false,
+          timestamp: Date.now(),
+          error: error.message || 'Health check failed'
+        })
+      }
+    })
+
+    // POST /api/db/test-connection - Test PostgreSQL connection
+    httpApp.post('/api/db/test-connection', async (req, res) => {
+      try {
+        console.log('[HTTP] POST /api/db/test-connection')
+        const result = await testConnection(req.body)
+        res.json(result)
+      } catch (error: any) {
+        console.error('[HTTP] Error in test-connection:', error)
+        res.status(500).json({
+          ok: false,
+          message: error.message || 'Connection test failed',
+          details: { error: error.toString() }
+        })
+      }
+    })
+
+    // GET /api/db/get?keys=key1,key2 - Get specific keys
+    httpApp.get('/api/db/get', async (req, res) => {
+      try {
+        const keys = req.query.keys ? String(req.query.keys).split(',') : []
+        console.log('[HTTP] GET /api/db/get', keys)
+        const adapter = getPostgresAdapter()
+        if (!adapter) {
+          res.status(500).json({ ok: false, message: 'Postgres adapter not initialized' })
           return
         }
         next()
@@ -4043,19 +4201,30 @@ app.whenReady().then(async () => {
     })
     
     // POST /api/email/accounts/connect/gmail - Connect Gmail account via OAuth
+    // Note: OAuth flows can take several minutes as user completes login in browser
     httpApp.post('/api/email/accounts/connect/gmail', async (req, res) => {
       try {
         console.log('[HTTP-EMAIL] POST /api/email/accounts/connect/gmail')
+        
+        // Set longer timeout for OAuth flows (6 minutes to be safe)
+        // This prevents the connection from timing out while user completes OAuth in browser
+        req.setTimeout(6 * 60 * 1000)
+        res.setTimeout(6 * 60 * 1000)
+        
         const { displayName } = req.body
         const { emailGateway } = await import('./main/email/gateway')
         
         // Try to connect - if credentials not set, show setup dialog
         try {
+          console.log('[HTTP-EMAIL] Starting Gmail OAuth flow...')
           const account = await emailGateway.connectGmailAccount(displayName || 'Gmail Account')
+          console.log('[HTTP-EMAIL] Gmail OAuth flow completed successfully')
           res.json({ ok: true, data: account })
         } catch (credError: any) {
+          console.log('[HTTP-EMAIL] OAuth error:', credError.message)
           if (credError.message?.includes('OAuth client credentials not configured')) {
             // Show setup dialog
+            console.log('[HTTP-EMAIL] Showing Gmail setup dialog...')
             const { showGmailSetupDialog } = await import('./main/email/ipc')
             const result = await showGmailSetupDialog()
             if (result.success) {
@@ -4081,19 +4250,30 @@ app.whenReady().then(async () => {
     })
     
     // POST /api/email/accounts/connect/outlook - Connect Outlook account via OAuth
+    // Note: OAuth flows can take several minutes as user completes login in browser
     httpApp.post('/api/email/accounts/connect/outlook', async (req, res) => {
       try {
         console.log('[HTTP-EMAIL] POST /api/email/accounts/connect/outlook')
+        
+        // Set longer timeout for OAuth flows (6 minutes to be safe)
+        // This prevents the connection from timing out while user completes OAuth in browser
+        req.setTimeout(6 * 60 * 1000)
+        res.setTimeout(6 * 60 * 1000)
+        
         const { displayName } = req.body
         const { emailGateway } = await import('./main/email/gateway')
         
         // Try to connect - if credentials not set, show setup dialog
         try {
+          console.log('[HTTP-EMAIL] Starting Outlook OAuth flow...')
           const account = await emailGateway.connectOutlookAccount(displayName || 'Outlook Account')
+          console.log('[HTTP-EMAIL] Outlook OAuth flow completed successfully')
           res.json({ ok: true, data: account })
         } catch (credError: any) {
+          console.log('[HTTP-EMAIL] OAuth error:', credError.message)
           if (credError.message?.includes('OAuth client credentials not configured')) {
             // Show setup dialog
+            console.log('[HTTP-EMAIL] Showing Outlook setup dialog...')
             const { showOutlookSetupDialog } = await import('./main/email/ipc')
             const result = await showOutlookSetupDialog()
             if (result.success) {
@@ -4240,6 +4420,13 @@ app.whenReady().then(async () => {
       const server = httpApp.listen(port, '127.0.0.1', () => {
         httpServerStarted = true
         console.log(`[MAIN] ✅ HTTP API server listening on http://127.0.0.1:${port}`)
+        
+        // Set longer server-level timeout (10 minutes) to support OAuth flows
+        // This is the maximum time the server will wait for a request to complete
+        // Individual routes can have shorter timeouts as needed
+        server.timeout = 10 * 60 * 1000 // 10 minutes
+        server.keepAliveTimeout = 10 * 60 * 1000 // 10 minutes
+        console.log('[MAIN] HTTP server timeout set to 10 minutes for OAuth support')
       })
       
       server.once('error', (err: any) => {

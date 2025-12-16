@@ -42,6 +42,11 @@ import {
   generateSnippet
 } from './sanitizer'
 import { extractPdfText, isPdfFile, supportsTextExtraction } from './pdf-extractor'
+import { 
+  encryptOAuthTokens, 
+  decryptOAuthTokens, 
+  isSecureStorageAvailable 
+} from './secure-storage'
 
 /**
  * Storage file for email accounts
@@ -54,16 +59,41 @@ function getAccountsPath(): string {
 }
 
 /**
- * Load accounts from disk
+ * Load accounts from disk with decryption of OAuth tokens
  */
 function loadAccounts(): EmailAccountConfig[] {
   try {
     const accountsPath = getAccountsPath()
     console.log('[EmailGateway] Loading accounts from:', accountsPath)
+    console.log('[EmailGateway] Secure storage available:', isSecureStorageAvailable())
+    
     if (fs.existsSync(accountsPath)) {
       const data = JSON.parse(fs.readFileSync(accountsPath, 'utf-8'))
-      console.log('[EmailGateway] Loaded', data.accounts?.length || 0, 'accounts from disk')
-      return data.accounts || []
+      const accounts = data.accounts || []
+      console.log('[EmailGateway] Loaded', accounts.length, 'accounts from disk')
+      
+      // Decrypt OAuth tokens for each account
+      return accounts.map((account: EmailAccountConfig) => {
+        if (account.oauth) {
+          try {
+            const decrypted = decryptOAuthTokens(account.oauth as any)
+            return {
+              ...account,
+              oauth: decrypted
+            }
+          } catch (err) {
+            console.error('[EmailGateway] Failed to decrypt tokens for account:', account.id, err)
+            // Return account without oauth if decryption fails
+            return {
+              ...account,
+              oauth: undefined,
+              status: 'error' as const,
+              lastError: 'Failed to decrypt stored credentials. Please reconnect.'
+            }
+          }
+        }
+        return account
+      })
     } else {
       console.log('[EmailGateway] No accounts file found, starting fresh')
     }
@@ -74,12 +104,13 @@ function loadAccounts(): EmailAccountConfig[] {
 }
 
 /**
- * Save accounts to disk
+ * Save accounts to disk with encryption of OAuth tokens
  */
 function saveAccounts(accounts: EmailAccountConfig[]): void {
   try {
     const accountsPath = getAccountsPath()
     console.log('[EmailGateway] Saving', accounts.length, 'accounts to:', accountsPath)
+    console.log('[EmailGateway] Encrypting tokens:', isSecureStorageAvailable())
     
     // Ensure directory exists
     const dir = path.dirname(accountsPath)
@@ -87,8 +118,19 @@ function saveAccounts(accounts: EmailAccountConfig[]): void {
       fs.mkdirSync(dir, { recursive: true })
     }
     
-    fs.writeFileSync(accountsPath, JSON.stringify({ accounts }, null, 2), 'utf-8')
-    console.log('[EmailGateway] Accounts saved successfully')
+    // Encrypt OAuth tokens before saving
+    const encryptedAccounts = accounts.map(account => {
+      if (account.oauth) {
+        return {
+          ...account,
+          oauth: encryptOAuthTokens(account.oauth)
+        }
+      }
+      return account
+    })
+    
+    fs.writeFileSync(accountsPath, JSON.stringify({ accounts: encryptedAccounts }, null, 2), 'utf-8')
+    console.log('[EmailGateway] Accounts saved successfully (tokens encrypted)')
   } catch (err) {
     console.error('[EmailGateway] Error saving accounts:', err)
   }

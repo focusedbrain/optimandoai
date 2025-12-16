@@ -30,6 +30,15 @@ interface EmailRowRect {
   subject?: string
 }
 
+interface ProtectedAreaBounds {
+  x: number
+  y: number
+  width: number
+  height: number
+  screenX: number
+  screenY: number
+}
+
 interface SanitizedEmail {
   from: string
   to: string
@@ -58,6 +67,143 @@ let urlCheckInterval: ReturnType<typeof setInterval> | null = null
 let emailRowElements: Map<string, Element> = new Map()
 let currentTheme: 'default' | 'dark' | 'professional' = 'default'
 let listenersInitialized = false
+
+// Track if overlay is hidden for lightbox
+let overlayHiddenForLightbox = false
+
+// =============================================================================
+// Immediate Click Blocking (runs before overlay is ready)
+// =============================================================================
+
+// Track if the Electron overlay is ready (set to true when MAILGUARD_ACTIVATED received)
+let overlayReady = false
+
+// Supported email sites for immediate blocking check
+const IMMEDIATE_BLOCK_SITES = ['mail.google.com', 'outlook.live.com', 'outlook.office.com', 'outlook.office365.com']
+
+/**
+ * Check if an element is part of an email row/item that should be blocked
+ */
+function isEmailElement(el: HTMLElement | null): boolean {
+  if (!el) return false
+  
+  // Gmail: email rows are tr.zA or have role="row"
+  // Outlook: email items have data-convid or role="option"
+  const emailSelectors = [
+    'tr.zA', 'tr[role="row"]', 'div[role="row"]',  // Gmail
+    '[data-convid]', 'div[role="option"]', 'div[role="listitem"]', 'div[data-item-index]'  // Outlook
+  ]
+  
+  return emailSelectors.some(sel => el.closest(sel) !== null)
+}
+
+/**
+ * Block email clicks during the activation delay
+ * This handler runs in the capture phase to intercept clicks before they reach email elements
+ */
+function blockEmailClick(e: Event): void {
+  if (overlayReady) return // Overlay is ready, don't block
+  
+  const target = e.target as HTMLElement
+  
+  // Check if click is on an email row or email link
+  if (isEmailElement(target)) {
+    e.preventDefault()
+    e.stopPropagation()
+    e.stopImmediatePropagation()
+    console.log('[MailGuard] Blocked email click during activation delay')
+  }
+}
+
+// Immediately block email clicks until overlay is ready
+// This runs as soon as the content script loads
+;(function blockEmailClicksImmediately() {
+  const hostname = window.location.hostname
+  const isEmailSite = IMMEDIATE_BLOCK_SITES.some(site => hostname.includes(site))
+  
+  if (!isEmailSite) return
+  
+  console.log('[MailGuard] Installing immediate click blocker on email site')
+  
+  // Capture phase listeners to block clicks before they reach email elements
+  document.addEventListener('click', blockEmailClick, true)
+  document.addEventListener('mousedown', blockEmailClick, true)
+})()
+
+// =============================================================================
+// Lightbox Detection - Hide overlay when sidepanel lightboxes are open
+// =============================================================================
+
+/**
+ * Selectors that identify lightbox/overlay elements from the sidepanel
+ * These should be hidden behind the MailGuard overlay
+ */
+const LIGHTBOX_SELECTORS = [
+  '#agents-lightbox',
+  '#settings-lightbox', 
+  '#memory-lightbox',
+  '#context-lightbox',
+  '#sessions-lightbox',
+  '#reasoning-lightbox',
+  '#helpergrid-lightbox',
+  '#miniapps-lightbox',
+  '#whitelist-lightbox',
+  '#wrvault-lightbox',
+  '.lightbox-overlay'  // Generic class used by many lightboxes
+]
+
+/**
+ * Check if any lightbox is currently visible
+ */
+function isAnyLightboxOpen(): boolean {
+  return LIGHTBOX_SELECTORS.some(sel => document.querySelector(sel) !== null)
+}
+
+/**
+ * Send message to hide/show overlay for lightbox
+ */
+function sendLightboxOverlayState(hidden: boolean): void {
+  if (hidden === overlayHiddenForLightbox) return  // No change
+  
+  overlayHiddenForLightbox = hidden
+  const messageType = hidden ? 'MAILGUARD_HIDE_FOR_LIGHTBOX' : 'MAILGUARD_SHOW_AFTER_LIGHTBOX'
+  
+  console.log(`[MailGuard] ${hidden ? 'Hiding' : 'Showing'} overlay for lightbox`)
+  
+  try {
+    chrome.runtime.sendMessage({ type: messageType })
+  } catch (e) {
+    console.error('[MailGuard] Error sending lightbox overlay state:', e)
+  }
+}
+
+// Observe DOM for lightbox elements
+;(function setupLightboxObserver() {
+  const hostname = window.location.hostname
+  const isEmailSite = IMMEDIATE_BLOCK_SITES.some(site => hostname.includes(site))
+  
+  if (!isEmailSite) return
+  
+  // Initial check
+  if (isAnyLightboxOpen()) {
+    sendLightboxOverlayState(true)
+  }
+  
+  // Observe for changes
+  const observer = new MutationObserver(() => {
+    const lightboxOpen = isAnyLightboxOpen()
+    sendLightboxOverlayState(lightboxOpen)
+  })
+  
+  // Start observing when body is available
+  if (document.body) {
+    observer.observe(document.body, { childList: true, subtree: true })
+  } else {
+    document.addEventListener('DOMContentLoaded', () => {
+      observer.observe(document.body, { childList: true, subtree: true })
+    })
+  }
+})()
 
 // Theme color configurations - matching sidebar colors exactly
 const themeColors = {
@@ -319,32 +465,43 @@ function showReEnableBanner(): void {
 }
 
 function showStatusMarker(): void {
-  const existing = document.getElementById('wr-mailguard-status-marker')
-  if (existing) existing.remove()
+  // Status marker disabled - user has indicator elsewhere
+}
+
+/**
+ * Show a warning when connection to Electron is lost
+ * The overlay might have disappeared but we keep the protection state
+ */
+function showConnectionWarning(): void {
+  const existing = document.getElementById('wr-mailguard-connection-warning')
+  if (existing) return // Already showing
   
-  const marker = document.createElement('div')
-  marker.id = 'wr-mailguard-status-marker'
-  marker.style.cssText = `
+  const warning = document.createElement('div')
+  warning.id = 'wr-mailguard-connection-warning'
+  warning.style.cssText = `
     position: fixed;
     bottom: 20px;
     left: 20px;
     z-index: 2147483647;
-    background: linear-gradient(135deg, ${themeColors[currentTheme].bgLight} 0%, ${themeColors[currentTheme].bgDark} 100%);
-    color: ${themeColors[currentTheme].primary};
-    padding: 10px 16px;
+    background: linear-gradient(135deg, #fef3c7 0%, #fbbf24 100%);
+    color: #92400e;
+    padding: 12px 18px;
     border-radius: 10px;
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-    font-size: 12px;
+    font-size: 13px;
     display: flex;
     align-items: center;
     gap: 10px;
     box-shadow: 0 4px 15px rgba(0,0,0,0.3);
-    border: 1px solid ${themeColors[currentTheme].primary};
+    border: 2px solid #f59e0b;
   `
-  marker.innerHTML = '<span style="font-size:16px">🛡️</span> MailGuard Active - Electron Overlay Running'
-  document.body.appendChild(marker)
-  
-  setTimeout(() => marker.remove(), 4000)
+  warning.innerHTML = '<span style="font-size:16px">⚠️</span> Connection lost - Overlay may be inactive. Check if OpenGiraffe is running.'
+  document.body.appendChild(warning)
+}
+
+function hideConnectionWarning(): void {
+  const warning = document.getElementById('wr-mailguard-connection-warning')
+  if (warning) warning.remove()
 }
 
 // =============================================================================
@@ -402,12 +559,121 @@ function getEmailRowPositions(): EmailRowRect[] {
   return rows
 }
 
+// =============================================================================
+// Email List Container Detection (for overlay positioning)
+// =============================================================================
+
+// Selectors for email list containers (excludes sidebar)
+const EMAIL_LIST_CONTAINER_SELECTORS = {
+  gmail: [
+    'div[role="main"]',           // Main content area
+    'div.aeN',                    // Email list wrapper
+    'div.AO',                     // Alternate list wrapper
+    'table.F.cf.zt'               // Email table
+  ],
+  outlook: [
+    '[data-app-section="MessageList"]',     // Message list section
+    'div[role="main"]',                      // Main content
+    '[data-app-section="ConversationContainer"]',
+    '.jGG6V',                                // Message list container class
+    '#MailList'                              // Mail list ID
+  ]
+}
+
+/**
+ * Get the bounds of the email list container (excluding sidebar)
+ * This is used to position the overlay only over the email list area
+ */
+function getEmailListBounds(): ProtectedAreaBounds | null {
+  const provider = getCurrentEmailProvider()
+  if (provider === 'unknown') return null
+  
+  const selectors = EMAIL_LIST_CONTAINER_SELECTORS[provider]
+  let container: Element | null = null
+  
+  // Try each selector until we find a valid container
+  for (const selector of selectors) {
+    const el = document.querySelector(selector)
+    if (el) {
+      const rect = el.getBoundingClientRect()
+      // Ensure it's a reasonably sized container (not just a tiny element)
+      if (rect.width > 200 && rect.height > 100) {
+        container = el
+        break
+      }
+    }
+  }
+  
+  // Fallback: calculate bounds from visible email rows
+  if (!container) {
+    const rows = getEmailRowPositions()
+    if (rows.length > 0) {
+      const minX = Math.min(...rows.map(r => r.x))
+      const minY = Math.min(...rows.map(r => r.y))
+      const maxX = Math.max(...rows.map(r => r.x + r.width))
+      const maxY = Math.max(...rows.map(r => r.y + r.height))
+      
+      console.log('[MailGuard] Using fallback bounds from email rows')
+      return {
+        x: minX,
+        y: minY,
+        width: maxX - minX,
+        height: maxY - minY,
+        screenX: window.screenX,
+        screenY: window.screenY
+      }
+    }
+    
+    console.log('[MailGuard] Could not detect email list container')
+    return null
+  }
+  
+  const rect = container.getBoundingClientRect()
+  
+  console.log(`[MailGuard] Email list container found:`, {
+    selector: container.tagName,
+    x: rect.left,
+    y: rect.top,
+    width: rect.width,
+    height: rect.height
+  })
+  
+  return {
+    x: rect.left,
+    y: rect.top,
+    width: rect.width,
+    height: rect.height,
+    screenX: window.screenX,
+    screenY: window.screenY
+  }
+}
+
+// Track last known window position to detect moves
+let lastWindowX = window.screenX
+let lastWindowY = window.screenY
+let lastWindowWidth = window.outerWidth
+let lastWindowHeight = window.outerHeight
+let windowPositionInterval: ReturnType<typeof setInterval> | null = null
+
+// Send current window position to keep overlay anchored
+function sendWindowPosition(): void {
+  const windowInfo = {
+    screenX: window.screenX,
+    screenY: window.screenY,
+    innerWidth: window.innerWidth,
+    innerHeight: window.innerHeight,
+    outerWidth: window.outerWidth,
+    outerHeight: window.outerHeight
+  }
+  sendToBackground({ type: 'MAILGUARD_WINDOW_POSITION', windowInfo })
+}
+
 // Initialize event listeners once (they check isMailGuardActive internally)
 function initializeListeners(): void {
   if (listenersInitialized) return
   listenersInitialized = true
   
-  // Throttled scroll handler
+  // Throttled scroll handler - update rows and bounds
   let scrollTimeout: ReturnType<typeof setTimeout> | null = null
   window.addEventListener('scroll', () => {
     if (!isMailGuardActive) return
@@ -417,10 +683,71 @@ function initializeListeners(): void {
       scrollTimeout = null
       const rows = getEmailRowPositions()
       sendToBackground({ type: 'MAILGUARD_UPDATE_ROWS', rows })
+      
+      // Also update bounds on scroll (in case of virtual scrolling changing container size)
+      const bounds = getEmailListBounds()
+      if (bounds) {
+        sendToBackground({ type: 'MAILGUARD_UPDATE_BOUNDS', bounds })
+      }
     }, 200)
   }, { passive: true })
   
-  // CRITICAL: Deactivate when page is about to unload (navigation away)
+  // Throttled resize handler - update bounds when window resizes
+  let resizeTimeout: ReturnType<typeof setTimeout> | null = null
+  window.addEventListener('resize', () => {
+    if (!isMailGuardActive) return
+    if (resizeTimeout) return
+    
+    resizeTimeout = setTimeout(() => {
+      resizeTimeout = null
+      
+      // Send updated window position on resize
+      sendWindowPosition()
+      
+      const bounds = getEmailListBounds()
+      if (bounds) {
+        console.log('[MailGuard] Window resized, updating bounds')
+        sendToBackground({ type: 'MAILGUARD_UPDATE_BOUNDS', bounds })
+      }
+      // Also update rows as their positions may have changed
+      const rows = getEmailRowPositions()
+      sendToBackground({ type: 'MAILGUARD_UPDATE_ROWS', rows })
+    }, 200)
+  }, { passive: true })
+  
+  // Window position tracking - detect when browser window is moved
+  // There's no native "window move" event, so we poll for position changes
+  if (!windowPositionInterval) {
+    windowPositionInterval = setInterval(() => {
+      if (!isMailGuardActive) return
+      
+      const currentX = window.screenX
+      const currentY = window.screenY
+      const currentWidth = window.outerWidth
+      const currentHeight = window.outerHeight
+      
+      // Check if window position or size changed
+      if (currentX !== lastWindowX || currentY !== lastWindowY ||
+          currentWidth !== lastWindowWidth || currentHeight !== lastWindowHeight) {
+        console.log('[MailGuard] Window moved/resized, updating overlay position')
+        lastWindowX = currentX
+        lastWindowY = currentY
+        lastWindowWidth = currentWidth
+        lastWindowHeight = currentHeight
+        
+        // Send updated window position
+        sendWindowPosition()
+        
+        // Also update bounds since position changed
+        const bounds = getEmailListBounds()
+        if (bounds) {
+          sendToBackground({ type: 'MAILGUARD_UPDATE_BOUNDS', bounds })
+        }
+      }
+    }, 100) // Check every 100ms for smooth tracking
+  }
+  
+  // CRITICAL: Deactivate when page is about to unload (navigation away from site entirely)
   window.addEventListener('beforeunload', () => {
     if (isMailGuardActive) {
       console.log('[MailGuard] Page unloading, deactivating...')
@@ -428,13 +755,9 @@ function initializeListeners(): void {
     }
   })
   
-  // Deactivate when tab visibility changes (user switches tabs)
-  document.addEventListener('visibilitychange', () => {
-    if (document.hidden && isMailGuardActive) {
-      console.log('[MailGuard] Tab hidden, deactivating...')
-      deactivateMailGuard()
-    }
-  })
+  // NOTE: We intentionally do NOT deactivate on tab visibility change
+  // The user wants protection to remain active even when switching tabs
+  // The overlay will be hidden by the OS when the browser is not in focus
   
   console.log('[MailGuard] Event listeners initialized')
 }
@@ -447,22 +770,34 @@ function startRowPositionUpdates(): void {
   if (rowUpdateInterval) return
   
   // Update row positions every 2000ms (reduced from 1s for performance)
-  rowUpdateInterval = setInterval(() => {
+  // Also check connection status to show warning if connection lost
+  let connectionLostWarningShown = false
+  
+  rowUpdateInterval = setInterval(async () => {
     if (!isMailGuardActive) return
     
-    // Check if we're still on a supported email site
-    if (!isOnSupportedEmailSite()) {
-      console.log('[MailGuard] No longer on supported email site, deactivating...')
-      deactivateMailGuard()
-      return
+    // Check connection status periodically
+    const statusResponse = await sendToBackground({ type: 'MAILGUARD_CHECK_STATUS' })
+    
+    if (!statusResponse?.connected && !connectionLostWarningShown) {
+      // Connection lost - show warning but DON'T deactivate
+      console.log('[MailGuard] ⚠️ Connection to Electron lost, but keeping protection state')
+      showConnectionWarning()
+      connectionLostWarningShown = true
+    } else if (statusResponse?.connected && connectionLostWarningShown) {
+      // Connection restored
+      console.log('[MailGuard] ✅ Connection restored')
+      hideConnectionWarning()
+      connectionLostWarningShown = false
     }
     
+    // Always try to update rows (will silently fail if not connected)
     const rows = getEmailRowPositions()
     const provider = getCurrentEmailProvider()
     sendToBackground({ type: 'MAILGUARD_UPDATE_ROWS', rows, provider })
   }, 2000)
   
-  // Watch for URL changes within the SPA (1s is enough to detect navigation)
+  // Watch for URL changes within the SPA - update positions when navigating
   if (!urlCheckInterval) {
     let lastUrl = window.location.href
     urlCheckInterval = setInterval(() => {
@@ -470,13 +805,19 @@ function startRowPositionUpdates(): void {
       
       const currentUrl = window.location.href
       if (currentUrl !== lastUrl) {
-        console.log('[MailGuard] URL changed from', lastUrl, 'to', currentUrl)
+        console.log('[MailGuard] URL changed, updating positions...')
         lastUrl = currentUrl
         
-        // If we're no longer on a supported site, deactivate
-        if (!isOnSupportedEmailSite()) {
-          console.log('[MailGuard] Navigated away from email site, deactivating...')
-          deactivateMailGuard()
+        // Just update row positions - the site check in rowUpdateInterval handles deactivation
+        // We don't want to deactivate just because the user navigated within the inbox
+        const rows = getEmailRowPositions()
+        const provider = getCurrentEmailProvider()
+        sendToBackground({ type: 'MAILGUARD_UPDATE_ROWS', rows, provider })
+        
+        // Also update bounds in case layout changed
+        const bounds = getEmailListBounds()
+        if (bounds) {
+          sendToBackground({ type: 'MAILGUARD_UPDATE_BOUNDS', bounds })
         }
       }
     }, 1000)
@@ -859,6 +1200,13 @@ async function activateMailGuard(): Promise<void> {
         showStatusMarker()
         startRowPositionUpdates()
         
+        // Send initial protected area bounds (for overlay positioning)
+        const bounds = getEmailListBounds()
+        if (bounds) {
+          console.log('[MailGuard] Sending protected area bounds to Electron')
+          sendToBackground({ type: 'MAILGUARD_UPDATE_BOUNDS', bounds })
+        }
+        
         // Send initial row positions
         const rows = getEmailRowPositions()
         console.log('[MailGuard] Sending', rows.length, 'email rows to Electron')
@@ -921,6 +1269,7 @@ let userManuallyDisabled = false
 
 function deactivateMailGuard(): void {
   console.log('[MailGuard] Deactivating...')
+  overlayReady = false  // Re-enable click blocking until next activation
   isMailGuardActive = false
   userManuallyDisabled = true // User explicitly disabled - don't auto-re-enable
   stopRowPositionUpdates()
@@ -935,12 +1284,14 @@ function deactivateMailGuard(): void {
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg.type === 'MAILGUARD_ACTIVATED') {
     console.log('[MailGuard] Activation confirmed by Electron')
+    overlayReady = true  // Allow email clicks now - Electron overlay is protecting
     isMailGuardActive = true
     dismissBanner() // Make sure banner is removed when activated
     showStatusMarker()
     startRowPositionUpdates()
   } else if (msg.type === 'MAILGUARD_DEACTIVATED') {
     console.log('[MailGuard] Deactivation confirmed')
+    overlayReady = false  // Re-enable click blocking
     isMailGuardActive = false
     userManuallyDisabled = true
     stopRowPositionUpdates()

@@ -11,22 +11,218 @@ const tabSidebarStatus = new Map<number, boolean>();
 // Track if we've already tried to launch Electron this session
 let electronLaunchAttempted = false;
 let electronLaunchInProgress = false;
+// Track if MailGuard should be active (persists across reconnections)
+let mailGuardShouldBeActive = false;
+let lastMailGuardWindowInfo: any = null;
+let lastMailGuardTheme: string = 'default';
+// Track which tab has MailGuard activated (for hide/show on tab switch)
+let mailGuardActiveTabId: number | null = null;
+
+// =================================================================
+// Production-Grade Connection Health Monitor
+// =================================================================
+
+let healthMonitorInterval: ReturnType<typeof setInterval> | null = null;
+let lastHealthCheck = 0;
+let consecutiveFailures = 0;
+let isElectronHealthy = false;
+
+const HEALTH_CHECK_INTERVAL = 30000;  // Check every 30 seconds
+const MAX_CONSECUTIVE_FAILURES = 3;   // After 3 failures, try to restart
+const HEALTH_CHECK_TIMEOUT = 5000;    // 5 second timeout for health checks
+
+/**
+ * Start the background health monitor
+ * This ensures Electron stays running and auto-restarts if needed
+ */
+function startHealthMonitor(): void {
+  if (healthMonitorInterval) {
+    console.log('[BG-HEALTH] Monitor already running');
+    return;
+  }
+  
+  console.log('[BG-HEALTH] Starting connection health monitor');
+  
+  // Initial health check after 5 seconds
+  setTimeout(() => performHealthCheck(), 5000);
+  
+  // Regular health checks
+  healthMonitorInterval = setInterval(() => {
+    performHealthCheck();
+  }, HEALTH_CHECK_INTERVAL);
+}
+
+/**
+ * Perform a health check and handle failures
+ */
+async function performHealthCheck(): Promise<void> {
+  lastHealthCheck = Date.now();
+  
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), HEALTH_CHECK_TIMEOUT);
+    
+    // Try the primary endpoint first
+    let healthy = false;
+    
+    try {
+      const response = await fetch(`${ELECTRON_BASE_URL}/api/orchestrator/status`, {
+        method: 'GET',
+        signal: controller.signal
+      });
+      healthy = response.ok;
+    } catch {
+      healthy = false;
+    }
+    
+    clearTimeout(timeoutId);
+    
+    if (healthy) {
+      if (!isElectronHealthy || consecutiveFailures > 0) {
+        console.log('[BG-HEALTH] ✅ Electron connection restored');
+      }
+      isElectronHealthy = true;
+      consecutiveFailures = 0;
+    } else {
+      throw new Error('Health check failed');
+    }
+  } catch {
+    consecutiveFailures++;
+    isElectronHealthy = false;
+    console.log(`[BG-HEALTH] ❌ Health check failed (${consecutiveFailures}/${MAX_CONSECUTIVE_FAILURES})`);
+    
+    if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
+      console.log('[BG-HEALTH] 🔄 Max failures reached, attempting recovery...');
+      consecutiveFailures = 0;  // Reset to prevent spam
+      
+      // Try to restart Electron
+      electronLaunchAttempted = false;  // Allow new launch attempt
+      const launched = await ensureElectronRunning();
+      if (launched) {
+        console.log('[BG-HEALTH] ✅ Electron recovered successfully');
+        isElectronHealthy = true;
+      } else {
+        console.log('[BG-HEALTH] ⚠️ Could not recover Electron, will retry next interval');
+      }
+    }
+  }
+}
+
+/**
+ * Get current connection status
+ */
+function getConnectionStatus(): { healthy: boolean; lastCheck: number; failures: number } {
+  return {
+    healthy: isElectronHealthy,
+    lastCheck: lastHealthCheck,
+    failures: consecutiveFailures
+  };
+}
+
+// Start health monitor when extension loads
+startHealthMonitor();
+
+// =================================================================
+// Production-Grade HTTP Client for Electron Communication
+// =================================================================
+
+const ELECTRON_BASE_URL = 'http://127.0.0.1:51248';
+
+// Retry configuration
+const DEFAULT_RETRY_CONFIG = {
+  maxRetries: 3,
+  baseDelayMs: 500,
+  maxDelayMs: 4000,
+  timeoutMs: 30000
+};
+
+// OAuth-specific configuration (longer timeouts for user interaction)
+const OAUTH_RETRY_CONFIG = {
+  maxRetries: 1,  // Don't retry OAuth flows
+  baseDelayMs: 0,
+  maxDelayMs: 0,
+  timeoutMs: 6 * 60 * 1000  // 6 minutes for OAuth
+};
 
 /**
  * Check if Electron HTTP API is available
+ * Uses health endpoint first, falls back to orchestrator status for compatibility
  */
 async function isElectronRunning(): Promise<boolean> {
   try {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 2000);
-    const response = await fetch('http://127.0.0.1:51248/api/orchestrator/status', {
+    
+    // Try health endpoint first (new)
+    try {
+      const response = await fetch(`${ELECTRON_BASE_URL}/api/health`, {
+        method: 'GET',
+        signal: controller.signal
+      });
+      clearTimeout(timeoutId);
+      if (response.ok) {
+        const data = await response.json();
+        return data.ok === true;
+      }
+    } catch {
+      // Health endpoint might not exist yet, try fallback
+    }
+    
+    // Fallback to orchestrator status (old endpoint)
+    const controller2 = new AbortController();
+    const timeoutId2 = setTimeout(() => controller2.abort(), 2000);
+    const response = await fetch(`${ELECTRON_BASE_URL}/api/orchestrator/status`, {
       method: 'GET',
-      signal: controller.signal
+      signal: controller2.signal
     });
-    clearTimeout(timeoutId);
+    clearTimeout(timeoutId2);
     return response.ok;
   } catch {
     return false;
+  }
+}
+
+/**
+ * Check if Electron is ready for operations (not in the middle of OAuth flow)
+ */
+async function isElectronReady(): Promise<{ running: boolean; ready: boolean; oauthInProgress: boolean }> {
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 2000);
+    
+    // Try health endpoint first
+    try {
+      const response = await fetch(`${ELECTRON_BASE_URL}/api/health`, {
+        method: 'GET',
+        signal: controller.signal
+      });
+      clearTimeout(timeoutId);
+      if (response.ok) {
+        const data = await response.json();
+        return {
+          running: true,
+          ready: data.ready === true,
+          oauthInProgress: data.services?.oauth?.flowInProgress === true
+        };
+      }
+    } catch {
+      // Health endpoint might not exist yet
+    }
+    
+    // Fallback: if orchestrator status responds, assume ready (old behavior)
+    const controller2 = new AbortController();
+    const timeoutId2 = setTimeout(() => controller2.abort(), 2000);
+    const response = await fetch(`${ELECTRON_BASE_URL}/api/orchestrator/status`, {
+      method: 'GET',
+      signal: controller2.signal
+    });
+    clearTimeout(timeoutId2);
+    if (response.ok) {
+      return { running: true, ready: true, oauthInProgress: false };
+    }
+    return { running: false, ready: false, oauthInProgress: false };
+  } catch {
+    return { running: false, ready: false, oauthInProgress: false };
   }
 }
 
@@ -110,46 +306,192 @@ async function ensureElectronRunning(): Promise<boolean> {
 }
 
 /**
- * Execute an HTTP request to Electron, auto-starting if needed
+ * Calculate exponential backoff delay
  */
-async function fetchWithElectronAutoStart(
-  url: string, 
-  options: RequestInit = {}
-): Promise<{ ok: boolean; data?: any; error?: string }> {
+function calculateBackoff(attempt: number, baseDelay: number, maxDelay: number): number {
+  const delay = Math.min(baseDelay * Math.pow(2, attempt), maxDelay);
+  // Add jitter (±25%)
+  const jitter = delay * 0.25 * (Math.random() * 2 - 1);
+  return Math.floor(delay + jitter);
+}
+
+/**
+ * Production-grade HTTP request to Electron with retry logic
+ * 
+ * Features:
+ * - Exponential backoff with jitter
+ * - Configurable retries and timeouts
+ * - Auto-launch Electron if not running
+ * - Health check before long operations
+ * - Clear error messages for users
+ */
+async function electronRequest(
+  endpoint: string,
+  options: RequestInit = {},
+  config: {
+    maxRetries?: number;
+    baseDelayMs?: number;
+    maxDelayMs?: number;
+    timeoutMs?: number;
+    checkHealthFirst?: boolean;
+  } = {}
+): Promise<{ ok: boolean; data?: any; error?: string; errorCode?: string }> {
+  const {
+    maxRetries = DEFAULT_RETRY_CONFIG.maxRetries,
+    baseDelayMs = DEFAULT_RETRY_CONFIG.baseDelayMs,
+    maxDelayMs = DEFAULT_RETRY_CONFIG.maxDelayMs,
+    timeoutMs = DEFAULT_RETRY_CONFIG.timeoutMs,
+    checkHealthFirst = false
+  } = config;
+
+  const url = `${ELECTRON_BASE_URL}${endpoint}`;
+  let lastError: string = 'Unknown error';
+  let lastErrorCode: string = 'UNKNOWN';
+
   // Ensure Electron is running
   const electronRunning = await ensureElectronRunning();
   if (!electronRunning) {
     return { 
       ok: false, 
-      error: 'Electron app is not running. Please start OpenGiraffe manually or check if it is installed.' 
+      error: 'OpenGiraffe desktop app is not running. Please start it manually or check if it is installed.',
+      errorCode: 'ELECTRON_NOT_RUNNING'
     };
   }
-  
-  try {
-    const response = await fetch(url, options);
-    const contentType = response.headers.get('content-type') || '';
-    
-    if (!response.ok) {
-      const text = await response.text();
-      console.error('[BG] HTTP error:', response.status, text.slice(0, 200));
-      return { ok: false, error: `Server error (${response.status}): ${text.slice(0, 100)}` };
+
+  // Check health before long operations (like OAuth)
+  if (checkHealthFirst) {
+    const health = await isElectronReady();
+    if (health.oauthInProgress) {
+      return {
+        ok: false,
+        error: 'Another authentication flow is in progress. Please complete or cancel it first.',
+        errorCode: 'OAUTH_IN_PROGRESS'
+      };
     }
-    
-    if (!contentType.includes('application/json')) {
-      const text = await response.text();
-      console.error('[BG] Non-JSON response:', contentType, text.slice(0, 200));
-      return { ok: false, error: 'Invalid response from server' };
-    }
-    
-    const data = await response.json();
-    return { ok: true, data };
-  } catch (err: any) {
-    console.error('[BG] Fetch error:', err);
-    if (err.message?.includes('Failed to fetch') || err.name === 'AbortError') {
-      return { ok: false, error: 'Cannot connect to Electron app. Please ensure OpenGiraffe is running.' };
-    }
-    return { ok: false, error: err.message || 'Request failed' };
   }
+
+  // Retry loop with exponential backoff
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    if (attempt > 0) {
+      const delay = calculateBackoff(attempt - 1, baseDelayMs, maxDelayMs);
+      console.log(`[BG] Retry ${attempt}/${maxRetries} after ${delay}ms...`);
+      await new Promise(r => setTimeout(r, delay));
+      
+      // Check if Electron is still running before retry
+      if (!(await isElectronRunning())) {
+        console.log('[BG] Electron stopped running, attempting to restart...');
+        if (!(await ensureElectronRunning())) {
+          return {
+            ok: false,
+            error: 'OpenGiraffe desktop app stopped unexpectedly. Please restart it.',
+            errorCode: 'ELECTRON_STOPPED'
+          };
+        }
+      }
+    }
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => {
+      console.log(`[BG] Request timeout after ${timeoutMs}ms: ${endpoint}`);
+      controller.abort();
+    }, timeoutMs);
+
+    try {
+      const response = await fetch(url, {
+        ...options,
+        signal: controller.signal
+      });
+      clearTimeout(timeoutId);
+
+      const contentType = response.headers.get('content-type') || '';
+
+      if (!response.ok) {
+        const text = await response.text();
+        console.error(`[BG] HTTP ${response.status}:`, text.slice(0, 200));
+        
+        // Don't retry client errors (4xx)
+        if (response.status >= 400 && response.status < 500) {
+          return { 
+            ok: false, 
+            error: `Request failed: ${text.slice(0, 100)}`,
+            errorCode: `HTTP_${response.status}`
+          };
+        }
+        
+        lastError = `Server error (${response.status})`;
+        lastErrorCode = `HTTP_${response.status}`;
+        continue; // Retry on server errors (5xx)
+      }
+
+      if (!contentType.includes('application/json')) {
+        const text = await response.text();
+        console.error('[BG] Non-JSON response:', contentType, text.slice(0, 200));
+        lastError = 'Invalid response from server';
+        lastErrorCode = 'INVALID_RESPONSE';
+        continue;
+      }
+
+      const data = await response.json();
+      return { ok: true, data };
+
+    } catch (err: any) {
+      clearTimeout(timeoutId);
+      console.error(`[BG] Request error (attempt ${attempt + 1}):`, err.name, err.message);
+
+      if (err.name === 'AbortError') {
+        lastError = `Request timed out after ${Math.round(timeoutMs / 1000)} seconds`;
+        lastErrorCode = 'TIMEOUT';
+        // Don't retry timeouts for OAuth flows
+        if (timeoutMs >= OAUTH_RETRY_CONFIG.timeoutMs) {
+          return { ok: false, error: lastError + '. The operation may still be in progress.', errorCode: lastErrorCode };
+        }
+        continue;
+      }
+
+      if (err.message?.includes('Failed to fetch') || err.message?.includes('NetworkError')) {
+        lastError = 'Cannot connect to OpenGiraffe desktop app';
+        lastErrorCode = 'NETWORK_ERROR';
+        continue;
+      }
+
+      lastError = err.message || 'Request failed';
+      lastErrorCode = 'REQUEST_ERROR';
+    }
+  }
+
+  // All retries exhausted
+  return { 
+    ok: false, 
+    error: `${lastError}. Please try again or restart OpenGiraffe.`,
+    errorCode: lastErrorCode
+  };
+}
+
+/**
+ * Convenience wrapper for OAuth operations with appropriate timeouts
+ */
+async function electronOAuthRequest(
+  endpoint: string,
+  options: RequestInit = {}
+): Promise<{ ok: boolean; data?: any; error?: string; errorCode?: string }> {
+  return electronRequest(endpoint, options, {
+    ...OAUTH_RETRY_CONFIG,
+    checkHealthFirst: true
+  });
+}
+
+/**
+ * Legacy wrapper for backward compatibility
+ * @deprecated Use electronRequest instead
+ */
+async function fetchWithElectronAutoStart(
+  url: string, 
+  options: RequestInit = {},
+  timeoutMs: number = 30000
+): Promise<{ ok: boolean; data?: any; error?: string }> {
+  // Extract endpoint from URL
+  const endpoint = url.replace(ELECTRON_BASE_URL, '');
+  return electronRequest(endpoint, options, { timeoutMs });
 }
 
 // Robust WebSocket connection with exponential backoff
@@ -225,7 +567,7 @@ function connectToWebSocketServer(forceReconnect = false): Promise<boolean> {
         // Send initial ping
         ws?.send(JSON.stringify({ type: 'ping', from: 'extension', timestamp: Date.now() }));
 
-        // Start heartbeat
+        // Start heartbeat (more frequent for stability)
         startHeartbeat();
 
         // Update badge
@@ -234,6 +576,20 @@ function connectToWebSocketServer(forceReconnect = false): Promise<boolean> {
         
         // Store connection state
         chrome.storage.local.set({ ws_connected: true, ws_last_connect: Date.now() });
+        
+        // Auto-restore MailGuard if it was active before disconnect
+        if (mailGuardShouldBeActive && lastMailGuardWindowInfo) {
+          console.log('[BG] 🛡️ Auto-restoring MailGuard overlay after reconnection...');
+          try {
+            ws?.send(JSON.stringify({ 
+              type: 'MAILGUARD_ACTIVATE', 
+              windowInfo: lastMailGuardWindowInfo,
+              theme: lastMailGuardTheme
+            }));
+          } catch (err) {
+            console.error('[BG] Failed to restore MailGuard:', err);
+          }
+        }
         
         resolve(true);
       });
@@ -468,21 +824,27 @@ async function ensureConnection(maxRetries = 3): Promise<boolean> {
   return false;
 }
 
-// Start heartbeat to keep connection alive (more frequent)
+// Start heartbeat to keep connection alive (more frequent for stability)
 function startHeartbeat() {
   if (!WS_ENABLED) return;
   stopHeartbeat(); // Clear any existing heartbeat
   
-  // Send heartbeat every 15 seconds to keep connection alive
+  // Send heartbeat every 5 seconds to keep connection alive and detect drops quickly
   heartbeatInterval = setInterval(() => {
     if (ws && ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({ type: 'ping', from: 'extension', timestamp: Date.now() }));
+      try {
+        ws.send(JSON.stringify({ type: 'ping', from: 'extension', timestamp: Date.now() }));
+      } catch (err) {
+        console.log('[BG] 💔 Heartbeat send failed, reconnecting...');
+        stopHeartbeat();
+        connectToWebSocketServer();
+      }
     } else {
       console.log('[BG] 💔 Heartbeat: connection lost, reconnecting...');
       stopHeartbeat();
       connectToWebSocketServer();
     }
-  }, 15000);
+  }, 5000);  // 5 seconds for faster detection
 }
 
 // Stop heartbeat
@@ -643,30 +1005,19 @@ chrome.tabs.onActivated.addListener((activeInfo) => {
     color: isActive ? '#00FF00' : '#FF0000'
   });
   
-  // MAILGUARD: Deactivate overlay when switching to a different tab
-  // Check if the new tab is NOT Gmail - if so, deactivate MailGuard
-  chrome.tabs.get(tabId, (tab) => {
-    if (chrome.runtime.lastError) return;
-    const url = tab?.url || '';
-    if (!url.includes('mail.google.com')) {
-      console.log('[BG] 🛡️ Tab switched away from Gmail, deactivating MailGuard');
-      if (WS_ENABLED && ws && ws.readyState === WebSocket.OPEN) {
-        try { ws.send(JSON.stringify({ type: 'MAILGUARD_DEACTIVATE' })) } catch {}
+  // Hide/show MailGuard overlay based on which tab is active
+  if (mailGuardShouldBeActive && mailGuardActiveTabId !== null) {
+    if (tabId === mailGuardActiveTabId) {
+      // User switched back to the email tab - show overlay
+      console.log('[BG] 🛡️ Tab switch: showing MailGuard overlay (back to email tab)');
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        try { ws.send(JSON.stringify({ type: 'MAILGUARD_SHOW' })) } catch {}
       }
-    }
-  });
-});
-
-// MAILGUARD: Also deactivate when navigating away from Gmail
-chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
-  // Only react to URL changes
-  if (changeInfo.url) {
-    const newUrl = changeInfo.url;
-    // If navigating away from Gmail, deactivate MailGuard
-    if (!newUrl.includes('mail.google.com')) {
-      console.log('[BG] 🛡️ Navigated away from Gmail, deactivating MailGuard');
-      if (WS_ENABLED && ws && ws.readyState === WebSocket.OPEN) {
-        try { ws.send(JSON.stringify({ type: 'MAILGUARD_DEACTIVATE' })) } catch {}
+    } else {
+      // User switched to a different tab - hide overlay
+      console.log('[BG] 🛡️ Tab switch: hiding MailGuard overlay (left email tab)');
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        try { ws.send(JSON.stringify({ type: 'MAILGUARD_HIDE' })) } catch {}
       }
     }
   }
@@ -1031,6 +1382,15 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       console.log('[BG] 🛡️ Window info:', msg.windowInfo)
       console.log('[BG] 🛡️ Theme:', msg.theme)
       
+      // Store state for auto-restore after reconnection
+      mailGuardShouldBeActive = true;
+      lastMailGuardWindowInfo = msg.windowInfo;
+      lastMailGuardTheme = msg.theme || 'default';
+      
+      // Track which tab has MailGuard active (for hide/show on tab switch)
+      mailGuardActiveTabId = sender.tab?.id ?? null;
+      console.log('[BG] 🛡️ MailGuard active on tab:', mailGuardActiveTabId);
+      
       if (!WS_ENABLED) {
         console.log('[BG] 🛡️ WebSocket disabled')
         try { sendResponse({ success: false, error: 'WebSocket disabled' }) } catch {}
@@ -1069,6 +1429,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     
     case 'MAILGUARD_DEACTIVATE': {
       console.log('[BG] 🛡️ MailGuard deactivate request')
+      // Clear the stored state so it doesn't auto-restore
+      mailGuardShouldBeActive = false;
+      lastMailGuardWindowInfo = null;
+      mailGuardActiveTabId = null;  // Clear active tab tracking
+      
       if (WS_ENABLED && ws && ws.readyState === WebSocket.OPEN) {
         try { ws.send(JSON.stringify({ type: 'MAILGUARD_DEACTIVATE' })) } catch {}
         try { sendResponse({ success: true }) } catch {}
@@ -1082,6 +1447,56 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       // Content script sends email row positions to forward to Electron
       if (WS_ENABLED && ws && ws.readyState === WebSocket.OPEN) {
         try { ws.send(JSON.stringify({ type: 'MAILGUARD_UPDATE_ROWS', rows: msg.rows, provider: msg.provider || 'gmail' })) } catch {}
+      }
+      break
+    }
+    
+    case 'MAILGUARD_CHECK_STATUS': {
+      // Content script wants to verify overlay is still active
+      if (WS_ENABLED && ws && ws.readyState === WebSocket.OPEN) {
+        try { ws.send(JSON.stringify({ type: 'MAILGUARD_STATUS' })) } catch {}
+        try { sendResponse({ connected: true }) } catch {}
+      } else {
+        // WebSocket not connected - overlay might have disappeared
+        try { sendResponse({ connected: false }) } catch {}
+      }
+      break
+    }
+    
+    case 'MAILGUARD_UPDATE_BOUNDS': {
+      // Content script sends email list container bounds to forward to Electron
+      // This is used to position the overlay only over the email list area (not sidebar)
+      console.log('[BG] 🛡️ Forwarding email list bounds to Electron')
+      if (WS_ENABLED && ws && ws.readyState === WebSocket.OPEN) {
+        try { ws.send(JSON.stringify({ type: 'MAILGUARD_UPDATE_BOUNDS', bounds: msg.bounds })) } catch {}
+      }
+      break
+    }
+    
+    case 'MAILGUARD_WINDOW_POSITION': {
+      // Content script sends browser window position updates for overlay anchoring
+      // This keeps the overlay locked to the browser window when it moves
+      if (WS_ENABLED && ws && ws.readyState === WebSocket.OPEN) {
+        try { ws.send(JSON.stringify({ type: 'MAILGUARD_WINDOW_POSITION', windowInfo: msg.windowInfo })) } catch {}
+      }
+      break
+    }
+    
+    case 'MAILGUARD_HIDE_FOR_LIGHTBOX': {
+      // Hide overlay when a lightbox is opened from sidepanel
+      // Click blocking remains active in the content script
+      console.log('[BG] 🛡️ Hiding overlay for lightbox')
+      if (WS_ENABLED && ws && ws.readyState === WebSocket.OPEN) {
+        try { ws.send(JSON.stringify({ type: 'MAILGUARD_HIDE' })) } catch {}
+      }
+      break
+    }
+    
+    case 'MAILGUARD_SHOW_AFTER_LIGHTBOX': {
+      // Show overlay after lightbox is closed
+      console.log('[BG] 🛡️ Showing overlay after lightbox closed')
+      if (WS_ENABLED && ws && ws.readyState === WebSocket.OPEN) {
+        try { ws.send(JSON.stringify({ type: 'MAILGUARD_SHOW' })) } catch {}
       }
       break
     }
@@ -1116,16 +1531,17 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     }
     
     // ===== EMAIL GATEWAY MESSAGE HANDLERS (using HTTP API with auto-start) =====
+    // ===== EMAIL GATEWAY MESSAGE HANDLERS (using robust HTTP client) =====
     case 'EMAIL_LIST_ACCOUNTS': {
-      console.log('[BG] 📧 Email list accounts request (with auto-start)')
+      console.log('[BG] 📧 Email list accounts request')
       
-      fetchWithElectronAutoStart('http://127.0.0.1:51248/api/email/accounts')
+      electronRequest('/api/email/accounts')
         .then(result => {
-          console.log('[BG] 📧 Email accounts response:', result)
+          console.log('[BG] 📧 Email accounts response:', result.ok ? 'success' : result.error)
           if (result.ok) {
             sendResponse(result.data)
           } else {
-            sendResponse({ ok: false, error: result.error })
+            sendResponse({ ok: false, error: result.error, errorCode: result.errorCode })
           }
         })
       
@@ -1133,19 +1549,20 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     }
     
     case 'EMAIL_CONNECT_GMAIL': {
-      console.log('[BG] 📧 Email connect Gmail request (with auto-start)')
+      console.log('[BG] 📧 Email connect Gmail request (OAuth flow)')
       
-      fetchWithElectronAutoStart('http://127.0.0.1:51248/api/email/accounts/connect/gmail', {
+      // Use OAuth-specific request with health check
+      electronOAuthRequest('/api/email/accounts/connect/gmail', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ displayName: msg.displayName || 'Gmail Account' })
       })
         .then(result => {
-          console.log('[BG] 📧 Gmail connect response:', result)
+          console.log('[BG] 📧 Gmail connect response:', result.ok ? 'success' : result.error)
           if (result.ok) {
             sendResponse(result.data)
           } else {
-            sendResponse({ ok: false, error: result.error })
+            sendResponse({ ok: false, error: result.error, errorCode: result.errorCode })
           }
         })
       
@@ -1153,19 +1570,20 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     }
     
     case 'EMAIL_CONNECT_OUTLOOK': {
-      console.log('[BG] 📧 Email connect Outlook request (with auto-start)')
+      console.log('[BG] 📧 Email connect Outlook request (OAuth flow)')
       
-      fetchWithElectronAutoStart('http://127.0.0.1:51248/api/email/accounts/connect/outlook', {
+      // Use OAuth-specific request with health check
+      electronOAuthRequest('/api/email/accounts/connect/outlook', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ displayName: msg.displayName || 'Outlook Account' })
       })
         .then(result => {
-          console.log('[BG] 📧 Outlook connect response:', result)
+          console.log('[BG] 📧 Outlook connect response:', result.ok ? 'success' : result.error)
           if (result.ok) {
             sendResponse(result.data)
           } else {
-            sendResponse({ ok: false, error: result.error })
+            sendResponse({ ok: false, error: result.error, errorCode: result.errorCode })
           }
         })
       
@@ -1173,9 +1591,9 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     }
     
     case 'EMAIL_CONNECT_IMAP': {
-      console.log('[BG] 📧 Email connect IMAP request (with auto-start)')
+      console.log('[BG] 📧 Email connect IMAP request')
       
-      fetchWithElectronAutoStart('http://127.0.0.1:51248/api/email/accounts/connect/imap', {
+      electronRequest('/api/email/accounts/connect/imap', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1189,11 +1607,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         })
       })
         .then(result => {
-          console.log('[BG] 📧 IMAP connect response:', result)
+          console.log('[BG] 📧 IMAP connect response:', result.ok ? 'success' : result.error)
           if (result.ok) {
             sendResponse(result.data)
           } else {
-            sendResponse({ ok: false, error: result.error })
+            sendResponse({ ok: false, error: result.error, errorCode: result.errorCode })
           }
         })
       
@@ -1201,17 +1619,17 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     }
     
     case 'EMAIL_DELETE_ACCOUNT': {
-      console.log('[BG] 📧 Email delete account request (with auto-start):', msg.accountId)
+      console.log('[BG] 📧 Email delete account request:', msg.accountId)
       
-      fetchWithElectronAutoStart(`http://127.0.0.1:51248/api/email/accounts/${msg.accountId}`, {
+      electronRequest(`/api/email/accounts/${msg.accountId}`, {
         method: 'DELETE'
       })
         .then(result => {
-          console.log('[BG] 📧 Delete account response:', result)
+          console.log('[BG] 📧 Delete account response:', result.ok ? 'success' : result.error)
           if (result.ok) {
             sendResponse(result.data)
           } else {
-            sendResponse({ ok: false, error: result.error })
+            sendResponse({ ok: false, error: result.error, errorCode: result.errorCode })
           }
         })
       
@@ -1221,9 +1639,9 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     case 'EMAIL_CHECK_GMAIL_CREDENTIALS': {
       console.log('[BG] 📧 Check Gmail credentials')
       
-      fetchWithElectronAutoStart('http://127.0.0.1:51248/api/email/credentials/gmail')
+      electronRequest('/api/email/credentials/gmail')
         .then(result => {
-          console.log('[BG] 📧 Gmail credentials check response:', result)
+          console.log('[BG] 📧 Gmail credentials check:', result.ok ? 'configured' : 'not configured')
           sendResponse(result.ok ? { ok: true, data: result.data } : { ok: false, error: result.error })
         })
       
@@ -1233,13 +1651,13 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     case 'EMAIL_SAVE_GMAIL_CREDENTIALS': {
       console.log('[BG] 📧 Save Gmail credentials')
       
-      fetchWithElectronAutoStart('http://127.0.0.1:51248/api/email/credentials/gmail', {
+      electronRequest('/api/email/credentials/gmail', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ clientId: msg.clientId, clientSecret: msg.clientSecret })
       })
         .then(result => {
-          console.log('[BG] 📧 Gmail credentials save response:', result)
+          console.log('[BG] 📧 Gmail credentials save:', result.ok ? 'success' : result.error)
           sendResponse(result.ok ? { ok: true } : { ok: false, error: result.error })
         })
       
@@ -1249,9 +1667,9 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     case 'EMAIL_CHECK_OUTLOOK_CREDENTIALS': {
       console.log('[BG] 📧 Check Outlook credentials')
       
-      fetchWithElectronAutoStart('http://127.0.0.1:51248/api/email/credentials/outlook')
+      electronRequest('/api/email/credentials/outlook')
         .then(result => {
-          console.log('[BG] 📧 Outlook credentials check response:', result)
+          console.log('[BG] 📧 Outlook credentials check:', result.ok ? 'configured' : 'not configured')
           sendResponse(result.ok ? { ok: true, data: result.data } : { ok: false, error: result.error })
         })
       
@@ -1261,13 +1679,13 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     case 'EMAIL_SAVE_OUTLOOK_CREDENTIALS': {
       console.log('[BG] 📧 Save Outlook credentials')
       
-      fetchWithElectronAutoStart('http://127.0.0.1:51248/api/email/credentials/outlook', {
+      electronRequest('/api/email/credentials/outlook', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ clientId: msg.clientId, clientSecret: msg.clientSecret })
       })
         .then(result => {
-          console.log('[BG] 📧 Outlook credentials save response:', result)
+          console.log('[BG] 📧 Outlook credentials save:', result.ok ? 'success' : result.error)
           sendResponse(result.ok ? { ok: true } : { ok: false, error: result.error })
         })
       

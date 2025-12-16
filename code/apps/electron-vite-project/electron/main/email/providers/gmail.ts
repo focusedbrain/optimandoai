@@ -3,12 +3,12 @@
  * 
  * Email provider implementation for Gmail using the Gmail API.
  * Uses OAuth2 for authentication - never stores passwords.
+ * 
+ * Refactored to use centralized OAuth server manager for production-grade reliability.
  */
 
-import { BrowserWindow, app, shell } from 'electron'
+import { app, shell } from 'electron'
 import * as https from 'https'
-import * as http from 'http'
-import * as url from 'url'
 import * as fs from 'fs'
 import * as path from 'path'
 import { 
@@ -23,6 +23,7 @@ import {
   SendEmailPayload, 
   SendResult 
 } from '../types'
+import { oauthServerManager } from '../oauth-server'
 
 /**
  * Gmail API scopes
@@ -73,8 +74,6 @@ export class GmailProvider extends BaseEmailProvider {
   private accessToken: string | null = null
   private refreshToken: string | null = null
   private tokenExpiresAt: number = 0
-  private authWindow: BrowserWindow | null = null
-  private localServer: http.Server | null = null
   
   async connect(config: EmailAccountConfig): Promise<void> {
     if (!config.oauth) {
@@ -301,87 +300,90 @@ export class GmailProvider extends BaseEmailProvider {
   }
   
   // =================================================================
-  // OAuth2 Flow
+  // OAuth2 Flow (using centralized OAuth server manager)
   // =================================================================
   
   /**
    * Start OAuth2 authorization flow
    * Returns account config with tokens
+   * 
+   * Uses the centralized OAuth server manager for production-grade reliability:
+   * - Port availability checking with fallback ports
+   * - Proper cleanup on any state
+   * - Concurrent request prevention
+   * - State machine for flow management
    */
   async startOAuthFlow(email?: string): Promise<EmailAccountConfig['oauth']> {
     const oauthConfig = loadOAuthConfig()
     if (!oauthConfig) {
-      throw new Error('OAuth client credentials not configured')
+      throw new Error('OAuth client credentials not configured. Please set up Google Cloud Console credentials.')
     }
     
-    // Clean up any existing server from previous attempts
-    this.cleanup()
-    
-    console.log('[Gmail] Starting OAuth flow...')
-    
-    // Start local server
-    console.log('[Gmail] Starting local callback server...')
-    await this.startLocalServer()
-    console.log('[Gmail] Local server ready!')
-    
-    // Open browser
-    const authUrl = this.buildAuthUrl(oauthConfig.clientId, email)
-    console.log('[Gmail] Opening OAuth in system browser:', authUrl.substring(0, 100) + '...')
-    
-    try {
-      await shell.openExternal(authUrl)
-      console.log('[Gmail] Browser opened successfully')
-    } catch (err: any) {
-      console.error('[Gmail] Failed to open browser:', err)
-      this.cleanup()
-      throw new Error('Failed to open browser for authentication')
+    // Check if another OAuth flow is in progress
+    if (oauthServerManager.isFlowInProgress()) {
+      throw new Error('Another OAuth flow is already in progress. Please wait or try again.')
     }
     
-    // Set timeout for getting the code
-    const timeoutPromise = new Promise<never>((_, reject) => {
-      setTimeout(() => {
-        this.cleanup()
-        reject(new Error('OAuth timed out - please try again'))
-      }, 5 * 60 * 1000)
-    })
+    console.log('[Gmail] Starting OAuth flow using centralized server manager...')
+    console.log('[Gmail] Current OAuth state:', oauthServerManager.getState())
     
     try {
-      // Wait for auth code with timeout
-      console.log('[Gmail] Waiting for auth code from browser callback...')
-      const code = await Promise.race([this.waitForAuthCode(), timeoutPromise])
-      console.log('[Gmail] Auth code received!')
+      // Start OAuth flow with the server manager
+      // This will start the server, wait for callback, and return the result
+      const flowPromise = oauthServerManager.startOAuthFlow('gmail', 5 * 60 * 1000)
+      
+      // Build auth URL with dynamic port from the manager
+      const authUrl = this.buildAuthUrl(oauthConfig.clientId, email)
+      console.log('[Gmail] Opening OAuth in system browser:', authUrl.substring(0, 100) + '...')
+      
+      // Open browser
+      try {
+        await shell.openExternal(authUrl)
+        console.log('[Gmail] Browser opened successfully')
+      } catch (err: any) {
+        console.error('[Gmail] Failed to open browser:', err)
+        await oauthServerManager.cancelFlow()
+        throw new Error('Failed to open browser for authentication')
+      }
+      
+      // Wait for callback
+      console.log('[Gmail] Waiting for OAuth callback...')
+      const result = await flowPromise
+      
+      if (!result.success) {
+        throw new Error(result.errorDescription || result.error || 'OAuth authorization failed')
+      }
+      
+      if (!result.code) {
+        throw new Error('No authorization code received')
+      }
+      
+      console.log('[Gmail] Auth code received, exchanging for tokens...')
       
       // Exchange code for tokens
-      console.log('[Gmail] Exchanging code for tokens...')
-      const tokens = await this.exchangeCodeForTokens(oauthConfig, code)
+      const tokens = await this.exchangeCodeForTokens(oauthConfig, result.code)
       console.log('[Gmail] Tokens received!')
       
-      this.cleanup()
       return tokens
     } catch (err: any) {
-      this.cleanup()
+      console.error('[Gmail] OAuth flow error:', err.message || err)
+      // Ensure cleanup happens
+      await oauthServerManager.cancelFlow().catch(() => {})
       throw err
     }
   }
   
   /**
-   * Clean up OAuth resources
+   * Build the OAuth authorization URL
+   * Uses dynamic port from the OAuth server manager
    */
-  private cleanup(): void {
-    if (this.authWindow) {
-      try { this.authWindow.close() } catch {}
-      this.authWindow = null
-    }
-    if (this.localServer) {
-      try { this.localServer.close() } catch {}
-      this.localServer = null
-    }
-  }
-  
   private buildAuthUrl(clientId: string, email?: string): string {
+    // Get the callback URL from the OAuth server manager (with dynamic port)
+    const redirectUri = oauthServerManager.getCallbackUrl()
+    
     const params = new URLSearchParams({
       client_id: clientId,
-      redirect_uri: 'http://127.0.0.1:58924/oauth/callback',
+      redirect_uri: redirectUri,
       response_type: 'code',
       scope: GMAIL_SCOPES.join(' '),
       access_type: 'offline',
@@ -389,77 +391,23 @@ export class GmailProvider extends BaseEmailProvider {
       ...(email ? { login_hint: email } : {})
     })
     
+    console.log('[Gmail] Redirect URI:', redirectUri)
     return `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`
-  }
-  
-  private codeResolver: ((code: string) => void) | null = null
-  private codeRejecter: ((err: Error) => void) | null = null
-  private codePromise: Promise<string> | null = null
-
-  private async startLocalServer(): Promise<void> {
-    console.log('[Gmail] startLocalServer called')
-    
-    // Create a promise that will be resolved when we get the auth code
-    this.codePromise = new Promise<string>((res, rej) => {
-      this.codeResolver = res
-      this.codeRejecter = rej
-    })
-    
-    console.log('[Gmail] Creating HTTP server...')
-    this.localServer = http.createServer((req, res) => {
-      console.log('[Gmail] Received request:', req.url)
-      const parsedUrl = url.parse(req.url || '', true)
-      
-      if (parsedUrl.pathname === '/oauth/callback') {
-        const code = parsedUrl.query.code as string
-        const error = parsedUrl.query.error as string
-        
-        if (error) {
-          console.log('[Gmail] OAuth error:', error)
-          res.writeHead(200, { 'Content-Type': 'text/html' })
-          res.end('<html><body><h1>Authorization Failed</h1><p>You can close this window.</p></body></html>')
-          if (this.codeRejecter) this.codeRejecter(new Error(error))
-        } else if (code) {
-          console.log('[Gmail] OAuth code received!')
-          res.writeHead(200, { 'Content-Type': 'text/html' })
-          res.end('<html><body><h1>Success!</h1><p>You can close this window and return to WR Code.</p></body></html>')
-          if (this.codeResolver) this.codeResolver(code)
-        }
-      }
-    })
-    
-    // Start server and wait for it to be ready
-    await new Promise<void>((resolve, reject) => {
-      console.log('[Gmail] About to listen on port 58924...')
-      this.localServer!.listen(58924, '127.0.0.1', () => {
-        console.log('[Gmail] OAuth callback server listening on port 58924')
-        resolve()
-      })
-      this.localServer!.on('error', (err) => {
-        console.error('[Gmail] Server error:', err)
-        reject(err)
-      })
-    })
-    console.log('[Gmail] Server started successfully!')
-  }
-  
-  private async waitForAuthCode(): Promise<string> {
-    if (!this.codePromise) {
-      throw new Error('Server not started')
-    }
-    return this.codePromise
   }
   
   private async exchangeCodeForTokens(
     oauthConfig: { clientId: string; clientSecret: string },
     code: string
   ): Promise<EmailAccountConfig['oauth']> {
+    // Use the same redirect URI that was used for authorization
+    const redirectUri = oauthServerManager.getCallbackUrl()
+    
     return new Promise((resolve, reject) => {
       const postData = new URLSearchParams({
         code,
         client_id: oauthConfig.clientId,
         client_secret: oauthConfig.clientSecret,
-        redirect_uri: 'http://127.0.0.1:58924/oauth/callback',
+        redirect_uri: redirectUri,
         grant_type: 'authorization_code'
       }).toString()
       

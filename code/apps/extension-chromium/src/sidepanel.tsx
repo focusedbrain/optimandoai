@@ -20,6 +20,7 @@ import {
 } from './services/processFlow'
 import { nlpClassifier, type ClassifiedInput } from './nlp'
 import { inputCoordinator } from './services/InputCoordinator'
+import { formatErrorForNotification, isConnectionError } from './utils/errorMessages'
 
 interface ConnectionStatus {
   isConnected: boolean
@@ -235,13 +236,17 @@ function SidepanelOrchestrator() {
         setNotification({ message: 'Gmail connected successfully!', type: 'success' })
         setTimeout(() => setNotification(null), 3000)
       } else {
-        setNotification({ message: response?.error || 'Failed to connect Gmail', type: 'error' })
-        setTimeout(() => setNotification(null), 5000)
+        // Use user-friendly error message
+        const errorMessage = formatErrorForNotification(response?.error, response?.errorCode)
+        const timeout = isConnectionError(response?.errorCode) ? 8000 : 5000
+        setNotification({ message: errorMessage, type: 'error' })
+        setTimeout(() => setNotification(null), timeout)
         setEmailSetupStep('provider')
       }
     } catch (err: any) {
       console.error('[Sidepanel] Failed to connect Gmail:', err)
-      setNotification({ message: err.message || 'Failed to connect Gmail', type: 'error' })
+      const errorMessage = formatErrorForNotification(err.message)
+      setNotification({ message: errorMessage, type: 'error' })
       setTimeout(() => setNotification(null), 5000)
       setEmailSetupStep('provider')
     }
@@ -311,13 +316,17 @@ function SidepanelOrchestrator() {
         setNotification({ message: 'Outlook connected successfully!', type: 'success' })
         setTimeout(() => setNotification(null), 3000)
       } else {
-        setNotification({ message: response?.error || 'Failed to connect Outlook', type: 'error' })
-        setTimeout(() => setNotification(null), 5000)
+        // Use user-friendly error message
+        const errorMessage = formatErrorForNotification(response?.error, response?.errorCode)
+        const timeout = isConnectionError(response?.errorCode) ? 8000 : 5000
+        setNotification({ message: errorMessage, type: 'error' })
+        setTimeout(() => setNotification(null), timeout)
         setEmailSetupStep('provider')
       }
     } catch (err: any) {
       console.error('[Sidepanel] Failed to connect Outlook:', err)
-      setNotification({ message: err.message || 'Failed to connect Outlook', type: 'error' })
+      const errorMessage = formatErrorForNotification(err.message)
+      setNotification({ message: errorMessage, type: 'error' })
       setTimeout(() => setNotification(null), 5000)
       setEmailSetupStep('provider')
     }
@@ -345,13 +354,17 @@ function SidepanelOrchestrator() {
         setNotification({ message: 'Email account connected successfully!', type: 'success' })
         setTimeout(() => setNotification(null), 3000)
       } else {
-        setNotification({ message: response?.error || 'Failed to connect email', type: 'error' })
-        setTimeout(() => setNotification(null), 5000)
+        // Use user-friendly error message
+        const errorMessage = formatErrorForNotification(response?.error, response?.errorCode)
+        const timeout = isConnectionError(response?.errorCode) ? 8000 : 5000
+        setNotification({ message: errorMessage, type: 'error' })
+        setTimeout(() => setNotification(null), timeout)
         setEmailSetupStep('credentials')
       }
     } catch (err: any) {
       console.error('[Sidepanel] Failed to connect IMAP:', err)
-      setNotification({ message: err.message || 'Failed to connect email', type: 'error' })
+      const errorMessage = formatErrorForNotification(err.message)
+      setNotification({ message: errorMessage, type: 'error' })
       setTimeout(() => setNotification(null), 5000)
       setEmailSetupStep('credentials')
     }
@@ -6915,11 +6928,21 @@ Write your message with the confidence that it will be protected by WRGuard encr
                     animation: 'spin 1s linear infinite',
                     margin: '0 auto 20px'
                   }} />
-                  <div style={{ fontSize: '14px', color: theme === 'professional' ? '#0f172a' : 'white', marginBottom: '8px' }}>
-                    Connecting...
+                  <div style={{ fontSize: '14px', color: theme === 'professional' ? '#0f172a' : 'white', marginBottom: '8px', fontWeight: '600' }}>
+                    Waiting for Authorization...
                   </div>
-                  <div style={{ fontSize: '12px', color: theme === 'professional' ? '#64748b' : 'rgba(255,255,255,0.6)' }}>
-                    Please wait while we verify your credentials
+                  <div style={{ fontSize: '12px', color: theme === 'professional' ? '#64748b' : 'rgba(255,255,255,0.6)', marginBottom: '12px' }}>
+                    A browser window should open for you to sign in.
+                  </div>
+                  <div style={{ 
+                    fontSize: '11px', 
+                    color: theme === 'professional' ? '#94a3b8' : 'rgba(255,255,255,0.4)',
+                    padding: '12px',
+                    background: theme === 'professional' ? '#f1f5f9' : 'rgba(255,255,255,0.05)',
+                    borderRadius: '8px',
+                    lineHeight: '1.5'
+                  }}>
+                    💡 Complete the sign-in in your browser, then return here. This may take a few minutes.
                   </div>
                   <style>{`
                     @keyframes spin {
