@@ -4,8 +4,8 @@
   "group": "logic.state",
   "security": "medium",
 
-  "intent_tags": ["state", "memory"],
-  "description": "Stores a value from runtime context into session-level state when triggered by an event.",
+  "intent_tags": ["state", "memory", "notes", "save", "persist"],
+  "description": "Stores a value from runtime context into session-level state (used to persist notes) when triggered by an event.",
 
   "behaviour": {
     "onEvent:button_clicked": {

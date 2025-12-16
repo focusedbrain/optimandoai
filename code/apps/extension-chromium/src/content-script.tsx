@@ -29150,36 +29150,49 @@ ${pageText}
         
 
         testOutput.innerHTML = 
-
           '<div style="color: #90EE90; margin-bottom: 12px;">' +
-
             '<span style="color: rgba(255,255,255,0.5);">[</span>' + timestamp + '<span style="color: rgba(255,255,255,0.5);">]</span> 🚀 Starting test...' +
-
           '</div>' +
-
           '<div style="color: #FFD700; margin-bottom: 8px;">' +
-
             '📱 Mini-App: <strong>' + title + '</strong>' +
-
           '</div>' +
-
           '<div style="color: rgba(255,255,255,0.6); margin-bottom: 12px; padding: 10px; background: rgba(0,0,0,0.2); border-radius: 4px; font-size: 11px;">' +
-
             shortDesc +
-
           '</div>' +
-
           '<div style="color: #8B5CF6; margin-bottom: 8px;">' +
-
             '⏳ Processing...' +
-
-          '</div>' +
-
-          '<div style="color: rgba(255,255,255,0.4); font-style: italic; margin-top: 16px; padding-top: 12px; border-top: 1px solid rgba(255,255,255,0.1);">' +
-
-            '💡 Test functionality will be integrated in a future update.' +
-
           '</div>'
+
+        ;(async () => {
+          try {
+            const mod = await import('./beap')
+            const res = await mod.createMiniAppFromQuery(title, desc, 4)
+            testOutput.innerHTML = ''
+            const scoresDiv = document.createElement('div')
+            scoresDiv.style.marginBottom = '10px'
+            scoresDiv.style.fontSize = '12px'
+            scoresDiv.innerHTML = '<strong>Selected Blocks (top results):</strong>'
+            const list = document.createElement('ul')
+            list.style.paddingLeft = '18px'
+            list.style.marginTop = '6px'
+            res.scores.forEach((s:any) => {
+              const li = document.createElement('li')
+              li.textContent = (s.block.intent_tags || []).join(', ') + ' — ' + (s.block.description || '').slice(0, 80) + ' (' + (s.score||0).toFixed(3) + ')'
+              list.appendChild(li)
+            })
+            scoresDiv.appendChild(list)
+            testOutput.appendChild(scoresDiv)
+            const rendered = res.rendered as HTMLElement
+            rendered.style.marginTop = '10px'
+            rendered.style.background = 'white'
+            rendered.style.color = '#111'
+            rendered.style.padding = '12px'
+            rendered.style.borderRadius = '8px'
+            testOutput.appendChild(rendered)
+          } catch (err:any) {
+            testOutput.innerHTML += '<div style="color: #ff6666; margin-top:8px">Error creating mini-app: '+(err && err.message ? err.message : String(err))+'</div>'
+          }
+        })()
 
       }
 

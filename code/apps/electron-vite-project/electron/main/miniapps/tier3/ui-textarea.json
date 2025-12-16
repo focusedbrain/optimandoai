@@ -4,8 +4,8 @@
   "group": "ui.input",
   "security": "low",
 
-  "intent_tags": ["input", "textarea"],
-  "description": "Captures multiline text input and stores it in local runtime state.",
+  "intent_tags": ["input", "textarea", "notes"],
+  "description": "Captures multiline text input (notes) and stores it in local runtime state.",
 
   "ui": {
     "kind": "textarea",

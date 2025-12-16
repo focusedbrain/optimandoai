@@ -4,12 +4,12 @@
   "group": "ui.button",
   "security": "low",
 
-  "intent_tags": ["button", "click"],
-  "description": "Renders a button and emits a click event without defining what happens next.",
+  "intent_tags": ["button", "click", "notes", "save"],
+  "description": "Renders a button typically used to save notes; emits a click event for handlers to persist state.",
 
   "ui": {
     "kind": "button",
-    "label": "Submit"
+    "label": "Save Notes"
   },
 
   "behaviour": {

@@ -4,13 +4,13 @@
   "group": "ui.text",
   "security": "low",
 
-  "intent_tags": ["text", "label"],
-  "description": "Displays static text such as a label or heading. No interaction or state.",
+  "intent_tags": ["text", "label", "notes", "heading"],
+  "description": "Displays static text such as a label or heading for notes panels.",
 
   "ui": {
     "kind": "text",
     "role": "label",
-    "value": "Label"
+    "value": "Notes"
   },
 
   "behaviour": {}
