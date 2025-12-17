@@ -3,22 +3,39 @@ import { createRuntimeState } from './runtime'
 
 function createElementForBlock(block: AtomicBlock, app: MiniApp, runtime: any, emitEvent: (ev:string)=>void) : HTMLElement {
   const container = document.createElement('div')
-  container.style.padding = '8px'
-  container.style.borderBottom = '1px solid rgba(0,0,0,0.08)'
+  container.style.marginBottom = '12px'
+  
   if (block.ui && block.ui.kind) {
     const kind = block.ui.kind
     if (kind === 'text' || kind === 'label') {
       const el = document.createElement('div')
       el.textContent = block.ui.value || block.description || ''
+      el.style.fontSize = '14px'
+      el.style.fontWeight = 'bold'
+      el.style.marginBottom = '8px'
+      el.style.color = '#333'
       container.appendChild(el)
     } else if (kind === 'input') {
+      const label = document.createElement('label')
+      label.style.display = 'block'
+      label.style.marginBottom = '6px'
+      label.style.fontSize = '12px'
+      label.style.color = '#666'
+      label.style.fontWeight = 'bold'
+      label.textContent = block.ui.label || 'Input'
+      
       const input = document.createElement('input')
       input.type = block.ui.inputType || 'text'
       input.placeholder = block.ui.placeholder || ''
       input.style.width = '100%'
+      input.style.padding = '8px'
+      input.style.border = '1px solid #ddd'
+      input.style.borderRadius = '4px'
+      input.style.fontSize = '14px'
+      input.style.boxSizing = 'border-box'
+      
       input.addEventListener('input', (e) => {
         const v = (e.target as HTMLInputElement).value
-        // honour behaviour
         const behaviour = (block as any).behaviour
         if (behaviour && behaviour.onChange && behaviour.onChange.action === 'state.set') {
           const key = behaviour.onChange.key || block.id
@@ -27,11 +44,30 @@ function createElementForBlock(block: AtomicBlock, app: MiniApp, runtime: any, e
           runtime.set(block.id, v)
         }
       })
+      
+      container.appendChild(label)
       container.appendChild(input)
     } else if (kind === 'textarea') {
+      const label = document.createElement('label')
+      label.style.display = 'block'
+      label.style.marginBottom = '6px'
+      label.style.fontSize = '12px'
+      label.style.color = '#666'
+      label.style.fontWeight = 'bold'
+      label.textContent = block.ui.label || 'Notes'
+      
       const ta = document.createElement('textarea')
-      ta.placeholder = block.ui.placeholder || ''
+      ta.placeholder = block.ui.placeholder || 'Enter your notes here...'
       ta.style.width = '100%'
+      ta.style.minHeight = '120px'
+      ta.style.padding = '8px'
+      ta.style.border = '1px solid #ddd'
+      ta.style.borderRadius = '4px'
+      ta.style.fontSize = '14px'
+      ta.style.fontFamily = 'inherit'
+      ta.style.boxSizing = 'border-box'
+      ta.style.resize = 'vertical'
+      
       ta.addEventListener('input', (e) => {
         const v = (e.target as HTMLTextAreaElement).value
         const behaviour = (block as any).behaviour
@@ -42,10 +78,30 @@ function createElementForBlock(block: AtomicBlock, app: MiniApp, runtime: any, e
           runtime.set(block.id, v)
         }
       })
+      
+      container.appendChild(label)
       container.appendChild(ta)
     } else if (kind === 'button') {
       const btn = document.createElement('button')
       btn.textContent = block.ui.label || block.ui.props?.text || 'Button'
+      btn.style.padding = '10px 16px'
+      btn.style.background = '#4CAF50'
+      btn.style.color = 'white'
+      btn.style.border = 'none'
+      btn.style.borderRadius = '4px'
+      btn.style.fontSize = '14px'
+      btn.style.fontWeight = 'bold'
+      btn.style.cursor = 'pointer'
+      btn.style.marginTop = '8px'
+      btn.style.transition = 'background 0.2s ease'
+      
+      btn.addEventListener('mouseover', () => {
+        btn.style.background = '#45a049'
+      })
+      btn.addEventListener('mouseout', () => {
+        btn.style.background = '#4CAF50'
+      })
+      
       btn.addEventListener('click', () => {
         const behaviour = (block as any).behaviour
         if (behaviour && behaviour.onClick) {
@@ -55,6 +111,7 @@ function createElementForBlock(block: AtomicBlock, app: MiniApp, runtime: any, e
           }
         }
       })
+      
       container.appendChild(btn)
     } else {
       const el = document.createElement('div')
@@ -69,14 +126,18 @@ function createElementForBlock(block: AtomicBlock, app: MiniApp, runtime: any, e
 
 export function renderMiniApp(app: MiniApp): HTMLElement {
   const root = document.createElement('div')
-  root.style.padding = '12px'
+  root.style.padding = '16px'
   root.style.background = 'white'
-  root.style.color = 'black'
+  root.style.color = '#333'
   root.style.borderRadius = '8px'
-  root.style.boxShadow = '0 4px 12px rgba(0,0,0,0.08)'
+  root.style.boxShadow = '0 2px 8px rgba(0,0,0,0.1)'
+  
   const header = document.createElement('h3')
   header.textContent = 'Mini-App: ' + app.id
   header.style.marginTop = '0'
+  header.style.marginBottom = '16px'
+  header.style.fontSize = '16px'
+  header.style.color = '#333'
   root.appendChild(header)
 
   const runtime = createRuntimeState(app.id)
@@ -96,6 +157,21 @@ export function renderMiniApp(app: MiniApp): HTMLElement {
             // persist into runtime and then persist to storage
             runtime.set(source, val)
             runtime.persist()
+            
+            // Show success message
+            const msg = document.createElement('div')
+            msg.style.padding = '10px 12px'
+            msg.style.background = '#d4edda'
+            msg.style.border = '1px solid #c3e6cb'
+            msg.style.color = '#155724'
+            msg.style.borderRadius = '4px'
+            msg.style.marginTop = '12px'
+            msg.style.fontSize = '13px'
+            msg.textContent = '✅ Notes saved successfully! Stored in sessionStorage[beap_state_' + app.id + ']'
+            root.appendChild(msg)
+            
+            // Auto-remove message after 3 seconds
+            setTimeout(() => msg.remove(), 3000)
           }
         } else if (action.action === 'state.set') {
           const target = action.key || 'value'
@@ -106,10 +182,14 @@ export function renderMiniApp(app: MiniApp): HTMLElement {
     })
   }
 
+  // Only render blocks that have UI (skip pure logic blocks)
   app.blocks.forEach(b => {
-    const el = createElementForBlock(b, app, runtime, emitEvent)
-    root.appendChild(el)
+    if (b.ui && b.ui.kind) {
+      const el = createElementForBlock(b, app, runtime, emitEvent)
+      root.appendChild(el)
+    }
   })
 
   return root
 }
+

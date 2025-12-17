@@ -1991,9 +1991,103 @@ async function storageRemove(keys: string | string[], callback?: () => void) {
   wrapper.storageRemove(keys, callback);
 }
 
+// BEAP Bootstrap: Pre-populate Tier-3 blocks into global scope
+function bootstrapBEAPTier3Blocks() {
+  (window as any).__BEAP_TIER3_BLOCKS = [
+    {
+      "id": "ui-label-v1",
+      "type": "atomic",
+      "group": "ui.text",
+      "security": "low",
+      "intent_tags": ["text", "label", "notes", "heading"],
+      "description": "Displays static text such as a label or heading for notes panels.",
+      "ui": {
+        "kind": "text",
+        "role": "label",
+        "value": "Notes"
+      },
+      "behaviour": {}
+    },
+    {
+      "id": "ui-text-input-v1",
+      "type": "atomic",
+      "group": "ui.input",
+      "security": "low",
+      "intent_tags": ["input", "field", "title"],
+      "description": "Single-line text input field for titles that stores value in local runtime state.",
+      "ui": {
+        "kind": "input",
+        "inputType": "text",
+        "label": "Title",
+        "placeholder": "Enter title"
+      },
+      "behaviour": {
+        "onChange": {
+          "action": "state.set",
+          "key": "input_value"
+        }
+      }
+    },
+    {
+      "id": "ui-textarea-v1",
+      "type": "atomic",
+      "group": "ui.input",
+      "security": "low",
+      "intent_tags": ["input", "textarea", "notes"],
+      "description": "Captures multiline text input (notes) and stores it in local runtime state.",
+      "ui": {
+        "kind": "textarea",
+        "label": "Notes",
+        "placeholder": "Enter text"
+      },
+      "behaviour": {
+        "onChange": {
+          "action": "state.set",
+          "key": "textarea_value"
+        }
+      }
+    },
+    {
+      "id": "ui-button-v1",
+      "type": "atomic",
+      "group": "ui.button",
+      "security": "low",
+      "intent_tags": ["button", "click", "notes", "save"],
+      "description": "Renders a button typically used to save notes; emits a click event for handlers to persist state.",
+      "ui": {
+        "kind": "button",
+        "label": "Save Notes"
+      },
+      "behaviour": {
+        "onClick": {
+          "action": "event.emit",
+          "event": "button_clicked"
+        }
+      }
+    },
+    {
+      "id": "logic-state-set-v1",
+      "type": "atomic",
+      "group": "logic.state",
+      "security": "medium",
+      "intent_tags": ["state", "memory", "notes", "save", "persist"],
+      "description": "Stores a value from runtime context into session-level state (used to persist notes) when triggered by an event.",
+      "behaviour": {
+        "onEvent:button_clicked": {
+          "action": "state.persist",
+          "source": "textarea_value"
+        }
+      }
+    }
+  ]
+}
+
 function initializeExtension() {
 
   try {
+
+    // Bootstrap BEAP Tier-3 blocks at startup
+    bootstrapBEAPTier3Blocks()
 
     chrome.runtime.onMessage.addListener((msg:any, sender:any, sendResponse:any)=>{
 
@@ -29128,6 +29222,7 @@ ${pageText}
     // Builder Test button
 
     overlay.querySelector('#run-builder-test')?.addEventListener('click', () => {
+      console.log('Running builder test...'); //todo: Remove after testing.
 
       const testOutput = overlay.querySelector('#builder-test-output') as HTMLElement
 
@@ -29412,13 +29507,38 @@ ${pageText}
 
             '⏳ Processing...' +
 
-          '</div>' +
-
-          '<div style="color: rgba(255,255,255,0.4); font-style: italic; margin-top: 16px; padding-top: 12px; border-top: 1px solid rgba(255,255,255,0.1);">' +
-
-            '💡 Test functionality will be integrated in a future update.' +
-
           '</div>'
+
+        ;(async () => {
+          try {
+            const mod = await import('./beap')
+            const res = await mod.createMiniAppFromQuery(title, desc, 4)
+            testOutput.innerHTML = ''
+            const scoresDiv = document.createElement('div')
+            scoresDiv.style.marginBottom = '10px'
+            scoresDiv.style.fontSize = '12px'
+            scoresDiv.innerHTML = '<strong>Selected Blocks (top results):</strong>'
+            const list = document.createElement('ul')
+            list.style.paddingLeft = '18px'
+            list.style.marginTop = '6px'
+            res.scores.forEach((s:any) => {
+              const li = document.createElement('li')
+              li.textContent = (s.block.intent_tags || []).join(', ') + ' — ' + (s.block.description || '').slice(0, 80) + ' (' + (s.score||0).toFixed(3) + ')'
+              list.appendChild(li)
+            })
+            scoresDiv.appendChild(list)
+            testOutput.appendChild(scoresDiv)
+            const rendered = res.rendered as HTMLElement
+            rendered.style.marginTop = '10px'
+            rendered.style.background = 'white'
+            rendered.style.color = '#111'
+            rendered.style.padding = '12px'
+            rendered.style.borderRadius = '8px'
+            testOutput.appendChild(rendered)
+          } catch (err:any) {
+            testOutput.innerHTML += '<div style="color: #ff6666; margin-top:8px">Error creating mini-app: '+(err && err.message ? err.message : String(err))+'</div>'
+          }
+        })()
 
       }
 
