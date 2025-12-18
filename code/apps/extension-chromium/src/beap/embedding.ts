@@ -1,47 +1,50 @@
-import * as tf from '@tensorflow/tfjs'
+import * as tf from '@tensorflow/tfjs' // import TensorFlow.js for tensor operations
 
-// Simple deterministic n-gram hashing embedding
+// normalizeText: lowercase, remove non-alphanumerics, collapse whitespace
 function normalizeText(s: string) {
-  return s.toLowerCase().replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim()
+  return s.toLowerCase().replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim() // normalize and trim input
 }
 
+// fnv1a: deterministic 32-bit hash (FNV-1a variant) for token hashing
 function fnv1a(str: string) {
-  let h = 2166136261 >>> 0
+  let h = 2166136261 >>> 0 // FNV offset basis (unsigned)
   for (let i = 0; i < str.length; i++) {
-    h ^= str.charCodeAt(i)
-    h += (h << 1) + (h << 4) + (h << 7) + (h << 8) + (h << 24)
+    h ^= str.charCodeAt(i) // xor with byte
+    h += (h << 1) + (h << 4) + (h << 7) + (h << 8) + (h << 24) // mix bits
   }
-  return h >>> 0
+  return h >>> 0 // return unsigned 32-bit integer
 }
 
+// textToTensor: converts text into a deterministic dense vector (tf.Tensor1D)
 export function textToTensor(text: string, dim = 256) {
-  const t = normalizeText(text)
-  const tokens = t.split(' ')
-  const vec = new Float32Array(dim)
+  const t = normalizeText(text) // normalized text
+  const tokens = t.split(' ') // split into whitespace tokens
+  const vec = new Float32Array(dim) // zero-initialized float vector
   for (let i = 0; i < tokens.length; i++) {
-    const tok = tokens[i]
-    // unigrams
+    const tok = tokens[i] // current token
+    // unigrams: hash token with a prefix to avoid collisions across n-grams
     const h1 = fnv1a('1:' + tok) % dim
-    vec[h1] = vec[h1] + 1
-    // bigrams
+    vec[h1] = vec[h1] + 1 // increment unigram bucket
+    // bigrams: if next token exists, hash the pair
     if (i + 1 < tokens.length) {
       const big = tok + ' ' + tokens[i + 1]
       const h2 = fnv1a('2:' + big) % dim
-      vec[h2] = vec[h2] + 1
+      vec[h2] = vec[h2] + 1 // increment bigram bucket
     }
   }
-  // return normalized tensor
-  const tns = tf.tensor1d(Array.from(vec))
-  const norm = tf.norm(tns)
+  // convert to tensor and normalize to unit length
+  const tns = tf.tensor1d(Array.from(vec)) // create 1D tensor from Float32Array
+  const norm = tf.norm(tns) // compute L2 norm
   return tf.tidy(() => {
-    return tf.div(tns, tf.add(norm, tf.scalar(1e-8))) as tf.Tensor1D
+    return tf.div(tns, tf.add(norm, tf.scalar(1e-8))) as tf.Tensor1D // divide by norm (with epsilon)
   })
 }
 
+// cosineSimilarity: returns scalar cosine similarity between two unit tensors
 export function cosineSimilarity(a: tf.Tensor1D, b: tf.Tensor1D) {
   return tf.tidy(() => {
-    const num = tf.sum(tf.mul(a, b))
-    const den = tf.mul(tf.norm(a), tf.norm(b))
-    return num.div(tf.add(den, tf.scalar(1e-8))).arraySync() as number
+    const num = tf.sum(tf.mul(a, b)) // dot product numerator
+    const den = tf.mul(tf.norm(a), tf.norm(b)) // product of norms
+    return num.div(tf.add(den, tf.scalar(1e-8))).arraySync() as number // safe divide and return number
   })
 }
