@@ -170,11 +170,18 @@ fetchAvailableModels()
 // Periodic refresh of models (every 10 seconds)
 setInterval(fetchAvailableModels, 10000)
 
-// Mode switching elements
-const modeSelect = document.getElementById('mode-select')
+// Workspace and submode selectors
+const workspaceSelect = document.getElementById('workspace-select')
+const submodeSelect = document.getElementById('submode-select')
+
+// Views
 const chatView = document.getElementById('chat-view')
 const overlayView = document.getElementById('overlay-view')
 const mailguardView = document.getElementById('mailguard-view')
+const p2pChatView = document.getElementById('p2p-chat-view')
+const p2pStreamView = document.getElementById('p2p-stream-view')
+const groupStreamView = document.getElementById('group-stream-view')
+const adminView = document.getElementById('admin-view')
 const chatControls = document.getElementById('chat-controls')
 
 // MailGuard elements
@@ -191,28 +198,69 @@ const mgHint = document.getElementById('mg-hint')
 // MailGuard state
 let mgAttachmentsList = []
 
-// Mode switching
-if (modeSelect) {
-  modeSelect.addEventListener('change', () => {
-    const mode = modeSelect.value
-    // Hide all views first
-    chatView.classList.add('hidden')
-    overlayView?.classList.remove('active')
-    mailguardView.classList.remove('active')
-    if (chatControls) chatControls.style.display = 'none'
+// Hide all views
+function hideAllViews() {
+  chatView?.classList.add('hidden')
+  overlayView?.classList.remove('active')
+  mailguardView?.classList.remove('active')
+  if (p2pChatView) p2pChatView.style.display = 'none'
+  if (p2pStreamView) p2pStreamView.style.display = 'none'
+  if (groupStreamView) groupStreamView.style.display = 'none'
+  if (adminView) adminView.style.display = 'none'
+  if (chatControls) chatControls.style.display = 'none'
+}
+
+// Update view based on workspace and submode
+function updateView() {
+  const workspace = workspaceSelect?.value || 'wr-chat'
+  const submode = submodeSelect?.value || 'command'
+  
+  hideAllViews()
+  
+  // Show/hide submode selector based on workspace
+  if (submodeSelect) {
+    submodeSelect.style.display = workspace === 'wr-chat' ? '' : 'none'
+  }
+  
+  if (workspace === 'wr-chat') {
+    // Show controls for all modes except admin
+    if (chatControls) chatControls.style.display = submode !== 'admin' ? 'flex' : 'none'
     
-    if (mode === 'command-chat') {
-      chatView.classList.remove('hidden')
-      if (chatControls) chatControls.style.display = 'flex'
-    } else if (mode === 'augmented-overlay') {
-      overlayView?.classList.add('active')
-      if (chatControls) chatControls.style.display = 'flex'
-    } else if (mode === 'mailguard') {
-      mailguardView.classList.add('active')
-      updateMgHint()
-      updateMgSendBtn()
+    switch (submode) {
+      case 'command':
+        chatView?.classList.remove('hidden')
+        break
+      case 'p2p-chat':
+        if (p2pChatView) p2pChatView.style.display = 'flex'
+        break
+      case 'p2p-stream':
+        if (p2pStreamView) p2pStreamView.style.display = 'flex'
+        break
+      case 'group-stream':
+        if (groupStreamView) groupStreamView.style.display = 'flex'
+        break
+      case 'admin':
+        if (adminView) adminView.style.display = 'flex'
+        break
     }
-  })
+  } else if (workspace === 'augmented-overlay') {
+    overlayView?.classList.add('active')
+    if (chatControls) chatControls.style.display = 'none'
+  } else if (workspace === 'mailguard') {
+    mailguardView?.classList.add('active')
+    updateMgHint()
+    updateMgSendBtn()
+  }
+}
+
+// Workspace change
+if (workspaceSelect) {
+  workspaceSelect.addEventListener('change', updateView)
+}
+
+// Submode change
+if (submodeSelect) {
+  submodeSelect.addEventListener('change', updateView)
 }
 
 // MailGuard hint visibility

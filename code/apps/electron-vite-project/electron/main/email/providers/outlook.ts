@@ -156,15 +156,7 @@ export class OutlookProvider extends BaseEmailProvider {
     params.append('$top', String(options?.limit || 50))
     params.append('$select', 'id,conversationId,subject,from,toRecipients,ccRecipients,receivedDateTime,body,isRead,flag,isDraft,hasAttachments')
     
-    // Check if we'll be using $search (Microsoft Graph doesn't allow $orderby with $search)
-    const useSearch = !!(options?.search || options?.from || options?.subject)
-    
-    // Only add $orderby if NOT using $search
-    if (!useSearch) {
-      params.append('$orderby', 'receivedDateTime desc')
-    }
-    
-    // Build filter
+    // Build filter array
     const filters: string[] = []
     
     if (options?.unreadOnly) {
@@ -187,26 +179,51 @@ export class OutlookProvider extends BaseEmailProvider {
       filters.push(`receivedDateTime le ${options.toDate}`)
     }
     
+    // For search - use simpler approach without $search (more reliable)
+    // Microsoft Graph $search can be unreliable, so we fetch messages and filter client-side
+    const useClientFilter = !!(options?.from || options?.subject)
+    
     if (filters.length > 0) {
       params.append('$filter', filters.join(' and '))
     }
     
-    // Handle search
-    if (useSearch) {
-      const searchTerms: string[] = []
-      if (options?.search) searchTerms.push(options.search)
-      if (options?.from) searchTerms.push(`from:${options.from}`)
-      if (options?.subject) searchTerms.push(`subject:${options.subject}`)
-      params.append('$search', `"${searchTerms.join(' ')}"`)
+    // Always order by date when not using search
+    if (!options?.search) {
+      params.append('$orderby', 'receivedDateTime desc')
+    }
+    
+    // Only use $search for full-text search, not for from/subject
+    if (options?.search) {
+      params.append('$search', `"${options.search}"`)
     }
     
     const folderId = folder || 'inbox'
-    const response = await this.graphApiRequest(
-      'GET', 
-      `/me/mailFolders/${folderId}/messages?${params.toString()}`
-    )
+    const requestUrl = `/me/mailFolders/${folderId}/messages?${params.toString()}`
     
-    const messages = response.value || []
+    const response = await this.graphApiRequest('GET', requestUrl)
+    
+    let messages = response.value || []
+    
+    // Client-side filtering for from/subject (more reliable than Graph $search)
+    if (useClientFilter && messages.length > 0) {
+      const fromFilter = options?.from?.toLowerCase()
+      const subjectFilter = options?.subject?.toLowerCase()
+      
+      messages = messages.filter((msg: any) => {
+        let match = true
+        if (fromFilter) {
+          const msgFrom = (msg.from?.emailAddress?.address || '').toLowerCase()
+          const msgFromName = (msg.from?.emailAddress?.name || '').toLowerCase()
+          match = match && (msgFrom.includes(fromFilter) || msgFromName.includes(fromFilter) || fromFilter.includes(msgFrom))
+        }
+        if (subjectFilter && match) {
+          const msgSubject = (msg.subject || '').toLowerCase()
+          match = match && (msgSubject.includes(subjectFilter) || subjectFilter.includes(msgSubject))
+        }
+        return match
+      })
+    }
+    
     return messages.map((msg: any) => this.parseOutlookMessage(msg, folder))
   }
   

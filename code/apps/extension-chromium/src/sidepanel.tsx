@@ -52,8 +52,12 @@ function SidepanelOrchestrator() {
   const [viewMode, setViewMode] = useState<'app' | 'admin'>('app') // App or Admin view
   const [isAdminDisabled, setIsAdminDisabled] = useState(false) // Disable admin on display grids and Edge startpage
   
-  // Command chat state
-  const [dockedPanelMode, setDockedPanelMode] = useState<'command-chat' | 'augmented-overlay' | 'mailguard'>('command-chat')
+  // Command chat state - workspace + submode like popup
+  const [dockedWorkspace, setDockedWorkspace] = useState<'wr-chat' | 'augmented-overlay' | 'mailguard'>('wr-chat')
+  const [dockedSubmode, setDockedSubmode] = useState<'command' | 'p2p-chat' | 'p2p-stream' | 'group-stream' | 'admin'>('command')
+  
+  // Helper to get combined mode for conditional rendering
+  const dockedPanelMode = dockedWorkspace === 'wr-chat' ? dockedSubmode : dockedWorkspace
   const [chatMessages, setChatMessages] = useState<Array<{role: 'user' | 'assistant', text: string, imageUrl?: string}>>([])
   const [chatInput, setChatInput] = useState('')
   const [chatHeight, setChatHeight] = useState(200)
@@ -2986,83 +2990,83 @@ function SidepanelOrchestrator() {
               onDragOver={(e) => e.preventDefault()}
               onDrop={handleChatDrop}
             >
-              {/* Header */}
+              {/* Header - Enterprise Design */}
               <div style={{
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'space-between',
                 padding: '10px 14px',
-                background: themeColors.background,
-                borderBottom: '1px solid rgba(255,255,255,0.20)',
+                background: 'transparent',
+                borderBottom: 'none',
                 color: themeColors.text
               }}>
-                <div style={{ display: 'flex', alignItems: 'center' }}>
+                {/* Selectors */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                   <select
-                    value={dockedPanelMode}
-                    onChange={(e) => setDockedPanelMode(e.target.value as 'command-chat' | 'augmented-overlay' | 'mailguard')}
+                    value={dockedWorkspace}
+                    onChange={(e) => setDockedWorkspace(e.target.value as typeof dockedWorkspace)}
                     style={{
                       fontSize: '11px',
-                      fontWeight: '600',
-                      height: '28px',
-                      background: theme === 'professional' ? 'rgba(15,23,42,0.08)' : 'rgba(255,255,255,0.15)',
-                      border: theme === 'professional' ? '1px solid rgba(15,23,42,0.2)' : '1px solid rgba(255,255,255,0.25)',
-                      color: theme === 'professional' ? '#0f172a' : 'inherit',
-                      borderRadius: '6px',
-                      padding: '0 22px 0 8px',
+                      fontWeight: '500',
+                      height: '26px',
+                      width: '95px',
+                      background: 'rgba(55,65,81,0.85)',
+                      border: 'none',
+                      color: '#ffffff',
+                      borderRadius: '13px',
+                      padding: '0 20px 0 8px',
+                      transition: 'all 0.15s ease',
                       cursor: 'pointer',
                       outline: 'none',
                       appearance: 'none',
                       WebkitAppearance: 'none',
-                      flexShrink: 0,
-                      backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 12 12'%3E%3Cpath fill='${theme === 'professional' ? '%230f172a' : '%23ffffff'}' d='M3 4.5L6 7.5L9 4.5'/%3E%3C/svg%3E")`,
+                      textOverflow: 'ellipsis',
+                      overflow: 'hidden',
+                      backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='6' height='6' viewBox='0 0 12 12'%3E%3Cpath fill='%23ffffff' d='M3 4.5L6 7.5L9 4.5'/%3E%3C/svg%3E")`,
                       backgroundRepeat: 'no-repeat',
-                      backgroundPosition: 'right 6px center'
+                      backgroundPosition: 'right 5px center'
                     }}
                   >
-                    <option value="command-chat" style={{ background: '#1e293b', color: 'white' }}>💬 WR Chat</option>
-                    <option value="augmented-overlay" style={{ background: '#1e293b', color: 'white' }}>🎯 Augmented Overlay</option>
-                    <option value="mailguard" style={{ background: '#1e293b', color: 'white' }}>🛡️ WR MailGuard</option>
+                    <option value="wr-chat">💬 WR Chat</option>
+                    <option value="augmented-overlay">🎯 Augmented Overlay</option>
+                    <option value="mailguard">🛡️ WR MailGuard</option>
                   </select>
-                </div>
-                <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexShrink: 0 }}>
-                  {(dockedPanelMode === 'command-chat' || dockedPanelMode === 'augmented-overlay') && <>
-                    <button 
-                      onClick={handleBucketClick}
-                      title="Context Bucket: Embed context directly into the session"
+                  {dockedWorkspace === 'wr-chat' && (
+                    <select
+                      value={dockedSubmode}
+                      onChange={(e) => setDockedSubmode(e.target.value as typeof dockedSubmode)}
                       style={{
-                        height: '28px',
-                        minWidth: '28px',
-                        ...chatControlButtonStyle(),
-                        borderRadius: '6px',
-                        padding: '0 8px',
-                        fontSize: '13px',
+                        fontSize: '11px',
+                        fontWeight: '500',
+                        height: '26px',
+                        width: '90px',
+                        background: 'rgba(55,65,81,0.85)',
+                        border: 'none',
+                        color: '#ffffff',
+                        borderRadius: '13px',
+                        padding: '0 14px 0 6px',
                         cursor: 'pointer',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        transition: 'all 0.2s ease'
-                      }}
-                      onMouseEnter={(e) => {
-                        if (theme === 'professional') {
-                          e.currentTarget.style.background = 'rgba(15,23,42,0.12)'
-                        } else if (theme === 'dark') {
-                          e.currentTarget.style.background = 'rgba(255,255,255,0.2)'
-                        } else {
-                          e.currentTarget.style.background = 'rgba(118,75,162,0.6)'
-                        }
-                      }}
-                      onMouseLeave={(e) => {
-                        if (theme === 'professional') {
-                          e.currentTarget.style.background = 'rgba(15,23,42,0.08)'
-                        } else if (theme === 'dark') {
-                          e.currentTarget.style.background = 'rgba(255,255,255,0.12)'
-                        } else {
-                          e.currentTarget.style.background = 'rgba(118,75,162,0.35)'
-                        }
+                        outline: 'none',
+                        appearance: 'none',
+                        WebkitAppearance: 'none',
+                        textOverflow: 'ellipsis',
+                        overflow: 'hidden',
+                        backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='6' height='6' viewBox='0 0 12 12'%3E%3Cpath fill='%23ffffff' d='M3 4.5L6 7.5L9 4.5'/%3E%3C/svg%3E")`,
+                        backgroundRepeat: 'no-repeat',
+                        backgroundPosition: 'right 4px center'
                       }}
                     >
-                      🪣
-                    </button>
+                      <option value="command">cmd</option>
+                      <option value="p2p-chat">P2P Chat</option>
+                      <option value="p2p-stream">P2P Live</option>
+                      <option value="group-stream">Group Stream</option>
+                      <option value="admin">Admin</option>
+                    </select>
+                  )}
+                </div>
+                {/* Controls */}
+                <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                  {(dockedPanelMode !== 'admin' && dockedPanelMode !== 'mailguard') && <>
                     <button 
                       onClick={handleScreenSelect}
                       title="LmGTFY - Capture a screen area as screenshot or stream"
@@ -3070,8 +3074,8 @@ function SidepanelOrchestrator() {
                         ...chatControlButtonStyle(),
                         borderRadius: '6px',
                         padding: '0 8px',
-                        height: '28px',
-                        minWidth: '28px',
+                        height: '22px',
+                        minWidth: '22px',
                         fontSize: '13px',
                         cursor: 'pointer',
                         display: 'flex',
@@ -3106,10 +3110,13 @@ function SidepanelOrchestrator() {
                         title="Tags - Quick access to saved triggers"
                         style={{
                           ...chatControlButtonStyle(),
-                          borderRadius: '6px',
-                          padding: '0 10px',
+                          borderRadius: '14px',
+                          padding: '0 12px',
                           height: '28px',
-                          fontSize: '11px',
+                          fontSize: '12px',
+                          background: 'rgba(255,255,255,0.15)',
+                          border: 'none',
+                          color: '#ffffff',
                           cursor: 'pointer',
                           display: 'inline-flex',
                           alignItems: 'center',
@@ -3231,10 +3238,12 @@ function SidepanelOrchestrator() {
                     onClick={toggleCommandChatPin}
                     title="Unpin from sidepanel"
                     style={{
-                      ...chatControlButtonStyle(),
+                      background: 'rgba(255,255,255,0.15)',
+                      border: 'none',
+                      color: '#ffffff',
                       height: '28px',
                       minWidth: '28px',
-                      borderRadius: '6px',
+                      borderRadius: '14px',
                       padding: '0 8px',
                       fontSize: '13px',
                       cursor: 'pointer',
@@ -3249,7 +3258,113 @@ function SidepanelOrchestrator() {
               </div>
 
               {/* Command Chat Content - Section 1 (showMinimalUI) */}
-              {(dockedPanelMode === 'command-chat' || dockedPanelMode === 'augmented-overlay') ? (
+              {/* P2P Chat Placeholder */}
+              {dockedPanelMode === 'p2p-chat' && (
+                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: theme === 'default' ? 'rgba(118,75,162,0.25)' : 'rgba(255,255,255,0.06)', minHeight: '280px' }}>
+                  <div style={{ padding: '10px 14px', borderBottom: '1px solid rgba(255,255,255,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'rgba(0,0,0,0.1)' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#6b7280' }} />
+                      <span style={{ fontSize: '12px', opacity: 0.7 }}>No peer connected</span>
+                    </div>
+                    <button style={{ padding: '4px 10px', background: 'rgba(255,255,255,0.12)', border: 'none', borderRadius: '6px', color: 'white', fontSize: '11px', cursor: 'pointer' }}>Connect</button>
+                  </div>
+                  <div style={{ flex: 1, overflowY: 'auto', padding: '12px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    {/* Empty messages area */}
+                  </div>
+                  <div style={{ padding: '10px 12px', borderTop: '1px solid rgba(255,255,255,0.1)', display: 'flex', gap: '6px', alignItems: 'center' }}>
+                    <textarea placeholder="Message or capsule..." style={{ flex: 1, padding: '8px 10px', background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '8px', color: 'white', fontSize: '12px', resize: 'none', minHeight: '32px', maxHeight: '80px' }} />
+                    <button title="Build Capsule" style={{ width: '32px', height: '32px', background: 'rgba(255,255,255,0.12)', border: 'none', borderRadius: '6px', color: 'white', fontSize: '14px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>💊</button>
+                    <button title="AI Assistant" style={{ width: '32px', height: '32px', background: 'rgba(255,255,255,0.12)', border: 'none', borderRadius: '6px', color: 'white', fontSize: '14px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✨</button>
+                    <button title="Attach" style={{ width: '32px', height: '32px', background: 'rgba(255,255,255,0.12)', border: 'none', borderRadius: '6px', color: 'white', fontSize: '14px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>📎</button>
+                    <button style={{ padding: '8px 14px', background: 'linear-gradient(135deg, #22c55e 0%, #16a34a 100%)', border: 'none', borderRadius: '8px', color: 'white', fontSize: '12px', fontWeight: '600', cursor: 'pointer' }}>Send</button>
+                  </div>
+                </div>
+              )}
+
+              {/* P2P Stream Placeholder */}
+              {dockedPanelMode === 'p2p-stream' && (
+                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: '#000', minHeight: '280px' }}>
+                  <div style={{ flex: 2, display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative' }}>
+                    <div style={{ textAlign: 'center', color: '#666' }}>
+                      <div style={{ fontSize: '40px', marginBottom: '8px' }}>📹</div>
+                      <div style={{ fontSize: '12px' }}>No active stream</div>
+                    </div>
+                    <div style={{ position: 'absolute', bottom: '10px', left: '50%', transform: 'translateX(-50%)', display: 'flex', gap: '6px' }}>
+                      <button style={{ padding: '6px 10px', background: 'rgba(255,255,255,0.15)', border: 'none', borderRadius: '6px', color: 'white', fontSize: '11px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}>🎥 Start</button>
+                      <button style={{ padding: '6px 10px', background: 'rgba(255,255,255,0.15)', border: 'none', borderRadius: '6px', color: 'white', fontSize: '11px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}>🎙️ Mute</button>
+                      <button style={{ padding: '6px 10px', background: 'rgba(255,255,255,0.15)', border: 'none', borderRadius: '6px', color: 'white', fontSize: '11px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}>📺 Share</button>
+                    </div>
+                  </div>
+                  <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: '120px', background: theme === 'default' ? 'rgba(118,75,162,0.25)' : 'rgba(255,255,255,0.06)' }}>
+                    <div style={{ flex: 1, overflowY: 'auto', padding: '8px' }}></div>
+                    <div style={{ padding: '8px', display: 'flex', gap: '6px', alignItems: 'center', borderTop: '1px solid rgba(255,255,255,0.1)' }}>
+                      <textarea placeholder="Chat..." style={{ flex: 1, padding: '6px 8px', background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '6px', color: 'white', fontSize: '11px', resize: 'none', minHeight: '28px' }} />
+                      <button title="AI Assistant" style={{ width: '28px', height: '28px', background: 'rgba(255,255,255,0.12)', border: 'none', borderRadius: '6px', color: 'white', fontSize: '12px', cursor: 'pointer' }}>✨</button>
+                      <button style={{ padding: '6px 12px', background: 'linear-gradient(135deg, #22c55e 0%, #16a34a 100%)', border: 'none', borderRadius: '6px', color: 'white', fontSize: '11px', fontWeight: '600', cursor: 'pointer' }}>Send</button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Group Stream Placeholder */}
+              {dockedPanelMode === 'group-stream' && (
+                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: '#000', minHeight: '280px' }}>
+                  <div style={{ flex: 2, display: 'flex' }}>
+                    <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRight: '1px solid #333' }}>
+                      <div style={{ textAlign: 'center', color: '#666' }}>
+                        <div style={{ fontSize: '32px' }}>👤</div>
+                        <div style={{ fontSize: '10px', marginTop: '4px' }}>Host</div>
+                      </div>
+                    </div>
+                    <div style={{ width: '70px', display: 'flex', flexDirection: 'column', gap: '2px', padding: '4px', overflowY: 'auto' }}>
+                      <div style={{ aspectRatio: '1', background: '#111', borderRadius: '4px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#444', fontSize: '14px' }}>👤</div>
+                      <div style={{ aspectRatio: '1', background: '#111', borderRadius: '4px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#444', fontSize: '14px' }}>+</div>
+                    </div>
+                  </div>
+                  <div style={{ padding: '6px 10px', borderTop: '1px solid rgba(255,255,255,0.15)', borderBottom: '1px solid rgba(255,255,255,0.15)', display: 'flex', gap: '6px', justifyContent: 'center', background: 'rgba(0,0,0,0.3)' }}>
+                    <button style={{ padding: '4px 8px', background: 'rgba(255,255,255,0.12)', border: 'none', borderRadius: '4px', color: 'white', fontSize: '12px', cursor: 'pointer' }}>🎥</button>
+                    <button style={{ padding: '4px 8px', background: 'rgba(255,255,255,0.12)', border: 'none', borderRadius: '4px', color: 'white', fontSize: '12px', cursor: 'pointer' }}>🎙️</button>
+                    <button style={{ padding: '4px 8px', background: 'rgba(255,255,255,0.12)', border: 'none', borderRadius: '4px', color: 'white', fontSize: '12px', cursor: 'pointer' }}>📺</button>
+                    <button style={{ padding: '4px 8px', background: 'rgba(239,68,68,0.2)', border: 'none', borderRadius: '4px', color: '#ef4444', fontSize: '10px', cursor: 'pointer' }}>Leave</button>
+                  </div>
+                  <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: '100px', background: theme === 'default' ? 'rgba(118,75,162,0.25)' : 'rgba(255,255,255,0.06)' }}>
+                    <div style={{ flex: 1, overflowY: 'auto', padding: '8px' }}></div>
+                    <div style={{ padding: '8px', display: 'flex', gap: '6px', alignItems: 'center', borderTop: '1px solid rgba(255,255,255,0.1)' }}>
+                      <textarea placeholder="Group chat..." style={{ flex: 1, padding: '6px 8px', background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '6px', color: 'white', fontSize: '11px', resize: 'none', minHeight: '28px' }} />
+                      <button title="AI Assistant" style={{ width: '28px', height: '28px', background: 'rgba(255,255,255,0.12)', border: 'none', borderRadius: '6px', color: 'white', fontSize: '12px', cursor: 'pointer' }}>✨</button>
+                      <button style={{ padding: '6px 12px', background: 'linear-gradient(135deg, #22c55e 0%, #16a34a 100%)', border: 'none', borderRadius: '6px', color: 'white', fontSize: '11px', fontWeight: '600', cursor: 'pointer' }}>Send</button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Admin Placeholder */}
+              {dockedPanelMode === 'admin' && (
+                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: theme === 'default' ? 'rgba(118,75,162,0.25)' : 'rgba(255,255,255,0.06)', minHeight: '280px', overflow: 'hidden' }}>
+                  <div style={{ padding: '10px 14px', borderBottom: '1px solid rgba(255,255,255,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <span style={{ fontSize: '12px', fontWeight: '600' }}>Policy Capsules</span>
+                    <button style={{ padding: '4px 10px', background: 'rgba(255,255,255,0.12)', border: 'none', borderRadius: '6px', color: 'white', fontSize: '10px', cursor: 'pointer' }}>+ New Policy</button>
+                  </div>
+                  <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
+                    <div style={{ width: '120px', borderRight: '1px solid rgba(255,255,255,0.1)', padding: '8px', overflowY: 'auto' }}>
+                      <div style={{ fontSize: '9px', opacity: 0.5, marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>POLICIES</div>
+                      <div style={{ padding: '6px 8px', background: 'rgba(255,255,255,0.1)', borderRadius: '4px', fontSize: '11px', marginBottom: '4px', cursor: 'pointer' }}>Security Rules</div>
+                      <div style={{ padding: '6px 8px', fontSize: '11px', marginBottom: '4px', cursor: 'pointer', opacity: 0.6 }}>Access Control</div>
+                      <div style={{ padding: '6px 8px', fontSize: '11px', marginBottom: '4px', cursor: 'pointer', opacity: 0.6 }}>Automation</div>
+                    </div>
+                    <div style={{ flex: 1, padding: '10px', display: 'flex', flexDirection: 'column' }}>
+                      <div style={{ fontSize: '11px', fontWeight: '600', marginBottom: '8px' }}>Policy Editor</div>
+                      <textarea placeholder="Define policy rules..." style={{ flex: 1, padding: '8px', background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '6px', color: 'white', fontSize: '11px', fontFamily: 'monospace', resize: 'none', minHeight: '80px' }} />
+                      <div style={{ display: 'flex', gap: '8px', marginTop: '10px', justifyContent: 'flex-end' }}>
+                        <button style={{ padding: '6px 12px', background: 'rgba(255,255,255,0.12)', border: 'none', borderRadius: '6px', color: 'white', fontSize: '10px', cursor: 'pointer' }}>Test</button>
+                        <button style={{ padding: '6px 14px', background: 'linear-gradient(135deg, #22c55e 0%, #16a34a 100%)', border: 'none', borderRadius: '6px', color: 'white', fontSize: '11px', fontWeight: '600', cursor: 'pointer' }}>Publish</button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {(dockedPanelMode === 'command' || dockedPanelMode === 'augmented-overlay') && (
               <>
               {/* Messages Area */}
               <div 
@@ -3583,7 +3698,9 @@ function SidepanelOrchestrator() {
               </div>
             )}
               </>
-              ) : (
+              )}
+
+              {dockedPanelMode === 'mailguard' && (
                 /* WR MailGuard Email Editor - Section 1 (showMinimalUI) */
                 <div style={{ display: 'flex', flexDirection: 'column', flex: 1, background: theme === 'default' ? 'rgba(118,75,162,0.15)' : (theme === 'professional' ? '#f8fafc' : 'rgba(255,255,255,0.04)'), overflowY: 'auto' }}>
                   <style>{`
@@ -4144,83 +4261,86 @@ Write your message with the confidence that it will be protected by WRGuard encr
             onDragOver={(e) => e.preventDefault()}
             onDrop={handleChatDrop}
           >
-            {/* Header - App View */}
+            {/* Header - App View - Enterprise Design */}
             <div style={{
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'space-between',
-              padding: '10px 14px',
-              background: themeColors.background,
-              borderBottom: '1px solid rgba(255,255,255,0.20)',
+              padding: '6px 10px',
+              background: 'linear-gradient(180deg, rgba(15,10,30,0.95) 0%, rgba(30,20,50,0.9) 100%)',
+              borderBottom: '1px solid rgba(168,85,247,0.3)',
+              boxShadow: '0 2px 8px rgba(0,0,0,0.2)',
               color: themeColors.text
             }}>
-              <div style={{ display: 'flex', alignItems: 'center' }}>
+              {/* Selectors */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                 <select
-                  value={dockedPanelMode}
-                  onChange={(e) => setDockedPanelMode(e.target.value as 'command-chat' | 'mailguard')}
+                  value={dockedWorkspace}
+                  onChange={(e) => setDockedWorkspace(e.target.value as typeof dockedWorkspace)}
                   style={{
-                    fontSize: '11px',
+                    fontSize: '10px',
                     fontWeight: '600',
-                    height: '28px',
-                    background: theme === 'professional' ? 'rgba(15,23,42,0.08)' : 'rgba(255,255,255,0.15)',
-                    border: theme === 'professional' ? '1px solid rgba(15,23,42,0.2)' : '1px solid rgba(255,255,255,0.25)',
-                    color: theme === 'professional' ? '#0f172a' : 'inherit',
-                    borderRadius: '6px',
-                    padding: '0 22px 0 8px',
+                    height: '22px',
+                    width: '90px',
+                    background: 'rgba(88,28,135,0.9)',
+                    border: '1px solid rgba(168,85,247,0.4)',
+                    color: '#ffffff',
+                    borderRadius: '4px',
+                    padding: '0 18px 0 6px',
                     cursor: 'pointer',
                     outline: 'none',
                     appearance: 'none',
                     WebkitAppearance: 'none',
-                    flexShrink: 0,
-                    backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 12 12'%3E%3Cpath fill='${theme === 'professional' ? '%230f172a' : '%23ffffff'}' d='M3 4.5L6 7.5L9 4.5'/%3E%3C/svg%3E")`,
+                    textOverflow: 'ellipsis',
+                    overflow: 'hidden',
+                    backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='6' height='6' viewBox='0 0 12 12'%3E%3Cpath fill='%23ffffff' d='M3 4.5L6 7.5L9 4.5'/%3E%3C/svg%3E")`,
                     backgroundRepeat: 'no-repeat',
-                    backgroundPosition: 'right 6px center'
+                    backgroundPosition: 'right 4px center'
                   }}
                 >
-                  <option value="command-chat" style={{ background: '#1e293b', color: 'white' }}>💬 WR Chat</option>
-                  <option value="augmented-overlay" style={{ background: '#1e293b', color: 'white' }}>🎯 Augmented Overlay</option>
-                  <option value="mailguard" style={{ background: '#1e293b', color: 'white' }}>🛡️ WR MailGuard</option>
+                  <option value="wr-chat">💬 WR Chat</option>
+                  <option value="augmented-overlay">🎯 Augmented Overlay</option>
+                  <option value="mailguard">🛡️ WR MailGuard</option>
                 </select>
-              </div>
-              <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexShrink: 0 }}>
-                {dockedPanelMode === 'command-chat' && <>
-                  <button 
-                    onClick={handleBucketClick}
-                    title="Context Bucket: Embed context directly into the session"
+                {dockedWorkspace === 'wr-chat' && (
+                  <select
+                    value={dockedSubmode}
+                    onChange={(e) => setDockedSubmode(e.target.value as typeof dockedSubmode)}
                     style={{
-                      height: '28px',
-                      minWidth: '28px',
-                      ...chatControlButtonStyle(),
-                      borderRadius: '6px',
-                      padding: '0 8px',
-                      fontSize: '13px',
+                      fontSize: '11px',
+                      fontWeight: '500',
+                      height: '26px',
+                      width: '75px',
+                      background: 'rgba(55,65,81,0.85)',
+                      border: 'none',
+                      color: '#ffffff',
+                      borderRadius: '13px',
+                      padding: '0 18px 0 6px',
+                      transition: 'all 0.15s ease',
                       cursor: 'pointer',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      transition: 'all 0.2s ease'
-                    }}
-                    onMouseEnter={(e) => {
-                      if (theme === 'professional') {
-                        e.currentTarget.style.background = 'rgba(15,23,42,0.12)'
-                      } else if (theme === 'dark') {
-                        e.currentTarget.style.background = 'rgba(255,255,255,0.2)'
-                      } else {
-                        e.currentTarget.style.background = 'rgba(118,75,162,0.6)'
-                      }
-                    }}
-                    onMouseLeave={(e) => {
-                      if (theme === 'professional') {
-                        e.currentTarget.style.background = 'rgba(15,23,42,0.08)'
-                      } else if (theme === 'dark') {
-                        e.currentTarget.style.background = 'rgba(255,255,255,0.12)'
-                      } else {
-                        e.currentTarget.style.background = 'rgba(118,75,162,0.35)'
-                      }
+                      outline: 'none',
+                      appearance: 'none',
+                      WebkitAppearance: 'none',
+                      textOverflow: 'ellipsis',
+                      overflow: 'hidden',
+                      backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='6' height='6' viewBox='0 0 12 12'%3E%3Cpath fill='%23ffffff' d='M3 4.5L6 7.5L9 4.5'/%3E%3C/svg%3E")`,
+                      backgroundRepeat: 'no-repeat',
+                      backgroundPosition: 'right 4px center'
                     }}
                   >
-                    🪣
-                  </button>
+                    <option value="command">cmd</option>
+                    <option value="p2p-chat">P2P Chat</option>
+                    <option value="p2p-stream">P2P Live</option>
+                    <option value="group-stream">Group Stream</option>
+                    <option value="admin">Admin</option>
+                  </select>
+                )}
+              </div>
+              {/* Divider */}
+              <div style={{ width: '1px', height: '16px', background: 'rgba(168,85,247,0.3)', margin: '0 4px' }} />
+              {/* Controls */}
+              <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                {dockedPanelMode !== 'admin' && dockedPanelMode !== 'mailguard' && dockedPanelMode !== 'augmented-overlay' && <>
                   <button 
                     onClick={handleScreenSelect}
                     title="LmGTFY - Capture a screen area as screenshot or stream"
@@ -4228,9 +4348,12 @@ Write your message with the confidence that it will be protected by WRGuard encr
                       ...chatControlButtonStyle(),
                       borderRadius: '6px',
                       padding: '0 8px',
-                      height: '28px',
-                      minWidth: '28px',
-                      fontSize: '13px',
+height: '28px',
+                        minWidth: '28px',
+                        background: 'rgba(255,255,255,0.15)',
+                        border: 'none',
+                        color: '#ffffff',
+                        fontSize: '14px',
                       cursor: 'pointer',
                       display: 'flex',
                       alignItems: 'center',
@@ -4266,8 +4389,8 @@ Write your message with the confidence that it will be protected by WRGuard encr
                         ...chatControlButtonStyle(),
                         borderRadius: '6px',
                         padding: '0 10px',
-                        height: '28px',
-                        fontSize: '11px',
+                        height: '22px',
+                        fontSize: '10px',
                         cursor: 'pointer',
                         display: 'inline-flex',
                         alignItems: 'center',
@@ -4390,9 +4513,9 @@ Write your message with the confidence that it will be protected by WRGuard encr
                   title="Unpin from sidepanel"
                   style={{
                     ...chatControlButtonStyle(),
-                    height: '28px',
-                    minWidth: '28px',
-                    borderRadius: '6px',
+                    height: '22px',
+                    minWidth: '22px',
+                    borderRadius: '4px',
                     padding: '0 8px',
                     fontSize: '13px',
                     cursor: 'pointer',
@@ -4407,7 +4530,112 @@ Write your message with the confidence that it will be protected by WRGuard encr
             </div>
 
             {/* SECTION 2 - Conditional Content based on mode */}
-            {(dockedPanelMode === 'command-chat' || dockedPanelMode === 'augmented-overlay') ? (
+            {/* P2P Chat */}
+            {dockedPanelMode === 'p2p-chat' && (
+              <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: theme === 'default' ? 'rgba(118,75,162,0.25)' : 'rgba(255,255,255,0.06)', minHeight: '280px' }}>
+                <div style={{ padding: '10px 14px', borderBottom: '1px solid rgba(255,255,255,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'rgba(0,0,0,0.1)' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#6b7280' }} />
+                    <span style={{ fontSize: '12px', opacity: 0.7 }}>No peer connected</span>
+                  </div>
+                  <button style={{ padding: '4px 10px', background: 'rgba(255,255,255,0.12)', border: 'none', borderRadius: '6px', color: 'white', fontSize: '11px', cursor: 'pointer' }}>Connect</button>
+                </div>
+                <div style={{ flex: 1, overflowY: 'auto', padding: '12px', display: 'flex', flexDirection: 'column', gap: '8px' }}></div>
+                <div style={{ padding: '10px 12px', borderTop: '1px solid rgba(255,255,255,0.1)', display: 'flex', gap: '6px', alignItems: 'center' }}>
+                  <textarea placeholder="Message or capsule..." style={{ flex: 1, padding: '8px 10px', background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '8px', color: 'white', fontSize: '12px', resize: 'none', minHeight: '32px', maxHeight: '80px' }} />
+                  <button title="Build Capsule" style={{ width: '32px', height: '32px', background: 'rgba(255,255,255,0.12)', border: 'none', borderRadius: '6px', color: 'white', fontSize: '14px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>💊</button>
+                  <button title="AI Assistant" style={{ width: '32px', height: '32px', background: 'rgba(255,255,255,0.12)', border: 'none', borderRadius: '6px', color: 'white', fontSize: '14px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✨</button>
+                  <button title="Attach" style={{ width: '32px', height: '32px', background: 'rgba(255,255,255,0.12)', border: 'none', borderRadius: '6px', color: 'white', fontSize: '14px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>📎</button>
+                  <button style={{ padding: '8px 14px', background: 'linear-gradient(135deg, #22c55e 0%, #16a34a 100%)', border: 'none', borderRadius: '8px', color: 'white', fontSize: '12px', fontWeight: '600', cursor: 'pointer' }}>Send</button>
+                </div>
+              </div>
+            )}
+
+            {/* P2P Live */}
+            {/* P2P Live */}
+            {dockedPanelMode === 'p2p-stream' && (
+              <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: '#000', minHeight: '280px' }}>
+                <div style={{ flex: 2, display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative' }}>
+                  <div style={{ textAlign: 'center', color: '#666' }}>
+                    <div style={{ fontSize: '40px', marginBottom: '8px' }}>📹</div>
+                    <div style={{ fontSize: '12px' }}>No active stream</div>
+                  </div>
+                  <div style={{ position: 'absolute', bottom: '10px', left: '50%', transform: 'translateX(-50%)', display: 'flex', gap: '6px' }}>
+                    <button style={{ padding: '6px 10px', background: 'rgba(255,255,255,0.15)', border: 'none', borderRadius: '6px', color: 'white', fontSize: '11px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}>🎥 Start</button>
+                    <button style={{ padding: '6px 10px', background: 'rgba(255,255,255,0.15)', border: 'none', borderRadius: '6px', color: 'white', fontSize: '11px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}>🎙️ Mute</button>
+                    <button style={{ padding: '6px 10px', background: 'rgba(255,255,255,0.15)', border: 'none', borderRadius: '6px', color: 'white', fontSize: '11px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}>📺 Share</button>
+                  </div>
+                </div>
+                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: '120px', background: theme === 'default' ? 'rgba(118,75,162,0.25)' : 'rgba(255,255,255,0.06)' }}>
+                  <div style={{ flex: 1, overflowY: 'auto', padding: '8px' }}></div>
+                  <div style={{ padding: '8px', display: 'flex', gap: '6px', alignItems: 'center', borderTop: '1px solid rgba(255,255,255,0.1)' }}>
+                    <textarea placeholder="Chat..." style={{ flex: 1, padding: '6px 8px', background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '6px', color: 'white', fontSize: '11px', resize: 'none', minHeight: '28px' }} />
+                    <button title="AI Assistant" style={{ width: '28px', height: '28px', background: 'rgba(255,255,255,0.12)', border: 'none', borderRadius: '6px', color: 'white', fontSize: '12px', cursor: 'pointer' }}>✨</button>
+                    <button style={{ padding: '6px 12px', background: 'linear-gradient(135deg, #22c55e 0%, #16a34a 100%)', border: 'none', borderRadius: '6px', color: 'white', fontSize: '11px', fontWeight: '600', cursor: 'pointer' }}>Send</button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Group */}
+            {dockedPanelMode === 'group-stream' && (
+              <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: '#000', minHeight: '280px' }}>
+                <div style={{ flex: 2, display: 'flex' }}>
+                  <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRight: '1px solid #333' }}>
+                    <div style={{ textAlign: 'center', color: '#666' }}>
+                      <div style={{ fontSize: '32px' }}>👤</div>
+                      <div style={{ fontSize: '10px', marginTop: '4px' }}>Host</div>
+                    </div>
+                  </div>
+                  <div style={{ width: '70px', display: 'flex', flexDirection: 'column', gap: '2px', padding: '4px', overflowY: 'auto' }}>
+                    <div style={{ aspectRatio: '1', background: '#111', borderRadius: '4px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#444', fontSize: '14px' }}>👤</div>
+                    <div style={{ aspectRatio: '1', background: '#111', borderRadius: '4px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#444', fontSize: '14px' }}>+</div>
+                  </div>
+                </div>
+                <div style={{ padding: '6px 10px', borderTop: '1px solid rgba(255,255,255,0.15)', borderBottom: '1px solid rgba(255,255,255,0.15)', display: 'flex', gap: '6px', justifyContent: 'center', background: 'rgba(0,0,0,0.3)' }}>
+                  <button style={{ padding: '4px 8px', background: 'rgba(255,255,255,0.12)', border: 'none', borderRadius: '4px', color: 'white', fontSize: '12px', cursor: 'pointer' }}>🎥</button>
+                  <button style={{ padding: '4px 8px', background: 'rgba(255,255,255,0.12)', border: 'none', borderRadius: '4px', color: 'white', fontSize: '12px', cursor: 'pointer' }}>🎙️</button>
+                  <button style={{ padding: '4px 8px', background: 'rgba(255,255,255,0.12)', border: 'none', borderRadius: '4px', color: 'white', fontSize: '12px', cursor: 'pointer' }}>📺</button>
+                  <button style={{ padding: '4px 8px', background: 'rgba(239,68,68,0.2)', border: 'none', borderRadius: '4px', color: '#ef4444', fontSize: '10px', cursor: 'pointer' }}>Leave</button>
+                </div>
+                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: '100px', background: theme === 'default' ? 'rgba(118,75,162,0.25)' : 'rgba(255,255,255,0.06)' }}>
+                  <div style={{ flex: 1, overflowY: 'auto', padding: '8px' }}></div>
+                  <div style={{ padding: '8px', display: 'flex', gap: '6px', alignItems: 'center', borderTop: '1px solid rgba(255,255,255,0.1)' }}>
+                    <textarea placeholder="Group chat..." style={{ flex: 1, padding: '6px 8px', background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '6px', color: 'white', fontSize: '11px', resize: 'none', minHeight: '28px' }} />
+                    <button title="AI Assistant" style={{ width: '28px', height: '28px', background: 'rgba(255,255,255,0.12)', border: 'none', borderRadius: '6px', color: 'white', fontSize: '12px', cursor: 'pointer' }}>✨</button>
+                    <button style={{ padding: '6px 12px', background: 'linear-gradient(135deg, #22c55e 0%, #16a34a 100%)', border: 'none', borderRadius: '6px', color: 'white', fontSize: '11px', fontWeight: '600', cursor: 'pointer' }}>Send</button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Admin */}
+            {dockedPanelMode === 'admin' && (
+              <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: theme === 'default' ? 'rgba(118,75,162,0.25)' : 'rgba(255,255,255,0.06)', minHeight: '280px', overflow: 'hidden' }}>
+                <div style={{ padding: '10px 14px', borderBottom: '1px solid rgba(255,255,255,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <span style={{ fontSize: '12px', fontWeight: '600' }}>Policy Capsules</span>
+                  <button style={{ padding: '4px 10px', background: 'rgba(255,255,255,0.12)', border: 'none', borderRadius: '6px', color: 'white', fontSize: '10px', cursor: 'pointer' }}>+ New Policy</button>
+                </div>
+                <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
+                  <div style={{ width: '120px', borderRight: '1px solid rgba(255,255,255,0.1)', padding: '8px', overflowY: 'auto' }}>
+                    <div style={{ fontSize: '9px', opacity: 0.5, marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>POLICIES</div>
+                    <div style={{ padding: '6px 8px', background: 'rgba(255,255,255,0.1)', borderRadius: '4px', fontSize: '11px', marginBottom: '4px', cursor: 'pointer' }}>Security Rules</div>
+                    <div style={{ padding: '6px 8px', fontSize: '11px', marginBottom: '4px', cursor: 'pointer', opacity: 0.6 }}>Access Control</div>
+                    <div style={{ padding: '6px 8px', fontSize: '11px', marginBottom: '4px', cursor: 'pointer', opacity: 0.6 }}>Automation</div>
+                  </div>
+                  <div style={{ flex: 1, padding: '10px', display: 'flex', flexDirection: 'column' }}>
+                    <div style={{ fontSize: '11px', fontWeight: '600', marginBottom: '8px' }}>Policy Editor</div>
+                    <textarea placeholder="Define policy rules..." style={{ flex: 1, padding: '8px', background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '6px', color: 'white', fontSize: '11px', fontFamily: 'monospace', resize: 'none', minHeight: '80px' }} />
+                    <div style={{ display: 'flex', gap: '8px', marginTop: '10px', justifyContent: 'flex-end' }}>
+                      <button style={{ padding: '6px 12px', background: 'rgba(255,255,255,0.12)', border: 'none', borderRadius: '6px', color: 'white', fontSize: '10px', cursor: 'pointer' }}>Test</button>
+                      <button style={{ padding: '6px 14px', background: 'linear-gradient(135deg, #22c55e 0%, #16a34a 100%)', border: 'none', borderRadius: '6px', color: 'white', fontSize: '11px', fontWeight: '600', cursor: 'pointer' }}>Publish</button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {(dockedPanelMode === 'command' || dockedPanelMode === 'augmented-overlay') && (
               <>
                 {/* Messages Area */}
                 <div 
@@ -4549,7 +4777,9 @@ Write your message with the confidence that it will be protected by WRGuard encr
                   {renderSendButton()}
                 </div>
               </>
-            ) : (
+            )}
+
+            {dockedPanelMode === 'mailguard' && (
               /* WR MailGuard Email Editor - Section 2 (App View) */
               <div style={{ display: 'flex', flexDirection: 'column', flex: 1, background: theme === 'default' ? 'rgba(118,75,162,0.15)' : (theme === 'professional' ? '#f8fafc' : 'rgba(255,255,255,0.04)'), overflowY: 'auto' }}>
                 <style>{`
@@ -5010,83 +5240,86 @@ Write your message with the confidence that it will be protected by WRGuard encr
             onDragOver={(e) => e.preventDefault()}
             onDrop={handleChatDrop}
           >
-            {/* Header */}
+            {/* Header - Admin View - Enterprise Design */}
             <div style={{
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'space-between',
-              padding: '10px 14px',
-              background: themeColors.background,
-              borderBottom: '1px solid rgba(255,255,255,0.20)',
+              padding: '6px 10px',
+              background: 'linear-gradient(180deg, rgba(15,10,30,0.95) 0%, rgba(30,20,50,0.9) 100%)',
+              borderBottom: '1px solid rgba(168,85,247,0.3)',
+              boxShadow: '0 2px 8px rgba(0,0,0,0.2)',
               color: themeColors.text
             }}>
-              <div style={{ display: 'flex', alignItems: 'center' }}>
+              {/* Selectors */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                 <select
-                  value={dockedPanelMode}
-                  onChange={(e) => setDockedPanelMode(e.target.value as 'command-chat' | 'mailguard')}
+                  value={dockedWorkspace}
+                  onChange={(e) => setDockedWorkspace(e.target.value as typeof dockedWorkspace)}
                   style={{
-                    fontSize: '11px',
+                    fontSize: '10px',
                     fontWeight: '600',
-                    height: '28px',
-                    background: theme === 'professional' ? 'rgba(15,23,42,0.08)' : 'rgba(255,255,255,0.15)',
-                    border: theme === 'professional' ? '1px solid rgba(15,23,42,0.2)' : '1px solid rgba(255,255,255,0.25)',
-                    color: theme === 'professional' ? '#0f172a' : 'inherit',
-                    borderRadius: '6px',
-                    padding: '0 22px 0 8px',
+                    height: '22px',
+                    width: '90px',
+                    background: 'rgba(88,28,135,0.9)',
+                    border: '1px solid rgba(168,85,247,0.4)',
+                    color: '#ffffff',
+                    borderRadius: '4px',
+                    padding: '0 18px 0 6px',
                     cursor: 'pointer',
                     outline: 'none',
                     appearance: 'none',
                     WebkitAppearance: 'none',
-                    flexShrink: 0,
-                    backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 12 12'%3E%3Cpath fill='${theme === 'professional' ? '%230f172a' : '%23ffffff'}' d='M3 4.5L6 7.5L9 4.5'/%3E%3C/svg%3E")`,
+                    textOverflow: 'ellipsis',
+                    overflow: 'hidden',
+                    backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='6' height='6' viewBox='0 0 12 12'%3E%3Cpath fill='%23ffffff' d='M3 4.5L6 7.5L9 4.5'/%3E%3C/svg%3E")`,
                     backgroundRepeat: 'no-repeat',
-                    backgroundPosition: 'right 6px center'
+                    backgroundPosition: 'right 4px center'
                   }}
                 >
-                  <option value="command-chat" style={{ background: '#1e293b', color: 'white' }}>💬 WR Chat</option>
-                  <option value="augmented-overlay" style={{ background: '#1e293b', color: 'white' }}>🎯 Augmented Overlay</option>
-                  <option value="mailguard" style={{ background: '#1e293b', color: 'white' }}>🛡️ WR MailGuard</option>
+                  <option value="wr-chat">💬 WR Chat</option>
+                  <option value="augmented-overlay">🎯 Augmented Overlay</option>
+                  <option value="mailguard">🛡️ WR MailGuard</option>
                 </select>
-              </div>
-              <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexShrink: 0 }}>
-                {dockedPanelMode === 'command-chat' && <>
-                  <button 
-                    onClick={handleBucketClick}
-                    title="Context Bucket: Embed context directly into the session"
+                {dockedWorkspace === 'wr-chat' && (
+                  <select
+                    value={dockedSubmode}
+                    onChange={(e) => setDockedSubmode(e.target.value as typeof dockedSubmode)}
                     style={{
-                      height: '28px',
-                      minWidth: '28px',
-                      ...chatControlButtonStyle(),
-                      borderRadius: '6px',
-                      padding: '0 8px',
-                      fontSize: '13px',
+                      fontSize: '11px',
+                      fontWeight: '500',
+                      height: '26px',
+                      width: '75px',
+                      background: 'rgba(55,65,81,0.85)',
+                      border: 'none',
+                      color: '#ffffff',
+                      borderRadius: '13px',
+                      padding: '0 18px 0 6px',
+                      transition: 'all 0.15s ease',
                       cursor: 'pointer',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      transition: 'all 0.2s ease'
-                    }}
-                    onMouseEnter={(e) => {
-                      if (theme === 'professional') {
-                        e.currentTarget.style.background = 'rgba(15,23,42,0.12)'
-                      } else if (theme === 'dark') {
-                        e.currentTarget.style.background = 'rgba(255,255,255,0.2)'
-                      } else {
-                        e.currentTarget.style.background = 'rgba(118,75,162,0.6)'
-                      }
-                    }}
-                    onMouseLeave={(e) => {
-                      if (theme === 'professional') {
-                        e.currentTarget.style.background = 'rgba(15,23,42,0.08)'
-                      } else if (theme === 'dark') {
-                        e.currentTarget.style.background = 'rgba(255,255,255,0.12)'
-                      } else {
-                        e.currentTarget.style.background = 'rgba(118,75,162,0.35)'
-                      }
+                      outline: 'none',
+                      appearance: 'none',
+                      WebkitAppearance: 'none',
+                      textOverflow: 'ellipsis',
+                      overflow: 'hidden',
+                      backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='6' height='6' viewBox='0 0 12 12'%3E%3Cpath fill='%23ffffff' d='M3 4.5L6 7.5L9 4.5'/%3E%3C/svg%3E")`,
+                      backgroundRepeat: 'no-repeat',
+                      backgroundPosition: 'right 4px center'
                     }}
                   >
-                    🪣
-                  </button>
+                    <option value="command">cmd</option>
+                    <option value="p2p-chat">P2P Chat</option>
+                    <option value="p2p-stream">P2P Live</option>
+                    <option value="group-stream">Group Stream</option>
+                    <option value="admin">Admin</option>
+                  </select>
+                )}
+              </div>
+              {/* Divider */}
+              <div style={{ width: '1px', height: '16px', background: 'rgba(168,85,247,0.3)', margin: '0 4px' }} />
+              {/* Controls */}
+              <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                {dockedPanelMode !== 'admin' && dockedPanelMode !== 'mailguard' && dockedPanelMode !== 'augmented-overlay' && <>
                   <button 
                     onClick={handleScreenSelect}
                     title="LmGTFY - Capture a screen area as screenshot or stream"
@@ -5094,9 +5327,12 @@ Write your message with the confidence that it will be protected by WRGuard encr
                       ...chatControlButtonStyle(),
                       borderRadius: '6px',
                       padding: '0 8px',
-                      height: '28px',
-                      minWidth: '28px',
-                      fontSize: '13px',
+height: '28px',
+                        minWidth: '28px',
+                        background: 'rgba(255,255,255,0.15)',
+                        border: 'none',
+                        color: '#ffffff',
+                        fontSize: '14px',
                       cursor: 'pointer',
                       display: 'flex',
                       alignItems: 'center',
@@ -5132,8 +5368,8 @@ Write your message with the confidence that it will be protected by WRGuard encr
                         ...chatControlButtonStyle(),
                         borderRadius: '6px',
                         padding: '0 10px',
-                        height: '28px',
-                        fontSize: '11px',
+                        height: '22px',
+                        fontSize: '10px',
                         cursor: 'pointer',
                         display: 'inline-flex',
                         alignItems: 'center',
@@ -5256,9 +5492,9 @@ Write your message with the confidence that it will be protected by WRGuard encr
                   title="Unpin from sidepanel"
                   style={{
                     ...chatControlButtonStyle(),
-                    height: '28px',
-                    minWidth: '28px',
-                    borderRadius: '6px',
+                    height: '22px',
+                    minWidth: '22px',
+                    borderRadius: '4px',
                     padding: '0 8px',
                     fontSize: '13px',
                     cursor: 'pointer',
@@ -5273,7 +5509,111 @@ Write your message with the confidence that it will be protected by WRGuard encr
             </div>
 
             {/* SECTION 3 - Conditional Content based on mode */}
-            {(dockedPanelMode === 'command-chat' || dockedPanelMode === 'augmented-overlay') ? (
+            {/* P2P Chat */}
+            {dockedPanelMode === 'p2p-chat' && (
+              <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: theme === 'default' ? 'rgba(118,75,162,0.25)' : 'rgba(255,255,255,0.06)', minHeight: '280px' }}>
+                <div style={{ padding: '10px 14px', borderBottom: '1px solid rgba(255,255,255,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'rgba(0,0,0,0.1)' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#6b7280' }} />
+                    <span style={{ fontSize: '12px', opacity: 0.7 }}>No peer connected</span>
+                  </div>
+                  <button style={{ padding: '4px 10px', background: 'rgba(255,255,255,0.12)', border: 'none', borderRadius: '6px', color: 'white', fontSize: '11px', cursor: 'pointer' }}>Connect</button>
+                </div>
+                <div style={{ flex: 1, overflowY: 'auto', padding: '12px', display: 'flex', flexDirection: 'column', gap: '8px' }}></div>
+                <div style={{ padding: '10px 12px', borderTop: '1px solid rgba(255,255,255,0.1)', display: 'flex', gap: '6px', alignItems: 'center' }}>
+                  <textarea placeholder="Message or capsule..." style={{ flex: 1, padding: '8px 10px', background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '8px', color: 'white', fontSize: '12px', resize: 'none', minHeight: '32px', maxHeight: '80px' }} />
+                  <button title="Build Capsule" style={{ width: '32px', height: '32px', background: 'rgba(255,255,255,0.12)', border: 'none', borderRadius: '6px', color: 'white', fontSize: '14px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>💊</button>
+                  <button title="AI Assistant" style={{ width: '32px', height: '32px', background: 'rgba(255,255,255,0.12)', border: 'none', borderRadius: '6px', color: 'white', fontSize: '14px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✨</button>
+                  <button title="Attach" style={{ width: '32px', height: '32px', background: 'rgba(255,255,255,0.12)', border: 'none', borderRadius: '6px', color: 'white', fontSize: '14px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>📎</button>
+                  <button style={{ padding: '8px 14px', background: 'linear-gradient(135deg, #22c55e 0%, #16a34a 100%)', border: 'none', borderRadius: '8px', color: 'white', fontSize: '12px', fontWeight: '600', cursor: 'pointer' }}>Send</button>
+                </div>
+              </div>
+            )}
+
+            {/* P2P Live */}
+            {dockedPanelMode === 'p2p-stream' && (
+              <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: '#000', minHeight: '280px' }}>
+                <div style={{ flex: 2, display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative' }}>
+                  <div style={{ textAlign: 'center', color: '#666' }}>
+                    <div style={{ fontSize: '40px', marginBottom: '8px' }}>📹</div>
+                    <div style={{ fontSize: '12px' }}>No active stream</div>
+                  </div>
+                  <div style={{ position: 'absolute', bottom: '10px', left: '50%', transform: 'translateX(-50%)', display: 'flex', gap: '6px' }}>
+                    <button style={{ padding: '6px 10px', background: 'rgba(255,255,255,0.15)', border: 'none', borderRadius: '6px', color: 'white', fontSize: '11px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}>🎥 Start</button>
+                    <button style={{ padding: '6px 10px', background: 'rgba(255,255,255,0.15)', border: 'none', borderRadius: '6px', color: 'white', fontSize: '11px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}>🎙️ Mute</button>
+                    <button style={{ padding: '6px 10px', background: 'rgba(255,255,255,0.15)', border: 'none', borderRadius: '6px', color: 'white', fontSize: '11px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}>📺 Share</button>
+                  </div>
+                </div>
+                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: '120px', background: theme === 'default' ? 'rgba(118,75,162,0.25)' : 'rgba(255,255,255,0.06)' }}>
+                  <div style={{ flex: 1, overflowY: 'auto', padding: '8px' }}></div>
+                  <div style={{ padding: '8px', display: 'flex', gap: '6px', alignItems: 'center', borderTop: '1px solid rgba(255,255,255,0.1)' }}>
+                    <textarea placeholder="Chat..." style={{ flex: 1, padding: '6px 8px', background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '6px', color: 'white', fontSize: '11px', resize: 'none', minHeight: '28px' }} />
+                    <button title="AI Assistant" style={{ width: '28px', height: '28px', background: 'rgba(255,255,255,0.12)', border: 'none', borderRadius: '6px', color: 'white', fontSize: '12px', cursor: 'pointer' }}>✨</button>
+                    <button style={{ padding: '6px 12px', background: 'linear-gradient(135deg, #22c55e 0%, #16a34a 100%)', border: 'none', borderRadius: '6px', color: 'white', fontSize: '11px', fontWeight: '600', cursor: 'pointer' }}>Send</button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Group */}
+            {dockedPanelMode === 'group-stream' && (
+              <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: '#000', minHeight: '280px' }}>
+                <div style={{ flex: 2, display: 'flex' }}>
+                  <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRight: '1px solid #333' }}>
+                    <div style={{ textAlign: 'center', color: '#666' }}>
+                      <div style={{ fontSize: '32px' }}>👤</div>
+                      <div style={{ fontSize: '10px', marginTop: '4px' }}>Host</div>
+                    </div>
+                  </div>
+                  <div style={{ width: '70px', display: 'flex', flexDirection: 'column', gap: '2px', padding: '4px', overflowY: 'auto' }}>
+                    <div style={{ aspectRatio: '1', background: '#111', borderRadius: '4px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#444', fontSize: '14px' }}>👤</div>
+                    <div style={{ aspectRatio: '1', background: '#111', borderRadius: '4px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#444', fontSize: '14px' }}>+</div>
+                  </div>
+                </div>
+                <div style={{ padding: '6px 10px', borderTop: '1px solid rgba(255,255,255,0.15)', borderBottom: '1px solid rgba(255,255,255,0.15)', display: 'flex', gap: '6px', justifyContent: 'center', background: 'rgba(0,0,0,0.3)' }}>
+                  <button style={{ padding: '4px 8px', background: 'rgba(255,255,255,0.12)', border: 'none', borderRadius: '4px', color: 'white', fontSize: '12px', cursor: 'pointer' }}>🎥</button>
+                  <button style={{ padding: '4px 8px', background: 'rgba(255,255,255,0.12)', border: 'none', borderRadius: '4px', color: 'white', fontSize: '12px', cursor: 'pointer' }}>🎙️</button>
+                  <button style={{ padding: '4px 8px', background: 'rgba(255,255,255,0.12)', border: 'none', borderRadius: '4px', color: 'white', fontSize: '12px', cursor: 'pointer' }}>📺</button>
+                  <button style={{ padding: '4px 8px', background: 'rgba(239,68,68,0.2)', border: 'none', borderRadius: '4px', color: '#ef4444', fontSize: '10px', cursor: 'pointer' }}>Leave</button>
+                </div>
+                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: '100px', background: theme === 'default' ? 'rgba(118,75,162,0.25)' : 'rgba(255,255,255,0.06)' }}>
+                  <div style={{ flex: 1, overflowY: 'auto', padding: '8px' }}></div>
+                  <div style={{ padding: '8px', display: 'flex', gap: '6px', alignItems: 'center', borderTop: '1px solid rgba(255,255,255,0.1)' }}>
+                    <textarea placeholder="Group chat..." style={{ flex: 1, padding: '6px 8px', background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '6px', color: 'white', fontSize: '11px', resize: 'none', minHeight: '28px' }} />
+                    <button title="AI Assistant" style={{ width: '28px', height: '28px', background: 'rgba(255,255,255,0.12)', border: 'none', borderRadius: '6px', color: 'white', fontSize: '12px', cursor: 'pointer' }}>✨</button>
+                    <button style={{ padding: '6px 12px', background: 'linear-gradient(135deg, #22c55e 0%, #16a34a 100%)', border: 'none', borderRadius: '6px', color: 'white', fontSize: '11px', fontWeight: '600', cursor: 'pointer' }}>Send</button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Admin */}
+            {dockedPanelMode === 'admin' && (
+              <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: theme === 'default' ? 'rgba(118,75,162,0.25)' : 'rgba(255,255,255,0.06)', minHeight: '280px', overflow: 'hidden' }}>
+                <div style={{ padding: '10px 14px', borderBottom: '1px solid rgba(255,255,255,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <span style={{ fontSize: '12px', fontWeight: '600' }}>Policy Capsules</span>
+                  <button style={{ padding: '4px 10px', background: 'rgba(255,255,255,0.12)', border: 'none', borderRadius: '6px', color: 'white', fontSize: '10px', cursor: 'pointer' }}>+ New Policy</button>
+                </div>
+                <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
+                  <div style={{ width: '120px', borderRight: '1px solid rgba(255,255,255,0.1)', padding: '8px', overflowY: 'auto' }}>
+                    <div style={{ fontSize: '9px', opacity: 0.5, marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>POLICIES</div>
+                    <div style={{ padding: '6px 8px', background: 'rgba(255,255,255,0.1)', borderRadius: '4px', fontSize: '11px', marginBottom: '4px', cursor: 'pointer' }}>Security Rules</div>
+                    <div style={{ padding: '6px 8px', fontSize: '11px', marginBottom: '4px', cursor: 'pointer', opacity: 0.6 }}>Access Control</div>
+                    <div style={{ padding: '6px 8px', fontSize: '11px', marginBottom: '4px', cursor: 'pointer', opacity: 0.6 }}>Automation</div>
+                  </div>
+                  <div style={{ flex: 1, padding: '10px', display: 'flex', flexDirection: 'column' }}>
+                    <div style={{ fontSize: '11px', fontWeight: '600', marginBottom: '8px' }}>Policy Editor</div>
+                    <textarea placeholder="Define policy rules..." style={{ flex: 1, padding: '8px', background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '6px', color: 'white', fontSize: '11px', fontFamily: 'monospace', resize: 'none', minHeight: '80px' }} />
+                    <div style={{ display: 'flex', gap: '8px', marginTop: '10px', justifyContent: 'flex-end' }}>
+                      <button style={{ padding: '6px 12px', background: 'rgba(255,255,255,0.12)', border: 'none', borderRadius: '6px', color: 'white', fontSize: '10px', cursor: 'pointer' }}>Test</button>
+                      <button style={{ padding: '6px 14px', background: 'linear-gradient(135deg, #22c55e 0%, #16a34a 100%)', border: 'none', borderRadius: '6px', color: 'white', fontSize: '11px', fontWeight: '600', cursor: 'pointer' }}>Publish</button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {(dockedPanelMode === 'command' || dockedPanelMode === 'augmented-overlay') && (
               <>
                 {/* Messages Area */}
                 <div 
@@ -5415,7 +5755,9 @@ Write your message with the confidence that it will be protected by WRGuard encr
                   {renderSendButton()}
                 </div>
               </>
-            ) : (
+            )}
+
+            {dockedPanelMode === 'mailguard' && (
               /* WR MailGuard Email Editor - Section 3 (Admin View) */
               <div style={{ display: 'flex', flexDirection: 'column', flex: 1, background: theme === 'default' ? 'rgba(118,75,162,0.15)' : (theme === 'professional' ? '#f8fafc' : 'rgba(255,255,255,0.04)'), overflowY: 'auto' }}>
                 <style>{`

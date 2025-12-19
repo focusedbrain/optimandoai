@@ -72,7 +72,7 @@
       .bubble { max-width: 78%; padding: 10px 12px; border-radius: 10px; font-size: 12px; line-height: 1.45; }
       .bubble.user { background: var(--bubble-user-bg); border: 1px solid var(--bubble-user-border); }
       .bubble.assistant { background: var(--bubble-assist-bg); border: 1px solid var(--bubble-assist-border); }
-      .toolkit { display:flex; gap:8px; align-items:center; padding:8px 12px; border-bottom:1px solid var(--border); background: var(--surface); }
+      .toolkit { display:flex; gap:10px; align-items:center; padding:12px 16px; border-bottom:none; background: transparent; }
       .tk-btn { height:28px; padding:0 8px; border-radius:6px; border:1px solid var(--border); cursor:pointer; display:flex; align-items:center; justify-content:center; font-size:12px; background: var(--surface); color:var(--text); }
       .tk-bucket { color:#ef4444; }
       .composer { display: grid; grid-template-columns: 1fr 40px 40px auto; gap: 8px; padding: 8px 12px 12px; align-items: center; border-top:1px solid var(--border); }
@@ -131,10 +131,12 @@
       body.theme-professional .send-dropdown-item { color:#0f172a; }
       body.theme-professional .send-dropdown-item .size { background:#e2e8f0; }
       
-      /* Mode selector styling */
-      .mode-select { font-size:11px; font-weight:600; background:var(--btn-surface); border:1px solid var(--border); color:var(--text); border-radius:5px; padding:5px 22px 5px 8px; cursor:pointer; outline:none; appearance:none; -webkit-appearance:none; background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 12 12'%3E%3Cpath fill='%23ffffff' d='M3 4.5L6 7.5L9 4.5'/%3E%3C/svg%3E"); background-repeat:no-repeat; background-position:right 6px center; }
-      body.theme-professional .mode-select { background-color:#e2e8f0; color:#0f172a; background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 12 12'%3E%3Cpath fill='%230f172a' d='M3 4.5L6 7.5L9 4.5'/%3E%3C/svg%3E"); }
-      body.theme-dark .mode-select { background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 12 12'%3E%3Cpath fill='%23e5e7eb' d='M3 4.5L6 7.5L9 4.5'/%3E%3C/svg%3E"); }
+      /* Mode selector styling - Pill style */
+      .mode-select { font-size:12px; font-weight:500; background:rgba(55,65,81,0.9); border:none; color:#ffffff; border-radius:14px; padding:8px 24px 8px 12px; cursor:pointer; outline:none; appearance:none; -webkit-appearance:none; background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='8' viewBox='0 0 12 12'%3E%3Cpath fill='rgba(255,255,255,0.7)' d='M3 4.5L6 7.5L9 4.5'/%3E%3C/svg%3E"); background-repeat:no-repeat; background-position:right 10px center; transition: all 0.15s ease; }
+      .mode-select:hover { background:rgba(55,65,81,1); }
+      body.theme-professional .mode-select { background:rgba(55,65,81,0.9); color:#ffffff; }
+      body.theme-professional .mode-select:hover { background:rgba(55,65,81,1); }
+      body.theme-dark .mode-select { background:rgba(55,65,81,0.9); }
       
       /* Chat view styles */
       .chat-view { display:flex; flex-direction:column; flex:1; }
@@ -184,13 +186,21 @@
   <body>
       <div class="wrap">
       <div class="toolkit">
-        <select id="mode-select" class="mode-select">
-          <option value="command-chat">💬 WR Chat</option>
-          <option value="augmented-overlay">🎯 Augmented Overlay</option>
-          <option value="mailguard">🛡️ WR MailGuard</option>
-        </select>
+        <div style="display:flex; gap:6px; align-items:center;">
+          <select id="workspace-select" class="mode-select" style="width:95px; font-size:11px; padding:6px 20px 6px 8px; text-overflow:ellipsis;">
+            <option value="wr-chat">💬 WR Chat</option>
+            <option value="augmented-overlay">🎯 Augmented Overlay</option>
+            <option value="mailguard">🛡️ WR MailGuard</option>
+          </select>
+          <select id="submode-select" class="mode-select" style="width:75px; background:rgba(55,65,81,0.85) !important; font-size:11px; padding:6px 18px 6px 6px; text-overflow:ellipsis;">
+            <option value="command">cmd</option>
+            <option value="p2p-chat">P2P Chat</option>
+            <option value="p2p-stream">P2P Live</option>
+            <option value="group-stream">Group Stream</option>
+            <option value="admin">Admin</option>
+          </select>
+        </div>
         <div id="chat-controls" style="display:flex; gap:8px; align-items:center;">
-          <button id="tk-bucket" class="tk-btn tk-bucket" title="Context Bucket: Embed context directly into the session">🪣</button>
           <button id="tk-pencil" class="tk-btn" title="LmGTFY - Capture a screen area as screenshot or stream and send it to your pre-defined automation tasks.">✎</button>
           <div id="tk-tags-wrapper" style="position:relative;">
             <button id="tk-tags" class="tk-btn" title="Saved Tagged Triggers" style="padding-right:18px;">▾ Tags</button>
@@ -221,6 +231,102 @@
         </div>
       </div>
       
+      <!-- P2P Chat View -->
+      <div id="p2p-chat-view" class="chat-view" style="display:none;">
+        <div style="padding:8px 14px; border-bottom:1px solid var(--border); display:flex; align-items:center; justify-content:space-between; background:rgba(0,0,0,0.1);">
+          <div style="display:flex; align-items:center; gap:8px;">
+            <div style="width:8px; height:8px; border-radius:50%; background:#6b7280;"></div>
+            <span style="font-size:12px; color:var(--muted);">No peer connected</span>
+          </div>
+          <button class="tk-btn" style="font-size:10px; padding:4px 8px;">Connect</button>
+        </div>
+        <div id="p2p-msgs" class="messages"></div>
+        <div class="composer">
+          <textarea id="p2p-ta" class="ta" placeholder="Message or capsule..."></textarea>
+          <button id="p2p-capsule" class="btn" title="Build Capsule">💊</button>
+          <button id="p2p-ai" class="btn" title="AI Assistant">✨</button>
+          <button id="p2p-up" class="btn" title="Attach">📎</button>
+          <button class="send-main" style="padding:0 14px;">Send</button>
+        </div>
+      </div>
+
+      <!-- P2P Stream View -->
+      <div id="p2p-stream-view" style="display:none; flex:1; flex-direction:column;">
+        <div style="flex:2; background:#000; display:flex; align-items:center; justify-content:center; position:relative;">
+          <div style="text-align:center; color:#666;">
+            <div style="font-size:40px; margin-bottom:8px;">📹</div>
+            <div style="font-size:12px;">No active stream</div>
+          </div>
+          <div style="position:absolute; bottom:10px; left:50%; transform:translateX(-50%); display:flex; gap:8px;">
+            <button class="tk-btn" style="background:rgba(255,255,255,0.1);">🎥 Start</button>
+            <button class="tk-btn" style="background:rgba(255,255,255,0.1);">🎙️ Mute</button>
+            <button class="tk-btn" style="background:rgba(255,255,255,0.1);">📺 Share</button>
+          </div>
+        </div>
+        <div style="flex:1; display:flex; flex-direction:column; min-height:150px;">
+          <div class="messages" style="flex:1; padding:8px;"></div>
+          <div class="composer" style="padding:8px;">
+            <textarea class="ta" placeholder="Chat..." style="min-height:28px;"></textarea>
+            <button id="stream-ai" class="btn" title="AI Assistant">✨</button>
+            <button class="send-main" style="padding:0 10px; font-size:11px;">Send</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Group Stream View -->
+      <div id="group-stream-view" style="display:none; flex:1; flex-direction:column;">
+        <div style="flex:2; display:flex; background:#000;">
+          <div style="flex:1; display:flex; align-items:center; justify-content:center; border-right:1px solid #333;">
+            <div style="text-align:center; color:#666;">
+              <div style="font-size:32px;">👤</div>
+              <div style="font-size:10px; margin-top:4px;">Host</div>
+            </div>
+          </div>
+          <div style="width:80px; display:flex; flex-direction:column; gap:2px; padding:4px; overflow-y:auto;">
+            <div style="aspect-ratio:1; background:#111; border-radius:4px; display:flex; align-items:center; justify-content:center; color:#444; font-size:14px;">👤</div>
+            <div style="aspect-ratio:1; background:#111; border-radius:4px; display:flex; align-items:center; justify-content:center; color:#444; font-size:14px;">+</div>
+          </div>
+        </div>
+        <div style="padding:6px 10px; border-top:1px solid var(--border); border-bottom:1px solid var(--border); display:flex; gap:6px; justify-content:center;">
+          <button class="tk-btn" style="font-size:10px;">🎥</button>
+          <button class="tk-btn" style="font-size:10px;">🎙️</button>
+          <button class="tk-btn" style="font-size:10px;">📺</button>
+          <button class="tk-btn" style="font-size:10px; background:rgba(239,68,68,0.2); color:#ef4444;">Leave</button>
+        </div>
+        <div style="flex:1; display:flex; flex-direction:column; min-height:120px;">
+          <div class="messages" style="flex:1; padding:8px;"></div>
+          <div class="composer" style="padding:8px;">
+            <textarea class="ta" placeholder="Group chat..." style="min-height:28px;"></textarea>
+            <button id="group-ai" class="btn" title="AI Assistant">✨</button>
+            <button class="send-main" style="padding:0 10px; font-size:11px;">Send</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Admin View -->
+      <div id="admin-view" style="display:none; flex:1; flex-direction:column; overflow:hidden;">
+        <div style="padding:10px 14px; border-bottom:1px solid var(--border); display:flex; align-items:center; justify-content:space-between;">
+          <span style="font-size:12px; font-weight:600;">Policy Capsules</span>
+          <button class="tk-btn" style="font-size:10px; padding:4px 8px;">+ New Policy</button>
+        </div>
+        <div style="flex:1; display:flex; overflow:hidden;">
+          <div style="width:140px; border-right:1px solid var(--border); padding:8px; overflow-y:auto;">
+            <div style="font-size:10px; color:var(--muted); margin-bottom:8px;">POLICIES</div>
+            <div style="padding:6px 8px; background:rgba(255,255,255,0.1); border-radius:4px; font-size:11px; margin-bottom:4px; cursor:pointer;">Security Rules</div>
+            <div style="padding:6px 8px; font-size:11px; margin-bottom:4px; cursor:pointer; opacity:0.6;">Access Control</div>
+            <div style="padding:6px 8px; font-size:11px; margin-bottom:4px; cursor:pointer; opacity:0.6;">Automation</div>
+          </div>
+          <div style="flex:1; padding:12px; display:flex; flex-direction:column;">
+            <div style="font-size:11px; font-weight:600; margin-bottom:8px;">Policy Editor</div>
+            <textarea class="ta" style="flex:1; min-height:100px; font-family:monospace; font-size:11px;" placeholder="Define policy rules..."></textarea>
+            <div style="display:flex; gap:8px; margin-top:10px; justify-content:flex-end;">
+              <button class="tk-btn" style="font-size:10px;">Test</button>
+              <button class="send-main" style="font-size:11px; padding:6px 14px;">Publish to Network</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <!-- Augmented Overlay View -->
       <div id="overlay-view" class="overlay-view">
         <div id="overlay-msgs" class="messages">

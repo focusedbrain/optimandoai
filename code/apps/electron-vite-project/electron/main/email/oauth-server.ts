@@ -409,5 +409,5 @@ class OAuthServerManager {
 // Export singleton instance
 export const oauthServerManager = new OAuthServerManager()
 
-// Export types
-export type { OAuthCallbackResult, PendingOAuthRequest }
+// Export types (OAuthCallbackResult already exported as interface above)
+export type { PendingOAuthRequest }

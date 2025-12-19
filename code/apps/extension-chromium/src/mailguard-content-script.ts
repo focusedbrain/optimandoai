@@ -539,8 +539,22 @@ function getEmailRowPositions(): EmailRowRect[] {
                    senderEl?.getAttribute('title') || 
                    senderEl?.textContent?.trim() || ''
       
-      const subjectEl = row.querySelector(selectors.subject)
-      const subject = subjectEl?.textContent?.trim() || ''
+      let subjectEl = row.querySelector(selectors.subject)
+      let subject = subjectEl?.textContent?.trim() || ''
+      
+      // Fallback for Outlook: if no subject found, look for prominent text
+      if (!subject && provider === 'outlook') {
+        // Try to find subject by looking at span/div text content
+        const allSpans = Array.from(row.querySelectorAll('span, div'))
+        for (const el of allSpans) {
+          const text = el.textContent?.trim() || ''
+          // Subject is usually longer text that's not the sender
+          if (text.length > 10 && text.length < 200 && !text.includes('@') && text !== from) {
+            subject = text
+            break
+          }
+        }
+      }
       
       // Use viewport coordinates - the overlay script will handle screen positioning
       rows.push({
@@ -744,7 +758,7 @@ function initializeListeners(): void {
           sendToBackground({ type: 'MAILGUARD_UPDATE_BOUNDS', bounds })
         }
       }
-    }, 100) // Check every 100ms for smooth tracking
+    }, 300) // Check every 300ms (was 100ms) - better CPU efficiency
   }
   
   // CRITICAL: Deactivate when page is about to unload (navigation away from site entirely)
@@ -866,11 +880,11 @@ const EMAIL_SELECTORS = {
   },
   outlook: {
     // Outlook sender - look for name elements with email attribute or title
-    sender: '[title*="@"], span[title*="@"], [data-testid*="sender"], [data-testid*="name"], .OZZZK, .XbIp4',
-    // Outlook subject - various class names used
-    subject: '[data-testid*="subject"], .JHrmG, .lvHighlightSubjectClass, span[id*="subject"]',
+    sender: '[title*="@"], span[title*="@"], [data-testid*="sender"], [data-testid*="name"], .OZZZK, .XbIp4, [aria-label*="From"]',
+    // Outlook subject - look for subject line text (usually bold/prominent text in row)
+    subject: '[data-testid*="subject"], .JHrmG, .lvHighlightSubjectClass, span[id*="subject"], [aria-label*="Subject"], div[class*="subject" i], span[class*="subject" i], [role="heading"]',
     // Outlook snippet/preview
-    snippet: '[data-testid*="preview"], .LgbsSe, .Jzv0o, .yaDWK',
+    snippet: '[data-testid*="preview"], .LgbsSe, .Jzv0o, .yaDWK, [aria-label*="preview" i]',
     // Outlook date - time elements or spans with date
     date: 'time, span[aria-label*="received"], [data-testid*="date"], .l8Tnu',
     // Outlook attachment indicator
