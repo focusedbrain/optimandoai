@@ -6,7 +6,7 @@ interface BackendSwitcherInlineProps {
 }
 
 export function BackendSwitcherInline({ theme = 'default' }: BackendSwitcherInlineProps) {
-  const [isCollapsed, setIsCollapsed] = useState(false);
+  const [isCollapsed, setIsCollapsed] = useState(true);
   const [sqliteEnabled, setSqliteEnabled] = useState(false);
   const [isMigrating, setIsMigrating] = useState(false);
   const [backendAvailable, setBackendAvailable] = useState(false);
@@ -94,25 +94,78 @@ export function BackendSwitcherInline({ theme = 'default' }: BackendSwitcherInli
         background: bgColor
       }}>
         <div 
-          onClick={() => setIsCollapsed(!isCollapsed)}
           style={{
-            padding: '16px 20px',
+            padding: '10px 16px',
             display: 'flex',
             justifyContent: 'space-between',
             alignItems: 'center',
-            cursor: 'pointer',
-            userSelect: 'none'
+            gap: '8px'
           }}
         >
-          <div style={{ fontSize: '14px', fontWeight: '700', opacity: 0.95, display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <span style={{ fontSize: '18px' }}>🔐</span> WR Login / Backend
+          {/* Log in and Create account buttons - subtle/understate */}
+          <div style={{ display: 'flex', gap: '6px' }}>
+            <button
+              style={{
+                padding: '4px 10px',
+                background: 'transparent',
+                border: theme === 'professional' ? '1px solid rgba(15,23,42,0.2)' : '1px solid rgba(255,255,255,0.25)',
+                borderRadius: '4px',
+                color: textColor,
+                fontSize: '11px',
+                fontWeight: '400',
+                cursor: 'pointer',
+                transition: 'all 0.2s ease',
+                opacity: 0.8
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = theme === 'professional' ? 'rgba(15,23,42,0.05)' : 'rgba(255,255,255,0.08)';
+                e.currentTarget.style.opacity = '1';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = 'transparent';
+                e.currentTarget.style.opacity = '0.8';
+              }}
+            >
+              Log in
+            </button>
+            <button
+              style={{
+                padding: '4px 10px',
+                background: 'transparent',
+                border: theme === 'professional' ? '1px solid rgba(15,23,42,0.2)' : '1px solid rgba(255,255,255,0.25)',
+                borderRadius: '4px',
+                color: textColor,
+                fontSize: '11px',
+                fontWeight: '400',
+                cursor: 'pointer',
+                transition: 'all 0.2s ease',
+                opacity: 0.8
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = theme === 'professional' ? 'rgba(15,23,42,0.05)' : 'rgba(255,255,255,0.08)';
+                e.currentTarget.style.opacity = '1';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = 'transparent';
+                e.currentTarget.style.opacity = '0.8';
+              }}
+            >
+              Create account
+            </button>
           </div>
-          <div style={{ 
-            fontSize: '16px', 
-            opacity: 0.7,
-            transition: 'transform 0.2s ease',
-            transform: isCollapsed ? 'rotate(-90deg)' : 'rotate(0deg)'
-          }}>
+          {/* Expand/collapse toggle */}
+          <div 
+            onClick={() => setIsCollapsed(!isCollapsed)}
+            style={{ 
+              fontSize: '12px', 
+              opacity: 0.5,
+              transition: 'transform 0.2s ease',
+              transform: isCollapsed ? 'rotate(-90deg)' : 'rotate(0deg)',
+              cursor: 'pointer',
+              padding: '4px',
+              userSelect: 'none'
+            }}
+          >
             ▼
           </div>
         </div>

@@ -2757,6 +2757,31 @@ function SidepanelOrchestrator() {
 
   const themeColors = getThemeColors()
 
+  // Selectbox style based on theme
+  const getSelectboxStyle = () => {
+    if (theme === 'professional') {
+      return {
+        background: 'rgba(226, 232, 240, 0.9)',
+        color: '#0f172a',
+        arrowColor: '%230f172a'
+      }
+    } else if (theme === 'dark') {
+      return {
+        background: 'rgba(30, 41, 59, 0.9)',
+        color: '#f1f5f9',
+        arrowColor: '%23f1f5f9'
+      }
+    } else {
+      // Default theme
+      return {
+        background: 'rgba(55, 65, 81, 0.85)',
+        color: '#ffffff',
+        arrowColor: '%23ffffff'
+      }
+    }
+  }
+  const selectboxStyle = getSelectboxStyle()
+
   // Admin icon button style
   const adminIconStyle = {
     width: '32px',
@@ -2995,14 +3020,16 @@ function SidepanelOrchestrator() {
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'space-between',
-                padding: '10px 14px',
-                background: 'transparent',
-                borderBottom: 'none',
+                padding: '6px 10px',
+                background: theme === 'professional' ? 'linear-gradient(180deg, rgba(248,250,252,0.95) 0%, rgba(241,245,249,0.9) 100%)' : theme === 'dark' ? 'linear-gradient(180deg, rgba(15,23,42,0.95) 0%, rgba(30,41,59,0.9) 100%)' : 'linear-gradient(180deg, rgba(15,10,30,0.95) 0%, rgba(30,20,50,0.9) 100%)',
+                borderBottom: theme === 'professional' ? '1px solid rgba(15,23,42,0.1)' : '1px solid rgba(168,85,247,0.3)',
+                boxShadow: '0 2px 8px rgba(0,0,0,0.2)',
                 color: themeColors.text
               }}>
                 {/* Selectors */}
                 <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                   <select
+                    key={`workspace-select-minimal-${theme}`}
                     value={dockedWorkspace}
                     onChange={(e) => setDockedWorkspace(e.target.value as typeof dockedWorkspace)}
                     style={{
@@ -3010,9 +3037,9 @@ function SidepanelOrchestrator() {
                       fontWeight: '500',
                       height: '26px',
                       width: '95px',
-                      background: 'rgba(55,65,81,0.85)',
+                      background: selectboxStyle.background,
                       border: 'none',
-                      color: '#ffffff',
+                      color: selectboxStyle.color,
                       borderRadius: '13px',
                       padding: '0 20px 0 8px',
                       transition: 'all 0.15s ease',
@@ -3022,7 +3049,7 @@ function SidepanelOrchestrator() {
                       WebkitAppearance: 'none',
                       textOverflow: 'ellipsis',
                       overflow: 'hidden',
-                      backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='6' height='6' viewBox='0 0 12 12'%3E%3Cpath fill='%23ffffff' d='M3 4.5L6 7.5L9 4.5'/%3E%3C/svg%3E")`,
+                      backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='6' height='6' viewBox='0 0 12 12'%3E%3Cpath fill='${selectboxStyle.arrowColor}' d='M3 4.5L6 7.5L9 4.5'/%3E%3C/svg%3E")`,
                       backgroundRepeat: 'no-repeat',
                       backgroundPosition: 'right 5px center'
                     }}
@@ -3033,6 +3060,7 @@ function SidepanelOrchestrator() {
                   </select>
                   {dockedWorkspace === 'wr-chat' && (
                     <select
+                      key={`submode-select-minimal-${theme}`}
                       value={dockedSubmode}
                       onChange={(e) => setDockedSubmode(e.target.value as typeof dockedSubmode)}
                       style={{
@@ -3040,9 +3068,9 @@ function SidepanelOrchestrator() {
                         fontWeight: '500',
                         height: '26px',
                         width: '90px',
-                        background: 'rgba(55,65,81,0.85)',
+                        background: selectboxStyle.background,
                         border: 'none',
-                        color: '#ffffff',
+                        color: selectboxStyle.color,
                         borderRadius: '13px',
                         padding: '0 14px 0 6px',
                         cursor: 'pointer',
@@ -3051,15 +3079,15 @@ function SidepanelOrchestrator() {
                         WebkitAppearance: 'none',
                         textOverflow: 'ellipsis',
                         overflow: 'hidden',
-                        backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='6' height='6' viewBox='0 0 12 12'%3E%3Cpath fill='%23ffffff' d='M3 4.5L6 7.5L9 4.5'/%3E%3C/svg%3E")`,
+                        backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='6' height='6' viewBox='0 0 12 12'%3E%3Cpath fill='${selectboxStyle.arrowColor}' d='M3 4.5L6 7.5L9 4.5'/%3E%3C/svg%3E")`,
                         backgroundRepeat: 'no-repeat',
                         backgroundPosition: 'right 4px center'
                       }}
                     >
                       <option value="command">cmd</option>
-                      <option value="p2p-chat">P2P Chat</option>
-                      <option value="p2p-stream">P2P Live</option>
-                      <option value="group-stream">Group Stream</option>
+                      <option value="p2p-chat">Direct Chat</option>
+                      <option value="p2p-stream">Live Views</option>
+                      <option value="group-stream">Group Sessions</option>
                       <option value="admin">Admin</option>
                     </select>
                   )}
@@ -4267,14 +4295,15 @@ Write your message with the confidence that it will be protected by WRGuard encr
               alignItems: 'center',
               justifyContent: 'space-between',
               padding: '6px 10px',
-              background: 'linear-gradient(180deg, rgba(15,10,30,0.95) 0%, rgba(30,20,50,0.9) 100%)',
-              borderBottom: '1px solid rgba(168,85,247,0.3)',
+              background: theme === 'professional' ? 'linear-gradient(180deg, rgba(248,250,252,0.95) 0%, rgba(241,245,249,0.9) 100%)' : theme === 'dark' ? 'linear-gradient(180deg, rgba(15,23,42,0.95) 0%, rgba(30,41,59,0.9) 100%)' : 'linear-gradient(180deg, rgba(15,10,30,0.95) 0%, rgba(30,20,50,0.9) 100%)',
+              borderBottom: theme === 'professional' ? '1px solid rgba(15,23,42,0.1)' : '1px solid rgba(168,85,247,0.3)',
               boxShadow: '0 2px 8px rgba(0,0,0,0.2)',
               color: themeColors.text
             }}>
               {/* Selectors */}
               <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                 <select
+                  key={`workspace-select-app-${theme}`}
                   value={dockedWorkspace}
                   onChange={(e) => setDockedWorkspace(e.target.value as typeof dockedWorkspace)}
                   style={{
@@ -4282,9 +4311,9 @@ Write your message with the confidence that it will be protected by WRGuard encr
                     fontWeight: '600',
                     height: '22px',
                     width: '90px',
-                    background: 'rgba(88,28,135,0.9)',
-                    border: '1px solid rgba(168,85,247,0.4)',
-                    color: '#ffffff',
+                    background: selectboxStyle.background,
+                    border: theme === 'professional' ? '1px solid rgba(15,23,42,0.2)' : '1px solid rgba(168,85,247,0.4)',
+                    color: selectboxStyle.color,
                     borderRadius: '4px',
                     padding: '0 18px 0 6px',
                     cursor: 'pointer',
@@ -4293,7 +4322,7 @@ Write your message with the confidence that it will be protected by WRGuard encr
                     WebkitAppearance: 'none',
                     textOverflow: 'ellipsis',
                     overflow: 'hidden',
-                    backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='6' height='6' viewBox='0 0 12 12'%3E%3Cpath fill='%23ffffff' d='M3 4.5L6 7.5L9 4.5'/%3E%3C/svg%3E")`,
+                    backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='6' height='6' viewBox='0 0 12 12'%3E%3Cpath fill='${selectboxStyle.arrowColor}' d='M3 4.5L6 7.5L9 4.5'/%3E%3C/svg%3E")`,
                     backgroundRepeat: 'no-repeat',
                     backgroundPosition: 'right 4px center'
                   }}
@@ -4304,6 +4333,7 @@ Write your message with the confidence that it will be protected by WRGuard encr
                 </select>
                 {dockedWorkspace === 'wr-chat' && (
                   <select
+                    key={`submode-select-app-${theme}`}
                     value={dockedSubmode}
                     onChange={(e) => setDockedSubmode(e.target.value as typeof dockedSubmode)}
                     style={{
@@ -4311,9 +4341,9 @@ Write your message with the confidence that it will be protected by WRGuard encr
                       fontWeight: '500',
                       height: '26px',
                       width: '75px',
-                      background: 'rgba(55,65,81,0.85)',
+                      background: selectboxStyle.background,
                       border: 'none',
-                      color: '#ffffff',
+                      color: selectboxStyle.color,
                       borderRadius: '13px',
                       padding: '0 18px 0 6px',
                       transition: 'all 0.15s ease',
@@ -4323,21 +4353,21 @@ Write your message with the confidence that it will be protected by WRGuard encr
                       WebkitAppearance: 'none',
                       textOverflow: 'ellipsis',
                       overflow: 'hidden',
-                      backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='6' height='6' viewBox='0 0 12 12'%3E%3Cpath fill='%23ffffff' d='M3 4.5L6 7.5L9 4.5'/%3E%3C/svg%3E")`,
+                      backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='6' height='6' viewBox='0 0 12 12'%3E%3Cpath fill='${selectboxStyle.arrowColor}' d='M3 4.5L6 7.5L9 4.5'/%3E%3C/svg%3E")`,
                       backgroundRepeat: 'no-repeat',
                       backgroundPosition: 'right 4px center'
                     }}
                   >
                     <option value="command">cmd</option>
-                    <option value="p2p-chat">P2P Chat</option>
-                    <option value="p2p-stream">P2P Live</option>
-                    <option value="group-stream">Group Stream</option>
+                    <option value="p2p-chat">Direct Chat</option>
+                    <option value="p2p-stream">Live Views</option>
+                    <option value="group-stream">Group Sessions</option>
                     <option value="admin">Admin</option>
                   </select>
                 )}
               </div>
               {/* Divider */}
-              <div style={{ width: '1px', height: '16px', background: 'rgba(168,85,247,0.3)', margin: '0 4px' }} />
+              <div style={{ width: '1px', height: '16px', background: theme === 'professional' ? 'rgba(15,23,42,0.15)' : 'rgba(168,85,247,0.3)', margin: '0 4px' }} />
               {/* Controls */}
               <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
                 {dockedPanelMode !== 'admin' && dockedPanelMode !== 'mailguard' && dockedPanelMode !== 'augmented-overlay' && <>
@@ -5114,8 +5144,8 @@ height: '28px',
             style={{
               width: '100%',
               padding: '8px 12px',
-              background: 'rgba(255,255,255,0.08)',
-              border: '1px solid rgba(255,255,255,0.15)',
+              background: theme === 'professional' ? 'rgba(15,23,42,0.06)' : 'rgba(255,255,255,0.08)',
+              border: theme === 'professional' ? '1px solid rgba(15,23,42,0.12)' : '1px solid rgba(255,255,255,0.15)',
               color: themeColors.text,
               borderRadius: '6px',
               fontSize: '13px',
@@ -5129,18 +5159,18 @@ height: '28px',
               padding: '2px 12px',
               fontSize: '10px',
               fontFamily: 'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace',
-              color: 'rgba(255,255,255,0.5)',
+              color: theme === 'professional' ? 'rgba(15,23,42,0.5)' : 'rgba(255,255,255,0.5)',
               whiteSpace: 'nowrap',
               overflow: 'hidden',
               textOverflow: 'ellipsis',
               letterSpacing: '0.3px'
             }}>
               <span style={{ 
-                color: 'rgba(255,255,255,0.4)',
+                color: theme === 'professional' ? 'rgba(15,23,42,0.4)' : 'rgba(255,255,255,0.4)',
                 marginRight: '4px'
               }}>ID:</span>
               <span style={{ 
-                color: 'rgba(255,215,0,0.7)',
+                color: theme === 'professional' ? 'rgba(79,70,229,0.8)' : 'rgba(255,215,0,0.7)',
                 fontWeight: '400'
               }}>{sessionKey}</span>
             </div>
@@ -5246,14 +5276,15 @@ height: '28px',
               alignItems: 'center',
               justifyContent: 'space-between',
               padding: '6px 10px',
-              background: 'linear-gradient(180deg, rgba(15,10,30,0.95) 0%, rgba(30,20,50,0.9) 100%)',
-              borderBottom: '1px solid rgba(168,85,247,0.3)',
+              background: theme === 'professional' ? 'linear-gradient(180deg, rgba(248,250,252,0.95) 0%, rgba(241,245,249,0.9) 100%)' : theme === 'dark' ? 'linear-gradient(180deg, rgba(15,23,42,0.95) 0%, rgba(30,41,59,0.9) 100%)' : 'linear-gradient(180deg, rgba(15,10,30,0.95) 0%, rgba(30,20,50,0.9) 100%)',
+              borderBottom: theme === 'professional' ? '1px solid rgba(15,23,42,0.1)' : '1px solid rgba(168,85,247,0.3)',
               boxShadow: '0 2px 8px rgba(0,0,0,0.2)',
               color: themeColors.text
             }}>
               {/* Selectors */}
               <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                 <select
+                  key={`workspace-select-admin-${theme}`}
                   value={dockedWorkspace}
                   onChange={(e) => setDockedWorkspace(e.target.value as typeof dockedWorkspace)}
                   style={{
@@ -5261,9 +5292,9 @@ height: '28px',
                     fontWeight: '600',
                     height: '22px',
                     width: '90px',
-                    background: 'rgba(88,28,135,0.9)',
-                    border: '1px solid rgba(168,85,247,0.4)',
-                    color: '#ffffff',
+                    background: selectboxStyle.background,
+                    border: theme === 'professional' ? '1px solid rgba(15,23,42,0.2)' : '1px solid rgba(168,85,247,0.4)',
+                    color: selectboxStyle.color,
                     borderRadius: '4px',
                     padding: '0 18px 0 6px',
                     cursor: 'pointer',
@@ -5272,7 +5303,7 @@ height: '28px',
                     WebkitAppearance: 'none',
                     textOverflow: 'ellipsis',
                     overflow: 'hidden',
-                    backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='6' height='6' viewBox='0 0 12 12'%3E%3Cpath fill='%23ffffff' d='M3 4.5L6 7.5L9 4.5'/%3E%3C/svg%3E")`,
+                    backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='6' height='6' viewBox='0 0 12 12'%3E%3Cpath fill='${selectboxStyle.arrowColor}' d='M3 4.5L6 7.5L9 4.5'/%3E%3C/svg%3E")`,
                     backgroundRepeat: 'no-repeat',
                     backgroundPosition: 'right 4px center'
                   }}
@@ -5283,6 +5314,7 @@ height: '28px',
                 </select>
                 {dockedWorkspace === 'wr-chat' && (
                   <select
+                    key={`submode-select-admin-${theme}`}
                     value={dockedSubmode}
                     onChange={(e) => setDockedSubmode(e.target.value as typeof dockedSubmode)}
                     style={{
@@ -5290,9 +5322,9 @@ height: '28px',
                       fontWeight: '500',
                       height: '26px',
                       width: '75px',
-                      background: 'rgba(55,65,81,0.85)',
+                      background: selectboxStyle.background,
                       border: 'none',
-                      color: '#ffffff',
+                      color: selectboxStyle.color,
                       borderRadius: '13px',
                       padding: '0 18px 0 6px',
                       transition: 'all 0.15s ease',
@@ -5302,21 +5334,21 @@ height: '28px',
                       WebkitAppearance: 'none',
                       textOverflow: 'ellipsis',
                       overflow: 'hidden',
-                      backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='6' height='6' viewBox='0 0 12 12'%3E%3Cpath fill='%23ffffff' d='M3 4.5L6 7.5L9 4.5'/%3E%3C/svg%3E")`,
+                      backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='6' height='6' viewBox='0 0 12 12'%3E%3Cpath fill='${selectboxStyle.arrowColor}' d='M3 4.5L6 7.5L9 4.5'/%3E%3C/svg%3E")`,
                       backgroundRepeat: 'no-repeat',
                       backgroundPosition: 'right 4px center'
                     }}
                   >
                     <option value="command">cmd</option>
-                    <option value="p2p-chat">P2P Chat</option>
-                    <option value="p2p-stream">P2P Live</option>
-                    <option value="group-stream">Group Stream</option>
+                    <option value="p2p-chat">Direct Chat</option>
+                    <option value="p2p-stream">Live Views</option>
+                    <option value="group-stream">Group Sessions</option>
                     <option value="admin">Admin</option>
                   </select>
                 )}
               </div>
               {/* Divider */}
-              <div style={{ width: '1px', height: '16px', background: 'rgba(168,85,247,0.3)', margin: '0 4px' }} />
+              <div style={{ width: '1px', height: '16px', background: theme === 'professional' ? 'rgba(15,23,42,0.15)' : 'rgba(168,85,247,0.3)', margin: '0 4px' }} />
               {/* Controls */}
               <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
                 {dockedPanelMode !== 'admin' && dockedPanelMode !== 'mailguard' && dockedPanelMode !== 'augmented-overlay' && <>
