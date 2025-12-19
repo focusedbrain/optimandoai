@@ -126,20 +126,67 @@ export function BackendSwitcherInline({ theme = 'default' }: BackendSwitcherInli
             flexDirection: 'column',
             gap: '20px'
           }}>
-            {/* Hero Section */}
+            {/* Hero Section with Logo */}
             <div style={{ textAlign: 'center', marginBottom: '4px' }}>
+              {/* Logo Box */}
+              <div style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                width: '56px',
+                height: '56px',
+                background: theme === 'professional' ? 'rgba(15,23,42,0.04)' : 'rgba(255,255,255,0.08)',
+                border: `1px solid ${theme === 'professional' ? 'rgba(15,23,42,0.12)' : 'rgba(255,255,255,0.15)'}`,
+                borderRadius: '12px',
+                marginBottom: '12px'
+              }}>
+                <svg width="36" height="40" viewBox="0 0 36 40" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  {/* Shield shape */}
+                  <path 
+                    d="M18 2L4 8V18C4 27.5 10 34.5 18 38C26 34.5 32 27.5 32 18V8L18 2Z" 
+                    stroke={textColor}
+                    strokeWidth="2"
+                    fill="none"
+                  />
+                  {/* WR text */}
+                  <text x="18" y="18" textAnchor="middle" fontSize="10" fontWeight="700" fill={textColor} fontFamily="system-ui, sans-serif">WR</text>
+                  {/* CODE text */}
+                  <text x="18" y="27" textAnchor="middle" fontSize="7" fontWeight="600" fill={textColor} fontFamily="system-ui, sans-serif">CODE</text>
+                  {/* Lock icon */}
+                  <circle cx="18" cy="33" r="3" stroke={textColor} strokeWidth="1" fill="none"/>
+                  <rect x="16" y="31" width="4" height="3" fill={textColor} rx="0.5"/>
+                  {/* Checkmark */}
+                  <circle cx="26" cy="8" r="4" fill={theme === 'professional' ? '#22c55e' : '#4ade80'}/>
+                  <path d="M24 8L25.5 9.5L28 7" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+              </div>
+              
+              {/* Main Title */}
+              <h1 style={{
+                fontSize: '17px',
+                fontWeight: '700',
+                color: textColor,
+                margin: '0 0 6px 0',
+                lineHeight: '1.3',
+                letterSpacing: '-0.02em'
+              }}>
+                Workflow-Ready Code
+              </h1>
+              
+              {/* Subtitle */}
               <h2 style={{
-                fontSize: '15px',
-                fontWeight: '600',
+                fontSize: '13px',
+                fontWeight: '500',
                 color: textColor,
                 margin: '0 0 10px 0',
                 lineHeight: '1.4',
-                letterSpacing: '-0.01em'
+                letterSpacing: '-0.01em',
+                opacity: 0.9
               }}>
                 Transport-agnostic automation for enterprise communication, documents and actions.
               </h2>
               <p style={{
-                fontSize: '12px',
+                fontSize: '11px',
                 color: mutedColor,
                 margin: 0,
                 lineHeight: '1.5'
