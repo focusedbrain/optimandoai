@@ -281,6 +281,102 @@ export function BackendSwitcherInline({ theme = 'default' }: BackendSwitcherInli
               </div>
             </div>
 
+            {/* Divider */}
+            <div style={{
+              height: '1px',
+              background: `linear-gradient(90deg, transparent, ${borderColor}, transparent)`,
+              margin: '12px 20px'
+            }} />
+
+            {/* How it works Section */}
+            <div style={{ marginTop: '4px' }}>
+              <div style={{
+                fontSize: '12px',
+                fontWeight: '600',
+                color: textColor,
+                marginBottom: '12px',
+                opacity: 0.95
+              }}>
+                How it works
+              </div>
+              <div style={{
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '12px',
+                fontSize: '11px',
+                color: textColor,
+                lineHeight: '1.6',
+                opacity: 0.85
+              }}>
+                <p style={{ margin: 0 }}>
+                  Modern cybersecurity is undergoing a structural transition. Emails, messages, links, documents, and attachments have historically operated as implicitly executable processing pathways across both enterprise infrastructures and individual workstations, encompassing private as well as professional computing environments. With the rise of large-scale automation and AI-driven systems, these execution paths are activated more frequently and with less human oversight, significantly expanding the effective attack surface beyond what perimeter-based or transport-layer security models can reliably control.
+                </p>
+                <p style={{ margin: 0, padding: '12px 14px', background: cardBg, borderRadius: '6px', border: `1px solid ${borderColor}`, fontWeight: '500' }}>
+                  WR Code establishes a transport-agnostic automation protocol that makes workflows verifiable, deterministic, and secure across untrusted systems and execution environments.
+                </p>
+                <p style={{ margin: 0 }}>
+                  Original artifacts are sealed, encrypted, and cryptographically inaccessible inside the protected environment. They are not opened, rendered, or executed in their original form. Instead, incoming content is transformed into a deterministic, text-based semantic representation, which is the only surface exposed to automation, workflows, and AI agents.
+                </p>
+                <p style={{ margin: 0 }}>
+                  Where reconstruction is required, it is performed through deterministic, policy-bound reconstruction processes that do not reintroduce executable interpretation, dynamic behavior, or uncontrolled side effects.
+                </p>
+                <p style={{ margin: 0 }}>
+                  For regulatory and audit purposes, original artifacts may be archived in sealed form and cryptographically linked to their reconstructed representations using deterministic proofs. The applicable encryption and access path is determined by the capsule policy, allowing integrity and provenance to be verified without reopening execution paths.
+                </p>
+                <p style={{ margin: 0, padding: '12px 14px', background: cardBg, borderRadius: '6px', border: `1px solid ${borderColor}`, fontWeight: '500' }}>
+                  BEAP represents one of the earliest examples of a post-quantum–ready, transport-agnostic enterprise communication and automation protocol, designed to be transport-agnostic and transferable across channels such as email, messaging systems, file transfer mechanisms.
+                </p>
+                <p style={{ margin: 0 }}>
+                  Video, voice, and streaming content are handled under a separate model and only within hardware‑attested, enterprise‑grade orchestrator environments that enforce a strict, deterministic, source‑available architecture. At scale, enterprise automation increasingly depends on technical standards that eliminate implicit execution paths and enable deterministic cybersecurity across communication, automation, and AI-driven systems.
+                </p>
+              </div>
+            </div>
+
+            {/* Divider */}
+            <div style={{
+              height: '1px',
+              background: `linear-gradient(90deg, transparent, ${borderColor}, transparent)`,
+              margin: '12px 20px'
+            }} />
+
+            {/* Why BEAP Is Different Section */}
+            <div style={{ marginTop: '4px' }}>
+              <div style={{
+                fontSize: '12px',
+                fontWeight: '600',
+                color: textColor,
+                marginBottom: '12px',
+                opacity: 0.95
+              }}>
+                Why BEAP Is Different
+              </div>
+              <div style={{
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '12px',
+                fontSize: '11px',
+                color: textColor,
+                lineHeight: '1.6',
+                opacity: 0.85
+              }}>
+                <p style={{ margin: 0 }}>
+                  Most communication systems focus on encrypting messages in transit. What happens after delivery, and whether rules are actually respected, remains largely unverifiable.
+                </p>
+                <p style={{ margin: 0, padding: '12px 14px', background: cardBg, borderRadius: '6px', border: `1px solid ${borderColor}`, fontWeight: '500' }}>
+                  BEAP takes a different approach.
+                </p>
+                <p style={{ margin: 0 }}>
+                  Instead of exchanging messages, BEAP models communication as capsule-based, policy-bound state transitions. Each capsule cryptographically binds intent, policy, and validity conditions. If these conditions are not met, the capsule is invalid — correct handling can be verified, not just trusted, without access to message content or application-level communication metadata.
+                </p>
+                <p style={{ margin: 0 }}>
+                  Real-time audio and video streams remain ephemeral by nature. BEAP does not encapsulate the media itself, but cryptographically governs how streams are established, secured, and terminated, eliminating avoidable application-level metadata while preserving real-time performance.
+                </p>
+                <p style={{ margin: 0, padding: '12px 14px', background: cardBg, borderRadius: '6px', border: `1px solid ${borderColor}`, fontWeight: '500' }}>
+                  The result is not just encrypted communication, but a structurally verifiable communication model — designed for environments where trust assumptions are no longer sufficient.
+                </p>
+              </div>
+            </div>
+
             {/* Footer tagline */}
             <div style={{
               textAlign: 'center',
