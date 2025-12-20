@@ -26,6 +26,7 @@ export function BackendSwitcherInline({ theme = 'default' }: BackendSwitcherInli
     { icon: '📋', text: 'Workflows remain verifiable, auditable, and enforceable across system boundaries' },
     { icon: '⚛️', text: 'Post-quantum–ready encryption is embedded into capsules by design' },
     { icon: '🏗️', text: 'Security and policy enforcement are native architectural properties, not retrofitted controls' },
+    { icon: '🚧', text: 'Egress constraints are bound at the envelope level and enforced before any capsule is opened, ensuring that orchestration can only proceed within pre-authorized destinations and actions, with no possibility of post-decryption policy bypass' },
   ];
 
   const examples = [
@@ -347,10 +348,12 @@ export function BackendSwitcherInline({ theme = 'default' }: BackendSwitcherInli
                   lineHeight: '1.6'
                 }}>
                   <div style={{ 
-                    fontSize: '11px', 
+                    fontSize: '13px', 
                     fontWeight: '600', 
                     color: theme === 'professional' ? '#0f172a' : '#f1f5f9',
-                    marginBottom: '6px'
+                    letterSpacing: '-0.01em',
+                    marginBottom: '10px',
+                    lineHeight: '1.35'
                   }}>
                     BEAP - Bidirectional Email Automation Protocol
                   </div>
@@ -441,10 +444,12 @@ export function BackendSwitcherInline({ theme = 'default' }: BackendSwitcherInli
                   lineHeight: '1.6'
                 }}>
                   <div style={{ 
-                    fontSize: '11px', 
+                    fontSize: '13px', 
                     fontWeight: '600', 
                     color: theme === 'professional' ? '#0f172a' : '#f1f5f9',
-                    marginBottom: '6px'
+                    letterSpacing: '-0.01em',
+                    marginBottom: '10px',
+                    lineHeight: '1.35'
                   }}>
                     Post-Quantum–Ready, Channel-Independent Communication
                   </div>
