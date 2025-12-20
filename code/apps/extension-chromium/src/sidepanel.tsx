@@ -422,10 +422,12 @@ function SidepanelOrchestrator() {
         const modelStillExists = models.some((m: any) => m.name === currentModel)
         
         if (!currentModel || !modelStillExists) {
-          const firstModel = models[0].name
-          setActiveLlmModel(firstModel)
-          activeLlmModelRef.current = firstModel
-          console.log('[Command Chat] Auto-selected model:', firstModel)
+          // Prefer gemma if available, otherwise use first model
+          const gemmaModel = models.find((m: any) => m.name.toLowerCase().includes('gemma'))
+          const selectedModel = gemmaModel ? gemmaModel.name : models[0].name
+          setActiveLlmModel(selectedModel)
+          activeLlmModelRef.current = selectedModel
+          console.log('[Command Chat] Auto-selected model:', selectedModel)
         }
         setLlmError(null)
         return true
@@ -470,10 +472,12 @@ function SidepanelOrchestrator() {
           const modelExists = status.modelsInstalled.some((m: any) => m.name === currentModel)
           
           if (!currentModel || !modelExists) {
-            const firstModel = status.modelsInstalled[0].name
-            setActiveLlmModel(firstModel)
-            activeLlmModelRef.current = firstModel
-            console.log('[Command Chat] Auto-selected model:', firstModel)
+            // Prefer gemma if available, otherwise use first model
+            const gemmaModel = status.modelsInstalled.find((m: any) => m.name.toLowerCase().includes('gemma'))
+            const selectedModel = gemmaModel ? gemmaModel.name : status.modelsInstalled[0].name
+            setActiveLlmModel(selectedModel)
+            activeLlmModelRef.current = selectedModel
+            console.log('[Command Chat] Auto-selected model:', selectedModel)
           }
           console.log('[Command Chat] Available models:', status.modelsInstalled.map((m: any) => m.name))
           setLlmError(null)
@@ -1379,7 +1383,7 @@ function SidepanelOrchestrator() {
     setTimeout(() => setNotification(null), 3000)
   }
 
-  // Quick Actions functions - EXACTLY like the original buttons
+  // Runtime Controls functions - EXACTLY like the original buttons
   const openAddView = () => {
     sendToContentScript('OPEN_HELPER_GRID_LIGHTBOX')
   }
@@ -2435,11 +2439,11 @@ function SidepanelOrchestrator() {
             padding: '4px 14px',
             background: style.bg,
             border: style.border,
-            borderRight: hasModels ? 'none' : undefined,
+            borderRight: 'none',
             borderTopLeftRadius: '10px',
             borderBottomLeftRadius: '10px',
-            borderTopRightRadius: hasModels ? '0' : '10px',
-            borderBottomRightRadius: hasModels ? '0' : '10px',
+            borderTopRightRadius: '0',
+            borderBottomRightRadius: '0',
             color: style.color,
             cursor: isDisabled ? 'not-allowed' : 'pointer',
             transition: 'all 0.2s ease',
@@ -2468,30 +2472,27 @@ function SidepanelOrchestrator() {
           }}>
             {isLlmLoading ? '⏳ Thinking' : 'Send'}
           </span>
-          {hasModels && (
-            <span style={{ 
-              fontSize: '9px', 
-              opacity: 0.8,
-              lineHeight: 1,
-              maxWidth: '70px',
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              whiteSpace: 'nowrap'
-            }}>
-              {getShortModelName(activeLlmModel)}
-            </span>
-          )}
+          <span style={{ 
+            fontSize: '9px', 
+            opacity: 0.8,
+            lineHeight: 1,
+            maxWidth: '70px',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap'
+          }}>
+            {hasModels ? getShortModelName(activeLlmModel) : 'No model'}
+          </span>
         </button>
         
         {/* Model dropdown toggle */}
-        {hasModels && (
-          <button
-            onClick={(e) => {
-              e.stopPropagation()
-              setShowModelDropdown(!showModelDropdown)
-            }}
-            disabled={isLlmLoading}
-            style={{
+        <button
+          onClick={(e) => {
+            e.stopPropagation()
+            setShowModelDropdown(!showModelDropdown)
+          }}
+          disabled={isLlmLoading}
+          style={{
               height: '44px',
               width: '22px',
               background: style.bg,
@@ -2523,10 +2524,9 @@ function SidepanelOrchestrator() {
           >
             ▾
           </button>
-        )}
         
         {/* Model dropdown menu */}
-        {showModelDropdown && hasModels && (
+        {showModelDropdown && (
           <div
             onClick={(e) => e.stopPropagation()}
             style={{
@@ -2555,6 +2555,16 @@ function SidepanelOrchestrator() {
             }}>
               SELECT MODEL
             </div>
+            {availableModels.length === 0 && (
+              <div style={{
+                padding: '10px 12px',
+                fontSize: '11px',
+                opacity: 0.6,
+                color: theme === 'professional' ? '#64748b' : 'inherit'
+              }}>
+                No models available. Install models in LLM Settings.
+              </div>
+            )}
             {availableModels.map((model) => (
               <div
                 key={model.name}
@@ -3478,7 +3488,7 @@ function SidepanelOrchestrator() {
                 id="ccd-compose-sidepanel"
                 style={{
                 display: 'grid',
-                gridTemplateColumns: '1fr 40px 40px 72px',
+                gridTemplateColumns: '1fr 40px 40px auto',
                 gap: '8px',
                 alignItems: 'center',
                 padding: '12px 14px'
@@ -4751,7 +4761,7 @@ height: '28px',
                   id="ccd-compose-sidepanel"
                   style={{
                   display: 'grid',
-                  gridTemplateColumns: '1fr 40px 72px',
+                  gridTemplateColumns: '1fr 40px auto',
                   gap: '8px',
                   alignItems: 'center',
                   padding: '12px 14px'
@@ -5731,7 +5741,7 @@ height: '28px',
                   id="ccd-compose-sidepanel"
                   style={{
                   display: 'grid',
-                  gridTemplateColumns: '1fr 40px 72px',
+                  gridTemplateColumns: '1fr 40px auto',
                   gap: '8px',
                   alignItems: 'center',
                   padding: '12px 14px'
@@ -6552,7 +6562,7 @@ height: '28px',
         ➕ Add New Agent Box
       </button>
 
-      {/* Quick Actions Section */}
+      {/* Runtime Controls Section */}
       <div style={{
         background: theme === 'default' ? 'rgba(118,75,162,0.5)' : 'rgba(255,255,255,0.12)',
         padding: '16px',
@@ -6572,8 +6582,8 @@ height: '28px',
           gap: '10px',
           alignItems: 'center'
         }}>
-          <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-            ⚡ Quick Actions
+          <span style={{ display: 'flex', alignItems: 'center', gap: '6px', whiteSpace: 'nowrap' }}>
+            ⚡ Runtime Controls
           </span>
           <div
             onClick={toggleViewMode}
