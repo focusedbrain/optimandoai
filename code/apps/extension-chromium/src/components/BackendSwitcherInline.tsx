@@ -4,8 +4,20 @@ interface BackendSwitcherInlineProps {
   theme?: 'default' | 'dark' | 'professional';
 }
 
+type TextSize = 'small' | 'normal' | 'large';
+
+const TEXT_SCALES: Record<TextSize, number> = {
+  small: 0.9,
+  normal: 1,
+  large: 1.3
+};
+
 export function BackendSwitcherInline({ theme = 'default' }: BackendSwitcherInlineProps) {
   const [isCollapsed, setIsCollapsed] = useState(true);
+  const [textSize, setTextSize] = useState<TextSize>('small');
+
+  // Helper to scale font sizes
+  const scaledSize = (baseSize: number) => `${Math.round(baseSize * TEXT_SCALES[textSize])}px`;
 
   const textColor = theme === 'default' ? '#fff' : theme === 'dark' ? '#fff' : '#0f172a';
   const mutedColor = theme === 'professional' ? 'rgba(15,23,42,0.6)' : 'rgba(255,255,255,0.7)';
@@ -125,8 +137,50 @@ export function BackendSwitcherInline({ theme = 'default' }: BackendSwitcherInli
             padding: '20px 16px 28px 16px',
             display: 'flex',
             flexDirection: 'column',
-            gap: '20px'
+            gap: '12px'
           }}>
+            {/* Text Size Controls */}
+            <div style={{
+              display: 'flex',
+              justifyContent: 'flex-end',
+              alignItems: 'center',
+              gap: '2px',
+              marginBottom: '-8px'
+            }}>
+              {(['small', 'normal', 'large'] as TextSize[]).map((size) => (
+                <button
+                  key={size}
+                  onClick={() => setTextSize(size)}
+                  style={{
+                    background: textSize === size 
+                      ? (theme === 'professional' ? 'rgba(15,23,42,0.1)' : 'rgba(255,255,255,0.15)')
+                      : 'transparent',
+                    border: 'none',
+                    borderRadius: '4px',
+                    padding: '4px 6px',
+                    cursor: 'pointer',
+                    transition: 'all 0.15s ease',
+                    display: 'flex',
+                    alignItems: 'baseline',
+                    justifyContent: 'center',
+                    minWidth: size === 'small' ? '22px' : size === 'normal' ? '26px' : '30px'
+                  }}
+                  title={`${size.charAt(0).toUpperCase() + size.slice(1)} text`}
+                >
+                  <span style={{
+                    fontSize: size === 'small' ? '10px' : size === 'normal' ? '13px' : '16px',
+                    fontWeight: textSize === size ? '700' : '500',
+                    color: textColor,
+                    opacity: textSize === size ? 1 : 0.5,
+                    fontFamily: 'system-ui, sans-serif',
+                    letterSpacing: '-0.02em'
+                  }}>
+                    A
+                  </span>
+                </button>
+              ))}
+            </div>
+
             {/* Hero Section with Logo */}
             <div style={{ textAlign: 'center', marginBottom: '4px' }}>
               {/* Logo Box */}
@@ -164,7 +218,7 @@ export function BackendSwitcherInline({ theme = 'default' }: BackendSwitcherInli
               
               {/* Main Title */}
               <h1 style={{
-                fontSize: '17px',
+                fontSize: scaledSize(17),
                 fontWeight: '700',
                 color: textColor,
                 margin: '0 0 6px 0',
@@ -176,7 +230,7 @@ export function BackendSwitcherInline({ theme = 'default' }: BackendSwitcherInli
               
               {/* Subtitle */}
               <h2 style={{
-                fontSize: '13px',
+                fontSize: scaledSize(13),
                 fontWeight: '500',
                 color: textColor,
                 margin: '0 0 10px 0',
@@ -187,7 +241,7 @@ export function BackendSwitcherInline({ theme = 'default' }: BackendSwitcherInli
                 Transport-agnostic automation for communication, documents, and actions.
               </h2>
               <p style={{
-                fontSize: '11px',
+                fontSize: scaledSize(11),
                 color: mutedColor,
                 margin: '0 0 6px 0',
                 lineHeight: '1.5'
@@ -195,7 +249,7 @@ export function BackendSwitcherInline({ theme = 'default' }: BackendSwitcherInli
                 WR Code enables automation across heterogeneous channels without relying on transport-layer trust.
               </p>
               <p style={{
-                fontSize: '11px',
+                fontSize: scaledSize(11),
                 color: mutedColor,
                 margin: 0,
                 lineHeight: '1.5'
@@ -214,7 +268,7 @@ export function BackendSwitcherInline({ theme = 'default' }: BackendSwitcherInli
             {/* Core Capabilities Section */}
             <div>
               <div style={{
-                fontSize: '12px',
+                fontSize: scaledSize(12),
                 fontWeight: '600',
                 color: textColor,
                 marginBottom: '12px',
@@ -242,7 +296,7 @@ export function BackendSwitcherInline({ theme = 'default' }: BackendSwitcherInli
                     }}
                   >
                     <span style={{ 
-                      fontSize: '12px', 
+                      fontSize: scaledSize(12), 
                       flexShrink: 0,
                       width: '18px',
                       textAlign: 'center',
@@ -252,7 +306,7 @@ export function BackendSwitcherInline({ theme = 'default' }: BackendSwitcherInli
                       {feature.icon}
                     </span>
                     <span style={{ 
-                      fontSize: '11px', 
+                      fontSize: scaledSize(11), 
                       color: textColor,
                       lineHeight: '1.4',
                       opacity: 0.85
@@ -267,7 +321,7 @@ export function BackendSwitcherInline({ theme = 'default' }: BackendSwitcherInli
             {/* Representative Use Cases Section */}
             <div style={{ marginTop: '8px' }}>
               <div style={{
-                fontSize: '12px',
+                fontSize: scaledSize(12),
                 fontWeight: '600',
                 color: textColor,
                 marginBottom: '12px',
@@ -288,7 +342,7 @@ export function BackendSwitcherInline({ theme = 'default' }: BackendSwitcherInli
                       background: theme === 'professional' ? 'rgba(99,102,241,0.08)' : 'rgba(167,139,250,0.15)',
                       border: `1px solid ${theme === 'professional' ? 'rgba(99,102,241,0.2)' : 'rgba(167,139,250,0.25)'}`,
                       borderRadius: '4px',
-                      fontSize: '10px',
+                      fontSize: scaledSize(10),
                       color: textColor
                     }}
                   >
@@ -303,37 +357,62 @@ export function BackendSwitcherInline({ theme = 'default' }: BackendSwitcherInli
             <div style={{
               height: '1px',
               background: `linear-gradient(90deg, transparent, ${borderColor}, transparent)`,
-              margin: '12px 20px'
+              margin: '0 20px'
             }} />
 
             {/* How It Works Section */}
-            <div style={{ marginTop: '4px' }}>
+            <div>
               <div style={{
-                fontSize: '12px',
-                fontWeight: '600',
-                color: textColor,
-                marginBottom: '12px',
-                opacity: 0.95
-              }}>
-                How It Works
-              </div>
-              <div style={{
-                display: 'flex',
-                flexDirection: 'column',
-                gap: '12px',
-                fontSize: '11px',
-                color: textColor,
-                lineHeight: '1.6',
-                opacity: 0.85
-              }}>
-                <p style={{ margin: 0 }}>
-                  Modern cybersecurity is undergoing a structural transition. Emails, messages, links, documents, and attachments have historically functioned as implicitly executable processing pathways across enterprise infrastructures and individual workstations alike.
-                </p>
-                <p style={{ margin: 0 }}>
-                  As large-scale automation and AI-driven workflows become the default operational mode, these implicit execution paths are activated more frequently and with reduced human oversight. This expands the effective attack surface beyond what perimeter-based, endpoint-centric, or transport-layer security models can reliably control.
-                </p>
+                  padding: '14px 16px',
+                  background: cardBg,
+                  borderRadius: '6px',
+                  border: `1px solid ${borderColor}`,
+                  fontSize: scaledSize(11),
+                  color: textColor,
+                  lineHeight: '1.6',
+                  opacity: 0.85,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '10px'
+                }}>
+                  <div style={{
+                    fontSize: scaledSize(12),
+                    fontWeight: '600',
+                    opacity: 1,
+                    marginBottom: '2px'
+                  }}>
+                    How It Works
+                  </div>
+                  <p style={{ margin: 0 }}>
+                    Modern cybersecurity is undergoing a structural transition. Emails, messages, links, documents, and attachments have historically functioned as implicitly executable processing pathways across enterprise infrastructures and individual workstations alike.
+                  </p>
+                  <p style={{ margin: 0 }}>
+                    As large-scale automation and AI-driven workflows become the default operational mode, these implicit execution paths are activated more frequently and with reduced human oversight. This expands the effective attack surface beyond what perimeter-based, endpoint-centric, or transport-layer security models can reliably control.
+                  </p>
+                  <div style={{ 
+                    fontSize: scaledSize(12), 
+                    fontWeight: '600', 
+                    marginTop: '8px',
+                    marginBottom: '4px',
+                    opacity: 0.95
+                  }}>
+                    Execution Path Elimination by Design
+                  </div>
+                  <p style={{ margin: 0 }}>
+                    Original artifacts are sealed, encrypted, and cryptographically inaccessible within protected environments. They are not opened, rendered, or executed in their original form.
+                  </p>
+                  <p style={{ margin: 0 }}>
+                    Instead, incoming content is transformed into a deterministic, text-based semantic representation. This representation is the only surface exposed to automation logic, workflows, and AI agents.
+                  </p>
+                  <p style={{ margin: 0 }}>
+                    Where reconstruction is required, it is performed through policy-bound, deterministic reconstruction processes that do not reintroduce executable interpretation, dynamic behavior, or uncontrolled side effects.
+                  </p>
+                  <p style={{ margin: 0 }}>
+                    For regulatory, compliance, and audit purposes, original artifacts may be archived in sealed form and cryptographically linked to their reconstructed representations using deterministic proofs. The applicable encryption and access path is defined by the capsule policy, allowing integrity and provenance to be verified without reopening execution paths.
+                  </p>
+                </div>
                 <div style={{
-                  margin: 0,
+                  marginTop: '12px',
                   padding: '14px 16px',
                   background: theme === 'professional' 
                     ? 'linear-gradient(145deg, #f8fafc 0%, #f1f5f9 100%)' 
@@ -348,7 +427,7 @@ export function BackendSwitcherInline({ theme = 'default' }: BackendSwitcherInli
                   lineHeight: '1.6'
                 }}>
                   <div style={{ 
-                    fontSize: '13px', 
+                    fontSize: scaledSize(13), 
                     fontWeight: '600', 
                     color: theme === 'professional' ? '#0f172a' : '#f1f5f9',
                     letterSpacing: '-0.01em',
@@ -358,78 +437,66 @@ export function BackendSwitcherInline({ theme = 'default' }: BackendSwitcherInli
                     BEAP - Bidirectional Email Automation Protocol
                   </div>
                   <div style={{ 
+                    fontSize: scaledSize(11),
                     fontWeight: '500',
                     color: theme === 'professional' ? '#475569' : '#94a3b8'
                   }}>
                     BEAP establishes a transport-agnostic automation protocol that enables workflows to remain deterministic, verifiable, and secure, even when operating across untrusted systems and execution environments.
                   </div>
                 </div>
-              </div>
             </div>
 
-            {/* Execution Path Elimination Section */}
-            <div style={{ marginTop: '4px' }}>
-              <div style={{
-                fontSize: '12px',
-                fontWeight: '600',
-                color: textColor,
-                marginBottom: '12px',
-                opacity: 0.95
-              }}>
-                Execution Path Elimination by Design
-              </div>
+            {/* BEAP Capsules & Streaming Section */}
+            <div>
               <div style={{
                 display: 'flex',
                 flexDirection: 'column',
-                gap: '12px',
-                fontSize: '11px',
-                color: textColor,
-                lineHeight: '1.6',
-                opacity: 0.85
+                gap: '12px'
               }}>
-                <p style={{ margin: 0 }}>
-                  Original artifacts are sealed, encrypted, and cryptographically inaccessible within protected environments. They are not opened, rendered, or executed in their original form.
-                </p>
-                <p style={{ margin: 0 }}>
-                  Instead, incoming content is transformed into a deterministic, text-based semantic representation. This representation is the only surface exposed to automation logic, workflows, and AI agents.
-                </p>
-                <p style={{ margin: 0 }}>
-                  Where reconstruction is required, it is performed through policy-bound, deterministic reconstruction processes that do not reintroduce executable interpretation, dynamic behavior, or uncontrolled side effects.
-                </p>
-                <p style={{ margin: 0 }}>
-                  For regulatory, compliance, and audit purposes, original artifacts may be archived in sealed form and cryptographically linked to their reconstructed representations using deterministic proofs. The applicable encryption and access path is defined by the capsule policy, allowing integrity and provenance to be verified without reopening execution paths.
-                </p>
-              </div>
-            </div>
-
-            {/* BEAP Capsules Section */}
-            <div style={{ marginTop: '4px' }}>
-              <div style={{
-                fontSize: '12px',
-                fontWeight: '600',
-                color: textColor,
-                marginBottom: '12px',
-                opacity: 0.95
-              }}>
-                BEAP Capsules
-              </div>
-              <div style={{
-                display: 'flex',
-                flexDirection: 'column',
-                gap: '12px',
-                fontSize: '11px',
-                color: textColor,
-                lineHeight: '1.6',
-                opacity: 0.85
-              }}>
-                <p style={{ margin: 0 }}>
-                  BEAP (Bidirectional Email Automation Protocol) defines a capsule-based communication and automation model in which intent, policy, integrity, and validity conditions are cryptographically bound.
-                </p>
-                <p style={{ margin: 0 }}>
-                  Rather than exchanging messages, communication is modeled as policy-constrained state transitions. A capsule is valid only if its conditions are satisfied. Correct handling can be verified rather than assumed, without relying on message content inspection or application-level metadata.
-                </p>
                 <div style={{
-                  margin: 0,
+                  padding: '14px 16px',
+                  background: cardBg,
+                  borderRadius: '6px',
+                  border: `1px solid ${borderColor}`,
+                  fontSize: scaledSize(11),
+                  color: textColor,
+                  lineHeight: '1.6',
+                  opacity: 0.85,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '10px'
+                }}>
+                  <div style={{
+                    fontSize: scaledSize(12),
+                    fontWeight: '600',
+                    opacity: 1,
+                    marginBottom: '2px'
+                  }}>
+                    BEAP Capsules
+                  </div>
+                  <p style={{ margin: 0 }}>
+                    BEAP (Bidirectional Email Automation Protocol) defines a capsule-based communication and automation model in which intent, policy, integrity, and validity conditions are cryptographically bound.
+                  </p>
+                  <p style={{ margin: 0 }}>
+                    Rather than exchanging messages, communication is modeled as policy-constrained state transitions. A capsule is valid only if its conditions are satisfied. Correct handling can be verified rather than assumed, without relying on message content inspection or application-level metadata.
+                  </p>
+                  <div style={{ 
+                    fontSize: scaledSize(12), 
+                    fontWeight: '600', 
+                    marginTop: '8px',
+                    marginBottom: '4px',
+                    opacity: 0.95
+                  }}>
+                    Streaming and Real-Time Media
+                  </div>
+                  <p style={{ margin: 0 }}>
+                    Video, voice, and real-time streaming content are handled under a dedicated model. The protocol does not encapsulate media streams themselves, but cryptographically governs how streams are established, secured, and terminated.
+                  </p>
+                  <p style={{ margin: 0 }}>
+                    Such streams are permitted only within hardware-attested, enterprise-grade orchestrator environments enforcing a strict, deterministic, source-available architecture. This preserves real-time performance while eliminating avoidable application-level metadata and uncontrolled execution semantics.
+                  </p>
+                </div>
+                <div style={{
                   padding: '14px 16px',
                   background: theme === 'professional' 
                     ? 'linear-gradient(145deg, #f8fafc 0%, #f1f5f9 100%)' 
@@ -444,7 +511,7 @@ export function BackendSwitcherInline({ theme = 'default' }: BackendSwitcherInli
                   lineHeight: '1.6'
                 }}>
                   <div style={{ 
-                    fontSize: '13px', 
+                    fontSize: scaledSize(13), 
                     fontWeight: '600', 
                     color: theme === 'professional' ? '#0f172a' : '#f1f5f9',
                     letterSpacing: '-0.01em',
@@ -454,6 +521,7 @@ export function BackendSwitcherInline({ theme = 'default' }: BackendSwitcherInli
                     Post-Quantum–Ready, Channel-Independent Communication
                   </div>
                   <div style={{ 
+                    fontSize: scaledSize(11),
                     fontWeight: '500',
                     color: theme === 'professional' ? '#475569' : '#94a3b8'
                   }}>
@@ -463,62 +531,36 @@ export function BackendSwitcherInline({ theme = 'default' }: BackendSwitcherInli
               </div>
             </div>
 
-            {/* Streaming and Real-Time Media Section */}
-            <div style={{ marginTop: '4px' }}>
-              <div style={{
-                fontSize: '12px',
-                fontWeight: '600',
-                color: textColor,
-                marginBottom: '12px',
-                opacity: 0.95
-              }}>
-                Streaming and Real-Time Media
-              </div>
-              <div style={{
-                display: 'flex',
-                flexDirection: 'column',
-                gap: '12px',
-                fontSize: '11px',
-                color: textColor,
-                lineHeight: '1.6',
-                opacity: 0.85
-              }}>
-                <p style={{ margin: 0 }}>
-                  Video, voice, and real-time streaming content are handled under a dedicated model. The protocol does not encapsulate media streams themselves, but cryptographically governs how streams are established, secured, and terminated.
-                </p>
-                <p style={{ margin: 0 }}>
-                  Such streams are permitted only within hardware-attested, enterprise-grade orchestrator environments enforcing a strict, deterministic, source-available architecture. This preserves real-time performance while eliminating avoidable application-level metadata and uncontrolled execution semantics.
-                </p>
-              </div>
-            </div>
-
             {/* Divider */}
             <div style={{
               height: '1px',
               background: `linear-gradient(90deg, transparent, ${borderColor}, transparent)`,
-              margin: '12px 20px'
+              margin: '0 20px'
             }} />
 
             {/* Why BEAP Is Different Section */}
-            <div style={{ marginTop: '4px' }}>
+            <div>
               <div style={{
-                fontSize: '12px',
-                fontWeight: '600',
-                color: textColor,
-                marginBottom: '12px',
-                opacity: 0.95
-              }}>
-                Why BEAP Is Different
-              </div>
-              <div style={{
-                display: 'flex',
-                flexDirection: 'column',
-                gap: '12px',
-                fontSize: '11px',
+                padding: '14px 16px',
+                background: cardBg,
+                borderRadius: '6px',
+                border: `1px solid ${borderColor}`,
+                fontSize: scaledSize(11),
                 color: textColor,
                 lineHeight: '1.6',
-                opacity: 0.85
+                opacity: 0.85,
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '10px'
               }}>
+                <div style={{
+                  fontSize: scaledSize(12),
+                  fontWeight: '600',
+                  opacity: 1,
+                  marginBottom: '2px'
+                }}>
+                  Why BEAP Is Different
+                </div>
                 <p style={{ margin: 0 }}>
                   Most communication systems focus on encrypting data in transit. What occurs after delivery — and whether policies are actually respected — remains largely unverifiable.
                 </p>
@@ -534,8 +576,7 @@ export function BackendSwitcherInline({ theme = 'default' }: BackendSwitcherInli
             {/* Footer - Modern Gray Box */}
             <div style={{
               textAlign: 'left',
-              marginTop: '16px',
-              padding: '18px 20px',
+              padding: '14px 16px',
               background: theme === 'professional' 
                 ? 'linear-gradient(145deg, #f8fafc 0%, #f1f5f9 100%)' 
                 : 'linear-gradient(145deg, rgba(30,41,59,0.95) 0%, rgba(51,65,85,0.9) 100%)',
@@ -548,7 +589,7 @@ export function BackendSwitcherInline({ theme = 'default' }: BackendSwitcherInli
                 : '0 2px 8px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.05)'
             }}>
               <div style={{
-                fontSize: '13px',
+                fontSize: scaledSize(13),
                 fontWeight: '600',
                 color: theme === 'professional' ? '#0f172a' : '#f1f5f9',
                 letterSpacing: '-0.01em',
@@ -558,7 +599,7 @@ export function BackendSwitcherInline({ theme = 'default' }: BackendSwitcherInli
                 Enterprise-Grade Security by Design — for Enterprises and Individual Users
               </div>
               <p style={{
-                fontSize: '11px',
+                fontSize: scaledSize(11),
                 color: theme === 'professional' ? '#475569' : '#94a3b8',
                 margin: 0,
                 lineHeight: '1.65'
