@@ -142,9 +142,9 @@ export function renderMiniApp(app: MiniApp): HTMLElement {
   header.style.color = '#333'
   root.appendChild(header)
 
-  const runtime = createRuntimeState(app.id) // create scoped runtime state
+  const runtime = createRuntimeState(app.id, { persistToFile: true }) // create scoped runtime state with file persistence
 
-  const emitEvent = (evt:string) => {
+  const emitEvent = async (evt:string) => {
     // find logic blocks in app.blocks that listen to this event
     app.blocks.forEach(b => {
       const beh = (b as any).behaviour || {} // behaviour map
@@ -158,22 +158,38 @@ export function renderMiniApp(app: MiniApp): HTMLElement {
             const val = runtime.get(source) // read source from runtime
             // persist into runtime and then persist to storage
             runtime.set(source, val)
-            runtime.persist()
-            
-            // Show success message appended to root
-            const msg = document.createElement('div')
-            msg.style.padding = '10px 12px'
-            msg.style.background = '#d4edda'
-            msg.style.border = '1px solid #c3e6cb'
-            msg.style.color = '#155724'
-            msg.style.borderRadius = '4px'
-            msg.style.marginTop = '12px'
-            msg.style.fontSize = '13px'
-            msg.textContent = '✅ Notes saved successfully! Stored in sessionStorage[beap_state_' + app.id + ']'
-            root.appendChild(msg)
-            
-            // Auto-remove message after 3 seconds
-            setTimeout(() => msg.remove(), 3000)
+            ;(async () => {
+              try {
+                const path = await runtime.persist(source)
+                const msg = document.createElement('div')
+                msg.style.padding = '10px 12px'
+                msg.style.background = '#d4edda'
+                msg.style.border = '1px solid #c3e6cb'
+                msg.style.color = '#155724'
+                msg.style.borderRadius = '4px'
+                msg.style.marginTop = '12px'
+                msg.style.fontSize = '13px'
+                if (path) {
+                  msg.textContent = '✅ Notes saved successfully! File: ' + path
+                } else {
+                  msg.textContent = '✅ Notes saved successfully! (persisted)'
+                }
+                root.appendChild(msg)
+                setTimeout(() => msg.remove(), 3000)
+              } catch (e) {
+                const msg = document.createElement('div')
+                msg.style.padding = '10px 12px'
+                msg.style.background = '#f8d7da'
+                msg.style.border = '1px solid #f5c6cb'
+                msg.style.color = '#721c24'
+                msg.style.borderRadius = '4px'
+                msg.style.marginTop = '12px'
+                msg.style.fontSize = '13px'
+                msg.textContent = '⚠️ Failed to save notes.'
+                root.appendChild(msg)
+                setTimeout(() => msg.remove(), 3000)
+              }
+            })()
           }
         } else if (action.action === 'state.set') {
           const target = action.key || 'value' // target key to set
