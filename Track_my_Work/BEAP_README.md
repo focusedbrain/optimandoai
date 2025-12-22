@@ -8,55 +8,55 @@ This document lists the files I created and modified to add a minimal BEAP-style
 
 **Created Files**
 
-- `src/beap/types.ts` 
-  - Exports TypeScript types used across the runtime:
-    - `AtomicBlock` — matches Tier-3 JSON fields (id, ui, logic, intent_tags, description, metadata).
-    - `MiniApp` — `{ id: string, blocks: AtomicBlock[] }`.
-    - `RuntimeState` — alias for `Record<string, any>`.
+**Detailed File Breakdown (functions and intent)**
 
-- `src/beap/loader.ts` 
-  - Dynamically loads Tier-3 JSON blocks.
-  - Loading strategies (in order):
-    1. `import.meta.glob('../../electron/main/miniapps/tier3/*.json', { eager: true, as: 'json' })` (Vite/bundler-time import if available).
-    2. `window.__BEAP_TIER3_BLOCKS` — a runtime global array (recommended when files originate from Electron/main process). **This is now pre-populated by the bootstrap function (see below).**
-    3. Best-effort fetch of `miniapps/tier3/index.json` and each file under extension assets (if an index is provided).
-  - Returns `AtomicBlock[]`.
+- Types: [code/apps/extension-chromium/src/beap/types.ts](code/apps/extension-chromium/src/beap/types.ts)
+  - `AtomicBlock`: shape of Tier-3 JSON (id, type, group, security, intent_tags, description, ui, behaviour, metadata). Ensures loader/renderer share a common contract.
+  - `MiniApp`: `{ id: string, blocks: AtomicBlock[] }` produced at runtime by the assembler.
+  - `RuntimeState`: `Record<string, any>` alias for state container used by renderer/runtime helpers.
 
-- `src/beap/embedding.ts` 
-  - Embedding utilities implemented deterministically (no ML models):
-    - `normalizeText(s)` — lowercase + remove punctuation + collapse whitespace.
-    - `fnv1a(str)` — lightweight, deterministic hash used to map tokens/ngrams to vector indices.
-    - `textToTensor(text, dim=256)` — produces a tf.Tensor1D embedding using unigram+bigram hashing and normalizes it.
-    - `cosineSimilarity(a, b)` — uses TensorFlow.js to compute cosine similarity between two tensors.
-  - Uses `@tensorflow/tfjs` to create and manipulate tensors; this keeps vector math in TF.js while embedding remains deterministic.
+- Loader: [code/apps/extension-chromium/src/beap/loader.ts](code/apps/extension-chromium/src/beap/loader.ts)
+  - Purpose: return an array of AtomicBlock objects from available sources.
+  - Strategies (priority):
+    1) Build-time glob import `import.meta.glob('../../electron/main/miniapps/tier3/*.json', { eager: true, as: 'json' })` when bundler permits.
+    2) Runtime global `window.__BEAP_TIER3_BLOCKS` (populated by content-script bootstrap; primary path).
+    3) Fallback fetch: read `miniapps/tier3/index.json`, then fetch listed JSONs.
+  - Notes: resilient to absence of any single source; logs errors with `[BEAP]` prefix.
 
-- `src/beap/runtime.ts` 
-  - Runtime state helpers and assembly function:
-    - `createRuntimeState(namespace?)` — creates an in-memory state object, supports `sessionStorage` persistence under `beap_state_${namespace}` when `namespace` provided. Returns `{ state, set, get, persist }`.
-    - `assembleMiniApp(blocks)` — returns a `MiniApp` object with a runtime-only generated id.
+- Embedding: [code/apps/extension-chromium/src/beap/embedding.ts](code/apps/extension-chromium/src/beap/embedding.ts)
+  - `normalizeText(s)`: lowercase, strip punctuation, collapse whitespace for stable tokenization.
+  - `fnv1a(str)`: deterministic hash to map tokens/bigrams into vector indices.
+  - `textToTensor(text, dim=256)`: tokenizes into unigrams+ bigrams, hashes into a fixed-size array, builds a TensorFlow.js tensor, then L2-normalizes.
+  - `cosineSimilarity(a, b)`: computes $\mathrm{cos}(a,b) = \frac{a\cdot b}{\lVert a \rVert \, \lVert b \rVert}$ using TF.js ops. No ML models involved.
+  - Intent: reproducible, lightweight embeddings to enable semantic-ish matching without LLMs.
 
-- `src/beap/renderer.ts` 
-  - Dynamic DOM renderer (minimal, no React dependency) that maps `AtomicBlock.ui.kind` to DOM elements and wires behaviour.
-  - **KEY FIX (Dec 17, 2025):** Updated to **only render blocks with UI** — skips logic blocks that don't have `ui.kind` defined. This prevents logic block descriptions from appearing in the rendered output.
-  - Supported kinds (matching Tier-3 JSONs):
-    - `text` / `label` — renders static text (styled as heading/label with bold font).
-    - `input` — single-line input with label; honors `behaviour.onChange.action === 'state.set'` (uses provided key or block.id).
-    - `textarea` — multiline input with label; honors `behaviour.onChange.action === 'state.set'`; styled with larger height for note-taking.
-    - `button` — renders a styled button with hover effects; honors `behaviour.onClick.action === 'event.emit'`.
-  - Event system: `emitEvent(evt)` scans `app.blocks` for logic blocks with `behaviour['onEvent:evt']` and executes simple actions:
-    - `state.persist` — reads a `source` key from runtime and calls `runtime.persist()`. After persistence, displays a green success message (`✅ Notes saved successfully!`) showing the sessionStorage location, which auto-dismisses after 3 seconds.
-    - `state.set` — sets a target key from a source key.
-  - Uses `createRuntimeState(app.id)` so each rendered mini-app has a scoped persistent state saved to `sessionStorage`.
-  - Full styling for a professional Notes Panel UI:
-    - White background with subtle shadow
-    - Properly labeled inputs and textareas
-    - Green save button with hover effects
-    - Success feedback after saving
+- Runtime: [code/apps/extension-chromium/src/beap/runtime.ts](code/apps/extension-chromium/src/beap/runtime.ts)
+  - `createRuntimeState(namespace?)`: returns `{ state, set, get, persist }`; optional namespace persists to `sessionStorage` under `beap_state_${namespace}`.
+  - `set(key, value)`: mutates in-memory state.
+  - `get(key)`: retrieves from in-memory state.
+  - `persist()`: writes current state to sessionStorage if namespaced.
+  - `assembleMiniApp(blocks)`: assigns a runtime-only id and returns a MiniApp with provided blocks.
+  - Intent: scoped, minimal state container with optional persistence for each mini-app instance.
 
-- `src/beap/index.ts` 
-  - Orchestrates the runtime:
-    - `ensureBlocks()` loads Tier-3 blocks and precomputes tensors for each block using `textToTensor(intent_tags + description)`.
-    - `createMiniAppFromQuery(title, description, topN=4)` — generates a query vector, ranks blocks by `cosineSimilarity`, selects top N blocks, assembles a MiniApp and returns `{ app, rendered, scores }` where `rendered` is an HTMLElement produced by `renderMiniApp`.
+- Renderer: [code/apps/extension-chromium/src/beap/renderer.ts](code/apps/extension-chromium/src/beap/renderer.ts)
+  - `renderMiniApp(app)`: builds DOM for UI blocks only; uses `createRuntimeState(app.id)` for scoped state.
+  - UI mapping: `text/label` → heading/label; `input` → single-line; `textarea` → multi-line; `button` → styled CTA.
+  - Behaviour wiring: `onChange.action === 'state.set'` stores into runtime state using provided key; `onClick.action === 'event.emit'` triggers `emitEvent`.
+  - Event handling: `emitEvent(evt)` scans logic blocks for `behaviour['onEvent:evt']` and executes actions: `state.set`, `state.persist` (writes to sessionStorage, shows success toast that auto-dismisses).
+  - Guard: logic-only blocks (no `ui.kind`) are skipped from rendering to avoid showing descriptions in UI.
+  - Styling: white card, shadows, labeled fields, green button with hover, transient success feedback.
+
+- Orchestrator: [code/apps/extension-chromium/src/beap/index.ts](code/apps/extension-chromium/src/beap/index.ts)
+  - `ensureBlocks()`: loads Tier-3 blocks via loader, precomputes embeddings of `intent_tags + description`, caches them.
+  - `createMiniAppFromQuery(title, description, topN=4)`: embeds query, ranks blocks by cosine similarity, selects top N, assembles MiniApp, renders via renderer, returns `{ app, rendered, scores }`.
+  - Intent: single entrypoint to go from user text → ranked blocks → live DOM mini-app.
+
+- Content Script Bootstrap: [code/apps/extension-chromium/src/content-script.tsx](code/apps/extension-chromium/src/content-script.tsx)
+  - `bootstrapBEAPTier3Blocks()`: seeds `window.__BEAP_TIER3_BLOCKS` with five Tier-3 blocks at module load.
+  - Run Test hooks (`#run-builder-test`, `#run-miniapp-test`): dynamically import orchestrator, call `createMiniAppFromQuery`, show top scored blocks + rendered mini-app.
+  - Intent tags fix: `ui-text-input-v1` tags set to `input, field, title` to avoid accidental selection for notes queries.
+  - Logging: `[BEAP]` prefixed logs for bootstrap, imports, rankings, and errors to aid debugging.
+
 
 **Modified Files**
 
