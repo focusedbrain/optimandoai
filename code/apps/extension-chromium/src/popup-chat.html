@@ -1,0 +1,103 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>WR Chat</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <style>
+      /* CSS Variables for theming */
+      :root {
+        --bg: #0b1220;
+        --text: #e5e7eb;
+      }
+      
+      /* Theme-colored scrollbar */
+      * {
+        scrollbar-width: thin;
+        scrollbar-color: #764ba2 rgba(0,0,0,0.2);
+      }
+      
+      *::-webkit-scrollbar {
+        width: 8px;
+      }
+      
+      *::-webkit-scrollbar-track {
+        background: rgba(0,0,0,0.2);
+      }
+      
+      *::-webkit-scrollbar-thumb {
+        background: #764ba2;
+        border-radius: 4px;
+      }
+      
+      *::-webkit-scrollbar-thumb:hover {
+        background: #667eea;
+      }
+      
+      html, body {
+        margin: 0;
+        padding: 0;
+        height: 100%;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        background: var(--bg);
+        color: var(--text);
+        overflow: hidden;
+      }
+      
+      * {
+        box-sizing: border-box;
+      }
+      
+      #root {
+        height: 100%;
+        display: flex;
+        flex-direction: column;
+      }
+      
+      /* Theme classes applied by React */
+      body.theme-default {
+        background: linear-gradient(135deg, #c084fc 0%, #a855f7 50%, #9333ea 100%);
+      }
+      
+      body.theme-dark {
+        background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+      }
+      
+      body.theme-professional {
+        background: linear-gradient(135deg, #ffffff 0%, #f1f5f9 100%);
+        color: #0f172a;
+      }
+    </style>
+    <script>
+      // Inline theme detection (runs before React loads)
+      (async function() {
+        try {
+          const qp = new URLSearchParams(location.search);
+          let t = qp.get('t');
+          if (!t && typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
+            const store = await new Promise(res => chrome.storage.local.get('optimando-ui-theme', res));
+            t = store && store['optimando-ui-theme'];
+          }
+          if (!t) {
+            try { t = localStorage.getItem('optimando-ui-theme'); } catch {}
+          }
+          t = t || 'default';
+          document.body.className = 'theme-' + t;
+          // Store for React to read
+          window.__INITIAL_THEME__ = t;
+        } catch {
+          document.body.className = 'theme-default';
+          window.__INITIAL_THEME__ = 'default';
+        }
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="./popup-chat.tsx"></script>
+  </body>
+</html>
+
+
+
+

@@ -1,197 +1,58 @@
-📁 Repository Overview
+📁 WR Code™ Framework & Canonical Specification
+This repository contains the official Canonical Specification, normative documentation, and licensing for the WR Code™ ecosystem, developed and maintained by Optimando.ai.
 
-This repository contains the original scientific paper, documentation, and licensing files for WR Code, a browser-based AI orchestration system developed by Optimando.ai.
-The system introduces a novel architecture for safe, local-first automation using Template-driven agents, tab-level context awareness, and a verifiable workflow ecosystem.
+📘 Paper v191: The Official Canon
+The foundation of this repository is the cornerstone scientific and normative work: "WR Code – Browser-Based Multi-Agent Orchestration for Contextual Workflow Automation" (v191).
 
-OpenGiraffe remains the internal codename for the core orchestration engine.
-WR Code is the unified name of the overall framework and publishing standard.
+Starting with v191, this document serves as the sole authoritative source (The Canon) for the following protocols:
 
-📘 Paper Summary
+WR Code™ (Workflow Ready Code): The unified framework and publishing standard for template-driven agent logic.
 
-The included research paper presents WR Code, an architecture that transforms browser environments into cooperative AI workspaces.
-By using structured Templates (Mini-Apps), WRCode workflows, and a local orchestrator, the system coordinates distributed AI agents safely and contextually across tabs.
+BEAP™ (Bidirectional Email Automation Protocol): The standard for secure, two-way automated mail handling.
 
-Key characteristics:
+PoAE™ (Proof of Authoritative Execution): The cryptographic verification layer ensuring intent-bound execution.
 
-Local orchestrator 
+🏛️ Normative Governance & Authority
+The WR Code™ ecosystem operates under a Strict Governance Model to prevent protocol fragmentation and ensure the integrity of the standard:
 
-Browser extensions for tab-level AI agents
+Canonical Exclusivity: Only definitions provided in v191 (or subsequent versions explicitly designated by Optimando.ai) are recognized as Normative.
 
-Augmented Overlay for contextual UI insights
+Governance Authority: All protocol semantics and compliance rules are managed exclusively by Optimando.ai. Third-party "forks" of the protocol logic are strictly prohibited from claiming compatibility or equivalence.
 
-WRVault for secure local storage
+Suspension of Prior Versions: Paper v191 supersedes all previous drafts (v1–v190). All prior materials are now considered non-normative and suspended.
 
-WRGuard / WR MailGuard for mail & automation protection
+📜 Licensing (Proprietary Dual-Structure)
+1. Specification License: CSL-1.0
+The documentation and protocol definitions (including Paper v191) are licensed under the WR Code™ Canonical Specification License (CSL-1.0).
 
-Fully client-side, privacy-first architecture
+Read-Only/No-Derivatives: This specification is "open to be read, but closed to be redefined."
 
-No cloud dependency for core automation
+Protection of the Standard: Modification, translation, or creation of derivative specifications based on this Canon is strictly prohibited to prevent the dilution of the BEAP™ and PoAE™ standards.
 
-The documentation describing these models is open-licensed; the runtime is not.
+2. Software Runtime License: OGPL-1.0
+The functional software implementation (OpenGiraffe™ engine, WRGuard™, and WRVault™) is licensed under the OpenGiraffe Protected License (OGPL-1.0).
 
-🗂 Repository Contents
+Source-Available (NOT Open-Source): Public redistribution, SaaS-hosting, or forking of the runtime is prohibited.
 
-optimandoai-research-paper-v178.pdf — Full scientific paper
+No AI Training: Use of this code for training machine learning models is strictly forbidden.
 
-optimandoai-research-paper-v178.pdf.ots — OpenTimestamps proof of authorship
+Template Freedom: Users retain the right to create, publish, and commercially distribute their own WR Code™ Templates.
 
-DOCUMENTATION-LICENSE.txt — CC BY-SA 4.0 license for conceptual documentation
+🛡️ Brand & Trademark Protection
+The following identifiers are protected trademarks of Optimando.ai: WR Code™, BEAP™, PoAE™, WRGuard™, WRVault™, and OpenGiraffe™.
 
-DOCUMENTATION-LICENSE.txt.ots — Timestamp for documentation license
+Use of these marks requires explicit authorization.
 
-OGPL-1.0.txt — Source-available software license for runtime components
+Implementations must strictly adhere to the Canon to use "Powered by WR Code™" or "BEAP™-Certified" designations.
 
-OGPL-1.0.txt.ots — Timestamp for software license
+📝 Source Integrity (OpenTimestamps)
+This repository utilizes OpenTimestamps (OTS) to provide immutable proof of provenance on the Bitcoin blockchain.
 
-README.txt — License summary and repository overview
+Verification: Every core file (PDF, License, Governance) has a corresponding .ots proof.
 
-README.txt.ots — Timestamp for the README file
+Audit Trail: This ensures that the establishment of the WR Code™ Canon and its associated rights are cryptographically verifiable from the date of publication.
 
-(You may adjust filenames depending on your repo structure.)
+🔗 Citation & Contact
+Schreyer, O. (2025). WR Code – Browser-Based Multi-Agent Orchestration for Contextual Workflow Automation (v191). Optimando.ai.
 
-🧠 About Optimando.ai
-
-Optimando.ai is a consulting and engineering company specialized in:
-
-safe AI orchestration
-
-agent workflows
-
-local-first automation systems
-
-browser-based intelligence layers
-
-enterprise integration for secure AI automation
-
-Optimando.ai is the publisher of WR Code and the OpenGiraffe orchestration engine.
-
-📜 Licensing Overview
-
-This repository uses a dual-license structure:
-
-1. Documentation License (CC BY-SA 4.0)
-
-The following materials are licensed openly:
-
-scientific paper
-
-conceptual diagrams
-
-architectural descriptions
-
-workflow illustrations
-
-explanatory text
-
-all non-executable documentation
-
-🔗 https://creativecommons.org/licenses/by-sa/4.0/
-
-This license requires:
-
-visible attribution
-
-indication of changes
-
-share-alike redistribution of modified documentation
-
-2. Software License (OGPL-1.0)
-
-The software implementation, including:
-
-OpenGiraffe orchestrator
-
-Augmented Overlay runtime
-
-WRCode Workflow-Ready Code integration
-
-WRVault
-
-WRGuard / WR MailGuard
-
-executables, modules, and all runtime code
-
-…is licensed under OGPL-1.0.
-
-OGPL-1.0 is source-available, not open-source:
-
-❌ redistribution prohibited
-
-❌ forks prohibited
-
-❌ hosting (SaaS) prohibited
-
-❌ competing runtimes prohibited
-
-❌ AI/ML training prohibited
-
-✔ Templates may be published and sold
-
-✔ branding must always remain visible (OpenGiraffe, WRCode, WRVault, WRGuard)
-
-📢 Attribution Requirements
-For documentation (CC BY-SA):
-
-You must credit:
-
-OpenGiraffe / WR Code — optimando.ai
-with a link to https://optimando.ai
-
-For software (OGPL-1.0):
-
-You must not remove or hide any branding related to:
-
-OpenGiraffe
-
-WRCode
-
-WRVault
-
-WRGuard
-
-White-labeling requires a commercial agreement.
-
-🔗 Citation
-
-Schreyer, O. (2025).
-WR Code – Browser-Based Multi-Agent Orchestration for Contextual Workflow Automation.
-Published by Optimando.ai – AI Automation.
-
-BibTeX and DOI-ready formats available upon request.
-
-💼 Commercial Licensing
-
-For use in:
-
-closed-source applications
-
-enterprise deployments
-
-SaaS platforms
-
-white-label solutions
-
-regulated environments
-
-contact:
-
-📩 license@optimando.ai
-
-📝 Source Integrity & Verification
-
-This repository contains deterministic .ots timestamp proofs via OpenTimestamps to verify authorship and ensure long-term provenance:
-
-paper
-
-documentation license
-
-software license
-
-README
-
-Editable source files are available upon request for auditing or institutional verification.
-
-✔️ Transition Note
-
-The framework originally launched as OpenGiraffe.
-The modern standard consolidates naming under WR Code, while OpenGiraffe remains the internal codename for the orchestrator.
+For enterprise deployments, SaaS integration, or commercial licensing inquiries: 📩 license@optimando.ai | 🌐 optimando.ai

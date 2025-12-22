@@ -530,77 +530,70 @@ async function createWindow() {
     
     // Handle when user clicks "Open Safe Email" button
     ipcMain.on('mailguard-open-email', async (_e, rowId: string) => {
-      console.log('[MAIN] MailGuard open email requested for row:', rowId)
+      debugLog('[MAIN] mailguard-open-email rowId:', rowId)
       
       // Try Email Gateway first (new secure pipeline)
       try {
         const { emailGateway } = await import('./main/email/gateway')
         const accounts = await emailGateway.listAccounts()
+        const activeAccounts = accounts.filter(a => a.status === 'active')
         
-        if (accounts.length > 0) {
-          console.log('[MAIN] Email Gateway has', accounts.length, 'connected accounts, trying to fetch via API...')
-          
-          // Get the preview data for this row from storage
+        if (activeAccounts.length > 0) {
           const rowData = emailRowPreviewData.get(rowId)
+          
           if (rowData && (rowData.from || rowData.subject)) {
-            // Try all active accounts (Gmail, Outlook, etc.)
-            const activeAccounts = accounts.filter(a => a.status === 'active')
-            console.log('[MAIN] Active accounts:', activeAccounts.map(a => `${a.provider}:${a.email}`))
-            
             for (const account of activeAccounts) {
               try {
-                console.log('[MAIN] Trying to fetch via', account.provider, 'account:', account.email)
-                console.log('[MAIN] Search criteria - from:', rowData.from, 'subject:', rowData.subject || '(empty)')
-                
-                // Search for the message by from (and subject if available)
-                // If subject is empty, search by sender only and get recent messages
-                const searchOptions: any = {
-                  limit: rowData.subject ? 1 : 10  // Get more if no subject to filter
-                }
+                // Build search - use subject if available, otherwise get recent from sender
+                const searchOptions: any = { limit: 20 }
                 if (rowData.from) searchOptions.from = rowData.from
                 if (rowData.subject) searchOptions.subject = rowData.subject
                 
-                const messages = await emailGateway.listMessages(account.id, searchOptions)
+                let messages = await emailGateway.listMessages(account.id, searchOptions)
                 
-                console.log('[MAIN] Search returned', messages.length, 'messages')
+                // If no results with search, try getting recent messages without filter
+                if (messages.length === 0 && rowData.from) {
+                  messages = await emailGateway.listMessages(account.id, { limit: 50 })
+                  // Filter by sender manually
+                  const senderLower = rowData.from.toLowerCase()
+                  messages = messages.filter(m => 
+                    m.from.email.toLowerCase().includes(senderLower) ||
+                    (m.from.name && m.from.name.toLowerCase().includes(senderLower))
+                  )
+                }
+                
                 if (messages.length > 0) {
-                  // If no subject was in search, try to find best match by sender
+                  // Find best match - prefer subject match if available
                   let bestMatch = messages[0]
-                  if (!rowData.subject && messages.length > 1) {
-                    console.log('[MAIN] Multiple messages found, using most recent from sender')
+                  if (rowData.subject && messages.length > 1) {
+                    const subjectLower = rowData.subject.toLowerCase()
+                    const exactMatch = messages.find(m => m.subject.toLowerCase() === subjectLower)
+                    const partialMatch = messages.find(m => m.subject.toLowerCase().includes(subjectLower) || subjectLower.includes(m.subject.toLowerCase()))
+                    bestMatch = exactMatch || partialMatch || messages[0]
                   }
                   
-                  // Fetch full message
                   const fullMessage = await emailGateway.getMessage(account.id, bestMatch.id)
                   if (fullMessage) {
-                    console.log('[MAIN] ✅ Fetched email via Email Gateway (' + account.provider + ')')
-                    console.log('[MAIN] Email subject:', fullMessage.subject)
                     showSanitizedEmail({
                       from: `${fullMessage.from.name || ''} <${fullMessage.from.email}>`.trim(),
                       to: fullMessage.to.map(t => t.email).join(', '),
                       subject: fullMessage.subject,
                       date: fullMessage.date,
                       body: fullMessage.bodyText,
-                      attachments: [], // Attachments handled separately
-                      isFromApi: true  // Mark as API-fetched
+                      attachments: [],
+                      isFromApi: true
                     })
                     return
                   }
-                } else {
-                  console.log('[MAIN] No messages found matching criteria')
                 }
               } catch (accountErr: any) {
-                console.log('[MAIN] Failed to fetch from', account.provider, ':', accountErr?.message || accountErr)
+                debugLog('[MAIN] Account fetch error:', accountErr?.message)
               }
             }
-          } else {
-            console.log('[MAIN] No row data available for rowId:', rowId)
           }
-        } else {
-          console.log('[MAIN] No connected accounts found')
         }
       } catch (err: any) {
-        console.log('[MAIN] Email Gateway error:', err?.message || err)
+        debugLog('[MAIN] Email Gateway error:', err?.message)
       }
       
       // Try legacy Gmail API as fallback

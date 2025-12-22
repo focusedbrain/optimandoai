@@ -8010,11 +8010,11 @@ function initializeExtension() {
 
 
 
-    <!-- Quick Actions - Consolidated -->
+    <!-- Runtime Controls - Consolidated -->
 
     <div id="quick-actions-card" style="background: rgba(255,255,255,0.1); padding: 15px; border-radius: 8px; margin-bottom: 20px;">
 
-      <h3 style="margin: 0 0 15px 0; font-size: 14px;" class="section-title">⚡ Quick Actions</h3>
+      <h3 style="margin: 0 0 15px 0; font-size: 14px;" class="section-title">⚡ Runtime Controls</h3>
 
       <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
 

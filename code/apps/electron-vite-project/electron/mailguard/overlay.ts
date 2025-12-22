@@ -197,9 +197,9 @@ export function activateMailGuard(targetDisplay?: Display, windowInfo?: WindowIn
     lastEmailListBounds = null
   })
   
-  // Handle unexpected crashes
-  mailguardOverlay.webContents.on('crashed', () => {
-    console.error('[MAILGUARD] ❌ Overlay crashed!')
+  // Handle unexpected crashes (using 'render-process-gone' for Electron 22+)
+  mailguardOverlay.webContents.on('render-process-gone', (_event, details) => {
+    console.error('[MAILGUARD] ❌ Overlay render process gone:', details.reason)
     mailguardOverlay = null
     isActive = false
   })

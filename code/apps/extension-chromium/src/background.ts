@@ -829,7 +829,7 @@ function startHeartbeat() {
   if (!WS_ENABLED) return;
   stopHeartbeat(); // Clear any existing heartbeat
   
-  // Send heartbeat every 5 seconds to keep connection alive and detect drops quickly
+  // Send heartbeat every 8 seconds (was 5s) - better CPU efficiency
   heartbeatInterval = setInterval(() => {
     if (ws && ws.readyState === WebSocket.OPEN) {
       try {
@@ -844,7 +844,7 @@ function startHeartbeat() {
       stopHeartbeat();
       connectToWebSocketServer();
     }
-  }, 5000);  // 5 seconds for faster detection
+  }, 8000);  // 8 seconds (was 5s)
 }
 
 // Stop heartbeat
@@ -872,7 +872,7 @@ function startAutoConnect() {
     if (!ws || ws.readyState !== WebSocket.OPEN) {
       connectToWebSocketServer();
     }
-  }, 3000); // Check every 3 seconds
+  }, 5000); // Check every 5 seconds (was 3s)
 }
 
 // Toggle sidebars visibility for current tab
@@ -913,8 +913,8 @@ function setupKeepAlive() {
   // Create an alarm that fires every 25 seconds to keep service worker active
   chrome.alarms.create('keepAlive', { periodInMinutes: 0.4 }); // ~24 seconds
   
-  // Also create a connection check alarm
-  chrome.alarms.create('checkConnection', { periodInMinutes: 0.1 }); // ~6 seconds
+  // Connection check alarm - every 12 seconds (was 6s)
+  chrome.alarms.create('checkConnection', { periodInMinutes: 0.2 }); // ~12 seconds
 }
 
 // Handle alarms

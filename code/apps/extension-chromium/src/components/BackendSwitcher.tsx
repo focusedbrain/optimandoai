@@ -190,7 +190,7 @@ export function BackendSwitcher({ theme = 'default' }: BackendSwitcherProps) {
     }
   };
 
-  // Match Quick Actions section styling
+  // Match Runtime Controls section styling
   const bgColor = theme === 'default' 
     ? 'rgba(118,75,162,0.5)' 
     : 'rgba(255,255,255,0.12)';
