@@ -34,6 +34,10 @@ export function textToTensor(text: string, dim = 256) {
   }
   // convert to tensor and normalize to unit length
   const tns = tf.tensor1d(Array.from(vec)) // create 1D tensor from Float32Array
+
+  console.log('Vec:', vec); // todo: Added for testing. Remove later.
+  console.log('Tensor:', tns); // todo: Added for testing. Remove later.
+
   const norm = tf.norm(tns) // compute L2 norm
   return tf.tidy(() => {
     return tf.div(tns, tf.add(norm, tf.scalar(1e-8))) as tf.Tensor1D // divide by norm (with epsilon)
