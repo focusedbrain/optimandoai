@@ -4,6 +4,7 @@ import { MiniApp, AtomicBlock, RuntimeState } from './types' // import types
 export function createRuntimeState(namespace?: string, opts?: { persistToFile?: boolean }): { state: RuntimeState, set: (k:string,v:any)=>void, get:(k:string)=>any, persist:(key?:string)=>Promise<string|undefined> } {
   const state: RuntimeState = {} // in-memory state object
   const storageKey = namespace ? `beap_state_${namespace}` : undefined // sessionStorage key when namespace provided
+  console.log("Storage Key: ",storageKey); // todo: Added for testing. Remove later.
   const fileName = namespace ? `beap_state_${namespace}.json` : `beap_state.json`
   let tempFilePath: string | undefined
 
