@@ -1,8 +1,11 @@
 📁 WR Code™ Framework & Canonical Specification
 This repository contains the official Canonical Specification, normative documentation, and licensing for the WR Code™ ecosystem, developed and maintained by Optimando.ai.
 
-📘 Paper v191: The Official Canon
-The foundation of this repository is the cornerstone scientific and normative work: "WR Code – Browser-Based Multi-Agent Orchestration for Contextual Workflow Automation" (v191).
+Optimando.ai is the publication identity and operating brand of
+O.S. CyberEarth UG (haftungsbeschränkt).
+
+📘 Paper v194: The Official Canon
+The foundation of this repository is the cornerstone scientific and normative work: "WR Code™ – Browser-Based Multi-Agent Orchestration for Contextual Workflow Automation" (v194).
 
 Starting with v191, this document serves as the sole authoritative source (The Canon) for the following protocols:
 
@@ -22,15 +25,15 @@ Governance Authority: All protocol semantics and compliance rules are managed ex
 Suspension of Prior Versions: Paper v191 supersedes all previous drafts (v1–v190). All prior materials are now considered non-normative and suspended.
 
 📜 Licensing (Proprietary Dual-Structure)
-1. Specification License: CSL-1.0
-The documentation and protocol definitions (including Paper v191) are licensed under the WR Code™ Canonical Specification License (CSL-1.0).
+1. Canoncial Specification License: CSL-1.2
+The documentation and protocol definitions (Paper v194) are licensed under the WR Code™ Canonical Specification License (CSL-1.2).
 
 Read-Only/No-Derivatives: This specification is "open to be read, but closed to be redefined."
 
 Protection of the Standard: Modification, translation, or creation of derivative specifications based on this Canon is strictly prohibited to prevent the dilution of the BEAP™ and PoAE™ standards.
 
-2. Software Runtime License: OGPL-1.0
-The functional software implementation (OpenGiraffe™ engine, WRGuard™, and WRVault™) is licensed under the OpenGiraffe Protected License (OGPL-1.0).
+2. Software Runtime License: OGPL-1.1
+The functional software implementation (OpenGiraffe™ engine, WRGuard™, and WRVault™) is licensed under the OpenGiraffe Protected License (OGPL-1.1).
 
 Source-Available (NOT Open-Source): Public redistribution, SaaS-hosting, or forking of the runtime is prohibited.
 
@@ -52,7 +55,8 @@ Verification: Every core file (PDF, License, Governance) has a corresponding .ot
 
 Audit Trail: This ensures that the establishment of the WR Code™ Canon and its associated rights are cryptographically verifiable from the date of publication.
 
+
 🔗 Citation & Contact
-Schreyer, O. (2025). WR Code – Browser-Based Multi-Agent Orchestration for Contextual Workflow Automation (v191). Optimando.ai.
+Schreyer, O. (2025). WR Code™ – Browser-Based Multi-Agent Orchestration for Contextual Workflow Automation (v194). Optimando.ai.
 
 For enterprise deployments, SaaS integration, or commercial licensing inquiries: 📩 license@optimando.ai | 🌐 optimando.ai
