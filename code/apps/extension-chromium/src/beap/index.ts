@@ -49,10 +49,10 @@ Rules:
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        model: 'llama3.2', // or whatever model you have installed
+        model: 'phi3:mini', // or whatever model you have installed
         prompt: prompt,
-        stream: false,
-        format: 'json'
+        stream: false//,
+        // format: 'json'
       })
     })
 
