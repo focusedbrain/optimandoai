@@ -51,8 +51,8 @@ Rules:
       body: JSON.stringify({
         model: 'phi3:mini', // or whatever model you have installed
         prompt: prompt,
-        stream: false//,
-        // format: 'json'
+        stream: false,
+        format: 'json'
       })
     })
 
@@ -68,11 +68,11 @@ Rules:
       throw new Error('Invalid LLM response structure')
     }
 
-    console.log("BEAP: LLM normalized intent:", intentData)
+    console.log("BEAP: LLM normalized intent:", intentData) // todo: Remove this line for production
     return intentData
 
   } catch (error) {
-    console.warn("BEAP: LLM normalization failed, falling back to deterministic analysis:", error)
+    console.warn("BEAP: LLM normalization failed, falling back to deterministic analysis:", error) // Remove this line for production
     
     // Fallback to deterministic analysis if LLM fails
     const fullText = (title + ' ' + description).toLowerCase()
@@ -142,7 +142,7 @@ export async function createMiniAppFromQuery(title: string, description: string,
   
   // STEP 2-3: LLM normalizes user intent (NO code/UI generation)
   const normalizedIntent = await normalizeUserIntent(title, description)
-  console.log("BEAP: Normalized intent:", normalizedIntent)
+  console.log("BEAP: Normalized intent:", normalizedIntent) // Remove this line for production
   
   // STEP 4-5: TensorFlow.js creates vector from normalized intent/features ONLY
   const queryVector = createQueryVector(normalizedIntent)
