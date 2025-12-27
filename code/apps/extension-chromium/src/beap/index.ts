@@ -20,26 +20,49 @@ let cachedBlocks: StoredBlock[] | null = null // in-memory cache for loaded bloc
 // STEP 2: LLM intent normalization - converts user input to structured intent
 // LLM must NOT generate code, UI, or components - ONLY normalize intent
 async function normalizeUserIntent(title: string, description: string): Promise<NormalizedIntent> {
-  const prompt = `Analyze this user request and return ONLY structured intent data as valid JSON.
+  const prompt = `Analyze the following user request and extract structured intent data.
 
 User Input:
 Title: ${title}
 Description: ${description}
 
-You must return STRICT JSON format:
+Return ONLY valid JSON in the exact format below:
+
 {
-  "intent": "one_word_intent",
-  "features": ["feature1", "feature2"],
-  "constraints": ["constraint1", "constraint2"]
+  "intent": "",
+  "features": [],
+  "constraints": []
 }
 
-Rules:
-- intent: single word describing main purpose (e.g., "note_taking", "form_submission", "data_persistence", "text_input")
-- features: array of specific capabilities needed (e.g., ["save_data", "text_area", "submit_action"])
-- constraints: array of limitations or requirements (e.g., ["minimal_ui", "quick_access", "basic_functionality"])
-- DO NOT generate code, UI, or components
-- DO NOT include explanations outside the JSON
-- Return ONLY the JSON object`
+IMPORTANT RULES:
+
+1. intent:
+   - Use a short, normalized intent phrase (snake_case).
+   - Normalize synonyms (e.g. "sign in", "log in" → "login").
+   - Examples: "button_creation", "note_taking", "form_creation".
+
+2. features:
+   - List concrete, technical capabilities required.
+   - Use short noun phrases.
+   - Examples: "clickable_element", "text_input", "submit_action".
+
+3. constraints:
+   - Constraints MUST be chosen ONLY from the allowed list below.
+   - DO NOT invent new constraint names.
+   - Map user words like "only", "single", "just one" to the correct constraint.
+
+ALLOWED CONSTRAINT VALUES:
+- "single_functionality"      → exactly one functional UI block
+- "read_only"                 → no state-changing actions
+- "no_backend"                → no API or DB access
+- "no_input"                  → no input elements allowed
+- "no_action"                 → no buttons or triggers allowed
+
+STRICT RULES:
+- If no constraint applies, return an empty array.
+- DO NOT include explanations.
+- DO NOT generate code or UI.
+- Return ONLY the JSON object.`
 
   try {
     // Call Ollama API
@@ -103,6 +126,9 @@ Rules:
     if (/quick|fast|simple/.test(fullText)) {
       constraints.push('quick_access', 'streamlined')
     }
+    if (/single|one\s+thing|focused/.test(fullText)) {
+      constraints.push('single_functionality')
+    }
     
     return { intent, features, constraints }
   }
@@ -112,6 +138,62 @@ Rules:
 function createQueryVector(normalizedIntent: NormalizedIntent): tf.Tensor1D {
   const queryText = normalizedIntent.intent + ' ' + normalizedIntent.features.join(' ')
   return textToTensor(queryText.trim())
+}
+
+// STEP 7.5: Deterministic post-similarity selection layer
+// Takes ranked blocks and applies constraint-based rules to select final set
+function applySelectionRules(
+  rankedBlocks: Array<{ block: AtomicBlock; score: number }>,
+  constraints: string[]
+): AtomicBlock[] {
+  // Rule 1: If "single_functionality" constraint exists, select ONLY the top 1 block
+  if (constraints.includes('single_functionality')) {
+    return rankedBlocks.length > 0 ? [rankedBlocks[0].block] : []
+  }
+
+  // Rule 2: Apply group-based selection for normal cases
+  // Group blocks by their group field
+  const groupedBlocks = new Map<string, Array<{ block: AtomicBlock; score: number }>>()
+  
+  for (const item of rankedBlocks) {
+    const group = item.block.group || 'unknown'
+    if (!groupedBlocks.has(group)) {
+      groupedBlocks.set(group, [])
+    }
+    groupedBlocks.get(group)!.push(item)
+  }
+
+  // Apply group-specific limits (blocks within each group are already sorted by score)
+  const selectedBlocks: AtomicBlock[] = []
+
+  // ui.action: max 1 primary action (highest scoring)
+  const actionGroup = groupedBlocks.get('ui.action') || groupedBlocks.get('ui.button') || []
+  if (actionGroup.length > 0) {
+    selectedBlocks.push(actionGroup[0].block)
+  }
+
+  // ui.input: allow multiple inputs (all that were ranked high enough)
+  const inputGroup = groupedBlocks.get('ui.input') || []
+  for (const item of inputGroup) {
+    selectedBlocks.push(item.block)
+  }
+
+  // ui.display: optional display elements (take top 1 if present)
+  const displayGroup = groupedBlocks.get('ui.display') || groupedBlocks.get('ui.text') || []
+  if (displayGroup.length > 0) {
+    selectedBlocks.push(displayGroup[0].block)
+  }
+
+  // logic.*: allow all logic blocks that ranked high
+  for (const [group, items] of groupedBlocks.entries()) {
+    if (group.startsWith('logic.')) {
+      for (const item of items) {
+        selectedBlocks.push(item.block)
+      }
+    }
+  }
+
+  return selectedBlocks
 }
 
 // STEP 6: Load and vectorize Tier-3 blocks using name + description + intent_tags
@@ -155,10 +237,14 @@ export async function createMiniAppFromQuery(title: string, description: string,
     score: cosineSimilarity(queryVector, sb.tensor!)
   }))
   
-  // STEP 7: TensorFlow.js selects most relevant blocks (NO UI decisions)
+  // STEP 7: TensorFlow.js sorts by relevance (NO UI decisions)
   scored.sort((a, b) => b.score - a.score) // sort by relevance
-  const selectedBlocks = scored.slice(0, topN).map(s => s.block) // select top N
-  console.log("BEAP: TensorFlow.js selected blocks:", selectedBlocks.map(b => b.id))
+  console.log("BEAP: Scored blocks:", scored.map(s => ({ id: s.block.id, score: s.score.toFixed(4) }))) // Remove this line for production
+  
+  // STEP 7.5: Deterministic post-similarity selection layer
+  // Apply constraint-based rules to select final blocks (NOT simple topN)
+  const selectedBlocks = applySelectionRules(scored.slice(0, topN * 2), normalizedIntent.constraints)
+  console.log("BEAP: Applied selection rules, selected blocks:", selectedBlocks.map(b => b.id))
   
   // STEP 8: Deterministic assembly (NO LLM involvement after this point)
   const assembledApp = assembleMiniApp(selectedBlocks) // deterministic grouping

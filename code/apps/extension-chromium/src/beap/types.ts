@@ -1,6 +1,7 @@
 // AtomicBlock: minimal schema representing an atomic UI or logic block
 export type AtomicBlock = {
   id: string // unique block id
+  group?: string // block group, e.g., 'ui.action', 'ui.input', 'ui.display', 'logic.*'
   ui?: {
     kind: string // ui kind, e.g., 'text', 'input', 'textarea', 'button'
     props?: Record<string, any> // optional arbitrary UI props
