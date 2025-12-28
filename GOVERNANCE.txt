@@ -1,0 +1,195 @@
+WR CODE FRAMEWORK
+PROTOCOL GOVERNANCE AND CANONICAL SPECIFICATION
+
+Version: 1.0
+Baseline: Paper v191
+Status: Normative Canon / Proprietary Governance
+Maintained by: Optimando.ai
+
+1. PURPOSE AND SCOPE
+
+This document defines the canonical governance and normative authority for the WR Code framework and its associated protocols.
+
+It establishes:
+
+the single source of truth for protocol correctness,
+
+the distinction between public protocol specifications and proprietary framework components,
+
+and the governance rules that prevent dilution, fragmentation, or hostile reinterpretation.
+
+This document is normative.
+All other documents are non-normative unless explicitly designated otherwise.
+
+2. COVERED COMPONENTS
+
+This governance applies to the following components:
+
+2.1 Publicly Specified Protocols
+
+BEAP — Bidirectional Email Automation Protocol
+
+PoAE — Proof of Authoritative Execution
+
+These protocols are publicly specified but canonically governed.
+
+2.2 Proprietary Framework Components
+
+WR Code — Workflow Ready Code
+
+WRGuard
+
+OpenGiraffe
+
+These components are proprietary and subject to separate licensing and trademark control.
+
+3. CANONICAL AUTHORITY
+3.1 Canon Definition
+
+The Canon is the sole authoritative and normative definition of protocol behavior, semantics, terminology, and compliance requirements.
+
+Paper v191, as designated by Optimando.ai, constitutes the initial canonical baseline.
+
+3.2 Exclusivity
+
+Only documents explicitly designated by Optimando.ai as canonical define:
+
+correctness,
+
+compliance,
+
+and authoritative interpretation.
+
+All other materials — including earlier papers, drafts, presentations, repositories, or derivative descriptions — are non-normative.
+
+4. NORMATIVE VS. NON-NORMATIVE MATERIAL
+4.1 Normative Material
+
+This document
+
+Canonical specifications explicitly designated by Optimando.ai
+
+4.2 Non-Normative Material
+
+Earlier papers and drafts
+
+Explanatory or research texts
+
+Blog posts, talks, examples, or summaries
+
+Third-party interpretations or implementations
+
+Non-normative material must not be used to claim protocol compliance or equivalence.
+
+5. PROTOCOL INTEGRITY (BEAP & PoAE)
+5.1 Fixed Semantics
+
+The normative semantics of BEAP and PoAE are fixed by the Canon.
+
+Summaries, reformulations, alternative descriptions, or derivative explanations:
+
+do not create normative status,
+
+do not define compliance,
+
+and must not be represented as authoritative.
+
+5.2 Compliance Claims
+
+An implementation may describe itself as BEAP-compliant or PoAE-compliant only if it conforms to the Canon.
+
+Any deviation must be explicitly disclosed and must not be represented as compliant.
+
+6. TERMINOLOGY AUTHORITY (PoAE)
+
+PoAE (Proof of Authoritative Execution) is the sole normative execution-proof concept within the Canon.
+
+PoAE denotes execution that is:
+
+cryptographically verifiable,
+
+policy-bound,
+
+and authorized according to canonical governance rules.
+
+Generic terms such as “Proof of Execution (PoE)” are considered non-normative and carry no compliance meaning within this framework.
+
+7. PROPRIETARY STATUS OF WR CODE FRAMEWORK
+7.1 Ownership
+
+The WR Code framework, including its architecture, runtime logic, orchestration model, and internal interfaces, is proprietary intellectual property of Optimando.ai.
+
+7.2 Restricted Use
+
+No third party is permitted to:
+
+use the name “WR Code”,
+
+market a framework, runtime, or service under that name,
+
+or present any product as an official WR Code implementation
+without an explicit commercial or trademark license.
+
+7.3 Implementations
+
+Implementations of WR Code components (including WRGuard and OpenGiraffe) are governed by separate licensing terms and are not granted by this document.
+
+8. GOVERNANCE AND CONTROL
+
+Optimando.ai retains exclusive authority over:
+
+canonical designation,
+
+normative interpretation,
+
+versioning and evolution,
+
+suspension or deprecation of prior materials,
+
+and overall governance of the framework and protocols.
+
+Publication of the Canon does not:
+
+establish a community-governed standard,
+
+transfer authority to third parties,
+
+or permit hostile forks to claim equivalence.
+
+9. TRADEMARK AND NAMING POLICY
+
+The names:
+
+WR Code
+
+BEAP
+
+PoAE
+
+WRGuard
+
+WRVault
+
+WRCollect
+
+WRCard
+
+WRConnect
+
+WRRPay
+
+OpenGiraffe
+
+Optimando.ai
+
+are reserved identifiers.
+
+Use of these names in a product, service, certification, or marketing context requires an explicit trademark or commercial license.
+
+10. IP STRATEGY SUMMARY
+
+Protocols (BEAP / PoAE)
+Publicly specified, canonically governed, non-forkable in meaning.
+
+Framework (WR Code, WRGuard, OpenGiraffe)
+Proprietary, licensed, and trademark-controlled.

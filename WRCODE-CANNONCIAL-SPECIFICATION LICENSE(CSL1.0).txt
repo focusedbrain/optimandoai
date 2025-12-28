@@ -1,0 +1,176 @@
+WR CODE CANONICAL SPECIFICATION LICENSE
+
+CSL-1.1 (Proprietary Canon License)
+
+Version: 1.1
+Effective Date: 2025-12-22
+Licensor: Optimando.ai
+Governing Entity: Optimando.ai
+Jurisdiction: Germany / European Union
+
+Applies to:
+All canonical specifications, governance documents, normative definitions, terminology, and protocol descriptions designated by the Licensor as part of the WR Code Framework.
+
+1. DEFINITIONS
+
+For the purposes of this License:
+
+1.1 Specification
+
+“Specification” means any document designated by the Licensor as canonical or normative, including governance texts, protocol definitions, terminology, compliance rules, and interpretative guidance.
+
+1.2 Canon
+
+“Canon” means the sole authoritative and normative definition of the covered protocols and framework components.
+In case of ambiguity, the Canon prevails over all non-canonical material.
+
+1.3 Covered Components
+
+This License applies to the following components and their designated successors:
+
+WR Code (Workflow Ready Code)
+
+BEAP (Bidirectional Email Automation Protocol)
+
+PoAE (Proof of Authoritative Execution)
+
+WRGuard
+
+OpenGiraffe
+
+1.4 Licensee
+
+“Licensee” means any individual or legal entity accessing, reading, or using the Specification.
+
+1.5 Normative
+
+“Normative” means authoritative and binding for correctness, compliance, interpretation, and governance.
+
+2. OWNERSHIP AND STATUS
+
+2.1. The Specification and all Covered Components are proprietary intellectual property of the Licensor.
+
+2.2. The Specification constitutes the exclusive Canon for the Covered Components.
+
+2.3. All rights not expressly granted under this License are reserved.
+
+3. PERMITTED USES
+
+Subject to full compliance with this License, the Licensee is permitted to:
+
+3.1. Read and review the Specification.
+
+3.2. Cite the Specification for academic, research, regulatory, or explanatory purposes, provided proper attribution to the Licensor is given.
+
+3.3. Discuss or analyze the Specification in scholarly or evaluative contexts, provided that:
+
+no normative text is reproduced,
+
+no alternative definitions are created,
+
+no compliance or equivalence is implied.
+
+No other rights are granted.
+
+4. PROHIBITED USES
+
+Without prior written permission from the Licensor, the Licensee shall not:
+
+4.1. Reproduce, modify, translate, adapt, summarize, annotate, or redistribute the Specification or any portion thereof.
+
+4.2. Create derivative specifications, alternative canons, competing governance documents, or modified normative definitions.
+
+4.3. Represent any work, implementation, description, or documentation as:
+
+canonical,
+
+normative,
+
+compliant,
+
+authoritative,
+
+officially supported,
+unless explicitly licensed by the Licensor.
+
+4.4. Use the names WR Code, BEAP, PoAE, WRGuard, or OpenGiraffe to market, certify, label, or promote third-party products, services, or frameworks as compliant or standard-conformant.
+
+5. TERMINOLOGY AUTHORITY (PoAE)
+
+5.1. PoAE (Proof of Authoritative Execution) is the sole normative execution-proof concept within the Canon.
+
+5.2. PoAE denotes execution that is:
+
+cryptographically verifiable,
+
+policy-bound,
+
+and authorized according to canonical governance rules.
+
+5.3. The term “PoE” (Proof of Execution) is considered generic and non-normative when used outside the Canon and carries no compliance meaning.
+
+6. IMPLEMENTATIONS
+
+6.1. This License does not grant any right to implement, deploy, distribute, or commercialize software or systems based on the Specification.
+
+6.2. Any implementation, interoperability, certification, or commercial use requires a separate, explicit licensing agreement.
+
+6.3. No implied license is granted to practice any architecture, runtime behavior, workflow logic, or enforcement mechanism described in the Specification.
+
+7. NO STANDARD TRANSFER OR COMMUNITY GOVERNANCE
+
+7.1. Publication of the Specification does not:
+
+create a public or community-governed standard,
+
+transfer governance authority,
+
+permit third-party supersession of the Canon.
+
+7.2. The Licensor retains exclusive authority over:
+
+canonical status,
+
+normative interpretation,
+
+versioning,
+
+suspension or deprecation of prior materials,
+
+governance evolution.
+
+8. NO TRADEMARK LICENSE
+
+This License does not grant any trademark or branding rights.
+
+Use of the names WR Code, BEAP, PoAE, WRGuard, OpenGiraffe, or Optimando.ai requires an explicit trademark or commercial license.
+
+9. DISCLAIMER OF WARRANTY
+
+The Specification is provided “as is”, without warranties of any kind, express or implied, including correctness, completeness, merchantability, or fitness for a particular purpose.
+
+10. LIMITATION OF LIABILITY
+
+To the maximum extent permitted by law, the Licensor shall not be liable for any damages arising from the use or inability to use the Specification or Covered Components.
+
+11. TERMINATION
+
+Any violation of this License results in immediate termination of all rights granted herein.
+Upon termination, all use of the Specification must cease.
+
+12. GOVERNING LAW
+
+This License is governed by the laws of the Federal Republic of Germany and applicable European Union law, excluding conflict-of-law principles.
+
+13. CONTACT
+
+Licensing and commercial inquiries:
+
+Email: license@optimando.ai
+
+Web: https://optimando.ai
+
+14. FINAL STATEMENT
+
+The Canon may be read and referenced.
+It may not be redefined.
