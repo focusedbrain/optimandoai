@@ -1025,6 +1025,67 @@ chrome.tabs.onActivated.addListener((activeInfo) => {
 
 // Handle messages from content script
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  // Check desktop app status (for BackendConfigLightbox)
+  if (msg && msg.type === 'CHECK_DESKTOP_APP_STATUS') {
+    console.log('[BG] Checking desktop app status...');
+    (async () => {
+      try {
+        const response = await fetch(`${ELECTRON_BASE_URL}/api/orchestrator/status`, {
+          method: 'GET',
+          signal: AbortSignal.timeout(3000),
+        });
+        console.log('[BG] Desktop app responded:', response.status);
+        sendResponse({ running: true, status: response.status });
+      } catch (e: any) {
+        console.log('[BG] Desktop app check failed:', e.name, e.message);
+        sendResponse({ running: false, error: e.message });
+      }
+    })();
+    return true; // Keep channel open for async response
+  }
+
+  // Proxy API calls to Electron app (for BackendConfigLightbox)
+  if (msg && msg.type === 'ELECTRON_API_PROXY') {
+    console.log('[BG] Proxying API call:', msg.endpoint, msg.method);
+    (async () => {
+      try {
+        const fetchOptions: RequestInit = {
+          method: msg.method || 'GET',
+          headers: msg.headers || { 'Content-Type': 'application/json' },
+          signal: AbortSignal.timeout(msg.timeout || 15000),
+        };
+        if (msg.body) {
+          fetchOptions.body = typeof msg.body === 'string' ? msg.body : JSON.stringify(msg.body);
+        }
+        
+        const response = await fetch(`${ELECTRON_BASE_URL}${msg.endpoint}`, fetchOptions);
+        const text = await response.text();
+        let data;
+        try {
+          data = JSON.parse(text);
+        } catch {
+          data = text;
+        }
+        
+        console.log('[BG] API proxy response:', response.status, response.ok);
+        sendResponse({ 
+          success: response.ok, 
+          status: response.status, 
+          statusText: response.statusText,
+          data 
+        });
+      } catch (e: any) {
+        console.log('[BG] API proxy error:', e.name, e.message);
+        sendResponse({ 
+          success: false, 
+          error: e.message,
+          errorName: e.name 
+        });
+      }
+    })();
+    return true; // Keep channel open for async response
+  }
+
   // Check if this is a vault RPC message (has type: 'VAULT_RPC')
   if (msg && msg.type === 'VAULT_RPC') {
     console.log('[BG] Received VAULT_RPC:', msg.method)

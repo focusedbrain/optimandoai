@@ -1,7 +1,6 @@
 /// <reference types="chrome-types"/>
 import React, { useState, useEffect, useRef } from 'react'
 import { createRoot } from 'react-dom/client'
-import { BackendSwitcher } from './components/BackendSwitcher'
 import { BackendSwitcherInline } from './components/BackendSwitcherInline'
 import { 
   routeInput, 
@@ -6702,6 +6701,58 @@ height: '28px',
             📥 Import
           </button>
           <button
+            onClick={() => sendToContentScript('OPEN_BACKEND_CONFIG_LIGHTBOX')}
+            style={{
+              padding: '12px',
+              background: '#8b5cf6',
+              border: 'none',
+              color: 'white',
+              borderRadius: '8px',
+              cursor: 'pointer',
+              fontSize: '13px',
+              fontWeight: '600',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '6px',
+              transition: 'all 0.2s ease',
+              boxShadow: '0 2px 6px rgba(0,0,0,0.2)'
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.transform = 'translateY(-2px)'
+              e.currentTarget.style.boxShadow = '0 4px 12px rgba(139,92,246,0.4)'
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.transform = 'translateY(0)'
+              e.currentTarget.style.boxShadow = '0 2px 6px rgba(0,0,0,0.2)'
+            }}
+          >
+            ⚙️ Backend
+          </button>
+          <button
+            disabled
+            title="Policies configuration coming soon"
+            style={{
+              padding: '12px',
+              background: '#6b7280',
+              border: 'none',
+              color: 'white',
+              borderRadius: '8px',
+              cursor: 'not-allowed',
+              fontSize: '13px',
+              fontWeight: '600',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '6px',
+              transition: 'all 0.2s ease',
+              boxShadow: '0 2px 6px rgba(0,0,0,0.2)',
+              opacity: 0.6
+            }}
+          >
+            📋 Policies
+          </button>
+          <button
             onClick={openWRVault}
             style={{
               padding: '12px',
@@ -6710,11 +6761,11 @@ height: '28px',
                 border: '1px solid rgba(15,23,42,0.2)',
                 color: '#0f172a'
               } : theme === 'dark' ? {
-              background: 'rgba(255,255,255,0.15)',
-              border: '1px solid rgba(255,255,255,0.25)',
+                background: 'rgba(255,255,255,0.1)',
+                border: '1px solid rgba(255,255,255,0.25)',
                 color: '#f1f5f9'
               } : {
-                background: 'rgba(255,255,255,0.15)',
+                background: 'rgba(255,255,255,0.1)',
                 border: '1px solid rgba(255,255,255,0.25)',
                 color: 'white'
               }),
@@ -6728,40 +6779,32 @@ height: '28px',
               gap: '8px',
               transition: 'all 0.2s ease',
               gridColumn: '1 / span 2',
-              boxShadow: '0 2px 6px rgba(0,0,0,0.2)'
+              boxShadow: '0 2px 6px rgba(0,0,0,0.15)'
             }}
             onMouseEnter={(e) => {
               e.currentTarget.style.transform = 'translateY(-2px)'
               if (theme === 'professional') {
                 e.currentTarget.style.background = 'rgba(15,23,42,0.12)'
-                e.currentTarget.style.boxShadow = '0 4px 12px rgba(15,23,42,0.2)'
-              } else if (theme === 'dark') {
-              e.currentTarget.style.background = 'rgba(255,255,255,0.25)'
-              e.currentTarget.style.boxShadow = '0 4px 12px rgba(255,255,255,0.2)'
+                e.currentTarget.style.boxShadow = '0 4px 12px rgba(15,23,42,0.15)'
               } else {
-                e.currentTarget.style.background = 'rgba(118,75,162,0.5)'
-                e.currentTarget.style.boxShadow = '0 4px 12px rgba(118,75,162,0.3)'
+                e.currentTarget.style.background = 'rgba(255,255,255,0.2)'
+                e.currentTarget.style.boxShadow = '0 4px 12px rgba(255,255,255,0.15)'
               }
             }}
             onMouseLeave={(e) => {
               e.currentTarget.style.transform = 'translateY(0)'
               if (theme === 'professional') {
                 e.currentTarget.style.background = 'rgba(15,23,42,0.08)'
-              } else if (theme === 'dark') {
-              e.currentTarget.style.background = 'rgba(255,255,255,0.15)'
               } else {
-                e.currentTarget.style.background = 'rgba(118,75,162,0.35)'
+                e.currentTarget.style.background = 'rgba(255,255,255,0.1)'
               }
-              e.currentTarget.style.boxShadow = '0 2px 6px rgba(0,0,0,0.2)'
+              e.currentTarget.style.boxShadow = '0 2px 6px rgba(0,0,0,0.15)'
             }}
           >
             🔒 WRVault
           </button>
         </div>
       </div>
-
-      {/* Backend Switcher Section */}
-      <BackendSwitcher theme={theme} />
 
       {/* Email Setup Wizard Modal - Global (accessible from all views) */}
       {showEmailSetupWizard && (
