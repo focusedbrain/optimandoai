@@ -1,6 +1,26 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Component, ReactNode } from 'react';
 import { LlmSettings } from './LlmSettings';
 import { ImageEngineSettings } from './ImageEngineSettings';
+
+// Simple Error Boundary to prevent crashes from closing the lightbox
+class ErrorBoundary extends Component<{ children: ReactNode; fallback: ReactNode }, { hasError: boolean }> {
+  constructor(props: { children: ReactNode; fallback: ReactNode }) {
+    super(props);
+    this.state = { hasError: false };
+  }
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+  componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
+    console.error('[ErrorBoundary] Caught error:', error, errorInfo);
+  }
+  render() {
+    if (this.state.hasError) {
+      return this.props.fallback;
+    }
+    return this.props.children;
+  }
+}
 
 interface PostgresConnectionConfig {
   postgres?: {
@@ -916,6 +936,7 @@ export function BackendConfigLightbox({ isOpen, onClose, theme = 'default' }: Ba
           {/* LLM & Images Tab */}
           {activeTab === 'llm' && (
             <div style={{ maxWidth: '800px', margin: '0 auto' }}>
+              <ErrorBoundary fallback={<div style={{ padding: '20px', color: 'red' }}>Error loading LLM settings. Check console for details.</div>}>
               {/* Sub-tabs */}
               <div style={{
                 display: 'flex',
@@ -968,6 +989,7 @@ export function BackendConfigLightbox({ isOpen, onClose, theme = 'default' }: Ba
 
               {llmSubTab === 'text' && <LlmSettings theme={theme} bridge="http" />}
               {llmSubTab === 'image' && <ImageEngineSettings theme={theme} />}
+              </ErrorBoundary>
             </div>
           )}
 
