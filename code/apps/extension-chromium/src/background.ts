@@ -2026,8 +2026,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     case 'OPEN_COMMAND_CENTER_POPUP': {
       const themeHint = typeof msg.theme === 'string' ? msg.theme : null
       const createPopup = (bounds: chrome.system.display.Bounds | null) => {
-        // Use React-based popup-chat.html instead of old popup.html
-        const url = chrome.runtime.getURL('src/popup-chat.html' + (themeHint ? ('?t=' + encodeURIComponent(themeHint)) : ''))
+        const url = chrome.runtime.getURL('popup.html' + (themeHint ? ('?t=' + encodeURIComponent(themeHint)) : ''))
         const opts: chrome.windows.CreateData = {
           url,
           type: 'popup',

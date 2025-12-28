@@ -181,7 +181,7 @@ const mailguardView = document.getElementById('mailguard-view')
 const p2pChatView = document.getElementById('p2p-chat-view')
 const p2pStreamView = document.getElementById('p2p-stream-view')
 const groupStreamView = document.getElementById('group-stream-view')
-const adminView = document.getElementById('admin-view')
+const handshakeView = document.getElementById('handshake-view')
 const chatControls = document.getElementById('chat-controls')
 
 // MailGuard elements
@@ -206,7 +206,7 @@ function hideAllViews() {
   if (p2pChatView) p2pChatView.style.display = 'none'
   if (p2pStreamView) p2pStreamView.style.display = 'none'
   if (groupStreamView) groupStreamView.style.display = 'none'
-  if (adminView) adminView.style.display = 'none'
+  if (handshakeView) handshakeView.style.display = 'none'
   if (chatControls) chatControls.style.display = 'none'
 }
 
@@ -223,8 +223,8 @@ function updateView() {
   }
   
   if (workspace === 'wr-chat') {
-    // Show controls for all modes except admin
-    if (chatControls) chatControls.style.display = submode !== 'admin' ? 'flex' : 'none'
+    // Show controls for all modes except handshake
+    if (chatControls) chatControls.style.display = submode !== 'handshake' ? 'flex' : 'none'
     
     switch (submode) {
       case 'command':
@@ -239,8 +239,11 @@ function updateView() {
       case 'group-stream':
         if (groupStreamView) groupStreamView.style.display = 'flex'
         break
-      case 'admin':
-        if (adminView) adminView.style.display = 'flex'
+      case 'handshake':
+        if (handshakeView) {
+          handshakeView.style.display = 'flex'
+          initHandshakeView()
+        }
         break
     }
   } else if (workspace === 'augmented-overlay') {
@@ -1115,4 +1118,159 @@ try {
     }
   })
 } catch {}
+
+// =============================================================================
+// HANDSHAKE REQUEST FUNCTIONALITY
+// =============================================================================
+
+// Generate a mock fingerprint (64 hex chars)
+function generateMockFingerprint() {
+  const chars = '0123456789ABCDEF'
+  let result = ''
+  for (let i = 0; i < 64; i++) {
+    result += chars.charAt(Math.floor(Math.random() * chars.length))
+  }
+  return result
+}
+
+// Format fingerprint for display with grouping
+function formatFingerprintGrouped(fp) {
+  if (!fp) return ''
+  const groups = []
+  for (let i = 0; i < fp.length; i += 4) {
+    groups.push(fp.slice(i, i + 4))
+  }
+  return groups.join(' ')
+}
+
+// Format short fingerprint
+function formatFingerprintShort(fp) {
+  if (!fp || fp.length < 16) return fp || ''
+  return fp.slice(0, 8) + '…' + fp.slice(-8)
+}
+
+// Handshake state
+let hsFingerprint = null
+let hsInitialized = false
+
+// Default handshake message template
+const HANDSHAKE_MESSAGE_TEMPLATE = `Dear [Recipient Name],
+
+I am writing to request the establishment of a BEAP™ (Bidirectional Email Automation Protocol) handshake between our systems.
+
+Upon successful completion, this handshake will enable:
+
+• Cryptographically verified BEAP™ package exchange
+• Policy-bound, trusted automation workflows
+• End-to-end encrypted, integrity-validated bidirectional communication
+
+The handshake serves as the trust anchor for future interactions and ensures that all exchanged BEAP™ packages are processed in accordance with verified identity, declared execution policies, and local enforcement rules.
+
+**Handshake Fingerprint:** [FINGERPRINT]
+
+Please verify this fingerprint matches what you expect before accepting.
+
+Please confirm acceptance of this request to complete the handshake initialization.
+
+Kind regards,
+[Your Name]
+[Organization]
+[Role / Function, if applicable]`
+
+// Initialize handshake view
+function initHandshakeView() {
+  if (hsInitialized) return
+  hsInitialized = true
+  
+  // Generate fingerprint
+  hsFingerprint = generateMockFingerprint()
+  
+  // Display fingerprint
+  const fpFullEl = document.getElementById('hs-fingerprint-full')
+  const fpShortEl = document.getElementById('hs-fingerprint-short')
+  if (fpFullEl) fpFullEl.textContent = formatFingerprintGrouped(hsFingerprint)
+  if (fpShortEl) fpShortEl.textContent = formatFingerprintShort(hsFingerprint)
+  
+  // Set default message with fingerprint
+  const msgEl = document.getElementById('hs-message')
+  if (msgEl && !msgEl.value) {
+    msgEl.value = HANDSHAKE_MESSAGE_TEMPLATE.replace('[FINGERPRINT]', hsFingerprint)
+  }
+  
+  // Copy fingerprint button
+  const copyBtn = document.getElementById('hs-copy-fp')
+  if (copyBtn) {
+    copyBtn.onclick = async () => {
+      try {
+        await navigator.clipboard.writeText(hsFingerprint)
+        copyBtn.textContent = '✓ Copied'
+        setTimeout(() => { copyBtn.textContent = '📋 Copy' }, 2000)
+      } catch (err) {
+        console.error('Failed to copy:', err)
+      }
+    }
+  }
+  
+  // Delivery method change
+  const deliveryEl = document.getElementById('hs-delivery')
+  const emailFieldsEl = document.getElementById('hs-email-fields')
+  const sendIcon = document.getElementById('hs-send-icon')
+  const sendText = document.getElementById('hs-send-text')
+  
+  if (deliveryEl) {
+    deliveryEl.onchange = () => {
+      const method = deliveryEl.value
+      if (emailFieldsEl) {
+        emailFieldsEl.style.display = method === 'email' ? 'flex' : 'none'
+      }
+      if (sendIcon && sendText) {
+        if (method === 'email') {
+          sendIcon.textContent = '📧'
+          sendText.textContent = 'Send'
+        } else if (method === 'messenger') {
+          sendIcon.textContent = '💬'
+          sendText.textContent = 'Insert'
+        } else {
+          sendIcon.textContent = '💾'
+          sendText.textContent = 'Download'
+        }
+      }
+    }
+  }
+  
+  // Cancel button
+  const cancelBtn = document.getElementById('hs-cancel')
+  if (cancelBtn) {
+    cancelBtn.onclick = () => {
+      if (submodeSelect) {
+        submodeSelect.value = 'command'
+        updateView()
+      }
+    }
+  }
+  
+  // Send button
+  const sendBtn = document.getElementById('hs-send')
+  if (sendBtn) {
+    sendBtn.onclick = () => {
+      const method = deliveryEl?.value || 'email'
+      const toEl = document.getElementById('hs-to')
+      
+      if (method === 'email' && (!toEl?.value || !toEl.value.trim())) {
+        alert('Please enter a recipient email address')
+        return
+      }
+      
+      // TODO: Implement actual send/download logic
+      const actionWord = method === 'download' ? 'downloaded' : 'sent'
+      alert(`Handshake request ${actionWord} successfully!`)
+      
+      // Return to command view
+      if (submodeSelect) {
+        submodeSelect.value = 'command'
+        updateView()
+      }
+    }
+  }
+}
 
