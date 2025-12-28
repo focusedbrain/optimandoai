@@ -2,6 +2,8 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { createRoot } from 'react-dom/client'
 import { BackendSwitcherInline } from './components/BackendSwitcherInline'
+import { PackageBuilderPolicy } from './policy/components/PackageBuilderPolicy'
+import type { CanonicalPolicy } from './policy/schema'
 import { 
   routeInput, 
   routeEventTagInput,
@@ -53,7 +55,7 @@ function SidepanelOrchestrator() {
   
   // Command chat state - workspace + submode like popup
   const [dockedWorkspace, setDockedWorkspace] = useState<'wr-chat' | 'augmented-overlay' | 'mailguard'>('wr-chat')
-  const [dockedSubmode, setDockedSubmode] = useState<'command' | 'p2p-chat' | 'p2p-stream' | 'group-stream' | 'admin'>('command')
+  const [dockedSubmode, setDockedSubmode] = useState<'command' | 'p2p-chat' | 'p2p-stream' | 'group-stream' | 'handshake'>('command')
   
   // Helper to get combined mode for conditional rendering
   const dockedPanelMode = dockedWorkspace === 'wr-chat' ? dockedSubmode : dockedWorkspace
@@ -71,10 +73,34 @@ function SidepanelOrchestrator() {
   
   // WR MailGuard state
   const [mailguardTo, setMailguardTo] = useState('')
+  const [mailguardCapsulePolicy, setMailguardCapsulePolicy] = useState<CanonicalPolicy | null>(null)
   const [mailguardSubject, setMailguardSubject] = useState('')
   const [mailguardBody, setMailguardBody] = useState('')
   const [mailguardAttachments, setMailguardAttachments] = useState<Array<{name: string, size: number, file: File}>>([])
   const [mailguardBodyHeight, setMailguardBodyHeight] = useState(200)
+  
+  // BEAP Handshake Request state
+  const [handshakeDelivery, setHandshakeDelivery] = useState<'email' | 'messenger' | 'download'>('email')
+  const [handshakeTo, setHandshakeTo] = useState('')
+  const [handshakeSubject, setHandshakeSubject] = useState('Request to Establish BEAP™ Secure Communication Handshake')
+  const [handshakeMessage, setHandshakeMessage] = useState(`Dear [Recipient Name],
+
+I am writing to request the establishment of a BEAP™ (Bidirectional Email Automation Protocol) handshake between our systems.
+
+Upon successful completion, this handshake will enable:
+
+• Cryptographically verified BEAP™ package exchange
+• Policy-bound, trusted automation workflows
+• End-to-end encrypted, integrity-validated bidirectional communication
+
+The handshake serves as the trust anchor for future interactions and ensures that all exchanged BEAP™ packages are processed in accordance with verified identity, declared execution policies, and local enforcement rules.
+
+Please confirm acceptance of this request to complete the handshake initialization.
+
+Kind regards,
+[Your Name]
+[Organization]
+[Role / Function, if applicable]`)
   const [isResizingMailguard, setIsResizingMailguard] = useState(false)
   const mailguardFileRef = useRef<HTMLInputElement>(null)
   
@@ -3097,7 +3123,7 @@ function SidepanelOrchestrator() {
                       <option value="p2p-chat">Direct Chat</option>
                       <option value="p2p-stream">Live Views</option>
                       <option value="group-stream">Group Sessions</option>
-                      <option value="admin">Admin</option>
+                      <option value="handshake">Handshake Request</option>
                     </select>
                   )}
                 </div>
@@ -3375,28 +3401,155 @@ function SidepanelOrchestrator() {
                 </div>
               )}
 
-              {/* Admin Placeholder */}
-              {dockedPanelMode === 'admin' && (
-                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: theme === 'default' ? 'rgba(118,75,162,0.25)' : 'rgba(255,255,255,0.06)', minHeight: '280px', overflow: 'hidden' }}>
-                  <div style={{ padding: '10px 14px', borderBottom: '1px solid rgba(255,255,255,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                    <span style={{ fontSize: '12px', fontWeight: '600' }}>Policy Capsules</span>
-                    <button style={{ padding: '4px 10px', background: 'rgba(255,255,255,0.12)', border: 'none', borderRadius: '6px', color: 'white', fontSize: '10px', cursor: 'pointer' }}>+ New Policy</button>
+              {/* BEAP Handshake Request */}
+              {dockedPanelMode === 'handshake' && (
+                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: theme === 'default' ? 'rgba(118,75,162,0.25)' : (theme === 'professional' ? '#f8fafc' : 'rgba(255,255,255,0.06)'), minHeight: '280px', overflow: 'hidden' }}>
+                  {/* Header */}
+                  <div style={{ padding: '12px 14px', borderBottom: `1px solid ${theme === 'professional' ? 'rgba(0,0,0,0.1)' : 'rgba(255,255,255,0.1)'}`, display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <span style={{ fontSize: '18px' }}>🤝</span>
+                    <span style={{ fontSize: '13px', fontWeight: '600', color: theme === 'professional' ? '#1f2937' : 'white' }}>BEAP™ Handshake Request</span>
                   </div>
-                  <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
-                    <div style={{ width: '120px', borderRight: '1px solid rgba(255,255,255,0.1)', padding: '8px', overflowY: 'auto' }}>
-                      <div style={{ fontSize: '9px', opacity: 0.5, marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>POLICIES</div>
-                      <div style={{ padding: '6px 8px', background: 'rgba(255,255,255,0.1)', borderRadius: '4px', fontSize: '11px', marginBottom: '4px', cursor: 'pointer' }}>Security Rules</div>
-                      <div style={{ padding: '6px 8px', fontSize: '11px', marginBottom: '4px', cursor: 'pointer', opacity: 0.6 }}>Access Control</div>
-                      <div style={{ padding: '6px 8px', fontSize: '11px', marginBottom: '4px', cursor: 'pointer', opacity: 0.6 }}>Automation</div>
+                  
+                  <div style={{ flex: 1, padding: '14px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                    {/* Delivery Method */}
+                    <div>
+                      <label style={{ fontSize: '11px', fontWeight: 600, marginBottom: '6px', display: 'block', color: theme === 'professional' ? '#6b7280' : 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                        Delivery Method
+                      </label>
+                      <select
+                        value={handshakeDelivery}
+                        onChange={(e) => setHandshakeDelivery(e.target.value as 'email' | 'messenger' | 'download')}
+                        style={{
+                          width: '100%',
+                          padding: '10px 12px',
+                          background: theme === 'professional' ? 'white' : 'rgba(255,255,255,0.08)',
+                          border: `1px solid ${theme === 'professional' ? 'rgba(0,0,0,0.15)' : 'rgba(255,255,255,0.15)'}`,
+                          borderRadius: '8px',
+                          color: theme === 'professional' ? '#1f2937' : 'white',
+                          fontSize: '13px',
+                          cursor: 'pointer',
+                        }}
+                      >
+                        <option value="email">📧 Email</option>
+                        <option value="messenger">💬 Messenger (Web)</option>
+                        <option value="download">💾 Download (USB/Wallet)</option>
+                      </select>
                     </div>
-                    <div style={{ flex: 1, padding: '10px', display: 'flex', flexDirection: 'column' }}>
-                      <div style={{ fontSize: '11px', fontWeight: '600', marginBottom: '8px' }}>Policy Editor</div>
-                      <textarea placeholder="Define policy rules..." style={{ flex: 1, padding: '8px', background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '6px', color: 'white', fontSize: '11px', fontFamily: 'monospace', resize: 'none', minHeight: '80px' }} />
-                      <div style={{ display: 'flex', gap: '8px', marginTop: '10px', justifyContent: 'flex-end' }}>
-                        <button style={{ padding: '6px 12px', background: 'rgba(255,255,255,0.12)', border: 'none', borderRadius: '6px', color: 'white', fontSize: '10px', cursor: 'pointer' }}>Test</button>
-                        <button style={{ padding: '6px 14px', background: 'linear-gradient(135deg, #22c55e 0%, #16a34a 100%)', border: 'none', borderRadius: '6px', color: 'white', fontSize: '11px', fontWeight: '600', cursor: 'pointer' }}>Publish</button>
-                      </div>
+                    
+                    {/* To & Subject Fields - Only for Email */}
+                    {handshakeDelivery === 'email' && (
+                      <>
+                        <div>
+                          <label style={{ fontSize: '11px', fontWeight: 600, marginBottom: '6px', display: 'block', color: theme === 'professional' ? '#6b7280' : 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                            To:
+                          </label>
+                          <input
+                            type="email"
+                            value={handshakeTo}
+                            onChange={(e) => setHandshakeTo(e.target.value)}
+                            placeholder="recipient@example.com"
+                            style={{
+                              width: '100%',
+                              padding: '10px 12px',
+                              background: theme === 'professional' ? 'white' : 'rgba(255,255,255,0.08)',
+                              border: `1px solid ${theme === 'professional' ? 'rgba(0,0,0,0.15)' : 'rgba(255,255,255,0.15)'}`,
+                              borderRadius: '8px',
+                              color: theme === 'professional' ? '#1f2937' : 'white',
+                              fontSize: '13px',
+                            }}
+                          />
+                        </div>
+                        <div>
+                          <label style={{ fontSize: '11px', fontWeight: 600, marginBottom: '6px', display: 'block', color: theme === 'professional' ? '#6b7280' : 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                            Subject:
+                          </label>
+                          <input
+                            type="text"
+                            value={handshakeSubject}
+                            onChange={(e) => setHandshakeSubject(e.target.value)}
+                            style={{
+                              width: '100%',
+                              padding: '10px 12px',
+                              background: theme === 'professional' ? 'white' : 'rgba(255,255,255,0.08)',
+                              border: `1px solid ${theme === 'professional' ? 'rgba(0,0,0,0.15)' : 'rgba(255,255,255,0.15)'}`,
+                              borderRadius: '8px',
+                              color: theme === 'professional' ? '#1f2937' : 'white',
+                              fontSize: '13px',
+                            }}
+                          />
+                        </div>
+                      </>
+                    )}
+                    
+                    {/* Message */}
+                    <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+                      <label style={{ fontSize: '11px', fontWeight: 600, marginBottom: '6px', display: 'block', color: theme === 'professional' ? '#6b7280' : 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                        Message
+                      </label>
+                      <textarea
+                        value={handshakeMessage}
+                        onChange={(e) => setHandshakeMessage(e.target.value)}
+                        style={{
+                          flex: 1,
+                          minHeight: '120px',
+                          padding: '10px 12px',
+                          background: theme === 'professional' ? 'white' : 'rgba(255,255,255,0.08)',
+                          border: `1px solid ${theme === 'professional' ? 'rgba(0,0,0,0.15)' : 'rgba(255,255,255,0.15)'}`,
+                          borderRadius: '8px',
+                          color: theme === 'professional' ? '#1f2937' : 'white',
+                          fontSize: '13px',
+                          lineHeight: '1.5',
+                          resize: 'none',
+                        }}
+                      />
                     </div>
+                    
+                    {/* Info */}
+                    <div style={{
+                      padding: '10px 12px',
+                      background: theme === 'professional' ? 'rgba(139, 92, 246, 0.08)' : 'rgba(139, 92, 246, 0.15)',
+                      borderRadius: '8px',
+                      fontSize: '11px',
+                      color: theme === 'professional' ? '#6b7280' : 'rgba(255,255,255,0.8)',
+                    }}>
+                      💡 This creates a secure BEAP™ package. Recipient will appear in your Handshakes once accepted.
+                    </div>
+                  </div>
+                  
+                  {/* Footer */}
+                  <div style={{ padding: '12px 14px', borderTop: `1px solid ${theme === 'professional' ? 'rgba(0,0,0,0.1)' : 'rgba(255,255,255,0.1)'}`, display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
+                    <button 
+                      onClick={() => setDockedSubmode('command')}
+                      style={{ padding: '8px 16px', background: 'transparent', border: `1px solid ${theme === 'professional' ? 'rgba(0,0,0,0.15)' : 'rgba(255,255,255,0.2)'}`, borderRadius: '8px', color: theme === 'professional' ? '#6b7280' : 'white', fontSize: '12px', cursor: 'pointer' }}
+                    >
+                      Cancel
+                    </button>
+                    <button 
+                      onClick={() => {
+                        if (handshakeDelivery === 'email' && !handshakeTo) {
+                          alert('Please enter a recipient email address')
+                          return
+                        }
+                        // TODO: Implement actual send/download logic
+                        alert(`Handshake request ${handshakeDelivery === 'download' ? 'downloaded' : 'sent'} successfully!`)
+                        setDockedSubmode('command')
+                      }}
+                      style={{ 
+                        padding: '8px 20px', 
+                        background: 'linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%)', 
+                        border: 'none', 
+                        borderRadius: '8px', 
+                        color: 'white', 
+                        fontSize: '12px', 
+                        fontWeight: 600, 
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                      }}
+                    >
+                      {handshakeDelivery === 'email' ? '📧 Send' : handshakeDelivery === 'messenger' ? '💬 Insert' : '💾 Download'}
+                    </button>
                   </div>
                 </div>
               )}
@@ -3974,9 +4127,20 @@ Write your message with the confidence that it will be protected by WRGuard encr
                       )}
                     </div>
                   </div>
+                  
+                  {/* Capsule Policy Builder - Permission Request */}
+                  <div style={{ padding: '16px 18px', borderTop: theme === 'professional' ? '1px solid rgba(15,23,42,0.1)' : '1px solid rgba(255,255,255,0.12)' }}>
+                    <PackageBuilderPolicy
+                      initialPolicy={mailguardCapsulePolicy || undefined}
+                      onPolicyChange={(policy) => setMailguardCapsulePolicy(policy)}
+                      theme={theme}
+                      compact={false}
+                    />
+                  </div>
+                  
                   <div style={{ padding: '14px 18px', borderTop: theme === 'professional' ? '1px solid rgba(15,23,42,0.1)' : '1px solid rgba(255,255,255,0.15)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: theme === 'professional' ? '#f1f5f9' : 'rgba(0,0,0,0.15)' }}>
-                    <button onClick={() => { setMailguardTo(''); setMailguardSubject(''); setMailguardBody(''); setMailguardAttachments([]) }} style={{ background: 'transparent', border: 'none', color: theme === 'professional' ? '#64748b' : 'rgba(255,255,255,0.6)', padding: '8px 12px', fontSize: '13px', cursor: 'pointer', textDecoration: 'underline', textUnderlineOffset: '2px' }}>Discard draft</button>
-                    <button onClick={() => { if (!mailguardTo.trim()) { setNotification({ message: 'Please enter a recipient', type: 'error' }); setTimeout(() => setNotification(null), 3000); return } if (!mailguardSubject.trim()) { setNotification({ message: 'Please enter a subject', type: 'error' }); setTimeout(() => setNotification(null), 3000); return } if (mailguardAttachments.length === 0) { setNotification({ message: 'Attach at least one WR stamped PDF', type: 'error' }); setTimeout(() => setNotification(null), 3000); return } console.log('[WR MailGuard] Sending:', { to: mailguardTo, subject: mailguardSubject, attachments: mailguardAttachments.map(a => a.name) }); setNotification({ message: 'Protected email queued', type: 'success' }); setTimeout(() => setNotification(null), 3000); setMailguardTo(''); setMailguardSubject(''); setMailguardBody(''); setMailguardAttachments([]) }} disabled={!mailguardTo.trim() || !mailguardSubject.trim() || mailguardAttachments.length === 0} style={{ background: (!mailguardTo.trim() || !mailguardSubject.trim() || mailguardAttachments.length === 0) ? (theme === 'professional' ? '#e2e8f0' : '#374151') : '#a855f7', border: 'none', color: (!mailguardTo.trim() || !mailguardSubject.trim() || mailguardAttachments.length === 0) ? (theme === 'professional' ? '#94a3b8' : '#6b7280') : 'white', borderRadius: '8px', padding: '12px 28px', fontSize: '14px', fontWeight: '600', cursor: (!mailguardTo.trim() || !mailguardSubject.trim() || mailguardAttachments.length === 0) ? 'not-allowed' : 'pointer', boxShadow: (!mailguardTo.trim() || !mailguardSubject.trim() || mailguardAttachments.length === 0) ? 'none' : '0 2px 8px rgba(168,85,247,0.4)', display: 'flex', alignItems: 'center', gap: '8px' }}>Send <span style={{ fontSize: '16px' }}>→</span></button>
+                    <button onClick={() => { setMailguardTo(''); setMailguardSubject(''); setMailguardBody(''); setMailguardAttachments([]); setMailguardCapsulePolicy(null) }} style={{ background: 'transparent', border: 'none', color: theme === 'professional' ? '#64748b' : 'rgba(255,255,255,0.6)', padding: '8px 12px', fontSize: '13px', cursor: 'pointer', textDecoration: 'underline', textUnderlineOffset: '2px' }}>Discard draft</button>
+                    <button onClick={() => { if (!mailguardTo.trim()) { setNotification({ message: 'Please enter a recipient', type: 'error' }); setTimeout(() => setNotification(null), 3000); return } if (!mailguardSubject.trim()) { setNotification({ message: 'Please enter a subject', type: 'error' }); setTimeout(() => setNotification(null), 3000); return } if (mailguardAttachments.length === 0) { setNotification({ message: 'Attach at least one WR stamped PDF', type: 'error' }); setTimeout(() => setNotification(null), 3000); return } console.log('[WR MailGuard] Sending:', { to: mailguardTo, subject: mailguardSubject, attachments: mailguardAttachments.map(a => a.name), capsulePolicy: mailguardCapsulePolicy }); setNotification({ message: 'Protected email queued', type: 'success' }); setTimeout(() => setNotification(null), 3000); setMailguardTo(''); setMailguardSubject(''); setMailguardBody(''); setMailguardAttachments([]); setMailguardCapsulePolicy(null) }} disabled={!mailguardTo.trim() || !mailguardSubject.trim() || mailguardAttachments.length === 0} style={{ background: (!mailguardTo.trim() || !mailguardSubject.trim() || mailguardAttachments.length === 0) ? (theme === 'professional' ? '#e2e8f0' : '#374151') : '#a855f7', border: 'none', color: (!mailguardTo.trim() || !mailguardSubject.trim() || mailguardAttachments.length === 0) ? (theme === 'professional' ? '#94a3b8' : '#6b7280') : 'white', borderRadius: '8px', padding: '12px 28px', fontSize: '14px', fontWeight: '600', cursor: (!mailguardTo.trim() || !mailguardSubject.trim() || mailguardAttachments.length === 0) ? 'not-allowed' : 'pointer', boxShadow: (!mailguardTo.trim() || !mailguardSubject.trim() || mailguardAttachments.length === 0) ? 'none' : '0 2px 8px rgba(168,85,247,0.4)', display: 'flex', alignItems: 'center', gap: '8px' }}>Send <span style={{ fontSize: '16px' }}>→</span></button>
                   </div>
                 </div>
               )}
@@ -4371,7 +4535,7 @@ Write your message with the confidence that it will be protected by WRGuard encr
                     <option value="p2p-chat">Direct Chat</option>
                     <option value="p2p-stream">Live Views</option>
                     <option value="group-stream">Group Sessions</option>
-                    <option value="admin">Admin</option>
+                    <option value="handshake">Handshake Request</option>
                   </select>
                 )}
               </div>
@@ -4648,28 +4812,133 @@ height: '28px',
               </div>
             )}
 
-            {/* Admin */}
-            {dockedPanelMode === 'admin' && (
-              <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: theme === 'default' ? 'rgba(118,75,162,0.25)' : 'rgba(255,255,255,0.06)', minHeight: '280px', overflow: 'hidden' }}>
-                <div style={{ padding: '10px 14px', borderBottom: '1px solid rgba(255,255,255,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                  <span style={{ fontSize: '12px', fontWeight: '600' }}>Policy Capsules</span>
-                  <button style={{ padding: '4px 10px', background: 'rgba(255,255,255,0.12)', border: 'none', borderRadius: '6px', color: 'white', fontSize: '10px', cursor: 'pointer' }}>+ New Policy</button>
+            {/* BEAP Handshake Request */}
+            {dockedPanelMode === 'handshake' && (
+              <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: theme === 'default' ? 'rgba(118,75,162,0.25)' : (theme === 'professional' ? '#f8fafc' : 'rgba(255,255,255,0.06)'), minHeight: '280px', overflow: 'hidden' }}>
+                {/* Header */}
+                <div style={{ padding: '12px 14px', borderBottom: `1px solid ${theme === 'professional' ? 'rgba(0,0,0,0.1)' : 'rgba(255,255,255,0.1)'}`, display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <span style={{ fontSize: '18px' }}>🤝</span>
+                  <span style={{ fontSize: '13px', fontWeight: '600', color: theme === 'professional' ? '#1f2937' : 'white' }}>BEAP™ Handshake Request</span>
                 </div>
-                <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
-                  <div style={{ width: '120px', borderRight: '1px solid rgba(255,255,255,0.1)', padding: '8px', overflowY: 'auto' }}>
-                    <div style={{ fontSize: '9px', opacity: 0.5, marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>POLICIES</div>
-                    <div style={{ padding: '6px 8px', background: 'rgba(255,255,255,0.1)', borderRadius: '4px', fontSize: '11px', marginBottom: '4px', cursor: 'pointer' }}>Security Rules</div>
-                    <div style={{ padding: '6px 8px', fontSize: '11px', marginBottom: '4px', cursor: 'pointer', opacity: 0.6 }}>Access Control</div>
-                    <div style={{ padding: '6px 8px', fontSize: '11px', marginBottom: '4px', cursor: 'pointer', opacity: 0.6 }}>Automation</div>
+                
+                <div style={{ flex: 1, padding: '14px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                  {/* Delivery Method */}
+                  <div>
+                    <label style={{ fontSize: '11px', fontWeight: 600, marginBottom: '6px', display: 'block', color: theme === 'professional' ? '#6b7280' : 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                      Delivery Method
+                    </label>
+                    <select
+                      value={handshakeDelivery}
+                      onChange={(e) => setHandshakeDelivery(e.target.value as 'email' | 'messenger' | 'download')}
+                      style={{
+                        width: '100%',
+                        padding: '10px 12px',
+                        background: theme === 'professional' ? 'white' : '#1f2937',
+                        border: `1px solid ${theme === 'professional' ? 'rgba(0,0,0,0.15)' : 'rgba(255,255,255,0.25)'}`,
+                        borderRadius: '8px',
+                        color: theme === 'professional' ? '#1f2937' : 'white',
+                        fontSize: '13px',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      <option value="email" style={{ background: theme === 'professional' ? 'white' : '#1f2937', color: theme === 'professional' ? '#1f2937' : 'white' }}>📧 Email</option>
+                      <option value="messenger" style={{ background: theme === 'professional' ? 'white' : '#1f2937', color: theme === 'professional' ? '#1f2937' : 'white' }}>💬 Messenger (Web)</option>
+                      <option value="download" style={{ background: theme === 'professional' ? 'white' : '#1f2937', color: theme === 'professional' ? '#1f2937' : 'white' }}>💾 Download (USB/Wallet)</option>
+                    </select>
                   </div>
-                  <div style={{ flex: 1, padding: '10px', display: 'flex', flexDirection: 'column' }}>
-                    <div style={{ fontSize: '11px', fontWeight: '600', marginBottom: '8px' }}>Policy Editor</div>
-                    <textarea placeholder="Define policy rules..." style={{ flex: 1, padding: '8px', background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '6px', color: 'white', fontSize: '11px', fontFamily: 'monospace', resize: 'none', minHeight: '80px' }} />
-                    <div style={{ display: 'flex', gap: '8px', marginTop: '10px', justifyContent: 'flex-end' }}>
-                      <button style={{ padding: '6px 12px', background: 'rgba(255,255,255,0.12)', border: 'none', borderRadius: '6px', color: 'white', fontSize: '10px', cursor: 'pointer' }}>Test</button>
-                      <button style={{ padding: '6px 14px', background: 'linear-gradient(135deg, #22c55e 0%, #16a34a 100%)', border: 'none', borderRadius: '6px', color: 'white', fontSize: '11px', fontWeight: '600', cursor: 'pointer' }}>Publish</button>
+                  
+                  {/* To Field - Only for Email */}
+                  {handshakeDelivery === 'email' && (
+                    <div>
+                      <label style={{ fontSize: '11px', fontWeight: 600, marginBottom: '6px', display: 'block', color: theme === 'professional' ? '#6b7280' : 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                        To:
+                      </label>
+                      <input
+                        type="email"
+                        value={handshakeTo}
+                        onChange={(e) => setHandshakeTo(e.target.value)}
+                        placeholder="recipient@example.com"
+                        style={{
+                          width: '100%',
+                          padding: '10px 12px',
+                          background: theme === 'professional' ? 'white' : 'rgba(255,255,255,0.08)',
+                          border: `1px solid ${theme === 'professional' ? 'rgba(0,0,0,0.15)' : 'rgba(255,255,255,0.15)'}`,
+                          borderRadius: '8px',
+                          color: theme === 'professional' ? '#1f2937' : 'white',
+                          fontSize: '13px',
+                        }}
+                      />
                     </div>
+                  )}
+                  
+                  {/* Message */}
+                  <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+                    <label style={{ fontSize: '11px', fontWeight: 600, marginBottom: '6px', display: 'block', color: theme === 'professional' ? '#6b7280' : 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                      Message
+                    </label>
+                    <textarea
+                      value={handshakeMessage}
+                      onChange={(e) => setHandshakeMessage(e.target.value)}
+                      style={{
+                        flex: 1,
+                        minHeight: '120px',
+                        padding: '10px 12px',
+                        background: theme === 'professional' ? 'white' : 'rgba(255,255,255,0.08)',
+                        border: `1px solid ${theme === 'professional' ? 'rgba(0,0,0,0.15)' : 'rgba(255,255,255,0.15)'}`,
+                        borderRadius: '8px',
+                        color: theme === 'professional' ? '#1f2937' : 'white',
+                        fontSize: '13px',
+                        lineHeight: '1.5',
+                        resize: 'none',
+                      }}
+                    />
                   </div>
+                  
+                  {/* Info */}
+                  <div style={{
+                    padding: '10px 12px',
+                    background: theme === 'professional' ? 'rgba(139, 92, 246, 0.08)' : 'rgba(139, 92, 246, 0.15)',
+                    borderRadius: '8px',
+                    fontSize: '11px',
+                    color: theme === 'professional' ? '#6b7280' : 'rgba(255,255,255,0.8)',
+                  }}>
+                    💡 This creates a secure BEAP™ package. Recipient will appear in your Handshakes once accepted.
+                  </div>
+                </div>
+                
+                {/* Footer */}
+                <div style={{ padding: '12px 14px', borderTop: `1px solid ${theme === 'professional' ? 'rgba(0,0,0,0.1)' : 'rgba(255,255,255,0.1)'}`, display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
+                  <button 
+                    onClick={() => setDockedSubmode('command')}
+                    style={{ padding: '8px 16px', background: 'transparent', border: `1px solid ${theme === 'professional' ? 'rgba(0,0,0,0.15)' : 'rgba(255,255,255,0.2)'}`, borderRadius: '8px', color: theme === 'professional' ? '#6b7280' : 'white', fontSize: '12px', cursor: 'pointer' }}
+                  >
+                    Cancel
+                  </button>
+                  <button 
+                    onClick={() => {
+                      if (handshakeDelivery === 'email' && !handshakeTo) {
+                        alert('Please enter a recipient email address')
+                        return
+                      }
+                      alert(`Handshake request ${handshakeDelivery === 'download' ? 'downloaded' : 'sent'} successfully!`)
+                      setDockedSubmode('command')
+                    }}
+                    style={{ 
+                      padding: '8px 20px', 
+                      background: 'linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%)', 
+                      border: 'none', 
+                      borderRadius: '8px', 
+                      color: 'white', 
+                      fontSize: '12px', 
+                      fontWeight: 600, 
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                    }}
+                  >
+                    {handshakeDelivery === 'email' ? '📧 Send' : handshakeDelivery === 'messenger' ? '💬 Insert' : '💾 Download'}
+                  </button>
                 </div>
               </div>
             )}
@@ -5352,7 +5621,7 @@ height: '28px',
                     <option value="p2p-chat">Direct Chat</option>
                     <option value="p2p-stream">Live Views</option>
                     <option value="group-stream">Group Sessions</option>
-                    <option value="admin">Admin</option>
+                    <option value="handshake">Handshake Request</option>
                   </select>
                 )}
               </div>
@@ -5628,28 +5897,133 @@ height: '28px',
               </div>
             )}
 
-            {/* Admin */}
-            {dockedPanelMode === 'admin' && (
-              <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: theme === 'default' ? 'rgba(118,75,162,0.25)' : 'rgba(255,255,255,0.06)', minHeight: '280px', overflow: 'hidden' }}>
-                <div style={{ padding: '10px 14px', borderBottom: '1px solid rgba(255,255,255,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                  <span style={{ fontSize: '12px', fontWeight: '600' }}>Policy Capsules</span>
-                  <button style={{ padding: '4px 10px', background: 'rgba(255,255,255,0.12)', border: 'none', borderRadius: '6px', color: 'white', fontSize: '10px', cursor: 'pointer' }}>+ New Policy</button>
+            {/* BEAP Handshake Request */}
+            {dockedPanelMode === 'handshake' && (
+              <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: theme === 'default' ? 'rgba(118,75,162,0.25)' : (theme === 'professional' ? '#f8fafc' : 'rgba(255,255,255,0.06)'), minHeight: '280px', overflow: 'hidden' }}>
+                {/* Header */}
+                <div style={{ padding: '12px 14px', borderBottom: `1px solid ${theme === 'professional' ? 'rgba(0,0,0,0.1)' : 'rgba(255,255,255,0.1)'}`, display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <span style={{ fontSize: '18px' }}>🤝</span>
+                  <span style={{ fontSize: '13px', fontWeight: '600', color: theme === 'professional' ? '#1f2937' : 'white' }}>BEAP™ Handshake Request</span>
                 </div>
-                <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
-                  <div style={{ width: '120px', borderRight: '1px solid rgba(255,255,255,0.1)', padding: '8px', overflowY: 'auto' }}>
-                    <div style={{ fontSize: '9px', opacity: 0.5, marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>POLICIES</div>
-                    <div style={{ padding: '6px 8px', background: 'rgba(255,255,255,0.1)', borderRadius: '4px', fontSize: '11px', marginBottom: '4px', cursor: 'pointer' }}>Security Rules</div>
-                    <div style={{ padding: '6px 8px', fontSize: '11px', marginBottom: '4px', cursor: 'pointer', opacity: 0.6 }}>Access Control</div>
-                    <div style={{ padding: '6px 8px', fontSize: '11px', marginBottom: '4px', cursor: 'pointer', opacity: 0.6 }}>Automation</div>
+                
+                <div style={{ flex: 1, padding: '14px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                  {/* Delivery Method */}
+                  <div>
+                    <label style={{ fontSize: '11px', fontWeight: 600, marginBottom: '6px', display: 'block', color: theme === 'professional' ? '#6b7280' : 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                      Delivery Method
+                    </label>
+                    <select
+                      value={handshakeDelivery}
+                      onChange={(e) => setHandshakeDelivery(e.target.value as 'email' | 'messenger' | 'download')}
+                      style={{
+                        width: '100%',
+                        padding: '10px 12px',
+                        background: theme === 'professional' ? 'white' : '#1f2937',
+                        border: `1px solid ${theme === 'professional' ? 'rgba(0,0,0,0.15)' : 'rgba(255,255,255,0.25)'}`,
+                        borderRadius: '8px',
+                        color: theme === 'professional' ? '#1f2937' : 'white',
+                        fontSize: '13px',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      <option value="email" style={{ background: theme === 'professional' ? 'white' : '#1f2937', color: theme === 'professional' ? '#1f2937' : 'white' }}>📧 Email</option>
+                      <option value="messenger" style={{ background: theme === 'professional' ? 'white' : '#1f2937', color: theme === 'professional' ? '#1f2937' : 'white' }}>💬 Messenger (Web)</option>
+                      <option value="download" style={{ background: theme === 'professional' ? 'white' : '#1f2937', color: theme === 'professional' ? '#1f2937' : 'white' }}>💾 Download (USB/Wallet)</option>
+                    </select>
                   </div>
-                  <div style={{ flex: 1, padding: '10px', display: 'flex', flexDirection: 'column' }}>
-                    <div style={{ fontSize: '11px', fontWeight: '600', marginBottom: '8px' }}>Policy Editor</div>
-                    <textarea placeholder="Define policy rules..." style={{ flex: 1, padding: '8px', background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '6px', color: 'white', fontSize: '11px', fontFamily: 'monospace', resize: 'none', minHeight: '80px' }} />
-                    <div style={{ display: 'flex', gap: '8px', marginTop: '10px', justifyContent: 'flex-end' }}>
-                      <button style={{ padding: '6px 12px', background: 'rgba(255,255,255,0.12)', border: 'none', borderRadius: '6px', color: 'white', fontSize: '10px', cursor: 'pointer' }}>Test</button>
-                      <button style={{ padding: '6px 14px', background: 'linear-gradient(135deg, #22c55e 0%, #16a34a 100%)', border: 'none', borderRadius: '6px', color: 'white', fontSize: '11px', fontWeight: '600', cursor: 'pointer' }}>Publish</button>
+                  
+                  {/* To Field - Only for Email */}
+                  {handshakeDelivery === 'email' && (
+                    <div>
+                      <label style={{ fontSize: '11px', fontWeight: 600, marginBottom: '6px', display: 'block', color: theme === 'professional' ? '#6b7280' : 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                        To:
+                      </label>
+                      <input
+                        type="email"
+                        value={handshakeTo}
+                        onChange={(e) => setHandshakeTo(e.target.value)}
+                        placeholder="recipient@example.com"
+                        style={{
+                          width: '100%',
+                          padding: '10px 12px',
+                          background: theme === 'professional' ? 'white' : 'rgba(255,255,255,0.08)',
+                          border: `1px solid ${theme === 'professional' ? 'rgba(0,0,0,0.15)' : 'rgba(255,255,255,0.15)'}`,
+                          borderRadius: '8px',
+                          color: theme === 'professional' ? '#1f2937' : 'white',
+                          fontSize: '13px',
+                        }}
+                      />
                     </div>
+                  )}
+                  
+                  {/* Message */}
+                  <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+                    <label style={{ fontSize: '11px', fontWeight: 600, marginBottom: '6px', display: 'block', color: theme === 'professional' ? '#6b7280' : 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                      Message
+                    </label>
+                    <textarea
+                      value={handshakeMessage}
+                      onChange={(e) => setHandshakeMessage(e.target.value)}
+                      style={{
+                        flex: 1,
+                        minHeight: '120px',
+                        padding: '10px 12px',
+                        background: theme === 'professional' ? 'white' : 'rgba(255,255,255,0.08)',
+                        border: `1px solid ${theme === 'professional' ? 'rgba(0,0,0,0.15)' : 'rgba(255,255,255,0.15)'}`,
+                        borderRadius: '8px',
+                        color: theme === 'professional' ? '#1f2937' : 'white',
+                        fontSize: '13px',
+                        lineHeight: '1.5',
+                        resize: 'none',
+                      }}
+                    />
                   </div>
+                  
+                  {/* Info */}
+                  <div style={{
+                    padding: '10px 12px',
+                    background: theme === 'professional' ? 'rgba(139, 92, 246, 0.08)' : 'rgba(139, 92, 246, 0.15)',
+                    borderRadius: '8px',
+                    fontSize: '11px',
+                    color: theme === 'professional' ? '#6b7280' : 'rgba(255,255,255,0.8)',
+                  }}>
+                    💡 This creates a secure BEAP™ package. Recipient will appear in your Handshakes once accepted.
+                  </div>
+                </div>
+                
+                {/* Footer */}
+                <div style={{ padding: '12px 14px', borderTop: `1px solid ${theme === 'professional' ? 'rgba(0,0,0,0.1)' : 'rgba(255,255,255,0.1)'}`, display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
+                  <button 
+                    onClick={() => setDockedSubmode('command')}
+                    style={{ padding: '8px 16px', background: 'transparent', border: `1px solid ${theme === 'professional' ? 'rgba(0,0,0,0.15)' : 'rgba(255,255,255,0.2)'}`, borderRadius: '8px', color: theme === 'professional' ? '#6b7280' : 'white', fontSize: '12px', cursor: 'pointer' }}
+                  >
+                    Cancel
+                  </button>
+                  <button 
+                    onClick={() => {
+                      if (handshakeDelivery === 'email' && !handshakeTo) {
+                        alert('Please enter a recipient email address')
+                        return
+                      }
+                      alert(`Handshake request ${handshakeDelivery === 'download' ? 'downloaded' : 'sent'} successfully!`)
+                      setDockedSubmode('command')
+                    }}
+                    style={{ 
+                      padding: '8px 20px', 
+                      background: 'linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%)', 
+                      border: 'none', 
+                      borderRadius: '8px', 
+                      color: 'white', 
+                      fontSize: '12px', 
+                      fontWeight: 600, 
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                    }}
+                  >
+                    {handshakeDelivery === 'email' ? '📧 Send' : handshakeDelivery === 'messenger' ? '💬 Insert' : '💾 Download'}
+                  </button>
                 </div>
               </div>
             )}
@@ -6730,15 +7104,15 @@ height: '28px',
             ⚙️ Backend
           </button>
           <button
-            disabled
-            title="Policies configuration coming soon"
+            onClick={() => sendToContentScript('OPEN_POLICY_LIGHTBOX')}
+            title="Policy Configuration"
             style={{
               padding: '12px',
-              background: '#6b7280',
+              background: '#10b981',
               border: 'none',
               color: 'white',
               borderRadius: '8px',
-              cursor: 'not-allowed',
+              cursor: 'pointer',
               fontSize: '13px',
               fontWeight: '600',
               display: 'flex',
@@ -6746,8 +7120,15 @@ height: '28px',
               justifyContent: 'center',
               gap: '6px',
               transition: 'all 0.2s ease',
-              boxShadow: '0 2px 6px rgba(0,0,0,0.2)',
-              opacity: 0.6
+              boxShadow: '0 2px 6px rgba(0,0,0,0.2)'
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.transform = 'translateY(-2px)'
+              e.currentTarget.style.boxShadow = '0 4px 12px rgba(16,185,129,0.4)'
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.transform = 'translateY(0)'
+              e.currentTarget.style.boxShadow = '0 2px 6px rgba(0,0,0,0.2)'
             }}
           >
             📋 Policies

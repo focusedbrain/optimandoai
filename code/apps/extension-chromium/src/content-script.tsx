@@ -130,6 +130,8 @@ const globalLightboxFunctions: {
 
   openBackendConfigLightbox?: () => void
 
+  openPolicyLightbox?: () => void
+
 } = {}
 
 
@@ -1246,6 +1248,59 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     } catch (e) {
 
       console.error('❌ Error opening Backend Config lightbox:', e)
+
+      sendResponse({ success: false, error: String(e) })
+
+    }
+
+  }
+
+  // Handle OPEN POLICY LIGHTBOX request from sidepanel
+
+  else if (message.type === 'OPEN_POLICY_LIGHTBOX') {
+
+    console.log('📨 Received OPEN_POLICY_LIGHTBOX message')
+
+    console.log('🔍 Checking globalLightboxFunctions:', Object.keys(globalLightboxFunctions))
+
+    console.log('🔍 openPolicyLightbox available?', !!globalLightboxFunctions.openPolicyLightbox)
+
+    try {
+
+      if (globalLightboxFunctions.openPolicyLightbox) {
+
+        console.log('✅ Calling openPolicyLightbox()...')
+
+        globalLightboxFunctions.openPolicyLightbox()
+
+        console.log('✅ Policy lightbox opened successfully')
+
+        sendResponse({ success: true })
+
+      } else {
+
+        // Dynamically import and open the policy lightbox
+        console.log('📦 Dynamically importing policy-lightbox-init...')
+        
+        import('./policy/components/policy-lightbox-init').then(({ openPolicyLightboxInContent }) => {
+          console.log('✅ Policy lightbox module loaded, opening...')
+          const cleanup = openPolicyLightboxInContent('default')
+          
+          // Store cleanup function for potential future use
+          globalLightboxFunctions.openPolicyLightbox = () => {
+            openPolicyLightboxInContent('default')
+          }
+        }).catch(err => {
+          console.error('❌ Failed to load policy lightbox module:', err)
+        })
+
+        sendResponse({ success: true })
+
+      }
+
+    } catch (e) {
+
+      console.error('❌ Error opening Policy lightbox:', e)
 
       sendResponse({ success: false, error: String(e) })
 
