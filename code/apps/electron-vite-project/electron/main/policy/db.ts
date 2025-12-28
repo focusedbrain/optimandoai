@@ -315,3 +315,4 @@ export function revokeConsentGrant(grantId: string): void {
   `).run(Date.now(), grantId)
 }
 
+

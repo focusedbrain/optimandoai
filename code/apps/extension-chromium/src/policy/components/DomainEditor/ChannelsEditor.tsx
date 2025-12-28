@@ -263,3 +263,4 @@ export function ChannelsEditor({ policy, onChange, theme = 'default' }: Channels
   )
 }
 
+

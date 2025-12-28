@@ -97,3 +97,4 @@ export const DEFAULT_VAULT_ACCESS_POLICY: VaultAccessPolicy = {
   allowedPurposes: [],
 }
 
+

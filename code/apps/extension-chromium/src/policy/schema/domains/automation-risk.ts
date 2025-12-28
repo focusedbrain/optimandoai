@@ -203,3 +203,4 @@ export function isAutomationAllowedForPreset(
   return capabilityIndex <= maxIndex
 }
 
+
