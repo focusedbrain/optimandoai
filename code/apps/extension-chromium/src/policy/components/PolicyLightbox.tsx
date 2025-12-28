@@ -7,7 +7,7 @@
  * - Network Admin: View/push Network Baseline Policy (NBP)
  */
 
-import { useState, useEffect, Component, ReactNode } from 'react'
+import { useState, useEffect, Component, ReactNode, useMemo } from 'react'
 import { 
   type CanonicalPolicy, 
   createDefaultPolicy, 
@@ -20,6 +20,20 @@ import { computeEffectivePolicy } from '../engine'
 import { LocalPolicyEditor } from './LocalPolicyEditor'
 import { PolicyDiffView } from './PolicyDiffView'
 import { EffectivePreview } from './EffectivePreview'
+import { 
+  generateMockFingerprint, 
+  formatFingerprintShort, 
+  formatFingerprintGrouped 
+} from '../../handshake/fingerprint'
+import { 
+  BADGE_TEXT, 
+  AUTOMATION_LABELS, 
+  AUTOMATION_DESCRIPTIONS,
+  POLICY_NOTES,
+  ACTION_LABELS,
+  TOOLTIPS,
+} from '../../handshake/microcopy'
+import type { AutomationMode, HandshakeStatus } from '../../handshake/types'
 
 // Error Boundary to prevent crashes from closing the lightbox
 class ErrorBoundary extends Component<{ children: ReactNode; fallback: ReactNode }, { hasError: boolean; error?: Error }> {
@@ -508,11 +522,19 @@ export function PolicyLightbox({ isOpen, onClose, theme = 'default' }: PolicyLig
                       }}
                     >
                       <option value="">— Select a handshake partner —</option>
-                      {handshakePolicies.map(hsp => (
-                        <option key={hsp.id} value={hsp.id}>
-                          {hsp.name} {hsp.tags?.find(t => t.startsWith('mode:'))?.replace('mode:', '') === 'automation_partner' ? '🤖 API Partner' : '🤝'}
-                        </option>
-                      ))}
+                      {handshakePolicies.map(hsp => {
+                        const fpShort = hsp.tags?.find(t => t.startsWith('fp:'))?.replace('fp:', '') || ''
+                        const automationMode = (hsp.tags?.find(t => t.startsWith('automation:'))?.replace('automation:', '') as AutomationMode) || 'REVIEW'
+                        const status = (hsp.tags?.includes('verified_wr') ? 'VERIFIED_WR' : 'LOCAL') as HandshakeStatus
+                        const automationIcon = automationMode === 'DENY' ? '🚫' : automationMode === 'ALLOW' ? '✓' : '👁️'
+                        const isApiPartner = hsp.tags?.find(t => t.startsWith('mode:'))?.replace('mode:', '') === 'automation_partner'
+                        
+                        return (
+                          <option key={hsp.id} value={hsp.id}>
+                            {hsp.name} — {fpShort || '—'} — {status === 'VERIFIED_WR' ? '✓' : '○'} {automationIcon} {isApiPartner ? '🤖' : '🤝'}
+                          </option>
+                        )
+                      })}
                     </select>
                     {handshakePolicies.length === 0 && (
                       <div style={{ 
@@ -595,6 +617,210 @@ export function PolicyLightbox({ isOpen, onClose, theme = 'default' }: PolicyLig
                                 ×
                               </button>
                             </div>
+
+                            {/* Fingerprint Section */}
+                            {(() => {
+                              const fpFull = hsp.tags?.find(t => t.startsWith('fp_full:'))?.replace('fp_full:', '') || generateMockFingerprint()
+                              const fpShort = hsp.tags?.find(t => t.startsWith('fp:'))?.replace('fp:', '') || formatFingerprintShort(fpFull)
+                              const status = (hsp.tags?.includes('verified_wr') ? 'VERIFIED_WR' : 'LOCAL') as HandshakeStatus
+                              const verifiedAt = hsp.tags?.find(t => t.startsWith('verified_at:'))?.replace('verified_at:', '')
+                              const automationMode = (hsp.tags?.find(t => t.startsWith('automation:'))?.replace('automation:', '') as AutomationMode) || 'REVIEW'
+                              
+                              return (
+                                <>
+                                  {/* Fingerprint Display */}
+                                  <div style={{ 
+                                    marginBottom: '20px',
+                                    padding: '16px',
+                                    background: isDark ? 'rgba(139, 92, 246, 0.1)' : 'rgba(139, 92, 246, 0.05)',
+                                    border: `2px solid ${isDark ? 'rgba(139, 92, 246, 0.25)' : 'rgba(139, 92, 246, 0.15)'}`,
+                                    borderRadius: '10px',
+                                  }}>
+                                    <div style={{ 
+                                      display: 'flex', 
+                                      alignItems: 'center', 
+                                      justifyContent: 'space-between',
+                                      marginBottom: '10px',
+                                    }}>
+                                      <div style={{ 
+                                        fontSize: '11px', 
+                                        fontWeight: 600, 
+                                        color: mutedColor, 
+                                        textTransform: 'uppercase', 
+                                        letterSpacing: '0.5px',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '6px',
+                                      }}>
+                                        🔐 {TOOLTIPS.FINGERPRINT_TITLE}
+                                        <span 
+                                          style={{ cursor: 'help', fontSize: '11px', fontWeight: 400 }}
+                                          title={TOOLTIPS.FINGERPRINT}
+                                        >
+                                          ⓘ
+                                        </span>
+                                      </div>
+                                      <button
+                                        onClick={async () => {
+                                          try {
+                                            await navigator.clipboard.writeText(fpFull)
+                                            showNotification('Fingerprint copied to clipboard', 'success')
+                                          } catch (err) {
+                                            console.error('Failed to copy:', err)
+                                          }
+                                        }}
+                                        style={{
+                                          padding: '4px 10px',
+                                          fontSize: '10px',
+                                          background: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.05)',
+                                          border: 'none',
+                                          borderRadius: '4px',
+                                          color: mutedColor,
+                                          cursor: 'pointer',
+                                        }}
+                                      >
+                                        📋 {ACTION_LABELS.COPY_FINGERPRINT}
+                                      </button>
+                                    </div>
+                                    <div style={{
+                                      fontFamily: 'monospace',
+                                      fontSize: '11px',
+                                      color: textColor,
+                                      wordBreak: 'break-all',
+                                      lineHeight: 1.5,
+                                      background: isDark ? 'rgba(0,0,0,0.2)' : 'rgba(0,0,0,0.03)',
+                                      padding: '10px 12px',
+                                      borderRadius: '6px',
+                                    }}>
+                                      {formatFingerprintGrouped(fpFull)}
+                                    </div>
+                                    <div style={{
+                                      marginTop: '10px',
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      gap: '12px',
+                                      flexWrap: 'wrap',
+                                    }}>
+                                      {/* Status Badge */}
+                                      <span style={{
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
+                                        gap: '4px',
+                                        fontSize: '11px',
+                                        fontWeight: 600,
+                                        padding: '4px 10px',
+                                        borderRadius: '6px',
+                                        background: status === 'VERIFIED_WR' 
+                                          ? 'rgba(34, 197, 94, 0.15)'
+                                          : (isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)'),
+                                        color: status === 'VERIFIED_WR' ? '#22c55e' : mutedColor,
+                                        border: status === 'VERIFIED_WR' ? '1px solid rgba(34, 197, 94, 0.3)' : 'none',
+                                      }}>
+                                        {status === 'VERIFIED_WR' ? '✓' : '○'}
+                                        {status === 'VERIFIED_WR' ? BADGE_TEXT.VERIFIED : BADGE_TEXT.LOCAL}
+                                      </span>
+                                      
+                                      {/* Verified Date */}
+                                      {status === 'VERIFIED_WR' && verifiedAt && (
+                                        <span style={{ fontSize: '10px', color: mutedColor }}>
+                                          {new Date(parseInt(verifiedAt)).toLocaleDateString()}
+                                        </span>
+                                      )}
+                                      
+                                      {/* Verify Action */}
+                                      {status === 'LOCAL' && (
+                                        <button
+                                          onClick={() => {
+                                            // Update tags to mark as verified
+                                            const newTags = (hsp.tags ?? []).filter(t => !t.startsWith('verified'))
+                                            newTags.push('verified_wr', `verified_at:${Date.now()}`)
+                                            const updated = { ...hsp, tags: newTags, updatedAt: Date.now() }
+                                            setHandshakePolicies(handshakePolicies.map(p => p.id === hsp.id ? updated : p))
+                                            showNotification('Verification initiated', 'info')
+                                          }}
+                                          style={{
+                                            padding: '4px 10px',
+                                            fontSize: '10px',
+                                            background: 'linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%)',
+                                            border: 'none',
+                                            borderRadius: '4px',
+                                            color: 'white',
+                                            cursor: 'pointer',
+                                            fontWeight: 600,
+                                          }}
+                                        >
+                                          🔗 {ACTION_LABELS.VERIFY_WRCODE}
+                                        </button>
+                                      )}
+                                    </div>
+                                  </div>
+
+                                  {/* Automation Mode Selector */}
+                                  <div style={{ marginBottom: '20px' }}>
+                                    <div style={{ 
+                                      fontSize: '12px', 
+                                      fontWeight: 600, 
+                                      marginBottom: '10px', 
+                                      color: automationMode === 'DENY' ? '#ef4444' : automationMode === 'ALLOW' ? '#22c55e' : '#f59e0b', 
+                                      textTransform: 'uppercase', 
+                                      letterSpacing: '0.5px',
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      gap: '8px',
+                                    }}>
+                                      Automation
+                                      <span style={{ 
+                                        fontWeight: 400, 
+                                        fontSize: '10px', 
+                                        color: mutedColor,
+                                        textTransform: 'none',
+                                      }}>
+                                        (attack surface control)
+                                      </span>
+                                    </div>
+                                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px' }}>
+                                      {(['DENY', 'REVIEW', 'ALLOW'] as AutomationMode[]).map(mode => {
+                                        const isActive = automationMode === mode
+                                        const colors = {
+                                          DENY: { bg: 'rgba(239, 68, 68, 0.1)', border: 'rgba(239, 68, 68, 0.3)', text: '#ef4444' },
+                                          REVIEW: { bg: 'rgba(245, 158, 11, 0.1)', border: 'rgba(245, 158, 11, 0.3)', text: '#f59e0b' },
+                                          ALLOW: { bg: 'rgba(34, 197, 94, 0.1)', border: 'rgba(34, 197, 94, 0.3)', text: '#22c55e' },
+                                        }
+                                        const c = colors[mode]
+                                        
+                                        return (
+                                          <button
+                                            key={mode}
+                                            onClick={() => {
+                                              const newTags = (hsp.tags ?? []).filter(t => !t.startsWith('automation:'))
+                                              newTags.push(`automation:${mode}`)
+                                              const updated = { ...hsp, tags: newTags, updatedAt: Date.now() }
+                                              setHandshakePolicies(handshakePolicies.map(p => p.id === hsp.id ? updated : p))
+                                            }}
+                                            title={AUTOMATION_DESCRIPTIONS[mode]}
+                                            style={{
+                                              padding: '12px 10px',
+                                              background: isActive ? c.bg : 'transparent',
+                                              border: `2px solid ${isActive ? c.border : borderColor}`,
+                                              borderRadius: '8px',
+                                              cursor: 'pointer',
+                                              textAlign: 'center',
+                                              color: isActive ? c.text : mutedColor,
+                                              fontWeight: isActive ? 600 : 400,
+                                            }}
+                                          >
+                                            <div style={{ fontSize: '11px' }}>{AUTOMATION_LABELS[mode]}</div>
+                                          </button>
+                                        )
+                                      })}
+                                    </div>
+                                    <p style={{ fontSize: '11px', color: mutedColor, marginTop: '8px', marginBottom: 0 }}>
+                                      {AUTOMATION_DESCRIPTIONS[automationMode]}
+                                    </p>
+                                  </div>
+                                </>
+                              )
+                            })()}
 
                             {/* Relationship Class Selector */}
                             <div style={{ marginBottom: '20px' }}>
@@ -915,9 +1141,26 @@ export function PolicyLightbox({ isOpen, onClose, theme = 'default' }: PolicyLig
                               </div>
                             </div>
 
-                            {/* Admin Lock Notice */}
+                            {/* Policy Override Note */}
                             <div style={{
                               marginTop: '16px',
+                              padding: '12px 14px',
+                              background: 'rgba(59, 130, 246, 0.08)',
+                              border: '1px solid rgba(59, 130, 246, 0.2)',
+                              borderRadius: '8px',
+                              fontSize: '12px',
+                              color: mutedColor,
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '10px',
+                            }}>
+                              <span style={{ fontSize: '16px' }}>ℹ️</span>
+                              <span>{POLICY_NOTES.LOCAL_OVERRIDE}</span>
+                            </div>
+
+                            {/* Admin Lock Notice */}
+                            <div style={{
+                              marginTop: '12px',
                               padding: '10px 12px',
                               background: 'rgba(139, 92, 246, 0.05)',
                               border: '1px solid rgba(139, 92, 246, 0.2)',

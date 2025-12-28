@@ -5,7 +5,7 @@
  * Uses shared components from the UI library.
  */
 
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useMemo } from 'react'
 import { createRoot } from 'react-dom/client'
 import { useUIStore } from './stores/useUIStore'
 import { 
@@ -18,6 +18,8 @@ import {
   AdminPoliciesPlaceholder
 } from './ui/components'
 import { WORKSPACE_INFO } from './shared/ui/uiState'
+import { generateMockFingerprint, formatFingerprintShort, formatFingerprintGrouped } from './handshake/fingerprint'
+import { HANDSHAKE_REQUEST_TEMPLATE, POLICY_NOTES } from './handshake/microcopy'
 
 // =============================================================================
 // Theme Type
@@ -44,28 +46,22 @@ function PopupChatApp() {
   // Submode state for WR Chat
   const [submode, setSubmode] = useState<Submode>('command')
   
+  // Generate a stable fingerprint for this session's handshake requests
+  const ourFingerprint = useMemo(() => generateMockFingerprint(), [])
+  const ourFingerprintShort = formatFingerprintShort(ourFingerprint)
+  
   // BEAP Handshake Request state
   const [handshakeDelivery, setHandshakeDelivery] = useState<'email' | 'messenger' | 'download'>('email')
   const [handshakeTo, setHandshakeTo] = useState('')
   const [handshakeSubject, setHandshakeSubject] = useState('Request to Establish BEAP™ Secure Communication Handshake')
-  const [handshakeMessage, setHandshakeMessage] = useState(`Dear [Recipient Name],
-
-I am writing to request the establishment of a BEAP™ (Bidirectional Email Automation Protocol) handshake between our systems.
-
-Upon successful completion, this handshake will enable:
-
-• Cryptographically verified BEAP™ package exchange
-• Policy-bound, trusted automation workflows
-• End-to-end encrypted, integrity-validated bidirectional communication
-
-The handshake serves as the trust anchor for future interactions and ensures that all exchanged BEAP™ packages are processed in accordance with verified identity, declared execution policies, and local enforcement rules.
-
-Please confirm acceptance of this request to complete the handshake initialization.
-
-Kind regards,
-[Your Name]
-[Organization]
-[Role / Function, if applicable]`)
+  const [handshakeMessage, setHandshakeMessage] = useState('')
+  const [fingerprintCopied, setFingerprintCopied] = useState(false)
+  
+  // Initialize message with fingerprint
+  useEffect(() => {
+    const messageWithFingerprint = HANDSHAKE_REQUEST_TEMPLATE.replace('[FINGERPRINT]', ourFingerprint)
+    setHandshakeMessage(messageWithFingerprint)
+  }, [ourFingerprint])
   
   // For debugging: toggle admin role with keyboard shortcut
   useEffect(() => {
@@ -173,6 +169,78 @@ Kind regards,
         </div>
         
         <div style={{ flex: 1, padding: '14px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+          {/* Your Fingerprint - PROMINENT */}
+          <div style={{
+            padding: '12px 14px',
+            background: isProfessional ? 'rgba(139, 92, 246, 0.08)' : 'rgba(139, 92, 246, 0.15)',
+            border: `2px solid ${isProfessional ? 'rgba(139, 92, 246, 0.2)' : 'rgba(139, 92, 246, 0.3)'}`,
+            borderRadius: '10px',
+          }}>
+            <div style={{ 
+              display: 'flex', 
+              alignItems: 'center', 
+              justifyContent: 'space-between',
+              marginBottom: '8px',
+            }}>
+              <div style={{ 
+                fontSize: '11px', 
+                fontWeight: 600, 
+                color: isProfessional ? '#6b7280' : 'rgba(255,255,255,0.7)', 
+                textTransform: 'uppercase', 
+                letterSpacing: '0.5px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+              }}>
+                🔐 Your Fingerprint
+                <span 
+                  style={{ cursor: 'help', fontSize: '11px', fontWeight: 400 }}
+                  title="A fingerprint is a short identifier derived from the handshake identity. It helps prevent mix-ups and look-alike contacts. It is not a secret key."
+                >
+                  ⓘ
+                </span>
+              </div>
+              <button
+                onClick={async () => {
+                  try {
+                    await navigator.clipboard.writeText(ourFingerprint)
+                    setFingerprintCopied(true)
+                    setTimeout(() => setFingerprintCopied(false), 2000)
+                  } catch (err) {
+                    console.error('Failed to copy:', err)
+                  }
+                }}
+                style={{
+                  padding: '4px 10px',
+                  fontSize: '10px',
+                  background: isProfessional ? 'rgba(0,0,0,0.05)' : 'rgba(255,255,255,0.1)',
+                  border: 'none',
+                  borderRadius: '4px',
+                  color: isProfessional ? '#6b7280' : 'rgba(255,255,255,0.7)',
+                  cursor: 'pointer',
+                }}
+              >
+                {fingerprintCopied ? '✓ Copied' : '📋 Copy'}
+              </button>
+            </div>
+            <div style={{
+              fontFamily: 'monospace',
+              fontSize: '11px',
+              color: isProfessional ? '#1f2937' : 'white',
+              wordBreak: 'break-all',
+              lineHeight: 1.5,
+            }}>
+              {formatFingerprintGrouped(ourFingerprint)}
+            </div>
+            <div style={{
+              marginTop: '8px',
+              fontSize: '10px',
+              color: isProfessional ? '#9ca3af' : 'rgba(255,255,255,0.5)',
+            }}>
+              Short: <span style={{ fontFamily: 'monospace' }}>{ourFingerprintShort}</span>
+            </div>
+          </div>
+          
           {/* Delivery Method */}
           <div>
             <label style={{ 
@@ -308,8 +376,12 @@ Kind regards,
             borderRadius: '8px',
             fontSize: '11px',
             color: isProfessional ? '#6b7280' : 'rgba(255,255,255,0.8)',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '6px',
           }}>
-            💡 This creates a secure BEAP™ package. Recipient will appear in your Handshakes once accepted.
+            <div>💡 This creates a secure BEAP™ package. Recipient will appear in your Handshakes once accepted.</div>
+            <div style={{ opacity: 0.8, fontSize: '10px' }}>ℹ️ {POLICY_NOTES.LOCAL_OVERRIDE}</div>
           </div>
         </div>
         
@@ -400,7 +472,7 @@ Kind regards,
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           <ModeSelect theme={theme} compact />
           {/* Submode Selector - Only for WR Chat in commands mode */}
-          {workspace === 'wr_chat' && mode === 'commands' && (
+          {(workspace === 'wr-chat' || workspace === 'wr_chat') && mode === 'commands' && (
             <select
               value={submode}
               onChange={(e) => setSubmode(e.target.value as Submode)}
