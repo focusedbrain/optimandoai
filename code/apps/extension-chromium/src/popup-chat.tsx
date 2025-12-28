@@ -472,7 +472,8 @@ function PopupChatApp() {
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           <ModeSelect theme={theme} compact />
           {/* Submode Selector - Only for WR Chat in commands mode */}
-          {(workspace === 'wr-chat' || workspace === 'wr_chat') && mode === 'commands' && (
+          {/* Submode selector - always show when in commands mode */}
+          {mode === 'commands' && (
             <select
               value={submode}
               onChange={(e) => setSubmode(e.target.value as Submode)}
