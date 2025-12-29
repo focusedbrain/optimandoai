@@ -1,0 +1,29 @@
+{
+  "id": "status-panel-miniapp",
+  "tier": 1,
+  "type": "mini_app",
+
+  "name": "Status Panel",
+  "description": "Shows current system or application status.",
+  "intent_tags": ["status", "panel", "display"],
+
+  "components": [
+    "label-display-component"
+  ],
+
+  "bindings": {
+    "label-display-component": {
+      "text": "{{state.status_message}}"
+    }
+  },
+
+  "state": {
+    "status_message": "System running normally"
+  },
+
+  "layout": {
+    "type": "card"
+  },
+
+  "security": "low"
+}

@@ -1,0 +1,35 @@
+{
+  "id": "profile-card-miniapp",
+  "tier": 1,
+  "type": "mini_app",
+
+  "name": "Profile Card",
+  "description": "Displays a user profile with name and email.",
+  "intent_tags": ["profile", "user", "display"],
+
+  "components": [
+    "label-display-component",
+    "label-display-component"
+  ],
+
+  "bindings": {
+    "label-display-component[0]": {
+      "text": "{{state.user_name}}"
+    },
+    "label-display-component[1]": {
+      "text": "{{state.user_email}}"
+    }
+  },
+
+  "state": {
+    "user_name": "John Doe",
+    "user_email": "john@example.com"
+  },
+
+  "layout": {
+    "type": "vertical",
+    "spacing": "small"
+  },
+
+  "security": "low"
+}

@@ -1,0 +1,25 @@
+{
+  "id": "label-display-component",
+  "tier": 2,
+  "type": "component",
+
+  "name": "Label Display",
+  "description": "Displays static or dynamic text content.",
+  "intent_tags": ["label", "text", "display"],
+
+  "blocks": [
+    "ui-label-v1"
+  ],
+
+  "bindings": {
+    "ui-label-v1": {
+      "text": "{{state.text}}"
+    }
+  },
+
+  "state": {
+    "text": "Hello World"
+  },
+
+  "security": "low"
+}

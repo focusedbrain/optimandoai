@@ -1,0 +1,21 @@
+{
+  "id": "counter-display-component",
+  "tier": 2,
+  "type": "component",
+
+  "name": "Counter Display",
+  "description": "Displays the current counter value.",
+  "intent_tags": ["counter", "display", "number"],
+
+  "blocks": [
+    "ui-label-v1"
+  ],
+
+  "bindings": {
+    "ui-label-v1": {
+      "text": "{{state.count}}"
+    }
+  },
+
+  "security": "low"
+}

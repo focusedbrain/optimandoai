@@ -1,0 +1,19 @@
+{
+  "id": "counter-button-component",
+  "tier": 2,
+  "type": "component",
+
+  "name": "Counter Increment Button",
+  "description": "Button that increments a counter value.",
+  "intent_tags": ["counter", "increment", "button"],
+
+  "blocks": [
+    "ui-button-v1"
+  ],
+
+  "handles": {
+    "button_clicked": "increment_counter"
+  },
+
+  "security": "low"
+}

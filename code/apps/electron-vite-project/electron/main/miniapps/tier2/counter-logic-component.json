@@ -1,0 +1,26 @@
+{
+  "id": "counter-logic-component",
+  "tier": 2,
+  "type": "component",
+
+  "name": "Counter Logic",
+  "description": "Manages counter state and increments it.",
+  "intent_tags": ["counter", "logic"],
+
+  "state": {
+    "count": 0
+  },
+
+  "listens": {
+    "increment_counter": [
+      {
+        "action": "state.increment",
+        "params": {
+          "key": "count"
+        }
+      }
+    ]
+  },
+
+  "security": "low"
+}
