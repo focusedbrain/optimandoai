@@ -1,3 +1,19 @@
+// =============================================================================
+// HANDSHAKE STATE - MUST BE FIRST
+// =============================================================================
+// All handshake-related globals declared at very top to avoid hoisting issues
+var HANDSHAKE_FINGERPRINT = '';
+var HS_INITIALIZED = false;
+var HANDSHAKE_MESSAGE_TEMPLATE = 'Dear [Recipient Name],\n\nI am writing to request the establishment of a BEAP™ (Bidirectional Email Automation Protocol) handshake between our systems.\n\nUpon successful completion, this handshake will enable:\n\n• Cryptographically verified BEAP™ package exchange\n• Policy-bound, trusted automation workflows\n• End-to-end encrypted, integrity-validated bidirectional communication\n\nThe handshake serves as the trust anchor for future interactions and ensures that all exchanged BEAP™ packages are processed in accordance with verified identity, declared execution policies, and local enforcement rules.\n\n**Handshake Fingerprint:** [FINGERPRINT]\n\nPlease verify this fingerprint matches what you expect before accepting.\n\nPlease confirm acceptance of this request to complete the handshake initialization.\n\nKind regards,\n[Your Name]\n[Organization]\n[Role / Function, if applicable]';
+
+(function() {
+  var chars = '0123456789ABCDEF';
+  for (var i = 0; i < 64; i++) {
+    HANDSHAKE_FINGERPRINT += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  console.log('[Popup] FINGERPRINT generated at top:', HANDSHAKE_FINGERPRINT);
+})();
+
 // Robust theme init with Chrome storage fallback
 (async () => {
   try {
@@ -242,7 +258,8 @@ function updateView() {
       case 'handshake':
         if (handshakeView) {
           handshakeView.style.display = 'flex'
-          initHandshakeView()
+          // Use setTimeout to ensure DOM is ready
+          setTimeout(() => initHandshakeView(), 0)
         }
         break
     }
@@ -1149,52 +1166,55 @@ function formatFingerprintShort(fp) {
   return fp.slice(0, 8) + '…' + fp.slice(-8)
 }
 
-// Handshake state
-let hsFingerprint = null
-let hsInitialized = false
-
-// Default handshake message template
-const HANDSHAKE_MESSAGE_TEMPLATE = `Dear [Recipient Name],
-
-I am writing to request the establishment of a BEAP™ (Bidirectional Email Automation Protocol) handshake between our systems.
-
-Upon successful completion, this handshake will enable:
-
-• Cryptographically verified BEAP™ package exchange
-• Policy-bound, trusted automation workflows
-• End-to-end encrypted, integrity-validated bidirectional communication
-
-The handshake serves as the trust anchor for future interactions and ensures that all exchanged BEAP™ packages are processed in accordance with verified identity, declared execution policies, and local enforcement rules.
-
-**Handshake Fingerprint:** [FINGERPRINT]
-
-Please verify this fingerprint matches what you expect before accepting.
-
-Please confirm acceptance of this request to complete the handshake initialization.
-
-Kind regards,
-[Your Name]
-[Organization]
-[Role / Function, if applicable]`
+// Handshake state - uses globals from top of file:
+// - HANDSHAKE_FINGERPRINT
+// - HS_INITIALIZED  
+// - HANDSHAKE_MESSAGE_TEMPLATE
 
 // Initialize handshake view
 function initHandshakeView() {
-  if (hsInitialized) return
-  hsInitialized = true
+  console.log('[Popup] initHandshakeView called - v2025.01')
   
-  // Generate fingerprint
-  hsFingerprint = generateMockFingerprint()
+  try {
+    // Fingerprint is already generated at page load
+    console.log('[Popup] Using fingerprint:', HANDSHAKE_FINGERPRINT)
+    
+    // Display fingerprint
+    const fpFullEl = document.getElementById('hs-fingerprint-full')
+    const fpShortEl = document.getElementById('hs-fingerprint-short')
+    console.log('[Popup] Fingerprint elements:', { fpFullEl: !!fpFullEl, fpShortEl: !!fpShortEl })
+    if (fpFullEl) fpFullEl.textContent = formatFingerprintGrouped(HANDSHAKE_FINGERPRINT)
+    if (fpShortEl) fpShortEl.textContent = formatFingerprintShort(HANDSHAKE_FINGERPRINT)
+    
+    // Set default message with fingerprint
+    const msgEl = document.getElementById('hs-message')
+    console.log('[Popup] Message element found:', !!msgEl, 'tagName:', msgEl?.tagName)
+    if (msgEl) {
+      // Always set the message on first initialization, or if empty
+      const currentValue = msgEl.value
+      console.log('[Popup] Current message value length:', currentValue?.length || 0)
+      
+      if (!HS_INITIALIZED || !currentValue || currentValue.trim() === '') {
+        const newValue = HANDSHAKE_MESSAGE_TEMPLATE.replace('[FINGERPRINT]', HANDSHAKE_FINGERPRINT)
+        console.log('[Popup] Setting message, template length:', HANDSHAKE_MESSAGE_TEMPLATE.length)
+        console.log('[Popup] New value length:', newValue.length)
+        msgEl.value = newValue
+        // Verify it was set
+        console.log('[Popup] ✅ After setting, msgEl.value length:', msgEl.value.length)
+        console.log('[Popup] First 100 chars:', msgEl.value.substring(0, 100))
+      } else {
+        console.log('[Popup] Message already has custom value, preserving')
+      }
+    } else {
+      console.error('[Popup] ❌ hs-message element not found!')
+    }
+  } catch (err) {
+    console.error('[Popup] Error in initHandshakeView:', err)
+  }
   
-  // Display fingerprint
-  const fpFullEl = document.getElementById('hs-fingerprint-full')
-  const fpShortEl = document.getElementById('hs-fingerprint-short')
-  if (fpFullEl) fpFullEl.textContent = formatFingerprintGrouped(hsFingerprint)
-  if (fpShortEl) fpShortEl.textContent = formatFingerprintShort(hsFingerprint)
-  
-  // Set default message with fingerprint
-  const msgEl = document.getElementById('hs-message')
-  if (msgEl && !msgEl.value) {
-    msgEl.value = HANDSHAKE_MESSAGE_TEMPLATE.replace('[FINGERPRINT]', hsFingerprint)
+  // Mark as initialized after first successful run
+  if (!HS_INITIALIZED) {
+    HS_INITIALIZED = true
   }
   
   // Copy fingerprint button
@@ -1202,7 +1222,7 @@ function initHandshakeView() {
   if (copyBtn) {
     copyBtn.onclick = async () => {
       try {
-        await navigator.clipboard.writeText(hsFingerprint)
+        await navigator.clipboard.writeText(HANDSHAKE_FINGERPRINT)
         copyBtn.textContent = '✓ Copied'
         setTimeout(() => { copyBtn.textContent = '📋 Copy' }, 2000)
       } catch (err) {
@@ -1217,25 +1237,31 @@ function initHandshakeView() {
   const sendIcon = document.getElementById('hs-send-icon')
   const sendText = document.getElementById('hs-send-text')
   
-  if (deliveryEl) {
-    deliveryEl.onchange = () => {
-      const method = deliveryEl.value
-      if (emailFieldsEl) {
-        emailFieldsEl.style.display = method === 'email' ? 'flex' : 'none'
-      }
-      if (sendIcon && sendText) {
-        if (method === 'email') {
-          sendIcon.textContent = '📧'
-          sendText.textContent = 'Send'
-        } else if (method === 'messenger') {
-          sendIcon.textContent = '💬'
-          sendText.textContent = 'Insert'
-        } else {
-          sendIcon.textContent = '💾'
-          sendText.textContent = 'Download'
-        }
+  // Function to update UI based on delivery method
+  const updateDeliveryUI = () => {
+    const method = deliveryEl?.value || 'email'
+    console.log('[Popup] Updating delivery UI for method:', method)
+    if (emailFieldsEl) {
+      emailFieldsEl.style.display = method === 'email' ? 'flex' : 'none'
+    }
+    if (sendIcon && sendText) {
+      if (method === 'email') {
+        sendIcon.textContent = '📧'
+        sendText.textContent = 'Send'
+      } else if (method === 'messenger') {
+        sendIcon.textContent = '💬'
+        sendText.textContent = 'Insert'
+      } else {
+        sendIcon.textContent = '💾'
+        sendText.textContent = 'Download'
       }
     }
+  }
+  
+  if (deliveryEl) {
+    deliveryEl.onchange = updateDeliveryUI
+    // Trigger initial UI update
+    updateDeliveryUI()
   }
   
   // Cancel button
@@ -1273,4 +1299,32 @@ function initHandshakeView() {
     }
   }
 }
+
+// Initial view update on page load
+updateView()
+console.log('[Popup] Initial view updated, submode:', submodeSelect?.value)
+
+// Pre-populate handshake elements immediately (even if not visible yet)
+// This ensures the message is set before user switches to handshake view
+setTimeout(() => {
+  const msgEl = document.getElementById('hs-message')
+  const fpFullEl = document.getElementById('hs-fingerprint-full')
+  const fpShortEl = document.getElementById('hs-fingerprint-short')
+  
+  if (msgEl && (!msgEl.value || msgEl.value.trim() === '')) {
+    const newValue = HANDSHAKE_MESSAGE_TEMPLATE.replace('[FINGERPRINT]', HANDSHAKE_FINGERPRINT)
+    msgEl.value = newValue
+    console.log('[Popup] Pre-populated message on page load, length:', newValue.length)
+  }
+  
+  if (fpFullEl && !fpFullEl.textContent) {
+    fpFullEl.textContent = formatFingerprintGrouped(HANDSHAKE_FINGERPRINT)
+    console.log('[Popup] Pre-populated fingerprint full on page load')
+  }
+  
+  if (fpShortEl && !fpShortEl.textContent) {
+    fpShortEl.textContent = formatFingerprintShort(HANDSHAKE_FINGERPRINT)
+    console.log('[Popup] Pre-populated fingerprint short on page load')
+  }
+}, 100)
 

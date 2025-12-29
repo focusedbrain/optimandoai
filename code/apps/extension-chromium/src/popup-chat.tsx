@@ -50,18 +50,27 @@ function PopupChatApp() {
   const ourFingerprint = useMemo(() => generateMockFingerprint(), [])
   const ourFingerprintShort = formatFingerprintShort(ourFingerprint)
   
+  // Initialize handshake message with fingerprint directly
+  const initialHandshakeMessage = useMemo(() => 
+    HANDSHAKE_REQUEST_TEMPLATE.replace('[FINGERPRINT]', ourFingerprint), 
+    [ourFingerprint]
+  )
+  
   // BEAP Handshake Request state
   const [handshakeDelivery, setHandshakeDelivery] = useState<'email' | 'messenger' | 'download'>('email')
   const [handshakeTo, setHandshakeTo] = useState('')
   const [handshakeSubject, setHandshakeSubject] = useState('Request to Establish BEAP™ Secure Communication Handshake')
-  const [handshakeMessage, setHandshakeMessage] = useState('')
+  const [handshakeMessage, setHandshakeMessage] = useState(() => 
+    HANDSHAKE_REQUEST_TEMPLATE.replace('[FINGERPRINT]', generateMockFingerprint())
+  )
   const [fingerprintCopied, setFingerprintCopied] = useState(false)
   
-  // Initialize message with fingerprint
+  // Sync message with fingerprint if it changes (backup)
   useEffect(() => {
-    const messageWithFingerprint = HANDSHAKE_REQUEST_TEMPLATE.replace('[FINGERPRINT]', ourFingerprint)
-    setHandshakeMessage(messageWithFingerprint)
-  }, [ourFingerprint])
+    if (!handshakeMessage || handshakeMessage.trim() === '') {
+      setHandshakeMessage(initialHandshakeMessage)
+    }
+  }, [initialHandshakeMessage, handshakeMessage])
   
   // For debugging: toggle admin role with keyboard shortcut
   useEffect(() => {

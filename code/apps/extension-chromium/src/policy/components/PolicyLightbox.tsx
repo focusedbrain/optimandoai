@@ -33,7 +33,7 @@ import {
   ACTION_LABELS,
   TOOLTIPS,
 } from '../../handshake/microcopy'
-import type { AutomationMode, HandshakeStatus } from '../../handshake/types'
+import type { AutomationMode, HandshakeStatus, Handshake } from '../../handshake/types'
 
 // Error Boundary to prevent crashes from closing the lightbox
 class ErrorBoundary extends Component<{ children: ReactNode; fallback: ReactNode }, { hasError: boolean; error?: Error }> {
@@ -70,8 +70,10 @@ export function PolicyLightbox({ isOpen, onClose, theme = 'default' }: PolicyLig
   const [activeTab, setActiveTab] = useState<Tab>('local')
   const [localPolicy, setLocalPolicy] = useState<CanonicalPolicy | null>(null)
   const [networkPolicy, setNetworkPolicy] = useState<CanonicalPolicy | null>(null)
-  const [handshakePolicies, setHandshakePolicies] = useState<CanonicalPolicy[]>([])
+  const [handshakes, setHandshakes] = useState<Handshake[]>([])
+  const [handshakePolicies, setHandshakePolicies] = useState<Record<string, CanonicalPolicy>>({})
   const [selectedHandshake, setSelectedHandshake] = useState<string | null>(null)
+  const [fingerprintCopied, setFingerprintCopied] = useState(false)
   const [showDiff, setShowDiff] = useState(false)
   const [diffPolicies, setDiffPolicies] = useState<{ a: CanonicalPolicy; b: CanonicalPolicy } | null>(null)
   const [notification, setNotification] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null)
@@ -101,6 +103,9 @@ export function PolicyLightbox({ isOpen, onClose, theme = 'default' }: PolicyLig
             setNetworkPolicy(stored.networkPolicy)
           }
           
+          if (stored?.handshakes) {
+            setHandshakes(stored.handshakes)
+          }
           if (stored?.handshakePolicies) {
             setHandshakePolicies(stored.handshakePolicies)
           }
@@ -131,6 +136,7 @@ export function PolicyLightbox({ isOpen, onClose, theme = 'default' }: PolicyLig
           [POLICY_STORAGE_KEY]: {
             localPolicy,
             networkPolicy,
+            handshakes,
             handshakePolicies,
           }
         })
@@ -522,21 +528,19 @@ export function PolicyLightbox({ isOpen, onClose, theme = 'default' }: PolicyLig
                       }}
                     >
                       <option value="">— Select a handshake partner —</option>
-                      {handshakePolicies.map(hsp => {
-                        const fpShort = hsp.tags?.find(t => t.startsWith('fp:'))?.replace('fp:', '') || ''
-                        const automationMode = (hsp.tags?.find(t => t.startsWith('automation:'))?.replace('automation:', '') as AutomationMode) || 'REVIEW'
-                        const status = (hsp.tags?.includes('verified_wr') ? 'VERIFIED_WR' : 'LOCAL') as HandshakeStatus
-                        const automationIcon = automationMode === 'DENY' ? '🚫' : automationMode === 'ALLOW' ? '✓' : '👁️'
-                        const isApiPartner = hsp.tags?.find(t => t.startsWith('mode:'))?.replace('mode:', '') === 'automation_partner'
+                      {handshakes.map(hs => {
+                        const automationIcon = hs.automation_mode === 'DENY' ? '🚫' : hs.automation_mode === 'ALLOW' ? '✓' : '👁️'
+                        const statusIcon = hs.status === 'VERIFIED_WR' ? '✓' : '○'
+                        const statusBadge = hs.status === 'VERIFIED_WR' ? BADGE_TEXT.VERIFIED : BADGE_TEXT.LOCAL
                         
                         return (
-                          <option key={hsp.id} value={hsp.id}>
-                            {hsp.name} — {fpShort || '—'} — {status === 'VERIFIED_WR' ? '✓' : '○'} {automationIcon} {isApiPartner ? '🤖' : '🤝'}
+                          <option key={hs.id} value={hs.id}>
+                            {hs.displayName} — fp: {hs.fingerprint_short} — {statusIcon} {automationIcon}
                           </option>
                         )
                       })}
                     </select>
-                    {handshakePolicies.length === 0 && (
+                    {handshakes.length === 0 && (
                       <div style={{ 
                         marginTop: '16px', 
                         padding: '16px',
@@ -590,9 +594,10 @@ export function PolicyLightbox({ isOpen, onClose, theme = 'default' }: PolicyLig
 
                   {/* Partner Detail Panel - Only shown when a partner is selected */}
                   {selectedHandshake && (() => {
-                        const hsp = handshakePolicies.find(p => p.id === selectedHandshake)
-                        if (!hsp) return null
-                        const hspMode = hsp.tags?.find(t => t.startsWith('mode:'))?.replace('mode:', '') || 'inherit'
+                        const hs = handshakes.find(h => h.id === selectedHandshake)
+                        const hsp = handshakePolicies[selectedHandshake]
+                        if (!hs) return null
+                        const hspMode = hsp?.tags?.find(t => t.startsWith('mode:'))?.replace('mode:', '') || 'inherit'
                         return (
                           <div style={{
                             padding: '20px',
@@ -602,7 +607,7 @@ export function PolicyLightbox({ isOpen, onClose, theme = 'default' }: PolicyLig
                           }}>
                             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '20px' }}>
                               <h4 style={{ margin: 0, fontSize: '16px', fontWeight: 600 }}>
-                                🤝 {hsp.name}
+                                🤝 {hs.displayName}
                               </h4>
                               <button
                                 onClick={() => setSelectedHandshake(null)}
@@ -620,12 +625,6 @@ export function PolicyLightbox({ isOpen, onClose, theme = 'default' }: PolicyLig
 
                             {/* Fingerprint Section */}
                             {(() => {
-                              const fpFull = hsp.tags?.find(t => t.startsWith('fp_full:'))?.replace('fp_full:', '') || generateMockFingerprint()
-                              const fpShort = hsp.tags?.find(t => t.startsWith('fp:'))?.replace('fp:', '') || formatFingerprintShort(fpFull)
-                              const status = (hsp.tags?.includes('verified_wr') ? 'VERIFIED_WR' : 'LOCAL') as HandshakeStatus
-                              const verifiedAt = hsp.tags?.find(t => t.startsWith('verified_at:'))?.replace('verified_at:', '')
-                              const automationMode = (hsp.tags?.find(t => t.startsWith('automation:'))?.replace('automation:', '') as AutomationMode) || 'REVIEW'
-                              
                               return (
                                 <>
                                   {/* Fingerprint Display */}
@@ -663,8 +662,10 @@ export function PolicyLightbox({ isOpen, onClose, theme = 'default' }: PolicyLig
                                       <button
                                         onClick={async () => {
                                           try {
-                                            await navigator.clipboard.writeText(fpFull)
+                                            await navigator.clipboard.writeText(hs.fingerprint_full)
+                                            setFingerprintCopied(true)
                                             showNotification('Fingerprint copied to clipboard', 'success')
+                                            setTimeout(() => setFingerprintCopied(false), 2000)
                                           } catch (err) {
                                             console.error('Failed to copy:', err)
                                           }
@@ -679,7 +680,7 @@ export function PolicyLightbox({ isOpen, onClose, theme = 'default' }: PolicyLig
                                           cursor: 'pointer',
                                         }}
                                       >
-                                        📋 {ACTION_LABELS.COPY_FINGERPRINT}
+                                        {fingerprintCopied ? '✓ Copied' : `📋 ${ACTION_LABELS.COPY_FINGERPRINT}`}
                                       </button>
                                     </div>
                                     <div style={{
@@ -692,7 +693,14 @@ export function PolicyLightbox({ isOpen, onClose, theme = 'default' }: PolicyLig
                                       padding: '10px 12px',
                                       borderRadius: '6px',
                                     }}>
-                                      {formatFingerprintGrouped(fpFull)}
+                                      {formatFingerprintGrouped(hs.fingerprint_full)}
+                                    </div>
+                                    <div style={{
+                                      marginTop: '8px',
+                                      fontSize: '10px',
+                                      color: mutedColor,
+                                    }}>
+                                      Short: <span style={{ fontFamily: 'monospace' }}>{hs.fingerprint_short}</span>
                                     </div>
                                     <div style={{
                                       marginTop: '10px',
@@ -710,32 +718,30 @@ export function PolicyLightbox({ isOpen, onClose, theme = 'default' }: PolicyLig
                                         fontWeight: 600,
                                         padding: '4px 10px',
                                         borderRadius: '6px',
-                                        background: status === 'VERIFIED_WR' 
+                                        background: hs.status === 'VERIFIED_WR' 
                                           ? 'rgba(34, 197, 94, 0.15)'
                                           : (isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)'),
-                                        color: status === 'VERIFIED_WR' ? '#22c55e' : mutedColor,
-                                        border: status === 'VERIFIED_WR' ? '1px solid rgba(34, 197, 94, 0.3)' : 'none',
+                                        color: hs.status === 'VERIFIED_WR' ? '#22c55e' : mutedColor,
+                                        border: hs.status === 'VERIFIED_WR' ? '1px solid rgba(34, 197, 94, 0.3)' : 'none',
                                       }}>
-                                        {status === 'VERIFIED_WR' ? '✓' : '○'}
-                                        {status === 'VERIFIED_WR' ? BADGE_TEXT.VERIFIED : BADGE_TEXT.LOCAL}
+                                        {hs.status === 'VERIFIED_WR' ? '✓' : '○'}
+                                        {hs.status === 'VERIFIED_WR' ? BADGE_TEXT.VERIFIED : BADGE_TEXT.LOCAL}
                                       </span>
                                       
                                       {/* Verified Date */}
-                                      {status === 'VERIFIED_WR' && verifiedAt && (
+                                      {hs.status === 'VERIFIED_WR' && hs.verified_at && (
                                         <span style={{ fontSize: '10px', color: mutedColor }}>
-                                          {new Date(parseInt(verifiedAt)).toLocaleDateString()}
+                                          {new Date(hs.verified_at).toLocaleDateString()}
                                         </span>
                                       )}
                                       
                                       {/* Verify Action */}
-                                      {status === 'LOCAL' && (
+                                      {hs.status === 'LOCAL' && (
                                         <button
                                           onClick={() => {
-                                            // Update tags to mark as verified
-                                            const newTags = (hsp.tags ?? []).filter(t => !t.startsWith('verified'))
-                                            newTags.push('verified_wr', `verified_at:${Date.now()}`)
-                                            const updated = { ...hsp, tags: newTags, updatedAt: Date.now() }
-                                            setHandshakePolicies(handshakePolicies.map(p => p.id === hsp.id ? updated : p))
+                                            // Update handshake to mark as verified (placeholder - wrcode.org not yet available)
+                                            const updated = { ...hs, status: 'VERIFIED_WR' as HandshakeStatus, verified_at: Date.now(), updated_at: Date.now() }
+                                            setHandshakes(handshakes.map(h => h.id === hs.id ? updated : h))
                                             showNotification('Verification initiated', 'info')
                                           }}
                                           style={{
@@ -761,7 +767,7 @@ export function PolicyLightbox({ isOpen, onClose, theme = 'default' }: PolicyLig
                                       fontSize: '12px', 
                                       fontWeight: 600, 
                                       marginBottom: '10px', 
-                                      color: automationMode === 'DENY' ? '#ef4444' : automationMode === 'ALLOW' ? '#22c55e' : '#f59e0b', 
+                                      color: hs.automation_mode === 'DENY' ? '#ef4444' : hs.automation_mode === 'ALLOW' ? '#22c55e' : '#f59e0b', 
                                       textTransform: 'uppercase', 
                                       letterSpacing: '0.5px',
                                       display: 'flex',
@@ -780,7 +786,7 @@ export function PolicyLightbox({ isOpen, onClose, theme = 'default' }: PolicyLig
                                     </div>
                                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px' }}>
                                       {(['DENY', 'REVIEW', 'ALLOW'] as AutomationMode[]).map(mode => {
-                                        const isActive = automationMode === mode
+                                        const isActive = hs.automation_mode === mode
                                         const colors = {
                                           DENY: { bg: 'rgba(239, 68, 68, 0.1)', border: 'rgba(239, 68, 68, 0.3)', text: '#ef4444' },
                                           REVIEW: { bg: 'rgba(245, 158, 11, 0.1)', border: 'rgba(245, 158, 11, 0.3)', text: '#f59e0b' },
@@ -792,10 +798,8 @@ export function PolicyLightbox({ isOpen, onClose, theme = 'default' }: PolicyLig
                                           <button
                                             key={mode}
                                             onClick={() => {
-                                              const newTags = (hsp.tags ?? []).filter(t => !t.startsWith('automation:'))
-                                              newTags.push(`automation:${mode}`)
-                                              const updated = { ...hsp, tags: newTags, updatedAt: Date.now() }
-                                              setHandshakePolicies(handshakePolicies.map(p => p.id === hsp.id ? updated : p))
+                                              const updated = { ...hs, automation_mode: mode, updated_at: Date.now() }
+                                              setHandshakes(handshakes.map(h => h.id === hs.id ? updated : h))
                                             }}
                                             title={AUTOMATION_DESCRIPTIONS[mode]}
                                             style={{
@@ -815,7 +819,7 @@ export function PolicyLightbox({ isOpen, onClose, theme = 'default' }: PolicyLig
                                       })}
                                     </div>
                                     <p style={{ fontSize: '11px', color: mutedColor, marginTop: '8px', marginBottom: 0 }}>
-                                      {AUTOMATION_DESCRIPTIONS[automationMode]}
+                                      {AUTOMATION_DESCRIPTIONS[hs.automation_mode]}
                                     </p>
                                   </div>
                                 </>
