@@ -22,7 +22,7 @@ export function ImageEngineSettings({ theme = 'default' }: ImageEngineSettingsPr
   const [loading, setLoading] = useState(true)
   const [testingApi, setTestingApi] = useState<string | null>(null)
   const [notification, setNotification] = useState<{ message: string; type: 'success' | 'error' } | null>(null)
-  const [expandedCloud, setExpandedCloud] = useState(false) // Collapsed by default
+  const [expandedCloud, setExpandedCloud] = useState(true) // Expanded by default
   const [editingApiKey, setEditingApiKey] = useState<string | null>(null)
 
   const textColor = theme === 'default' || theme === 'dark' ? '#e5e5e5' : '#1f2937'

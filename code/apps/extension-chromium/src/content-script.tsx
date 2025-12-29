@@ -128,6 +128,10 @@ const globalLightboxFunctions: {
 
   openReasoningLightbox?: () => void
 
+  openBackendConfigLightbox?: () => void
+
+  openPolicyLightbox?: () => void
+
 } = {}
 
 
@@ -1204,6 +1208,99 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     } catch (e) {
 
       console.error('❌ Error opening Reasoning lightbox:', e)
+
+      sendResponse({ success: false, error: String(e) })
+
+    }
+
+  }
+
+  // Handle OPEN BACKEND CONFIG LIGHTBOX request from sidepanel
+
+  else if (message.type === 'OPEN_BACKEND_CONFIG_LIGHTBOX') {
+
+    console.log('📨 Received OPEN_BACKEND_CONFIG_LIGHTBOX message')
+
+    console.log('🔍 Checking globalLightboxFunctions:', Object.keys(globalLightboxFunctions))
+
+    console.log('🔍 openBackendConfigLightbox available?', !!globalLightboxFunctions.openBackendConfigLightbox)
+
+    try {
+
+      if (globalLightboxFunctions.openBackendConfigLightbox) {
+
+        console.log('✅ Calling openBackendConfigLightbox()...')
+
+        globalLightboxFunctions.openBackendConfigLightbox()
+
+        console.log('✅ Backend Config lightbox opened successfully')
+
+        sendResponse({ success: true })
+
+      } else {
+
+        console.warn('⚠️ openBackendConfigLightbox function not available')
+
+        sendResponse({ success: false, error: 'Function not available' })
+
+      }
+
+    } catch (e) {
+
+      console.error('❌ Error opening Backend Config lightbox:', e)
+
+      sendResponse({ success: false, error: String(e) })
+
+    }
+
+  }
+
+  // Handle OPEN POLICY LIGHTBOX request from sidepanel
+
+  else if (message.type === 'OPEN_POLICY_LIGHTBOX') {
+
+    console.log('📨 Received OPEN_POLICY_LIGHTBOX message')
+
+    console.log('🔍 Checking globalLightboxFunctions:', Object.keys(globalLightboxFunctions))
+
+    console.log('🔍 openPolicyLightbox available?', !!globalLightboxFunctions.openPolicyLightbox)
+
+    try {
+
+      if (globalLightboxFunctions.openPolicyLightbox) {
+
+        console.log('✅ Calling openPolicyLightbox()...')
+
+        globalLightboxFunctions.openPolicyLightbox()
+
+        console.log('✅ Policy lightbox opened successfully')
+
+        sendResponse({ success: true })
+
+      } else {
+
+        // Dynamically import and open the policy lightbox
+        console.log('📦 Dynamically importing policy-lightbox-init...')
+        
+        import('./policy/components/policy-lightbox-init').then(({ openPolicyLightboxInContent }) => {
+          console.log('✅ Policy lightbox module loaded, opening...')
+          const cleanup = openPolicyLightboxInContent('default')
+          
+          // Store cleanup function for potential future use
+          globalLightboxFunctions.openPolicyLightbox = () => {
+            openPolicyLightboxInContent('default')
+          }
+        }).catch(err => {
+          console.error('❌ Failed to load policy lightbox module:', err)
+        })
+
+        sendResponse({ success: true })
+
+      }
+
+    } catch (e) {
+
+      console.error('❌ Error opening Policy lightbox:', e)
 
       sendResponse({ success: false, error: String(e) })
 
@@ -44945,6 +45042,26 @@ ${pageText}
 
   
 
+  // Backend Config Lightbox - Opens React-based config UI
+
+  function openBackendConfigLightbox() {
+
+    console.log('🔧 Opening Backend Config Lightbox...')
+
+    import('./components/backend-config-lightbox-init').then(({ openBackendConfigLightbox: openLightbox }) => {
+
+      openLightbox()
+
+    }).catch((error) => {
+
+      console.error('❌ Failed to load Backend Config Lightbox:', error)
+
+    })
+
+  }
+
+  
+
   // CRITICAL: Assign local lightbox functions and chat functions to global object
 
   // This allows the message handlers (defined at module level) to call these functions
@@ -44992,6 +45109,8 @@ ${pageText}
   globalLightboxFunctions.openWRVaultLightbox = openWRVaultLightbox
 
   globalLightboxFunctions.openReasoningLightbox = openReasoningLightbox
+
+  globalLightboxFunctions.openBackendConfigLightbox = openBackendConfigLightbox
 
   
 

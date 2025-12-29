@@ -64,6 +64,76 @@ interface LlmSettingsProps {
   bridge: 'ipc' | 'http'  // IPC for Electron, HTTP for Extension
 }
 
+// Helper to proxy API calls through background script (avoids CORS issues in content scripts)
+async function electronApiCall(
+  endpoint: string, 
+  options: { method?: string; body?: any; timeout?: number } = {}
+): Promise<{ ok: boolean; data?: any; error?: string }> {
+  console.log('[LlmSettings] API call via proxy:', endpoint, options.method || 'GET');
+  
+  // Try background script first
+  if (typeof chrome !== 'undefined' && chrome.runtime?.sendMessage) {
+    try {
+      const bgResult = await new Promise<{ success: boolean; status?: number; data?: any; error?: string } | null>((resolve) => {
+        const timeout = setTimeout(() => {
+          console.log('[LlmSettings] Background script timeout');
+          resolve(null);
+        }, (options.timeout || 15000) + 2000);
+        
+        chrome.runtime.sendMessage({
+          type: 'ELECTRON_API_PROXY',
+          endpoint,
+          method: options.method || 'GET',
+          body: options.body,
+          timeout: options.timeout || 15000,
+        }, (result) => {
+          clearTimeout(timeout);
+          if (chrome.runtime.lastError) {
+            console.log('[LlmSettings] Chrome runtime error:', chrome.runtime.lastError.message);
+            resolve(null);
+          } else if (result) {
+            console.log('[LlmSettings] Background response:', result.success, result.status);
+            resolve(result);
+          } else {
+            resolve(null);
+          }
+        });
+      });
+      
+      if (bgResult !== null) {
+        return { ok: bgResult.success, data: bgResult.data, error: bgResult.error };
+      }
+    } catch (e) {
+      console.log('[LlmSettings] Background script error:', e);
+    }
+  }
+  
+  // Fallback: direct fetch
+  console.log('[LlmSettings] Falling back to direct fetch');
+  try {
+    const fetchOptions: RequestInit = {
+      method: options.method || 'GET',
+      headers: { 'Content-Type': 'application/json' },
+    };
+    if (options.body) {
+      fetchOptions.body = typeof options.body === 'string' ? options.body : JSON.stringify(options.body);
+    }
+    
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), options.timeout || 15000);
+    fetchOptions.signal = controller.signal;
+    
+    const response = await fetch(`http://127.0.0.1:51248${endpoint}`, fetchOptions);
+    clearTimeout(timeoutId);
+    
+    const data = await response.json();
+    return { ok: response.ok, data, error: response.ok ? undefined : 'Request failed' };
+  } catch (e: any) {
+    console.log('[LlmSettings] Direct fetch failed:', e.message);
+    return { ok: false, error: e.message };
+  }
+}
+
 // Hardcoded fallback catalog in case API is unavailable
 const FALLBACK_CATALOG: LlmModelConfig[] = [
   { id: 'tinyllama', displayName: 'TinyLlama 1.1B (Q4)', provider: 'TinyLlama', tier: 'lightweight', minRamGb: 1, recommendedRamGb: 2, diskSizeGb: 0.6, contextWindow: 2048, description: 'Ultra-fast, 4-bit quantized.' },
@@ -121,45 +191,24 @@ export function LlmSettings({ theme = 'default', bridge }: LlmSettingsProps) {
         getPerformanceEstimate: (modelId: string) => (window as any).electron.ipcRenderer.invoke('llm:getPerformanceEstimate', modelId)
       }
     } else {
-      // HTTP bridge for Extension
-      const baseUrl = 'http://127.0.0.1:51248'
-      
-      const safeFetch = async (url: string, options?: RequestInit) => {
-        try {
-          const response = await fetch(url, options)
-          const contentType = response.headers.get('content-type')
-          
-          // Check if response is JSON
-          if (!contentType || !contentType.includes('application/json')) {
-            throw new Error(`Server returned ${response.status}: ${response.statusText}`)
-          }
-          
-          return response.json()
-        } catch (err: any) {
-          console.error('[LlmSettings] Fetch error:', err)
-          throw err
-        }
-      }
-      
+      // HTTP bridge for Extension - uses background script proxy to avoid CORS
       return {
-        getHardware: () => safeFetch(`${baseUrl}/api/llm/hardware`),
-        getStatus: () => safeFetch(`${baseUrl}/api/llm/status`),
-        getCatalog: () => safeFetch(`${baseUrl}/api/llm/catalog`),
-        startOllama: () => safeFetch(`${baseUrl}/api/llm/start`, { method: 'POST' }),
-        installModel: (modelId: string) => safeFetch(`${baseUrl}/api/llm/models/install`, {
+        getHardware: () => electronApiCall('/api/llm/hardware'),
+        getStatus: () => electronApiCall('/api/llm/status'),
+        getCatalog: () => electronApiCall('/api/llm/catalog'),
+        startOllama: () => electronApiCall('/api/llm/start', { method: 'POST' }),
+        installModel: (modelId: string) => electronApiCall('/api/llm/models/install', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ modelId })
+          body: { modelId }
         }),
-        deleteModel: (modelId: string) => safeFetch(`${baseUrl}/api/llm/models/${encodeURIComponent(modelId)}`, {
+        deleteModel: (modelId: string) => electronApiCall(`/api/llm/models/${encodeURIComponent(modelId)}`, {
           method: 'DELETE'
         }),
-        setActiveModel: (modelId: string) => safeFetch(`${baseUrl}/api/llm/models/activate`, {
+        setActiveModel: (modelId: string) => electronApiCall('/api/llm/models/activate', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ modelId })
+          body: { modelId }
         }),
-        getPerformanceEstimate: (modelId: string) => safeFetch(`${baseUrl}/api/llm/performance/${encodeURIComponent(modelId)}`)
+        getPerformanceEstimate: (modelId: string) => electronApiCall(`/api/llm/performance/${encodeURIComponent(modelId)}`)
       }
     }
   }, [bridge])
@@ -210,9 +259,10 @@ export function LlmSettings({ theme = 'default', bridge }: LlmSettingsProps) {
         })
       ])
       
-      if (hwRes.ok) setHardware(hwRes.data)
-      if (statusRes.ok) setStatus(statusRes.data)
-      if (catalogRes.ok && catalogRes.data) setModelCatalog(catalogRes.data)
+      // API returns { ok: true, data: {...} }, and proxy wraps it, so we need to unwrap
+      if (hwRes.ok && hwRes.data?.ok) setHardware(hwRes.data.data)
+      if (statusRes.ok && statusRes.data?.ok) setStatus(statusRes.data.data)
+      if (catalogRes.ok && catalogRes.data?.ok && catalogRes.data.data) setModelCatalog(catalogRes.data.data)
       // else keep FALLBACK_CATALOG
       
       // If all APIs failed, show connection error but still allow UI to work
@@ -231,11 +281,12 @@ export function LlmSettings({ theme = 'default', bridge }: LlmSettingsProps) {
   const handleStartOllama = async () => {
     try {
       const res = await api.startOllama()
-      if (res.ok) {
+      // res.ok = HTTP success, res.data.ok = API success
+      if (res.ok && res.data?.ok) {
         showNotification('Ollama started successfully', 'success')
         setTimeout(() => loadData(), 2000)
       } else {
-        showNotification(res.error || 'Failed to start Ollama', 'error')
+        showNotification(res.data?.error || res.error || 'Failed to start Ollama', 'error')
       }
     } catch (error: any) {
       showNotification(error.message || 'Failed to start Ollama', 'error')
@@ -251,17 +302,16 @@ export function LlmSettings({ theme = 'default', bridge }: LlmSettingsProps) {
     
     try {
       const res = await api.installModel(selectedModel)
-      if (res.ok) {
+      if (res.ok && res.data?.ok) {
         // Poll for progress if using HTTP (no real-time updates)
         if (bridge === 'http') {
           const pollInterval = setInterval(async () => {
             try {
-              // Poll the new progress endpoint
-              const progressRes = await fetch('http://127.0.0.1:51248/api/llm/install-progress')
-              if (progressRes.ok) {
-                const data = await progressRes.json()
-                console.log('[LlmSettings] Poll response:', data)
-                const progress = data.progress
+              // Poll the new progress endpoint via proxy
+              const progressRes = await electronApiCall('/api/llm/install-progress')
+              console.log('[LlmSettings] Poll response:', progressRes)
+              if (progressRes.ok && progressRes.data) {
+                const progress = progressRes.data.progress
                 if (progress) {
                   setInstallProgress(progress.progress || 0)
                   setInstallStatus(progress.status || 'Downloading...')
@@ -302,7 +352,7 @@ export function LlmSettings({ theme = 'default', bridge }: LlmSettingsProps) {
           setTimeout(() => clearInterval(pollInterval), 1800000) // 30 min
         }
       } else {
-        showNotification(res.error || 'Installation failed', 'error')
+        showNotification(res.data?.error || res.error || 'Installation failed', 'error')
         setInstalling(null)
       }
     } catch (error: any) {
@@ -317,11 +367,11 @@ export function LlmSettings({ theme = 'default', bridge }: LlmSettingsProps) {
     setDeleting(modelId)
     try {
       const res = await api.deleteModel(modelId)
-      if (res.ok) {
+      if (res.ok && res.data?.ok) {
         showNotification('Model deleted successfully', 'success')
         await loadData()
       } else {
-        showNotification(res.error || 'Deletion failed', 'error')
+        showNotification(res.data?.error || res.error || 'Deletion failed', 'error')
       }
     } catch (error: any) {
       showNotification(error.message || 'Deletion failed', 'error')
@@ -333,11 +383,11 @@ export function LlmSettings({ theme = 'default', bridge }: LlmSettingsProps) {
   const handleActivateModel = async (modelId: string) => {
     try {
       const res = await api.setActiveModel(modelId)
-      if (res.ok) {
+      if (res.ok && res.data?.ok) {
         showNotification(`Switched to ${modelId}`, 'success')
         await loadData()
       } else {
-        showNotification(res.error || 'Failed to switch model', 'error')
+        showNotification(res.data?.error || res.error || 'Failed to switch model', 'error')
       }
     } catch (error: any) {
       showNotification(error.message || 'Failed to switch model', 'error')
@@ -356,15 +406,15 @@ export function LlmSettings({ theme = 'default', bridge }: LlmSettingsProps) {
   
   // Load performance estimates for visible models
   useEffect(() => {
-    if (!hardware || modelCatalog.length === 0) return
+    if (!hardware || !modelCatalog || modelCatalog.length === 0) return
     
     const loadEstimates = async () => {
       const estimates = new Map<string, PerformanceEstimate>()
       for (const model of modelCatalog) {
         try {
           const res = await api.getPerformanceEstimate(model.id)
-          if (res.ok) {
-            estimates.set(model.id, res.data)
+          if (res.ok && res.data?.ok && res.data.data) {
+            estimates.set(model.id, res.data.data)
           }
         } catch (error) {
           // Ignore errors
@@ -376,9 +426,9 @@ export function LlmSettings({ theme = 'default', bridge }: LlmSettingsProps) {
     loadEstimates()
   }, [hardware, modelCatalog])
   
-  // Theme colors
-  const textColor = theme === 'dark' || theme === 'professional' ? '#e5e5e5' : '#1f2937'
-  const bgPrimary = theme === 'dark' ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.08)'
+  // Theme colors - always use light text since lightbox has dark background
+  const textColor = theme === 'professional' ? '#1f2937' : '#e5e5e5'
+  const bgPrimary = 'rgba(255,255,255,0.08)'
   
   return (
     <div style={{ padding: '10px', color: textColor }}>

@@ -1,3 +1,19 @@
+// =============================================================================
+// HANDSHAKE STATE - MUST BE FIRST
+// =============================================================================
+// All handshake-related globals declared at very top to avoid hoisting issues
+var HANDSHAKE_FINGERPRINT = '';
+var HS_INITIALIZED = false;
+var HANDSHAKE_MESSAGE_TEMPLATE = 'Dear [Recipient Name],\n\nI am writing to request the establishment of a BEAP™ (Bidirectional Email Automation Protocol) handshake between our systems.\n\nUpon successful completion, this handshake will enable:\n\n• Cryptographically verified BEAP™ package exchange\n• Policy-bound, trusted automation workflows\n• End-to-end encrypted, integrity-validated bidirectional communication\n\nThe handshake serves as the trust anchor for future interactions and ensures that all exchanged BEAP™ packages are processed in accordance with verified identity, declared execution policies, and local enforcement rules.\n\n**Handshake Fingerprint:** [FINGERPRINT]\n\nPlease verify this fingerprint matches what you expect before accepting.\n\nPlease confirm acceptance of this request to complete the handshake initialization.\n\nKind regards,\n[Your Name]\n[Organization]\n[Role / Function, if applicable]';
+
+(function() {
+  var chars = '0123456789ABCDEF';
+  for (var i = 0; i < 64; i++) {
+    HANDSHAKE_FINGERPRINT += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  console.log('[Popup] FINGERPRINT generated at top:', HANDSHAKE_FINGERPRINT);
+})();
+
 // Robust theme init with Chrome storage fallback
 (async () => {
   try {
@@ -181,7 +197,7 @@ const mailguardView = document.getElementById('mailguard-view')
 const p2pChatView = document.getElementById('p2p-chat-view')
 const p2pStreamView = document.getElementById('p2p-stream-view')
 const groupStreamView = document.getElementById('group-stream-view')
-const adminView = document.getElementById('admin-view')
+const handshakeView = document.getElementById('handshake-view')
 const chatControls = document.getElementById('chat-controls')
 
 // Code Executor elements
@@ -217,7 +233,7 @@ function hideAllViews() {
   if (p2pChatView) p2pChatView.style.display = 'none'
   if (p2pStreamView) p2pStreamView.style.display = 'none'
   if (groupStreamView) groupStreamView.style.display = 'none'
-  if (adminView) adminView.style.display = 'none'
+  if (handshakeView) handshakeView.style.display = 'none'
   if (chatControls) chatControls.style.display = 'none'
 }
 
@@ -234,8 +250,8 @@ function updateView() {
   }
   
   if (workspace === 'wr-chat') {
-    // Show controls for all modes except admin
-    if (chatControls) chatControls.style.display = submode !== 'admin' ? 'flex' : 'none'
+    // Show controls for all modes except handshake
+    if (chatControls) chatControls.style.display = submode !== 'handshake' ? 'flex' : 'none'
     
     switch (submode) {
       case 'command':
@@ -250,8 +266,12 @@ function updateView() {
       case 'group-stream':
         if (groupStreamView) groupStreamView.style.display = 'flex'
         break
-      case 'admin':
-        if (adminView) adminView.style.display = 'flex'
+      case 'handshake':
+        if (handshakeView) {
+          handshakeView.style.display = 'flex'
+          // Use setTimeout to ensure DOM is ready
+          setTimeout(() => initHandshakeView(), 0)
+        }
         break
     }
   } else if (workspace === 'augmented-overlay') {
@@ -1127,233 +1147,195 @@ try {
   })
 } catch {}
 
+// =============================================================================
+// HANDSHAKE REQUEST FUNCTIONALITY
+// =============================================================================
 
-// =====================================================
-// CODE EXECUTOR MODE
-// =====================================================
-
-// Update code model label
-function updateCodeModelLabel() {
-  if (codeModelLabel) {
-    codeModelLabel.textContent = availableModels.length > 0 ? getShortModelName(activeModel) : 'No model'
+// Generate a mock fingerprint (64 hex chars)
+function generateMockFingerprint() {
+  const chars = '0123456789ABCDEF'
+  let result = ''
+  for (let i = 0; i < 64; i++) {
+    result += chars.charAt(Math.floor(Math.random() * chars.length))
   }
+  return result
 }
 
-// Code execution state
-let isCodeExecuting = false
-let lastCodeResult = null
-
-// Add row to code executor messages
-function codeRow(role, text) {
-  const codeExecutorMsgs = document.getElementById('code-executor-msgs')
-  if (!codeExecutorMsgs) return
-  
-  const r = document.createElement('div')
-  r.className = 'row ' + (role === 'user' ? 'user' : 'assistant')
-  const b = document.createElement('div')
-  b.className = 'bubble ' + (role === 'user' ? 'user' : 'assistant')
-  b.textContent = text
-  r.appendChild(b)
-  codeExecutorMsgs.appendChild(r)
-  codeExecutorMsgs.scrollTop = codeExecutorMsgs.scrollHeight
+// Format fingerprint for display with grouping
+function formatFingerprintGrouped(fp) {
+  if (!fp) return ''
+  const groups = []
+  for (let i = 0; i < fp.length; i += 4) {
+    groups.push(fp.slice(i, i + 4))
+  }
+  return groups.join(' ')
 }
 
-// Show/hide code result panel
-function showCodeResult(result) {
-  if (!codeResult) return
-  
-  lastCodeResult = result
-  codeResult.style.display = 'block'
-  
-  // Update status
-  if (codeResultStatus) {
-    if (result.success) {
-      codeResultStatus.textContent = '✓ Executed successfully'
-      codeResultStatus.className = 'code-result-status success'
-    } else {
-      codeResultStatus.textContent = '✗ Execution failed'
-      codeResultStatus.className = 'code-result-status error'
-    }
-  }
-  
-  // Update language badge
-  if (codeResultLang) {
-    codeResultLang.textContent = result.language || 'unknown'
-  }
-  
-  // Update output
-  if (codeResultOutput) {
-    if (result.error) {
-      codeResultOutput.textContent = `Error: ${result.error}\n\n${result.output || ''}`
-    } else {
-      codeResultOutput.textContent = result.output || '(No output)'
-    }
-  }
-  
-  // Show/hide action buttons
-  if (codeResultOpen) {
-    codeResultOpen.style.display = result.filePath ? 'inline-block' : 'none'
-  }
-  
-  if (codeResultMiniapp) {
-    codeResultMiniapp.style.display = result.isMiniApp ? 'inline-block' : 'none'
-  }
+// Format short fingerprint
+function formatFingerprintShort(fp) {
+  if (!fp || fp.length < 16) return fp || ''
+  return fp.slice(0, 8) + '…' + fp.slice(-8)
 }
 
-// Hide code result panel
-function hideCodeResult() {
-  if (codeResult) {
-    codeResult.style.display = 'none'
-  }
-  lastCodeResult = null
-}
+// Handshake state - uses globals from top of file:
+// - HANDSHAKE_FINGERPRINT
+// - HS_INITIALIZED  
+// - HANDSHAKE_MESSAGE_TEMPLATE
 
-// Execute code generation + run flow
-async function executeCode() {
-  const query = (codeTa?.value || '').trim()
-  
-  if (!query) {
-    codeRow('assistant', '💡 Please describe what code you want me to generate. For example:\n• "Print odd numbers from 1 to 10"\n• "Create a simple calculator app"\n• "Generate fibonacci sequence in JavaScript"')
-    return
-  }
-  
-  if (isCodeExecuting) return
-  
-  // Check if model is available
-  if (!activeModel || availableModels.length === 0) {
-    codeRow('assistant', '⚠️ No AI model available. Please install a model in LLM Settings first.')
-    return
-  }
-  
-  // Show user query
-  codeRow('user', query)
-  codeTa.value = ''
-  
-  // Hide previous result
-  hideCodeResult()
-  
-  // Update UI state
-  isCodeExecuting = true
-  if (codeSend) {
-    codeSend.disabled = true
-    const sendText = codeSend.querySelector('.send-text')
-    if (sendText) sendText.textContent = '⏳ Generating...'
-  }
+// Initialize handshake view
+function initHandshakeView() {
+  console.log('[Popup] initHandshakeView called - v2025.01')
   
   try {
-    const baseUrl = 'http://127.0.0.1:51248'
+    // Fingerprint is already generated at page load
+    console.log('[Popup] Using fingerprint:', HANDSHAKE_FINGERPRINT)
     
-    // Show progress message
-    codeRow('assistant', '🔄 Generating code and executing... (this may take up to 2 minutes for complex apps)')
+    // Display fingerprint
+    const fpFullEl = document.getElementById('hs-fingerprint-full')
+    const fpShortEl = document.getElementById('hs-fingerprint-short')
+    console.log('[Popup] Fingerprint elements:', { fpFullEl: !!fpFullEl, fpShortEl: !!fpShortEl })
+    if (fpFullEl) fpFullEl.textContent = formatFingerprintGrouped(HANDSHAKE_FINGERPRINT)
+    if (fpShortEl) fpShortEl.textContent = formatFingerprintShort(HANDSHAKE_FINGERPRINT)
     
-    // Create AbortController with 3-minute timeout for larger models
-    const controller = new AbortController()
-    const timeoutId = setTimeout(() => controller.abort(), 300000) // 5 minute timeout for larger models
-    
-    const response = await fetch(`${baseUrl}/api/code-executor/run`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        query: query,
-        modelId: activeModel
-      }),
-      signal: controller.signal
-    })
-    
-    clearTimeout(timeoutId) // Clear timeout on success
-    
-    const result = await response.json()
-    
-    // Remove the "generating" message
-    const codeExecutorMsgs = document.getElementById('code-executor-msgs')
-    if (codeExecutorMsgs && codeExecutorMsgs.lastChild) {
-      codeExecutorMsgs.removeChild(codeExecutorMsgs.lastChild)
-    }
-    
-    if (result.ok && result.data) {
-      const execResult = result.data
+    // Set default message with fingerprint
+    const msgEl = document.getElementById('hs-message')
+    console.log('[Popup] Message element found:', !!msgEl, 'tagName:', msgEl?.tagName)
+    if (msgEl) {
+      // Always set the message on first initialization, or if empty
+      const currentValue = msgEl.value
+      console.log('[Popup] Current message value length:', currentValue?.length || 0)
       
-      // Show success message
-      if (execResult.success) {
-        codeRow('assistant', `✅ Code generated and executed successfully!\n📁 Saved to: ${execResult.filePath}\n⏱️ Execution time: ${execResult.executionTime}ms`)
+      if (!HS_INITIALIZED || !currentValue || currentValue.trim() === '') {
+        const newValue = HANDSHAKE_MESSAGE_TEMPLATE.replace('[FINGERPRINT]', HANDSHAKE_FINGERPRINT)
+        console.log('[Popup] Setting message, template length:', HANDSHAKE_MESSAGE_TEMPLATE.length)
+        console.log('[Popup] New value length:', newValue.length)
+        msgEl.value = newValue
+        // Verify it was set
+        console.log('[Popup] ✅ After setting, msgEl.value length:', msgEl.value.length)
+        console.log('[Popup] First 100 chars:', msgEl.value.substring(0, 100))
       } else {
-        codeRow('assistant', `⚠️ Code generated but execution had issues.\n📁 Saved to: ${execResult.filePath}`)
+        console.log('[Popup] Message already has custom value, preserving')
+      }
+    } else {
+      console.error('[Popup] ❌ hs-message element not found!')
+    }
+  } catch (err) {
+    console.error('[Popup] Error in initHandshakeView:', err)
+  }
+  
+  // Mark as initialized after first successful run
+  if (!HS_INITIALIZED) {
+    HS_INITIALIZED = true
+  }
+  
+  // Copy fingerprint button
+  const copyBtn = document.getElementById('hs-copy-fp')
+  if (copyBtn) {
+    copyBtn.onclick = async () => {
+      try {
+        await navigator.clipboard.writeText(HANDSHAKE_FINGERPRINT)
+        copyBtn.textContent = '✓ Copied'
+        setTimeout(() => { copyBtn.textContent = '📋 Copy' }, 2000)
+      } catch (err) {
+        console.error('Failed to copy:', err)
+      }
+    }
+  }
+  
+  // Delivery method change
+  const deliveryEl = document.getElementById('hs-delivery')
+  const emailFieldsEl = document.getElementById('hs-email-fields')
+  const sendIcon = document.getElementById('hs-send-icon')
+  const sendText = document.getElementById('hs-send-text')
+  
+  // Function to update UI based on delivery method
+  const updateDeliveryUI = () => {
+    const method = deliveryEl?.value || 'email'
+    console.log('[Popup] Updating delivery UI for method:', method)
+    if (emailFieldsEl) {
+      emailFieldsEl.style.display = method === 'email' ? 'flex' : 'none'
+    }
+    if (sendIcon && sendText) {
+      if (method === 'email') {
+        sendIcon.textContent = '📧'
+        sendText.textContent = 'Send'
+      } else if (method === 'messenger') {
+        sendIcon.textContent = '💬'
+        sendText.textContent = 'Insert'
+      } else {
+        sendIcon.textContent = '💾'
+        sendText.textContent = 'Download'
+      }
+    }
+  }
+  
+  if (deliveryEl) {
+    deliveryEl.onchange = updateDeliveryUI
+    // Trigger initial UI update
+    updateDeliveryUI()
+  }
+  
+  // Cancel button
+  const cancelBtn = document.getElementById('hs-cancel')
+  if (cancelBtn) {
+    cancelBtn.onclick = () => {
+      if (submodeSelect) {
+        submodeSelect.value = 'command'
+        updateView()
+      }
+    }
+  }
+  
+  // Send button
+  const sendBtn = document.getElementById('hs-send')
+  if (sendBtn) {
+    sendBtn.onclick = () => {
+      const method = deliveryEl?.value || 'email'
+      const toEl = document.getElementById('hs-to')
+      
+      if (method === 'email' && (!toEl?.value || !toEl.value.trim())) {
+        alert('Please enter a recipient email address')
+        return
       }
       
-      // Show result panel
-      showCodeResult(execResult)
+      // TODO: Implement actual send/download logic
+      const actionWord = method === 'download' ? 'downloaded' : 'sent'
+      alert(`Handshake request ${actionWord} successfully!`)
       
-    } else {
-      codeRow('assistant', '❌ Error: ' + (result.error || 'Failed to generate or execute code'))
-    }
-    
-  } catch (err) {
-    console.error('[CodeExecutor] Error:', err)
-    // Check if it's an abort error (timeout)
-    if (err.name === 'AbortError') {
-      codeRow('assistant', '❌ Request timed out. The model is taking too long. Try:\n• A simpler prompt (e.g., "calculator html")\n• A faster model (e.g., codellama:7b)')
-    } else {
-      codeRow('assistant', '❌ Failed to connect to the code executor. Make sure the Electron app is running.')
-    }
-  } finally {
-    isCodeExecuting = false
-    if (codeSend) {
-      codeSend.disabled = false
-      const sendText = codeSend.querySelector('.send-text')
-      if (sendText) sendText.textContent = 'Generate & Run'
+      // Return to command view
+      if (submodeSelect) {
+        submodeSelect.value = 'command'
+        updateView()
+      }
     }
   }
 }
 
-// Code executor event listeners
-if (codeSend) {
-  codeSend.onclick = executeCode
-}
+// Initial view update on page load
+updateView()
+console.log('[Popup] Initial view updated, submode:', submodeSelect?.value)
 
-if (codeTa) {
-  codeTa.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault()
-      executeCode()
-    }
-  })
-}
-
-// Open file button handler
-if (codeResultOpen) {
-  codeResultOpen.onclick = async () => {
-    if (!lastCodeResult?.filePath) return
-    
-    try {
-      // Try to open via Electron
-      const baseUrl = 'http://127.0.0.1:51248'
-      // For now, just show the path - we can add folder opening later
-      alert(`File saved at:\n${lastCodeResult.filePath}`)
-    } catch (err) {
-      console.error('[CodeExecutor] Error opening file:', err)
-    }
+// Pre-populate handshake elements immediately (even if not visible yet)
+// This ensures the message is set before user switches to handshake view
+setTimeout(() => {
+  const msgEl = document.getElementById('hs-message')
+  const fpFullEl = document.getElementById('hs-fingerprint-full')
+  const fpShortEl = document.getElementById('hs-fingerprint-short')
+  
+  if (msgEl && (!msgEl.value || msgEl.value.trim() === '')) {
+    const newValue = HANDSHAKE_MESSAGE_TEMPLATE.replace('[FINGERPRINT]', HANDSHAKE_FINGERPRINT)
+    msgEl.value = newValue
+    console.log('[Popup] Pre-populated message on page load, length:', newValue.length)
   }
-}
-
-// Open mini app button handler
-if (codeResultMiniapp) {
-  codeResultMiniapp.onclick = async () => {
-    if (!lastCodeResult?.miniAppUrl) return
-    
-    try {
-      // Open in new tab
-      window.open(lastCodeResult.miniAppUrl, '_blank')
-    } catch (err) {
-      console.error('[CodeExecutor] Error opening mini app:', err)
-    }
+  
+  if (fpFullEl && !fpFullEl.textContent) {
+    fpFullEl.textContent = formatFingerprintGrouped(HANDSHAKE_FINGERPRINT)
+    console.log('[Popup] Pre-populated fingerprint full on page load')
   }
-}
-
-// Update code model label when models change
-const originalFetchModels = fetchAvailableModels
-fetchAvailableModels = async function() {
-  await originalFetchModels()
-  updateCodeModelLabel()
-}
-
+  
+  if (fpShortEl && !fpShortEl.textContent) {
+    fpShortEl.textContent = formatFingerprintShort(HANDSHAKE_FINGERPRINT)
+    console.log('[Popup] Pre-populated fingerprint short on page load')
+  }
+}, 100)
 

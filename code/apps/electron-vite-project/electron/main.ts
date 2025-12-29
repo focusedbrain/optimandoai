@@ -262,8 +262,20 @@ function handleDeepLink(raw: string) {
   try {
     const url = new URL(raw)
     if (url.protocol !== 'opengiraffe:') return
-    const action = url.hostname // e.g., lmgtfy
+    const action = url.hostname // e.g., lmgtfy, start
     const mode = url.searchParams.get('mode') || ''
+    
+    // Handle 'start' action - just ensure app is running and visible
+    if (action === 'start') {
+      console.log('[MAIN] Received start deep link - app is now running')
+      // App is already running if we got here, optionally show the window
+      if (win) {
+        win.show()
+        win.focus()
+      }
+      return
+    }
+    
     if (action === 'lmgtfy') {
       if (mode === 'screenshot' || mode === 'stream') pendingLaunchMode = mode as any
       if (win) {

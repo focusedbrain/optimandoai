@@ -26,6 +26,7 @@
     "wink-eng-lite-web-model": "^1.8.1",
     "wink-nlp": "^2.4.0",
     "ws": "^8.18.3",
+    "zod": "^3.22.4",
     "zustand": "^5.0.9"
   }
 }
