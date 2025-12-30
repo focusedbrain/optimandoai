@@ -1,7 +1,7 @@
-import { MiniApp, AtomicBlock, RuntimeState } from './types' // import types
+import { MiniApp, AtomicBlock, RuntimeState, Component, BEAPRegistry } from './types' // import types
 
 // createRuntimeState: provides a small in-memory state with optional sessionStorage persistence
-export function createRuntimeState(namespace?: string, opts?: { persistToFile?: boolean }): { state: RuntimeState, set: (k:string,v:any)=>void, get:(k:string)=>any, persist:(key?:string)=>Promise<string|undefined> } {
+export function createRuntimeState(namespace?: string, opts?: { persistToFile?: boolean }): { state: RuntimeState, set: (k:string,v:any)=>void, get:(k:string)=>any, persist:(key?:string)=>Promise<string|undefined>, increment:(k:string)=>void } {
   const state: RuntimeState = {} // in-memory state object
   const storageKey = namespace ? `beap_state_${namespace}` : undefined // sessionStorage key when namespace provided
   console.log("Storage Key: ",storageKey); // todo: Added for testing. Remove later.
@@ -96,18 +96,123 @@ export function createRuntimeState(namespace?: string, opts?: { persistToFile?: 
     return undefined
   }
 
+  // increment: increment a numeric state value
+  function increment(k: string) {
+    const current = state[k]
+    if (typeof current === 'number') {
+      state[k] = current + 1
+    } else {
+      state[k] = 1 // initialize to 1 if not a number
+    }
+  }
+
   return {
     state, // expose state object
     set: (k, v) => { state[k] = v }, // simple setter
     get: (k) => state[k], // simple getter
-    persist // returns Promise<string|undefined> (file path, download token, or undefined)
+    persist, // returns Promise<string|undefined> (file path, download token, or undefined)
+    increment // increment numeric state
   }
 }
 
-// assembleMiniApp: create a lightweight MiniApp wrapper with generated id
-export function assembleMiniApp(blocks: AtomicBlock[]): MiniApp {
+// assembleMiniApp: create a lightweight MiniApp wrapper with generated id (for backward compatibility with old Tier3-only flow)
+export function assembleMiniApp(blocks: AtomicBlock[]): { id: string, blocks: AtomicBlock[] } {
   return {
     id: 'ma_' + Math.random().toString(36).slice(2), // deterministic-ish short id
     blocks // included blocks
   }
+}
+
+// resolveComponent: resolve a tier2 component into its constituent tier3 blocks
+export function resolveComponent(component: Component, registry: BEAPRegistry): AtomicBlock[] {
+  const resolved: AtomicBlock[] = []
+  
+  component.blocks.forEach(blockId => {
+    const block = registry.tier3.get(blockId)
+    if (block) {
+      // Clone the block and apply component bindings
+      const clonedBlock: AtomicBlock = JSON.parse(JSON.stringify(block))
+      
+      // Apply bindings from component to block
+      if (component.bindings && component.bindings[blockId]) {
+        const bindings = component.bindings[blockId]
+        if (clonedBlock.ui) {
+          // Merge bindings into UI properties
+          Object.assign(clonedBlock.ui, bindings)
+        }
+      }
+      
+      // Merge component behaviour into block behaviour
+      if (component.behaviour) {
+        if (!clonedBlock.behaviour) clonedBlock.behaviour = {}
+        Object.assign(clonedBlock.behaviour, component.behaviour)
+      }
+      
+      resolved.push(clonedBlock)
+    } else {
+      console.warn(`[BEAP] Block not found in registry: ${blockId}`)
+    }
+  })
+  
+  return resolved
+}
+
+// resolveMiniApp: resolve a tier1 mini-app into its constituent tier3 blocks via tier2 components
+export function resolveMiniApp(miniApp: MiniApp, registry: BEAPRegistry): AtomicBlock[] {
+  const resolved: AtomicBlock[] = []
+  
+  miniApp.components.forEach((componentId, index) => {
+    const component = registry.tier2.get(componentId)
+    if (component) {
+      // Clone component and apply mini-app bindings
+      const clonedComponent: Component = JSON.parse(JSON.stringify(component))
+      
+      // Apply bindings from mini-app to component
+      // Support both array-style (component[0]) and direct component id bindings
+      const bindingKey = `${componentId}[${index}]`
+      const bindings = miniApp.bindings?.[bindingKey] || miniApp.bindings?.[componentId]
+      
+      if (bindings && clonedComponent.state) {
+        // Parse {{state.key}} patterns and replace with actual values from mini-app state
+        for (const key in bindings) {
+          const value = bindings[key]
+          if (typeof value === 'string' && value.startsWith('{{state.') && value.endsWith('}}')) {
+            const stateKey = value.slice(8, -2) // extract key from {{state.key}}
+            if (miniApp.state && miniApp.state[stateKey] !== undefined) {
+              clonedComponent.state[key] = miniApp.state[stateKey]
+            }
+          } else {
+            clonedComponent.state[key] = value
+          }
+        }
+      }
+      
+      // Resolve component to blocks
+      const blocks = resolveComponent(clonedComponent, registry)
+      
+      // Apply component state to resolved blocks
+      if (clonedComponent.state) {
+        blocks.forEach(block => {
+          if (block.ui) {
+            // Replace {{state.key}} patterns in UI properties
+            for (const prop in block.ui) {
+              const value: any = (block.ui as any)[prop]
+              if (typeof value === 'string' && value.startsWith('{{state.') && value.endsWith('}}')) {
+                const stateKey = value.slice(8, -2)
+                if (clonedComponent.state && clonedComponent.state[stateKey] !== undefined) {
+                  (block.ui as any)[prop] = clonedComponent.state[stateKey]
+                }
+              }
+            }
+          }
+        })
+      }
+      
+      resolved.push(...blocks)
+    } else {
+      console.warn(`[BEAP] Component not found in registry: ${componentId}`)
+    }
+  })
+  
+  return resolved
 }

@@ -1,8 +1,8 @@
-import { AtomicBlock, MiniApp } from './types' // types for blocks and mini-app
+import { AtomicBlock } from './types' // types for blocks and mini-app
 import { createRuntimeState } from './runtime' // runtime state helper
 
 // createElementForBlock: map an AtomicBlock to a DOM element
-function createElementForBlock(block: AtomicBlock, app: MiniApp, runtime: any, emitEvent: (ev:string)=>void) : HTMLElement {
+function createElementForBlock(block: AtomicBlock, runtime: any, emitEvent: (ev:string)=>void) : HTMLElement {
   const container = document.createElement('div') // wrapper element for this block
   container.style.marginBottom = '12px' // spacing between blocks
   
@@ -10,7 +10,7 @@ function createElementForBlock(block: AtomicBlock, app: MiniApp, runtime: any, e
     const kind = block.ui.kind // ui kind (text, input, textarea, button)
     if (kind === 'text' || kind === 'label') {
       const el = document.createElement('div') // static text element
-      el.textContent = block.ui.value || block.description || '' // show value or description
+      el.textContent = block.ui.value || block.ui.label || block.description || '' // show value, label, or description
       el.style.fontSize = '14px' // styling for label
       el.style.fontWeight = 'bold'
       el.style.marginBottom = '8px'
@@ -126,7 +126,8 @@ function createElementForBlock(block: AtomicBlock, app: MiniApp, runtime: any, e
 }
 
 // renderMiniApp: create the root element for a MiniApp and wire event handling
-export function renderMiniApp(app: MiniApp): HTMLElement {
+// Supports both old format (blocks array) and new format (resolved from tier1/tier2)
+export function renderMiniApp(app: { id: string, blocks: AtomicBlock[] }): HTMLElement {
   const root = document.createElement('div') // root wrapper
   root.style.padding = '16px'
   root.style.background = 'white'
@@ -151,7 +152,7 @@ export function renderMiniApp(app: MiniApp): HTMLElement {
       const key = 'onEvent:' + evt // event key convention
       if (beh[key]) {
         const action = beh[key]
-        // support state.persist and state.set actions
+        // support state.persist, state.set, and state.increment actions
         if (action.action === 'state.persist') {
           const source = action.source
           if (source) {
@@ -195,6 +196,15 @@ export function renderMiniApp(app: MiniApp): HTMLElement {
           const target = action.key || 'value' // target key to set
           const from = action.source // source key to read from
           runtime.set(target, from ? runtime.get(from) : null) // set target from source
+        } else if (action.action === 'state.increment') {
+          const target = action.key || 'count' // target key to increment
+          runtime.increment(target) // increment the value
+          
+          // Update UI elements that display this state
+          const stateDisplay = root.querySelector(`[data-state-key="${target}"]`)
+          if (stateDisplay) {
+            stateDisplay.textContent = String(runtime.get(target))
+          }
         }
       }
     })
@@ -203,11 +213,13 @@ export function renderMiniApp(app: MiniApp): HTMLElement {
   // Only render blocks that have UI (skip pure logic blocks)
   app.blocks.forEach(b => {
     if (b.ui && b.ui.kind) {
-      const el = createElementForBlock(b, app, runtime, emitEvent)
+      const el = createElementForBlock(b, runtime, emitEvent)
       root.appendChild(el)
     }
   })
 
   return root // return assembled root element
 }
+
+
 

@@ -2088,8 +2088,9 @@ async function storageRemove(keys: string | string[], callback?: () => void) {
   wrapper.storageRemove(keys, callback);
 }
 
-// BEAP Bootstrap: Pre-populate Tier-3 blocks into global scope
+// BEAP Bootstrap: Pre-populate all tiers into global scope
 function bootstrapBEAPTier3Blocks() {
+  // Tier 3: Atomic Blocks
   (window as any).__BEAP_TIER3_BLOCKS = [
     {
       "id": "ui-label-v1",
@@ -2176,7 +2177,151 @@ function bootstrapBEAPTier3Blocks() {
         }
       }
     }
-  ]
+  ];
+  
+  // Tier 2: Components
+  (window as any).__BEAP_TIER2_COMPONENTS = [
+    {
+      "id": "label-display-component",
+      "tier": 2,
+      "type": "component",
+      "name": "Label Display",
+      "description": "Displays static or dynamic text content.",
+      "intent_tags": ["label", "text", "display"],
+      "blocks": [
+        "ui-label-v1"
+      ],
+      "bindings": {
+        "ui-label-v1": {
+          "text": "{{state.text}}"
+        }
+      },
+      "state": {
+        "text": "Hello World"
+      },
+      "security": "low"
+    },
+    {
+      "id": "counter-button-component",
+      "tier": 2,
+      "type": "component",
+      "name": "Counter Increment Button",
+      "description": "Button that increments a counter value.",
+      "intent_tags": ["counter", "increment", "button"],
+      "blocks": [
+        "ui-button-v1"
+      ],
+      "bindings": {
+        "ui-button-v1": {
+          "label": "Increment"
+        }
+      },
+      "behaviour": {
+        "onClick": {
+          "action": "event.emit",
+          "event": "increment_counter"
+        }
+      },
+      "security": "low"
+    },
+    {
+      "id": "counter-display-component",
+      "tier": 2,
+      "type": "component",
+      "name": "Counter Display",
+      "description": "Displays the current counter value.",
+      "intent_tags": ["counter", "display", "number"],
+      "blocks": [
+        "ui-label-v1"
+      ],
+      "bindings": {
+        "ui-label-v1": {
+          "text": "{{state.count}}"
+        }
+      },
+      "security": "low"
+    },
+    {
+      "id": "counter-logic-component",
+      "tier": 2,
+      "type": "component",
+      "name": "Counter Logic",
+      "description": "Manages counter state and increments it.",
+      "intent_tags": ["counter", "logic"],
+      "state": {
+        "count": 0
+      },
+      "behaviour": {
+        "onEvent:increment_counter": {
+          "action": "state.increment",
+          "key": "count"
+        }
+      },
+      "security": "low"
+    }
+  ];
+  
+  // Tier 1: Mini Apps
+  (window as any).__BEAP_TIER1_MINIAPPS = [
+    {
+      "id": "profile-card-miniapp",
+      "tier": 1,
+      "type": "mini_app",
+      "name": "Profile Card",
+      "description": "Displays a user profile with name and email.",
+      "intent_tags": ["profile", "user", "display"],
+      "components": [
+        "label-display-component",
+        "label-display-component"
+      ],
+      "bindings": {
+        "label-display-component[0]": {
+          "text": "{{state.user_name}}"
+        },
+        "label-display-component[1]": {
+          "text": "{{state.user_email}}"
+        }
+      },
+      "state": {
+        "user_name": "John Doe",
+        "user_email": "john@example.com"
+      },
+      "layout": {
+        "type": "vertical",
+        "spacing": "small"
+      },
+      "security": "low"
+    },
+    {
+      "id": "status-panel-miniapp",
+      "tier": 1,
+      "type": "mini_app",
+      "name": "Status Panel",
+      "description": "Shows current system or application status.",
+      "intent_tags": ["status", "panel", "display"],
+      "components": [
+        "label-display-component"
+      ],
+      "bindings": {
+        "label-display-component": {
+          "text": "{{state.status_message}}"
+        }
+      },
+      "state": {
+        "status_message": "System running normally"
+      },
+      "layout": {
+        "type": "card"
+      },
+      "security": "low"
+    }
+  ];
+  
+  console.log('[BEAP Bootstrap] Loaded all tiers:', {
+    tier3: (window as any).__BEAP_TIER3_BLOCKS.length,
+    tier2: (window as any).__BEAP_TIER2_COMPONENTS.length,
+    tier1: (window as any).__BEAP_TIER1_MINIAPPS.length
+  });
 }
 
 function initializeExtension() {
@@ -29367,11 +29512,14 @@ ${pageText}
             const list = document.createElement('ul')
             list.style.paddingLeft = '18px'
             list.style.marginTop = '6px'
-            res.scores.forEach((s:any) => {
-              const li = document.createElement('li')
-              li.textContent = (s.block.intent_tags || []).join(', ') + ' — ' + (s.block.description || '').slice(0, 80) + ' (' + (s.score||0).toFixed(3) + ')'
-              list.appendChild(li)
-            })
+            // Use allScores instead of scores, with null check
+            if (res.allScores && Array.isArray(res.allScores)) {
+              res.allScores.forEach((s:any) => {
+                const li = document.createElement('li')
+                li.textContent = s.id + ' (tier ' + s.tier + ') — score: ' + (s.score||0).toFixed(3)
+                list.appendChild(li)
+              })
+            }
             scoresDiv.appendChild(list)
             testOutput.appendChild(scoresDiv)
             const rendered = res.rendered as HTMLElement
@@ -29618,11 +29766,14 @@ ${pageText}
             const list = document.createElement('ul')
             list.style.paddingLeft = '18px'
             list.style.marginTop = '6px'
-            res.scores.forEach((s:any) => {
-              const li = document.createElement('li')
-              li.textContent = (s.block.intent_tags || []).join(', ') + ' — ' + (s.block.description || '').slice(0, 80) + ' (' + (s.score||0).toFixed(3) + ')'
-              list.appendChild(li)
-            })
+            // Use allScores instead of scores, with null check
+            if (res.allScores && Array.isArray(res.allScores)) {
+              res.allScores.forEach((s:any) => {
+                const li = document.createElement('li')
+                li.textContent = s.id + ' (tier ' + s.tier + ') — score: ' + (s.score||0).toFixed(3)
+                list.appendChild(li)
+              })
+            }
             scoresDiv.appendChild(list)
             testOutput.appendChild(scoresDiv)
             const rendered = res.rendered as HTMLElement
@@ -45500,14 +45651,14 @@ console.log('🔧 DEBUG: Final initialization check:', {
 
 // All global functions and setup code above are OUTSIDE initializeExtension
 
-
+// CRITICAL: Bootstrap BEAP tiers BEFORE initializing extension
+// This ensures all tier data is available when the BEAP system needs it
+console.log('🔧 Bootstrapping BEAP tiers...')
+bootstrapBEAPTier3Blocks()
 
 // CRITICAL FIX: Always initialize lightbox functions so they're available even when extension UI is not active
-
 // This ensures lightboxes can be opened from sidepanel at any time
-
 console.log('🔧 Registering lightbox functions...')
-
 initializeExtension()
 
 // Auto-migrate to SQLite if Electron is available and not yet migrated

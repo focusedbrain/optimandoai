@@ -11,15 +11,11 @@
     "count": 0
   },
 
-  "listens": {
-    "increment_counter": [
-      {
-        "action": "state.increment",
-        "params": {
-          "key": "count"
-        }
-      }
-    ]
+  "behaviour": {
+    "onEvent:increment_counter": {
+      "action": "state.increment",
+      "key": "count"
+    }
   },
 
   "security": "low"

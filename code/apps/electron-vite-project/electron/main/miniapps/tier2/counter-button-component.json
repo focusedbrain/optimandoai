@@ -11,8 +11,17 @@
     "ui-button-v1"
   ],
 
-  "handles": {
-    "button_clicked": "increment_counter"
+  "bindings": {
+    "ui-button-v1": {
+      "label": "Increment"
+    }
+  },
+
+  "behaviour": {
+    "onClick": {
+      "action": "event.emit",
+      "event": "increment_counter"
+    }
   },
 
   "security": "low"

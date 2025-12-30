@@ -1,9 +1,13 @@
-import { loadTier3Blocks } from './loader' // loader to obtain Tier-3 atomic blocks
+import { loadTier3Blocks, loadTier2Components, loadTier1MiniApps, loadAllTiers } from './loader' // loader to obtain all tiers
 import { textToTensor, cosineSimilarity } from './embedding' // embedding utilities
-import { assembleMiniApp } from './runtime' // assemble selected blocks into MiniApp
+import { assembleMiniApp, resolveMiniApp, resolveComponent } from './runtime' // assemble selected blocks into MiniApp
 import { renderMiniApp } from './renderer' // render a MiniApp to HTMLElement
 import * as tf from '@tensorflow/tfjs' // tf types used in StoredBlock
-import { AtomicBlock } from './types' // block type definitions
+import { AtomicBlock, BEAPRegistry, MiniApp as MiniAppType, Component } from './types' // type definitions
+
+// Export all types and functions for external use
+export { loadAllTiers, resolveMiniApp, resolveComponent, renderMiniApp }
+export type { BEAPRegistry, MiniAppType, Component, AtomicBlock }
 
 // Intent structure from LLM normalization
 type NormalizedIntent = {
@@ -15,7 +19,16 @@ type NormalizedIntent = {
 // StoredBlock pairs a block with its precomputed tensor for fast ranking
 type StoredBlock = { block: AtomicBlock, tensor?: tf.Tensor1D }
 
-let cachedBlocks: StoredBlock[] | null = null // in-memory cache for loaded blocks
+// StoredItem pairs any tier item with its precomputed tensor for fast ranking
+type StoredItem = { 
+  item: AtomicBlock | Component | MiniAppType, 
+  tier: 1 | 2 | 3,
+  tensor?: tf.Tensor1D 
+}
+
+let cachedBlocks: StoredBlock[] | null = null // in-memory cache for loaded Tier3 blocks (backward compatibility)
+let cachedRegistry: BEAPRegistry | null = null // in-memory cache for all tiers
+let cachedItems: StoredItem[] | null = null // in-memory cache for all tier items with vectors
 
 // STEP 2: LLM intent normalization - converts user input to structured intent
 // LLM must NOT generate code, UI, or components - ONLY normalize intent
@@ -196,7 +209,7 @@ function applySelectionRules(
   return selectedBlocks
 }
 
-// STEP 6: Load and vectorize Tier-3 blocks using name + description + intent_tags
+// STEP 6: Load and vectorize Tier-3 blocks using name + description + intent_tags (backward compatibility)
 async function ensureBlocks() {
   if (cachedBlocks) return cachedBlocks // return cache if available
   const blocks = await loadTier3Blocks() // load blocks using loader strategies
@@ -218,48 +231,197 @@ async function ensureBlocks() {
   return stored // return computed list
 }
 
+// STEP 6 (Enhanced): Load and vectorize ALL tiers using name + description + intent_tags
+async function ensureAllTiers(): Promise<{ registry: BEAPRegistry, items: StoredItem[] }> {
+  if (cachedRegistry && cachedItems) {
+    return { registry: cachedRegistry, items: cachedItems } // return cache if available
+  }
+  
+  const registry = await loadAllTiers() // load all three tiers
+  
+  // Ensure all tier maps exist
+  if (!registry || !registry.tier3 || !registry.tier2 || !registry.tier1) {
+    console.error("BEAP: Registry is incomplete:", registry)
+    throw new Error("Failed to load registry: one or more tier maps are undefined")
+  }
+  
+  console.log("BEAP: Loaded all tiers:", {
+    tier3: registry.tier3.size,
+    tier2: registry.tier2.size,
+    tier1: registry.tier1.size
+  })
+  
+  const items: StoredItem[] = []
+  
+  // Vectorize Tier 3 blocks
+  if (registry.tier3 && registry.tier3.size > 0) {
+    for (const [id, block] of registry.tier3.entries()) {
+      const blockText = [
+        block.id || '',
+        block.description || '',
+        (block.intent_tags || []).join(' ')
+      ].filter(t => t.length > 0).join(' ').trim()
+      
+      const tensor = textToTensor(blockText)
+      items.push({ item: block, tier: 3, tensor })
+    }
+  }
+  
+  // Vectorize Tier 2 components
+  if (registry.tier2 && registry.tier2.size > 0) {
+    for (const [id, component] of registry.tier2.entries()) {
+      const componentText = [
+        component.id || '',
+        component.name || '',
+        component.description || '',
+        (component.intent_tags || []).join(' ')
+      ].filter(t => t.length > 0).join(' ').trim()
+      
+      const tensor = textToTensor(componentText)
+      items.push({ item: component, tier: 2, tensor })
+    }
+  }
+  
+  // Vectorize Tier 1 mini-apps
+  if (registry.tier1 && registry.tier1.size > 0) {
+    for (const [id, miniApp] of registry.tier1.entries()) {
+      const miniAppText = [
+        miniApp.id || '',
+        miniApp.name || '',
+        miniApp.description || '',
+        (miniApp.intent_tags || []).join(' ')
+      ].filter(t => t.length > 0).join(' ').trim()
+      
+      const tensor = textToTensor(miniAppText)
+      items.push({ item: miniApp, tier: 1, tensor })
+    }
+  }
+  
+  cachedRegistry = registry
+  cachedItems = items
+  
+  console.log("BEAP: Cached all tier items with vectors:", items.length)
+  return { registry, items }
+}
+
 // BEAP MAIN WORKFLOW: Follows strict architecture with separated concerns
+// Enhanced to search across all tiers (Tier1, Tier2, Tier3) instead of just Tier3
 export async function createMiniAppFromQuery(title: string, description: string, topN = 4) {
-  console.log("BEAP: Starting workflow for:", { title, description })
-  
-  // STEP 2-3: LLM normalizes user intent (NO code/UI generation)
-  const normalizedIntent = await normalizeUserIntent(title, description)
-  console.log("BEAP: Normalized intent:", normalizedIntent) // Remove this line for production
-  
-  // STEP 4-5: TensorFlow.js creates vector from normalized intent/features ONLY
-  const queryVector = createQueryVector(normalizedIntent)
-  console.log("BEAP: Created query vector from normalized intent")
-  
-  // STEP 6-7: TensorFlow.js ranks Tier-3 blocks using cosine similarity
-  const blocks = await ensureBlocks() // load cached Tier-3 blocks with vectors
-  const scored = blocks.map(sb => ({
-    block: sb.block, 
-    score: cosineSimilarity(queryVector, sb.tensor!)
-  }))
-  
-  // STEP 7: TensorFlow.js sorts by relevance (NO UI decisions)
-  scored.sort((a, b) => b.score - a.score) // sort by relevance
-  console.log("BEAP: Scored blocks:", scored.map(s => ({ id: s.block.id, score: s.score.toFixed(4) }))) // Remove this line for production
-  
-  // STEP 7.5: Deterministic post-similarity selection layer
-  // Apply constraint-based rules to select final blocks (NOT simple topN)
-  const selectedBlocks = applySelectionRules(scored.slice(0, topN * 2), normalizedIntent.constraints)
-  console.log("BEAP: Applied selection rules, selected blocks:", selectedBlocks.map(b => b.id))
-  
-  // STEP 8: Deterministic assembly (NO LLM involvement after this point)
-  const assembledApp = assembleMiniApp(selectedBlocks) // deterministic grouping
-  console.log("BEAP: Assembled mini-app:", assembledApp.blocks.length, "blocks")
-  
-  // STEP 8: Pre-written renderer converts JSON to UI
-  const renderedElement = renderMiniApp(assembledApp) // deterministic rendering
-  console.log("BEAP: Rendered to DOM element")
-  
-  // Return complete result with workflow artifacts
-  return { 
-    app: assembledApp, 
-    rendered: renderedElement, 
-    normalizedIntent: normalizedIntent,
-    selectedBlocks: selectedBlocks,
-    scores: scored.slice(0, topN) 
+  try {
+    console.log("BEAP: Starting workflow for:", { title, description })
+    
+    // STEP 2-3: LLM normalizes user intent (NO code/UI generation)
+    const normalizedIntent = await normalizeUserIntent(title, description)
+    console.log("BEAP: Normalized intent:", normalizedIntent) // Remove this line for production
+    
+    // STEP 4-5: TensorFlow.js creates vector from normalized intent/features ONLY
+    const queryVector = createQueryVector(normalizedIntent)
+    console.log("BEAP: Created query vector from normalized intent")
+    
+    // STEP 6-7: TensorFlow.js ranks ALL tier items using cosine similarity
+    const { registry, items } = await ensureAllTiers() // load all tiers with vectors
+    // console.log("Ensure all tiers", await ensureAllTiers())
+    // Check if we have any items to score
+    if (!items || items.length === 0) {
+      console.error("BEAP: No items loaded from any tier")
+      throw new Error("No mini-app components available. Please ensure tiers are properly loaded.")
+    }
+    
+    const scored = items.map(si => ({
+      item: si.item,
+      tier: si.tier,
+      score: cosineSimilarity(queryVector, si.tensor!)
+    }))
+    
+    // STEP 7: TensorFlow.js sorts by relevance (NO UI decisions)
+    scored.sort((a, b) => b.score - a.score) // sort by relevance
+    console.log("BEAP: Scored items across all tiers:", scored.slice(0, 5).map(s => ({ 
+      id: s.item.id, 
+      tier: s.tier,
+      score: s.score.toFixed(4) 
+    })))
+    
+    // Check if we have any scored items
+    if (scored.length === 0) {
+      throw new Error("No matching components found for the query")
+    }
+    
+    // STEP 7.5: Select best match (prefer higher tier when scores are similar)
+    // Higher tier = more complete/composed solution
+    let bestMatch = scored[0]
+    
+    // Check if a Tier1 or Tier2 item has a competitive score (within 10% of best)
+    for (const item of scored.slice(0, 3)) {
+      if (item.tier < bestMatch.tier && item.score >= bestMatch.score * 0.9) {
+        bestMatch = item
+        break
+      }
+    }
+    
+    console.log("BEAP: Best match:", { 
+      id: bestMatch.item.id, 
+      tier: bestMatch.tier,
+      score: bestMatch.score.toFixed(4)
+    })
+    
+    // STEP 8: Resolve to atomic blocks based on tier
+    let resolvedBlocks: AtomicBlock[] = []
+    
+    if (bestMatch.tier === 1) {
+      // Tier1 MiniApp: resolve through Tier2 components to Tier3 blocks
+      const miniApp = bestMatch.item as MiniAppType
+      resolvedBlocks = resolveMiniApp(miniApp, registry)
+      console.log("BEAP: Resolved Tier1 mini-app to", resolvedBlocks.length, "atomic blocks")
+    } else if (bestMatch.tier === 2) {
+      // Tier2 Component: resolve to Tier3 blocks
+      const component = bestMatch.item as Component
+      resolvedBlocks = resolveComponent(component, registry)
+      console.log("BEAP: Resolved Tier2 component to", resolvedBlocks.length, "atomic blocks")
+    } else {
+      // Tier3 Block: use directly but still apply selection rules for multi-block scenarios
+      const block = bestMatch.item as AtomicBlock
+      
+      // Get other high-scoring Tier3 blocks for selection rules
+      const tier3Scored = scored
+        .filter(s => s.tier === 3)
+        .map(s => ({ block: s.item as AtomicBlock, score: s.score }))
+      
+      resolvedBlocks = applySelectionRules(tier3Scored.slice(0, topN * 2), normalizedIntent.constraints)
+      console.log("BEAP: Applied selection rules to Tier3 blocks, selected:", resolvedBlocks.length)
+    }
+    
+    // Check if we have resolved blocks
+    if (!resolvedBlocks || resolvedBlocks.length === 0) {
+      throw new Error("Failed to resolve components to atomic blocks")
+    }
+    
+    // STEP 9: Deterministic assembly (NO LLM involvement after this point)
+    const assembledApp = assembleMiniApp(resolvedBlocks) // deterministic grouping
+    console.log("BEAP: Assembled mini-app:", assembledApp.blocks.length, "blocks")
+    
+    // STEP 10: Pre-written renderer converts JSON to UI
+    const renderedElement = renderMiniApp(assembledApp) // deterministic rendering
+    console.log("BEAP: Rendered to DOM element")
+    
+    // Return complete result with workflow artifacts
+    return { 
+      app: assembledApp, 
+      rendered: renderedElement, 
+      normalizedIntent: normalizedIntent,
+      bestMatch: {
+        id: bestMatch.item.id,
+        tier: bestMatch.tier,
+        score: bestMatch.score
+      },
+      resolvedBlocks: resolvedBlocks,
+      allScores: scored.slice(0, topN * 2).map(s => ({
+        id: s.item.id,
+        tier: s.tier,
+        score: s.score
+      }))
+    }
+  } catch (error) {
+    console.error("BEAP: Error in createMiniAppFromQuery:", error)
+    throw error
   }
 }
