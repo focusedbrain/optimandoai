@@ -27,8 +27,41 @@ export {
   BeapMessageRow, 
   BeapMessagePreview,
   OutboxMessagePreview,
-  BeapDraftComposer
+  BeapDraftComposer,
+  RecipientModeSwitch,
+  RecipientHandshakeSelect,
+  DeliveryMethodPanel
 } from './components'
+
+// Component types
+export type { RecipientMode, SelectedRecipient, DeliveryMethod } from './components'
+
+// Services
+export {
+  validatePackageConfig,
+  canBuildPackage,
+  buildPackage,
+  executeDeliveryAction,
+  executeEmailAction,
+  executeMessengerAction,
+  executeDownloadAction
+} from './services'
+export type {
+  BeapPackageConfig,
+  BeapPackage,
+  PackageBuildResult,
+  DeliveryResult,
+  ValidationResult
+} from './services'
+
+// Hooks
+export { useBeapDraftActions } from './hooks'
+export type {
+  BeapDraftState,
+  BeapDraftValidation,
+  BeapDraftActions,
+  UseBeapDraftActionsOptions
+} from './hooks'
 
 // Seed data (for development)
 export { SEED_MESSAGES, getSeedMessagesByFolder } from './seedData'

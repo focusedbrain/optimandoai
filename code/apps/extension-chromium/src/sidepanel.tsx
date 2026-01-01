@@ -29,6 +29,9 @@ import { inputCoordinator } from './services/InputCoordinator'
 import { formatErrorForNotification, isConnectionError } from './utils/errorMessages'
 import { ThirdPartyLicensesView } from './bundled-tools'
 import { WRGuardWorkspace } from './wrguard'
+import { RecipientModeSwitch, RecipientHandshakeSelect, DeliveryMethodPanel, executeDeliveryAction } from './beap-messages'
+import type { RecipientMode, SelectedRecipient, DeliveryMethod, BeapPackageConfig } from './beap-messages'
+import { useHandshakeStore } from './handshake/useHandshakeStore'
 
 interface ConnectionStatus {
   isConnected: boolean
@@ -134,6 +137,94 @@ function SidepanelOrchestrator() {
   // BEAP Draft message state (separate from handshake message)
   const [beapDraftMessage, setBeapDraftMessage] = useState('')
   const [beapDraftTo, setBeapDraftTo] = useState('')
+  
+  // BEAP Recipient Mode state (PRIVATE=qBEAP / PUBLIC=pBEAP)
+  const [beapRecipientMode, setBeapRecipientMode] = useState<RecipientMode>('private')
+  const [selectedRecipient, setSelectedRecipient] = useState<SelectedRecipient | null>(null)
+  
+  // Get handshakes from store
+  const handshakes = useHandshakeStore(state => state.handshakes)
+  const initializeHandshakes = useHandshakeStore(state => state.initializeWithDemo)
+  
+  // Initialize handshakes on mount
+  useEffect(() => {
+    initializeHandshakes()
+  }, [initializeHandshakes])
+  
+  // BEAP Message sending state
+  const [isSendingBeap, setIsSendingBeap] = useState(false)
+  
+  // Handler for sending BEAP messages (shared across all Draft views)
+  const handleSendBeapMessage = async () => {
+    // Validate preconditions
+    if (beapRecipientMode === 'private' && !selectedRecipient) {
+      setNotification({ message: 'Please select a handshake recipient', type: 'error' })
+      setTimeout(() => setNotification(null), 3000)
+      return
+    }
+    
+    if (!beapDraftMessage.trim()) {
+      setNotification({ message: 'Please enter a message', type: 'error' })
+      setTimeout(() => setNotification(null), 3000)
+      return
+    }
+    
+    setIsSendingBeap(true)
+    
+    try {
+      // Build config for the package builder
+      const config: BeapPackageConfig = {
+        recipientMode: beapRecipientMode,
+        deliveryMethod: handshakeDelivery as DeliveryMethod,
+        selectedRecipient,
+        senderFingerprint: ourFingerprint,
+        senderFingerprintShort: ourFingerprintShort,
+        emailTo: beapDraftTo,
+        subject: 'BEAP™ Message',
+        messageBody: beapDraftMessage,
+        attachments: []
+      }
+      
+      // Execute the delivery action
+      const result = await executeDeliveryAction(config)
+      
+      if (result.success) {
+        // Show success notification based on delivery method
+        const actionLabel = handshakeDelivery === 'download' ? 'Package downloaded!' 
+          : handshakeDelivery === 'messenger' ? 'Payload copied to clipboard!' 
+          : 'BEAP™ Message sent!'
+        setNotification({ message: actionLabel, type: 'success' })
+        
+        // Clear form
+        setBeapDraftTo('')
+        setBeapDraftMessage('')
+        setSelectedRecipient(null)
+      } else {
+        setNotification({ message: result.message || 'Failed to send message', type: 'error' })
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'An unexpected error occurred'
+      setNotification({ message, type: 'error' })
+    } finally {
+      setIsSendingBeap(false)
+      setTimeout(() => setNotification(null), 3000)
+    }
+  }
+  
+  // Get button label based on delivery method
+  const getBeapSendButtonLabel = () => {
+    if (isSendingBeap) return '⏳ Processing...'
+    switch (handshakeDelivery) {
+      case 'email': return '📧 Send'
+      case 'messenger': return '📋 Copy'
+      case 'download': return '💾 Download'
+      default: return '📤 Send'
+    }
+  }
+  
+  // Check if send button should be disabled
+  const isBeapSendDisabled = isSendingBeap || !beapDraftMessage.trim() || 
+    (beapRecipientMode === 'private' && !selectedRecipient)
   
   const [isResizingMailguard, setIsResizingMailguard] = useState(false)
   const mailguardFileRef = useRef<HTMLInputElement>(null)
@@ -4298,7 +4389,24 @@ function SidepanelOrchestrator() {
                       </div>
                     </div>
                     
-                    {/* Delivery Method */}
+                    {/* Recipient Mode Switch (PRIVATE/PUBLIC) */}
+                    <RecipientModeSwitch
+                      mode={beapRecipientMode}
+                      onModeChange={setBeapRecipientMode}
+                      theme={theme}
+                    />
+                    
+                    {/* Handshake Recipient Select (only in PRIVATE mode) */}
+                    {beapRecipientMode === 'private' && (
+                      <RecipientHandshakeSelect
+                        handshakes={handshakes}
+                        selectedHandshakeId={selectedRecipient?.handshake_id || null}
+                        onSelect={setSelectedRecipient}
+                        theme={theme}
+                      />
+                    )}
+                    
+                    {/* Delivery Method Select */}
                     <div>
                       <label style={{ fontSize: '11px', fontWeight: 600, marginBottom: '6px', display: 'block', color: theme === 'professional' ? '#6b7280' : 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                         Delivery Method
@@ -4324,33 +4432,16 @@ function SidepanelOrchestrator() {
                       </select>
                     </div>
                     
-                    {/* To & Subject Fields - Only for Email */}
-                    {handshakeDelivery === 'email' && (
-                      <>
-                        <div>
-                          <label style={{ fontSize: '11px', fontWeight: 600, marginBottom: '6px', display: 'block', color: theme === 'professional' ? '#6b7280' : 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                            To
-                          </label>
-                          <input
-                            type="email"
-                            className="beap-input"
-                            value={beapDraftTo}
-                            onChange={(e) => setBeapDraftTo(e.target.value)}
-                            placeholder="recipient@example.com"
-                            style={{
-                              width: '100%',
-                              background: theme === 'professional' ? 'white' : 'rgba(255,255,255,0.1)',
-                              border: theme === 'professional' ? '1px solid rgba(15,23,42,0.2)' : '1px solid rgba(255,255,255,0.2)',
-                              color: theme === 'professional' ? '#0f172a' : 'white',
-                              borderRadius: '6px',
-                              padding: '8px 12px',
-                              fontSize: '13px',
-                              outline: 'none'
-                            }}
-                          />
-                        </div>
-                      </>
-                    )}
+                    {/* Delivery Method Panel - Adapts to recipient mode */}
+                    <DeliveryMethodPanel
+                      deliveryMethod={handshakeDelivery}
+                      recipientMode={beapRecipientMode}
+                      selectedRecipient={selectedRecipient}
+                      emailTo={beapDraftTo}
+                      onEmailToChange={setBeapDraftTo}
+                      theme={theme}
+                      ourFingerprintShort={ourFingerprintShort}
+                    />
                     
                     {/* Message Content */}
                     <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
@@ -5710,7 +5801,13 @@ height: '28px',
                     <div style={{ fontSize: '10px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px', color: theme === 'professional' ? '#3b82f6' : '#93c5fd', marginBottom: '6px' }}>Your Fingerprint</div>
                     <code style={{ fontSize: '13px', fontFamily: 'monospace', color: theme === 'professional' ? '#1e40af' : '#bfdbfe' }}>{ourFingerprintShort}</code>
                   </div>
-                  {/* Delivery Method */}
+                  {/* Recipient Mode Switch */}
+                  <RecipientModeSwitch mode={beapRecipientMode} onModeChange={setBeapRecipientMode} theme={theme} />
+                  {/* Handshake Select (PRIVATE mode only) */}
+                  {beapRecipientMode === 'private' && (
+                    <RecipientHandshakeSelect handshakes={handshakes} selectedHandshakeId={selectedRecipient?.handshake_id || null} onSelect={setSelectedRecipient} theme={theme} />
+                  )}
+                  {/* Delivery Method Select */}
                   <div>
                     <label style={{ fontSize: '11px', fontWeight: 600, marginBottom: '6px', display: 'block', color: theme === 'professional' ? '#6b7280' : 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Delivery Method</label>
                     <select value={handshakeDelivery} onChange={(e) => setHandshakeDelivery(e.target.value as 'email' | 'messenger' | 'download')} style={{ width: '100%', background: theme === 'professional' ? 'white' : 'rgba(255,255,255,0.1)', border: theme === 'professional' ? '1px solid rgba(15,23,42,0.2)' : '1px solid rgba(255,255,255,0.2)', color: theme === 'professional' ? '#0f172a' : 'white', borderRadius: '6px', padding: '8px 12px', fontSize: '13px', cursor: 'pointer', outline: 'none' }}>
@@ -5719,20 +5816,16 @@ height: '28px',
                       <option value="download">💾 Download (USB/wallet)</option>
                     </select>
                   </div>
-                  {handshakeDelivery === 'email' && (
-                    <div>
-                      <label style={{ fontSize: '11px', fontWeight: 600, marginBottom: '6px', display: 'block', color: theme === 'professional' ? '#6b7280' : 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>To</label>
-                      <input type="email" className="beap-input" value={beapDraftTo} onChange={(e) => setBeapDraftTo(e.target.value)} placeholder="recipient@example.com" style={{ width: '100%', background: theme === 'professional' ? 'white' : 'rgba(255,255,255,0.1)', border: theme === 'professional' ? '1px solid rgba(15,23,42,0.2)' : '1px solid rgba(255,255,255,0.2)', color: theme === 'professional' ? '#0f172a' : 'white', borderRadius: '6px', padding: '8px 12px', fontSize: '13px', outline: 'none' }} />
-                    </div>
-                  )}
+                  {/* Delivery Method Panel - Adapts to recipient mode */}
+                  <DeliveryMethodPanel deliveryMethod={handshakeDelivery} recipientMode={beapRecipientMode} selectedRecipient={selectedRecipient} emailTo={beapDraftTo} onEmailToChange={setBeapDraftTo} theme={theme} ourFingerprintShort={ourFingerprintShort} />
                   <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
                     <label style={{ fontSize: '11px', fontWeight: 600, marginBottom: '6px', display: 'block', color: theme === 'professional' ? '#6b7280' : 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Message</label>
                     <textarea className="beap-textarea" value={beapDraftMessage} onChange={(e) => setBeapDraftMessage(e.target.value)} placeholder="Compose your BEAP™ message..." style={{ flex: 1, minHeight: '120px', background: theme === 'professional' ? 'white' : 'rgba(255,255,255,0.08)', border: theme === 'professional' ? '1px solid rgba(15,23,42,0.2)' : '1px solid rgba(255,255,255,0.15)', color: theme === 'professional' ? '#0f172a' : 'white', borderRadius: '6px', padding: '10px 12px', fontSize: '12px', lineHeight: '1.5', resize: 'none', outline: 'none', fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif' }} />
                   </div>
                 </div>
                 <div style={{ padding: '12px 14px', borderTop: theme === 'professional' ? '1px solid rgba(15,23,42,0.1)' : '1px solid rgba(255,255,255,0.1)', display: 'flex', justifyContent: 'flex-end', gap: '8px', background: theme === 'professional' ? '#f8fafc' : 'rgba(0,0,0,0.2)' }}>
-                  <button onClick={() => { setBeapDraftTo(''); setBeapDraftMessage('') }} style={{ background: 'transparent', border: theme === 'professional' ? '1px solid rgba(15,23,42,0.2)' : '1px solid rgba(255,255,255,0.2)', color: theme === 'professional' ? '#64748b' : 'rgba(255,255,255,0.7)', borderRadius: '6px', padding: '8px 16px', fontSize: '12px', cursor: 'pointer' }}>Clear</button>
-                  <button onClick={() => { if (handshakeDelivery === 'email' && !beapDraftTo) { setNotification({ message: 'Please enter a recipient email', type: 'error' }); setTimeout(() => setNotification(null), 3000); return } console.log('[BEAP Message] Sending:', { method: handshakeDelivery, to: beapDraftTo, message: beapDraftMessage }); setNotification({ message: handshakeDelivery === 'download' ? 'Package downloaded!' : 'BEAP™ Message sent!', type: 'success' }); setTimeout(() => setNotification(null), 3000); setBeapDraftTo(''); setBeapDraftMessage('') }} style={{ background: 'linear-gradient(135deg, #a855f7 0%, #9333ea 100%)', border: 'none', color: 'white', borderRadius: '6px', padding: '8px 20px', fontSize: '12px', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}>{handshakeDelivery === 'email' ? '📧 Send' : handshakeDelivery === 'messenger' ? '💬 Insert' : '💾 Download'}</button>
+                  <button onClick={() => { setBeapDraftTo(''); setBeapDraftMessage(''); setSelectedRecipient(null) }} style={{ background: 'transparent', border: theme === 'professional' ? '1px solid rgba(15,23,42,0.2)' : '1px solid rgba(255,255,255,0.2)', color: theme === 'professional' ? '#64748b' : 'rgba(255,255,255,0.7)', borderRadius: '6px', padding: '8px 16px', fontSize: '12px', cursor: 'pointer' }}>Clear</button>
+                  <button onClick={handleSendBeapMessage} disabled={isBeapSendDisabled} style={{ background: isBeapSendDisabled ? 'rgba(168,85,247,0.5)' : 'linear-gradient(135deg, #a855f7 0%, #9333ea 100%)', border: 'none', color: 'white', borderRadius: '6px', padding: '8px 20px', fontSize: '12px', fontWeight: 600, cursor: isBeapSendDisabled ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: '6px', opacity: isBeapSendDisabled ? 0.7 : 1 }}>{getBeapSendButtonLabel()}</button>
                 </div>
                   </>
                 )}
@@ -6919,7 +7012,13 @@ height: '28px',
                     <div style={{ fontSize: '10px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px', color: theme === 'professional' ? '#3b82f6' : '#93c5fd', marginBottom: '6px' }}>Your Fingerprint</div>
                     <code style={{ fontSize: '13px', fontFamily: 'monospace', color: theme === 'professional' ? '#1e40af' : '#bfdbfe' }}>{ourFingerprintShort}</code>
                   </div>
-                  {/* Delivery Method */}
+                  {/* Recipient Mode Switch */}
+                  <RecipientModeSwitch mode={beapRecipientMode} onModeChange={setBeapRecipientMode} theme={theme} />
+                  {/* Handshake Select (PRIVATE mode only) */}
+                  {beapRecipientMode === 'private' && (
+                    <RecipientHandshakeSelect handshakes={handshakes} selectedHandshakeId={selectedRecipient?.handshake_id || null} onSelect={setSelectedRecipient} theme={theme} />
+                  )}
+                  {/* Delivery Method Select */}
                   <div>
                     <label style={{ fontSize: '11px', fontWeight: 600, marginBottom: '6px', display: 'block', color: theme === 'professional' ? '#6b7280' : 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Delivery Method</label>
                     <select value={handshakeDelivery} onChange={(e) => setHandshakeDelivery(e.target.value as 'email' | 'messenger' | 'download')} style={{ width: '100%', background: theme === 'professional' ? 'white' : 'rgba(255,255,255,0.1)', border: theme === 'professional' ? '1px solid rgba(15,23,42,0.2)' : '1px solid rgba(255,255,255,0.2)', color: theme === 'professional' ? '#0f172a' : 'white', borderRadius: '6px', padding: '8px 12px', fontSize: '13px', cursor: 'pointer', outline: 'none' }}>
@@ -6928,20 +7027,16 @@ height: '28px',
                       <option value="download">💾 Download (USB/wallet)</option>
                     </select>
                   </div>
-                  {handshakeDelivery === 'email' && (
-                    <div>
-                      <label style={{ fontSize: '11px', fontWeight: 600, marginBottom: '6px', display: 'block', color: theme === 'professional' ? '#6b7280' : 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>To</label>
-                      <input type="email" className="beap-input" value={beapDraftTo} onChange={(e) => setBeapDraftTo(e.target.value)} placeholder="recipient@example.com" style={{ width: '100%', background: theme === 'professional' ? 'white' : 'rgba(255,255,255,0.1)', border: theme === 'professional' ? '1px solid rgba(15,23,42,0.2)' : '1px solid rgba(255,255,255,0.2)', color: theme === 'professional' ? '#0f172a' : 'white', borderRadius: '6px', padding: '8px 12px', fontSize: '13px', outline: 'none' }} />
-                    </div>
-                  )}
+                  {/* Delivery Method Panel - Adapts to recipient mode */}
+                  <DeliveryMethodPanel deliveryMethod={handshakeDelivery} recipientMode={beapRecipientMode} selectedRecipient={selectedRecipient} emailTo={beapDraftTo} onEmailToChange={setBeapDraftTo} theme={theme} ourFingerprintShort={ourFingerprintShort} />
                   <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
                     <label style={{ fontSize: '11px', fontWeight: 600, marginBottom: '6px', display: 'block', color: theme === 'professional' ? '#6b7280' : 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Message</label>
                     <textarea className="beap-textarea" value={beapDraftMessage} onChange={(e) => setBeapDraftMessage(e.target.value)} placeholder="Compose your BEAP™ message..." style={{ flex: 1, minHeight: '120px', background: theme === 'professional' ? 'white' : 'rgba(255,255,255,0.08)', border: theme === 'professional' ? '1px solid rgba(15,23,42,0.2)' : '1px solid rgba(255,255,255,0.15)', color: theme === 'professional' ? '#0f172a' : 'white', borderRadius: '6px', padding: '10px 12px', fontSize: '12px', lineHeight: '1.5', resize: 'none', outline: 'none', fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif' }} />
                   </div>
                 </div>
                 <div style={{ padding: '12px 14px', borderTop: theme === 'professional' ? '1px solid rgba(15,23,42,0.1)' : '1px solid rgba(255,255,255,0.1)', display: 'flex', justifyContent: 'flex-end', gap: '8px', background: theme === 'professional' ? '#f8fafc' : 'rgba(0,0,0,0.2)' }}>
-                  <button onClick={() => { setBeapDraftTo(''); setBeapDraftMessage('') }} style={{ background: 'transparent', border: theme === 'professional' ? '1px solid rgba(15,23,42,0.2)' : '1px solid rgba(255,255,255,0.2)', color: theme === 'professional' ? '#64748b' : 'rgba(255,255,255,0.7)', borderRadius: '6px', padding: '8px 16px', fontSize: '12px', cursor: 'pointer' }}>Clear</button>
-                  <button onClick={() => { if (handshakeDelivery === 'email' && !beapDraftTo) { setNotification({ message: 'Please enter a recipient email', type: 'error' }); setTimeout(() => setNotification(null), 3000); return } console.log('[BEAP Message] Sending:', { method: handshakeDelivery, to: beapDraftTo, message: beapDraftMessage }); setNotification({ message: handshakeDelivery === 'download' ? 'Package downloaded!' : 'BEAP™ Message sent!', type: 'success' }); setTimeout(() => setNotification(null), 3000); setBeapDraftTo(''); setBeapDraftMessage('') }} style={{ background: 'linear-gradient(135deg, #a855f7 0%, #9333ea 100%)', border: 'none', color: 'white', borderRadius: '6px', padding: '8px 20px', fontSize: '12px', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}>{handshakeDelivery === 'email' ? '📧 Send' : handshakeDelivery === 'messenger' ? '💬 Insert' : '💾 Download'}</button>
+                  <button onClick={() => { setBeapDraftTo(''); setBeapDraftMessage(''); setSelectedRecipient(null) }} style={{ background: 'transparent', border: theme === 'professional' ? '1px solid rgba(15,23,42,0.2)' : '1px solid rgba(255,255,255,0.2)', color: theme === 'professional' ? '#64748b' : 'rgba(255,255,255,0.7)', borderRadius: '6px', padding: '8px 16px', fontSize: '12px', cursor: 'pointer' }}>Clear</button>
+                  <button onClick={handleSendBeapMessage} disabled={isBeapSendDisabled} style={{ background: isBeapSendDisabled ? 'rgba(168,85,247,0.5)' : 'linear-gradient(135deg, #a855f7 0%, #9333ea 100%)', border: 'none', color: 'white', borderRadius: '6px', padding: '8px 20px', fontSize: '12px', fontWeight: 600, cursor: isBeapSendDisabled ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: '6px', opacity: isBeapSendDisabled ? 0.7 : 1 }}>{getBeapSendButtonLabel()}</button>
                 </div>
                   </>
                 )}

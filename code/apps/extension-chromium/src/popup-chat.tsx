@@ -22,6 +22,9 @@ import {
 import { WRGuardWorkspace } from './wrguard'
 import { generateMockFingerprint, formatFingerprintShort, formatFingerprintGrouped } from './handshake/fingerprint'
 import { HANDSHAKE_REQUEST_TEMPLATE, POLICY_NOTES } from './handshake/microcopy'
+import { RecipientModeSwitch, RecipientHandshakeSelect, DeliveryMethodPanel, executeDeliveryAction } from './beap-messages'
+import type { RecipientMode, SelectedRecipient, DeliveryMethod, BeapPackageConfig } from './beap-messages'
+import { useHandshakeStore } from './handshake/useHandshakeStore'
 
 // =============================================================================
 // Theme Type - Matches docked version
@@ -76,6 +79,99 @@ function PopupChatApp() {
   )
   const [fingerprintCopied, setFingerprintCopied] = useState(false)
   
+  // BEAP Draft separate state (like docked version)
+  const [beapDraftMessage, setBeapDraftMessage] = useState('')
+  const [beapDraftTo, setBeapDraftTo] = useState('')
+  
+  // BEAP Recipient Mode state (PRIVATE=qBEAP / PUBLIC=pBEAP)
+  const [beapRecipientMode, setBeapRecipientMode] = useState<RecipientMode>('private')
+  const [selectedRecipient, setSelectedRecipient] = useState<SelectedRecipient | null>(null)
+  
+  // Get handshakes from store
+  const handshakes = useHandshakeStore(state => state.handshakes)
+  const initializeHandshakes = useHandshakeStore(state => state.initializeWithDemo)
+  
+  // Initialize handshakes on mount
+  useEffect(() => {
+    initializeHandshakes()
+  }, [initializeHandshakes])
+  
+  // BEAP Message sending state
+  const [isSendingBeap, setIsSendingBeap] = useState(false)
+  const [toastMessage, setToastMessage] = useState<{message: string, type: 'success' | 'error'} | null>(null)
+  
+  // Handler for sending BEAP messages (matches docked sidepanel exactly)
+  const handleSendBeapMessage = async () => {
+    // Validate preconditions
+    if (beapRecipientMode === 'private' && !selectedRecipient) {
+      setToastMessage({ message: 'Please select a handshake recipient', type: 'error' })
+      setTimeout(() => setToastMessage(null), 3000)
+      return
+    }
+    
+    if (!beapDraftMessage.trim()) {
+      setToastMessage({ message: 'Please enter a message', type: 'error' })
+      setTimeout(() => setToastMessage(null), 3000)
+      return
+    }
+    
+    setIsSendingBeap(true)
+    
+    try {
+      // Build config for the package builder
+      const config: BeapPackageConfig = {
+        recipientMode: beapRecipientMode,
+        deliveryMethod: beapDeliveryMethod as DeliveryMethod,
+        selectedRecipient,
+        senderFingerprint: ourFingerprint,
+        senderFingerprintShort: ourFingerprintShort,
+        emailTo: beapDraftTo,
+        subject: 'BEAP™ Message',
+        messageBody: beapDraftMessage,
+        attachments: []
+      }
+      
+      // Execute the delivery action
+      const result = await executeDeliveryAction(config)
+      
+      if (result.success) {
+        // Show success notification based on delivery method
+        const actionLabel = beapDeliveryMethod === 'download' ? 'Package downloaded!' 
+          : beapDeliveryMethod === 'messenger' ? 'Payload copied to clipboard!' 
+          : 'BEAP™ Message sent!'
+        setToastMessage({ message: actionLabel, type: 'success' })
+        
+        // Clear form
+        setBeapDraftTo('')
+        setBeapDraftMessage('')
+        setSelectedRecipient(null)
+      } else {
+        setToastMessage({ message: result.message || 'Failed to send message', type: 'error' })
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'An unexpected error occurred'
+      setToastMessage({ message, type: 'error' })
+    } finally {
+      setIsSendingBeap(false)
+      setTimeout(() => setToastMessage(null), 3000)
+    }
+  }
+  
+  // Get button label based on delivery method
+  const getBeapSendButtonLabel = () => {
+    if (isSendingBeap) return '⏳ Processing...'
+    switch (beapDeliveryMethod) {
+      case 'email': return '📧 Send'
+      case 'messenger': return '📋 Copy'
+      case 'download': return '💾 Download'
+      default: return '📤 Send'
+    }
+  }
+  
+  // Check if send button should be disabled
+  const isBeapSendDisabled = isSendingBeap || !beapDraftMessage.trim() || 
+    (beapRecipientMode === 'private' && !selectedRecipient)
+  
   // Sync message with fingerprint if it changes (backup)
   useEffect(() => {
     if (!handshakeMessage || handshakeMessage.trim() === '') {
@@ -99,8 +195,7 @@ function PopupChatApp() {
   // =========================================================================
   // BEAP Messages State (mirrors docked sidepanel)
   // =========================================================================
-  const [beapTo, setBeapTo] = useState('')
-  const [beapBody, setBeapBody] = useState('')
+  // NOTE: Using beapDraftMessage and beapDraftTo from above for consistency with sidepanel
   const [beapDeliveryMethod, setBeapDeliveryMethod] = useState<'email' | 'messenger' | 'download'>('email')
   const [beapFingerprintCopied, setBeapFingerprintCopied] = useState(false)
   
@@ -276,7 +371,24 @@ function PopupChatApp() {
                 </div>
               </div>
               
-              {/* Delivery Method */}
+              {/* Recipient Mode Switch (PRIVATE/PUBLIC) */}
+              <RecipientModeSwitch
+                mode={beapRecipientMode}
+                onModeChange={setBeapRecipientMode}
+                theme={theme}
+              />
+              
+              {/* Handshake Recipient Select (only in PRIVATE mode) */}
+              {beapRecipientMode === 'private' && (
+                <RecipientHandshakeSelect
+                  handshakes={handshakes}
+                  selectedHandshakeId={selectedRecipient?.handshake_id || null}
+                  onSelect={setSelectedRecipient}
+                  theme={theme}
+                />
+              )}
+              
+              {/* Delivery Method Select */}
               <div>
                 <label style={{ fontSize: '11px', fontWeight: 600, marginBottom: '6px', display: 'block', color: mutedColor, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                   Delivery Method
@@ -302,32 +414,16 @@ function PopupChatApp() {
                 </select>
               </div>
               
-              {/* To Field - Only for Email */}
-              {beapDeliveryMethod === 'email' && (
-                <div>
-                  <label style={{ fontSize: '11px', fontWeight: 600, marginBottom: '6px', display: 'block', color: mutedColor, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                    To
-                  </label>
-                  <input
-                    type="email"
-                    value={beapTo}
-                    onChange={(e) => setBeapTo(e.target.value)}
-                    placeholder="recipient@example.com"
-                    className="beap-input"
-                    style={{
-                      width: '100%',
-                      background: isProfessional ? 'white' : 'rgba(255,255,255,0.1)',
-                      border: isProfessional ? '1px solid rgba(15,23,42,0.2)' : '1px solid rgba(255,255,255,0.2)',
-                      color: textColor,
-                      borderRadius: '6px',
-                      padding: '8px 12px',
-                      fontSize: '13px',
-                      outline: 'none',
-                      boxSizing: 'border-box'
-                    }}
-                  />
-                </div>
-              )}
+              {/* Delivery Method Panel - Adapts to recipient mode */}
+              <DeliveryMethodPanel
+                deliveryMethod={beapDeliveryMethod}
+                recipientMode={beapRecipientMode}
+                selectedRecipient={selectedRecipient}
+                emailTo={beapDraftTo}
+                onEmailToChange={setBeapDraftTo}
+                theme={theme}
+                ourFingerprintShort={ourFingerprintShort}
+              />
               
               {/* Message Content */}
               <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
@@ -335,8 +431,8 @@ function PopupChatApp() {
                   Message
                 </label>
                 <textarea
-                  value={beapBody}
-                  onChange={(e) => setBeapBody(e.target.value)}
+                  value={beapDraftMessage}
+                  onChange={(e) => setBeapDraftMessage(e.target.value)}
                   placeholder="Compose your BEAP™ message..."
                   className="beap-textarea"
                   style={{
@@ -380,8 +476,9 @@ function PopupChatApp() {
             }}>
               <button 
                 onClick={() => {
-                  setBeapTo('')
-                  setBeapBody('')
+                  setBeapDraftTo('')
+                  setBeapDraftMessage('')
+                  setSelectedRecipient(null)
                 }}
                 style={{
                   background: 'transparent',
@@ -396,34 +493,24 @@ function PopupChatApp() {
                 Clear
               </button>
               <button 
-                onClick={() => {
-                  if (beapDeliveryMethod === 'email' && !beapTo.trim()) {
-                    alert('Please enter a recipient email address')
-                    return
-                  }
-                  // Handle send based on delivery method
-                  const actionText = beapDeliveryMethod === 'download' ? 'Package downloaded!' : 
-                                     beapDeliveryMethod === 'messenger' ? 'Payload copied to clipboard!' : 
-                                     'Message sent!';
-                  alert(`BEAP™ ${actionText}`)
-                  setBeapTo('')
-                  setBeapBody('')
-                }}
+                onClick={handleSendBeapMessage}
+                disabled={isBeapSendDisabled}
                 style={{
-                  background: 'linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%)',
+                  background: isBeapSendDisabled ? 'rgba(139,92,246,0.5)' : 'linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%)',
                   border: 'none',
                   color: 'white',
                   borderRadius: '6px',
                   padding: '8px 16px',
                   fontSize: '12px',
                   fontWeight: 600,
-                  cursor: 'pointer',
+                  cursor: isBeapSendDisabled ? 'not-allowed' : 'pointer',
                   display: 'flex',
                   alignItems: 'center',
-                  gap: '6px'
+                  gap: '6px',
+                  opacity: isBeapSendDisabled ? 0.7 : 1
                 }}
               >
-                {beapDeliveryMethod === 'download' ? '💾 Download' : beapDeliveryMethod === 'messenger' ? '💬 Copy Payload' : '📤 Send'}
+                {getBeapSendButtonLabel()}
               </button>
             </div>
           </>
@@ -814,6 +901,30 @@ function PopupChatApp() {
 
   return (
     <div style={containerStyles}>
+      {/* Toast Notification */}
+      {toastMessage && (
+        <div style={{
+          position: 'fixed',
+          top: '16px',
+          left: '50%',
+          transform: 'translateX(-50%)',
+          zIndex: 9999,
+          padding: '10px 20px',
+          borderRadius: '8px',
+          background: toastMessage.type === 'success' ? 'rgba(34,197,94,0.95)' : 'rgba(239,68,68,0.95)',
+          color: 'white',
+          fontSize: '12px',
+          fontWeight: 500,
+          boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '8px'
+        }}>
+          <span>{toastMessage.type === 'success' ? '✓' : '✕'}</span>
+          <span>{toastMessage.message}</span>
+        </div>
+      )}
+      
       {/* Header with Workspace Select and Submode - MIRRORS docked exactly */}
       <header style={headerStyles}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
