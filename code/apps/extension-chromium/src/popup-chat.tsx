@@ -15,7 +15,9 @@ import {
   P2PChatPlaceholder,
   P2PStreamPlaceholder,
   GroupChatPlaceholder,
-  AdminPoliciesPlaceholder
+  AdminPoliciesPlaceholder,
+  WRGuardSectionView,
+  BeapSectionView
 } from './ui/components'
 import { WORKSPACE_INFO } from './shared/ui/uiState'
 import { generateMockFingerprint, formatFingerprintShort, formatFingerprintGrouped } from './handshake/fingerprint'
@@ -87,37 +89,14 @@ function PopupChatApp() {
 
   // Render the appropriate view based on workspace and mode
   const renderContent = () => {
-    // Non-chat workspaces
+    // WRGuard workspace - full functionality
     if (workspace === 'mailguard') {
-      return (
-        <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', opacity: 0.6 }}>
-          <div style={{ textAlign: 'center' }}>
-            <span style={{ fontSize: '40px' }}>{WORKSPACE_INFO.mailguard.icon}</span>
-            <div style={{ marginTop: '12px', fontSize: '14px', fontWeight: 600 }}>
-              {WORKSPACE_INFO.mailguard.label}
-            </div>
-            <div style={{ marginTop: '4px', fontSize: '12px', opacity: 0.7 }}>
-              Switch to Docked Panel for MailGuard
-            </div>
-          </div>
-        </div>
-      )
+      return <WRGuardSectionView theme={theme} />
     }
     
+    // BEAP Messages workspace - full functionality
     if (workspace === 'overlay') {
-      return (
-        <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', opacity: 0.6 }}>
-          <div style={{ textAlign: 'center' }}>
-            <span style={{ fontSize: '40px' }}>{WORKSPACE_INFO.overlay.icon}</span>
-            <div style={{ marginTop: '12px', fontSize: '14px', fontWeight: 600 }}>
-              {WORKSPACE_INFO.overlay.label}
-            </div>
-            <div style={{ marginTop: '4px', fontSize: '12px', opacity: 0.7 }}>
-              Switch to Docked Panel for Overlay
-            </div>
-          </div>
-        </div>
-      )
+      return <BeapSectionView theme={theme} />
     }
 
     // WR Chat modes - respect submode for commands mode
