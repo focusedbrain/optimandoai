@@ -4642,7 +4642,15 @@ function SidepanelOrchestrator() {
 
             {dockedWorkspace === 'wrguard' && (
               /* WRGuard Workspace - Section 1 (showMinimalUI) */
-              <WRGuardWorkspace theme={theme} />
+              <WRGuardWorkspace 
+                theme={theme}
+                emailAccounts={emailAccounts}
+                isLoadingEmailAccounts={isLoadingEmailAccounts}
+                selectedEmailAccountId={selectedEmailAccountId}
+                onConnectEmail={() => setShowEmailSetupWizard(true)}
+                onDisconnectEmail={disconnectEmailAccount}
+                onSelectEmailAccount={setSelectedEmailAccountId}
+              />
             )}
         
         {/* Add Mini App Button */}
@@ -5834,7 +5842,15 @@ height: '28px',
 
             {dockedWorkspace === 'wrguard' && (
               /* WRGuard Workspace - Section 2 (App View) */
-              <WRGuardWorkspace theme={theme} />
+              <WRGuardWorkspace 
+                theme={theme}
+                emailAccounts={emailAccounts}
+                isLoadingEmailAccounts={isLoadingEmailAccounts}
+                selectedEmailAccountId={selectedEmailAccountId}
+                onConnectEmail={() => setShowEmailSetupWizard(true)}
+                onDisconnectEmail={disconnectEmailAccount}
+                onSelectEmailAccount={setSelectedEmailAccountId}
+              />
             )}
           </div>
         </>
@@ -7045,7 +7061,15 @@ height: '28px',
 
             {dockedWorkspace === 'wrguard' && (
               /* WRGuard Workspace - Section 3 (Admin View) */
-              <WRGuardWorkspace theme={theme} />
+              <WRGuardWorkspace 
+                theme={theme}
+                emailAccounts={emailAccounts}
+                isLoadingEmailAccounts={isLoadingEmailAccounts}
+                selectedEmailAccountId={selectedEmailAccountId}
+                onConnectEmail={() => setShowEmailSetupWizard(true)}
+                onDisconnectEmail={disconnectEmailAccount}
+                onSelectEmailAccount={setSelectedEmailAccountId}
+              />
             )}
 
             {/* Trigger Creation UI */}

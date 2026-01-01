@@ -10,7 +10,7 @@
 import React, { useEffect } from 'react'
 import { useWRGuardStore } from '../useWRGuardStore'
 import { WRGUARD_SECTIONS, WRGuardSection } from '../types'
-import { EmailProvidersSection } from './EmailProvidersSection'
+import { EmailProvidersSection, EmailAccount } from './EmailProvidersSection'
 import { ProtectedSitesSection } from './ProtectedSitesSection'
 import { PoliciesOverviewSection } from './PoliciesOverviewSection'
 import { RuntimeControlsSection } from './RuntimeControlsSection'
@@ -18,11 +18,24 @@ import { RuntimeControlsSection } from './RuntimeControlsSection'
 interface WRGuardWorkspaceProps {
   theme: 'default' | 'dark' | 'professional'
   onOpenAdvancedSettings?: () => void
+  // Shared email account props (mirroring BEAP Messages Connect Email)
+  emailAccounts?: EmailAccount[]
+  isLoadingEmailAccounts?: boolean
+  selectedEmailAccountId?: string | null
+  onConnectEmail?: () => void
+  onDisconnectEmail?: (id: string) => void
+  onSelectEmailAccount?: (id: string) => void
 }
 
 export const WRGuardWorkspace: React.FC<WRGuardWorkspaceProps> = ({
   theme,
-  onOpenAdvancedSettings
+  onOpenAdvancedSettings,
+  emailAccounts = [],
+  isLoadingEmailAccounts = false,
+  selectedEmailAccountId = null,
+  onConnectEmail = () => {},
+  onDisconnectEmail = () => {},
+  onSelectEmailAccount = () => {}
 }) => {
   const isProfessional = theme === 'professional'
   const textColor = isProfessional ? '#0f172a' : 'white'
@@ -47,7 +60,17 @@ export const WRGuardWorkspace: React.FC<WRGuardWorkspaceProps> = ({
   const renderSectionContent = () => {
     switch (activeSection) {
       case 'providers':
-        return <EmailProvidersSection theme={theme} />
+        return (
+          <EmailProvidersSection 
+            theme={theme}
+            emailAccounts={emailAccounts}
+            isLoadingEmailAccounts={isLoadingEmailAccounts}
+            selectedEmailAccountId={selectedEmailAccountId}
+            onConnectEmail={onConnectEmail}
+            onDisconnectEmail={onDisconnectEmail}
+            onSelectEmailAccount={onSelectEmailAccount}
+          />
+        )
       case 'protected-sites':
         return <ProtectedSitesSection theme={theme} />
       case 'policies':
@@ -55,7 +78,17 @@ export const WRGuardWorkspace: React.FC<WRGuardWorkspaceProps> = ({
       case 'runtime-controls':
         return <RuntimeControlsSection theme={theme} onOpenAdvancedSettings={onOpenAdvancedSettings} />
       default:
-        return <EmailProvidersSection theme={theme} />
+        return (
+          <EmailProvidersSection 
+            theme={theme}
+            emailAccounts={emailAccounts}
+            isLoadingEmailAccounts={isLoadingEmailAccounts}
+            selectedEmailAccountId={selectedEmailAccountId}
+            onConnectEmail={onConnectEmail}
+            onDisconnectEmail={onDisconnectEmail}
+            onSelectEmailAccount={onSelectEmailAccount}
+          />
+        )
     }
   }
   

@@ -96,6 +96,170 @@ function PopupChatApp() {
     initializeHandshakes()
   }, [initializeHandshakes])
   
+  // =========================================================================
+  // Email Account State (mirrors sidepanel exactly)
+  // =========================================================================
+  interface EmailAccountPopup {
+    id: string
+    displayName: string
+    email: string
+    provider: 'gmail' | 'microsoft365' | 'imap'
+    status: 'active' | 'error' | 'disabled'
+    lastError?: string
+  }
+  
+  const [emailAccounts, setEmailAccounts] = useState<EmailAccountPopup[]>([])
+  const [isLoadingEmailAccounts, setIsLoadingEmailAccounts] = useState(false)
+  const [selectedEmailAccountId, setSelectedEmailAccountId] = useState<string | null>(null)
+  const [showEmailSetupWizard, setShowEmailSetupWizard] = useState(false)
+  const [emailSetupStep, setEmailSetupStep] = useState<'provider' | 'connecting'>('provider')
+  const [isConnectingEmail, setIsConnectingEmail] = useState(false)
+  
+  // Load email accounts from Electron via background script
+  const loadEmailAccounts = async () => {
+    setIsLoadingEmailAccounts(true)
+    try {
+      const response = await chrome.runtime.sendMessage({ type: 'EMAIL_LIST_ACCOUNTS' })
+      if (response?.ok && response?.data) {
+        setEmailAccounts(response.data)
+        if (response.data.length > 0 && !selectedEmailAccountId) {
+          setSelectedEmailAccountId(response.data[0].id)
+        }
+      }
+    } catch (error) {
+      console.error('[PopupChat] Failed to load email accounts:', error)
+    } finally {
+      setIsLoadingEmailAccounts(false)
+    }
+  }
+  
+  // Load email accounts on mount
+  useEffect(() => {
+    loadEmailAccounts()
+  }, [])
+  
+  // Reload email accounts when switching to relevant workspaces
+  useEffect(() => {
+    if (dockedWorkspace === 'beap-messages' || dockedWorkspace === 'wrguard') {
+      loadEmailAccounts()
+    }
+  }, [dockedWorkspace])
+  
+  // Disconnect email account handler
+  const disconnectEmailAccount = async (accountId: string) => {
+    try {
+      const response = await chrome.runtime.sendMessage({ 
+        type: 'EMAIL_DELETE_ACCOUNT',
+        accountId
+      })
+      if (response?.ok) {
+        loadEmailAccounts() // Reload to ensure sync with backend
+        setToastMessage({ message: 'Email account disconnected', type: 'success' })
+        setTimeout(() => setToastMessage(null), 3000)
+      }
+    } catch (error) {
+      console.error('[PopupChat] Failed to disconnect email account:', error)
+    }
+  }
+  
+  // Connect email handler - opens the wizard modal
+  const handleConnectEmail = () => {
+    console.log('[PopupChat] handleConnectEmail called, opening wizard modal')
+    setShowEmailSetupWizard(true)
+    setEmailSetupStep('provider')
+  }
+  
+  // Helper to clean up error messages
+  const cleanErrorMessage = (error: string): string => {
+    // If it looks like HTML, extract a simple message
+    if (error.includes('<!DOCTYPE') || error.includes('<html')) {
+      return 'Backend server not available. Please ensure the server is running.'
+    }
+    // If it starts with "Request failed:", clean it up
+    if (error.startsWith('Request failed:')) {
+      const cleanedError = error.replace('Request failed:', '').trim()
+      if (cleanedError.includes('<!DOCTYPE') || cleanedError.includes('<html')) {
+        return 'Backend server not available. Please ensure the server is running.'
+      }
+      return cleanedError || 'Connection failed'
+    }
+    return error
+  }
+  
+  // Gmail OAuth connect
+  const connectGmailAccount = async () => {
+    // Prevent double-clicks
+    if (isConnectingEmail) return
+    
+    setIsConnectingEmail(true)
+    setEmailSetupStep('connecting')
+    
+    // Small delay to show the connecting state before async operation
+    await new Promise(resolve => setTimeout(resolve, 100))
+    
+    try {
+      const response = await chrome.runtime.sendMessage({ type: 'EMAIL_CONNECT_GMAIL' })
+      if (response?.ok && response?.data) {
+        // Reload accounts from backend to ensure consistency
+        await loadEmailAccounts()
+        setSelectedEmailAccountId(response.data.id)
+        setToastMessage({ message: 'Gmail connected successfully!', type: 'success' })
+        setShowEmailSetupWizard(false)
+        setEmailSetupStep('provider')
+      } else {
+        const errorMsg = response?.error || 'Failed to connect Gmail'
+        throw new Error(cleanErrorMessage(errorMsg))
+      }
+    } catch (error) {
+      const rawMessage = error instanceof Error ? error.message : 'Failed to connect Gmail'
+      const message = cleanErrorMessage(rawMessage)
+      setToastMessage({ message, type: 'error' })
+      // Delay returning to provider to prevent flicker
+      await new Promise(resolve => setTimeout(resolve, 500))
+      setEmailSetupStep('provider')
+    } finally {
+      setIsConnectingEmail(false)
+      setTimeout(() => setToastMessage(null), 4000)
+    }
+  }
+  
+  // Outlook OAuth connect
+  const connectOutlookAccount = async () => {
+    // Prevent double-clicks
+    if (isConnectingEmail) return
+    
+    setIsConnectingEmail(true)
+    setEmailSetupStep('connecting')
+    
+    // Small delay to show the connecting state before async operation
+    await new Promise(resolve => setTimeout(resolve, 100))
+    
+    try {
+      const response = await chrome.runtime.sendMessage({ type: 'EMAIL_CONNECT_OUTLOOK' })
+      if (response?.ok && response?.data) {
+        // Reload accounts from backend to ensure consistency
+        await loadEmailAccounts()
+        setSelectedEmailAccountId(response.data.id)
+        setToastMessage({ message: 'Microsoft 365 connected successfully!', type: 'success' })
+        setShowEmailSetupWizard(false)
+        setEmailSetupStep('provider')
+      } else {
+        const errorMsg = response?.error || 'Failed to connect Outlook'
+        throw new Error(cleanErrorMessage(errorMsg))
+      }
+    } catch (error) {
+      const rawMessage = error instanceof Error ? error.message : 'Failed to connect Outlook'
+      const message = cleanErrorMessage(rawMessage)
+      setToastMessage({ message, type: 'error' })
+      // Delay returning to provider to prevent flicker
+      await new Promise(resolve => setTimeout(resolve, 500))
+      setEmailSetupStep('provider')
+    } finally {
+      setIsConnectingEmail(false)
+      setTimeout(() => setToastMessage(null), 4000)
+    }
+  }
+  
   // BEAP Message sending state
   const [isSendingBeap, setIsSendingBeap] = useState(false)
   const [toastMessage, setToastMessage] = useState<{message: string, type: 'success' | 'error'} | null>(null)
@@ -288,6 +452,8 @@ function PopupChatApp() {
                   <span style={{ fontSize: '13px', fontWeight: '600', color: textColor }}>Connected Email Accounts</span>
                 </div>
                 <button
+                  type="button"
+                  onClick={handleConnectEmail}
                   style={{
                     background: 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)',
                     border: 'none',
@@ -306,19 +472,125 @@ function PopupChatApp() {
                 </button>
               </div>
               
-              <div style={{ 
-                padding: '20px', 
-                background: isProfessional ? 'white' : 'rgba(255,255,255,0.05)',
-                borderRadius: '8px',
-                border: isProfessional ? '1px dashed rgba(15,23,42,0.2)' : '1px dashed rgba(255,255,255,0.2)',
-                textAlign: 'center'
-              }}>
-                <div style={{ fontSize: '24px', marginBottom: '8px' }}>📧</div>
-                <div style={{ fontSize: '13px', color: mutedColor, marginBottom: '4px' }}>No email accounts connected</div>
-                <div style={{ fontSize: '11px', color: isProfessional ? '#94a3b8' : 'rgba(255,255,255,0.5)' }}>
-                  Connect your email account to send BEAP™ messages
+              {isLoadingEmailAccounts ? (
+                <div style={{ padding: '12px', textAlign: 'center', opacity: 0.6, fontSize: '12px' }}>
+                  Loading accounts...
                 </div>
-              </div>
+              ) : emailAccounts.length === 0 ? (
+                <div style={{ 
+                  padding: '20px', 
+                  background: isProfessional ? 'white' : 'rgba(255,255,255,0.05)',
+                  borderRadius: '8px',
+                  border: isProfessional ? '1px dashed rgba(15,23,42,0.2)' : '1px dashed rgba(255,255,255,0.2)',
+                  textAlign: 'center'
+                }}>
+                  <div style={{ fontSize: '24px', marginBottom: '8px' }}>📧</div>
+                  <div style={{ fontSize: '13px', color: mutedColor, marginBottom: '4px' }}>No email accounts connected</div>
+                  <div style={{ fontSize: '11px', color: isProfessional ? '#94a3b8' : 'rgba(255,255,255,0.5)' }}>
+                    Connect your email account to send BEAP™ messages
+                  </div>
+                </div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  {emailAccounts.map(account => (
+                    <div 
+                      key={account.id} 
+                      style={{ 
+                        display: 'flex', 
+                        alignItems: 'center', 
+                        justifyContent: 'space-between',
+                        padding: '10px 12px',
+                        background: isProfessional ? 'white' : 'rgba(255,255,255,0.08)',
+                        borderRadius: '8px',
+                        border: account.status === 'active' 
+                          ? (isProfessional ? '1px solid rgba(34,197,94,0.3)' : '1px solid rgba(34,197,94,0.4)')
+                          : (isProfessional ? '1px solid rgba(239,68,68,0.3)' : '1px solid rgba(239,68,68,0.4)')
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                        <span style={{ fontSize: '18px' }}>
+                          {account.provider === 'gmail' ? '📧' : account.provider === 'microsoft365' ? '📨' : '✉️'}
+                        </span>
+                        <div>
+                          <div style={{ fontSize: '13px', fontWeight: '500', color: textColor }}>
+                            {account.email || account.displayName}
+                          </div>
+                          <div style={{ 
+                            fontSize: '10px', 
+                            display: 'flex', 
+                            alignItems: 'center', 
+                            gap: '6px',
+                            marginTop: '2px'
+                          }}>
+                            <span style={{ 
+                              width: '6px', 
+                              height: '6px', 
+                              borderRadius: '50%', 
+                              background: account.status === 'active' ? '#22c55e' : '#ef4444' 
+                            }} />
+                            <span style={{ color: mutedColor }}>
+                              {account.status === 'active' ? 'Connected' : account.lastError || 'Error'}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => disconnectEmailAccount(account.id)}
+                        style={{
+                          background: 'transparent',
+                          border: isProfessional ? '1px solid rgba(239,68,68,0.3)' : '1px solid rgba(239,68,68,0.4)',
+                          color: '#ef4444',
+                          borderRadius: '6px',
+                          padding: '4px 8px',
+                          fontSize: '10px',
+                          cursor: 'pointer'
+                        }}
+                      >
+                        Disconnect
+                      </button>
+                    </div>
+                  ))}
+                  
+                  {/* Account selector dropdown when multiple accounts */}
+                  {/* Send From selectbox - shows when accounts exist */}
+                  {emailAccounts.length > 0 && (
+                    <div style={{ marginTop: '12px' }}>
+                      <label style={{ 
+                        fontSize: '11px', 
+                        fontWeight: 600, 
+                        marginBottom: '6px', 
+                        display: 'block', 
+                        color: isProfessional ? '#6b7280' : 'rgba(255,255,255,0.7)', 
+                        textTransform: 'uppercase', 
+                        letterSpacing: '0.5px' 
+                      }}>
+                        Send From:
+                      </label>
+                      <select
+                        value={selectedEmailAccountId || emailAccounts[0]?.id || ''}
+                        onChange={(e) => setSelectedEmailAccountId(e.target.value)}
+                        style={{
+                          width: '100%',
+                          background: isProfessional ? 'white' : 'rgba(255,255,255,0.1)',
+                          border: isProfessional ? '1px solid rgba(15,23,42,0.2)' : '1px solid rgba(255,255,255,0.2)',
+                          color: textColor,
+                          borderRadius: '6px',
+                          padding: '8px 12px',
+                          fontSize: '13px',
+                          cursor: 'pointer',
+                          outline: 'none'
+                        }}
+                      >
+                        {emailAccounts.map(account => (
+                          <option key={account.id} value={account.id}>
+                            {account.email || account.displayName} ({account.provider})
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
             
             {/* BEAP™ Message Header */}
@@ -528,7 +800,17 @@ function PopupChatApp() {
     
     // WRGuard workspace - full functionality using WRGuardWorkspace
     if (dockedWorkspace === 'wrguard') {
-      return <WRGuardWorkspace theme={theme} />
+      return (
+        <WRGuardWorkspace 
+          theme={theme}
+          emailAccounts={emailAccounts}
+          isLoadingEmailAccounts={isLoadingEmailAccounts}
+          selectedEmailAccountId={selectedEmailAccountId}
+          onConnectEmail={handleConnectEmail}
+          onDisconnectEmail={disconnectEmailAccount}
+          onSelectEmailAccount={setSelectedEmailAccountId}
+        />
+      )
     }
     
     // BEAP Messages workspace - simple inline views
@@ -1055,6 +1337,158 @@ function PopupChatApp() {
           <span>Role: {role}</span>
           <span>Ctrl+Shift+A to toggle admin</span>
         </footer>
+      )}
+      
+      {/* Email Setup Wizard Modal */}
+      {showEmailSetupWizard && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          background: 'rgba(0,0,0,0.7)',
+          zIndex: 2147483647,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          backdropFilter: 'blur(4px)'
+        }}>
+          <div style={{
+            width: '340px',
+            maxHeight: '85vh',
+            background: theme === 'professional' ? '#ffffff' : 'linear-gradient(135deg, #1e293b 0%, #0f172a 100%)',
+            borderRadius: '16px',
+            border: theme === 'professional' ? '1px solid #e2e8f0' : '1px solid rgba(255,255,255,0.15)',
+            boxShadow: '0 25px 50px rgba(0,0,0,0.4)',
+            overflow: 'hidden'
+          }}>
+            {/* Header */}
+            <div style={{
+              padding: '16px',
+              background: 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)',
+              color: 'white',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <span style={{ fontSize: '20px' }}>📧</span>
+                <div>
+                  <div style={{ fontSize: '14px', fontWeight: '600' }}>Connect Your Email</div>
+                  <div style={{ fontSize: '10px', opacity: 0.9 }}>Secure access via official API</div>
+                </div>
+              </div>
+              <button
+                onClick={() => { setShowEmailSetupWizard(false); setEmailSetupStep('provider'); }}
+                style={{
+                  background: 'rgba(255,255,255,0.2)',
+                  border: 'none',
+                  color: 'white',
+                  width: '26px',
+                  height: '26px',
+                  borderRadius: '6px',
+                  cursor: 'pointer',
+                  fontSize: '14px'
+                }}
+              >
+                ×
+              </button>
+            </div>
+            
+            {/* Content */}
+            <div style={{ padding: '16px', overflowY: 'auto', maxHeight: 'calc(85vh - 70px)' }}>
+              {emailSetupStep === 'provider' && (
+                <>
+                  <div style={{ fontSize: '12px', color: theme === 'professional' ? '#64748b' : 'rgba(255,255,255,0.7)', marginBottom: '14px' }}>
+                    Choose your email provider to connect:
+                  </div>
+                  
+                  {/* Gmail Option */}
+                  <button
+                    onClick={connectGmailAccount}
+                    disabled={isConnectingEmail}
+                    style={{
+                      width: '100%',
+                      padding: '12px 14px',
+                      background: theme === 'professional' ? '#fff' : 'rgba(255,255,255,0.08)',
+                      border: theme === 'professional' ? '1px solid #e2e8f0' : '1px solid rgba(255,255,255,0.15)',
+                      borderRadius: '10px',
+                      cursor: isConnectingEmail ? 'not-allowed' : 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '10px',
+                      marginBottom: '8px',
+                      textAlign: 'left',
+                      opacity: isConnectingEmail ? 0.6 : 1
+                    }}
+                  >
+                    <span style={{ fontSize: '22px' }}>📧</span>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: '13px', fontWeight: '600', color: theme === 'professional' ? '#0f172a' : 'white' }}>Gmail</div>
+                      <div style={{ fontSize: '10px', color: theme === 'professional' ? '#64748b' : 'rgba(255,255,255,0.6)' }}>Connect via Google OAuth</div>
+                    </div>
+                    <span style={{ fontSize: '12px', color: theme === 'professional' ? '#94a3b8' : 'rgba(255,255,255,0.4)' }}>→</span>
+                  </button>
+                  
+                  {/* Microsoft 365 Option */}
+                  <button
+                    onClick={connectOutlookAccount}
+                    disabled={isConnectingEmail}
+                    style={{
+                      width: '100%',
+                      padding: '12px 14px',
+                      background: theme === 'professional' ? '#fff' : 'rgba(255,255,255,0.08)',
+                      border: theme === 'professional' ? '1px solid #e2e8f0' : '1px solid rgba(255,255,255,0.15)',
+                      borderRadius: '10px',
+                      cursor: isConnectingEmail ? 'not-allowed' : 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '10px',
+                      textAlign: 'left',
+                      opacity: isConnectingEmail ? 0.6 : 1
+                    }}
+                  >
+                    <span style={{ fontSize: '22px' }}>📨</span>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: '13px', fontWeight: '600', color: theme === 'professional' ? '#0f172a' : 'white' }}>Microsoft 365 / Outlook</div>
+                      <div style={{ fontSize: '10px', color: theme === 'professional' ? '#64748b' : 'rgba(255,255,255,0.6)' }}>Connect via Microsoft OAuth</div>
+                    </div>
+                    <span style={{ fontSize: '12px', color: theme === 'professional' ? '#94a3b8' : 'rgba(255,255,255,0.4)' }}>→</span>
+                  </button>
+                  
+                  {/* Security note */}
+                  <div style={{ 
+                    marginTop: '14px', 
+                    padding: '10px', 
+                    background: theme === 'professional' ? 'rgba(59,130,246,0.1)' : 'rgba(59,130,246,0.15)',
+                    borderRadius: '8px',
+                    border: '1px solid rgba(59,130,246,0.2)'
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px' }}>
+                      <span style={{ fontSize: '12px' }}>🔒</span>
+                      <div style={{ fontSize: '10px', color: theme === 'professional' ? '#1e40af' : 'rgba(255,255,255,0.8)', lineHeight: '1.4' }}>
+                        <strong>Security:</strong> Your emails are never rendered with scripts or tracking.
+                      </div>
+                    </div>
+                  </div>
+                </>
+              )}
+              
+              {emailSetupStep === 'connecting' && (
+                <div style={{ textAlign: 'center', padding: '30px 20px' }}>
+                  <div style={{ fontSize: '36px', marginBottom: '16px' }}>⏳</div>
+                  <div style={{ fontSize: '14px', fontWeight: 600, color: theme === 'professional' ? '#0f172a' : 'white', marginBottom: '8px' }}>
+                    Connecting...
+                  </div>
+                  <div style={{ fontSize: '12px', color: theme === 'professional' ? '#64748b' : 'rgba(255,255,255,0.7)' }}>
+                    Please complete the OAuth flow in the popup window.
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )

@@ -7,7 +7,6 @@
 import { 
   AdminPolicyPackageSchema, 
   type AdminPolicyPackage, 
-  type PolicySyncStatus,
   type PolicyApplicationResult,
   type PolicyNode,
 } from './types'
