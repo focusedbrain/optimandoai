@@ -3,32 +3,37 @@
  * 
  * React entry for the Command Chat popup window.
  * Uses shared components from the UI library.
+ * 
+ * MIRRORS the docked sidepanel structure exactly:
+ * - dockedWorkspace: 'wr-chat' | 'augmented-overlay' | 'beap-messages' | 'wrguard'
+ * - dockedSubmode: WR Chat submodes
+ * - beapSubmode: BEAP Messages views
  */
 
 import React, { useState, useEffect, useMemo } from 'react'
 import { createRoot } from 'react-dom/client'
 import { useUIStore } from './stores/useUIStore'
 import { 
-  ModeSelect, 
-  ModeHeaderBadge,
   CommandChatView,
   P2PChatPlaceholder,
   P2PStreamPlaceholder,
   GroupChatPlaceholder,
-  AdminPoliciesPlaceholder,
   WRGuardSectionView,
   BeapSectionView
 } from './ui/components'
-import { WORKSPACE_INFO } from './shared/ui/uiState'
 import { generateMockFingerprint, formatFingerprintShort, formatFingerprintGrouped } from './handshake/fingerprint'
 import { HANDSHAKE_REQUEST_TEMPLATE, POLICY_NOTES } from './handshake/microcopy'
 
 // =============================================================================
-// Theme Type
+// Theme Type - Matches docked version
 // =============================================================================
 
 type Theme = 'default' | 'dark' | 'professional'
-type Submode = 'command' | 'p2p-chat' | 'p2p-stream' | 'group-stream' | 'handshake'
+
+// Workspace types - MIRRORS docked sidepanel exactly
+type DockedWorkspace = 'wr-chat' | 'augmented-overlay' | 'beap-messages' | 'wrguard'
+type DockedSubmode = 'command' | 'p2p-chat' | 'p2p-stream' | 'group-stream' | 'handshake'
+type BeapSubmode = 'inbox' | 'draft' | 'outbox' | 'archived' | 'rejected'
 
 // Get initial theme from window (set by inline script in HTML)
 const getInitialTheme = (): Theme => {
@@ -43,10 +48,15 @@ const getInitialTheme = (): Theme => {
 
 function PopupChatApp() {
   const [theme] = useState<Theme>(getInitialTheme)
-  const { workspace, mode, role, setRole } = useUIStore()
+  const { role, setRole } = useUIStore()
   
-  // Submode state for WR Chat
-  const [submode, setSubmode] = useState<Submode>('command')
+  // MIRRORS docked sidepanel state exactly
+  const [dockedWorkspace, setDockedWorkspace] = useState<DockedWorkspace>('wr-chat')
+  const [dockedSubmode, setDockedSubmode] = useState<DockedSubmode>('command')
+  const [beapSubmode, setBeapSubmode] = useState<BeapSubmode>('inbox')
+  
+  // Helper to get combined mode for conditional rendering - SAME as docked
+  const dockedPanelMode = dockedWorkspace === 'wr-chat' ? dockedSubmode : dockedWorkspace
   
   // Generate a stable fingerprint for this session's handshake requests
   const ourFingerprint = useMemo(() => generateMockFingerprint(), [])
@@ -87,46 +97,62 @@ function PopupChatApp() {
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [role, setRole])
 
-  // Render the appropriate view based on workspace and mode
+  // Render the appropriate view based on workspace - MIRRORS docked exactly
   const renderContent = () => {
     // WRGuard workspace - full functionality
-    if (workspace === 'mailguard') {
+    if (dockedWorkspace === 'wrguard') {
       return <WRGuardSectionView theme={theme} />
     }
     
     // BEAP Messages workspace - full functionality
-    if (workspace === 'overlay') {
-      return <BeapSectionView theme={theme} />
-    }
-
-    // WR Chat modes - respect submode for commands mode
-    if (mode === 'commands') {
-      switch (submode) {
-        case 'command':
-          return <CommandChatView theme={theme} />
-        case 'p2p-chat':
-          return <P2PChatPlaceholder theme={theme} />
-        case 'p2p-stream':
-          return <P2PStreamPlaceholder theme={theme} />
-        case 'group-stream':
-          return <GroupChatPlaceholder theme={theme} />
-        case 'handshake':
-          return renderHandshakeRequest()
-        default:
-          return <CommandChatView theme={theme} />
-      }
+    if (dockedWorkspace === 'beap-messages') {
+      return (
+        <BeapSectionView 
+          section={beapSubmode === 'draft' ? 'drafts' : beapSubmode === 'archived' ? 'archive' : beapSubmode}
+          theme={theme}
+          emailAccounts={[]}
+          onNotification={(msg, type) => console.log(`[${type}] ${msg}`)}
+        />
+      )
     }
     
-    // Other modes
-    switch (mode) {
-      case 'p2p':
+    // Augmented Overlay workspace
+    if (dockedWorkspace === 'augmented-overlay') {
+      return (
+        <div style={{ 
+          flex: 1, 
+          display: 'flex', 
+          flexDirection: 'column', 
+          alignItems: 'center', 
+          justifyContent: 'center', 
+          padding: '40px 20px', 
+          textAlign: 'center',
+          background: theme === 'default' ? 'rgba(118,75,162,0.25)' : (theme === 'professional' ? '#f8fafc' : 'rgba(255,255,255,0.06)')
+        }}>
+          <span style={{ fontSize: '24px', marginBottom: '12px' }}>🎯</span>
+          <span style={{ 
+            fontSize: '13px', 
+            color: theme === 'professional' ? '#64748b' : 'rgba(255,255,255,0.8)',
+            maxWidth: '280px'
+          }}>
+            Point with the cursor or select elements in order to ask questions or trigger automations directly in the UI.
+          </span>
+        </div>
+      )
+    }
+
+    // WR Chat modes - respect submode
+    switch (dockedSubmode) {
+      case 'command':
+        return <CommandChatView theme={theme} />
+      case 'p2p-chat':
         return <P2PChatPlaceholder theme={theme} />
-      case 'p2p_stream':
+      case 'p2p-stream':
         return <P2PStreamPlaceholder theme={theme} />
-      case 'group':
+      case 'group-stream':
         return <GroupChatPlaceholder theme={theme} />
-      case 'admin_policies':
-        return <AdminPoliciesPlaceholder theme={theme} />
+      case 'handshake':
+        return renderHandshakeRequest()
       default:
         return <CommandChatView theme={theme} />
     }
@@ -382,7 +408,7 @@ function PopupChatApp() {
           justifyContent: 'flex-end' 
         }}>
           <button 
-            onClick={() => setSubmode('command')}
+            onClick={() => setDockedSubmode('command')}
             style={{ 
               padding: '8px 16px', 
               background: 'transparent', 
@@ -403,7 +429,7 @@ function PopupChatApp() {
               }
               // TODO: Implement actual send/download logic
               alert(`Handshake request ${handshakeDelivery === 'download' ? 'downloaded' : 'sent'} successfully!`)
-              setSubmode('command')
+              setDockedSubmode('command')
             }}
             style={{ 
               padding: '8px 20px', 
@@ -455,16 +481,43 @@ function PopupChatApp() {
 
   return (
     <div style={containerStyles}>
-      {/* Header with Mode Select and Submode */}
+      {/* Header with Workspace Select and Submode - MIRRORS docked exactly */}
       <header style={headerStyles}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <ModeSelect theme={theme} compact />
-          {/* Submode Selector - Only for WR Chat in commands mode */}
-          {/* Submode selector - always show when in commands mode */}
-          {mode === 'commands' && (
+          {/* Workspace Selector - Same options as docked */}
+          <select
+            value={dockedWorkspace}
+            onChange={(e) => setDockedWorkspace(e.target.value as DockedWorkspace)}
+            style={{
+              fontSize: '11px',
+              fontWeight: 600,
+              height: '26px',
+              minWidth: '120px',
+              background: selectboxStyle.background,
+              border: 'none',
+              color: selectboxStyle.color,
+              borderRadius: '13px',
+              padding: '0 18px 0 8px',
+              cursor: 'pointer',
+              outline: 'none',
+              appearance: 'none',
+              WebkitAppearance: 'none',
+              backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='6' height='6' viewBox='0 0 12 12'%3E%3Cpath fill='${selectboxStyle.arrowColor}' d='M3 4.5L6 7.5L9 4.5'/%3E%3C/svg%3E")`,
+              backgroundRepeat: 'no-repeat',
+              backgroundPosition: 'right 6px center'
+            }}
+          >
+            <option value="wr-chat" style={{ background: theme === 'professional' ? 'white' : '#1f2937', color: theme === 'professional' ? '#1f2937' : 'white' }}>💬 WR Chat</option>
+            <option value="augmented-overlay" style={{ background: theme === 'professional' ? 'white' : '#1f2937', color: theme === 'professional' ? '#1f2937' : 'white' }}>🎯 Augmented Overlay</option>
+            <option value="beap-messages" style={{ background: theme === 'professional' ? 'white' : '#1f2937', color: theme === 'professional' ? '#1f2937' : 'white' }}>📦 BEAP Messages</option>
+            <option value="wrguard" style={{ background: theme === 'professional' ? 'white' : '#1f2937', color: theme === 'professional' ? '#1f2937' : 'white' }}>🔒 WRGuard</option>
+          </select>
+          
+          {/* Submode Selector - Only for WR Chat */}
+          {dockedWorkspace === 'wr-chat' && (
             <select
-              value={submode}
-              onChange={(e) => setSubmode(e.target.value as Submode)}
+              value={dockedSubmode}
+              onChange={(e) => setDockedSubmode(e.target.value as DockedSubmode)}
               style={{
                 fontSize: '11px',
                 fontWeight: 500,
@@ -493,8 +546,51 @@ function PopupChatApp() {
               <option value="handshake" style={{ background: theme === 'professional' ? 'white' : '#1f2937', color: theme === 'professional' ? '#1f2937' : 'white' }}>Handshake Request</option>
             </select>
           )}
+          
+          {/* BEAP Submode Selector - Only for BEAP Messages */}
+          {dockedWorkspace === 'beap-messages' && (
+            <select
+              value={beapSubmode}
+              onChange={(e) => setBeapSubmode(e.target.value as BeapSubmode)}
+              style={{
+                fontSize: '11px',
+                fontWeight: 500,
+                height: '26px',
+                minWidth: '80px',
+                background: selectboxStyle.background,
+                border: 'none',
+                color: selectboxStyle.color,
+                borderRadius: '13px',
+                padding: '0 16px 0 8px',
+                cursor: 'pointer',
+                outline: 'none',
+                appearance: 'none',
+                WebkitAppearance: 'none',
+                backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='6' height='6' viewBox='0 0 12 12'%3E%3Cpath fill='${selectboxStyle.arrowColor}' d='M3 4.5L6 7.5L9 4.5'/%3E%3C/svg%3E")`,
+                backgroundRepeat: 'no-repeat',
+                backgroundPosition: 'right 6px center'
+              }}
+            >
+              <option value="inbox" style={{ background: theme === 'professional' ? 'white' : '#1f2937', color: theme === 'professional' ? '#1f2937' : 'white' }}>Inbox</option>
+              <option value="draft" style={{ background: theme === 'professional' ? 'white' : '#1f2937', color: theme === 'professional' ? '#1f2937' : 'white' }}>Draft</option>
+              <option value="outbox" style={{ background: theme === 'professional' ? 'white' : '#1f2937', color: theme === 'professional' ? '#1f2937' : 'white' }}>Outbox</option>
+              <option value="archived" style={{ background: theme === 'professional' ? 'white' : '#1f2937', color: theme === 'professional' ? '#1f2937' : 'white' }}>Archived</option>
+              <option value="rejected" style={{ background: theme === 'professional' ? 'white' : '#1f2937', color: theme === 'professional' ? '#1f2937' : 'white' }}>Rejected</option>
+            </select>
+          )}
         </div>
-        <ModeHeaderBadge theme={theme} compact />
+        
+        {/* Role Badge */}
+        <div style={{
+          fontSize: '10px',
+          fontWeight: 500,
+          padding: '4px 8px',
+          borderRadius: '10px',
+          background: theme === 'professional' ? 'rgba(139,92,246,0.1)' : 'rgba(139,92,246,0.2)',
+          color: theme === 'professional' ? '#7c3aed' : '#c4b5fd'
+        }}>
+          {role === 'admin' ? '👤 Admin' : '👤 User'}
+        </div>
       </header>
 
       {/* Main Content */}
