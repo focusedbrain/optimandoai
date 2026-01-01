@@ -299,3 +299,4 @@ export const HandshakeDetailsPanel: React.FC<HandshakeDetailsPanelProps> = ({
 
 export default HandshakeDetailsPanel
 
+

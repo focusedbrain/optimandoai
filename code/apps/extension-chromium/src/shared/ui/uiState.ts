@@ -13,7 +13,7 @@
 /**
  * Top-level workspace categories
  */
-export type Workspace = 'wr-chat' | 'mailguard' | 'overlay'
+export type Workspace = 'wr-chat' | 'mailguard' | 'overlay' | 'wrguard'
 
 /**
  * Modes within the WR Chat workspace
@@ -145,6 +145,12 @@ export const WORKSPACE_INFO: Record<Workspace, WorkspaceInfo> = {
     label: 'Augmented Overlay',
     icon: '🎯',
     description: 'In-page element interaction'
+  },
+  wrguard: {
+    id: 'wrguard',
+    label: 'WRGuard',
+    icon: '🔒',
+    description: 'Local enforcement and policy configuration'
   }
 }
 

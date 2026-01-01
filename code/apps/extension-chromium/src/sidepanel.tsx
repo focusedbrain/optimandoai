@@ -27,6 +27,8 @@ import {
 import { nlpClassifier, type ClassifiedInput } from './nlp'
 import { inputCoordinator } from './services/InputCoordinator'
 import { formatErrorForNotification, isConnectionError } from './utils/errorMessages'
+import { ThirdPartyLicensesView } from './bundled-tools'
+import { WRGuardWorkspace } from './wrguard'
 
 interface ConnectionStatus {
   isConnected: boolean
@@ -58,13 +60,37 @@ function SidepanelOrchestrator() {
   const [showMinimalUI, setShowMinimalUI] = useState(false) // Show minimal UI on display grids and Edge startpage
   const [viewMode, setViewMode] = useState<'app' | 'admin'>('app') // App or Admin view
   const [isAdminDisabled, setIsAdminDisabled] = useState(false) // Disable admin on display grids and Edge startpage
+  const [showThirdPartyLicenses, setShowThirdPartyLicenses] = useState(false) // Third party licenses modal
+  
+  /**
+   * BASELINE LOCATION COMMENTS (Step 1/10 Refactoring)
+   * 
+   * Navigation/Workspaces:
+   * - dockedWorkspace: First dropdown ('wr-chat', 'augmented-overlay', 'beap-messages')
+   * - dockedSubmode: Second dropdown for WR Chat modes
+   * - beapSubmode: Second dropdown for BEAP Messages views (Inbox/Draft/Outbox/Archived/Rejected)
+   * - Workspace selects rendered at ~3095, ~4578, ~5747 (3 view modes)
+   * 
+   * Former WR MailGuard UI (now BEAP Messages):
+   * - Connect Email section: lines ~3976-4108, ~5260-5390, ~6428-6558 (3 view modes)
+   * - Email accounts state: emailAccounts, loadEmailAccounts()
+   * 
+   * WR Chat Handshake Request UI (reused for BEAP Message in Draft view):
+   * - State: handshakeDelivery, handshakeTo, handshakeSubject, handshakeMessage
+   * - Rendered at ~3407-3627, ~4890-5100, ~6058-6268 (3 view modes)
+   */
   
   // Command chat state - workspace + submode like popup
-  const [dockedWorkspace, setDockedWorkspace] = useState<'wr-chat' | 'augmented-overlay' | 'mailguard'>('wr-chat')
+  const [dockedWorkspace, setDockedWorkspace] = useState<'wr-chat' | 'augmented-overlay' | 'beap-messages' | 'wrguard'>('wr-chat')
   const [dockedSubmode, setDockedSubmode] = useState<'command' | 'p2p-chat' | 'p2p-stream' | 'group-stream' | 'handshake'>('command')
+  const [beapSubmode, setBeapSubmode] = useState<'inbox' | 'draft' | 'outbox' | 'archived' | 'rejected'>('draft')
+  const [selectedEmailAccountId, setSelectedEmailAccountId] = useState<string | null>(null)
   
   // Helper to get combined mode for conditional rendering
   const dockedPanelMode = dockedWorkspace === 'wr-chat' ? dockedSubmode : dockedWorkspace
+  
+  // Helper to get the current BEAP view for conditional rendering
+  const currentBeapView = dockedWorkspace === 'beap-messages' ? beapSubmode : null
   const [chatMessages, setChatMessages] = useState<Array<{role: 'user' | 'assistant', text: string, imageUrl?: string}>>([])
   const [chatInput, setChatInput] = useState('')
   const [chatHeight, setChatHeight] = useState(200)
@@ -171,12 +197,12 @@ function SidepanelOrchestrator() {
     }
   }
   
-  // Load email accounts when MailGuard mode is selected
+  // Load email accounts when BEAP Messages workspace is selected
   useEffect(() => {
-    if (dockedPanelMode === 'mailguard') {
+    if (dockedWorkspace === 'beap-messages') {
       loadEmailAccounts()
     }
-  }, [dockedPanelMode])
+  }, [dockedWorkspace])
   
   // IMAP form state
   const [imapForm, setImapForm] = useState({
@@ -1380,6 +1406,11 @@ function SidepanelOrchestrator() {
 
   const openPopupChat = () => {
     chrome.runtime.sendMessage({ type: 'OPEN_COMMAND_CENTER_POPUP', theme: theme })
+  }
+
+  const openThirdPartyLicenses = () => {
+    console.log('📜 Opening Third Party Licenses...')
+    setShowThirdPartyLicenses(true)
   }
 
   const toggleViewMode = () => {
@@ -3094,7 +3125,8 @@ function SidepanelOrchestrator() {
                   >
                     <option value="wr-chat">💬 WR Chat</option>
                     <option value="augmented-overlay">🎯 Augmented Overlay</option>
-                    <option value="mailguard">🛡️ WR MailGuard</option>
+                    <option value="beap-messages">📦 BEAP Messages</option>
+                    <option value="wrguard">🔒 WRGuard</option>
                   </select>
                   {dockedWorkspace === 'wr-chat' && (
                     <select
@@ -3129,10 +3161,43 @@ function SidepanelOrchestrator() {
                       <option value="handshake">Handshake Request</option>
                     </select>
                   )}
+                  {dockedWorkspace === 'beap-messages' && (
+                    <select
+                      key={`beap-submode-select-minimal-${theme}`}
+                      value={beapSubmode}
+                      onChange={(e) => setBeapSubmode(e.target.value as typeof beapSubmode)}
+                      style={{
+                        fontSize: '11px',
+                        fontWeight: '500',
+                        height: '26px',
+                        width: '90px',
+                        background: selectboxStyle.background,
+                        border: 'none',
+                        color: selectboxStyle.color,
+                        borderRadius: '13px',
+                        padding: '0 14px 0 6px',
+                        cursor: 'pointer',
+                        outline: 'none',
+                        appearance: 'none',
+                        WebkitAppearance: 'none',
+                        textOverflow: 'ellipsis',
+                        overflow: 'hidden',
+                        backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='6' height='6' viewBox='0 0 12 12'%3E%3Cpath fill='${selectboxStyle.arrowColor}' d='M3 4.5L6 7.5L9 4.5'/%3E%3C/svg%3E")`,
+                        backgroundRepeat: 'no-repeat',
+                        backgroundPosition: 'right 4px center'
+                      }}
+                    >
+                      <option value="inbox">📥 Inbox</option>
+                      <option value="draft">✏️ Draft</option>
+                      <option value="outbox">📤 Outbox</option>
+                      <option value="archived">📁 Archived</option>
+                      <option value="rejected">🚫 Rejected</option>
+                    </select>
+                  )}
                 </div>
                 {/* Controls */}
                 <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-                  {(dockedPanelMode !== 'admin' && dockedPanelMode !== 'mailguard') && <>
+                  {(dockedPanelMode !== 'admin' && dockedWorkspace !== 'beap-messages' && dockedWorkspace !== 'wrguard') && <>
                     <button 
                       onClick={handleScreenSelect}
                       title="LmGTFY - Capture a screen area as screenshot or stream"
@@ -3965,19 +4030,74 @@ function SidepanelOrchestrator() {
               </>
               )}
 
-              {dockedPanelMode === 'mailguard' && (
-                /* WR MailGuard Email Editor - Section 1 (showMinimalUI) */
+              {dockedWorkspace === 'beap-messages' && (
+                /* BEAP Messages Workspace - Section 1 (showMinimalUI) */
                 <div style={{ display: 'flex', flexDirection: 'column', flex: 1, background: theme === 'default' ? 'rgba(118,75,162,0.15)' : (theme === 'professional' ? '#f8fafc' : 'rgba(255,255,255,0.04)'), overflowY: 'auto' }}>
                   <style>{`
-                    .mg-input::placeholder, .mg-textarea::placeholder {
+                    .beap-input::placeholder, .beap-textarea::placeholder {
                       color: ${theme === 'professional' ? '#64748b' : 'rgba(255,255,255,0.5)'};
                       opacity: 1;
                     }
                   `}</style>
                   
                   {/* ========================================== */}
-                  {/* EMAIL ACCOUNTS SECTION */}
+                  {/* INBOX VIEW */}
                   {/* ========================================== */}
+                  {beapSubmode === 'inbox' && (
+                    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '40px 20px', textAlign: 'center' }}>
+                      <span style={{ fontSize: '48px', marginBottom: '16px' }}>📥</span>
+                      <div style={{ fontSize: '18px', fontWeight: '600', color: theme === 'professional' ? '#0f172a' : 'white', marginBottom: '8px' }}>BEAP Inbox</div>
+                      <div style={{ fontSize: '13px', color: theme === 'professional' ? '#64748b' : 'rgba(255,255,255,0.7)', maxWidth: '280px' }}>
+                        Received BEAP™ packages will appear here. All packages are verified before display.
+                      </div>
+                    </div>
+                  )}
+                  
+                  {/* ========================================== */}
+                  {/* OUTBOX VIEW */}
+                  {/* ========================================== */}
+                  {beapSubmode === 'outbox' && (
+                    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '40px 20px', textAlign: 'center' }}>
+                      <span style={{ fontSize: '48px', marginBottom: '16px' }}>📤</span>
+                      <div style={{ fontSize: '18px', fontWeight: '600', color: theme === 'professional' ? '#0f172a' : 'white', marginBottom: '8px' }}>BEAP Outbox</div>
+                      <div style={{ fontSize: '13px', color: theme === 'professional' ? '#64748b' : 'rgba(255,255,255,0.7)', maxWidth: '280px' }}>
+                        Packages pending delivery. Monitor send status and delivery confirmations.
+                      </div>
+                    </div>
+                  )}
+                  
+                  {/* ========================================== */}
+                  {/* ARCHIVED VIEW */}
+                  {/* ========================================== */}
+                  {beapSubmode === 'archived' && (
+                    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '40px 20px', textAlign: 'center' }}>
+                      <span style={{ fontSize: '48px', marginBottom: '16px' }}>📁</span>
+                      <div style={{ fontSize: '18px', fontWeight: '600', color: theme === 'professional' ? '#0f172a' : 'white', marginBottom: '8px' }}>Archived Packages</div>
+                      <div style={{ fontSize: '13px', color: theme === 'professional' ? '#64748b' : 'rgba(255,255,255,0.7)', maxWidth: '280px' }}>
+                        Successfully executed packages are archived here for reference.
+                      </div>
+                    </div>
+                  )}
+                  
+                  {/* ========================================== */}
+                  {/* REJECTED VIEW */}
+                  {/* ========================================== */}
+                  {beapSubmode === 'rejected' && (
+                    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '40px 20px', textAlign: 'center' }}>
+                      <span style={{ fontSize: '48px', marginBottom: '16px' }}>🚫</span>
+                      <div style={{ fontSize: '18px', fontWeight: '600', color: theme === 'professional' ? '#0f172a' : 'white', marginBottom: '8px' }}>Rejected Packages</div>
+                      <div style={{ fontSize: '13px', color: theme === 'professional' ? '#64748b' : 'rgba(255,255,255,0.7)', maxWidth: '280px' }}>
+                        Rejected packages that failed verification or were declined by the user.
+                      </div>
+                    </div>
+                  )}
+                  
+                  {/* ========================================== */}
+                  {/* DRAFT VIEW - Main UI */}
+                  {/* ========================================== */}
+                  {beapSubmode === 'draft' && (
+                    <>
+                  {/* EMAIL ACCOUNTS SECTION - Reused from former MailGuard */}
                   <div style={{ 
                     padding: '16px 18px', 
                     borderBottom: theme === 'professional' ? '1px solid rgba(15,23,42,0.1)' : '1px solid rgba(255,255,255,0.1)',
@@ -4023,7 +4143,7 @@ function SidepanelOrchestrator() {
                         <div style={{ fontSize: '24px', marginBottom: '8px' }}>📧</div>
                         <div style={{ fontSize: '13px', color: theme === 'professional' ? '#64748b' : 'rgba(255,255,255,0.7)', marginBottom: '4px' }}>No email accounts connected</div>
                         <div style={{ fontSize: '11px', color: theme === 'professional' ? '#94a3b8' : 'rgba(255,255,255,0.5)' }}>
-                          Connect your email account to view emails securely in MailGuard
+                          Connect your email account to send BEAP™ messages
                         </div>
                       </div>
                     ) : (
@@ -4089,134 +4209,248 @@ function SidepanelOrchestrator() {
                       </div>
                     )}
                     
-                    {/* Info about MailGuard protection */}
+                    {/* Select account for sending */}
                     {emailAccounts.length > 0 && (
-                      <div style={{ 
-                        marginTop: '12px', 
-                        padding: '10px 12px', 
-                        background: theme === 'professional' ? 'rgba(34,197,94,0.1)' : 'rgba(34,197,94,0.15)',
-                        borderRadius: '6px',
-                        border: '1px solid rgba(34,197,94,0.2)',
-                        display: 'flex',
-                        alignItems: 'flex-start',
-                        gap: '8px'
-                      }}>
-                        <span style={{ fontSize: '14px' }}>🛡️</span>
-                        <div style={{ fontSize: '11px', color: theme === 'professional' ? '#166534' : 'rgba(255,255,255,0.8)', lineHeight: '1.5' }}>
-                          <strong>MailGuard Active:</strong> When you view emails, full content will be fetched securely via the API. No tracking pixels or scripts will execute.
-                        </div>
+                      <div style={{ marginTop: '12px' }}>
+                        <label style={{ fontSize: '11px', fontWeight: 600, marginBottom: '6px', display: 'block', color: theme === 'professional' ? '#6b7280' : 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                          Send From:
+                        </label>
+                        <select
+                          value={selectedEmailAccountId || emailAccounts[0]?.id || ''}
+                          onChange={(e) => setSelectedEmailAccountId(e.target.value)}
+                          style={{
+                            width: '100%',
+                            background: theme === 'professional' ? 'white' : 'rgba(255,255,255,0.1)',
+                            border: theme === 'professional' ? '1px solid rgba(15,23,42,0.2)' : '1px solid rgba(255,255,255,0.2)',
+                            color: theme === 'professional' ? '#0f172a' : 'white',
+                            borderRadius: '6px',
+                            padding: '8px 12px',
+                            fontSize: '13px',
+                            cursor: 'pointer',
+                            outline: 'none'
+                          }}
+                        >
+                          {emailAccounts.map(account => (
+                            <option key={account.id} value={account.id}>
+                              {account.email || account.displayName} ({account.provider})
+                            </option>
+                          ))}
+                        </select>
                       </div>
                     )}
                   </div>
                   
                   {/* ========================================== */}
-                  {/* EMAIL COMPOSER SECTION */}
+                  {/* BEAP™ MESSAGE SECTION - Adapted from Handshake Request */}
                   {/* ========================================== */}
                   
-                  {/* Inline helper text when not composing */}
-                  {!mailguardTo && !mailguardSubject && !mailguardBody && mailguardAttachments.length === 0 && (
-                    <div style={{ padding: '16px 18px', fontSize: '13px', opacity: 0.7, fontStyle: 'italic', borderBottom: theme === 'professional' ? '1px solid rgba(15,23,42,0.1)' : '1px solid rgba(255,255,255,0.1)', background: theme === 'professional' ? 'rgba(168,85,247,0.08)' : 'rgba(168,85,247,0.15)', display: 'flex', alignItems: 'center', gap: '10px' }}>
-                      <span style={{ fontSize: '18px' }}>✉️</span>
-                      Compose verified WRGuard-stamped emails with built-in automation.
-                    </div>
-                  )}
-                  <div style={{ padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: '14px', flex: 1 }}>
-                    {/* Email Header Fields */}
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', paddingBottom: '14px', borderBottom: theme === 'professional' ? '1px solid rgba(15,23,42,0.1)' : '1px solid rgba(255,255,255,0.1)' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                        <label style={{ fontSize: '13px', fontWeight: '600', opacity: 0.7, minWidth: '60px' }}>To:</label>
-                        <input type="email" className="mg-input" value={mailguardTo} onChange={(e) => setMailguardTo(e.target.value)} placeholder="recipient@example.com" style={{ flex: 1, background: theme === 'professional' ? '#ffffff' : 'rgba(255,255,255,0.08)', border: theme === 'professional' ? '1px solid rgba(15,23,42,0.15)' : '1px solid rgba(255,255,255,0.15)', color: theme === 'professional' ? '#0f172a' : 'white', borderRadius: '6px', padding: '10px 14px', fontSize: '14px', outline: 'none' }} />
+                  {/* Header */}
+                  <div style={{ padding: '12px 14px', borderBottom: `1px solid ${theme === 'professional' ? 'rgba(0,0,0,0.1)' : 'rgba(255,255,255,0.1)'}`, display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <span style={{ fontSize: '18px' }}>📦</span>
+                    <span style={{ fontSize: '13px', fontWeight: '600', color: theme === 'professional' ? '#1f2937' : 'white' }}>BEAP™ Message</span>
+                  </div>
+                  
+                  <div style={{ flex: 1, padding: '14px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                    {/* Your Fingerprint - PROMINENT */}
+                    <div style={{
+                      background: theme === 'professional' ? 'rgba(59,130,246,0.08)' : 'rgba(59,130,246,0.15)',
+                      border: theme === 'professional' ? '1px solid rgba(59,130,246,0.2)' : '1px solid rgba(59,130,246,0.3)',
+                      borderRadius: '8px',
+                      padding: '12px',
+                    }}>
+                      <div style={{ fontSize: '10px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px', color: theme === 'professional' ? '#3b82f6' : '#93c5fd', marginBottom: '6px' }}>
+                        Your Fingerprint
                       </div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                        <label style={{ fontSize: '13px', fontWeight: '600', opacity: 0.7, minWidth: '60px' }}>Subject:</label>
-                        <input type="text" className="mg-input" value={mailguardSubject} onChange={(e) => setMailguardSubject(e.target.value)} placeholder="Email subject" style={{ flex: 1, background: theme === 'professional' ? '#ffffff' : 'rgba(255,255,255,0.08)', border: theme === 'professional' ? '1px solid rgba(15,23,42,0.15)' : '1px solid rgba(255,255,255,0.15)', color: theme === 'professional' ? '#0f172a' : 'white', borderRadius: '6px', padding: '10px 14px', fontSize: '14px', outline: 'none' }} />
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <code style={{ 
+                          flex: 1,
+                          fontSize: '13px', 
+                          fontFamily: 'monospace',
+                          color: theme === 'professional' ? '#1e40af' : '#bfdbfe',
+                          wordBreak: 'break-all'
+                        }}>
+                          {ourFingerprintShort}
+                        </code>
+                        <button
+                          onClick={() => {
+                            navigator.clipboard.writeText(ourFingerprint)
+                            setFingerprintCopied(true)
+                            setTimeout(() => setFingerprintCopied(false), 2000)
+                          }}
+                          style={{
+                            background: fingerprintCopied ? (theme === 'professional' ? '#22c55e' : '#22c55e') : (theme === 'professional' ? '#3b82f6' : 'rgba(59,130,246,0.5)'),
+                            border: 'none',
+                            color: 'white',
+                            borderRadius: '4px',
+                            padding: '4px 8px',
+                            fontSize: '10px',
+                            cursor: 'pointer',
+                            fontWeight: 600
+                          }}
+                        >
+                          {fingerprintCopied ? '✓ Copied' : 'Copy'}
+                        </button>
                       </div>
                     </div>
-                    {/* Email Body - Large Text Area with Resize Handle */}
-                    <div style={{ display: 'flex', flexDirection: 'column' }}>
-                      <textarea 
-                        className="mg-textarea"
-                        value={mailguardBody} 
-                        onChange={(e) => setMailguardBody(e.target.value)} 
-                        placeholder="Compose your email message here...
-
-Write your message with the confidence that it will be protected by WRGuard encryption and verification." 
-                        style={{ 
-                          background: theme === 'professional' ? '#ffffff' : 'rgba(255,255,255,0.06)', 
-                          border: theme === 'professional' ? '1px solid rgba(15,23,42,0.15)' : '1px solid rgba(255,255,255,0.12)', 
-                          color: theme === 'professional' ? '#0f172a' : 'white', 
-                          borderRadius: '8px', 
-                          padding: '14px 16px', 
-                          fontSize: '14px', 
-                          lineHeight: '1.6',
-                          height: `${mailguardBodyHeight}px`, 
-                          resize: 'none', 
-                          fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif', 
+                    
+                    {/* Delivery Method */}
+                    <div>
+                      <label style={{ fontSize: '11px', fontWeight: 600, marginBottom: '6px', display: 'block', color: theme === 'professional' ? '#6b7280' : 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                        Delivery Method
+                      </label>
+                      <select
+                        value={handshakeDelivery}
+                        onChange={(e) => setHandshakeDelivery(e.target.value as 'email' | 'messenger' | 'download')}
+                        style={{
+                          width: '100%',
+                          background: theme === 'professional' ? 'white' : 'rgba(255,255,255,0.1)',
+                          border: theme === 'professional' ? '1px solid rgba(15,23,42,0.2)' : '1px solid rgba(255,255,255,0.2)',
+                          color: theme === 'professional' ? '#0f172a' : 'white',
+                          borderRadius: '6px',
+                          padding: '8px 12px',
+                          fontSize: '13px',
+                          cursor: 'pointer',
                           outline: 'none'
-                        }} 
-                      />
-                      <div 
-                        onMouseDown={(e) => {
-                          e.preventDefault()
-                          mailguardResizeStartY.current = e.clientY
-                          mailguardResizeStartH.current = mailguardBodyHeight
-                          setIsResizingMailguard(true)
                         }}
-                        style={{ 
-                          height: '12px', 
-                          background: theme === 'professional' ? 'linear-gradient(180deg, #e2e8f0 0%, #cbd5e1 100%)' : 'linear-gradient(180deg, rgba(255,255,255,0.2) 0%, rgba(255,255,255,0.1) 100%)', 
-                          cursor: 'ns-resize', 
-                          borderRadius: '6px', 
-                          margin: '8px 0', 
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          border: theme === 'professional' ? '1px solid rgba(15,23,42,0.1)' : '1px solid rgba(255,255,255,0.15)'
-                        }}
-                        title="Drag to resize editor height"
                       >
-                        <div style={{ width: '40px', height: '4px', background: theme === 'professional' ? '#94a3b8' : 'rgba(255,255,255,0.4)', borderRadius: '2px' }} />
-                      </div>
+                        <option value="email">📧 Email</option>
+                        <option value="messenger">💬 Messenger (Web)</option>
+                        <option value="download">💾 Download (USB/wallet)</option>
+                      </select>
                     </div>
-                    {/* Attachments Section */}
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '4px' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                        <span style={{ fontSize: '12px', fontWeight: '600', opacity: 0.7, display: 'flex', alignItems: 'center', gap: '6px' }}>
-                          <span>📎</span> Attachments
-                          <span style={{ fontSize: '10px', opacity: 0.6, fontWeight: '400' }}>(WR Stamped PDFs only)</span>
-                        </span>
-                        <input ref={mailguardFileRef} type="file" accept=".pdf" multiple style={{ display: 'none' }} onChange={(e) => { const files = Array.from(e.target.files || []); const pdfFiles = files.filter(f => f.type === 'application/pdf'); if (pdfFiles.length !== files.length) { setNotification({ message: 'Only PDF files are allowed', type: 'error' }); setTimeout(() => setNotification(null), 3000) } if (pdfFiles.length > 0) { setMailguardAttachments(prev => [...prev, ...pdfFiles.map(f => ({ name: f.name, size: f.size, file: f }))]) } if (e.target) e.target.value = '' }} />
-                        <button onClick={() => mailguardFileRef.current?.click()} style={{ background: theme === 'professional' ? '#e2e8f0' : 'rgba(255,255,255,0.12)', border: theme === 'professional' ? '1px solid rgba(15,23,42,0.15)' : '1px solid rgba(255,255,255,0.2)', color: theme === 'professional' ? '#0f172a' : 'white', borderRadius: '6px', padding: '8px 14px', fontSize: '12px', fontWeight: '500', cursor: 'pointer' }}>+ Add PDF</button>
-                      </div>
-                      {mailguardAttachments.length > 0 && (
-                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', padding: '8px 0' }}>
-                          {mailguardAttachments.map((att, idx) => (
-                            <div key={idx} style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', padding: '6px 10px', background: theme === 'professional' ? 'rgba(34,197,94,0.1)' : 'rgba(34,197,94,0.15)', border: '1px solid rgba(34,197,94,0.3)', borderRadius: '6px', fontSize: '12px' }}>
-                              <span>📄</span>
-                              <span style={{ maxWidth: '140px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{att.name}</span>
-                              <span style={{ opacity: 0.5, fontSize: '11px' }}>({(att.size / 1024).toFixed(0)} KB)</span>
-                              <button onClick={() => setMailguardAttachments(prev => prev.filter((_, i) => i !== idx))} style={{ background: 'transparent', border: 'none', color: theme === 'professional' ? '#64748b' : 'rgba(255,255,255,0.5)', borderRadius: '4px', width: '18px', height: '18px', cursor: 'pointer', fontSize: '14px', lineHeight: '1', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>×</button>
-                            </div>
-                          ))}
+                    
+                    {/* To & Subject Fields - Only for Email */}
+                    {handshakeDelivery === 'email' && (
+                      <>
+                        <div>
+                          <label style={{ fontSize: '11px', fontWeight: 600, marginBottom: '6px', display: 'block', color: theme === 'professional' ? '#6b7280' : 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                            To
+                          </label>
+                          <input
+                            type="email"
+                            className="beap-input"
+                            value={handshakeTo}
+                            onChange={(e) => setHandshakeTo(e.target.value)}
+                            placeholder="recipient@example.com"
+                            style={{
+                              width: '100%',
+                              background: theme === 'professional' ? 'white' : 'rgba(255,255,255,0.1)',
+                              border: theme === 'professional' ? '1px solid rgba(15,23,42,0.2)' : '1px solid rgba(255,255,255,0.2)',
+                              color: theme === 'professional' ? '#0f172a' : 'white',
+                              borderRadius: '6px',
+                              padding: '8px 12px',
+                              fontSize: '13px',
+                              outline: 'none'
+                            }}
+                          />
                         </div>
-                      )}
+                      </>
+                    )}
+                    
+                    {/* Message Content */}
+                    <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+                      <label style={{ fontSize: '11px', fontWeight: 600, marginBottom: '6px', display: 'block', color: theme === 'professional' ? '#6b7280' : 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                        Message
+                      </label>
+                      <textarea
+                        className="beap-textarea"
+                        value={handshakeMessage}
+                        onChange={(e) => setHandshakeMessage(e.target.value)}
+                        placeholder="Compose your BEAP™ message..."
+                        style={{
+                          flex: 1,
+                          minHeight: '120px',
+                          background: theme === 'professional' ? 'white' : 'rgba(255,255,255,0.08)',
+                          border: theme === 'professional' ? '1px solid rgba(15,23,42,0.2)' : '1px solid rgba(255,255,255,0.15)',
+                          color: theme === 'professional' ? '#0f172a' : 'white',
+                          borderRadius: '6px',
+                          padding: '10px 12px',
+                          fontSize: '12px',
+                          lineHeight: '1.5',
+                          resize: 'none',
+                          outline: 'none',
+                          fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
+                        }}
+                      />
+                    </div>
+                    
+                    {/* Info */}
+                    <div style={{
+                      fontSize: '11px',
+                      padding: '10px',
+                      background: theme === 'professional' ? 'rgba(168,85,247,0.08)' : 'rgba(168,85,247,0.15)',
+                      borderRadius: '6px',
+                      color: theme === 'professional' ? '#6b7280' : 'rgba(255,255,255,0.8)',
+                    }}>
+                      💡 This creates a secure BEAP™ package with your fingerprint. Your identity will be verifiable by the recipient.
                     </div>
                   </div>
                   
-                  {/* Capsule Policy Builder - Permission Request */}
-                  <div style={{ padding: '16px 18px', borderTop: theme === 'professional' ? '1px solid rgba(15,23,42,0.1)' : '1px solid rgba(255,255,255,0.12)' }}>
-                    <PackageBuilderPolicy
-                      initialPolicy={mailguardCapsulePolicy || undefined}
-                      onPolicyChange={(policy) => setMailguardCapsulePolicy(policy)}
-                      theme={theme}
-                      compact={false}
-                    />
+                  {/* Action Buttons */}
+                  <div style={{
+                    padding: '12px 14px',
+                    borderTop: theme === 'professional' ? '1px solid rgba(15,23,42,0.1)' : '1px solid rgba(255,255,255,0.1)',
+                    display: 'flex',
+                    justifyContent: 'flex-end',
+                    gap: '8px',
+                    background: theme === 'professional' ? '#f8fafc' : 'rgba(0,0,0,0.2)'
+                  }}>
+                    <button 
+                      onClick={() => {
+                        setHandshakeTo('')
+                        setHandshakeMessage('')
+                      }}
+                      style={{
+                        background: 'transparent',
+                        border: theme === 'professional' ? '1px solid rgba(15,23,42,0.2)' : '1px solid rgba(255,255,255,0.2)',
+                        color: theme === 'professional' ? '#64748b' : 'rgba(255,255,255,0.7)',
+                        borderRadius: '6px',
+                        padding: '8px 16px',
+                        fontSize: '12px',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      Clear
+                    </button>
+                    <button 
+                      onClick={() => {
+                        if (handshakeDelivery === 'email' && !handshakeTo) {
+                          setNotification({ message: 'Please enter a recipient email address', type: 'error' })
+                          setTimeout(() => setNotification(null), 3000)
+                          return
+                        }
+                        // Handle send based on delivery method
+                        const selectedAccount = emailAccounts.find(a => a.id === selectedEmailAccountId) || emailAccounts[0]
+                        console.log('[BEAP Message] Sending:', { 
+                          method: handshakeDelivery, 
+                          to: handshakeTo, 
+                          message: handshakeMessage,
+                          fromAccount: selectedAccount?.email
+                        })
+                        setNotification({ message: handshakeDelivery === 'download' ? 'Package downloaded!' : 'BEAP™ Message sent!', type: 'success' })
+                        setTimeout(() => setNotification(null), 3000)
+                        setHandshakeTo('')
+                        setHandshakeMessage('')
+                      }}
+                      style={{
+                        background: 'linear-gradient(135deg, #a855f7 0%, #9333ea 100%)',
+                        border: 'none',
+                        color: 'white',
+                        borderRadius: '6px',
+                        padding: '8px 20px',
+                        fontSize: '12px',
+                        fontWeight: 600,
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px'
+                      }}
+                    >
+                      {handshakeDelivery === 'email' ? '📧 Send' : handshakeDelivery === 'messenger' ? '💬 Insert' : '💾 Download'}
+                    </button>
                   </div>
-                  
-                  <div style={{ padding: '14px 18px', borderTop: theme === 'professional' ? '1px solid rgba(15,23,42,0.1)' : '1px solid rgba(255,255,255,0.15)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: theme === 'professional' ? '#f1f5f9' : 'rgba(0,0,0,0.15)' }}>
-                    <button onClick={() => { setMailguardTo(''); setMailguardSubject(''); setMailguardBody(''); setMailguardAttachments([]); setMailguardCapsulePolicy(null) }} style={{ background: 'transparent', border: 'none', color: theme === 'professional' ? '#64748b' : 'rgba(255,255,255,0.6)', padding: '8px 12px', fontSize: '13px', cursor: 'pointer', textDecoration: 'underline', textUnderlineOffset: '2px' }}>Discard draft</button>
-                    <button onClick={() => { if (!mailguardTo.trim()) { setNotification({ message: 'Please enter a recipient', type: 'error' }); setTimeout(() => setNotification(null), 3000); return } if (!mailguardSubject.trim()) { setNotification({ message: 'Please enter a subject', type: 'error' }); setTimeout(() => setNotification(null), 3000); return } if (mailguardAttachments.length === 0) { setNotification({ message: 'Attach at least one WR stamped PDF', type: 'error' }); setTimeout(() => setNotification(null), 3000); return } console.log('[WR MailGuard] Sending:', { to: mailguardTo, subject: mailguardSubject, attachments: mailguardAttachments.map(a => a.name), capsulePolicy: mailguardCapsulePolicy }); setNotification({ message: 'Protected email queued', type: 'success' }); setTimeout(() => setNotification(null), 3000); setMailguardTo(''); setMailguardSubject(''); setMailguardBody(''); setMailguardAttachments([]); setMailguardCapsulePolicy(null) }} disabled={!mailguardTo.trim() || !mailguardSubject.trim() || mailguardAttachments.length === 0} style={{ background: (!mailguardTo.trim() || !mailguardSubject.trim() || mailguardAttachments.length === 0) ? (theme === 'professional' ? '#e2e8f0' : '#374151') : '#a855f7', border: 'none', color: (!mailguardTo.trim() || !mailguardSubject.trim() || mailguardAttachments.length === 0) ? (theme === 'professional' ? '#94a3b8' : '#6b7280') : 'white', borderRadius: '8px', padding: '12px 28px', fontSize: '14px', fontWeight: '600', cursor: (!mailguardTo.trim() || !mailguardSubject.trim() || mailguardAttachments.length === 0) ? 'not-allowed' : 'pointer', boxShadow: (!mailguardTo.trim() || !mailguardSubject.trim() || mailguardAttachments.length === 0) ? 'none' : '0 2px 8px rgba(168,85,247,0.4)', display: 'flex', alignItems: 'center', gap: '8px' }}>Send <span style={{ fontSize: '16px' }}>→</span></button>
-                  </div>
+                    </>
+                  )}
                 </div>
               )}
       </div>
@@ -4309,6 +4543,11 @@ Write your message with the confidence that it will be protected by WRGuard encr
           )}
         </>
         )}
+
+            {dockedWorkspace === 'wrguard' && (
+              /* WRGuard Workspace - Section 1 (showMinimalUI) */
+              <WRGuardWorkspace theme={theme} />
+            )}
         
         {/* Add Mini App Button */}
         <div style={{
@@ -4577,7 +4816,8 @@ Write your message with the confidence that it will be protected by WRGuard encr
                 >
                   <option value="wr-chat">💬 WR Chat</option>
                   <option value="augmented-overlay">🎯 Augmented Overlay</option>
-                  <option value="mailguard">🛡️ WR MailGuard</option>
+                  <option value="beap-messages">📦 BEAP Messages</option>
+                  <option value="wrguard">🔒 WRGuard</option>
                 </select>
                 {dockedWorkspace === 'wr-chat' && (
                   <select
@@ -4613,12 +4853,46 @@ Write your message with the confidence that it will be protected by WRGuard encr
                     <option value="handshake">Handshake Request</option>
                   </select>
                 )}
+                {dockedWorkspace === 'beap-messages' && (
+                  <select
+                    key={`beap-submode-select-app-${theme}`}
+                    value={beapSubmode}
+                    onChange={(e) => setBeapSubmode(e.target.value as typeof beapSubmode)}
+                    style={{
+                      fontSize: '11px',
+                      fontWeight: '500',
+                      height: '26px',
+                      width: '90px',
+                      background: selectboxStyle.background,
+                      border: 'none',
+                      color: selectboxStyle.color,
+                      borderRadius: '13px',
+                      padding: '0 18px 0 6px',
+                      transition: 'all 0.15s ease',
+                      cursor: 'pointer',
+                      outline: 'none',
+                      appearance: 'none',
+                      WebkitAppearance: 'none',
+                      textOverflow: 'ellipsis',
+                      overflow: 'hidden',
+                      backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='6' height='6' viewBox='0 0 12 12'%3E%3Cpath fill='${selectboxStyle.arrowColor}' d='M3 4.5L6 7.5L9 4.5'/%3E%3C/svg%3E")`,
+                      backgroundRepeat: 'no-repeat',
+                      backgroundPosition: 'right 4px center'
+                    }}
+                  >
+                    <option value="inbox">📥 Inbox</option>
+                    <option value="draft">✏️ Draft</option>
+                    <option value="outbox">📤 Outbox</option>
+                    <option value="archived">📁 Archived</option>
+                    <option value="rejected">🚫 Rejected</option>
+                  </select>
+                )}
               </div>
               {/* Divider */}
               <div style={{ width: '1px', height: '16px', background: theme === 'professional' ? 'rgba(15,23,42,0.15)' : 'rgba(168,85,247,0.3)', margin: '0 4px' }} />
               {/* Controls */}
               <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-                {dockedPanelMode !== 'admin' && dockedPanelMode !== 'mailguard' && dockedPanelMode !== 'augmented-overlay' && <>
+                {dockedPanelMode !== 'admin' && dockedPanelMode !== 'beap-messages' && dockedPanelMode !== 'augmented-overlay' && dockedWorkspace !== 'wrguard' && <>
                   <button 
                     onClick={handleScreenSelect}
                     title="LmGTFY - Capture a screen area as screenshot or stream"
@@ -5245,16 +5519,57 @@ height: '28px',
               </>
             )}
 
-            {dockedPanelMode === 'mailguard' && (
-              /* WR MailGuard Email Editor - Section 2 (App View) */
+            {dockedWorkspace === 'beap-messages' && (
+              /* BEAP Messages Workspace - Section 2 (App View) */
               <div style={{ display: 'flex', flexDirection: 'column', flex: 1, background: theme === 'default' ? 'rgba(118,75,162,0.15)' : (theme === 'professional' ? '#f8fafc' : 'rgba(255,255,255,0.04)'), overflowY: 'auto' }}>
                 <style>{`
-                  .mg-input::placeholder, .mg-textarea::placeholder {
+                  .beap-input::placeholder, .beap-textarea::placeholder {
                     color: ${theme === 'professional' ? '#64748b' : 'rgba(255,255,255,0.5)'};
                     opacity: 1;
                   }
                 `}</style>
                 
+                {/* Placeholder views for non-draft submodes */}
+                {beapSubmode === 'inbox' && (
+                  <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '40px 20px', textAlign: 'center' }}>
+                    <span style={{ fontSize: '48px', marginBottom: '16px' }}>📥</span>
+                    <div style={{ fontSize: '18px', fontWeight: '600', color: theme === 'professional' ? '#0f172a' : 'white', marginBottom: '8px' }}>BEAP Inbox</div>
+                    <div style={{ fontSize: '13px', color: theme === 'professional' ? '#64748b' : 'rgba(255,255,255,0.7)', maxWidth: '280px' }}>
+                      Received BEAP™ packages will appear here.
+                    </div>
+                  </div>
+                )}
+                {beapSubmode === 'outbox' && (
+                  <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '40px 20px', textAlign: 'center' }}>
+                    <span style={{ fontSize: '48px', marginBottom: '16px' }}>📤</span>
+                    <div style={{ fontSize: '18px', fontWeight: '600', color: theme === 'professional' ? '#0f172a' : 'white', marginBottom: '8px' }}>BEAP Outbox</div>
+                    <div style={{ fontSize: '13px', color: theme === 'professional' ? '#64748b' : 'rgba(255,255,255,0.7)', maxWidth: '280px' }}>
+                      Packages pending delivery.
+                    </div>
+                  </div>
+                )}
+                {beapSubmode === 'archived' && (
+                  <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '40px 20px', textAlign: 'center' }}>
+                    <span style={{ fontSize: '48px', marginBottom: '16px' }}>📁</span>
+                    <div style={{ fontSize: '18px', fontWeight: '600', color: theme === 'professional' ? '#0f172a' : 'white', marginBottom: '8px' }}>Archived Packages</div>
+                    <div style={{ fontSize: '13px', color: theme === 'professional' ? '#64748b' : 'rgba(255,255,255,0.7)', maxWidth: '280px' }}>
+                      Successfully executed packages.
+                    </div>
+                  </div>
+                )}
+                {beapSubmode === 'rejected' && (
+                  <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '40px 20px', textAlign: 'center' }}>
+                    <span style={{ fontSize: '48px', marginBottom: '16px' }}>🚫</span>
+                    <div style={{ fontSize: '18px', fontWeight: '600', color: theme === 'professional' ? '#0f172a' : 'white', marginBottom: '8px' }}>Rejected Packages</div>
+                    <div style={{ fontSize: '13px', color: theme === 'professional' ? '#64748b' : 'rgba(255,255,255,0.7)', maxWidth: '280px' }}>
+                      Rejected packages.
+                    </div>
+                  </div>
+                )}
+                
+                {/* Draft view - EMAIL ACCOUNTS + BEAP Message */}
+                {beapSubmode === 'draft' && (
+                  <>
                 {/* ========================================== */}
                 {/* EMAIL ACCOUNTS SECTION (App View) */}
                 {/* ========================================== */}
@@ -5303,7 +5618,7 @@ height: '28px',
                       <div style={{ fontSize: '24px', marginBottom: '8px' }}>📧</div>
                       <div style={{ fontSize: '13px', color: theme === 'professional' ? '#64748b' : 'rgba(255,255,255,0.7)', marginBottom: '4px' }}>No email accounts connected</div>
                       <div style={{ fontSize: '11px', color: theme === 'professional' ? '#94a3b8' : 'rgba(255,255,255,0.5)' }}>
-                        Connect your email account to view emails securely in MailGuard
+                        Connect your email account to send BEAP™ messages
                       </div>
                     </div>
                   ) : (
@@ -5369,87 +5684,59 @@ height: '28px',
                     </div>
                   )}
                   
-                  {/* Info about MailGuard protection */}
+                  {/* Select account for sending */}
                   {emailAccounts.length > 0 && (
-                    <div style={{ 
-                      marginTop: '12px', 
-                      padding: '10px 12px', 
-                      background: theme === 'professional' ? 'rgba(34,197,94,0.1)' : 'rgba(34,197,94,0.15)',
-                      borderRadius: '6px',
-                      border: '1px solid rgba(34,197,94,0.2)',
-                      display: 'flex',
-                      alignItems: 'flex-start',
-                      gap: '8px'
-                    }}>
-                      <span style={{ fontSize: '14px' }}>🛡️</span>
-                      <div style={{ fontSize: '11px', color: theme === 'professional' ? '#166534' : 'rgba(255,255,255,0.8)', lineHeight: '1.5' }}>
-                        <strong>MailGuard Active:</strong> When you view emails, full content will be fetched securely via the API.
-                      </div>
+                    <div style={{ marginTop: '12px' }}>
+                      <label style={{ fontSize: '11px', fontWeight: 600, marginBottom: '6px', display: 'block', color: theme === 'professional' ? '#6b7280' : 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Send From:</label>
+                      <select value={selectedEmailAccountId || emailAccounts[0]?.id || ''} onChange={(e) => setSelectedEmailAccountId(e.target.value)} style={{ width: '100%', background: theme === 'professional' ? 'white' : 'rgba(255,255,255,0.1)', border: theme === 'professional' ? '1px solid rgba(15,23,42,0.2)' : '1px solid rgba(255,255,255,0.2)', color: theme === 'professional' ? '#0f172a' : 'white', borderRadius: '6px', padding: '8px 12px', fontSize: '13px', cursor: 'pointer', outline: 'none' }}>
+                        {emailAccounts.map(account => (<option key={account.id} value={account.id}>{account.email || account.displayName} ({account.provider})</option>))}
+                      </select>
                     </div>
                   )}
                 </div>
-                
-                {/* ========================================== */}
-                {/* EMAIL COMPOSER SECTION (App View) */}
-                {/* ========================================== */}
-                
-                {!mailguardTo && !mailguardSubject && !mailguardBody && mailguardAttachments.length === 0 && (
-                  <div style={{ padding: '16px 18px', fontSize: '13px', opacity: 0.7, fontStyle: 'italic', borderBottom: theme === 'professional' ? '1px solid rgba(15,23,42,0.1)' : '1px solid rgba(255,255,255,0.1)', background: theme === 'professional' ? 'rgba(168,85,247,0.08)' : 'rgba(168,85,247,0.15)', display: 'flex', alignItems: 'center', gap: '10px' }}>
-                    <span style={{ fontSize: '18px' }}>✉️</span>
-                    Compose verified WRGuard-stamped emails with built-in automation.
+                {/* BEAP™ Message UI - App View */}
+                <div style={{ padding: '12px 14px', borderBottom: `1px solid ${theme === 'professional' ? 'rgba(0,0,0,0.1)' : 'rgba(255,255,255,0.1)'}`, display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <span style={{ fontSize: '18px' }}>📦</span>
+                  <span style={{ fontSize: '13px', fontWeight: '600', color: theme === 'professional' ? '#1f2937' : 'white' }}>BEAP™ Message</span>
+                </div>
+                <div style={{ flex: 1, padding: '14px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                  {/* Fingerprint */}
+                  <div style={{ background: theme === 'professional' ? 'rgba(59,130,246,0.08)' : 'rgba(59,130,246,0.15)', border: theme === 'professional' ? '1px solid rgba(59,130,246,0.2)' : '1px solid rgba(59,130,246,0.3)', borderRadius: '8px', padding: '12px' }}>
+                    <div style={{ fontSize: '10px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px', color: theme === 'professional' ? '#3b82f6' : '#93c5fd', marginBottom: '6px' }}>Your Fingerprint</div>
+                    <code style={{ fontSize: '13px', fontFamily: 'monospace', color: theme === 'professional' ? '#1e40af' : '#bfdbfe' }}>{ourFingerprintShort}</code>
                   </div>
+                  {/* Delivery Method */}
+                  <div>
+                    <label style={{ fontSize: '11px', fontWeight: 600, marginBottom: '6px', display: 'block', color: theme === 'professional' ? '#6b7280' : 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Delivery Method</label>
+                    <select value={handshakeDelivery} onChange={(e) => setHandshakeDelivery(e.target.value as 'email' | 'messenger' | 'download')} style={{ width: '100%', background: theme === 'professional' ? 'white' : 'rgba(255,255,255,0.1)', border: theme === 'professional' ? '1px solid rgba(15,23,42,0.2)' : '1px solid rgba(255,255,255,0.2)', color: theme === 'professional' ? '#0f172a' : 'white', borderRadius: '6px', padding: '8px 12px', fontSize: '13px', cursor: 'pointer', outline: 'none' }}>
+                      <option value="email">📧 Email</option>
+                      <option value="messenger">💬 Messenger (Web)</option>
+                      <option value="download">💾 Download (USB/wallet)</option>
+                    </select>
+                  </div>
+                  {handshakeDelivery === 'email' && (
+                    <div>
+                      <label style={{ fontSize: '11px', fontWeight: 600, marginBottom: '6px', display: 'block', color: theme === 'professional' ? '#6b7280' : 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>To</label>
+                      <input type="email" className="beap-input" value={handshakeTo} onChange={(e) => setHandshakeTo(e.target.value)} placeholder="recipient@example.com" style={{ width: '100%', background: theme === 'professional' ? 'white' : 'rgba(255,255,255,0.1)', border: theme === 'professional' ? '1px solid rgba(15,23,42,0.2)' : '1px solid rgba(255,255,255,0.2)', color: theme === 'professional' ? '#0f172a' : 'white', borderRadius: '6px', padding: '8px 12px', fontSize: '13px', outline: 'none' }} />
+                    </div>
+                  )}
+                  <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+                    <label style={{ fontSize: '11px', fontWeight: 600, marginBottom: '6px', display: 'block', color: theme === 'professional' ? '#6b7280' : 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Message</label>
+                    <textarea className="beap-textarea" value={handshakeMessage} onChange={(e) => setHandshakeMessage(e.target.value)} placeholder="Compose your BEAP™ message..." style={{ flex: 1, minHeight: '120px', background: theme === 'professional' ? 'white' : 'rgba(255,255,255,0.08)', border: theme === 'professional' ? '1px solid rgba(15,23,42,0.2)' : '1px solid rgba(255,255,255,0.15)', color: theme === 'professional' ? '#0f172a' : 'white', borderRadius: '6px', padding: '10px 12px', fontSize: '12px', lineHeight: '1.5', resize: 'none', outline: 'none', fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif' }} />
+                  </div>
+                </div>
+                <div style={{ padding: '12px 14px', borderTop: theme === 'professional' ? '1px solid rgba(15,23,42,0.1)' : '1px solid rgba(255,255,255,0.1)', display: 'flex', justifyContent: 'flex-end', gap: '8px', background: theme === 'professional' ? '#f8fafc' : 'rgba(0,0,0,0.2)' }}>
+                  <button onClick={() => { setHandshakeTo(''); setHandshakeMessage('') }} style={{ background: 'transparent', border: theme === 'professional' ? '1px solid rgba(15,23,42,0.2)' : '1px solid rgba(255,255,255,0.2)', color: theme === 'professional' ? '#64748b' : 'rgba(255,255,255,0.7)', borderRadius: '6px', padding: '8px 16px', fontSize: '12px', cursor: 'pointer' }}>Clear</button>
+                  <button onClick={() => { if (handshakeDelivery === 'email' && !handshakeTo) { setNotification({ message: 'Please enter a recipient email', type: 'error' }); setTimeout(() => setNotification(null), 3000); return } console.log('[BEAP Message] Sending:', { method: handshakeDelivery, to: handshakeTo, message: handshakeMessage }); setNotification({ message: handshakeDelivery === 'download' ? 'Package downloaded!' : 'BEAP™ Message sent!', type: 'success' }); setTimeout(() => setNotification(null), 3000); setHandshakeTo(''); setHandshakeMessage('') }} style={{ background: 'linear-gradient(135deg, #a855f7 0%, #9333ea 100%)', border: 'none', color: 'white', borderRadius: '6px', padding: '8px 20px', fontSize: '12px', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}>{handshakeDelivery === 'email' ? '📧 Send' : handshakeDelivery === 'messenger' ? '💬 Insert' : '💾 Download'}</button>
+                </div>
+                  </>
                 )}
-                <div style={{ padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: '14px', flex: 1 }}>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', paddingBottom: '14px', borderBottom: theme === 'professional' ? '1px solid rgba(15,23,42,0.1)' : '1px solid rgba(255,255,255,0.1)' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                      <label style={{ fontSize: '13px', fontWeight: '600', opacity: 0.7, minWidth: '60px' }}>To:</label>
-                      <input type="email" className="mg-input" value={mailguardTo} onChange={(e) => setMailguardTo(e.target.value)} placeholder="recipient@example.com" style={{ flex: 1, background: theme === 'professional' ? '#ffffff' : 'rgba(255,255,255,0.08)', border: theme === 'professional' ? '1px solid rgba(15,23,42,0.15)' : '1px solid rgba(255,255,255,0.15)', color: theme === 'professional' ? '#0f172a' : 'white', borderRadius: '6px', padding: '10px 14px', fontSize: '14px', outline: 'none' }} />
-                    </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                      <label style={{ fontSize: '13px', fontWeight: '600', opacity: 0.7, minWidth: '60px' }}>Subject:</label>
-                      <input type="text" className="mg-input" value={mailguardSubject} onChange={(e) => setMailguardSubject(e.target.value)} placeholder="Email subject" style={{ flex: 1, background: theme === 'professional' ? '#ffffff' : 'rgba(255,255,255,0.08)', border: theme === 'professional' ? '1px solid rgba(15,23,42,0.15)' : '1px solid rgba(255,255,255,0.15)', color: theme === 'professional' ? '#0f172a' : 'white', borderRadius: '6px', padding: '10px 14px', fontSize: '14px', outline: 'none' }} />
-                    </div>
-                  </div>
-                  <div style={{ display: 'flex', flexDirection: 'column' }}>
-                    <textarea className="mg-textarea" value={mailguardBody} onChange={(e) => setMailguardBody(e.target.value)} placeholder="Compose your email message here..." style={{ background: theme === 'professional' ? '#ffffff' : 'rgba(255,255,255,0.06)', border: theme === 'professional' ? '1px solid rgba(15,23,42,0.15)' : '1px solid rgba(255,255,255,0.12)', color: theme === 'professional' ? '#0f172a' : 'white', borderRadius: '8px', padding: '14px 16px', fontSize: '14px', lineHeight: '1.6', height: `${mailguardBodyHeight}px`, resize: 'none', fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif', outline: 'none' }} />
-                    <div 
-                      onMouseDown={(e) => {
-                        e.preventDefault()
-                        mailguardResizeStartY.current = e.clientY
-                        mailguardResizeStartH.current = mailguardBodyHeight
-                        setIsResizingMailguard(true)
-                      }}
-                      style={{ height: '8px', background: theme === 'professional' ? '#e2e8f0' : 'rgba(255,255,255,0.15)', cursor: 'ns-resize', borderRadius: '4px', margin: '6px 0', opacity: 0.7 }}
-                      title="Drag to resize"
-                    />
-                  </div>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '4px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                      <span style={{ fontSize: '12px', fontWeight: '600', opacity: 0.7, display: 'flex', alignItems: 'center', gap: '6px' }}>
-                        <span>📎</span> Attachments <span style={{ fontSize: '10px', opacity: 0.6, fontWeight: '400' }}>(WR Stamped PDFs only)</span>
-                      </span>
-                      <input ref={mailguardFileRef} type="file" accept=".pdf" multiple style={{ display: 'none' }} onChange={(e) => { const files = Array.from(e.target.files || []); const pdfFiles = files.filter(f => f.type === 'application/pdf'); if (pdfFiles.length !== files.length) { setNotification({ message: 'Only PDF files are allowed', type: 'error' }); setTimeout(() => setNotification(null), 3000) } if (pdfFiles.length > 0) { setMailguardAttachments(prev => [...prev, ...pdfFiles.map(f => ({ name: f.name, size: f.size, file: f }))]) } if (e.target) e.target.value = '' }} />
-                      <button onClick={() => mailguardFileRef.current?.click()} style={{ background: theme === 'professional' ? '#e2e8f0' : 'rgba(255,255,255,0.12)', border: theme === 'professional' ? '1px solid rgba(15,23,42,0.15)' : '1px solid rgba(255,255,255,0.2)', color: theme === 'professional' ? '#0f172a' : 'white', borderRadius: '6px', padding: '8px 14px', fontSize: '12px', fontWeight: '500', cursor: 'pointer' }}>+ Add PDF</button>
-                    </div>
-                    {mailguardAttachments.length > 0 && (
-                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', padding: '8px 0' }}>
-                        {mailguardAttachments.map((att, idx) => (
-                          <div key={idx} style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', padding: '6px 10px', background: theme === 'professional' ? 'rgba(34,197,94,0.1)' : 'rgba(34,197,94,0.15)', border: '1px solid rgba(34,197,94,0.3)', borderRadius: '6px', fontSize: '12px' }}>
-                            <span>📄</span>
-                            <span style={{ maxWidth: '140px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{att.name}</span>
-                            <span style={{ opacity: 0.5, fontSize: '11px' }}>({(att.size / 1024).toFixed(0)} KB)</span>
-                            <button onClick={() => setMailguardAttachments(prev => prev.filter((_, i) => i !== idx))} style={{ background: 'transparent', border: 'none', color: theme === 'professional' ? '#64748b' : 'rgba(255,255,255,0.5)', borderRadius: '4px', width: '18px', height: '18px', cursor: 'pointer', fontSize: '14px', lineHeight: '1', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>×</button>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                </div>
-                <div style={{ padding: '14px 18px', borderTop: theme === 'professional' ? '1px solid rgba(15,23,42,0.1)' : '1px solid rgba(255,255,255,0.15)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: theme === 'professional' ? '#f1f5f9' : 'rgba(0,0,0,0.15)' }}>
-                  <button onClick={() => { setMailguardTo(''); setMailguardSubject(''); setMailguardBody(''); setMailguardAttachments([]) }} style={{ background: 'transparent', border: 'none', color: theme === 'professional' ? '#64748b' : 'rgba(255,255,255,0.6)', padding: '8px 12px', fontSize: '13px', cursor: 'pointer', textDecoration: 'underline', textUnderlineOffset: '2px' }}>Discard draft</button>
-                  <button onClick={() => { if (!mailguardTo.trim()) { setNotification({ message: 'Please enter a recipient', type: 'error' }); setTimeout(() => setNotification(null), 3000); return } if (!mailguardSubject.trim()) { setNotification({ message: 'Please enter a subject', type: 'error' }); setTimeout(() => setNotification(null), 3000); return } if (mailguardAttachments.length === 0) { setNotification({ message: 'Attach at least one WR stamped PDF', type: 'error' }); setTimeout(() => setNotification(null), 3000); return } console.log('[WR MailGuard] Sending:', { to: mailguardTo, subject: mailguardSubject, attachments: mailguardAttachments.map(a => a.name) }); setNotification({ message: 'Protected email queued', type: 'success' }); setTimeout(() => setNotification(null), 3000); setMailguardTo(''); setMailguardSubject(''); setMailguardBody(''); setMailguardAttachments([]) }} disabled={!mailguardTo.trim() || !mailguardSubject.trim() || mailguardAttachments.length === 0} style={{ background: (!mailguardTo.trim() || !mailguardSubject.trim() || mailguardAttachments.length === 0) ? (theme === 'professional' ? '#e2e8f0' : '#374151') : '#a855f7', border: 'none', color: (!mailguardTo.trim() || !mailguardSubject.trim() || mailguardAttachments.length === 0) ? (theme === 'professional' ? '#94a3b8' : '#6b7280') : 'white', borderRadius: '8px', padding: '12px 28px', fontSize: '14px', fontWeight: '600', cursor: (!mailguardTo.trim() || !mailguardSubject.trim() || mailguardAttachments.length === 0) ? 'not-allowed' : 'pointer', boxShadow: (!mailguardTo.trim() || !mailguardSubject.trim() || mailguardAttachments.length === 0) ? 'none' : '0 2px 8px rgba(168,85,247,0.4)', display: 'flex', alignItems: 'center', gap: '8px' }}>Send <span style={{ fontSize: '16px' }}>→</span></button>
-                </div>
               </div>
+            )}
+
+            {dockedWorkspace === 'wrguard' && (
+              /* WRGuard Workspace - Section 2 (App View) */
+              <WRGuardWorkspace theme={theme} />
             )}
           </div>
         </>
@@ -5746,7 +6033,8 @@ height: '28px',
                 >
                   <option value="wr-chat">💬 WR Chat</option>
                   <option value="augmented-overlay">🎯 Augmented Overlay</option>
-                  <option value="mailguard">🛡️ WR MailGuard</option>
+                  <option value="beap-messages">📦 BEAP Messages</option>
+                  <option value="wrguard">🔒 WRGuard</option>
                 </select>
                 {dockedWorkspace === 'wr-chat' && (
                   <select
@@ -5782,12 +6070,46 @@ height: '28px',
                     <option value="handshake">Handshake Request</option>
                   </select>
                 )}
+                {dockedWorkspace === 'beap-messages' && (
+                  <select
+                    key={`beap-submode-select-admin-${theme}`}
+                    value={beapSubmode}
+                    onChange={(e) => setBeapSubmode(e.target.value as typeof beapSubmode)}
+                    style={{
+                      fontSize: '11px',
+                      fontWeight: '500',
+                      height: '26px',
+                      width: '90px',
+                      background: selectboxStyle.background,
+                      border: 'none',
+                      color: selectboxStyle.color,
+                      borderRadius: '13px',
+                      padding: '0 18px 0 6px',
+                      transition: 'all 0.15s ease',
+                      cursor: 'pointer',
+                      outline: 'none',
+                      appearance: 'none',
+                      WebkitAppearance: 'none',
+                      textOverflow: 'ellipsis',
+                      overflow: 'hidden',
+                      backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='6' height='6' viewBox='0 0 12 12'%3E%3Cpath fill='${selectboxStyle.arrowColor}' d='M3 4.5L6 7.5L9 4.5'/%3E%3C/svg%3E")`,
+                      backgroundRepeat: 'no-repeat',
+                      backgroundPosition: 'right 4px center'
+                    }}
+                  >
+                    <option value="inbox">📥 Inbox</option>
+                    <option value="draft">✏️ Draft</option>
+                    <option value="outbox">📤 Outbox</option>
+                    <option value="archived">📁 Archived</option>
+                    <option value="rejected">🚫 Rejected</option>
+                  </select>
+                )}
               </div>
               {/* Divider */}
               <div style={{ width: '1px', height: '16px', background: theme === 'professional' ? 'rgba(15,23,42,0.15)' : 'rgba(168,85,247,0.3)', margin: '0 4px' }} />
               {/* Controls */}
               <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-                {dockedPanelMode !== 'admin' && dockedPanelMode !== 'mailguard' && dockedPanelMode !== 'augmented-overlay' && <>
+                {dockedPanelMode !== 'admin' && dockedPanelMode !== 'beap-messages' && dockedPanelMode !== 'augmented-overlay' && dockedWorkspace !== 'wrguard' && <>
                   <button 
                     onClick={handleScreenSelect}
                     title="LmGTFY - Capture a screen area as screenshot or stream"
@@ -6413,16 +6735,49 @@ height: '28px',
               </>
             )}
 
-            {dockedPanelMode === 'mailguard' && (
-              /* WR MailGuard Email Editor - Section 3 (Admin View) */
+            {dockedWorkspace === 'beap-messages' && (
+              /* BEAP Messages Workspace - Section 3 (Admin View) */
               <div style={{ display: 'flex', flexDirection: 'column', flex: 1, background: theme === 'default' ? 'rgba(118,75,162,0.15)' : (theme === 'professional' ? '#f8fafc' : 'rgba(255,255,255,0.04)'), overflowY: 'auto' }}>
                 <style>{`
-                  .mg-input::placeholder, .mg-textarea::placeholder {
+                  .beap-input::placeholder, .beap-textarea::placeholder {
                     color: ${theme === 'professional' ? '#64748b' : 'rgba(255,255,255,0.5)'};
                     opacity: 1;
                   }
                 `}</style>
                 
+                {/* Placeholder views for non-draft submodes */}
+                {beapSubmode === 'inbox' && (
+                  <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '40px 20px', textAlign: 'center' }}>
+                    <span style={{ fontSize: '48px', marginBottom: '16px' }}>📥</span>
+                    <div style={{ fontSize: '18px', fontWeight: '600', color: theme === 'professional' ? '#0f172a' : 'white', marginBottom: '8px' }}>BEAP Inbox</div>
+                    <div style={{ fontSize: '13px', color: theme === 'professional' ? '#64748b' : 'rgba(255,255,255,0.7)', maxWidth: '280px' }}>Received BEAP™ packages will appear here.</div>
+                  </div>
+                )}
+                {beapSubmode === 'outbox' && (
+                  <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '40px 20px', textAlign: 'center' }}>
+                    <span style={{ fontSize: '48px', marginBottom: '16px' }}>📤</span>
+                    <div style={{ fontSize: '18px', fontWeight: '600', color: theme === 'professional' ? '#0f172a' : 'white', marginBottom: '8px' }}>BEAP Outbox</div>
+                    <div style={{ fontSize: '13px', color: theme === 'professional' ? '#64748b' : 'rgba(255,255,255,0.7)', maxWidth: '280px' }}>Packages pending delivery.</div>
+                  </div>
+                )}
+                {beapSubmode === 'archived' && (
+                  <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '40px 20px', textAlign: 'center' }}>
+                    <span style={{ fontSize: '48px', marginBottom: '16px' }}>📁</span>
+                    <div style={{ fontSize: '18px', fontWeight: '600', color: theme === 'professional' ? '#0f172a' : 'white', marginBottom: '8px' }}>Archived Packages</div>
+                    <div style={{ fontSize: '13px', color: theme === 'professional' ? '#64748b' : 'rgba(255,255,255,0.7)', maxWidth: '280px' }}>Successfully executed packages.</div>
+                  </div>
+                )}
+                {beapSubmode === 'rejected' && (
+                  <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '40px 20px', textAlign: 'center' }}>
+                    <span style={{ fontSize: '48px', marginBottom: '16px' }}>🚫</span>
+                    <div style={{ fontSize: '18px', fontWeight: '600', color: theme === 'professional' ? '#0f172a' : 'white', marginBottom: '8px' }}>Rejected Packages</div>
+                    <div style={{ fontSize: '13px', color: theme === 'professional' ? '#64748b' : 'rgba(255,255,255,0.7)', maxWidth: '280px' }}>Rejected packages.</div>
+                  </div>
+                )}
+                
+                {/* Draft view */}
+                {beapSubmode === 'draft' && (
+                  <>
                 {/* ========================================== */}
                 {/* EMAIL ACCOUNTS SECTION (Admin View) */}
                 {/* ========================================== */}
@@ -6471,7 +6826,7 @@ height: '28px',
                       <div style={{ fontSize: '24px', marginBottom: '8px' }}>📧</div>
                       <div style={{ fontSize: '13px', color: theme === 'professional' ? '#64748b' : 'rgba(255,255,255,0.7)', marginBottom: '4px' }}>No email accounts connected</div>
                       <div style={{ fontSize: '11px', color: theme === 'professional' ? '#94a3b8' : 'rgba(255,255,255,0.5)' }}>
-                        Connect your email account to view emails securely in MailGuard
+                        Connect your email account to send BEAP™ messages
                       </div>
                     </div>
                   ) : (
@@ -6537,87 +6892,60 @@ height: '28px',
                     </div>
                   )}
                   
-                  {/* Info about MailGuard protection */}
+                  {/* Select account for sending */}
                   {emailAccounts.length > 0 && (
-                    <div style={{ 
-                      marginTop: '12px', 
-                      padding: '10px 12px', 
-                      background: theme === 'professional' ? 'rgba(34,197,94,0.1)' : 'rgba(34,197,94,0.15)',
-                      borderRadius: '6px',
-                      border: '1px solid rgba(34,197,94,0.2)',
-                      display: 'flex',
-                      alignItems: 'flex-start',
-                      gap: '8px'
-                    }}>
-                      <span style={{ fontSize: '14px' }}>🛡️</span>
-                      <div style={{ fontSize: '11px', color: theme === 'professional' ? '#166534' : 'rgba(255,255,255,0.8)', lineHeight: '1.5' }}>
-                        <strong>MailGuard Active:</strong> When you view emails, full content will be fetched securely via the API.
-                      </div>
+                    <div style={{ marginTop: '12px' }}>
+                      <label style={{ fontSize: '11px', fontWeight: 600, marginBottom: '6px', display: 'block', color: theme === 'professional' ? '#6b7280' : 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Send From:</label>
+                      <select value={selectedEmailAccountId || emailAccounts[0]?.id || ''} onChange={(e) => setSelectedEmailAccountId(e.target.value)} style={{ width: '100%', background: theme === 'professional' ? 'white' : 'rgba(255,255,255,0.1)', border: theme === 'professional' ? '1px solid rgba(15,23,42,0.2)' : '1px solid rgba(255,255,255,0.2)', color: theme === 'professional' ? '#0f172a' : 'white', borderRadius: '6px', padding: '8px 12px', fontSize: '13px', cursor: 'pointer', outline: 'none' }}>
+                        {emailAccounts.map(account => (<option key={account.id} value={account.id}>{account.email || account.displayName} ({account.provider})</option>))}
+                      </select>
                     </div>
                   )}
                 </div>
                 
-                {/* ========================================== */}
-                {/* EMAIL COMPOSER SECTION (Admin View) */}
-                {/* ========================================== */}
-                
-                {!mailguardTo && !mailguardSubject && !mailguardBody && mailguardAttachments.length === 0 && (
-                  <div style={{ padding: '16px 18px', fontSize: '13px', opacity: 0.7, fontStyle: 'italic', borderBottom: theme === 'professional' ? '1px solid rgba(15,23,42,0.1)' : '1px solid rgba(255,255,255,0.1)', background: theme === 'professional' ? 'rgba(168,85,247,0.08)' : 'rgba(168,85,247,0.15)', display: 'flex', alignItems: 'center', gap: '10px' }}>
-                    <span style={{ fontSize: '18px' }}>✉️</span>
-                    Compose verified WRGuard-stamped emails with built-in automation.
+                {/* BEAP™ Message UI - Admin View */}
+                <div style={{ padding: '12px 14px', borderBottom: `1px solid ${theme === 'professional' ? 'rgba(0,0,0,0.1)' : 'rgba(255,255,255,0.1)'}`, display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <span style={{ fontSize: '18px' }}>📦</span>
+                  <span style={{ fontSize: '13px', fontWeight: '600', color: theme === 'professional' ? '#1f2937' : 'white' }}>BEAP™ Message</span>
+                </div>
+                <div style={{ flex: 1, padding: '14px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                  {/* Fingerprint */}
+                  <div style={{ background: theme === 'professional' ? 'rgba(59,130,246,0.08)' : 'rgba(59,130,246,0.15)', border: theme === 'professional' ? '1px solid rgba(59,130,246,0.2)' : '1px solid rgba(59,130,246,0.3)', borderRadius: '8px', padding: '12px' }}>
+                    <div style={{ fontSize: '10px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px', color: theme === 'professional' ? '#3b82f6' : '#93c5fd', marginBottom: '6px' }}>Your Fingerprint</div>
+                    <code style={{ fontSize: '13px', fontFamily: 'monospace', color: theme === 'professional' ? '#1e40af' : '#bfdbfe' }}>{ourFingerprintShort}</code>
                   </div>
+                  {/* Delivery Method */}
+                  <div>
+                    <label style={{ fontSize: '11px', fontWeight: 600, marginBottom: '6px', display: 'block', color: theme === 'professional' ? '#6b7280' : 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Delivery Method</label>
+                    <select value={handshakeDelivery} onChange={(e) => setHandshakeDelivery(e.target.value as 'email' | 'messenger' | 'download')} style={{ width: '100%', background: theme === 'professional' ? 'white' : 'rgba(255,255,255,0.1)', border: theme === 'professional' ? '1px solid rgba(15,23,42,0.2)' : '1px solid rgba(255,255,255,0.2)', color: theme === 'professional' ? '#0f172a' : 'white', borderRadius: '6px', padding: '8px 12px', fontSize: '13px', cursor: 'pointer', outline: 'none' }}>
+                      <option value="email">📧 Email</option>
+                      <option value="messenger">💬 Messenger (Web)</option>
+                      <option value="download">💾 Download (USB/wallet)</option>
+                    </select>
+                  </div>
+                  {handshakeDelivery === 'email' && (
+                    <div>
+                      <label style={{ fontSize: '11px', fontWeight: 600, marginBottom: '6px', display: 'block', color: theme === 'professional' ? '#6b7280' : 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>To</label>
+                      <input type="email" className="beap-input" value={handshakeTo} onChange={(e) => setHandshakeTo(e.target.value)} placeholder="recipient@example.com" style={{ width: '100%', background: theme === 'professional' ? 'white' : 'rgba(255,255,255,0.1)', border: theme === 'professional' ? '1px solid rgba(15,23,42,0.2)' : '1px solid rgba(255,255,255,0.2)', color: theme === 'professional' ? '#0f172a' : 'white', borderRadius: '6px', padding: '8px 12px', fontSize: '13px', outline: 'none' }} />
+                    </div>
+                  )}
+                  <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+                    <label style={{ fontSize: '11px', fontWeight: 600, marginBottom: '6px', display: 'block', color: theme === 'professional' ? '#6b7280' : 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Message</label>
+                    <textarea className="beap-textarea" value={handshakeMessage} onChange={(e) => setHandshakeMessage(e.target.value)} placeholder="Compose your BEAP™ message..." style={{ flex: 1, minHeight: '120px', background: theme === 'professional' ? 'white' : 'rgba(255,255,255,0.08)', border: theme === 'professional' ? '1px solid rgba(15,23,42,0.2)' : '1px solid rgba(255,255,255,0.15)', color: theme === 'professional' ? '#0f172a' : 'white', borderRadius: '6px', padding: '10px 12px', fontSize: '12px', lineHeight: '1.5', resize: 'none', outline: 'none', fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif' }} />
+                  </div>
+                </div>
+                <div style={{ padding: '12px 14px', borderTop: theme === 'professional' ? '1px solid rgba(15,23,42,0.1)' : '1px solid rgba(255,255,255,0.1)', display: 'flex', justifyContent: 'flex-end', gap: '8px', background: theme === 'professional' ? '#f8fafc' : 'rgba(0,0,0,0.2)' }}>
+                  <button onClick={() => { setHandshakeTo(''); setHandshakeMessage('') }} style={{ background: 'transparent', border: theme === 'professional' ? '1px solid rgba(15,23,42,0.2)' : '1px solid rgba(255,255,255,0.2)', color: theme === 'professional' ? '#64748b' : 'rgba(255,255,255,0.7)', borderRadius: '6px', padding: '8px 16px', fontSize: '12px', cursor: 'pointer' }}>Clear</button>
+                  <button onClick={() => { if (handshakeDelivery === 'email' && !handshakeTo) { setNotification({ message: 'Please enter a recipient email', type: 'error' }); setTimeout(() => setNotification(null), 3000); return } console.log('[BEAP Message] Sending:', { method: handshakeDelivery, to: handshakeTo, message: handshakeMessage }); setNotification({ message: handshakeDelivery === 'download' ? 'Package downloaded!' : 'BEAP™ Message sent!', type: 'success' }); setTimeout(() => setNotification(null), 3000); setHandshakeTo(''); setHandshakeMessage('') }} style={{ background: 'linear-gradient(135deg, #a855f7 0%, #9333ea 100%)', border: 'none', color: 'white', borderRadius: '6px', padding: '8px 20px', fontSize: '12px', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}>{handshakeDelivery === 'email' ? '📧 Send' : handshakeDelivery === 'messenger' ? '💬 Insert' : '💾 Download'}</button>
+                </div>
+                  </>
                 )}
-                <div style={{ padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: '14px', flex: 1 }}>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', paddingBottom: '14px', borderBottom: theme === 'professional' ? '1px solid rgba(15,23,42,0.1)' : '1px solid rgba(255,255,255,0.1)' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                      <label style={{ fontSize: '13px', fontWeight: '600', opacity: 0.7, minWidth: '60px' }}>To:</label>
-                      <input type="email" className="mg-input" value={mailguardTo} onChange={(e) => setMailguardTo(e.target.value)} placeholder="recipient@example.com" style={{ flex: 1, background: theme === 'professional' ? '#ffffff' : 'rgba(255,255,255,0.08)', border: theme === 'professional' ? '1px solid rgba(15,23,42,0.15)' : '1px solid rgba(255,255,255,0.15)', color: theme === 'professional' ? '#0f172a' : 'white', borderRadius: '6px', padding: '10px 14px', fontSize: '14px', outline: 'none' }} />
-                    </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                      <label style={{ fontSize: '13px', fontWeight: '600', opacity: 0.7, minWidth: '60px' }}>Subject:</label>
-                      <input type="text" className="mg-input" value={mailguardSubject} onChange={(e) => setMailguardSubject(e.target.value)} placeholder="Email subject" style={{ flex: 1, background: theme === 'professional' ? '#ffffff' : 'rgba(255,255,255,0.08)', border: theme === 'professional' ? '1px solid rgba(15,23,42,0.15)' : '1px solid rgba(255,255,255,0.15)', color: theme === 'professional' ? '#0f172a' : 'white', borderRadius: '6px', padding: '10px 14px', fontSize: '14px', outline: 'none' }} />
-                    </div>
-                  </div>
-                  <div style={{ display: 'flex', flexDirection: 'column' }}>
-                    <textarea className="mg-textarea" value={mailguardBody} onChange={(e) => setMailguardBody(e.target.value)} placeholder="Compose your email message here..." style={{ background: theme === 'professional' ? '#ffffff' : 'rgba(255,255,255,0.06)', border: theme === 'professional' ? '1px solid rgba(15,23,42,0.15)' : '1px solid rgba(255,255,255,0.12)', color: theme === 'professional' ? '#0f172a' : 'white', borderRadius: '8px', padding: '14px 16px', fontSize: '14px', lineHeight: '1.6', height: `${mailguardBodyHeight}px`, resize: 'none', fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif', outline: 'none' }} />
-                    <div 
-                      onMouseDown={(e) => {
-                        e.preventDefault()
-                        mailguardResizeStartY.current = e.clientY
-                        mailguardResizeStartH.current = mailguardBodyHeight
-                        setIsResizingMailguard(true)
-                      }}
-                      style={{ height: '8px', background: theme === 'professional' ? '#e2e8f0' : 'rgba(255,255,255,0.15)', cursor: 'ns-resize', borderRadius: '4px', margin: '6px 0', opacity: 0.7 }}
-                      title="Drag to resize"
-                    />
-                  </div>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '4px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                      <span style={{ fontSize: '12px', fontWeight: '600', opacity: 0.7, display: 'flex', alignItems: 'center', gap: '6px' }}>
-                        <span>📎</span> Attachments <span style={{ fontSize: '10px', opacity: 0.6, fontWeight: '400' }}>(WR Stamped PDFs only)</span>
-                      </span>
-                      <input ref={mailguardFileRef} type="file" accept=".pdf" multiple style={{ display: 'none' }} onChange={(e) => { const files = Array.from(e.target.files || []); const pdfFiles = files.filter(f => f.type === 'application/pdf'); if (pdfFiles.length !== files.length) { setNotification({ message: 'Only PDF files are allowed', type: 'error' }); setTimeout(() => setNotification(null), 3000) } if (pdfFiles.length > 0) { setMailguardAttachments(prev => [...prev, ...pdfFiles.map(f => ({ name: f.name, size: f.size, file: f }))]) } if (e.target) e.target.value = '' }} />
-                      <button onClick={() => mailguardFileRef.current?.click()} style={{ background: theme === 'professional' ? '#e2e8f0' : 'rgba(255,255,255,0.12)', border: theme === 'professional' ? '1px solid rgba(15,23,42,0.15)' : '1px solid rgba(255,255,255,0.2)', color: theme === 'professional' ? '#0f172a' : 'white', borderRadius: '6px', padding: '8px 14px', fontSize: '12px', fontWeight: '500', cursor: 'pointer' }}>+ Add PDF</button>
-                    </div>
-                    {mailguardAttachments.length > 0 && (
-                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', padding: '8px 0' }}>
-                        {mailguardAttachments.map((att, idx) => (
-                          <div key={idx} style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', padding: '6px 10px', background: theme === 'professional' ? 'rgba(34,197,94,0.1)' : 'rgba(34,197,94,0.15)', border: '1px solid rgba(34,197,94,0.3)', borderRadius: '6px', fontSize: '12px' }}>
-                            <span>📄</span>
-                            <span style={{ maxWidth: '140px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{att.name}</span>
-                            <span style={{ opacity: 0.5, fontSize: '11px' }}>({(att.size / 1024).toFixed(0)} KB)</span>
-                            <button onClick={() => setMailguardAttachments(prev => prev.filter((_, i) => i !== idx))} style={{ background: 'transparent', border: 'none', color: theme === 'professional' ? '#64748b' : 'rgba(255,255,255,0.5)', borderRadius: '4px', width: '18px', height: '18px', cursor: 'pointer', fontSize: '14px', lineHeight: '1', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>×</button>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                </div>
-                <div style={{ padding: '14px 18px', borderTop: theme === 'professional' ? '1px solid rgba(15,23,42,0.1)' : '1px solid rgba(255,255,255,0.15)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: theme === 'professional' ? '#f1f5f9' : 'rgba(0,0,0,0.15)' }}>
-                  <button onClick={() => { setMailguardTo(''); setMailguardSubject(''); setMailguardBody(''); setMailguardAttachments([]) }} style={{ background: 'transparent', border: 'none', color: theme === 'professional' ? '#64748b' : 'rgba(255,255,255,0.6)', padding: '8px 12px', fontSize: '13px', cursor: 'pointer', textDecoration: 'underline', textUnderlineOffset: '2px' }}>Discard draft</button>
-                  <button onClick={() => { if (!mailguardTo.trim()) { setNotification({ message: 'Please enter a recipient', type: 'error' }); setTimeout(() => setNotification(null), 3000); return } if (!mailguardSubject.trim()) { setNotification({ message: 'Please enter a subject', type: 'error' }); setTimeout(() => setNotification(null), 3000); return } if (mailguardAttachments.length === 0) { setNotification({ message: 'Attach at least one WR stamped PDF', type: 'error' }); setTimeout(() => setNotification(null), 3000); return } console.log('[WR MailGuard] Sending:', { to: mailguardTo, subject: mailguardSubject, attachments: mailguardAttachments.map(a => a.name) }); setNotification({ message: 'Protected email queued', type: 'success' }); setTimeout(() => setNotification(null), 3000); setMailguardTo(''); setMailguardSubject(''); setMailguardBody(''); setMailguardAttachments([]) }} disabled={!mailguardTo.trim() || !mailguardSubject.trim() || mailguardAttachments.length === 0} style={{ background: (!mailguardTo.trim() || !mailguardSubject.trim() || mailguardAttachments.length === 0) ? (theme === 'professional' ? '#e2e8f0' : '#374151') : '#a855f7', border: 'none', color: (!mailguardTo.trim() || !mailguardSubject.trim() || mailguardAttachments.length === 0) ? (theme === 'professional' ? '#94a3b8' : '#6b7280') : 'white', borderRadius: '8px', padding: '12px 28px', fontSize: '14px', fontWeight: '600', cursor: (!mailguardTo.trim() || !mailguardSubject.trim() || mailguardAttachments.length === 0) ? 'not-allowed' : 'pointer', boxShadow: (!mailguardTo.trim() || !mailguardSubject.trim() || mailguardAttachments.length === 0) ? 'none' : '0 2px 8px rgba(168,85,247,0.4)', display: 'flex', alignItems: 'center', gap: '8px' }}>Send <span style={{ fontSize: '16px' }}>→</span></button>
-                </div>
               </div>
+            )}
+
+            {dockedWorkspace === 'wrguard' && (
+              /* WRGuard Workspace - Section 3 (Admin View) */
+              <WRGuardWorkspace theme={theme} />
             )}
 
             {/* Trigger Creation UI */}
@@ -7980,6 +8308,14 @@ height: '28px',
             </div>
           </div>
         </div>
+      )}
+
+      {/* Third Party Licenses Modal */}
+      {showThirdPartyLicenses && (
+        <ThirdPartyLicensesView
+          theme={theme}
+          onClose={() => setShowThirdPartyLicenses(false)}
+        />
       )}
 
       {/* Notification Toast */}
