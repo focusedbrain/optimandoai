@@ -16,3 +16,6 @@ export * from './microcopy'
 // Components
 export * from './components'
 
+// Store hooks
+export { useFullAutoStatus } from './useHandshakeStore'
+

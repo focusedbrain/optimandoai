@@ -35,5 +35,8 @@ export {
   EmailProvidersSection,
   ProtectedSitesSection,
   PoliciesOverviewSection,
-  RuntimeControlsSection
+  RuntimeControlsSection,
+  ProtectedSitesList,
+  RuntimeConfigLightbox,
+  FullAutoStatusBanner
 } from './components'

@@ -14,5 +14,12 @@ export default defineConfig({
       '@shared-extension': path.resolve(__dirname, '../../packages/shared-extension/src'),
       '@shared': path.resolve(__dirname, '../../packages/shared/src'),
     }
+  },
+  build: {
+    rollupOptions: {
+      input: {
+        'popup-chat': path.resolve(__dirname, 'src/popup-chat.html')
+      }
+    }
   }
 })
