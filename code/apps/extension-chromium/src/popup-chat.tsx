@@ -10,17 +10,16 @@
  * - beapSubmode: BEAP Messages views
  */
 
-import React, { useState, useEffect, useMemo } from 'react'
+import React, { useState, useEffect, useMemo, useRef } from 'react'
 import { createRoot } from 'react-dom/client'
 import { useUIStore } from './stores/useUIStore'
 import { 
   CommandChatView,
   P2PChatPlaceholder,
   P2PStreamPlaceholder,
-  GroupChatPlaceholder,
-  WRGuardSectionView,
-  BeapSectionView
+  GroupChatPlaceholder
 } from './ui/components'
+import { WRGuardWorkspace } from './wrguard'
 import { generateMockFingerprint, formatFingerprintShort, formatFingerprintGrouped } from './handshake/fingerprint'
 import { HANDSHAKE_REQUEST_TEMPLATE, POLICY_NOTES } from './handshake/microcopy'
 
@@ -97,23 +96,357 @@ function PopupChatApp() {
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [role, setRole])
 
+  // =========================================================================
+  // BEAP Messages State (mirrors docked sidepanel)
+  // =========================================================================
+  const [beapTo, setBeapTo] = useState('')
+  const [beapBody, setBeapBody] = useState('')
+  const [beapDeliveryMethod, setBeapDeliveryMethod] = useState<'email' | 'messenger' | 'download'>('email')
+  const [beapFingerprintCopied, setBeapFingerprintCopied] = useState(false)
+  
+  // =========================================================================
+  // BEAP Messages Content - Mirrors docked sidepanel exactly
+  // =========================================================================
+  const renderBeapMessagesContent = () => {
+    const isProfessional = theme === 'professional'
+    const textColor = isProfessional ? '#0f172a' : 'white'
+    const mutedColor = isProfessional ? '#64748b' : 'rgba(255,255,255,0.7)'
+    const borderColor = isProfessional ? 'rgba(15,23,42,0.1)' : 'rgba(255,255,255,0.1)'
+    const bgColor = theme === 'default' ? 'rgba(118,75,162,0.15)' : (isProfessional ? '#f8fafc' : 'rgba(255,255,255,0.04)')
+    const inputBg = isProfessional ? 'white' : 'rgba(255,255,255,0.08)'
+    
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', flex: 1, background: bgColor, overflowY: 'auto' }}>
+        <style>{`
+          .beap-input::placeholder, .beap-textarea::placeholder {
+            color: ${isProfessional ? '#64748b' : 'rgba(255,255,255,0.5)'};
+            opacity: 1;
+          }
+        `}</style>
+        
+        {/* ========================================== */}
+        {/* INBOX VIEW - Placeholder (same as docked) */}
+        {/* ========================================== */}
+        {beapSubmode === 'inbox' && (
+          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '40px 20px', textAlign: 'center' }}>
+            <span style={{ fontSize: '48px', marginBottom: '16px' }}>📥</span>
+            <div style={{ fontSize: '18px', fontWeight: '600', color: textColor, marginBottom: '8px' }}>BEAP Inbox</div>
+            <div style={{ fontSize: '13px', color: mutedColor, maxWidth: '280px' }}>
+              Received BEAP™ packages will appear here. All packages are verified before display.
+            </div>
+          </div>
+        )}
+        
+        {/* ========================================== */}
+        {/* OUTBOX VIEW - Placeholder (same as docked) */}
+        {/* ========================================== */}
+        {beapSubmode === 'outbox' && (
+          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '40px 20px', textAlign: 'center' }}>
+            <span style={{ fontSize: '48px', marginBottom: '16px' }}>📤</span>
+            <div style={{ fontSize: '18px', fontWeight: '600', color: textColor, marginBottom: '8px' }}>BEAP Outbox</div>
+            <div style={{ fontSize: '13px', color: mutedColor, maxWidth: '280px' }}>
+              Packages pending delivery. Monitor send status and delivery confirmations.
+            </div>
+          </div>
+        )}
+        
+        {/* ========================================== */}
+        {/* ARCHIVED VIEW - Placeholder (same as docked) */}
+        {/* ========================================== */}
+        {beapSubmode === 'archived' && (
+          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '40px 20px', textAlign: 'center' }}>
+            <span style={{ fontSize: '48px', marginBottom: '16px' }}>📁</span>
+            <div style={{ fontSize: '18px', fontWeight: '600', color: textColor, marginBottom: '8px' }}>Archived Packages</div>
+            <div style={{ fontSize: '13px', color: mutedColor, maxWidth: '280px' }}>
+              Successfully executed packages are archived here for reference.
+            </div>
+          </div>
+        )}
+        
+        {/* ========================================== */}
+        {/* REJECTED VIEW - Placeholder (same as docked) */}
+        {/* ========================================== */}
+        {beapSubmode === 'rejected' && (
+          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '40px 20px', textAlign: 'center' }}>
+            <span style={{ fontSize: '48px', marginBottom: '16px' }}>🚫</span>
+            <div style={{ fontSize: '18px', fontWeight: '600', color: textColor, marginBottom: '8px' }}>Rejected Packages</div>
+            <div style={{ fontSize: '13px', color: mutedColor, maxWidth: '280px' }}>
+              Rejected packages that failed verification or were declined by the user.
+            </div>
+          </div>
+        )}
+        
+        {/* ========================================== */}
+        {/* DRAFT VIEW - Full Compose UI (same as docked) */}
+        {/* ========================================== */}
+        {beapSubmode === 'draft' && (
+          <>
+            {/* Email Accounts Section */}
+            <div style={{ 
+              padding: '16px 18px', 
+              borderBottom: `1px solid ${borderColor}`,
+              background: isProfessional ? 'rgba(59,130,246,0.05)' : 'rgba(59,130,246,0.1)'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span style={{ fontSize: '16px' }}>🔗</span>
+                  <span style={{ fontSize: '13px', fontWeight: '600', color: textColor }}>Connected Email Accounts</span>
+                </div>
+                <button
+                  style={{
+                    background: 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)',
+                    border: 'none',
+                    color: 'white',
+                    borderRadius: '6px',
+                    padding: '6px 12px',
+                    fontSize: '11px',
+                    fontWeight: '600',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '4px'
+                  }}
+                >
+                  <span>+</span> Connect Email
+                </button>
+              </div>
+              
+              <div style={{ 
+                padding: '20px', 
+                background: isProfessional ? 'white' : 'rgba(255,255,255,0.05)',
+                borderRadius: '8px',
+                border: isProfessional ? '1px dashed rgba(15,23,42,0.2)' : '1px dashed rgba(255,255,255,0.2)',
+                textAlign: 'center'
+              }}>
+                <div style={{ fontSize: '24px', marginBottom: '8px' }}>📧</div>
+                <div style={{ fontSize: '13px', color: mutedColor, marginBottom: '4px' }}>No email accounts connected</div>
+                <div style={{ fontSize: '11px', color: isProfessional ? '#94a3b8' : 'rgba(255,255,255,0.5)' }}>
+                  Connect your email account to send BEAP™ messages
+                </div>
+              </div>
+            </div>
+            
+            {/* BEAP™ Message Header */}
+            <div style={{ padding: '12px 14px', borderBottom: `1px solid ${borderColor}`, display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <span style={{ fontSize: '18px' }}>📦</span>
+              <span style={{ fontSize: '13px', fontWeight: '600', color: textColor }}>BEAP™ Message</span>
+            </div>
+            
+            {/* Compose Fields */}
+            <div style={{ flex: 1, padding: '14px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              {/* Your Fingerprint - PROMINENT */}
+              <div style={{
+                background: isProfessional ? 'rgba(59,130,246,0.08)' : 'rgba(59,130,246,0.15)',
+                border: isProfessional ? '1px solid rgba(59,130,246,0.2)' : '1px solid rgba(59,130,246,0.3)',
+                borderRadius: '8px',
+                padding: '12px',
+              }}>
+                <div style={{ fontSize: '10px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px', color: isProfessional ? '#3b82f6' : '#93c5fd', marginBottom: '6px' }}>
+                  Your Fingerprint
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <code style={{ 
+                    flex: 1,
+                    fontSize: '13px', 
+                    fontFamily: 'monospace',
+                    color: isProfessional ? '#1e40af' : '#bfdbfe',
+                    wordBreak: 'break-all'
+                  }}>
+                    {ourFingerprintShort}
+                  </code>
+                  <button
+                    onClick={() => {
+                      navigator.clipboard.writeText(ourFingerprint)
+                      setBeapFingerprintCopied(true)
+                      setTimeout(() => setBeapFingerprintCopied(false), 2000)
+                    }}
+                    style={{
+                      background: beapFingerprintCopied ? '#22c55e' : (isProfessional ? '#3b82f6' : 'rgba(59,130,246,0.5)'),
+                      border: 'none',
+                      color: 'white',
+                      borderRadius: '4px',
+                      padding: '4px 8px',
+                      fontSize: '10px',
+                      cursor: 'pointer',
+                      fontWeight: 600
+                    }}
+                  >
+                    {beapFingerprintCopied ? '✓ Copied' : 'Copy'}
+                  </button>
+                </div>
+              </div>
+              
+              {/* Delivery Method */}
+              <div>
+                <label style={{ fontSize: '11px', fontWeight: 600, marginBottom: '6px', display: 'block', color: mutedColor, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                  Delivery Method
+                </label>
+                <select
+                  value={beapDeliveryMethod}
+                  onChange={(e) => setBeapDeliveryMethod(e.target.value as 'email' | 'messenger' | 'download')}
+                  style={{
+                    width: '100%',
+                    background: isProfessional ? 'white' : 'rgba(255,255,255,0.1)',
+                    border: isProfessional ? '1px solid rgba(15,23,42,0.2)' : '1px solid rgba(255,255,255,0.2)',
+                    color: textColor,
+                    borderRadius: '6px',
+                    padding: '8px 12px',
+                    fontSize: '13px',
+                    cursor: 'pointer',
+                    outline: 'none'
+                  }}
+                >
+                  <option value="email" style={{ background: isProfessional ? 'white' : '#1f2937' }}>📧 Email</option>
+                  <option value="messenger" style={{ background: isProfessional ? 'white' : '#1f2937' }}>💬 Messenger (Web)</option>
+                  <option value="download" style={{ background: isProfessional ? 'white' : '#1f2937' }}>💾 Download (USB/wallet)</option>
+                </select>
+              </div>
+              
+              {/* To Field - Only for Email */}
+              {beapDeliveryMethod === 'email' && (
+                <div>
+                  <label style={{ fontSize: '11px', fontWeight: 600, marginBottom: '6px', display: 'block', color: mutedColor, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                    To
+                  </label>
+                  <input
+                    type="email"
+                    value={beapTo}
+                    onChange={(e) => setBeapTo(e.target.value)}
+                    placeholder="recipient@example.com"
+                    className="beap-input"
+                    style={{
+                      width: '100%',
+                      background: isProfessional ? 'white' : 'rgba(255,255,255,0.1)',
+                      border: isProfessional ? '1px solid rgba(15,23,42,0.2)' : '1px solid rgba(255,255,255,0.2)',
+                      color: textColor,
+                      borderRadius: '6px',
+                      padding: '8px 12px',
+                      fontSize: '13px',
+                      outline: 'none',
+                      boxSizing: 'border-box'
+                    }}
+                  />
+                </div>
+              )}
+              
+              {/* Message Content */}
+              <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+                <label style={{ fontSize: '11px', fontWeight: 600, marginBottom: '6px', display: 'block', color: mutedColor, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                  Message
+                </label>
+                <textarea
+                  value={beapBody}
+                  onChange={(e) => setBeapBody(e.target.value)}
+                  placeholder="Compose your BEAP™ message..."
+                  className="beap-textarea"
+                  style={{
+                    flex: 1,
+                    minHeight: '120px',
+                    background: isProfessional ? 'white' : 'rgba(255,255,255,0.08)',
+                    border: isProfessional ? '1px solid rgba(15,23,42,0.2)' : '1px solid rgba(255,255,255,0.15)',
+                    color: textColor,
+                    borderRadius: '6px',
+                    padding: '10px 12px',
+                    fontSize: '12px',
+                    lineHeight: '1.5',
+                    resize: 'none',
+                    outline: 'none',
+                    fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+                    boxSizing: 'border-box'
+                  }}
+                />
+              </div>
+              
+              {/* Info */}
+              <div style={{
+                fontSize: '11px',
+                padding: '10px',
+                background: isProfessional ? 'rgba(168,85,247,0.08)' : 'rgba(168,85,247,0.15)',
+                borderRadius: '6px',
+                color: mutedColor
+              }}>
+                💡 This creates a secure BEAP™ package with your fingerprint. Your identity will be verifiable by the recipient.
+              </div>
+            </div>
+            
+            {/* Action Buttons */}
+            <div style={{
+              padding: '12px 14px',
+              borderTop: isProfessional ? '1px solid rgba(15,23,42,0.1)' : '1px solid rgba(255,255,255,0.1)',
+              display: 'flex',
+              justifyContent: 'flex-end',
+              gap: '8px',
+              background: isProfessional ? '#f8fafc' : 'rgba(0,0,0,0.2)'
+            }}>
+              <button 
+                onClick={() => {
+                  setBeapTo('')
+                  setBeapBody('')
+                }}
+                style={{
+                  background: 'transparent',
+                  border: isProfessional ? '1px solid rgba(15,23,42,0.2)' : '1px solid rgba(255,255,255,0.2)',
+                  color: isProfessional ? '#64748b' : 'rgba(255,255,255,0.7)',
+                  borderRadius: '6px',
+                  padding: '8px 16px',
+                  fontSize: '12px',
+                  cursor: 'pointer'
+                }}
+              >
+                Clear
+              </button>
+              <button 
+                onClick={() => {
+                  if (beapDeliveryMethod === 'email' && !beapTo.trim()) {
+                    alert('Please enter a recipient email address')
+                    return
+                  }
+                  // Handle send based on delivery method
+                  const actionText = beapDeliveryMethod === 'download' ? 'Package downloaded!' : 
+                                     beapDeliveryMethod === 'messenger' ? 'Payload copied to clipboard!' : 
+                                     'Message sent!';
+                  alert(`BEAP™ ${actionText}`)
+                  setBeapTo('')
+                  setBeapBody('')
+                }}
+                style={{
+                  background: 'linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%)',
+                  border: 'none',
+                  color: 'white',
+                  borderRadius: '6px',
+                  padding: '8px 16px',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px'
+                }}
+              >
+                {beapDeliveryMethod === 'download' ? '💾 Download' : beapDeliveryMethod === 'messenger' ? '💬 Copy Payload' : '📤 Send'}
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    )
+  }
+
   // Render the appropriate view based on workspace - MIRRORS docked exactly
   const renderContent = () => {
-    // WRGuard workspace - full functionality
+    const isProfessional = theme === 'professional'
+    const textColor = isProfessional ? '#0f172a' : 'white'
+    const mutedColor = isProfessional ? '#64748b' : 'rgba(255,255,255,0.7)'
+    const bgColor = isProfessional ? '#f8fafc' : 'rgba(255,255,255,0.04)'
+    
+    // WRGuard workspace - full functionality using WRGuardWorkspace
     if (dockedWorkspace === 'wrguard') {
-      return <WRGuardSectionView theme={theme} />
+      return <WRGuardWorkspace theme={theme} />
     }
     
-    // BEAP Messages workspace - full functionality
+    // BEAP Messages workspace - simple inline views
     if (dockedWorkspace === 'beap-messages') {
-      return (
-        <BeapSectionView 
-          section={beapSubmode === 'draft' ? 'drafts' : beapSubmode === 'archived' ? 'archive' : beapSubmode}
-          theme={theme}
-          emailAccounts={[]}
-          onNotification={(msg, type) => console.log(`[${type}] ${msg}`)}
-        />
-      )
+      return renderBeapMessagesContent()
     }
     
     // Augmented Overlay workspace
@@ -127,12 +460,12 @@ function PopupChatApp() {
           justifyContent: 'center', 
           padding: '40px 20px', 
           textAlign: 'center',
-          background: theme === 'default' ? 'rgba(118,75,162,0.25)' : (theme === 'professional' ? '#f8fafc' : 'rgba(255,255,255,0.06)')
+          background: theme === 'default' ? 'rgba(118,75,162,0.25)' : (isProfessional ? '#f8fafc' : 'rgba(255,255,255,0.06)')
         }}>
           <span style={{ fontSize: '24px', marginBottom: '12px' }}>🎯</span>
           <span style={{ 
             fontSize: '13px', 
-            color: theme === 'professional' ? '#64748b' : 'rgba(255,255,255,0.8)',
+            color: mutedColor,
             maxWidth: '280px'
           }}>
             Point with the cursor or select elements in order to ask questions or trigger automations directly in the UI.

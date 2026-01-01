@@ -130,6 +130,11 @@ function SidepanelOrchestrator() {
   useEffect(() => {
     setHandshakeMessage(HANDSHAKE_REQUEST_TEMPLATE.replace('[FINGERPRINT]', ourFingerprint))
   }, [ourFingerprint])
+  
+  // BEAP Draft message state (separate from handshake message)
+  const [beapDraftMessage, setBeapDraftMessage] = useState('')
+  const [beapDraftTo, setBeapDraftTo] = useState('')
+  
   const [isResizingMailguard, setIsResizingMailguard] = useState(false)
   const mailguardFileRef = useRef<HTMLInputElement>(null)
   
@@ -4329,8 +4334,8 @@ function SidepanelOrchestrator() {
                           <input
                             type="email"
                             className="beap-input"
-                            value={handshakeTo}
-                            onChange={(e) => setHandshakeTo(e.target.value)}
+                            value={beapDraftTo}
+                            onChange={(e) => setBeapDraftTo(e.target.value)}
                             placeholder="recipient@example.com"
                             style={{
                               width: '100%',
@@ -4354,8 +4359,8 @@ function SidepanelOrchestrator() {
                       </label>
                       <textarea
                         className="beap-textarea"
-                        value={handshakeMessage}
-                        onChange={(e) => setHandshakeMessage(e.target.value)}
+                        value={beapDraftMessage}
+                        onChange={(e) => setBeapDraftMessage(e.target.value)}
                         placeholder="Compose your BEAP™ message..."
                         style={{
                           flex: 1,
@@ -5717,17 +5722,17 @@ height: '28px',
                   {handshakeDelivery === 'email' && (
                     <div>
                       <label style={{ fontSize: '11px', fontWeight: 600, marginBottom: '6px', display: 'block', color: theme === 'professional' ? '#6b7280' : 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>To</label>
-                      <input type="email" className="beap-input" value={handshakeTo} onChange={(e) => setHandshakeTo(e.target.value)} placeholder="recipient@example.com" style={{ width: '100%', background: theme === 'professional' ? 'white' : 'rgba(255,255,255,0.1)', border: theme === 'professional' ? '1px solid rgba(15,23,42,0.2)' : '1px solid rgba(255,255,255,0.2)', color: theme === 'professional' ? '#0f172a' : 'white', borderRadius: '6px', padding: '8px 12px', fontSize: '13px', outline: 'none' }} />
+                      <input type="email" className="beap-input" value={beapDraftTo} onChange={(e) => setBeapDraftTo(e.target.value)} placeholder="recipient@example.com" style={{ width: '100%', background: theme === 'professional' ? 'white' : 'rgba(255,255,255,0.1)', border: theme === 'professional' ? '1px solid rgba(15,23,42,0.2)' : '1px solid rgba(255,255,255,0.2)', color: theme === 'professional' ? '#0f172a' : 'white', borderRadius: '6px', padding: '8px 12px', fontSize: '13px', outline: 'none' }} />
                     </div>
                   )}
                   <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
                     <label style={{ fontSize: '11px', fontWeight: 600, marginBottom: '6px', display: 'block', color: theme === 'professional' ? '#6b7280' : 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Message</label>
-                    <textarea className="beap-textarea" value={handshakeMessage} onChange={(e) => setHandshakeMessage(e.target.value)} placeholder="Compose your BEAP™ message..." style={{ flex: 1, minHeight: '120px', background: theme === 'professional' ? 'white' : 'rgba(255,255,255,0.08)', border: theme === 'professional' ? '1px solid rgba(15,23,42,0.2)' : '1px solid rgba(255,255,255,0.15)', color: theme === 'professional' ? '#0f172a' : 'white', borderRadius: '6px', padding: '10px 12px', fontSize: '12px', lineHeight: '1.5', resize: 'none', outline: 'none', fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif' }} />
+                    <textarea className="beap-textarea" value={beapDraftMessage} onChange={(e) => setBeapDraftMessage(e.target.value)} placeholder="Compose your BEAP™ message..." style={{ flex: 1, minHeight: '120px', background: theme === 'professional' ? 'white' : 'rgba(255,255,255,0.08)', border: theme === 'professional' ? '1px solid rgba(15,23,42,0.2)' : '1px solid rgba(255,255,255,0.15)', color: theme === 'professional' ? '#0f172a' : 'white', borderRadius: '6px', padding: '10px 12px', fontSize: '12px', lineHeight: '1.5', resize: 'none', outline: 'none', fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif' }} />
                   </div>
                 </div>
                 <div style={{ padding: '12px 14px', borderTop: theme === 'professional' ? '1px solid rgba(15,23,42,0.1)' : '1px solid rgba(255,255,255,0.1)', display: 'flex', justifyContent: 'flex-end', gap: '8px', background: theme === 'professional' ? '#f8fafc' : 'rgba(0,0,0,0.2)' }}>
-                  <button onClick={() => { setHandshakeTo(''); setHandshakeMessage('') }} style={{ background: 'transparent', border: theme === 'professional' ? '1px solid rgba(15,23,42,0.2)' : '1px solid rgba(255,255,255,0.2)', color: theme === 'professional' ? '#64748b' : 'rgba(255,255,255,0.7)', borderRadius: '6px', padding: '8px 16px', fontSize: '12px', cursor: 'pointer' }}>Clear</button>
-                  <button onClick={() => { if (handshakeDelivery === 'email' && !handshakeTo) { setNotification({ message: 'Please enter a recipient email', type: 'error' }); setTimeout(() => setNotification(null), 3000); return } console.log('[BEAP Message] Sending:', { method: handshakeDelivery, to: handshakeTo, message: handshakeMessage }); setNotification({ message: handshakeDelivery === 'download' ? 'Package downloaded!' : 'BEAP™ Message sent!', type: 'success' }); setTimeout(() => setNotification(null), 3000); setHandshakeTo(''); setHandshakeMessage('') }} style={{ background: 'linear-gradient(135deg, #a855f7 0%, #9333ea 100%)', border: 'none', color: 'white', borderRadius: '6px', padding: '8px 20px', fontSize: '12px', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}>{handshakeDelivery === 'email' ? '📧 Send' : handshakeDelivery === 'messenger' ? '💬 Insert' : '💾 Download'}</button>
+                  <button onClick={() => { setBeapDraftTo(''); setBeapDraftMessage('') }} style={{ background: 'transparent', border: theme === 'professional' ? '1px solid rgba(15,23,42,0.2)' : '1px solid rgba(255,255,255,0.2)', color: theme === 'professional' ? '#64748b' : 'rgba(255,255,255,0.7)', borderRadius: '6px', padding: '8px 16px', fontSize: '12px', cursor: 'pointer' }}>Clear</button>
+                  <button onClick={() => { if (handshakeDelivery === 'email' && !beapDraftTo) { setNotification({ message: 'Please enter a recipient email', type: 'error' }); setTimeout(() => setNotification(null), 3000); return } console.log('[BEAP Message] Sending:', { method: handshakeDelivery, to: beapDraftTo, message: beapDraftMessage }); setNotification({ message: handshakeDelivery === 'download' ? 'Package downloaded!' : 'BEAP™ Message sent!', type: 'success' }); setTimeout(() => setNotification(null), 3000); setBeapDraftTo(''); setBeapDraftMessage('') }} style={{ background: 'linear-gradient(135deg, #a855f7 0%, #9333ea 100%)', border: 'none', color: 'white', borderRadius: '6px', padding: '8px 20px', fontSize: '12px', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}>{handshakeDelivery === 'email' ? '📧 Send' : handshakeDelivery === 'messenger' ? '💬 Insert' : '💾 Download'}</button>
                 </div>
                   </>
                 )}
@@ -6926,17 +6931,17 @@ height: '28px',
                   {handshakeDelivery === 'email' && (
                     <div>
                       <label style={{ fontSize: '11px', fontWeight: 600, marginBottom: '6px', display: 'block', color: theme === 'professional' ? '#6b7280' : 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>To</label>
-                      <input type="email" className="beap-input" value={handshakeTo} onChange={(e) => setHandshakeTo(e.target.value)} placeholder="recipient@example.com" style={{ width: '100%', background: theme === 'professional' ? 'white' : 'rgba(255,255,255,0.1)', border: theme === 'professional' ? '1px solid rgba(15,23,42,0.2)' : '1px solid rgba(255,255,255,0.2)', color: theme === 'professional' ? '#0f172a' : 'white', borderRadius: '6px', padding: '8px 12px', fontSize: '13px', outline: 'none' }} />
+                      <input type="email" className="beap-input" value={beapDraftTo} onChange={(e) => setBeapDraftTo(e.target.value)} placeholder="recipient@example.com" style={{ width: '100%', background: theme === 'professional' ? 'white' : 'rgba(255,255,255,0.1)', border: theme === 'professional' ? '1px solid rgba(15,23,42,0.2)' : '1px solid rgba(255,255,255,0.2)', color: theme === 'professional' ? '#0f172a' : 'white', borderRadius: '6px', padding: '8px 12px', fontSize: '13px', outline: 'none' }} />
                     </div>
                   )}
                   <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
                     <label style={{ fontSize: '11px', fontWeight: 600, marginBottom: '6px', display: 'block', color: theme === 'professional' ? '#6b7280' : 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Message</label>
-                    <textarea className="beap-textarea" value={handshakeMessage} onChange={(e) => setHandshakeMessage(e.target.value)} placeholder="Compose your BEAP™ message..." style={{ flex: 1, minHeight: '120px', background: theme === 'professional' ? 'white' : 'rgba(255,255,255,0.08)', border: theme === 'professional' ? '1px solid rgba(15,23,42,0.2)' : '1px solid rgba(255,255,255,0.15)', color: theme === 'professional' ? '#0f172a' : 'white', borderRadius: '6px', padding: '10px 12px', fontSize: '12px', lineHeight: '1.5', resize: 'none', outline: 'none', fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif' }} />
+                    <textarea className="beap-textarea" value={beapDraftMessage} onChange={(e) => setBeapDraftMessage(e.target.value)} placeholder="Compose your BEAP™ message..." style={{ flex: 1, minHeight: '120px', background: theme === 'professional' ? 'white' : 'rgba(255,255,255,0.08)', border: theme === 'professional' ? '1px solid rgba(15,23,42,0.2)' : '1px solid rgba(255,255,255,0.15)', color: theme === 'professional' ? '#0f172a' : 'white', borderRadius: '6px', padding: '10px 12px', fontSize: '12px', lineHeight: '1.5', resize: 'none', outline: 'none', fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif' }} />
                   </div>
                 </div>
                 <div style={{ padding: '12px 14px', borderTop: theme === 'professional' ? '1px solid rgba(15,23,42,0.1)' : '1px solid rgba(255,255,255,0.1)', display: 'flex', justifyContent: 'flex-end', gap: '8px', background: theme === 'professional' ? '#f8fafc' : 'rgba(0,0,0,0.2)' }}>
-                  <button onClick={() => { setHandshakeTo(''); setHandshakeMessage('') }} style={{ background: 'transparent', border: theme === 'professional' ? '1px solid rgba(15,23,42,0.2)' : '1px solid rgba(255,255,255,0.2)', color: theme === 'professional' ? '#64748b' : 'rgba(255,255,255,0.7)', borderRadius: '6px', padding: '8px 16px', fontSize: '12px', cursor: 'pointer' }}>Clear</button>
-                  <button onClick={() => { if (handshakeDelivery === 'email' && !handshakeTo) { setNotification({ message: 'Please enter a recipient email', type: 'error' }); setTimeout(() => setNotification(null), 3000); return } console.log('[BEAP Message] Sending:', { method: handshakeDelivery, to: handshakeTo, message: handshakeMessage }); setNotification({ message: handshakeDelivery === 'download' ? 'Package downloaded!' : 'BEAP™ Message sent!', type: 'success' }); setTimeout(() => setNotification(null), 3000); setHandshakeTo(''); setHandshakeMessage('') }} style={{ background: 'linear-gradient(135deg, #a855f7 0%, #9333ea 100%)', border: 'none', color: 'white', borderRadius: '6px', padding: '8px 20px', fontSize: '12px', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}>{handshakeDelivery === 'email' ? '📧 Send' : handshakeDelivery === 'messenger' ? '💬 Insert' : '💾 Download'}</button>
+                  <button onClick={() => { setBeapDraftTo(''); setBeapDraftMessage('') }} style={{ background: 'transparent', border: theme === 'professional' ? '1px solid rgba(15,23,42,0.2)' : '1px solid rgba(255,255,255,0.2)', color: theme === 'professional' ? '#64748b' : 'rgba(255,255,255,0.7)', borderRadius: '6px', padding: '8px 16px', fontSize: '12px', cursor: 'pointer' }}>Clear</button>
+                  <button onClick={() => { if (handshakeDelivery === 'email' && !beapDraftTo) { setNotification({ message: 'Please enter a recipient email', type: 'error' }); setTimeout(() => setNotification(null), 3000); return } console.log('[BEAP Message] Sending:', { method: handshakeDelivery, to: beapDraftTo, message: beapDraftMessage }); setNotification({ message: handshakeDelivery === 'download' ? 'Package downloaded!' : 'BEAP™ Message sent!', type: 'success' }); setTimeout(() => setNotification(null), 3000); setBeapDraftTo(''); setBeapDraftMessage('') }} style={{ background: 'linear-gradient(135deg, #a855f7 0%, #9333ea 100%)', border: 'none', color: 'white', borderRadius: '6px', padding: '8px 20px', fontSize: '12px', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}>{handshakeDelivery === 'email' ? '📧 Send' : handshakeDelivery === 'messenger' ? '💬 Insert' : '💾 Download'}</button>
                 </div>
                   </>
                 )}

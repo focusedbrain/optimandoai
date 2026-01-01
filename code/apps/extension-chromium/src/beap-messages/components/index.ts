@@ -11,4 +11,5 @@ export { BeapMessagePreview } from './BeapMessagePreview'
 export { OutboxMessagePreview } from './OutboxMessagePreview'
 export { InboxMessagePreview } from './InboxMessagePreview'
 export { RejectedMessagePreview } from './RejectedMessagePreview'
+export { BeapDraftComposer } from './BeapDraftComposer'
 

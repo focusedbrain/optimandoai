@@ -26,7 +26,8 @@ export {
   BeapMessageListView, 
   BeapMessageRow, 
   BeapMessagePreview,
-  OutboxMessagePreview
+  OutboxMessagePreview,
+  BeapDraftComposer
 } from './components'
 
 // Seed data (for development)
