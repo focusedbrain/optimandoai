@@ -174,12 +174,14 @@ export const WRGuardWorkspace: React.FC<WRGuardWorkspaceProps> = ({
                 padding: '12px 16px',
                 fontSize: '12px',
                 fontWeight: isActive ? 600 : 400,
-                background: 'transparent',
+                background: isActive 
+                  ? (isProfessional ? 'rgba(139,92,246,0.1)' : 'rgba(139,92,246,0.2)')
+                  : 'transparent',
                 border: 'none',
                 borderBottom: isActive
                   ? '2px solid #8b5cf6'
                   : '2px solid transparent',
-                color: isActive ? '#8b5cf6' : mutedColor,
+                color: isActive ? textColor : mutedColor,
                 cursor: 'pointer',
                 transition: 'all 0.15s ease',
                 marginBottom: '-1px'

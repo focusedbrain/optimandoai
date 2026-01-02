@@ -3574,6 +3574,83 @@ function SidepanelOrchestrator() {
                     <span style={{ fontSize: '13px', fontWeight: '600', color: theme === 'professional' ? '#1f2937' : 'white' }}>BEAP™ Handshake Request</span>
                   </div>
                   
+                  {/* DELIVERY METHOD - FIRST */}
+                  <div style={{ padding: '14px 18px', borderBottom: theme === 'professional' ? '1px solid rgba(15,23,42,0.1)' : '1px solid rgba(255,255,255,0.1)' }}>
+                    <label style={{ fontSize: '11px', fontWeight: 600, marginBottom: '6px', display: 'block', color: theme === 'professional' ? '#6b7280' : 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                      Delivery Method
+                    </label>
+                    <select
+                      value={handshakeDelivery}
+                      onChange={(e) => setHandshakeDelivery(e.target.value as 'email' | 'messenger' | 'download')}
+                      style={{
+                        width: '100%',
+                        padding: '10px 12px',
+                        background: theme === 'professional' ? 'white' : '#1f2937',
+                        border: `1px solid ${theme === 'professional' ? 'rgba(0,0,0,0.15)' : 'rgba(255,255,255,0.15)'}`,
+                        borderRadius: '8px',
+                        color: theme === 'professional' ? '#1f2937' : 'white',
+                        fontSize: '13px',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      <option value="email" style={{ background: theme === 'professional' ? 'white' : '#1f2937', color: theme === 'professional' ? '#1f2937' : 'white' }}>📧 Email</option>
+                      <option value="messenger" style={{ background: theme === 'professional' ? 'white' : '#1f2937', color: theme === 'professional' ? '#1f2937' : 'white' }}>💬 Messenger (Web)</option>
+                      <option value="download" style={{ background: theme === 'professional' ? 'white' : '#1f2937', color: theme === 'professional' ? '#1f2937' : 'white' }}>💾 Download (USB/Wallet)</option>
+                    </select>
+                  </div>
+                  
+                  {/* EMAIL ACCOUNTS SECTION - Only visible when email delivery selected */}
+                  {handshakeDelivery === 'email' && (
+                  <div style={{ 
+                    padding: '16px 18px', 
+                    borderBottom: theme === 'professional' ? '1px solid rgba(15,23,42,0.1)' : '1px solid rgba(255,255,255,0.1)',
+                    background: theme === 'professional' ? 'rgba(139,92,246,0.05)' : 'rgba(139,92,246,0.1)'
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <span style={{ fontSize: '16px' }}>🔗</span>
+                        <span style={{ fontSize: '13px', fontWeight: '600', color: theme === 'professional' ? '#0f172a' : 'white' }}>Connected Email Accounts</span>
+                      </div>
+                      <button onClick={() => setShowEmailSetupWizard(true)} style={{ background: 'linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%)', border: 'none', color: 'white', borderRadius: '6px', padding: '6px 12px', fontSize: '11px', fontWeight: '600', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}><span>+</span> Connect Email</button>
+                    </div>
+                    {isLoadingEmailAccounts ? (
+                      <div style={{ padding: '12px', textAlign: 'center', opacity: 0.6, fontSize: '12px' }}>Loading accounts...</div>
+                    ) : emailAccounts.length === 0 ? (
+                      <div style={{ padding: '20px', background: theme === 'professional' ? 'white' : 'rgba(255,255,255,0.05)', borderRadius: '8px', border: theme === 'professional' ? '1px dashed rgba(15,23,42,0.2)' : '1px dashed rgba(255,255,255,0.2)', textAlign: 'center' }}>
+                        <div style={{ fontSize: '24px', marginBottom: '8px' }}>📧</div>
+                        <div style={{ fontSize: '13px', color: theme === 'professional' ? '#64748b' : 'rgba(255,255,255,0.7)', marginBottom: '4px' }}>No email accounts connected</div>
+                        <div style={{ fontSize: '11px', color: theme === 'professional' ? '#94a3b8' : 'rgba(255,255,255,0.5)' }}>Connect your email to send handshake requests</div>
+                      </div>
+                    ) : (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                        {emailAccounts.map(account => (
+                          <div key={account.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 12px', background: theme === 'professional' ? 'white' : 'rgba(255,255,255,0.08)', borderRadius: '8px', border: account.status === 'active' ? (theme === 'professional' ? '1px solid rgba(34,197,94,0.3)' : '1px solid rgba(34,197,94,0.4)') : (theme === 'professional' ? '1px solid rgba(239,68,68,0.3)' : '1px solid rgba(239,68,68,0.4)') }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                              <span style={{ fontSize: '18px' }}>{account.provider === 'gmail' ? '📧' : account.provider === 'microsoft365' ? '📨' : '✉️'}</span>
+                              <div>
+                                <div style={{ fontSize: '13px', fontWeight: '500', color: theme === 'professional' ? '#0f172a' : 'white' }}>{account.email || account.displayName}</div>
+                                <div style={{ fontSize: '10px', display: 'flex', alignItems: 'center', gap: '6px', marginTop: '2px' }}>
+                                  <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: account.status === 'active' ? '#22c55e' : '#ef4444' }} />
+                                  <span style={{ color: theme === 'professional' ? '#64748b' : 'rgba(255,255,255,0.6)' }}>{account.status === 'active' ? 'Connected' : account.lastError || 'Error'}</span>
+                                </div>
+                              </div>
+                            </div>
+                            <button onClick={() => disconnectEmailAccount(account.id)} title="Disconnect" style={{ background: 'transparent', border: 'none', color: theme === 'professional' ? '#94a3b8' : 'rgba(255,255,255,0.5)', cursor: 'pointer', padding: '4px', fontSize: '14px' }}>✕</button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {emailAccounts.length > 0 && (
+                      <div style={{ marginTop: '12px' }}>
+                        <label style={{ fontSize: '11px', fontWeight: 600, marginBottom: '6px', display: 'block', color: theme === 'professional' ? '#6b7280' : 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Send From:</label>
+                        <select value={selectedEmailAccountId || emailAccounts[0]?.id || ''} onChange={(e) => setSelectedEmailAccountId(e.target.value)} style={{ width: '100%', background: theme === 'professional' ? 'white' : 'rgba(255,255,255,0.1)', border: theme === 'professional' ? '1px solid rgba(15,23,42,0.2)' : '1px solid rgba(255,255,255,0.2)', color: theme === 'professional' ? '#0f172a' : 'white', borderRadius: '6px', padding: '8px 12px', fontSize: '13px', cursor: 'pointer', outline: 'none' }}>
+                          {emailAccounts.map(account => (<option key={account.id} value={account.id}>{account.email || account.displayName} ({account.provider})</option>))}
+                        </select>
+                      </div>
+                    )}
+                  </div>
+                  )}
+                  
                   <div style={{ flex: 1, padding: '14px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '12px' }}>
                     {/* Your Fingerprint - PROMINENT */}
                     <div style={{
@@ -3645,31 +3722,6 @@ function SidepanelOrchestrator() {
                       }}>
                         Short: <span style={{ fontFamily: 'monospace' }}>{ourFingerprintShort}</span>
                       </div>
-                    </div>
-                    
-                    {/* Delivery Method */}
-                    <div>
-                      <label style={{ fontSize: '11px', fontWeight: 600, marginBottom: '6px', display: 'block', color: theme === 'professional' ? '#6b7280' : 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                        Delivery Method
-                      </label>
-                      <select
-                        value={handshakeDelivery}
-                        onChange={(e) => setHandshakeDelivery(e.target.value as 'email' | 'messenger' | 'download')}
-                        style={{
-                          width: '100%',
-                          padding: '10px 12px',
-                          background: theme === 'professional' ? 'white' : 'rgba(255,255,255,0.08)',
-                          border: `1px solid ${theme === 'professional' ? 'rgba(0,0,0,0.15)' : 'rgba(255,255,255,0.15)'}`,
-                          borderRadius: '8px',
-                          color: theme === 'professional' ? '#1f2937' : 'white',
-                          fontSize: '13px',
-                          cursor: 'pointer',
-                        }}
-                      >
-                        <option value="email">📧 Email</option>
-                        <option value="messenger">💬 Messenger (Web)</option>
-                        <option value="download">💾 Download (USB/Wallet)</option>
-                      </select>
                     </div>
                     
                     {/* To & Subject Fields - Only for Email */}
@@ -4193,7 +4245,33 @@ function SidepanelOrchestrator() {
                   {/* ========================================== */}
                   {beapSubmode === 'draft' && (
                     <>
-                  {/* EMAIL ACCOUNTS SECTION - Reused from former MailGuard */}
+                  {/* DELIVERY METHOD - FIRST */}
+                  <div style={{ padding: '14px 18px', borderBottom: theme === 'professional' ? '1px solid rgba(15,23,42,0.1)' : '1px solid rgba(255,255,255,0.1)' }}>
+                    <label style={{ fontSize: '11px', fontWeight: 600, marginBottom: '6px', display: 'block', color: theme === 'professional' ? '#6b7280' : 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                      Delivery Method
+                    </label>
+                    <select
+                      value={handshakeDelivery}
+                      onChange={(e) => setHandshakeDelivery(e.target.value as 'email' | 'messenger' | 'download')}
+                      style={{
+                        width: '100%',
+                        padding: '10px 12px',
+                        background: theme === 'professional' ? 'white' : '#1f2937',
+                        border: `1px solid ${theme === 'professional' ? 'rgba(0,0,0,0.15)' : 'rgba(255,255,255,0.15)'}`,
+                        borderRadius: '8px',
+                        color: theme === 'professional' ? '#1f2937' : 'white',
+                        fontSize: '13px',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      <option value="email" style={{ background: theme === 'professional' ? 'white' : '#1f2937', color: theme === 'professional' ? '#1f2937' : 'white' }}>📧 Email</option>
+                      <option value="messenger" style={{ background: theme === 'professional' ? 'white' : '#1f2937', color: theme === 'professional' ? '#1f2937' : 'white' }}>💬 Messenger (Web)</option>
+                      <option value="download" style={{ background: theme === 'professional' ? 'white' : '#1f2937', color: theme === 'professional' ? '#1f2937' : 'white' }}>💾 Download (USB/Wallet)</option>
+                    </select>
+                  </div>
+                  
+                  {/* EMAIL ACCOUNTS SECTION - Only visible when email delivery selected */}
+                  {handshakeDelivery === 'email' && (
                   <div style={{ 
                     padding: '16px 18px', 
                     borderBottom: theme === 'professional' ? '1px solid rgba(15,23,42,0.1)' : '1px solid rgba(255,255,255,0.1)',
@@ -4335,6 +4413,7 @@ function SidepanelOrchestrator() {
                       </div>
                     )}
                   </div>
+                  )}
                   
                   {/* ========================================== */}
                   {/* BEAP™ MESSAGE SECTION - Adapted from Handshake Request */}
@@ -4405,32 +4484,6 @@ function SidepanelOrchestrator() {
                         theme={theme}
                       />
                     )}
-                    
-                    {/* Delivery Method Select */}
-                    <div>
-                      <label style={{ fontSize: '11px', fontWeight: 600, marginBottom: '6px', display: 'block', color: theme === 'professional' ? '#6b7280' : 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                        Delivery Method
-                      </label>
-                      <select
-                        value={handshakeDelivery}
-                        onChange={(e) => setHandshakeDelivery(e.target.value as 'email' | 'messenger' | 'download')}
-                        style={{
-                          width: '100%',
-                          background: theme === 'professional' ? 'white' : 'rgba(255,255,255,0.1)',
-                          border: theme === 'professional' ? '1px solid rgba(15,23,42,0.2)' : '1px solid rgba(255,255,255,0.2)',
-                          color: theme === 'professional' ? '#0f172a' : 'white',
-                          borderRadius: '6px',
-                          padding: '8px 12px',
-                          fontSize: '13px',
-                          cursor: 'pointer',
-                          outline: 'none'
-                        }}
-                      >
-                        <option value="email">📧 Email</option>
-                        <option value="messenger">💬 Messenger (Web)</option>
-                        <option value="download">💾 Download (USB/wallet)</option>
-                      </select>
-                    </div>
                     
                     {/* Delivery Method Panel - Adapts to recipient mode */}
                     <DeliveryMethodPanel
@@ -5265,7 +5318,7 @@ height: '28px',
               </div>
             )}
 
-            {/* BEAP Handshake Request */}
+            {/* BEAP Handshake Request - App/Admin View */}
             {dockedPanelMode === 'handshake' && (
               <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: theme === 'default' ? 'rgba(118,75,162,0.25)' : (theme === 'professional' ? '#f8fafc' : 'rgba(255,255,255,0.06)'), minHeight: '280px', overflow: 'hidden' }}>
                 {/* Header */}
@@ -5273,6 +5326,64 @@ height: '28px',
                   <span style={{ fontSize: '18px' }}>🤝</span>
                   <span style={{ fontSize: '13px', fontWeight: '600', color: theme === 'professional' ? '#1f2937' : 'white' }}>BEAP™ Handshake Request</span>
                 </div>
+                
+                {/* DELIVERY METHOD - FIRST */}
+                <div style={{ padding: '14px 18px', borderBottom: theme === 'professional' ? '1px solid rgba(15,23,42,0.1)' : '1px solid rgba(255,255,255,0.1)' }}>
+                  <label style={{ fontSize: '11px', fontWeight: 600, marginBottom: '6px', display: 'block', color: theme === 'professional' ? '#6b7280' : 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Delivery Method</label>
+                  <select value={handshakeDelivery} onChange={(e) => setHandshakeDelivery(e.target.value as 'email' | 'messenger' | 'download')} style={{ width: '100%', padding: '10px 12px', background: theme === 'professional' ? 'white' : '#1f2937', border: `1px solid ${theme === 'professional' ? 'rgba(0,0,0,0.15)' : 'rgba(255,255,255,0.15)'}`, borderRadius: '8px', color: theme === 'professional' ? '#1f2937' : 'white', fontSize: '13px', cursor: 'pointer' }}>
+                    <option value="email" style={{ background: theme === 'professional' ? 'white' : '#1f2937', color: theme === 'professional' ? '#1f2937' : 'white' }}>📧 Email</option>
+                    <option value="messenger" style={{ background: theme === 'professional' ? 'white' : '#1f2937', color: theme === 'professional' ? '#1f2937' : 'white' }}>💬 Messenger (Web)</option>
+                    <option value="download" style={{ background: theme === 'professional' ? 'white' : '#1f2937', color: theme === 'professional' ? '#1f2937' : 'white' }}>💾 Download (USB/Wallet)</option>
+                  </select>
+                </div>
+                
+                {/* EMAIL ACCOUNTS SECTION - Only visible when email delivery selected */}
+                {handshakeDelivery === 'email' && (
+                <div style={{ padding: '16px 18px', borderBottom: theme === 'professional' ? '1px solid rgba(15,23,42,0.1)' : '1px solid rgba(255,255,255,0.1)', background: theme === 'professional' ? 'rgba(139,92,246,0.05)' : 'rgba(139,92,246,0.1)' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <span style={{ fontSize: '16px' }}>🔗</span>
+                      <span style={{ fontSize: '13px', fontWeight: '600', color: theme === 'professional' ? '#0f172a' : 'white' }}>Connected Email Accounts</span>
+                    </div>
+                    <button onClick={() => setShowEmailSetupWizard(true)} style={{ background: 'linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%)', border: 'none', color: 'white', borderRadius: '6px', padding: '6px 12px', fontSize: '11px', fontWeight: '600', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}><span>+</span> Connect Email</button>
+                  </div>
+                  {isLoadingEmailAccounts ? (
+                    <div style={{ padding: '12px', textAlign: 'center', opacity: 0.6, fontSize: '12px' }}>Loading accounts...</div>
+                  ) : emailAccounts.length === 0 ? (
+                    <div style={{ padding: '20px', background: theme === 'professional' ? 'white' : 'rgba(255,255,255,0.05)', borderRadius: '8px', border: theme === 'professional' ? '1px dashed rgba(15,23,42,0.2)' : '1px dashed rgba(255,255,255,0.2)', textAlign: 'center' }}>
+                      <div style={{ fontSize: '24px', marginBottom: '8px' }}>📧</div>
+                      <div style={{ fontSize: '13px', color: theme === 'professional' ? '#64748b' : 'rgba(255,255,255,0.7)', marginBottom: '4px' }}>No email accounts connected</div>
+                      <div style={{ fontSize: '11px', color: theme === 'professional' ? '#94a3b8' : 'rgba(255,255,255,0.5)' }}>Connect your email to send handshake requests</div>
+                    </div>
+                  ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                      {emailAccounts.map(account => (
+                        <div key={account.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 12px', background: theme === 'professional' ? 'white' : 'rgba(255,255,255,0.08)', borderRadius: '8px', border: account.status === 'active' ? (theme === 'professional' ? '1px solid rgba(34,197,94,0.3)' : '1px solid rgba(34,197,94,0.4)') : (theme === 'professional' ? '1px solid rgba(239,68,68,0.3)' : '1px solid rgba(239,68,68,0.4)') }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                            <span style={{ fontSize: '18px' }}>{account.provider === 'gmail' ? '📧' : account.provider === 'microsoft365' ? '📨' : '✉️'}</span>
+                            <div>
+                              <div style={{ fontSize: '13px', fontWeight: '500', color: theme === 'professional' ? '#0f172a' : 'white' }}>{account.email || account.displayName}</div>
+                              <div style={{ fontSize: '10px', display: 'flex', alignItems: 'center', gap: '6px', marginTop: '2px' }}>
+                                <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: account.status === 'active' ? '#22c55e' : '#ef4444' }} />
+                                <span style={{ color: theme === 'professional' ? '#64748b' : 'rgba(255,255,255,0.6)' }}>{account.status === 'active' ? 'Connected' : account.lastError || 'Error'}</span>
+                              </div>
+                            </div>
+                          </div>
+                          <button onClick={() => disconnectEmailAccount(account.id)} title="Disconnect" style={{ background: 'transparent', border: 'none', color: theme === 'professional' ? '#94a3b8' : 'rgba(255,255,255,0.5)', cursor: 'pointer', padding: '4px', fontSize: '14px' }}>✕</button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {emailAccounts.length > 0 && (
+                    <div style={{ marginTop: '12px' }}>
+                      <label style={{ fontSize: '11px', fontWeight: 600, marginBottom: '6px', display: 'block', color: theme === 'professional' ? '#6b7280' : 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Send From:</label>
+                      <select value={selectedEmailAccountId || emailAccounts[0]?.id || ''} onChange={(e) => setSelectedEmailAccountId(e.target.value)} style={{ width: '100%', background: theme === 'professional' ? 'white' : 'rgba(255,255,255,0.1)', border: theme === 'professional' ? '1px solid rgba(15,23,42,0.2)' : '1px solid rgba(255,255,255,0.2)', color: theme === 'professional' ? '#0f172a' : 'white', borderRadius: '6px', padding: '8px 12px', fontSize: '13px', cursor: 'pointer', outline: 'none' }}>
+                        {emailAccounts.map(account => (<option key={account.id} value={account.id}>{account.email || account.displayName} ({account.provider})</option>))}
+                      </select>
+                    </div>
+                  )}
+                </div>
+                )}
                 
                 <div style={{ flex: 1, padding: '14px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '12px' }}>
                   {/* Your Fingerprint - PROMINENT */}
@@ -5345,31 +5456,6 @@ height: '28px',
                     }}>
                       Short: <span style={{ fontFamily: 'monospace' }}>{ourFingerprintShort}</span>
                     </div>
-                  </div>
-                  
-                  {/* Delivery Method */}
-                  <div>
-                    <label style={{ fontSize: '11px', fontWeight: 600, marginBottom: '6px', display: 'block', color: theme === 'professional' ? '#6b7280' : 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                      Delivery Method
-                    </label>
-                    <select
-                      value={handshakeDelivery}
-                      onChange={(e) => setHandshakeDelivery(e.target.value as 'email' | 'messenger' | 'download')}
-                      style={{
-                        width: '100%',
-                        padding: '10px 12px',
-                        background: theme === 'professional' ? 'white' : '#1f2937',
-                        border: `1px solid ${theme === 'professional' ? 'rgba(0,0,0,0.15)' : 'rgba(255,255,255,0.25)'}`,
-                        borderRadius: '8px',
-                        color: theme === 'professional' ? '#1f2937' : 'white',
-                        fontSize: '13px',
-                        cursor: 'pointer',
-                      }}
-                    >
-                      <option value="email" style={{ background: theme === 'professional' ? 'white' : '#1f2937', color: theme === 'professional' ? '#1f2937' : 'white' }}>📧 Email</option>
-                      <option value="messenger" style={{ background: theme === 'professional' ? 'white' : '#1f2937', color: theme === 'professional' ? '#1f2937' : 'white' }}>💬 Messenger (Web)</option>
-                      <option value="download" style={{ background: theme === 'professional' ? 'white' : '#1f2937', color: theme === 'professional' ? '#1f2937' : 'white' }}>💾 Download (USB/Wallet)</option>
-                    </select>
                   </div>
                   
                   {/* To Field - Only for Email */}
@@ -5674,9 +5760,18 @@ height: '28px',
                 {/* Draft view - EMAIL ACCOUNTS + BEAP Message */}
                 {beapSubmode === 'draft' && (
                   <>
-                {/* ========================================== */}
-                {/* EMAIL ACCOUNTS SECTION (App View) */}
-                {/* ========================================== */}
+                {/* DELIVERY METHOD - FIRST */}
+                <div style={{ padding: '14px 18px', borderBottom: theme === 'professional' ? '1px solid rgba(15,23,42,0.1)' : '1px solid rgba(255,255,255,0.1)' }}>
+                  <label style={{ fontSize: '11px', fontWeight: 600, marginBottom: '6px', display: 'block', color: theme === 'professional' ? '#6b7280' : 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Delivery Method</label>
+                  <select value={handshakeDelivery} onChange={(e) => setHandshakeDelivery(e.target.value as 'email' | 'messenger' | 'download')} style={{ width: '100%', padding: '10px 12px', background: theme === 'professional' ? 'white' : '#1f2937', border: `1px solid ${theme === 'professional' ? 'rgba(0,0,0,0.15)' : 'rgba(255,255,255,0.15)'}`, borderRadius: '8px', color: theme === 'professional' ? '#1f2937' : 'white', fontSize: '13px', cursor: 'pointer' }}>
+                    <option value="email" style={{ background: theme === 'professional' ? 'white' : '#1f2937', color: theme === 'professional' ? '#1f2937' : 'white' }}>📧 Email</option>
+                    <option value="messenger" style={{ background: theme === 'professional' ? 'white' : '#1f2937', color: theme === 'professional' ? '#1f2937' : 'white' }}>💬 Messenger (Web)</option>
+                    <option value="download" style={{ background: theme === 'professional' ? 'white' : '#1f2937', color: theme === 'professional' ? '#1f2937' : 'white' }}>💾 Download (USB/Wallet)</option>
+                  </select>
+                </div>
+                
+                {/* EMAIL ACCOUNTS SECTION - Only visible when email delivery selected */}
+                {handshakeDelivery === 'email' && (
                 <div style={{ 
                   padding: '16px 18px', 
                   borderBottom: theme === 'professional' ? '1px solid rgba(15,23,42,0.1)' : '1px solid rgba(255,255,255,0.1)',
@@ -5798,6 +5893,7 @@ height: '28px',
                     </div>
                   )}
                 </div>
+                )}
                 {/* BEAP™ Message UI - App View */}
                 <div style={{ padding: '12px 14px', borderBottom: `1px solid ${theme === 'professional' ? 'rgba(0,0,0,0.1)' : 'rgba(255,255,255,0.1)'}`, display: 'flex', alignItems: 'center', gap: '10px' }}>
                   <span style={{ fontSize: '18px' }}>📦</span>
@@ -5815,15 +5911,6 @@ height: '28px',
                   {beapRecipientMode === 'private' && (
                     <RecipientHandshakeSelect handshakes={handshakes} selectedHandshakeId={selectedRecipient?.handshake_id || null} onSelect={setSelectedRecipient} theme={theme} />
                   )}
-                  {/* Delivery Method Select */}
-                  <div>
-                    <label style={{ fontSize: '11px', fontWeight: 600, marginBottom: '6px', display: 'block', color: theme === 'professional' ? '#6b7280' : 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Delivery Method</label>
-                    <select value={handshakeDelivery} onChange={(e) => setHandshakeDelivery(e.target.value as 'email' | 'messenger' | 'download')} style={{ width: '100%', background: theme === 'professional' ? 'white' : 'rgba(255,255,255,0.1)', border: theme === 'professional' ? '1px solid rgba(15,23,42,0.2)' : '1px solid rgba(255,255,255,0.2)', color: theme === 'professional' ? '#0f172a' : 'white', borderRadius: '6px', padding: '8px 12px', fontSize: '13px', cursor: 'pointer', outline: 'none' }}>
-                      <option value="email">📧 Email</option>
-                      <option value="messenger">💬 Messenger (Web)</option>
-                      <option value="download">💾 Download (USB/wallet)</option>
-                    </select>
-                  </div>
                   {/* Delivery Method Panel - Adapts to recipient mode */}
                   <DeliveryMethodPanel deliveryMethod={handshakeDelivery} recipientMode={beapRecipientMode} selectedRecipient={selectedRecipient} emailTo={beapDraftTo} onEmailToChange={setBeapDraftTo} theme={theme} ourFingerprintShort={ourFingerprintShort} />
                   <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
@@ -6491,7 +6578,7 @@ height: '28px',
               </div>
             )}
 
-            {/* BEAP Handshake Request */}
+            {/* BEAP Handshake Request - App/Admin View */}
             {dockedPanelMode === 'handshake' && (
               <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: theme === 'default' ? 'rgba(118,75,162,0.25)' : (theme === 'professional' ? '#f8fafc' : 'rgba(255,255,255,0.06)'), minHeight: '280px', overflow: 'hidden' }}>
                 {/* Header */}
@@ -6499,6 +6586,64 @@ height: '28px',
                   <span style={{ fontSize: '18px' }}>🤝</span>
                   <span style={{ fontSize: '13px', fontWeight: '600', color: theme === 'professional' ? '#1f2937' : 'white' }}>BEAP™ Handshake Request</span>
                 </div>
+                
+                {/* DELIVERY METHOD - FIRST */}
+                <div style={{ padding: '14px 18px', borderBottom: theme === 'professional' ? '1px solid rgba(15,23,42,0.1)' : '1px solid rgba(255,255,255,0.1)' }}>
+                  <label style={{ fontSize: '11px', fontWeight: 600, marginBottom: '6px', display: 'block', color: theme === 'professional' ? '#6b7280' : 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Delivery Method</label>
+                  <select value={handshakeDelivery} onChange={(e) => setHandshakeDelivery(e.target.value as 'email' | 'messenger' | 'download')} style={{ width: '100%', padding: '10px 12px', background: theme === 'professional' ? 'white' : '#1f2937', border: `1px solid ${theme === 'professional' ? 'rgba(0,0,0,0.15)' : 'rgba(255,255,255,0.15)'}`, borderRadius: '8px', color: theme === 'professional' ? '#1f2937' : 'white', fontSize: '13px', cursor: 'pointer' }}>
+                    <option value="email" style={{ background: theme === 'professional' ? 'white' : '#1f2937', color: theme === 'professional' ? '#1f2937' : 'white' }}>📧 Email</option>
+                    <option value="messenger" style={{ background: theme === 'professional' ? 'white' : '#1f2937', color: theme === 'professional' ? '#1f2937' : 'white' }}>💬 Messenger (Web)</option>
+                    <option value="download" style={{ background: theme === 'professional' ? 'white' : '#1f2937', color: theme === 'professional' ? '#1f2937' : 'white' }}>💾 Download (USB/Wallet)</option>
+                  </select>
+                </div>
+                
+                {/* EMAIL ACCOUNTS SECTION - Only visible when email delivery selected */}
+                {handshakeDelivery === 'email' && (
+                <div style={{ padding: '16px 18px', borderBottom: theme === 'professional' ? '1px solid rgba(15,23,42,0.1)' : '1px solid rgba(255,255,255,0.1)', background: theme === 'professional' ? 'rgba(139,92,246,0.05)' : 'rgba(139,92,246,0.1)' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <span style={{ fontSize: '16px' }}>🔗</span>
+                      <span style={{ fontSize: '13px', fontWeight: '600', color: theme === 'professional' ? '#0f172a' : 'white' }}>Connected Email Accounts</span>
+                    </div>
+                    <button onClick={() => setShowEmailSetupWizard(true)} style={{ background: 'linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%)', border: 'none', color: 'white', borderRadius: '6px', padding: '6px 12px', fontSize: '11px', fontWeight: '600', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}><span>+</span> Connect Email</button>
+                  </div>
+                  {isLoadingEmailAccounts ? (
+                    <div style={{ padding: '12px', textAlign: 'center', opacity: 0.6, fontSize: '12px' }}>Loading accounts...</div>
+                  ) : emailAccounts.length === 0 ? (
+                    <div style={{ padding: '20px', background: theme === 'professional' ? 'white' : 'rgba(255,255,255,0.05)', borderRadius: '8px', border: theme === 'professional' ? '1px dashed rgba(15,23,42,0.2)' : '1px dashed rgba(255,255,255,0.2)', textAlign: 'center' }}>
+                      <div style={{ fontSize: '24px', marginBottom: '8px' }}>📧</div>
+                      <div style={{ fontSize: '13px', color: theme === 'professional' ? '#64748b' : 'rgba(255,255,255,0.7)', marginBottom: '4px' }}>No email accounts connected</div>
+                      <div style={{ fontSize: '11px', color: theme === 'professional' ? '#94a3b8' : 'rgba(255,255,255,0.5)' }}>Connect your email to send handshake requests</div>
+                    </div>
+                  ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                      {emailAccounts.map(account => (
+                        <div key={account.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 12px', background: theme === 'professional' ? 'white' : 'rgba(255,255,255,0.08)', borderRadius: '8px', border: account.status === 'active' ? (theme === 'professional' ? '1px solid rgba(34,197,94,0.3)' : '1px solid rgba(34,197,94,0.4)') : (theme === 'professional' ? '1px solid rgba(239,68,68,0.3)' : '1px solid rgba(239,68,68,0.4)') }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                            <span style={{ fontSize: '18px' }}>{account.provider === 'gmail' ? '📧' : account.provider === 'microsoft365' ? '📨' : '✉️'}</span>
+                            <div>
+                              <div style={{ fontSize: '13px', fontWeight: '500', color: theme === 'professional' ? '#0f172a' : 'white' }}>{account.email || account.displayName}</div>
+                              <div style={{ fontSize: '10px', display: 'flex', alignItems: 'center', gap: '6px', marginTop: '2px' }}>
+                                <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: account.status === 'active' ? '#22c55e' : '#ef4444' }} />
+                                <span style={{ color: theme === 'professional' ? '#64748b' : 'rgba(255,255,255,0.6)' }}>{account.status === 'active' ? 'Connected' : account.lastError || 'Error'}</span>
+                              </div>
+                            </div>
+                          </div>
+                          <button onClick={() => disconnectEmailAccount(account.id)} title="Disconnect" style={{ background: 'transparent', border: 'none', color: theme === 'professional' ? '#94a3b8' : 'rgba(255,255,255,0.5)', cursor: 'pointer', padding: '4px', fontSize: '14px' }}>✕</button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {emailAccounts.length > 0 && (
+                    <div style={{ marginTop: '12px' }}>
+                      <label style={{ fontSize: '11px', fontWeight: 600, marginBottom: '6px', display: 'block', color: theme === 'professional' ? '#6b7280' : 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Send From:</label>
+                      <select value={selectedEmailAccountId || emailAccounts[0]?.id || ''} onChange={(e) => setSelectedEmailAccountId(e.target.value)} style={{ width: '100%', background: theme === 'professional' ? 'white' : 'rgba(255,255,255,0.1)', border: theme === 'professional' ? '1px solid rgba(15,23,42,0.2)' : '1px solid rgba(255,255,255,0.2)', color: theme === 'professional' ? '#0f172a' : 'white', borderRadius: '6px', padding: '8px 12px', fontSize: '13px', cursor: 'pointer', outline: 'none' }}>
+                        {emailAccounts.map(account => (<option key={account.id} value={account.id}>{account.email || account.displayName} ({account.provider})</option>))}
+                      </select>
+                    </div>
+                  )}
+                </div>
+                )}
                 
                 <div style={{ flex: 1, padding: '14px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '12px' }}>
                   {/* Your Fingerprint - PROMINENT */}
@@ -6571,31 +6716,6 @@ height: '28px',
                     }}>
                       Short: <span style={{ fontFamily: 'monospace' }}>{ourFingerprintShort}</span>
                     </div>
-                  </div>
-                  
-                  {/* Delivery Method */}
-                  <div>
-                    <label style={{ fontSize: '11px', fontWeight: 600, marginBottom: '6px', display: 'block', color: theme === 'professional' ? '#6b7280' : 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                      Delivery Method
-                    </label>
-                    <select
-                      value={handshakeDelivery}
-                      onChange={(e) => setHandshakeDelivery(e.target.value as 'email' | 'messenger' | 'download')}
-                      style={{
-                        width: '100%',
-                        padding: '10px 12px',
-                        background: theme === 'professional' ? 'white' : '#1f2937',
-                        border: `1px solid ${theme === 'professional' ? 'rgba(0,0,0,0.15)' : 'rgba(255,255,255,0.25)'}`,
-                        borderRadius: '8px',
-                        color: theme === 'professional' ? '#1f2937' : 'white',
-                        fontSize: '13px',
-                        cursor: 'pointer',
-                      }}
-                    >
-                      <option value="email" style={{ background: theme === 'professional' ? 'white' : '#1f2937', color: theme === 'professional' ? '#1f2937' : 'white' }}>📧 Email</option>
-                      <option value="messenger" style={{ background: theme === 'professional' ? 'white' : '#1f2937', color: theme === 'professional' ? '#1f2937' : 'white' }}>💬 Messenger (Web)</option>
-                      <option value="download" style={{ background: theme === 'professional' ? 'white' : '#1f2937', color: theme === 'professional' ? '#1f2937' : 'white' }}>💾 Download (USB/Wallet)</option>
-                    </select>
                   </div>
                   
                   {/* To Field - Only for Email */}
@@ -6892,9 +7012,18 @@ height: '28px',
                 {/* Draft view */}
                 {beapSubmode === 'draft' && (
                   <>
-                {/* ========================================== */}
-                {/* EMAIL ACCOUNTS SECTION (Admin View) */}
-                {/* ========================================== */}
+                {/* DELIVERY METHOD - FIRST */}
+                <div style={{ padding: '14px 18px', borderBottom: theme === 'professional' ? '1px solid rgba(15,23,42,0.1)' : '1px solid rgba(255,255,255,0.1)' }}>
+                  <label style={{ fontSize: '11px', fontWeight: 600, marginBottom: '6px', display: 'block', color: theme === 'professional' ? '#6b7280' : 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Delivery Method</label>
+                  <select value={handshakeDelivery} onChange={(e) => setHandshakeDelivery(e.target.value as 'email' | 'messenger' | 'download')} style={{ width: '100%', padding: '10px 12px', background: theme === 'professional' ? 'white' : '#1f2937', border: `1px solid ${theme === 'professional' ? 'rgba(0,0,0,0.15)' : 'rgba(255,255,255,0.15)'}`, borderRadius: '8px', color: theme === 'professional' ? '#1f2937' : 'white', fontSize: '13px', cursor: 'pointer' }}>
+                    <option value="email" style={{ background: theme === 'professional' ? 'white' : '#1f2937', color: theme === 'professional' ? '#1f2937' : 'white' }}>📧 Email</option>
+                    <option value="messenger" style={{ background: theme === 'professional' ? 'white' : '#1f2937', color: theme === 'professional' ? '#1f2937' : 'white' }}>💬 Messenger (Web)</option>
+                    <option value="download" style={{ background: theme === 'professional' ? 'white' : '#1f2937', color: theme === 'professional' ? '#1f2937' : 'white' }}>💾 Download (USB/Wallet)</option>
+                  </select>
+                </div>
+                
+                {/* EMAIL ACCOUNTS SECTION - Only visible when email delivery selected */}
+                {handshakeDelivery === 'email' && (
                 <div style={{ 
                   padding: '16px 18px', 
                   borderBottom: theme === 'professional' ? '1px solid rgba(15,23,42,0.1)' : '1px solid rgba(255,255,255,0.1)',
@@ -7016,6 +7145,7 @@ height: '28px',
                     </div>
                   )}
                 </div>
+                )}
                 
                 {/* BEAP™ Message UI - Admin View */}
                 <div style={{ padding: '12px 14px', borderBottom: `1px solid ${theme === 'professional' ? 'rgba(0,0,0,0.1)' : 'rgba(255,255,255,0.1)'}`, display: 'flex', alignItems: 'center', gap: '10px' }}>
@@ -7034,15 +7164,6 @@ height: '28px',
                   {beapRecipientMode === 'private' && (
                     <RecipientHandshakeSelect handshakes={handshakes} selectedHandshakeId={selectedRecipient?.handshake_id || null} onSelect={setSelectedRecipient} theme={theme} />
                   )}
-                  {/* Delivery Method Select */}
-                  <div>
-                    <label style={{ fontSize: '11px', fontWeight: 600, marginBottom: '6px', display: 'block', color: theme === 'professional' ? '#6b7280' : 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Delivery Method</label>
-                    <select value={handshakeDelivery} onChange={(e) => setHandshakeDelivery(e.target.value as 'email' | 'messenger' | 'download')} style={{ width: '100%', background: theme === 'professional' ? 'white' : 'rgba(255,255,255,0.1)', border: theme === 'professional' ? '1px solid rgba(15,23,42,0.2)' : '1px solid rgba(255,255,255,0.2)', color: theme === 'professional' ? '#0f172a' : 'white', borderRadius: '6px', padding: '8px 12px', fontSize: '13px', cursor: 'pointer', outline: 'none' }}>
-                      <option value="email">📧 Email</option>
-                      <option value="messenger">💬 Messenger (Web)</option>
-                      <option value="download">💾 Download (USB/wallet)</option>
-                    </select>
-                  </div>
                   {/* Delivery Method Panel - Adapts to recipient mode */}
                   <DeliveryMethodPanel deliveryMethod={handshakeDelivery} recipientMode={beapRecipientMode} selectedRecipient={selectedRecipient} emailTo={beapDraftTo} onEmailToChange={setBeapDraftTo} theme={theme} ourFingerprintShort={ourFingerprintShort} />
                   <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>

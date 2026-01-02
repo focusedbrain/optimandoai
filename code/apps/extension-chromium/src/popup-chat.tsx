@@ -440,7 +440,33 @@ function PopupChatApp() {
         {/* ========================================== */}
         {beapSubmode === 'draft' && (
           <>
-            {/* Email Accounts Section */}
+            {/* DELIVERY METHOD - FIRST */}
+            <div style={{ padding: '14px 18px', borderBottom: `1px solid ${borderColor}` }}>
+              <label style={{ fontSize: '11px', fontWeight: 600, marginBottom: '6px', display: 'block', color: mutedColor, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                Delivery Method
+              </label>
+              <select
+                value={beapDeliveryMethod}
+                onChange={(e) => setBeapDeliveryMethod(e.target.value as 'email' | 'messenger' | 'download')}
+                style={{
+                  width: '100%',
+                  padding: '10px 12px',
+                  background: isProfessional ? 'white' : '#1f2937',
+                  border: `1px solid ${isProfessional ? 'rgba(0,0,0,0.15)' : 'rgba(255,255,255,0.15)'}`,
+                  borderRadius: '8px',
+                  color: textColor,
+                  fontSize: '13px',
+                  cursor: 'pointer',
+                }}
+              >
+                <option value="email" style={{ background: isProfessional ? 'white' : '#1f2937', color: isProfessional ? '#1f2937' : 'white' }}>📧 Email</option>
+                <option value="messenger" style={{ background: isProfessional ? 'white' : '#1f2937', color: isProfessional ? '#1f2937' : 'white' }}>💬 Messenger (Web)</option>
+                <option value="download" style={{ background: isProfessional ? 'white' : '#1f2937', color: isProfessional ? '#1f2937' : 'white' }}>💾 Download (USB/Wallet)</option>
+              </select>
+            </div>
+            
+            {/* Email Accounts Section - Only visible when email delivery selected */}
+            {beapDeliveryMethod === 'email' && (
             <div style={{ 
               padding: '16px 18px', 
               borderBottom: `1px solid ${borderColor}`,
@@ -592,6 +618,7 @@ function PopupChatApp() {
                 </div>
               )}
             </div>
+            )}
             
             {/* BEAP™ Message Header */}
             <div style={{ padding: '12px 14px', borderBottom: `1px solid ${borderColor}`, display: 'flex', alignItems: 'center', gap: '10px' }}>
@@ -659,32 +686,6 @@ function PopupChatApp() {
                   theme={theme}
                 />
               )}
-              
-              {/* Delivery Method Select */}
-              <div>
-                <label style={{ fontSize: '11px', fontWeight: 600, marginBottom: '6px', display: 'block', color: mutedColor, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                  Delivery Method
-                </label>
-                <select
-                  value={beapDeliveryMethod}
-                  onChange={(e) => setBeapDeliveryMethod(e.target.value as 'email' | 'messenger' | 'download')}
-                  style={{
-                    width: '100%',
-                    background: isProfessional ? 'white' : 'rgba(255,255,255,0.1)',
-                    border: isProfessional ? '1px solid rgba(15,23,42,0.2)' : '1px solid rgba(255,255,255,0.2)',
-                    color: textColor,
-                    borderRadius: '6px',
-                    padding: '8px 12px',
-                    fontSize: '13px',
-                    cursor: 'pointer',
-                    outline: 'none'
-                  }}
-                >
-                  <option value="email" style={{ background: isProfessional ? 'white' : '#1f2937' }}>📧 Email</option>
-                  <option value="messenger" style={{ background: isProfessional ? 'white' : '#1f2937' }}>💬 Messenger (Web)</option>
-                  <option value="download" style={{ background: isProfessional ? 'white' : '#1f2937' }}>💾 Download (USB/wallet)</option>
-                </select>
-              </div>
               
               {/* Delivery Method Panel - Adapts to recipient mode */}
               <DeliveryMethodPanel
@@ -884,6 +885,172 @@ function PopupChatApp() {
           <span style={{ fontSize: '13px', fontWeight: 600, color: isProfessional ? '#1f2937' : 'white' }}>BEAP™ Handshake Request</span>
         </div>
         
+        {/* DELIVERY METHOD - FIRST */}
+        <div style={{ padding: '14px 18px', borderBottom: isProfessional ? '1px solid rgba(15,23,42,0.1)' : '1px solid rgba(255,255,255,0.1)' }}>
+          <label style={{ fontSize: '11px', fontWeight: 600, marginBottom: '6px', display: 'block', color: isProfessional ? '#6b7280' : 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+            Delivery Method
+          </label>
+          <select
+            value={handshakeDelivery}
+            onChange={(e) => setHandshakeDelivery(e.target.value as 'email' | 'messenger' | 'download')}
+            style={{
+              width: '100%',
+              padding: '10px 12px',
+              background: isProfessional ? 'white' : '#1f2937',
+              border: `1px solid ${isProfessional ? 'rgba(0,0,0,0.15)' : 'rgba(255,255,255,0.15)'}`,
+              borderRadius: '8px',
+              color: isProfessional ? '#1f2937' : 'white',
+              fontSize: '13px',
+              cursor: 'pointer',
+            }}
+          >
+            <option value="email" style={{ background: isProfessional ? 'white' : '#1f2937', color: isProfessional ? '#1f2937' : 'white' }}>📧 Email</option>
+            <option value="messenger" style={{ background: isProfessional ? 'white' : '#1f2937', color: isProfessional ? '#1f2937' : 'white' }}>💬 Messenger (Web)</option>
+            <option value="download" style={{ background: isProfessional ? 'white' : '#1f2937', color: isProfessional ? '#1f2937' : 'white' }}>💾 Download (USB/Wallet)</option>
+          </select>
+        </div>
+        
+        {/* EMAIL ACCOUNTS SECTION - Only visible when email delivery selected */}
+        {handshakeDelivery === 'email' && (
+        <div style={{ 
+          padding: '16px 18px', 
+          borderBottom: isProfessional ? '1px solid rgba(15,23,42,0.1)' : '1px solid rgba(255,255,255,0.1)',
+          background: isProfessional ? 'rgba(139,92,246,0.05)' : 'rgba(139,92,246,0.1)'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span style={{ fontSize: '16px' }}>🔗</span>
+              <span style={{ fontSize: '13px', fontWeight: '600', color: isProfessional ? '#0f172a' : 'white' }}>Connected Email Accounts</span>
+            </div>
+            <button
+              type="button"
+              onClick={handleConnectEmail}
+              style={{
+                background: 'linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%)',
+                border: 'none',
+                color: 'white',
+                borderRadius: '6px',
+                padding: '6px 12px',
+                fontSize: '11px',
+                fontWeight: '600',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '4px'
+              }}
+            >
+              <span>+</span> Connect Email
+            </button>
+          </div>
+          
+          {isLoadingEmailAccounts ? (
+            <div style={{ padding: '12px', textAlign: 'center', opacity: 0.6, fontSize: '12px' }}>Loading accounts...</div>
+          ) : emailAccounts.length === 0 ? (
+            <div style={{ 
+              padding: '20px', 
+              background: isProfessional ? 'white' : 'rgba(255,255,255,0.05)',
+              borderRadius: '8px',
+              border: isProfessional ? '1px dashed rgba(15,23,42,0.2)' : '1px dashed rgba(255,255,255,0.2)',
+              textAlign: 'center'
+            }}>
+              <div style={{ fontSize: '24px', marginBottom: '8px' }}>📧</div>
+              <div style={{ fontSize: '13px', color: isProfessional ? '#64748b' : 'rgba(255,255,255,0.7)', marginBottom: '4px' }}>No email accounts connected</div>
+              <div style={{ fontSize: '11px', color: isProfessional ? '#94a3b8' : 'rgba(255,255,255,0.5)' }}>
+                Connect your email to send handshake requests
+              </div>
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              {emailAccounts.map(account => (
+                <div 
+                  key={account.id} 
+                  style={{ 
+                    display: 'flex', 
+                    alignItems: 'center', 
+                    justifyContent: 'space-between',
+                    padding: '10px 12px',
+                    background: isProfessional ? 'white' : 'rgba(255,255,255,0.08)',
+                    borderRadius: '8px',
+                    border: account.status === 'active' 
+                      ? (isProfessional ? '1px solid rgba(34,197,94,0.3)' : '1px solid rgba(34,197,94,0.4)')
+                      : (isProfessional ? '1px solid rgba(239,68,68,0.3)' : '1px solid rgba(239,68,68,0.4)')
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <span style={{ fontSize: '18px' }}>
+                      {account.provider === 'gmail' ? '📧' : account.provider === 'microsoft365' ? '📨' : '✉️'}
+                    </span>
+                    <div>
+                      <div style={{ fontSize: '13px', fontWeight: '500', color: isProfessional ? '#0f172a' : 'white' }}>
+                        {account.email || account.displayName}
+                      </div>
+                      <div style={{ fontSize: '10px', display: 'flex', alignItems: 'center', gap: '6px', marginTop: '2px' }}>
+                        <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: account.status === 'active' ? '#22c55e' : '#ef4444' }} />
+                        <span style={{ color: isProfessional ? '#64748b' : 'rgba(255,255,255,0.6)' }}>
+                          {account.status === 'active' ? 'Connected' : account.lastError || 'Error'}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => disconnectEmailAccount(account.id)}
+                    title="Disconnect"
+                    style={{
+                      background: 'transparent',
+                      border: 'none',
+                      color: isProfessional ? '#94a3b8' : 'rgba(255,255,255,0.5)',
+                      cursor: 'pointer',
+                      padding: '4px',
+                      fontSize: '14px'
+                    }}
+                  >
+                    ✕
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+          
+          {/* Send From selector */}
+          {emailAccounts.length > 0 && (
+            <div style={{ marginTop: '12px' }}>
+              <label style={{ 
+                fontSize: '11px', 
+                fontWeight: 600, 
+                marginBottom: '6px', 
+                display: 'block', 
+                color: isProfessional ? '#6b7280' : 'rgba(255,255,255,0.7)', 
+                textTransform: 'uppercase', 
+                letterSpacing: '0.5px' 
+              }}>
+                Send From:
+              </label>
+              <select
+                value={selectedEmailAccountId || emailAccounts[0]?.id || ''}
+                onChange={(e) => setSelectedEmailAccountId(e.target.value)}
+                style={{
+                  width: '100%',
+                  background: isProfessional ? 'white' : 'rgba(255,255,255,0.1)',
+                  border: isProfessional ? '1px solid rgba(15,23,42,0.2)' : '1px solid rgba(255,255,255,0.2)',
+                  color: isProfessional ? '#0f172a' : 'white',
+                  borderRadius: '6px',
+                  padding: '8px 12px',
+                  fontSize: '13px',
+                  cursor: 'pointer',
+                  outline: 'none'
+                }}
+              >
+                {emailAccounts.map(account => (
+                  <option key={account.id} value={account.id}>
+                    {account.email || account.displayName} ({account.provider})
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+        </div>
+        )}
+        
         <div style={{ flex: 1, padding: '14px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '12px' }}>
           {/* Your Fingerprint - PROMINENT */}
           <div style={{
@@ -955,39 +1122,6 @@ function PopupChatApp() {
             }}>
               Short: <span style={{ fontFamily: 'monospace' }}>{ourFingerprintShort}</span>
             </div>
-          </div>
-          
-          {/* Delivery Method */}
-          <div>
-            <label style={{ 
-              fontSize: '11px', 
-              fontWeight: 600, 
-              marginBottom: '6px', 
-              display: 'block', 
-              color: isProfessional ? '#6b7280' : 'rgba(255,255,255,0.7)', 
-              textTransform: 'uppercase', 
-              letterSpacing: '0.5px' 
-            }}>
-              Delivery Method
-            </label>
-            <select
-              value={handshakeDelivery}
-              onChange={(e) => setHandshakeDelivery(e.target.value as 'email' | 'messenger' | 'download')}
-              style={{
-                width: '100%',
-                padding: '10px 12px',
-                background: isProfessional ? 'white' : '#1f2937',
-                border: `1px solid ${isProfessional ? 'rgba(0,0,0,0.15)' : 'rgba(255,255,255,0.15)'}`,
-                borderRadius: '8px',
-                color: isProfessional ? '#1f2937' : 'white',
-                fontSize: '13px',
-                cursor: 'pointer',
-              }}
-            >
-              <option value="email" style={{ background: isProfessional ? 'white' : '#1f2937', color: isProfessional ? '#1f2937' : 'white' }}>📧 Email</option>
-              <option value="messenger" style={{ background: isProfessional ? 'white' : '#1f2937', color: isProfessional ? '#1f2937' : 'white' }}>💬 Messenger (Web)</option>
-              <option value="download" style={{ background: isProfessional ? 'white' : '#1f2937', color: isProfessional ? '#1f2937' : 'white' }}>💾 Download (USB/Wallet)</option>
-            </select>
           </div>
           
           {/* To & Subject Fields - Only for Email */}

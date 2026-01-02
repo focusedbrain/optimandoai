@@ -44,7 +44,7 @@ export const DeliveryMethodPanel: React.FC<DeliveryMethodPanelProps> = ({
   const textColor = isProfessional ? '#0f172a' : 'white'
   const mutedColor = isProfessional ? '#64748b' : 'rgba(255,255,255,0.7)'
   const borderColor = isProfessional ? 'rgba(15,23,42,0.2)' : 'rgba(255,255,255,0.2)'
-  const bgColor = isProfessional ? 'white' : 'rgba(255,255,255,0.1)'
+  const bgColor = isProfessional ? 'white' : '#1f2937'
 
   // For PRIVATE mode email, auto-fill from handshake
   const [selectedEmail, setSelectedEmail] = useState<string>('')
@@ -172,7 +172,7 @@ export const DeliveryMethodPanel: React.FC<DeliveryMethodPanelProps> = ({
               }}
             >
               {emails.map((email, idx) => (
-                <option key={idx} value={email} style={{ background: isProfessional ? 'white' : '#1f2937' }}>
+                <option key={idx} value={email} style={{ background: isProfessional ? 'white' : '#1f2937', color: isProfessional ? '#0f172a' : 'white' }}>
                   {email}
                 </option>
               ))}
