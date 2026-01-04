@@ -10,10 +10,30 @@
 
 import type { RecipientMode, SelectedRecipient } from '../components/RecipientModeSwitch'
 import type { DeliveryMethod } from '../components/DeliveryMethodPanel'
+import type { BeapBuildResult } from '../../beap-builder/types'
 
 // =============================================================================
 // Types
 // =============================================================================
+
+/**
+ * Policy signals for draft builds.
+ * These are derived from the sender's policy configuration.
+ */
+export interface DraftBuildPolicy {
+  /**
+   * If true, qBEAP builds MUST have encryptedMessage content.
+   * Default: false (encrypted message is optional)
+   */
+  requiresEncryptedMessage?: boolean
+  
+  /**
+   * If true, automation tags (#...) in plaintext are forbidden when
+   * encryptedMessage exists. Tags must be in encrypted content only.
+   * Default: false (tags allowed in both)
+   */
+  requiresPrivateTriggersInEncryptedOnly?: boolean
+}
 
 export interface BeapPackageConfig {
   recipientMode: RecipientMode
@@ -25,6 +45,17 @@ export interface BeapPackageConfig {
   subject?: string
   messageBody: string
   attachments?: File[]
+  /**
+   * Encrypted message content for qBEAP (private) mode only.
+   * This is the authoritative capsule-bound content.
+   * Never transported outside the BEAP package.
+   */
+  encryptedMessage?: string
+  /**
+   * Policy signals for build validation.
+   * If not provided, conservative defaults are used.
+   */
+  policy?: DraftBuildPolicy
 }
 
 export interface BeapEnvelopeHeader {
@@ -165,16 +196,191 @@ function generateSignature(data: string, fingerprint: string): string {
   return generateHash(data + fingerprint + 'sig')
 }
 
+/**
+ * UTF-8 safe base64 encoding
+ * Handles non-Latin1 characters that would break native btoa()
+ */
+function safeBase64Encode(str: string): string {
+  try {
+    // Try native btoa first (works for Latin-1)
+    return btoa(str)
+  } catch {
+    // Fallback for UTF-8 content
+    const encoder = new TextEncoder()
+    const bytes = encoder.encode(str)
+    let binary = ''
+    for (const byte of bytes) {
+      binary += String.fromCharCode(byte)
+    }
+    return btoa(binary)
+  }
+}
+
+// =============================================================================
+// Automation Tag Extraction
+// =============================================================================
+
+/**
+ * Extract automation trigger tags from text.
+ * Tags match: #<letters|numbers|_-|:|.>
+ * 
+ * @param text - Text to extract tags from
+ * @returns Deduplicated array of tags in order of first appearance (preserves case)
+ */
+export function extractAutomationTags(text: string): string[] {
+  if (!text) return []
+  
+  // Match #tag patterns: # followed by alphanumeric, underscores, hyphens, colons, dots
+  const tagPattern = /#[a-zA-Z0-9_\-:.]+/g
+  const matches = text.match(tagPattern)
+  
+  if (!matches) return []
+  
+  // Deduplicate while preserving order of first appearance
+  const seen = new Set<string>()
+  const result: string[] = []
+  
+  for (const tag of matches) {
+    if (!seen.has(tag)) {
+      seen.add(tag)
+      result.push(tag)
+    }
+  }
+  
+  return result
+}
+
+/**
+ * Automation metadata for capsule-bound storage
+ */
+interface AutomationMetadata {
+  /** Automation trigger tags */
+  tags: string[]
+  /** Source of tags: 'encrypted' | 'plaintext' | 'both' */
+  tagSource: 'encrypted' | 'plaintext' | 'both' | 'none'
+  /** Receiver has final authority over automation execution */
+  receiverHasFinalAuthority: true
+}
+
+/**
+ * Build automation metadata from message content
+ */
+function buildAutomationMetadata(
+  encryptedMessage: string | undefined,
+  plaintextMessage: string
+): AutomationMetadata {
+  const encryptedTags = extractAutomationTags(encryptedMessage || '')
+  const plaintextTags = extractAutomationTags(plaintextMessage)
+  
+  // Combine tags, preferring encrypted source
+  const allTagsSet = new Set<string>()
+  const tags: string[] = []
+  
+  // Add encrypted tags first (preferred source)
+  for (const tag of encryptedTags) {
+    if (!allTagsSet.has(tag)) {
+      allTagsSet.add(tag)
+      tags.push(tag)
+    }
+  }
+  
+  // Add plaintext tags that aren't already present
+  for (const tag of plaintextTags) {
+    if (!allTagsSet.has(tag)) {
+      allTagsSet.add(tag)
+      tags.push(tag)
+    }
+  }
+  
+  // Determine tag source
+  let tagSource: AutomationMetadata['tagSource'] = 'none'
+  if (encryptedTags.length > 0 && plaintextTags.length > 0) {
+    tagSource = 'both'
+  } else if (encryptedTags.length > 0) {
+    tagSource = 'encrypted'
+  } else if (plaintextTags.length > 0) {
+    tagSource = 'plaintext'
+  }
+  
+  return {
+    tags,
+    tagSource,
+    receiverHasFinalAuthority: true
+  }
+}
+
+// =============================================================================
+// Policy Validation
+// =============================================================================
+
+/**
+ * Validate qBEAP build against policy requirements
+ * Returns error string if validation fails, null if valid
+ */
+function validateQBeapPolicy(
+  config: BeapPackageConfig,
+  automationMeta: AutomationMetadata
+): string | null {
+  const policy = config.policy || {}
+  const hasEncryptedMessage = config.encryptedMessage && config.encryptedMessage.trim().length > 0
+  
+  // Check: Encrypted message required by policy
+  if (policy.requiresEncryptedMessage && !hasEncryptedMessage) {
+    return 'POLICY: Encrypted message required for this private build.'
+  }
+  
+  // Check: Private triggers must be in encrypted only
+  if (policy.requiresPrivateTriggersInEncryptedOnly && hasEncryptedMessage) {
+    const plaintextTags = extractAutomationTags(config.messageBody)
+    if (plaintextTags.length > 0) {
+      return 'POLICY: Automation tags in plaintext are forbidden when encrypted message exists. Move tags to encrypted message only.'
+    }
+  }
+  
+  return null
+}
+
 // =============================================================================
 // Package Building
 // =============================================================================
 
 /**
  * Build a qBEAP package (Private/Encrypted)
+ * 
+ * For qBEAP:
+ * - config.messageBody is the outer transport-safe plaintext (non-authoritative)
+ * - config.encryptedMessage (if present) is the authoritative capsule-bound content
+ * 
+ * @returns PackageBuildResult with success/error status
  */
-function buildQBeapPackage(config: BeapPackageConfig): BeapPackage {
+function buildQBeapPackage(config: BeapPackageConfig): PackageBuildResult {
   const now = Date.now()
   const recipient = config.selectedRecipient!
+
+  // Determine authoritative content for capsule
+  const hasEncryptedMessage = config.encryptedMessage && config.encryptedMessage.trim().length > 0
+  const authoritativeBody = hasEncryptedMessage ? config.encryptedMessage! : config.messageBody
+  const transportPlaintext = config.messageBody // Always the outer plaintext for transport
+
+  // Build automation metadata (capsule-bound)
+  const automationMeta = buildAutomationMetadata(config.encryptedMessage, config.messageBody)
+  
+  // Validate against policy
+  const policyError = validateQBeapPolicy(config, automationMeta)
+  if (policyError) {
+    return {
+      success: false,
+      error: policyError
+    }
+  }
+
+  // SECURITY: Leak prevention assertion - encrypted message must never appear in transport plaintext
+  if (hasEncryptedMessage && transportPlaintext.includes(config.encryptedMessage!)) {
+    return {
+      success: false,
+      error: 'SECURITY: encryptedMessage leaked into transport plaintext'
+    }
+  }
 
   const header: BeapEnvelopeHeader = {
     version: '1.0',
@@ -190,16 +396,22 @@ function buildQBeapPackage(config: BeapPackageConfig): BeapPackage {
     },
     template_hash: generateTemplateHash(),
     policy_hash: generatePolicyHash(),
-    content_hash: generateContentHash(config.messageBody, config.attachments)
+    // Content hash based on authoritative content
+    content_hash: generateContentHash(authoritativeBody, config.attachments)
   }
 
+  // Capsule payload contains the authoritative (possibly encrypted) message
   // Stub: In production, encrypt payload with handshake-derived key
-  const payloadPlain = JSON.stringify({
+  const capsulePayload = JSON.stringify({
     subject: config.subject || 'BEAP™ Message',
-    body: config.messageBody,
-    attachments: config.attachments?.map(f => ({ name: f.name, size: f.size })) || []
+    body: authoritativeBody, // Authoritative content (encryptedMessage if provided)
+    transport_plaintext: transportPlaintext, // Non-authoritative outer message
+    has_authoritative_encrypted: hasEncryptedMessage,
+    attachments: config.attachments?.map(f => ({ name: f.name, size: f.size })) || [],
+    // Automation metadata (capsule-bound)
+    automation: automationMeta
   })
-  const payloadEncrypted = btoa(payloadPlain) // Stub: Would be actual encryption
+  const payloadEncrypted = safeBase64Encode(capsulePayload) // Stub: Would be actual encryption
 
   const signature = generateSignature(
     JSON.stringify(header) + payloadEncrypted,
@@ -210,7 +422,7 @@ function buildQBeapPackage(config: BeapPackageConfig): BeapPackage {
   const dateStr = new Date(now).toISOString().slice(0, 10).replace(/-/g, '')
   const filename = `beap_${dateStr}_${shortFp}.beap`
 
-  return {
+  const pkg: BeapPackage = {
     header,
     payload: payloadEncrypted,
     signature,
@@ -220,6 +432,12 @@ function buildQBeapPackage(config: BeapPackageConfig): BeapPackage {
       delivery_hint: recipient.receiver_email_list[0] || config.emailTo,
       filename
     }
+  }
+
+  return {
+    success: true,
+    package: pkg,
+    packageJson: JSON.stringify(pkg, null, 2)
   }
 }
 
@@ -243,12 +461,12 @@ function buildPBeapPackage(config: BeapPackageConfig): BeapPackage {
 
   // Plaintext payload for public distribution
   const payloadPlain = JSON.stringify({
-    subject: config.subject || 'BEAP™ Public Message',
+    subject: config.subject || 'BEAP Public Message',
     body: config.messageBody,
     attachments: config.attachments?.map(f => ({ name: f.name, size: f.size })) || [],
-    audit_notice: 'This is a public BEAP™ package. Content is not encrypted and is fully auditable.'
+    audit_notice: 'This is a public BEAP package. Content is not encrypted and is fully auditable.'
   })
-  const payloadEncoded = btoa(payloadPlain) // Base64 for transport, not encryption
+  const payloadEncoded = safeBase64Encode(payloadPlain) // Base64 for transport, not encryption
 
   const signature = generateSignature(
     JSON.stringify(header) + payloadEncoded,
@@ -285,14 +503,18 @@ export function buildPackage(config: BeapPackageConfig): PackageBuildResult {
   }
 
   try {
-    const pkg = config.recipientMode === 'private'
-      ? buildQBeapPackage(config)
-      : buildPBeapPackage(config)
-
-    return {
-      success: true,
-      package: pkg,
-      packageJson: JSON.stringify(pkg, null, 2)
+    if (config.recipientMode === 'private') {
+      // qBEAP: buildQBeapPackage returns PackageBuildResult directly
+      const result = buildQBeapPackage(config)
+      return result
+    } else {
+      // pBEAP: buildPBeapPackage returns BeapPackage, wrap it
+      const pkg = buildPBeapPackage(config)
+      return {
+        success: true,
+        package: pkg,
+        packageJson: JSON.stringify(pkg, null, 2)
+      }
     }
   } catch (error) {
     return {
@@ -303,11 +525,142 @@ export function buildPackage(config: BeapPackageConfig): PackageBuildResult {
 }
 
 // =============================================================================
+// Unified Build Result Adapter
+// =============================================================================
+
+/**
+ * Adapts PackageBuildResult to the canonical BeapBuildResult type.
+ * This ensures Draft Email builder output is consistent with the unified builder.
+ */
+function toBeapBuildResult(result: PackageBuildResult): BeapBuildResult {
+  if (result.success && result.package) {
+    return {
+      success: true,
+      packageId: result.package.metadata.filename.replace('.beap', ''),
+      capsuleRef: result.package.header.content_hash,
+      envelopeRef: result.package.header.template_hash,
+      silentMode: false // Draft Email is explicit UI, never silent
+    }
+  }
+  return {
+    success: false,
+    error: result.error || 'Build failed',
+    silentMode: false
+  }
+}
+
+/**
+ * Build a BEAP package and return the canonical BeapBuildResult.
+ * Use this at the UI boundary for consistent result types across WR Chat and Drafts.
+ */
+export function buildDraftEmailPackage(config: BeapPackageConfig): BeapBuildResult {
+  const result = buildPackage(config)
+  return toBeapBuildResult(result)
+}
+
+// =============================================================================
+// Email Transport Contract
+// =============================================================================
+
+/**
+ * Canonical email transport contract.
+ * Ensures strict separation between transport content and capsule content.
+ */
+interface EmailTransportContract {
+  /** Email subject - must be safe, no user content */
+  subject: string
+  /** Email body - transport plaintext ONLY, never encrypted content */
+  body: string
+  /** Attachments - .beap package, safe filenames only */
+  attachments: { name: string; data: string; mime: string }[]
+}
+
+/**
+ * Default safe body for qBEAP when transport plaintext is minimal
+ */
+const QBEAP_DEFAULT_BODY = 'Private BEAP™ package attached. Open with a BEAP-compatible client.'
+
+/**
+ * Build the email transport contract with strict content separation
+ */
+function buildEmailTransportContract(
+  pkg: BeapPackage,
+  config: BeapPackageConfig
+): EmailTransportContract {
+  // Subject: Use safe default, never user content
+  const subject = config.subject || 'BEAP™ Secure Message'
+  
+  // Body: Transport plaintext only
+  let body: string
+  if (config.recipientMode === 'private') {
+    // qBEAP: Use transport plaintext, or safe default if empty/minimal
+    const transportText = config.messageBody?.trim() || ''
+    if (transportText.length < 10) {
+      // Too short or empty - use safe default
+      body = QBEAP_DEFAULT_BODY
+    } else {
+      body = transportText
+    }
+  } else {
+    // pBEAP: Use message body as-is (unchanged behavior)
+    body = config.messageBody || 'BEAP™ Public package attached.'
+  }
+  
+  // Attachment: .beap package with safe filename
+  const packageJson = JSON.stringify(pkg, null, 2)
+  const attachments = [{
+    name: pkg.metadata.filename,
+    data: packageJson,
+    mime: 'application/json'
+  }]
+  
+  return { subject, body, attachments }
+}
+
+/**
+ * Validate email transport contract for security violations
+ * Throws if encrypted content would leak via email transport
+ */
+function validateEmailTransportContract(
+  contract: EmailTransportContract,
+  config: BeapPackageConfig
+): void {
+  const encryptedMessage = config.encryptedMessage?.trim()
+  
+  if (!encryptedMessage || encryptedMessage.length === 0) {
+    return // No encrypted message to check
+  }
+  
+  // Check subject for leakage
+  if (contract.subject.includes(encryptedMessage)) {
+    throw new Error('SECURITY: Encrypted content attempted to leave capsule via email subject')
+  }
+  
+  // Check body for leakage
+  if (contract.body.includes(encryptedMessage)) {
+    throw new Error('SECURITY: Encrypted content attempted to leave capsule via email body')
+  }
+  
+  // Check attachment filenames for leakage
+  for (const attachment of contract.attachments) {
+    if (attachment.name.includes(encryptedMessage)) {
+      throw new Error('SECURITY: Encrypted content attempted to leave capsule via attachment filename')
+    }
+  }
+}
+
+// =============================================================================
 // Delivery Actions
 // =============================================================================
 
 /**
  * Email action - Send package via email
+ * 
+ * Transport separation rules:
+ * - Subject: Safe default only
+ * - Body: Transport plaintext only (qBEAP uses safe default if minimal)
+ * - Attachment: .beap package with safe filename
+ * - encryptedMessage NEVER leaves the capsule
  */
 export async function executeEmailAction(
   pkg: BeapPackage,
@@ -325,12 +678,21 @@ export async function executeEmailAction(
     }
   }
 
+  // Build the email transport contract with strict content separation
+  const emailContract = buildEmailTransportContract(pkg, config)
+  
+  // SECURITY: Validate no encrypted content leaks via email transport
+  validateEmailTransportContract(emailContract, config)
+
   // Stub: In production, would integrate with email provider
+  // NOTE: Intentionally NOT logging messageBody or encryptedMessage content
   console.log('[BEAP Email] Sending package:', {
     to: toAddress,
     encoding: pkg.header.encoding,
-    filename: pkg.metadata.filename,
-    subject: config.subject || 'BEAP™ Secure Message'
+    filename: emailContract.attachments[0]?.name,
+    subject: emailContract.subject,
+    bodyLength: emailContract.body.length,
+    // SECURITY: Never log body content or encryptedMessage
   })
 
   // Simulate email send
@@ -346,7 +708,7 @@ export async function executeEmailAction(
     message: `BEAP™ ${pkg.header.encoding} package sent to ${recipientLabel}`,
     details: {
       to: toAddress,
-      filename: pkg.metadata.filename
+      filename: emailContract.attachments[0]?.name
     }
   }
 }
@@ -371,6 +733,15 @@ Encoding: qBEAP (Encrypted)
 ---
 
 ${packageJson}`
+
+    // SECURITY: Ensure encryptedMessage is not in clipboard header text (it's only in encrypted payload)
+    // The encryptedMessage content should only exist within the encrypted payload, never in plaintext headers
+    if (config.encryptedMessage && config.encryptedMessage.trim()) {
+      const headerSection = clipboardContent.split('---')[1] || ''
+      if (headerSection.includes(config.encryptedMessage)) {
+        throw new Error('SECURITY: encryptedMessage leaked into messenger clipboard header')
+      }
+    }
   } else {
     clipboardContent = `--- BEAP™ Public Package (pBEAP) ---
 Distribution: Public (Auditable)

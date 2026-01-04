@@ -37,6 +37,22 @@ type DockedWorkspace = 'wr-chat' | 'augmented-overlay' | 'beap-messages' | 'wrgu
 type DockedSubmode = 'command' | 'p2p-chat' | 'p2p-stream' | 'group-stream' | 'handshake'
 type BeapSubmode = 'inbox' | 'draft' | 'outbox' | 'archived' | 'rejected'
 
+// UI-only type for draft attachments (not yet wired to builder)
+type DraftAttachment = {
+  id: string
+  name: string
+  mime: string
+  size: number
+  dataBase64: string
+}
+
+// UI-only type for session options in Draft Email
+type SessionOption = {
+  key: string
+  name: string
+  timestamp: string
+}
+
 // Get initial theme from window (set by inline script in HTML)
 const getInitialTheme = (): Theme => {
   const t = (window as any).__INITIAL_THEME__
@@ -81,7 +97,11 @@ function PopupChatApp() {
   
   // BEAP Draft separate state (like docked version)
   const [beapDraftMessage, setBeapDraftMessage] = useState('')
+  const [beapDraftEncryptedMessage, setBeapDraftEncryptedMessage] = useState('')
   const [beapDraftTo, setBeapDraftTo] = useState('')
+  const [beapDraftSessionId, setBeapDraftSessionId] = useState('')
+  const [beapDraftAttachments, setBeapDraftAttachments] = useState<DraftAttachment[]>([])
+  const [availableSessions, setAvailableSessions] = useState<SessionOption[]>([])
   
   // BEAP Recipient Mode state (PRIVATE=qBEAP / PUBLIC=pBEAP)
   const [beapRecipientMode, setBeapRecipientMode] = useState<RecipientMode>('private')
@@ -95,6 +115,63 @@ function PopupChatApp() {
   useEffect(() => {
     initializeHandshakes()
   }, [initializeHandshakes])
+  
+  // Load available sessions for Draft Email session selector
+  // Sessions are stored in chrome.storage.local (same as Sessions History modal)
+  const loadAvailableSessions = () => {
+    console.log('[BEAP Sessions] Loading sessions from chrome.storage.local...')
+    chrome.storage.local.get(null, (allData) => {
+      if (chrome.runtime.lastError) {
+        console.warn('[BEAP Sessions] Error:', chrome.runtime.lastError.message)
+        setAvailableSessions([])
+        return
+      }
+      
+      // Filter for session keys (format: session_*)
+      const sessionEntries = Object.entries(allData).filter(([key]) => key.startsWith('session_'))
+      console.log('[BEAP Sessions] Found sessions:', sessionEntries.length)
+      
+      if (sessionEntries.length === 0) {
+        setAvailableSessions([])
+        return
+      }
+      
+      const sessions: SessionOption[] = sessionEntries
+        .map(([key, data]: [string, any]) => {
+          const name = data?.tabName || data?.name || data?.sessionName || key
+          const timestamp = data?.timestamp || data?.lastOpenedAt || data?.createdAt || ''
+          return { key, name, timestamp }
+        })
+        .filter(s => s.key)
+        .sort((a, b) => {
+          const timeA = a.timestamp ? new Date(a.timestamp).getTime() : 0
+          const timeB = b.timestamp ? new Date(b.timestamp).getTime() : 0
+          return timeB - timeA
+        })
+      
+      console.log('[BEAP Sessions] Parsed sessions:', sessions)
+      setAvailableSessions(sessions)
+    })
+  }
+  
+  // Load sessions on mount
+  useEffect(() => {
+    loadAvailableSessions()
+  }, [])
+  
+  // Refresh sessions when window gets focus
+  useEffect(() => {
+    const handleFocus = () => loadAvailableSessions()
+    window.addEventListener('focus', handleFocus)
+    return () => window.removeEventListener('focus', handleFocus)
+  }, [])
+  
+  // Clear encrypted message when switching from private to public mode
+  useEffect(() => {
+    if (beapRecipientMode === 'public') {
+      setBeapDraftEncryptedMessage('')
+    }
+  }, [beapRecipientMode])
   
   // =========================================================================
   // Email Account State (mirrors sidepanel exactly)
@@ -292,7 +369,16 @@ function PopupChatApp() {
         emailTo: beapDraftTo,
         subject: 'BEAP™ Message',
         messageBody: beapDraftMessage,
-        attachments: []
+        attachments: [],
+        // Only pass encrypted message for qBEAP/private mode
+        ...(beapRecipientMode === 'private' && {
+          encryptedMessage: beapDraftEncryptedMessage.trim() || undefined
+        })
+      }
+      
+      // Log warning if qBEAP private build without encrypted message
+      if (beapRecipientMode === 'private' && !beapDraftEncryptedMessage.trim()) {
+        console.warn('[BEAP Builder] qBEAP private build without encryptedMessage: using transport plaintext only')
       }
       
       // Execute the delivery action
@@ -308,6 +394,9 @@ function PopupChatApp() {
         // Clear form
         setBeapDraftTo('')
         setBeapDraftMessage('')
+        setBeapDraftEncryptedMessage('')
+        setBeapDraftSessionId('')
+        setBeapDraftAttachments([])
         setSelectedRecipient(null)
       } else {
         setToastMessage({ message: result.message || 'Failed to send message', type: 'error' })
@@ -726,13 +815,69 @@ function PopupChatApp() {
                 />
               </div>
               
+              {/* Encrypted Message (qBEAP/PRIVATE only) */}
+              {beapRecipientMode === 'private' && (
+                <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+                  <label style={{ fontSize: '11px', fontWeight: 600, marginBottom: '6px', display: 'block', color: isProfessional ? '#7c3aed' : '#c4b5fd', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                    🔐 Encrypted Message (Private · qBEAP)
+                  </label>
+                  <textarea
+                    className="beap-textarea"
+                    value={beapDraftEncryptedMessage}
+                    onChange={(e) => setBeapDraftEncryptedMessage(e.target.value)}
+                    placeholder="This message is encrypted, capsule-bound, and never transported outside the BEAP package."
+                    style={{
+                      flex: 1,
+                      minHeight: '100px',
+                      background: isProfessional ? 'rgba(139,92,246,0.05)' : 'rgba(139,92,246,0.15)',
+                      border: isProfessional ? '1px solid rgba(139,92,246,0.3)' : '1px solid rgba(139,92,246,0.4)',
+                      color: textColor,
+                      borderRadius: '6px',
+                      padding: '10px 12px',
+                      fontSize: '12px',
+                      lineHeight: '1.5',
+                      resize: 'none',
+                      outline: 'none',
+                      fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+                      boxSizing: 'border-box'
+                    }}
+                  />
+                  <div style={{ fontSize: '10px', color: isProfessional ? '#7c3aed' : '#c4b5fd', marginTop: '4px' }}>
+                    ⚠️ This content is authoritative when present and never leaves the encrypted capsule.
+                  </div>
+                </div>
+              )}
+              
+              {/* Advanced: Session + Attachments (Popup) */}
+              <div style={{ marginTop: '12px', paddingTop: '12px', borderTop: isProfessional ? '1px solid rgba(15,23,42,0.1)' : '1px solid rgba(255,255,255,0.1)' }}>
+                <div style={{ fontSize: '11px', fontWeight: 600, marginBottom: '8px', color: mutedColor, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Advanced (Optional)</div>
+                <div style={{ marginBottom: '10px' }}>
+                  <label style={{ fontSize: '10px', fontWeight: 500, marginBottom: '4px', display: 'block', color: mutedColor }}>Session (optional)</label>
+                  <select value={beapDraftSessionId} onChange={(e) => setBeapDraftSessionId(e.target.value)} onClick={() => loadAvailableSessions()} style={{ width: '100%', background: isProfessional ? 'white' : 'rgba(255,255,255,0.08)', border: isProfessional ? '1px solid rgba(15,23,42,0.2)' : '1px solid rgba(255,255,255,0.15)', color: textColor, borderRadius: '6px', padding: '8px 10px', fontSize: '12px', outline: 'none', boxSizing: 'border-box', cursor: 'pointer' }}>
+                    <option value="">{availableSessions.length === 0 ? '— No sessions available —' : '— Select a session —'}</option>
+                    {availableSessions.map((s) => (<option key={s.key} value={s.key}>{s.name} ({new Date(s.timestamp).toLocaleDateString()})</option>))}
+                  </select>
+                </div>
+                <div>
+                  <label style={{ fontSize: '10px', fontWeight: 500, marginBottom: '4px', display: 'block', color: mutedColor }}>Attachments</label>
+                  <input type="file" multiple onChange={async (e) => { const files = Array.from(e.target.files ?? []); if (!files.length) return; const newItems: DraftAttachment[] = []; for (const file of files) { if (file.size > 10 * 1024 * 1024) { console.warn(`[BEAP] Skipping ${file.name}: exceeds 10MB limit`); continue } if (beapDraftAttachments.length + newItems.length >= 20) { console.warn('[BEAP] Max 20 attachments reached'); break } const dataBase64 = await new Promise<string>((resolve, reject) => { const reader = new FileReader(); reader.onload = () => { const res = String(reader.result ?? ''); resolve(res.includes(',') ? res.split(',')[1] : res) }; reader.onerror = () => reject(reader.error); reader.readAsDataURL(file) }); newItems.push({ id: crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`, name: file.name, mime: file.type || 'application/octet-stream', size: file.size, dataBase64 }) } setBeapDraftAttachments((prev) => [...prev, ...newItems]); e.currentTarget.value = '' }} style={{ fontSize: '11px', color: mutedColor }} />
+                  {beapDraftAttachments.length > 0 && (
+                    <div style={{ marginTop: '8px' }}>
+                      {beapDraftAttachments.map((a) => (<div key={a.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 8px', background: isProfessional ? 'rgba(0,0,0,0.03)' : 'rgba(255,255,255,0.05)', borderRadius: '4px', marginBottom: '4px' }}><div><div style={{ fontSize: '11px', color: textColor }}>{a.name}</div><div style={{ fontSize: '9px', color: mutedColor }}>{a.mime} · {a.size} bytes</div></div><button onClick={() => setBeapDraftAttachments((prev) => prev.filter((x) => x.id !== a.id))} style={{ background: 'transparent', border: 'none', color: isProfessional ? '#ef4444' : '#f87171', fontSize: '10px', cursor: 'pointer' }}>Remove</button></div>))}
+                      <button onClick={() => setBeapDraftAttachments([])} style={{ background: 'transparent', border: isProfessional ? '1px solid rgba(15,23,42,0.2)' : '1px solid rgba(255,255,255,0.2)', color: mutedColor, borderRadius: '4px', padding: '4px 8px', fontSize: '10px', cursor: 'pointer', marginTop: '4px' }}>Clear all</button>
+                    </div>
+                  )}
+                </div>
+              </div>
+              
               {/* Info */}
               <div style={{
                 fontSize: '11px',
                 padding: '10px',
                 background: isProfessional ? 'rgba(168,85,247,0.08)' : 'rgba(168,85,247,0.15)',
                 borderRadius: '6px',
-                color: mutedColor
+                color: mutedColor,
+                marginTop: '12px'
               }}>
                 💡 This creates a secure BEAP™ package with your fingerprint. Your identity will be verifiable by the recipient.
               </div>
@@ -751,6 +896,9 @@ function PopupChatApp() {
                 onClick={() => {
                   setBeapDraftTo('')
                   setBeapDraftMessage('')
+                  setBeapDraftEncryptedMessage('')
+                  setBeapDraftSessionId('')
+                  setBeapDraftAttachments([])
                   setSelectedRecipient(null)
                 }}
                 style={{
