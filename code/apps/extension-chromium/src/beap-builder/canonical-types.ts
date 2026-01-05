@@ -123,6 +123,44 @@ export interface EnvelopeSummary {
 }
 
 // =============================================================================
+// Raster Proof (for PDF previews)
+// =============================================================================
+
+/**
+ * Proof metadata for rasterized PDF pages
+ * Contains hashes and refs but NEVER actual image bytes
+ */
+export interface RasterProof {
+  /** Rasterization engine used */
+  engine: string
+  
+  /** Engine version */
+  version: string
+  
+  /** DPI used for rasterization */
+  dpi: number
+  
+  /** Total pages in original PDF */
+  pageCount: number
+  
+  /** Number of pages rasterized */
+  pagesRasterized: number
+  
+  /** Per-page proof data */
+  pages: Array<{
+    page: number
+    width: number
+    height: number
+    bytes: number  // PNG file size in bytes
+    sha256: string
+    artefactRef: string
+  }>
+  
+  /** When rasterization was performed */
+  rasterizedAt: number
+}
+
+// =============================================================================
 // Capsule (Task Payload)
 // =============================================================================
 
@@ -161,6 +199,9 @@ export interface CapsuleAttachment {
   
   /** Rasterized preview reference (if applicable) */
   previewRef: string | null
+  
+  /** Raster proof metadata (for PDF previews) */
+  rasterProof: RasterProof | null
   
   /** Is this a media file (audio/video/image)? */
   isMedia: boolean

@@ -3841,6 +3841,352 @@ app.whenReady().then(async () => {
       }
     })
     
+    // =================================================================
+    // PDF Parser API Endpoints
+    // =================================================================
+    
+    // Safety limits for PDF parsing
+    const PDF_PARSER_LIMITS = {
+      MAX_PAGES: 300,
+      MAX_EXTRACTED_CHARS: 5 * 1024 * 1024, // 5MB of text
+      MAX_INPUT_SIZE_MB: 100
+    }
+    
+    // POST /api/parser/pdf/extract - Extract text from PDF (capsule-bound only)
+    httpApp.post('/api/parser/pdf/extract', async (req, res) => {
+      try {
+        const { attachmentId, base64 } = req.body
+        
+        if (!attachmentId || typeof attachmentId !== 'string') {
+          res.status(400).json({ success: false, error: 'Missing or invalid attachmentId' })
+          return
+        }
+        
+        if (!base64 || typeof base64 !== 'string') {
+          res.status(400).json({ success: false, error: 'Missing or invalid base64 PDF data' })
+          return
+        }
+        
+        // Check input size
+        const inputSizeMB = (base64.length * 0.75) / (1024 * 1024)
+        if (inputSizeMB > PDF_PARSER_LIMITS.MAX_INPUT_SIZE_MB) {
+          res.status(400).json({ 
+            success: false, 
+            error: `PDF too large: ${inputSizeMB.toFixed(1)}MB exceeds ${PDF_PARSER_LIMITS.MAX_INPUT_SIZE_MB}MB limit` 
+          })
+          return
+        }
+        
+        // Decode base64 to Uint8Array
+        const binaryString = Buffer.from(base64, 'base64')
+        const pdfData = new Uint8Array(binaryString)
+        
+        // Import PDF.js - bundled by vite (not externalized)
+        const pdfjsLib = await import('pdfjs-dist')
+        
+        // Set worker source to bundled worker file (copied by vite plugin)
+        // Worker is at dist-electron/pdf.worker.mjs, same directory as main.js
+        const { pathToFileURL } = await import('url')
+        const path = await import('path')
+        const workerPath = path.join(__dirname, 'pdf.worker.mjs')
+        pdfjsLib.GlobalWorkerOptions.workerSrc = pathToFileURL(workerPath).href
+        
+        // Load PDF document
+        const loadingTask = pdfjsLib.getDocument({ data: pdfData })
+        const pdfDoc = await loadingTask.promise
+        
+        const pageCount = pdfDoc.numPages
+        
+        // Check page limit
+        const pagesToProcess = Math.min(pageCount, PDF_PARSER_LIMITS.MAX_PAGES)
+        let truncatedPages = false
+        if (pageCount > PDF_PARSER_LIMITS.MAX_PAGES) {
+          truncatedPages = true
+        }
+        
+        // Extract text from each page
+        const textParts: string[] = []
+        let totalChars = 0
+        let truncatedChars = false
+        
+        for (let pageNum = 1; pageNum <= pagesToProcess; pageNum++) {
+          const page = await pdfDoc.getPage(pageNum)
+          const textContent = await page.getTextContent()
+          
+          // Concatenate text items deterministically
+          let pageText = ''
+          for (const item of textContent.items) {
+            if ('str' in item && typeof item.str === 'string') {
+              pageText += item.str
+              // Add space if item has EOL flag or width suggests word break
+              if ('hasEOL' in item && item.hasEOL) {
+                pageText += '\n'
+              }
+            }
+          }
+          
+          // Normalize line endings
+          pageText = pageText.replace(/\r\n/g, '\n').replace(/\r/g, '\n')
+          
+          // Check character limit
+          if (totalChars + pageText.length > PDF_PARSER_LIMITS.MAX_EXTRACTED_CHARS) {
+            const remaining = PDF_PARSER_LIMITS.MAX_EXTRACTED_CHARS - totalChars
+            if (remaining > 0) {
+              textParts.push(pageText.substring(0, remaining))
+            }
+            truncatedChars = true
+            break
+          }
+          
+          textParts.push(pageText)
+          totalChars += pageText.length
+        }
+        
+        // Build final text
+        let extractedText = textParts.join('\n\n')
+        
+        // Add truncation warnings if needed
+        const warnings: string[] = []
+        if (truncatedPages) {
+          warnings.push(`[TRUNCATED: Only first ${PDF_PARSER_LIMITS.MAX_PAGES} of ${pageCount} pages processed]`)
+        }
+        if (truncatedChars) {
+          warnings.push(`[TRUNCATED: Text exceeded ${PDF_PARSER_LIMITS.MAX_EXTRACTED_CHARS} character limit]`)
+        }
+        
+        if (warnings.length > 0) {
+          extractedText = warnings.join('\n') + '\n\n' + extractedText
+        }
+        
+        // Get PDF.js version for provenance
+        const pdfjsVersion = pdfjsLib.version || 'unknown'
+        
+        // DO NOT log extracted text (security requirement)
+        console.log(`[PDF-PARSER] Extracted ${totalChars} chars from ${pagesToProcess} pages (attachmentId: ${attachmentId})`)
+        
+        res.json({
+          success: true,
+          pageCount,
+          pagesProcessed: pagesToProcess,
+          extractedText,
+          truncated: truncatedPages || truncatedChars,
+          parser: {
+            engine: 'pdfjs',
+            version: pdfjsVersion
+          }
+        })
+        
+      } catch (error: any) {
+        console.error('[PDF-PARSER] Error extracting PDF text:', error.message)
+        res.status(500).json({ 
+          success: false, 
+          error: error.message || 'Failed to extract PDF text'
+        })
+      }
+    })
+    
+    // =================================================================
+    // PDF Rasterization Endpoint
+    // =================================================================
+    
+    // Safety limits for PDF rasterization
+    const PDF_RASTER_LIMITS = {
+      MAX_PAGES: 300,
+      MAX_DPI: 300,
+      DEFAULT_DPI: 144,
+      MIN_DPI: 72,
+      MAX_TOTAL_PIXELS: 200 * 1024 * 1024 // 200 megapixels total across all pages
+    }
+    
+    // POST /api/parser/pdf/rasterize - Rasterize PDF pages to PNG artefacts
+    httpApp.post('/api/parser/pdf/rasterize', async (req, res) => {
+      try {
+        const { attachmentId, base64, dpi: requestedDpi } = req.body
+        
+        if (!attachmentId || typeof attachmentId !== 'string') {
+          res.status(400).json({ success: false, error: 'Missing or invalid attachmentId' })
+          return
+        }
+        
+        if (!base64 || typeof base64 !== 'string') {
+          res.status(400).json({ success: false, error: 'Missing or invalid base64 PDF data' })
+          return
+        }
+        
+        // Validate and clamp DPI
+        let dpi = PDF_RASTER_LIMITS.DEFAULT_DPI
+        if (typeof requestedDpi === 'number') {
+          dpi = Math.max(PDF_RASTER_LIMITS.MIN_DPI, Math.min(PDF_RASTER_LIMITS.MAX_DPI, requestedDpi))
+        }
+        
+        // Check input size
+        const inputSizeMB = (base64.length * 0.75) / (1024 * 1024)
+        if (inputSizeMB > PDF_PARSER_LIMITS.MAX_INPUT_SIZE_MB) {
+          res.status(400).json({ 
+            success: false, 
+            error: `PDF too large: ${inputSizeMB.toFixed(1)}MB exceeds ${PDF_PARSER_LIMITS.MAX_INPUT_SIZE_MB}MB limit` 
+          })
+          return
+        }
+        
+        // Decode base64 to Uint8Array
+        const binaryString = Buffer.from(base64, 'base64')
+        const pdfData = new Uint8Array(binaryString)
+        
+        // Import required modules
+        const pdfjsLib = await import('pdfjs-dist')
+        const { pathToFileURL } = await import('url')
+        const pathModule = await import('path')
+        const fsModule = await import('fs')
+        const cryptoModule = await import('crypto')
+        const { homedir } = await import('os')
+        
+        // Set worker source to bundled worker
+        const workerPath = pathModule.join(__dirname, 'pdf.worker.mjs')
+        pdfjsLib.GlobalWorkerOptions.workerSrc = pathToFileURL(workerPath).href
+        
+        // Load canvas module (node-canvas with Path2D support)
+        let canvasModule: any
+        try {
+          canvasModule = await import('canvas')
+        } catch (canvasErr) {
+          console.error('[PDF-RASTER] canvas module not available:', (canvasErr as Error).message)
+          res.status(500).json({ 
+            success: false, 
+            error: 'Canvas module not available for rasterization. Install canvas package.' 
+          })
+          return
+        }
+        
+        // Load PDF document
+        const loadingTask = pdfjsLib.getDocument({ 
+          data: pdfData,
+          verbosity: 0 // Suppress warnings
+        })
+        const pdfDoc = await loadingTask.promise
+        
+        const pageCount = pdfDoc.numPages
+        
+        // Check page limit
+        if (pageCount > PDF_RASTER_LIMITS.MAX_PAGES) {
+          res.status(400).json({
+            success: false,
+            error: `PDF has ${pageCount} pages, exceeds limit of ${PDF_RASTER_LIMITS.MAX_PAGES}`,
+            code: 'MAX_PAGES_EXCEEDED'
+          })
+          return
+        }
+        
+        // Create artefact storage directory
+        const artefactDir = pathModule.join(homedir(), '.opengiraffe', 'electron-data', 'raster-artefacts')
+        if (!fsModule.existsSync(artefactDir)) {
+          fsModule.mkdirSync(artefactDir, { recursive: true })
+        }
+        
+        // Track total pixels for limit enforcement
+        let totalPixels = 0
+        const pages: Array<{
+          page: number
+          width: number
+          height: number
+          bytes: number  // PNG file size in bytes
+          sha256: string
+          artefactRef: string
+        }> = []
+        
+        // Get PDF.js version for provenance
+        const pdfjsVersion = pdfjsLib.version || 'unknown'
+        
+        // Scale factor for DPI (72 DPI is the PDF default)
+        const scale = dpi / 72
+        
+        for (let pageNum = 1; pageNum <= pageCount; pageNum++) {
+          const page = await pdfDoc.getPage(pageNum)
+          
+          // Calculate dimensions at requested DPI
+          const viewport = page.getViewport({ scale })
+          const width = Math.floor(viewport.width)
+          const height = Math.floor(viewport.height)
+          
+          // Check pixel limit
+          const pagePixels = width * height
+          if (totalPixels + pagePixels > PDF_RASTER_LIMITS.MAX_TOTAL_PIXELS) {
+            console.log(`[PDF-RASTER] Stopping at page ${pageNum}: pixel limit reached (${totalPixels} + ${pagePixels} > ${PDF_RASTER_LIMITS.MAX_TOTAL_PIXELS})`)
+            res.status(400).json({
+              success: false,
+              error: `Total pixels would exceed limit at page ${pageNum}`,
+              code: 'MAX_TOTAL_PIXELS_EXCEEDED',
+              processedPages: pages.length
+            })
+            return
+          }
+          totalPixels += pagePixels
+          
+          // Create canvas for this page
+          const canvas = canvasModule.createCanvas(width, height)
+          const context = canvas.getContext('2d')
+          
+          // Fill with white background
+          context.fillStyle = 'white'
+          context.fillRect(0, 0, width, height)
+          
+          // Render PDF page to canvas
+          const renderContext = {
+            canvasContext: context,
+            viewport: viewport
+          }
+          
+          await page.render(renderContext).promise
+          
+          // Convert to PNG buffer
+          const pngBuffer = canvas.toBuffer('image/png')
+          
+          // Calculate SHA-256 hash
+          const sha256 = cryptoModule.createHash('sha256').update(pngBuffer).digest('hex')
+          
+          // Generate artefact reference
+          const artefactRef = `raster_${attachmentId}_p${pageNum}_${sha256.substring(0, 8)}.png`
+          const artefactPath = pathModule.join(artefactDir, artefactRef)
+          
+          // Write PNG to artefact store
+          fsModule.writeFileSync(artefactPath, pngBuffer)
+          
+          pages.push({
+            page: pageNum,
+            width,
+            height,
+            bytes: pngBuffer.length,
+            sha256,
+            artefactRef
+          })
+          
+          // DO NOT log image content (security requirement)
+        }
+        
+        // DO NOT log image bytes (security requirement)
+        console.log(`[PDF-RASTER] Rasterized ${pages.length} pages at ${dpi}dpi (attachmentId: ${attachmentId}, totalPixels: ${totalPixels})`)
+        
+        res.json({
+          success: true,
+          pageCount,
+          pagesRasterized: pages.length,
+          pages,
+          raster: {
+            engine: 'pdfjs',
+            version: pdfjsVersion,
+            dpi
+          }
+        })
+        
+      } catch (error: any) {
+        console.error('[PDF-RASTER] Error rasterizing PDF:', error.message)
+        res.status(500).json({ 
+          success: false, 
+          error: error.message || 'Failed to rasterize PDF'
+        })
+      }
+    })
+    
     // Simple function to start HTTP server with error handling
     let httpServerStarted = false
     

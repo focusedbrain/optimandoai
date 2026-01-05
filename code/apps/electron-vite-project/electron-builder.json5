@@ -6,7 +6,9 @@
   "asarUnpack": [
     "**/node_modules/ffmpeg-static/**/*",
     "**/node_modules/better-sqlite3/**/*",
-    "**/node_modules/better-sqlite3/**"
+    "**/node_modules/better-sqlite3/**",
+    "**/node_modules/canvas/**/*",
+    "**/*.node"
   ],
   "productName": "OpenGiraffe",
   "directories": {
@@ -15,9 +17,25 @@
   "files": [
     "dist-electron",
     "dist",
-    "node_modules/@types",
     "node_modules/ffmpeg-static",
-    "node_modules/better-sqlite3"
+    "node_modules/better-sqlite3",
+    "node_modules/canvas",
+    "node_modules/bindings",
+    "node_modules/file-uri-to-path",
+    "node_modules/node-addon-api",
+    "node_modules/prebuild-install"
+  ],
+  "extraResources": [
+    {
+      "from": "node_modules/canvas/build/Release",
+      "to": "native/canvas",
+      "filter": ["*.node", "*.dll"]
+    },
+    {
+      "from": "node_modules/better-sqlite3/build/Release",
+      "to": "native/better-sqlite3",
+      "filter": ["*.node"]
+    }
   ],
   "mac": {
     "artifactName": "${productName}-${version}-${arch}.${ext}",
@@ -42,5 +60,7 @@
     "allowToChangeInstallationDirectory": true,
     "deleteAppDataOnUninstall": false
   },
-  "executableName": "opengiraffe"
+  "executableName": "opengiraffe",
+  "npmRebuild": true,
+  "nodeGypRebuild": true
 }

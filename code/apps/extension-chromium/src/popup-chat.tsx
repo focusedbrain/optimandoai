@@ -853,9 +853,9 @@ function PopupChatApp() {
                 <div style={{ fontSize: '11px', fontWeight: 600, marginBottom: '8px', color: mutedColor, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Advanced (Optional)</div>
                 <div style={{ marginBottom: '10px' }}>
                   <label style={{ fontSize: '10px', fontWeight: 500, marginBottom: '4px', display: 'block', color: mutedColor }}>Session (optional)</label>
-                  <select value={beapDraftSessionId} onChange={(e) => setBeapDraftSessionId(e.target.value)} onClick={() => loadAvailableSessions()} style={{ width: '100%', background: isProfessional ? 'white' : 'rgba(255,255,255,0.08)', border: isProfessional ? '1px solid rgba(15,23,42,0.2)' : '1px solid rgba(255,255,255,0.15)', color: textColor, borderRadius: '6px', padding: '8px 10px', fontSize: '12px', outline: 'none', boxSizing: 'border-box', cursor: 'pointer' }}>
-                    <option value="">{availableSessions.length === 0 ? '— No sessions available —' : '— Select a session —'}</option>
-                    {availableSessions.map((s) => (<option key={s.key} value={s.key}>{s.name} ({new Date(s.timestamp).toLocaleDateString()})</option>))}
+                  <select value={beapDraftSessionId} onChange={(e) => setBeapDraftSessionId(e.target.value)} onClick={() => loadAvailableSessions()} style={{ width: '100%', background: isProfessional ? '#f8fafc' : '#1e293b', border: isProfessional ? '1px solid rgba(15,23,42,0.2)' : '1px solid rgba(255,255,255,0.25)', color: isProfessional ? '#0f172a' : '#f1f5f9', borderRadius: '6px', padding: '8px 10px', fontSize: '12px', outline: 'none', boxSizing: 'border-box', cursor: 'pointer' }}>
+                    <option value="" style={{ background: isProfessional ? '#f8fafc' : '#1e293b', color: isProfessional ? '#0f172a' : '#f1f5f9' }}>{availableSessions.length === 0 ? '— No sessions available —' : '— Select a session —'}</option>
+                    {availableSessions.map((s) => (<option key={s.key} value={s.key} style={{ background: isProfessional ? '#f8fafc' : '#1e293b', color: isProfessional ? '#0f172a' : '#f1f5f9' }}>{s.name} ({new Date(s.timestamp).toLocaleDateString()})</option>))}
                   </select>
                 </div>
                 <div>

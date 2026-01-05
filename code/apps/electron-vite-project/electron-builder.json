@@ -12,8 +12,13 @@
   ],
   "extraResources": [
     {
-      "from": "licenses",
+      "from": "../../THIRD_PARTY_LICENSES",
       "to": "licenses",
+      "filter": ["**/*"]
+    },
+    {
+      "from": "THIRD_PARTY_LICENSES",
+      "to": "licenses/electron-app",
       "filter": ["**/*"]
     }
   ],

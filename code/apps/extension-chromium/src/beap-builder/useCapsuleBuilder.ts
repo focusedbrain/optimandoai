@@ -173,6 +173,9 @@ interface CapsuleBuilderStore extends CapsuleBuilderState {
   /** Remove attachment */
   removeAttachment: (attachmentId: string) => void
   
+  /** Update attachment (e.g., after parsing) */
+  updateAttachment: (attachmentId: string, updates: Partial<CapsuleAttachment>) => void
+  
   /** Set attachment upload status */
   setAttachmentUploading: (attachmentId: string, uploading: boolean) => void
   
@@ -336,6 +339,17 @@ export const useCapsuleBuilder = create<CapsuleBuilderStore>((set, get) => ({
       capsule: {
         ...state.capsule,
         attachments: state.capsule.attachments.filter(a => a.id !== attachmentId)
+      }
+    }))
+  },
+  
+  updateAttachment: (attachmentId, updates) => {
+    set(state => ({
+      capsule: {
+        ...state.capsule,
+        attachments: state.capsule.attachments.map(a => 
+          a.id === attachmentId ? { ...a, ...updates } : a
+        )
       }
     }))
   },

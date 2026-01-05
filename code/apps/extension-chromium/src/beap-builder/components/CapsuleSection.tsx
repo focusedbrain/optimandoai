@@ -8,12 +8,14 @@
  * - Attachments are parsed to semantic content only (originals encrypted)
  * - Session selection requires envelope capability
  * - All edits are within envelope-declared bounds
+ * - Extracted text is CAPSULE-BOUND ONLY (never in transport)
  * 
- * @version 1.0.0
+ * @version 1.1.0
  */
 
-import React, { useRef } from 'react'
+import React, { useRef, useState, useCallback } from 'react'
 import type { CapsuleState, CapsuleAttachment, CapsuleSessionRef, CapabilityClass } from '../canonical-types'
+import { processAttachmentForParsing, isParseableFormat } from '../parserService'
 
 interface CapsuleSectionProps {
   capsule: CapsuleState
@@ -21,6 +23,7 @@ interface CapsuleSectionProps {
   onTextChange: (text: string) => void
   onAddAttachment: (attachment: CapsuleAttachment) => void
   onRemoveAttachment: (id: string) => void
+  onUpdateAttachment?: (attachmentId: string, updates: Partial<CapsuleAttachment>) => void
   onSelectSession: (session: CapsuleSessionRef) => void
   onDeselectSession: (sessionId: string) => void
   onDataRequestChange: (request: string) => void
@@ -34,6 +37,7 @@ export const CapsuleSection: React.FC<CapsuleSectionProps> = ({
   onTextChange,
   onAddAttachment,
   onRemoveAttachment,
+  onUpdateAttachment,
   onSelectSession,
   onDeselectSession,
   onDataRequestChange,
@@ -49,6 +53,70 @@ export const CapsuleSection: React.FC<CapsuleSectionProps> = ({
   const inputBorder = isProfessional ? 'rgba(15,23,42,0.15)' : 'rgba(255,255,255,0.15)'
   
   const fileInputRef = useRef<HTMLInputElement>(null)
+  
+  // Track parsing status per attachment
+  const [parsingAttachments, setParsingAttachments] = useState<Set<string>>(new Set())
+  const [parseErrors, setParseErrors] = useState<Record<string, string>>({})
+  
+  // Read file as base64
+  const readFileAsBase64 = useCallback((file: File): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onload = () => {
+        const result = reader.result as string
+        // Remove data URL prefix (e.g., "data:application/pdf;base64,")
+        const base64 = result.split(',')[1] || result
+        resolve(base64)
+      }
+      reader.onerror = () => reject(new Error('Failed to read file'))
+      reader.readAsDataURL(file)
+    })
+  }, [])
+  
+  // Parse attachment for text extraction (PDF only for now)
+  const parseAttachment = useCallback(async (attachment: CapsuleAttachment, file: File) => {
+    // Only parse PDFs
+    if (!isParseableFormat(file.type)) {
+      return
+    }
+    
+    // Mark as parsing
+    setParsingAttachments(prev => new Set(prev).add(attachment.id))
+    setParseErrors(prev => {
+      const next = { ...prev }
+      delete next[attachment.id]
+      return next
+    })
+    
+    try {
+      // Read file as base64
+      const base64Data = await readFileAsBase64(file)
+      
+      // Call parser service
+      const result = await processAttachmentForParsing(attachment, base64Data)
+      
+      if (result.error) {
+        setParseErrors(prev => ({ ...prev, [attachment.id]: result.error! }))
+      }
+      
+      // Update attachment with parsed content (if callback provided)
+      if (onUpdateAttachment) {
+        onUpdateAttachment(attachment.id, {
+          semanticContent: result.attachment.semanticContent,
+          semanticExtracted: result.attachment.semanticExtracted
+        })
+      }
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : 'Parsing failed'
+      setParseErrors(prev => ({ ...prev, [attachment.id]: errorMsg }))
+    } finally {
+      setParsingAttachments(prev => {
+        const next = new Set(prev)
+        next.delete(attachment.id)
+        return next
+      })
+    }
+  }, [readFileAsBase64, onUpdateAttachment])
   
   // Handle file selection
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -74,6 +142,11 @@ export const CapsuleSection: React.FC<CapsuleSectionProps> = ({
       }
       
       onAddAttachment(attachment)
+      
+      // Trigger parsing for PDFs (async, non-blocking)
+      if (isParseableFormat(file.type)) {
+        parseAttachment(attachment, file)
+      }
     }
     
     if (e.target) e.target.value = ''
@@ -198,7 +271,17 @@ export const CapsuleSection: React.FC<CapsuleSectionProps> = ({
                       {att.originalName}
                     </div>
                     <div style={{ fontSize: '10px', color: mutedColor }}>
-                      {formatSize(att.originalSize)} • {att.semanticExtracted ? '✓ Parsed' : '⏳ Pending'}
+                      {formatSize(att.originalSize)} • {
+                        parsingAttachments.has(att.id) 
+                          ? '⏳ Parsing...'
+                          : parseErrors[att.id]
+                            ? `❌ ${parseErrors[att.id].substring(0, 30)}`
+                            : att.semanticExtracted 
+                              ? `✓ Parsed (${(att.semanticContent?.length || 0).toLocaleString()} chars)`
+                              : isParseableFormat(att.originalType)
+                                ? '⏳ Pending'
+                                : '— Not parseable'
+                      }
                     </div>
                   </div>
                   <button

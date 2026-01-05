@@ -21,9 +21,10 @@ import type {
   DeliveryAttempt,
   DispatchResult
 } from './dispatch-types'
-import type { BeapEnvelope, BeapCapsule, CapabilityClass, NetworkConstraints } from './canonical-types'
+import type { BeapEnvelope, BeapCapsule, CapabilityClass, NetworkConstraints, CapsuleAttachment } from './canonical-types'
 import { requiresBeapBuilder } from './requiresBuilder'
 import { generateMockFingerprint } from '../handshake/fingerprint'
+import { assertNoSemanticContentInTransport } from './parserService'
 
 // =============================================================================
 // Pipeline Entry Point
@@ -341,6 +342,19 @@ async function dispatchByMethod(
   context: SendContext,
   outboxEntry: OutboxEntry
 ): Promise<DispatchResult> {
+  // SECURITY: Verify no semantic content leaks into transport
+  // This assertion MUST be checked before ANY transport operation
+  try {
+    assertNoSemanticContentInTransport(context.text, context.attachments)
+  } catch (error) {
+    console.error('[SendPipeline] SECURITY VIOLATION:', error)
+    return { 
+      success: false, 
+      status: 'failed', 
+      error: error instanceof Error ? error.message : 'Security check failed'
+    }
+  }
+  
   switch (context.delivery.method) {
     case 'email':
       return dispatchEmail(context, outboxEntry)

@@ -9,10 +9,12 @@
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
     "preview": "vite preview",
     "diagnose": "node scripts/diagnose-websocket.js",
-    "postinstall": "electron-rebuild -f -w"
+    "postinstall": "electron-builder install-app-deps"
   },
   "dependencies": {
     "@types/express": "^5.0.5",
+    "canvas": "3.2.0",
+    "pdfjs-dist": "4.10.38",
     "@types/fluent-ffmpeg": "^2.1.27",
     "@types/imap": "^0.8.42",
     "@types/mailparser": "^3.4.6",
@@ -47,6 +49,8 @@
     "eslint": "^8.57.0",
     "eslint-plugin-react-hooks": "^4.6.0",
     "eslint-plugin-react-refresh": "^0.4.5",
+    "node-addon-api": "^7.1.1",
+    "prebuild-install": "^7.1.3",
     "typescript": "^5.2.2",
     "vite": "^5.1.6",
     "vite-plugin-electron": "^0.28.6",

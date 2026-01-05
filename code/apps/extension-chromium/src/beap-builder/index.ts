@@ -81,6 +81,21 @@ export {
   useGenerationCount
 } from './useEnvelopeGenerator'
 
+// Parser service (v2.3)
+export {
+  extractPdfText,
+  processAttachmentForParsing,
+  isParseableFormat,
+  isParserServiceAvailable,
+  assertNoSemanticContentInTransport,
+  getSafeAttachmentInfo,
+  rasterizePdf,
+  processAttachmentForRasterization,
+  type ParserResult,
+  type ParserProvenance,
+  type RasterResult
+} from './parserService'
+
 // Legacy components
 export { BeapBuilderModal } from './components/BeapBuilderModal'
 export { DeliveryOptions } from './components/DeliveryOptions'

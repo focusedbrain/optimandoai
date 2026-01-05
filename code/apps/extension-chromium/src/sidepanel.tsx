@@ -4661,9 +4661,9 @@ function SidepanelOrchestrator() {
                           onClick={() => loadAvailableSessions()}
                           style={{
                             width: '100%',
-                            background: theme === 'professional' ? 'white' : 'rgba(255,255,255,0.08)',
-                            border: theme === 'professional' ? '1px solid rgba(15,23,42,0.2)' : '1px solid rgba(255,255,255,0.15)',
-                            color: theme === 'professional' ? '#0f172a' : 'white',
+                            background: theme === 'professional' ? '#f8fafc' : '#1e293b',
+                            border: theme === 'professional' ? '1px solid rgba(15,23,42,0.2)' : '1px solid rgba(255,255,255,0.25)',
+                            color: theme === 'professional' ? '#0f172a' : '#f1f5f9',
                             borderRadius: '6px',
                             padding: '8px 10px',
                             fontSize: '12px',
@@ -4672,9 +4672,9 @@ function SidepanelOrchestrator() {
                             cursor: 'pointer'
                           }}
                         >
-                          <option value="">{availableSessions.length === 0 ? '— No sessions available —' : '— Select a session —'}</option>
+                          <option value="" style={{ background: theme === 'professional' ? '#f8fafc' : '#1e293b', color: theme === 'professional' ? '#0f172a' : '#f1f5f9' }}>{availableSessions.length === 0 ? '— No sessions available —' : '— Select a session —'}</option>
                           {availableSessions.map((s) => (
-                            <option key={s.key} value={s.key}>{s.name} ({new Date(s.timestamp).toLocaleDateString()})</option>
+                            <option key={s.key} value={s.key} style={{ background: theme === 'professional' ? '#f8fafc' : '#1e293b', color: theme === 'professional' ? '#0f172a' : '#f1f5f9' }}>{s.name} ({new Date(s.timestamp).toLocaleDateString()})</option>
                           ))}
                         </select>
                       </div>
@@ -6131,9 +6131,9 @@ height: '28px',
                     <div style={{ fontSize: '11px', fontWeight: 600, marginBottom: '8px', color: theme === 'professional' ? '#64748b' : 'rgba(255,255,255,0.6)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Advanced (Optional)</div>
                     <div style={{ marginBottom: '10px' }}>
                       <label style={{ fontSize: '10px', fontWeight: 500, marginBottom: '4px', display: 'block', color: theme === 'professional' ? '#64748b' : 'rgba(255,255,255,0.6)' }}>Session (optional)</label>
-                      <select value={beapDraftSessionId} onChange={(e) => setBeapDraftSessionId(e.target.value)} onClick={() => loadAvailableSessions()} style={{ width: '100%', background: theme === 'professional' ? 'white' : 'rgba(255,255,255,0.08)', border: theme === 'professional' ? '1px solid rgba(15,23,42,0.2)' : '1px solid rgba(255,255,255,0.15)', color: theme === 'professional' ? '#0f172a' : 'white', borderRadius: '6px', padding: '8px 10px', fontSize: '12px', outline: 'none', boxSizing: 'border-box', cursor: 'pointer' }}>
-                        <option value="">{availableSessions.length === 0 ? '— No sessions available —' : '— Select a session —'}</option>
-                        {availableSessions.map((s) => (<option key={s.key} value={s.key}>{s.name} ({new Date(s.timestamp).toLocaleDateString()})</option>))}
+                      <select value={beapDraftSessionId} onChange={(e) => setBeapDraftSessionId(e.target.value)} onClick={() => loadAvailableSessions()} style={{ width: '100%', background: theme === 'professional' ? '#f8fafc' : '#1e293b', border: theme === 'professional' ? '1px solid rgba(15,23,42,0.2)' : '1px solid rgba(255,255,255,0.25)', color: theme === 'professional' ? '#0f172a' : '#f1f5f9', borderRadius: '6px', padding: '8px 10px', fontSize: '12px', outline: 'none', boxSizing: 'border-box', cursor: 'pointer' }}>
+                        <option value="" style={{ background: theme === 'professional' ? '#f8fafc' : '#1e293b', color: theme === 'professional' ? '#0f172a' : '#f1f5f9' }}>{availableSessions.length === 0 ? '— No sessions available —' : '— Select a session —'}</option>
+                        {availableSessions.map((s) => (<option key={s.key} value={s.key} style={{ background: theme === 'professional' ? '#f8fafc' : '#1e293b', color: theme === 'professional' ? '#0f172a' : '#f1f5f9' }}>{s.name} ({new Date(s.timestamp).toLocaleDateString()})</option>))}
                       </select>
                     </div>
                     <div>
@@ -7413,9 +7413,9 @@ height: '28px',
                     <div style={{ fontSize: '11px', fontWeight: 600, marginBottom: '8px', color: theme === 'professional' ? '#64748b' : 'rgba(255,255,255,0.6)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Advanced (Optional)</div>
                     <div style={{ marginBottom: '10px' }}>
                       <label style={{ fontSize: '10px', fontWeight: 500, marginBottom: '4px', display: 'block', color: theme === 'professional' ? '#64748b' : 'rgba(255,255,255,0.6)' }}>Session (optional)</label>
-                      <select value={beapDraftSessionId} onChange={(e) => setBeapDraftSessionId(e.target.value)} onClick={() => loadAvailableSessions()} style={{ width: '100%', background: theme === 'professional' ? 'white' : 'rgba(255,255,255,0.08)', border: theme === 'professional' ? '1px solid rgba(15,23,42,0.2)' : '1px solid rgba(255,255,255,0.15)', color: theme === 'professional' ? '#0f172a' : 'white', borderRadius: '6px', padding: '8px 10px', fontSize: '12px', outline: 'none', boxSizing: 'border-box', cursor: 'pointer' }}>
-                        <option value="">{availableSessions.length === 0 ? '— No sessions available —' : '— Select a session —'}</option>
-                        {availableSessions.map((s) => (<option key={s.key} value={s.key}>{s.name} ({new Date(s.timestamp).toLocaleDateString()})</option>))}
+                      <select value={beapDraftSessionId} onChange={(e) => setBeapDraftSessionId(e.target.value)} onClick={() => loadAvailableSessions()} style={{ width: '100%', background: theme === 'professional' ? '#f8fafc' : '#1e293b', border: theme === 'professional' ? '1px solid rgba(15,23,42,0.2)' : '1px solid rgba(255,255,255,0.25)', color: theme === 'professional' ? '#0f172a' : '#f1f5f9', borderRadius: '6px', padding: '8px 10px', fontSize: '12px', outline: 'none', boxSizing: 'border-box', cursor: 'pointer' }}>
+                        <option value="" style={{ background: theme === 'professional' ? '#f8fafc' : '#1e293b', color: theme === 'professional' ? '#0f172a' : '#f1f5f9' }}>{availableSessions.length === 0 ? '— No sessions available —' : '— Select a session —'}</option>
+                        {availableSessions.map((s) => (<option key={s.key} value={s.key} style={{ background: theme === 'professional' ? '#f8fafc' : '#1e293b', color: theme === 'professional' ? '#0f172a' : '#f1f5f9' }}>{s.name} ({new Date(s.timestamp).toLocaleDateString()})</option>))}
                       </select>
                     </div>
                     <div>
