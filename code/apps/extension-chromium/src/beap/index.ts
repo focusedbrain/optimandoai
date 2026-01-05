@@ -52,27 +52,32 @@ IMPORTANT RULES:
 1. intent:
    - Use a short, normalized intent phrase (snake_case).
    - Normalize synonyms (e.g. "sign in", "log in" → "login").
-   - Examples: "button_creation", "note_taking", "form_creation".
+   - Examples: "note_taking", "form_creation", "data_entry".
 
 2. features:
-   - List concrete, technical capabilities required.
-   - Use short noun phrases.
-   - Examples: "clickable_element", "text_input", "submit_action".
+   - List ALL concrete UI elements and actions mentioned by the user.
+   - Be specific about WHAT the user wants.
+   - Examples: "textarea", "button", "save_action", "text_label", "input_field".
+   - If user says "textarea", include "textarea" not just "text_input".
+   - If user says "button to save", include both "button" and "save_action".
 
 3. constraints:
    - Constraints MUST be chosen ONLY from the allowed list below.
-   - DO NOT invent new constraint names.
-   - Map user words like "only", "single", "just one" to the correct constraint.
+   - ONLY add "single_functionality" if user explicitly says "only one thing", "just a button", "single element".
+   - DO NOT add "single_functionality" if user mentions multiple elements (textarea AND button, input AND save, etc).
+   - If user says "no [something]", map to the appropriate constraint.
 
 ALLOWED CONSTRAINT VALUES:
-- "single_functionality"      → exactly one functional UI block
+- "single_functionality"      → user explicitly wants ONLY one element (rare!)
 - "read_only"                 → no state-changing actions
 - "no_backend"                → no API or DB access
 - "no_input"                  → no input elements allowed
 - "no_action"                 → no buttons or triggers allowed
 
-STRICT RULES:
-- If no constraint applies, return an empty array.
+CRITICAL RULES:
+- If user mentions multiple elements (e.g., textarea + button), constraints array MUST be empty [].
+- If user says "no title input", "no header", etc., just don't include those in features - don't add a constraint.
+- Return empty constraints array [] unless user explicitly restricts functionality.
 - DO NOT include explanations.
 - DO NOT generate code or UI.
 - Return ONLY the JSON object.`
@@ -117,29 +122,37 @@ STRICT RULES:
     let features: string[] = []
     let constraints: string[] = []
     
-    if (/save|store|persist|remember/.test(fullText)) {
+    // Detect specific UI elements mentioned
+    if (/textarea|text\s*area|multiline/.test(fullText)) {
+      features.push('textarea')
+    }
+    if (/button|click/.test(fullText)) {
+      features.push('button')
+    }
+    if (/input|field|text\s*box/.test(fullText)) {
+      features.push('input_field')
+    }
+    if (/label|heading|title/.test(fullText)) {
+      features.push('label')
+    }
+    
+    // Detect actions
+    if (/save|store|persist/.test(fullText)) {
+      features.push('save_action')
       intent = 'data_persistence'
-      features.push('save_data', 'storage')
-    }
-    if (/write|enter|input|type|text/.test(fullText)) {
-      intent = 'text_input'
-      features.push('text_entry', 'input_field')
-    }
-    if (/form|submit|send/.test(fullText)) {
-      intent = 'form_submission'
-      features.push('form_fields', 'submit_action')
     }
     if (/note|notes|memo/.test(fullText)) {
       intent = 'note_taking'
-      features.push('text_area', 'note_storage')
+      if (!features.includes('textarea')) features.push('textarea')
     }
-    if (/simple|basic|minimal/.test(fullText)) {
-      constraints.push('minimal_ui', 'basic_functionality')
+    if (/form|submit/.test(fullText)) {
+      intent = 'form_creation'
+      features.push('submit_action')
     }
-    if (/quick|fast|simple/.test(fullText)) {
-      constraints.push('quick_access', 'streamlined')
-    }
-    if (/single|one\s+thing|focused/.test(fullText)) {
+    
+    // Only add single_functionality if explicitly stated with words like "only", "just", "single"
+    // AND they're asking for truly one thing
+    if (/\b(only|just|single)\b/.test(fullText) && features.length <= 1) {
       constraints.push('single_functionality')
     }
     
@@ -320,7 +333,7 @@ export async function createMiniAppFromQuery(title: string, description: string,
     
     // STEP 6-7: TensorFlow.js ranks ALL tier items using cosine similarity
     const { registry, items } = await ensureAllTiers() // load all tiers with vectors
-    // console.log("Ensure all tiers", await ensureAllTiers())
+    console.log("Ensure all tiers", await ensureAllTiers()) // todo: Remove this line for production
     // Check if we have any items to score
     if (!items || items.length === 0) {
       console.error("BEAP: No items loaded from any tier")

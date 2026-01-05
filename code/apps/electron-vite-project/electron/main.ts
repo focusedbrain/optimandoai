@@ -6,6 +6,7 @@ import { execSync } from 'node:child_process'
 import { WebSocketServer } from 'ws'
 import express from 'express'
 import * as net from 'net'
+import { loadAllMiniApps, loadTier1MiniApps, loadTier2MiniApps, loadTier3MiniApps } from './main/miniapps/loader'
 
 // ============================================================================
 // SINGLE INSTANCE LOCK - Prevent multiple instances from running
@@ -2145,6 +2146,47 @@ app.whenReady().then(async () => {
           timestamp: Date.now(),
           error: error.message || 'Health check failed'
         })
+      }
+    })
+
+    // Mini-app JSON loaders (tier1, tier2, tier3, all)
+    httpApp.get('/api/miniapps/tier1', async (_req, res) => {
+      try {
+        const data = await loadTier1MiniApps()
+        res.json({ ok: true, data })
+      } catch (error: any) {
+        console.error('[HTTP-MINIAPPS] Error loading tier1:', error)
+        res.status(500).json({ ok: false, error: error.message || 'Failed to load tier1 mini-apps' })
+      }
+    })
+
+    httpApp.get('/api/miniapps/tier2', async (_req, res) => {
+      try {
+        const data = await loadTier2MiniApps()
+        res.json({ ok: true, data })
+      } catch (error: any) {
+        console.error('[HTTP-MINIAPPS] Error loading tier2:', error)
+        res.status(500).json({ ok: false, error: error.message || 'Failed to load tier2 mini-apps' })
+      }
+    })
+
+    httpApp.get('/api/miniapps/tier3', async (_req, res) => {
+      try {
+        const data = await loadTier3MiniApps()
+        res.json({ ok: true, data })
+      } catch (error: any) {
+        console.error('[HTTP-MINIAPPS] Error loading tier3:', error)
+        res.status(500).json({ ok: false, error: error.message || 'Failed to load tier3 mini-apps' })
+      }
+    })
+
+    httpApp.get('/api/miniapps', async (_req, res) => {
+      try {
+        const data = await loadAllMiniApps()
+        res.json({ ok: true, data })
+      } catch (error: any) {
+        console.error('[HTTP-MINIAPPS] Error loading all tiers:', error)
+        res.status(500).json({ ok: false, error: error.message || 'Failed to load mini-apps' })
       }
     })
 
