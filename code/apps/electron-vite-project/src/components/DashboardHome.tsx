@@ -413,28 +413,6 @@ function EventAnalysisModal({ isOpen, onClose, event, onApprove }: EventAnalysis
     </div>
   )
 }
-        </div>
-      )}
-      
-      <div className="dash-focus-actions">
-        <button 
-          className="dash-btn dash-btn--primary"
-          onClick={handlePrimaryCta}
-        >
-          {action.primaryCta.label}
-        </button>
-        {action.secondaryCta && (
-          <button 
-            className="dash-btn dash-btn--secondary"
-            onClick={handleSecondaryCta}
-          >
-            {action.secondaryCta.label}
-          </button>
-        )}
-      </div>
-    </div>
-  )
-}
 
 // =============================================================================
 // Context Snapshot Cards
