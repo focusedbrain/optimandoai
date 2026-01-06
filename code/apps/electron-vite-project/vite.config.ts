@@ -35,7 +35,7 @@ export default defineConfig({
             rollupOptions: {
               // pdfjs-dist is NOT externalized - it will be bundled
               // canvas (node-canvas) is externalized (native module)
-              external: ['ws', 'bufferutil', 'utf-8-validate', 'fluent-ffmpeg', 'ffmpeg-static', 'pg', 'express', 'libsodium-wrappers', '@journeyapps/sqlcipher', 'tesseract.js', 'canvas']
+              external: ['bufferutil', 'utf-8-validate', 'fluent-ffmpeg', 'ffmpeg-static', 'pg', 'libsodium-wrappers', '@journeyapps/sqlcipher', 'tesseract.js', 'canvas']
             }
           },
           plugins: [copyPdfWorkerPlugin()]

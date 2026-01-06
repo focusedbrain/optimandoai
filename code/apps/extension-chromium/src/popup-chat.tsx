@@ -20,11 +20,17 @@ import {
   GroupChatPlaceholder
 } from './ui/components'
 import { WRGuardWorkspace } from './wrguard'
-import { generateMockFingerprint, formatFingerprintShort, formatFingerprintGrouped } from './handshake/fingerprint'
+import { formatFingerprintShort, formatFingerprintGrouped } from './handshake/fingerprint'
 import { HANDSHAKE_REQUEST_TEMPLATE, POLICY_NOTES } from './handshake/microcopy'
 import { RecipientModeSwitch, RecipientHandshakeSelect, DeliveryMethodPanel, executeDeliveryAction } from './beap-messages'
 import type { RecipientMode, SelectedRecipient, DeliveryMethod, BeapPackageConfig } from './beap-messages'
 import { useHandshakeStore } from './handshake/useHandshakeStore'
+import {
+  getOurIdentity,
+  createHandshakeRequestPayload,
+  type OurIdentity
+} from './handshake/handshakeService'
+import { serializeHandshakeRequestPayload } from './handshake/handshakePayload'
 import { processAttachmentForParsing, processAttachmentForRasterization } from './beap-builder'
 import type { CapsuleAttachment, RasterProof, RasterPageData } from './beap-builder'
 
@@ -88,23 +94,46 @@ function PopupChatApp() {
   // Helper to get combined mode for conditional rendering - SAME as docked
   const dockedPanelMode = dockedWorkspace === 'wr-chat' ? dockedSubmode : dockedWorkspace
   
-  // Generate a stable fingerprint for this session's handshake requests
-  const ourFingerprint = useMemo(() => generateMockFingerprint(), [])
-  const ourFingerprintShort = formatFingerprintShort(ourFingerprint)
+  // ==========================================================================
+  // Real X25519 Identity (replaces mock fingerprint)
+  // ==========================================================================
   
-  // Initialize handshake message with fingerprint directly
-  const initialHandshakeMessage = useMemo(() => 
-    HANDSHAKE_REQUEST_TEMPLATE.replace('[FINGERPRINT]', ourFingerprint), 
-    [ourFingerprint]
-  )
+  const [identity, setIdentity] = useState<OurIdentity | null>(null)
+  const [identityLoading, setIdentityLoading] = useState(true)
+  const [handshakeSending, setHandshakeSending] = useState(false)
+  
+  // Load real identity on mount
+  useEffect(() => {
+    let mounted = true
+    setIdentityLoading(true)
+    
+    getOurIdentity()
+      .then((id) => {
+        if (mounted) {
+          setIdentity(id)
+          // Update handshake message with real fingerprint
+          setHandshakeMessage(HANDSHAKE_REQUEST_TEMPLATE.replace('[FINGERPRINT]', id.fingerprint))
+        }
+      })
+      .catch((err) => {
+        console.error('[PopupChat] Failed to load identity:', err)
+      })
+      .finally(() => {
+        if (mounted) setIdentityLoading(false)
+      })
+    
+    return () => { mounted = false }
+  }, [])
+  
+  // Derived fingerprint values (safe to use after loading)
+  const ourFingerprint = identity?.fingerprint || ''
+  const ourFingerprintShort = identity ? formatFingerprintShort(identity.fingerprint) : '...'
   
   // BEAP Handshake Request state
   const [handshakeDelivery, setHandshakeDelivery] = useState<'email' | 'messenger' | 'download'>('email')
   const [handshakeTo, setHandshakeTo] = useState('')
   const [handshakeSubject, setHandshakeSubject] = useState('Request to Establish BEAP™ Secure Communication Handshake')
-  const [handshakeMessage, setHandshakeMessage] = useState(() => 
-    HANDSHAKE_REQUEST_TEMPLATE.replace('[FINGERPRINT]', generateMockFingerprint())
-  )
+  const [handshakeMessage, setHandshakeMessage] = useState('')
   const [fingerprintCopied, setFingerprintCopied] = useState(false)
   
   // BEAP Draft separate state (like docked version)
@@ -122,6 +151,7 @@ function PopupChatApp() {
   // Get handshakes from store
   const handshakes = useHandshakeStore(state => state.handshakes)
   const initializeHandshakes = useHandshakeStore(state => state.initializeWithDemo)
+  const createPendingOutgoing = useHandshakeStore(state => state.createPendingOutgoingFromRequest)
   
   // Initialize handshakes on mount
   useEffect(() => {
@@ -1450,30 +1480,90 @@ function PopupChatApp() {
             Cancel
           </button>
           <button 
-            onClick={() => {
+            disabled={identityLoading || handshakeSending}
+            onClick={async () => {
               if (handshakeDelivery === 'email' && !handshakeTo) {
                 alert('Please enter a recipient email address')
                 return
               }
-              // TODO: Implement actual send/download logic
-              alert(`Handshake request ${handshakeDelivery === 'download' ? 'downloaded' : 'sent'} successfully!`)
-              setDockedSubmode('command')
+              
+              if (!identity) {
+                alert('Identity not loaded yet. Please wait.')
+                return
+              }
+              
+              setHandshakeSending(true)
+              
+              try {
+                // Create real handshake request payload
+                const payload = await createHandshakeRequestPayload({
+                  senderDisplayName: 'WR Chat User', // TODO: Get from user profile
+                  senderEmail: handshakeDelivery === 'email' ? undefined : undefined,
+                  message: handshakeMessage
+                })
+                
+                // Serialize to JSON
+                const payloadJson = serializeHandshakeRequestPayload(payload)
+                
+                // Store as pending outgoing
+                const recipient = handshakeDelivery === 'email' ? handshakeTo : 'Recipient'
+                createPendingOutgoing(payload, recipient, identity.localX25519KeyId)
+                
+                // Deliver based on method
+                if (handshakeDelivery === 'download') {
+                  // Trigger file download
+                  const blob = new Blob([payloadJson], { type: 'application/json' })
+                  const url = URL.createObjectURL(blob)
+                  const a = document.createElement('a')
+                  a.href = url
+                  a.download = `handshake-request-${payload.senderFingerprint.slice(0, 8)}.beap-handshake.json`
+                  document.body.appendChild(a)
+                  a.click()
+                  document.body.removeChild(a)
+                  URL.revokeObjectURL(url)
+                  alert('Handshake request downloaded! Share the file with your recipient.')
+                } else if (handshakeDelivery === 'messenger') {
+                  // Copy to clipboard for messenger
+                  await navigator.clipboard.writeText(payloadJson)
+                  alert('Handshake request copied to clipboard! Paste it in your messenger.')
+                } else {
+                  // Email: copy to clipboard (email sending requires OAuth integration)
+                  await navigator.clipboard.writeText(payloadJson)
+                  alert('Handshake request copied to clipboard! Paste it in your email body to ' + handshakeTo)
+                }
+                
+                console.log('[PopupChat] Handshake request created:', {
+                  fingerprint: payload.senderFingerprint.slice(0, 8) + '...',
+                  hasX25519Key: !!payload.senderX25519PublicKeyB64,
+                  delivery: handshakeDelivery
+                })
+                
+                setDockedSubmode('command')
+              } catch (err) {
+                console.error('[PopupChat] Failed to create handshake request:', err)
+                alert('Failed to create handshake request: ' + (err instanceof Error ? err.message : 'Unknown error'))
+              } finally {
+                setHandshakeSending(false)
+              }
             }}
             style={{ 
               padding: '8px 20px', 
-              background: 'linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%)', 
+              background: (identityLoading || handshakeSending) 
+                ? 'rgba(139,92,246,0.5)' 
+                : 'linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%)', 
               border: 'none', 
               borderRadius: '8px', 
               color: 'white', 
               fontSize: '12px', 
               fontWeight: 600, 
-              cursor: 'pointer',
+              cursor: (identityLoading || handshakeSending) ? 'wait' : 'pointer',
               display: 'flex',
               alignItems: 'center',
               gap: '6px',
+              opacity: (identityLoading || handshakeSending) ? 0.7 : 1,
             }}
           >
-            {handshakeDelivery === 'email' ? '📧 Send' : handshakeDelivery === 'messenger' ? '💬 Insert' : '💾 Download'}
+            {handshakeSending ? '⏳ Creating...' : (handshakeDelivery === 'email' ? '📧 Send' : handshakeDelivery === 'messenger' ? '💬 Insert' : '💾 Download')}
           </button>
         </div>
       </div>

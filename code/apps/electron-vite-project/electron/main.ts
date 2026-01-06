@@ -4203,8 +4203,8 @@ app.whenReady().then(async () => {
     // GET /api/crypto/pq/status - Check if PQ crypto is available
     httpApp.get('/api/crypto/pq/status', async (_req, res) => {
       try {
-        // Dynamic import of @noble/post-quantum
-        const pq = await import('@noble/post-quantum')
+        // Dynamic import of @noble/post-quantum/ml-kem
+        const pq = await import('@noble/post-quantum/ml-kem')
         const mlKem768Available = typeof pq.ml_kem768?.encapsulate === 'function'
         
         res.json({
@@ -4232,7 +4232,7 @@ app.whenReady().then(async () => {
     // POST /api/crypto/pq/mlkem768/keypair - Generate a new ML-KEM-768 keypair
     httpApp.post('/api/crypto/pq/mlkem768/keypair', async (_req, res) => {
       try {
-        const pq = await import('@noble/post-quantum')
+        const pq = await import('@noble/post-quantum/ml-kem')
         
         // Generate keypair
         const keypair = pq.ml_kem768.keygen()
@@ -4279,7 +4279,7 @@ app.whenReady().then(async () => {
           return
         }
         
-        const pq = await import('@noble/post-quantum')
+        const pq = await import('@noble/post-quantum/ml-kem')
         
         // Decode peer's public key
         const peerPublicKey = new Uint8Array(Buffer.from(peerPublicKeyB64, 'base64'))
@@ -4340,7 +4340,7 @@ app.whenReady().then(async () => {
           return
         }
         
-        const pq = await import('@noble/post-quantum')
+        const pq = await import('@noble/post-quantum/ml-kem')
         
         // Decode inputs
         const ciphertext = new Uint8Array(Buffer.from(ciphertextB64, 'base64'))

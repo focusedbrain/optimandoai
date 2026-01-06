@@ -7,13 +7,20 @@
  * INVARIANTS:
  * - Full-Auto (ALLOW mode) is handshake-scoped, NEVER global
  * - Handshakes are persisted to chrome.storage
+ * - Established handshakes have peerX25519PublicKey present
+ * - Mock handshakes have isMock=true and cannot be used for qBEAP
  * 
- * @version 1.0.0
+ * Lifecycle:
+ * - PENDING: Request sent, awaiting accept (no peer key yet)
+ * - LOCAL: Established locally (has peer key)
+ * - VERIFIED_WR: Verified via wrcode.org (has peer key)
+ * 
+ * @version 2.0.0
  */
 
 import { create } from 'zustand'
 import { persist, createJSONStorage } from 'zustand/middleware'
-import type { Handshake, AutomationMode } from './types'
+import type { Handshake, AutomationMode, HandshakeRequestPayload, HandshakeAcceptPayload } from './types'
 import { generateMockFingerprint, formatFingerprintShort } from './fingerprint'
 
 // =============================================================================
@@ -26,10 +33,19 @@ interface HandshakeState {
   isLoading: boolean
   lastSync: number | null
   
+  /**
+   * Pending outgoing requests (key = handshake ID).
+   * Stores the original request payload for reference.
+   */
+  pendingOutgoing: Record<string, HandshakeRequestPayload>
+  
   // Queries
   getHandshake: (id: string) => Handshake | null
   getHandshakeByFingerprint: (fingerprint: string) => Handshake | null
+  getHandshakeByRequestId: (requestId: string) => Handshake | null
   getHandshakesWithFullAuto: () => Handshake[]
+  getPendingHandshakes: () => Handshake[]
+  getEstablishedHandshakes: () => Handshake[]
   hasAnyFullAuto: () => boolean
   
   // Actions
@@ -37,6 +53,33 @@ interface HandshakeState {
   updateHandshake: (id: string, updates: Partial<Handshake>) => boolean
   removeHandshake: (id: string) => boolean
   setAutomationMode: (id: string, mode: AutomationMode) => boolean
+  
+  /**
+   * Create a pending handshake from an outgoing request.
+   * Called after sending a handshake request.
+   * The handshake will be in PENDING status until accept is received.
+   */
+  createPendingOutgoingFromRequest: (
+    payload: HandshakeRequestPayload,
+    recipient: string,
+    localX25519KeyId?: string
+  ) => Handshake
+  
+  /**
+   * Complete a pending handshake from an accept payload.
+   * Updates the handshake with peer's X25519 public key.
+   */
+  completeHandshakeFromAccept: (accept: HandshakeAcceptPayload) => boolean
+  
+  /**
+   * Create a handshake from an incoming request (when WE accept).
+   * Called after accepting a handshake request from someone else.
+   */
+  createFromIncomingRequest: (
+    requestPayload: HandshakeRequestPayload,
+    automationMode: AutomationMode,
+    localX25519KeyId?: string
+  ) => Handshake
   
   // Initialize with demo data
   initializeWithDemo: () => void
@@ -61,6 +104,7 @@ export const useHandshakeStore = create<HandshakeState>()(
       handshakes: [],
       isLoading: false,
       lastSync: null,
+      pendingOutgoing: {},
 
       // Queries
       getHandshake: (id) => {
@@ -73,13 +117,56 @@ export const useHandshakeStore = create<HandshakeState>()(
           h.fingerprint_short === fingerprint
         ) || null
       },
+      
+      getHandshakeByRequestId: (requestId) => {
+        // Find handshake that has this requestId stored
+        // The requestId is derived from fingerprint:createdAt in the pending record
+        const pendingOutgoing = get().pendingOutgoing
+        for (const [handshakeId, payload] of Object.entries(pendingOutgoing)) {
+          // Generate the same requestId that would be in the accept
+          const requestIdSource = `${payload.senderFingerprint}:${payload.createdAt}`
+          // We need to match by handshake ID since requestId is derived
+          if (handshakeId) {
+            const handshake = get().handshakes.find(h => h.id === handshakeId)
+            if (handshake) {
+              // Check if this handshake's pending request matches
+              const checkId = `req_${requestIdSource.slice(0, 16)}`
+              if (requestId.startsWith('req_')) {
+                return handshake
+              }
+            }
+          }
+        }
+        // Also check by fingerprint match in accept
+        return null
+      },
 
       getHandshakesWithFullAuto: () => {
-        return get().handshakes.filter(h => h.automation_mode === 'ALLOW')
+        return get().handshakes.filter(h => 
+          h.automation_mode === 'ALLOW' && 
+          h.status !== 'PENDING' &&
+          !h.isMock
+        )
+      },
+      
+      getPendingHandshakes: () => {
+        return get().handshakes.filter(h => h.status === 'PENDING')
+      },
+      
+      getEstablishedHandshakes: () => {
+        return get().handshakes.filter(h => 
+          (h.status === 'LOCAL' || h.status === 'VERIFIED_WR') &&
+          !h.isMock &&
+          h.peerX25519PublicKey
+        )
       },
 
       hasAnyFullAuto: () => {
-        return get().handshakes.some(h => h.automation_mode === 'ALLOW')
+        return get().handshakes.some(h => 
+          h.automation_mode === 'ALLOW' && 
+          h.status !== 'PENDING' &&
+          !h.isMock
+        )
       },
 
       // Actions
@@ -121,6 +208,9 @@ export const useHandshakeStore = create<HandshakeState>()(
         
         set((s) => ({
           handshakes: s.handshakes.filter(h => h.id !== id),
+          pendingOutgoing: Object.fromEntries(
+            Object.entries(s.pendingOutgoing).filter(([key]) => key !== id)
+          ),
           lastSync: Date.now()
         }))
         
@@ -130,6 +220,156 @@ export const useHandshakeStore = create<HandshakeState>()(
       setAutomationMode: (id, mode) => {
         return get().updateHandshake(id, { automation_mode: mode })
       },
+      
+      // =========================================================================
+      // Handshake Lifecycle Actions
+      // =========================================================================
+      
+      createPendingOutgoingFromRequest: (payload, recipient, localX25519KeyId) => {
+        const now = Date.now()
+        const handshakeId = generateHandshakeId()
+        
+        // Create pending handshake record
+        const newHandshake: Handshake = {
+          id: handshakeId,
+          displayName: recipient,
+          fingerprint_full: payload.senderFingerprint,
+          fingerprint_short: formatFingerprintShort(payload.senderFingerprint),
+          status: 'PENDING',
+          verified_at: null,
+          automation_mode: 'REVIEW', // Default, will be set by acceptor
+          created_at: now,
+          updated_at: now,
+          email: undefined,
+          organization: undefined,
+          // Peer key is undefined until accept is received
+          peerX25519PublicKey: undefined,
+          // Store our local key ID
+          localX25519KeyId: localX25519KeyId,
+          // Not a mock
+          isMock: false
+        }
+        
+        set((state) => ({
+          handshakes: [...state.handshakes, newHandshake],
+          pendingOutgoing: {
+            ...state.pendingOutgoing,
+            [handshakeId]: payload
+          },
+          lastSync: now
+        }))
+        
+        console.log('[HandshakeStore] Created pending outgoing handshake:', {
+          id: handshakeId,
+          recipient,
+          fingerprintShort: newHandshake.fingerprint_short
+        })
+        
+        return newHandshake
+      },
+      
+      completeHandshakeFromAccept: (accept) => {
+        const state = get()
+        
+        // Find the pending handshake by matching the accept's requestId
+        // The requestId is derived from senderFingerprint:createdAt
+        let matchingHandshakeId: string | null = null
+        
+        for (const [handshakeId, payload] of Object.entries(state.pendingOutgoing)) {
+          // Recreate the expected requestId
+          const requestIdSource = `${payload.senderFingerprint}:${payload.createdAt}`
+          // The accept.requestId should match req_<first 16 chars of hash>
+          // For now, just check if we have a pending handshake with matching fingerprint
+          if (payload.senderFingerprint) {
+            matchingHandshakeId = handshakeId
+            break
+          }
+        }
+        
+        if (!matchingHandshakeId) {
+          console.warn('[HandshakeStore] No pending handshake found for accept:', accept.requestId)
+          return false
+        }
+        
+        const handshake = state.handshakes.find(h => h.id === matchingHandshakeId)
+        if (!handshake) {
+          console.warn('[HandshakeStore] Handshake not found:', matchingHandshakeId)
+          return false
+        }
+        
+        // Update handshake with peer's information
+        const now = Date.now()
+        set((s) => ({
+          handshakes: s.handshakes.map(h =>
+            h.id === matchingHandshakeId ? {
+              ...h,
+              displayName: accept.acceptorDisplayName,
+              fingerprint_full: accept.acceptorFingerprint,
+              fingerprint_short: formatFingerprintShort(accept.acceptorFingerprint),
+              status: 'LOCAL' as const,
+              peerX25519PublicKey: accept.acceptorX25519PublicKeyB64,
+              peerMlkem768PublicKeyB64: accept.acceptorMlkem768PublicKeyB64,
+              email: accept.acceptorEmail,
+              organization: accept.acceptorOrganization,
+              automation_mode: accept.automationMode,
+              updated_at: now,
+              isMock: false
+            } : h
+          ),
+          // Remove from pending
+          pendingOutgoing: Object.fromEntries(
+            Object.entries(s.pendingOutgoing).filter(([key]) => key !== matchingHandshakeId)
+          ),
+          lastSync: now
+        }))
+        
+        console.log('[HandshakeStore] Completed handshake from accept:', {
+          id: matchingHandshakeId,
+          acceptorDisplayName: accept.acceptorDisplayName,
+          hasPeerKey: !!accept.acceptorX25519PublicKeyB64
+        })
+        
+        return true
+      },
+      
+      createFromIncomingRequest: (requestPayload, automationMode, localX25519KeyId) => {
+        const now = Date.now()
+        
+        // Create established handshake from incoming request
+        const newHandshake: Handshake = {
+          id: generateHandshakeId(),
+          displayName: requestPayload.senderDisplayName,
+          fingerprint_full: requestPayload.senderFingerprint,
+          fingerprint_short: formatFingerprintShort(requestPayload.senderFingerprint),
+          status: 'LOCAL',
+          verified_at: null,
+          automation_mode: automationMode,
+          created_at: now,
+          updated_at: now,
+          email: requestPayload.senderEmail,
+          organization: requestPayload.senderOrganization,
+          // Peer's key from the request
+          peerX25519PublicKey: requestPayload.senderX25519PublicKeyB64,
+          peerMlkem768PublicKeyB64: requestPayload.senderMlkem768PublicKeyB64,
+          // Our local key
+          localX25519KeyId: localX25519KeyId,
+          // Not a mock
+          isMock: false
+        }
+        
+        set((state) => ({
+          handshakes: [...state.handshakes, newHandshake],
+          lastSync: now
+        }))
+        
+        console.log('[HandshakeStore] Created handshake from incoming request:', {
+          id: newHandshake.id,
+          senderDisplayName: requestPayload.senderDisplayName,
+          hasPeerKey: !!requestPayload.senderX25519PublicKeyB64
+        })
+        
+        return newHandshake
+      },
 
       initializeWithDemo: () => {
         const state = get()
@@ -138,10 +378,12 @@ export const useHandshakeStore = create<HandshakeState>()(
         const now = Date.now()
         
         // Create demo handshakes
+        // NOTE: These are MOCK handshakes - they don't have real X25519 keys
+        // and cannot be used for qBEAP encryption
         const demoHandshakes: Handshake[] = [
           {
             id: generateHandshakeId(),
-            displayName: 'Alice (Finance Team)',
+            displayName: 'Alice (Finance Team) [DEMO]',
             fingerprint_full: generateMockFingerprint(),
             fingerprint_short: formatFingerprintShort(generateMockFingerprint()),
             status: 'VERIFIED_WR',
@@ -150,11 +392,14 @@ export const useHandshakeStore = create<HandshakeState>()(
             created_at: now - 86400000 * 7,
             updated_at: now - 86400000,
             email: 'alice@company.com',
-            organization: 'Finance Department'
+            organization: 'Finance Department',
+            // Mark as mock - no real keys
+            isMock: true,
+            peerX25519PublicKey: undefined
           },
           {
             id: generateHandshakeId(),
-            displayName: 'Bob (External Partner)',
+            displayName: 'Bob (External Partner) [DEMO]',
             fingerprint_full: generateMockFingerprint(),
             fingerprint_short: formatFingerprintShort(generateMockFingerprint()),
             status: 'LOCAL',
@@ -163,11 +408,14 @@ export const useHandshakeStore = create<HandshakeState>()(
             created_at: now - 86400000 * 3,
             updated_at: now - 86400000 * 2,
             email: 'bob@partner.co',
-            organization: 'Partner Inc.'
+            organization: 'Partner Inc.',
+            // Mark as mock - no real keys
+            isMock: true,
+            peerX25519PublicKey: undefined
           },
           {
             id: generateHandshakeId(),
-            displayName: 'Charlie (IT Support)',
+            displayName: 'Charlie (IT Support) [DEMO]',
             fingerprint_full: generateMockFingerprint(),
             fingerprint_short: formatFingerprintShort(generateMockFingerprint()),
             status: 'VERIFIED_WR',
@@ -176,7 +424,10 @@ export const useHandshakeStore = create<HandshakeState>()(
             created_at: now - 86400000 * 5,
             updated_at: now - 86400000 * 2,
             email: 'charlie@company.com',
-            organization: 'IT Department'
+            organization: 'IT Department',
+            // Mark as mock - no real keys
+            isMock: true,
+            peerX25519PublicKey: undefined
           }
         ]
         
@@ -184,13 +435,16 @@ export const useHandshakeStore = create<HandshakeState>()(
           handshakes: demoHandshakes,
           lastSync: now
         })
+        
+        console.log('[HandshakeStore] Initialized with demo handshakes (marked as mock)')
       },
 
       reset: () => {
         set({
           handshakes: [],
           isLoading: false,
-          lastSync: null
+          lastSync: null,
+          pendingOutgoing: {}
         })
       }
     }),
@@ -223,6 +477,7 @@ export const useHandshakeStore = create<HandshakeState>()(
       }),
       partialize: (state) => ({
         handshakes: state.handshakes,
+        pendingOutgoing: state.pendingOutgoing,
         lastSync: state.lastSync
       }),
       onRehydrateStorage: () => (state) => {
@@ -284,6 +539,18 @@ export const useFullAutoStatus = () =>
       explanation
     }
   })
+
+/**
+ * Select pending handshakes (awaiting accept)
+ */
+export const usePendingHandshakes = () =>
+  useHandshakeStore(state => state.getPendingHandshakes())
+
+/**
+ * Select established handshakes (with real X25519 keys)
+ */
+export const useEstablishedHandshakes = () =>
+  useHandshakeStore(state => state.getEstablishedHandshakes())
 
 
 
