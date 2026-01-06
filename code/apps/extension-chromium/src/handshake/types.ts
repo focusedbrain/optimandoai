@@ -59,6 +59,52 @@ export interface Handshake {
   
   /** Public key or identity blob (base64) */
   identity_blob?: string
+  
+  // =========================================================================
+  // X25519 Key Agreement (for qBEAP encryption)
+  // =========================================================================
+  
+  /** 
+   * Peer's X25519 public key (base64, 32 bytes).
+   * Received during handshake establishment.
+   * Used for ECDH key agreement in qBEAP encryption.
+   */
+  peerX25519PublicKey?: string
+  
+  /**
+   * ID of the local X25519 keypair used with this handshake.
+   * References a keypair stored in local key storage.
+   * If null, the default device keypair is used.
+   */
+  localX25519KeyId?: string
+  
+  // =========================================================================
+  // ML-KEM-768 Key Agreement (for qBEAP post-quantum encryption)
+  // Per canon A.3.054.10: "uses post-quantum encryption as the default for qBEAP"
+  // =========================================================================
+  
+  /**
+   * Peer's ML-KEM-768 public key (base64, 1184 bytes).
+   * Received during handshake establishment.
+   * Used for KEM encapsulation in qBEAP hybrid key agreement.
+   * 
+   * Required for qBEAP package creation per canon A.3.054.10 / A.3.13.
+   */
+  peerMlkem768PublicKeyB64?: string
+  
+  /**
+   * ID of the local ML-KEM-768 keypair used with this handshake.
+   * References a keypair stored in local key storage / vault.
+   * If null, the device's default ML-KEM keypair is used.
+   */
+  localMlkem768KeyId?: string
+  
+  /**
+   * Key agreement version for future-proofing.
+   * 1 = X25519 only (deprecated for qBEAP)
+   * 2 = Hybrid X25519 + ML-KEM-768 (current for qBEAP)
+   */
+  keyAgreementVersion?: number
 }
 
 // =============================================================================

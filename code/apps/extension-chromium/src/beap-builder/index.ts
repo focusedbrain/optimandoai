@@ -93,7 +93,8 @@ export {
   processAttachmentForRasterization,
   type ParserResult,
   type ParserProvenance,
-  type RasterResult
+  type RasterResult,
+  type RasterPageData
 } from './parserService'
 
 // Legacy components

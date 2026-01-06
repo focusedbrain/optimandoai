@@ -19,6 +19,12 @@ export interface SelectedRecipient {
   receiver_fingerprint_short: string
   receiver_email_list: string[]
   receiver_organization?: string
+  /** Peer's X25519 public key (base64, 32 bytes) for qBEAP key agreement */
+  peerX25519PublicKey?: string
+  /** Local X25519 keypair ID used for this handshake */
+  localX25519KeyId?: string
+  /** Peer's ML-KEM-768 public key (base64) for post-quantum key agreement */
+  peerPQPublicKey?: string
 }
 
 export interface RecipientHandshakeSelectProps {
@@ -60,7 +66,13 @@ export const RecipientHandshakeSelect: React.FC<RecipientHandshakeSelectProps> =
       receiver_fingerprint_full: handshake.fingerprint_full,
       receiver_fingerprint_short: handshake.fingerprint_short,
       receiver_email_list: handshake.email ? [handshake.email] : [],
-      receiver_organization: handshake.organization
+      receiver_organization: handshake.organization,
+      // X25519 key agreement fields (classical component of hybrid)
+      peerX25519PublicKey: handshake.peerX25519PublicKey,
+      localX25519KeyId: handshake.localX25519KeyId,
+      // ML-KEM-768 key agreement field (post-quantum component of hybrid)
+      // Per canon A.3.054.10: Required for qBEAP
+      peerPQPublicKey: handshake.peerMlkem768PublicKeyB64
     }
     
     onSelect(recipient)

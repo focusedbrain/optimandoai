@@ -4092,6 +4092,8 @@ app.whenReady().then(async () => {
           bytes: number  // PNG file size in bytes
           sha256: string
           artefactRef: string
+          base64: string  // Base64-encoded PNG data
+          mime: string    // MIME type (image/png)
         }> = []
         
         // Get PDF.js version for provenance
@@ -4138,26 +4140,31 @@ app.whenReady().then(async () => {
           
           await page.render(renderContext).promise
           
-          // Convert to PNG buffer
-          const pngBuffer = canvas.toBuffer('image/png')
+          // Convert to WEBP buffer (quality 0.85 for good balance of size/quality)
+          const webpBuffer = canvas.toBuffer('image/webp', { quality: 0.85 })
           
-          // Calculate SHA-256 hash
-          const sha256 = cryptoModule.createHash('sha256').update(pngBuffer).digest('hex')
+          // Calculate SHA-256 hash over raw WEBP bytes
+          const sha256 = cryptoModule.createHash('sha256').update(webpBuffer).digest('hex')
           
           // Generate artefact reference
-          const artefactRef = `raster_${attachmentId}_p${pageNum}_${sha256.substring(0, 8)}.png`
+          const artefactRef = `raster_${attachmentId}_p${pageNum}_${sha256.substring(0, 8)}.webp`
           const artefactPath = pathModule.join(artefactDir, artefactRef)
           
-          // Write PNG to artefact store
-          fsModule.writeFileSync(artefactPath, pngBuffer)
+          // Write WEBP to artefact store
+          fsModule.writeFileSync(artefactPath, webpBuffer)
+          
+          // Convert WEBP buffer to base64 for in-memory transfer
+          const webpBase64 = webpBuffer.toString('base64')
           
           pages.push({
             page: pageNum,
             width,
             height,
-            bytes: pngBuffer.length,
+            bytes: webpBuffer.length,
             sha256,
-            artefactRef
+            artefactRef,
+            base64: webpBase64,
+            mime: 'image/webp'
           })
           
           // DO NOT log image content (security requirement)
@@ -4183,6 +4190,198 @@ app.whenReady().then(async () => {
         res.status(500).json({ 
           success: false, 
           error: error.message || 'Failed to rasterize PDF'
+        })
+      }
+    })
+    
+    // =================================================================
+    // Post-Quantum KEM Endpoints (ML-KEM-768)
+    // =================================================================
+    // Per canon A.3.054.10: "uses post-quantum encryption as the default for qBEAP"
+    // Per canon A.3.13: ".qBEAP MUST be encrypted using post-quantum-ready end-to-end cryptography"
+    
+    // GET /api/crypto/pq/status - Check if PQ crypto is available
+    httpApp.get('/api/crypto/pq/status', async (_req, res) => {
+      try {
+        // Dynamic import of @noble/post-quantum
+        const pq = await import('@noble/post-quantum')
+        const mlKem768Available = typeof pq.ml_kem768?.encapsulate === 'function'
+        
+        res.json({
+          success: true,
+          pq: {
+            available: mlKem768Available,
+            kem: 'ML-KEM-768',
+            library: '@noble/post-quantum',
+            version: '0.2.1'
+          }
+        })
+      } catch (error: any) {
+        console.error('[PQ-KEM] Error checking PQ status:', error.message)
+        res.json({
+          success: true,
+          pq: {
+            available: false,
+            kem: 'ML-KEM-768',
+            error: error.message || 'PQ library not available'
+          }
+        })
+      }
+    })
+    
+    // POST /api/crypto/pq/mlkem768/keypair - Generate a new ML-KEM-768 keypair
+    httpApp.post('/api/crypto/pq/mlkem768/keypair', async (_req, res) => {
+      try {
+        const pq = await import('@noble/post-quantum')
+        
+        // Generate keypair
+        const keypair = pq.ml_kem768.keygen()
+        
+        // Encode to base64
+        const publicKeyB64 = Buffer.from(keypair.publicKey).toString('base64')
+        const secretKeyB64 = Buffer.from(keypair.secretKey).toString('base64')
+        
+        // TODO: In production, store secretKey in vault with a keyId
+        // For MVP, return it (caller should store securely)
+        const keyId = `pq_mlkem768_${Date.now()}_${Math.random().toString(36).substring(2, 10)}`
+        
+        console.log(`[PQ-KEM] Generated ML-KEM-768 keypair: ${keyId}`)
+        
+        res.json({
+          success: true,
+          kem: 'ML-KEM-768',
+          keyId,
+          publicKeyB64,
+          // WARNING: secretKeyB64 should be stored in vault in production
+          // Returning here for MVP only
+          secretKeyB64
+        })
+      } catch (error: any) {
+        console.error('[PQ-KEM] Error generating keypair:', error.message)
+        res.status(500).json({
+          success: false,
+          error: error.message || 'Failed to generate ML-KEM-768 keypair'
+        })
+      }
+    })
+    
+    // POST /api/crypto/pq/mlkem768/encapsulate - Encapsulate a shared secret
+    // Sender-side operation: creates ciphertext + shared secret using recipient's public key
+    httpApp.post('/api/crypto/pq/mlkem768/encapsulate', async (req, res) => {
+      try {
+        const { peerPublicKeyB64 } = req.body
+        
+        if (!peerPublicKeyB64 || typeof peerPublicKeyB64 !== 'string') {
+          res.status(400).json({
+            success: false,
+            error: 'peerPublicKeyB64 is required (base64-encoded ML-KEM-768 public key)'
+          })
+          return
+        }
+        
+        const pq = await import('@noble/post-quantum')
+        
+        // Decode peer's public key
+        const peerPublicKey = new Uint8Array(Buffer.from(peerPublicKeyB64, 'base64'))
+        
+        // Validate key size (ML-KEM-768 public key is 1184 bytes)
+        if (peerPublicKey.length !== 1184) {
+          res.status(400).json({
+            success: false,
+            error: `Invalid ML-KEM-768 public key size: expected 1184 bytes, got ${peerPublicKey.length}`
+          })
+          return
+        }
+        
+        // Encapsulate: generates ciphertext and shared secret
+        const { cipherText, sharedSecret } = pq.ml_kem768.encapsulate(peerPublicKey)
+        
+        // Encode results to base64
+        const ciphertextB64 = Buffer.from(cipherText).toString('base64')
+        const sharedSecretB64 = Buffer.from(sharedSecret).toString('base64')
+        
+        // DO NOT log shared secret (security requirement)
+        console.log(`[PQ-KEM] ML-KEM-768 encapsulation successful (ciphertext: ${cipherText.length} bytes)`)
+        
+        res.json({
+          success: true,
+          kem: 'ML-KEM-768',
+          ciphertextB64,
+          sharedSecretB64
+        })
+      } catch (error: any) {
+        console.error('[PQ-KEM] Error during encapsulation:', error.message)
+        res.status(500).json({
+          success: false,
+          error: error.message || 'Failed to encapsulate with ML-KEM-768'
+        })
+      }
+    })
+    
+    // POST /api/crypto/pq/mlkem768/decapsulate - Decapsulate a shared secret
+    // Recipient-side operation: recovers shared secret using local secret key
+    httpApp.post('/api/crypto/pq/mlkem768/decapsulate', async (req, res) => {
+      try {
+        const { ciphertextB64, secretKeyB64 } = req.body
+        
+        if (!ciphertextB64 || typeof ciphertextB64 !== 'string') {
+          res.status(400).json({
+            success: false,
+            error: 'ciphertextB64 is required (base64-encoded ML-KEM-768 ciphertext)'
+          })
+          return
+        }
+        
+        if (!secretKeyB64 || typeof secretKeyB64 !== 'string') {
+          res.status(400).json({
+            success: false,
+            error: 'secretKeyB64 is required (base64-encoded ML-KEM-768 secret key)'
+          })
+          return
+        }
+        
+        const pq = await import('@noble/post-quantum')
+        
+        // Decode inputs
+        const ciphertext = new Uint8Array(Buffer.from(ciphertextB64, 'base64'))
+        const secretKey = new Uint8Array(Buffer.from(secretKeyB64, 'base64'))
+        
+        // Validate sizes
+        if (ciphertext.length !== 1088) {
+          res.status(400).json({
+            success: false,
+            error: `Invalid ML-KEM-768 ciphertext size: expected 1088 bytes, got ${ciphertext.length}`
+          })
+          return
+        }
+        
+        if (secretKey.length !== 2400) {
+          res.status(400).json({
+            success: false,
+            error: `Invalid ML-KEM-768 secret key size: expected 2400 bytes, got ${secretKey.length}`
+          })
+          return
+        }
+        
+        // Decapsulate: recover shared secret
+        const sharedSecret = pq.ml_kem768.decapsulate(ciphertext, secretKey)
+        
+        // Encode result to base64
+        const sharedSecretB64 = Buffer.from(sharedSecret).toString('base64')
+        
+        // DO NOT log shared secret (security requirement)
+        console.log(`[PQ-KEM] ML-KEM-768 decapsulation successful`)
+        
+        res.json({
+          success: true,
+          kem: 'ML-KEM-768',
+          sharedSecretB64
+        })
+      } catch (error: any) {
+        console.error('[PQ-KEM] Error during decapsulation:', error.message)
+        res.status(500).json({
+          success: false,
+          error: error.message || 'Failed to decapsulate with ML-KEM-768'
         })
       }
     })

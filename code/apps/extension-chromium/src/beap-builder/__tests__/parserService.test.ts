@@ -362,7 +362,7 @@ describe('processAttachmentForRasterization', () => {
           height: 1100,
           bytes: 45678,
           sha256: 'abc123def456',
-          artefactRef: 'raster_test_p1_abc123.png'
+          artefactRef: 'raster_test_p1_abc123.webp'
         }],
         raster: { engine: 'pdfjs', version: '4.10.38', dpi: 144 }
       })
@@ -375,9 +375,9 @@ describe('processAttachmentForRasterization', () => {
     expect(result.rasterProof).not.toBeNull()
     expect(result.rasterProof?.pagesRasterized).toBe(1)
     expect(result.rasterProof?.pages[0].sha256).toBe('abc123def456')
-    expect(result.rasterProof?.pages[0].artefactRef).toBe('raster_test_p1_abc123.png')
+    expect(result.rasterProof?.pages[0].artefactRef).toBe('raster_test_p1_abc123.webp')
     expect(result.rasterProof?.pages[0].bytes).toBe(45678)
-    expect(result.attachment.previewRef).toBe('raster_test_p1_abc123.png')
+    expect(result.attachment.previewRef).toBe('raster_test_p1_abc123.webp')
   })
   
   it('should enforce limits (mocked response shows truncation)', async () => {
@@ -394,7 +394,7 @@ describe('processAttachmentForRasterization', () => {
           height: 1100,
           bytes: 45000 + i * 100,
           sha256: `hash_page_${i + 1}`,
-          artefactRef: `raster_test_p${i + 1}_hash.png`
+          artefactRef: `raster_test_p${i + 1}_hash.webp`
         })),
         raster: { engine: 'pdfjs', version: '4.10.38', dpi: 144 }
       })
@@ -419,10 +419,10 @@ describe('processAttachmentForRasterization', () => {
         page: 1,
         width: 850,
         height: 1100,
-        bytes: 45678,  // PNG file size in bytes (not the actual image data)
+        bytes: 45678,  // WEBP file size in bytes (not the actual image data)
         sha256: 'abc123def456',
-        artefactRef: 'raster_test_p1_abc123.png'
-        // Note: NO pngBytes, imageData, or any binary content
+        artefactRef: 'raster_test_p1_abc123.webp'
+        // Note: NO webpBytes, imageData, or any binary content
       }],
       raster: { engine: 'pdfjs', version: '4.10.38', dpi: 144 }
     }

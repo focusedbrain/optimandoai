@@ -25,6 +25,8 @@ import { HANDSHAKE_REQUEST_TEMPLATE, POLICY_NOTES } from './handshake/microcopy'
 import { RecipientModeSwitch, RecipientHandshakeSelect, DeliveryMethodPanel, executeDeliveryAction } from './beap-messages'
 import type { RecipientMode, SelectedRecipient, DeliveryMethod, BeapPackageConfig } from './beap-messages'
 import { useHandshakeStore } from './handshake/useHandshakeStore'
+import { processAttachmentForParsing, processAttachmentForRasterization } from './beap-builder'
+import type { CapsuleAttachment, RasterProof, RasterPageData } from './beap-builder'
 
 // =============================================================================
 // Theme Type - Matches docked version
@@ -37,13 +39,23 @@ type DockedWorkspace = 'wr-chat' | 'augmented-overlay' | 'beap-messages' | 'wrgu
 type DockedSubmode = 'command' | 'p2p-chat' | 'p2p-stream' | 'group-stream' | 'handshake'
 type BeapSubmode = 'inbox' | 'draft' | 'outbox' | 'archived' | 'rejected'
 
-// UI-only type for draft attachments (not yet wired to builder)
+// Enhanced type for draft attachments with parsing/rasterization state
 type DraftAttachment = {
   id: string
   name: string
   mime: string
   size: number
   dataBase64: string
+  // CapsuleAttachment for builder integration
+  capsuleAttachment: CapsuleAttachment
+  // Processing state
+  processing: {
+    parsing: boolean
+    rasterizing: boolean
+    error?: string
+  }
+  // Raster page data (base64 images) - kept separate from CapsuleAttachment
+  rasterPageData?: RasterPageData[]
 }
 
 // UI-only type for session options in Draft Email
@@ -360,6 +372,35 @@ function PopupChatApp() {
     
     try {
       // Build config for the package builder
+      // Extract CapsuleAttachment objects from draft attachments
+      const capsuleAttachments = beapDraftAttachments.map(a => a.capsuleAttachment)
+      // Collect all raster page data as artefacts for the package
+      const rasterArtefacts: BeapPackageConfig['rasterArtefacts'] = []
+      for (const att of beapDraftAttachments) {
+        if (att.rasterPageData && att.rasterPageData.length > 0) {
+          for (const pageData of att.rasterPageData) {
+            rasterArtefacts.push({
+              artefactRef: pageData.artefactRef,
+              attachmentId: att.id,
+              page: pageData.page,
+              mime: pageData.mime,
+              base64: pageData.base64,
+              sha256: pageData.sha256,
+              width: pageData.width,
+              height: pageData.height,
+              bytes: pageData.bytes
+            })
+          }
+        }
+      }
+      // Collect original file bytes for archival (per canon A.3.043)
+      // These will be encrypted as "original" class artefacts
+      const originalFiles: BeapPackageConfig['originalFiles'] = beapDraftAttachments.map(att => ({
+        attachmentId: att.id,
+        filename: att.name,
+        mime: att.mime,
+        base64: att.dataBase64
+      }))
       const config: BeapPackageConfig = {
         recipientMode: beapRecipientMode,
         deliveryMethod: beapDeliveryMethod as DeliveryMethod,
@@ -369,7 +410,10 @@ function PopupChatApp() {
         emailTo: beapDraftTo,
         subject: 'BEAP™ Message',
         messageBody: beapDraftMessage,
-        attachments: [],
+        attachments: capsuleAttachments,
+        rasterArtefacts: rasterArtefacts.length > 0 ? rasterArtefacts : undefined,
+        // Original file bytes for archival (encrypted as "original" artefacts per canon A.3.043)
+        originalFiles: originalFiles.length > 0 ? originalFiles : undefined,
         // Only pass encrypted message for qBEAP/private mode
         ...(beapRecipientMode === 'private' && {
           encryptedMessage: beapDraftEncryptedMessage.trim() || undefined
@@ -860,10 +904,10 @@ function PopupChatApp() {
                 </div>
                 <div>
                   <label style={{ fontSize: '10px', fontWeight: 500, marginBottom: '4px', display: 'block', color: mutedColor }}>Attachments</label>
-                  <input type="file" multiple onChange={async (e) => { const files = Array.from(e.target.files ?? []); if (!files.length) return; const newItems: DraftAttachment[] = []; for (const file of files) { if (file.size > 10 * 1024 * 1024) { console.warn(`[BEAP] Skipping ${file.name}: exceeds 10MB limit`); continue } if (beapDraftAttachments.length + newItems.length >= 20) { console.warn('[BEAP] Max 20 attachments reached'); break } const dataBase64 = await new Promise<string>((resolve, reject) => { const reader = new FileReader(); reader.onload = () => { const res = String(reader.result ?? ''); resolve(res.includes(',') ? res.split(',')[1] : res) }; reader.onerror = () => reject(reader.error); reader.readAsDataURL(file) }); newItems.push({ id: crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`, name: file.name, mime: file.type || 'application/octet-stream', size: file.size, dataBase64 }) } setBeapDraftAttachments((prev) => [...prev, ...newItems]); e.currentTarget.value = '' }} style={{ fontSize: '11px', color: mutedColor }} />
+                  <input type="file" multiple onChange={async (e) => { const files = Array.from(e.target.files ?? []); if (!files.length) return; const newItems: DraftAttachment[] = []; for (const file of files) { if (file.size > 10 * 1024 * 1024) { console.warn(`[BEAP] Skipping ${file.name}: exceeds 10MB limit`); continue } if (beapDraftAttachments.length + newItems.length >= 20) { console.warn('[BEAP] Max 20 attachments reached'); break } const dataBase64 = await new Promise<string>((resolve, reject) => { const reader = new FileReader(); reader.onload = () => { const res = String(reader.result ?? ''); resolve(res.includes(',') ? res.split(',')[1] : res) }; reader.onerror = () => reject(reader.error); reader.readAsDataURL(file) }); const attachmentId = crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`; const mimeType = file.type || 'application/octet-stream'; const isPdf = mimeType.toLowerCase() === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf'); const capsuleAttachment: CapsuleAttachment = { id: attachmentId, originalName: file.name, originalSize: file.size, originalType: mimeType, semanticContent: null, semanticExtracted: false, encryptedRef: `encrypted_${attachmentId}`, encryptedHash: '', previewRef: null, rasterProof: null, isMedia: mimeType.startsWith('image/') || mimeType.startsWith('video/') || mimeType.startsWith('audio/'), hasTranscript: false }; newItems.push({ id: attachmentId, name: file.name, mime: mimeType, size: file.size, dataBase64, capsuleAttachment, processing: { parsing: isPdf, rasterizing: isPdf } }) } setBeapDraftAttachments((prev) => [...prev, ...newItems]); e.currentTarget.value = ''; for (const item of newItems) { const isPdf = item.mime.toLowerCase() === 'application/pdf' || item.name.toLowerCase().endsWith('.pdf'); if (isPdf) { console.log(`[BEAP] Processing PDF: ${item.name}`); processAttachmentForParsing(item.capsuleAttachment, item.dataBase64).then((r) => { console.log(`[BEAP] Parse done: ${item.name}`); setBeapDraftAttachments((prev) => prev.map((a) => a.id === item.id ? { ...a, capsuleAttachment: r.attachment, processing: { ...a.processing, parsing: false, error: r.error || a.processing.error } } : a)) }).catch((err) => { setBeapDraftAttachments((prev) => prev.map((a) => a.id === item.id ? { ...a, processing: { ...a.processing, parsing: false, error: String(err) } } : a)) }); processAttachmentForRasterization(item.capsuleAttachment, item.dataBase64, 144).then((r) => { console.log(`[BEAP] Raster done: ${item.name}`, r.rasterPageData?.length || 0, 'pages'); setBeapDraftAttachments((prev) => prev.map((a) => a.id === item.id ? { ...a, capsuleAttachment: { ...a.capsuleAttachment, previewRef: r.attachment.previewRef, rasterProof: r.rasterProof }, processing: { ...a.processing, rasterizing: false, error: r.error || a.processing.error }, rasterPageData: r.rasterPageData || undefined } : a)) }).catch((err) => { setBeapDraftAttachments((prev) => prev.map((a) => a.id === item.id ? { ...a, processing: { ...a.processing, rasterizing: false, error: String(err) } } : a)) }) } } }} style={{ fontSize: '11px', color: mutedColor }} />
                   {beapDraftAttachments.length > 0 && (
                     <div style={{ marginTop: '8px' }}>
-                      {beapDraftAttachments.map((a) => (<div key={a.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 8px', background: isProfessional ? 'rgba(0,0,0,0.03)' : 'rgba(255,255,255,0.05)', borderRadius: '4px', marginBottom: '4px' }}><div><div style={{ fontSize: '11px', color: textColor }}>{a.name}</div><div style={{ fontSize: '9px', color: mutedColor }}>{a.mime} · {a.size} bytes</div></div><button onClick={() => setBeapDraftAttachments((prev) => prev.filter((x) => x.id !== a.id))} style={{ background: 'transparent', border: 'none', color: isProfessional ? '#ef4444' : '#f87171', fontSize: '10px', cursor: 'pointer' }}>Remove</button></div>))}
+                      {beapDraftAttachments.map((a) => (<div key={a.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 8px', background: isProfessional ? 'rgba(0,0,0,0.03)' : 'rgba(255,255,255,0.05)', borderRadius: '4px', marginBottom: '4px' }}><div><div style={{ fontSize: '11px', color: textColor }}>{a.name}{(a.processing.parsing || a.processing.rasterizing) && ' ⏳'}{a.capsuleAttachment.semanticExtracted && ' ✓'}</div><div style={{ fontSize: '9px', color: mutedColor }}>{a.mime} · {a.size} bytes{a.processing.error && ` · ⚠️ ${a.processing.error.slice(0,30)}`}</div></div><button onClick={() => setBeapDraftAttachments((prev) => prev.filter((x) => x.id !== a.id))} style={{ background: 'transparent', border: 'none', color: isProfessional ? '#ef4444' : '#f87171', fontSize: '10px', cursor: 'pointer' }}>Remove</button></div>))}
                       <button onClick={() => setBeapDraftAttachments([])} style={{ background: 'transparent', border: isProfessional ? '1px solid rgba(15,23,42,0.2)' : '1px solid rgba(255,255,255,0.2)', color: mutedColor, borderRadius: '4px', padding: '4px 8px', fontSize: '10px', cursor: 'pointer', marginTop: '4px' }}>Clear all</button>
                     </div>
                   )}

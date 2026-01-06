@@ -39,18 +39,35 @@ export interface ParserProvenance {
   truncated: boolean
 }
 
+/**
+ * Strict contract for rasterized page payload.
+ * This type defines the exact shape returned by the Electron rasterizer
+ * and consumed by the capsule builder for artefact encryption.
+ */
+export interface RasterPageData {
+  /** 1-indexed page number */
+  page: number
+  /** Pixel width */
+  width: number
+  /** Pixel height */
+  height: number
+  /** Image file size in bytes */
+  bytes: number
+  /** SHA-256 hex hash (64 chars) computed over raw WEBP bytes */
+  sha256: string
+  /** Unique artefact reference ID */
+  artefactRef: string
+  /** Raw base64-encoded image data (NO data URL prefix) */
+  base64: string
+  /** MIME type - MUST be "image/webp" */
+  mime: 'image/webp'
+}
+
 export interface RasterResult {
   success: boolean
   pageCount?: number
   pagesRasterized?: number
-  pages?: Array<{
-    page: number
-    width: number
-    height: number
-    bytes: number  // PNG file size in bytes
-    sha256: string
-    artefactRef: string
-  }>
+  pages?: RasterPageData[]
   raster?: {
     engine: string
     version: string
@@ -205,10 +222,10 @@ export async function isParserServiceAvailable(): Promise<boolean> {
 // =============================================================================
 
 /**
- * Rasterize a PDF to PNG artefacts via the Electron Orchestrator
+ * Rasterize a PDF to WEBP artefacts via the Electron Orchestrator
  * 
  * SECURITY: This function returns only hashes and refs, NEVER image bytes.
- * Actual PNG files are stored in the artefact store on disk.
+ * Actual WEBP files are stored in the artefact store on disk.
  * 
  * @param attachmentId - Unique ID for the attachment
  * @param base64Data - Base64-encoded PDF data
@@ -270,6 +287,7 @@ export async function processAttachmentForRasterization(
 ): Promise<{
   attachment: CapsuleAttachment
   rasterProof: RasterProof | null
+  rasterPageData: RasterPageData[] | null  // Raw page data with base64 images
   error: string | null
 }> {
   // Only PDFs can be rasterized
@@ -277,6 +295,7 @@ export async function processAttachmentForRasterization(
     return {
       attachment,
       rasterProof: null,
+      rasterPageData: null,
       error: 'Only PDF files can be rasterized'
     }
   }
@@ -288,18 +307,75 @@ export async function processAttachmentForRasterization(
     return {
       attachment,
       rasterProof: null,
+      rasterPageData: null,
       error: result.error || 'Rasterization failed'
     }
   }
 
-  // Build raster proof
+  // Store the full page data with base64 images
+  const rawPages = result.pages || []
+  
+  // ==========================================================================
+  // Runtime Contract Assertions (Guardrails)
+  // ==========================================================================
+  // Validate that Electron response matches the strict RasterPageData contract.
+  // If assertions fail, throw a descriptive error that surfaces in UI.
+  for (const page of rawPages) {
+    // Assert mime is exactly "image/webp"
+    if (page.mime !== 'image/webp') {
+      throw new Error(
+        `[RASTER CONTRACT] Invalid mime type: expected "image/webp", got "${page.mime}" (page ${page.page})`
+      )
+    }
+    
+    // Assert base64 does NOT start with "data:" (no data URL prefix)
+    if (page.base64.startsWith('data:')) {
+      throw new Error(
+        `[RASTER CONTRACT] base64 has data URL prefix (page ${page.page}). Expected raw base64 only.`
+      )
+    }
+    
+    // Assert sha256 is exactly 64 hex chars
+    if (!/^[a-f0-9]{64}$/.test(page.sha256)) {
+      throw new Error(
+        `[RASTER CONTRACT] Invalid sha256: expected 64 hex chars, got "${page.sha256.substring(0, 20)}..." (page ${page.page})`
+      )
+    }
+    
+    // Assert required fields are present
+    if (typeof page.artefactRef !== 'string' || page.artefactRef.length === 0) {
+      throw new Error(
+        `[RASTER CONTRACT] Missing artefactRef (page ${page.page})`
+      )
+    }
+    
+    if (typeof page.bytes !== 'number' || page.bytes <= 0) {
+      throw new Error(
+        `[RASTER CONTRACT] Invalid bytes: expected positive number (page ${page.page})`
+      )
+    }
+  }
+  
+  // Cast to strict type after validation
+  const rasterPageData: RasterPageData[] = rawPages as RasterPageData[]
+
+  // Build raster proof (metadata only, for CapsuleAttachment)
+  // Note: RasterProof.pages uses the same structure but is for the capsule manifest
   const rasterProof: RasterProof = {
     engine: result.raster?.engine || 'pdfjs',
     version: result.raster?.version || 'unknown',
     dpi: result.raster?.dpi || 144,
     pageCount: result.pageCount || 0,
     pagesRasterized: result.pagesRasterized || 0,
-    pages: result.pages || [],
+    pages: rasterPageData.map(p => ({
+      page: p.page,
+      width: p.width,
+      height: p.height,
+      bytes: p.bytes,
+      sha256: p.sha256,
+      artefactRef: p.artefactRef
+      // Note: base64 and mime are NOT stored in rasterProof (security)
+    })),
     rasterizedAt: Date.now()
   }
 
@@ -310,6 +386,7 @@ export async function processAttachmentForRasterization(
       rasterProof
     },
     rasterProof,
+    rasterPageData,  // Include the full page data with base64 for artefact storage
     error: null
   }
 }

@@ -44,7 +44,8 @@ export {
   executeDeliveryAction,
   executeEmailAction,
   executeMessengerAction,
-  executeDownloadAction
+  executeDownloadAction,
+  BeapCanonViolationError
 } from './services'
 export type {
   BeapPackageConfig,
