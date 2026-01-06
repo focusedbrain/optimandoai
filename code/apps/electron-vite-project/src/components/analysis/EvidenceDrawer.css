@@ -1,0 +1,809 @@
+/* Evidence Drawer Styles
+ * 
+ * All styles scoped under .live-execution-canvas
+ * No :root, no global selectors
+ * 
+ * Tokens inherited from parent .analysis-canvas:
+ * --da-surface-*, --da-text-*, --da-border, --da-accent, --da-severity-*, --da-status-*
+ * 
+ * @version 1.1.0 - Token-aligned
+ */
+
+/* =============================================================================
+   Drawer Container
+   ============================================================================= */
+
+.live-execution-canvas .lea-evidence-drawer {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 380px;
+  max-width: 45%;
+  background: var(--da-surface-overlay, rgba(15, 15, 20, 0.98));
+  border-left: 1px solid var(--da-border, rgba(255, 255, 255, 0.1));
+  display: flex;
+  flex-direction: column;
+  z-index: 100;
+  box-shadow: -4px 0 20px rgba(0, 0, 0, 0.3);
+  animation: lea-drawer-slide-in 180ms ease-out;
+}
+
+@keyframes lea-drawer-slide-in {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+.live-execution-canvas .lea-evidence-drawer__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px;
+  background: rgba(0, 0, 0, 0.3);
+  border-bottom: 1px solid var(--divider, rgba(255, 255, 255, 0.1));
+  flex-shrink: 0;
+}
+
+.live-execution-canvas .lea-evidence-drawer__title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.live-execution-canvas .lea-evidence-drawer__close {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+}
+
+/* =============================================================================
+   Drawer Tabs
+   ============================================================================= */
+
+.live-execution-canvas .lea-evidence-drawer__tabs {
+  display: flex;
+  gap: 0;
+  padding: 0 16px;
+  background: rgba(0, 0, 0, 0.2);
+  border-bottom: 1px solid var(--divider, rgba(255, 255, 255, 0.1));
+  flex-shrink: 0;
+}
+
+.live-execution-canvas .lea-evidence-drawer__tab {
+  padding: 10px 16px;
+  font-size: 12px;
+  font-weight: 500;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.6);
+  border: none;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.live-execution-canvas .lea-evidence-drawer__tab:hover {
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.live-execution-canvas .lea-evidence-drawer__tab--active {
+  color: var(--da-accent, #a5b4fc);
+  border-bottom-color: var(--da-selected-border, #6366f1);
+}
+
+.live-execution-canvas .lea-evidence-drawer__tab--has-risks {
+  color: color-mix(in srgb, var(--da-severity-critical, #ef4444), var(--da-text-primary, white) 30%);
+}
+
+.live-execution-canvas .lea-evidence-drawer__tab--has-risks.lea-evidence-drawer__tab--active {
+  color: #fca5a5;
+  border-bottom-color: #ef4444;
+}
+
+.live-execution-canvas .lea-evidence-drawer__tab-count {
+  padding: 2px 6px;
+  font-size: 10px;
+  font-weight: 600;
+  background: rgba(239, 68, 68, 0.2);
+  color: #ef4444;
+  border-radius: 10px;
+}
+
+/* =============================================================================
+   Risks Tab Styles
+   ============================================================================= */
+
+.live-execution-canvas .lea-risks-tab {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.live-execution-canvas .lea-risks-section {
+  background: rgba(0, 0, 0, 0.15);
+  border: 1px solid var(--divider, rgba(255, 255, 255, 0.08));
+  border-radius: 6px;
+  padding: 12px;
+}
+
+.live-execution-canvas .lea-risks-section__title {
+  margin: 0 0 12px 0;
+  font-size: 12px;
+  font-weight: 600;
+  opacity: 0.8;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.live-execution-canvas .lea-risks-section__count {
+  padding: 2px 8px;
+  font-size: 10px;
+  font-weight: 600;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+}
+
+.live-execution-canvas .lea-risks-empty {
+  padding: 12px;
+  font-size: 12px;
+  opacity: 0.5;
+  text-align: center;
+}
+
+.live-execution-canvas .lea-risks-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* Risk Item */
+.live-execution-canvas .lea-risk-item {
+  background: rgba(0, 0, 0, 0.2);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+  padding: 10px 12px;
+  border-left: 3px solid;
+}
+
+.live-execution-canvas .lea-risk-item--info {
+  border-left-color: #64748b;
+}
+
+.live-execution-canvas .lea-risk-item--low {
+  border-left-color: #22c55e;
+}
+
+.live-execution-canvas .lea-risk-item--medium {
+  border-left-color: #eab308;
+}
+
+.live-execution-canvas .lea-risk-item--high {
+  border-left-color: #f97316;
+}
+
+.live-execution-canvas .lea-risk-item--critical {
+  border-left-color: #ef4444;
+  background: rgba(239, 68, 68, 0.05);
+}
+
+.live-execution-canvas .lea-risk-item__header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+  flex-wrap: wrap;
+}
+
+.live-execution-canvas .lea-risk-item__title {
+  margin: 0 0 6px 0;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.live-execution-canvas .lea-risk-item__explanation {
+  margin: 0;
+  font-size: 11px;
+  opacity: 0.7;
+  line-height: 1.5;
+}
+
+.live-execution-canvas .lea-risk-item__rule {
+  font-size: 9px;
+  padding: 2px 5px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 3px;
+  opacity: 0.7;
+}
+
+.live-execution-canvas .lea-risk-item__mock {
+  font-size: 8px;
+  font-weight: 600;
+  padding: 2px 5px;
+  background: rgba(251, 191, 36, 0.15);
+  color: #fbbf24;
+  border-radius: 3px;
+  margin-left: auto;
+}
+
+.live-execution-canvas .lea-risk-item__meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  font-size: 10px;
+}
+
+.live-execution-canvas .lea-risk-item__meta-label {
+  opacity: 0.5;
+}
+
+.live-execution-canvas .lea-risk-item__meta-value {
+  background: rgba(255, 255, 255, 0.06);
+  padding: 2px 6px;
+  border-radius: 3px;
+}
+
+/* Severity Badge */
+.live-execution-canvas .lea-risk-severity {
+  padding: 2px 6px;
+  font-size: 9px;
+  font-weight: 700;
+  border-radius: 3px;
+  letter-spacing: 0.04em;
+}
+
+.live-execution-canvas .lea-risk-severity--info {
+  background: var(--da-severity-info-bg, rgba(100, 116, 139, 0.2));
+  color: var(--da-severity-info, #94a3b8);
+}
+
+.live-execution-canvas .lea-risk-severity--low {
+  background: var(--da-severity-low-bg, rgba(34, 197, 94, 0.2));
+  color: var(--da-severity-low, #22c55e);
+}
+
+.live-execution-canvas .lea-risk-severity--medium {
+  background: var(--da-severity-medium-bg, rgba(234, 179, 8, 0.2));
+  color: var(--da-severity-medium, #eab308);
+}
+
+.live-execution-canvas .lea-risk-severity--high {
+  background: var(--da-severity-high-bg, rgba(249, 115, 22, 0.2));
+  color: var(--da-severity-high, #f97316);
+}
+
+.live-execution-canvas .lea-risk-severity--critical {
+  background: var(--da-severity-critical-bg, rgba(239, 68, 68, 0.25));
+  color: var(--da-severity-critical, #ef4444);
+}
+
+/* Category Badge */
+.live-execution-canvas .lea-risk-category {
+  padding: 2px 6px;
+  font-size: 9px;
+  font-weight: 500;
+  background: rgba(99, 102, 241, 0.15);
+  color: #a5b4fc;
+  border-radius: 3px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.live-execution-canvas .lea-evidence-drawer__close {
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+  color: inherit;
+  cursor: pointer;
+  font-size: 12px;
+  transition: all 0.15s ease;
+}
+
+.live-execution-canvas .lea-evidence-drawer__close:hover {
+  background: rgba(255, 255, 255, 0.15);
+}
+
+.live-execution-canvas .lea-evidence-drawer__content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* =============================================================================
+   Evidence Sections
+   ============================================================================= */
+
+.live-execution-canvas .lea-evidence-section {
+  background: var(--da-surface-elevated, rgba(0, 0, 0, 0.2));
+  border: 1px solid var(--da-border-subtle, rgba(255, 255, 255, 0.08));
+  border-radius: 6px;
+  padding: 12px;
+}
+
+.live-execution-canvas .lea-evidence-section--correlation {
+  border-color: color-mix(in srgb, var(--da-status-success, #22c55e), transparent 70%);
+  background: color-mix(in srgb, var(--da-status-success, #22c55e), transparent 95%);
+}
+
+.live-execution-canvas .lea-evidence-section--core {
+  border-color: color-mix(in srgb, var(--da-accent, #6366f1), transparent 70%);
+}
+
+.live-execution-canvas .lea-evidence-section--flags {
+  border-color: color-mix(in srgb, var(--da-status-warning, #f59e0b), transparent 70%);
+  background: color-mix(in srgb, var(--da-status-warning, #f59e0b), transparent 95%);
+}
+
+.live-execution-canvas .lea-evidence-section--hashes {
+  border-color: color-mix(in srgb, var(--da-accent, #6366f1), transparent 60%);
+}
+
+.live-execution-canvas .lea-evidence-section--poae {
+  border-color: rgba(236, 72, 153, 0.3);
+  background: rgba(236, 72, 153, 0.05);
+}
+
+.live-execution-canvas .lea-evidence-section__title {
+  margin: 0 0 10px 0;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  opacity: 0.7;
+}
+
+.live-execution-canvas .lea-evidence-subsection__title {
+  margin: 12px 0 8px 0;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  opacity: 0.6;
+}
+
+/* =============================================================================
+   Evidence Fields
+   ============================================================================= */
+
+.live-execution-canvas .lea-evidence-field {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-bottom: 8px;
+  font-size: 12px;
+}
+
+.live-execution-canvas .lea-evidence-field:last-child {
+  margin-bottom: 0;
+}
+
+.live-execution-canvas .lea-evidence-field__label {
+  min-width: 90px;
+  font-weight: 500;
+  opacity: 0.6;
+  flex-shrink: 0;
+}
+
+.live-execution-canvas .lea-evidence-field__value {
+  flex: 1;
+  word-break: break-all;
+}
+
+.live-execution-canvas .lea-evidence-field__value--hash {
+  font-family: 'Consolas', 'Monaco', monospace;
+  font-size: 11px;
+  background: rgba(139, 92, 246, 0.1);
+  padding: 2px 6px;
+  border-radius: 3px;
+}
+
+.live-execution-canvas .lea-evidence-field__value--type {
+  background: rgba(99, 102, 241, 0.15);
+  padding: 2px 8px;
+  border-radius: 3px;
+  font-weight: 500;
+}
+
+.live-execution-canvas .lea-evidence-field__value--intent {
+  background: rgba(6, 182, 212, 0.15);
+  padding: 2px 8px;
+  border-radius: 3px;
+  color: #22d3ee;
+}
+
+.live-execution-canvas .lea-evidence-field__value--warning {
+  color: #fbbf24;
+}
+
+.live-execution-canvas .lea-evidence-field__value--trace {
+  background: rgba(34, 197, 94, 0.15);
+  padding: 2px 8px;
+  border-radius: 3px;
+  font-weight: 500;
+  color: #22c55e;
+}
+
+.live-execution-canvas .lea-evidence-field__value--domain {
+  background: rgba(6, 182, 212, 0.15);
+  padding: 2px 8px;
+  border-radius: 3px;
+  font-weight: 500;
+  color: #22d3ee;
+  text-transform: capitalize;
+}
+
+.live-execution-canvas .lea-evidence-jump-btn {
+  padding: 4px 10px;
+  font-size: 10px;
+  font-weight: 600;
+  background: rgba(34, 197, 94, 0.2);
+  color: #22c55e;
+  border: 1px solid rgba(34, 197, 94, 0.4);
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  margin-left: auto;
+}
+
+.live-execution-canvas .lea-evidence-jump-btn:hover {
+  background: rgba(34, 197, 94, 0.3);
+}
+
+.live-execution-canvas .lea-evidence-field__text {
+  margin: 4px 0 0 0;
+  padding: 8px;
+  background: rgba(0, 0, 0, 0.3);
+  border-radius: 4px;
+  font-family: 'Consolas', 'Monaco', monospace;
+  font-size: 11px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 100px;
+  overflow-y: auto;
+}
+
+.live-execution-canvas .lea-evidence-field__badge {
+  font-size: 8px;
+  font-weight: 600;
+  padding: 2px 5px;
+  background: rgba(251, 146, 60, 0.2);
+  color: #fb923c;
+  border-radius: 3px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  flex-shrink: 0;
+}
+
+/* =============================================================================
+   Verification Flags
+   ============================================================================= */
+
+.live-execution-canvas .lea-evidence-flags {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.live-execution-canvas .lea-evidence-flag {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 4px;
+  font-size: 11px;
+}
+
+.live-execution-canvas .lea-evidence-flag--warning {
+  border-left: 3px solid #fb923c;
+}
+
+.live-execution-canvas .lea-evidence-flag--ok {
+  border-left: 3px solid #22c55e;
+}
+
+.live-execution-canvas .lea-evidence-flag__icon {
+  font-size: 12px;
+}
+
+.live-execution-canvas .lea-evidence-flag__label {
+  flex: 1;
+  font-family: 'Consolas', 'Monaco', monospace;
+}
+
+.live-execution-canvas .lea-evidence-flag__value {
+  font-family: 'Consolas', 'Monaco', monospace;
+  opacity: 0.8;
+}
+
+/* =============================================================================
+   Artefact List
+   ============================================================================= */
+
+.live-execution-canvas .lea-evidence-artefact-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.live-execution-canvas .lea-evidence-artefact {
+  padding: 8px;
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 4px;
+  border-left: 2px solid #8b5cf6;
+}
+
+.live-execution-canvas .lea-evidence-artefact__name {
+  font-size: 11px;
+  font-weight: 500;
+  margin-bottom: 4px;
+}
+
+.live-execution-canvas .lea-evidence-artefact__meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 10px;
+  opacity: 0.7;
+}
+
+.live-execution-canvas .lea-evidence-artefact__hash {
+  font-family: 'Consolas', 'Monaco', monospace;
+  font-size: 9px;
+}
+
+/* =============================================================================
+   Flow List (Ingress/Egress)
+   ============================================================================= */
+
+.live-execution-canvas .lea-evidence-flow-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.live-execution-canvas .lea-evidence-flow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  background: rgba(0, 0, 0, 0.15);
+  border-radius: 4px;
+  font-size: 11px;
+}
+
+.live-execution-canvas .lea-evidence-flow--ingress {
+  border-left: 2px solid #22c55e;
+}
+
+.live-execution-canvas .lea-evidence-flow--egress {
+  border-left: 2px solid #f59e0b;
+}
+
+.live-execution-canvas .lea-evidence-flow__icon {
+  font-size: 10px;
+  opacity: 0.6;
+}
+
+.live-execution-canvas .lea-evidence-flow__type {
+  font-weight: 500;
+}
+
+.live-execution-canvas .lea-evidence-flow__source {
+  opacity: 0.6;
+  font-size: 10px;
+}
+
+/* =============================================================================
+   Confidence Bar
+   ============================================================================= */
+
+.live-execution-canvas .lea-evidence-confidence {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 18px;
+  background: rgba(0, 0, 0, 0.3);
+  border-radius: 4px;
+  overflow: hidden;
+  position: relative;
+}
+
+.live-execution-canvas .lea-evidence-confidence__bar {
+  height: 100%;
+  background: linear-gradient(90deg, #22c55e, #84cc16);
+  border-radius: 4px;
+  transition: width 0.3s ease;
+}
+
+.live-execution-canvas .lea-evidence-confidence__value {
+  position: absolute;
+  right: 8px;
+  font-size: 10px;
+  font-weight: 600;
+}
+
+/* =============================================================================
+   Consent Specific
+   ============================================================================= */
+
+.live-execution-canvas .lea-evidence-consent-status {
+  margin-bottom: 12px;
+}
+
+.live-execution-canvas .lea-evidence-consent-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.live-execution-canvas .lea-evidence-consent-badge--pending {
+  background: rgba(239, 68, 68, 0.15);
+  color: #ef4444;
+  border: 1px solid rgba(239, 68, 68, 0.3);
+}
+
+.live-execution-canvas .lea-evidence-consent-badge--resolved {
+  background: rgba(34, 197, 94, 0.15);
+  color: #22c55e;
+  border: 1px solid rgba(34, 197, 94, 0.3);
+}
+
+.live-execution-canvas .lea-evidence-scope-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.live-execution-canvas .lea-evidence-scope {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  background: rgba(0, 0, 0, 0.15);
+  border-radius: 4px;
+  font-size: 11px;
+}
+
+.live-execution-canvas .lea-evidence-scope--granted {
+  border-left: 2px solid #22c55e;
+}
+
+.live-execution-canvas .lea-evidence-scope--pending {
+  border-left: 2px solid #fbbf24;
+}
+
+.live-execution-canvas .lea-evidence-scope__icon {
+  font-size: 10px;
+}
+
+.live-execution-canvas .lea-evidence-scope__name {
+  font-family: 'Consolas', 'Monaco', monospace;
+}
+
+.live-execution-canvas .lea-evidence-resolve-btn {
+  width: 100%;
+  margin-top: 12px;
+  padding: 10px 16px;
+  font-size: 12px;
+  font-weight: 600;
+  background: #22c55e;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.live-execution-canvas .lea-evidence-resolve-btn:hover {
+  background: #16a34a;
+}
+
+/* =============================================================================
+   PoAE Warning
+   ============================================================================= */
+
+.live-execution-canvas .lea-evidence-poae-warning {
+  display: flex;
+  gap: 12px;
+  padding: 12px;
+  background: rgba(251, 146, 60, 0.1);
+  border: 2px dashed rgba(251, 146, 60, 0.4);
+  border-radius: 6px;
+  margin-bottom: 12px;
+}
+
+.live-execution-canvas .lea-evidence-poae-warning__icon {
+  font-size: 20px;
+  flex-shrink: 0;
+}
+
+.live-execution-canvas .lea-evidence-poae-warning__content {
+  font-size: 11px;
+  line-height: 1.5;
+  color: #fbbf24;
+}
+
+.live-execution-canvas .lea-evidence-poae-warning__content strong {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 12px;
+}
+
+.live-execution-canvas .lea-evidence-poae-warning__content p {
+  margin: 0;
+  opacity: 0.9;
+}
+
+/* =============================================================================
+   Notices
+   ============================================================================= */
+
+.live-execution-canvas .lea-evidence-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 10px;
+  background: rgba(99, 102, 241, 0.1);
+  border-radius: 4px;
+  font-size: 10px;
+  margin-top: 8px;
+  color: #a5b4fc;
+}
+
+.live-execution-canvas .lea-evidence-notice--critical {
+  background: rgba(239, 68, 68, 0.1);
+  color: #fca5a5;
+}
+
+.live-execution-canvas .lea-evidence-notice__icon {
+  font-size: 12px;
+  flex-shrink: 0;
+}
+
+.live-execution-canvas .lea-evidence-empty {
+  text-align: center;
+  padding: 16px;
+  font-size: 11px;
+  opacity: 0.5;
+}
+
+/* =============================================================================
+   Professional Theme
+   ============================================================================= */
+
+[data-ui-theme="professional"] .live-execution-canvas .lea-evidence-drawer {
+  background: rgba(250, 250, 252, 0.98);
+}
+
+[data-ui-theme="professional"] .live-execution-canvas .lea-evidence-drawer__header {
+  background: rgba(0, 0, 0, 0.03);
+}
+
+[data-ui-theme="professional"] .live-execution-canvas .lea-evidence-section {
+  background: rgba(0, 0, 0, 0.02);
+}
+
+[data-ui-theme="professional"] .live-execution-canvas .lea-evidence-field__text {
+  background: rgba(0, 0, 0, 0.05);
+}
+

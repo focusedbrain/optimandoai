@@ -298,13 +298,17 @@ const startHidden = process.argv.includes('--hidden')
 
 async function createWindow() {
   win = new BrowserWindow({
-    icon: path.join(process.env.VITE_PUBLIC, 'electron-vite.svg'),
+    title: 'OpenGiraffe™ Analysis Dashboard',
+    icon: path.join(process.env.VITE_PUBLIC, 'giraffe.svg'),
     webPreferences: {
       preload: path.join(__dirname, 'preload.mjs'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      webSecurity: true,
     },
     show: !startHidden, // Start hidden if launched with --hidden flag
-    width: 800,
-    height: 600,
+    width: 1200,
+    height: 800,
   })
   
   // If started hidden, minimize to tray
@@ -327,9 +331,20 @@ async function createWindow() {
   })
 
   if (VITE_DEV_SERVER_URL) {
+    console.log('[MAIN] Loading dev server URL:', VITE_DEV_SERVER_URL)
     win.loadURL(VITE_DEV_SERVER_URL)
   } else {
-    win.loadFile(path.join(RENDERER_DIST, 'index.html'))
+    const indexPath = path.join(RENDERER_DIST, 'index.html')
+    console.log('[MAIN] Loading production file:', indexPath)
+    console.log('[MAIN] RENDERER_DIST:', RENDERER_DIST)
+    console.log('[MAIN] __dirname:', __dirname)
+    console.log('[MAIN] APP_ROOT:', process.env.APP_ROOT)
+    win.loadFile(indexPath)
+  }
+
+  // Open DevTools in development for debugging
+  if (VITE_DEV_SERVER_URL) {
+    win.webContents.openDevTools()
   }
 
   if (pendingLaunchMode) {
@@ -1341,6 +1356,28 @@ app.whenReady().then(async () => {
               }
               return // Don't process further handlers for ping
             }
+            if (msg.type === 'OPEN_ANALYSIS_DASHBOARD') {
+              // Open and focus the main window with Analysis Dashboard
+              console.log('[MAIN] ===== RECEIVED OPEN_ANALYSIS_DASHBOARD =====')
+              try {
+                if (win) {
+                  if (win.isMinimized()) win.restore()
+                  win.show()
+                  win.focus()
+                  // Signal the renderer to switch to Analysis Dashboard view
+                  const phase = msg.phase || 'live'
+                  win.webContents.send('OPEN_ANALYSIS_DASHBOARD', { phase })
+                  console.log('[MAIN] ✅ Analysis Dashboard window focused, IPC sent with phase:', phase)
+                  socket.send(JSON.stringify({ type: 'ANALYSIS_DASHBOARD_OPENED' }))
+                } else {
+                  console.log('[MAIN] ⚠️ Main window not available')
+                  socket.send(JSON.stringify({ type: 'ANALYSIS_DASHBOARD_ERROR', error: 'Main window not available' }))
+                }
+              } catch (err: any) {
+                console.error('[MAIN] ❌ Error opening Analysis Dashboard:', err)
+              }
+            }
+            
             if (msg.type === 'START_SELECTION') {
               // Open full-featured overlay with all controls
               console.log('[MAIN] ===== RECEIVED START_SELECTION, LAUNCHING FULL OVERLAY =====')

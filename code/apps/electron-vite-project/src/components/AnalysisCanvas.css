@@ -1,0 +1,231 @@
+/* Analysis Canvas - Enterprise Dashboard Styles */
+/* Uses theme tokens from App.css - no duplicate definitions */
+
+.analysis-canvas {
+  /* Dashboard-specific tokens derived from global theme */
+  --da-surface-base: var(--bg-base);
+  --da-surface-elevated: var(--bg-elevated);
+  --da-surface-overlay: var(--bg-surface);
+  --da-text-primary: var(--text-primary);
+  --da-text-secondary: var(--text-secondary);
+  --da-text-muted: var(--text-muted);
+  --da-border: var(--border);
+  --da-border-subtle: var(--border-subtle);
+  --da-accent: var(--accent);
+  --da-accent-hover: var(--accent-hover);
+  
+  /* Severity colors */
+  --da-severity-critical: var(--danger);
+  --da-severity-critical-bg: rgba(239, 68, 68, 0.1);
+  --da-severity-high: var(--danger);
+  --da-severity-high-bg: rgba(239, 68, 68, 0.08);
+  --da-severity-medium: var(--warning);
+  --da-severity-medium-bg: rgba(245, 158, 11, 0.1);
+  --da-severity-low: var(--success);
+  --da-severity-low-bg: rgba(16, 185, 129, 0.1);
+  --da-severity-info: var(--accent);
+  --da-severity-info-bg: rgba(59, 130, 246, 0.1);
+  
+  /* Status colors */
+  --da-status-success: var(--success);
+  --da-status-success-bg: rgba(16, 185, 129, 0.1);
+  --da-status-warning: var(--warning);
+  --da-status-warning-bg: rgba(245, 158, 11, 0.1);
+  --da-status-error: var(--danger);
+  --da-status-error-bg: rgba(239, 68, 68, 0.1);
+  
+  /* Interactive states */
+  --da-hover-bg: var(--bg-elevated);
+  --da-selected-bg: rgba(59, 130, 246, 0.12);
+  --da-selected-border: var(--accent);
+  
+  /* Apply base styling */
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0; /* Critical for flex child to scroll properly */
+  box-sizing: border-box;
+  background: var(--da-surface-base);
+  color: var(--da-text-primary);
+  padding: 0;
+  overflow: hidden;
+}
+
+/* Header - Removed since we have the app header */
+.analysis-header {
+  display: none;
+}
+
+/* Phase Selector - Full width tabs */
+.phase-selector {
+  display: flex;
+  gap: 0;
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.phase-button {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 18px 16px;
+  background: transparent;
+  border: none;
+  border-bottom: 3px solid transparent;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  text-align: center;
+  color: var(--text-secondary);
+}
+
+.phase-button:hover {
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+}
+
+.phase-button--active {
+  border-bottom-color: var(--purple-accent);
+  background: var(--bg-elevated);
+  color: var(--purple-accent);
+}
+
+.phase-button--active:hover {
+  background: var(--bg-elevated);
+}
+
+.phase-button__label {
+  font-size: 14px;
+  font-weight: 600;
+  color: inherit;
+}
+
+.phase-button--active .phase-button__label {
+  color: var(--purple-accent);
+}
+
+.phase-button__description {
+  font-size: 11px;
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+
+/* Canvas Flags Notice */
+.canvas-flags-notice {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 24px;
+  background: var(--da-status-warning-bg);
+  border-bottom: 1px solid rgba(245, 158, 11, 0.2);
+  font-size: 12px;
+  color: var(--warning);
+  flex-shrink: 0;
+}
+
+.canvas-flags-notice__icon {
+  font-size: 14px;
+}
+
+.canvas-flags-notice__text {
+  opacity: 0.9;
+}
+
+/* Phase Content Area */
+.phase-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0; /* Critical for flex child to scroll properly */
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 24px;
+  background: var(--bg-base);
+}
+
+.phase-content__placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  text-align: center;
+  padding: 48px;
+  flex: 1;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+
+.phase-content__icon {
+  font-size: 40px;
+  opacity: 0.4;
+}
+
+.phase-content__title {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-primary);
+  opacity: 0.8;
+}
+
+.phase-content__status {
+  margin-top: 4px;
+}
+
+.phase-content__note {
+  font-size: 13px;
+  color: var(--text-muted);
+  max-width: 360px;
+  line-height: 1.5;
+}
+
+/* Status Badges */
+.status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 4px 10px;
+  border-radius: 4px;
+}
+
+.status-badge--pending {
+  background: var(--da-status-warning-bg);
+  color: var(--warning);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+}
+
+.status-badge--verified {
+  background: var(--da-status-success-bg);
+  color: var(--success);
+  border: 1px solid rgba(16, 185, 129, 0.3);
+}
+
+.status-badge--demo {
+  background: var(--da-status-warning-bg);
+  color: var(--warning);
+  border: 1px dashed rgba(245, 158, 11, 0.4);
+}
+
+/* Size variants for status badge */
+.status-badge--small {
+  font-size: 10px;
+  padding: 2px 6px;
+}
+
+.status-badge--medium {
+  font-size: 11px;
+  padding: 4px 10px;
+}
+
+.status-badge--large {
+  font-size: 12px;
+  padding: 5px 12px;
+}

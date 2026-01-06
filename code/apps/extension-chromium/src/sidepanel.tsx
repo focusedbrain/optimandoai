@@ -1655,8 +1655,9 @@ function SidepanelOrchestrator() {
   }
 
   const openReasoningLightbox = () => {
-    console.log('🧠 Opening Reasoning lightbox...')
-    sendToContentScript('OPEN_REASONING_LIGHTBOX')
+    // Changed: Open Electron Analysis Dashboard instead of lightbox
+    console.log('📊 Opening Electron Analysis Dashboard...')
+    chrome.runtime?.sendMessage({ type: 'ELECTRON_OPEN_ANALYSIS_DASHBOARD' })
   }
 
   const openAgentsLightbox = () => {
@@ -6484,7 +6485,7 @@ height: '28px',
             fontSize: '14px',
             padding: 0
           }}
-          title="Reasoning & Session Goals"
+          title="Open Analysis Dashboard"
         >
           🧠
         </button>

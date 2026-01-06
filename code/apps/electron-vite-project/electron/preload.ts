@@ -53,3 +53,18 @@ contextBridge.exposeInMainWorld('db', {
   sync: (data: Record<string, any>) => ipcRenderer.invoke('db:sync', data),
   getConfig: () => ipcRenderer.invoke('db:getConfig'),
 })
+
+// Analysis Dashboard API - safe, scoped listener for main->renderer signaling
+// Payload is passed as-is; renderer is responsible for validation/sanitization
+contextBridge.exposeInMainWorld('analysisDashboard', {
+  onOpen: (callback: (rawPayload: unknown) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, rawPayload: unknown) => {
+      callback(rawPayload)
+    }
+    ipcRenderer.on('OPEN_ANALYSIS_DASHBOARD', handler)
+    // Return cleanup function
+    return () => {
+      ipcRenderer.removeListener('OPEN_ANALYSIS_DASHBOARD', handler)
+    }
+  }
+})

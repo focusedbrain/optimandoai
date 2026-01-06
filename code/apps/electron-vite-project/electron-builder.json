@@ -1,6 +1,7 @@
 {
   "appId": "com.opengiraffe.desktop",
-  "productName": "OpenGiraffe",
+  "productName": "OpenGiraffe TM",
+  "icon": "public/giraffe",
   "directories": {
     "output": "release/${version}",
     "buildResources": "build"
