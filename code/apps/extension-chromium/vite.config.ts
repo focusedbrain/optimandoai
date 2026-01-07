@@ -9,6 +9,8 @@ export default defineConfig({
     react(),
     crx({ manifest })
   ],
+  // Use relative paths for Chrome extension compatibility
+  base: '',
   resolve: {
     alias: {
       '@shared-extension': path.resolve(__dirname, '../../packages/shared-extension/src'),

@@ -1138,17 +1138,28 @@
 .preflight-hero__latest {
   background: var(--bg-elevated);
   border-radius: 8px;
-  padding: 20px;
+  padding: 24px;
+  margin-top: 16px;
   margin-bottom: 20px;
 }
 
 .preflight-hero__event-type {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  flex-wrap: wrap;
+}
+
+.preflight-hero__event-type-label {
   font-size: 10px;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.05em;
   color: var(--purple-accent);
-  margin-bottom: 8px;
+  background: var(--purple-accent-muted);
+  padding: 4px 10px;
+  border-radius: 4px;
 }
 
 .preflight-hero__event-title {
@@ -1177,27 +1188,47 @@
   color: var(--text-secondary);
 }
 
+.preflight-hero__risk-category {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  background: rgba(0, 0, 0, 0.1);
+  border-radius: 6px;
+}
+
+.preflight-hero__risk-category-title {
+  font-size: 9px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--text-secondary);
+}
+
 .preflight-hero__priority {
   font-size: 9px;
   font-weight: 700;
-  padding: 2px 6px;
-  border-radius: 3px;
-  margin-right: 8px;
+  padding: 4px 8px;
+  border-radius: 4px;
+  border: 1px solid;
 }
 
 .preflight-hero__priority--high {
-  background: rgba(239, 68, 68, 0.15);
-  color: #ef4444;
+  background: #ef4444;
+  color: white;
+  border-color: #ef4444;
 }
 
 .preflight-hero__priority--normal {
   background: var(--purple-accent-muted);
   color: var(--purple-accent);
+  border-color: rgba(147, 51, 234, 0.3);
 }
 
 .preflight-hero__priority--low {
-  background: rgba(107, 114, 128, 0.15);
+  background: rgba(107, 114, 128, 0.2);
   color: #9ca3af;
+  border-color: rgba(107, 114, 128, 0.4);
 }
 
 .preflight-hero--pending {
@@ -1259,6 +1290,185 @@
 
 .preflight-hero__btn-icon {
   font-size: 16px;
+}
+
+/* Status Row - Match Box + Approve Button */
+.preflight-hero__status-row {
+  display: flex;
+  align-items: stretch;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.preflight-hero__match-box {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  background: linear-gradient(135deg, rgba(16, 185, 129, 0.15) 0%, rgba(16, 185, 129, 0.05) 100%);
+  border: 2px solid rgba(16, 185, 129, 0.4);
+  border-left: 4px solid #10b981;
+  border-radius: 8px;
+  flex: 1;
+}
+
+.preflight-hero__match-icon {
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #10b981;
+  color: white;
+  font-size: 18px;
+  font-weight: 700;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.preflight-hero__match-content {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.preflight-hero__match-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: #10b981;
+}
+
+.preflight-hero__match-desc {
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.preflight-hero__btn--approve-main {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 14px 20px;
+  background: #10b981;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.preflight-hero__btn--approve-main:hover {
+  background: #059669;
+}
+
+.preflight-hero__btn-text {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  text-align: center;
+}
+
+.preflight-hero__btn-label {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.preflight-hero__btn-session {
+  font-size: 10px;
+  font-weight: 400;
+  opacity: 0.85;
+}
+
+.preflight-hero__btn-session-centered {
+  font-size: 10px;
+  font-weight: 400;
+  opacity: 0.85;
+  text-align: center;
+  width: 100%;
+}
+
+/* Analyse Workflow Button - Full Width */
+.preflight-hero__btn--analyse-workflow {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 12px 20px;
+  background: transparent;
+  color: var(--purple-accent);
+  border: 1px solid var(--purple-accent);
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  margin-top: 12px;
+  margin-bottom: 16px;
+  transition: all 0.2s;
+}
+
+.preflight-hero__btn--analyse-workflow:hover {
+  background: var(--purple-accent);
+  color: white;
+}
+
+[data-ui-theme="default"] .preflight-hero__btn--analyse-workflow {
+  border-color: white;
+  color: white;
+}
+
+[data-ui-theme="default"] .preflight-hero__btn--analyse-workflow:hover {
+  background: white;
+  color: #9333ea;
+}
+
+/* Slider Navigation */
+.preflight-hero__slider {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 8px 0;
+  margin-bottom: 8px;
+}
+
+.preflight-hero__slider-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+  font-size: 18px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.preflight-hero__slider-btn:hover:not(:disabled) {
+  background: var(--purple-accent);
+  border-color: var(--purple-accent);
+  color: white;
+}
+
+.preflight-hero__slider-btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.preflight-hero__slider-indicator {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  min-width: 60px;
+  text-align: center;
 }
 
 /* History List */
@@ -2021,6 +2231,20 @@
   color: #10b981;
 }
 
+[data-ui-theme="default"] .preflight-hero__risk-category {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+[data-ui-theme="default"] .preflight-hero__risk-category-title {
+  color: rgba(255, 255, 255, 0.7);
+}
+
+[data-ui-theme="default"] .preflight-hero__priority--low {
+  background: rgba(16, 185, 129, 0.2);
+  color: #10b981;
+  border-color: rgba(16, 185, 129, 0.4);
+}
+
 [data-ui-theme="default"] .pre-workflow-modal__btn--secondary {
   border-color: white;
   color: white;
@@ -2029,5 +2253,381 @@
 [data-ui-theme="default"] .pre-workflow-modal__btn--secondary:hover {
   border-color: white;
   color: white;
+}
+
+/* =============================================================================
+   Pre-Execution Workflow Timeline Modal - Same Style as Post-Execution PoAE™
+   ============================================================================= */
+
+.pre-workflow-modal--timeline {
+  max-width: 600px;
+}
+
+.pre-workflow-modal__content--timeline {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* Timeline Container */
+.pre-workflow-timeline {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+/* PoAE™ Event Box - Same as Post-Execution */
+.pre-workflow-timeline__poae {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+  border-radius: 8px;
+  border: 2px solid var(--purple-accent);
+  background: var(--purple-accent-muted);
+}
+
+.pre-workflow-timeline__poae--sender {
+  border-color: #f59e0b; /* Orange for sender */
+  background: rgba(245, 158, 11, 0.1);
+}
+
+.pre-workflow-timeline__poae-badge {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.pre-workflow-timeline__poae-icon {
+  font-size: 16px;
+}
+
+.pre-workflow-timeline__poae-label {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-primary);
+  white-space: nowrap;
+}
+
+.pre-workflow-timeline__poae-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.pre-workflow-timeline__poae-org {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.pre-workflow-timeline__poae-hash {
+  font-size: 10px;
+  font-family: 'SF Mono', Monaco, monospace;
+  color: var(--text-muted);
+  background: rgba(0, 0, 0, 0.1);
+  padding: 2px 6px;
+  border-radius: 4px;
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pre-workflow-timeline__poae-type {
+  font-size: 9px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  padding: 4px 8px;
+  border-radius: 4px;
+  background: rgba(245, 158, 11, 0.2);
+  color: #f59e0b; /* Orange for sender */
+  white-space: nowrap;
+}
+
+.pre-workflow-timeline__poae-check {
+  font-size: 14px;
+  color: #f59e0b; /* Orange for sender */
+}
+
+/* AI Agent Items - Same as Post-Execution */
+.pre-workflow-timeline__agent {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  margin-left: 20px;
+  margin-right: 20px;
+}
+
+.pre-workflow-timeline__agent-main {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+}
+
+.pre-workflow-timeline__agent-icon {
+  font-size: 14px;
+}
+
+.pre-workflow-timeline__agent-name {
+  flex: 1;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.pre-workflow-timeline__agent-btn {
+  font-size: 10px;
+  font-weight: 500;
+  padding: 4px 10px;
+  border-radius: 4px;
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.pre-workflow-timeline__agent-btn:hover {
+  border-color: var(--purple-accent);
+  color: var(--purple-accent);
+}
+
+.pre-workflow-timeline__agent-status {
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+.pre-workflow-timeline__agent-status--pending {
+  color: #f59e0b;
+}
+
+.pre-workflow-timeline__agent-details {
+  padding: 10px 12px;
+  padding-top: 0;
+  border-top: 1px solid var(--border);
+  margin-top: 10px;
+  padding-top: 10px;
+}
+
+.pre-workflow-timeline__agent-details p {
+  font-size: 11px;
+  color: var(--text-secondary);
+  margin: 0;
+  line-height: 1.5;
+}
+
+/* Pending Notice - No Receiver PoAE™ */
+.pre-workflow-timeline__pending-notice {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+  border-radius: 8px;
+  border: 2px dashed var(--border);
+  background: rgba(0, 0, 0, 0.05);
+}
+
+.pre-workflow-timeline__pending-icon {
+  font-size: 16px;
+  color: #f59e0b;
+}
+
+.pre-workflow-timeline__pending-content {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.pre-workflow-timeline__pending-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.pre-workflow-timeline__pending-desc {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+/* Template Section */
+.pre-workflow-template-section {
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+}
+
+.pre-workflow-template-section__toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 10px 12px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.pre-workflow-template-section__toggle:hover {
+  background: var(--bg-surface);
+}
+
+.pre-workflow-template-section__icon {
+  font-size: 14px;
+}
+
+.pre-workflow-template-section__title {
+  flex: 1;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary);
+  text-align: left;
+}
+
+.pre-workflow-template-section__arrow {
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+.pre-workflow-template-section__content {
+  padding: 12px;
+  margin-top: 8px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.pre-workflow-template-section__row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 6px 0;
+}
+
+.pre-workflow-template-section__row:not(:last-child) {
+  border-bottom: 1px solid var(--border);
+}
+
+.pre-workflow-template-section__label {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-muted);
+  min-width: 70px;
+}
+
+.pre-workflow-template-section__value {
+  font-size: 11px;
+  color: var(--text-primary);
+}
+
+.pre-workflow-template-section__policies {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.pre-workflow-template-section__policy {
+  font-size: 10px;
+  font-family: 'SF Mono', Monaco, monospace;
+  padding: 3px 8px;
+  background: var(--purple-accent-muted);
+  color: var(--purple-accent);
+  border-radius: 4px;
+}
+
+/* Default Theme Overrides for Timeline Modal */
+[data-ui-theme="default"] .pre-workflow-timeline__poae-label {
+  color: white;
+}
+
+[data-ui-theme="default"] .pre-workflow-timeline__poae-org {
+  color: white;
+}
+
+[data-ui-theme="default"] .pre-workflow-timeline__poae-hash {
+  background: rgba(0, 0, 0, 0.3);
+  color: rgba(255, 255, 255, 0.7);
+}
+
+[data-ui-theme="default"] .pre-workflow-timeline__agent {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+[data-ui-theme="default"] .pre-workflow-timeline__agent-name {
+  color: white;
+}
+
+[data-ui-theme="default"] .pre-workflow-timeline__agent-btn {
+  border-color: rgba(255, 255, 255, 0.3);
+  color: rgba(255, 255, 255, 0.7);
+}
+
+[data-ui-theme="default"] .pre-workflow-timeline__agent-btn:hover {
+  border-color: white;
+  color: white;
+}
+
+[data-ui-theme="default"] .pre-workflow-timeline__agent-details {
+  border-top-color: rgba(255, 255, 255, 0.1);
+}
+
+[data-ui-theme="default"] .pre-workflow-timeline__agent-details p {
+  color: rgba(255, 255, 255, 0.7);
+}
+
+[data-ui-theme="default"] .pre-workflow-timeline__pending-notice {
+  border-color: rgba(255, 255, 255, 0.3);
+  background: rgba(0, 0, 0, 0.2);
+}
+
+[data-ui-theme="default"] .pre-workflow-timeline__pending-title {
+  color: rgba(255, 255, 255, 0.8);
+}
+
+[data-ui-theme="default"] .pre-workflow-timeline__pending-desc {
+  color: rgba(255, 255, 255, 0.6);
+}
+
+[data-ui-theme="default"] .pre-workflow-template-section {
+  border-top-color: rgba(255, 255, 255, 0.1);
+}
+
+[data-ui-theme="default"] .pre-workflow-template-section__toggle {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+[data-ui-theme="default"] .pre-workflow-template-section__toggle:hover {
+  background: rgba(255, 255, 255, 0.15);
+}
+
+[data-ui-theme="default"] .pre-workflow-template-section__title {
+  color: white;
+}
+
+[data-ui-theme="default"] .pre-workflow-template-section__content {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+[data-ui-theme="default"] .pre-workflow-template-section__row:not(:last-child) {
+  border-bottom-color: rgba(255, 255, 255, 0.1);
+}
+
+[data-ui-theme="default"] .pre-workflow-template-section__label {
+  color: rgba(255, 255, 255, 0.6);
+}
+
+[data-ui-theme="default"] .pre-workflow-template-section__value {
+  color: white;
+}
+
+[data-ui-theme="default"] .pre-workflow-template-section__policy {
+  background: rgba(147, 51, 234, 0.3);
+  color: #d8b4fe;
 }
 

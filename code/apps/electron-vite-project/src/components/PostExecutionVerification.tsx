@@ -4,6 +4,8 @@ import { VerificationFlags, DEFAULT_VERIFICATION_FLAGS, canClaimVerified } from 
 
 interface PostExecutionVerificationProps {
   flags?: VerificationFlags
+  /** Compact mode for unified dashboard column view */
+  compact?: boolean
 }
 
 // =============================================================================
@@ -114,12 +116,41 @@ const mockPolicySnapshot = [
 
 const mockPoAEPlaceholder = {
   status: 'VERIFIED',
-  demoEvents: [
-    { type: 'EXEC_START', timestamp: '2026-01-06T10:14:22.341Z', demoValue: 'poae_start_9f8e7d6c5b4a' },
-    { type: 'AI_INVOKE', timestamp: '2026-01-06T10:14:24.613Z', demoValue: 'poae_ai_3c4d5e6f7a8b' },
-    { type: 'CAPSULE_OUT', timestamp: '2026-01-06T10:14:28.504Z', demoValue: 'poae_capsule_1a2b3c4d5e6f' },
-    { type: 'EXEC_COMPLETE', timestamp: '2026-01-06T10:14:28.892Z', demoValue: 'poae_complete_7a8b9c0d1e2f' }
-  ]
+  // PoAE™ Timeline: Sender -> AI Agents -> Receiver
+  senderPoae: {
+    type: 'SENDER_POAE',
+    eventType: 'manual-consent' as PoAEEventType,  // Sender can only be: Manual Consent or 2FA Auth
+    timestamp: '2026-01-06T10:14:20.100Z',
+    hash: 'poae_sender_a1b2c3d4',
+    organization: 'Acme Corp'
+  },
+  aiAgents: [
+    { 
+      id: 'agent_001',
+      name: 'Document Classifier',
+      timestamp: '2026-01-06T10:14:22.341Z',
+      reasoning: 'Analyzed document structure and metadata. Detected invoice format based on header patterns, line items structure, and total calculation fields. Confidence: 98.5%. Classification: INVOICE_STANDARD_V2.'
+    },
+    { 
+      id: 'agent_002',
+      name: 'Data Extractor',
+      timestamp: '2026-01-06T10:14:24.613Z',
+      reasoning: 'Extracted key fields: Invoice Number (INV-2026-0042), Date (2026-01-06), Vendor (Supplier Inc), Amount ($4,250.00), Tax ($382.50), Total ($4,632.50). All fields validated against schema.'
+    },
+    { 
+      id: 'agent_003',
+      name: 'Compliance Validator',
+      timestamp: '2026-01-06T10:14:26.892Z',
+      reasoning: 'Verified against company policy P-FIN-001. Amount within auto-approval threshold ($5,000). Vendor in approved list. No duplicate invoice detected. Approval: AUTOMATIC.'
+    }
+  ],
+  receiverPoae: {
+    type: 'RECEIVER_POAE',
+    eventType: 'manual-consent' as PoAEEventType,  // Policy Match, Manual Consent, or 2FA Auth
+    timestamp: '2026-01-06T10:14:28.892Z',
+    hash: 'poae_receiver_7a8b9c0d',
+    organization: 'Partner Inc'
+  }
 }
 
 // Cross-Organizational Workflow Analysis Data
@@ -189,8 +220,41 @@ const mockWorkflowAnalysis = {
   }
 }
 
-// PoAE™ Log History - all past verification logs
-const mockPoAELogHistory = [
+// PoAE™ Event Types
+type PoAEEventType = 'policy-match' | 'manual-consent' | '2fa-auth' | 'auto-verified'
+
+interface PoAEEvent {
+  id: string
+  type: PoAEEventType
+  organization: string
+  action: string
+  hash: string
+  timestamp: string
+  verified: boolean
+}
+
+interface AIAgent {
+  id: string
+  name: string
+  reasoning: string
+  status: 'completed' | 'active' | 'pending'
+}
+
+interface PoAELogEntry {
+  id: string
+  executionId: string
+  templateName: string
+  timestamp: string
+  status: 'verified' | 'pending' | 'failed'
+  eventCount: number
+  chainHash: string
+  senderPoAE: PoAEEvent
+  receiverPoAE: PoAEEvent
+  aiAgents: AIAgent[]
+}
+
+// PoAE™ Log History - all past verification logs with full timeline data
+const mockPoAELogHistory: PoAELogEntry[] = [
   {
     id: 'poae_log_001',
     executionId: 'exec_9f8e7d6c5b4a3210',
@@ -198,7 +262,29 @@ const mockPoAELogHistory = [
     timestamp: '2026-01-06T10:14:28.892Z',
     status: 'verified',
     eventCount: 4,
-    chainHash: 'sha256:9f8e7d6c5b4a3210abcdef1234567890'
+    chainHash: 'sha256:9f8e7d6c5b4a3210abcdef1234567890',
+    senderPoAE: {
+      id: 'sender_001',
+      type: 'manual-consent',
+      organization: 'ACME Corporation',
+      action: 'Initiated workflow execution',
+      hash: 'sha256:abc123...',
+      timestamp: '2026-01-06T10:14:00.000Z',
+      verified: true
+    },
+    receiverPoAE: {
+      id: 'receiver_001',
+      type: 'manual-consent',
+      organization: 'Finance Dept',
+      action: 'Confirmed receipt & processing',
+      hash: 'sha256:def456...',
+      timestamp: '2026-01-06T10:14:28.892Z',
+      verified: true
+    },
+    aiAgents: [
+      { id: 'agent_001', name: 'Document Classifier', reasoning: 'Identified document as invoice based on header patterns and line items structure.', status: 'completed' },
+      { id: 'agent_002', name: 'Data Extractor', reasoning: 'Extracted vendor name, invoice number, date, and line items with 98.5% confidence.', status: 'completed' }
+    ]
   },
   {
     id: 'poae_log_002',
@@ -207,7 +293,30 @@ const mockPoAELogHistory = [
     timestamp: '2026-01-06T09:45:12.123Z',
     status: 'verified',
     eventCount: 6,
-    chainHash: 'sha256:8a7b6c5d4e3f2100fedcba0987654321'
+    chainHash: 'sha256:8a7b6c5d4e3f2100fedcba0987654321',
+    senderPoAE: {
+      id: 'sender_002',
+      type: '2fa-auth',
+      organization: 'Legal Team',
+      action: 'Submitted documents for classification',
+      hash: 'sha256:ghi789...',
+      timestamp: '2026-01-06T09:44:00.000Z',
+      verified: true
+    },
+    receiverPoAE: {
+      id: 'receiver_002',
+      type: 'auto-verified',
+      organization: 'Archive System',
+      action: 'Classification complete & archived',
+      hash: 'sha256:jkl012...',
+      timestamp: '2026-01-06T09:45:12.123Z',
+      verified: true
+    },
+    aiAgents: [
+      { id: 'agent_003', name: 'Content Analyzer', reasoning: 'Analyzed document content and identified as legal contract.', status: 'completed' },
+      { id: 'agent_004', name: 'Metadata Extractor', reasoning: 'Extracted parties, dates, and key terms from contract.', status: 'completed' },
+      { id: 'agent_005', name: 'Risk Assessor', reasoning: 'Evaluated contract terms for compliance risks. Found 0 issues.', status: 'completed' }
+    ]
   },
   {
     id: 'poae_log_003',
@@ -216,7 +325,28 @@ const mockPoAELogHistory = [
     timestamp: '2026-01-06T08:32:45.789Z',
     status: 'verified',
     eventCount: 5,
-    chainHash: 'sha256:7f6e5d4c3b2a1000abcdef9876543210'
+    chainHash: 'sha256:7f6e5d4c3b2a1000abcdef9876543210',
+    senderPoAE: {
+      id: 'sender_003',
+      type: '2fa-auth',
+      organization: 'Sales Dept',
+      action: 'Triggered email processing',
+      hash: 'sha256:mno345...',
+      timestamp: '2026-01-06T08:32:00.000Z',
+      verified: true
+    },
+    receiverPoAE: {
+      id: 'receiver_003',
+      type: 'manual-consent',
+      organization: 'CRM System',
+      action: 'Data integrated to customer records',
+      hash: 'sha256:pqr678...',
+      timestamp: '2026-01-06T08:32:45.789Z',
+      verified: true
+    },
+    aiAgents: [
+      { id: 'agent_006', name: 'Email Parser', reasoning: 'Parsed email structure and extracted key fields.', status: 'completed' }
+    ]
   },
   {
     id: 'poae_log_004',
@@ -225,7 +355,29 @@ const mockPoAELogHistory = [
     timestamp: '2026-01-05T16:21:33.456Z',
     status: 'verified',
     eventCount: 4,
-    chainHash: 'sha256:6e5d4c3b2a100f00fedcba1234567890'
+    chainHash: 'sha256:6e5d4c3b2a100f00fedcba1234567890',
+    senderPoAE: {
+      id: 'sender_004',
+      type: '2fa-auth',
+      organization: 'ACME Corporation',
+      action: 'Initiated workflow execution',
+      hash: 'sha256:stu901...',
+      timestamp: '2026-01-05T16:21:00.000Z',
+      verified: true
+    },
+    receiverPoAE: {
+      id: 'receiver_004',
+      type: 'policy-match',
+      organization: 'Accounts Payable',
+      action: 'Invoice processed & queued for payment',
+      hash: 'sha256:vwx234...',
+      timestamp: '2026-01-05T16:21:33.456Z',
+      verified: true
+    },
+    aiAgents: [
+      { id: 'agent_007', name: 'Document Classifier', reasoning: 'Classified as vendor invoice with high confidence.', status: 'completed' },
+      { id: 'agent_008', name: 'Amount Validator', reasoning: 'Validated line items sum matches total. Approved.', status: 'completed' }
+    ]
   },
   {
     id: 'poae_log_005',
@@ -234,9 +386,43 @@ const mockPoAELogHistory = [
     timestamp: '2026-01-05T14:55:22.111Z',
     status: 'verified',
     eventCount: 8,
-    chainHash: 'sha256:5d4c3b2a100f0e00abcdef0987654321'
+    chainHash: 'sha256:5d4c3b2a100f0e00abcdef0987654321',
+    senderPoAE: {
+      id: 'sender_005',
+      type: 'manual-consent',
+      organization: 'Legal Dept',
+      action: 'Submitted contract for analysis',
+      hash: 'sha256:yza567...',
+      timestamp: '2026-01-05T14:54:00.000Z',
+      verified: true
+    },
+    receiverPoAE: {
+      id: 'receiver_005',
+      type: 'auto-verified',
+      organization: 'Compliance System',
+      action: 'Analysis complete, no issues found',
+      hash: 'sha256:bcd890...',
+      timestamp: '2026-01-05T14:55:22.111Z',
+      verified: true
+    },
+    aiAgents: [
+      { id: 'agent_009', name: 'Contract Parser', reasoning: 'Parsed contract structure and identified all sections.', status: 'completed' },
+      { id: 'agent_010', name: 'Clause Analyzer', reasoning: 'Analyzed 47 clauses for standard compliance.', status: 'completed' },
+      { id: 'agent_011', name: 'Risk Detector', reasoning: 'Scanned for liability and indemnification risks.', status: 'completed' },
+      { id: 'agent_012', name: 'Summary Generator', reasoning: 'Generated executive summary of key terms.', status: 'completed' }
+    ]
   }
 ]
+
+const getPoAEEventTypeLabel = (type: PoAEEventType): string => {
+  switch (type) {
+    case 'policy-match': return 'Policy Match'
+    case 'manual-consent': return 'Manual Consent'
+    case '2fa-auth': return '2FA Authorization'
+    case 'auto-verified': return 'Auto Verified'
+    default: return 'Unknown'
+  }
+}
 
 // =============================================================================
 // Workflow Analysis Modal
@@ -648,6 +834,143 @@ function EvidenceBundle() {
   )
 }
 
+// AI Agent Timeline Item with Show Agent button
+function AgentTimelineItem({ agent }: { agent: { id: string; name: string; timestamp: string; reasoning: string } }) {
+  const [showReasoning, setShowReasoning] = useState(false)
+  
+  return (
+    <div className="poae-hero__timeline-event poae-hero__timeline-event--agent">
+      <span className="poae-hero__timeline-dot poae-hero__timeline-dot--agent" />
+      <div className="poae-hero__timeline-content">
+        <div className="poae-hero__timeline-header">
+          <span className="poae-hero__timeline-icon">🤖</span>
+          <span className="poae-hero__timeline-agent-name">{agent.name}</span>
+          <button 
+            className="poae-hero__show-agent-btn"
+            onClick={() => setShowReasoning(!showReasoning)}
+          >
+            {showReasoning ? 'Hide' : 'Show Agent'}
+          </button>
+        </div>
+        {showReasoning && (
+          <div className="poae-hero__agent-reasoning">
+            <div className="poae-hero__agent-reasoning-label">AI Reasoning:</div>
+            <div className="poae-hero__agent-reasoning-text">{agent.reasoning}</div>
+          </div>
+        )}
+      </div>
+      <span className="poae-hero__timeline-check">✓</span>
+    </div>
+  )
+}
+
+// PoAE™ Inline History - Expandable in column
+function PoAEInlineHistory({ onAnalyse: _onAnalyse }: { onAnalyse: (logId: string) => void }) {
+  void _onAnalyse // Suppress unused warning
+  const [expandedLogId, setExpandedLogId] = useState<string | null>(null)
+  const [expandedAgentId, setExpandedAgentId] = useState<string | null>(null)
+  
+  const handleToggleExpand = (logId: string) => {
+    setExpandedLogId(expandedLogId === logId ? null : logId)
+    setExpandedAgentId(null)
+  }
+  
+  const handleToggleAgent = (agentId: string) => {
+    setExpandedAgentId(expandedAgentId === agentId ? null : agentId)
+  }
+  
+  return (
+    <div className="poae-hero__history">
+      <div className="poae-hero__history-title">PoAE™ Log History</div>
+      <div className="poae-hero__history-list">
+        {mockPoAELogHistory.slice(1).map((log) => (
+          <div key={log.id} className={`poae-hero__history-item ${expandedLogId === log.id ? 'poae-hero__history-item--expanded' : ''}`}>
+            <div className="poae-hero__history-item-header">
+              <span className="poae-hero__history-status">✓</span>
+              <div className="poae-hero__history-info">
+                <span className="poae-hero__history-template">{log.templateName}</span>
+                <span className="poae-hero__history-time">{new Date(log.timestamp).toLocaleString()}</span>
+              </div>
+              <button 
+                className={`poae-hero__history-analyse ${expandedLogId === log.id ? 'poae-hero__history-analyse--active' : ''}`}
+                onClick={() => handleToggleExpand(log.id)}
+              >
+                {expandedLogId === log.id ? '▲' : '🔍'}
+              </button>
+            </div>
+            
+            {/* Expanded Timeline View */}
+            {expandedLogId === log.id && (
+              <div className="poae-hero__history-expanded">
+                <div className="poae-hero__history-meta">
+                  <code className="poae-hero__history-exec">{log.executionId}</code>
+                  <span className="poae-hero__history-events">{log.eventCount} events</span>
+                </div>
+                
+                {/* Sender PoAE™ */}
+                <div className="poae-hero__poae-event poae-hero__poae-event--sender">
+                  <div className="poae-hero__poae-event-badge">
+                    <span className="poae-hero__poae-event-icon">📤</span>
+                    <span className="poae-hero__poae-event-label">Sender</span>
+                  </div>
+                  <div className="poae-hero__poae-event-content">
+                    <span className="poae-hero__poae-event-org">{log.senderPoAE.organization}</span>
+                    <code className="poae-hero__poae-event-hash">{log.senderPoAE.hash}</code>
+                  </div>
+                  <div className="poae-hero__poae-event-type">
+                    {getPoAEEventTypeLabel(log.senderPoAE.type)}
+                  </div>
+                  <span className="poae-hero__poae-event-check">✓</span>
+                </div>
+                
+                {/* AI Agents */}
+                {log.aiAgents.map((agent) => (
+                  <div key={agent.id} className="poae-hero__history-agent">
+                    <span className="poae-hero__history-agent-icon">🤖</span>
+                    <span className="poae-hero__history-agent-name">{agent.name}</span>
+                    <button 
+                      className="poae-hero__history-agent-btn"
+                      onClick={() => handleToggleAgent(agent.id)}
+                    >
+                      {expandedAgentId === agent.id ? 'Hide' : 'Show'}
+                    </button>
+                    {expandedAgentId === agent.id && (
+                      <div className="poae-hero__history-agent-reasoning">
+                        <p>{agent.reasoning}</p>
+                      </div>
+                    )}
+                  </div>
+                ))}
+                
+                {/* Receiver PoAE™ */}
+                <div className="poae-hero__poae-event poae-hero__poae-event--receiver">
+                  <div className="poae-hero__poae-event-badge">
+                    <span className="poae-hero__poae-event-icon">📥</span>
+                    <span className="poae-hero__poae-event-label">Receiver</span>
+                  </div>
+                  <div className="poae-hero__poae-event-content">
+                    <span className="poae-hero__poae-event-org">{log.receiverPoAE.organization}</span>
+                    <code className="poae-hero__poae-event-hash">{log.receiverPoAE.hash}</code>
+                  </div>
+                  <div className="poae-hero__poae-event-type">
+                    {getPoAEEventTypeLabel(log.receiverPoAE.type)}
+                  </div>
+                  <span className="poae-hero__poae-event-check">✓</span>
+                </div>
+                
+                <div className="poae-hero__history-chain">
+                  <span className="poae-hero__history-chain-label">Chain:</span>
+                  <code className="poae-hero__history-chain-hash">{log.chainHash}</code>
+                </div>
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 function PoAEHeroSection({ 
   showAllLogs, 
   onToggleShowAll,
@@ -697,24 +1020,50 @@ function PoAEHeroSection({
           </div>
         </div>
 
-        {/* Event Chain Preview */}
-        <div className="poae-hero__chain">
-          <div className="poae-hero__chain-title">Event Chain</div>
-          <div className="poae-hero__chain-events">
-            {mockPoAEPlaceholder.demoEvents.map((event, index) => (
-              <div key={index} className="poae-hero__chain-event">
-                <span className="poae-hero__chain-dot" />
-                <span className="poae-hero__chain-type">{event.type}</span>
-                <span className="poae-hero__chain-time">{new Date(event.timestamp).toLocaleTimeString()}</span>
-                <code className="poae-hero__chain-hash">{event.demoValue}</code>
-                <span className="poae-hero__chain-check">✓</span>
-              </div>
-            ))}
+        {/* PoAE™ Timeline: Sender -> AI Agents -> Receiver */}
+        <div className="poae-hero__timeline">
+          {/* Sender PoAE™ - Start (Boxed Design) */}
+          <div className="poae-hero__poae-event poae-hero__poae-event--sender">
+            <div className="poae-hero__poae-event-badge">
+              <span className="poae-hero__poae-event-icon">📤</span>
+              <span className="poae-hero__poae-event-label">Sender PoAE™</span>
+            </div>
+            <div className="poae-hero__poae-event-content">
+              <span className="poae-hero__poae-event-org">{mockPoAEPlaceholder.senderPoae.organization}</span>
+              <code className="poae-hero__poae-event-hash">{mockPoAEPlaceholder.senderPoae.hash}</code>
+            </div>
+            <div className="poae-hero__poae-event-type">
+              {getPoAEEventTypeLabel(mockPoAEPlaceholder.senderPoae.eventType)}
+            </div>
+            <span className="poae-hero__poae-event-check">✓</span>
           </div>
-          <div className="poae-hero__chain-footer">
-            <span className="poae-hero__chain-hash-label">Chain Hash:</span>
-            <code className="poae-hero__chain-hash-value">{latestLog.chainHash}</code>
+
+          {/* AI Agents - Middle */}
+          {mockPoAEPlaceholder.aiAgents.map((agent) => (
+            <AgentTimelineItem key={agent.id} agent={agent} />
+          ))}
+
+          {/* Receiver PoAE™ - End (Boxed Design) */}
+          <div className="poae-hero__poae-event poae-hero__poae-event--receiver">
+            <div className="poae-hero__poae-event-badge">
+              <span className="poae-hero__poae-event-icon">📥</span>
+              <span className="poae-hero__poae-event-label">Receiver PoAE™</span>
+            </div>
+            <div className="poae-hero__poae-event-content">
+              <span className="poae-hero__poae-event-org">{mockPoAEPlaceholder.receiverPoae.organization}</span>
+              <code className="poae-hero__poae-event-hash">{mockPoAEPlaceholder.receiverPoae.hash}</code>
+            </div>
+            <div className="poae-hero__poae-event-type">
+              {getPoAEEventTypeLabel(mockPoAEPlaceholder.receiverPoae.eventType)}
+            </div>
+            <span className="poae-hero__poae-event-check">✓</span>
           </div>
+        </div>
+
+        {/* Chain Hash */}
+        <div className="poae-hero__chain-footer">
+          <span className="poae-hero__chain-hash-label">Chain Hash:</span>
+          <code className="poae-hero__chain-hash-value">{latestLog.chainHash}</code>
         </div>
       </div>
 
@@ -729,37 +1078,13 @@ function PoAEHeroSection({
           Export Latest PoAE™
         </button>
         <button className="poae-hero__btn poae-hero__btn--secondary" onClick={onToggleShowAll}>
-          {showAllLogs ? '▲ Hide History' : '▼ Show All'}
+          {showAllLogs ? '▲ Hide All' : `▼ Show All (${mockPoAELogHistory.length})`}
         </button>
       </div>
 
-      {/* All Logs History */}
+      {/* Inline History - Expandable in column */}
       {showAllLogs && (
-        <div className="poae-hero__history">
-          <div className="poae-hero__history-title">PoAE™ Log History</div>
-          <div className="poae-hero__history-list">
-            {mockPoAELogHistory.map((log) => (
-              <div key={log.id} className="poae-hero__history-item">
-                <div className="poae-hero__history-item-main">
-                  <span className="poae-hero__history-status">✓</span>
-                  <div className="poae-hero__history-info">
-                    <span className="poae-hero__history-template">{log.templateName}</span>
-                    <code className="poae-hero__history-exec">{log.executionId}</code>
-                  </div>
-                  <span className="poae-hero__history-time">
-                    {new Date(log.timestamp).toLocaleString()}
-                  </span>
-                </div>
-                <div className="poae-hero__history-item-meta">
-                  <span className="poae-hero__history-events">{log.eventCount} events</span>
-                  <code className="poae-hero__history-hash">{log.chainHash.slice(0, 24)}...</code>
-                  <button className="poae-hero__history-analyse" onClick={() => onAnalyse(log.id)}>Analyse</button>
-                  <button className="poae-hero__history-export">Export</button>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
+        <PoAEInlineHistory onAnalyse={onAnalyse} />
       )}
     </div>
   )
@@ -805,7 +1130,7 @@ function AuditTrailSection() {
 // Main Component
 // =============================================================================
 
-export default function PostExecutionVerification({ flags = DEFAULT_VERIFICATION_FLAGS }: PostExecutionVerificationProps) {
+export default function PostExecutionVerification({ flags = DEFAULT_VERIFICATION_FLAGS, compact = false }: PostExecutionVerificationProps) {
   const [showAllLogs, setShowAllLogs] = useState(false)
   const [analysisModalOpen, setAnalysisModalOpen] = useState(false)
   const [analysisLogId, setAnalysisLogId] = useState<string>('')
@@ -829,7 +1154,7 @@ export default function PostExecutionVerification({ flags = DEFAULT_VERIFICATION
   }
   
   return (
-    <div className="post-execution-verification" data-verified={isVerified}>
+    <div className={`post-execution-verification${compact ? ' post-execution-verification--compact' : ''}`} data-verified={isVerified}>
       {/* Workflow Analysis Modal */}
       <WorkflowAnalysisModal 
         isOpen={analysisModalOpen}

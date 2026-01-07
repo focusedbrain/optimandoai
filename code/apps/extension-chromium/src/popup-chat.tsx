@@ -129,6 +129,11 @@ function PopupChatApp() {
   const ourFingerprint = identity?.fingerprint || ''
   const ourFingerprintShort = identity ? formatFingerprintShort(identity.fingerprint) : '...'
   
+  // Initial handshake message template with fingerprint
+  const initialHandshakeMessage = ourFingerprint 
+    ? HANDSHAKE_REQUEST_TEMPLATE.replace('[FINGERPRINT]', ourFingerprint)
+    : HANDSHAKE_REQUEST_TEMPLATE
+  
   // BEAP Handshake Request state
   const [handshakeDelivery, setHandshakeDelivery] = useState<'email' | 'messenger' | 'download'>('email')
   const [handshakeTo, setHandshakeTo] = useState('')

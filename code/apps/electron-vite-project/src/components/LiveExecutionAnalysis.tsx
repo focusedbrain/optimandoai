@@ -53,6 +53,8 @@ interface LiveExecutionAnalysisProps {
   deepLink?: LiveDeepLink
   /** Callback when deep-link has been consumed */
   onDeepLinkConsumed?: () => void
+  /** Compact mode for unified dashboard column view */
+  compact?: boolean
 }
 
 // =============================================================================
@@ -186,6 +188,27 @@ function ActiveProcessesHero({ showAll, onToggleShowAll, onAnalyse }: ActiveProc
         </div>
       </div>
 
+      {/* Status Box + Execution Info (similar to Pre-Execution Match box) */}
+      <div className="live-hero__status-row">
+        <div className="live-hero__status-box">
+          <div className="live-hero__status-icon">⚡</div>
+          <div className="live-hero__status-content">
+            <span className="live-hero__status-title">Active</span>
+            <span className="live-hero__status-desc">{activeCount} processes running</span>
+          </div>
+        </div>
+        <div className="live-hero__queue-info">
+          <div className="live-hero__queue-item">
+            <span className="live-hero__queue-label">Queue</span>
+            <span className="live-hero__queue-value">{mockActiveProcesses.filter(p => p.status === 'waiting').length} waiting</span>
+          </div>
+          <div className="live-hero__queue-item">
+            <span className="live-hero__queue-label">Paused</span>
+            <span className="live-hero__queue-value">{mockActiveProcesses.filter(p => p.status === 'paused').length}</span>
+          </div>
+        </div>
+      </div>
+
       {/* Primary Active Process */}
       <div className="live-hero__latest">
         <div className="live-hero__process-type">
@@ -210,6 +233,29 @@ function ActiveProcessesHero({ showAll, onToggleShowAll, onAnalyse }: ActiveProc
           <span className="live-hero__event-time">
             Started: {new Date(primaryProcess.startedAt).toLocaleTimeString()}
           </span>
+        </div>
+        
+        {/* Execution Steps Indicator */}
+        <div className="live-hero__steps">
+          <div className="live-hero__step live-hero__step--completed">
+            <span className="live-hero__step-dot">✓</span>
+            <span className="live-hero__step-label">Init</span>
+          </div>
+          <div className="live-hero__step-connector live-hero__step-connector--completed" />
+          <div className={`live-hero__step ${primaryProcess.progress > 0 ? 'live-hero__step--active' : ''}`}>
+            <span className="live-hero__step-dot">●</span>
+            <span className="live-hero__step-label">Process</span>
+          </div>
+          <div className="live-hero__step-connector" />
+          <div className="live-hero__step">
+            <span className="live-hero__step-dot">○</span>
+            <span className="live-hero__step-label">Validate</span>
+          </div>
+          <div className="live-hero__step-connector" />
+          <div className="live-hero__step">
+            <span className="live-hero__step-dot">○</span>
+            <span className="live-hero__step-label">Complete</span>
+          </div>
         </div>
       </div>
 
@@ -733,7 +779,8 @@ function AlignmentPanel({ alignmentRows, risks, onRowClick, highlightedRuleId }:
 export default function LiveExecutionAnalysis({ 
   flags = DEFAULT_VERIFICATION_FLAGS,
   deepLink,
-  onDeepLinkConsumed
+  onDeepLinkConsumed,
+  compact = false
 }: LiveExecutionAnalysisProps) {
   const isVerified = canClaimVerified(flags)
   const containerRef = useRef<HTMLDivElement>(null)
@@ -1108,7 +1155,7 @@ export default function LiveExecutionAnalysis({
   return (
     <div 
       ref={containerRef}
-      className="live-execution-canvas"
+      className={`live-execution-canvas${compact ? ' live-execution-canvas--compact' : ''}`}
       data-verified={isVerified}
       data-timeline-mode={layoutSpec.timelineMode}
       data-secondary-mode={layoutSpec.secondaryMode}

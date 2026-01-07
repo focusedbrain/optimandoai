@@ -261,3 +261,1268 @@
 [data-ui-theme="default"] .phase-content {
   background: rgba(88, 28, 135, 0.4);
 }
+
+/* =============================================================================
+   Unified Dashboard Layout - Three Column View
+   ============================================================================= */
+
+.unified-dashboard {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 16px;
+  gap: 16px;
+}
+
+.unified-dashboard__overview {
+  flex-shrink: 0;
+}
+
+.unified-dashboard__columns {
+  display: flex;
+  flex-direction: row;
+  gap: 16px;
+  flex-shrink: 0;
+}
+
+.unified-dashboard__column {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+  gap: 12px;
+}
+
+/* Column content is a flex container for stacked boxes */
+.unified-dashboard__column-content {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* Column header is now part of the first box */
+.unified-dashboard__column-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 12px 12px 0 0;
+  gap: 8px;
+}
+
+.unified-dashboard__column-header-left {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.unified-dashboard__column-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.unified-dashboard__column-subtitle {
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+.unified-dashboard__column-actions {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.unified-dashboard__action-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 4px 8px;
+  font-size: 9px;
+  font-weight: 600;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+
+.unified-dashboard__action-btn:hover {
+  background: var(--bg-elevated);
+  border-color: var(--purple-accent);
+  color: var(--purple-accent);
+}
+
+.unified-dashboard__action-btn--primary {
+  background: var(--success);
+  border-color: var(--success);
+  color: white;
+}
+
+.unified-dashboard__action-btn--primary:hover {
+  background: #0d9668;
+  border-color: #0d9668;
+}
+
+.unified-dashboard__action-btn-icon {
+  font-size: 10px;
+}
+
+
+/* Column header accent borders */
+.unified-dashboard__column--pre .unified-dashboard__column-header {
+  border-top: 3px solid var(--warning);
+}
+
+.unified-dashboard__column--live .unified-dashboard__column-header {
+  border-top: 3px solid var(--purple-accent);
+}
+
+.unified-dashboard__column--post .unified-dashboard__column-header {
+  border-top: 3px solid var(--success);
+}
+
+/* Default theme overrides for unified dashboard */
+[data-ui-theme="default"] .unified-dashboard {
+  background: transparent;
+}
+
+[data-ui-theme="default"] .unified-dashboard__column {
+  background: transparent;
+}
+
+[data-ui-theme="default"] .unified-dashboard__column-header {
+  background: rgba(118, 75, 162, 0.4);
+  border-color: rgba(255, 255, 255, 0.15);
+}
+
+/* Default theme hero boxes */
+[data-ui-theme="default"] .pre-execution-analysis--compact .preflight-hero,
+[data-ui-theme="default"] .live-execution-canvas--compact .live-hero,
+[data-ui-theme="default"] .post-execution-verification--compact .poae-hero {
+  background: rgba(118, 75, 162, 0.25);
+  border-color: rgba(255, 255, 255, 0.15);
+}
+
+[data-ui-theme="default"] .unified-dashboard__column-title {
+  color: #10b981;
+}
+
+[data-ui-theme="default"] .unified-dashboard__action-btn {
+  background: rgba(255, 255, 255, 0.15);
+  border-color: rgba(255, 255, 255, 0.3);
+  color: white;
+}
+
+[data-ui-theme="default"] .unified-dashboard__action-btn:hover {
+  background: rgba(255, 255, 255, 0.25);
+  border-color: white;
+}
+
+[data-ui-theme="default"] .unified-dashboard__action-btn--primary {
+  background: #10b981;
+  border-color: #10b981;
+}
+
+
+/* Default theme compact details */
+[data-ui-theme="default"] .post-execution-verification--compact .poae-hero__latest,
+[data-ui-theme="default"] .pre-execution-analysis--compact .preflight-hero__latest,
+[data-ui-theme="default"] .live-execution-canvas--compact .live-hero__latest {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+[data-ui-theme="default"] .post-execution-verification--compact .poae-hero__chain {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+[data-ui-theme="default"] .post-execution-verification--compact .poae-hero__chain-event {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+/* Unified Show All button styling - transparent, same width for all columns */
+.post-execution-verification--compact .poae-hero__btn--secondary,
+.pre-execution-analysis--compact .preflight-hero__btn--secondary,
+.live-execution-canvas--compact .live-hero__btn--secondary {
+  width: 100%;
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  padding: 10px 16px;
+  font-size: 11px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  text-align: center;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.post-execution-verification--compact .poae-hero__btn--secondary:hover,
+.pre-execution-analysis--compact .preflight-hero__btn--secondary:hover,
+.live-execution-canvas--compact .live-hero__btn--secondary:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-primary);
+}
+
+[data-ui-theme="default"] .post-execution-verification--compact .poae-hero__btn--secondary,
+[data-ui-theme="default"] .pre-execution-analysis--compact .preflight-hero__btn--secondary,
+[data-ui-theme="default"] .live-execution-canvas--compact .live-hero__btn--secondary {
+  border-color: rgba(255, 255, 255, 0.3);
+  color: rgba(255, 255, 255, 0.8);
+}
+
+[data-ui-theme="default"] .post-execution-verification--compact .poae-hero__btn--secondary:hover,
+[data-ui-theme="default"] .pre-execution-analysis--compact .preflight-hero__btn--secondary:hover,
+[data-ui-theme="default"] .live-execution-canvas--compact .live-hero__btn--secondary:hover {
+  background: rgba(255, 255, 255, 0.15);
+  border-color: white;
+  color: white;
+}
+
+/* Default theme panel badges - white text */
+[data-ui-theme="default"] .pre-execution-analysis--compact .panel-badge,
+[data-ui-theme="default"] .pre-execution-analysis--compact .panel-badge--info {
+  background: rgba(255, 255, 255, 0.15);
+  color: white;
+  border-color: rgba(255, 255, 255, 0.3);
+}
+
+[data-ui-theme="default"] .pre-execution-analysis--compact .panel-header,
+[data-ui-theme="default"] .pre-execution-analysis--compact .panel-title {
+  color: white;
+}
+
+/* Default theme match box */
+[data-ui-theme="default"] .pre-execution-analysis--compact .preflight-hero__match-box {
+  background: linear-gradient(135deg, rgba(16, 185, 129, 0.25) 0%, rgba(16, 185, 129, 0.1) 100%);
+  border-color: rgba(16, 185, 129, 0.5);
+}
+
+[data-ui-theme="default"] .pre-execution-analysis--compact .preflight-hero__match-title {
+  color: #34d399;
+}
+
+[data-ui-theme="default"] .pre-execution-analysis--compact .preflight-hero__match-desc {
+  color: rgba(255, 255, 255, 0.8);
+}
+
+/* Default theme risk category */
+[data-ui-theme="default"] .pre-execution-analysis--compact .preflight-hero__risk-category {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+[data-ui-theme="default"] .pre-execution-analysis--compact .preflight-hero__risk-category-title {
+  color: rgba(255, 255, 255, 0.7);
+}
+
+/* Default theme - Priority and Event Type badges */
+[data-ui-theme="default"] .pre-execution-analysis--compact .preflight-hero__priority--high {
+  background: #ef4444;
+  color: white;
+  border-color: #ef4444;
+}
+
+[data-ui-theme="default"] .pre-execution-analysis--compact .preflight-hero__priority--normal {
+  background: rgba(255, 255, 255, 0.15);
+  color: white;
+  border-color: rgba(255, 255, 255, 0.3);
+}
+
+[data-ui-theme="default"] .pre-execution-analysis--compact .preflight-hero__event-type-label {
+  background: rgba(255, 255, 255, 0.15);
+  color: white;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+}
+
+[data-ui-theme="default"] .pre-execution-analysis--compact .preflight-hero__risk-category-title {
+  color: rgba(255, 255, 255, 0.7);
+}
+
+/* Default theme slider */
+[data-ui-theme="default"] .pre-execution-analysis--compact .preflight-hero__slider-btn {
+  background: rgba(255, 255, 255, 0.15);
+  border-color: rgba(255, 255, 255, 0.3);
+  color: white;
+}
+
+[data-ui-theme="default"] .pre-execution-analysis--compact .preflight-hero__slider-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.3);
+  border-color: white;
+}
+
+[data-ui-theme="default"] .pre-execution-analysis--compact .preflight-hero__slider-indicator {
+  color: rgba(255, 255, 255, 0.8);
+}
+
+/* Default theme sender/receiver parties */
+[data-ui-theme="default"] .post-execution-verification--compact .poae-hero__party {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+[data-ui-theme="default"] .post-execution-verification--compact .poae-hero__party-hash {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+/* Default theme history modal */
+[data-ui-theme="default"] .poae-history-modal {
+  background: linear-gradient(135deg, #7c3aed 0%, #9333ea 100%);
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+[data-ui-theme="default"] .poae-history-modal__item {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.15);
+}
+
+[data-ui-theme="default"] .poae-history-modal__btn {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.3);
+  color: white;
+}
+
+[data-ui-theme="default"] .poae-history-modal__btn:hover {
+  background: rgba(255, 255, 255, 0.2);
+  border-color: white;
+}
+
+[data-ui-theme="default"] .unified-dashboard__column-subtitle {
+  color: rgba(255, 255, 255, 0.6);
+}
+
+[data-ui-theme="default"] .unified-dashboard__column--pre .unified-dashboard__column-header {
+  border-top-color: #f59e0b; /* Orange - Beginning of workflow */
+}
+
+[data-ui-theme="default"] .unified-dashboard__column--live .unified-dashboard__column-header {
+  border-top-color: #a855f7; /* Purple - Processing phase */
+}
+
+[data-ui-theme="default"] .unified-dashboard__column--post .unified-dashboard__column-header {
+  border-top-color: #10b981; /* Green - Completion */
+}
+
+/* Responsive: Allow horizontal scrolling on smaller screens */
+@media (max-width: 1200px) {
+  .unified-dashboard__columns {
+    min-width: 1000px;
+  }
+  
+  .unified-dashboard {
+    overflow-x: auto;
+  }
+}
+
+/* =============================================================================
+   Compact Mode Overrides for Column Views
+   ============================================================================= */
+
+/* ---- General Compact Styles ---- */
+
+/* Pre-Execution Compact */
+.pre-execution-analysis--compact {
+  padding: 0;
+}
+
+.pre-execution-analysis--compact {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.pre-execution-analysis--compact .preflight-hero {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 0 0 12px 12px;
+  margin: 0;
+  padding: 12px;
+}
+
+/* Compact Header */
+.pre-execution-analysis--compact .preflight-hero__header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+  flex-wrap: wrap;
+}
+
+.pre-execution-analysis--compact .preflight-hero__icon {
+  width: 28px;
+  height: 28px;
+  font-size: 14px;
+}
+
+.pre-execution-analysis--compact .preflight-hero__title-group {
+  flex: 1;
+  min-width: 0;
+}
+
+.pre-execution-analysis--compact .preflight-hero__title {
+  font-size: 14px;
+  margin: 0;
+}
+
+.pre-execution-analysis--compact .preflight-hero__subtitle {
+  font-size: 10px;
+}
+
+.pre-execution-analysis--compact .preflight-hero__status {
+  flex-shrink: 0;
+}
+
+.pre-execution-analysis--compact .preflight-hero__status-badge {
+  font-size: 8px;
+  padding: 2px 6px;
+}
+
+/* Compact Latest Event */
+.pre-execution-analysis--compact .preflight-hero__latest {
+  padding: 10px;
+  margin: 0;
+  background: rgba(0, 0, 0, 0.1);
+  border-radius: 6px;
+}
+
+.pre-execution-analysis--compact .preflight-hero__event-badges {
+  margin-bottom: 6px;
+}
+
+.pre-execution-analysis--compact .preflight-hero__event-badges .preflight-hero__event-badge {
+  font-size: 8px;
+  padding: 2px 6px;
+}
+
+.pre-execution-analysis--compact .preflight-hero__event-title {
+  font-size: 13px;
+  margin-bottom: 4px;
+}
+
+.pre-execution-analysis--compact .preflight-hero__event-desc {
+  font-size: 11px;
+  margin-bottom: 6px;
+}
+
+.pre-execution-analysis--compact .preflight-hero__event-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  font-size: 9px;
+}
+
+.pre-execution-analysis--compact .preflight-hero__event-meta-item {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.pre-execution-analysis--compact .preflight-hero__event-meta-label {
+  font-size: 8px;
+  opacity: 0.6;
+}
+
+.pre-execution-analysis--compact .preflight-hero__event-meta-value {
+  font-size: 10px;
+}
+
+/* Compact Status Row */
+.pre-execution-analysis--compact .preflight-hero__status-row {
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.pre-execution-analysis--compact .preflight-hero__match-box {
+  padding: 8px 10px;
+  gap: 8px;
+}
+
+.pre-execution-analysis--compact .preflight-hero__match-icon {
+  width: 28px;
+  height: 28px;
+  font-size: 14px;
+}
+
+.pre-execution-analysis--compact .preflight-hero__match-title {
+  font-size: 13px;
+}
+
+.pre-execution-analysis--compact .preflight-hero__match-desc {
+  font-size: 9px;
+}
+
+/* Compact Risk Category */
+.pre-execution-analysis--compact .preflight-hero__risk-category {
+  padding: 4px 8px;
+  gap: 6px;
+}
+
+.pre-execution-analysis--compact .preflight-hero__risk-category-title {
+  font-size: 8px;
+}
+
+.pre-execution-analysis--compact .preflight-hero__btn--approve-main {
+  padding: 10px 14px;
+  font-size: 11px;
+}
+
+/* Compact Slider */
+.pre-execution-analysis--compact .preflight-hero__slider {
+  padding: 6px 0;
+  margin-bottom: 6px;
+  gap: 8px;
+}
+
+.pre-execution-analysis--compact .preflight-hero__slider-btn {
+  width: 24px;
+  height: 24px;
+  font-size: 14px;
+}
+
+.pre-execution-analysis--compact .preflight-hero__slider-indicator {
+  font-size: 10px;
+  min-width: 50px;
+}
+
+/* Compact Actions - Show only Show All button */
+.pre-execution-analysis--compact .preflight-hero__actions {
+  display: flex;
+  flex-direction: column;
+  margin-top: 12px;
+  padding: 0;
+}
+
+.pre-execution-analysis--compact .preflight-hero__btn--analyse,
+.pre-execution-analysis--compact .preflight-hero__btn--primary,
+.pre-execution-analysis--compact .preflight-hero__btn--approve {
+  display: none;
+}
+
+.pre-execution-analysis--compact .preflight-hero__history {
+  max-height: 200px;
+  overflow-y: auto;
+  margin-top: 12px;
+  padding-top: 12px;
+}
+
+.pre-execution-analysis--compact .preflight-hero__history-item {
+  padding: 10px;
+}
+
+.pre-execution-analysis--compact .preflight-hero__history-title-text {
+  font-size: 12px;
+}
+
+.pre-execution-analysis--compact .preflight-hero__history-desc {
+  font-size: 11px;
+}
+
+/* Live Execution Compact */
+.live-execution-canvas--compact {
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.live-execution-canvas--compact .live-hero {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 0 0 12px 12px;
+  margin: 0;
+  padding: 12px;
+}
+
+/* Compact Header */
+.live-execution-canvas--compact .live-hero__header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+  flex-wrap: wrap;
+}
+
+.live-execution-canvas--compact .live-hero__icon {
+  width: 28px;
+  height: 28px;
+  font-size: 14px;
+}
+
+.live-execution-canvas--compact .live-hero__title-group {
+  flex: 1;
+  min-width: 0;
+}
+
+.live-execution-canvas--compact .live-hero__title {
+  font-size: 14px;
+  margin: 0;
+}
+
+.live-execution-canvas--compact .live-hero__subtitle {
+  font-size: 10px;
+}
+
+.live-execution-canvas--compact .live-hero__status {
+  flex-shrink: 0;
+}
+
+.live-execution-canvas--compact .live-hero__status-badge {
+  font-size: 8px;
+  padding: 2px 6px;
+}
+
+/* Compact Latest Process */
+.live-execution-canvas--compact .live-hero__latest {
+  padding: 10px;
+  margin: 0;
+  background: rgba(0, 0, 0, 0.1);
+  border-radius: 6px;
+}
+
+.live-execution-canvas--compact .live-hero__process-title {
+  font-size: 13px;
+  margin-bottom: 4px;
+}
+
+.live-execution-canvas--compact .live-hero__process-desc {
+  font-size: 11px;
+  margin-bottom: 6px;
+}
+
+.live-execution-canvas--compact .live-hero__progress-bar {
+  height: 4px;
+  margin-bottom: 6px;
+}
+
+.live-execution-canvas--compact .live-hero__process-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  font-size: 9px;
+}
+
+.live-execution-canvas--compact .live-hero__process-meta-item {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+/* Compact Actions - Show only Show All button */
+.live-execution-canvas--compact .live-hero__actions {
+  display: flex;
+  flex-direction: column;
+  margin-top: 12px;
+  padding: 0;
+}
+
+.live-execution-canvas--compact .live-hero__btn--analyse,
+.live-execution-canvas--compact .live-hero__btn--primary {
+  display: none;
+}
+
+.live-execution-canvas--compact .live-hero__history {
+  max-height: 200px;
+  overflow-y: auto;
+  margin-top: 12px;
+  padding-top: 12px;
+}
+
+.live-execution-canvas--compact .live-hero__history-item {
+  padding: 10px;
+}
+
+.live-execution-canvas--compact .live-hero__history-title-text {
+  font-size: 12px;
+}
+
+.live-execution-canvas--compact .live-hero__history-desc {
+  font-size: 11px;
+}
+
+/* Post-Execution Compact */
+.post-execution-verification--compact {
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.post-execution-verification--compact .poae-hero {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 0 0 12px 12px;
+  margin: 0;
+  padding: 12px;
+}
+
+/* Compact Header - Show title inline */
+.post-execution-verification--compact .poae-hero__header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+  flex-wrap: wrap;
+}
+
+.post-execution-verification--compact .poae-hero__icon {
+  width: 28px;
+  height: 28px;
+  font-size: 14px;
+}
+
+.post-execution-verification--compact .poae-hero__title-group {
+  flex: 1;
+  min-width: 0;
+}
+
+.post-execution-verification--compact .poae-hero__title {
+  font-size: 14px;
+  margin: 0;
+}
+
+.post-execution-verification--compact .poae-hero__subtitle {
+  display: none;
+}
+
+.post-execution-verification--compact .poae-hero__status {
+  flex-shrink: 0;
+}
+
+.post-execution-verification--compact .poae-hero__status-badge {
+  font-size: 8px;
+  padding: 2px 6px;
+}
+
+/* Compact Latest Section */
+.post-execution-verification--compact .poae-hero__latest {
+  padding: 10px;
+  margin: 0;
+  background: rgba(0, 0, 0, 0.1);
+  border-radius: 6px;
+}
+
+.post-execution-verification--compact .poae-hero__latest-meta {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.post-execution-verification--compact .poae-hero__meta-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.post-execution-verification--compact .poae-hero__meta-label {
+  font-size: 8px;
+  text-transform: uppercase;
+  opacity: 0.6;
+}
+
+.post-execution-verification--compact .poae-hero__meta-value {
+  font-size: 10px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Compact Event Chain */
+.post-execution-verification--compact .poae-hero__chain {
+  background: rgba(0, 0, 0, 0.15);
+  border-radius: 4px;
+  padding: 8px;
+}
+
+.post-execution-verification--compact .poae-hero__chain-title {
+  font-size: 9px;
+  margin-bottom: 6px;
+  text-transform: uppercase;
+  opacity: 0.7;
+}
+
+.post-execution-verification--compact .poae-hero__chain-events {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.post-execution-verification--compact .poae-hero__chain-event {
+  display: grid;
+  grid-template-columns: 6px auto 1fr auto;
+  align-items: center;
+  gap: 6px;
+  font-size: 9px;
+  padding: 4px 6px;
+  background: rgba(0, 0, 0, 0.1);
+  border-radius: 3px;
+}
+
+.post-execution-verification--compact .poae-hero__chain-dot {
+  width: 6px;
+  height: 6px;
+}
+
+.post-execution-verification--compact .poae-hero__chain-type {
+  font-weight: 600;
+  font-size: 9px;
+  white-space: nowrap;
+}
+
+.post-execution-verification--compact .poae-hero__chain-time {
+  font-size: 8px;
+  opacity: 0.6;
+}
+
+.post-execution-verification--compact .poae-hero__chain-hash {
+  font-size: 8px;
+  padding: 1px 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+
+.post-execution-verification--compact .poae-hero__chain-check {
+  color: var(--success);
+  font-size: 10px;
+}
+
+.post-execution-verification--compact .poae-hero__chain-footer {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  font-size: 8px;
+}
+
+.post-execution-verification--compact .poae-hero__chain-hash-label {
+  opacity: 0.6;
+  white-space: nowrap;
+}
+
+.post-execution-verification--compact .poae-hero__chain-hash-value {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
+}
+
+/* Compact Timeline */
+.post-execution-verification--compact .poae-hero__timeline {
+  margin-bottom: 8px;
+}
+
+.post-execution-verification--compact .poae-hero__timeline::before {
+  left: 5px;
+}
+
+.post-execution-verification--compact .poae-hero__timeline-event {
+  padding: 4px 0;
+  gap: 8px;
+}
+
+.post-execution-verification--compact .poae-hero__timeline-dot {
+  width: 12px;
+  height: 12px;
+}
+
+.post-execution-verification--compact .poae-hero__timeline-dot--agent {
+  width: 8px;
+  height: 8px;
+  margin: 2px;
+}
+
+.post-execution-verification--compact .poae-hero__timeline-icon {
+  font-size: 10px;
+}
+
+.post-execution-verification--compact .poae-hero__timeline-label,
+.post-execution-verification--compact .poae-hero__timeline-agent-name {
+  font-size: 10px;
+}
+
+.post-execution-verification--compact .poae-hero__timeline-org {
+  font-size: 9px;
+}
+
+.post-execution-verification--compact .poae-hero__timeline-hash {
+  font-size: 8px;
+  padding: 1px 4px;
+}
+
+.post-execution-verification--compact .poae-hero__timeline-check {
+  font-size: 10px;
+}
+
+/* Compact PoAE™ Events - Boxed Design */
+.post-execution-verification--compact .poae-hero__poae-event {
+  padding: 8px 10px;
+  margin: 6px 0;
+  gap: 8px;
+  grid-template-columns: auto 1fr auto auto;
+}
+
+.post-execution-verification--compact .poae-hero__poae-event-icon {
+  font-size: 14px;
+}
+
+.post-execution-verification--compact .poae-hero__poae-event-label {
+  font-size: 7px;
+}
+
+.post-execution-verification--compact .poae-hero__poae-event-org {
+  font-size: 11px;
+}
+
+.post-execution-verification--compact .poae-hero__poae-event-hash {
+  font-size: 8px;
+  padding: 1px 4px;
+}
+
+.post-execution-verification--compact .poae-hero__poae-event-type {
+  font-size: 8px;
+  padding: 2px 6px;
+}
+
+.post-execution-verification--compact .poae-hero__poae-event-check {
+  font-size: 12px;
+}
+
+/* Default theme - PoAE™ events text white for readability */
+[data-ui-theme="default"] .poae-hero__poae-event-label {
+  color: white;
+}
+
+[data-ui-theme="default"] .poae-hero__poae-event-org {
+  color: white;
+}
+
+[data-ui-theme="default"] .poae-hero__poae-event-hash {
+  background: rgba(0, 0, 0, 0.3);
+  color: rgba(255, 255, 255, 0.8);
+}
+
+[data-ui-theme="default"] .poae-hero__poae-event-type {
+  background: rgba(255, 255, 255, 0.2);
+  color: white;
+}
+
+[data-ui-theme="default"] .poae-hero__poae-event-check {
+  color: white;
+}
+
+/* Sender PoAE™: Orange (matches Pre-Execution column) */
+[data-ui-theme="default"] .poae-hero__poae-event--sender {
+  background: linear-gradient(135deg, rgba(245, 158, 11, 0.35) 0%, rgba(245, 158, 11, 0.15) 100%);
+  border-color: rgba(245, 158, 11, 0.6);
+  border-left-color: #f59e0b;
+}
+
+/* Receiver PoAE™: Green (matches Post-Execution column) */
+[data-ui-theme="default"] .poae-hero__poae-event--receiver {
+  background: linear-gradient(135deg, rgba(16, 185, 129, 0.35) 0%, rgba(16, 185, 129, 0.15) 100%);
+  border-color: rgba(16, 185, 129, 0.6);
+  border-left-color: #10b981;
+}
+
+/* Default theme - Inline history PoAE events */
+[data-ui-theme="default"] .poae-hero__history-agent {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+[data-ui-theme="default"] .poae-hero__history-agent-name {
+  color: white;
+}
+
+[data-ui-theme="default"] .poae-hero__history-agent-btn {
+  border-color: rgba(255, 255, 255, 0.3);
+  color: rgba(255, 255, 255, 0.8);
+}
+
+[data-ui-theme="default"] .poae-hero__history-agent-btn:hover {
+  background: rgba(255, 255, 255, 0.15);
+  border-color: white;
+  color: white;
+}
+
+[data-ui-theme="default"] .poae-hero__history-agent-reasoning {
+  background: rgba(0, 0, 0, 0.2);
+}
+
+[data-ui-theme="default"] .poae-hero__history-agent-reasoning p {
+  color: rgba(255, 255, 255, 0.85);
+}
+
+[data-ui-theme="default"] .poae-hero__history-chain-label {
+  color: rgba(255, 255, 255, 0.6);
+}
+
+[data-ui-theme="default"] .poae-hero__history-chain-hash {
+  background: rgba(0, 0, 0, 0.3);
+  color: rgba(255, 255, 255, 0.7);
+}
+
+[data-ui-theme="default"] .poae-hero__history-title {
+  color: white;
+}
+
+[data-ui-theme="default"] .poae-hero__history-item {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.15);
+}
+
+[data-ui-theme="default"] .poae-hero__history-item--expanded {
+  background: rgba(255, 255, 255, 0.12);
+  border-color: rgba(147, 51, 234, 0.5);
+}
+
+[data-ui-theme="default"] .poae-hero__history-template {
+  color: white;
+}
+
+[data-ui-theme="default"] .poae-hero__history-time {
+  color: rgba(255, 255, 255, 0.6);
+}
+
+[data-ui-theme="default"] .poae-hero__history-status {
+  color: #10b981;
+}
+
+[data-ui-theme="default"] .poae-hero__history-analyse {
+  border-color: rgba(255, 255, 255, 0.4);
+  color: white;
+}
+
+[data-ui-theme="default"] .poae-hero__history-analyse:hover,
+[data-ui-theme="default"] .poae-hero__history-analyse--active {
+  background: rgba(255, 255, 255, 0.2);
+  border-color: white;
+}
+
+[data-ui-theme="default"] .poae-hero__history-exec {
+  background: rgba(255, 255, 255, 0.15);
+  color: white;
+}
+
+[data-ui-theme="default"] .poae-hero__history-events {
+  color: rgba(255, 255, 255, 0.7);
+}
+
+/* Default theme - Chain Hash Footer */
+[data-ui-theme="default"] .poae-hero__chain-footer {
+  border-top-color: rgba(255, 255, 255, 0.15);
+}
+
+[data-ui-theme="default"] .poae-hero__chain-hash-label {
+  color: rgba(255, 255, 255, 0.7);
+}
+
+[data-ui-theme="default"] .poae-hero__chain-hash-value {
+  color: white;
+  background: rgba(0, 0, 0, 0.3);
+}
+
+.post-execution-verification--compact .poae-hero__show-agent-btn {
+  font-size: 8px;
+  padding: 2px 6px;
+}
+
+.post-execution-verification--compact .poae-hero__agent-reasoning {
+  margin-top: 6px;
+  padding: 8px;
+}
+
+.post-execution-verification--compact .poae-hero__agent-reasoning-label {
+  font-size: 8px;
+  margin-bottom: 4px;
+}
+
+.post-execution-verification--compact .poae-hero__agent-reasoning-text {
+  font-size: 10px;
+  line-height: 1.4;
+}
+
+/* Compact Actions - Show only Show All button */
+.post-execution-verification--compact .poae-hero__actions {
+  display: flex;
+  flex-direction: column;
+  margin-top: 12px;
+  padding: 0;
+}
+
+.post-execution-verification--compact .poae-hero__btn--analyse,
+.post-execution-verification--compact .poae-hero__btn--primary {
+  display: none;
+}
+
+/* Compact Inline History */
+.post-execution-verification--compact .poae-hero__history {
+  margin-top: 12px;
+  padding-top: 12px;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.post-execution-verification--compact .poae-hero__history-title {
+  font-size: 11px;
+  margin-bottom: 10px;
+}
+
+.post-execution-verification--compact .poae-hero__history-list {
+  gap: 6px;
+}
+
+.post-execution-verification--compact .poae-hero__history-item {
+  padding: 10px;
+  border-radius: 6px;
+}
+
+.post-execution-verification--compact .poae-hero__history-template {
+  font-size: 11px;
+}
+
+.post-execution-verification--compact .poae-hero__history-time {
+  font-size: 9px;
+}
+
+.post-execution-verification--compact .poae-hero__history-status {
+  width: 18px;
+  height: 18px;
+  font-size: 10px;
+}
+
+.post-execution-verification--compact .poae-hero__history-analyse {
+  font-size: 10px;
+  padding: 4px 8px;
+}
+
+.post-execution-verification--compact .poae-hero__history-expanded {
+  margin-top: 10px;
+  padding-top: 10px;
+}
+
+.post-execution-verification--compact .poae-hero__history-agent {
+  padding: 6px 8px;
+  margin: 4px 0;
+}
+
+.post-execution-verification--compact .poae-hero__history-agent-name {
+  font-size: 10px;
+}
+
+.post-execution-verification--compact .poae-hero__history-agent-btn {
+  font-size: 8px;
+  padding: 2px 6px;
+}
+
+.post-execution-verification--compact .poae-hero__history-agent-reasoning p {
+  font-size: 10px;
+}
+
+/* Hide secondary panels and action buttons in compact mode */
+/* Hide most panels in compact mode */
+.pre-execution-analysis--compact .panel {
+  display: none;
+}
+
+/* Hide the readiness gauge and quick actions section */
+.pre-execution-analysis--compact .pre-execution-hero {
+  display: none;
+}
+
+/* Hide the grid section */
+.pre-execution-analysis--compact .pre-execution-grid {
+  display: none;
+}
+
+/* Hide template source viewer */
+.pre-execution-analysis--compact .template-source-panel {
+  display: none;
+}
+
+/* Hide risk details panel */
+.pre-execution-analysis--compact .preflight-risk-panel {
+  display: none;
+}
+
+/* Hide Claims vs Observations panel in compact overview - too detailed */
+.pre-execution-analysis--compact .preflight-alignment-panel {
+  display: none;
+}
+
+/* Make all column hero boxes the same height for symmetry */
+.unified-dashboard__column-content {
+  display: flex;
+  flex-direction: column;
+}
+
+.pre-execution-analysis--compact .preflight-hero,
+.live-execution-canvas--compact .live-hero,
+.post-execution-verification--compact .poae-hero {
+  min-height: 520px;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Push Show All buttons to the bottom for alignment across columns */
+.pre-execution-analysis--compact .preflight-hero__actions,
+.live-execution-canvas--compact .live-hero__actions,
+.post-execution-verification--compact .poae-hero__actions {
+  margin-top: auto;
+  padding-top: 16px;
+}
+
+
+
+/* Hide Live Execution secondary panels - including alignment panel */
+.live-execution-canvas--compact .lea-secondary-panels,
+.live-execution-canvas--compact .lea-secondary-zone,
+.live-execution-canvas--compact .lea-timeline-panel,
+.live-execution-canvas--compact .lea-focus-panel,
+/* Hide all secondary sections in Live Execution compact mode - show only main hero */
+.live-execution-canvas--compact .lea-control-bar,
+.live-execution-canvas--compact .lea-filter-bar,
+.live-execution-canvas--compact .lea-alignment-panel,
+.live-execution-canvas--compact .lea-hero-section,
+.live-execution-canvas--compact .lea-header-zone,
+.live-execution-canvas--compact .lea-risk-banners,
+.live-execution-canvas--compact .lea-consent-banner,
+.live-execution-canvas--compact .lea-timeline-zone,
+.live-execution-canvas--compact .lea-secondary-zone,
+.live-execution-canvas--compact .lea-notice,
+.live-execution-canvas--compact .lea-main-zone,
+.live-execution-canvas--compact .lea-footer-zone,
+.live-execution-canvas--compact .lea-timeline-panel,
+.live-execution-canvas--compact .lea-focus-zone,
+.live-execution-canvas--compact .lea-dynamic-area {
+  display: none !important;
+}
+
+/* Hide Post-Execution secondary panels */
+.post-execution-verification--compact .post-panel {
+  display: none;
+}
+
+/* Keep hero sections visible with flex for button alignment */
+.pre-execution-analysis--compact .preflight-hero,
+.live-execution-canvas--compact .live-hero,
+.post-execution-verification--compact .poae-hero {
+  display: flex !important;
+  flex-direction: column;
+}

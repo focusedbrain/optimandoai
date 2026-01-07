@@ -16,6 +16,8 @@ interface PreExecutionAnalysisProps {
   flags?: VerificationFlags
   deepLink?: PreExecutionDeepLink
   onDeepLinkConsumed?: () => void
+  /** Compact mode for unified dashboard column view */
+  compact?: boolean
 }
 
 // =============================================================================
@@ -28,6 +30,7 @@ interface AwaitingApproval {
   title: string
   description: string
   templateName: string
+  sessionName: string  // Human-readable session identifier
   requestedAt: string
   status: 'pending' | 'approved' | 'review'
   priority: 'high' | 'normal' | 'low'
@@ -106,6 +109,7 @@ const mockAwaitingApprovals: AwaitingApproval[] = [
     title: 'External API Access Request',
     description: 'Vendor lookup API requires authorization before execution can proceed',
     templateName: 'Invoice Processing Workflow v2.1.0',
+    sessionName: 'Invoice Batch #2847',
     requestedAt: '2026-01-06T10:12:00.000Z',
     status: 'pending',
     priority: 'high'
@@ -116,6 +120,7 @@ const mockAwaitingApprovals: AwaitingApproval[] = [
     title: 'High-Value Transaction Review',
     description: 'Invoice amount exceeds $10,000 threshold - manager sign-off required',
     templateName: 'Invoice Processing Workflow v2.1.0',
+    sessionName: 'Invoice Batch #2846',
     requestedAt: '2026-01-06T10:11:30.000Z',
     status: 'pending',
     priority: 'high'
@@ -126,6 +131,7 @@ const mockAwaitingApprovals: AwaitingApproval[] = [
     title: 'Data Processing Consent',
     description: 'Customer data processing consent confirmation',
     templateName: 'Document Classification v1.3.0',
+    sessionName: 'Doc Classification #1205',
     requestedAt: '2026-01-06T09:45:00.000Z',
     status: 'approved',
     priority: 'normal'
@@ -136,6 +142,7 @@ const mockAwaitingApprovals: AwaitingApproval[] = [
     title: 'AI Model Usage Review',
     description: 'OCR model deployment requires policy compliance verification',
     templateName: 'Email Extraction Pipeline v1.0.0',
+    sessionName: 'Email Extract #0892',
     requestedAt: '2026-01-06T09:30:00.000Z',
     status: 'approved',
     priority: 'normal'
@@ -842,168 +849,142 @@ interface PreExecutionWorkflowModalProps {
   onApprove: () => void
 }
 
+// Pre-Execution Agent Timeline Item (same style as Post-Execution)
+function PreExecutionAgentItem({ agent, isExpanded, onToggle }: { 
+  agent: { id: string; name: string; description: string }
+  isExpanded: boolean
+  onToggle: () => void 
+}) {
+  return (
+    <div className="pre-workflow-timeline__agent">
+      <div className="pre-workflow-timeline__agent-main">
+        <span className="pre-workflow-timeline__agent-icon">🤖</span>
+        <span className="pre-workflow-timeline__agent-name">{agent.name}</span>
+        <button className="pre-workflow-timeline__agent-btn" onClick={onToggle}>
+          {isExpanded ? 'Hide Details' : 'Show Agent'}
+        </button>
+        <span className="pre-workflow-timeline__agent-status pre-workflow-timeline__agent-status--pending">○ Pending</span>
+      </div>
+      {isExpanded && (
+        <div className="pre-workflow-timeline__agent-details">
+          <p>{agent.description}</p>
+        </div>
+      )}
+    </div>
+  )
+}
+
 function PreExecutionWorkflowModal({ isOpen, onClose, showTemplates, onToggleTemplates, onApprove }: PreExecutionWorkflowModalProps) {
+  const [expandedAgents, setExpandedAgents] = useState<Set<string>>(new Set())
+  
   if (!isOpen) return null
   
   const workflow = mockPreExecutionWorkflow
   
+  const toggleAgent = (agentId: string) => {
+    setExpandedAgents(prev => {
+      const next = new Set(prev)
+      if (next.has(agentId)) {
+        next.delete(agentId)
+      } else {
+        next.add(agentId)
+      }
+      return next
+    })
+  }
+  
+  // Mock AI agents for the workflow (same structure as Post-Execution)
+  const workflowAgents = [
+    { id: 'agent_pre_001', name: 'Document Classifier', description: 'Will classify incoming documents based on content patterns and metadata.' },
+    { id: 'agent_pre_002', name: 'Data Extractor', description: 'Will extract relevant fields from classified documents.' },
+    { id: 'agent_pre_003', name: 'Validation Engine', description: 'Will validate extracted data against schema rules.' }
+  ]
+  
   return (
     <div className="pre-workflow-modal-overlay" onClick={onClose}>
-      <div className="pre-workflow-modal" onClick={e => e.stopPropagation()}>
+      <div className="pre-workflow-modal pre-workflow-modal--timeline" onClick={e => e.stopPropagation()}>
         <div className="pre-workflow-modal__header">
           <h2 className="pre-workflow-modal__title">
-            🔍 Pre-Execution Analysis
+            🔍 Workflow Analysis
           </h2>
           <p className="pre-workflow-modal__subtitle">
-            Review workflow before giving consent
+            Pre-Execution PoAE™ Timeline
           </p>
           <button className="pre-workflow-modal__close" onClick={onClose}>×</button>
         </div>
         
-        <div className="pre-workflow-modal__content">
-          {/* Sender Side - Verified */}
-          <div className="pre-workflow-section pre-workflow-section--sender">
-            <div className="pre-workflow-section__header">
-              <span className="pre-workflow-section__icon">📤</span>
-              <div className="pre-workflow-section__title-group">
-                <h3 className="pre-workflow-section__title">Sender: {workflow.sender.organization}</h3>
-                <span className="pre-workflow-section__user">{workflow.sender.user}</span>
+        <div className="pre-workflow-modal__content pre-workflow-modal__content--timeline">
+          {/* PoAE™ Timeline - Same style as Post-Execution */}
+          <div className="pre-workflow-timeline">
+            {/* Sender PoAE™ - Boxed Design (Verified) */}
+            <div className="pre-workflow-timeline__poae pre-workflow-timeline__poae--sender">
+              <div className="pre-workflow-timeline__poae-badge">
+                <span className="pre-workflow-timeline__poae-icon">📤</span>
+                <span className="pre-workflow-timeline__poae-label">Sender PoAE™</span>
               </div>
+              <div className="pre-workflow-timeline__poae-content">
+                <span className="pre-workflow-timeline__poae-org">{workflow.sender.organization}</span>
+                <code className="pre-workflow-timeline__poae-hash">{workflow.sender.authorization.hash}</code>
+              </div>
+              <div className="pre-workflow-timeline__poae-type">
+                Manual Consent
+              </div>
+              <span className="pre-workflow-timeline__poae-check">✓</span>
             </div>
             
-            {/* Sender Authorization PoAE™ - Verified */}
-            <div className="pre-workflow-poae pre-workflow-poae--verified">
-              <div className="pre-workflow-poae__badge">🔐 PoAE™ Authorization</div>
-              <div className="pre-workflow-poae__details">
-                <div className="pre-workflow-poae__row">
-                  <span className="pre-workflow-poae__label">Action:</span>
-                  <span className="pre-workflow-poae__value">{workflow.sender.authorization.action}</span>
-                </div>
-                <div className="pre-workflow-poae__row">
-                  <span className="pre-workflow-poae__label">Time:</span>
-                  <span className="pre-workflow-poae__value">{new Date(workflow.sender.authorization.timestamp).toLocaleString()}</span>
-                </div>
-                <div className="pre-workflow-poae__row">
-                  <span className="pre-workflow-poae__label">Hash:</span>
-                  <code className="pre-workflow-poae__hash">{workflow.sender.authorization.hash}</code>
-                </div>
-              </div>
-              <span className="pre-workflow-poae__status pre-workflow-poae__status--verified">✓ Verified</span>
-            </div>
+            {/* AI Agents - Middle (Pending) */}
+            {workflowAgents.map((agent) => (
+              <PreExecutionAgentItem 
+                key={agent.id} 
+                agent={agent} 
+                isExpanded={expandedAgents.has(agent.id)}
+                onToggle={() => toggleAgent(agent.id)}
+              />
+            ))}
             
-            {/* BEAP™ Packaging */}
-            <div className="pre-workflow-beap">
-              <div className="pre-workflow-beap__header">
-                <span className="pre-workflow-beap__icon">📦</span>
-                <span className="pre-workflow-beap__title">BEAP™ Package Ready</span>
-                <code className="pre-workflow-beap__id">{workflow.sender.packaging.capsuleId}</code>
-              </div>
-              <div className="pre-workflow-beap__artefacts">
-                <div className="pre-workflow-beap__artefacts-title">Artefacts (read-only)</div>
-                {workflow.sender.packaging.artefacts.map((art, idx) => (
-                  <div key={idx} className="pre-workflow-artefact">
-                    <span className="pre-workflow-artefact__icon">📄</span>
-                    <span className="pre-workflow-artefact__name">{art.name}</span>
-                    <span className="pre-workflow-artefact__type">{art.type}</span>
-                    <span className="pre-workflow-artefact__size">{art.size}</span>
-                    <code className="pre-workflow-artefact__hash">{art.hash.slice(0, 16)}...</code>
-                  </div>
-                ))}
+            {/* No Receiver PoAE™ - Pre-Consent Notice */}
+            <div className="pre-workflow-timeline__pending-notice">
+              <div className="pre-workflow-timeline__pending-icon">○</div>
+              <div className="pre-workflow-timeline__pending-content">
+                <span className="pre-workflow-timeline__pending-title">Receiver PoAE™ Pending</span>
+                <span className="pre-workflow-timeline__pending-desc">
+                  Your consent will create the Receiver PoAE™ attestation
+                </span>
               </div>
             </div>
           </div>
           
-          {/* Automation Steps - Pending */}
-          <div className="pre-workflow-section pre-workflow-section--automation">
-            <div className="pre-workflow-section__header">
-              <span className="pre-workflow-section__icon">⚙️</span>
-              <h3 className="pre-workflow-section__title">Planned Automation Steps</h3>
-              <span className="pre-workflow-section__badge pre-workflow-section__badge--pending">
-                Awaiting Consent
-              </span>
-              <button 
-                className="pre-workflow-section__template-btn"
-                onClick={onToggleTemplates}
-              >
-                {showTemplates ? '▲ Hide Template' : '▼ View Template'}
-              </button>
-            </div>
+          {/* Template Details - Collapsible */}
+          <div className="pre-workflow-template-section">
+            <button 
+              className="pre-workflow-template-section__toggle"
+              onClick={onToggleTemplates}
+            >
+              <span className="pre-workflow-template-section__icon">📋</span>
+              <span className="pre-workflow-template-section__title">Template Details</span>
+              <span className="pre-workflow-template-section__arrow">{showTemplates ? '▲' : '▼'}</span>
+            </button>
             
             {showTemplates && (
-              <div className="pre-workflow-template">
-                <div className="pre-workflow-template__header">
-                  <span className="pre-workflow-template__name">{workflow.automationTemplate.name}</span>
-                  <span className="pre-workflow-template__version">v{workflow.automationTemplate.version}</span>
+              <div className="pre-workflow-template-section__content">
+                <div className="pre-workflow-template-section__row">
+                  <span className="pre-workflow-template-section__label">Template:</span>
+                  <span className="pre-workflow-template-section__value">{workflow.automationTemplate.name} v{workflow.automationTemplate.version}</span>
                 </div>
-                <div className="pre-workflow-template__steps">
-                  <div className="pre-workflow-template__label">Template Steps:</div>
-                  {workflow.automationTemplate.steps.map((step, idx) => (
-                    <div key={idx} className="pre-workflow-template__step">
-                      <span className="pre-workflow-template__step-num">{idx + 1}</span>
-                      <code className="pre-workflow-template__step-name">{step}</code>
-                    </div>
-                  ))}
+                <div className="pre-workflow-template-section__row">
+                  <span className="pre-workflow-template-section__label">Steps:</span>
+                  <span className="pre-workflow-template-section__value">{workflow.automationSteps.length}</span>
                 </div>
-                <div className="pre-workflow-template__policies">
-                  <div className="pre-workflow-template__label">Required Policies:</div>
-                  {workflow.automationTemplate.policies.map((policy, idx) => (
-                    <code key={idx} className="pre-workflow-template__policy">{policy}</code>
-                  ))}
+                <div className="pre-workflow-template-section__row">
+                  <span className="pre-workflow-template-section__label">Policies:</span>
+                  <div className="pre-workflow-template-section__policies">
+                    {workflow.automationTemplate.policies.map((policy, idx) => (
+                      <code key={idx} className="pre-workflow-template-section__policy">{policy}</code>
+                    ))}
+                  </div>
                 </div>
               </div>
             )}
-            
-            <div className="pre-workflow-steps">
-              {workflow.automationSteps.map((step, idx) => (
-                <div key={step.id} className="pre-workflow-step pre-workflow-step--pending">
-                  <div className="pre-workflow-step__connector">
-                    <div className="pre-workflow-step__dot pre-workflow-step__dot--pending" />
-                    {idx < workflow.automationSteps.length - 1 && <div className="pre-workflow-step__line" />}
-                  </div>
-                  <div className="pre-workflow-step__content">
-                    <div className="pre-workflow-step__header">
-                      <span className="pre-workflow-step__num">{step.id}</span>
-                      <span className="pre-workflow-step__name">{step.name}</span>
-                      <span className="pre-workflow-step__status pre-workflow-step__status--pending">○ Pending</span>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-          
-          {/* Receiver Side - Pending Consent */}
-          <div className="pre-workflow-section pre-workflow-section--receiver pre-workflow-section--pending">
-            <div className="pre-workflow-section__header">
-              <span className="pre-workflow-section__icon">📥</span>
-              <div className="pre-workflow-section__title-group">
-                <h3 className="pre-workflow-section__title">Receiver: {workflow.receiver.organization}</h3>
-                <span className="pre-workflow-section__user">{workflow.receiver.user}</span>
-              </div>
-            </div>
-            
-            {/* Receiver Authorization PoAE™ - PENDING */}
-            <div className="pre-workflow-poae pre-workflow-poae--pending">
-              <div className="pre-workflow-poae__badge">🔐 PoAE™ Authorization Required</div>
-              <div className="pre-workflow-poae__details">
-                <div className="pre-workflow-poae__row">
-                  <span className="pre-workflow-poae__label">Action:</span>
-                  <span className="pre-workflow-poae__value">{workflow.receiver.authorization.action}</span>
-                </div>
-                <div className="pre-workflow-poae__row">
-                  <span className="pre-workflow-poae__label">Status:</span>
-                  <span className="pre-workflow-poae__value pre-workflow-poae__value--pending">Waiting for your consent</span>
-                </div>
-              </div>
-              <span className="pre-workflow-poae__status pre-workflow-poae__status--pending">○ Pending</span>
-            </div>
-            
-            <div className="pre-workflow-consent-notice">
-              <span className="pre-workflow-consent-notice__icon">ℹ</span>
-              <span className="pre-workflow-consent-notice__text">
-                Your consent will create a PoAE™ attestation event, enabling the automation to proceed.
-              </span>
-            </div>
           </div>
         </div>
         
@@ -1011,23 +992,23 @@ function PreExecutionWorkflowModal({ isOpen, onClose, showTemplates, onToggleTem
           <div className="pre-workflow-modal__summary">
             <span className="pre-workflow-modal__summary-item">
               <span className="pre-workflow-modal__summary-icon pre-workflow-modal__summary-icon--verified">✓</span>
-              1 PoAE™ Verified
+              Sender PoAE™
             </span>
             <span className="pre-workflow-modal__summary-item">
               <span className="pre-workflow-modal__summary-icon pre-workflow-modal__summary-icon--pending">○</span>
-              1 PoAE™ Pending
+              {workflowAgents.length} AI Agents
             </span>
             <span className="pre-workflow-modal__summary-item">
               <span className="pre-workflow-modal__summary-icon pre-workflow-modal__summary-icon--pending">○</span>
-              {workflow.automationSteps.length} Steps Awaiting
+              Receiver Pending
             </span>
           </div>
           <div className="pre-workflow-modal__actions">
             <button className="pre-workflow-modal__btn pre-workflow-modal__btn--secondary" onClick={onClose}>
-              Cancel
+              Close
             </button>
             <button className="pre-workflow-modal__btn pre-workflow-modal__btn--approve" onClick={onApprove}>
-              ✓ Approve & Create PoAE™
+              ✓ Approve Workflow
             </button>
           </div>
         </div>
@@ -1048,9 +1029,21 @@ interface AwaitingApprovalsHeroProps {
 }
 
 function AwaitingApprovalsHero({ showAll, onToggleShowAll, onAnalyse, onApprove }: AwaitingApprovalsHeroProps) {
+  const [currentIndex, setCurrentIndex] = useState(0)
   const pendingApprovals = mockAwaitingApprovals.filter(a => a.status === 'pending')
-  const latestApproval = pendingApprovals[0] || mockAwaitingApprovals[0]
   const pendingCount = pendingApprovals.length
+  
+  // Current approval based on slider index
+  const currentApproval = pendingApprovals[currentIndex] || mockAwaitingApprovals[0]
+  
+  // Navigation handlers
+  const handlePrev = () => {
+    setCurrentIndex(prev => Math.max(0, prev - 1))
+  }
+  
+  const handleNext = () => {
+    setCurrentIndex(prev => Math.min(pendingCount - 1, prev + 1))
+  }
   
   const getApprovalIcon = (type: AwaitingApproval['type']) => {
     switch (type) {
@@ -1075,7 +1068,7 @@ function AwaitingApprovalsHero({ showAll, onToggleShowAll, onAnalyse, onApprove 
   return (
     <div className={`preflight-hero ${pendingCount > 0 ? 'preflight-hero--pending' : ''}`}>
       <div className="preflight-hero__header">
-        <div className="preflight-hero__icon">{getApprovalIcon(latestApproval.type)}</div>
+        <div className="preflight-hero__icon">{getApprovalIcon(currentApproval.type)}</div>
         <div className="preflight-hero__title-group">
           <h2 className="preflight-hero__title">Awaiting Approvals</h2>
           <p className="preflight-hero__subtitle">
@@ -1092,21 +1085,79 @@ function AwaitingApprovalsHero({ showAll, onToggleShowAll, onAnalyse, onApprove 
         </div>
       </div>
 
-      {/* Latest/Priority Approval */}
-      {latestApproval && (
+      {/* Slider Navigation - only show if more than 1 pending approval */}
+      {pendingCount > 1 && (
+        <div className="preflight-hero__slider">
+          <button 
+            className="preflight-hero__slider-btn" 
+            onClick={handlePrev}
+            disabled={currentIndex === 0}
+          >
+            ‹
+          </button>
+          <span className="preflight-hero__slider-indicator">
+            {currentIndex + 1} of {pendingCount}
+          </span>
+          <button 
+            className="preflight-hero__slider-btn" 
+            onClick={handleNext}
+            disabled={currentIndex === pendingCount - 1}
+          >
+            ›
+          </button>
+        </div>
+      )}
+
+      {/* Match Status Box + Approve Button */}
+      <div className="preflight-hero__status-row">
+        <div className="preflight-hero__match-box">
+          <div className="preflight-hero__match-icon">✓</div>
+          <div className="preflight-hero__match-content">
+            <span className="preflight-hero__match-title">Match</span>
+            <span className="preflight-hero__match-desc">Content matches the description</span>
+          </div>
+        </div>
+        <button 
+          className="preflight-hero__btn preflight-hero__btn--approve-main" 
+          onClick={() => onApprove(currentApproval.id)}
+        >
+          <span className="preflight-hero__btn-icon">✓</span>
+          <span className="preflight-hero__btn-text">
+            <span className="preflight-hero__btn-label">Approve Workflow</span>
+            <span className="preflight-hero__btn-session-centered">{currentApproval.sessionName}</span>
+          </span>
+        </button>
+      </div>
+      
+      {/* Analyse Workflow Button - Full Width */}
+      <button 
+        className="preflight-hero__btn preflight-hero__btn--analyse-workflow" 
+        onClick={() => onAnalyse(currentApproval.id)}
+      >
+        <span className="preflight-hero__btn-icon">🔍</span>
+        Analyse Workflow
+      </button>
+
+      {/* Current Approval Details */}
+      {currentApproval && (
         <div className="preflight-hero__latest">
           <div className="preflight-hero__event-type">
-            <span className={`preflight-hero__priority preflight-hero__priority--${latestApproval.priority}`}>
-              {latestApproval.priority.toUpperCase()}
+            <div className="preflight-hero__risk-category">
+              <span className="preflight-hero__risk-category-title">Risk Category</span>
+              <span className={`preflight-hero__priority preflight-hero__priority--${currentApproval.priority}`}>
+                {currentApproval.priority.toUpperCase()}
+              </span>
+            </div>
+            <span className="preflight-hero__event-type-label">
+              {getApprovalTypeLabel(currentApproval.type)}
             </span>
-            {getApprovalTypeLabel(latestApproval.type)}
           </div>
-          <h3 className="preflight-hero__event-title">{latestApproval.title}</h3>
-          <p className="preflight-hero__event-desc">{latestApproval.description}</p>
+          <h3 className="preflight-hero__event-title">{currentApproval.title}</h3>
+          <p className="preflight-hero__event-desc">{currentApproval.description}</p>
           <div className="preflight-hero__event-meta">
-            <span className="preflight-hero__event-template">{latestApproval.templateName}</span>
+            <span className="preflight-hero__event-template">{currentApproval.templateName}</span>
             <span className="preflight-hero__event-time">
-              Requested: {new Date(latestApproval.requestedAt).toLocaleString()}
+              Requested: {new Date(currentApproval.requestedAt).toLocaleString()}
             </span>
           </div>
         </div>
@@ -1116,15 +1167,15 @@ function AwaitingApprovalsHero({ showAll, onToggleShowAll, onAnalyse, onApprove 
       <div className="preflight-hero__actions">
         <button 
           className="preflight-hero__btn preflight-hero__btn--analyse" 
-          onClick={() => onAnalyse(latestApproval.id)}
+          onClick={() => onAnalyse(currentApproval.id)}
         >
           <span className="preflight-hero__btn-icon">🔍</span>
           Analyse Before Consent
         </button>
-        {latestApproval.status === 'pending' && (
+        {currentApproval.status === 'pending' && (
           <button 
             className="preflight-hero__btn preflight-hero__btn--approve" 
-            onClick={() => onApprove(latestApproval.id)}
+            onClick={() => onApprove(currentApproval.id)}
           >
             <span className="preflight-hero__btn-icon">✓</span>
             Approve
@@ -1181,7 +1232,8 @@ function AwaitingApprovalsHero({ showAll, onToggleShowAll, onAnalyse, onApprove 
 export default function PreExecutionAnalysis({ 
   flags = DEFAULT_VERIFICATION_FLAGS,
   deepLink,
-  onDeepLinkConsumed
+  onDeepLinkConsumed,
+  compact = false
 }: PreExecutionAnalysisProps) {
   // Check flags before making any verification claims
   const isVerified = canClaimVerified(flags)
@@ -1310,7 +1362,7 @@ export default function PreExecutionAnalysis({
   }
   
   return (
-    <div className="pre-execution-analysis" data-verified={isVerified}>
+    <div className={`pre-execution-analysis${compact ? ' pre-execution-analysis--compact' : ''}`} data-verified={isVerified}>
       {/* Awaiting Approvals Hero Section */}
       <AwaitingApprovalsHero 
         showAll={showAllEvents}

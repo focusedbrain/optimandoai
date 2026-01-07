@@ -1783,6 +1783,213 @@
   color: white;
 }
 
+/* Status Row - Similar to Pre-Execution Match Box */
+.live-hero__status-row {
+  display: flex;
+  align-items: stretch;
+  gap: 12px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 12px;
+}
+
+.live-hero__status-box {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  background: linear-gradient(135deg, rgba(16, 185, 129, 0.15), rgba(16, 185, 129, 0.05));
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  border-left: 4px solid #10b981;
+  border-radius: 8px;
+}
+
+.live-hero__status-icon {
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(16, 185, 129, 0.2);
+  border-radius: 50%;
+  font-size: 18px;
+}
+
+.live-hero__status-content {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.live-hero__status-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: #10b981;
+}
+
+.live-hero__status-desc {
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.live-hero__queue-info {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 12px;
+  background: var(--bg-elevated);
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  min-width: 100px;
+}
+
+.live-hero__queue-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
+.live-hero__queue-label {
+  font-size: 10px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.live-hero__queue-value {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+/* Execution Steps Indicator */
+.live-hero__steps {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 16px;
+  padding: 12px;
+  background: var(--bg-elevated);
+  border-radius: 8px;
+  border: 1px solid var(--border);
+}
+
+.live-hero__step {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+
+.live-hero__step-dot {
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  color: var(--text-muted);
+  background: var(--bg-surface);
+  border: 2px solid var(--border);
+  border-radius: 50%;
+}
+
+.live-hero__step--completed .live-hero__step-dot {
+  background: #10b981;
+  border-color: #10b981;
+  color: white;
+}
+
+.live-hero__step--active .live-hero__step-dot {
+  background: var(--purple-accent);
+  border-color: var(--purple-accent);
+  color: white;
+  animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(147, 51, 234, 0.4); }
+  50% { box-shadow: 0 0 0 8px rgba(147, 51, 234, 0); }
+}
+
+.live-hero__step-label {
+  font-size: 9px;
+  font-weight: 500;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.live-hero__step--completed .live-hero__step-label,
+.live-hero__step--active .live-hero__step-label {
+  color: var(--text-primary);
+}
+
+.live-hero__step-connector {
+  flex: 1;
+  height: 2px;
+  background: var(--border);
+  margin: 0 4px;
+  margin-bottom: 20px;
+}
+
+.live-hero__step-connector--completed {
+  background: #10b981;
+}
+
+/* Default theme status box */
+[data-ui-theme="default"] .live-hero__status-box {
+  background: linear-gradient(135deg, rgba(16, 185, 129, 0.25), rgba(16, 185, 129, 0.1));
+  border-color: rgba(16, 185, 129, 0.5);
+}
+
+[data-ui-theme="default"] .live-hero__status-icon {
+  background: rgba(16, 185, 129, 0.3);
+}
+
+[data-ui-theme="default"] .live-hero__status-title {
+  color: #34d399;
+}
+
+[data-ui-theme="default"] .live-hero__status-desc {
+  color: rgba(255, 255, 255, 0.7);
+}
+
+[data-ui-theme="default"] .live-hero__queue-info {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+[data-ui-theme="default"] .live-hero__queue-label {
+  color: rgba(255, 255, 255, 0.6);
+}
+
+[data-ui-theme="default"] .live-hero__queue-value {
+  color: white;
+}
+
+[data-ui-theme="default"] .live-hero__steps {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+[data-ui-theme="default"] .live-hero__step-dot {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.3);
+  color: rgba(255, 255, 255, 0.5);
+}
+
+[data-ui-theme="default"] .live-hero__step-label {
+  color: rgba(255, 255, 255, 0.5);
+}
+
+[data-ui-theme="default"] .live-hero__step--completed .live-hero__step-label,
+[data-ui-theme="default"] .live-hero__step--active .live-hero__step-label {
+  color: white;
+}
+
 /* Responsive */
 @media (max-width: 768px) {
   .live-hero__actions {
@@ -1834,4 +2041,25 @@
 [data-ui-theme="default"] .lea-btn--secondary:hover {
   border-color: white;
   color: white;
+}
+
+/* =============================================================================
+   Compact Mode - Dashboard Overview (hide all except main hero)
+   ============================================================================= */
+
+.live-execution-canvas--compact .lea-hero-section,
+.live-execution-canvas--compact .lea-header-zone,
+.live-execution-canvas--compact .lea-main-zone,
+.live-execution-canvas--compact .lea-footer-zone,
+.live-execution-canvas--compact .lea-control-bar,
+.live-execution-canvas--compact .lea-filter-bar,
+.live-execution-canvas--compact .lea-notice,
+.live-execution-canvas--compact .lea-risk-banners,
+.live-execution-canvas--compact .lea-consent-banner,
+.live-execution-canvas--compact .lea-timeline-panel,
+.live-execution-canvas--compact .lea-focus-zone,
+.live-execution-canvas--compact .lea-secondary-zone,
+.live-execution-canvas--compact .lea-dynamic-area,
+.live-execution-canvas--compact .lea-alignment-panel {
+  display: none !important;
 }
