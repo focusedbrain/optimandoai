@@ -11,8 +11,10 @@
   --da-text-muted: var(--text-muted);
   --da-border: var(--border);
   --da-border-subtle: var(--border-subtle);
-  --da-accent: var(--accent);
-  --da-accent-hover: var(--accent-hover);
+  /* Use purple accent as the primary dashboard accent */
+  --da-accent: var(--purple-accent);
+  --da-accent-hover: var(--purple-accent-hover);
+  --da-accent-muted: var(--purple-accent-muted);
   
   /* Severity colors */
   --da-severity-critical: var(--danger);
@@ -23,8 +25,8 @@
   --da-severity-medium-bg: rgba(245, 158, 11, 0.1);
   --da-severity-low: var(--success);
   --da-severity-low-bg: rgba(16, 185, 129, 0.1);
-  --da-severity-info: var(--accent);
-  --da-severity-info-bg: rgba(59, 130, 246, 0.1);
+  --da-severity-info: var(--purple-accent);
+  --da-severity-info-bg: var(--purple-accent-muted);
   
   /* Status colors */
   --da-status-success: var(--success);
@@ -36,8 +38,8 @@
   
   /* Interactive states */
   --da-hover-bg: var(--bg-elevated);
-  --da-selected-bg: rgba(59, 130, 246, 0.12);
-  --da-selected-border: var(--accent);
+  --da-selected-bg: var(--purple-accent-muted);
+  --da-selected-border: var(--purple-accent);
   
   /* Apply base styling */
   display: flex;
@@ -228,4 +230,34 @@
 .status-badge--large {
   font-size: 12px;
   padding: 5px 12px;
+}
+
+/* =============================================================================
+   Default (Original) Theme Overrides
+   ============================================================================= */
+
+[data-ui-theme="default"] .analysis-canvas {
+  background: transparent;
+}
+
+[data-ui-theme="default"] .phase-selector {
+  background: rgba(118, 75, 162, 0.3);
+}
+
+[data-ui-theme="default"] .phase-button {
+  color: rgba(255, 255, 255, 0.8);
+}
+
+[data-ui-theme="default"] .phase-button--active {
+  background: rgba(255, 255, 255, 0.15);
+  border-bottom-color: white;
+  color: white;
+}
+
+[data-ui-theme="default"] .phase-button--active .phase-button__label {
+  color: white;
+}
+
+[data-ui-theme="default"] .phase-content {
+  background: rgba(88, 28, 135, 0.4);
 }

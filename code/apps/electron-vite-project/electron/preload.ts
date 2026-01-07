@@ -66,5 +66,19 @@ contextBridge.exposeInMainWorld('analysisDashboard', {
     return () => {
       ipcRenderer.removeListener('OPEN_ANALYSIS_DASHBOARD', handler)
     }
+  },
+  onThemeChange: (callback: (theme: string) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, payload: { theme: string }) => {
+      callback(payload.theme)
+    }
+    ipcRenderer.on('THEME_CHANGED', handler)
+    // Return cleanup function
+    return () => {
+      ipcRenderer.removeListener('THEME_CHANGED', handler)
+    }
+  },
+  // Request current theme from main process
+  requestTheme: () => {
+    ipcRenderer.send('REQUEST_THEME')
   }
 })

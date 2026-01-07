@@ -31,8 +31,8 @@
   align-items: center;
   gap: 10px;
   padding: 10px 14px;
-  background: var(--da-accent-muted, rgba(99, 102, 241, 0.1));
-  border: 1px solid color-mix(in srgb, var(--da-accent, #667eea), transparent 75%);
+  background: var(--da-accent-muted, var(--purple-accent-muted));
+  border: 1px solid color-mix(in srgb, var(--da-accent, var(--purple-accent)), transparent 75%);
   border-radius: 6px;
   font-size: 13px;
 }
@@ -116,9 +116,9 @@
 }
 
 .panel-badge--info {
-  background: rgba(99, 102, 241, 0.15);
-  color: #818cf8;
-  border: 1px solid rgba(99, 102, 241, 0.3);
+  background: var(--purple-accent-muted);
+  color: var(--purple-accent);
+  border: 1px solid rgba(147, 51, 234, 0.3);
 }
 
 .panel-content {
@@ -226,7 +226,7 @@
 }
 
 .automation-step--internal {
-  border-left: 3px solid #6366f1;
+  border-left: 3px solid var(--purple-accent);
 }
 
 .automation-step--deterministic {
@@ -308,7 +308,7 @@
   border-radius: 2px;
 }
 
-.legend-dot--internal { background: #6366f1; }
+.legend-dot--internal { background: var(--purple-accent); }
 .legend-dot--deterministic { background: var(--da-status-success, #22c55e); }
 .legend-dot--ai { background: var(--da-status-warning, #f59e0b); }
 .legend-dot--external { background: var(--da-severity-high, #ef4444); }
@@ -501,7 +501,7 @@
 
 .risk-category__bar-fill {
   height: 100%;
-  background: #6366f1;
+  background: var(--purple-accent);
   border-radius: 2px;
 }
 
@@ -520,7 +520,7 @@
 }
 
 [data-ui-theme="professional"] .pre-execution-notice {
-  background: rgba(99, 102, 241, 0.06);
+  background: rgba(147, 51, 234, 0.06);
 }
 
 [data-ui-theme="professional"] .automation-step {
@@ -601,21 +601,21 @@
 
 /* Deep-link highlighted row */
 .preflight-alignment-row--highlighted {
-  background: var(--da-highlight-pulse, rgba(99, 102, 241, 0.15));
-  border-left: 3px solid var(--da-highlight-border, #818cf8);
+  background: var(--da-highlight-pulse, var(--purple-accent-muted));
+  border-left: 3px solid var(--da-highlight-border, var(--purple-accent));
   animation: preflight-highlight-pulse 1.5s ease-out;
 }
 
 .preflight-alignment-row--highlighted:hover {
-  background: color-mix(in srgb, var(--da-highlight-pulse, rgba(99, 102, 241, 0.15)), var(--da-accent, #667eea) 10%);
+  background: color-mix(in srgb, var(--da-highlight-pulse, var(--purple-accent-muted)), var(--da-accent, var(--purple-accent)) 10%);
 }
 
 @keyframes preflight-highlight-pulse {
   0% {
-    background: color-mix(in srgb, var(--da-accent, #667eea), transparent 60%);
+    background: color-mix(in srgb, var(--da-accent, var(--purple-accent)), transparent 60%);
   }
   100% {
-    background: var(--da-highlight-pulse, rgba(99, 102, 241, 0.15));
+    background: var(--da-highlight-pulse, var(--purple-accent-muted));
   }
 }
 
@@ -772,8 +772,8 @@
 }
 
 .preflight-risk-severity--info {
-  background: var(--da-severity-info-bg, rgba(99, 102, 241, 0.2));
-  color: var(--da-severity-info, #a5b4fc);
+  background: var(--da-severity-info-bg, var(--purple-accent-muted));
+  color: var(--da-severity-info, var(--purple-accent));
 }
 
 .preflight-risk-severity--low {
@@ -994,7 +994,7 @@
   font-size: 10px;
   font-weight: 600;
   border-radius: 4px;
-  background: var(--da-accent, #667eea);
+  background: var(--da-accent, var(--purple-accent));
   color: white;
   cursor: help;
   white-space: nowrap;
@@ -1991,5 +1991,43 @@
   .pre-workflow-modal__btn {
     flex: 1;
   }
+}
+
+/* =============================================================================
+   Default (Original) Theme Overrides - Left-side button fix (white border/text)
+   ============================================================================= */
+
+[data-ui-theme="default"] .preflight-hero__btn--secondary {
+  border-color: white;
+  color: white;
+}
+
+[data-ui-theme="default"] .preflight-hero__btn--secondary:hover {
+  border-color: white;
+  color: white;
+}
+
+[data-ui-theme="default"] .preflight-hero__btn--analyse {
+  border-color: white;
+  color: white;
+}
+
+[data-ui-theme="default"] .preflight-hero__btn--analyse:hover {
+  background: white;
+  color: #9333ea;
+}
+
+[data-ui-theme="default"] .preflight-hero__title {
+  color: #10b981;
+}
+
+[data-ui-theme="default"] .pre-workflow-modal__btn--secondary {
+  border-color: white;
+  color: white;
+}
+
+[data-ui-theme="default"] .pre-workflow-modal__btn--secondary:hover {
+  border-color: white;
+  color: white;
 }
 

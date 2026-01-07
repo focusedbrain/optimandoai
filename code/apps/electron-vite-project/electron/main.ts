@@ -199,6 +199,10 @@ let activeStop: null | (() => Promise<string>) = null
 var wsClients: any[] = (globalThis as any).__og_ws_clients__ || [];
 (globalThis as any).__og_ws_clients__ = wsClients;
 
+// Current extension theme (synced from extension via WebSocket)
+// Values: 'default' (purple), 'dark', 'professional' (white)
+let currentExtensionTheme: 'default' | 'dark' | 'professional' = 'default';
+
 // Flag to track when app is actually quitting (from tray menu "Quit")
 let isAppQuitting = false
 
@@ -311,6 +315,9 @@ async function createWindow() {
     height: 800,
   })
   
+  // Remove the default application menu (File, Edit, View, Window, Help)
+  Menu.setApplicationMenu(null)
+  
   // If started hidden, minimize to tray
   if (startHidden) {
     console.log('[MAIN] Started in hidden mode (auto-start), running in system tray')
@@ -399,6 +406,13 @@ async function createWindow() {
         try { wsClients.forEach(c=>{ try { c.send(JSON.stringify({ type: 'TRIGGERS_UPDATED' })) } catch {} }) } catch {}
       } catch (err) {
         console.log('[MAIN] Error updating after trigger save:', err)
+      }
+    })
+    // Handle theme request from renderer
+    ipcMain.on('REQUEST_THEME', () => {
+      console.log('[MAIN] Theme requested by renderer, current theme:', currentExtensionTheme)
+      if (win) {
+        win.webContents.send('THEME_CHANGED', { theme: currentExtensionTheme })
       }
     })
     ipcMain.on('overlay-cmd', async (_e, msg: any) => {
@@ -946,7 +960,20 @@ function createTray() {
     tray = new Tray(path.join(process.env.VITE_PUBLIC, 'electron-vite.svg'))
     updateTrayMenu()
     tray.setToolTip('OpenGiraffe Orchestrator')
-    tray.on('click', () => { if (!win) return; if (win.isVisible()) win.focus(); else win.show() })
+    tray.on('click', async () => {
+      if (!win || win.isDestroyed()) {
+        // Recreate window if it was closed
+        await createWindow()
+      }
+      if (win) {
+        if (win.isVisible()) {
+          win.focus()
+        } else {
+          win.show()
+          win.focus()
+        }
+      }
+    })
     // Startup toast
     try {
       new Notification({ title: 'OpenGiraffe Orchestrator', body: 'Running in background. Use Alt+Shift+S or chat icons to capture.' }).show()
@@ -994,7 +1021,13 @@ function updateTrayMenu() {
     const loginSettings = app.getLoginItemSettings()
     
     const menu = Menu.buildFromTemplate([
-      { label: 'Show', click: () => { if (!win) return; win.show(); win.focus() } },
+      { label: 'Show Dashboard', click: async () => { 
+        if (!win || win.isDestroyed()) {
+          await createWindow()
+        }
+        win?.show()
+        win?.focus()
+      } },
       { type: 'separator' },
       { label: 'Screenshot (Alt+Shift+S)', click: () => win?.webContents.send('hotkey', 'screenshot') },
       { label: 'Stream (Alt+Shift+V)', click: () => win?.webContents.send('hotkey', 'stream') },
@@ -1356,18 +1389,41 @@ app.whenReady().then(async () => {
               }
               return // Don't process further handlers for ping
             }
+            // ===== THEME SYNC HANDLER =====
+            if (msg.type === 'THEME_SYNC') {
+              // Sync theme from extension to Electron dashboard
+              const newTheme = msg.theme as 'default' | 'dark' | 'professional'
+              if (newTheme && ['default', 'dark', 'professional'].includes(newTheme)) {
+                console.log('[MAIN] ===== THEME_SYNC received =====')
+                console.log('[MAIN] Theme changed from', currentExtensionTheme, 'to', newTheme)
+                currentExtensionTheme = newTheme
+                // Forward theme to renderer
+                if (win) {
+                  win.webContents.send('THEME_CHANGED', { theme: currentExtensionTheme })
+                  console.log('[MAIN] ✅ Theme forwarded to renderer:', currentExtensionTheme)
+                }
+                socket.send(JSON.stringify({ type: 'THEME_SYNCED', theme: currentExtensionTheme }))
+              }
+              return
+            }
+            
             if (msg.type === 'OPEN_ANALYSIS_DASHBOARD') {
               // Open and focus the main window with Analysis Dashboard
               console.log('[MAIN] ===== RECEIVED OPEN_ANALYSIS_DASHBOARD =====')
+              // Update theme if provided in message
+              if (msg.theme && ['default', 'dark', 'professional'].includes(msg.theme)) {
+                currentExtensionTheme = msg.theme
+                console.log('[MAIN] Theme from message:', currentExtensionTheme)
+              }
               try {
                 if (win) {
                   if (win.isMinimized()) win.restore()
                   win.show()
                   win.focus()
-                  // Signal the renderer to switch to Analysis Dashboard view
+                  // Signal the renderer to switch to Analysis Dashboard view with theme
                   const phase = msg.phase || 'live'
-                  win.webContents.send('OPEN_ANALYSIS_DASHBOARD', { phase })
-                  console.log('[MAIN] ✅ Analysis Dashboard window focused, IPC sent with phase:', phase)
+                  win.webContents.send('OPEN_ANALYSIS_DASHBOARD', { phase, theme: currentExtensionTheme })
+                  console.log('[MAIN] ✅ Analysis Dashboard window focused, IPC sent with phase:', phase, 'theme:', currentExtensionTheme)
                   socket.send(JSON.stringify({ type: 'ANALYSIS_DASHBOARD_OPENED' }))
                 } else {
                   console.log('[MAIN] ⚠️ Main window not available')

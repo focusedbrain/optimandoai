@@ -120,8 +120,8 @@
 }
 
 .post-panel-badge--info {
-  background: var(--da-accent-muted, rgba(99, 102, 241, 0.15));
-  color: var(--da-accent, #818cf8);
+  background: var(--da-accent-muted, var(--purple-accent-muted));
+  color: var(--da-accent, var(--purple-accent));
 }
 
 .post-panel-content {
@@ -447,7 +447,7 @@
   align-items: center;
   gap: 8px;
   padding: 8px 10px;
-  background: rgba(99, 102, 241, 0.1);
+  background: var(--purple-accent-muted);
   border-radius: 4px;
   margin-bottom: 12px;
   font-size: 11px;
@@ -1193,7 +1193,7 @@ code.poae-hero__meta-value {
 }
 
 .workflow-section--sender {
-  border-left: 4px solid #3b82f6;
+  border-left: 4px solid var(--purple-accent);
 }
 
 .workflow-section--automation {
@@ -1615,5 +1615,33 @@ code.poae-hero__meta-value {
 
 [data-ui-theme="professional"] .workflow-artefact {
   background: rgba(0, 0, 0, 0.03);
+}
+
+/* =============================================================================
+   Default (Original) Theme Overrides - Left-side button fix (white border/text)
+   ============================================================================= */
+
+[data-ui-theme="default"] .poae-hero__btn--secondary {
+  border-color: white;
+  color: white;
+}
+
+[data-ui-theme="default"] .poae-hero__btn--secondary:hover {
+  border-color: white;
+  color: white;
+}
+
+[data-ui-theme="default"] .poae-hero__btn--analyse {
+  border-color: white;
+  color: white;
+}
+
+[data-ui-theme="default"] .poae-hero__btn--analyse:hover {
+  background: white;
+  color: #9333ea;
+}
+
+[data-ui-theme="default"] .poae-hero__title {
+  color: #10b981;
 }
 

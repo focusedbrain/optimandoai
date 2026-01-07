@@ -49,6 +49,30 @@
 }
 
 /* Theme Application */
+
+/* Default (Original) Theme - Purple gradient matching extension sidebar */
+[data-ui-theme="default"] {
+  /* Matches extension: linear-gradient(135deg, #c084fc 0%, #a855f7 50%, #9333ea 100%) */
+  --bg-base: #7c3aed;
+  --bg-surface: rgba(118, 75, 162, 0.45);
+  --bg-elevated: rgba(147, 51, 234, 0.3);
+  --text-primary: #ffffff;
+  --text-secondary: rgba(255, 255, 255, 0.85);
+  --text-muted: rgba(255, 255, 255, 0.6);
+  --border: rgba(255, 255, 255, 0.25);
+  --border-subtle: rgba(255, 255, 255, 0.15);
+  --accent: #ffffff;
+  --accent-hover: rgba(255, 255, 255, 0.9);
+  --success: #10b981;
+  --warning: #fbbf24;
+  --danger: #ef4444;
+  --header-bg: linear-gradient(135deg, #c084fc 0%, #a855f7 50%, #9333ea 100%);
+  --header-border: rgba(255, 255, 255, 0.2);
+  /* Theme-specific gradient for backgrounds */
+  --theme-gradient: linear-gradient(135deg, #c084fc 0%, #a855f7 50%, #9333ea 100%);
+}
+
+/* Professional (Light/White) Theme */
 [data-ui-theme="professional"] {
   --bg-base: var(--bg-base-prof);
   --bg-surface: var(--bg-surface-prof);
@@ -58,8 +82,8 @@
   --text-muted: var(--text-muted-prof);
   --border: var(--border-prof);
   --border-subtle: var(--border-subtle-prof);
-  --accent: var(--accent-prof);
-  --accent-hover: var(--accent-hover-prof);
+  --accent: var(--purple-accent);
+  --accent-hover: var(--purple-accent-hover);
   --success: var(--success-prof);
   --warning: var(--warning-prof);
   --danger: var(--danger-prof);
@@ -67,6 +91,7 @@
   --header-border: var(--header-border-prof);
 }
 
+/* Dark Theme */
 [data-ui-theme="dark"] {
   --bg-base: var(--bg-base-dark);
   --bg-surface: var(--bg-surface-dark);
@@ -76,8 +101,8 @@
   --text-muted: var(--text-muted-dark);
   --border: var(--border-dark);
   --border-subtle: var(--border-subtle-dark);
-  --accent: var(--accent-dark);
-  --accent-hover: var(--accent-hover-dark);
+  --accent: var(--purple-accent);
+  --accent-hover: var(--purple-accent-hover);
   --success: var(--success-dark);
   --warning: var(--warning-dark);
   --danger: var(--danger-dark);
@@ -137,6 +162,12 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
+/* Default theme uses gradient background */
+[data-ui-theme="default"] body,
+[data-ui-theme="default"] .app-root {
+  background: linear-gradient(135deg, #c084fc 0%, #a855f7 50%, #9333ea 100%);
+}
+
 #root {
   height: 100%;
   width: 100%;
@@ -188,6 +219,11 @@ body {
   margin-left: 1px;
 }
 
+/* Default theme: TM badge uses white */
+[data-ui-theme="default"] .app-header__tm {
+  color: rgba(255, 255, 255, 0.8);
+}
+
 .app-header__subtitle {
   font-size: 14px;
   font-weight: 500;
@@ -226,12 +262,34 @@ body {
 }
 
 .theme-switcher__select:hover {
-  border-color: var(--accent);
+  border-color: var(--purple-accent);
 }
 
 .theme-switcher__select:focus {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
+  border-color: var(--purple-accent);
+  box-shadow: 0 0 0 2px rgba(147, 51, 234, 0.2);
+}
+
+/* Default theme: Theme switcher with translucent styling */
+[data-ui-theme="default"] .theme-switcher__select {
+  background: rgba(255, 255, 255, 0.2);
+  border-color: rgba(255, 255, 255, 0.4);
+  color: white;
+}
+
+[data-ui-theme="default"] .theme-switcher__select:hover,
+[data-ui-theme="default"] .theme-switcher__select:focus {
+  border-color: white;
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.2);
+}
+
+[data-ui-theme="default"] .theme-switcher__select option {
+  background: #7c3aed;
+  color: white;
+}
+
+[data-ui-theme="default"] .theme-switcher__label {
+  color: rgba(255, 255, 255, 0.7);
 }
 
 /* --- Main Content Area --- */
@@ -278,6 +336,12 @@ body {
   border-radius: 4px;
   text-transform: uppercase;
   letter-spacing: 0.05em;
+}
+
+/* Default theme analysis badge */
+[data-ui-theme="default"] .analysis-badge {
+  background: rgba(255, 255, 255, 0.2);
+  color: white;
 }
 
 /* --- Phase Selector (Full Width Tabs) --- */
@@ -332,6 +396,46 @@ body {
 .phase-button__description {
   font-size: 11px;
   color: var(--text-muted);
+}
+
+/* Default theme: Phase selector with translucent styling */
+[data-ui-theme="default"] .phase-selector {
+  background: rgba(118, 75, 162, 0.3);
+  border-bottom-color: rgba(255, 255, 255, 0.15);
+}
+
+[data-ui-theme="default"] .phase-button:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+[data-ui-theme="default"] .phase-button--active {
+  background: rgba(255, 255, 255, 0.15);
+  border-bottom-color: white;
+}
+
+[data-ui-theme="default"] .phase-button__label {
+  color: rgba(255, 255, 255, 0.7);
+}
+
+[data-ui-theme="default"] .phase-button--active .phase-button__label {
+  color: white;
+}
+
+[data-ui-theme="default"] .phase-button:hover .phase-button__label {
+  color: white;
+}
+
+[data-ui-theme="default"] .phase-button__description {
+  color: rgba(255, 255, 255, 0.5);
+}
+
+/* Default theme: Phase content with translucent background */
+[data-ui-theme="default"] .phase-content {
+  background: rgba(88, 28, 135, 0.4);
+}
+
+[data-ui-theme="default"] .analysis-canvas {
+  background: transparent;
 }
 
 /* --- Canvas Flags Notice --- */

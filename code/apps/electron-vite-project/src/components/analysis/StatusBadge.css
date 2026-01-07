@@ -30,9 +30,9 @@
 }
 
 .analysis-status-badge--recorded {
-  background: rgba(59, 130, 246, 0.15);
-  color: #60a5fa;
-  border: 1px solid rgba(59, 130, 246, 0.3);
+  background: var(--purple-accent-muted);
+  color: var(--purple-accent);
+  border: 1px solid rgba(147, 51, 234, 0.3);
 }
 
 .analysis-status-badge--demo {
@@ -68,8 +68,9 @@
 }
 
 [data-ui-theme="professional"] .analysis-status-badge--recorded {
-  background: rgba(59, 130, 246, 0.1);
+  background: rgba(147, 51, 234, 0.1);
 }
+
 
 
 

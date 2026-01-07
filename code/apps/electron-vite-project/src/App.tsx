@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import './App.css'
 import AnalysisCanvas from './components/AnalysisCanvas'
 import { type AnalysisOpenPayload, sanitizeAnalysisOpenPayload } from './components/analysis'
@@ -8,16 +8,19 @@ declare global {
   interface Window {
     analysisDashboard?: {
       onOpen: (callback: (rawPayload: unknown) => void) => () => void
+      onThemeChange: (callback: (theme: string) => void) => () => void
+      requestTheme: () => void
     }
   }
 }
 
-type ThemePreference = 'dark' | 'professional' | 'auto'
+// Extension theme types: 'default' (purple), 'dark', 'professional' (light/white)
+type ExtensionTheme = 'default' | 'dark' | 'professional'
 
-function resolveTheme(pref: ThemePreference): 'dark' | 'professional' {
-  if (pref !== 'auto') return pref
-  const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches
-  return prefersDark ? 'dark' : 'professional'
+// Map extension theme to CSS data-ui-theme attribute
+function mapThemeToCss(theme: ExtensionTheme): string {
+  // 'default' is purple theme, 'dark' stays dark, 'professional' is light
+  return theme
 }
 
 // Inline Giraffe Icon Component
@@ -59,52 +62,62 @@ function GiraffeIcon({ size = 24 }: { size?: number }) {
   )
 }
 
-function ThemeSwitcher({ value, onChange }: { value: ThemePreference, onChange: (v: ThemePreference) => void }) {
+// Theme selector component - allows manual theme changes
+function ThemeSelector({ value, onChange }: { value: ExtensionTheme, onChange: (v: ExtensionTheme) => void }) {
   return (
     <div className="theme-switcher">
       <span className="theme-switcher__label">Theme</span>
       <select
         value={value}
-        onChange={(e) => onChange(e.target.value as ThemePreference)}
+        onChange={(e) => onChange(e.target.value as ExtensionTheme)}
         className="theme-switcher__select"
         aria-label="Theme selection"
       >
+        <option value="default">Default (Original)</option>
         <option value="dark">Dark</option>
-        <option value="professional">Light</option>
-        <option value="auto">Auto</option>
+        <option value="professional">Professional</option>
       </select>
     </div>
   )
 }
 
 function App() {
-  const [themePref, setThemePref] = useState<ThemePreference>(() => 
-    (localStorage.getItem('ui-theme') as ThemePreference) || 'dark'
-  )
+  // Extension theme state - synced from extension via main process
+  const [extensionTheme, setExtensionTheme] = useState<ExtensionTheme>('default')
   const [deepLinkPayload, setDeepLinkPayload] = useState<AnalysisOpenPayload | null>(null)
-  
-  const actualTheme = useMemo(() => resolveTheme(themePref), [themePref])
 
   // Apply theme to document
   useEffect(() => {
     const root = document.documentElement
-    root.setAttribute('data-ui-theme', actualTheme)
-    localStorage.setItem('ui-theme', themePref)
-  }, [themePref, actualTheme])
+    const cssTheme = mapThemeToCss(extensionTheme)
+    root.setAttribute('data-ui-theme', cssTheme)
+    console.log('[APP] Theme applied:', extensionTheme, '-> CSS:', cssTheme)
+  }, [extensionTheme])
 
-  // Handle system theme changes when using auto
+  // Listen for theme changes from extension via main process
   useEffect(() => {
-    if (themePref !== 'auto') return
-    const mql = window.matchMedia('(prefers-color-scheme: dark)')
-    const handler = () => setThemePref('auto')
-    mql.addEventListener('change', handler)
-    return () => mql.removeEventListener('change', handler)
-  }, [themePref])
+    const cleanup = window.analysisDashboard?.onThemeChange((theme: string) => {
+      console.log('[APP] Theme changed from extension:', theme)
+      if (['default', 'dark', 'professional'].includes(theme)) {
+        setExtensionTheme(theme as ExtensionTheme)
+      }
+    })
+    // Request current theme on mount
+    window.analysisDashboard?.requestTheme()
+    return () => { cleanup?.() }
+  }, [])
 
   // Handle Analysis Dashboard open request from main process
   const handleOpenAnalysisDashboard = useCallback((rawPayload: unknown) => {
     const payload = sanitizeAnalysisOpenPayload(rawPayload)
     console.log('[APP] OPEN_ANALYSIS_DASHBOARD received, sanitized:', payload)
+    // Extract theme from payload if provided
+    if (payload && typeof payload === 'object' && 'theme' in payload) {
+      const theme = (payload as any).theme
+      if (['default', 'dark', 'professional'].includes(theme)) {
+        setExtensionTheme(theme as ExtensionTheme)
+      }
+    }
     setDeepLinkPayload(payload)
   }, [])
 
@@ -124,7 +137,7 @@ function App() {
           <span className="app-header__subtitle">Analysis Dashboard</span>
         </div>
         <div className="app-header__spacer" />
-        <ThemeSwitcher value={themePref} onChange={setThemePref} />
+        <ThemeSelector value={extensionTheme} onChange={setExtensionTheme} />
       </header>
 
       {/* Full-width Analysis Canvas */}
