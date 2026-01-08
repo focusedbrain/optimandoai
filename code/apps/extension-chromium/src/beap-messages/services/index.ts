@@ -126,4 +126,3 @@ export {
   hasValidX25519Key,
   validateX25519PublicKey
 } from './x25519KeyAgreement'
-

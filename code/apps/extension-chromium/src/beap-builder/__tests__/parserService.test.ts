@@ -493,4 +493,3 @@ describe('processAttachmentForRasterization', () => {
     expect(result.error).toContain('exceed limit')
   })
 })
-

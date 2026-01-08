@@ -875,7 +875,9 @@ function PreExecutionAgentItem({ agent, isExpanded, onToggle }: {
   )
 }
 
-function PreExecutionWorkflowModal({ isOpen, onClose, showTemplates, onToggleTemplates, onApprove }: PreExecutionWorkflowModalProps) {
+function PreExecutionWorkflowModal({ isOpen, onClose, showTemplates: _showTemplates, onToggleTemplates: _onToggleTemplates, onApprove }: PreExecutionWorkflowModalProps) {
+  void _showTemplates // Reserved for template visibility toggle
+  void _onToggleTemplates // Reserved for template toggle handler
   const [expandedAgents, setExpandedAgents] = useState<Set<string>>(new Set())
   
   if (!isOpen) return null

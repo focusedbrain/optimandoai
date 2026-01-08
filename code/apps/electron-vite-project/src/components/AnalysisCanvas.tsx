@@ -1,8 +1,6 @@
 import { useEffect, useState, useCallback } from 'react'
 import './AnalysisCanvas.css'
 import PreExecutionAnalysis from './PreExecutionAnalysis'
-import LiveExecutionAnalysis from './LiveExecutionAnalysis'
-import PostExecutionVerification from './PostExecutionVerification'
 import { useCanvasState, type AnalysisOpenPayload, type DrawerTabId, HeroKPIStrip, type KPIData } from './analysis'
 import { StatusBadge } from './analysis/StatusBadge'
 import { getMockDashboardState } from './analysis/computePriorityAction'
@@ -30,8 +28,9 @@ export default function AnalysisCanvas({ deepLinkPayload, onDeepLinkConsumed }: 
   const [state, , helpers] = useCanvasState()
   
   // Deep-link state to pass to child views (consumed once)
-  const [liveDeepLink, setLiveDeepLink] = useState<DeepLinkState | null>(null)
+  const [_liveDeepLink, setLiveDeepLink] = useState<DeepLinkState | null>(null)
   const [preExecutionDeepLink, setPreExecutionDeepLink] = useState<DeepLinkState | null>(null)
+  void _liveDeepLink // Reserved for future use
   
   // Show All expansion states
   const [showPostHistory, setShowPostHistory] = useState(false)
@@ -112,9 +111,10 @@ export default function AnalysisCanvas({ deepLinkPayload, onDeepLinkConsumed }: 
     onDeepLinkConsumed?.()
   }, [deepLinkPayload, onDeepLinkConsumed])
   
-  const handleLiveDeepLinkConsumed = useCallback(() => {
+  const _handleLiveDeepLinkConsumed = useCallback(() => {
     setLiveDeepLink(null)
   }, [])
+  void _handleLiveDeepLinkConsumed // Reserved for future use
   
   const handlePreExecutionDeepLinkConsumed = useCallback(() => {
     setPreExecutionDeepLink(null)
@@ -422,24 +422,39 @@ export default function AnalysisCanvas({ deepLinkPayload, onDeepLinkConsumed }: 
                   <span className="unified-dashboard__hero-badge unified-dashboard__hero-badge--verified">✓ VERIFIED</span>
                 </div>
 
-                {/* Metadata */}
-                <div className="unified-dashboard__poae-meta">
+                {/* Metadata - Compact 2 columns */}
+                <div className="unified-dashboard__poae-meta unified-dashboard__poae-meta--compact">
                   <div className="unified-dashboard__poae-meta-row">
                     <span className="unified-dashboard__poae-meta-label">TEMPLATE</span>
                     <span className="unified-dashboard__poae-meta-value">Invoice Processing Workflow</span>
                   </div>
                   <div className="unified-dashboard__poae-meta-row">
-                    <span className="unified-dashboard__poae-meta-label">EXECUTION</span>
-                    <span className="unified-dashboard__poae-meta-value unified-dashboard__poae-meta-value--mono">exec_9f8e7d6c5b4a3210</span>
-                  </div>
-                  <div className="unified-dashboard__poae-meta-row">
                     <span className="unified-dashboard__poae-meta-label">TIMESTAMP</span>
                     <span className="unified-dashboard__poae-meta-value">6.1.2026, 11:14:28</span>
                   </div>
-                  <div className="unified-dashboard__poae-meta-row">
-                    <span className="unified-dashboard__poae-meta-label">EVENTS</span>
-                    <span className="unified-dashboard__poae-meta-value">4</span>
-                  </div>
+                </div>
+                
+                {/* PoAE™ Hash - Full width row */}
+                <div className="unified-dashboard__poae-hash-row">
+                  <span className="unified-dashboard__poae-hash-label">PoAE™ Hash:</span>
+                  <span className="unified-dashboard__poae-hash-value">sha256:9f8e7d6c5b4a3210abcdef1234567890</span>
+                  <button 
+                    className="unified-dashboard__poae-copy-btn"
+                    onClick={() => {
+                      navigator.clipboard.writeText('sha256:9f8e7d6c5b4a3210abcdef1234567890')
+                      console.log('[PoAE] Hash copied to clipboard')
+                    }}
+                    title="Copy hash to clipboard"
+                  >
+                    📋
+                  </button>
+                  <button 
+                    className="unified-dashboard__poae-export-btn"
+                    onClick={() => console.log('[PoAE] Exporting log for hash: sha256:9f8e7d6c5b4a3210abcdef1234567890')}
+                    title="Export PoAE™ log"
+                  >
+                    📤 Export
+                  </button>
                 </div>
 
                 {/* Timeline */}
@@ -520,12 +535,6 @@ export default function AnalysisCanvas({ deepLinkPayload, onDeepLinkConsumed }: 
                     </div>
                     <span className="unified-dashboard__poae-event-badge unified-dashboard__poae-event-badge--verified">VERIFIED</span>
                   </div>
-                </div>
-
-                {/* Chain Hash */}
-                <div className="unified-dashboard__poae-chain">
-                  <span className="unified-dashboard__poae-chain-label">Chain Hash:</span>
-                  <span className="unified-dashboard__poae-chain-value">sha256:9f8e7d6c5b4a3210abcdef1234567890</span>
                 </div>
 
                 {/* Spacer to push Show All to bottom */}
