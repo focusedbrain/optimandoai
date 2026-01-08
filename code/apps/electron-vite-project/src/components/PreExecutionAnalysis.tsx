@@ -201,7 +201,7 @@ const mockRiskSummary = {
   warnings: 0
 }
 
-// Mock preflight alignment rows (similar to live mode)
+// Mock pre-execution alignment rows (similar to live mode)
 interface PreflightAlignmentRow {
   key: string
   claimLabel: string
@@ -254,7 +254,7 @@ const mockPreflightAlignment: PreflightAlignmentRow[] = [
   }
 ]
 
-// Mock preflight risk rules
+// Mock pre-execution risk rules
 interface PreflightRiskRule {
   ruleId: string
   severity: 'info' | 'low' | 'medium' | 'high' | 'critical'
@@ -677,7 +677,7 @@ function RiskSummary() {
 }
 
 // =============================================================================
-// Preflight Alignment Panel
+// Pre-Execution Alignment Panel
 // =============================================================================
 
 interface PreflightAlignmentPanelProps {
@@ -751,7 +751,7 @@ function PreflightAlignmentPanel({ rows, highlightedRuleId, onRowClick }: Prefli
 }
 
 // =============================================================================
-// Preflight Risk Details Panel
+// Pre-Execution Risk Details Panel
 // =============================================================================
 
 interface PreflightRiskDetailsPanelProps {
@@ -776,7 +776,7 @@ function PreflightRiskDetailsPanel({ isOpen, selectedRuleId, risks, onClose }: P
   return (
     <div className="preflight-risk-panel">
       <div className="preflight-risk-panel__header">
-        <span className="preflight-risk-panel__title">Preflight Risk Details</span>
+        <span className="preflight-risk-panel__title">Pre-Execution Risk Details</span>
         <span className="panel-badge panel-badge--info">Analysis</span>
         <button 
           className="preflight-risk-panel__close"
@@ -849,25 +849,26 @@ interface PreExecutionWorkflowModalProps {
   onApprove: () => void
 }
 
-// Pre-Execution Agent Timeline Item (same style as Post-Execution)
+// Pre-Execution Agent Timeline Item - Uses shared modal classes
 function PreExecutionAgentItem({ agent, isExpanded, onToggle }: { 
   agent: { id: string; name: string; description: string }
   isExpanded: boolean
   onToggle: () => void 
 }) {
   return (
-    <div className="pre-workflow-timeline__agent">
-      <div className="pre-workflow-timeline__agent-main">
-        <span className="pre-workflow-timeline__agent-icon">🤖</span>
-        <span className="pre-workflow-timeline__agent-name">{agent.name}</span>
-        <button className="pre-workflow-timeline__agent-btn" onClick={onToggle}>
+    <div className="shared-modal__agent" style={{ flexDirection: 'column', alignItems: 'stretch' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+        <span className="shared-modal__agent-icon">🤖</span>
+        <div className="shared-modal__agent-content">
+          <span className="shared-modal__agent-name">{agent.name}</span>
+        </div>
+        <button className="shared-modal__agent-btn" onClick={onToggle}>
           {isExpanded ? 'Hide Details' : 'Show Agent'}
         </button>
-        <span className="pre-workflow-timeline__agent-status pre-workflow-timeline__agent-status--pending">○ Pending</span>
       </div>
       {isExpanded && (
-        <div className="pre-workflow-timeline__agent-details">
-          <p>{agent.description}</p>
+        <div style={{ marginTop: '10px', paddingTop: '10px', borderTop: '1px solid var(--border)', fontSize: '12px', color: 'var(--text-secondary)' }}>
+          <p style={{ margin: 0 }}>{agent.description}</p>
         </div>
       )}
     </div>
@@ -901,38 +902,34 @@ function PreExecutionWorkflowModal({ isOpen, onClose, showTemplates, onToggleTem
   ]
   
   return (
-    <div className="pre-workflow-modal-overlay" onClick={onClose}>
-      <div className="pre-workflow-modal pre-workflow-modal--timeline" onClick={e => e.stopPropagation()}>
-        <div className="pre-workflow-modal__header">
-          <h2 className="pre-workflow-modal__title">
-            🔍 Workflow Analysis
+    <div className="shared-modal-overlay" onClick={onClose}>
+      <div className="shared-modal" onClick={e => e.stopPropagation()}>
+        <div className="shared-modal__header">
+          <h2 className="shared-modal__title">
+            <span>🔍</span> Workflow Analysis
           </h2>
-          <p className="pre-workflow-modal__subtitle">
-            Pre-Execution PoAE™ Timeline
-          </p>
-          <button className="pre-workflow-modal__close" onClick={onClose}>×</button>
+          <p className="shared-modal__subtitle">Pre-Execution PoAE™ Timeline</p>
+          <button className="shared-modal__close" onClick={onClose}>×</button>
         </div>
         
-        <div className="pre-workflow-modal__content pre-workflow-modal__content--timeline">
-          {/* PoAE™ Timeline - Same style as Post-Execution */}
-          <div className="pre-workflow-timeline">
-            {/* Sender PoAE™ - Boxed Design (Verified) */}
-            <div className="pre-workflow-timeline__poae pre-workflow-timeline__poae--sender">
-              <div className="pre-workflow-timeline__poae-badge">
-                <span className="pre-workflow-timeline__poae-icon">📤</span>
-                <span className="pre-workflow-timeline__poae-label">Sender PoAE™</span>
+        <div className="shared-modal__content">
+          {/* Timeline */}
+          <div className="shared-modal__timeline">
+            {/* Sender PoAE™ */}
+            <div className="shared-modal__poae shared-modal__poae--sender">
+              <div className="shared-modal__poae-badge">
+                <span className="shared-modal__poae-icon">📤</span>
+                <span className="shared-modal__poae-label">Sender PoAE™</span>
               </div>
-              <div className="pre-workflow-timeline__poae-content">
-                <span className="pre-workflow-timeline__poae-org">{workflow.sender.organization}</span>
-                <code className="pre-workflow-timeline__poae-hash">{workflow.sender.authorization.hash}</code>
+              <div className="shared-modal__poae-content">
+                <span className="shared-modal__poae-org">{workflow.sender.organization}</span>
+                <code className="shared-modal__poae-hash">{workflow.sender.authorization.hash}</code>
               </div>
-              <div className="pre-workflow-timeline__poae-type">
-                Manual Consent
-              </div>
-              <span className="pre-workflow-timeline__poae-check">✓</span>
+              <div className="shared-modal__poae-type">Manual Consent</div>
+              <span className="shared-modal__poae-check">✓</span>
             </div>
             
-            {/* AI Agents - Middle (Pending) */}
+            {/* AI Agents */}
             {workflowAgents.map((agent) => (
               <PreExecutionAgentItem 
                 key={agent.id} 
@@ -942,72 +939,40 @@ function PreExecutionWorkflowModal({ isOpen, onClose, showTemplates, onToggleTem
               />
             ))}
             
-            {/* No Receiver PoAE™ - Pre-Consent Notice */}
-            <div className="pre-workflow-timeline__pending-notice">
-              <div className="pre-workflow-timeline__pending-icon">○</div>
-              <div className="pre-workflow-timeline__pending-content">
-                <span className="pre-workflow-timeline__pending-title">Receiver PoAE™ Pending</span>
-                <span className="pre-workflow-timeline__pending-desc">
-                  Your consent will create the Receiver PoAE™ attestation
-                </span>
+            {/* Receiver PoAE™ Pending */}
+            <div className="shared-modal__poae shared-modal__poae--pending">
+              <div className="shared-modal__poae-badge">
+                <span className="shared-modal__poae-icon">📥</span>
+                <span className="shared-modal__poae-label">Receiver PoAE™</span>
+              </div>
+              <div className="shared-modal__poae-content">
+                <span className="shared-modal__poae-org">Pending</span>
+                <span className="shared-modal__poae-hash" style={{ fontStyle: 'italic', fontFamily: 'inherit' }}>Your consent will create this attestation</span>
               </div>
             </div>
           </div>
-          
-          {/* Template Details - Collapsible */}
-          <div className="pre-workflow-template-section">
-            <button 
-              className="pre-workflow-template-section__toggle"
-              onClick={onToggleTemplates}
-            >
-              <span className="pre-workflow-template-section__icon">📋</span>
-              <span className="pre-workflow-template-section__title">Template Details</span>
-              <span className="pre-workflow-template-section__arrow">{showTemplates ? '▲' : '▼'}</span>
-            </button>
-            
-            {showTemplates && (
-              <div className="pre-workflow-template-section__content">
-                <div className="pre-workflow-template-section__row">
-                  <span className="pre-workflow-template-section__label">Template:</span>
-                  <span className="pre-workflow-template-section__value">{workflow.automationTemplate.name} v{workflow.automationTemplate.version}</span>
-                </div>
-                <div className="pre-workflow-template-section__row">
-                  <span className="pre-workflow-template-section__label">Steps:</span>
-                  <span className="pre-workflow-template-section__value">{workflow.automationSteps.length}</span>
-                </div>
-                <div className="pre-workflow-template-section__row">
-                  <span className="pre-workflow-template-section__label">Policies:</span>
-                  <div className="pre-workflow-template-section__policies">
-                    {workflow.automationTemplate.policies.map((policy, idx) => (
-                      <code key={idx} className="pre-workflow-template-section__policy">{policy}</code>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
         </div>
         
-        <div className="pre-workflow-modal__footer">
-          <div className="pre-workflow-modal__summary">
-            <span className="pre-workflow-modal__summary-item">
-              <span className="pre-workflow-modal__summary-icon pre-workflow-modal__summary-icon--verified">✓</span>
+        <div className="shared-modal__footer">
+          <div className="shared-modal__summary">
+            <span className="shared-modal__summary-item">
+              <span className="shared-modal__summary-icon shared-modal__summary-icon--verified">✓</span>
               Sender PoAE™
             </span>
-            <span className="pre-workflow-modal__summary-item">
-              <span className="pre-workflow-modal__summary-icon pre-workflow-modal__summary-icon--pending">○</span>
+            <span className="shared-modal__summary-item">
+              <span className="shared-modal__summary-icon shared-modal__summary-icon--pending">○</span>
               {workflowAgents.length} AI Agents
             </span>
-            <span className="pre-workflow-modal__summary-item">
-              <span className="pre-workflow-modal__summary-icon pre-workflow-modal__summary-icon--pending">○</span>
+            <span className="shared-modal__summary-item">
+              <span className="shared-modal__summary-icon shared-modal__summary-icon--pending">○</span>
               Receiver Pending
             </span>
           </div>
-          <div className="pre-workflow-modal__actions">
-            <button className="pre-workflow-modal__btn pre-workflow-modal__btn--secondary" onClick={onClose}>
+          <div className="shared-modal__actions">
+            <button className="shared-modal__btn" onClick={onClose}>
               Close
             </button>
-            <button className="pre-workflow-modal__btn pre-workflow-modal__btn--approve" onClick={onApprove}>
+            <button className="shared-modal__btn shared-modal__btn--primary" onClick={onApprove}>
               ✓ Approve Workflow
             </button>
           </div>
@@ -1067,81 +1032,72 @@ function AwaitingApprovalsHero({ showAll, onToggleShowAll, onAnalyse, onApprove 
   
   return (
     <div className={`preflight-hero ${pendingCount > 0 ? 'preflight-hero--pending' : ''}`}>
-      <div className="preflight-hero__header">
-        <div className="preflight-hero__icon">{getApprovalIcon(currentApproval.type)}</div>
-        <div className="preflight-hero__title-group">
-          <h2 className="preflight-hero__title">Awaiting Approvals</h2>
-          <p className="preflight-hero__subtitle">
-            {pendingCount > 0 
-              ? `${pendingCount} approval${pendingCount > 1 ? 's' : ''} pending review`
-              : 'All approvals processed'
-            }
-          </p>
-        </div>
-        <div className="preflight-hero__status">
-          <span className={`preflight-hero__status-badge preflight-hero__status-badge--${pendingCount > 0 ? 'pending' : 'passed'}`}>
-            {pendingCount > 0 ? `${pendingCount} Pending` : '✓ All Clear'}
-          </span>
-        </div>
+      {/* Subtitle + Slider Row - Same structure as Column 2 */}
+      <div className="shared-header-row">
+        <span className="shared-header-subtitle">
+          <span className="shared-header-subtitle-icon">⏳</span>
+          Awaiting Approvals
+        </span>
+        {pendingCount > 1 && (
+          <div className="shared-slider-nav">
+            <button 
+              className="shared-slider-btn" 
+              onClick={handlePrev}
+              disabled={currentIndex === 0}
+            >
+              ‹
+            </button>
+            <span className="shared-slider-text">
+              {currentIndex + 1} of {pendingCount}
+            </span>
+            <button 
+              className="shared-slider-btn" 
+              onClick={handleNext}
+              disabled={currentIndex === pendingCount - 1}
+            >
+              ›
+            </button>
+          </div>
+        )}
       </div>
 
-      {/* Slider Navigation - only show if more than 1 pending approval */}
-      {pendingCount > 1 && (
-        <div className="preflight-hero__slider">
-          <button 
-            className="preflight-hero__slider-btn" 
-            onClick={handlePrev}
-            disabled={currentIndex === 0}
-          >
-            ‹
-          </button>
-          <span className="preflight-hero__slider-indicator">
-            {currentIndex + 1} of {pendingCount}
-          </span>
-          <button 
-            className="preflight-hero__slider-btn" 
-            onClick={handleNext}
-            disabled={currentIndex === pendingCount - 1}
-          >
-            ›
-          </button>
-        </div>
-      )}
-
-      {/* Match Status Box + Approve Button */}
-      <div className="preflight-hero__status-row">
-        <div className="preflight-hero__match-box">
-          <div className="preflight-hero__match-icon">✓</div>
-          <div className="preflight-hero__match-content">
-            <span className="preflight-hero__match-title">Match</span>
-            <span className="preflight-hero__match-desc">Content matches the description</span>
+      {/* Status Row - Shared classes with Column 2 */}
+      <div className="shared-status-row">
+        <div className="shared-status-box">
+          <div className="shared-status-icon">✓</div>
+          <div className="shared-status-content">
+            <span className="shared-status-title">
+              <span className="shared-status-title-icon">✅</span>
+              Match
+            </span>
+            <span className="shared-status-desc">Content matches the description</span>
           </div>
         </div>
         <button 
-          className="preflight-hero__btn preflight-hero__btn--approve-main" 
+          className="shared-approve-btn" 
           onClick={() => onApprove(currentApproval.id)}
         >
-          <span className="preflight-hero__btn-icon">✓</span>
-          <span className="preflight-hero__btn-text">
-            <span className="preflight-hero__btn-label">Approve Workflow</span>
-            <span className="preflight-hero__btn-session-centered">{currentApproval.sessionName}</span>
+          <span className="shared-approve-icon">✓</span>
+          <span className="shared-approve-text">
+            <span className="shared-approve-label">Approve Workflow</span>
+            <span className="shared-approve-session">{currentApproval.sessionName}</span>
           </span>
         </button>
       </div>
       
-      {/* Analyse Workflow Button - Full Width */}
+      {/* Analyse Workflow Button - Shared class with Column 2 */}
       <button 
-        className="preflight-hero__btn preflight-hero__btn--analyse-workflow" 
+        className="shared-analyse-workflow-btn" 
         onClick={() => onAnalyse(currentApproval.id)}
       >
-        <span className="preflight-hero__btn-icon">🔍</span>
+        <span className="shared-analyse-workflow-icon">🔍</span>
         Analyse Workflow
       </button>
 
-      {/* Current Approval Details */}
+      {/* Risk Category + Approval Details - Single unified box */}
       {currentApproval && (
-        <div className="preflight-hero__latest">
-          <div className="preflight-hero__event-type">
+        <div className="preflight-hero__details-box">
+          <div className="preflight-hero__details-header">
             <div className="preflight-hero__risk-category">
               <span className="preflight-hero__risk-category-title">Risk Category</span>
               <span className={`preflight-hero__priority preflight-hero__priority--${currentApproval.priority}`}>
@@ -1162,6 +1118,31 @@ function AwaitingApprovalsHero({ showAll, onToggleShowAll, onAnalyse, onApprove 
           </div>
         </div>
       )}
+
+      {/* Policy Compliance Summary */}
+      <div className="preflight-hero__compliance-summary">
+        <div className="preflight-hero__compliance-header">
+          <span className="preflight-hero__compliance-title">Policy Compliance</span>
+          <span className="preflight-hero__compliance-badge preflight-hero__compliance-badge--passed">3/3 PASSED</span>
+        </div>
+        <div className="preflight-hero__compliance-items">
+          <div className="preflight-hero__compliance-item">
+            <span className="preflight-hero__compliance-check">✓</span>
+            <span className="preflight-hero__compliance-label">Data Classification</span>
+            <span className="preflight-hero__compliance-value">Verified</span>
+          </div>
+          <div className="preflight-hero__compliance-item">
+            <span className="preflight-hero__compliance-check">✓</span>
+            <span className="preflight-hero__compliance-label">Access Permissions</span>
+            <span className="preflight-hero__compliance-value">Authorized</span>
+          </div>
+          <div className="preflight-hero__compliance-item">
+            <span className="preflight-hero__compliance-check">✓</span>
+            <span className="preflight-hero__compliance-label">Audit Trail</span>
+            <span className="preflight-hero__compliance-value">Active</span>
+          </div>
+        </div>
+      </div>
 
       {/* Primary Action Buttons */}
       <div className="preflight-hero__actions">
@@ -1408,14 +1389,14 @@ export default function PreExecutionAnalysis({
       {/* Template Source Viewer */}
       <TemplateSourceViewer />
       
-      {/* Preflight Alignment Panel */}
+      {/* Pre-Execution Alignment Panel */}
       <PreflightAlignmentPanel
         rows={mockPreflightAlignment}
         highlightedRuleId={highlightedRuleId}
         onRowClick={handleAlignmentRowClick}
       />
       
-      {/* Preflight Risk Details Panel */}
+      {/* Pre-Execution Risk Details Panel */}
       <PreflightRiskDetailsPanel
         isOpen={isRiskPanelOpen}
         selectedRuleId={selectedRuleId}

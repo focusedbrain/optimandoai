@@ -536,7 +536,7 @@
 }
 
 /* =============================================================================
-   Preflight Alignment Panel
+   Pre-Execution Alignment Panel
    ============================================================================= */
 
 .preflight-alignment-panel {
@@ -682,7 +682,7 @@
 }
 
 /* =============================================================================
-   Preflight Risk Details Panel
+   Pre-Execution Risk Details Panel
    ============================================================================= */
 
 .preflight-risk-panel {
@@ -1062,7 +1062,7 @@
 }
 
 /* =============================================================================
-   Preflight Hero Section
+   Pre-Execution Hero Section
    ============================================================================= */
 
 .preflight-hero {
@@ -1267,10 +1267,21 @@
   color: white;
 }
 
+/* Show All Button - Same style as unified dashboard */
 .preflight-hero__btn--secondary {
-  background: var(--bg-elevated);
-  color: var(--text-primary);
+  background: transparent;
+  color: var(--text-muted);
   border: 1px solid var(--border);
+  width: 100%;
+  padding: 8px 12px;
+  font-size: 10px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s ease;
 }
 
 .preflight-hero__btn--secondary:hover {
@@ -1424,6 +1435,160 @@
 [data-ui-theme="default"] .preflight-hero__btn--analyse-workflow:hover {
   background: white;
   color: #9333ea;
+}
+
+/* =============================================================================
+   Details Box - Risk Category + Approval Details unified
+   ============================================================================= */
+
+.preflight-hero__details-box {
+  padding: 14px 16px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  margin-bottom: 12px;
+}
+
+.preflight-hero__details-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+[data-ui-theme="default"] .preflight-hero__details-box {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.15);
+  backdrop-filter: blur(4px);
+}
+
+[data-ui-theme="default"] .preflight-hero__details-header {
+  border-color: rgba(255, 255, 255, 0.12);
+}
+
+[data-ui-theme="default"] .preflight-hero__details-box .preflight-hero__event-title {
+  color: white;
+}
+
+[data-ui-theme="default"] .preflight-hero__details-box .preflight-hero__event-desc {
+  color: rgba(255, 255, 255, 0.8);
+}
+
+[data-ui-theme="default"] .preflight-hero__details-box .preflight-hero__event-template,
+[data-ui-theme="default"] .preflight-hero__details-box .preflight-hero__event-time {
+  color: rgba(255, 255, 255, 0.6);
+}
+
+/* =============================================================================
+   Policy Compliance Summary
+   ============================================================================= */
+
+.preflight-hero__compliance-summary {
+  padding: 10px 12px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  margin-bottom: 12px;
+}
+
+.preflight-hero__compliance-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border);
+}
+
+.preflight-hero__compliance-title {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--text-primary);
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+
+.preflight-hero__compliance-badge {
+  padding: 2px 8px;
+  font-size: 8px;
+  font-weight: 700;
+  border-radius: 3px;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.preflight-hero__compliance-badge--passed {
+  background: rgba(16, 185, 129, 0.2);
+  color: #10b981;
+  border: 1px solid rgba(16, 185, 129, 0.3);
+}
+
+.preflight-hero__compliance-badge--warning {
+  background: rgba(245, 158, 11, 0.2);
+  color: #f59e0b;
+  border: 1px solid rgba(245, 158, 11, 0.3);
+}
+
+.preflight-hero__compliance-items {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.preflight-hero__compliance-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px;
+  background: var(--bg-surface);
+  border-radius: 4px;
+  font-size: 10px;
+}
+
+.preflight-hero__compliance-check {
+  color: #10b981;
+  font-weight: 700;
+  font-size: 10px;
+}
+
+.preflight-hero__compliance-label {
+  flex: 1;
+  color: var(--text-secondary);
+  font-size: 10px;
+}
+
+.preflight-hero__compliance-value {
+  font-weight: 600;
+  color: var(--text-primary);
+  font-size: 10px;
+}
+
+/* Default theme overrides for compliance summary */
+[data-ui-theme="default"] .preflight-hero__compliance-summary {
+  background: rgba(139, 92, 246, 0.1);
+  border-color: rgba(139, 92, 246, 0.3);
+}
+
+[data-ui-theme="default"] .preflight-hero__compliance-header {
+  border-color: rgba(255, 255, 255, 0.15);
+}
+
+[data-ui-theme="default"] .preflight-hero__compliance-title {
+  color: white;
+}
+
+[data-ui-theme="default"] .preflight-hero__compliance-item {
+  background: rgba(139, 92, 246, 0.15);
+}
+
+[data-ui-theme="default"] .preflight-hero__compliance-label {
+  color: rgba(255, 255, 255, 0.7);
+}
+
+[data-ui-theme="default"] .preflight-hero__compliance-value {
+  color: white;
 }
 
 /* Slider Navigation */
@@ -2208,8 +2373,8 @@
    ============================================================================= */
 
 [data-ui-theme="default"] .preflight-hero__btn--secondary {
-  border-color: white;
-  color: white;
+  border-color: rgba(255, 255, 255, 0.3);
+  color: rgba(255, 255, 255, 0.7);
 }
 
 [data-ui-theme="default"] .preflight-hero__btn--secondary:hover {
@@ -2228,7 +2393,7 @@
 }
 
 [data-ui-theme="default"] .preflight-hero__title {
-  color: #10b981;
+  color: white;
 }
 
 [data-ui-theme="default"] .preflight-hero__risk-category {
