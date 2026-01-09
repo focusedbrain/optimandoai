@@ -337,9 +337,7 @@ describe('Parser Determinism', () => {
 
 // =============================================================================
 // PDF Rasterization Tests
-// =============================================================================
-
-describe('processAttachmentForRasterization', () => {
+// =============================================================================describe('processAttachmentForRasterization', () => {
   beforeEach(() => {
     vi.stubGlobal('fetch', vi.fn())
   })

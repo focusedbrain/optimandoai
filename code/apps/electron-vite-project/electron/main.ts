@@ -15,17 +15,6 @@ const gotTheLock = app.requestSingleInstanceLock()
 if (!gotTheLock) {
   console.log('[MAIN] Another instance is already running. Exiting.')
   app.quit()
-} else {
-  app.on('second-instance', (_event, _commandLine, _workingDirectory) => {
-    // Someone tried to run a second instance, focus the existing window
-    console.log('[MAIN] Second instance detected, focusing existing window')
-    const windows = BrowserWindow.getAllWindows()
-    if (windows.length > 0) {
-      const mainWindow = windows[0]
-      if (mainWindow.isMinimized()) mainWindow.restore()
-      mainWindow.focus()
-    }
-  })
 }
 
 // ============================================================================
@@ -299,6 +288,8 @@ function handleDeepLink(raw: string) {
 
 // Check if app was started with --hidden flag (auto-start on login)
 const startHidden = process.argv.includes('--hidden')
+console.log('[MAIN] Startup args:', process.argv.join(' '))
+console.log('[MAIN] Start hidden mode:', startHidden)
 
 async function createWindow() {
   win = new BrowserWindow({
@@ -1062,23 +1053,20 @@ function updateTrayMenu() {
 // Quit when all windows are closed, except on macOS. There, it's common
 // for applications and their menu bar to stay active until the user quits
 // explicitly with Cmd + Q.
-// Single instance + protocol
-// Disabled in development to avoid conflicts with Vite hot-reload
-const isDev = process.env.NODE_ENV !== 'production'
-const gotLock = isDev ? true : app.requestSingleInstanceLock()
-if (!gotLock) {
-  console.log('[MAIN] Another instance is already running, quitting...')
-  app.quit()
-} else {
-  app.on('second-instance', (_e, argv) => {
-    if (win) {
-      if (win.isMinimized()) win.restore()
-      win.focus()
-    }
-    const arg = argv.find(a => a.startsWith('opengiraffe://'))
-    if (arg) handleDeepLink(arg)
-  })
-}
+// NOTE: Single-instance lock is handled at the top of this file
+// Handle second instance: focus window and handle deep-links
+app.on('second-instance', (_e, argv) => {
+  console.log('[MAIN] Second instance detected, focusing existing window')
+  // Focus the existing window
+  if (win && !win.isDestroyed()) {
+    if (win.isMinimized()) win.restore()
+    win.show()
+    win.focus()
+  }
+  // Handle opengiraffe:// deep-links
+  const arg = argv.find(a => a.startsWith('opengiraffe://'))
+  if (arg) handleDeepLink(arg)
+})
 
 app.setAsDefaultProtocolClient('opengiraffe')
 
