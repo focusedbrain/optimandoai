@@ -1416,7 +1416,12 @@ app.whenReady().then(async () => {
                 console.log('[MAIN] Theme from message:', currentExtensionTheme)
               }
               try {
-                if (win) {
+                // Recreate window if it was closed or destroyed
+                if (!win || win.isDestroyed()) {
+                  console.log('[MAIN] Window not available, creating new window...')
+                  await createWindow()
+                }
+                if (win && !win.isDestroyed()) {
                   if (win.isMinimized()) win.restore()
                   win.show()
                   win.focus()
@@ -1426,8 +1431,8 @@ app.whenReady().then(async () => {
                   console.log('[MAIN] ✅ Analysis Dashboard window focused, IPC sent with phase:', phase, 'theme:', currentExtensionTheme)
                   socket.send(JSON.stringify({ type: 'ANALYSIS_DASHBOARD_OPENED' }))
                 } else {
-                  console.log('[MAIN] ⚠️ Main window not available')
-                  socket.send(JSON.stringify({ type: 'ANALYSIS_DASHBOARD_ERROR', error: 'Main window not available' }))
+                  console.log('[MAIN] ⚠️ Failed to create main window')
+                  socket.send(JSON.stringify({ type: 'ANALYSIS_DASHBOARD_ERROR', error: 'Failed to create main window' }))
                 }
               } catch (err: any) {
                 console.error('[MAIN] ❌ Error opening Analysis Dashboard:', err)
