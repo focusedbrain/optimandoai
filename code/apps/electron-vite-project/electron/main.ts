@@ -1033,7 +1033,13 @@ function updateTrayMenu() {
         label: '🚀 Start on Login', 
         type: 'checkbox' as const,
         checked: loginSettings.openAtLogin,
+        enabled: !process.env.VITE_DEV_SERVER_URL, // Disable in dev mode
         click: (menuItem) => {
+          // Only allow changing autostart in production to prevent wrong executable registration
+          if (process.env.VITE_DEV_SERVER_URL) {
+            console.log('[MAIN] Cannot change autostart in dev mode')
+            return
+          }
           app.setLoginItemSettings({ 
             openAtLogin: menuItem.checked, 
             args: ['--hidden'] 
@@ -1170,12 +1176,18 @@ app.whenReady().then(async () => {
     await setupFileLogging()
     try { process.env.WS_NO_BUFFER_UTIL = '1'; process.env.WS_NO_UTF_8_VALIDATE = '1' } catch {}
     // Auto-start on login (Windows/macOS). Pass --hidden so it starts in background.
+    // IMPORTANT: Only enable autostart in production builds to avoid registering dev electron
+    const isProduction = !process.env.VITE_DEV_SERVER_URL
     try {
-      if (process.platform === 'win32' || process.platform === 'darwin') {
-        app.setLoginItemSettings({ openAtLogin: true, args: ['--hidden'] })
-      }
       if (process.platform === 'win32') {
         app.setAppUserModelId('com.opengiraffe.desktop')
+      }
+      if (isProduction && (process.platform === 'win32' || process.platform === 'darwin')) {
+        // Only register autostart for production builds (not dev mode)
+        app.setLoginItemSettings({ openAtLogin: true, args: ['--hidden'] })
+        console.log('[MAIN] Production build - autostart registered')
+      } else if (!isProduction) {
+        console.log('[MAIN] Dev mode - skipping autostart registration to avoid wrong executable')
       }
     } catch {}
   createWindow()
