@@ -15,6 +15,8 @@ const gotTheLock = app.requestSingleInstanceLock()
 if (!gotTheLock) {
   console.log('[MAIN] Another instance is already running. Exiting.')
   app.quit()
+  // CRITICAL: Exit the process immediately to prevent any further code execution
+  process.exit(0)
 }
 
 // ============================================================================
