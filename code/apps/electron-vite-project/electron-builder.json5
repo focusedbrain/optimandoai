@@ -1,7 +1,7 @@
 // @see - https://www.electron.build/configuration/configuration
 {
   "$schema": "https://raw.githubusercontent.com/electron-userland/electron-builder/master/packages/app-builder-lib/scheme.json",
-  "appId": "com.opengiraffe.desktop",
+  "appId": "com.wrcode.desktop",
   "asar": true,
   "asarUnpack": [
     "**/node_modules/ffmpeg-static/**/*",
@@ -10,7 +10,7 @@
     "**/node_modules/canvas/**/*",
     "**/*.node"
   ],
-  "productName": "OpenGiraffe",
+  "productName": "WR Code",
   "directories": {
     "output": "release/${version}"
   },
@@ -60,7 +60,7 @@
     "allowToChangeInstallationDirectory": true,
     "deleteAppDataOnUninstall": false
   },
-  "executableName": "opengiraffe",
+  "executableName": "wrcode",
   "npmRebuild": true,
   "nodeGypRebuild": true
 }

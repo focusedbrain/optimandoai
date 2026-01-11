@@ -88,16 +88,16 @@ async function killProcessOnPort(port: number): Promise<void> {
 }
 
 /**
- * Kill any stale OpenGiraffe/electron processes that might be holding ports
+ * Kill any stale WR Code/electron processes that might be holding ports
  */
 async function killStaleProcesses(): Promise<void> {
   if (process.platform !== 'win32') return
   
   try {
-    // Kill any OpenGiraffe processes (renamed electron) except current process
+    // Kill any WR Code processes (renamed electron) except current process
     const currentPid = process.pid
-    execSync(`wmic process where "name='OpenGiraffe.exe' and processid!=${currentPid}" delete`, { stdio: 'ignore' })
-    console.log('[PORT-CLEANUP] Killed stale OpenGiraffe processes')
+    execSync(`wmic process where "name='wrcode.exe' and processid!=${currentPid}" delete`, { stdio: 'ignore' })
+    console.log('[PORT-CLEANUP] Killed stale WR Code processes')
   } catch {
     // No processes found or wmic not available
   }
@@ -295,8 +295,8 @@ console.log('[MAIN] Start hidden mode:', startHidden)
 
 async function createWindow() {
   win = new BrowserWindow({
-    title: 'OpenGiraffe™ Analysis Dashboard',
-    icon: path.join(process.env.VITE_PUBLIC, 'giraffe.svg'),
+    title: 'WR Code™ Analysis Dashboard',
+    icon: path.join(process.env.VITE_PUBLIC, 'wrcode-logo.svg'),
     webPreferences: {
       preload: path.join(__dirname, 'preload.mjs'),
       contextIsolation: true,
@@ -952,7 +952,7 @@ function createTray() {
   try {
     tray = new Tray(path.join(process.env.VITE_PUBLIC, 'electron-vite.svg'))
     updateTrayMenu()
-    tray.setToolTip('OpenGiraffe Orchestrator')
+    tray.setToolTip('WR Code Orchestrator')
     tray.on('click', async () => {
       if (!win || win.isDestroyed()) {
         // Recreate window if it was closed
@@ -969,7 +969,7 @@ function createTray() {
     })
     // Startup toast
     try {
-      new Notification({ title: 'OpenGiraffe Orchestrator', body: 'Running in background. Use Alt+Shift+S or chat icons to capture.' }).show()
+      new Notification({ title: 'WR Code Orchestrator', body: 'Running in background. Use Alt+Shift+S or chat icons to capture.' }).show()
     } catch {}
   } catch {}
 }

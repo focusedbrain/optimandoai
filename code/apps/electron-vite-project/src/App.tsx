@@ -23,42 +23,15 @@ function mapThemeToCss(theme: ExtensionTheme): string {
   return theme
 }
 
-// Inline Giraffe Icon Component
-function GiraffeIcon({ size = 24 }: { size?: number }) {
+// WR Code Logo Component - semi-transparent
+function WRCodeLogo({ size = 24 }: { size?: number }) {
   return (
-    <svg 
-      width={size} 
-      height={size} 
-      viewBox="0 0 128 128" 
-      fill="none" 
-      xmlns="http://www.w3.org/2000/svg"
-      aria-label="OpenGiraffe Logo"
-    >
-      <defs>
-        <linearGradient id="giraffeGradInline" x1="0%" y1="0%" x2="100%" y2="100%">
-          <stop offset="0%" style={{ stopColor: '#F5A623', stopOpacity: 1 }} />
-          <stop offset="100%" style={{ stopColor: '#D4851D', stopOpacity: 1 }} />
-        </linearGradient>
-      </defs>
-      <ellipse cx="64" cy="90" rx="28" ry="22" fill="url(#giraffeGradInline)"/>
-      <path d="M58 75 L50 30 Q48 20 52 18 L60 18 Q64 20 63 30 L70 75 Z" fill="url(#giraffeGradInline)"/>
-      <ellipse cx="56" cy="16" rx="14" ry="10" fill="url(#giraffeGradInline)"/>
-      <ellipse cx="44" cy="8" rx="4" ry="6" fill="#D4851D"/>
-      <ellipse cx="68" cy="8" rx="4" ry="6" fill="#D4851D"/>
-      <circle cx="48" cy="4" r="3" fill="#8B4513"/>
-      <circle cx="64" cy="4" r="3" fill="#8B4513"/>
-      <ellipse cx="46" cy="20" rx="8" ry="5" fill="#FFDAB9"/>
-      <circle cx="52" cy="14" r="3" fill="#1a1a1a"/>
-      <circle cx="53" cy="13" r="1" fill="white"/>
-      <ellipse cx="55" cy="40" rx="5" ry="4" fill="#8B4513" opacity="0.6"/>
-      <ellipse cx="60" cy="55" rx="4" ry="3" fill="#8B4513" opacity="0.6"/>
-      <ellipse cx="50" cy="85" rx="6" ry="5" fill="#8B4513" opacity="0.6"/>
-      <ellipse cx="70" cy="82" rx="5" ry="6" fill="#8B4513" opacity="0.6"/>
-      <rect x="46" y="108" width="6" height="18" rx="2" fill="#D4851D"/>
-      <rect x="56" y="108" width="6" height="18" rx="2" fill="#D4851D"/>
-      <rect x="66" y="108" width="6" height="18" rx="2" fill="url(#giraffeGradInline)"/>
-      <rect x="76" y="108" width="6" height="18" rx="2" fill="url(#giraffeGradInline)"/>
-    </svg>
+    <img 
+      src="/wrcode-logo.svg" 
+      alt="WR Code Logo"
+      width={size}
+      height={size * 1.25}
+    />
   )
 }
 
@@ -132,8 +105,8 @@ function App() {
       {/* Minimal Header Bar */}
       <header className="app-header">
         <div className="app-header__brand">
-          <GiraffeIcon size={28} />
-          <span className="app-header__title">OpenGiraffe<sup className="app-header__tm">™</sup></span>
+          <WRCodeLogo size={28} />
+          <span className="app-header__title">WR Code<sup className="app-header__tm">™</sup></span>
           <span className="app-header__subtitle">Analysis Dashboard</span>
         </div>
         <div className="app-header__spacer" />
