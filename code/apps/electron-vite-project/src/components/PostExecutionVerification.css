@@ -1820,43 +1820,43 @@ code.poae-hero__meta-value {
 }
 
 /* Professional Theme */
-[data-ui-theme="professional"] .post-panel {
+[data-ui-theme="standard"] .post-panel {
   background: rgba(0, 0, 0, 0.03);
 }
 
-[data-ui-theme="professional"] .post-panel-header {
+[data-ui-theme="standard"] .post-panel-header {
   background: rgba(0, 0, 0, 0.04);
 }
 
-[data-ui-theme="professional"] .post-panel--poae {
+[data-ui-theme="standard"] .post-panel--poae {
   background: rgba(251, 146, 60, 0.02);
 }
 
-[data-ui-theme="professional"] .evidence-item {
+[data-ui-theme="standard"] .evidence-item {
   background: rgba(0, 0, 0, 0.02);
 }
 
-[data-ui-theme="professional"] .poae-event {
+[data-ui-theme="standard"] .poae-event {
   background: rgba(0, 0, 0, 0.02);
 }
 
-[data-ui-theme="professional"] .poae-hero {
+[data-ui-theme="standard"] .poae-hero {
   background: rgba(255, 255, 255, 0.98);
 }
 
-[data-ui-theme="professional"] .poae-hero__latest {
+[data-ui-theme="standard"] .poae-hero__latest {
   background: rgba(0, 0, 0, 0.03);
 }
 
-[data-ui-theme="professional"] .poae-hero__chain {
+[data-ui-theme="standard"] .poae-hero__chain {
   background: rgba(0, 0, 0, 0.05);
 }
 
-[data-ui-theme="professional"] .poae-hero__chain-event {
+[data-ui-theme="standard"] .poae-hero__chain-event {
   background: rgba(255, 255, 255, 0.8);
 }
 
-[data-ui-theme="professional"] .poae-hero__history-item {
+[data-ui-theme="standard"] .poae-hero__history-item {
   background: rgba(0, 0, 0, 0.02);
 }
 
@@ -2565,31 +2565,31 @@ code.poae-hero__meta-value {
 }
 
 /* Professional Theme */
-[data-ui-theme="professional"] .workflow-modal {
+[data-ui-theme="standard"] .workflow-modal {
   background: #ffffff;
 }
 
-[data-ui-theme="professional"] .workflow-section {
+[data-ui-theme="standard"] .workflow-section {
   background: rgba(0, 0, 0, 0.02);
 }
 
-[data-ui-theme="professional"] .workflow-poae {
+[data-ui-theme="standard"] .workflow-poae {
   background: rgba(0, 0, 0, 0.03);
 }
 
-[data-ui-theme="professional"] .workflow-poae--highlight {
+[data-ui-theme="standard"] .workflow-poae--highlight {
   background: rgba(147, 51, 234, 0.05);
 }
 
-[data-ui-theme="professional"] .workflow-beap {
+[data-ui-theme="standard"] .workflow-beap {
   background: rgba(0, 0, 0, 0.02);
 }
 
-[data-ui-theme="professional"] .workflow-template {
+[data-ui-theme="standard"] .workflow-template {
   background: rgba(0, 0, 0, 0.02);
 }
 
-[data-ui-theme="professional"] .workflow-artefact {
+[data-ui-theme="standard"] .workflow-artefact {
   background: rgba(0, 0, 0, 0.03);
 }
 
@@ -2597,27 +2597,27 @@ code.poae-hero__meta-value {
    Default (Original) Theme Overrides - Left-side button fix (white border/text)
    ============================================================================= */
 
-[data-ui-theme="default"] .poae-hero__btn--secondary {
+[data-ui-theme="pro"] .poae-hero__btn--secondary {
   border-color: white;
   color: white;
 }
 
-[data-ui-theme="default"] .poae-hero__btn--secondary:hover {
+[data-ui-theme="pro"] .poae-hero__btn--secondary:hover {
   border-color: white;
   color: white;
 }
 
-[data-ui-theme="default"] .poae-hero__btn--analyse {
+[data-ui-theme="pro"] .poae-hero__btn--analyse {
   border-color: white;
   color: white;
 }
 
-[data-ui-theme="default"] .poae-hero__btn--analyse:hover {
+[data-ui-theme="pro"] .poae-hero__btn--analyse:hover {
   background: white;
   color: #9333ea;
 }
 
-[data-ui-theme="default"] .poae-hero__title {
+[data-ui-theme="pro"] .poae-hero__title {
   color: #10b981;
 }
 

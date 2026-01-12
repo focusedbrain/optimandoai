@@ -137,7 +137,7 @@ function SidepanelOrchestrator() {
   const [pendingItems, setPendingItems] = useState<any[]>([])
   const [embedTarget, setEmbedTarget] = useState<'session' | 'account'>('session')
   const [notification, setNotification] = useState<{message: string, type: 'success' | 'error' | 'info'} | null>(null)
-  const [theme, setTheme] = useState<'default' | 'dark' | 'professional'>('default')
+  const [theme, setTheme] = useState<'pro' | 'dark' | 'standard'>('standard')
   
   // WR MailGuard state
   const [mailguardTo, setMailguardTo] = useState('')
@@ -1080,8 +1080,8 @@ function SidepanelOrchestrator() {
     // Load initial theme
     import('./storage/storageWrapper').then(({ storageGet }) => {
       storageGet(['optimando-ui-theme'], (result) => {
-        const savedTheme = result['optimando-ui-theme'] || 'default'
-        setTheme(savedTheme as 'default' | 'dark' | 'professional')
+        const savedTheme = result['optimando-ui-theme'] || 'standard'
+        setTheme(savedTheme as 'pro' | 'dark' | 'standard')
       });
     });
 
@@ -1090,9 +1090,9 @@ function SidepanelOrchestrator() {
       if (namespace === 'local') {
         // Handle theme changes
         if (changes['optimando-ui-theme']) {
-          const newTheme = changes['optimando-ui-theme'].newValue || 'default'
+          const newTheme = changes['optimando-ui-theme'].newValue || 'standard'
           console.log('🎨 Sidepanel: Theme changed to:', newTheme)
-          setTheme(newTheme as 'default' | 'dark' | 'professional')
+          setTheme(newTheme as 'pro' | 'dark' | 'standard')
         }
         
         // Handle active session key changes - reload session data when session changes
@@ -2854,8 +2854,8 @@ function SidepanelOrchestrator() {
               bottom: '100%',
               right: 0,
               marginBottom: '6px',
-              background: theme === 'professional' ? '#ffffff' : '#1e293b',
-              border: theme === 'professional' ? '1px solid #e2e8f0' : '1px solid rgba(255,255,255,0.2)',
+              background: theme === 'standard' ? '#ffffff' : '#1e293b',
+              border: theme === 'standard' ? '1px solid #e2e8f0' : '1px solid rgba(255,255,255,0.2)',
               borderRadius: '10px',
               boxShadow: '0 8px 24px rgba(0,0,0,0.25)',
               zIndex: 1000,
@@ -2869,8 +2869,8 @@ function SidepanelOrchestrator() {
               fontSize: '10px',
               fontWeight: '700',
               opacity: 0.5,
-              borderBottom: theme === 'professional' ? '1px solid #e2e8f0' : '1px solid rgba(255,255,255,0.1)',
-              color: theme === 'professional' ? '#64748b' : 'inherit',
+              borderBottom: theme === 'standard' ? '1px solid #e2e8f0' : '1px solid rgba(255,255,255,0.1)',
+              color: theme === 'standard' ? '#64748b' : 'inherit',
               letterSpacing: '0.5px'
             }}>
               SELECT MODEL
@@ -2880,7 +2880,7 @@ function SidepanelOrchestrator() {
                 padding: '10px 12px',
                 fontSize: '11px',
                 opacity: 0.6,
-                color: theme === 'professional' ? '#64748b' : 'inherit'
+                color: theme === 'standard' ? '#64748b' : 'inherit'
               }}>
                 No models available. Install models in LLM Settings.
               </div>
@@ -2897,15 +2897,15 @@ function SidepanelOrchestrator() {
                   alignItems: 'center',
                   gap: '8px',
                   background: model.name === activeLlmModel 
-                    ? (theme === 'professional' ? 'rgba(34,197,94,0.12)' : 'rgba(34,197,94,0.25)')
+                    ? (theme === 'standard' ? 'rgba(34,197,94,0.12)' : 'rgba(34,197,94,0.25)')
                     : 'transparent',
-                  color: theme === 'professional' ? '#0f172a' : 'inherit',
+                  color: theme === 'standard' ? '#0f172a' : 'inherit',
                   borderLeft: model.name === activeLlmModel ? '3px solid #22c55e' : '3px solid transparent',
                   transition: 'all 0.15s ease'
                 }}
                 onMouseEnter={(e) => {
                   if (model.name !== activeLlmModel) {
-                    e.currentTarget.style.background = theme === 'professional' ? '#f1f5f9' : 'rgba(255,255,255,0.08)'
+                    e.currentTarget.style.background = theme === 'standard' ? '#f1f5f9' : 'rgba(255,255,255,0.08)'
                     e.currentTarget.style.borderLeftColor = '#22c55e'
                   }
                 }}
@@ -2937,7 +2937,7 @@ function SidepanelOrchestrator() {
                     fontSize: '10px', 
                     opacity: 0.5, 
                     flexShrink: 0,
-                    background: theme === 'professional' ? '#e2e8f0' : 'rgba(255,255,255,0.1)',
+                    background: theme === 'standard' ? '#f8f9fb' : 'rgba(255,255,255,0.1)',
                     padding: '2px 6px',
                     borderRadius: '4px'
                   }}>
@@ -3041,34 +3041,36 @@ function SidepanelOrchestrator() {
     })
   }
 
-  // Get theme colors
+  // Get theme colors - Matching Dashboard App.css exactly
   const getThemeColors = () => {
     switch (theme) {
       case 'dark':
         return {
           background: 'linear-gradient(135deg, #0f172a 0%, #1e293b 100%)',
-          text: '#f1f5f9'
+          text: '#e7e9ea' // Matching Dashboard --text-primary-dark
         }
-      case 'professional':
+      case 'standard':
         return {
-          background: 'linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%)',
-          text: '#0f172a'
+          // Matching Dashboard: --bg-base-prof: #f8f9fb (grey-white tone, not pure white)
+          background: '#f8f9fb',
+          text: '#0f1419' // Matching Dashboard --text-primary-prof
         }
-      default:
+      default: // 'pro'
         return {
+          // Matching Dashboard: [data-ui-theme="pro"] body uses gradient
           background: 'linear-gradient(135deg, #c084fc 0%, #a855f7 50%, #9333ea 100%)',
-          text: 'white'
+          text: '#ffffff' // Matching Dashboard --text-primary for pro
         }
     }
   }
 
   // Get icon button style based on theme
   const getIconButtonStyle = (baseColor: string) => {
-    if (theme === 'professional') {
+    if (theme === 'standard') {
       return {
-        background: 'rgba(0,0,0,0.08)',
-        border: '1px solid rgba(0,0,0,0.12)',
-        color: '#1e293b'
+        background: '#ffffff',
+        border: '1px solid #e1e8ed',
+        color: '#0f172a'
       }
     } else if (theme === 'dark') {
       return {
@@ -3089,9 +3091,9 @@ function SidepanelOrchestrator() {
 
   // Selectbox style based on theme
   const getSelectboxStyle = () => {
-    if (theme === 'professional') {
+    if (theme === 'standard') {
       return {
-        background: 'rgba(226, 232, 240, 0.9)',
+        background: '#ffffff',
         color: '#0f172a',
         arrowColor: '%230f172a'
       }
@@ -3102,7 +3104,7 @@ function SidepanelOrchestrator() {
         arrowColor: '%23f1f5f9'
       }
     } else {
-      // Default theme
+      // Pro theme
       return {
         background: 'rgba(55, 65, 81, 0.85)',
         color: '#ffffff',
@@ -3117,16 +3119,16 @@ function SidepanelOrchestrator() {
     width: '32px',
     height: '32px',
     flexShrink: 0,
-    ...(theme === 'professional' ? {
-      background: 'rgba(15,23,42,0.08)',
-      border: '1px solid rgba(15,23,42,0.2)',
+    ...(theme === 'standard' ? {
+      background: '#ffffff',
+      border: '1px solid #e1e8ed',
       color: '#0f172a'
     } : theme === 'dark' ? {
       background: 'rgba(255,255,255,0.1)',
       border: '1px solid rgba(255,255,255,0.2)',
       color: '#f1f5f9'
     } : {
-      background: 'rgba(118,75,162,0.45)',
+      background: 'rgba(118, 75, 162, 0.45)',
       border: '1px solid rgba(255,255,255,0.5)',
       color: 'white'
     }),
@@ -3144,16 +3146,16 @@ function SidepanelOrchestrator() {
     width: '32px',
     height: '32px',
     flexShrink: 0,
-    ...(theme === 'professional' ? {
-      background: 'rgba(15,23,42,0.08)',
-      border: '1px solid rgba(15,23,42,0.2)',
+    ...(theme === 'standard' ? {
+      background: '#ffffff',
+      border: '1px solid #e1e8ed',
       color: '#0f172a'
     } : theme === 'dark' ? {
       background: 'rgba(255,255,255,0.1)',
       border: '1px solid rgba(255,255,255,0.2)',
       color: '#f1f5f9'
     } : {
-      background: 'rgba(118,75,162,0.45)',
+      background: 'rgba(118, 75, 162, 0.45)',
       border: '1px solid rgba(255,255,255,0.5)',
       color: 'white'
     }),
@@ -3167,9 +3169,9 @@ function SidepanelOrchestrator() {
 
   // Command chat control button style
   const chatControlButtonStyle = () => ({
-    ...(theme === 'professional' ? {
-      background: 'rgba(15,23,42,0.08)',
-      border: '1px solid rgba(15,23,42,0.2)',
+    ...(theme === 'standard' ? {
+      background: '#ffffff',
+      border: '1px solid #e1e8ed',
       color: '#0f172a'
     } : theme === 'dark' ? {
       background: 'rgba(255,255,255,0.1)',
@@ -3186,9 +3188,9 @@ function SidepanelOrchestrator() {
   const wrButtonStyle = () => ({
     width: '100%',
     padding: '12px 18px',
-    ...(theme === 'professional' ? {
-      background: 'rgba(15,23,42,0.08)',
-      border: '1px solid rgba(15,23,42,0.2)',
+    ...(theme === 'standard' ? {
+      background: '#ffffff',
+      border: '1px solid #e1e8ed',
       color: '#0f172a'
     } : theme === 'dark' ? {
       background: 'rgba(255,255,255,0.15)',
@@ -3240,7 +3242,7 @@ function SidepanelOrchestrator() {
           alignItems: 'center',
           justifyContent: 'center',
           gap: '12px',
-          background: theme === 'default' ? 'rgba(118,75,162,0.6)' : 'rgba(0,0,0,0.15)'
+          background: theme === 'pro' ? 'rgba(118,75,162,0.6)' : 'rgba(0,0,0,0.15)'
         }}>
           <button
             onClick={openPopupChat}
@@ -3263,7 +3265,7 @@ function SidepanelOrchestrator() {
               ...actionButtonStyle(isCommandChatPinned ? 'rgba(76,175,80,0.4)' : 'rgba(255,255,255,0.1)'),
               fontSize: '14px',
               padding: 0,
-              ...(isCommandChatPinned && theme === 'default' ? {
+              ...(isCommandChatPinned && theme === 'pro' ? {
                 background: 'rgba(76,175,80,0.4)',
                 border: '1px solid rgba(76,175,80,0.6)'
               } : {})
@@ -3286,11 +3288,11 @@ function SidepanelOrchestrator() {
               width: '50px',
               height: '20px',
               background: viewMode === 'app'
-                ? (theme === 'default' ? 'rgba(76,175,80,0.9)' : theme === 'dark' ? 'rgba(76,175,80,0.9)' : 'rgba(34,197,94,0.9)')
-                : (theme === 'default' ? 'rgba(255,255,255,0.2)' : theme === 'dark' ? 'rgba(255,255,255,0.2)' : 'rgba(15,23,42,0.2)'),
+                ? (theme === 'pro' ? 'rgba(76,175,80,0.9)' : theme === 'dark' ? 'rgba(76,175,80,0.9)' : 'rgba(34,197,94,0.9)')
+                : (theme === 'pro' ? 'rgba(255,255,255,0.2)' : theme === 'dark' ? 'rgba(255,255,255,0.2)' : 'rgba(15,23,42,0.2)'),
               borderRadius: '10px',
               transition: 'background 0.2s',
-              border: theme === 'default' ? '1px solid rgba(255,255,255,0.3)' : theme === 'dark' ? '1px solid rgba(255,255,255,0.3)' : '1px solid rgba(15,23,42,0.3)',
+              border: theme === 'pro' ? '1px solid rgba(255,255,255,0.3)' : theme === 'dark' ? '1px solid rgba(255,255,255,0.3)' : '1px solid rgba(15,23,42,0.3)',
               overflow: 'hidden'
             }}>
               <span style={{
@@ -3303,7 +3305,7 @@ function SidepanelOrchestrator() {
                 fontWeight: '700',
                 color: viewMode === 'app'
                   ? 'rgba(255,255,255,0.95)'
-                  : (theme === 'default' ? 'rgba(255,255,255,0.5)' : theme === 'dark' ? 'rgba(255,255,255,0.5)' : 'rgba(15,23,42,0.5)'),
+                  : (theme === 'pro' ? 'rgba(255,255,255,0.5)' : theme === 'dark' ? 'rgba(255,255,255,0.5)' : 'rgba(15,23,42,0.5)'),
                 transition: 'all 0.2s',
                 userSelect: 'none',
                 textTransform: 'uppercase',
@@ -3318,7 +3320,7 @@ function SidepanelOrchestrator() {
                 left: viewMode === 'app' ? '32px' : '3px',
                 width: '14px',
                 height: '14px',
-                background: theme === 'default' ? 'rgba(255,255,255,0.95)' : theme === 'dark' ? 'rgba(255,255,255,0.95)' : 'rgba(255,255,255,0.95)',
+                background: theme === 'pro' ? 'rgba(255,255,255,0.95)' : theme === 'dark' ? 'rgba(255,255,255,0.95)' : 'rgba(255,255,255,0.95)',
                 borderRadius: '50%',
                 transition: 'left 0.2s',
                 boxShadow: '0 1px 3px rgba(0,0,0,0.3)',
@@ -3334,7 +3336,7 @@ function SidepanelOrchestrator() {
             <div 
               style={{
                 borderBottom: '1px solid rgba(255,255,255,0.2)',
-                background: theme === 'default' ? 'rgba(118,75,162,0.4)' : 'rgba(255,255,255,0.10)',
+                background: theme === 'pro' ? 'rgba(118,75,162,0.4)' : 'rgba(255,255,255,0.10)',
                 border: '1px solid rgba(255,255,255,0.20)',
                 margin: '12px 16px',
                 borderRadius: '8px',
@@ -3351,8 +3353,8 @@ function SidepanelOrchestrator() {
                 alignItems: 'center',
                 justifyContent: 'space-between',
                 padding: '6px 10px',
-                background: theme === 'professional' ? 'linear-gradient(180deg, rgba(248,250,252,0.95) 0%, rgba(241,245,249,0.9) 100%)' : theme === 'dark' ? 'linear-gradient(180deg, rgba(15,23,42,0.95) 0%, rgba(30,41,59,0.9) 100%)' : 'linear-gradient(180deg, rgba(15,10,30,0.95) 0%, rgba(30,20,50,0.9) 100%)',
-                borderBottom: theme === 'professional' ? '1px solid rgba(15,23,42,0.1)' : '1px solid rgba(168,85,247,0.3)',
+                background: theme === 'standard' ? '#ffffff' : theme === 'dark' ? 'linear-gradient(180deg, rgba(15,23,42,0.95) 0%, rgba(30,41,59,0.9) 100%)' : 'linear-gradient(180deg, rgba(15,10,30,0.95) 0%, rgba(30,20,50,0.9) 100%)',
+                borderBottom: theme === 'standard' ? '1px solid #e1e8ed' : '1px solid rgba(168,85,247,0.3)',
                 boxShadow: '0 2px 8px rgba(0,0,0,0.2)',
                 color: themeColors.text
               }}>
@@ -3476,8 +3478,8 @@ function SidepanelOrchestrator() {
                         transition: 'all 0.2s ease'
                       }}
                       onMouseEnter={(e) => {
-                        if (theme === 'professional') {
-                          e.currentTarget.style.background = 'rgba(15,23,42,0.12)'
+                        if (theme === 'standard') {
+                          e.currentTarget.style.background = '#eef3f6'
                         } else if (theme === 'dark') {
                           e.currentTarget.style.background = 'rgba(255,255,255,0.25)'
                         } else {
@@ -3485,8 +3487,8 @@ function SidepanelOrchestrator() {
                         }
                       }}
                       onMouseLeave={(e) => {
-                        if (theme === 'professional') {
-                          e.currentTarget.style.background = 'rgba(15,23,42,0.08)'
+                        if (theme === 'standard') {
+                          e.currentTarget.style.background = '#f8f9fb'
                         } else if (theme === 'dark') {
                           e.currentTarget.style.background = 'rgba(255,255,255,0.15)'
                         } else {
@@ -3516,8 +3518,8 @@ function SidepanelOrchestrator() {
                           transition: 'all 0.2s ease'
                         }}
                         onMouseEnter={(e) => {
-                          if (theme === 'professional') {
-                            e.currentTarget.style.background = 'rgba(15,23,42,0.12)'
+                          if (theme === 'standard') {
+                            e.currentTarget.style.background = '#eef3f6'
                           } else if (theme === 'dark') {
                             e.currentTarget.style.background = 'rgba(255,255,255,0.2)'
                           } else {
@@ -3525,8 +3527,8 @@ function SidepanelOrchestrator() {
                           }
                         }}
                         onMouseLeave={(e) => {
-                          if (theme === 'professional') {
-                            e.currentTarget.style.background = 'rgba(15,23,42,0.08)'
+                          if (theme === 'standard') {
+                            e.currentTarget.style.background = '#f8f9fb'
                           } else if (theme === 'dark') {
                             e.currentTarget.style.background = 'rgba(255,255,255,0.12)'
                           } else {
@@ -3652,22 +3654,22 @@ function SidepanelOrchestrator() {
               {/* Command Chat Content - Section 1 (showMinimalUI) */}
               {/* P2P Chat Placeholder */}
               {dockedPanelMode === 'p2p-chat' && (
-                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: theme === 'default' ? 'rgba(118,75,162,0.25)' : 'rgba(255,255,255,0.06)', minHeight: '280px' }}>
+                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: theme === 'pro' ? 'rgba(118,75,162,0.25)' : 'rgba(255,255,255,0.06)', minHeight: '280px' }}>
                   <div style={{ padding: '10px 14px', borderBottom: '1px solid rgba(255,255,255,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'rgba(0,0,0,0.1)' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                       <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#6b7280' }} />
-                      <span style={{ fontSize: '12px', opacity: 0.7 }}>No peer connected</span>
+                      <span style={{ fontSize: '12px', opacity: 0.7, color: theme === 'standard' ? '#0f172a' : 'inherit' }}>No peer connected</span>
                     </div>
-                    <button style={{ padding: '4px 10px', background: 'rgba(255,255,255,0.12)', border: 'none', borderRadius: '6px', color: 'white', fontSize: '11px', cursor: 'pointer' }}>Connect</button>
+                    <button style={{ padding: '4px 10px', background: theme === 'standard' ? '#f8f9fb' : 'rgba(255,255,255,0.12)', border: theme === 'standard' ? '1px solid #e1e8ed' : 'none', borderRadius: '6px', color: theme === 'standard' ? '#0f172a' : 'white', fontSize: '11px', cursor: 'pointer' }}>Connect</button>
                   </div>
                   <div style={{ flex: 1, overflowY: 'auto', padding: '12px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
                     {/* Empty messages area */}
                   </div>
-                  <div style={{ padding: '10px 12px', borderTop: '1px solid rgba(255,255,255,0.1)', display: 'flex', gap: '6px', alignItems: 'center' }}>
-                    <textarea placeholder="Message or capsule..." style={{ flex: 1, padding: '8px 10px', background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '8px', color: 'white', fontSize: '12px', resize: 'none', minHeight: '32px', maxHeight: '80px' }} />
-                    <button title="Build Capsule" style={{ width: '32px', height: '32px', background: 'rgba(255,255,255,0.12)', border: 'none', borderRadius: '6px', color: 'white', fontSize: '14px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>💊</button>
-                    <button title="AI Assistant" style={{ width: '32px', height: '32px', background: 'rgba(255,255,255,0.12)', border: 'none', borderRadius: '6px', color: 'white', fontSize: '14px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✨</button>
-                    <button title="Attach" style={{ width: '32px', height: '32px', background: 'rgba(255,255,255,0.12)', border: 'none', borderRadius: '6px', color: 'white', fontSize: '14px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>📎</button>
+                  <div style={{ padding: '10px 12px', borderTop: theme === 'standard' ? '1px solid #e1e8ed' : '1px solid rgba(255,255,255,0.1)', display: 'flex', gap: '6px', alignItems: 'center' }}>
+                    <textarea placeholder="Message or capsule..." style={{ flex: 1, padding: '8px 10px', background: theme === 'standard' ? 'white' : 'rgba(255,255,255,0.08)', border: theme === 'standard' ? '1px solid #e1e8ed' : '1px solid rgba(255,255,255,0.15)', borderRadius: '8px', color: theme === 'standard' ? '#0f172a' : 'white', fontSize: '12px', resize: 'none', minHeight: '32px', maxHeight: '80px' }} />
+                    <button title="Build Capsule" style={{ width: '32px', height: '32px', background: theme === 'standard' ? '#f8f9fb' : 'rgba(255,255,255,0.12)', border: theme === 'standard' ? '1px solid #e1e8ed' : 'none', borderRadius: '6px', color: theme === 'standard' ? '#0f172a' : 'white', fontSize: '14px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>💊</button>
+                    <button title="AI Assistant" style={{ width: '32px', height: '32px', background: theme === 'standard' ? '#f8f9fb' : 'rgba(255,255,255,0.12)', border: theme === 'standard' ? '1px solid #e1e8ed' : 'none', borderRadius: '6px', color: theme === 'standard' ? '#0f172a' : 'white', fontSize: '14px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✨</button>
+                    <button title="Attach" style={{ width: '32px', height: '32px', background: theme === 'standard' ? '#f8f9fb' : 'rgba(255,255,255,0.12)', border: theme === 'standard' ? '1px solid #e1e8ed' : 'none', borderRadius: '6px', color: theme === 'standard' ? '#0f172a' : 'white', fontSize: '14px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>📎</button>
                     <button style={{ padding: '8px 14px', background: 'linear-gradient(135deg, #22c55e 0%, #16a34a 100%)', border: 'none', borderRadius: '8px', color: 'white', fontSize: '12px', fontWeight: '600', cursor: 'pointer' }}>Send</button>
                   </div>
                 </div>
@@ -3682,16 +3684,16 @@ function SidepanelOrchestrator() {
                       <div style={{ fontSize: '12px' }}>No active stream</div>
                     </div>
                     <div style={{ position: 'absolute', bottom: '10px', left: '50%', transform: 'translateX(-50%)', display: 'flex', gap: '6px' }}>
-                      <button style={{ padding: '6px 10px', background: 'rgba(255,255,255,0.15)', border: 'none', borderRadius: '6px', color: 'white', fontSize: '11px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}>🎥 Start</button>
-                      <button style={{ padding: '6px 10px', background: 'rgba(255,255,255,0.15)', border: 'none', borderRadius: '6px', color: 'white', fontSize: '11px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}>🎙️ Mute</button>
-                      <button style={{ padding: '6px 10px', background: 'rgba(255,255,255,0.15)', border: 'none', borderRadius: '6px', color: 'white', fontSize: '11px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}>📺 Share</button>
+                      <button style={{ padding: '6px 10px', background: theme === 'standard' ? '#f8f9fb' : 'rgba(255,255,255,0.15)', border: theme === 'standard' ? '1px solid #e1e8ed' : 'none', borderRadius: '6px', color: theme === 'standard' ? '#0f172a' : 'white', fontSize: '11px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}>🎥 Start</button>
+                      <button style={{ padding: '6px 10px', background: theme === 'standard' ? '#f8f9fb' : 'rgba(255,255,255,0.15)', border: theme === 'standard' ? '1px solid #e1e8ed' : 'none', borderRadius: '6px', color: theme === 'standard' ? '#0f172a' : 'white', fontSize: '11px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}>🎙️ Mute</button>
+                      <button style={{ padding: '6px 10px', background: theme === 'standard' ? '#f8f9fb' : 'rgba(255,255,255,0.15)', border: theme === 'standard' ? '1px solid #e1e8ed' : 'none', borderRadius: '6px', color: theme === 'standard' ? '#0f172a' : 'white', fontSize: '11px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}>📺 Share</button>
                     </div>
                   </div>
-                  <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: '120px', background: theme === 'default' ? 'rgba(118,75,162,0.25)' : 'rgba(255,255,255,0.06)' }}>
+                  <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: '120px', background: theme === 'pro' ? 'rgba(118,75,162,0.25)' : (theme === 'standard' ? '#ffffff' : 'rgba(255,255,255,0.06)') }}>
                     <div style={{ flex: 1, overflowY: 'auto', padding: '8px' }}></div>
-                    <div style={{ padding: '8px', display: 'flex', gap: '6px', alignItems: 'center', borderTop: '1px solid rgba(255,255,255,0.1)' }}>
-                      <textarea placeholder="Chat..." style={{ flex: 1, padding: '6px 8px', background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '6px', color: 'white', fontSize: '11px', resize: 'none', minHeight: '28px' }} />
-                      <button title="AI Assistant" style={{ width: '28px', height: '28px', background: 'rgba(255,255,255,0.12)', border: 'none', borderRadius: '6px', color: 'white', fontSize: '12px', cursor: 'pointer' }}>✨</button>
+                    <div style={{ padding: '8px', display: 'flex', gap: '6px', alignItems: 'center', borderTop: theme === 'standard' ? '1px solid #e1e8ed' : '1px solid rgba(255,255,255,0.1)' }}>
+                      <textarea placeholder="Chat..." style={{ flex: 1, padding: '6px 8px', background: theme === 'standard' ? 'white' : 'rgba(255,255,255,0.08)', border: theme === 'standard' ? '1px solid #e1e8ed' : '1px solid rgba(255,255,255,0.15)', borderRadius: '6px', color: theme === 'standard' ? '#0f172a' : 'white', fontSize: '11px', resize: 'none', minHeight: '28px' }} />
+                      <button title="AI Assistant" style={{ width: '28px', height: '28px', background: theme === 'standard' ? '#f8f9fb' : 'rgba(255,255,255,0.12)', border: theme === 'standard' ? '1px solid #e1e8ed' : 'none', borderRadius: '6px', color: theme === 'standard' ? '#0f172a' : 'white', fontSize: '12px', cursor: 'pointer' }}>✨</button>
                       <button style={{ padding: '6px 12px', background: 'linear-gradient(135deg, #22c55e 0%, #16a34a 100%)', border: 'none', borderRadius: '6px', color: 'white', fontSize: '11px', fontWeight: '600', cursor: 'pointer' }}>Send</button>
                     </div>
                   </div>
@@ -3713,17 +3715,17 @@ function SidepanelOrchestrator() {
                       <div style={{ aspectRatio: '1', background: '#111', borderRadius: '4px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#444', fontSize: '14px' }}>+</div>
                     </div>
                   </div>
-                  <div style={{ padding: '6px 10px', borderTop: '1px solid rgba(255,255,255,0.15)', borderBottom: '1px solid rgba(255,255,255,0.15)', display: 'flex', gap: '6px', justifyContent: 'center', background: 'rgba(0,0,0,0.3)' }}>
-                    <button style={{ padding: '4px 8px', background: 'rgba(255,255,255,0.12)', border: 'none', borderRadius: '4px', color: 'white', fontSize: '12px', cursor: 'pointer' }}>🎥</button>
-                    <button style={{ padding: '4px 8px', background: 'rgba(255,255,255,0.12)', border: 'none', borderRadius: '4px', color: 'white', fontSize: '12px', cursor: 'pointer' }}>🎙️</button>
-                    <button style={{ padding: '4px 8px', background: 'rgba(255,255,255,0.12)', border: 'none', borderRadius: '4px', color: 'white', fontSize: '12px', cursor: 'pointer' }}>📺</button>
+                  <div style={{ padding: '6px 10px', borderTop: theme === 'standard' ? '1px solid #e1e8ed' : '1px solid rgba(255,255,255,0.15)', borderBottom: theme === 'standard' ? '1px solid #e1e8ed' : '1px solid rgba(255,255,255,0.15)', display: 'flex', gap: '6px', justifyContent: 'center', background: theme === 'standard' ? '#f8f9fb' : 'rgba(0,0,0,0.3)' }}>
+                    <button style={{ padding: '4px 8px', background: theme === 'standard' ? '#f8f9fb' : 'rgba(255,255,255,0.12)', border: theme === 'standard' ? '1px solid #e1e8ed' : 'none', borderRadius: '4px', color: theme === 'standard' ? '#0f172a' : 'white', fontSize: '12px', cursor: 'pointer' }}>🎥</button>
+                    <button style={{ padding: '4px 8px', background: theme === 'standard' ? '#f8f9fb' : 'rgba(255,255,255,0.12)', border: theme === 'standard' ? '1px solid #e1e8ed' : 'none', borderRadius: '4px', color: theme === 'standard' ? '#0f172a' : 'white', fontSize: '12px', cursor: 'pointer' }}>🎙️</button>
+                    <button style={{ padding: '4px 8px', background: theme === 'standard' ? '#f8f9fb' : 'rgba(255,255,255,0.12)', border: theme === 'standard' ? '1px solid #e1e8ed' : 'none', borderRadius: '4px', color: theme === 'standard' ? '#0f172a' : 'white', fontSize: '12px', cursor: 'pointer' }}>📺</button>
                     <button style={{ padding: '4px 8px', background: 'rgba(239,68,68,0.2)', border: 'none', borderRadius: '4px', color: '#ef4444', fontSize: '10px', cursor: 'pointer' }}>Leave</button>
                   </div>
-                  <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: '100px', background: theme === 'default' ? 'rgba(118,75,162,0.25)' : 'rgba(255,255,255,0.06)' }}>
+                  <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: '100px', background: theme === 'pro' ? 'rgba(118,75,162,0.25)' : (theme === 'standard' ? '#ffffff' : 'rgba(255,255,255,0.06)') }}>
                     <div style={{ flex: 1, overflowY: 'auto', padding: '8px' }}></div>
-                    <div style={{ padding: '8px', display: 'flex', gap: '6px', alignItems: 'center', borderTop: '1px solid rgba(255,255,255,0.1)' }}>
-                      <textarea placeholder="Group chat..." style={{ flex: 1, padding: '6px 8px', background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '6px', color: 'white', fontSize: '11px', resize: 'none', minHeight: '28px' }} />
-                      <button title="AI Assistant" style={{ width: '28px', height: '28px', background: 'rgba(255,255,255,0.12)', border: 'none', borderRadius: '6px', color: 'white', fontSize: '12px', cursor: 'pointer' }}>✨</button>
+                    <div style={{ padding: '8px', display: 'flex', gap: '6px', alignItems: 'center', borderTop: theme === 'standard' ? '1px solid #e1e8ed' : '1px solid rgba(255,255,255,0.1)' }}>
+                      <textarea placeholder="Group chat..." style={{ flex: 1, padding: '6px 8px', background: theme === 'standard' ? 'white' : 'rgba(255,255,255,0.08)', border: theme === 'standard' ? '1px solid #e1e8ed' : '1px solid rgba(255,255,255,0.15)', borderRadius: '6px', color: theme === 'standard' ? '#0f172a' : 'white', fontSize: '11px', resize: 'none', minHeight: '28px' }} />
+                      <button title="AI Assistant" style={{ width: '28px', height: '28px', background: theme === 'standard' ? '#f8f9fb' : 'rgba(255,255,255,0.12)', border: theme === 'standard' ? '1px solid #e1e8ed' : 'none', borderRadius: '6px', color: theme === 'standard' ? '#0f172a' : 'white', fontSize: '12px', cursor: 'pointer' }}>✨</button>
                       <button style={{ padding: '6px 12px', background: 'linear-gradient(135deg, #22c55e 0%, #16a34a 100%)', border: 'none', borderRadius: '6px', color: 'white', fontSize: '11px', fontWeight: '600', cursor: 'pointer' }}>Send</button>
                     </div>
                   </div>
@@ -3732,16 +3734,16 @@ function SidepanelOrchestrator() {
 
               {/* BEAP Handshake Request */}
               {dockedPanelMode === 'handshake' && (
-                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: theme === 'default' ? 'rgba(118,75,162,0.25)' : (theme === 'professional' ? '#f8fafc' : 'rgba(255,255,255,0.06)'), minHeight: '280px', overflow: 'hidden' }}>
+                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: theme === 'pro' ? 'rgba(118,75,162,0.25)' : (theme === 'standard' ? '#ffffff' : 'rgba(255,255,255,0.06)'), minHeight: '280px', overflow: 'hidden' }}>
                   {/* Header */}
-                  <div style={{ padding: '12px 14px', borderBottom: `1px solid ${theme === 'professional' ? 'rgba(0,0,0,0.1)' : 'rgba(255,255,255,0.1)'}`, display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <div style={{ padding: '12px 14px', borderBottom: `1px solid ${theme === 'standard' ? 'rgba(0,0,0,0.1)' : 'rgba(255,255,255,0.1)'}`, display: 'flex', alignItems: 'center', gap: '10px' }}>
                     <span style={{ fontSize: '18px' }}>🤝</span>
-                    <span style={{ fontSize: '13px', fontWeight: '600', color: theme === 'professional' ? '#1f2937' : 'white' }}>BEAP™ Handshake Request</span>
+                    <span style={{ fontSize: '13px', fontWeight: '600', color: theme === 'standard' ? '#1f2937' : 'white' }}>BEAP™ Handshake Request</span>
                   </div>
                   
                   {/* DELIVERY METHOD - FIRST */}
-                  <div style={{ padding: '14px 18px', borderBottom: theme === 'professional' ? '1px solid rgba(15,23,42,0.1)' : '1px solid rgba(255,255,255,0.1)' }}>
-                    <label style={{ fontSize: '11px', fontWeight: 600, marginBottom: '6px', display: 'block', color: theme === 'professional' ? '#6b7280' : 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                  <div style={{ padding: '14px 18px', borderBottom: theme === 'standard' ? '1px solid #e1e8ed' : '1px solid rgba(255,255,255,0.1)' }}>
+                    <label style={{ fontSize: '11px', fontWeight: 600, marginBottom: '6px', display: 'block', color: theme === 'standard' ? '#6b7280' : 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                       Delivery Method
                     </label>
                     <select
@@ -3750,17 +3752,17 @@ function SidepanelOrchestrator() {
                       style={{
                         width: '100%',
                         padding: '10px 12px',
-                        background: theme === 'professional' ? 'white' : '#1f2937',
-                        border: `1px solid ${theme === 'professional' ? 'rgba(0,0,0,0.15)' : 'rgba(255,255,255,0.15)'}`,
+                        background: theme === 'standard' ? 'white' : '#1f2937',
+                        border: `1px solid ${theme === 'standard' ? '#e1e8ed' : 'rgba(255,255,255,0.15)'}`,
                         borderRadius: '8px',
-                        color: theme === 'professional' ? '#1f2937' : 'white',
+                        color: theme === 'standard' ? '#1f2937' : 'white',
                         fontSize: '13px',
                         cursor: 'pointer',
                       }}
                     >
-                      <option value="email" style={{ background: theme === 'professional' ? 'white' : '#1f2937', color: theme === 'professional' ? '#1f2937' : 'white' }}>📧 Email</option>
-                      <option value="messenger" style={{ background: theme === 'professional' ? 'white' : '#1f2937', color: theme === 'professional' ? '#1f2937' : 'white' }}>💬 Messenger (Web)</option>
-                      <option value="download" style={{ background: theme === 'professional' ? 'white' : '#1f2937', color: theme === 'professional' ? '#1f2937' : 'white' }}>💾 Download (USB/Wallet)</option>
+                      <option value="email" style={{ background: theme === 'standard' ? 'white' : '#1f2937', color: theme === 'standard' ? '#1f2937' : 'white' }}>📧 Email</option>
+                      <option value="messenger" style={{ background: theme === 'standard' ? 'white' : '#1f2937', color: theme === 'standard' ? '#1f2937' : 'white' }}>💬 Messenger (Web)</option>
+                      <option value="download" style={{ background: theme === 'standard' ? 'white' : '#1f2937', color: theme === 'standard' ? '#1f2937' : 'white' }}>💾 Download (USB/Wallet)</option>
                     </select>
                   </div>
                   
@@ -3768,47 +3770,47 @@ function SidepanelOrchestrator() {
                   {handshakeDelivery === 'email' && (
                   <div style={{ 
                     padding: '16px 18px', 
-                    borderBottom: theme === 'professional' ? '1px solid rgba(15,23,42,0.1)' : '1px solid rgba(255,255,255,0.1)',
-                    background: theme === 'professional' ? 'rgba(139,92,246,0.05)' : 'rgba(139,92,246,0.1)'
+                    borderBottom: theme === 'standard' ? '1px solid #e1e8ed' : '1px solid rgba(255,255,255,0.1)',
+                    background: theme === 'standard' ? 'rgba(139,92,246,0.05)' : 'rgba(139,92,246,0.1)'
                   }}>
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                         <span style={{ fontSize: '16px' }}>🔗</span>
-                        <span style={{ fontSize: '13px', fontWeight: '600', color: theme === 'professional' ? '#0f172a' : 'white' }}>Connected Email Accounts</span>
+                        <span style={{ fontSize: '13px', fontWeight: '600', color: theme === 'standard' ? '#0f172a' : 'white' }}>Connected Email Accounts</span>
                       </div>
                       <button onClick={() => setShowEmailSetupWizard(true)} style={{ background: 'linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%)', border: 'none', color: 'white', borderRadius: '6px', padding: '6px 12px', fontSize: '11px', fontWeight: '600', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}><span>+</span> Connect Email</button>
                     </div>
                     {isLoadingEmailAccounts ? (
                       <div style={{ padding: '12px', textAlign: 'center', opacity: 0.6, fontSize: '12px' }}>Loading accounts...</div>
                     ) : emailAccounts.length === 0 ? (
-                      <div style={{ padding: '20px', background: theme === 'professional' ? 'white' : 'rgba(255,255,255,0.05)', borderRadius: '8px', border: theme === 'professional' ? '1px dashed rgba(15,23,42,0.2)' : '1px dashed rgba(255,255,255,0.2)', textAlign: 'center' }}>
+                      <div style={{ padding: '20px', background: theme === 'standard' ? 'white' : 'rgba(255,255,255,0.05)', borderRadius: '8px', border: theme === 'standard' ? '1px dashed #e1e8ed' : '1px dashed rgba(255,255,255,0.2)', textAlign: 'center' }}>
                         <div style={{ fontSize: '24px', marginBottom: '8px' }}>📧</div>
-                        <div style={{ fontSize: '13px', color: theme === 'professional' ? '#64748b' : 'rgba(255,255,255,0.7)', marginBottom: '4px' }}>No email accounts connected</div>
-                        <div style={{ fontSize: '11px', color: theme === 'professional' ? '#94a3b8' : 'rgba(255,255,255,0.5)' }}>Connect your email to send handshake requests</div>
+                        <div style={{ fontSize: '13px', color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.7)', marginBottom: '4px' }}>No email accounts connected</div>
+                        <div style={{ fontSize: '11px', color: theme === 'standard' ? '#94a3b8' : 'rgba(255,255,255,0.5)' }}>Connect your email to send handshake requests</div>
                       </div>
                     ) : (
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                         {emailAccounts.map(account => (
-                          <div key={account.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 12px', background: theme === 'professional' ? 'white' : 'rgba(255,255,255,0.08)', borderRadius: '8px', border: account.status === 'active' ? (theme === 'professional' ? '1px solid rgba(34,197,94,0.3)' : '1px solid rgba(34,197,94,0.4)') : (theme === 'professional' ? '1px solid rgba(239,68,68,0.3)' : '1px solid rgba(239,68,68,0.4)') }}>
+                          <div key={account.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 12px', background: theme === 'standard' ? 'white' : 'rgba(255,255,255,0.08)', borderRadius: '8px', border: account.status === 'active' ? (theme === 'standard' ? '1px solid rgba(34,197,94,0.3)' : '1px solid rgba(34,197,94,0.4)') : (theme === 'standard' ? '1px solid rgba(239,68,68,0.3)' : '1px solid rgba(239,68,68,0.4)') }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                               <span style={{ fontSize: '18px' }}>{account.provider === 'gmail' ? '📧' : account.provider === 'microsoft365' ? '📨' : '✉️'}</span>
                               <div>
-                                <div style={{ fontSize: '13px', fontWeight: '500', color: theme === 'professional' ? '#0f172a' : 'white' }}>{account.email || account.displayName}</div>
+                                <div style={{ fontSize: '13px', fontWeight: '500', color: theme === 'standard' ? '#0f172a' : 'white' }}>{account.email || account.displayName}</div>
                                 <div style={{ fontSize: '10px', display: 'flex', alignItems: 'center', gap: '6px', marginTop: '2px' }}>
                                   <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: account.status === 'active' ? '#22c55e' : '#ef4444' }} />
-                                  <span style={{ color: theme === 'professional' ? '#64748b' : 'rgba(255,255,255,0.6)' }}>{account.status === 'active' ? 'Connected' : account.lastError || 'Error'}</span>
+                                  <span style={{ color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.6)' }}>{account.status === 'active' ? 'Connected' : account.lastError || 'Error'}</span>
                                 </div>
                               </div>
                             </div>
-                            <button onClick={() => disconnectEmailAccount(account.id)} title="Disconnect" style={{ background: 'transparent', border: 'none', color: theme === 'professional' ? '#94a3b8' : 'rgba(255,255,255,0.5)', cursor: 'pointer', padding: '4px', fontSize: '14px' }}>✕</button>
+                            <button onClick={() => disconnectEmailAccount(account.id)} title="Disconnect" style={{ background: 'transparent', border: 'none', color: theme === 'standard' ? '#94a3b8' : 'rgba(255,255,255,0.5)', cursor: 'pointer', padding: '4px', fontSize: '14px' }}>✕</button>
                           </div>
                         ))}
                       </div>
                     )}
                     {emailAccounts.length > 0 && (
                       <div style={{ marginTop: '12px' }}>
-                        <label style={{ fontSize: '11px', fontWeight: 600, marginBottom: '6px', display: 'block', color: theme === 'professional' ? '#6b7280' : 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Send From:</label>
-                        <select value={selectedEmailAccountId || emailAccounts[0]?.id || ''} onChange={(e) => setSelectedEmailAccountId(e.target.value)} style={{ width: '100%', background: theme === 'professional' ? 'white' : 'rgba(255,255,255,0.1)', border: theme === 'professional' ? '1px solid rgba(15,23,42,0.2)' : '1px solid rgba(255,255,255,0.2)', color: theme === 'professional' ? '#0f172a' : 'white', borderRadius: '6px', padding: '8px 12px', fontSize: '13px', cursor: 'pointer', outline: 'none' }}>
+                        <label style={{ fontSize: '11px', fontWeight: 600, marginBottom: '6px', display: 'block', color: theme === 'standard' ? '#6b7280' : 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Send From:</label>
+                        <select value={selectedEmailAccountId || emailAccounts[0]?.id || ''} onChange={(e) => setSelectedEmailAccountId(e.target.value)} style={{ width: '100%', background: theme === 'standard' ? 'white' : 'rgba(255,255,255,0.1)', border: theme === 'standard' ? '1px solid #e1e8ed' : '1px solid rgba(255,255,255,0.2)', color: theme === 'standard' ? '#0f172a' : 'white', borderRadius: '6px', padding: '8px 12px', fontSize: '13px', cursor: 'pointer', outline: 'none' }}>
                           {emailAccounts.map(account => (<option key={account.id} value={account.id}>{account.email || account.displayName} ({account.provider})</option>))}
                         </select>
                       </div>
@@ -3820,8 +3822,8 @@ function SidepanelOrchestrator() {
                     {/* Your Fingerprint - PROMINENT */}
                     <div style={{
                       padding: '12px 14px',
-                      background: theme === 'professional' ? 'rgba(139, 92, 246, 0.08)' : 'rgba(139, 92, 246, 0.15)',
-                      border: `2px solid ${theme === 'professional' ? 'rgba(139, 92, 246, 0.2)' : 'rgba(139, 92, 246, 0.3)'}`,
+                      background: theme === 'standard' ? '#f8f9fb' : 'rgba(139, 92, 246, 0.15)',
+                      border: `2px solid ${theme === 'standard' ? '#e1e8ed' : 'rgba(139, 92, 246, 0.3)'}`,
                       borderRadius: '10px',
                     }}>
                       <div style={{ 
@@ -3833,7 +3835,7 @@ function SidepanelOrchestrator() {
                         <div style={{ 
                           fontSize: '11px', 
                           fontWeight: 600, 
-                          color: theme === 'professional' ? '#6b7280' : 'rgba(255,255,255,0.7)', 
+                          color: theme === 'standard' ? '#6b7280' : 'rgba(255,255,255,0.7)', 
                           textTransform: 'uppercase', 
                           letterSpacing: '0.5px',
                           display: 'flex',
@@ -3861,10 +3863,10 @@ function SidepanelOrchestrator() {
                           style={{
                             padding: '4px 10px',
                             fontSize: '10px',
-                            background: theme === 'professional' ? 'rgba(0,0,0,0.05)' : 'rgba(255,255,255,0.1)',
+                            background: theme === 'standard' ? '#f8f9fb' : 'rgba(255,255,255,0.1)',
                             border: 'none',
                             borderRadius: '4px',
-                            color: theme === 'professional' ? '#6b7280' : 'rgba(255,255,255,0.7)',
+                            color: theme === 'standard' ? '#6b7280' : 'rgba(255,255,255,0.7)',
                             cursor: 'pointer',
                           }}
                         >
@@ -3874,7 +3876,7 @@ function SidepanelOrchestrator() {
                       <div style={{
                         fontFamily: 'monospace',
                         fontSize: '11px',
-                        color: theme === 'professional' ? '#1f2937' : 'white',
+                        color: theme === 'standard' ? '#1f2937' : 'white',
                         wordBreak: 'break-all',
                         lineHeight: 1.5,
                       }}>
@@ -3883,7 +3885,7 @@ function SidepanelOrchestrator() {
                       <div style={{
                         marginTop: '8px',
                         fontSize: '10px',
-                        color: theme === 'professional' ? '#9ca3af' : 'rgba(255,255,255,0.5)',
+                        color: theme === 'standard' ? '#9ca3af' : 'rgba(255,255,255,0.5)',
                       }}>
                         Short: <span style={{ fontFamily: 'monospace' }}>{ourFingerprintShort}</span>
                       </div>
@@ -3893,7 +3895,7 @@ function SidepanelOrchestrator() {
                     {handshakeDelivery === 'email' && (
                       <>
                         <div>
-                          <label style={{ fontSize: '11px', fontWeight: 600, marginBottom: '6px', display: 'block', color: theme === 'professional' ? '#6b7280' : 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                          <label style={{ fontSize: '11px', fontWeight: 600, marginBottom: '6px', display: 'block', color: theme === 'standard' ? '#6b7280' : 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                             To:
                           </label>
                           <input
@@ -3904,16 +3906,16 @@ function SidepanelOrchestrator() {
                             style={{
                               width: '100%',
                               padding: '10px 12px',
-                              background: theme === 'professional' ? 'white' : 'rgba(255,255,255,0.08)',
-                              border: `1px solid ${theme === 'professional' ? 'rgba(0,0,0,0.15)' : 'rgba(255,255,255,0.15)'}`,
+                              background: theme === 'standard' ? 'white' : 'rgba(255,255,255,0.08)',
+                              border: `1px solid ${theme === 'standard' ? '#e1e8ed' : 'rgba(255,255,255,0.15)'}`,
                               borderRadius: '8px',
-                              color: theme === 'professional' ? '#1f2937' : 'white',
+                              color: theme === 'standard' ? '#1f2937' : 'white',
                               fontSize: '13px',
                             }}
                           />
                         </div>
                         <div>
-                          <label style={{ fontSize: '11px', fontWeight: 600, marginBottom: '6px', display: 'block', color: theme === 'professional' ? '#6b7280' : 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                          <label style={{ fontSize: '11px', fontWeight: 600, marginBottom: '6px', display: 'block', color: theme === 'standard' ? '#6b7280' : 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                             Subject:
                           </label>
                           <input
@@ -3923,10 +3925,10 @@ function SidepanelOrchestrator() {
                             style={{
                               width: '100%',
                               padding: '10px 12px',
-                              background: theme === 'professional' ? 'white' : 'rgba(255,255,255,0.08)',
-                              border: `1px solid ${theme === 'professional' ? 'rgba(0,0,0,0.15)' : 'rgba(255,255,255,0.15)'}`,
+                              background: theme === 'standard' ? 'white' : 'rgba(255,255,255,0.08)',
+                              border: `1px solid ${theme === 'standard' ? '#e1e8ed' : 'rgba(255,255,255,0.15)'}`,
                               borderRadius: '8px',
-                              color: theme === 'professional' ? '#1f2937' : 'white',
+                              color: theme === 'standard' ? '#1f2937' : 'white',
                               fontSize: '13px',
                             }}
                           />
@@ -3936,7 +3938,7 @@ function SidepanelOrchestrator() {
                     
                     {/* Message */}
                     <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
-                      <label style={{ fontSize: '11px', fontWeight: 600, marginBottom: '6px', display: 'block', color: theme === 'professional' ? '#6b7280' : 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                      <label style={{ fontSize: '11px', fontWeight: 600, marginBottom: '6px', display: 'block', color: theme === 'standard' ? '#6b7280' : 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                         Message
                       </label>
                       <textarea
@@ -3946,10 +3948,10 @@ function SidepanelOrchestrator() {
                           flex: 1,
                           minHeight: '120px',
                           padding: '10px 12px',
-                          background: theme === 'professional' ? 'white' : 'rgba(255,255,255,0.08)',
-                          border: `1px solid ${theme === 'professional' ? 'rgba(0,0,0,0.15)' : 'rgba(255,255,255,0.15)'}`,
+                          background: theme === 'standard' ? 'white' : 'rgba(255,255,255,0.08)',
+                          border: `1px solid ${theme === 'standard' ? '#e1e8ed' : 'rgba(255,255,255,0.15)'}`,
                           borderRadius: '8px',
-                          color: theme === 'professional' ? '#1f2937' : 'white',
+                          color: theme === 'standard' ? '#1f2937' : 'white',
                           fontSize: '13px',
                           lineHeight: '1.5',
                           resize: 'none',
@@ -3960,20 +3962,20 @@ function SidepanelOrchestrator() {
                     {/* Info */}
                     <div style={{
                       padding: '10px 12px',
-                      background: theme === 'professional' ? 'rgba(139, 92, 246, 0.08)' : 'rgba(139, 92, 246, 0.15)',
+                      background: theme === 'standard' ? '#f8f9fb' : 'rgba(139, 92, 246, 0.15)',
                       borderRadius: '8px',
                       fontSize: '11px',
-                      color: theme === 'professional' ? '#6b7280' : 'rgba(255,255,255,0.8)',
+                      color: theme === 'standard' ? '#6b7280' : 'rgba(255,255,255,0.8)',
                     }}>
                       💡 This creates a secure BEAP™ package. Recipient will appear in your Handshakes once accepted.
                     </div>
                   </div>
                   
                   {/* Footer */}
-                  <div style={{ padding: '12px 14px', borderTop: `1px solid ${theme === 'professional' ? 'rgba(0,0,0,0.1)' : 'rgba(255,255,255,0.1)'}`, display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
+                  <div style={{ padding: '12px 14px', borderTop: `1px solid ${theme === 'standard' ? '#e1e8ed' : 'rgba(255,255,255,0.1)'}`, display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
                     <button 
                       onClick={() => setDockedSubmode('command')}
-                      style={{ padding: '8px 16px', background: 'transparent', border: `1px solid ${theme === 'professional' ? 'rgba(0,0,0,0.15)' : 'rgba(255,255,255,0.2)'}`, borderRadius: '8px', color: theme === 'professional' ? '#6b7280' : 'white', fontSize: '12px', cursor: 'pointer' }}
+                      style={{ padding: '8px 16px', background: 'transparent', border: `1px solid ${theme === 'standard' ? 'rgba(0,0,0,0.15)' : 'rgba(255,255,255,0.2)'}`, borderRadius: '8px', color: theme === 'standard' ? '#536471' : 'white', fontSize: '12px', cursor: 'pointer' }}
                     >
                       Cancel
                     </button>
@@ -4079,7 +4081,7 @@ function SidepanelOrchestrator() {
                   display: 'flex',
                   flexDirection: 'column',
                   gap: '10px',
-                  background: theme === 'default' ? 'rgba(118,75,162,0.25)' : 'rgba(255,255,255,0.06)',
+                  background: theme === 'pro' ? 'rgba(118,75,162,0.25)' : 'rgba(255,255,255,0.06)',
                   borderBottom: '1px solid rgba(255,255,255,0.20)',
                   padding: '14px'
                 }}
@@ -4405,10 +4407,10 @@ function SidepanelOrchestrator() {
 
               {dockedWorkspace === 'beap-messages' && (
                 /* BEAP Messages Workspace - Section 1 (showMinimalUI) */
-                <div style={{ display: 'flex', flexDirection: 'column', flex: 1, background: theme === 'default' ? 'rgba(118,75,162,0.15)' : (theme === 'professional' ? '#f8fafc' : 'rgba(255,255,255,0.04)'), overflowY: 'auto' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', flex: 1, background: theme === 'pro' ? 'rgba(118,75,162,0.15)' : (theme === 'standard' ? '#ffffff' : 'rgba(255,255,255,0.04)'), overflowY: 'auto' }}>
                   <style>{`
                     .beap-input::placeholder, .beap-textarea::placeholder {
-                      color: ${theme === 'professional' ? '#64748b' : 'rgba(255,255,255,0.5)'};
+                      color: ${theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.5)'};
                       opacity: 1;
                     }
                   `}</style>
@@ -4419,8 +4421,8 @@ function SidepanelOrchestrator() {
                   {beapSubmode === 'inbox' && (
                     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '40px 20px', textAlign: 'center' }}>
                       <span style={{ fontSize: '48px', marginBottom: '16px' }}>📥</span>
-                      <div style={{ fontSize: '18px', fontWeight: '600', color: theme === 'professional' ? '#0f172a' : 'white', marginBottom: '8px' }}>BEAP Inbox</div>
-                      <div style={{ fontSize: '13px', color: theme === 'professional' ? '#64748b' : 'rgba(255,255,255,0.7)', maxWidth: '280px' }}>
+                      <div style={{ fontSize: '18px', fontWeight: '600', color: theme === 'standard' ? '#0f172a' : 'white', marginBottom: '8px' }}>BEAP Inbox</div>
+                      <div style={{ fontSize: '13px', color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.7)', maxWidth: '280px' }}>
                         Received BEAP™ packages will appear here. All packages are verified before display.
                       </div>
                     </div>
@@ -4432,8 +4434,8 @@ function SidepanelOrchestrator() {
                   {beapSubmode === 'outbox' && (
                     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '40px 20px', textAlign: 'center' }}>
                       <span style={{ fontSize: '48px', marginBottom: '16px' }}>📤</span>
-                      <div style={{ fontSize: '18px', fontWeight: '600', color: theme === 'professional' ? '#0f172a' : 'white', marginBottom: '8px' }}>BEAP Outbox</div>
-                      <div style={{ fontSize: '13px', color: theme === 'professional' ? '#64748b' : 'rgba(255,255,255,0.7)', maxWidth: '280px' }}>
+                      <div style={{ fontSize: '18px', fontWeight: '600', color: theme === 'standard' ? '#0f172a' : 'white', marginBottom: '8px' }}>BEAP Outbox</div>
+                      <div style={{ fontSize: '13px', color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.7)', maxWidth: '280px' }}>
                         Packages pending delivery. Monitor send status and delivery confirmations.
                       </div>
                     </div>
@@ -4445,8 +4447,8 @@ function SidepanelOrchestrator() {
                   {beapSubmode === 'archived' && (
                     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '40px 20px', textAlign: 'center' }}>
                       <span style={{ fontSize: '48px', marginBottom: '16px' }}>📁</span>
-                      <div style={{ fontSize: '18px', fontWeight: '600', color: theme === 'professional' ? '#0f172a' : 'white', marginBottom: '8px' }}>Archived Packages</div>
-                      <div style={{ fontSize: '13px', color: theme === 'professional' ? '#64748b' : 'rgba(255,255,255,0.7)', maxWidth: '280px' }}>
+                      <div style={{ fontSize: '18px', fontWeight: '600', color: theme === 'standard' ? '#0f172a' : 'white', marginBottom: '8px' }}>Archived Packages</div>
+                      <div style={{ fontSize: '13px', color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.7)', maxWidth: '280px' }}>
                         Successfully executed packages are archived here for reference.
                       </div>
                     </div>
@@ -4458,8 +4460,8 @@ function SidepanelOrchestrator() {
                   {beapSubmode === 'rejected' && (
                     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '40px 20px', textAlign: 'center' }}>
                       <span style={{ fontSize: '48px', marginBottom: '16px' }}>🚫</span>
-                      <div style={{ fontSize: '18px', fontWeight: '600', color: theme === 'professional' ? '#0f172a' : 'white', marginBottom: '8px' }}>Rejected Packages</div>
-                      <div style={{ fontSize: '13px', color: theme === 'professional' ? '#64748b' : 'rgba(255,255,255,0.7)', maxWidth: '280px' }}>
+                      <div style={{ fontSize: '18px', fontWeight: '600', color: theme === 'standard' ? '#0f172a' : 'white', marginBottom: '8px' }}>Rejected Packages</div>
+                      <div style={{ fontSize: '13px', color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.7)', maxWidth: '280px' }}>
                         Rejected packages that failed verification or were declined by the user.
                       </div>
                     </div>
@@ -4471,8 +4473,8 @@ function SidepanelOrchestrator() {
                   {beapSubmode === 'draft' && (
                     <>
                   {/* DELIVERY METHOD - FIRST */}
-                  <div style={{ padding: '14px 18px', borderBottom: theme === 'professional' ? '1px solid rgba(15,23,42,0.1)' : '1px solid rgba(255,255,255,0.1)' }}>
-                    <label style={{ fontSize: '11px', fontWeight: 600, marginBottom: '6px', display: 'block', color: theme === 'professional' ? '#6b7280' : 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                  <div style={{ padding: '14px 18px', borderBottom: theme === 'standard' ? '1px solid #e1e8ed' : '1px solid rgba(255,255,255,0.1)' }}>
+                    <label style={{ fontSize: '11px', fontWeight: 600, marginBottom: '6px', display: 'block', color: theme === 'standard' ? '#6b7280' : 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                       Delivery Method
                     </label>
                     <select
@@ -4481,17 +4483,17 @@ function SidepanelOrchestrator() {
                       style={{
                         width: '100%',
                         padding: '10px 12px',
-                        background: theme === 'professional' ? 'white' : '#1f2937',
-                        border: `1px solid ${theme === 'professional' ? 'rgba(0,0,0,0.15)' : 'rgba(255,255,255,0.15)'}`,
+                        background: theme === 'standard' ? 'white' : '#1f2937',
+                        border: `1px solid ${theme === 'standard' ? '#e1e8ed' : 'rgba(255,255,255,0.15)'}`,
                         borderRadius: '8px',
-                        color: theme === 'professional' ? '#1f2937' : 'white',
+                        color: theme === 'standard' ? '#1f2937' : 'white',
                         fontSize: '13px',
                         cursor: 'pointer',
                       }}
                     >
-                      <option value="email" style={{ background: theme === 'professional' ? 'white' : '#1f2937', color: theme === 'professional' ? '#1f2937' : 'white' }}>📧 Email</option>
-                      <option value="messenger" style={{ background: theme === 'professional' ? 'white' : '#1f2937', color: theme === 'professional' ? '#1f2937' : 'white' }}>💬 Messenger (Web)</option>
-                      <option value="download" style={{ background: theme === 'professional' ? 'white' : '#1f2937', color: theme === 'professional' ? '#1f2937' : 'white' }}>💾 Download (USB/Wallet)</option>
+                      <option value="email" style={{ background: theme === 'standard' ? 'white' : '#1f2937', color: theme === 'standard' ? '#1f2937' : 'white' }}>📧 Email</option>
+                      <option value="messenger" style={{ background: theme === 'standard' ? 'white' : '#1f2937', color: theme === 'standard' ? '#1f2937' : 'white' }}>💬 Messenger (Web)</option>
+                      <option value="download" style={{ background: theme === 'standard' ? 'white' : '#1f2937', color: theme === 'standard' ? '#1f2937' : 'white' }}>💾 Download (USB/Wallet)</option>
                     </select>
                   </div>
                   
@@ -4499,13 +4501,13 @@ function SidepanelOrchestrator() {
                   {handshakeDelivery === 'email' && (
                   <div style={{ 
                     padding: '16px 18px', 
-                    borderBottom: theme === 'professional' ? '1px solid rgba(15,23,42,0.1)' : '1px solid rgba(255,255,255,0.1)',
-                    background: theme === 'professional' ? 'rgba(59,130,246,0.05)' : 'rgba(59,130,246,0.1)'
+                    borderBottom: theme === 'standard' ? '1px solid #e1e8ed' : '1px solid rgba(255,255,255,0.1)',
+                    background: theme === 'standard' ? 'rgba(59,130,246,0.05)' : 'rgba(59,130,246,0.1)'
                   }}>
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                         <span style={{ fontSize: '16px' }}>🔗</span>
-                        <span style={{ fontSize: '13px', fontWeight: '600', color: theme === 'professional' ? '#0f172a' : 'white' }}>Connected Email Accounts</span>
+                        <span style={{ fontSize: '13px', fontWeight: '600', color: theme === 'standard' ? '#0f172a' : 'white' }}>Connected Email Accounts</span>
                       </div>
                       <button
                         onClick={() => setShowEmailSetupWizard(true)}
@@ -4534,14 +4536,14 @@ function SidepanelOrchestrator() {
                     ) : emailAccounts.length === 0 ? (
                       <div style={{ 
                         padding: '20px', 
-                        background: theme === 'professional' ? 'white' : 'rgba(255,255,255,0.05)',
+                        background: theme === 'standard' ? 'white' : 'rgba(255,255,255,0.05)',
                         borderRadius: '8px',
-                        border: theme === 'professional' ? '1px dashed rgba(15,23,42,0.2)' : '1px dashed rgba(255,255,255,0.2)',
+                        border: theme === 'standard' ? '1px dashed rgba(15,23,42,0.2)' : '1px dashed rgba(255,255,255,0.2)',
                         textAlign: 'center'
                       }}>
                         <div style={{ fontSize: '24px', marginBottom: '8px' }}>📧</div>
-                        <div style={{ fontSize: '13px', color: theme === 'professional' ? '#64748b' : 'rgba(255,255,255,0.7)', marginBottom: '4px' }}>No email accounts connected</div>
-                        <div style={{ fontSize: '11px', color: theme === 'professional' ? '#94a3b8' : 'rgba(255,255,255,0.5)' }}>
+                        <div style={{ fontSize: '13px', color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.7)', marginBottom: '4px' }}>No email accounts connected</div>
+                        <div style={{ fontSize: '11px', color: theme === 'standard' ? '#94a3b8' : 'rgba(255,255,255,0.5)' }}>
                           Connect your email account to send BEAP™ messages
                         </div>
                       </div>
@@ -4555,11 +4557,11 @@ function SidepanelOrchestrator() {
                               alignItems: 'center', 
                               justifyContent: 'space-between',
                               padding: '10px 12px',
-                              background: theme === 'professional' ? 'white' : 'rgba(255,255,255,0.08)',
+                              background: theme === 'standard' ? 'white' : 'rgba(255,255,255,0.08)',
                               borderRadius: '8px',
                               border: account.status === 'active' 
-                                ? (theme === 'professional' ? '1px solid rgba(34,197,94,0.3)' : '1px solid rgba(34,197,94,0.4)')
-                                : (theme === 'professional' ? '1px solid rgba(239,68,68,0.3)' : '1px solid rgba(239,68,68,0.4)')
+                                ? (theme === 'standard' ? '1px solid rgba(34,197,94,0.3)' : '1px solid rgba(34,197,94,0.4)')
+                                : (theme === 'standard' ? '1px solid rgba(239,68,68,0.3)' : '1px solid rgba(239,68,68,0.4)')
                             }}
                           >
                             <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
@@ -4567,7 +4569,7 @@ function SidepanelOrchestrator() {
                                 {account.provider === 'gmail' ? '📧' : account.provider === 'microsoft365' ? '📨' : '✉️'}
                               </span>
                               <div>
-                                <div style={{ fontSize: '13px', fontWeight: '500', color: theme === 'professional' ? '#0f172a' : 'white' }}>
+                                <div style={{ fontSize: '13px', fontWeight: '500', color: theme === 'standard' ? '#0f172a' : 'white' }}>
                                   {account.email || account.displayName}
                                 </div>
                                 <div style={{ 
@@ -4583,7 +4585,7 @@ function SidepanelOrchestrator() {
                                     borderRadius: '50%', 
                                     background: account.status === 'active' ? '#22c55e' : '#ef4444' 
                                   }} />
-                                  <span style={{ color: theme === 'professional' ? '#64748b' : 'rgba(255,255,255,0.6)' }}>
+                                  <span style={{ color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.6)' }}>
                                     {account.status === 'active' ? 'Connected' : account.lastError || 'Error'}
                                   </span>
                                 </div>
@@ -4595,7 +4597,7 @@ function SidepanelOrchestrator() {
                               style={{
                                 background: 'transparent',
                                 border: 'none',
-                                color: theme === 'professional' ? '#94a3b8' : 'rgba(255,255,255,0.5)',
+                                color: theme === 'standard' ? '#94a3b8' : 'rgba(255,255,255,0.5)',
                                 cursor: 'pointer',
                                 padding: '4px',
                                 fontSize: '14px'
@@ -4611,7 +4613,7 @@ function SidepanelOrchestrator() {
                     {/* Select account for sending */}
                     {emailAccounts.length > 0 && (
                       <div style={{ marginTop: '12px' }}>
-                        <label style={{ fontSize: '11px', fontWeight: 600, marginBottom: '6px', display: 'block', color: theme === 'professional' ? '#6b7280' : 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                        <label style={{ fontSize: '11px', fontWeight: 600, marginBottom: '6px', display: 'block', color: theme === 'standard' ? '#6b7280' : 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                           Send From:
                         </label>
                         <select
@@ -4619,9 +4621,9 @@ function SidepanelOrchestrator() {
                           onChange={(e) => setSelectedEmailAccountId(e.target.value)}
                           style={{
                             width: '100%',
-                            background: theme === 'professional' ? 'white' : 'rgba(255,255,255,0.1)',
-                            border: theme === 'professional' ? '1px solid rgba(15,23,42,0.2)' : '1px solid rgba(255,255,255,0.2)',
-                            color: theme === 'professional' ? '#0f172a' : 'white',
+                            background: theme === 'standard' ? 'white' : 'rgba(255,255,255,0.1)',
+                            border: theme === 'standard' ? '1px solid #e1e8ed' : '1px solid rgba(255,255,255,0.2)',
+                            color: theme === 'standard' ? '#0f172a' : 'white',
                             borderRadius: '6px',
                             padding: '8px 12px',
                             fontSize: '13px',
@@ -4645,20 +4647,20 @@ function SidepanelOrchestrator() {
                   {/* ========================================== */}
                   
                   {/* Header */}
-                  <div style={{ padding: '12px 14px', borderBottom: `1px solid ${theme === 'professional' ? 'rgba(0,0,0,0.1)' : 'rgba(255,255,255,0.1)'}`, display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <div style={{ padding: '12px 14px', borderBottom: `1px solid ${theme === 'standard' ? 'rgba(0,0,0,0.1)' : 'rgba(255,255,255,0.1)'}`, display: 'flex', alignItems: 'center', gap: '10px' }}>
                     <span style={{ fontSize: '18px' }}>📦</span>
-                    <span style={{ fontSize: '13px', fontWeight: '600', color: theme === 'professional' ? '#1f2937' : 'white' }}>BEAP™ Message</span>
+                    <span style={{ fontSize: '13px', fontWeight: '600', color: theme === 'standard' ? '#1f2937' : 'white' }}>BEAP™ Message</span>
                   </div>
                   
                   <div style={{ flex: 1, padding: '14px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '12px' }}>
                     {/* Your Fingerprint - PROMINENT */}
                     <div style={{
-                      background: theme === 'professional' ? 'rgba(59,130,246,0.08)' : 'rgba(59,130,246,0.15)',
-                      border: theme === 'professional' ? '1px solid rgba(59,130,246,0.2)' : '1px solid rgba(59,130,246,0.3)',
+                      background: theme === 'standard' ? 'rgba(59,130,246,0.08)' : 'rgba(59,130,246,0.15)',
+                      border: theme === 'standard' ? '1px solid rgba(59,130,246,0.2)' : '1px solid rgba(59,130,246,0.3)',
                       borderRadius: '8px',
                       padding: '12px',
                     }}>
-                      <div style={{ fontSize: '10px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px', color: theme === 'professional' ? '#3b82f6' : '#93c5fd', marginBottom: '6px' }}>
+                      <div style={{ fontSize: '10px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px', color: theme === 'standard' ? '#3b82f6' : '#93c5fd', marginBottom: '6px' }}>
                         Your Fingerprint
                       </div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -4666,7 +4668,7 @@ function SidepanelOrchestrator() {
                           flex: 1,
                           fontSize: '13px', 
                           fontFamily: 'monospace',
-                          color: theme === 'professional' ? '#1e40af' : '#bfdbfe',
+                          color: theme === 'standard' ? '#1e40af' : '#bfdbfe',
                           wordBreak: 'break-all'
                         }}>
                           {ourFingerprintShort}
@@ -4678,7 +4680,7 @@ function SidepanelOrchestrator() {
                             setTimeout(() => setFingerprintCopied(false), 2000)
                           }}
                           style={{
-                            background: fingerprintCopied ? (theme === 'professional' ? '#22c55e' : '#22c55e') : (theme === 'professional' ? '#3b82f6' : 'rgba(59,130,246,0.5)'),
+                            background: fingerprintCopied ? (theme === 'standard' ? '#22c55e' : '#22c55e') : (theme === 'standard' ? '#3b82f6' : 'rgba(59,130,246,0.5)'),
                             border: 'none',
                             color: 'white',
                             borderRadius: '4px',
@@ -4723,7 +4725,7 @@ function SidepanelOrchestrator() {
                     
                     {/* Message Content */}
                     <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
-                      <label style={{ fontSize: '11px', fontWeight: 600, marginBottom: '6px', display: 'block', color: theme === 'professional' ? '#6b7280' : 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                      <label style={{ fontSize: '11px', fontWeight: 600, marginBottom: '6px', display: 'block', color: theme === 'standard' ? '#6b7280' : 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                         Message
                       </label>
                       <textarea
@@ -4734,9 +4736,9 @@ function SidepanelOrchestrator() {
                         style={{
                           flex: 1,
                           minHeight: '120px',
-                          background: theme === 'professional' ? 'white' : 'rgba(255,255,255,0.08)',
-                          border: theme === 'professional' ? '1px solid rgba(15,23,42,0.2)' : '1px solid rgba(255,255,255,0.15)',
-                          color: theme === 'professional' ? '#0f172a' : 'white',
+                          background: theme === 'standard' ? 'white' : 'rgba(255,255,255,0.08)',
+                          border: theme === 'standard' ? '1px solid rgba(15,23,42,0.2)' : '1px solid rgba(255,255,255,0.15)',
+                          color: theme === 'standard' ? '#0f172a' : 'white',
                           borderRadius: '6px',
                           padding: '10px 12px',
                           fontSize: '12px',
@@ -4751,7 +4753,7 @@ function SidepanelOrchestrator() {
                     {/* Encrypted Message (qBEAP/PRIVATE only) */}
                     {beapRecipientMode === 'private' && (
                       <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
-                        <label style={{ fontSize: '11px', fontWeight: 600, marginBottom: '6px', display: 'block', color: theme === 'professional' ? '#7c3aed' : '#c4b5fd', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                        <label style={{ fontSize: '11px', fontWeight: 600, marginBottom: '6px', display: 'block', color: theme === 'standard' ? '#7c3aed' : '#c4b5fd', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                           🔐 Encrypted Message (Private · qBEAP)
                         </label>
                         <textarea
@@ -4762,9 +4764,9 @@ function SidepanelOrchestrator() {
                           style={{
                             flex: 1,
                             minHeight: '100px',
-                            background: theme === 'professional' ? 'rgba(139,92,246,0.05)' : 'rgba(139,92,246,0.15)',
-                            border: theme === 'professional' ? '1px solid rgba(139,92,246,0.3)' : '1px solid rgba(139,92,246,0.4)',
-                            color: theme === 'professional' ? '#0f172a' : 'white',
+                            background: theme === 'standard' ? 'rgba(139,92,246,0.05)' : 'rgba(139,92,246,0.15)',
+                            border: theme === 'standard' ? '1px solid rgba(139,92,246,0.3)' : '1px solid rgba(139,92,246,0.4)',
+                            color: theme === 'standard' ? '#0f172a' : 'white',
                             borderRadius: '6px',
                             padding: '10px 12px',
                             fontSize: '12px',
@@ -4774,20 +4776,20 @@ function SidepanelOrchestrator() {
                             fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
                           }}
                         />
-                        <div style={{ fontSize: '10px', color: theme === 'professional' ? '#7c3aed' : '#c4b5fd', marginTop: '4px' }}>
+                        <div style={{ fontSize: '10px', color: theme === 'standard' ? '#7c3aed' : '#c4b5fd', marginTop: '4px' }}>
                           ⚠️ This content is authoritative when present and never leaves the encrypted capsule.
                         </div>
                       </div>
                     )}
                     
                     {/* Advanced: Session + Attachments */}
-                    <div style={{ marginTop: '12px', paddingTop: '12px', borderTop: theme === 'professional' ? '1px solid rgba(15,23,42,0.1)' : '1px solid rgba(255,255,255,0.1)' }}>
-                      <div style={{ fontSize: '11px', fontWeight: 600, marginBottom: '8px', color: theme === 'professional' ? '#64748b' : 'rgba(255,255,255,0.6)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                    <div style={{ marginTop: '12px', paddingTop: '12px', borderTop: theme === 'standard' ? '1px solid #e1e8ed' : '1px solid rgba(255,255,255,0.1)' }}>
+                      <div style={{ fontSize: '11px', fontWeight: 600, marginBottom: '8px', color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.6)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                         Advanced (Optional)
                       </div>
                       {/* Session Selector */}
                       <div style={{ marginBottom: '10px' }}>
-                        <label style={{ fontSize: '10px', fontWeight: 500, marginBottom: '4px', display: 'block', color: theme === 'professional' ? '#64748b' : 'rgba(255,255,255,0.6)' }}>
+                        <label style={{ fontSize: '10px', fontWeight: 500, marginBottom: '4px', display: 'block', color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.6)' }}>
                           Session (optional)
                         </label>
                         <select
@@ -4796,9 +4798,9 @@ function SidepanelOrchestrator() {
                           onClick={() => loadAvailableSessions()}
                           style={{
                             width: '100%',
-                            background: theme === 'professional' ? '#f8fafc' : '#1e293b',
-                            border: theme === 'professional' ? '1px solid rgba(15,23,42,0.2)' : '1px solid rgba(255,255,255,0.25)',
-                            color: theme === 'professional' ? '#0f172a' : '#f1f5f9',
+                            background: theme === 'standard' ? '#ffffff' : '#1e293b',
+                            border: theme === 'standard' ? '1px solid rgba(15,23,42,0.2)' : '1px solid rgba(255,255,255,0.25)',
+                            color: theme === 'standard' ? '#0f172a' : '#f1f5f9',
                             borderRadius: '6px',
                             padding: '8px 10px',
                             fontSize: '12px',
@@ -4807,15 +4809,15 @@ function SidepanelOrchestrator() {
                             cursor: 'pointer'
                           }}
                         >
-                          <option value="" style={{ background: theme === 'professional' ? '#f8fafc' : '#1e293b', color: theme === 'professional' ? '#0f172a' : '#f1f5f9' }}>{availableSessions.length === 0 ? '— No sessions available —' : '— Select a session —'}</option>
+                          <option value="" style={{ background: theme === 'standard' ? '#ffffff' : '#1e293b', color: theme === 'standard' ? '#0f172a' : '#f1f5f9' }}>{availableSessions.length === 0 ? '— No sessions available —' : '— Select a session —'}</option>
                           {availableSessions.map((s) => (
-                            <option key={s.key} value={s.key} style={{ background: theme === 'professional' ? '#f8fafc' : '#1e293b', color: theme === 'professional' ? '#0f172a' : '#f1f5f9' }}>{s.name} ({new Date(s.timestamp).toLocaleDateString()})</option>
+                            <option key={s.key} value={s.key} style={{ background: theme === 'standard' ? '#ffffff' : '#1e293b', color: theme === 'standard' ? '#0f172a' : '#f1f5f9' }}>{s.name} ({new Date(s.timestamp).toLocaleDateString()})</option>
                           ))}
                         </select>
                       </div>
                       {/* Attachments Input */}
                       <div>
-                        <label style={{ fontSize: '10px', fontWeight: 500, marginBottom: '4px', display: 'block', color: theme === 'professional' ? '#64748b' : 'rgba(255,255,255,0.6)' }}>
+                        <label style={{ fontSize: '10px', fontWeight: 500, marginBottom: '4px', display: 'block', color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.6)' }}>
                           Attachments
                         </label>
                         <input
@@ -4910,20 +4912,20 @@ function SidepanelOrchestrator() {
                               }
                             }
                           }}
-                          style={{ fontSize: '11px', color: theme === 'professional' ? '#64748b' : 'rgba(255,255,255,0.7)' }}
+                          style={{ fontSize: '11px', color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.7)' }}
                         />
                         {beapDraftAttachments.length > 0 && (
                           <div style={{ marginTop: '8px' }}>
                             {beapDraftAttachments.map((a) => (
-                              <div key={a.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 8px', background: theme === 'professional' ? 'rgba(0,0,0,0.03)' : 'rgba(255,255,255,0.05)', borderRadius: '4px', marginBottom: '4px' }}>
+                              <div key={a.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 8px', background: theme === 'standard' ? 'rgba(0,0,0,0.03)' : 'rgba(255,255,255,0.05)', borderRadius: '4px', marginBottom: '4px' }}>
                                 <div>
-                                  <div style={{ fontSize: '11px', color: theme === 'professional' ? '#0f172a' : 'white' }}>{a.name}</div>
-                                  <div style={{ fontSize: '9px', color: theme === 'professional' ? '#64748b' : 'rgba(255,255,255,0.5)' }}>{a.mime} · {a.size} bytes</div>
+                                  <div style={{ fontSize: '11px', color: theme === 'standard' ? '#0f172a' : 'white' }}>{a.name}</div>
+                                  <div style={{ fontSize: '9px', color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.5)' }}>{a.mime} · {a.size} bytes</div>
                                 </div>
-                                <button onClick={() => setBeapDraftAttachments((prev) => prev.filter((x) => x.id !== a.id))} style={{ background: 'transparent', border: 'none', color: theme === 'professional' ? '#ef4444' : '#f87171', fontSize: '10px', cursor: 'pointer' }}>Remove</button>
+                                <button onClick={() => setBeapDraftAttachments((prev) => prev.filter((x) => x.id !== a.id))} style={{ background: 'transparent', border: 'none', color: theme === 'standard' ? '#ef4444' : '#f87171', fontSize: '10px', cursor: 'pointer' }}>Remove</button>
                               </div>
                             ))}
-                            <button onClick={() => setBeapDraftAttachments([])} style={{ background: 'transparent', border: theme === 'professional' ? '1px solid rgba(15,23,42,0.2)' : '1px solid rgba(255,255,255,0.2)', color: theme === 'professional' ? '#64748b' : 'rgba(255,255,255,0.6)', borderRadius: '4px', padding: '4px 8px', fontSize: '10px', cursor: 'pointer', marginTop: '4px' }}>Clear all</button>
+                            <button onClick={() => setBeapDraftAttachments([])} style={{ background: 'transparent', border: theme === 'standard' ? '1px solid #e1e8ed' : '1px solid rgba(255,255,255,0.2)', color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.6)', borderRadius: '4px', padding: '4px 8px', fontSize: '10px', cursor: 'pointer', marginTop: '4px' }}>Clear all</button>
                           </div>
                         )}
                       </div>
@@ -4933,9 +4935,9 @@ function SidepanelOrchestrator() {
                     <div style={{
                       fontSize: '11px',
                       padding: '10px',
-                      background: theme === 'professional' ? 'rgba(168,85,247,0.08)' : 'rgba(168,85,247,0.15)',
+                      background: theme === 'standard' ? 'rgba(168,85,247,0.08)' : 'rgba(168,85,247,0.15)',
                       borderRadius: '6px',
-                      color: theme === 'professional' ? '#6b7280' : 'rgba(255,255,255,0.8)',
+                      color: theme === 'standard' ? '#6b7280' : 'rgba(255,255,255,0.8)',
                       marginTop: '12px'
                     }}>
                       💡 This creates a secure BEAP™ package with your fingerprint. Your identity will be verifiable by the recipient.
@@ -4945,11 +4947,11 @@ function SidepanelOrchestrator() {
                   {/* Action Buttons */}
                   <div style={{
                     padding: '12px 14px',
-                    borderTop: theme === 'professional' ? '1px solid rgba(15,23,42,0.1)' : '1px solid rgba(255,255,255,0.1)',
+                    borderTop: theme === 'standard' ? '1px solid #e1e8ed' : '1px solid rgba(255,255,255,0.1)',
                     display: 'flex',
                     justifyContent: 'flex-end',
                     gap: '8px',
-                    background: theme === 'professional' ? '#f8fafc' : 'rgba(0,0,0,0.2)'
+                    background: theme === 'standard' ? '#ffffff' : 'rgba(0,0,0,0.2)'
                   }}>
                     <button 
                       onClick={() => {
@@ -4958,8 +4960,8 @@ function SidepanelOrchestrator() {
                       }}
                       style={{
                         background: 'transparent',
-                        border: theme === 'professional' ? '1px solid rgba(15,23,42,0.2)' : '1px solid rgba(255,255,255,0.2)',
-                        color: theme === 'professional' ? '#64748b' : 'rgba(255,255,255,0.7)',
+                        border: theme === 'standard' ? '1px solid #e1e8ed' : '1px solid rgba(255,255,255,0.2)',
+                        color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.7)',
                         borderRadius: '6px',
                         padding: '8px 16px',
                         fontSize: '12px',
@@ -5128,7 +5130,7 @@ function SidepanelOrchestrator() {
               width: '100%',
               maxWidth: '300px',
               padding: '20px 24px',
-              ...(theme === 'professional' ? {
+              ...(theme === 'standard' ? {
                 background: 'rgba(15,23,42,0.08)',
                 border: '2px dashed rgba(15,23,42,0.3)',
                 color: '#0f172a'
@@ -5154,7 +5156,7 @@ function SidepanelOrchestrator() {
             }}
             onMouseEnter={(e) => {
               e.currentTarget.style.transform = 'translateY(-2px)'
-              if (theme === 'professional') {
+              if (theme === 'standard') {
                 e.currentTarget.style.background = 'rgba(15,23,42,0.12)'
                 e.currentTarget.style.borderColor = 'rgba(15,23,42,0.4)'
               } else if (theme === 'dark') {
@@ -5167,7 +5169,7 @@ function SidepanelOrchestrator() {
             }}
             onMouseLeave={(e) => {
               e.currentTarget.style.transform = 'translateY(0)'
-              if (theme === 'professional') {
+              if (theme === 'standard') {
                 e.currentTarget.style.background = 'rgba(15,23,42,0.08)'
                 e.currentTarget.style.borderColor = 'rgba(15,23,42,0.3)'
               } else if (theme === 'dark') {
@@ -5236,7 +5238,7 @@ function SidepanelOrchestrator() {
           alignItems: 'center',
           justifyContent: 'center',
           gap: '12px',
-          background: theme === 'default' ? 'rgba(118,75,162,0.6)' : 'rgba(0,0,0,0.15)'
+          background: theme === 'pro' ? 'rgba(118,75,162,0.6)' : 'rgba(0,0,0,0.15)'
         }}>
           <button
             onClick={openPopupChat}
@@ -5259,7 +5261,7 @@ function SidepanelOrchestrator() {
               ...actionButtonStyle(isCommandChatPinned ? 'rgba(76,175,80,0.4)' : 'rgba(255,255,255,0.1)'),
               fontSize: '14px',
               padding: 0,
-              ...(isCommandChatPinned && theme === 'default' ? {
+              ...(isCommandChatPinned && theme === 'pro' ? {
                 background: 'rgba(76,175,80,0.4)',
                 border: '1px solid rgba(76,175,80,0.6)'
               } : {})
@@ -5281,11 +5283,11 @@ function SidepanelOrchestrator() {
               width: '50px',
               height: '20px',
               background: viewMode === 'app'
-                ? (theme === 'default' ? 'rgba(76,175,80,0.9)' : theme === 'dark' ? 'rgba(76,175,80,0.9)' : 'rgba(34,197,94,0.9)')
-                : (theme === 'default' ? 'rgba(255,255,255,0.2)' : theme === 'dark' ? 'rgba(255,255,255,0.2)' : 'rgba(15,23,42,0.2)'),
+                ? (theme === 'pro' ? 'rgba(76,175,80,0.9)' : theme === 'dark' ? 'rgba(76,175,80,0.9)' : 'rgba(34,197,94,0.9)')
+                : (theme === 'pro' ? 'rgba(255,255,255,0.2)' : theme === 'dark' ? 'rgba(255,255,255,0.2)' : 'rgba(15,23,42,0.2)'),
               borderRadius: '10px',
               transition: 'background 0.2s',
-              border: theme === 'default' ? '1px solid rgba(255,255,255,0.3)' : theme === 'dark' ? '1px solid rgba(255,255,255,0.3)' : '1px solid rgba(15,23,42,0.3)',
+              border: theme === 'pro' ? '1px solid rgba(255,255,255,0.3)' : theme === 'dark' ? '1px solid rgba(255,255,255,0.3)' : '1px solid rgba(15,23,42,0.3)',
               overflow: 'hidden'
             }}>
               <span style={{
@@ -5298,7 +5300,7 @@ function SidepanelOrchestrator() {
                 fontWeight: '700',
                 color: viewMode === 'app'
                   ? 'rgba(255,255,255,0.95)'
-                  : (theme === 'default' ? 'rgba(255,255,255,0.5)' : theme === 'dark' ? 'rgba(255,255,255,0.5)' : 'rgba(15,23,42,0.5)'),
+                  : (theme === 'pro' ? 'rgba(255,255,255,0.5)' : theme === 'dark' ? 'rgba(255,255,255,0.5)' : 'rgba(15,23,42,0.5)'),
                 transition: 'all 0.2s',
                 userSelect: 'none',
                 textTransform: 'uppercase',
@@ -5313,7 +5315,7 @@ function SidepanelOrchestrator() {
                 left: viewMode === 'app' ? '32px' : '3px',
                 width: '14px',
                 height: '14px',
-                background: theme === 'default' ? 'rgba(255,255,255,0.95)' : theme === 'dark' ? 'rgba(255,255,255,0.95)' : 'rgba(255,255,255,0.95)',
+                background: theme === 'pro' ? 'rgba(255,255,255,0.95)' : theme === 'dark' ? 'rgba(255,255,255,0.95)' : 'rgba(255,255,255,0.95)',
                 borderRadius: '50%',
                 transition: 'left 0.2s',
                 boxShadow: '0 1px 3px rgba(0,0,0,0.3)',
@@ -5329,7 +5331,7 @@ function SidepanelOrchestrator() {
           <div 
             style={{
               borderBottom: '1px solid rgba(255,255,255,0.2)',
-              background: theme === 'default' ? 'rgba(118,75,162,0.4)' : 'rgba(255,255,255,0.10)',
+              background: theme === 'pro' ? 'rgba(118,75,162,0.4)' : 'rgba(255,255,255,0.10)',
               border: '1px solid rgba(255,255,255,0.20)',
               margin: '12px 16px',
               borderRadius: '8px',
@@ -5346,8 +5348,8 @@ function SidepanelOrchestrator() {
               alignItems: 'center',
               justifyContent: 'space-between',
               padding: '6px 10px',
-              background: theme === 'professional' ? 'linear-gradient(180deg, rgba(248,250,252,0.95) 0%, rgba(241,245,249,0.9) 100%)' : theme === 'dark' ? 'linear-gradient(180deg, rgba(15,23,42,0.95) 0%, rgba(30,41,59,0.9) 100%)' : 'linear-gradient(180deg, rgba(15,10,30,0.95) 0%, rgba(30,20,50,0.9) 100%)',
-              borderBottom: theme === 'professional' ? '1px solid rgba(15,23,42,0.1)' : '1px solid rgba(168,85,247,0.3)',
+              background: theme === 'standard' ? 'linear-gradient(180deg, rgba(248,250,252,0.95) 0%, rgba(241,245,249,0.9) 100%)' : theme === 'dark' ? 'linear-gradient(180deg, rgba(15,23,42,0.95) 0%, rgba(30,41,59,0.9) 100%)' : 'linear-gradient(180deg, rgba(15,10,30,0.95) 0%, rgba(30,20,50,0.9) 100%)',
+              borderBottom: theme === 'standard' ? '1px solid rgba(15,23,42,0.1)' : '1px solid rgba(168,85,247,0.3)',
               boxShadow: '0 2px 8px rgba(0,0,0,0.2)',
               color: themeColors.text
             }}>
@@ -5363,7 +5365,7 @@ function SidepanelOrchestrator() {
                     height: '22px',
                     width: '90px',
                     background: selectboxStyle.background,
-                    border: theme === 'professional' ? '1px solid rgba(15,23,42,0.2)' : '1px solid rgba(168,85,247,0.4)',
+                    border: theme === 'standard' ? '1px solid rgba(15,23,42,0.2)' : '1px solid rgba(168,85,247,0.4)',
                     color: selectboxStyle.color,
                     borderRadius: '4px',
                     padding: '0 18px 0 6px',
@@ -5453,7 +5455,7 @@ function SidepanelOrchestrator() {
                 )}
               </div>
               {/* Divider */}
-              <div style={{ width: '1px', height: '16px', background: theme === 'professional' ? 'rgba(15,23,42,0.15)' : 'rgba(168,85,247,0.3)', margin: '0 4px' }} />
+              <div style={{ width: '1px', height: '16px', background: theme === 'standard' ? 'rgba(15,23,42,0.15)' : 'rgba(168,85,247,0.3)', margin: '0 4px' }} />
               {/* Controls */}
               <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
                 {dockedPanelMode !== 'admin' && dockedPanelMode !== 'beap-messages' && dockedPanelMode !== 'augmented-overlay' && dockedWorkspace !== 'wrguard' && <>
@@ -5477,7 +5479,7 @@ height: '28px',
                       transition: 'all 0.2s ease'
                     }}
                     onMouseEnter={(e) => {
-                      if (theme === 'professional') {
+                      if (theme === 'standard') {
                         e.currentTarget.style.background = 'rgba(15,23,42,0.12)'
                       } else if (theme === 'dark') {
                         e.currentTarget.style.background = 'rgba(255,255,255,0.25)'
@@ -5486,7 +5488,7 @@ height: '28px',
                       }
                     }}
                     onMouseLeave={(e) => {
-                      if (theme === 'professional') {
+                      if (theme === 'standard') {
                         e.currentTarget.style.background = 'rgba(15,23,42,0.08)'
                       } else if (theme === 'dark') {
                         e.currentTarget.style.background = 'rgba(255,255,255,0.15)'
@@ -5514,8 +5516,8 @@ height: '28px',
                         transition: 'all 0.2s ease'
                       }}
                       onMouseEnter={(e) => {
-                        if (theme === 'professional') {
-                          e.currentTarget.style.background = 'rgba(15,23,42,0.12)'
+                        if (theme === 'standard') {
+                          e.currentTarget.style.background = '#eef3f6'
                         } else if (theme === 'dark') {
                           e.currentTarget.style.background = 'rgba(255,255,255,0.2)'
                         } else {
@@ -5523,8 +5525,8 @@ height: '28px',
                         }
                       }}
                       onMouseLeave={(e) => {
-                        if (theme === 'professional') {
-                          e.currentTarget.style.background = 'rgba(15,23,42,0.08)'
+                        if (theme === 'standard') {
+                          e.currentTarget.style.background = '#f8f9fb'
                         } else if (theme === 'dark') {
                           e.currentTarget.style.background = 'rgba(255,255,255,0.12)'
                         } else {
@@ -5648,13 +5650,13 @@ height: '28px',
             {/* SECTION 2 - Conditional Content based on mode */}
             {/* P2P Chat */}
             {dockedPanelMode === 'p2p-chat' && (
-              <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: theme === 'default' ? 'rgba(118,75,162,0.25)' : 'rgba(255,255,255,0.06)', minHeight: '280px' }}>
+              <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: theme === 'pro' ? 'rgba(118,75,162,0.25)' : 'rgba(255,255,255,0.06)', minHeight: '280px' }}>
                 <div style={{ padding: '10px 14px', borderBottom: '1px solid rgba(255,255,255,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'rgba(0,0,0,0.1)' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                     <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#6b7280' }} />
                     <span style={{ fontSize: '12px', opacity: 0.7 }}>No peer connected</span>
                   </div>
-                  <button style={{ padding: '4px 10px', background: 'rgba(255,255,255,0.12)', border: 'none', borderRadius: '6px', color: 'white', fontSize: '11px', cursor: 'pointer' }}>Connect</button>
+                  <button style={{ padding: '4px 10px', background: theme === 'standard' ? '#f8f9fb' : 'rgba(255,255,255,0.12)', border: theme === 'standard' ? '1px solid #e1e8ed' : 'none', borderRadius: '6px', color: theme === 'standard' ? '#0f172a' : 'white', fontSize: '11px', cursor: 'pointer' }}>Connect</button>
                 </div>
                 <div style={{ flex: 1, overflowY: 'auto', padding: '12px', display: 'flex', flexDirection: 'column', gap: '8px' }}></div>
                 <div style={{ padding: '10px 12px', borderTop: '1px solid rgba(255,255,255,0.1)', display: 'flex', gap: '6px', alignItems: 'center' }}>
@@ -5682,7 +5684,7 @@ height: '28px',
                     <button style={{ padding: '6px 10px', background: 'rgba(255,255,255,0.15)', border: 'none', borderRadius: '6px', color: 'white', fontSize: '11px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}>📺 Share</button>
                   </div>
                 </div>
-                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: '120px', background: theme === 'default' ? 'rgba(118,75,162,0.25)' : 'rgba(255,255,255,0.06)' }}>
+                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: '120px', background: theme === 'pro' ? 'rgba(118,75,162,0.25)' : 'rgba(255,255,255,0.06)' }}>
                   <div style={{ flex: 1, overflowY: 'auto', padding: '8px' }}></div>
                   <div style={{ padding: '8px', display: 'flex', gap: '6px', alignItems: 'center', borderTop: '1px solid rgba(255,255,255,0.1)' }}>
                     <textarea placeholder="Chat..." style={{ flex: 1, padding: '6px 8px', background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '6px', color: 'white', fontSize: '11px', resize: 'none', minHeight: '28px' }} />
@@ -5714,7 +5716,7 @@ height: '28px',
                   <button style={{ padding: '4px 8px', background: 'rgba(255,255,255,0.12)', border: 'none', borderRadius: '4px', color: 'white', fontSize: '12px', cursor: 'pointer' }}>📺</button>
                   <button style={{ padding: '4px 8px', background: 'rgba(239,68,68,0.2)', border: 'none', borderRadius: '4px', color: '#ef4444', fontSize: '10px', cursor: 'pointer' }}>Leave</button>
                 </div>
-                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: '100px', background: theme === 'default' ? 'rgba(118,75,162,0.25)' : 'rgba(255,255,255,0.06)' }}>
+                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: '100px', background: theme === 'pro' ? 'rgba(118,75,162,0.25)' : 'rgba(255,255,255,0.06)' }}>
                   <div style={{ flex: 1, overflowY: 'auto', padding: '8px' }}></div>
                   <div style={{ padding: '8px', display: 'flex', gap: '6px', alignItems: 'center', borderTop: '1px solid rgba(255,255,255,0.1)' }}>
                     <textarea placeholder="Group chat..." style={{ flex: 1, padding: '6px 8px', background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '6px', color: 'white', fontSize: '11px', resize: 'none', minHeight: '28px' }} />
@@ -5727,64 +5729,64 @@ height: '28px',
 
             {/* BEAP Handshake Request - App/Admin View */}
             {dockedPanelMode === 'handshake' && (
-              <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: theme === 'default' ? 'rgba(118,75,162,0.25)' : (theme === 'professional' ? '#f8fafc' : 'rgba(255,255,255,0.06)'), minHeight: '280px', overflow: 'hidden' }}>
+              <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: theme === 'pro' ? 'rgba(118,75,162,0.25)' : (theme === 'standard' ? '#ffffff' : 'rgba(255,255,255,0.06)'), minHeight: '280px', overflow: 'hidden' }}>
                 {/* Header */}
-                <div style={{ padding: '12px 14px', borderBottom: `1px solid ${theme === 'professional' ? 'rgba(0,0,0,0.1)' : 'rgba(255,255,255,0.1)'}`, display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <div style={{ padding: '12px 14px', borderBottom: `1px solid ${theme === 'standard' ? 'rgba(0,0,0,0.1)' : 'rgba(255,255,255,0.1)'}`, display: 'flex', alignItems: 'center', gap: '10px' }}>
                   <span style={{ fontSize: '18px' }}>🤝</span>
-                  <span style={{ fontSize: '13px', fontWeight: '600', color: theme === 'professional' ? '#1f2937' : 'white' }}>BEAP™ Handshake Request</span>
+                  <span style={{ fontSize: '13px', fontWeight: '600', color: theme === 'standard' ? '#1f2937' : 'white' }}>BEAP™ Handshake Request</span>
                 </div>
                 
                 {/* DELIVERY METHOD - FIRST */}
-                <div style={{ padding: '14px 18px', borderBottom: theme === 'professional' ? '1px solid rgba(15,23,42,0.1)' : '1px solid rgba(255,255,255,0.1)' }}>
-                  <label style={{ fontSize: '11px', fontWeight: 600, marginBottom: '6px', display: 'block', color: theme === 'professional' ? '#6b7280' : 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Delivery Method</label>
-                  <select value={handshakeDelivery} onChange={(e) => setHandshakeDelivery(e.target.value as 'email' | 'messenger' | 'download')} style={{ width: '100%', padding: '10px 12px', background: theme === 'professional' ? 'white' : '#1f2937', border: `1px solid ${theme === 'professional' ? 'rgba(0,0,0,0.15)' : 'rgba(255,255,255,0.15)'}`, borderRadius: '8px', color: theme === 'professional' ? '#1f2937' : 'white', fontSize: '13px', cursor: 'pointer' }}>
-                    <option value="email" style={{ background: theme === 'professional' ? 'white' : '#1f2937', color: theme === 'professional' ? '#1f2937' : 'white' }}>📧 Email</option>
-                    <option value="messenger" style={{ background: theme === 'professional' ? 'white' : '#1f2937', color: theme === 'professional' ? '#1f2937' : 'white' }}>💬 Messenger (Web)</option>
-                    <option value="download" style={{ background: theme === 'professional' ? 'white' : '#1f2937', color: theme === 'professional' ? '#1f2937' : 'white' }}>💾 Download (USB/Wallet)</option>
+                <div style={{ padding: '14px 18px', borderBottom: theme === 'standard' ? '1px solid rgba(147, 51, 234, 0.12)' : '1px solid rgba(255,255,255,0.1)' }}>
+                  <label style={{ fontSize: '11px', fontWeight: 600, marginBottom: '6px', display: 'block', color: theme === 'standard' ? '#6b7280' : 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Delivery Method</label>
+                  <select value={handshakeDelivery} onChange={(e) => setHandshakeDelivery(e.target.value as 'email' | 'messenger' | 'download')} style={{ width: '100%', padding: '10px 12px', background: theme === 'standard' ? 'white' : '#1f2937', border: `1px solid ${theme === 'standard' ? 'rgba(147, 51, 234, 0.15)' : 'rgba(255,255,255,0.15)'}`, borderRadius: '8px', color: theme === 'standard' ? '#1f2937' : 'white', fontSize: '13px', cursor: 'pointer' }}>
+                    <option value="email" style={{ background: theme === 'standard' ? 'white' : '#1f2937', color: theme === 'standard' ? '#1f2937' : 'white' }}>📧 Email</option>
+                    <option value="messenger" style={{ background: theme === 'standard' ? 'white' : '#1f2937', color: theme === 'standard' ? '#1f2937' : 'white' }}>💬 Messenger (Web)</option>
+                    <option value="download" style={{ background: theme === 'standard' ? 'white' : '#1f2937', color: theme === 'standard' ? '#1f2937' : 'white' }}>💾 Download (USB/Wallet)</option>
                   </select>
                 </div>
                 
                 {/* EMAIL ACCOUNTS SECTION - Only visible when email delivery selected */}
                 {handshakeDelivery === 'email' && (
-                <div style={{ padding: '16px 18px', borderBottom: theme === 'professional' ? '1px solid rgba(15,23,42,0.1)' : '1px solid rgba(255,255,255,0.1)', background: theme === 'professional' ? 'rgba(139,92,246,0.05)' : 'rgba(139,92,246,0.1)' }}>
+                <div style={{ padding: '16px 18px', borderBottom: theme === 'standard' ? '1px solid rgba(147, 51, 234, 0.12)' : '1px solid rgba(255,255,255,0.1)', background: theme === 'standard' ? 'rgba(139,92,246,0.05)' : 'rgba(139,92,246,0.1)' }}>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                       <span style={{ fontSize: '16px' }}>🔗</span>
-                      <span style={{ fontSize: '13px', fontWeight: '600', color: theme === 'professional' ? '#0f172a' : 'white' }}>Connected Email Accounts</span>
+                      <span style={{ fontSize: '13px', fontWeight: '600', color: theme === 'standard' ? '#0f172a' : 'white' }}>Connected Email Accounts</span>
                     </div>
                     <button onClick={() => setShowEmailSetupWizard(true)} style={{ background: 'linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%)', border: 'none', color: 'white', borderRadius: '6px', padding: '6px 12px', fontSize: '11px', fontWeight: '600', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}><span>+</span> Connect Email</button>
                   </div>
                   {isLoadingEmailAccounts ? (
                     <div style={{ padding: '12px', textAlign: 'center', opacity: 0.6, fontSize: '12px' }}>Loading accounts...</div>
                   ) : emailAccounts.length === 0 ? (
-                    <div style={{ padding: '20px', background: theme === 'professional' ? 'white' : 'rgba(255,255,255,0.05)', borderRadius: '8px', border: theme === 'professional' ? '1px dashed rgba(15,23,42,0.2)' : '1px dashed rgba(255,255,255,0.2)', textAlign: 'center' }}>
+                    <div style={{ padding: '20px', background: theme === 'standard' ? 'white' : 'rgba(255,255,255,0.05)', borderRadius: '8px', border: theme === 'standard' ? '1px dashed rgba(15,23,42,0.2)' : '1px dashed rgba(255,255,255,0.2)', textAlign: 'center' }}>
                       <div style={{ fontSize: '24px', marginBottom: '8px' }}>📧</div>
-                      <div style={{ fontSize: '13px', color: theme === 'professional' ? '#64748b' : 'rgba(255,255,255,0.7)', marginBottom: '4px' }}>No email accounts connected</div>
-                      <div style={{ fontSize: '11px', color: theme === 'professional' ? '#94a3b8' : 'rgba(255,255,255,0.5)' }}>Connect your email to send handshake requests</div>
+                      <div style={{ fontSize: '13px', color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.7)', marginBottom: '4px' }}>No email accounts connected</div>
+                      <div style={{ fontSize: '11px', color: theme === 'standard' ? '#94a3b8' : 'rgba(255,255,255,0.5)' }}>Connect your email to send handshake requests</div>
                     </div>
                   ) : (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                       {emailAccounts.map(account => (
-                        <div key={account.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 12px', background: theme === 'professional' ? 'white' : 'rgba(255,255,255,0.08)', borderRadius: '8px', border: account.status === 'active' ? (theme === 'professional' ? '1px solid rgba(34,197,94,0.3)' : '1px solid rgba(34,197,94,0.4)') : (theme === 'professional' ? '1px solid rgba(239,68,68,0.3)' : '1px solid rgba(239,68,68,0.4)') }}>
+                        <div key={account.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 12px', background: theme === 'standard' ? 'white' : 'rgba(255,255,255,0.08)', borderRadius: '8px', border: account.status === 'active' ? (theme === 'standard' ? '1px solid rgba(34,197,94,0.3)' : '1px solid rgba(34,197,94,0.4)') : (theme === 'standard' ? '1px solid rgba(239,68,68,0.3)' : '1px solid rgba(239,68,68,0.4)') }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                             <span style={{ fontSize: '18px' }}>{account.provider === 'gmail' ? '📧' : account.provider === 'microsoft365' ? '📨' : '✉️'}</span>
                             <div>
-                              <div style={{ fontSize: '13px', fontWeight: '500', color: theme === 'professional' ? '#0f172a' : 'white' }}>{account.email || account.displayName}</div>
+                              <div style={{ fontSize: '13px', fontWeight: '500', color: theme === 'standard' ? '#0f172a' : 'white' }}>{account.email || account.displayName}</div>
                               <div style={{ fontSize: '10px', display: 'flex', alignItems: 'center', gap: '6px', marginTop: '2px' }}>
                                 <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: account.status === 'active' ? '#22c55e' : '#ef4444' }} />
-                                <span style={{ color: theme === 'professional' ? '#64748b' : 'rgba(255,255,255,0.6)' }}>{account.status === 'active' ? 'Connected' : account.lastError || 'Error'}</span>
+                                <span style={{ color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.6)' }}>{account.status === 'active' ? 'Connected' : account.lastError || 'Error'}</span>
                               </div>
                             </div>
                           </div>
-                          <button onClick={() => disconnectEmailAccount(account.id)} title="Disconnect" style={{ background: 'transparent', border: 'none', color: theme === 'professional' ? '#94a3b8' : 'rgba(255,255,255,0.5)', cursor: 'pointer', padding: '4px', fontSize: '14px' }}>✕</button>
+                          <button onClick={() => disconnectEmailAccount(account.id)} title="Disconnect" style={{ background: 'transparent', border: 'none', color: theme === 'standard' ? '#94a3b8' : 'rgba(255,255,255,0.5)', cursor: 'pointer', padding: '4px', fontSize: '14px' }}>✕</button>
                         </div>
                       ))}
                     </div>
                   )}
                   {emailAccounts.length > 0 && (
                     <div style={{ marginTop: '12px' }}>
-                      <label style={{ fontSize: '11px', fontWeight: 600, marginBottom: '6px', display: 'block', color: theme === 'professional' ? '#6b7280' : 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Send From:</label>
-                      <select value={selectedEmailAccountId || emailAccounts[0]?.id || ''} onChange={(e) => setSelectedEmailAccountId(e.target.value)} style={{ width: '100%', background: theme === 'professional' ? 'white' : 'rgba(255,255,255,0.1)', border: theme === 'professional' ? '1px solid rgba(15,23,42,0.2)' : '1px solid rgba(255,255,255,0.2)', color: theme === 'professional' ? '#0f172a' : 'white', borderRadius: '6px', padding: '8px 12px', fontSize: '13px', cursor: 'pointer', outline: 'none' }}>
+                      <label style={{ fontSize: '11px', fontWeight: 600, marginBottom: '6px', display: 'block', color: theme === 'standard' ? '#6b7280' : 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Send From:</label>
+                      <select value={selectedEmailAccountId || emailAccounts[0]?.id || ''} onChange={(e) => setSelectedEmailAccountId(e.target.value)} style={{ width: '100%', background: theme === 'standard' ? 'white' : 'rgba(255,255,255,0.1)', border: theme === 'standard' ? '1px solid #e1e8ed' : '1px solid rgba(255,255,255,0.2)', color: theme === 'standard' ? '#0f172a' : 'white', borderRadius: '6px', padding: '8px 12px', fontSize: '13px', cursor: 'pointer', outline: 'none' }}>
                         {emailAccounts.map(account => (<option key={account.id} value={account.id}>{account.email || account.displayName} ({account.provider})</option>))}
                       </select>
                     </div>
@@ -5796,8 +5798,8 @@ height: '28px',
                   {/* Your Fingerprint - PROMINENT */}
                   <div style={{
                     padding: '12px 14px',
-                    background: theme === 'professional' ? 'rgba(139, 92, 246, 0.08)' : 'rgba(139, 92, 246, 0.15)',
-                    border: `2px solid ${theme === 'professional' ? 'rgba(139, 92, 246, 0.2)' : 'rgba(139, 92, 246, 0.3)'}`,
+                    background: theme === 'standard' ? 'rgba(139, 92, 246, 0.08)' : 'rgba(139, 92, 246, 0.15)',
+                    border: `2px solid ${theme === 'standard' ? 'rgba(139, 92, 246, 0.2)' : 'rgba(139, 92, 246, 0.3)'}`,
                     borderRadius: '10px',
                   }}>
                     <div style={{ 
@@ -5809,7 +5811,7 @@ height: '28px',
                       <div style={{ 
                         fontSize: '11px', 
                         fontWeight: 600, 
-                        color: theme === 'professional' ? '#6b7280' : 'rgba(255,255,255,0.7)', 
+                        color: theme === 'standard' ? '#6b7280' : 'rgba(255,255,255,0.7)', 
                         textTransform: 'uppercase', 
                         letterSpacing: '0.5px',
                         display: 'flex',
@@ -5837,10 +5839,10 @@ height: '28px',
                         style={{
                           padding: '4px 10px',
                           fontSize: '10px',
-                          background: theme === 'professional' ? 'rgba(0,0,0,0.05)' : 'rgba(255,255,255,0.1)',
+                          background: theme === 'standard' ? 'rgba(0,0,0,0.05)' : 'rgba(255,255,255,0.1)',
                           border: 'none',
                           borderRadius: '4px',
-                          color: theme === 'professional' ? '#6b7280' : 'rgba(255,255,255,0.7)',
+                          color: theme === 'standard' ? '#6b7280' : 'rgba(255,255,255,0.7)',
                           cursor: 'pointer',
                         }}
                       >
@@ -5850,7 +5852,7 @@ height: '28px',
                     <div style={{
                       fontFamily: 'monospace',
                       fontSize: '11px',
-                      color: theme === 'professional' ? '#1f2937' : 'white',
+                      color: theme === 'standard' ? '#1f2937' : 'white',
                       wordBreak: 'break-all',
                       lineHeight: 1.5,
                     }}>
@@ -5859,7 +5861,7 @@ height: '28px',
                     <div style={{
                       marginTop: '8px',
                       fontSize: '10px',
-                      color: theme === 'professional' ? '#9ca3af' : 'rgba(255,255,255,0.5)',
+                      color: theme === 'standard' ? '#9ca3af' : 'rgba(255,255,255,0.5)',
                     }}>
                       Short: <span style={{ fontFamily: 'monospace' }}>{ourFingerprintShort}</span>
                     </div>
@@ -5868,7 +5870,7 @@ height: '28px',
                   {/* To Field - Only for Email */}
                   {handshakeDelivery === 'email' && (
                     <div>
-                      <label style={{ fontSize: '11px', fontWeight: 600, marginBottom: '6px', display: 'block', color: theme === 'professional' ? '#6b7280' : 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                      <label style={{ fontSize: '11px', fontWeight: 600, marginBottom: '6px', display: 'block', color: theme === 'standard' ? '#6b7280' : 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                         To:
                       </label>
                       <input
@@ -5879,10 +5881,10 @@ height: '28px',
                         style={{
                           width: '100%',
                           padding: '10px 12px',
-                          background: theme === 'professional' ? 'white' : 'rgba(255,255,255,0.08)',
-                          border: `1px solid ${theme === 'professional' ? 'rgba(0,0,0,0.15)' : 'rgba(255,255,255,0.15)'}`,
+                          background: theme === 'standard' ? 'white' : 'rgba(255,255,255,0.08)',
+                          border: `1px solid ${theme === 'standard' ? '#e1e8ed' : 'rgba(255,255,255,0.15)'}`,
                           borderRadius: '8px',
-                          color: theme === 'professional' ? '#1f2937' : 'white',
+                          color: theme === 'standard' ? '#1f2937' : 'white',
                           fontSize: '13px',
                         }}
                       />
@@ -5891,7 +5893,7 @@ height: '28px',
                   
                   {/* Message */}
                   <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
-                    <label style={{ fontSize: '11px', fontWeight: 600, marginBottom: '6px', display: 'block', color: theme === 'professional' ? '#6b7280' : 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                    <label style={{ fontSize: '11px', fontWeight: 600, marginBottom: '6px', display: 'block', color: theme === 'standard' ? '#6b7280' : 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                       Message
                     </label>
                     <textarea
@@ -5901,10 +5903,10 @@ height: '28px',
                         flex: 1,
                         minHeight: '120px',
                         padding: '10px 12px',
-                        background: theme === 'professional' ? 'white' : 'rgba(255,255,255,0.08)',
-                        border: `1px solid ${theme === 'professional' ? 'rgba(0,0,0,0.15)' : 'rgba(255,255,255,0.15)'}`,
+                        background: theme === 'standard' ? 'white' : 'rgba(255,255,255,0.08)',
+                        border: `1px solid ${theme === 'standard' ? '#e1e8ed' : 'rgba(255,255,255,0.15)'}`,
                         borderRadius: '8px',
-                        color: theme === 'professional' ? '#1f2937' : 'white',
+                        color: theme === 'standard' ? '#1f2937' : 'white',
                         fontSize: '13px',
                         lineHeight: '1.5',
                         resize: 'none',
@@ -5915,10 +5917,10 @@ height: '28px',
                   {/* Policy Note */}
                   <div style={{
                     padding: '10px 12px',
-                    background: theme === 'professional' ? 'rgba(59, 130, 246, 0.08)' : 'rgba(59, 130, 246, 0.15)',
+                    background: theme === 'standard' ? 'rgba(59, 130, 246, 0.08)' : 'rgba(59, 130, 246, 0.15)',
                     borderRadius: '8px',
                     fontSize: '11px',
-                    color: theme === 'professional' ? '#6b7280' : 'rgba(255,255,255,0.8)',
+                    color: theme === 'standard' ? '#6b7280' : 'rgba(255,255,255,0.8)',
                   }}>
                     🛡️ {POLICY_NOTES.LOCAL_OVERRIDE}
                   </div>
@@ -5926,20 +5928,20 @@ height: '28px',
                   {/* Info */}
                   <div style={{
                     padding: '10px 12px',
-                    background: theme === 'professional' ? 'rgba(139, 92, 246, 0.08)' : 'rgba(139, 92, 246, 0.15)',
+                    background: theme === 'standard' ? 'rgba(139, 92, 246, 0.08)' : 'rgba(139, 92, 246, 0.15)',
                     borderRadius: '8px',
                     fontSize: '11px',
-                    color: theme === 'professional' ? '#6b7280' : 'rgba(255,255,255,0.8)',
+                    color: theme === 'standard' ? '#6b7280' : 'rgba(255,255,255,0.8)',
                   }}>
                     💡 This creates a secure BEAP™ package. Recipient will appear in your Handshakes once accepted.
                   </div>
                 </div>
                 
                 {/* Footer */}
-                <div style={{ padding: '12px 14px', borderTop: `1px solid ${theme === 'professional' ? 'rgba(0,0,0,0.1)' : 'rgba(255,255,255,0.1)'}`, display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
+                <div style={{ padding: '12px 14px', borderTop: `1px solid ${theme === 'standard' ? 'rgba(147, 51, 234, 0.12)' : 'rgba(255,255,255,0.1)'}`, display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
                   <button 
                     onClick={() => setDockedSubmode('command')}
-                    style={{ padding: '8px 16px', background: 'transparent', border: `1px solid ${theme === 'professional' ? 'rgba(0,0,0,0.15)' : 'rgba(255,255,255,0.2)'}`, borderRadius: '8px', color: theme === 'professional' ? '#6b7280' : 'white', fontSize: '12px', cursor: 'pointer' }}
+                    style={{ padding: '8px 16px', background: 'transparent', border: `1px solid ${theme === 'standard' ? 'rgba(0,0,0,0.15)' : 'rgba(255,255,255,0.2)'}`, borderRadius: '8px', color: theme === 'standard' ? '#536471' : 'white', fontSize: '12px', cursor: 'pointer' }}
                   >
                     Cancel
                   </button>
@@ -5984,7 +5986,7 @@ height: '28px',
                     display: 'flex',
                     flexDirection: 'column',
                     gap: '10px',
-                    background: theme === 'default' ? 'rgba(118,75,162,0.25)' : 'rgba(255,255,255,0.06)',
+                    background: theme === 'pro' ? 'rgba(118,75,162,0.25)' : 'rgba(255,255,255,0.06)',
                     borderBottom: '1px solid rgba(255,255,255,0.20)',
                     padding: '14px'
                   }}
@@ -6118,10 +6120,10 @@ height: '28px',
 
             {dockedWorkspace === 'beap-messages' && (
               /* BEAP Messages Workspace - Section 2 (App View) */
-              <div style={{ display: 'flex', flexDirection: 'column', flex: 1, background: theme === 'default' ? 'rgba(118,75,162,0.15)' : (theme === 'professional' ? '#f8fafc' : 'rgba(255,255,255,0.04)'), overflowY: 'auto' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', flex: 1, background: theme === 'pro' ? 'rgba(118,75,162,0.15)' : (theme === 'standard' ? '#ffffff' : 'rgba(255,255,255,0.04)'), overflowY: 'auto' }}>
                 <style>{`
                   .beap-input::placeholder, .beap-textarea::placeholder {
-                    color: ${theme === 'professional' ? '#64748b' : 'rgba(255,255,255,0.5)'};
+                    color: ${theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.5)'};
                     opacity: 1;
                   }
                 `}</style>
@@ -6130,8 +6132,8 @@ height: '28px',
                 {beapSubmode === 'inbox' && (
                   <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '40px 20px', textAlign: 'center' }}>
                     <span style={{ fontSize: '48px', marginBottom: '16px' }}>📥</span>
-                    <div style={{ fontSize: '18px', fontWeight: '600', color: theme === 'professional' ? '#0f172a' : 'white', marginBottom: '8px' }}>BEAP Inbox</div>
-                    <div style={{ fontSize: '13px', color: theme === 'professional' ? '#64748b' : 'rgba(255,255,255,0.7)', maxWidth: '280px' }}>
+                    <div style={{ fontSize: '18px', fontWeight: '600', color: theme === 'standard' ? '#0f172a' : 'white', marginBottom: '8px' }}>BEAP Inbox</div>
+                    <div style={{ fontSize: '13px', color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.7)', maxWidth: '280px' }}>
                       Received BEAP™ packages will appear here.
                     </div>
                   </div>
@@ -6139,8 +6141,8 @@ height: '28px',
                 {beapSubmode === 'outbox' && (
                   <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '40px 20px', textAlign: 'center' }}>
                     <span style={{ fontSize: '48px', marginBottom: '16px' }}>📤</span>
-                    <div style={{ fontSize: '18px', fontWeight: '600', color: theme === 'professional' ? '#0f172a' : 'white', marginBottom: '8px' }}>BEAP Outbox</div>
-                    <div style={{ fontSize: '13px', color: theme === 'professional' ? '#64748b' : 'rgba(255,255,255,0.7)', maxWidth: '280px' }}>
+                    <div style={{ fontSize: '18px', fontWeight: '600', color: theme === 'standard' ? '#0f172a' : 'white', marginBottom: '8px' }}>BEAP Outbox</div>
+                    <div style={{ fontSize: '13px', color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.7)', maxWidth: '280px' }}>
                       Packages pending delivery.
                     </div>
                   </div>
@@ -6148,8 +6150,8 @@ height: '28px',
                 {beapSubmode === 'archived' && (
                   <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '40px 20px', textAlign: 'center' }}>
                     <span style={{ fontSize: '48px', marginBottom: '16px' }}>📁</span>
-                    <div style={{ fontSize: '18px', fontWeight: '600', color: theme === 'professional' ? '#0f172a' : 'white', marginBottom: '8px' }}>Archived Packages</div>
-                    <div style={{ fontSize: '13px', color: theme === 'professional' ? '#64748b' : 'rgba(255,255,255,0.7)', maxWidth: '280px' }}>
+                    <div style={{ fontSize: '18px', fontWeight: '600', color: theme === 'standard' ? '#0f172a' : 'white', marginBottom: '8px' }}>Archived Packages</div>
+                    <div style={{ fontSize: '13px', color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.7)', maxWidth: '280px' }}>
                       Successfully executed packages.
                     </div>
                   </div>
@@ -6157,8 +6159,8 @@ height: '28px',
                 {beapSubmode === 'rejected' && (
                   <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '40px 20px', textAlign: 'center' }}>
                     <span style={{ fontSize: '48px', marginBottom: '16px' }}>🚫</span>
-                    <div style={{ fontSize: '18px', fontWeight: '600', color: theme === 'professional' ? '#0f172a' : 'white', marginBottom: '8px' }}>Rejected Packages</div>
-                    <div style={{ fontSize: '13px', color: theme === 'professional' ? '#64748b' : 'rgba(255,255,255,0.7)', maxWidth: '280px' }}>
+                    <div style={{ fontSize: '18px', fontWeight: '600', color: theme === 'standard' ? '#0f172a' : 'white', marginBottom: '8px' }}>Rejected Packages</div>
+                    <div style={{ fontSize: '13px', color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.7)', maxWidth: '280px' }}>
                       Rejected packages.
                     </div>
                   </div>
@@ -6168,12 +6170,12 @@ height: '28px',
                 {beapSubmode === 'draft' && (
                   <>
                 {/* DELIVERY METHOD - FIRST */}
-                <div style={{ padding: '14px 18px', borderBottom: theme === 'professional' ? '1px solid rgba(15,23,42,0.1)' : '1px solid rgba(255,255,255,0.1)' }}>
-                  <label style={{ fontSize: '11px', fontWeight: 600, marginBottom: '6px', display: 'block', color: theme === 'professional' ? '#6b7280' : 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Delivery Method</label>
-                  <select value={handshakeDelivery} onChange={(e) => setHandshakeDelivery(e.target.value as 'email' | 'messenger' | 'download')} style={{ width: '100%', padding: '10px 12px', background: theme === 'professional' ? 'white' : '#1f2937', border: `1px solid ${theme === 'professional' ? 'rgba(0,0,0,0.15)' : 'rgba(255,255,255,0.15)'}`, borderRadius: '8px', color: theme === 'professional' ? '#1f2937' : 'white', fontSize: '13px', cursor: 'pointer' }}>
-                    <option value="email" style={{ background: theme === 'professional' ? 'white' : '#1f2937', color: theme === 'professional' ? '#1f2937' : 'white' }}>📧 Email</option>
-                    <option value="messenger" style={{ background: theme === 'professional' ? 'white' : '#1f2937', color: theme === 'professional' ? '#1f2937' : 'white' }}>💬 Messenger (Web)</option>
-                    <option value="download" style={{ background: theme === 'professional' ? 'white' : '#1f2937', color: theme === 'professional' ? '#1f2937' : 'white' }}>💾 Download (USB/Wallet)</option>
+                <div style={{ padding: '14px 18px', borderBottom: theme === 'standard' ? '1px solid rgba(147, 51, 234, 0.12)' : '1px solid rgba(255,255,255,0.1)' }}>
+                  <label style={{ fontSize: '11px', fontWeight: 600, marginBottom: '6px', display: 'block', color: theme === 'standard' ? '#6b7280' : 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Delivery Method</label>
+                  <select value={handshakeDelivery} onChange={(e) => setHandshakeDelivery(e.target.value as 'email' | 'messenger' | 'download')} style={{ width: '100%', padding: '10px 12px', background: theme === 'standard' ? 'white' : '#1f2937', border: `1px solid ${theme === 'standard' ? 'rgba(147, 51, 234, 0.15)' : 'rgba(255,255,255,0.15)'}`, borderRadius: '8px', color: theme === 'standard' ? '#1f2937' : 'white', fontSize: '13px', cursor: 'pointer' }}>
+                    <option value="email" style={{ background: theme === 'standard' ? 'white' : '#1f2937', color: theme === 'standard' ? '#1f2937' : 'white' }}>📧 Email</option>
+                    <option value="messenger" style={{ background: theme === 'standard' ? 'white' : '#1f2937', color: theme === 'standard' ? '#1f2937' : 'white' }}>💬 Messenger (Web)</option>
+                    <option value="download" style={{ background: theme === 'standard' ? 'white' : '#1f2937', color: theme === 'standard' ? '#1f2937' : 'white' }}>💾 Download (USB/Wallet)</option>
                   </select>
                 </div>
                 
@@ -6181,13 +6183,13 @@ height: '28px',
                 {handshakeDelivery === 'email' && (
                 <div style={{ 
                   padding: '16px 18px', 
-                  borderBottom: theme === 'professional' ? '1px solid rgba(15,23,42,0.1)' : '1px solid rgba(255,255,255,0.1)',
-                  background: theme === 'professional' ? 'rgba(59,130,246,0.05)' : 'rgba(59,130,246,0.1)'
+                  borderBottom: theme === 'standard' ? '1px solid rgba(147, 51, 234, 0.12)' : '1px solid rgba(255,255,255,0.1)',
+                  background: theme === 'standard' ? 'rgba(59,130,246,0.05)' : 'rgba(59,130,246,0.1)'
                 }}>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                       <span style={{ fontSize: '16px' }}>🔗</span>
-                      <span style={{ fontSize: '13px', fontWeight: '600', color: theme === 'professional' ? '#0f172a' : 'white' }}>Connected Email Accounts</span>
+                      <span style={{ fontSize: '13px', fontWeight: '600', color: theme === 'standard' ? '#0f172a' : 'white' }}>Connected Email Accounts</span>
                     </div>
                     <button
                       onClick={() => setShowEmailSetupWizard(true)}
@@ -6216,14 +6218,14 @@ height: '28px',
                   ) : emailAccounts.length === 0 ? (
                     <div style={{ 
                       padding: '20px', 
-                      background: theme === 'professional' ? 'white' : 'rgba(255,255,255,0.05)',
+                      background: theme === 'standard' ? 'white' : 'rgba(255,255,255,0.05)',
                       borderRadius: '8px',
-                      border: theme === 'professional' ? '1px dashed rgba(15,23,42,0.2)' : '1px dashed rgba(255,255,255,0.2)',
+                      border: theme === 'standard' ? '1px dashed rgba(15,23,42,0.2)' : '1px dashed rgba(255,255,255,0.2)',
                       textAlign: 'center'
                     }}>
                       <div style={{ fontSize: '24px', marginBottom: '8px' }}>📧</div>
-                      <div style={{ fontSize: '13px', color: theme === 'professional' ? '#64748b' : 'rgba(255,255,255,0.7)', marginBottom: '4px' }}>No email accounts connected</div>
-                      <div style={{ fontSize: '11px', color: theme === 'professional' ? '#94a3b8' : 'rgba(255,255,255,0.5)' }}>
+                      <div style={{ fontSize: '13px', color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.7)', marginBottom: '4px' }}>No email accounts connected</div>
+                      <div style={{ fontSize: '11px', color: theme === 'standard' ? '#94a3b8' : 'rgba(255,255,255,0.5)' }}>
                         Connect your email account to send BEAP™ messages
                       </div>
                     </div>
@@ -6237,11 +6239,11 @@ height: '28px',
                             alignItems: 'center', 
                             justifyContent: 'space-between',
                             padding: '10px 12px',
-                            background: theme === 'professional' ? 'white' : 'rgba(255,255,255,0.08)',
+                            background: theme === 'standard' ? 'white' : 'rgba(255,255,255,0.08)',
                             borderRadius: '8px',
                             border: account.status === 'active' 
-                              ? (theme === 'professional' ? '1px solid rgba(34,197,94,0.3)' : '1px solid rgba(34,197,94,0.4)')
-                              : (theme === 'professional' ? '1px solid rgba(239,68,68,0.3)' : '1px solid rgba(239,68,68,0.4)')
+                              ? (theme === 'standard' ? '1px solid rgba(34,197,94,0.3)' : '1px solid rgba(34,197,94,0.4)')
+                              : (theme === 'standard' ? '1px solid rgba(239,68,68,0.3)' : '1px solid rgba(239,68,68,0.4)')
                           }}
                         >
                           <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
@@ -6249,7 +6251,7 @@ height: '28px',
                               {account.provider === 'gmail' ? '📧' : account.provider === 'microsoft365' ? '📨' : '✉️'}
                             </span>
                             <div>
-                              <div style={{ fontSize: '13px', fontWeight: '500', color: theme === 'professional' ? '#0f172a' : 'white' }}>
+                              <div style={{ fontSize: '13px', fontWeight: '500', color: theme === 'standard' ? '#0f172a' : 'white' }}>
                                 {account.email || account.displayName}
                               </div>
                               <div style={{ 
@@ -6265,7 +6267,7 @@ height: '28px',
                                   borderRadius: '50%', 
                                   background: account.status === 'active' ? '#22c55e' : '#ef4444' 
                                 }} />
-                                <span style={{ color: theme === 'professional' ? '#64748b' : 'rgba(255,255,255,0.6)' }}>
+                                <span style={{ color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.6)' }}>
                                   {account.status === 'active' ? 'Connected' : account.lastError || 'Error'}
                                 </span>
                               </div>
@@ -6277,7 +6279,7 @@ height: '28px',
                             style={{
                               background: 'transparent',
                               border: 'none',
-                              color: theme === 'professional' ? '#94a3b8' : 'rgba(255,255,255,0.5)',
+                              color: theme === 'standard' ? '#94a3b8' : 'rgba(255,255,255,0.5)',
                               cursor: 'pointer',
                               padding: '4px',
                               fontSize: '14px'
@@ -6293,8 +6295,8 @@ height: '28px',
                   {/* Select account for sending */}
                   {emailAccounts.length > 0 && (
                     <div style={{ marginTop: '12px' }}>
-                      <label style={{ fontSize: '11px', fontWeight: 600, marginBottom: '6px', display: 'block', color: theme === 'professional' ? '#6b7280' : 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Send From:</label>
-                      <select value={selectedEmailAccountId || emailAccounts[0]?.id || ''} onChange={(e) => setSelectedEmailAccountId(e.target.value)} style={{ width: '100%', background: theme === 'professional' ? 'white' : 'rgba(255,255,255,0.1)', border: theme === 'professional' ? '1px solid rgba(15,23,42,0.2)' : '1px solid rgba(255,255,255,0.2)', color: theme === 'professional' ? '#0f172a' : 'white', borderRadius: '6px', padding: '8px 12px', fontSize: '13px', cursor: 'pointer', outline: 'none' }}>
+                      <label style={{ fontSize: '11px', fontWeight: 600, marginBottom: '6px', display: 'block', color: theme === 'standard' ? '#6b7280' : 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Send From:</label>
+                      <select value={selectedEmailAccountId || emailAccounts[0]?.id || ''} onChange={(e) => setSelectedEmailAccountId(e.target.value)} style={{ width: '100%', background: theme === 'standard' ? 'white' : 'rgba(255,255,255,0.1)', border: theme === 'standard' ? '1px solid #e1e8ed' : '1px solid rgba(255,255,255,0.2)', color: theme === 'standard' ? '#0f172a' : 'white', borderRadius: '6px', padding: '8px 12px', fontSize: '13px', cursor: 'pointer', outline: 'none' }}>
                         {emailAccounts.map(account => (<option key={account.id} value={account.id}>{account.email || account.displayName} ({account.provider})</option>))}
                       </select>
                     </div>
@@ -6302,15 +6304,15 @@ height: '28px',
                 </div>
                 )}
                 {/* BEAP™ Message UI - App View */}
-                <div style={{ padding: '12px 14px', borderBottom: `1px solid ${theme === 'professional' ? 'rgba(0,0,0,0.1)' : 'rgba(255,255,255,0.1)'}`, display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <div style={{ padding: '12px 14px', borderBottom: `1px solid ${theme === 'standard' ? 'rgba(0,0,0,0.1)' : 'rgba(255,255,255,0.1)'}`, display: 'flex', alignItems: 'center', gap: '10px' }}>
                   <span style={{ fontSize: '18px' }}>📦</span>
-                  <span style={{ fontSize: '13px', fontWeight: '600', color: theme === 'professional' ? '#1f2937' : 'white' }}>BEAP™ Message</span>
+                  <span style={{ fontSize: '13px', fontWeight: '600', color: theme === 'standard' ? '#1f2937' : 'white' }}>BEAP™ Message</span>
                 </div>
                 <div style={{ flex: 1, padding: '14px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '12px' }}>
                   {/* Fingerprint */}
-                  <div style={{ background: theme === 'professional' ? 'rgba(59,130,246,0.08)' : 'rgba(59,130,246,0.15)', border: theme === 'professional' ? '1px solid rgba(59,130,246,0.2)' : '1px solid rgba(59,130,246,0.3)', borderRadius: '8px', padding: '12px' }}>
-                    <div style={{ fontSize: '10px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px', color: theme === 'professional' ? '#3b82f6' : '#93c5fd', marginBottom: '6px' }}>Your Fingerprint</div>
-                    <code style={{ fontSize: '13px', fontFamily: 'monospace', color: theme === 'professional' ? '#1e40af' : '#bfdbfe' }}>{ourFingerprintShort}</code>
+                  <div style={{ background: theme === 'standard' ? 'rgba(59,130,246,0.08)' : 'rgba(59,130,246,0.15)', border: theme === 'standard' ? '1px solid rgba(59,130,246,0.2)' : '1px solid rgba(59,130,246,0.3)', borderRadius: '8px', padding: '12px' }}>
+                    <div style={{ fontSize: '10px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px', color: theme === 'standard' ? '#3b82f6' : '#93c5fd', marginBottom: '6px' }}>Your Fingerprint</div>
+                    <code style={{ fontSize: '13px', fontFamily: 'monospace', color: theme === 'standard' ? '#1e40af' : '#bfdbfe' }}>{ourFingerprintShort}</code>
                   </div>
                   {/* Recipient Mode Switch */}
                   <RecipientModeSwitch mode={beapRecipientMode} onModeChange={setBeapRecipientMode} theme={theme} />
@@ -6321,41 +6323,41 @@ height: '28px',
                   {/* Delivery Method Panel - Adapts to recipient mode */}
                   <DeliveryMethodPanel deliveryMethod={handshakeDelivery} recipientMode={beapRecipientMode} selectedRecipient={selectedRecipient} emailTo={beapDraftTo} onEmailToChange={setBeapDraftTo} theme={theme} ourFingerprintShort={ourFingerprintShort} />
                   <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
-                    <label style={{ fontSize: '11px', fontWeight: 600, marginBottom: '6px', display: 'block', color: theme === 'professional' ? '#6b7280' : 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Message</label>
-                    <textarea className="beap-textarea" value={beapDraftMessage} onChange={(e) => setBeapDraftMessage(e.target.value)} placeholder="Compose your BEAP™ message..." style={{ flex: 1, minHeight: '120px', background: theme === 'professional' ? 'white' : 'rgba(255,255,255,0.08)', border: theme === 'professional' ? '1px solid rgba(15,23,42,0.2)' : '1px solid rgba(255,255,255,0.15)', color: theme === 'professional' ? '#0f172a' : 'white', borderRadius: '6px', padding: '10px 12px', fontSize: '12px', lineHeight: '1.5', resize: 'none', outline: 'none', fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif' }} />
+                    <label style={{ fontSize: '11px', fontWeight: 600, marginBottom: '6px', display: 'block', color: theme === 'standard' ? '#6b7280' : 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Message</label>
+                    <textarea className="beap-textarea" value={beapDraftMessage} onChange={(e) => setBeapDraftMessage(e.target.value)} placeholder="Compose your BEAP™ message..." style={{ flex: 1, minHeight: '120px', background: theme === 'standard' ? 'white' : 'rgba(255,255,255,0.08)', border: theme === 'standard' ? '1px solid rgba(15,23,42,0.2)' : '1px solid rgba(255,255,255,0.15)', color: theme === 'standard' ? '#0f172a' : 'white', borderRadius: '6px', padding: '10px 12px', fontSize: '12px', lineHeight: '1.5', resize: 'none', outline: 'none', fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif' }} />
                   </div>
                   {/* Encrypted Message (qBEAP/PRIVATE only) */}
                   {beapRecipientMode === 'private' && (
                     <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
-                      <label style={{ fontSize: '11px', fontWeight: 600, marginBottom: '6px', display: 'block', color: theme === 'professional' ? '#7c3aed' : '#c4b5fd', textTransform: 'uppercase', letterSpacing: '0.5px' }}>🔐 Encrypted Message (Private · qBEAP)</label>
-                      <textarea className="beap-textarea" value={beapDraftEncryptedMessage} onChange={(e) => setBeapDraftEncryptedMessage(e.target.value)} placeholder="This message is encrypted, capsule-bound, and never transported outside the BEAP package." style={{ flex: 1, minHeight: '100px', background: theme === 'professional' ? 'rgba(139,92,246,0.05)' : 'rgba(139,92,246,0.15)', border: theme === 'professional' ? '1px solid rgba(139,92,246,0.3)' : '1px solid rgba(139,92,246,0.4)', color: theme === 'professional' ? '#0f172a' : 'white', borderRadius: '6px', padding: '10px 12px', fontSize: '12px', lineHeight: '1.5', resize: 'none', outline: 'none', fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif' }} />
-                      <div style={{ fontSize: '10px', color: theme === 'professional' ? '#7c3aed' : '#c4b5fd', marginTop: '4px' }}>⚠️ This content is authoritative when present and never leaves the encrypted capsule.</div>
+                      <label style={{ fontSize: '11px', fontWeight: 600, marginBottom: '6px', display: 'block', color: theme === 'standard' ? '#7c3aed' : '#c4b5fd', textTransform: 'uppercase', letterSpacing: '0.5px' }}>🔐 Encrypted Message (Private · qBEAP)</label>
+                      <textarea className="beap-textarea" value={beapDraftEncryptedMessage} onChange={(e) => setBeapDraftEncryptedMessage(e.target.value)} placeholder="This message is encrypted, capsule-bound, and never transported outside the BEAP package." style={{ flex: 1, minHeight: '100px', background: theme === 'standard' ? 'rgba(139,92,246,0.05)' : 'rgba(139,92,246,0.15)', border: theme === 'standard' ? '1px solid rgba(139,92,246,0.3)' : '1px solid rgba(139,92,246,0.4)', color: theme === 'standard' ? '#0f172a' : 'white', borderRadius: '6px', padding: '10px 12px', fontSize: '12px', lineHeight: '1.5', resize: 'none', outline: 'none', fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif' }} />
+                      <div style={{ fontSize: '10px', color: theme === 'standard' ? '#7c3aed' : '#c4b5fd', marginTop: '4px' }}>⚠️ This content is authoritative when present and never leaves the encrypted capsule.</div>
                     </div>
                   )}
                   {/* Advanced: Session + Attachments (Expanded) */}
-                  <div style={{ marginTop: '12px', paddingTop: '12px', borderTop: theme === 'professional' ? '1px solid rgba(15,23,42,0.1)' : '1px solid rgba(255,255,255,0.1)' }}>
-                    <div style={{ fontSize: '11px', fontWeight: 600, marginBottom: '8px', color: theme === 'professional' ? '#64748b' : 'rgba(255,255,255,0.6)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Advanced (Optional)</div>
+                  <div style={{ marginTop: '12px', paddingTop: '12px', borderTop: theme === 'standard' ? '1px solid rgba(147, 51, 234, 0.12)' : '1px solid rgba(255,255,255,0.1)' }}>
+                    <div style={{ fontSize: '11px', fontWeight: 600, marginBottom: '8px', color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.6)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Advanced (Optional)</div>
                     <div style={{ marginBottom: '10px' }}>
-                      <label style={{ fontSize: '10px', fontWeight: 500, marginBottom: '4px', display: 'block', color: theme === 'professional' ? '#64748b' : 'rgba(255,255,255,0.6)' }}>Session (optional)</label>
-                      <select value={beapDraftSessionId} onChange={(e) => setBeapDraftSessionId(e.target.value)} onClick={() => loadAvailableSessions()} style={{ width: '100%', background: theme === 'professional' ? '#f8fafc' : '#1e293b', border: theme === 'professional' ? '1px solid rgba(15,23,42,0.2)' : '1px solid rgba(255,255,255,0.25)', color: theme === 'professional' ? '#0f172a' : '#f1f5f9', borderRadius: '6px', padding: '8px 10px', fontSize: '12px', outline: 'none', boxSizing: 'border-box', cursor: 'pointer' }}>
-                        <option value="" style={{ background: theme === 'professional' ? '#f8fafc' : '#1e293b', color: theme === 'professional' ? '#0f172a' : '#f1f5f9' }}>{availableSessions.length === 0 ? '— No sessions available —' : '— Select a session —'}</option>
-                        {availableSessions.map((s) => (<option key={s.key} value={s.key} style={{ background: theme === 'professional' ? '#f8fafc' : '#1e293b', color: theme === 'professional' ? '#0f172a' : '#f1f5f9' }}>{s.name} ({new Date(s.timestamp).toLocaleDateString()})</option>))}
+                      <label style={{ fontSize: '10px', fontWeight: 500, marginBottom: '4px', display: 'block', color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.6)' }}>Session (optional)</label>
+                      <select value={beapDraftSessionId} onChange={(e) => setBeapDraftSessionId(e.target.value)} onClick={() => loadAvailableSessions()} style={{ width: '100%', background: theme === 'standard' ? '#ffffff' : '#1e293b', border: theme === 'standard' ? '1px solid rgba(15,23,42,0.2)' : '1px solid rgba(255,255,255,0.25)', color: theme === 'standard' ? '#0f172a' : '#f1f5f9', borderRadius: '6px', padding: '8px 10px', fontSize: '12px', outline: 'none', boxSizing: 'border-box', cursor: 'pointer' }}>
+                        <option value="" style={{ background: theme === 'standard' ? '#ffffff' : '#1e293b', color: theme === 'standard' ? '#0f172a' : '#f1f5f9' }}>{availableSessions.length === 0 ? '— No sessions available —' : '— Select a session —'}</option>
+                        {availableSessions.map((s) => (<option key={s.key} value={s.key} style={{ background: theme === 'standard' ? '#ffffff' : '#1e293b', color: theme === 'standard' ? '#0f172a' : '#f1f5f9' }}>{s.name} ({new Date(s.timestamp).toLocaleDateString()})</option>))}
                       </select>
                     </div>
                     <div>
-                      <label style={{ fontSize: '10px', fontWeight: 500, marginBottom: '4px', display: 'block', color: theme === 'professional' ? '#64748b' : 'rgba(255,255,255,0.6)' }}>Attachments</label>
-                      <input type="file" multiple onChange={async (e) => { const files = Array.from(e.target.files ?? []); if (!files.length) return; const newItems: DraftAttachment[] = []; for (const file of files) { if (file.size > 10 * 1024 * 1024) { console.warn(`[BEAP] Skipping ${file.name}: exceeds 10MB limit`); continue } if (beapDraftAttachments.length + newItems.length >= 20) { console.warn('[BEAP] Max 20 attachments reached'); break } const dataBase64 = await new Promise<string>((resolve, reject) => { const reader = new FileReader(); reader.onload = () => { const res = String(reader.result ?? ''); resolve(res.includes(',') ? res.split(',')[1] : res) }; reader.onerror = () => reject(reader.error); reader.readAsDataURL(file) }); const attachmentId = crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`; const mimeType = file.type || 'application/octet-stream'; const isPdf = mimeType.toLowerCase() === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf'); const capsuleAttachment: CapsuleAttachment = { id: attachmentId, originalName: file.name, originalSize: file.size, originalType: mimeType, semanticContent: null, semanticExtracted: false, encryptedRef: `encrypted_${attachmentId}`, encryptedHash: '', previewRef: null, rasterProof: null, isMedia: mimeType.startsWith('image/') || mimeType.startsWith('video/') || mimeType.startsWith('audio/'), hasTranscript: false }; newItems.push({ id: attachmentId, name: file.name, mime: mimeType, size: file.size, dataBase64, capsuleAttachment, processing: { parsing: isPdf, rasterizing: isPdf } }) } setBeapDraftAttachments((prev) => [...prev, ...newItems]); e.currentTarget.value = ''; for (const item of newItems) { const isPdf = item.mime.toLowerCase() === 'application/pdf' || item.name.toLowerCase().endsWith('.pdf'); if (isPdf) { console.log(`[BEAP] Processing PDF: ${item.name}`); processAttachmentForParsing(item.capsuleAttachment, item.dataBase64).then((r) => { console.log(`[BEAP] Parse done: ${item.name}`); setBeapDraftAttachments((prev) => prev.map((a) => a.id === item.id ? { ...a, capsuleAttachment: r.attachment, processing: { ...a.processing, parsing: false, error: r.error || a.processing.error } } : a)) }).catch((err) => { setBeapDraftAttachments((prev) => prev.map((a) => a.id === item.id ? { ...a, processing: { ...a.processing, parsing: false, error: String(err) } } : a)) }); processAttachmentForRasterization(item.capsuleAttachment, item.dataBase64, 144).then((r) => { console.log(`[BEAP] Raster done: ${item.name}`); setBeapDraftAttachments((prev) => prev.map((a) => a.id === item.id ? { ...a, capsuleAttachment: { ...a.capsuleAttachment, previewRef: r.attachment.previewRef, rasterProof: r.rasterProof }, processing: { ...a.processing, rasterizing: false, error: r.error || a.processing.error } } : a)) }).catch((err) => { setBeapDraftAttachments((prev) => prev.map((a) => a.id === item.id ? { ...a, processing: { ...a.processing, rasterizing: false, error: String(err) } } : a)) }) } } }} style={{ fontSize: '11px', color: theme === 'professional' ? '#64748b' : 'rgba(255,255,255,0.7)' }} />
+                      <label style={{ fontSize: '10px', fontWeight: 500, marginBottom: '4px', display: 'block', color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.6)' }}>Attachments</label>
+                      <input type="file" multiple onChange={async (e) => { const files = Array.from(e.target.files ?? []); if (!files.length) return; const newItems: DraftAttachment[] = []; for (const file of files) { if (file.size > 10 * 1024 * 1024) { console.warn(`[BEAP] Skipping ${file.name}: exceeds 10MB limit`); continue } if (beapDraftAttachments.length + newItems.length >= 20) { console.warn('[BEAP] Max 20 attachments reached'); break } const dataBase64 = await new Promise<string>((resolve, reject) => { const reader = new FileReader(); reader.onload = () => { const res = String(reader.result ?? ''); resolve(res.includes(',') ? res.split(',')[1] : res) }; reader.onerror = () => reject(reader.error); reader.readAsDataURL(file) }); const attachmentId = crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`; const mimeType = file.type || 'application/octet-stream'; const isPdf = mimeType.toLowerCase() === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf'); const capsuleAttachment: CapsuleAttachment = { id: attachmentId, originalName: file.name, originalSize: file.size, originalType: mimeType, semanticContent: null, semanticExtracted: false, encryptedRef: `encrypted_${attachmentId}`, encryptedHash: '', previewRef: null, rasterProof: null, isMedia: mimeType.startsWith('image/') || mimeType.startsWith('video/') || mimeType.startsWith('audio/'), hasTranscript: false }; newItems.push({ id: attachmentId, name: file.name, mime: mimeType, size: file.size, dataBase64, capsuleAttachment, processing: { parsing: isPdf, rasterizing: isPdf } }) } setBeapDraftAttachments((prev) => [...prev, ...newItems]); e.currentTarget.value = ''; for (const item of newItems) { const isPdf = item.mime.toLowerCase() === 'application/pdf' || item.name.toLowerCase().endsWith('.pdf'); if (isPdf) { console.log(`[BEAP] Processing PDF: ${item.name}`); processAttachmentForParsing(item.capsuleAttachment, item.dataBase64).then((r) => { console.log(`[BEAP] Parse done: ${item.name}`); setBeapDraftAttachments((prev) => prev.map((a) => a.id === item.id ? { ...a, capsuleAttachment: r.attachment, processing: { ...a.processing, parsing: false, error: r.error || a.processing.error } } : a)) }).catch((err) => { setBeapDraftAttachments((prev) => prev.map((a) => a.id === item.id ? { ...a, processing: { ...a.processing, parsing: false, error: String(err) } } : a)) }); processAttachmentForRasterization(item.capsuleAttachment, item.dataBase64, 144).then((r) => { console.log(`[BEAP] Raster done: ${item.name}`); setBeapDraftAttachments((prev) => prev.map((a) => a.id === item.id ? { ...a, capsuleAttachment: { ...a.capsuleAttachment, previewRef: r.attachment.previewRef, rasterProof: r.rasterProof }, processing: { ...a.processing, rasterizing: false, error: r.error || a.processing.error } } : a)) }).catch((err) => { setBeapDraftAttachments((prev) => prev.map((a) => a.id === item.id ? { ...a, processing: { ...a.processing, rasterizing: false, error: String(err) } } : a)) }) } } }} style={{ fontSize: '11px', color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.7)' }} />
                       {beapDraftAttachments.length > 0 && (
                         <div style={{ marginTop: '8px' }}>
-                          {beapDraftAttachments.map((a) => (<div key={a.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 8px', background: theme === 'professional' ? 'rgba(0,0,0,0.03)' : 'rgba(255,255,255,0.05)', borderRadius: '4px', marginBottom: '4px' }}><div><div style={{ fontSize: '11px', color: theme === 'professional' ? '#0f172a' : 'white' }}>{a.name}{(a.processing.parsing || a.processing.rasterizing) && ' ⏳'}{a.capsuleAttachment.semanticExtracted && ' ✓'}</div><div style={{ fontSize: '9px', color: theme === 'professional' ? '#64748b' : 'rgba(255,255,255,0.5)' }}>{a.mime} · {a.size} bytes{a.processing.error && ` · ⚠️ ${a.processing.error.slice(0,30)}`}</div></div><button onClick={() => setBeapDraftAttachments((prev) => prev.filter((x) => x.id !== a.id))} style={{ background: 'transparent', border: 'none', color: theme === 'professional' ? '#ef4444' : '#f87171', fontSize: '10px', cursor: 'pointer' }}>Remove</button></div>))}
-                          <button onClick={() => setBeapDraftAttachments([])} style={{ background: 'transparent', border: theme === 'professional' ? '1px solid rgba(15,23,42,0.2)' : '1px solid rgba(255,255,255,0.2)', color: theme === 'professional' ? '#64748b' : 'rgba(255,255,255,0.6)', borderRadius: '4px', padding: '4px 8px', fontSize: '10px', cursor: 'pointer', marginTop: '4px' }}>Clear all</button>
+                          {beapDraftAttachments.map((a) => (<div key={a.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 8px', background: theme === 'standard' ? 'rgba(0,0,0,0.03)' : 'rgba(255,255,255,0.05)', borderRadius: '4px', marginBottom: '4px' }}><div><div style={{ fontSize: '11px', color: theme === 'standard' ? '#0f172a' : 'white' }}>{a.name}{(a.processing.parsing || a.processing.rasterizing) && ' ⏳'}{a.capsuleAttachment.semanticExtracted && ' ✓'}</div><div style={{ fontSize: '9px', color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.5)' }}>{a.mime} · {a.size} bytes{a.processing.error && ` · ⚠️ ${a.processing.error.slice(0,30)}`}</div></div><button onClick={() => setBeapDraftAttachments((prev) => prev.filter((x) => x.id !== a.id))} style={{ background: 'transparent', border: 'none', color: theme === 'standard' ? '#ef4444' : '#f87171', fontSize: '10px', cursor: 'pointer' }}>Remove</button></div>))}
+                          <button onClick={() => setBeapDraftAttachments([])} style={{ background: 'transparent', border: theme === 'standard' ? '1px solid #e1e8ed' : '1px solid rgba(255,255,255,0.2)', color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.6)', borderRadius: '4px', padding: '4px 8px', fontSize: '10px', cursor: 'pointer', marginTop: '4px' }}>Clear all</button>
                         </div>
                       )}
                     </div>
                   </div>
                 </div>
-                <div style={{ padding: '12px 14px', borderTop: theme === 'professional' ? '1px solid rgba(15,23,42,0.1)' : '1px solid rgba(255,255,255,0.1)', display: 'flex', justifyContent: 'flex-end', gap: '8px', background: theme === 'professional' ? '#f8fafc' : 'rgba(0,0,0,0.2)' }}>
-                  <button onClick={() => { setBeapDraftTo(''); setBeapDraftMessage(''); setBeapDraftEncryptedMessage(''); setBeapDraftSessionId(''); setBeapDraftAttachments([]); setSelectedRecipient(null) }} style={{ background: 'transparent', border: theme === 'professional' ? '1px solid rgba(15,23,42,0.2)' : '1px solid rgba(255,255,255,0.2)', color: theme === 'professional' ? '#64748b' : 'rgba(255,255,255,0.7)', borderRadius: '6px', padding: '8px 16px', fontSize: '12px', cursor: 'pointer' }}>Clear</button>
+                <div style={{ padding: '12px 14px', borderTop: theme === 'standard' ? '1px solid rgba(147, 51, 234, 0.12)' : '1px solid rgba(255,255,255,0.1)', display: 'flex', justifyContent: 'flex-end', gap: '8px', background: theme === 'standard' ? '#ffffff' : 'rgba(0,0,0,0.2)' }}>
+                  <button onClick={() => { setBeapDraftTo(''); setBeapDraftMessage(''); setBeapDraftEncryptedMessage(''); setBeapDraftSessionId(''); setBeapDraftAttachments([]); setSelectedRecipient(null) }} style={{ background: 'transparent', border: theme === 'standard' ? '1px solid #e1e8ed' : '1px solid rgba(255,255,255,0.2)', color: theme === 'standard' ? '#536471' : 'rgba(255,255,255,0.7)', borderRadius: '6px', padding: '8px 16px', fontSize: '12px', cursor: 'pointer' }}>Clear</button>
                   <button onClick={handleSendBeapMessage} disabled={isBeapSendDisabled} style={{ background: isBeapSendDisabled ? 'rgba(168,85,247,0.5)' : 'linear-gradient(135deg, #a855f7 0%, #9333ea 100%)', border: 'none', color: 'white', borderRadius: '6px', padding: '8px 20px', fontSize: '12px', fontWeight: 600, cursor: isBeapSendDisabled ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: '6px', opacity: isBeapSendDisabled ? 0.7 : 1 }}>{getBeapSendButtonLabel()}</button>
                 </div>
                   </>
@@ -6394,7 +6396,7 @@ height: '28px',
               width: '100%',
               maxWidth: '300px',
               padding: '20px 24px',
-              ...(theme === 'professional' ? {
+              ...(theme === 'standard' ? {
                 background: 'rgba(15,23,42,0.08)',
                 border: '2px dashed rgba(15,23,42,0.3)',
                 color: '#0f172a'
@@ -6420,7 +6422,7 @@ height: '28px',
             }}
             onMouseEnter={(e) => {
               e.currentTarget.style.transform = 'translateY(-2px)'
-              if (theme === 'professional') {
+              if (theme === 'standard') {
                 e.currentTarget.style.background = 'rgba(15,23,42,0.12)'
                 e.currentTarget.style.borderColor = 'rgba(15,23,42,0.4)'
               } else if (theme === 'dark') {
@@ -6433,7 +6435,7 @@ height: '28px',
             }}
             onMouseLeave={(e) => {
               e.currentTarget.style.transform = 'translateY(0)'
-              if (theme === 'professional') {
+              if (theme === 'standard') {
                 e.currentTarget.style.background = 'rgba(15,23,42,0.08)'
                 e.currentTarget.style.borderColor = 'rgba(15,23,42,0.3)'
               } else if (theme === 'dark') {
@@ -6470,11 +6472,11 @@ height: '28px',
       {/* Session Controls at the very top - Two Rows */}
       <div style={{ 
         padding: '12px 16px',
-        borderBottom: '1px solid rgba(255,255,255,0.2)',
+        borderBottom: theme === 'standard' ? '1px solid #e1e8ed' : theme === 'dark' ? '1px solid rgba(255,255,255,0.2)' : '1px solid rgba(255,255,255,0.2)',
         display: 'flex',
         flexDirection: 'column',
         gap: '8px',
-        background: theme === 'default' ? 'rgba(118,75,162,0.6)' : 'rgba(0,0,0,0.15)'
+        background: theme === 'pro' ? 'rgba(118,75,162,0.6)' : theme === 'standard' ? '#ffffff' : 'rgba(0,0,0,0.15)'
       }}>
         {/* Row 1: Session Name + 4 Action Icons */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -6504,8 +6506,8 @@ height: '28px',
             style={{
               width: '100%',
               padding: '8px 12px',
-              background: theme === 'professional' ? 'rgba(15,23,42,0.06)' : 'rgba(255,255,255,0.08)',
-              border: theme === 'professional' ? '1px solid rgba(15,23,42,0.12)' : '1px solid rgba(255,255,255,0.15)',
+              background: theme === 'standard' ? 'rgba(15,23,42,0.06)' : 'rgba(255,255,255,0.08)',
+              border: theme === 'standard' ? '1px solid rgba(15,23,42,0.12)' : '1px solid rgba(255,255,255,0.15)',
               color: themeColors.text,
               borderRadius: '6px',
               fontSize: '13px',
@@ -6519,18 +6521,18 @@ height: '28px',
               padding: '2px 12px',
               fontSize: '10px',
               fontFamily: 'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace',
-              color: theme === 'professional' ? 'rgba(15,23,42,0.5)' : 'rgba(255,255,255,0.5)',
+              color: theme === 'standard' ? 'rgba(15,23,42,0.5)' : 'rgba(255,255,255,0.5)',
               whiteSpace: 'nowrap',
               overflow: 'hidden',
               textOverflow: 'ellipsis',
               letterSpacing: '0.3px'
             }}>
               <span style={{ 
-                color: theme === 'professional' ? 'rgba(15,23,42,0.4)' : 'rgba(255,255,255,0.4)',
+                color: theme === 'standard' ? 'rgba(15,23,42,0.4)' : 'rgba(255,255,255,0.4)',
                 marginRight: '4px'
               }}>ID:</span>
               <span style={{ 
-                color: theme === 'professional' ? 'rgba(79,70,229,0.8)' : 'rgba(255,215,0,0.7)',
+                color: theme === 'standard' ? 'rgba(79,70,229,0.8)' : 'rgba(255,215,0,0.7)',
                 fontWeight: '400'
               }}>{sessionKey}</span>
             </div>
@@ -6575,7 +6577,7 @@ height: '28px',
             style={{
               ...actionButtonStyle(isCommandChatPinned ? 'rgba(76,175,80,0.4)' : 'rgba(255,255,255,0.1)'),
               fontSize: '14px',
-              ...(isCommandChatPinned && theme === 'default' ? {
+              ...(isCommandChatPinned && theme === 'pro' ? {
                 background: 'rgba(76,175,80,0.4)',
                 border: '1px solid rgba(76,175,80,0.6)'
               } : {})
@@ -6619,7 +6621,7 @@ height: '28px',
             data-section="admin-view"
             style={{
               borderBottom: '1px solid rgba(255,255,255,0.2)',
-              background: theme === 'default' ? 'rgba(118,75,162,0.4)' : 'rgba(255,255,255,0.10)',
+              background: theme === 'pro' ? 'rgba(118,75,162,0.4)' : 'rgba(255,255,255,0.10)',
               border: '1px solid rgba(255,255,255,0.20)',
               margin: '12px 16px',
               borderRadius: '8px',
@@ -6636,8 +6638,8 @@ height: '28px',
               alignItems: 'center',
               justifyContent: 'space-between',
               padding: '6px 10px',
-              background: theme === 'professional' ? 'linear-gradient(180deg, rgba(248,250,252,0.95) 0%, rgba(241,245,249,0.9) 100%)' : theme === 'dark' ? 'linear-gradient(180deg, rgba(15,23,42,0.95) 0%, rgba(30,41,59,0.9) 100%)' : 'linear-gradient(180deg, rgba(15,10,30,0.95) 0%, rgba(30,20,50,0.9) 100%)',
-              borderBottom: theme === 'professional' ? '1px solid rgba(15,23,42,0.1)' : '1px solid rgba(168,85,247,0.3)',
+              background: theme === 'standard' ? 'linear-gradient(180deg, rgba(248,250,252,0.95) 0%, rgba(241,245,249,0.9) 100%)' : theme === 'dark' ? 'linear-gradient(180deg, rgba(15,23,42,0.95) 0%, rgba(30,41,59,0.9) 100%)' : 'linear-gradient(180deg, rgba(15,10,30,0.95) 0%, rgba(30,20,50,0.9) 100%)',
+              borderBottom: theme === 'standard' ? '1px solid rgba(15,23,42,0.1)' : '1px solid rgba(168,85,247,0.3)',
               boxShadow: '0 2px 8px rgba(0,0,0,0.2)',
               color: themeColors.text
             }}>
@@ -6653,7 +6655,7 @@ height: '28px',
                     height: '22px',
                     width: '90px',
                     background: selectboxStyle.background,
-                    border: theme === 'professional' ? '1px solid rgba(15,23,42,0.2)' : '1px solid rgba(168,85,247,0.4)',
+                    border: theme === 'standard' ? '1px solid rgba(15,23,42,0.2)' : '1px solid rgba(168,85,247,0.4)',
                     color: selectboxStyle.color,
                     borderRadius: '4px',
                     padding: '0 18px 0 6px',
@@ -6743,7 +6745,7 @@ height: '28px',
                 )}
               </div>
               {/* Divider */}
-              <div style={{ width: '1px', height: '16px', background: theme === 'professional' ? 'rgba(15,23,42,0.15)' : 'rgba(168,85,247,0.3)', margin: '0 4px' }} />
+              <div style={{ width: '1px', height: '16px', background: theme === 'standard' ? 'rgba(15,23,42,0.15)' : 'rgba(168,85,247,0.3)', margin: '0 4px' }} />
               {/* Controls */}
               <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
                 {dockedPanelMode !== 'admin' && dockedPanelMode !== 'beap-messages' && dockedPanelMode !== 'augmented-overlay' && dockedWorkspace !== 'wrguard' && <>
@@ -6767,7 +6769,7 @@ height: '28px',
                       transition: 'all 0.2s ease'
                     }}
                     onMouseEnter={(e) => {
-                      if (theme === 'professional') {
+                      if (theme === 'standard') {
                         e.currentTarget.style.background = 'rgba(15,23,42,0.12)'
                       } else if (theme === 'dark') {
                         e.currentTarget.style.background = 'rgba(255,255,255,0.25)'
@@ -6776,7 +6778,7 @@ height: '28px',
                       }
                     }}
                     onMouseLeave={(e) => {
-                      if (theme === 'professional') {
+                      if (theme === 'standard') {
                         e.currentTarget.style.background = 'rgba(15,23,42,0.08)'
                       } else if (theme === 'dark') {
                         e.currentTarget.style.background = 'rgba(255,255,255,0.15)'
@@ -6804,8 +6806,8 @@ height: '28px',
                         transition: 'all 0.2s ease'
                       }}
                       onMouseEnter={(e) => {
-                        if (theme === 'professional') {
-                          e.currentTarget.style.background = 'rgba(15,23,42,0.12)'
+                        if (theme === 'standard') {
+                          e.currentTarget.style.background = '#eef3f6'
                         } else if (theme === 'dark') {
                           e.currentTarget.style.background = 'rgba(255,255,255,0.2)'
                         } else {
@@ -6813,8 +6815,8 @@ height: '28px',
                         }
                       }}
                       onMouseLeave={(e) => {
-                        if (theme === 'professional') {
-                          e.currentTarget.style.background = 'rgba(15,23,42,0.08)'
+                        if (theme === 'standard') {
+                          e.currentTarget.style.background = '#f8f9fb'
                         } else if (theme === 'dark') {
                           e.currentTarget.style.background = 'rgba(255,255,255,0.12)'
                         } else {
@@ -6938,13 +6940,13 @@ height: '28px',
             {/* SECTION 3 - Conditional Content based on mode */}
             {/* P2P Chat */}
             {dockedPanelMode === 'p2p-chat' && (
-              <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: theme === 'default' ? 'rgba(118,75,162,0.25)' : 'rgba(255,255,255,0.06)', minHeight: '280px' }}>
+              <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: theme === 'pro' ? 'rgba(118,75,162,0.25)' : 'rgba(255,255,255,0.06)', minHeight: '280px' }}>
                 <div style={{ padding: '10px 14px', borderBottom: '1px solid rgba(255,255,255,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'rgba(0,0,0,0.1)' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                     <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#6b7280' }} />
                     <span style={{ fontSize: '12px', opacity: 0.7 }}>No peer connected</span>
                   </div>
-                  <button style={{ padding: '4px 10px', background: 'rgba(255,255,255,0.12)', border: 'none', borderRadius: '6px', color: 'white', fontSize: '11px', cursor: 'pointer' }}>Connect</button>
+                  <button style={{ padding: '4px 10px', background: theme === 'standard' ? '#f8f9fb' : 'rgba(255,255,255,0.12)', border: theme === 'standard' ? '1px solid #e1e8ed' : 'none', borderRadius: '6px', color: theme === 'standard' ? '#0f172a' : 'white', fontSize: '11px', cursor: 'pointer' }}>Connect</button>
                 </div>
                 <div style={{ flex: 1, overflowY: 'auto', padding: '12px', display: 'flex', flexDirection: 'column', gap: '8px' }}></div>
                 <div style={{ padding: '10px 12px', borderTop: '1px solid rgba(255,255,255,0.1)', display: 'flex', gap: '6px', alignItems: 'center' }}>
@@ -6971,7 +6973,7 @@ height: '28px',
                     <button style={{ padding: '6px 10px', background: 'rgba(255,255,255,0.15)', border: 'none', borderRadius: '6px', color: 'white', fontSize: '11px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}>📺 Share</button>
                   </div>
                 </div>
-                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: '120px', background: theme === 'default' ? 'rgba(118,75,162,0.25)' : 'rgba(255,255,255,0.06)' }}>
+                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: '120px', background: theme === 'pro' ? 'rgba(118,75,162,0.25)' : 'rgba(255,255,255,0.06)' }}>
                   <div style={{ flex: 1, overflowY: 'auto', padding: '8px' }}></div>
                   <div style={{ padding: '8px', display: 'flex', gap: '6px', alignItems: 'center', borderTop: '1px solid rgba(255,255,255,0.1)' }}>
                     <textarea placeholder="Chat..." style={{ flex: 1, padding: '6px 8px', background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '6px', color: 'white', fontSize: '11px', resize: 'none', minHeight: '28px' }} />
@@ -7003,7 +7005,7 @@ height: '28px',
                   <button style={{ padding: '4px 8px', background: 'rgba(255,255,255,0.12)', border: 'none', borderRadius: '4px', color: 'white', fontSize: '12px', cursor: 'pointer' }}>📺</button>
                   <button style={{ padding: '4px 8px', background: 'rgba(239,68,68,0.2)', border: 'none', borderRadius: '4px', color: '#ef4444', fontSize: '10px', cursor: 'pointer' }}>Leave</button>
                 </div>
-                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: '100px', background: theme === 'default' ? 'rgba(118,75,162,0.25)' : 'rgba(255,255,255,0.06)' }}>
+                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: '100px', background: theme === 'pro' ? 'rgba(118,75,162,0.25)' : 'rgba(255,255,255,0.06)' }}>
                   <div style={{ flex: 1, overflowY: 'auto', padding: '8px' }}></div>
                   <div style={{ padding: '8px', display: 'flex', gap: '6px', alignItems: 'center', borderTop: '1px solid rgba(255,255,255,0.1)' }}>
                     <textarea placeholder="Group chat..." style={{ flex: 1, padding: '6px 8px', background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '6px', color: 'white', fontSize: '11px', resize: 'none', minHeight: '28px' }} />
@@ -7016,64 +7018,64 @@ height: '28px',
 
             {/* BEAP Handshake Request - App/Admin View */}
             {dockedPanelMode === 'handshake' && (
-              <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: theme === 'default' ? 'rgba(118,75,162,0.25)' : (theme === 'professional' ? '#f8fafc' : 'rgba(255,255,255,0.06)'), minHeight: '280px', overflow: 'hidden' }}>
+              <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: theme === 'pro' ? 'rgba(118,75,162,0.25)' : (theme === 'standard' ? '#ffffff' : 'rgba(255,255,255,0.06)'), minHeight: '280px', overflow: 'hidden' }}>
                 {/* Header */}
-                <div style={{ padding: '12px 14px', borderBottom: `1px solid ${theme === 'professional' ? 'rgba(0,0,0,0.1)' : 'rgba(255,255,255,0.1)'}`, display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <div style={{ padding: '12px 14px', borderBottom: `1px solid ${theme === 'standard' ? 'rgba(0,0,0,0.1)' : 'rgba(255,255,255,0.1)'}`, display: 'flex', alignItems: 'center', gap: '10px' }}>
                   <span style={{ fontSize: '18px' }}>🤝</span>
-                  <span style={{ fontSize: '13px', fontWeight: '600', color: theme === 'professional' ? '#1f2937' : 'white' }}>BEAP™ Handshake Request</span>
+                  <span style={{ fontSize: '13px', fontWeight: '600', color: theme === 'standard' ? '#1f2937' : 'white' }}>BEAP™ Handshake Request</span>
                 </div>
                 
                 {/* DELIVERY METHOD - FIRST */}
-                <div style={{ padding: '14px 18px', borderBottom: theme === 'professional' ? '1px solid rgba(15,23,42,0.1)' : '1px solid rgba(255,255,255,0.1)' }}>
-                  <label style={{ fontSize: '11px', fontWeight: 600, marginBottom: '6px', display: 'block', color: theme === 'professional' ? '#6b7280' : 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Delivery Method</label>
-                  <select value={handshakeDelivery} onChange={(e) => setHandshakeDelivery(e.target.value as 'email' | 'messenger' | 'download')} style={{ width: '100%', padding: '10px 12px', background: theme === 'professional' ? 'white' : '#1f2937', border: `1px solid ${theme === 'professional' ? 'rgba(0,0,0,0.15)' : 'rgba(255,255,255,0.15)'}`, borderRadius: '8px', color: theme === 'professional' ? '#1f2937' : 'white', fontSize: '13px', cursor: 'pointer' }}>
-                    <option value="email" style={{ background: theme === 'professional' ? 'white' : '#1f2937', color: theme === 'professional' ? '#1f2937' : 'white' }}>📧 Email</option>
-                    <option value="messenger" style={{ background: theme === 'professional' ? 'white' : '#1f2937', color: theme === 'professional' ? '#1f2937' : 'white' }}>💬 Messenger (Web)</option>
-                    <option value="download" style={{ background: theme === 'professional' ? 'white' : '#1f2937', color: theme === 'professional' ? '#1f2937' : 'white' }}>💾 Download (USB/Wallet)</option>
+                <div style={{ padding: '14px 18px', borderBottom: theme === 'standard' ? '1px solid rgba(147, 51, 234, 0.12)' : '1px solid rgba(255,255,255,0.1)' }}>
+                  <label style={{ fontSize: '11px', fontWeight: 600, marginBottom: '6px', display: 'block', color: theme === 'standard' ? '#6b7280' : 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Delivery Method</label>
+                  <select value={handshakeDelivery} onChange={(e) => setHandshakeDelivery(e.target.value as 'email' | 'messenger' | 'download')} style={{ width: '100%', padding: '10px 12px', background: theme === 'standard' ? 'white' : '#1f2937', border: `1px solid ${theme === 'standard' ? 'rgba(147, 51, 234, 0.15)' : 'rgba(255,255,255,0.15)'}`, borderRadius: '8px', color: theme === 'standard' ? '#1f2937' : 'white', fontSize: '13px', cursor: 'pointer' }}>
+                    <option value="email" style={{ background: theme === 'standard' ? 'white' : '#1f2937', color: theme === 'standard' ? '#1f2937' : 'white' }}>📧 Email</option>
+                    <option value="messenger" style={{ background: theme === 'standard' ? 'white' : '#1f2937', color: theme === 'standard' ? '#1f2937' : 'white' }}>💬 Messenger (Web)</option>
+                    <option value="download" style={{ background: theme === 'standard' ? 'white' : '#1f2937', color: theme === 'standard' ? '#1f2937' : 'white' }}>💾 Download (USB/Wallet)</option>
                   </select>
                 </div>
                 
                 {/* EMAIL ACCOUNTS SECTION - Only visible when email delivery selected */}
                 {handshakeDelivery === 'email' && (
-                <div style={{ padding: '16px 18px', borderBottom: theme === 'professional' ? '1px solid rgba(15,23,42,0.1)' : '1px solid rgba(255,255,255,0.1)', background: theme === 'professional' ? 'rgba(139,92,246,0.05)' : 'rgba(139,92,246,0.1)' }}>
+                <div style={{ padding: '16px 18px', borderBottom: theme === 'standard' ? '1px solid rgba(147, 51, 234, 0.12)' : '1px solid rgba(255,255,255,0.1)', background: theme === 'standard' ? 'rgba(139,92,246,0.05)' : 'rgba(139,92,246,0.1)' }}>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                       <span style={{ fontSize: '16px' }}>🔗</span>
-                      <span style={{ fontSize: '13px', fontWeight: '600', color: theme === 'professional' ? '#0f172a' : 'white' }}>Connected Email Accounts</span>
+                      <span style={{ fontSize: '13px', fontWeight: '600', color: theme === 'standard' ? '#0f172a' : 'white' }}>Connected Email Accounts</span>
                     </div>
                     <button onClick={() => setShowEmailSetupWizard(true)} style={{ background: 'linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%)', border: 'none', color: 'white', borderRadius: '6px', padding: '6px 12px', fontSize: '11px', fontWeight: '600', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}><span>+</span> Connect Email</button>
                   </div>
                   {isLoadingEmailAccounts ? (
                     <div style={{ padding: '12px', textAlign: 'center', opacity: 0.6, fontSize: '12px' }}>Loading accounts...</div>
                   ) : emailAccounts.length === 0 ? (
-                    <div style={{ padding: '20px', background: theme === 'professional' ? 'white' : 'rgba(255,255,255,0.05)', borderRadius: '8px', border: theme === 'professional' ? '1px dashed rgba(15,23,42,0.2)' : '1px dashed rgba(255,255,255,0.2)', textAlign: 'center' }}>
+                    <div style={{ padding: '20px', background: theme === 'standard' ? 'white' : 'rgba(255,255,255,0.05)', borderRadius: '8px', border: theme === 'standard' ? '1px dashed rgba(15,23,42,0.2)' : '1px dashed rgba(255,255,255,0.2)', textAlign: 'center' }}>
                       <div style={{ fontSize: '24px', marginBottom: '8px' }}>📧</div>
-                      <div style={{ fontSize: '13px', color: theme === 'professional' ? '#64748b' : 'rgba(255,255,255,0.7)', marginBottom: '4px' }}>No email accounts connected</div>
-                      <div style={{ fontSize: '11px', color: theme === 'professional' ? '#94a3b8' : 'rgba(255,255,255,0.5)' }}>Connect your email to send handshake requests</div>
+                      <div style={{ fontSize: '13px', color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.7)', marginBottom: '4px' }}>No email accounts connected</div>
+                      <div style={{ fontSize: '11px', color: theme === 'standard' ? '#94a3b8' : 'rgba(255,255,255,0.5)' }}>Connect your email to send handshake requests</div>
                     </div>
                   ) : (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                       {emailAccounts.map(account => (
-                        <div key={account.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 12px', background: theme === 'professional' ? 'white' : 'rgba(255,255,255,0.08)', borderRadius: '8px', border: account.status === 'active' ? (theme === 'professional' ? '1px solid rgba(34,197,94,0.3)' : '1px solid rgba(34,197,94,0.4)') : (theme === 'professional' ? '1px solid rgba(239,68,68,0.3)' : '1px solid rgba(239,68,68,0.4)') }}>
+                        <div key={account.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 12px', background: theme === 'standard' ? 'white' : 'rgba(255,255,255,0.08)', borderRadius: '8px', border: account.status === 'active' ? (theme === 'standard' ? '1px solid rgba(34,197,94,0.3)' : '1px solid rgba(34,197,94,0.4)') : (theme === 'standard' ? '1px solid rgba(239,68,68,0.3)' : '1px solid rgba(239,68,68,0.4)') }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                             <span style={{ fontSize: '18px' }}>{account.provider === 'gmail' ? '📧' : account.provider === 'microsoft365' ? '📨' : '✉️'}</span>
                             <div>
-                              <div style={{ fontSize: '13px', fontWeight: '500', color: theme === 'professional' ? '#0f172a' : 'white' }}>{account.email || account.displayName}</div>
+                              <div style={{ fontSize: '13px', fontWeight: '500', color: theme === 'standard' ? '#0f172a' : 'white' }}>{account.email || account.displayName}</div>
                               <div style={{ fontSize: '10px', display: 'flex', alignItems: 'center', gap: '6px', marginTop: '2px' }}>
                                 <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: account.status === 'active' ? '#22c55e' : '#ef4444' }} />
-                                <span style={{ color: theme === 'professional' ? '#64748b' : 'rgba(255,255,255,0.6)' }}>{account.status === 'active' ? 'Connected' : account.lastError || 'Error'}</span>
+                                <span style={{ color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.6)' }}>{account.status === 'active' ? 'Connected' : account.lastError || 'Error'}</span>
                               </div>
                             </div>
                           </div>
-                          <button onClick={() => disconnectEmailAccount(account.id)} title="Disconnect" style={{ background: 'transparent', border: 'none', color: theme === 'professional' ? '#94a3b8' : 'rgba(255,255,255,0.5)', cursor: 'pointer', padding: '4px', fontSize: '14px' }}>✕</button>
+                          <button onClick={() => disconnectEmailAccount(account.id)} title="Disconnect" style={{ background: 'transparent', border: 'none', color: theme === 'standard' ? '#94a3b8' : 'rgba(255,255,255,0.5)', cursor: 'pointer', padding: '4px', fontSize: '14px' }}>✕</button>
                         </div>
                       ))}
                     </div>
                   )}
                   {emailAccounts.length > 0 && (
                     <div style={{ marginTop: '12px' }}>
-                      <label style={{ fontSize: '11px', fontWeight: 600, marginBottom: '6px', display: 'block', color: theme === 'professional' ? '#6b7280' : 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Send From:</label>
-                      <select value={selectedEmailAccountId || emailAccounts[0]?.id || ''} onChange={(e) => setSelectedEmailAccountId(e.target.value)} style={{ width: '100%', background: theme === 'professional' ? 'white' : 'rgba(255,255,255,0.1)', border: theme === 'professional' ? '1px solid rgba(15,23,42,0.2)' : '1px solid rgba(255,255,255,0.2)', color: theme === 'professional' ? '#0f172a' : 'white', borderRadius: '6px', padding: '8px 12px', fontSize: '13px', cursor: 'pointer', outline: 'none' }}>
+                      <label style={{ fontSize: '11px', fontWeight: 600, marginBottom: '6px', display: 'block', color: theme === 'standard' ? '#6b7280' : 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Send From:</label>
+                      <select value={selectedEmailAccountId || emailAccounts[0]?.id || ''} onChange={(e) => setSelectedEmailAccountId(e.target.value)} style={{ width: '100%', background: theme === 'standard' ? 'white' : 'rgba(255,255,255,0.1)', border: theme === 'standard' ? '1px solid #e1e8ed' : '1px solid rgba(255,255,255,0.2)', color: theme === 'standard' ? '#0f172a' : 'white', borderRadius: '6px', padding: '8px 12px', fontSize: '13px', cursor: 'pointer', outline: 'none' }}>
                         {emailAccounts.map(account => (<option key={account.id} value={account.id}>{account.email || account.displayName} ({account.provider})</option>))}
                       </select>
                     </div>
@@ -7085,8 +7087,8 @@ height: '28px',
                   {/* Your Fingerprint - PROMINENT */}
                   <div style={{
                     padding: '12px 14px',
-                    background: theme === 'professional' ? 'rgba(139, 92, 246, 0.08)' : 'rgba(139, 92, 246, 0.15)',
-                    border: `2px solid ${theme === 'professional' ? 'rgba(139, 92, 246, 0.2)' : 'rgba(139, 92, 246, 0.3)'}`,
+                    background: theme === 'standard' ? 'rgba(139, 92, 246, 0.08)' : 'rgba(139, 92, 246, 0.15)',
+                    border: `2px solid ${theme === 'standard' ? 'rgba(139, 92, 246, 0.2)' : 'rgba(139, 92, 246, 0.3)'}`,
                     borderRadius: '10px',
                   }}>
                     <div style={{ 
@@ -7098,7 +7100,7 @@ height: '28px',
                       <div style={{ 
                         fontSize: '11px', 
                         fontWeight: 600, 
-                        color: theme === 'professional' ? '#6b7280' : 'rgba(255,255,255,0.7)', 
+                        color: theme === 'standard' ? '#6b7280' : 'rgba(255,255,255,0.7)', 
                         textTransform: 'uppercase', 
                         letterSpacing: '0.5px',
                         display: 'flex',
@@ -7126,10 +7128,10 @@ height: '28px',
                         style={{
                           padding: '4px 10px',
                           fontSize: '10px',
-                          background: theme === 'professional' ? 'rgba(0,0,0,0.05)' : 'rgba(255,255,255,0.1)',
+                          background: theme === 'standard' ? 'rgba(0,0,0,0.05)' : 'rgba(255,255,255,0.1)',
                           border: 'none',
                           borderRadius: '4px',
-                          color: theme === 'professional' ? '#6b7280' : 'rgba(255,255,255,0.7)',
+                          color: theme === 'standard' ? '#6b7280' : 'rgba(255,255,255,0.7)',
                           cursor: 'pointer',
                         }}
                       >
@@ -7139,7 +7141,7 @@ height: '28px',
                     <div style={{
                       fontFamily: 'monospace',
                       fontSize: '11px',
-                      color: theme === 'professional' ? '#1f2937' : 'white',
+                      color: theme === 'standard' ? '#1f2937' : 'white',
                       wordBreak: 'break-all',
                       lineHeight: 1.5,
                     }}>
@@ -7148,7 +7150,7 @@ height: '28px',
                     <div style={{
                       marginTop: '8px',
                       fontSize: '10px',
-                      color: theme === 'professional' ? '#9ca3af' : 'rgba(255,255,255,0.5)',
+                      color: theme === 'standard' ? '#9ca3af' : 'rgba(255,255,255,0.5)',
                     }}>
                       Short: <span style={{ fontFamily: 'monospace' }}>{ourFingerprintShort}</span>
                     </div>
@@ -7157,7 +7159,7 @@ height: '28px',
                   {/* To Field - Only for Email */}
                   {handshakeDelivery === 'email' && (
                     <div>
-                      <label style={{ fontSize: '11px', fontWeight: 600, marginBottom: '6px', display: 'block', color: theme === 'professional' ? '#6b7280' : 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                      <label style={{ fontSize: '11px', fontWeight: 600, marginBottom: '6px', display: 'block', color: theme === 'standard' ? '#6b7280' : 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                         To:
                       </label>
                       <input
@@ -7168,10 +7170,10 @@ height: '28px',
                         style={{
                           width: '100%',
                           padding: '10px 12px',
-                          background: theme === 'professional' ? 'white' : 'rgba(255,255,255,0.08)',
-                          border: `1px solid ${theme === 'professional' ? 'rgba(0,0,0,0.15)' : 'rgba(255,255,255,0.15)'}`,
+                          background: theme === 'standard' ? 'white' : 'rgba(255,255,255,0.08)',
+                          border: `1px solid ${theme === 'standard' ? '#e1e8ed' : 'rgba(255,255,255,0.15)'}`,
                           borderRadius: '8px',
-                          color: theme === 'professional' ? '#1f2937' : 'white',
+                          color: theme === 'standard' ? '#1f2937' : 'white',
                           fontSize: '13px',
                         }}
                       />
@@ -7180,7 +7182,7 @@ height: '28px',
                   
                   {/* Message */}
                   <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
-                    <label style={{ fontSize: '11px', fontWeight: 600, marginBottom: '6px', display: 'block', color: theme === 'professional' ? '#6b7280' : 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                    <label style={{ fontSize: '11px', fontWeight: 600, marginBottom: '6px', display: 'block', color: theme === 'standard' ? '#6b7280' : 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                       Message
                     </label>
                     <textarea
@@ -7190,10 +7192,10 @@ height: '28px',
                         flex: 1,
                         minHeight: '120px',
                         padding: '10px 12px',
-                        background: theme === 'professional' ? 'white' : 'rgba(255,255,255,0.08)',
-                        border: `1px solid ${theme === 'professional' ? 'rgba(0,0,0,0.15)' : 'rgba(255,255,255,0.15)'}`,
+                        background: theme === 'standard' ? 'white' : 'rgba(255,255,255,0.08)',
+                        border: `1px solid ${theme === 'standard' ? '#e1e8ed' : 'rgba(255,255,255,0.15)'}`,
                         borderRadius: '8px',
-                        color: theme === 'professional' ? '#1f2937' : 'white',
+                        color: theme === 'standard' ? '#1f2937' : 'white',
                         fontSize: '13px',
                         lineHeight: '1.5',
                         resize: 'none',
@@ -7204,10 +7206,10 @@ height: '28px',
                   {/* Policy Note */}
                   <div style={{
                     padding: '10px 12px',
-                    background: theme === 'professional' ? 'rgba(59, 130, 246, 0.08)' : 'rgba(59, 130, 246, 0.15)',
+                    background: theme === 'standard' ? 'rgba(59, 130, 246, 0.08)' : 'rgba(59, 130, 246, 0.15)',
                     borderRadius: '8px',
                     fontSize: '11px',
-                    color: theme === 'professional' ? '#6b7280' : 'rgba(255,255,255,0.8)',
+                    color: theme === 'standard' ? '#6b7280' : 'rgba(255,255,255,0.8)',
                   }}>
                     🛡️ {POLICY_NOTES.LOCAL_OVERRIDE}
                   </div>
@@ -7215,20 +7217,20 @@ height: '28px',
                   {/* Info */}
                   <div style={{
                     padding: '10px 12px',
-                    background: theme === 'professional' ? 'rgba(139, 92, 246, 0.08)' : 'rgba(139, 92, 246, 0.15)',
+                    background: theme === 'standard' ? 'rgba(139, 92, 246, 0.08)' : 'rgba(139, 92, 246, 0.15)',
                     borderRadius: '8px',
                     fontSize: '11px',
-                    color: theme === 'professional' ? '#6b7280' : 'rgba(255,255,255,0.8)',
+                    color: theme === 'standard' ? '#6b7280' : 'rgba(255,255,255,0.8)',
                   }}>
                     💡 This creates a secure BEAP™ package. Recipient will appear in your Handshakes once accepted.
                   </div>
                 </div>
                 
                 {/* Footer */}
-                <div style={{ padding: '12px 14px', borderTop: `1px solid ${theme === 'professional' ? 'rgba(0,0,0,0.1)' : 'rgba(255,255,255,0.1)'}`, display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
+                <div style={{ padding: '12px 14px', borderTop: `1px solid ${theme === 'standard' ? 'rgba(147, 51, 234, 0.12)' : 'rgba(255,255,255,0.1)'}`, display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
                   <button 
                     onClick={() => setDockedSubmode('command')}
-                    style={{ padding: '8px 16px', background: 'transparent', border: `1px solid ${theme === 'professional' ? 'rgba(0,0,0,0.15)' : 'rgba(255,255,255,0.2)'}`, borderRadius: '8px', color: theme === 'professional' ? '#6b7280' : 'white', fontSize: '12px', cursor: 'pointer' }}
+                    style={{ padding: '8px 16px', background: 'transparent', border: `1px solid ${theme === 'standard' ? 'rgba(0,0,0,0.15)' : 'rgba(255,255,255,0.2)'}`, borderRadius: '8px', color: theme === 'standard' ? '#536471' : 'white', fontSize: '12px', cursor: 'pointer' }}
                   >
                     Cancel
                   </button>
@@ -7273,7 +7275,7 @@ height: '28px',
                     display: 'flex',
                     flexDirection: 'column',
                     gap: '10px',
-                    background: theme === 'default' ? 'rgba(118,75,162,0.25)' : 'rgba(255,255,255,0.06)',
+                    background: theme === 'pro' ? 'rgba(118,75,162,0.25)' : 'rgba(255,255,255,0.06)',
                     borderBottom: '1px solid rgba(255,255,255,0.20)',
                     padding: '14px'
                   }}
@@ -7407,10 +7409,10 @@ height: '28px',
 
             {dockedWorkspace === 'beap-messages' && (
               /* BEAP Messages Workspace - Section 3 (Admin View) */
-              <div style={{ display: 'flex', flexDirection: 'column', flex: 1, background: theme === 'default' ? 'rgba(118,75,162,0.15)' : (theme === 'professional' ? '#f8fafc' : 'rgba(255,255,255,0.04)'), overflowY: 'auto' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', flex: 1, background: theme === 'pro' ? 'rgba(118,75,162,0.15)' : (theme === 'standard' ? '#ffffff' : 'rgba(255,255,255,0.04)'), overflowY: 'auto' }}>
                 <style>{`
                   .beap-input::placeholder, .beap-textarea::placeholder {
-                    color: ${theme === 'professional' ? '#64748b' : 'rgba(255,255,255,0.5)'};
+                    color: ${theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.5)'};
                     opacity: 1;
                   }
                 `}</style>
@@ -7419,29 +7421,29 @@ height: '28px',
                 {beapSubmode === 'inbox' && (
                   <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '40px 20px', textAlign: 'center' }}>
                     <span style={{ fontSize: '48px', marginBottom: '16px' }}>📥</span>
-                    <div style={{ fontSize: '18px', fontWeight: '600', color: theme === 'professional' ? '#0f172a' : 'white', marginBottom: '8px' }}>BEAP Inbox</div>
-                    <div style={{ fontSize: '13px', color: theme === 'professional' ? '#64748b' : 'rgba(255,255,255,0.7)', maxWidth: '280px' }}>Received BEAP™ packages will appear here.</div>
+                    <div style={{ fontSize: '18px', fontWeight: '600', color: theme === 'standard' ? '#0f172a' : 'white', marginBottom: '8px' }}>BEAP Inbox</div>
+                    <div style={{ fontSize: '13px', color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.7)', maxWidth: '280px' }}>Received BEAP™ packages will appear here.</div>
                   </div>
                 )}
                 {beapSubmode === 'outbox' && (
                   <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '40px 20px', textAlign: 'center' }}>
                     <span style={{ fontSize: '48px', marginBottom: '16px' }}>📤</span>
-                    <div style={{ fontSize: '18px', fontWeight: '600', color: theme === 'professional' ? '#0f172a' : 'white', marginBottom: '8px' }}>BEAP Outbox</div>
-                    <div style={{ fontSize: '13px', color: theme === 'professional' ? '#64748b' : 'rgba(255,255,255,0.7)', maxWidth: '280px' }}>Packages pending delivery.</div>
+                    <div style={{ fontSize: '18px', fontWeight: '600', color: theme === 'standard' ? '#0f172a' : 'white', marginBottom: '8px' }}>BEAP Outbox</div>
+                    <div style={{ fontSize: '13px', color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.7)', maxWidth: '280px' }}>Packages pending delivery.</div>
                   </div>
                 )}
                 {beapSubmode === 'archived' && (
                   <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '40px 20px', textAlign: 'center' }}>
                     <span style={{ fontSize: '48px', marginBottom: '16px' }}>📁</span>
-                    <div style={{ fontSize: '18px', fontWeight: '600', color: theme === 'professional' ? '#0f172a' : 'white', marginBottom: '8px' }}>Archived Packages</div>
-                    <div style={{ fontSize: '13px', color: theme === 'professional' ? '#64748b' : 'rgba(255,255,255,0.7)', maxWidth: '280px' }}>Successfully executed packages.</div>
+                    <div style={{ fontSize: '18px', fontWeight: '600', color: theme === 'standard' ? '#0f172a' : 'white', marginBottom: '8px' }}>Archived Packages</div>
+                    <div style={{ fontSize: '13px', color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.7)', maxWidth: '280px' }}>Successfully executed packages.</div>
                   </div>
                 )}
                 {beapSubmode === 'rejected' && (
                   <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '40px 20px', textAlign: 'center' }}>
                     <span style={{ fontSize: '48px', marginBottom: '16px' }}>🚫</span>
-                    <div style={{ fontSize: '18px', fontWeight: '600', color: theme === 'professional' ? '#0f172a' : 'white', marginBottom: '8px' }}>Rejected Packages</div>
-                    <div style={{ fontSize: '13px', color: theme === 'professional' ? '#64748b' : 'rgba(255,255,255,0.7)', maxWidth: '280px' }}>Rejected packages.</div>
+                    <div style={{ fontSize: '18px', fontWeight: '600', color: theme === 'standard' ? '#0f172a' : 'white', marginBottom: '8px' }}>Rejected Packages</div>
+                    <div style={{ fontSize: '13px', color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.7)', maxWidth: '280px' }}>Rejected packages.</div>
                   </div>
                 )}
                 
@@ -7449,12 +7451,12 @@ height: '28px',
                 {beapSubmode === 'draft' && (
                   <>
                 {/* DELIVERY METHOD - FIRST */}
-                <div style={{ padding: '14px 18px', borderBottom: theme === 'professional' ? '1px solid rgba(15,23,42,0.1)' : '1px solid rgba(255,255,255,0.1)' }}>
-                  <label style={{ fontSize: '11px', fontWeight: 600, marginBottom: '6px', display: 'block', color: theme === 'professional' ? '#6b7280' : 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Delivery Method</label>
-                  <select value={handshakeDelivery} onChange={(e) => setHandshakeDelivery(e.target.value as 'email' | 'messenger' | 'download')} style={{ width: '100%', padding: '10px 12px', background: theme === 'professional' ? 'white' : '#1f2937', border: `1px solid ${theme === 'professional' ? 'rgba(0,0,0,0.15)' : 'rgba(255,255,255,0.15)'}`, borderRadius: '8px', color: theme === 'professional' ? '#1f2937' : 'white', fontSize: '13px', cursor: 'pointer' }}>
-                    <option value="email" style={{ background: theme === 'professional' ? 'white' : '#1f2937', color: theme === 'professional' ? '#1f2937' : 'white' }}>📧 Email</option>
-                    <option value="messenger" style={{ background: theme === 'professional' ? 'white' : '#1f2937', color: theme === 'professional' ? '#1f2937' : 'white' }}>💬 Messenger (Web)</option>
-                    <option value="download" style={{ background: theme === 'professional' ? 'white' : '#1f2937', color: theme === 'professional' ? '#1f2937' : 'white' }}>💾 Download (USB/Wallet)</option>
+                <div style={{ padding: '14px 18px', borderBottom: theme === 'standard' ? '1px solid rgba(147, 51, 234, 0.12)' : '1px solid rgba(255,255,255,0.1)' }}>
+                  <label style={{ fontSize: '11px', fontWeight: 600, marginBottom: '6px', display: 'block', color: theme === 'standard' ? '#6b7280' : 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Delivery Method</label>
+                  <select value={handshakeDelivery} onChange={(e) => setHandshakeDelivery(e.target.value as 'email' | 'messenger' | 'download')} style={{ width: '100%', padding: '10px 12px', background: theme === 'standard' ? 'white' : '#1f2937', border: `1px solid ${theme === 'standard' ? 'rgba(147, 51, 234, 0.15)' : 'rgba(255,255,255,0.15)'}`, borderRadius: '8px', color: theme === 'standard' ? '#1f2937' : 'white', fontSize: '13px', cursor: 'pointer' }}>
+                    <option value="email" style={{ background: theme === 'standard' ? 'white' : '#1f2937', color: theme === 'standard' ? '#1f2937' : 'white' }}>📧 Email</option>
+                    <option value="messenger" style={{ background: theme === 'standard' ? 'white' : '#1f2937', color: theme === 'standard' ? '#1f2937' : 'white' }}>💬 Messenger (Web)</option>
+                    <option value="download" style={{ background: theme === 'standard' ? 'white' : '#1f2937', color: theme === 'standard' ? '#1f2937' : 'white' }}>💾 Download (USB/Wallet)</option>
                   </select>
                 </div>
                 
@@ -7462,13 +7464,13 @@ height: '28px',
                 {handshakeDelivery === 'email' && (
                 <div style={{ 
                   padding: '16px 18px', 
-                  borderBottom: theme === 'professional' ? '1px solid rgba(15,23,42,0.1)' : '1px solid rgba(255,255,255,0.1)',
-                  background: theme === 'professional' ? 'rgba(59,130,246,0.05)' : 'rgba(59,130,246,0.1)'
+                  borderBottom: theme === 'standard' ? '1px solid rgba(147, 51, 234, 0.12)' : '1px solid rgba(255,255,255,0.1)',
+                  background: theme === 'standard' ? 'rgba(59,130,246,0.05)' : 'rgba(59,130,246,0.1)'
                 }}>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                       <span style={{ fontSize: '16px' }}>🔗</span>
-                      <span style={{ fontSize: '13px', fontWeight: '600', color: theme === 'professional' ? '#0f172a' : 'white' }}>Connected Email Accounts</span>
+                      <span style={{ fontSize: '13px', fontWeight: '600', color: theme === 'standard' ? '#0f172a' : 'white' }}>Connected Email Accounts</span>
                     </div>
                     <button
                       onClick={() => setShowEmailSetupWizard(true)}
@@ -7497,14 +7499,14 @@ height: '28px',
                   ) : emailAccounts.length === 0 ? (
                     <div style={{ 
                       padding: '20px', 
-                      background: theme === 'professional' ? 'white' : 'rgba(255,255,255,0.05)',
+                      background: theme === 'standard' ? 'white' : 'rgba(255,255,255,0.05)',
                       borderRadius: '8px',
-                      border: theme === 'professional' ? '1px dashed rgba(15,23,42,0.2)' : '1px dashed rgba(255,255,255,0.2)',
+                      border: theme === 'standard' ? '1px dashed rgba(15,23,42,0.2)' : '1px dashed rgba(255,255,255,0.2)',
                       textAlign: 'center'
                     }}>
                       <div style={{ fontSize: '24px', marginBottom: '8px' }}>📧</div>
-                      <div style={{ fontSize: '13px', color: theme === 'professional' ? '#64748b' : 'rgba(255,255,255,0.7)', marginBottom: '4px' }}>No email accounts connected</div>
-                      <div style={{ fontSize: '11px', color: theme === 'professional' ? '#94a3b8' : 'rgba(255,255,255,0.5)' }}>
+                      <div style={{ fontSize: '13px', color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.7)', marginBottom: '4px' }}>No email accounts connected</div>
+                      <div style={{ fontSize: '11px', color: theme === 'standard' ? '#94a3b8' : 'rgba(255,255,255,0.5)' }}>
                         Connect your email account to send BEAP™ messages
                       </div>
                     </div>
@@ -7518,11 +7520,11 @@ height: '28px',
                             alignItems: 'center', 
                             justifyContent: 'space-between',
                             padding: '10px 12px',
-                            background: theme === 'professional' ? 'white' : 'rgba(255,255,255,0.08)',
+                            background: theme === 'standard' ? 'white' : 'rgba(255,255,255,0.08)',
                             borderRadius: '8px',
                             border: account.status === 'active' 
-                              ? (theme === 'professional' ? '1px solid rgba(34,197,94,0.3)' : '1px solid rgba(34,197,94,0.4)')
-                              : (theme === 'professional' ? '1px solid rgba(239,68,68,0.3)' : '1px solid rgba(239,68,68,0.4)')
+                              ? (theme === 'standard' ? '1px solid rgba(34,197,94,0.3)' : '1px solid rgba(34,197,94,0.4)')
+                              : (theme === 'standard' ? '1px solid rgba(239,68,68,0.3)' : '1px solid rgba(239,68,68,0.4)')
                           }}
                         >
                           <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
@@ -7530,7 +7532,7 @@ height: '28px',
                               {account.provider === 'gmail' ? '📧' : account.provider === 'microsoft365' ? '📨' : '✉️'}
                             </span>
                             <div>
-                              <div style={{ fontSize: '13px', fontWeight: '500', color: theme === 'professional' ? '#0f172a' : 'white' }}>
+                              <div style={{ fontSize: '13px', fontWeight: '500', color: theme === 'standard' ? '#0f172a' : 'white' }}>
                                 {account.email || account.displayName}
                               </div>
                               <div style={{ 
@@ -7546,7 +7548,7 @@ height: '28px',
                                   borderRadius: '50%', 
                                   background: account.status === 'active' ? '#22c55e' : '#ef4444' 
                                 }} />
-                                <span style={{ color: theme === 'professional' ? '#64748b' : 'rgba(255,255,255,0.6)' }}>
+                                <span style={{ color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.6)' }}>
                                   {account.status === 'active' ? 'Connected' : account.lastError || 'Error'}
                                 </span>
                               </div>
@@ -7558,7 +7560,7 @@ height: '28px',
                             style={{
                               background: 'transparent',
                               border: 'none',
-                              color: theme === 'professional' ? '#94a3b8' : 'rgba(255,255,255,0.5)',
+                              color: theme === 'standard' ? '#94a3b8' : 'rgba(255,255,255,0.5)',
                               cursor: 'pointer',
                               padding: '4px',
                               fontSize: '14px'
@@ -7574,8 +7576,8 @@ height: '28px',
                   {/* Select account for sending */}
                   {emailAccounts.length > 0 && (
                     <div style={{ marginTop: '12px' }}>
-                      <label style={{ fontSize: '11px', fontWeight: 600, marginBottom: '6px', display: 'block', color: theme === 'professional' ? '#6b7280' : 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Send From:</label>
-                      <select value={selectedEmailAccountId || emailAccounts[0]?.id || ''} onChange={(e) => setSelectedEmailAccountId(e.target.value)} style={{ width: '100%', background: theme === 'professional' ? 'white' : 'rgba(255,255,255,0.1)', border: theme === 'professional' ? '1px solid rgba(15,23,42,0.2)' : '1px solid rgba(255,255,255,0.2)', color: theme === 'professional' ? '#0f172a' : 'white', borderRadius: '6px', padding: '8px 12px', fontSize: '13px', cursor: 'pointer', outline: 'none' }}>
+                      <label style={{ fontSize: '11px', fontWeight: 600, marginBottom: '6px', display: 'block', color: theme === 'standard' ? '#6b7280' : 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Send From:</label>
+                      <select value={selectedEmailAccountId || emailAccounts[0]?.id || ''} onChange={(e) => setSelectedEmailAccountId(e.target.value)} style={{ width: '100%', background: theme === 'standard' ? 'white' : 'rgba(255,255,255,0.1)', border: theme === 'standard' ? '1px solid #e1e8ed' : '1px solid rgba(255,255,255,0.2)', color: theme === 'standard' ? '#0f172a' : 'white', borderRadius: '6px', padding: '8px 12px', fontSize: '13px', cursor: 'pointer', outline: 'none' }}>
                         {emailAccounts.map(account => (<option key={account.id} value={account.id}>{account.email || account.displayName} ({account.provider})</option>))}
                       </select>
                     </div>
@@ -7584,15 +7586,15 @@ height: '28px',
                 )}
                 
                 {/* BEAP™ Message UI - Admin View */}
-                <div style={{ padding: '12px 14px', borderBottom: `1px solid ${theme === 'professional' ? 'rgba(0,0,0,0.1)' : 'rgba(255,255,255,0.1)'}`, display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <div style={{ padding: '12px 14px', borderBottom: `1px solid ${theme === 'standard' ? 'rgba(0,0,0,0.1)' : 'rgba(255,255,255,0.1)'}`, display: 'flex', alignItems: 'center', gap: '10px' }}>
                   <span style={{ fontSize: '18px' }}>📦</span>
-                  <span style={{ fontSize: '13px', fontWeight: '600', color: theme === 'professional' ? '#1f2937' : 'white' }}>BEAP™ Message</span>
+                  <span style={{ fontSize: '13px', fontWeight: '600', color: theme === 'standard' ? '#1f2937' : 'white' }}>BEAP™ Message</span>
                 </div>
                 <div style={{ flex: 1, padding: '14px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '12px' }}>
                   {/* Fingerprint */}
-                  <div style={{ background: theme === 'professional' ? 'rgba(59,130,246,0.08)' : 'rgba(59,130,246,0.15)', border: theme === 'professional' ? '1px solid rgba(59,130,246,0.2)' : '1px solid rgba(59,130,246,0.3)', borderRadius: '8px', padding: '12px' }}>
-                    <div style={{ fontSize: '10px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px', color: theme === 'professional' ? '#3b82f6' : '#93c5fd', marginBottom: '6px' }}>Your Fingerprint</div>
-                    <code style={{ fontSize: '13px', fontFamily: 'monospace', color: theme === 'professional' ? '#1e40af' : '#bfdbfe' }}>{ourFingerprintShort}</code>
+                  <div style={{ background: theme === 'standard' ? 'rgba(59,130,246,0.08)' : 'rgba(59,130,246,0.15)', border: theme === 'standard' ? '1px solid rgba(59,130,246,0.2)' : '1px solid rgba(59,130,246,0.3)', borderRadius: '8px', padding: '12px' }}>
+                    <div style={{ fontSize: '10px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px', color: theme === 'standard' ? '#3b82f6' : '#93c5fd', marginBottom: '6px' }}>Your Fingerprint</div>
+                    <code style={{ fontSize: '13px', fontFamily: 'monospace', color: theme === 'standard' ? '#1e40af' : '#bfdbfe' }}>{ourFingerprintShort}</code>
                   </div>
                   {/* Recipient Mode Switch */}
                   <RecipientModeSwitch mode={beapRecipientMode} onModeChange={setBeapRecipientMode} theme={theme} />
@@ -7603,41 +7605,41 @@ height: '28px',
                   {/* Delivery Method Panel - Adapts to recipient mode */}
                   <DeliveryMethodPanel deliveryMethod={handshakeDelivery} recipientMode={beapRecipientMode} selectedRecipient={selectedRecipient} emailTo={beapDraftTo} onEmailToChange={setBeapDraftTo} theme={theme} ourFingerprintShort={ourFingerprintShort} />
                   <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
-                    <label style={{ fontSize: '11px', fontWeight: 600, marginBottom: '6px', display: 'block', color: theme === 'professional' ? '#6b7280' : 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Message</label>
-                    <textarea className="beap-textarea" value={beapDraftMessage} onChange={(e) => setBeapDraftMessage(e.target.value)} placeholder="Compose your BEAP™ message..." style={{ flex: 1, minHeight: '120px', background: theme === 'professional' ? 'white' : 'rgba(255,255,255,0.08)', border: theme === 'professional' ? '1px solid rgba(15,23,42,0.2)' : '1px solid rgba(255,255,255,0.15)', color: theme === 'professional' ? '#0f172a' : 'white', borderRadius: '6px', padding: '10px 12px', fontSize: '12px', lineHeight: '1.5', resize: 'none', outline: 'none', fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif' }} />
+                    <label style={{ fontSize: '11px', fontWeight: 600, marginBottom: '6px', display: 'block', color: theme === 'standard' ? '#6b7280' : 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Message</label>
+                    <textarea className="beap-textarea" value={beapDraftMessage} onChange={(e) => setBeapDraftMessage(e.target.value)} placeholder="Compose your BEAP™ message..." style={{ flex: 1, minHeight: '120px', background: theme === 'standard' ? 'white' : 'rgba(255,255,255,0.08)', border: theme === 'standard' ? '1px solid rgba(15,23,42,0.2)' : '1px solid rgba(255,255,255,0.15)', color: theme === 'standard' ? '#0f172a' : 'white', borderRadius: '6px', padding: '10px 12px', fontSize: '12px', lineHeight: '1.5', resize: 'none', outline: 'none', fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif' }} />
                   </div>
                   {/* Encrypted Message (qBEAP/PRIVATE only) */}
                   {beapRecipientMode === 'private' && (
                     <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
-                      <label style={{ fontSize: '11px', fontWeight: 600, marginBottom: '6px', display: 'block', color: theme === 'professional' ? '#7c3aed' : '#c4b5fd', textTransform: 'uppercase', letterSpacing: '0.5px' }}>🔐 Encrypted Message (Private · qBEAP)</label>
-                      <textarea className="beap-textarea" value={beapDraftEncryptedMessage} onChange={(e) => setBeapDraftEncryptedMessage(e.target.value)} placeholder="This message is encrypted, capsule-bound, and never transported outside the BEAP package." style={{ flex: 1, minHeight: '100px', background: theme === 'professional' ? 'rgba(139,92,246,0.05)' : 'rgba(139,92,246,0.15)', border: theme === 'professional' ? '1px solid rgba(139,92,246,0.3)' : '1px solid rgba(139,92,246,0.4)', color: theme === 'professional' ? '#0f172a' : 'white', borderRadius: '6px', padding: '10px 12px', fontSize: '12px', lineHeight: '1.5', resize: 'none', outline: 'none', fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif' }} />
-                      <div style={{ fontSize: '10px', color: theme === 'professional' ? '#7c3aed' : '#c4b5fd', marginTop: '4px' }}>⚠️ This content is authoritative when present and never leaves the encrypted capsule.</div>
+                      <label style={{ fontSize: '11px', fontWeight: 600, marginBottom: '6px', display: 'block', color: theme === 'standard' ? '#7c3aed' : '#c4b5fd', textTransform: 'uppercase', letterSpacing: '0.5px' }}>🔐 Encrypted Message (Private · qBEAP)</label>
+                      <textarea className="beap-textarea" value={beapDraftEncryptedMessage} onChange={(e) => setBeapDraftEncryptedMessage(e.target.value)} placeholder="This message is encrypted, capsule-bound, and never transported outside the BEAP package." style={{ flex: 1, minHeight: '100px', background: theme === 'standard' ? 'rgba(139,92,246,0.05)' : 'rgba(139,92,246,0.15)', border: theme === 'standard' ? '1px solid rgba(139,92,246,0.3)' : '1px solid rgba(139,92,246,0.4)', color: theme === 'standard' ? '#0f172a' : 'white', borderRadius: '6px', padding: '10px 12px', fontSize: '12px', lineHeight: '1.5', resize: 'none', outline: 'none', fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif' }} />
+                      <div style={{ fontSize: '10px', color: theme === 'standard' ? '#7c3aed' : '#c4b5fd', marginTop: '4px' }}>⚠️ This content is authoritative when present and never leaves the encrypted capsule.</div>
                     </div>
                   )}
                   {/* Advanced: Session + Attachments (Fullscreen) */}
-                  <div style={{ marginTop: '12px', paddingTop: '12px', borderTop: theme === 'professional' ? '1px solid rgba(15,23,42,0.1)' : '1px solid rgba(255,255,255,0.1)' }}>
-                    <div style={{ fontSize: '11px', fontWeight: 600, marginBottom: '8px', color: theme === 'professional' ? '#64748b' : 'rgba(255,255,255,0.6)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Advanced (Optional)</div>
+                  <div style={{ marginTop: '12px', paddingTop: '12px', borderTop: theme === 'standard' ? '1px solid rgba(147, 51, 234, 0.12)' : '1px solid rgba(255,255,255,0.1)' }}>
+                    <div style={{ fontSize: '11px', fontWeight: 600, marginBottom: '8px', color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.6)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Advanced (Optional)</div>
                     <div style={{ marginBottom: '10px' }}>
-                      <label style={{ fontSize: '10px', fontWeight: 500, marginBottom: '4px', display: 'block', color: theme === 'professional' ? '#64748b' : 'rgba(255,255,255,0.6)' }}>Session (optional)</label>
-                      <select value={beapDraftSessionId} onChange={(e) => setBeapDraftSessionId(e.target.value)} onClick={() => loadAvailableSessions()} style={{ width: '100%', background: theme === 'professional' ? '#f8fafc' : '#1e293b', border: theme === 'professional' ? '1px solid rgba(15,23,42,0.2)' : '1px solid rgba(255,255,255,0.25)', color: theme === 'professional' ? '#0f172a' : '#f1f5f9', borderRadius: '6px', padding: '8px 10px', fontSize: '12px', outline: 'none', boxSizing: 'border-box', cursor: 'pointer' }}>
-                        <option value="" style={{ background: theme === 'professional' ? '#f8fafc' : '#1e293b', color: theme === 'professional' ? '#0f172a' : '#f1f5f9' }}>{availableSessions.length === 0 ? '— No sessions available —' : '— Select a session —'}</option>
-                        {availableSessions.map((s) => (<option key={s.key} value={s.key} style={{ background: theme === 'professional' ? '#f8fafc' : '#1e293b', color: theme === 'professional' ? '#0f172a' : '#f1f5f9' }}>{s.name} ({new Date(s.timestamp).toLocaleDateString()})</option>))}
+                      <label style={{ fontSize: '10px', fontWeight: 500, marginBottom: '4px', display: 'block', color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.6)' }}>Session (optional)</label>
+                      <select value={beapDraftSessionId} onChange={(e) => setBeapDraftSessionId(e.target.value)} onClick={() => loadAvailableSessions()} style={{ width: '100%', background: theme === 'standard' ? '#ffffff' : '#1e293b', border: theme === 'standard' ? '1px solid rgba(15,23,42,0.2)' : '1px solid rgba(255,255,255,0.25)', color: theme === 'standard' ? '#0f172a' : '#f1f5f9', borderRadius: '6px', padding: '8px 10px', fontSize: '12px', outline: 'none', boxSizing: 'border-box', cursor: 'pointer' }}>
+                        <option value="" style={{ background: theme === 'standard' ? '#ffffff' : '#1e293b', color: theme === 'standard' ? '#0f172a' : '#f1f5f9' }}>{availableSessions.length === 0 ? '— No sessions available —' : '— Select a session —'}</option>
+                        {availableSessions.map((s) => (<option key={s.key} value={s.key} style={{ background: theme === 'standard' ? '#ffffff' : '#1e293b', color: theme === 'standard' ? '#0f172a' : '#f1f5f9' }}>{s.name} ({new Date(s.timestamp).toLocaleDateString()})</option>))}
                       </select>
                     </div>
                     <div>
-                      <label style={{ fontSize: '10px', fontWeight: 500, marginBottom: '4px', display: 'block', color: theme === 'professional' ? '#64748b' : 'rgba(255,255,255,0.6)' }}>Attachments</label>
-                      <input type="file" multiple onChange={async (e) => { const files = Array.from(e.target.files ?? []); if (!files.length) return; const newItems: DraftAttachment[] = []; for (const file of files) { if (file.size > 10 * 1024 * 1024) { console.warn(`[BEAP] Skipping ${file.name}: exceeds 10MB limit`); continue } if (beapDraftAttachments.length + newItems.length >= 20) { console.warn('[BEAP] Max 20 attachments reached'); break } const dataBase64 = await new Promise<string>((resolve, reject) => { const reader = new FileReader(); reader.onload = () => { const res = String(reader.result ?? ''); resolve(res.includes(',') ? res.split(',')[1] : res) }; reader.onerror = () => reject(reader.error); reader.readAsDataURL(file) }); const attachmentId = crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`; const mimeType = file.type || 'application/octet-stream'; const isPdf = mimeType.toLowerCase() === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf'); const capsuleAttachment: CapsuleAttachment = { id: attachmentId, originalName: file.name, originalSize: file.size, originalType: mimeType, semanticContent: null, semanticExtracted: false, encryptedRef: `encrypted_${attachmentId}`, encryptedHash: '', previewRef: null, rasterProof: null, isMedia: mimeType.startsWith('image/') || mimeType.startsWith('video/') || mimeType.startsWith('audio/'), hasTranscript: false }; newItems.push({ id: attachmentId, name: file.name, mime: mimeType, size: file.size, dataBase64, capsuleAttachment, processing: { parsing: isPdf, rasterizing: isPdf } }) } setBeapDraftAttachments((prev) => [...prev, ...newItems]); e.currentTarget.value = ''; for (const item of newItems) { const isPdf = item.mime.toLowerCase() === 'application/pdf' || item.name.toLowerCase().endsWith('.pdf'); if (isPdf) { console.log(`[BEAP] Processing PDF: ${item.name}`); processAttachmentForParsing(item.capsuleAttachment, item.dataBase64).then((r) => { console.log(`[BEAP] Parse done: ${item.name}`); setBeapDraftAttachments((prev) => prev.map((a) => a.id === item.id ? { ...a, capsuleAttachment: r.attachment, processing: { ...a.processing, parsing: false, error: r.error || a.processing.error } } : a)) }).catch((err) => { setBeapDraftAttachments((prev) => prev.map((a) => a.id === item.id ? { ...a, processing: { ...a.processing, parsing: false, error: String(err) } } : a)) }); processAttachmentForRasterization(item.capsuleAttachment, item.dataBase64, 144).then((r) => { console.log(`[BEAP] Raster done: ${item.name}`); setBeapDraftAttachments((prev) => prev.map((a) => a.id === item.id ? { ...a, capsuleAttachment: { ...a.capsuleAttachment, previewRef: r.attachment.previewRef, rasterProof: r.rasterProof }, processing: { ...a.processing, rasterizing: false, error: r.error || a.processing.error } } : a)) }).catch((err) => { setBeapDraftAttachments((prev) => prev.map((a) => a.id === item.id ? { ...a, processing: { ...a.processing, rasterizing: false, error: String(err) } } : a)) }) } } }} style={{ fontSize: '11px', color: theme === 'professional' ? '#64748b' : 'rgba(255,255,255,0.7)' }} />
+                      <label style={{ fontSize: '10px', fontWeight: 500, marginBottom: '4px', display: 'block', color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.6)' }}>Attachments</label>
+                      <input type="file" multiple onChange={async (e) => { const files = Array.from(e.target.files ?? []); if (!files.length) return; const newItems: DraftAttachment[] = []; for (const file of files) { if (file.size > 10 * 1024 * 1024) { console.warn(`[BEAP] Skipping ${file.name}: exceeds 10MB limit`); continue } if (beapDraftAttachments.length + newItems.length >= 20) { console.warn('[BEAP] Max 20 attachments reached'); break } const dataBase64 = await new Promise<string>((resolve, reject) => { const reader = new FileReader(); reader.onload = () => { const res = String(reader.result ?? ''); resolve(res.includes(',') ? res.split(',')[1] : res) }; reader.onerror = () => reject(reader.error); reader.readAsDataURL(file) }); const attachmentId = crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`; const mimeType = file.type || 'application/octet-stream'; const isPdf = mimeType.toLowerCase() === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf'); const capsuleAttachment: CapsuleAttachment = { id: attachmentId, originalName: file.name, originalSize: file.size, originalType: mimeType, semanticContent: null, semanticExtracted: false, encryptedRef: `encrypted_${attachmentId}`, encryptedHash: '', previewRef: null, rasterProof: null, isMedia: mimeType.startsWith('image/') || mimeType.startsWith('video/') || mimeType.startsWith('audio/'), hasTranscript: false }; newItems.push({ id: attachmentId, name: file.name, mime: mimeType, size: file.size, dataBase64, capsuleAttachment, processing: { parsing: isPdf, rasterizing: isPdf } }) } setBeapDraftAttachments((prev) => [...prev, ...newItems]); e.currentTarget.value = ''; for (const item of newItems) { const isPdf = item.mime.toLowerCase() === 'application/pdf' || item.name.toLowerCase().endsWith('.pdf'); if (isPdf) { console.log(`[BEAP] Processing PDF: ${item.name}`); processAttachmentForParsing(item.capsuleAttachment, item.dataBase64).then((r) => { console.log(`[BEAP] Parse done: ${item.name}`); setBeapDraftAttachments((prev) => prev.map((a) => a.id === item.id ? { ...a, capsuleAttachment: r.attachment, processing: { ...a.processing, parsing: false, error: r.error || a.processing.error } } : a)) }).catch((err) => { setBeapDraftAttachments((prev) => prev.map((a) => a.id === item.id ? { ...a, processing: { ...a.processing, parsing: false, error: String(err) } } : a)) }); processAttachmentForRasterization(item.capsuleAttachment, item.dataBase64, 144).then((r) => { console.log(`[BEAP] Raster done: ${item.name}`); setBeapDraftAttachments((prev) => prev.map((a) => a.id === item.id ? { ...a, capsuleAttachment: { ...a.capsuleAttachment, previewRef: r.attachment.previewRef, rasterProof: r.rasterProof }, processing: { ...a.processing, rasterizing: false, error: r.error || a.processing.error } } : a)) }).catch((err) => { setBeapDraftAttachments((prev) => prev.map((a) => a.id === item.id ? { ...a, processing: { ...a.processing, rasterizing: false, error: String(err) } } : a)) }) } } }} style={{ fontSize: '11px', color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.7)' }} />
                       {beapDraftAttachments.length > 0 && (
                         <div style={{ marginTop: '8px' }}>
-                          {beapDraftAttachments.map((a) => (<div key={a.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 8px', background: theme === 'professional' ? 'rgba(0,0,0,0.03)' : 'rgba(255,255,255,0.05)', borderRadius: '4px', marginBottom: '4px' }}><div><div style={{ fontSize: '11px', color: theme === 'professional' ? '#0f172a' : 'white' }}>{a.name}{(a.processing.parsing || a.processing.rasterizing) && ' ⏳'}{a.capsuleAttachment.semanticExtracted && ' ✓'}</div><div style={{ fontSize: '9px', color: theme === 'professional' ? '#64748b' : 'rgba(255,255,255,0.5)' }}>{a.mime} · {a.size} bytes{a.processing.error && ` · ⚠️ ${a.processing.error.slice(0,30)}`}</div></div><button onClick={() => setBeapDraftAttachments((prev) => prev.filter((x) => x.id !== a.id))} style={{ background: 'transparent', border: 'none', color: theme === 'professional' ? '#ef4444' : '#f87171', fontSize: '10px', cursor: 'pointer' }}>Remove</button></div>))}
-                          <button onClick={() => setBeapDraftAttachments([])} style={{ background: 'transparent', border: theme === 'professional' ? '1px solid rgba(15,23,42,0.2)' : '1px solid rgba(255,255,255,0.2)', color: theme === 'professional' ? '#64748b' : 'rgba(255,255,255,0.6)', borderRadius: '4px', padding: '4px 8px', fontSize: '10px', cursor: 'pointer', marginTop: '4px' }}>Clear all</button>
+                          {beapDraftAttachments.map((a) => (<div key={a.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 8px', background: theme === 'standard' ? 'rgba(0,0,0,0.03)' : 'rgba(255,255,255,0.05)', borderRadius: '4px', marginBottom: '4px' }}><div><div style={{ fontSize: '11px', color: theme === 'standard' ? '#0f172a' : 'white' }}>{a.name}{(a.processing.parsing || a.processing.rasterizing) && ' ⏳'}{a.capsuleAttachment.semanticExtracted && ' ✓'}</div><div style={{ fontSize: '9px', color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.5)' }}>{a.mime} · {a.size} bytes{a.processing.error && ` · ⚠️ ${a.processing.error.slice(0,30)}`}</div></div><button onClick={() => setBeapDraftAttachments((prev) => prev.filter((x) => x.id !== a.id))} style={{ background: 'transparent', border: 'none', color: theme === 'standard' ? '#ef4444' : '#f87171', fontSize: '10px', cursor: 'pointer' }}>Remove</button></div>))}
+                          <button onClick={() => setBeapDraftAttachments([])} style={{ background: 'transparent', border: theme === 'standard' ? '1px solid #e1e8ed' : '1px solid rgba(255,255,255,0.2)', color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.6)', borderRadius: '4px', padding: '4px 8px', fontSize: '10px', cursor: 'pointer', marginTop: '4px' }}>Clear all</button>
                         </div>
                       )}
                     </div>
                   </div>
                 </div>
-                <div style={{ padding: '12px 14px', borderTop: theme === 'professional' ? '1px solid rgba(15,23,42,0.1)' : '1px solid rgba(255,255,255,0.1)', display: 'flex', justifyContent: 'flex-end', gap: '8px', background: theme === 'professional' ? '#f8fafc' : 'rgba(0,0,0,0.2)' }}>
-                  <button onClick={() => { setBeapDraftTo(''); setBeapDraftMessage(''); setBeapDraftEncryptedMessage(''); setBeapDraftSessionId(''); setBeapDraftAttachments([]); setSelectedRecipient(null) }} style={{ background: 'transparent', border: theme === 'professional' ? '1px solid rgba(15,23,42,0.2)' : '1px solid rgba(255,255,255,0.2)', color: theme === 'professional' ? '#64748b' : 'rgba(255,255,255,0.7)', borderRadius: '6px', padding: '8px 16px', fontSize: '12px', cursor: 'pointer' }}>Clear</button>
+                <div style={{ padding: '12px 14px', borderTop: theme === 'standard' ? '1px solid rgba(147, 51, 234, 0.12)' : '1px solid rgba(255,255,255,0.1)', display: 'flex', justifyContent: 'flex-end', gap: '8px', background: theme === 'standard' ? '#ffffff' : 'rgba(0,0,0,0.2)' }}>
+                  <button onClick={() => { setBeapDraftTo(''); setBeapDraftMessage(''); setBeapDraftEncryptedMessage(''); setBeapDraftSessionId(''); setBeapDraftAttachments([]); setSelectedRecipient(null) }} style={{ background: 'transparent', border: theme === 'standard' ? '1px solid #e1e8ed' : '1px solid rgba(255,255,255,0.2)', color: theme === 'standard' ? '#536471' : 'rgba(255,255,255,0.7)', borderRadius: '6px', padding: '8px 16px', fontSize: '12px', cursor: 'pointer' }}>Clear</button>
                   <button onClick={handleSendBeapMessage} disabled={isBeapSendDisabled} style={{ background: isBeapSendDisabled ? 'rgba(168,85,247,0.5)' : 'linear-gradient(135deg, #a855f7 0%, #9333ea 100%)', border: 'none', color: 'white', borderRadius: '6px', padding: '8px 20px', fontSize: '12px', fontWeight: 600, cursor: isBeapSendDisabled ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: '6px', opacity: isBeapSendDisabled ? 0.7 : 1 }}>{getBeapSendButtonLabel()}</button>
                 </div>
                   </>
@@ -8159,7 +8161,7 @@ height: '28px',
         style={{
           width: '100%',
           padding: '16px 20px',
-          ...(theme === 'professional' ? {
+          ...(theme === 'standard' ? {
             background: 'rgba(15,23,42,0.08)',
             border: '2px dashed rgba(15,23,42,0.3)',
             color: '#0f172a'
@@ -8186,7 +8188,7 @@ height: '28px',
         }}
         onMouseEnter={(e) => {
           e.currentTarget.style.transform = 'translateY(-2px)'
-          if (theme === 'professional') {
+          if (theme === 'standard') {
             e.currentTarget.style.background = 'rgba(15,23,42,0.12)'
             e.currentTarget.style.borderColor = 'rgba(15,23,42,0.4)'
           } else if (theme === 'dark') {
@@ -8199,7 +8201,7 @@ height: '28px',
         }}
         onMouseLeave={(e) => {
           e.currentTarget.style.transform = 'translateY(0)'
-          if (theme === 'professional') {
+          if (theme === 'standard') {
             e.currentTarget.style.background = 'rgba(15,23,42,0.08)'
             e.currentTarget.style.borderColor = 'rgba(15,23,42,0.3)'
           } else if (theme === 'dark') {
@@ -8216,7 +8218,7 @@ height: '28px',
 
       {/* Runtime Controls Section */}
       <div style={{
-        background: theme === 'default' ? 'rgba(118,75,162,0.5)' : 'rgba(255,255,255,0.12)',
+        background: theme === 'pro' ? 'rgba(118,75,162,0.5)' : 'rgba(255,255,255,0.12)',
         padding: '16px',
           borderRadius: '10px',
         marginBottom: '28px',
@@ -8253,11 +8255,11 @@ height: '28px',
               width: '50px',
               height: '20px',
               background: viewMode === 'app'
-                ? (theme === 'default' ? 'rgba(76,175,80,0.9)' : theme === 'dark' ? 'rgba(76,175,80,0.9)' : 'rgba(34,197,94,0.9)')
-                : (theme === 'default' ? 'rgba(255,255,255,0.2)' : theme === 'dark' ? 'rgba(255,255,255,0.2)' : 'rgba(15,23,42,0.2)'),
+                ? (theme === 'pro' ? 'rgba(76,175,80,0.9)' : theme === 'dark' ? 'rgba(76,175,80,0.9)' : 'rgba(34,197,94,0.9)')
+                : (theme === 'pro' ? 'rgba(255,255,255,0.2)' : theme === 'dark' ? 'rgba(255,255,255,0.2)' : 'rgba(15,23,42,0.2)'),
               borderRadius: '10px',
               transition: 'background 0.2s',
-              border: theme === 'default' ? '1px solid rgba(255,255,255,0.3)' : theme === 'dark' ? '1px solid rgba(255,255,255,0.3)' : '1px solid rgba(15,23,42,0.3)',
+              border: theme === 'pro' ? '1px solid rgba(255,255,255,0.3)' : theme === 'dark' ? '1px solid rgba(255,255,255,0.3)' : '1px solid rgba(15,23,42,0.3)',
               overflow: 'hidden'
             }}>
               <span style={{
@@ -8270,7 +8272,7 @@ height: '28px',
                 fontWeight: '700',
                 color: viewMode === 'app'
                   ? 'rgba(255,255,255,0.95)'
-                  : (theme === 'default' ? 'rgba(255,255,255,0.5)' : theme === 'dark' ? 'rgba(255,255,255,0.5)' : 'rgba(15,23,42,0.5)'),
+                  : (theme === 'pro' ? 'rgba(255,255,255,0.5)' : theme === 'dark' ? 'rgba(255,255,255,0.5)' : 'rgba(15,23,42,0.5)'),
                 transition: 'all 0.2s',
                 userSelect: 'none',
                 textTransform: 'uppercase',
@@ -8285,7 +8287,7 @@ height: '28px',
                 left: viewMode === 'app' ? '32px' : '3px',
                 width: '14px',
                 height: '14px',
-                background: theme === 'default' ? 'rgba(255,255,255,0.95)' : theme === 'dark' ? 'rgba(255,255,255,0.95)' : 'rgba(255,255,255,0.95)',
+                background: theme === 'pro' ? 'rgba(255,255,255,0.95)' : theme === 'dark' ? 'rgba(255,255,255,0.95)' : 'rgba(255,255,255,0.95)',
                 borderRadius: '50%',
                 transition: 'left 0.2s',
                 boxShadow: '0 1px 3px rgba(0,0,0,0.3)',
@@ -8416,7 +8418,7 @@ height: '28px',
             onClick={openWRVault}
             style={{
               padding: '12px',
-              ...(theme === 'professional' ? {
+              ...(theme === 'standard' ? {
                 background: 'rgba(15,23,42,0.08)',
                 border: '1px solid rgba(15,23,42,0.2)',
                 color: '#0f172a'
@@ -8443,7 +8445,7 @@ height: '28px',
             }}
             onMouseEnter={(e) => {
               e.currentTarget.style.transform = 'translateY(-2px)'
-              if (theme === 'professional') {
+              if (theme === 'standard') {
                 e.currentTarget.style.background = 'rgba(15,23,42,0.12)'
                 e.currentTarget.style.boxShadow = '0 4px 12px rgba(15,23,42,0.15)'
               } else {
@@ -8453,7 +8455,7 @@ height: '28px',
             }}
             onMouseLeave={(e) => {
               e.currentTarget.style.transform = 'translateY(0)'
-              if (theme === 'professional') {
+              if (theme === 'standard') {
                 e.currentTarget.style.background = 'rgba(15,23,42,0.08)'
               } else {
                 e.currentTarget.style.background = 'rgba(255,255,255,0.1)'
@@ -8481,9 +8483,9 @@ height: '28px',
           <div style={{
             width: '380px',
             maxHeight: '85vh',
-            background: theme === 'professional' ? '#ffffff' : 'linear-gradient(135deg, #1e293b 0%, #0f172a 100%)',
+            background: theme === 'standard' ? '#ffffff' : 'linear-gradient(135deg, #1e293b 0%, #0f172a 100%)',
             borderRadius: '16px',
-            border: theme === 'professional' ? '1px solid #e2e8f0' : '1px solid rgba(255,255,255,0.15)',
+            border: theme === 'standard' ? '1px solid #e2e8f0' : '1px solid rgba(255,255,255,0.15)',
             boxShadow: '0 25px 50px rgba(0,0,0,0.4)',
             overflow: 'hidden'
           }}>
@@ -8524,7 +8526,7 @@ height: '28px',
             <div style={{ padding: '20px', overflowY: 'auto', maxHeight: 'calc(85vh - 80px)' }}>
               {emailSetupStep === 'provider' && (
                 <>
-                  <div style={{ fontSize: '13px', color: theme === 'professional' ? '#64748b' : 'rgba(255,255,255,0.7)', marginBottom: '16px' }}>
+                  <div style={{ fontSize: '13px', color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.7)', marginBottom: '16px' }}>
                     Choose your email provider to connect securely:
                   </div>
                   
@@ -8534,8 +8536,8 @@ height: '28px',
                     style={{
                       width: '100%',
                       padding: '14px 16px',
-                      background: theme === 'professional' ? '#fff' : 'rgba(255,255,255,0.08)',
-                      border: theme === 'professional' ? '1px solid #e2e8f0' : '1px solid rgba(255,255,255,0.15)',
+                      background: theme === 'standard' ? '#fff' : 'rgba(255,255,255,0.08)',
+                      border: theme === 'standard' ? '1px solid #e2e8f0' : '1px solid rgba(255,255,255,0.15)',
                       borderRadius: '10px',
                       cursor: 'pointer',
                       display: 'flex',
@@ -8548,10 +8550,10 @@ height: '28px',
                   >
                     <span style={{ fontSize: '24px' }}>📧</span>
                     <div>
-                      <div style={{ fontSize: '14px', fontWeight: '600', color: theme === 'professional' ? '#0f172a' : 'white' }}>Gmail</div>
-                      <div style={{ fontSize: '11px', color: theme === 'professional' ? '#64748b' : 'rgba(255,255,255,0.6)' }}>Connect via Google OAuth</div>
+                      <div style={{ fontSize: '14px', fontWeight: '600', color: theme === 'standard' ? '#0f172a' : 'white' }}>Gmail</div>
+                      <div style={{ fontSize: '11px', color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.6)' }}>Connect via Google OAuth</div>
                     </div>
-                    <span style={{ marginLeft: 'auto', fontSize: '14px', color: theme === 'professional' ? '#94a3b8' : 'rgba(255,255,255,0.4)' }}>→</span>
+                    <span style={{ marginLeft: 'auto', fontSize: '14px', color: theme === 'standard' ? '#94a3b8' : 'rgba(255,255,255,0.4)' }}>→</span>
                   </button>
                   
                   {/* Microsoft 365 Option */}
@@ -8560,8 +8562,8 @@ height: '28px',
                     style={{
                       width: '100%',
                       padding: '14px 16px',
-                      background: theme === 'professional' ? '#fff' : 'rgba(255,255,255,0.08)',
-                      border: theme === 'professional' ? '1px solid #e2e8f0' : '1px solid rgba(255,255,255,0.15)',
+                      background: theme === 'standard' ? '#fff' : 'rgba(255,255,255,0.08)',
+                      border: theme === 'standard' ? '1px solid #e2e8f0' : '1px solid rgba(255,255,255,0.15)',
                       borderRadius: '10px',
                       cursor: 'pointer',
                       display: 'flex',
@@ -8574,10 +8576,10 @@ height: '28px',
                   >
                     <span style={{ fontSize: '24px' }}>📨</span>
                     <div>
-                      <div style={{ fontSize: '14px', fontWeight: '600', color: theme === 'professional' ? '#0f172a' : 'white' }}>Microsoft 365 / Outlook</div>
-                      <div style={{ fontSize: '11px', color: theme === 'professional' ? '#64748b' : 'rgba(255,255,255,0.6)' }}>Connect via Microsoft OAuth</div>
+                      <div style={{ fontSize: '14px', fontWeight: '600', color: theme === 'standard' ? '#0f172a' : 'white' }}>Microsoft 365 / Outlook</div>
+                      <div style={{ fontSize: '11px', color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.6)' }}>Connect via Microsoft OAuth</div>
                     </div>
-                    <span style={{ marginLeft: 'auto', fontSize: '14px', color: theme === 'professional' ? '#94a3b8' : 'rgba(255,255,255,0.4)' }}>→</span>
+                    <span style={{ marginLeft: 'auto', fontSize: '14px', color: theme === 'standard' ? '#94a3b8' : 'rgba(255,255,255,0.4)' }}>→</span>
                   </button>
                   
                   {/* IMAP Option */}
@@ -8586,8 +8588,8 @@ height: '28px',
                     style={{
                       width: '100%',
                       padding: '14px 16px',
-                      background: theme === 'professional' ? '#fff' : 'rgba(255,255,255,0.08)',
-                      border: theme === 'professional' ? '1px solid #e2e8f0' : '1px solid rgba(255,255,255,0.15)',
+                      background: theme === 'standard' ? '#fff' : 'rgba(255,255,255,0.08)',
+                      border: theme === 'standard' ? '1px solid #e2e8f0' : '1px solid rgba(255,255,255,0.15)',
                       borderRadius: '10px',
                       cursor: 'pointer',
                       display: 'flex',
@@ -8599,23 +8601,23 @@ height: '28px',
                   >
                     <span style={{ fontSize: '24px' }}>✉️</span>
                     <div>
-                      <div style={{ fontSize: '14px', fontWeight: '600', color: theme === 'professional' ? '#0f172a' : 'white' }}>Other (IMAP)</div>
-                      <div style={{ fontSize: '11px', color: theme === 'professional' ? '#64748b' : 'rgba(255,255,255,0.6)' }}>Web.de, GMX, Yahoo, T-Online, etc.</div>
+                      <div style={{ fontSize: '14px', fontWeight: '600', color: theme === 'standard' ? '#0f172a' : 'white' }}>Other (IMAP)</div>
+                      <div style={{ fontSize: '11px', color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.6)' }}>Web.de, GMX, Yahoo, T-Online, etc.</div>
                     </div>
-                    <span style={{ marginLeft: 'auto', fontSize: '14px', color: theme === 'professional' ? '#94a3b8' : 'rgba(255,255,255,0.4)' }}>→</span>
+                    <span style={{ marginLeft: 'auto', fontSize: '14px', color: theme === 'standard' ? '#94a3b8' : 'rgba(255,255,255,0.4)' }}>→</span>
                   </button>
                   
                   {/* Security note */}
                   <div style={{ 
                     marginTop: '16px', 
                     padding: '12px', 
-                    background: theme === 'professional' ? 'rgba(59,130,246,0.1)' : 'rgba(59,130,246,0.15)',
+                    background: theme === 'standard' ? 'rgba(59,130,246,0.1)' : 'rgba(59,130,246,0.15)',
                     borderRadius: '8px',
                     border: '1px solid rgba(59,130,246,0.2)'
                   }}>
                     <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px' }}>
                       <span style={{ fontSize: '14px' }}>🔒</span>
-                      <div style={{ fontSize: '11px', color: theme === 'professional' ? '#1e40af' : 'rgba(255,255,255,0.8)', lineHeight: '1.5' }}>
+                      <div style={{ fontSize: '11px', color: theme === 'standard' ? '#1e40af' : 'rgba(255,255,255,0.8)', lineHeight: '1.5' }}>
                         <strong>Security:</strong> Your emails are never rendered with scripts or tracking. All content is sanitized locally before display.
                       </div>
                     </div>
@@ -8634,7 +8636,7 @@ height: '28px',
                       gap: '6px',
                       background: 'none',
                       border: 'none',
-                      color: theme === 'professional' ? '#3b82f6' : '#60a5fa',
+                      color: theme === 'standard' ? '#3b82f6' : '#60a5fa',
                       fontSize: '13px',
                       cursor: 'pointer',
                       padding: '0',
@@ -8646,7 +8648,7 @@ height: '28px',
                   
                   {/* Preset selector */}
                   <div>
-                    <label style={{ fontSize: '12px', fontWeight: '600', color: theme === 'professional' ? '#64748b' : 'rgba(255,255,255,0.7)', marginBottom: '4px', display: 'block' }}>
+                    <label style={{ fontSize: '12px', fontWeight: '600', color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.7)', marginBottom: '4px', display: 'block' }}>
                       Provider Preset (Optional)
                     </label>
                     <select
@@ -8654,11 +8656,11 @@ height: '28px',
                       style={{
                         width: '100%',
                         padding: '10px 12px',
-                        background: theme === 'professional' ? '#fff' : 'rgba(255,255,255,0.08)',
-                        border: theme === 'professional' ? '1px solid #e2e8f0' : '1px solid rgba(255,255,255,0.15)',
+                        background: theme === 'standard' ? '#fff' : 'rgba(255,255,255,0.08)',
+                        border: theme === 'standard' ? '1px solid #e2e8f0' : '1px solid rgba(255,255,255,0.15)',
                         borderRadius: '8px',
                         fontSize: '13px',
-                        color: theme === 'professional' ? '#0f172a' : 'white'
+                        color: theme === 'standard' ? '#0f172a' : 'white'
                       }}
                     >
                       <option value="">Select a preset...</option>
@@ -8671,7 +8673,7 @@ height: '28px',
                   
                   {/* Email field */}
                   <div>
-                    <label style={{ fontSize: '12px', fontWeight: '600', color: theme === 'professional' ? '#64748b' : 'rgba(255,255,255,0.7)', marginBottom: '4px', display: 'block' }}>
+                    <label style={{ fontSize: '12px', fontWeight: '600', color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.7)', marginBottom: '4px', display: 'block' }}>
                       Email Address *
                     </label>
                     <input
@@ -8685,11 +8687,11 @@ height: '28px',
                       style={{
                         width: '100%',
                         padding: '10px 12px',
-                        background: theme === 'professional' ? '#fff' : 'rgba(255,255,255,0.08)',
-                        border: theme === 'professional' ? '1px solid #e2e8f0' : '1px solid rgba(255,255,255,0.15)',
+                        background: theme === 'standard' ? '#fff' : 'rgba(255,255,255,0.08)',
+                        border: theme === 'standard' ? '1px solid #e2e8f0' : '1px solid rgba(255,255,255,0.15)',
                         borderRadius: '8px',
                         fontSize: '13px',
-                        color: theme === 'professional' ? '#0f172a' : 'white'
+                        color: theme === 'standard' ? '#0f172a' : 'white'
                       }}
                     />
                   </div>
@@ -8697,7 +8699,7 @@ height: '28px',
                   {/* IMAP Server */}
                   <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '8px' }}>
                     <div>
-                      <label style={{ fontSize: '12px', fontWeight: '600', color: theme === 'professional' ? '#64748b' : 'rgba(255,255,255,0.7)', marginBottom: '4px', display: 'block' }}>
+                      <label style={{ fontSize: '12px', fontWeight: '600', color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.7)', marginBottom: '4px', display: 'block' }}>
                         IMAP Server *
                       </label>
                       <input
@@ -8708,16 +8710,16 @@ height: '28px',
                         style={{
                           width: '100%',
                           padding: '10px 12px',
-                          background: theme === 'professional' ? '#fff' : 'rgba(255,255,255,0.08)',
-                          border: theme === 'professional' ? '1px solid #e2e8f0' : '1px solid rgba(255,255,255,0.15)',
+                          background: theme === 'standard' ? '#fff' : 'rgba(255,255,255,0.08)',
+                          border: theme === 'standard' ? '1px solid #e2e8f0' : '1px solid rgba(255,255,255,0.15)',
                           borderRadius: '8px',
                           fontSize: '13px',
-                          color: theme === 'professional' ? '#0f172a' : 'white'
+                          color: theme === 'standard' ? '#0f172a' : 'white'
                         }}
                       />
                     </div>
                     <div>
-                      <label style={{ fontSize: '12px', fontWeight: '600', color: theme === 'professional' ? '#64748b' : 'rgba(255,255,255,0.7)', marginBottom: '4px', display: 'block' }}>
+                      <label style={{ fontSize: '12px', fontWeight: '600', color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.7)', marginBottom: '4px', display: 'block' }}>
                         Port
                       </label>
                       <input
@@ -8727,11 +8729,11 @@ height: '28px',
                         style={{
                           width: '100%',
                           padding: '10px 12px',
-                          background: theme === 'professional' ? '#fff' : 'rgba(255,255,255,0.08)',
-                          border: theme === 'professional' ? '1px solid #e2e8f0' : '1px solid rgba(255,255,255,0.15)',
+                          background: theme === 'standard' ? '#fff' : 'rgba(255,255,255,0.08)',
+                          border: theme === 'standard' ? '1px solid #e2e8f0' : '1px solid rgba(255,255,255,0.15)',
                           borderRadius: '8px',
                           fontSize: '13px',
-                          color: theme === 'professional' ? '#0f172a' : 'white'
+                          color: theme === 'standard' ? '#0f172a' : 'white'
                         }}
                       />
                     </div>
@@ -8739,7 +8741,7 @@ height: '28px',
                   
                   {/* Username */}
                   <div>
-                    <label style={{ fontSize: '12px', fontWeight: '600', color: theme === 'professional' ? '#64748b' : 'rgba(255,255,255,0.7)', marginBottom: '4px', display: 'block' }}>
+                    <label style={{ fontSize: '12px', fontWeight: '600', color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.7)', marginBottom: '4px', display: 'block' }}>
                       Username *
                     </label>
                     <input
@@ -8750,18 +8752,18 @@ height: '28px',
                       style={{
                         width: '100%',
                         padding: '10px 12px',
-                        background: theme === 'professional' ? '#fff' : 'rgba(255,255,255,0.08)',
-                        border: theme === 'professional' ? '1px solid #e2e8f0' : '1px solid rgba(255,255,255,0.15)',
+                        background: theme === 'standard' ? '#fff' : 'rgba(255,255,255,0.08)',
+                        border: theme === 'standard' ? '1px solid #e2e8f0' : '1px solid rgba(255,255,255,0.15)',
                         borderRadius: '8px',
                         fontSize: '13px',
-                        color: theme === 'professional' ? '#0f172a' : 'white'
+                        color: theme === 'standard' ? '#0f172a' : 'white'
                       }}
                     />
                   </div>
                   
                   {/* Password */}
                   <div>
-                    <label style={{ fontSize: '12px', fontWeight: '600', color: theme === 'professional' ? '#64748b' : 'rgba(255,255,255,0.7)', marginBottom: '4px', display: 'block' }}>
+                    <label style={{ fontSize: '12px', fontWeight: '600', color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.7)', marginBottom: '4px', display: 'block' }}>
                       Password / App Password *
                     </label>
                     <input
@@ -8772,11 +8774,11 @@ height: '28px',
                       style={{
                         width: '100%',
                         padding: '10px 12px',
-                        background: theme === 'professional' ? '#fff' : 'rgba(255,255,255,0.08)',
-                        border: theme === 'professional' ? '1px solid #e2e8f0' : '1px solid rgba(255,255,255,0.15)',
+                        background: theme === 'standard' ? '#fff' : 'rgba(255,255,255,0.08)',
+                        border: theme === 'standard' ? '1px solid #e2e8f0' : '1px solid rgba(255,255,255,0.15)',
                         borderRadius: '8px',
                         fontSize: '13px',
-                        color: theme === 'professional' ? '#0f172a' : 'white'
+                        color: theme === 'standard' ? '#0f172a' : 'white'
                       }}
                     />
                   </div>
@@ -8804,10 +8806,10 @@ height: '28px',
                   <div style={{ 
                     marginTop: '8px', 
                     padding: '10px', 
-                    background: theme === 'professional' ? 'rgba(59,130,246,0.1)' : 'rgba(59,130,246,0.15)',
+                    background: theme === 'standard' ? 'rgba(59,130,246,0.1)' : 'rgba(59,130,246,0.15)',
                     borderRadius: '6px',
                     fontSize: '11px',
-                    color: theme === 'professional' ? '#1e40af' : 'rgba(255,255,255,0.8)',
+                    color: theme === 'standard' ? '#1e40af' : 'rgba(255,255,255,0.8)',
                     lineHeight: '1.4'
                   }}>
                     🔒 <strong>Tip:</strong> For Gmail, Yahoo, and other accounts with 2FA, use an App Password instead of your regular password.
@@ -8823,7 +8825,7 @@ height: '28px',
                     style={{
                       display: 'flex', alignItems: 'center', gap: '6px',
                       background: 'none', border: 'none',
-                      color: theme === 'professional' ? '#3b82f6' : '#60a5fa',
+                      color: theme === 'standard' ? '#3b82f6' : '#60a5fa',
                       fontSize: '13px', cursor: 'pointer', padding: '0', marginBottom: '8px'
                     }}
                   >
@@ -8832,15 +8834,15 @@ height: '28px',
                   
                   <div style={{ 
                     padding: '12px', 
-                    background: theme === 'professional' ? 'rgba(234,179,8,0.1)' : 'rgba(234,179,8,0.15)',
+                    background: theme === 'standard' ? 'rgba(234,179,8,0.1)' : 'rgba(234,179,8,0.15)',
                     borderRadius: '8px', border: '1px solid rgba(234,179,8,0.3)', marginBottom: '8px'
                   }}>
                     <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px' }}>
                       <span>⚙️</span>
-                      <div style={{ fontSize: '11px', color: theme === 'professional' ? '#854d0e' : 'rgba(255,255,255,0.9)', lineHeight: '1.5' }}>
+                      <div style={{ fontSize: '11px', color: theme === 'standard' ? '#854d0e' : 'rgba(255,255,255,0.9)', lineHeight: '1.5' }}>
                         <strong>One-time setup:</strong> You need a Google Cloud OAuth Client ID. 
                         <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener" 
-                           style={{ color: theme === 'professional' ? '#3b82f6' : '#60a5fa', marginLeft: '4px' }}>
+                           style={{ color: theme === 'standard' ? '#3b82f6' : '#60a5fa', marginLeft: '4px' }}>
                           Get it here →
                         </a>
                       </div>
@@ -8848,7 +8850,7 @@ height: '28px',
                   </div>
                   
                   <div>
-                    <label style={{ fontSize: '12px', fontWeight: '600', color: theme === 'professional' ? '#64748b' : 'rgba(255,255,255,0.7)', marginBottom: '4px', display: 'block' }}>
+                    <label style={{ fontSize: '12px', fontWeight: '600', color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.7)', marginBottom: '4px', display: 'block' }}>
                       Client ID *
                     </label>
                     <input
@@ -8858,15 +8860,15 @@ height: '28px',
                       onChange={(e) => setGmailCredentials(prev => ({ ...prev, clientId: e.target.value }))}
                       style={{
                         width: '100%', padding: '10px 12px',
-                        background: theme === 'professional' ? '#fff' : 'rgba(255,255,255,0.08)',
-                        border: theme === 'professional' ? '1px solid #e2e8f0' : '1px solid rgba(255,255,255,0.15)',
-                        borderRadius: '8px', fontSize: '13px', color: theme === 'professional' ? '#0f172a' : 'white'
+                        background: theme === 'standard' ? '#fff' : 'rgba(255,255,255,0.08)',
+                        border: theme === 'standard' ? '1px solid #e2e8f0' : '1px solid rgba(255,255,255,0.15)',
+                        borderRadius: '8px', fontSize: '13px', color: theme === 'standard' ? '#0f172a' : 'white'
                       }}
                     />
                   </div>
                   
                   <div>
-                    <label style={{ fontSize: '12px', fontWeight: '600', color: theme === 'professional' ? '#64748b' : 'rgba(255,255,255,0.7)', marginBottom: '4px', display: 'block' }}>
+                    <label style={{ fontSize: '12px', fontWeight: '600', color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.7)', marginBottom: '4px', display: 'block' }}>
                       Client Secret *
                     </label>
                     <input
@@ -8876,9 +8878,9 @@ height: '28px',
                       onChange={(e) => setGmailCredentials(prev => ({ ...prev, clientSecret: e.target.value }))}
                       style={{
                         width: '100%', padding: '10px 12px',
-                        background: theme === 'professional' ? '#fff' : 'rgba(255,255,255,0.08)',
-                        border: theme === 'professional' ? '1px solid #e2e8f0' : '1px solid rgba(255,255,255,0.15)',
-                        borderRadius: '8px', fontSize: '13px', color: theme === 'professional' ? '#0f172a' : 'white'
+                        background: theme === 'standard' ? '#fff' : 'rgba(255,255,255,0.08)',
+                        border: theme === 'standard' ? '1px solid #e2e8f0' : '1px solid rgba(255,255,255,0.15)',
+                        borderRadius: '8px', fontSize: '13px', color: theme === 'standard' ? '#0f172a' : 'white'
                       }}
                     />
                   </div>
@@ -8906,7 +8908,7 @@ height: '28px',
                     style={{
                       display: 'flex', alignItems: 'center', gap: '6px',
                       background: 'none', border: 'none',
-                      color: theme === 'professional' ? '#3b82f6' : '#60a5fa',
+                      color: theme === 'standard' ? '#3b82f6' : '#60a5fa',
                       fontSize: '13px', cursor: 'pointer', padding: '0', marginBottom: '8px'
                     }}
                   >
@@ -8915,15 +8917,15 @@ height: '28px',
                   
                   <div style={{ 
                     padding: '12px', 
-                    background: theme === 'professional' ? 'rgba(234,179,8,0.1)' : 'rgba(234,179,8,0.15)',
+                    background: theme === 'standard' ? 'rgba(234,179,8,0.1)' : 'rgba(234,179,8,0.15)',
                     borderRadius: '8px', border: '1px solid rgba(234,179,8,0.3)', marginBottom: '8px'
                   }}>
                     <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px' }}>
                       <span>⚙️</span>
-                      <div style={{ fontSize: '11px', color: theme === 'professional' ? '#854d0e' : 'rgba(255,255,255,0.9)', lineHeight: '1.5' }}>
+                      <div style={{ fontSize: '11px', color: theme === 'standard' ? '#854d0e' : 'rgba(255,255,255,0.9)', lineHeight: '1.5' }}>
                         <strong>One-time setup:</strong> You need an Azure AD App Registration. 
                         <a href="https://portal.azure.com/#blade/Microsoft_AAD_RegisteredApps/ApplicationsListBlade" target="_blank" rel="noopener" 
-                           style={{ color: theme === 'professional' ? '#3b82f6' : '#60a5fa', marginLeft: '4px' }}>
+                           style={{ color: theme === 'standard' ? '#3b82f6' : '#60a5fa', marginLeft: '4px' }}>
                           Get it here →
                         </a>
                       </div>
@@ -8931,7 +8933,7 @@ height: '28px',
                   </div>
                   
                   <div>
-                    <label style={{ fontSize: '12px', fontWeight: '600', color: theme === 'professional' ? '#64748b' : 'rgba(255,255,255,0.7)', marginBottom: '4px', display: 'block' }}>
+                    <label style={{ fontSize: '12px', fontWeight: '600', color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.7)', marginBottom: '4px', display: 'block' }}>
                       Application (Client) ID *
                     </label>
                     <input
@@ -8941,15 +8943,15 @@ height: '28px',
                       onChange={(e) => setOutlookCredentials(prev => ({ ...prev, clientId: e.target.value }))}
                       style={{
                         width: '100%', padding: '10px 12px',
-                        background: theme === 'professional' ? '#fff' : 'rgba(255,255,255,0.08)',
-                        border: theme === 'professional' ? '1px solid #e2e8f0' : '1px solid rgba(255,255,255,0.15)',
-                        borderRadius: '8px', fontSize: '13px', color: theme === 'professional' ? '#0f172a' : 'white'
+                        background: theme === 'standard' ? '#fff' : 'rgba(255,255,255,0.08)',
+                        border: theme === 'standard' ? '1px solid #e2e8f0' : '1px solid rgba(255,255,255,0.15)',
+                        borderRadius: '8px', fontSize: '13px', color: theme === 'standard' ? '#0f172a' : 'white'
                       }}
                     />
                   </div>
                   
                   <div>
-                    <label style={{ fontSize: '12px', fontWeight: '600', color: theme === 'professional' ? '#64748b' : 'rgba(255,255,255,0.7)', marginBottom: '4px', display: 'block' }}>
+                    <label style={{ fontSize: '12px', fontWeight: '600', color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.7)', marginBottom: '4px', display: 'block' }}>
                       Client Secret (optional for public clients)
                     </label>
                     <input
@@ -8959,9 +8961,9 @@ height: '28px',
                       onChange={(e) => setOutlookCredentials(prev => ({ ...prev, clientSecret: e.target.value }))}
                       style={{
                         width: '100%', padding: '10px 12px',
-                        background: theme === 'professional' ? '#fff' : 'rgba(255,255,255,0.08)',
-                        border: theme === 'professional' ? '1px solid #e2e8f0' : '1px solid rgba(255,255,255,0.15)',
-                        borderRadius: '8px', fontSize: '13px', color: theme === 'professional' ? '#0f172a' : 'white'
+                        background: theme === 'standard' ? '#fff' : 'rgba(255,255,255,0.08)',
+                        border: theme === 'standard' ? '1px solid #e2e8f0' : '1px solid rgba(255,255,255,0.15)',
+                        borderRadius: '8px', fontSize: '13px', color: theme === 'standard' ? '#0f172a' : 'white'
                       }}
                     />
                   </div>
@@ -8992,17 +8994,17 @@ height: '28px',
                     animation: 'spin 1s linear infinite',
                     margin: '0 auto 20px'
                   }} />
-                  <div style={{ fontSize: '14px', color: theme === 'professional' ? '#0f172a' : 'white', marginBottom: '8px', fontWeight: '600' }}>
+                  <div style={{ fontSize: '14px', color: theme === 'standard' ? '#0f172a' : 'white', marginBottom: '8px', fontWeight: '600' }}>
                     Waiting for Authorization...
                   </div>
-                  <div style={{ fontSize: '12px', color: theme === 'professional' ? '#64748b' : 'rgba(255,255,255,0.6)', marginBottom: '12px' }}>
+                  <div style={{ fontSize: '12px', color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.6)', marginBottom: '12px' }}>
                     A browser window should open for you to sign in.
                   </div>
                   <div style={{ 
                     fontSize: '11px', 
-                    color: theme === 'professional' ? '#94a3b8' : 'rgba(255,255,255,0.4)',
+                    color: theme === 'standard' ? '#94a3b8' : 'rgba(255,255,255,0.4)',
                     padding: '12px',
-                    background: theme === 'professional' ? '#f1f5f9' : 'rgba(255,255,255,0.05)',
+                    background: theme === 'standard' ? '#f1f5f9' : 'rgba(255,255,255,0.05)',
                     borderRadius: '8px',
                     lineHeight: '1.5'
                   }}>

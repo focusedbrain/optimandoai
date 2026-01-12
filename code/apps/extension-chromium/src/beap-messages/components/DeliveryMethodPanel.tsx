@@ -27,7 +27,7 @@ export interface DeliveryMethodPanelProps {
   selectedRecipient: SelectedRecipient | null
   emailTo: string
   onEmailToChange: (value: string) => void
-  theme: 'professional' | 'hacker' | 'default'
+  theme: 'standard' | 'hacker' | 'pro'
   ourFingerprintShort: string
 }
 
@@ -40,11 +40,11 @@ export const DeliveryMethodPanel: React.FC<DeliveryMethodPanelProps> = ({
   theme,
   ourFingerprintShort
 }) => {
-  const isProfessional = theme === 'professional'
-  const textColor = isProfessional ? '#0f172a' : 'white'
-  const mutedColor = isProfessional ? '#64748b' : 'rgba(255,255,255,0.7)'
-  const borderColor = isProfessional ? 'rgba(15,23,42,0.2)' : 'rgba(255,255,255,0.2)'
-  const bgColor = isProfessional ? 'white' : '#1f2937'
+  const isStandard = theme === 'standard'
+  const textColor = isStandard ? '#0f172a' : 'white'
+  const mutedColor = isStandard ? '#64748b' : 'rgba(255,255,255,0.7)'
+  const borderColor = isStandard ? 'rgba(15,23,42,0.2)' : 'rgba(255,255,255,0.2)'
+  const bgColor = isStandard ? 'white' : '#1f2937'
 
   // For PRIVATE mode email, auto-fill from handshake
   const [selectedEmail, setSelectedEmail] = useState<string>('')
@@ -82,11 +82,11 @@ export const DeliveryMethodPanel: React.FC<DeliveryMethodPanelProps> = ({
         return (
           <div style={{
             padding: '12px',
-            background: isProfessional ? 'rgba(251,191,36,0.1)' : 'rgba(251,191,36,0.15)',
+            background: isStandard ? 'rgba(251,191,36,0.1)' : 'rgba(251,191,36,0.15)',
             borderRadius: '8px',
-            border: `1px dashed ${isProfessional ? 'rgba(251,191,36,0.3)' : 'rgba(251,191,36,0.4)'}`,
+            border: `1px dashed ${isStandard ? 'rgba(251,191,36,0.3)' : 'rgba(251,191,36,0.4)'}`,
             fontSize: '12px',
-            color: isProfessional ? '#92400e' : '#fcd34d'
+            color: isStandard ? '#92400e' : '#fcd34d'
           }}>
             ⚠️ Select a handshake recipient above to see delivery options.
           </div>
@@ -97,11 +97,11 @@ export const DeliveryMethodPanel: React.FC<DeliveryMethodPanelProps> = ({
         return (
           <div style={{
             padding: '12px',
-            background: isProfessional ? 'rgba(59,130,246,0.08)' : 'rgba(59,130,246,0.15)',
+            background: isStandard ? 'rgba(59,130,246,0.08)' : 'rgba(59,130,246,0.15)',
             borderRadius: '8px',
             border: `1px solid ${borderColor}`
           }}>
-            <div style={{ fontSize: '10px', fontWeight: 600, color: isProfessional ? '#3b82f6' : '#93c5fd', marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+            <div style={{ fontSize: '10px', fontWeight: 600, color: isStandard ? '#3b82f6' : '#93c5fd', marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
               Recipient (No Email on Record)
             </div>
             <div style={{ fontSize: '13px', fontWeight: 500, color: textColor }}>
@@ -124,8 +124,8 @@ export const DeliveryMethodPanel: React.FC<DeliveryMethodPanelProps> = ({
             // Single email - show as readonly display
             <div style={{
               padding: '10px 12px',
-              background: isProfessional ? 'rgba(34,197,94,0.08)' : 'rgba(34,197,94,0.12)',
-              border: isProfessional ? '1px solid rgba(34,197,94,0.2)' : '1px solid rgba(34,197,94,0.3)',
+              background: isStandard ? 'rgba(34,197,94,0.08)' : 'rgba(34,197,94,0.12)',
+              border: isStandard ? '1px solid rgba(34,197,94,0.2)' : '1px solid rgba(34,197,94,0.3)',
               borderRadius: '6px',
               display: 'flex',
               alignItems: 'center',
@@ -136,7 +136,7 @@ export const DeliveryMethodPanel: React.FC<DeliveryMethodPanelProps> = ({
                 <div style={{ fontSize: '13px', fontWeight: 500, color: textColor }}>
                   {emails[0]}
                 </div>
-                <div style={{ fontSize: '10px', color: isProfessional ? '#15803d' : '#86efac', marginTop: '2px' }}>
+                <div style={{ fontSize: '10px', color: isStandard ? '#15803d' : '#86efac', marginTop: '2px' }}>
                   Identity-bound to handshake: {selectedRecipient.receiver_fingerprint_short}
                 </div>
               </div>
@@ -145,8 +145,8 @@ export const DeliveryMethodPanel: React.FC<DeliveryMethodPanelProps> = ({
                 fontWeight: 600, 
                 padding: '2px 6px', 
                 borderRadius: '4px',
-                background: isProfessional ? 'rgba(34,197,94,0.15)' : 'rgba(34,197,94,0.25)',
-                color: isProfessional ? '#15803d' : '#86efac'
+                background: isStandard ? 'rgba(34,197,94,0.15)' : 'rgba(34,197,94,0.25)',
+                color: isStandard ? '#15803d' : '#86efac'
               }}>
                 VERIFIED
               </span>
@@ -172,7 +172,7 @@ export const DeliveryMethodPanel: React.FC<DeliveryMethodPanelProps> = ({
               }}
             >
               {emails.map((email, idx) => (
-                <option key={idx} value={email} style={{ background: isProfessional ? 'white' : '#1f2937', color: isProfessional ? '#0f172a' : 'white' }}>
+                <option key={idx} value={email} style={{ background: isStandard ? 'white' : '#1f2937', color: isStandard ? '#0f172a' : 'white' }}>
                   {email}
                 </option>
               ))}
@@ -215,7 +215,7 @@ export const DeliveryMethodPanel: React.FC<DeliveryMethodPanelProps> = ({
           color: mutedColor, 
           marginTop: '6px',
           padding: '8px 10px',
-          background: isProfessional ? 'rgba(34,197,94,0.05)' : 'rgba(34,197,94,0.1)',
+          background: isStandard ? 'rgba(34,197,94,0.05)' : 'rgba(34,197,94,0.1)',
           borderRadius: '4px',
           display: 'flex',
           alignItems: 'center',
@@ -235,11 +235,11 @@ export const DeliveryMethodPanel: React.FC<DeliveryMethodPanelProps> = ({
     return (
       <div style={{
         padding: '14px',
-        background: isProfessional 
+        background: isStandard 
           ? (recipientMode === 'private' ? 'rgba(139,92,246,0.06)' : 'rgba(34,197,94,0.06)')
           : (recipientMode === 'private' ? 'rgba(139,92,246,0.12)' : 'rgba(34,197,94,0.12)'),
         borderRadius: '8px',
-        border: `1px solid ${isProfessional 
+        border: `1px solid ${isStandard 
           ? (recipientMode === 'private' ? 'rgba(139,92,246,0.15)' : 'rgba(34,197,94,0.15)')
           : (recipientMode === 'private' ? 'rgba(139,92,246,0.25)' : 'rgba(34,197,94,0.25)')}`
       }}>
@@ -248,7 +248,7 @@ export const DeliveryMethodPanel: React.FC<DeliveryMethodPanelProps> = ({
           fontWeight: 600, 
           textTransform: 'uppercase', 
           letterSpacing: '0.5px', 
-          color: isProfessional 
+          color: isStandard 
             ? (recipientMode === 'private' ? '#7c3aed' : '#15803d')
             : (recipientMode === 'private' ? '#c4b5fd' : '#86efac'),
           marginBottom: '8px',
@@ -271,7 +271,7 @@ export const DeliveryMethodPanel: React.FC<DeliveryMethodPanelProps> = ({
               </div>
             </>
           ) : (
-            <div style={{ fontSize: '12px', color: isProfessional ? '#92400e' : '#fcd34d' }}>
+            <div style={{ fontSize: '12px', color: isStandard ? '#92400e' : '#fcd34d' }}>
               ⚠️ Select a handshake recipient to configure messenger delivery.
             </div>
           )
@@ -308,11 +308,11 @@ export const DeliveryMethodPanel: React.FC<DeliveryMethodPanelProps> = ({
     return (
       <div style={{
         padding: '14px',
-        background: isProfessional 
+        background: isStandard 
           ? (recipientMode === 'private' ? 'rgba(139,92,246,0.06)' : 'rgba(34,197,94,0.06)')
           : (recipientMode === 'private' ? 'rgba(139,92,246,0.12)' : 'rgba(34,197,94,0.12)'),
         borderRadius: '8px',
-        border: `1px solid ${isProfessional 
+        border: `1px solid ${isStandard 
           ? (recipientMode === 'private' ? 'rgba(139,92,246,0.15)' : 'rgba(34,197,94,0.15)')
           : (recipientMode === 'private' ? 'rgba(139,92,246,0.25)' : 'rgba(34,197,94,0.25)')}`
       }}>
@@ -321,7 +321,7 @@ export const DeliveryMethodPanel: React.FC<DeliveryMethodPanelProps> = ({
           fontWeight: 600, 
           textTransform: 'uppercase', 
           letterSpacing: '0.5px', 
-          color: isProfessional 
+          color: isStandard 
             ? (recipientMode === 'private' ? '#7c3aed' : '#15803d')
             : (recipientMode === 'private' ? '#c4b5fd' : '#86efac'),
           marginBottom: '8px',
@@ -334,7 +334,7 @@ export const DeliveryMethodPanel: React.FC<DeliveryMethodPanelProps> = ({
         </div>
         
         {recipientMode === 'private' && !selectedRecipient && (
-          <div style={{ fontSize: '12px', color: isProfessional ? '#92400e' : '#fcd34d', marginBottom: '10px' }}>
+          <div style={{ fontSize: '12px', color: isStandard ? '#92400e' : '#fcd34d', marginBottom: '10px' }}>
             ⚠️ Select a handshake recipient to generate the package.
           </div>
         )}
@@ -344,7 +344,7 @@ export const DeliveryMethodPanel: React.FC<DeliveryMethodPanelProps> = ({
           alignItems: 'center', 
           gap: '10px',
           padding: '10px 12px',
-          background: isProfessional ? 'rgba(0,0,0,0.03)' : 'rgba(255,255,255,0.05)',
+          background: isStandard ? 'rgba(0,0,0,0.03)' : 'rgba(255,255,255,0.05)',
           borderRadius: '6px'
         }}>
           <span style={{ fontSize: '24px' }}>📦</span>
@@ -355,7 +355,7 @@ export const DeliveryMethodPanel: React.FC<DeliveryMethodPanelProps> = ({
             <code style={{ 
               fontSize: '12px', 
               fontFamily: 'monospace', 
-              color: isProfessional ? '#1e40af' : '#bfdbfe',
+              color: isStandard ? '#1e40af' : '#bfdbfe',
               wordBreak: 'break-all'
             }}>
               {filename}

@@ -12,7 +12,7 @@ import { BUNDLED_TOOL_LICENSES, type BundledToolLicenseEntry } from '../licenses
 import { getToolRegistry, exportToolInfo } from '../registry'
 
 interface ThirdPartyLicensesViewProps {
-  theme: 'default' | 'dark' | 'professional'
+  theme: 'pro' | 'dark' | 'standard'
   onClose?: () => void
 }
 
@@ -20,7 +20,9 @@ export const ThirdPartyLicensesView: React.FC<ThirdPartyLicensesViewProps> = ({
   theme,
   onClose
 }) => {
-  const isProfessional = theme === 'professional'
+  // Map old theme names for backward compatibility
+  const effectiveTheme = theme === 'pro' ? 'pro' : theme === 'dark' ? 'dark' : 'standard'
+  const isProfessional = effectiveTheme === 'standard'
   const textColor = isProfessional ? '#0f172a' : 'white'
   const mutedColor = isProfessional ? '#64748b' : 'rgba(255,255,255,0.6)'
   const borderColor = isProfessional ? 'rgba(15,23,42,0.1)' : 'rgba(255,255,255,0.1)'
@@ -219,7 +221,7 @@ interface ToolLicenseCardProps {
   tool: BundledToolLicenseEntry
   isExpanded: boolean
   onToggle: () => void
-  theme: 'default' | 'dark' | 'professional'
+  theme: 'pro' | 'dark' | 'standard'
   getCategoryIcon: (category: 'parser' | 'rasterizer') => string
   getCategoryLabel: (category: 'parser' | 'rasterizer') => string
 }

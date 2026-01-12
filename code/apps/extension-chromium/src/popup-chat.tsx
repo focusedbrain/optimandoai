@@ -38,7 +38,7 @@ import type { CapsuleAttachment, RasterProof, RasterPageData } from './beap-buil
 // Theme Type - Matches docked version
 // =============================================================================
 
-type Theme = 'default' | 'dark' | 'professional'
+type Theme = 'pro' | 'dark' | 'standard'
 
 // Workspace types - MIRRORS docked sidepanel exactly
 type DockedWorkspace = 'wr-chat' | 'augmented-overlay' | 'beap-messages' | 'wrguard'
@@ -74,8 +74,9 @@ type SessionOption = {
 // Get initial theme from window (set by inline script in HTML)
 const getInitialTheme = (): Theme => {
   const t = (window as any).__INITIAL_THEME__
-  if (t === 'professional' || t === 'dark') return t
-  return 'default'
+  if (t === 'professional' || t === 'pro') return 'pro'
+  if (t === 'dark') return 'dark'
+  return 'standard'
 }
 
 // =============================================================================
@@ -535,18 +536,20 @@ function PopupChatApp() {
   // BEAP Messages Content - Mirrors docked sidepanel exactly
   // =========================================================================
   const renderBeapMessagesContent = () => {
-    const isProfessional = theme === 'professional'
-    const textColor = isProfessional ? '#0f172a' : 'white'
-    const mutedColor = isProfessional ? '#64748b' : 'rgba(255,255,255,0.7)'
-    const borderColor = isProfessional ? 'rgba(15,23,42,0.1)' : 'rgba(255,255,255,0.1)'
-    const bgColor = theme === 'default' ? 'rgba(118,75,162,0.15)' : (isProfessional ? '#f8fafc' : 'rgba(255,255,255,0.04)')
-    const inputBg = isProfessional ? 'white' : 'rgba(255,255,255,0.08)'
+    const isStandard = theme === 'standard'
+    const isPro = theme === 'pro'
+    const textColor = isStandard ? '#0f172a' : 'white'
+    const mutedColor = isStandard ? '#64748b' : 'rgba(255,255,255,0.7)'
+    const borderColor = isStandard ? '#e1e8ed' : (isPro ? 'rgba(255,255,255,0.25)' : 'rgba(255,255,255,0.1)')
+    // Match Dashboard App.css: pro uses rgba(118, 75, 162, 0.45) for bg-surface
+    const bgColor = isPro ? 'rgba(118, 75, 162, 0.45)' : (isStandard ? '#f8f9fb' : 'rgba(255,255,255,0.04)')
+    const inputBg = isStandard ? 'white' : (isPro ? 'rgba(255,255,255,0.15)' : 'rgba(255,255,255,0.08)')
     
     return (
       <div style={{ display: 'flex', flexDirection: 'column', flex: 1, background: bgColor, overflowY: 'auto' }}>
         <style>{`
           .beap-input::placeholder, .beap-textarea::placeholder {
-            color: ${isProfessional ? '#64748b' : 'rgba(255,255,255,0.5)'};
+            color: ${isStandard ? '#64748b' : 'rgba(255,255,255,0.5)'};
             opacity: 1;
           }
         `}</style>
@@ -619,17 +622,17 @@ function PopupChatApp() {
                 style={{
                   width: '100%',
                   padding: '10px 12px',
-                  background: isProfessional ? 'white' : '#1f2937',
-                  border: `1px solid ${isProfessional ? 'rgba(0,0,0,0.15)' : 'rgba(255,255,255,0.15)'}`,
+                  background: isStandard ? 'white' : '#1f2937',
+                  border: `1px solid ${isStandard ? '#e1e8ed' : 'rgba(255,255,255,0.15)'}`,
                   borderRadius: '8px',
                   color: textColor,
                   fontSize: '13px',
                   cursor: 'pointer',
                 }}
               >
-                <option value="email" style={{ background: isProfessional ? 'white' : '#1f2937', color: isProfessional ? '#1f2937' : 'white' }}>📧 Email</option>
-                <option value="messenger" style={{ background: isProfessional ? 'white' : '#1f2937', color: isProfessional ? '#1f2937' : 'white' }}>💬 Messenger (Web)</option>
-                <option value="download" style={{ background: isProfessional ? 'white' : '#1f2937', color: isProfessional ? '#1f2937' : 'white' }}>💾 Download (USB/Wallet)</option>
+                <option value="email" style={{ background: isStandard ? 'white' : '#1f2937', color: isStandard ? '#1f2937' : 'white' }}>📧 Email</option>
+                <option value="messenger" style={{ background: isStandard ? 'white' : '#1f2937', color: isStandard ? '#1f2937' : 'white' }}>💬 Messenger (Web)</option>
+                <option value="download" style={{ background: isStandard ? 'white' : '#1f2937', color: isStandard ? '#1f2937' : 'white' }}>💾 Download (USB/Wallet)</option>
               </select>
             </div>
             
@@ -638,7 +641,7 @@ function PopupChatApp() {
             <div style={{ 
               padding: '16px 18px', 
               borderBottom: `1px solid ${borderColor}`,
-              background: isProfessional ? 'rgba(59,130,246,0.05)' : 'rgba(59,130,246,0.1)'
+              background: isStandard ? 'rgba(59,130,246,0.05)' : 'rgba(59,130,246,0.1)'
             }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -673,14 +676,14 @@ function PopupChatApp() {
               ) : emailAccounts.length === 0 ? (
                 <div style={{ 
                   padding: '20px', 
-                  background: isProfessional ? 'white' : 'rgba(255,255,255,0.05)',
+                  background: isStandard ? 'white' : 'rgba(255,255,255,0.05)',
                   borderRadius: '8px',
-                  border: isProfessional ? '1px dashed rgba(15,23,42,0.2)' : '1px dashed rgba(255,255,255,0.2)',
+                  border: isStandard ? '1px dashed rgba(15,23,42,0.2)' : '1px dashed rgba(255,255,255,0.2)',
                   textAlign: 'center'
                 }}>
                   <div style={{ fontSize: '24px', marginBottom: '8px' }}>📧</div>
                   <div style={{ fontSize: '13px', color: mutedColor, marginBottom: '4px' }}>No email accounts connected</div>
-                  <div style={{ fontSize: '11px', color: isProfessional ? '#94a3b8' : 'rgba(255,255,255,0.5)' }}>
+                  <div style={{ fontSize: '11px', color: isStandard ? '#94a3b8' : 'rgba(255,255,255,0.5)' }}>
                     Connect your email account to send BEAP™ messages
                   </div>
                 </div>
@@ -694,11 +697,11 @@ function PopupChatApp() {
                         alignItems: 'center', 
                         justifyContent: 'space-between',
                         padding: '10px 12px',
-                        background: isProfessional ? 'white' : 'rgba(255,255,255,0.08)',
+                        background: isStandard ? 'white' : 'rgba(255,255,255,0.08)',
                         borderRadius: '8px',
                         border: account.status === 'active' 
-                          ? (isProfessional ? '1px solid rgba(34,197,94,0.3)' : '1px solid rgba(34,197,94,0.4)')
-                          : (isProfessional ? '1px solid rgba(239,68,68,0.3)' : '1px solid rgba(239,68,68,0.4)')
+                          ? (isStandard ? '1px solid rgba(34,197,94,0.3)' : '1px solid rgba(34,197,94,0.4)')
+                          : (isStandard ? '1px solid rgba(239,68,68,0.3)' : '1px solid rgba(239,68,68,0.4)')
                       }}
                     >
                       <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
@@ -732,7 +735,7 @@ function PopupChatApp() {
                         onClick={() => disconnectEmailAccount(account.id)}
                         style={{
                           background: 'transparent',
-                          border: isProfessional ? '1px solid rgba(239,68,68,0.3)' : '1px solid rgba(239,68,68,0.4)',
+                          border: isStandard ? '1px solid rgba(239,68,68,0.3)' : '1px solid rgba(239,68,68,0.4)',
                           color: '#ef4444',
                           borderRadius: '6px',
                           padding: '4px 8px',
@@ -754,7 +757,7 @@ function PopupChatApp() {
                         fontWeight: 600, 
                         marginBottom: '6px', 
                         display: 'block', 
-                        color: isProfessional ? '#6b7280' : 'rgba(255,255,255,0.7)', 
+                        color: isStandard ? '#6b7280' : 'rgba(255,255,255,0.7)', 
                         textTransform: 'uppercase', 
                         letterSpacing: '0.5px' 
                       }}>
@@ -765,8 +768,8 @@ function PopupChatApp() {
                         onChange={(e) => setSelectedEmailAccountId(e.target.value)}
                         style={{
                           width: '100%',
-                          background: isProfessional ? 'white' : 'rgba(255,255,255,0.1)',
-                          border: isProfessional ? '1px solid rgba(15,23,42,0.2)' : '1px solid rgba(255,255,255,0.2)',
+                          background: isStandard ? 'white' : 'rgba(255,255,255,0.1)',
+                          border: isStandard ? '1px solid rgba(15,23,42,0.2)' : '1px solid rgba(255,255,255,0.2)',
                           color: textColor,
                           borderRadius: '6px',
                           padding: '8px 12px',
@@ -798,12 +801,12 @@ function PopupChatApp() {
             <div style={{ flex: 1, padding: '14px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '12px' }}>
               {/* Your Fingerprint - PROMINENT */}
               <div style={{
-                background: isProfessional ? 'rgba(59,130,246,0.08)' : 'rgba(59,130,246,0.15)',
-                border: isProfessional ? '1px solid rgba(59,130,246,0.2)' : '1px solid rgba(59,130,246,0.3)',
+                background: isStandard ? 'rgba(59,130,246,0.08)' : 'rgba(59,130,246,0.15)',
+                border: isStandard ? '1px solid rgba(59,130,246,0.2)' : '1px solid rgba(59,130,246,0.3)',
                 borderRadius: '8px',
                 padding: '12px',
               }}>
-                <div style={{ fontSize: '10px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px', color: isProfessional ? '#3b82f6' : '#93c5fd', marginBottom: '6px' }}>
+                <div style={{ fontSize: '10px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px', color: isStandard ? '#3b82f6' : '#93c5fd', marginBottom: '6px' }}>
                   Your Fingerprint
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -811,7 +814,7 @@ function PopupChatApp() {
                     flex: 1,
                     fontSize: '13px', 
                     fontFamily: 'monospace',
-                    color: isProfessional ? '#1e40af' : '#bfdbfe',
+                    color: isStandard ? '#1e40af' : '#bfdbfe',
                     wordBreak: 'break-all'
                   }}>
                     {ourFingerprintShort}
@@ -823,7 +826,7 @@ function PopupChatApp() {
                       setTimeout(() => setBeapFingerprintCopied(false), 2000)
                     }}
                     style={{
-                      background: beapFingerprintCopied ? '#22c55e' : (isProfessional ? '#3b82f6' : 'rgba(59,130,246,0.5)'),
+                      background: beapFingerprintCopied ? '#22c55e' : (isStandard ? '#3b82f6' : 'rgba(59,130,246,0.5)'),
                       border: 'none',
                       color: 'white',
                       borderRadius: '4px',
@@ -879,8 +882,8 @@ function PopupChatApp() {
                   style={{
                     flex: 1,
                     minHeight: '120px',
-                    background: isProfessional ? 'white' : 'rgba(255,255,255,0.08)',
-                    border: isProfessional ? '1px solid rgba(15,23,42,0.2)' : '1px solid rgba(255,255,255,0.15)',
+                    background: isStandard ? 'white' : 'rgba(255,255,255,0.08)',
+                    border: isStandard ? '1px solid rgba(15,23,42,0.2)' : '1px solid rgba(255,255,255,0.15)',
                     color: textColor,
                     borderRadius: '6px',
                     padding: '10px 12px',
@@ -897,7 +900,7 @@ function PopupChatApp() {
               {/* Encrypted Message (qBEAP/PRIVATE only) */}
               {beapRecipientMode === 'private' && (
                 <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
-                  <label style={{ fontSize: '11px', fontWeight: 600, marginBottom: '6px', display: 'block', color: isProfessional ? '#7c3aed' : '#c4b5fd', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                  <label style={{ fontSize: '11px', fontWeight: 600, marginBottom: '6px', display: 'block', color: isStandard ? '#7c3aed' : '#c4b5fd', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                     🔐 Encrypted Message (Private · qBEAP)
                   </label>
                   <textarea
@@ -908,8 +911,8 @@ function PopupChatApp() {
                     style={{
                       flex: 1,
                       minHeight: '100px',
-                      background: isProfessional ? 'rgba(139,92,246,0.05)' : 'rgba(139,92,246,0.15)',
-                      border: isProfessional ? '1px solid rgba(139,92,246,0.3)' : '1px solid rgba(139,92,246,0.4)',
+                      background: isStandard ? 'rgba(139,92,246,0.05)' : 'rgba(139,92,246,0.15)',
+                      border: isStandard ? '1px solid rgba(139,92,246,0.3)' : '1px solid rgba(139,92,246,0.4)',
                       color: textColor,
                       borderRadius: '6px',
                       padding: '10px 12px',
@@ -921,20 +924,20 @@ function PopupChatApp() {
                       boxSizing: 'border-box'
                     }}
                   />
-                  <div style={{ fontSize: '10px', color: isProfessional ? '#7c3aed' : '#c4b5fd', marginTop: '4px' }}>
+                  <div style={{ fontSize: '10px', color: isStandard ? '#7c3aed' : '#c4b5fd', marginTop: '4px' }}>
                     ⚠️ This content is authoritative when present and never leaves the encrypted capsule.
                   </div>
                 </div>
               )}
               
               {/* Advanced: Session + Attachments (Popup) */}
-              <div style={{ marginTop: '12px', paddingTop: '12px', borderTop: isProfessional ? '1px solid rgba(15,23,42,0.1)' : '1px solid rgba(255,255,255,0.1)' }}>
+              <div style={{ marginTop: '12px', paddingTop: '12px', borderTop: isStandard ? '1px solid rgba(15,23,42,0.1)' : '1px solid rgba(255,255,255,0.1)' }}>
                 <div style={{ fontSize: '11px', fontWeight: 600, marginBottom: '8px', color: mutedColor, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Advanced (Optional)</div>
                 <div style={{ marginBottom: '10px' }}>
                   <label style={{ fontSize: '10px', fontWeight: 500, marginBottom: '4px', display: 'block', color: mutedColor }}>Session (optional)</label>
-                  <select value={beapDraftSessionId} onChange={(e) => setBeapDraftSessionId(e.target.value)} onClick={() => loadAvailableSessions()} style={{ width: '100%', background: isProfessional ? '#f8fafc' : '#1e293b', border: isProfessional ? '1px solid rgba(15,23,42,0.2)' : '1px solid rgba(255,255,255,0.25)', color: isProfessional ? '#0f172a' : '#f1f5f9', borderRadius: '6px', padding: '8px 10px', fontSize: '12px', outline: 'none', boxSizing: 'border-box', cursor: 'pointer' }}>
-                    <option value="" style={{ background: isProfessional ? '#f8fafc' : '#1e293b', color: isProfessional ? '#0f172a' : '#f1f5f9' }}>{availableSessions.length === 0 ? '— No sessions available —' : '— Select a session —'}</option>
-                    {availableSessions.map((s) => (<option key={s.key} value={s.key} style={{ background: isProfessional ? '#f8fafc' : '#1e293b', color: isProfessional ? '#0f172a' : '#f1f5f9' }}>{s.name} ({new Date(s.timestamp).toLocaleDateString()})</option>))}
+                  <select value={beapDraftSessionId} onChange={(e) => setBeapDraftSessionId(e.target.value)} onClick={() => loadAvailableSessions()} style={{ width: '100%', background: isStandard ? '#f8f9fb' : '#1e293b', border: isStandard ? '1px solid rgba(15,23,42,0.2)' : '1px solid rgba(255,255,255,0.25)', color: isStandard ? '#0f172a' : '#f1f5f9', borderRadius: '6px', padding: '8px 10px', fontSize: '12px', outline: 'none', boxSizing: 'border-box', cursor: 'pointer' }}>
+                    <option value="" style={{ background: isStandard ? '#f8f9fb' : '#1e293b', color: isStandard ? '#0f172a' : '#f1f5f9' }}>{availableSessions.length === 0 ? '— No sessions available —' : '— Select a session —'}</option>
+                    {availableSessions.map((s) => (<option key={s.key} value={s.key} style={{ background: isStandard ? '#f8f9fb' : '#1e293b', color: isStandard ? '#0f172a' : '#f1f5f9' }}>{s.name} ({new Date(s.timestamp).toLocaleDateString()})</option>))}
                   </select>
                 </div>
                 <div>
@@ -942,8 +945,8 @@ function PopupChatApp() {
                   <input type="file" multiple onChange={async (e) => { const files = Array.from(e.target.files ?? []); if (!files.length) return; const newItems: DraftAttachment[] = []; for (const file of files) { if (file.size > 10 * 1024 * 1024) { console.warn(`[BEAP] Skipping ${file.name}: exceeds 10MB limit`); continue } if (beapDraftAttachments.length + newItems.length >= 20) { console.warn('[BEAP] Max 20 attachments reached'); break } const dataBase64 = await new Promise<string>((resolve, reject) => { const reader = new FileReader(); reader.onload = () => { const res = String(reader.result ?? ''); resolve(res.includes(',') ? res.split(',')[1] : res) }; reader.onerror = () => reject(reader.error); reader.readAsDataURL(file) }); const attachmentId = crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`; const mimeType = file.type || 'application/octet-stream'; const isPdf = mimeType.toLowerCase() === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf'); const capsuleAttachment: CapsuleAttachment = { id: attachmentId, originalName: file.name, originalSize: file.size, originalType: mimeType, semanticContent: null, semanticExtracted: false, encryptedRef: `encrypted_${attachmentId}`, encryptedHash: '', previewRef: null, rasterProof: null, isMedia: mimeType.startsWith('image/') || mimeType.startsWith('video/') || mimeType.startsWith('audio/'), hasTranscript: false }; newItems.push({ id: attachmentId, name: file.name, mime: mimeType, size: file.size, dataBase64, capsuleAttachment, processing: { parsing: isPdf, rasterizing: isPdf } }) } setBeapDraftAttachments((prev) => [...prev, ...newItems]); e.currentTarget.value = ''; for (const item of newItems) { const isPdf = item.mime.toLowerCase() === 'application/pdf' || item.name.toLowerCase().endsWith('.pdf'); if (isPdf) { console.log(`[BEAP] Processing PDF: ${item.name}`); processAttachmentForParsing(item.capsuleAttachment, item.dataBase64).then((r) => { console.log(`[BEAP] Parse done: ${item.name}`); setBeapDraftAttachments((prev) => prev.map((a) => a.id === item.id ? { ...a, capsuleAttachment: r.attachment, processing: { ...a.processing, parsing: false, error: r.error || a.processing.error } } : a)) }).catch((err) => { setBeapDraftAttachments((prev) => prev.map((a) => a.id === item.id ? { ...a, processing: { ...a.processing, parsing: false, error: String(err) } } : a)) }); processAttachmentForRasterization(item.capsuleAttachment, item.dataBase64, 144).then((r) => { console.log(`[BEAP] Raster done: ${item.name}`, r.rasterPageData?.length || 0, 'pages'); setBeapDraftAttachments((prev) => prev.map((a) => a.id === item.id ? { ...a, capsuleAttachment: { ...a.capsuleAttachment, previewRef: r.attachment.previewRef, rasterProof: r.rasterProof }, processing: { ...a.processing, rasterizing: false, error: r.error || a.processing.error }, rasterPageData: r.rasterPageData || undefined } : a)) }).catch((err) => { setBeapDraftAttachments((prev) => prev.map((a) => a.id === item.id ? { ...a, processing: { ...a.processing, rasterizing: false, error: String(err) } } : a)) }) } } }} style={{ fontSize: '11px', color: mutedColor }} />
                   {beapDraftAttachments.length > 0 && (
                     <div style={{ marginTop: '8px' }}>
-                      {beapDraftAttachments.map((a) => (<div key={a.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 8px', background: isProfessional ? 'rgba(0,0,0,0.03)' : 'rgba(255,255,255,0.05)', borderRadius: '4px', marginBottom: '4px' }}><div><div style={{ fontSize: '11px', color: textColor }}>{a.name}{(a.processing.parsing || a.processing.rasterizing) && ' ⏳'}{a.capsuleAttachment.semanticExtracted && ' ✓'}</div><div style={{ fontSize: '9px', color: mutedColor }}>{a.mime} · {a.size} bytes{a.processing.error && ` · ⚠️ ${a.processing.error.slice(0,30)}`}</div></div><button onClick={() => setBeapDraftAttachments((prev) => prev.filter((x) => x.id !== a.id))} style={{ background: 'transparent', border: 'none', color: isProfessional ? '#ef4444' : '#f87171', fontSize: '10px', cursor: 'pointer' }}>Remove</button></div>))}
-                      <button onClick={() => setBeapDraftAttachments([])} style={{ background: 'transparent', border: isProfessional ? '1px solid rgba(15,23,42,0.2)' : '1px solid rgba(255,255,255,0.2)', color: mutedColor, borderRadius: '4px', padding: '4px 8px', fontSize: '10px', cursor: 'pointer', marginTop: '4px' }}>Clear all</button>
+                      {beapDraftAttachments.map((a) => (<div key={a.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 8px', background: isStandard ? 'rgba(0,0,0,0.03)' : 'rgba(255,255,255,0.05)', borderRadius: '4px', marginBottom: '4px' }}><div><div style={{ fontSize: '11px', color: textColor }}>{a.name}{(a.processing.parsing || a.processing.rasterizing) && ' ⏳'}{a.capsuleAttachment.semanticExtracted && ' ✓'}</div><div style={{ fontSize: '9px', color: mutedColor }}>{a.mime} · {a.size} bytes{a.processing.error && ` · ⚠️ ${a.processing.error.slice(0,30)}`}</div></div><button onClick={() => setBeapDraftAttachments((prev) => prev.filter((x) => x.id !== a.id))} style={{ background: 'transparent', border: 'none', color: isStandard ? '#ef4444' : '#f87171', fontSize: '10px', cursor: 'pointer' }}>Remove</button></div>))}
+                      <button onClick={() => setBeapDraftAttachments([])} style={{ background: 'transparent', border: isStandard ? '1px solid rgba(15,23,42,0.2)' : '1px solid rgba(255,255,255,0.2)', color: mutedColor, borderRadius: '4px', padding: '4px 8px', fontSize: '10px', cursor: 'pointer', marginTop: '4px' }}>Clear all</button>
                     </div>
                   )}
                 </div>
@@ -953,7 +956,7 @@ function PopupChatApp() {
               <div style={{
                 fontSize: '11px',
                 padding: '10px',
-                background: isProfessional ? 'rgba(168,85,247,0.08)' : 'rgba(168,85,247,0.15)',
+                background: isStandard ? 'rgba(168,85,247,0.08)' : 'rgba(168,85,247,0.15)',
                 borderRadius: '6px',
                 color: mutedColor,
                 marginTop: '12px'
@@ -965,11 +968,11 @@ function PopupChatApp() {
             {/* Action Buttons */}
             <div style={{
               padding: '12px 14px',
-              borderTop: isProfessional ? '1px solid rgba(15,23,42,0.1)' : '1px solid rgba(255,255,255,0.1)',
+              borderTop: isStandard ? '1px solid rgba(15,23,42,0.1)' : '1px solid rgba(255,255,255,0.1)',
               display: 'flex',
               justifyContent: 'flex-end',
               gap: '8px',
-              background: isProfessional ? '#f8fafc' : 'rgba(0,0,0,0.2)'
+              background: isStandard ? '#f8f9fb' : 'rgba(0,0,0,0.2)'
             }}>
               <button 
                 onClick={() => {
@@ -982,8 +985,8 @@ function PopupChatApp() {
                 }}
                 style={{
                   background: 'transparent',
-                  border: isProfessional ? '1px solid rgba(15,23,42,0.2)' : '1px solid rgba(255,255,255,0.2)',
-                  color: isProfessional ? '#64748b' : 'rgba(255,255,255,0.7)',
+                  border: isStandard ? '1px solid rgba(15,23,42,0.2)' : '1px solid rgba(255,255,255,0.2)',
+                  color: isStandard ? '#64748b' : 'rgba(255,255,255,0.7)',
                   borderRadius: '6px',
                   padding: '8px 16px',
                   fontSize: '12px',
@@ -1021,10 +1024,12 @@ function PopupChatApp() {
 
   // Render the appropriate view based on workspace - MIRRORS docked exactly
   const renderContent = () => {
-    const isProfessional = theme === 'professional'
-    const textColor = isProfessional ? '#0f172a' : 'white'
-    const mutedColor = isProfessional ? '#64748b' : 'rgba(255,255,255,0.7)'
-    const bgColor = isProfessional ? '#f8fafc' : 'rgba(255,255,255,0.04)'
+    const isStandard = theme === 'standard'
+    const isPro = theme === 'pro'
+    const textColor = isStandard ? '#0f172a' : 'white'
+    const mutedColor = isStandard ? '#64748b' : 'rgba(255,255,255,0.7)'
+    // Match Dashboard App.css: pro uses rgba(118, 75, 162, 0.45) for bg-surface
+    const bgColor = isPro ? 'rgba(118, 75, 162, 0.45)' : (isStandard ? '#f8f9fb' : 'rgba(255,255,255,0.04)')
     
     // WRGuard workspace - full functionality using WRGuardWorkspace
     if (dockedWorkspace === 'wrguard') {
@@ -1057,7 +1062,7 @@ function PopupChatApp() {
           justifyContent: 'center', 
           padding: '40px 20px', 
           textAlign: 'center',
-          background: theme === 'default' ? 'rgba(118,75,162,0.25)' : (isProfessional ? '#f8fafc' : 'rgba(255,255,255,0.06)')
+          background: isPro ? 'rgba(118, 75, 162, 0.45)' : (isStandard ? '#f8f9fb' : 'rgba(255,255,255,0.06)')
         }}>
           <span style={{ fontSize: '24px', marginBottom: '12px' }}>🎯</span>
           <span style={{ 
@@ -1090,31 +1095,32 @@ function PopupChatApp() {
   
   // Render BEAP Handshake Request Interface
   const renderHandshakeRequest = () => {
-    const isProfessional = theme === 'professional'
+    const isStandard = theme === 'standard'
+    const isPro = theme === 'pro'
     
     return (
       <div style={{ 
         flex: 1, 
         display: 'flex', 
         flexDirection: 'column', 
-        background: theme === 'default' ? 'rgba(118,75,162,0.25)' : (isProfessional ? '#f8fafc' : 'rgba(255,255,255,0.06)'), 
+        background: isPro ? 'rgba(118, 75, 162, 0.45)' : (isStandard ? '#f8f9fb' : 'rgba(255,255,255,0.06)'),
         overflow: 'hidden' 
       }}>
         {/* Header */}
         <div style={{ 
           padding: '12px 14px', 
-          borderBottom: `1px solid ${isProfessional ? 'rgba(0,0,0,0.1)' : 'rgba(255,255,255,0.1)'}`, 
+          borderBottom: `1px solid ${isStandard ? 'rgba(0,0,0,0.1)' : 'rgba(255,255,255,0.1)'}`, 
           display: 'flex', 
           alignItems: 'center', 
           gap: '10px' 
         }}>
           <span style={{ fontSize: '18px' }}>🤝</span>
-          <span style={{ fontSize: '13px', fontWeight: 600, color: isProfessional ? '#1f2937' : 'white' }}>BEAP™ Handshake Request</span>
+          <span style={{ fontSize: '13px', fontWeight: 600, color: isStandard ? '#1f2937' : 'white' }}>BEAP™ Handshake Request</span>
         </div>
         
         {/* DELIVERY METHOD - FIRST */}
-        <div style={{ padding: '14px 18px', borderBottom: isProfessional ? '1px solid rgba(15,23,42,0.1)' : '1px solid rgba(255,255,255,0.1)' }}>
-          <label style={{ fontSize: '11px', fontWeight: 600, marginBottom: '6px', display: 'block', color: isProfessional ? '#6b7280' : 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+        <div style={{ padding: '14px 18px', borderBottom: isStandard ? '1px solid rgba(15,23,42,0.1)' : '1px solid rgba(255,255,255,0.1)' }}>
+          <label style={{ fontSize: '11px', fontWeight: 600, marginBottom: '6px', display: 'block', color: isStandard ? '#6b7280' : 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
             Delivery Method
           </label>
           <select
@@ -1123,17 +1129,17 @@ function PopupChatApp() {
             style={{
               width: '100%',
               padding: '10px 12px',
-              background: isProfessional ? 'white' : '#1f2937',
-              border: `1px solid ${isProfessional ? 'rgba(0,0,0,0.15)' : 'rgba(255,255,255,0.15)'}`,
+              background: isStandard ? 'white' : '#1f2937',
+              border: `1px solid ${isStandard ? 'rgba(0,0,0,0.15)' : 'rgba(255,255,255,0.15)'}`,
               borderRadius: '8px',
-              color: isProfessional ? '#1f2937' : 'white',
+              color: isStandard ? '#1f2937' : 'white',
               fontSize: '13px',
               cursor: 'pointer',
             }}
           >
-            <option value="email" style={{ background: isProfessional ? 'white' : '#1f2937', color: isProfessional ? '#1f2937' : 'white' }}>📧 Email</option>
-            <option value="messenger" style={{ background: isProfessional ? 'white' : '#1f2937', color: isProfessional ? '#1f2937' : 'white' }}>💬 Messenger (Web)</option>
-            <option value="download" style={{ background: isProfessional ? 'white' : '#1f2937', color: isProfessional ? '#1f2937' : 'white' }}>💾 Download (USB/Wallet)</option>
+            <option value="email" style={{ background: isStandard ? 'white' : '#1f2937', color: isStandard ? '#1f2937' : 'white' }}>📧 Email</option>
+            <option value="messenger" style={{ background: isStandard ? 'white' : '#1f2937', color: isStandard ? '#1f2937' : 'white' }}>💬 Messenger (Web)</option>
+            <option value="download" style={{ background: isStandard ? 'white' : '#1f2937', color: isStandard ? '#1f2937' : 'white' }}>💾 Download (USB/Wallet)</option>
           </select>
         </div>
         
@@ -1141,13 +1147,13 @@ function PopupChatApp() {
         {handshakeDelivery === 'email' && (
         <div style={{ 
           padding: '16px 18px', 
-          borderBottom: isProfessional ? '1px solid rgba(15,23,42,0.1)' : '1px solid rgba(255,255,255,0.1)',
-          background: isProfessional ? 'rgba(139,92,246,0.05)' : 'rgba(139,92,246,0.1)'
+          borderBottom: isStandard ? '1px solid rgba(15,23,42,0.1)' : '1px solid rgba(255,255,255,0.1)',
+          background: isStandard ? 'rgba(139,92,246,0.05)' : 'rgba(139,92,246,0.1)'
         }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               <span style={{ fontSize: '16px' }}>🔗</span>
-              <span style={{ fontSize: '13px', fontWeight: '600', color: isProfessional ? '#0f172a' : 'white' }}>Connected Email Accounts</span>
+              <span style={{ fontSize: '13px', fontWeight: '600', color: isStandard ? '#0f172a' : 'white' }}>Connected Email Accounts</span>
             </div>
             <button
               type="button"
@@ -1175,14 +1181,14 @@ function PopupChatApp() {
           ) : emailAccounts.length === 0 ? (
             <div style={{ 
               padding: '20px', 
-              background: isProfessional ? 'white' : 'rgba(255,255,255,0.05)',
+              background: isStandard ? 'white' : 'rgba(255,255,255,0.05)',
               borderRadius: '8px',
-              border: isProfessional ? '1px dashed rgba(15,23,42,0.2)' : '1px dashed rgba(255,255,255,0.2)',
+              border: isStandard ? '1px dashed rgba(15,23,42,0.2)' : '1px dashed rgba(255,255,255,0.2)',
               textAlign: 'center'
             }}>
               <div style={{ fontSize: '24px', marginBottom: '8px' }}>📧</div>
-              <div style={{ fontSize: '13px', color: isProfessional ? '#64748b' : 'rgba(255,255,255,0.7)', marginBottom: '4px' }}>No email accounts connected</div>
-              <div style={{ fontSize: '11px', color: isProfessional ? '#94a3b8' : 'rgba(255,255,255,0.5)' }}>
+              <div style={{ fontSize: '13px', color: isStandard ? '#64748b' : 'rgba(255,255,255,0.7)', marginBottom: '4px' }}>No email accounts connected</div>
+              <div style={{ fontSize: '11px', color: isStandard ? '#94a3b8' : 'rgba(255,255,255,0.5)' }}>
                 Connect your email to send handshake requests
               </div>
             </div>
@@ -1196,11 +1202,11 @@ function PopupChatApp() {
                     alignItems: 'center', 
                     justifyContent: 'space-between',
                     padding: '10px 12px',
-                    background: isProfessional ? 'white' : 'rgba(255,255,255,0.08)',
+                    background: isStandard ? 'white' : 'rgba(255,255,255,0.08)',
                     borderRadius: '8px',
                     border: account.status === 'active' 
-                      ? (isProfessional ? '1px solid rgba(34,197,94,0.3)' : '1px solid rgba(34,197,94,0.4)')
-                      : (isProfessional ? '1px solid rgba(239,68,68,0.3)' : '1px solid rgba(239,68,68,0.4)')
+                      ? (isStandard ? '1px solid rgba(34,197,94,0.3)' : '1px solid rgba(34,197,94,0.4)')
+                      : (isStandard ? '1px solid rgba(239,68,68,0.3)' : '1px solid rgba(239,68,68,0.4)')
                   }}
                 >
                   <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
@@ -1208,12 +1214,12 @@ function PopupChatApp() {
                       {account.provider === 'gmail' ? '📧' : account.provider === 'microsoft365' ? '📨' : '✉️'}
                     </span>
                     <div>
-                      <div style={{ fontSize: '13px', fontWeight: '500', color: isProfessional ? '#0f172a' : 'white' }}>
+                      <div style={{ fontSize: '13px', fontWeight: '500', color: isStandard ? '#0f172a' : 'white' }}>
                         {account.email || account.displayName}
                       </div>
                       <div style={{ fontSize: '10px', display: 'flex', alignItems: 'center', gap: '6px', marginTop: '2px' }}>
                         <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: account.status === 'active' ? '#22c55e' : '#ef4444' }} />
-                        <span style={{ color: isProfessional ? '#64748b' : 'rgba(255,255,255,0.6)' }}>
+                        <span style={{ color: isStandard ? '#64748b' : 'rgba(255,255,255,0.6)' }}>
                           {account.status === 'active' ? 'Connected' : account.lastError || 'Error'}
                         </span>
                       </div>
@@ -1225,7 +1231,7 @@ function PopupChatApp() {
                     style={{
                       background: 'transparent',
                       border: 'none',
-                      color: isProfessional ? '#94a3b8' : 'rgba(255,255,255,0.5)',
+                      color: isStandard ? '#94a3b8' : 'rgba(255,255,255,0.5)',
                       cursor: 'pointer',
                       padding: '4px',
                       fontSize: '14px'
@@ -1246,7 +1252,7 @@ function PopupChatApp() {
                 fontWeight: 600, 
                 marginBottom: '6px', 
                 display: 'block', 
-                color: isProfessional ? '#6b7280' : 'rgba(255,255,255,0.7)', 
+                color: isStandard ? '#6b7280' : 'rgba(255,255,255,0.7)', 
                 textTransform: 'uppercase', 
                 letterSpacing: '0.5px' 
               }}>
@@ -1257,9 +1263,9 @@ function PopupChatApp() {
                 onChange={(e) => setSelectedEmailAccountId(e.target.value)}
                 style={{
                   width: '100%',
-                  background: isProfessional ? 'white' : 'rgba(255,255,255,0.1)',
-                  border: isProfessional ? '1px solid rgba(15,23,42,0.2)' : '1px solid rgba(255,255,255,0.2)',
-                  color: isProfessional ? '#0f172a' : 'white',
+                  background: isStandard ? 'white' : 'rgba(255,255,255,0.1)',
+                  border: isStandard ? '1px solid rgba(15,23,42,0.2)' : '1px solid rgba(255,255,255,0.2)',
+                  color: isStandard ? '#0f172a' : 'white',
                   borderRadius: '6px',
                   padding: '8px 12px',
                   fontSize: '13px',
@@ -1282,8 +1288,8 @@ function PopupChatApp() {
           {/* Your Fingerprint - PROMINENT */}
           <div style={{
             padding: '12px 14px',
-            background: isProfessional ? 'rgba(139, 92, 246, 0.08)' : 'rgba(139, 92, 246, 0.15)',
-            border: `2px solid ${isProfessional ? 'rgba(139, 92, 246, 0.2)' : 'rgba(139, 92, 246, 0.3)'}`,
+            background: isStandard ? '#f8f9fb' : 'rgba(139, 92, 246, 0.15)',
+            border: `2px solid ${isStandard ? '#e1e8ed' : 'rgba(139, 92, 246, 0.3)'}`,
             borderRadius: '10px',
           }}>
             <div style={{ 
@@ -1295,7 +1301,7 @@ function PopupChatApp() {
               <div style={{ 
                 fontSize: '11px', 
                 fontWeight: 600, 
-                color: isProfessional ? '#6b7280' : 'rgba(255,255,255,0.7)', 
+                color: isStandard ? '#6b7280' : 'rgba(255,255,255,0.7)', 
                 textTransform: 'uppercase', 
                 letterSpacing: '0.5px',
                 display: 'flex',
@@ -1323,10 +1329,10 @@ function PopupChatApp() {
                 style={{
                   padding: '4px 10px',
                   fontSize: '10px',
-                  background: isProfessional ? 'rgba(0,0,0,0.05)' : 'rgba(255,255,255,0.1)',
+                  background: isStandard ? 'rgba(0,0,0,0.05)' : 'rgba(255,255,255,0.1)',
                   border: 'none',
                   borderRadius: '4px',
-                  color: isProfessional ? '#6b7280' : 'rgba(255,255,255,0.7)',
+                  color: isStandard ? '#6b7280' : 'rgba(255,255,255,0.7)',
                   cursor: 'pointer',
                 }}
               >
@@ -1336,7 +1342,7 @@ function PopupChatApp() {
             <div style={{
               fontFamily: 'monospace',
               fontSize: '11px',
-              color: isProfessional ? '#1f2937' : 'white',
+              color: isStandard ? '#1f2937' : 'white',
               wordBreak: 'break-all',
               lineHeight: 1.5,
             }}>
@@ -1345,7 +1351,7 @@ function PopupChatApp() {
             <div style={{
               marginTop: '8px',
               fontSize: '10px',
-              color: isProfessional ? '#9ca3af' : 'rgba(255,255,255,0.5)',
+              color: isStandard ? '#9ca3af' : 'rgba(255,255,255,0.5)',
             }}>
               Short: <span style={{ fontFamily: 'monospace' }}>{ourFingerprintShort}</span>
             </div>
@@ -1360,7 +1366,7 @@ function PopupChatApp() {
                   fontWeight: 600, 
                   marginBottom: '6px', 
                   display: 'block', 
-                  color: isProfessional ? '#6b7280' : 'rgba(255,255,255,0.7)', 
+                  color: isStandard ? '#6b7280' : 'rgba(255,255,255,0.7)', 
                   textTransform: 'uppercase', 
                   letterSpacing: '0.5px' 
                 }}>
@@ -1374,10 +1380,10 @@ function PopupChatApp() {
                   style={{
                     width: '100%',
                     padding: '10px 12px',
-                    background: isProfessional ? 'white' : 'rgba(255,255,255,0.08)',
-                    border: `1px solid ${isProfessional ? 'rgba(0,0,0,0.15)' : 'rgba(255,255,255,0.15)'}`,
+                    background: isStandard ? 'white' : 'rgba(255,255,255,0.08)',
+                    border: `1px solid ${isStandard ? 'rgba(0,0,0,0.15)' : 'rgba(255,255,255,0.15)'}`,
                     borderRadius: '8px',
-                    color: isProfessional ? '#1f2937' : 'white',
+                    color: isStandard ? '#1f2937' : 'white',
                     fontSize: '13px',
                     boxSizing: 'border-box',
                   }}
@@ -1389,7 +1395,7 @@ function PopupChatApp() {
                   fontWeight: 600, 
                   marginBottom: '6px', 
                   display: 'block', 
-                  color: isProfessional ? '#6b7280' : 'rgba(255,255,255,0.7)', 
+                  color: isStandard ? '#6b7280' : 'rgba(255,255,255,0.7)', 
                   textTransform: 'uppercase', 
                   letterSpacing: '0.5px' 
                 }}>
@@ -1402,10 +1408,10 @@ function PopupChatApp() {
                   style={{
                     width: '100%',
                     padding: '10px 12px',
-                    background: isProfessional ? 'white' : 'rgba(255,255,255,0.08)',
-                    border: `1px solid ${isProfessional ? 'rgba(0,0,0,0.15)' : 'rgba(255,255,255,0.15)'}`,
+                    background: isStandard ? 'white' : 'rgba(255,255,255,0.08)',
+                    border: `1px solid ${isStandard ? 'rgba(0,0,0,0.15)' : 'rgba(255,255,255,0.15)'}`,
                     borderRadius: '8px',
-                    color: isProfessional ? '#1f2937' : 'white',
+                    color: isStandard ? '#1f2937' : 'white',
                     fontSize: '13px',
                     boxSizing: 'border-box',
                   }}
@@ -1421,7 +1427,7 @@ function PopupChatApp() {
               fontWeight: 600, 
               marginBottom: '6px', 
               display: 'block', 
-              color: isProfessional ? '#6b7280' : 'rgba(255,255,255,0.7)', 
+              color: isStandard ? '#6b7280' : 'rgba(255,255,255,0.7)', 
               textTransform: 'uppercase', 
               letterSpacing: '0.5px' 
             }}>
@@ -1434,10 +1440,10 @@ function PopupChatApp() {
                 flex: 1,
                 minHeight: '180px',
                 padding: '10px 12px',
-                background: isProfessional ? 'white' : 'rgba(255,255,255,0.08)',
-                border: `1px solid ${isProfessional ? 'rgba(0,0,0,0.15)' : 'rgba(255,255,255,0.15)'}`,
+                background: isStandard ? 'white' : 'rgba(255,255,255,0.08)',
+                border: `1px solid ${isStandard ? 'rgba(0,0,0,0.15)' : 'rgba(255,255,255,0.15)'}`,
                 borderRadius: '8px',
-                color: isProfessional ? '#1f2937' : 'white',
+                color: isStandard ? '#1f2937' : 'white',
                 fontSize: '13px',
                 lineHeight: '1.5',
                 resize: 'none',
@@ -1449,10 +1455,10 @@ function PopupChatApp() {
           {/* Info */}
           <div style={{
             padding: '10px 12px',
-            background: isProfessional ? 'rgba(139, 92, 246, 0.08)' : 'rgba(139, 92, 246, 0.15)',
+            background: isStandard ? '#f8f9fb' : 'rgba(139, 92, 246, 0.15)',
             borderRadius: '8px',
             fontSize: '11px',
-            color: isProfessional ? '#6b7280' : 'rgba(255,255,255,0.8)',
+            color: isStandard ? '#6b7280' : 'rgba(255,255,255,0.8)',
             display: 'flex',
             flexDirection: 'column',
             gap: '6px',
@@ -1465,7 +1471,7 @@ function PopupChatApp() {
         {/* Footer */}
         <div style={{ 
           padding: '12px 14px', 
-          borderTop: `1px solid ${isProfessional ? 'rgba(0,0,0,0.1)' : 'rgba(255,255,255,0.1)'}`, 
+          borderTop: `1px solid ${isStandard ? 'rgba(0,0,0,0.1)' : 'rgba(255,255,255,0.1)'}`, 
           display: 'flex', 
           gap: '10px', 
           justifyContent: 'flex-end' 
@@ -1475,9 +1481,9 @@ function PopupChatApp() {
             style={{ 
               padding: '8px 16px', 
               background: 'transparent', 
-              border: `1px solid ${isProfessional ? 'rgba(0,0,0,0.15)' : 'rgba(255,255,255,0.2)'}`, 
+              border: `1px solid ${isStandard ? 'rgba(0,0,0,0.15)' : 'rgba(255,255,255,0.2)'}`, 
               borderRadius: '8px', 
-              color: isProfessional ? '#6b7280' : 'white', 
+              color: isStandard ? '#6b7280' : 'white', 
               fontSize: '12px', 
               cursor: 'pointer' 
             }}
@@ -1575,12 +1581,18 @@ function PopupChatApp() {
     )
   }
 
-  // Theme-based container styles
+  // Theme-based container styles - Matching Dashboard App.css
   const containerStyles: React.CSSProperties = {
     display: 'flex',
     flexDirection: 'column',
     height: '100%',
-    overflow: 'hidden'
+    overflow: 'hidden',
+    // Match Dashboard: pro theme uses purple gradient background
+    background: theme === 'pro' 
+      ? 'linear-gradient(135deg, #c084fc 0%, #a855f7 50%, #9333ea 100%)'
+      : theme === 'standard'
+      ? '#f8f9fb'
+      : undefined
   }
 
   const headerStyles: React.CSSProperties = {
@@ -1589,18 +1601,24 @@ function PopupChatApp() {
     justifyContent: 'space-between',
     padding: '10px 12px',
     gap: '10px',
-    borderBottom: theme === 'professional' 
-      ? '1px solid #e2e8f0'
-      : '1px solid rgba(255,255,255,0.15)',
-    background: theme === 'professional'
-      ? 'rgba(248,250,252,0.95)'
-      : 'rgba(0,0,0,0.15)'
+    borderBottom: theme === 'standard' 
+      ? '1px solid #e1e8ed'
+      : theme === 'dark'
+      ? '1px solid rgba(255,255,255,0.15)'
+      : '1px solid rgba(255,255,255,0.2)',
+    background: theme === 'standard'
+      ? '#ffffff'
+      : theme === 'dark'
+      ? 'rgba(0,0,0,0.15)'
+      : 'linear-gradient(135deg, #c084fc 0%, #a855f7 50%, #9333ea 100%)'
   }
 
-  // Selectbox styles for visibility
-  const selectboxStyle = theme === 'professional' 
-    ? { background: 'rgba(15,23,42,0.08)', color: '#1f2937', arrowColor: '%231f2937' }
-    : { background: 'rgba(255,255,255,0.15)', color: 'white', arrowColor: '%23ffffff' }
+  // Selectbox styles for visibility - Matching Dashboard theme
+  const selectboxStyle = theme === 'standard' 
+    ? { background: '#ffffff', color: '#0f1419', arrowColor: '%230f1419' }
+    : theme === 'dark'
+    ? { background: 'rgba(30, 41, 59, 0.9)', color: '#f1f5f9', arrowColor: '%23f1f5f9' }
+    : { background: 'rgba(55, 65, 81, 0.85)', color: '#ffffff', arrowColor: '%23ffffff' }
 
   return (
     <div style={containerStyles}>
@@ -1654,10 +1672,10 @@ function PopupChatApp() {
               backgroundPosition: 'right 6px center'
             }}
           >
-            <option value="wr-chat" style={{ background: theme === 'professional' ? 'white' : '#1f2937', color: theme === 'professional' ? '#1f2937' : 'white' }}>💬 WR Chat</option>
-            <option value="augmented-overlay" style={{ background: theme === 'professional' ? 'white' : '#1f2937', color: theme === 'professional' ? '#1f2937' : 'white' }}>🎯 Augmented Overlay</option>
-            <option value="beap-messages" style={{ background: theme === 'professional' ? 'white' : '#1f2937', color: theme === 'professional' ? '#1f2937' : 'white' }}>📦 BEAP Messages</option>
-            <option value="wrguard" style={{ background: theme === 'professional' ? 'white' : '#1f2937', color: theme === 'professional' ? '#1f2937' : 'white' }}>🔒 WRGuard</option>
+            <option value="wr-chat" style={{ background: theme === 'standard' ? 'white' : '#1f2937', color: theme === 'standard' ? '#1f2937' : 'white' }}>💬 WR Chat</option>
+            <option value="augmented-overlay" style={{ background: theme === 'standard' ? 'white' : '#1f2937', color: theme === 'standard' ? '#1f2937' : 'white' }}>🎯 Augmented Overlay</option>
+            <option value="beap-messages" style={{ background: theme === 'standard' ? 'white' : '#1f2937', color: theme === 'standard' ? '#1f2937' : 'white' }}>📦 BEAP Messages</option>
+            <option value="wrguard" style={{ background: theme === 'standard' ? 'white' : '#1f2937', color: theme === 'standard' ? '#1f2937' : 'white' }}>🔒 WRGuard</option>
           </select>
           
           {/* Submode Selector - Only for WR Chat */}
@@ -1686,11 +1704,11 @@ function PopupChatApp() {
                 backgroundPosition: 'right 6px center'
               }}
             >
-              <option value="command" style={{ background: theme === 'professional' ? 'white' : '#1f2937', color: theme === 'professional' ? '#1f2937' : 'white' }}>cmd</option>
-              <option value="p2p-chat" style={{ background: theme === 'professional' ? 'white' : '#1f2937', color: theme === 'professional' ? '#1f2937' : 'white' }}>Direct Chat</option>
-              <option value="p2p-stream" style={{ background: theme === 'professional' ? 'white' : '#1f2937', color: theme === 'professional' ? '#1f2937' : 'white' }}>Live Views</option>
-              <option value="group-stream" style={{ background: theme === 'professional' ? 'white' : '#1f2937', color: theme === 'professional' ? '#1f2937' : 'white' }}>Group Sessions</option>
-              <option value="handshake" style={{ background: theme === 'professional' ? 'white' : '#1f2937', color: theme === 'professional' ? '#1f2937' : 'white' }}>Handshake Request</option>
+              <option value="command" style={{ background: theme === 'standard' ? 'white' : '#1f2937', color: theme === 'standard' ? '#1f2937' : 'white' }}>cmd</option>
+              <option value="p2p-chat" style={{ background: theme === 'standard' ? 'white' : '#1f2937', color: theme === 'standard' ? '#1f2937' : 'white' }}>Direct Chat</option>
+              <option value="p2p-stream" style={{ background: theme === 'standard' ? 'white' : '#1f2937', color: theme === 'standard' ? '#1f2937' : 'white' }}>Live Views</option>
+              <option value="group-stream" style={{ background: theme === 'standard' ? 'white' : '#1f2937', color: theme === 'standard' ? '#1f2937' : 'white' }}>Group Sessions</option>
+              <option value="handshake" style={{ background: theme === 'standard' ? 'white' : '#1f2937', color: theme === 'standard' ? '#1f2937' : 'white' }}>Handshake Request</option>
             </select>
           )}
           
@@ -1718,11 +1736,11 @@ function PopupChatApp() {
                 backgroundPosition: 'right 6px center'
               }}
             >
-              <option value="inbox" style={{ background: theme === 'professional' ? 'white' : '#1f2937', color: theme === 'professional' ? '#1f2937' : 'white' }}>Inbox</option>
-              <option value="draft" style={{ background: theme === 'professional' ? 'white' : '#1f2937', color: theme === 'professional' ? '#1f2937' : 'white' }}>Draft</option>
-              <option value="outbox" style={{ background: theme === 'professional' ? 'white' : '#1f2937', color: theme === 'professional' ? '#1f2937' : 'white' }}>Outbox</option>
-              <option value="archived" style={{ background: theme === 'professional' ? 'white' : '#1f2937', color: theme === 'professional' ? '#1f2937' : 'white' }}>Archived</option>
-              <option value="rejected" style={{ background: theme === 'professional' ? 'white' : '#1f2937', color: theme === 'professional' ? '#1f2937' : 'white' }}>Rejected</option>
+              <option value="inbox" style={{ background: theme === 'standard' ? 'white' : '#1f2937', color: theme === 'standard' ? '#1f2937' : 'white' }}>Inbox</option>
+              <option value="draft" style={{ background: theme === 'standard' ? 'white' : '#1f2937', color: theme === 'standard' ? '#1f2937' : 'white' }}>Draft</option>
+              <option value="outbox" style={{ background: theme === 'standard' ? 'white' : '#1f2937', color: theme === 'standard' ? '#1f2937' : 'white' }}>Outbox</option>
+              <option value="archived" style={{ background: theme === 'standard' ? 'white' : '#1f2937', color: theme === 'standard' ? '#1f2937' : 'white' }}>Archived</option>
+              <option value="rejected" style={{ background: theme === 'standard' ? 'white' : '#1f2937', color: theme === 'standard' ? '#1f2937' : 'white' }}>Rejected</option>
             </select>
           )}
         </div>
@@ -1733,8 +1751,8 @@ function PopupChatApp() {
           fontWeight: 500,
           padding: '4px 8px',
           borderRadius: '10px',
-          background: theme === 'professional' ? 'rgba(139,92,246,0.1)' : 'rgba(139,92,246,0.2)',
-          color: theme === 'professional' ? '#7c3aed' : '#c4b5fd'
+          background: theme === 'standard' ? 'rgba(139,92,246,0.1)' : 'rgba(139,92,246,0.2)',
+          color: theme === 'standard' ? '#7c3aed' : '#c4b5fd'
         }}>
           {role === 'admin' ? '👤 Admin' : '👤 User'}
         </div>
@@ -1778,9 +1796,9 @@ function PopupChatApp() {
           <div style={{
             width: '340px',
             maxHeight: '85vh',
-            background: theme === 'professional' ? '#ffffff' : 'linear-gradient(135deg, #1e293b 0%, #0f172a 100%)',
+            background: theme === 'standard' ? '#ffffff' : 'linear-gradient(135deg, #1e293b 0%, #0f172a 100%)',
             borderRadius: '16px',
-            border: theme === 'professional' ? '1px solid #e2e8f0' : '1px solid rgba(255,255,255,0.15)',
+            border: theme === 'standard' ? '1px solid #e1e8ed' : '1px solid rgba(255,255,255,0.15)',
             boxShadow: '0 25px 50px rgba(0,0,0,0.4)',
             overflow: 'hidden'
           }}>
@@ -1821,7 +1839,7 @@ function PopupChatApp() {
             <div style={{ padding: '16px', overflowY: 'auto', maxHeight: 'calc(85vh - 70px)' }}>
               {emailSetupStep === 'provider' && (
                 <>
-                  <div style={{ fontSize: '12px', color: theme === 'professional' ? '#64748b' : 'rgba(255,255,255,0.7)', marginBottom: '14px' }}>
+                  <div style={{ fontSize: '12px', color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.7)', marginBottom: '14px' }}>
                     Choose your email provider to connect:
                   </div>
                   
@@ -1832,8 +1850,8 @@ function PopupChatApp() {
                     style={{
                       width: '100%',
                       padding: '12px 14px',
-                      background: theme === 'professional' ? '#fff' : 'rgba(255,255,255,0.08)',
-                      border: theme === 'professional' ? '1px solid #e2e8f0' : '1px solid rgba(255,255,255,0.15)',
+                      background: theme === 'standard' ? '#fff' : 'rgba(255,255,255,0.08)',
+                      border: theme === 'standard' ? '1px solid #e1e8ed' : '1px solid rgba(255,255,255,0.15)',
                       borderRadius: '10px',
                       cursor: isConnectingEmail ? 'not-allowed' : 'pointer',
                       display: 'flex',
@@ -1846,10 +1864,10 @@ function PopupChatApp() {
                   >
                     <span style={{ fontSize: '22px' }}>📧</span>
                     <div style={{ flex: 1 }}>
-                      <div style={{ fontSize: '13px', fontWeight: '600', color: theme === 'professional' ? '#0f172a' : 'white' }}>Gmail</div>
-                      <div style={{ fontSize: '10px', color: theme === 'professional' ? '#64748b' : 'rgba(255,255,255,0.6)' }}>Connect via Google OAuth</div>
+                      <div style={{ fontSize: '13px', fontWeight: '600', color: theme === 'standard' ? '#0f172a' : 'white' }}>Gmail</div>
+                      <div style={{ fontSize: '10px', color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.6)' }}>Connect via Google OAuth</div>
                     </div>
-                    <span style={{ fontSize: '12px', color: theme === 'professional' ? '#94a3b8' : 'rgba(255,255,255,0.4)' }}>→</span>
+                    <span style={{ fontSize: '12px', color: theme === 'standard' ? '#94a3b8' : 'rgba(255,255,255,0.4)' }}>→</span>
                   </button>
                   
                   {/* Microsoft 365 Option */}
@@ -1859,8 +1877,8 @@ function PopupChatApp() {
                     style={{
                       width: '100%',
                       padding: '12px 14px',
-                      background: theme === 'professional' ? '#fff' : 'rgba(255,255,255,0.08)',
-                      border: theme === 'professional' ? '1px solid #e2e8f0' : '1px solid rgba(255,255,255,0.15)',
+                      background: theme === 'standard' ? '#fff' : 'rgba(255,255,255,0.08)',
+                      border: theme === 'standard' ? '1px solid #e1e8ed' : '1px solid rgba(255,255,255,0.15)',
                       borderRadius: '10px',
                       cursor: isConnectingEmail ? 'not-allowed' : 'pointer',
                       display: 'flex',
@@ -1872,23 +1890,23 @@ function PopupChatApp() {
                   >
                     <span style={{ fontSize: '22px' }}>📨</span>
                     <div style={{ flex: 1 }}>
-                      <div style={{ fontSize: '13px', fontWeight: '600', color: theme === 'professional' ? '#0f172a' : 'white' }}>Microsoft 365 / Outlook</div>
-                      <div style={{ fontSize: '10px', color: theme === 'professional' ? '#64748b' : 'rgba(255,255,255,0.6)' }}>Connect via Microsoft OAuth</div>
+                      <div style={{ fontSize: '13px', fontWeight: '600', color: theme === 'standard' ? '#0f172a' : 'white' }}>Microsoft 365 / Outlook</div>
+                      <div style={{ fontSize: '10px', color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.6)' }}>Connect via Microsoft OAuth</div>
                     </div>
-                    <span style={{ fontSize: '12px', color: theme === 'professional' ? '#94a3b8' : 'rgba(255,255,255,0.4)' }}>→</span>
+                    <span style={{ fontSize: '12px', color: theme === 'standard' ? '#94a3b8' : 'rgba(255,255,255,0.4)' }}>→</span>
                   </button>
                   
                   {/* Security note */}
                   <div style={{ 
                     marginTop: '14px', 
                     padding: '10px', 
-                    background: theme === 'professional' ? 'rgba(59,130,246,0.1)' : 'rgba(59,130,246,0.15)',
+                    background: theme === 'standard' ? 'rgba(59,130,246,0.1)' : 'rgba(59,130,246,0.15)',
                     borderRadius: '8px',
                     border: '1px solid rgba(59,130,246,0.2)'
                   }}>
                     <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px' }}>
                       <span style={{ fontSize: '12px' }}>🔒</span>
-                      <div style={{ fontSize: '10px', color: theme === 'professional' ? '#1e40af' : 'rgba(255,255,255,0.8)', lineHeight: '1.4' }}>
+                      <div style={{ fontSize: '10px', color: theme === 'standard' ? '#1e40af' : 'rgba(255,255,255,0.8)', lineHeight: '1.4' }}>
                         <strong>Security:</strong> Your emails are never rendered with scripts or tracking.
                       </div>
                     </div>
@@ -1899,10 +1917,10 @@ function PopupChatApp() {
               {emailSetupStep === 'connecting' && (
                 <div style={{ textAlign: 'center', padding: '30px 20px' }}>
                   <div style={{ fontSize: '36px', marginBottom: '16px' }}>⏳</div>
-                  <div style={{ fontSize: '14px', fontWeight: 600, color: theme === 'professional' ? '#0f172a' : 'white', marginBottom: '8px' }}>
+                  <div style={{ fontSize: '14px', fontWeight: 600, color: theme === 'standard' ? '#0f172a' : 'white', marginBottom: '8px' }}>
                     Connecting...
                   </div>
-                  <div style={{ fontSize: '12px', color: theme === 'professional' ? '#64748b' : 'rgba(255,255,255,0.7)' }}>
+                  <div style={{ fontSize: '12px', color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.7)' }}>
                     Please complete the OAuth flow in the popup window.
                   </div>
                 </div>

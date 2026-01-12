@@ -1,6 +1,6 @@
 {
-  "appId": "com.opengiraffe.desktop",
-  "productName": "OpenGiraffe TM",
+  "appId": "com.wrcode.desktop",
+  "productName": "WR Code™",
   "icon": "public/giraffe",
   "directories": {
     "output": "release/${version}",
@@ -57,7 +57,7 @@
     "allowToChangeInstallationDirectory": true,
     "createDesktopShortcut": true,
     "createStartMenuShortcut": true,
-    "shortcutName": "OpenGiraffe",
+    "shortcutName": "WR Code",
     "perMachine": false,
     "runAfterFinish": true,
     "include": "build/installer.nsh"

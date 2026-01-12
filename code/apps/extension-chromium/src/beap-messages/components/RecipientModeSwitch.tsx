@@ -17,7 +17,7 @@ export type { SelectedRecipient } from './RecipientHandshakeSelect'
 export interface RecipientModeSwitchProps {
   mode: RecipientMode
   onModeChange: (mode: RecipientMode) => void
-  theme: 'professional' | 'hacker'
+  theme: 'standard' | 'hacker' | 'pro'
   disabled?: boolean
 }
 
@@ -27,10 +27,10 @@ export const RecipientModeSwitch: React.FC<RecipientModeSwitchProps> = ({
   theme,
   disabled = false
 }) => {
-  const isProfessional = theme === 'professional'
-  const textColor = isProfessional ? '#0f172a' : 'white'
-  const mutedColor = isProfessional ? '#64748b' : 'rgba(255,255,255,0.7)'
-  const borderColor = isProfessional ? 'rgba(15,23,42,0.2)' : 'rgba(255,255,255,0.2)'
+  const isStandard = theme === 'standard'
+  const textColor = isStandard ? '#0f172a' : 'white'
+  const mutedColor = isStandard ? '#64748b' : 'rgba(255,255,255,0.7)'
+  const borderColor = isStandard ? 'rgba(147, 51, 234, 0.2)' : 'rgba(255,255,255,0.2)'
   
   const privateActive = mode === 'private'
   const publicActive = mode === 'public'
@@ -41,7 +41,7 @@ export const RecipientModeSwitch: React.FC<RecipientModeSwitchProps> = ({
     border: 'none',
     borderRadius: active ? '6px' : '6px',
     background: active 
-      ? (isProfessional 
+      ? (isStandard 
           ? 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)' 
           : 'linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%)')
       : 'transparent',
@@ -75,7 +75,7 @@ export const RecipientModeSwitch: React.FC<RecipientModeSwitchProps> = ({
         display: 'flex',
         gap: '4px',
         padding: '4px',
-        background: isProfessional ? 'rgba(15,23,42,0.05)' : 'rgba(255,255,255,0.05)',
+        background: isStandard ? 'rgba(15,23,42,0.05)' : 'rgba(255,255,255,0.05)',
         borderRadius: '8px',
         border: `1px solid ${borderColor}`
       }}>
@@ -120,23 +120,23 @@ export const RecipientModeSwitch: React.FC<RecipientModeSwitchProps> = ({
       <div style={{
         marginTop: '8px',
         padding: '8px 10px',
-        background: isProfessional 
+        background: isStandard 
           ? (privateActive ? 'rgba(59,130,246,0.08)' : 'rgba(34,197,94,0.08)')
           : (privateActive ? 'rgba(139,92,246,0.15)' : 'rgba(34,197,94,0.15)'),
         borderRadius: '6px',
         fontSize: '11px',
-        color: isProfessional ? '#475569' : 'rgba(255,255,255,0.8)',
+        color: isStandard ? '#475569' : 'rgba(255,255,255,0.8)',
         lineHeight: '1.4'
       }}>
         {privateActive ? (
           <>
-            <strong style={{ color: isProfessional ? '#3b82f6' : '#a78bfa' }}>🔐 Private Mode:</strong>{' '}
+            <strong style={{ color: isStandard ? '#3b82f6' : '#a78bfa' }}>🔐 Private Mode:</strong>{' '}
             Message is encrypted for a specific verified handshake recipient. 
             Receiver identity is cryptographically bound.
           </>
         ) : (
           <>
-            <strong style={{ color: isProfessional ? '#22c55e' : '#86efac' }}>🌐 Public Mode:</strong>{' '}
+            <strong style={{ color: isStandard ? '#22c55e' : '#86efac' }}>🌐 Public Mode:</strong>{' '}
             Message is publicly distributable without recipient binding. 
             No encryption, fully auditable package.
           </>

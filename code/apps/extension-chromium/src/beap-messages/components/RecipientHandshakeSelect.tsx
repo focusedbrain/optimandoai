@@ -31,7 +31,7 @@ export interface RecipientHandshakeSelectProps {
   handshakes: Handshake[]
   selectedHandshakeId: string | null
   onSelect: (recipient: SelectedRecipient | null) => void
-  theme: 'professional' | 'hacker'
+  theme: 'standard' | 'hacker' | 'pro' | 'dark'
   disabled?: boolean
   isLoading?: boolean
 }
@@ -46,11 +46,11 @@ export const RecipientHandshakeSelect: React.FC<RecipientHandshakeSelectProps> =
 }) => {
   const [copiedId, setCopiedId] = useState<string | null>(null)
   
-  const isProfessional = theme === 'professional'
-  const textColor = isProfessional ? '#0f172a' : 'white'
-  const mutedColor = isProfessional ? '#64748b' : 'rgba(255,255,255,0.7)'
-  const borderColor = isProfessional ? 'rgba(15,23,42,0.2)' : 'rgba(255,255,255,0.2)'
-  const bgColor = isProfessional ? 'white' : 'rgba(255,255,255,0.08)'
+  const isStandard = theme === 'standard'
+  const textColor = isStandard ? '#0f172a' : 'white'
+  const mutedColor = isStandard ? '#64748b' : 'rgba(255,255,255,0.7)'
+  const borderColor = isStandard ? 'rgba(15,23,42,0.2)' : 'rgba(255,255,255,0.2)'
+  const bgColor = isStandard ? 'white' : 'rgba(255,255,255,0.08)'
 
   // Filter to only verified handshakes
   const verifiedHandshakes = handshakes.filter(h => 
@@ -96,8 +96,8 @@ export const RecipientHandshakeSelect: React.FC<RecipientHandshakeSelectProps> =
           fontWeight: 600,
           padding: '2px 6px',
           borderRadius: '4px',
-          background: isProfessional ? 'rgba(34,197,94,0.15)' : 'rgba(34,197,94,0.25)',
-          color: isProfessional ? '#15803d' : '#86efac',
+          background: isStandard ? 'rgba(34,197,94,0.15)' : 'rgba(34,197,94,0.25)',
+          color: isStandard ? '#15803d' : '#86efac',
           display: 'flex',
           alignItems: 'center',
           gap: '3px'
@@ -112,8 +112,8 @@ export const RecipientHandshakeSelect: React.FC<RecipientHandshakeSelectProps> =
         fontWeight: 600,
         padding: '2px 6px',
         borderRadius: '4px',
-        background: isProfessional ? 'rgba(59,130,246,0.15)' : 'rgba(59,130,246,0.25)',
-        color: isProfessional ? '#2563eb' : '#93c5fd'
+        background: isStandard ? 'rgba(59,130,246,0.15)' : 'rgba(59,130,246,0.25)',
+        color: isStandard ? '#2563eb' : '#93c5fd'
       }}>
         Local
       </span>
@@ -137,16 +137,16 @@ export const RecipientHandshakeSelect: React.FC<RecipientHandshakeSelectProps> =
     return (
       <div style={{
         padding: '16px',
-        background: isProfessional ? 'rgba(239,68,68,0.08)' : 'rgba(239,68,68,0.15)',
+        background: isStandard ? 'rgba(239,68,68,0.08)' : 'rgba(239,68,68,0.15)',
         borderRadius: '8px',
-        border: `1px dashed ${isProfessional ? 'rgba(239,68,68,0.3)' : 'rgba(239,68,68,0.4)'}`,
+        border: `1px dashed ${isStandard ? 'rgba(239,68,68,0.3)' : 'rgba(239,68,68,0.4)'}`,
         textAlign: 'center'
       }}>
         <div style={{ fontSize: '24px', marginBottom: '8px' }}>🤝</div>
         <div style={{ 
           fontSize: '13px', 
           fontWeight: 600, 
-          color: isProfessional ? '#dc2626' : '#fca5a5',
+          color: isStandard ? '#dc2626' : '#fca5a5',
           marginBottom: '4px'
         }}>
           No Verified Handshakes
@@ -196,10 +196,10 @@ export const RecipientHandshakeSelect: React.FC<RecipientHandshakeSelectProps> =
               style={{
                 padding: '12px',
                 background: isSelected 
-                  ? (isProfessional ? 'rgba(59,130,246,0.1)' : 'rgba(139,92,246,0.2)')
+                  ? (isStandard ? 'rgba(59,130,246,0.1)' : 'rgba(139,92,246,0.2)')
                   : bgColor,
                 border: isSelected
-                  ? (isProfessional ? '2px solid #3b82f6' : '2px solid #8b5cf6')
+                  ? (isStandard ? '2px solid #3b82f6' : '2px solid #8b5cf6')
                   : `1px solid ${borderColor}`,
                 borderRadius: '8px',
                 cursor: disabled ? 'not-allowed' : 'pointer',
@@ -246,7 +246,7 @@ export const RecipientHandshakeSelect: React.FC<RecipientHandshakeSelectProps> =
                   {isSelected && (
                     <span style={{
                       fontSize: '14px',
-                      color: isProfessional ? '#3b82f6' : '#a78bfa'
+                      color: isStandard ? '#3b82f6' : '#a78bfa'
                     }}>
                       ✓
                     </span>
@@ -260,7 +260,7 @@ export const RecipientHandshakeSelect: React.FC<RecipientHandshakeSelectProps> =
                 alignItems: 'center',
                 justifyContent: 'space-between',
                 padding: '6px 8px',
-                background: isProfessional ? 'rgba(0,0,0,0.03)' : 'rgba(255,255,255,0.05)',
+                background: isStandard ? 'rgba(0,0,0,0.03)' : 'rgba(255,255,255,0.05)',
                 borderRadius: '4px'
               }}>
                 <div style={{
@@ -274,7 +274,7 @@ export const RecipientHandshakeSelect: React.FC<RecipientHandshakeSelectProps> =
                   <code style={{
                     fontFamily: 'monospace',
                     fontSize: '11px',
-                    color: isProfessional ? '#1e40af' : '#bfdbfe'
+                    color: isStandard ? '#1e40af' : '#bfdbfe'
                   }}>
                     {handshake.fingerprint_short}
                   </code>
@@ -287,9 +287,9 @@ export const RecipientHandshakeSelect: React.FC<RecipientHandshakeSelectProps> =
                   style={{
                     background: isCopied 
                       ? '#22c55e' 
-                      : (isProfessional ? 'rgba(59,130,246,0.1)' : 'rgba(139,92,246,0.2)'),
+                      : (isStandard ? 'rgba(59,130,246,0.1)' : 'rgba(139,92,246,0.2)'),
                     border: 'none',
-                    color: isCopied ? 'white' : (isProfessional ? '#3b82f6' : '#a78bfa'),
+                    color: isCopied ? 'white' : (isStandard ? '#3b82f6' : '#a78bfa'),
                     borderRadius: '4px',
                     padding: '3px 8px',
                     fontSize: '9px',
@@ -332,10 +332,10 @@ export const RecipientHandshakeSelect: React.FC<RecipientHandshakeSelectProps> =
         <div style={{
           marginTop: '8px',
           padding: '8px 10px',
-          background: isProfessional ? 'rgba(251,191,36,0.1)' : 'rgba(251,191,36,0.15)',
+          background: isStandard ? 'rgba(251,191,36,0.1)' : 'rgba(251,191,36,0.15)',
           borderRadius: '6px',
           fontSize: '11px',
-          color: isProfessional ? '#92400e' : '#fcd34d',
+          color: isStandard ? '#92400e' : '#fcd34d',
           display: 'flex',
           alignItems: 'center',
           gap: '6px'

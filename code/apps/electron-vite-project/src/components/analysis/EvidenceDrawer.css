@@ -791,19 +791,19 @@
    Professional Theme
    ============================================================================= */
 
-[data-ui-theme="professional"] .live-execution-canvas .lea-evidence-drawer {
+[data-ui-theme="standard"] .live-execution-canvas .lea-evidence-drawer {
   background: rgba(250, 250, 252, 0.98);
 }
 
-[data-ui-theme="professional"] .live-execution-canvas .lea-evidence-drawer__header {
+[data-ui-theme="standard"] .live-execution-canvas .lea-evidence-drawer__header {
   background: rgba(0, 0, 0, 0.03);
 }
 
-[data-ui-theme="professional"] .live-execution-canvas .lea-evidence-section {
+[data-ui-theme="standard"] .live-execution-canvas .lea-evidence-section {
   background: rgba(0, 0, 0, 0.02);
 }
 
-[data-ui-theme="professional"] .live-execution-canvas .lea-evidence-field__text {
+[data-ui-theme="standard"] .live-execution-canvas .lea-evidence-field__text {
   background: rgba(0, 0, 0, 0.05);
 }
 

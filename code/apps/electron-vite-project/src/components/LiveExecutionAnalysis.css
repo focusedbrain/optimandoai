@@ -1170,28 +1170,28 @@
    Professional Theme (scoped)
    ============================================================================= */
 
-[data-ui-theme="professional"] .live-execution-canvas .lea-control-bar,
-[data-ui-theme="professional"] .live-execution-canvas .lea-notice,
-[data-ui-theme="professional"] .live-execution-canvas .lea-footer-zone {
+[data-ui-theme="standard"] .live-execution-canvas .lea-control-bar,
+[data-ui-theme="standard"] .live-execution-canvas .lea-notice,
+[data-ui-theme="standard"] .live-execution-canvas .lea-footer-zone {
   background: rgba(0, 0, 0, 0.03);
 }
 
-[data-ui-theme="professional"] .live-execution-canvas .lea-timeline-panel,
-[data-ui-theme="professional"] .live-execution-canvas .lea-focus-panel,
-[data-ui-theme="professional"] .live-execution-canvas .lea-secondary-panel {
+[data-ui-theme="standard"] .live-execution-canvas .lea-timeline-panel,
+[data-ui-theme="standard"] .live-execution-canvas .lea-focus-panel,
+[data-ui-theme="standard"] .live-execution-canvas .lea-secondary-panel {
   background: rgba(0, 0, 0, 0.03);
 }
 
-[data-ui-theme="professional"] .live-execution-canvas .lea-panel-header {
+[data-ui-theme="standard"] .live-execution-canvas .lea-panel-header {
   background: rgba(0, 0, 0, 0.04);
 }
 
-[data-ui-theme="professional"] .live-execution-canvas .lea-timeline-event {
+[data-ui-theme="standard"] .live-execution-canvas .lea-timeline-event {
   background: rgba(0, 0, 0, 0.02);
 }
 
-[data-ui-theme="professional"] .live-execution-canvas .lea-timeline-event--focused,
-[data-ui-theme="professional"] .live-execution-canvas .lea-timeline-event--latest {
+[data-ui-theme="standard"] .live-execution-canvas .lea-timeline-event--focused,
+[data-ui-theme="standard"] .live-execution-canvas .lea-timeline-event--latest {
   background: rgba(147, 51, 234, 0.08);
 }
 
@@ -1940,53 +1940,53 @@
 }
 
 /* Default theme status box */
-[data-ui-theme="default"] .live-hero__status-box {
+[data-ui-theme="pro"] .live-hero__status-box {
   background: linear-gradient(135deg, rgba(16, 185, 129, 0.25), rgba(16, 185, 129, 0.1));
   border-color: rgba(16, 185, 129, 0.5);
 }
 
-[data-ui-theme="default"] .live-hero__status-icon {
+[data-ui-theme="pro"] .live-hero__status-icon {
   background: rgba(16, 185, 129, 0.3);
 }
 
-[data-ui-theme="default"] .live-hero__status-title {
+[data-ui-theme="pro"] .live-hero__status-title {
   color: #34d399;
 }
 
-[data-ui-theme="default"] .live-hero__status-desc {
+[data-ui-theme="pro"] .live-hero__status-desc {
   color: rgba(255, 255, 255, 0.7);
 }
 
-[data-ui-theme="default"] .live-hero__queue-info {
+[data-ui-theme="pro"] .live-hero__queue-info {
   background: rgba(255, 255, 255, 0.1);
   border-color: rgba(255, 255, 255, 0.2);
 }
 
-[data-ui-theme="default"] .live-hero__queue-label {
+[data-ui-theme="pro"] .live-hero__queue-label {
   color: rgba(255, 255, 255, 0.6);
 }
 
-[data-ui-theme="default"] .live-hero__queue-value {
+[data-ui-theme="pro"] .live-hero__queue-value {
   color: white;
 }
 
-[data-ui-theme="default"] .live-hero__steps {
+[data-ui-theme="pro"] .live-hero__steps {
   background: rgba(255, 255, 255, 0.1);
   border-color: rgba(255, 255, 255, 0.2);
 }
 
-[data-ui-theme="default"] .live-hero__step-dot {
+[data-ui-theme="pro"] .live-hero__step-dot {
   background: rgba(255, 255, 255, 0.1);
   border-color: rgba(255, 255, 255, 0.3);
   color: rgba(255, 255, 255, 0.5);
 }
 
-[data-ui-theme="default"] .live-hero__step-label {
+[data-ui-theme="pro"] .live-hero__step-label {
   color: rgba(255, 255, 255, 0.5);
 }
 
-[data-ui-theme="default"] .live-hero__step--completed .live-hero__step-label,
-[data-ui-theme="default"] .live-hero__step--active .live-hero__step-label {
+[data-ui-theme="pro"] .live-hero__step--completed .live-hero__step-label,
+[data-ui-theme="pro"] .live-hero__step--active .live-hero__step-label {
   color: white;
 }
 
@@ -2009,36 +2009,36 @@
    Default (Original) Theme Overrides - Left-side button fix (white border/text)
    ============================================================================= */
 
-[data-ui-theme="default"] .live-hero__btn--secondary {
+[data-ui-theme="pro"] .live-hero__btn--secondary {
   border-color: white;
   color: white;
 }
 
-[data-ui-theme="default"] .live-hero__btn--secondary:hover {
+[data-ui-theme="pro"] .live-hero__btn--secondary:hover {
   border-color: white;
   color: white;
 }
 
-[data-ui-theme="default"] .live-hero__btn--analyse {
+[data-ui-theme="pro"] .live-hero__btn--analyse {
   border-color: white;
   color: white;
 }
 
-[data-ui-theme="default"] .live-hero__btn--analyse:hover {
+[data-ui-theme="pro"] .live-hero__btn--analyse:hover {
   background: white;
   color: #9333ea;
 }
 
-[data-ui-theme="default"] .live-hero__title {
+[data-ui-theme="pro"] .live-hero__title {
   color: #10b981;
 }
 
-[data-ui-theme="default"] .lea-btn--secondary {
+[data-ui-theme="pro"] .lea-btn--secondary {
   border-color: white;
   color: white;
 }
 
-[data-ui-theme="default"] .lea-btn--secondary:hover {
+[data-ui-theme="pro"] .lea-btn--secondary:hover {
   border-color: white;
   color: white;
 }

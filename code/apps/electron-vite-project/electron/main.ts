@@ -191,8 +191,8 @@ var wsClients: any[] = (globalThis as any).__og_ws_clients__ || [];
 (globalThis as any).__og_ws_clients__ = wsClients;
 
 // Current extension theme (synced from extension via WebSocket)
-// Values: 'default' (purple), 'dark', 'professional' (white)
-let currentExtensionTheme: 'default' | 'dark' | 'professional' = 'default';
+// Values: 'pro' (purple), 'dark', 'standard' (white - default)
+let currentExtensionTheme: 'pro' | 'dark' | 'standard' = 'standard';
 
 // Flag to track when app is actually quitting (from tray menu "Quit")
 let isAppQuitting = false
@@ -405,7 +405,28 @@ async function createWindow() {
     ipcMain.on('REQUEST_THEME', () => {
       console.log('[MAIN] Theme requested by renderer, current theme:', currentExtensionTheme)
       if (win) {
+        // Ensure we send the correct theme name (already mapped in currentExtensionTheme)
         win.webContents.send('THEME_CHANGED', { theme: currentExtensionTheme })
+      }
+    })
+    // Handle theme change from renderer (user changed theme in dashboard)
+    ipcMain.on('SET_THEME', (_event, theme: string) => {
+      // Map old theme names for backward compatibility
+      let mappedTheme = theme
+      if (mappedTheme === 'default') mappedTheme = 'pro'
+      if (mappedTheme === 'professional') mappedTheme = 'standard'
+      
+      if (['pro', 'dark', 'standard'].includes(mappedTheme)) {
+        console.log('[MAIN] Theme changed from renderer:', mappedTheme)
+        currentExtensionTheme = mappedTheme as 'pro' | 'dark' | 'standard'
+        // Notify extension via WebSocket if connected
+        wsClients.forEach((socket: any) => {
+          try {
+            socket.send(JSON.stringify({ type: 'THEME_SYNC', theme: currentExtensionTheme }))
+          } catch (e) {
+            console.error('[MAIN] Error sending theme to extension:', e)
+          }
+        })
       }
     })
     ipcMain.on('overlay-cmd', async (_e, msg: any) => {
@@ -1182,7 +1203,7 @@ app.whenReady().then(async () => {
     const isProduction = !process.env.VITE_DEV_SERVER_URL
     try {
       if (process.platform === 'win32') {
-        app.setAppUserModelId('com.opengiraffe.desktop')
+        app.setAppUserModelId('com.wrcode.desktop')
       }
       if (isProduction && (process.platform === 'win32' || process.platform === 'darwin')) {
         // Only register autostart for production builds (not dev mode)
@@ -1394,8 +1415,13 @@ app.whenReady().then(async () => {
             // ===== THEME SYNC HANDLER =====
             if (msg.type === 'THEME_SYNC') {
               // Sync theme from extension to Electron dashboard
-              const newTheme = msg.theme as 'default' | 'dark' | 'professional'
-              if (newTheme && ['default', 'dark', 'professional'].includes(newTheme)) {
+              // Map old theme names to new ones for backward compatibility
+              let mappedTheme = msg.theme
+              if (mappedTheme === 'default') mappedTheme = 'pro'
+              if (mappedTheme === 'professional') mappedTheme = 'standard'
+              
+              const newTheme = mappedTheme as 'pro' | 'dark' | 'standard'
+              if (newTheme && ['pro', 'dark', 'standard'].includes(newTheme)) {
                 console.log('[MAIN] ===== THEME_SYNC received =====')
                 console.log('[MAIN] Theme changed from', currentExtensionTheme, 'to', newTheme)
                 currentExtensionTheme = newTheme
@@ -1413,9 +1439,15 @@ app.whenReady().then(async () => {
               // Open and focus the main window with Analysis Dashboard
               console.log('[MAIN] ===== RECEIVED OPEN_ANALYSIS_DASHBOARD =====')
               // Update theme if provided in message
-              if (msg.theme && ['default', 'dark', 'professional'].includes(msg.theme)) {
-                currentExtensionTheme = msg.theme
-                console.log('[MAIN] Theme from message:', currentExtensionTheme)
+              // Map old theme names to new ones for backward compatibility
+              if (msg.theme) {
+                let mappedTheme = msg.theme
+                if (mappedTheme === 'default') mappedTheme = 'pro'
+                if (mappedTheme === 'professional') mappedTheme = 'standard'
+                if (['pro', 'dark', 'standard'].includes(mappedTheme)) {
+                  currentExtensionTheme = mappedTheme as 'pro' | 'dark' | 'standard'
+                  console.log('[MAIN] Theme from message:', currentExtensionTheme)
+                }
               }
               try {
                 // Recreate window if it was closed or destroyed

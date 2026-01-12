@@ -1101,194 +1101,218 @@
    Default (Original) Theme Overrides - Purple Gradient Theme
    ============================================================================= */
 
-[data-ui-theme="default"] .dash-container {
+[data-ui-theme="pro"] .dash-container {
   color: white;
 }
 
-[data-ui-theme="default"] .dash-section-title {
+[data-ui-theme="pro"] .dash-section-title {
   color: rgba(255, 255, 255, 0.6);
 }
 
-[data-ui-theme="default"] .dash-focus-panel {
+[data-ui-theme="pro"] .dash-focus-panel {
   background: rgba(118, 75, 162, 0.4);
   border-color: rgba(255, 255, 255, 0.2);
 }
 
-[data-ui-theme="default"] .dash-focus-panel::before {
+[data-ui-theme="pro"] .dash-focus-panel::before {
   background: white;
 }
 
-[data-ui-theme="default"] .dash-focus-title {
+[data-ui-theme="pro"] .dash-focus-title {
   color: white;
 }
 
-[data-ui-theme="default"] .dash-focus-message {
+[data-ui-theme="pro"] .dash-focus-message {
   color: rgba(255, 255, 255, 0.85);
 }
 
-[data-ui-theme="default"] .dash-focus-tier {
+[data-ui-theme="pro"] .dash-focus-tier {
   background: rgba(255, 255, 255, 0.15);
   color: rgba(255, 255, 255, 0.8);
 }
 
-[data-ui-theme="default"] .dash-fact {
+[data-ui-theme="pro"] .dash-fact {
   background: rgba(255, 255, 255, 0.15);
   color: rgba(255, 255, 255, 0.9);
 }
 
-[data-ui-theme="default"] .dash-fact--info {
+[data-ui-theme="pro"] .dash-fact--info {
   background: rgba(255, 255, 255, 0.2);
   color: white;
 }
 
-[data-ui-theme="default"] .dash-btn--primary {
+[data-ui-theme="pro"] .dash-btn--primary {
   background: white;
   color: #9333ea;
 }
 
-[data-ui-theme="default"] .dash-btn--primary:hover {
+[data-ui-theme="pro"] .dash-btn--primary:hover {
   background: rgba(255, 255, 255, 0.9);
 }
 
-[data-ui-theme="default"] .dash-btn--secondary {
+[data-ui-theme="pro"] .dash-btn--secondary {
   background: rgba(255, 255, 255, 0.15);
   border-color: rgba(255, 255, 255, 0.3);
   color: white;
 }
 
-[data-ui-theme="default"] .dash-btn--secondary:hover {
+[data-ui-theme="pro"] .dash-btn--secondary:hover {
   background: rgba(255, 255, 255, 0.25);
   border-color: white;
 }
 
-[data-ui-theme="default"] .dash-snapshot {
+[data-ui-theme="pro"] .dash-snapshot {
   background: rgba(118, 75, 162, 0.4);
   border-color: rgba(255, 255, 255, 0.2);
 }
 
-[data-ui-theme="default"] .dash-snapshot:hover {
+[data-ui-theme="pro"] .dash-snapshot:hover {
   border-color: white;
 }
 
-[data-ui-theme="default"] .dash-snapshot-title {
+[data-ui-theme="pro"] .dash-snapshot-title {
   color: white;
 }
 
-[data-ui-theme="default"] .dash-stat-value {
+[data-ui-theme="pro"] .dash-stat-value {
   color: white;
 }
 
-[data-ui-theme="default"] .dash-stat-label {
+[data-ui-theme="pro"] .dash-stat-label {
   color: rgba(255, 255, 255, 0.6);
 }
 
-[data-ui-theme="default"] .dash-snapshot-btn {
+[data-ui-theme="pro"] .dash-snapshot-btn {
   color: white;
 }
 
-[data-ui-theme="default"] .dash-snapshot-btn:hover {
+[data-ui-theme="pro"] .dash-snapshot-btn:hover {
   color: rgba(255, 255, 255, 0.8);
 }
 
-[data-ui-theme="default"] .dash-status-pill--info {
+[data-ui-theme="pro"] .dash-status-pill--info {
   background: rgba(255, 255, 255, 0.2);
   color: white;
 }
 
-[data-ui-theme="default"] .system-hero {
+[data-ui-theme="pro"] .system-hero {
   background: rgba(118, 75, 162, 0.4);
   border-color: rgba(255, 255, 255, 0.3);
 }
 
-[data-ui-theme="default"] .system-hero__title {
+[data-ui-theme="pro"] .system-hero__title {
   color: #10b981;
 }
 
-[data-ui-theme="default"] .system-hero__subtitle {
+[data-ui-theme="pro"] .system-hero__subtitle {
   color: rgba(255, 255, 255, 0.7);
 }
 
-[data-ui-theme="default"] .system-hero__icon {
+[data-ui-theme="pro"] .system-hero__icon {
   background: rgba(255, 255, 255, 0.15);
 }
 
-[data-ui-theme="default"] .system-hero__latest {
+[data-ui-theme="pro"] .system-hero__latest {
   background: rgba(255, 255, 255, 0.1);
 }
 
-[data-ui-theme="default"] .system-hero__event-title {
+[data-ui-theme="pro"] .system-hero__event-title {
   color: white;
 }
 
-[data-ui-theme="default"] .system-hero__event-desc {
+[data-ui-theme="pro"] .system-hero__event-desc {
   color: rgba(255, 255, 255, 0.8);
 }
 
-[data-ui-theme="default"] .system-hero__event-meta {
+[data-ui-theme="pro"] .system-hero__event-meta {
   color: rgba(255, 255, 255, 0.6);
 }
 
-[data-ui-theme="default"] .system-hero__btn--analyse {
+[data-ui-theme="pro"] .system-hero__btn--analyse {
   border-color: white;
   color: white;
 }
 
-[data-ui-theme="default"] .system-hero__btn--analyse:hover {
+[data-ui-theme="pro"] .system-hero__btn--analyse:hover {
   background: white;
   color: #9333ea;
 }
 
-[data-ui-theme="default"] .system-hero__btn--primary {
+[data-ui-theme="pro"] .system-hero__btn--primary {
   background: white;
   color: #9333ea;
 }
 
-[data-ui-theme="default"] .system-hero__btn--primary:hover {
+[data-ui-theme="pro"] .system-hero__btn--primary:hover {
   background: rgba(255, 255, 255, 0.9);
 }
 
-[data-ui-theme="default"] .system-hero__btn--secondary {
+[data-ui-theme="pro"] .system-hero__btn--secondary {
   background: rgba(255, 255, 255, 0.15);
   border-color: rgba(255, 255, 255, 0.3);
   color: white;
 }
 
-[data-ui-theme="default"] .system-hero__history-item {
+[data-ui-theme="pro"] .system-hero__history-item {
   background: rgba(255, 255, 255, 0.1);
   border-color: rgba(255, 255, 255, 0.15);
 }
 
-[data-ui-theme="default"] .system-hero__history-item:hover {
+[data-ui-theme="pro"] .system-hero__history-item:hover {
   border-color: white;
 }
 
-[data-ui-theme="default"] .system-hero__history-title-text {
+[data-ui-theme="pro"] .system-hero__history-title-text {
   color: white;
 }
 
-[data-ui-theme="default"] .system-hero__history-desc {
+[data-ui-theme="pro"] .system-hero__history-desc {
   color: rgba(255, 255, 255, 0.7);
 }
 
-[data-ui-theme="default"] .system-hero__history-icon {
+[data-ui-theme="pro"] .system-hero__history-icon {
   background: rgba(255, 255, 255, 0.15);
 }
 
-[data-ui-theme="default"] .system-hero__history-analyse {
+[data-ui-theme="pro"] .system-hero__history-analyse {
   border-color: white;
   color: white;
 }
 
-[data-ui-theme="default"] .system-hero__history-analyse:hover {
+[data-ui-theme="pro"] .system-hero__history-analyse:hover {
   background: white;
   color: #9333ea;
 }
 
-[data-ui-theme="default"] .system-hero__history {
+[data-ui-theme="pro"] .system-hero__history {
   border-top-color: rgba(255, 255, 255, 0.15);
 }
 
-[data-ui-theme="default"] .system-hero__history-title {
+[data-ui-theme="pro"] .system-hero__history-title {
   color: white;
+}
+
+/* =============================================================================
+   Standard Theme Overrides - Ensure dark text on light backgrounds
+   ============================================================================= */
+
+/* PoAE elements - fix white fallback colors */
+[data-ui-theme="standard"] .event-modal__poae-row span:last-child,
+[data-ui-theme="standard"] .event-modal__poae-row code {
+  color: var(--text-primary);
+}
+
+[data-ui-theme="standard"] .event-modal__poae-row code {
+  color: var(--purple-accent);
+}
+
+/* Standard theme purple accents */
+[data-ui-theme="standard"] .event-modal__poae {
+  background: rgba(139, 92, 246, 0.04);
+  border: 1px solid rgba(139, 92, 246, 0.15);
+}
+
+[data-ui-theme="standard"] .event-modal__poae--verified {
+  border-color: rgba(16, 185, 129, 0.3);
 }
 

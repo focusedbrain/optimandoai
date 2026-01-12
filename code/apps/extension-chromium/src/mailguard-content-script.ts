@@ -207,7 +207,7 @@ function sendLightboxOverlayState(hidden: boolean): void {
 
 // Theme color configurations - matching sidebar colors exactly
 const themeColors = {
-  default: {
+  pro: {
     // Matching sidebar gradient: #c084fc -> #a855f7 -> #9333ea
     primary: '#c084fc',
     primaryDark: '#a855f7',
@@ -218,16 +218,16 @@ const themeColors = {
     shadowColorMedium: 'rgba(168, 85, 247, 0.35)',
     shadowColorStrong: 'rgba(147, 51, 234, 0.45)'
   },
-  professional: {
-    // Light theme with dark slate accents
-    primary: '#0f172a',
-    primaryDark: '#1e293b',
-    primaryDarker: '#334155',
-    bgDark: '#e2e8f0',
-    bgLight: '#f1f5f9',
-    shadowColor: 'rgba(15, 23, 42, 0.1)',
-    shadowColorMedium: 'rgba(15, 23, 42, 0.15)',
-    shadowColorStrong: 'rgba(15, 23, 42, 0.2)'
+  standard: {
+    // Light theme with purple and green accents
+    primary: '#9333ea',
+    primaryDark: '#7c3aed',
+    primaryDarker: '#6d28d9',
+    bgDark: 'rgba(147, 51, 234, 0.08)',
+    bgLight: '#faf5ff',
+    shadowColor: 'rgba(147, 51, 234, 0.1)',
+    shadowColorMedium: 'rgba(147, 51, 234, 0.15)',
+    shadowColorStrong: 'rgba(147, 51, 234, 0.2)'
   },
   dark: {
     primary: '#64748b',
@@ -245,11 +245,11 @@ const themeColors = {
 async function loadTheme(): Promise<void> {
   try {
     const result = await chrome.storage.local.get(['optimando-ui-theme'])
-    currentTheme = (result['optimando-ui-theme'] as 'default' | 'dark' | 'professional') || 'default'
+    currentTheme = (result['optimando-ui-theme'] as 'pro' | 'dark' | 'standard') || 'standard'
     console.log('[MailGuard] Theme loaded:', currentTheme)
   } catch (err) {
-    console.log('[MailGuard] Could not load theme, using default')
-    currentTheme = 'default'
+    console.log('[MailGuard] Could not load theme, using standard')
+    currentTheme = 'standard'
   }
 }
 

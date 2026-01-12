@@ -511,27 +511,27 @@
 }
 
 /* Professional Theme */
-[data-ui-theme="professional"] .panel {
+[data-ui-theme="standard"] .panel {
   background: rgba(0, 0, 0, 0.03);
 }
 
-[data-ui-theme="professional"] .panel-header {
+[data-ui-theme="standard"] .panel-header {
   background: rgba(0, 0, 0, 0.04);
 }
 
-[data-ui-theme="professional"] .pre-execution-notice {
+[data-ui-theme="standard"] .pre-execution-notice {
   background: rgba(147, 51, 234, 0.06);
 }
 
-[data-ui-theme="professional"] .automation-step {
+[data-ui-theme="standard"] .automation-step {
   background: rgba(0, 0, 0, 0.03);
 }
 
-[data-ui-theme="professional"] .risk-score-card {
+[data-ui-theme="standard"] .risk-score-card {
   background: rgba(0, 0, 0, 0.03);
 }
 
-[data-ui-theme="professional"] .inspector-tag {
+[data-ui-theme="standard"] .inspector-tag {
   background: rgba(0, 0, 0, 0.06);
 }
 
@@ -869,15 +869,15 @@
 }
 
 /* Professional Theme */
-[data-ui-theme="professional"] .preflight-alignment-panel .panel-content {
+[data-ui-theme="standard"] .preflight-alignment-panel .panel-content {
   background: rgba(0, 0, 0, 0.02);
 }
 
-[data-ui-theme="professional"] .preflight-risk-panel {
+[data-ui-theme="standard"] .preflight-risk-panel {
   background: rgba(0, 0, 0, 0.03);
 }
 
-[data-ui-theme="professional"] .preflight-notfound-banner {
+[data-ui-theme="standard"] .preflight-notfound-banner {
   background: rgba(245, 158, 11, 0.08);
 }
 
@@ -1045,19 +1045,19 @@
 }
 
 /* Professional Theme */
-[data-ui-theme="professional"] .template-code {
+[data-ui-theme="standard"] .template-code {
   background: rgba(0, 0, 0, 0.04);
 }
 
-[data-ui-theme="professional"] .template-line:hover {
+[data-ui-theme="standard"] .template-line:hover {
   background: rgba(0, 0, 0, 0.02);
 }
 
-[data-ui-theme="professional"] .template-line__content {
+[data-ui-theme="standard"] .template-line__content {
   color: #333;
 }
 
-[data-ui-theme="professional"] .template-line__num {
+[data-ui-theme="standard"] .template-line__num {
   color: rgba(0, 0, 0, 0.3);
 }
 
@@ -1427,12 +1427,12 @@
   color: white;
 }
 
-[data-ui-theme="default"] .preflight-hero__btn--analyse-workflow {
+[data-ui-theme="pro"] .preflight-hero__btn--analyse-workflow {
   border-color: white;
   color: white;
 }
 
-[data-ui-theme="default"] .preflight-hero__btn--analyse-workflow:hover {
+[data-ui-theme="pro"] .preflight-hero__btn--analyse-workflow:hover {
   background: white;
   color: #9333ea;
 }
@@ -1458,26 +1458,26 @@
   border-bottom: 1px solid var(--border);
 }
 
-[data-ui-theme="default"] .preflight-hero__details-box {
+[data-ui-theme="pro"] .preflight-hero__details-box {
   background: rgba(255, 255, 255, 0.08);
   border-color: rgba(255, 255, 255, 0.15);
   backdrop-filter: blur(4px);
 }
 
-[data-ui-theme="default"] .preflight-hero__details-header {
+[data-ui-theme="pro"] .preflight-hero__details-header {
   border-color: rgba(255, 255, 255, 0.12);
 }
 
-[data-ui-theme="default"] .preflight-hero__details-box .preflight-hero__event-title {
+[data-ui-theme="pro"] .preflight-hero__details-box .preflight-hero__event-title {
   color: white;
 }
 
-[data-ui-theme="default"] .preflight-hero__details-box .preflight-hero__event-desc {
+[data-ui-theme="pro"] .preflight-hero__details-box .preflight-hero__event-desc {
   color: rgba(255, 255, 255, 0.8);
 }
 
-[data-ui-theme="default"] .preflight-hero__details-box .preflight-hero__event-template,
-[data-ui-theme="default"] .preflight-hero__details-box .preflight-hero__event-time {
+[data-ui-theme="pro"] .preflight-hero__details-box .preflight-hero__event-template,
+[data-ui-theme="pro"] .preflight-hero__details-box .preflight-hero__event-time {
   color: rgba(255, 255, 255, 0.6);
 }
 
@@ -1566,28 +1566,28 @@
 }
 
 /* Default theme overrides for compliance summary */
-[data-ui-theme="default"] .preflight-hero__compliance-summary {
+[data-ui-theme="pro"] .preflight-hero__compliance-summary {
   background: rgba(139, 92, 246, 0.1);
   border-color: rgba(139, 92, 246, 0.3);
 }
 
-[data-ui-theme="default"] .preflight-hero__compliance-header {
+[data-ui-theme="pro"] .preflight-hero__compliance-header {
   border-color: rgba(255, 255, 255, 0.15);
 }
 
-[data-ui-theme="default"] .preflight-hero__compliance-title {
+[data-ui-theme="pro"] .preflight-hero__compliance-title {
   color: white;
 }
 
-[data-ui-theme="default"] .preflight-hero__compliance-item {
+[data-ui-theme="pro"] .preflight-hero__compliance-item {
   background: rgba(139, 92, 246, 0.15);
 }
 
-[data-ui-theme="default"] .preflight-hero__compliance-label {
+[data-ui-theme="pro"] .preflight-hero__compliance-label {
   color: rgba(255, 255, 255, 0.7);
 }
 
-[data-ui-theme="default"] .preflight-hero__compliance-value {
+[data-ui-theme="pro"] .preflight-hero__compliance-value {
   color: white;
 }
 
@@ -2372,50 +2372,50 @@
    Default (Original) Theme Overrides - Left-side button fix (white border/text)
    ============================================================================= */
 
-[data-ui-theme="default"] .preflight-hero__btn--secondary {
+[data-ui-theme="pro"] .preflight-hero__btn--secondary {
   border-color: rgba(255, 255, 255, 0.3);
   color: rgba(255, 255, 255, 0.7);
 }
 
-[data-ui-theme="default"] .preflight-hero__btn--secondary:hover {
+[data-ui-theme="pro"] .preflight-hero__btn--secondary:hover {
   border-color: white;
   color: white;
 }
 
-[data-ui-theme="default"] .preflight-hero__btn--analyse {
+[data-ui-theme="pro"] .preflight-hero__btn--analyse {
   border-color: white;
   color: white;
 }
 
-[data-ui-theme="default"] .preflight-hero__btn--analyse:hover {
+[data-ui-theme="pro"] .preflight-hero__btn--analyse:hover {
   background: white;
   color: #9333ea;
 }
 
-[data-ui-theme="default"] .preflight-hero__title {
+[data-ui-theme="pro"] .preflight-hero__title {
   color: white;
 }
 
-[data-ui-theme="default"] .preflight-hero__risk-category {
+[data-ui-theme="pro"] .preflight-hero__risk-category {
   background: rgba(255, 255, 255, 0.1);
 }
 
-[data-ui-theme="default"] .preflight-hero__risk-category-title {
+[data-ui-theme="pro"] .preflight-hero__risk-category-title {
   color: rgba(255, 255, 255, 0.7);
 }
 
-[data-ui-theme="default"] .preflight-hero__priority--low {
+[data-ui-theme="pro"] .preflight-hero__priority--low {
   background: rgba(16, 185, 129, 0.2);
   color: #10b981;
   border-color: rgba(16, 185, 129, 0.4);
 }
 
-[data-ui-theme="default"] .pre-workflow-modal__btn--secondary {
+[data-ui-theme="pro"] .pre-workflow-modal__btn--secondary {
   border-color: white;
   color: white;
 }
 
-[data-ui-theme="default"] .pre-workflow-modal__btn--secondary:hover {
+[data-ui-theme="pro"] .pre-workflow-modal__btn--secondary:hover {
   border-color: white;
   color: white;
 }
@@ -2704,94 +2704,94 @@
 }
 
 /* Default Theme Overrides for Timeline Modal */
-[data-ui-theme="default"] .pre-workflow-timeline__poae-label {
+[data-ui-theme="pro"] .pre-workflow-timeline__poae-label {
   color: white;
 }
 
-[data-ui-theme="default"] .pre-workflow-timeline__poae-org {
+[data-ui-theme="pro"] .pre-workflow-timeline__poae-org {
   color: white;
 }
 
-[data-ui-theme="default"] .pre-workflow-timeline__poae-hash {
+[data-ui-theme="pro"] .pre-workflow-timeline__poae-hash {
   background: rgba(0, 0, 0, 0.3);
   color: rgba(255, 255, 255, 0.7);
 }
 
-[data-ui-theme="default"] .pre-workflow-timeline__agent {
+[data-ui-theme="pro"] .pre-workflow-timeline__agent {
   background: rgba(255, 255, 255, 0.1);
   border-color: rgba(255, 255, 255, 0.2);
 }
 
-[data-ui-theme="default"] .pre-workflow-timeline__agent-name {
+[data-ui-theme="pro"] .pre-workflow-timeline__agent-name {
   color: white;
 }
 
-[data-ui-theme="default"] .pre-workflow-timeline__agent-btn {
+[data-ui-theme="pro"] .pre-workflow-timeline__agent-btn {
   border-color: rgba(255, 255, 255, 0.3);
   color: rgba(255, 255, 255, 0.7);
 }
 
-[data-ui-theme="default"] .pre-workflow-timeline__agent-btn:hover {
+[data-ui-theme="pro"] .pre-workflow-timeline__agent-btn:hover {
   border-color: white;
   color: white;
 }
 
-[data-ui-theme="default"] .pre-workflow-timeline__agent-details {
+[data-ui-theme="pro"] .pre-workflow-timeline__agent-details {
   border-top-color: rgba(255, 255, 255, 0.1);
 }
 
-[data-ui-theme="default"] .pre-workflow-timeline__agent-details p {
+[data-ui-theme="pro"] .pre-workflow-timeline__agent-details p {
   color: rgba(255, 255, 255, 0.7);
 }
 
-[data-ui-theme="default"] .pre-workflow-timeline__pending-notice {
+[data-ui-theme="pro"] .pre-workflow-timeline__pending-notice {
   border-color: rgba(255, 255, 255, 0.3);
   background: rgba(0, 0, 0, 0.2);
 }
 
-[data-ui-theme="default"] .pre-workflow-timeline__pending-title {
+[data-ui-theme="pro"] .pre-workflow-timeline__pending-title {
   color: rgba(255, 255, 255, 0.8);
 }
 
-[data-ui-theme="default"] .pre-workflow-timeline__pending-desc {
+[data-ui-theme="pro"] .pre-workflow-timeline__pending-desc {
   color: rgba(255, 255, 255, 0.6);
 }
 
-[data-ui-theme="default"] .pre-workflow-template-section {
+[data-ui-theme="pro"] .pre-workflow-template-section {
   border-top-color: rgba(255, 255, 255, 0.1);
 }
 
-[data-ui-theme="default"] .pre-workflow-template-section__toggle {
+[data-ui-theme="pro"] .pre-workflow-template-section__toggle {
   background: rgba(255, 255, 255, 0.1);
   border-color: rgba(255, 255, 255, 0.2);
 }
 
-[data-ui-theme="default"] .pre-workflow-template-section__toggle:hover {
+[data-ui-theme="pro"] .pre-workflow-template-section__toggle:hover {
   background: rgba(255, 255, 255, 0.15);
 }
 
-[data-ui-theme="default"] .pre-workflow-template-section__title {
+[data-ui-theme="pro"] .pre-workflow-template-section__title {
   color: white;
 }
 
-[data-ui-theme="default"] .pre-workflow-template-section__content {
+[data-ui-theme="pro"] .pre-workflow-template-section__content {
   background: rgba(255, 255, 255, 0.1);
   border-color: rgba(255, 255, 255, 0.2);
 }
 
-[data-ui-theme="default"] .pre-workflow-template-section__row:not(:last-child) {
+[data-ui-theme="pro"] .pre-workflow-template-section__row:not(:last-child) {
   border-bottom-color: rgba(255, 255, 255, 0.1);
 }
 
-[data-ui-theme="default"] .pre-workflow-template-section__label {
+[data-ui-theme="pro"] .pre-workflow-template-section__label {
   color: rgba(255, 255, 255, 0.6);
 }
 
-[data-ui-theme="default"] .pre-workflow-template-section__value {
+[data-ui-theme="pro"] .pre-workflow-template-section__value {
   color: white;
 }
 
-[data-ui-theme="default"] .pre-workflow-template-section__policy {
+[data-ui-theme="pro"] .pre-workflow-template-section__policy {
   background: rgba(147, 51, 234, 0.3);
   color: #d8b4fe;
 }

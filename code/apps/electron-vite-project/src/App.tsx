@@ -10,16 +10,17 @@ declare global {
       onOpen: (callback: (rawPayload: unknown) => void) => () => void
       onThemeChange: (callback: (theme: string) => void) => () => void
       requestTheme: () => void
+      setTheme: (theme: string) => void
     }
   }
 }
 
-// Extension theme types: 'default' (purple), 'dark', 'professional' (light/white)
-type ExtensionTheme = 'default' | 'dark' | 'professional'
+// Extension theme types: 'pro' (purple), 'dark', 'standard' (light/white - default)
+type ExtensionTheme = 'pro' | 'dark' | 'standard'
 
 // Map extension theme to CSS data-ui-theme attribute
 function mapThemeToCss(theme: ExtensionTheme): string {
-  // 'default' is purple theme, 'dark' stays dark, 'professional' is light
+  // 'pro' is purple theme, 'dark' stays dark, 'standard' is light (default)
   return theme
 }
 
@@ -35,28 +36,44 @@ function WRCodeLogo({ size = 24 }: { size?: number }) {
   )
 }
 
+// Helper to normalize theme string to ExtensionTheme
+function normalizeTheme(theme: string): ExtensionTheme {
+  let mapped = theme.toLowerCase()
+  if (mapped === 'default') return 'pro'
+  if (mapped === 'professional') return 'standard'
+  return (['pro', 'dark', 'standard'].includes(mapped) ? mapped : 'standard') as ExtensionTheme
+}
+
 // Theme selector component - allows manual theme changes
 function ThemeSelector({ value, onChange }: { value: ExtensionTheme, onChange: (v: ExtensionTheme) => void }) {
+  // Ensure value is valid (value is already ExtensionTheme, but ensure it's one of the valid ones)
+  const safeValue = (['standard', 'pro', 'dark'].includes(value) ? value : 'standard') as ExtensionTheme
+  
   return (
     <div className="theme-switcher">
       <span className="theme-switcher__label">Theme</span>
       <select
-        value={value}
-        onChange={(e) => onChange(e.target.value as ExtensionTheme)}
+        key={safeValue} // Force re-render when value changes
+        value={safeValue}
+        onChange={(e) => {
+          const newTheme = e.target.value as ExtensionTheme
+          console.log('[THEME_SELECTOR] Theme changed to:', newTheme)
+          onChange(newTheme)
+        }}
         className="theme-switcher__select"
         aria-label="Theme selection"
       >
-        <option value="default">Default (Original)</option>
+        <option value="standard">Standard</option>
+        <option value="pro">Pro</option>
         <option value="dark">Dark</option>
-        <option value="professional">Professional</option>
       </select>
     </div>
   )
 }
 
 function App() {
-  // Extension theme state - synced from extension via main process
-  const [extensionTheme, setExtensionTheme] = useState<ExtensionTheme>('default')
+  // Extension theme state - synced from extension via main process (default: standard)
+  const [extensionTheme, setExtensionTheme] = useState<ExtensionTheme>('standard')
   const [deepLinkPayload, setDeepLinkPayload] = useState<AnalysisOpenPayload | null>(null)
 
   // Apply theme to document
@@ -71,8 +88,12 @@ function App() {
   useEffect(() => {
     const cleanup = window.analysisDashboard?.onThemeChange((theme: string) => {
       console.log('[APP] Theme changed from extension:', theme)
-      if (['default', 'dark', 'professional'].includes(theme)) {
-        setExtensionTheme(theme as ExtensionTheme)
+      // Map old theme names for backward compatibility
+      let mappedTheme = theme
+      if (mappedTheme === 'default') mappedTheme = 'pro'
+      if (mappedTheme === 'professional') mappedTheme = 'standard'
+      if (['pro', 'dark', 'standard'].includes(mappedTheme)) {
+        setExtensionTheme(mappedTheme as ExtensionTheme)
       }
     })
     // Request current theme on mount
@@ -87,8 +108,9 @@ function App() {
     // Extract theme from payload if provided
     if (payload && typeof payload === 'object' && 'theme' in payload) {
       const theme = (payload as any).theme
-      if (['default', 'dark', 'professional'].includes(theme)) {
-        setExtensionTheme(theme as ExtensionTheme)
+      if (typeof theme === 'string') {
+        const normalized = normalizeTheme(theme)
+        setExtensionTheme(normalized)
       }
     }
     setDeepLinkPayload(payload)
@@ -100,6 +122,13 @@ function App() {
     return () => { cleanup?.() }
   }, [handleOpenAnalysisDashboard])
 
+  // Handle theme change from selector - update immediately and sync to main process
+  const handleThemeChange = useCallback((newTheme: ExtensionTheme) => {
+    setExtensionTheme(newTheme)
+    // Sync to main process for persistence and extension sync
+    window.analysisDashboard?.setTheme(newTheme)
+  }, [])
+
   return (
     <div className="app-root">
       {/* Minimal Header Bar */}
@@ -110,7 +139,7 @@ function App() {
           <span className="app-header__subtitle">Analysis Dashboard</span>
         </div>
         <div className="app-header__spacer" />
-        <ThemeSelector value={extensionTheme} onChange={setExtensionTheme} />
+        <ThemeSelector value={extensionTheme} onChange={handleThemeChange} />
       </header>
 
       {/* Full-width Analysis Canvas */}

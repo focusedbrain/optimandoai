@@ -1,10 +1,10 @@
 /* ============================================================================
-   OpenGiraffe TM Analysis Dashboard - Production Theme
+   WR Code™ Analysis Dashboard - Production Theme
    ============================================================================ */
 
 /* --- Theme Tokens --- */
 :root {
-  /* Professional (Light) Theme */
+  /* Standard (Light) Theme */
   --bg-base-prof: #f8f9fb;
   --bg-surface-prof: #ffffff;
   --bg-elevated-prof: #ffffff;
@@ -42,7 +42,7 @@
   --giraffe-orange: #F5A623;
   --giraffe-brown: #8B4513;
   
-  /* Purple Accent for OpenGiraffe */
+  /* Purple Accent for WR Code */
   --purple-accent: #9333ea;
   --purple-accent-hover: #7c3aed;
   --purple-accent-muted: rgba(147, 51, 234, 0.2);
@@ -50,8 +50,8 @@
 
 /* Theme Application */
 
-/* Default (Original) Theme - Purple gradient matching extension sidebar */
-[data-ui-theme="default"] {
+/* Pro Theme - Purple gradient matching extension sidebar */
+[data-ui-theme="pro"] {
   /* Matches extension: linear-gradient(135deg, #c084fc 0%, #a855f7 50%, #9333ea 100%) */
   --bg-base: #7c3aed;
   --bg-surface: rgba(118, 75, 162, 0.45);
@@ -72,8 +72,8 @@
   --theme-gradient: linear-gradient(135deg, #c084fc 0%, #a855f7 50%, #9333ea 100%);
 }
 
-/* Professional (Light/White) Theme */
-[data-ui-theme="professional"] {
+/* Standard Theme - Light/White (Default) */
+[data-ui-theme="standard"] {
   --bg-base: var(--bg-base-prof);
   --bg-surface: var(--bg-surface-prof);
   --bg-elevated: var(--bg-elevated-prof);
@@ -162,9 +162,9 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
-/* Default theme uses gradient background */
-[data-ui-theme="default"] body,
-[data-ui-theme="default"] .app-root {
+/* Pro theme uses gradient background */
+[data-ui-theme="pro"] body,
+[data-ui-theme="pro"] .app-root {
   background: linear-gradient(135deg, #c084fc 0%, #a855f7 50%, #9333ea 100%);
 }
 
@@ -219,8 +219,8 @@ body {
   margin-left: 1px;
 }
 
-/* Default theme: TM badge uses white */
-[data-ui-theme="default"] .app-header__tm {
+/* Pro theme: TM badge uses white */
+[data-ui-theme="pro"] .app-header__tm {
   color: rgba(255, 255, 255, 0.8);
 }
 
@@ -270,25 +270,25 @@ body {
   box-shadow: 0 0 0 2px rgba(147, 51, 234, 0.2);
 }
 
-/* Default theme: Theme switcher with translucent styling */
-[data-ui-theme="default"] .theme-switcher__select {
+/* Pro theme: Theme switcher with translucent styling */
+[data-ui-theme="pro"] .theme-switcher__select {
   background: rgba(255, 255, 255, 0.2);
   border-color: rgba(255, 255, 255, 0.4);
   color: white;
 }
 
-[data-ui-theme="default"] .theme-switcher__select:hover,
-[data-ui-theme="default"] .theme-switcher__select:focus {
+[data-ui-theme="pro"] .theme-switcher__select:hover,
+[data-ui-theme="pro"] .theme-switcher__select:focus {
   border-color: white;
   box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.2);
 }
 
-[data-ui-theme="default"] .theme-switcher__select option {
+[data-ui-theme="pro"] .theme-switcher__select option {
   background: #7c3aed;
   color: white;
 }
 
-[data-ui-theme="default"] .theme-switcher__label {
+[data-ui-theme="pro"] .theme-switcher__label {
   color: rgba(255, 255, 255, 0.7);
 }
 
@@ -338,8 +338,8 @@ body {
   letter-spacing: 0.05em;
 }
 
-/* Default theme analysis badge */
-[data-ui-theme="default"] .analysis-badge {
+/* Pro theme analysis badge */
+[data-ui-theme="pro"] .analysis-badge {
   background: rgba(255, 255, 255, 0.2);
   color: white;
 }
@@ -399,42 +399,42 @@ body {
 }
 
 /* Default theme: Phase selector with translucent styling */
-[data-ui-theme="default"] .phase-selector {
+[data-ui-theme="pro"] .phase-selector {
   background: rgba(118, 75, 162, 0.3);
   border-bottom-color: rgba(255, 255, 255, 0.15);
 }
 
-[data-ui-theme="default"] .phase-button:hover {
+[data-ui-theme="pro"] .phase-button:hover {
   background: rgba(255, 255, 255, 0.1);
 }
 
-[data-ui-theme="default"] .phase-button--active {
+[data-ui-theme="pro"] .phase-button--active {
   background: rgba(255, 255, 255, 0.15);
   border-bottom-color: white;
 }
 
-[data-ui-theme="default"] .phase-button__label {
+[data-ui-theme="pro"] .phase-button__label {
   color: rgba(255, 255, 255, 0.7);
 }
 
-[data-ui-theme="default"] .phase-button--active .phase-button__label {
+[data-ui-theme="pro"] .phase-button--active .phase-button__label {
   color: white;
 }
 
-[data-ui-theme="default"] .phase-button:hover .phase-button__label {
+[data-ui-theme="pro"] .phase-button:hover .phase-button__label {
   color: white;
 }
 
-[data-ui-theme="default"] .phase-button__description {
+[data-ui-theme="pro"] .phase-button__description {
   color: rgba(255, 255, 255, 0.5);
 }
 
-/* Default theme: Phase content with translucent background */
-[data-ui-theme="default"] .phase-content {
+/* Pro theme: Phase content with translucent background */
+[data-ui-theme="pro"] .phase-content {
   background: rgba(88, 28, 135, 0.4);
 }
 
-[data-ui-theme="default"] .analysis-canvas {
+[data-ui-theme="pro"] .analysis-canvas {
   background: transparent;
 }
 

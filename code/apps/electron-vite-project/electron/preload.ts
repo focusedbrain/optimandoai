@@ -80,5 +80,9 @@ contextBridge.exposeInMainWorld('analysisDashboard', {
   // Request current theme from main process
   requestTheme: () => {
     ipcRenderer.send('REQUEST_THEME')
+  },
+  // Send theme change from renderer to main process
+  setTheme: (theme: string) => {
+    ipcRenderer.send('SET_THEME', theme)
   }
 })

@@ -16,7 +16,7 @@ import { PoliciesOverviewSection } from './PoliciesOverviewSection'
 import { RuntimeControlsSection } from './RuntimeControlsSection'
 
 interface WRGuardWorkspaceProps {
-  theme: 'default' | 'dark' | 'professional'
+  theme: 'pro' | 'dark' | 'standard'
   onOpenAdvancedSettings?: () => void
   // Shared email account props (mirroring BEAP Messages Connect Email)
   emailAccounts?: EmailAccount[]
@@ -37,12 +37,12 @@ export const WRGuardWorkspace: React.FC<WRGuardWorkspaceProps> = ({
   onDisconnectEmail = () => {},
   onSelectEmailAccount = () => {}
 }) => {
-  const isProfessional = theme === 'professional'
-  const textColor = isProfessional ? '#0f172a' : 'white'
-  const mutedColor = isProfessional ? '#64748b' : 'rgba(255,255,255,0.7)'
-  const borderColor = isProfessional ? 'rgba(15,23,42,0.1)' : 'rgba(255,255,255,0.1)'
-  const bgColor = isProfessional ? '#f8fafc' : 'rgba(255,255,255,0.02)'
-  const headerBg = isProfessional ? '#ffffff' : 'rgba(255,255,255,0.05)'
+  const isStandard = theme === 'standard'
+  const textColor = isStandard ? '#0f172a' : 'white'
+  const mutedColor = isStandard ? '#64748b' : 'rgba(255,255,255,0.7)'
+  const borderColor = isStandard ? 'rgba(147, 51, 234, 0.12)' : 'rgba(255,255,255,0.1)'
+  const bgColor = isStandard ? '#faf5ff' : 'rgba(255,255,255,0.02)'
+  const headerBg = isStandard ? '#ffffff' : 'rgba(255,255,255,0.05)'
   
   const { activeSection, setActiveSection, initialize, initialized } = useWRGuardStore()
   
@@ -139,7 +139,7 @@ export const WRGuardWorkspace: React.FC<WRGuardWorkspaceProps> = ({
                 fontWeight: 500,
                 padding: '2px 8px',
                 borderRadius: '4px',
-                background: isProfessional ? 'rgba(139,92,246,0.1)' : 'rgba(139,92,246,0.2)',
+                background: isStandard ? 'rgba(139,92,246,0.1)' : 'rgba(139,92,246,0.2)',
                 color: '#8b5cf6'
               }}>
                 Configuration
@@ -175,7 +175,7 @@ export const WRGuardWorkspace: React.FC<WRGuardWorkspaceProps> = ({
                 fontSize: '12px',
                 fontWeight: isActive ? 600 : 400,
                 background: isActive 
-                  ? (isProfessional ? 'rgba(139,92,246,0.1)' : 'rgba(139,92,246,0.2)')
+                  ? (isStandard ? 'rgba(139,92,246,0.1)' : 'rgba(139,92,246,0.2)')
                   : 'transparent',
                 border: 'none',
                 borderBottom: isActive

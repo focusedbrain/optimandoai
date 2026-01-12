@@ -1,7 +1,7 @@
 import { useState } from 'react';
 
 interface BackendSwitcherInlineProps {
-  theme?: 'default' | 'dark' | 'professional';
+  theme?: 'pro' | 'dark' | 'standard';
 }
 
 type TextSize = 'small' | 'normal' | 'large';
@@ -12,18 +12,21 @@ const TEXT_SCALES: Record<TextSize, number> = {
   large: 1.3
 };
 
-export function BackendSwitcherInline({ theme = 'default' }: BackendSwitcherInlineProps) {
+export function BackendSwitcherInline({ theme = 'standard' }: BackendSwitcherInlineProps) {
   const [isCollapsed, setIsCollapsed] = useState(true);
   const [textSize, setTextSize] = useState<TextSize>('small');
 
   // Helper to scale font sizes
   const scaledSize = (baseSize: number) => `${Math.round(baseSize * TEXT_SCALES[textSize])}px`;
 
-  const textColor = theme === 'default' ? '#fff' : theme === 'dark' ? '#fff' : '#0f172a';
-  const mutedColor = theme === 'professional' ? 'rgba(15,23,42,0.6)' : 'rgba(255,255,255,0.7)';
-  const accentColor = theme === 'professional' ? '#6366f1' : '#a78bfa';
-  const cardBg = theme === 'professional' ? 'rgba(15,23,42,0.04)' : 'rgba(255,255,255,0.06)';
-  const borderColor = theme === 'professional' ? 'rgba(15,23,42,0.08)' : 'rgba(255,255,255,0.1)';
+  // Map old theme names for backward compatibility
+  const effectiveTheme = theme === 'pro' ? 'pro' : theme === 'dark' ? 'dark' : 'standard';
+  
+  const textColor = effectiveTheme === 'pro' ? '#fff' : effectiveTheme === 'dark' ? '#fff' : '#0f172a';
+  const mutedColor = effectiveTheme === 'standard' ? 'rgba(15,23,42,0.6)' : 'rgba(255,255,255,0.7)';
+  const accentColor = effectiveTheme === 'standard' ? '#6366f1' : '#a78bfa';
+  const cardBg = effectiveTheme === 'standard' ? 'rgba(15,23,42,0.04)' : 'rgba(255,255,255,0.06)';
+  const borderColor = effectiveTheme === 'standard' ? 'rgba(15,23,42,0.08)' : 'rgba(255,255,255,0.1)';
 
   const features = [
     { icon: '🔗', text: 'One automation layer across email, messaging, files, streams, and systems' },
@@ -52,8 +55,8 @@ export function BackendSwitcherInline({ theme = 'default' }: BackendSwitcherInli
   return (
     <>
       <div style={{
-        borderBottom: theme === 'professional' ? '1px solid rgba(15,23,42,0.1)' : '1px solid rgba(255,255,255,0.15)',
-        background: theme === 'professional' ? 'rgba(248,250,252,0.8)' : theme === 'dark' ? 'rgba(15,23,42,0.6)' : 'rgba(118,75,162,0.4)'
+        borderBottom: effectiveTheme === 'standard' ? '1px solid rgba(15,23,42,0.1)' : '1px solid rgba(255,255,255,0.15)',
+        background: effectiveTheme === 'standard' ? 'rgba(248,250,252,0.8)' : effectiveTheme === 'dark' ? 'rgba(15,23,42,0.6)' : 'rgba(118,75,162,0.4)'
       }}>
         {/* Header with Login buttons */}
         <div 
@@ -70,7 +73,7 @@ export function BackendSwitcherInline({ theme = 'default' }: BackendSwitcherInli
               style={{
                 padding: '4px 10px',
                 background: 'transparent',
-                border: theme === 'professional' ? '1px solid rgba(15,23,42,0.2)' : '1px solid rgba(255,255,255,0.25)',
+                border: effectiveTheme === 'standard' ? '1px solid rgba(15,23,42,0.2)' : '1px solid rgba(255,255,255,0.25)',
                 borderRadius: '4px',
                 color: textColor,
                 fontSize: '11px',
@@ -80,7 +83,7 @@ export function BackendSwitcherInline({ theme = 'default' }: BackendSwitcherInli
                 opacity: 0.8
               }}
               onMouseEnter={(e) => {
-                e.currentTarget.style.background = theme === 'professional' ? 'rgba(15,23,42,0.05)' : 'rgba(255,255,255,0.08)';
+                e.currentTarget.style.background = effectiveTheme === 'standard' ? 'rgba(15,23,42,0.05)' : 'rgba(255,255,255,0.08)';
                 e.currentTarget.style.opacity = '1';
               }}
               onMouseLeave={(e) => {
@@ -94,7 +97,7 @@ export function BackendSwitcherInline({ theme = 'default' }: BackendSwitcherInli
               style={{
                 padding: '4px 10px',
                 background: 'transparent',
-                border: theme === 'professional' ? '1px solid rgba(15,23,42,0.2)' : '1px solid rgba(255,255,255,0.25)',
+                border: effectiveTheme === 'standard' ? '1px solid rgba(15,23,42,0.2)' : '1px solid rgba(255,255,255,0.25)',
                 borderRadius: '4px',
                 color: textColor,
                 fontSize: '11px',
@@ -104,7 +107,7 @@ export function BackendSwitcherInline({ theme = 'default' }: BackendSwitcherInli
                 opacity: 0.8
               }}
               onMouseEnter={(e) => {
-                e.currentTarget.style.background = theme === 'professional' ? 'rgba(15,23,42,0.05)' : 'rgba(255,255,255,0.08)';
+                e.currentTarget.style.background = effectiveTheme === 'standard' ? 'rgba(15,23,42,0.05)' : 'rgba(255,255,255,0.08)';
                 e.currentTarget.style.opacity = '1';
               }}
               onMouseLeave={(e) => {
@@ -153,7 +156,7 @@ export function BackendSwitcherInline({ theme = 'default' }: BackendSwitcherInli
                   onClick={() => setTextSize(size)}
                   style={{
                     background: textSize === size 
-                      ? (theme === 'professional' ? 'rgba(15,23,42,0.1)' : 'rgba(255,255,255,0.15)')
+                      ? (effectiveTheme === 'standard' ? 'rgba(15,23,42,0.1)' : 'rgba(255,255,255,0.15)')
                       : 'transparent',
                     border: 'none',
                     borderRadius: '4px',
@@ -190,8 +193,8 @@ export function BackendSwitcherInline({ theme = 'default' }: BackendSwitcherInli
                 justifyContent: 'center',
                 width: '56px',
                 height: '56px',
-                background: theme === 'professional' ? 'rgba(15,23,42,0.04)' : 'rgba(255,255,255,0.08)',
-                border: `1px solid ${theme === 'professional' ? 'rgba(15,23,42,0.12)' : 'rgba(255,255,255,0.15)'}`,
+                background: effectiveTheme === 'standard' ? 'rgba(15,23,42,0.04)' : 'rgba(255,255,255,0.08)',
+                border: `1px solid ${effectiveTheme === 'standard' ? 'rgba(15,23,42,0.12)' : 'rgba(255,255,255,0.15)'}`,
                 borderRadius: '12px',
                 marginBottom: '12px'
               }}>
@@ -211,7 +214,7 @@ export function BackendSwitcherInline({ theme = 'default' }: BackendSwitcherInli
                   <circle cx="18" cy="33" r="3" stroke={textColor} strokeWidth="1" fill="none"/>
                   <rect x="16" y="31" width="4" height="3" fill={textColor} rx="0.5"/>
                   {/* Checkmark */}
-                  <circle cx="26" cy="8" r="4" fill={theme === 'professional' ? '#22c55e' : '#4ade80'}/>
+                  <circle cx="26" cy="8" r="4" fill={effectiveTheme === 'standard' ? '#22c55e' : '#4ade80'}/>
                   <path d="M24 8L25.5 9.5L28 7" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
                 </svg>
               </div>
@@ -339,8 +342,8 @@ export function BackendSwitcherInline({ theme = 'default' }: BackendSwitcherInli
                     key={idx}
                     style={{
                       padding: '6px 10px',
-                      background: theme === 'professional' ? 'rgba(99,102,241,0.08)' : 'rgba(167,139,250,0.15)',
-                      border: `1px solid ${theme === 'professional' ? 'rgba(99,102,241,0.2)' : 'rgba(167,139,250,0.25)'}`,
+                      background: effectiveTheme === 'standard' ? 'rgba(99,102,241,0.08)' : 'rgba(167,139,250,0.15)',
+                      border: `1px solid ${effectiveTheme === 'standard' ? 'rgba(99,102,241,0.2)' : 'rgba(167,139,250,0.25)'}`,
                       borderRadius: '4px',
                       fontSize: scaledSize(10),
                       color: textColor
@@ -414,14 +417,14 @@ export function BackendSwitcherInline({ theme = 'default' }: BackendSwitcherInli
                 <div style={{
                   marginTop: '12px',
                   padding: '14px 16px',
-                  background: theme === 'professional' 
+                  background: effectiveTheme === 'standard' 
                     ? 'linear-gradient(145deg, #f8fafc 0%, #f1f5f9 100%)' 
                     : 'linear-gradient(145deg, rgba(30,41,59,0.95) 0%, rgba(51,65,85,0.9) 100%)',
                   borderRadius: '10px',
-                  border: theme === 'professional' 
+                  border: effectiveTheme === 'standard' 
                     ? '1px solid rgba(148,163,184,0.4)' 
                     : '1px solid rgba(100,116,139,0.5)',
-                  boxShadow: theme === 'professional'
+                  boxShadow: effectiveTheme === 'standard'
                     ? '0 1px 3px rgba(0,0,0,0.08), 0 4px 12px rgba(0,0,0,0.04)'
                     : '0 2px 8px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.05)',
                   lineHeight: '1.6'
@@ -429,7 +432,7 @@ export function BackendSwitcherInline({ theme = 'default' }: BackendSwitcherInli
                   <div style={{ 
                     fontSize: scaledSize(13), 
                     fontWeight: '600', 
-                    color: theme === 'professional' ? '#0f172a' : '#f1f5f9',
+                    color: effectiveTheme === 'standard' ? '#0f172a' : '#f1f5f9',
                     letterSpacing: '-0.01em',
                     marginBottom: '10px',
                     lineHeight: '1.35'
@@ -439,7 +442,7 @@ export function BackendSwitcherInline({ theme = 'default' }: BackendSwitcherInli
                   <div style={{ 
                     fontSize: scaledSize(11),
                     fontWeight: '500',
-                    color: theme === 'professional' ? '#475569' : '#94a3b8'
+                    color: effectiveTheme === 'standard' ? '#475569' : '#94a3b8'
                   }}>
                     BEAP establishes a transport-agnostic automation protocol that enables workflows to remain deterministic, verifiable, and secure, even when operating across untrusted systems and execution environments.
                   </div>
@@ -498,14 +501,14 @@ export function BackendSwitcherInline({ theme = 'default' }: BackendSwitcherInli
                 </div>
                 <div style={{
                   padding: '14px 16px',
-                  background: theme === 'professional' 
+                  background: effectiveTheme === 'standard' 
                     ? 'linear-gradient(145deg, #f8fafc 0%, #f1f5f9 100%)' 
                     : 'linear-gradient(145deg, rgba(30,41,59,0.95) 0%, rgba(51,65,85,0.9) 100%)',
                   borderRadius: '10px',
-                  border: theme === 'professional' 
+                  border: effectiveTheme === 'standard' 
                     ? '1px solid rgba(148,163,184,0.4)' 
                     : '1px solid rgba(100,116,139,0.5)',
-                  boxShadow: theme === 'professional'
+                  boxShadow: effectiveTheme === 'standard'
                     ? '0 1px 3px rgba(0,0,0,0.08), 0 4px 12px rgba(0,0,0,0.04)'
                     : '0 2px 8px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.05)',
                   lineHeight: '1.6'
@@ -513,7 +516,7 @@ export function BackendSwitcherInline({ theme = 'default' }: BackendSwitcherInli
                   <div style={{ 
                     fontSize: scaledSize(13), 
                     fontWeight: '600', 
-                    color: theme === 'professional' ? '#0f172a' : '#f1f5f9',
+                    color: effectiveTheme === 'standard' ? '#0f172a' : '#f1f5f9',
                     letterSpacing: '-0.01em',
                     marginBottom: '10px',
                     lineHeight: '1.35'
@@ -523,7 +526,7 @@ export function BackendSwitcherInline({ theme = 'default' }: BackendSwitcherInli
                   <div style={{ 
                     fontSize: scaledSize(11),
                     fontWeight: '500',
-                    color: theme === 'professional' ? '#475569' : '#94a3b8'
+                    color: effectiveTheme === 'standard' ? '#475569' : '#94a3b8'
                   }}>
                     BEAP represents an early class of post-quantum–ready automation protocols designed to remain transport-independent, channel-independent, and transferable across heterogeneous and untrusted delivery environments, including email, messaging systems, and file-based mechanisms.
                   </div>
@@ -577,21 +580,21 @@ export function BackendSwitcherInline({ theme = 'default' }: BackendSwitcherInli
             <div style={{
               textAlign: 'left',
               padding: '14px 16px',
-              background: theme === 'professional' 
+              background: effectiveTheme === 'standard' 
                 ? 'linear-gradient(145deg, #f8fafc 0%, #f1f5f9 100%)' 
                 : 'linear-gradient(145deg, rgba(30,41,59,0.95) 0%, rgba(51,65,85,0.9) 100%)',
               borderRadius: '12px',
-              border: theme === 'professional' 
+              border: effectiveTheme === 'standard' 
                 ? '1px solid rgba(148,163,184,0.4)' 
                 : '1px solid rgba(100,116,139,0.5)',
-              boxShadow: theme === 'professional'
+              boxShadow: effectiveTheme === 'standard'
                 ? '0 1px 3px rgba(0,0,0,0.08), 0 4px 12px rgba(0,0,0,0.04)'
                 : '0 2px 8px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.05)'
             }}>
               <div style={{
                 fontSize: scaledSize(13),
                 fontWeight: '600',
-                color: theme === 'professional' ? '#0f172a' : '#f1f5f9',
+                color: effectiveTheme === 'standard' ? '#0f172a' : '#f1f5f9',
                 letterSpacing: '-0.01em',
                 marginBottom: '10px',
                 lineHeight: '1.35'
@@ -600,7 +603,7 @@ export function BackendSwitcherInline({ theme = 'default' }: BackendSwitcherInli
               </div>
               <p style={{
                 fontSize: scaledSize(11),
-                color: theme === 'professional' ? '#475569' : '#94a3b8',
+                color: effectiveTheme === 'standard' ? '#475569' : '#94a3b8',
                 margin: 0,
                 lineHeight: '1.65'
               }}>
