@@ -1063,11 +1063,18 @@ function updateTrayMenu() {
             console.log('[MAIN] Cannot change autostart in dev mode')
             return
           }
-          app.setLoginItemSettings({ 
-            openAtLogin: menuItem.checked, 
-            args: ['--hidden'] 
-          })
-          console.log('[MAIN] Auto-start on login:', menuItem.checked ? 'enabled' : 'disabled')
+          try {
+            app.setLoginItemSettings({ 
+              openAtLogin: menuItem.checked, 
+              args: ['--hidden'],
+              name: 'WR Code' // Explicit name for Windows registry
+            })
+            const updatedSettings = app.getLoginItemSettings()
+            console.log('[MAIN] Auto-start on login:', menuItem.checked ? 'enabled' : 'disabled')
+            console.log('[MAIN] Autostart enabled:', updatedSettings.openAtLogin)
+          } catch (err) {
+            console.error('[MAIN] Failed to update autostart setting:', err)
+          }
         }
       },
       { type: 'separator' },
@@ -1207,12 +1214,19 @@ app.whenReady().then(async () => {
       }
       if (isProduction && (process.platform === 'win32' || process.platform === 'darwin')) {
         // Only register autostart for production builds (not dev mode)
-        app.setLoginItemSettings({ openAtLogin: true, args: ['--hidden'] })
-        console.log('[MAIN] Production build - autostart registered')
+        app.setLoginItemSettings({ 
+          openAtLogin: true, 
+          args: ['--hidden'],
+          name: 'WR Code' // Explicit name for Windows registry
+        })
+        const loginSettings = app.getLoginItemSettings()
+        console.log('[MAIN] Production build - autostart registered:', loginSettings.openAtLogin)
       } else if (!isProduction) {
         console.log('[MAIN] Dev mode - skipping autostart registration to avoid wrong executable')
       }
-    } catch {}
+    } catch (err) {
+      console.error('[MAIN] Failed to register autostart:', err)
+    }
   createWindow()
   createTray()
   console.log('[MAIN] Window and tray created')
