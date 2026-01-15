@@ -379,11 +379,13 @@ export async function createMiniAppFromQuery(title: string, description: string,
     
     // STEP 8: Resolve to atomic blocks based on tier
     let resolvedBlocks: AtomicBlock[] = []
+    let layoutInfo: { type: string, spacing?: string } | undefined
     
     if (bestMatch.tier === 1) {
       // Tier1 MiniApp: resolve through Tier2 components to Tier3 blocks
       const miniApp = bestMatch.item as MiniAppType
       resolvedBlocks = resolveMiniApp(miniApp, registry)
+      layoutInfo = miniApp.layout // preserve layout information
       console.log("BEAP: Resolved Tier1 mini-app to", resolvedBlocks.length, "atomic blocks")
     } else if (bestMatch.tier === 2) {
       // Tier2 Component: resolve to Tier3 blocks
@@ -410,6 +412,10 @@ export async function createMiniAppFromQuery(title: string, description: string,
     
     // STEP 9: Deterministic assembly (NO LLM involvement after this point)
     const assembledApp = assembleMiniApp(resolvedBlocks) // deterministic grouping
+    // Attach layout information if available from Tier-1
+    if (layoutInfo) {
+      (assembledApp as any).layout = layoutInfo
+    }
     console.log("BEAP: Assembled mini-app:", assembledApp.blocks.length, "blocks")
     
     // STEP 10: Pre-written renderer converts JSON to UI

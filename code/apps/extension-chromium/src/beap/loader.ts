@@ -61,5 +61,7 @@ export async function loadAllTiers(): Promise<BEAPRegistry> {
     tier1: registry.tier1.size
   })
 
+  console.log('[BEAP] Full registry:', registry)
+
   return registry
 }
