@@ -359,19 +359,25 @@ export async function createMiniAppFromQuery(title: string, description: string,
       throw new Error("No matching components found for the query")
     }
     
-    // STEP 7.5: Select best match (prefer higher tier when scores are similar)
-    // Higher tier = more complete/composed solution
+    // STEP 7.5: Tier-aware selection with multi-component support for Tier-2
+    // RULE: Prefer higher tiers (T1 > T2 > T3) when scores are competitive
+    // For Tier-2: Select ALL components scoring >= 85% of top Tier-2 score (enables multi-component assembly)
+    // For Tier-1: Single best mini-app (already complete)
+    // For Tier-3: Apply selection rules to individual blocks
+    
+    let selectedTier = scored[0].tier // detect tier of highest-scoring item
     let bestMatch = scored[0]
     
-    // Check if a Tier1 or Tier2 item has a competitive score (within 10% of best)
+    // Tier preference: if Tier-1 or Tier-2 scores within 10% of best, prefer it
     for (const item of scored.slice(0, 3)) {
       if (item.tier < bestMatch.tier && item.score >= bestMatch.score * 0.9) {
         bestMatch = item
+        selectedTier = item.tier
         break
       }
     }
     
-    console.log("BEAP: Best match:", { 
+    console.log("BEAP: Best match tier:", selectedTier, "| Top item:", { 
       id: bestMatch.item.id, 
       tier: bestMatch.tier,
       score: bestMatch.score.toFixed(4)
@@ -381,17 +387,40 @@ export async function createMiniAppFromQuery(title: string, description: string,
     let resolvedBlocks: AtomicBlock[] = []
     let layoutInfo: { type: string, spacing?: string } | undefined
     
-    if (bestMatch.tier === 1) {
+    if (selectedTier === 1) {
       // Tier1 MiniApp: resolve through Tier2 components to Tier3 blocks
       const miniApp = bestMatch.item as MiniAppType
       resolvedBlocks = resolveMiniApp(miniApp, registry)
       layoutInfo = miniApp.layout // preserve layout information
       console.log("BEAP: Resolved Tier1 mini-app to", resolvedBlocks.length, "atomic blocks")
-    } else if (bestMatch.tier === 2) {
-      // Tier2 Component: resolve to Tier3 blocks
-      const component = bestMatch.item as Component
-      resolvedBlocks = resolveComponent(component, registry)
-      console.log("BEAP: Resolved Tier2 component to", resolvedBlocks.length, "atomic blocks")
+    } else if (selectedTier === 2) {
+      // Tier2 Multi-Component Assembly:
+      // Select ALL Tier-2 components scoring >= 85% of the top Tier-2 score
+      const tier2Items = scored.filter(s => s.tier === 2)
+      
+      if (tier2Items.length === 0) {
+        throw new Error("No Tier-2 components found (required for Tier-2 selection)")
+      }
+      
+      const topTier2Score = tier2Items[0].score
+      const scoreThreshold = topTier2Score * 0.85 // 85% threshold for multi-component inclusion
+      const selectedComponents = tier2Items.filter(s => s.score >= scoreThreshold)
+      
+      console.log("BEAP: Tier-2 multi-component selection:", {
+        topScore: topTier2Score.toFixed(4),
+        threshold: scoreThreshold.toFixed(4),
+        selectedCount: selectedComponents.length,
+        selectedIds: selectedComponents.map(s => `${s.item.id} (${s.score.toFixed(4)})`)
+      })
+      
+      // Resolve each selected component to Tier-3 blocks
+      for (const selectedItem of selectedComponents) {
+        const component = selectedItem.item as Component
+        const componentBlocks = resolveComponent(component, registry)
+        resolvedBlocks.push(...componentBlocks)
+      }
+      
+      console.log("BEAP: Resolved", selectedComponents.length, "Tier2 components to", resolvedBlocks.length, "atomic blocks")
     } else {
       // Tier3 Block: use directly but still apply selection rules for multi-block scenarios
       const block = bestMatch.item as AtomicBlock
