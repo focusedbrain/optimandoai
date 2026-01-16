@@ -140,6 +140,7 @@ function SidepanelOrchestrator() {
   const [embedTarget, setEmbedTarget] = useState<'session' | 'account'>('session')
   const [notification, setNotification] = useState<{message: string, type: 'success' | 'error' | 'info'} | null>(null)
   const [theme, setTheme] = useState<'pro' | 'dark' | 'standard'>('standard')
+  const [activeMiniApp, setActiveMiniApp] = useState<'glassview' | null>(null)
   
   // WR MailGuard state
   const [mailguardTo, setMailguardTo] = useState('')
@@ -3235,7 +3236,6 @@ function SidepanelOrchestrator() {
         <TemplateGlassView 
           templateName="glassview"
           onClose={() => setActiveMiniApp(null)}
-          onMessage={(msg) => console.log('[GlassView] Message:', msg)}
         />
       </div>
     )
