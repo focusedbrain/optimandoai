@@ -255,17 +255,29 @@ process.on('unhandledRejection', (reason, promise) => {
 function handleDeepLink(raw: string) {
   try {
     const url = new URL(raw)
-    if (url.protocol !== 'opengiraffe:') return
+    // Support both old opengiraffe:// and new wrcode:// protocols for backward compatibility
+    if (url.protocol !== 'opengiraffe:' && url.protocol !== 'wrcode:') return
     const action = url.hostname // e.g., lmgtfy, start
     const mode = url.searchParams.get('mode') || ''
     
-    // Handle 'start' action - just ensure app is running and visible
+    // Handle 'start' action - ensure app is running and VISIBLE
     if (action === 'start') {
-      console.log('[MAIN] Received start deep link - app is now running')
-      // App is already running if we got here, optionally show the window
-      if (win) {
+      console.log('[MAIN] Received start deep link - showing dashboard window')
+      // Ensure window exists and is visible
+      if (win && !win.isDestroyed()) {
+        if (win.isMinimized()) win.restore()
         win.show()
         win.focus()
+        console.log('[MAIN] Dashboard window shown and focused')
+      } else {
+        // Window doesn't exist, create it
+        console.log('[MAIN] Window not found, creating new window')
+        createWindow().then(() => {
+          if (win) {
+            win.show()
+            win.focus()
+          }
+        })
       }
       return
     }
@@ -965,7 +977,7 @@ async function createWindow() {
   globalShortcut.register('Alt+0', () => win?.webContents.send('hotkey', 'stop'))
 
   // Process deep link passed on first launch (Windows passes in argv)
-  const arg = process.argv.find(a => a.startsWith('opengiraffe://'))
+  const arg = process.argv.find(a => a.startsWith('opengiraffe://') || a.startsWith('wrcode://'))
   if (arg) handleDeepLink(arg)
 }
 
@@ -1099,12 +1111,18 @@ app.on('second-instance', (_e, argv) => {
     win.show()
     win.focus()
   }
-  // Handle opengiraffe:// deep-links
-  const arg = argv.find(a => a.startsWith('opengiraffe://'))
+  // Handle opengiraffe:// and wrcode:// deep-links (backward compatibility)
+  const arg = argv.find(a => a.startsWith('opengiraffe://') || a.startsWith('wrcode://'))
   if (arg) handleDeepLink(arg)
 })
 
-app.setAsDefaultProtocolClient('opengiraffe')
+// Register both protocols for backward compatibility
+app.setAsDefaultProtocolClient('wrcode')
+try {
+  app.setAsDefaultProtocolClient('opengiraffe') // Keep old protocol for backward compatibility
+} catch (err) {
+  console.log('[MAIN] Could not register opengiraffe protocol (may already be registered):', err)
+}
 
 app.on('open-url', (event, url) => {
   event.preventDefault()
@@ -1214,13 +1232,28 @@ app.whenReady().then(async () => {
       }
       if (isProduction && (process.platform === 'win32' || process.platform === 'darwin')) {
         // Only register autostart for production builds (not dev mode)
-        app.setLoginItemSettings({ 
-          openAtLogin: true, 
-          args: ['--hidden'],
-          name: 'WR Code' // Explicit name for Windows registry
-        })
-        const loginSettings = app.getLoginItemSettings()
-        console.log('[MAIN] Production build - autostart registered:', loginSettings.openAtLogin)
+        // Check current autostart status first - don't force enable if user disabled it
+        const currentSettings = app.getLoginItemSettings()
+        // Only set autostart if it's not already configured (first run)
+        // This respects user preferences if they disabled it via tray menu
+        if (currentSettings.openAtLogin === undefined || currentSettings.openAtLogin === false) {
+          // First run or explicitly disabled - set it up with --hidden flag
+          app.setLoginItemSettings({ 
+            openAtLogin: true, 
+            args: ['--hidden'],
+            name: 'WR Code' // Explicit name for Windows registry
+          })
+          const loginSettings = app.getLoginItemSettings()
+          console.log('[MAIN] Production build - autostart registered:', loginSettings.openAtLogin)
+        } else {
+          // Already configured - just ensure args are correct
+          app.setLoginItemSettings({ 
+            openAtLogin: true, 
+            args: ['--hidden'],
+            name: 'WR Code'
+          })
+          console.log('[MAIN] Production build - autostart already configured, ensuring args are correct')
+        }
       } else if (!isProduction) {
         console.log('[MAIN] Dev mode - skipping autostart registration to avoid wrong executable')
       }
