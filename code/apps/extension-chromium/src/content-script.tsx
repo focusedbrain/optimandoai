@@ -32583,7 +32583,6 @@ ${pageText}
                   '<li>BEAP™ Secure Messages</li>' +
                   '<li>WRGuard™ included</li>' +
                   '<li>WRVault™ included (incl. local password manager)</li>' +
-                  '<li>1 GB hosted context + hosted verification</li>' +
                   '<li style="color:#66FF66;list-style:\'✓ \';">BYOK or pay-as-you-go</li>' +
                 '</ul>' +
                 '<button id="pro-private-cta" class="cta-btn" style="background:#2563eb" data-plan="pro_private_annual">Choose Private</button>' +
@@ -32712,7 +32711,7 @@ ${pageText}
           proPrivateCta.setAttribute('data-plan', 'pro_private_annual')
         }
         const setProLifetime = () => {
-          proPrivatePrice.innerHTML = '€99<span> one-time</span>'
+          proPrivatePrice.innerHTML = '€99,95<span> one-time</span>'
           proPrivateLifetime.classList.add('active')
           proPrivateAnnual.classList.remove('active')
           proPrivateNote.style.display = 'block'
