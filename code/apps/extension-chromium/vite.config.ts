@@ -9,6 +9,8 @@ export default defineConfig({
     react(),
     crx({ manifest })
   ],
+  // Use relative paths for Chrome extension compatibility
+  base: '',
   resolve: {
     alias: {
       '@shared-extension': path.resolve(__dirname, '../../packages/shared-extension/src'),
@@ -16,7 +18,11 @@ export default defineConfig({
       '@optimandoai/code-block-library': path.resolve(__dirname, '../../packages/code-block-library/src'),
     }
   },
-  esbuild: {
-    drop: [], // Don't drop console.log or debugger statements
+  build: {
+    rollupOptions: {
+      input: {
+        'popup-chat': path.resolve(__dirname, 'src/popup-chat.html')
+      }
+    }
   }
 })

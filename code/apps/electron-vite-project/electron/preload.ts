@@ -54,33 +54,35 @@ contextBridge.exposeInMainWorld('db', {
   getConfig: () => ipcRenderer.invoke('db:getConfig'),
 })
 
-// ========================================
-// GlassView / Mini-App Sidebar API
-// ========================================
-contextBridge.exposeInMainWorld('miniAppAPI', {
-  // Sidebar control
-  toggleSidebar: (appId?: string) => ipcRenderer.send('sidebar:toggle', appId),
-  showSidebar: (appId?: string) => ipcRenderer.send('sidebar:show', appId),
-  hideSidebar: () => ipcRenderer.send('sidebar:hide'),
-  
-  // Template loading
-  loadTemplate: (templatePath: string) => ipcRenderer.invoke('miniapp:loadTemplate', templatePath),
-  loadTemplateText: (templateText: string) => ipcRenderer.invoke('miniapp:loadTemplateText', templateText),
-  
-  // AI integration
-  requestAI: (prompt: string, context?: any) => ipcRenderer.invoke('ai:request', { prompt, context }),
-  
-  // File operations
-  openFile: (filePath: string, lineNumber?: number) => ipcRenderer.send('file:open', { path: filePath, line: lineNumber }),
-  
-  // Event listeners
-  onSidebarShow: (cb: (data: any) => void) => ipcRenderer.on('sidebar:show', (_e, d) => cb(d)),
-  onSidebarHide: (cb: (data: any) => void) => ipcRenderer.on('sidebar:hide', (_e, d) => cb(d)),
-  onTemplateLoaded: (cb: (data: any) => void) => ipcRenderer.on('sidebar:template-loaded', (_e, d) => cb(d)),
-  onCursorFiles: (cb: (data: any) => void) => ipcRenderer.on('sidebar:cursor-files', (_e, d) => cb(d)),
-  onAppMessage: (cb: (data: any) => void) => ipcRenderer.on('sidebar:app-message', (_e, d) => cb(d)),
-  onConnectionStatus: (cb: (data: any) => void) => ipcRenderer.on('orchestrator:connection', (_e, d) => cb(d)),
-  
-  // Send message to orchestrator
-  sendMessage: (type: string, data: any) => ipcRenderer.send('sidebar:message', { type, data }),
+// Analysis Dashboard API - safe, scoped listener for main->renderer signaling
+// Payload is passed as-is; renderer is responsible for validation/sanitization
+contextBridge.exposeInMainWorld('analysisDashboard', {
+  onOpen: (callback: (rawPayload: unknown) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, rawPayload: unknown) => {
+      callback(rawPayload)
+    }
+    ipcRenderer.on('OPEN_ANALYSIS_DASHBOARD', handler)
+    // Return cleanup function
+    return () => {
+      ipcRenderer.removeListener('OPEN_ANALYSIS_DASHBOARD', handler)
+    }
+  },
+  onThemeChange: (callback: (theme: string) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, payload: { theme: string }) => {
+      callback(payload.theme)
+    }
+    ipcRenderer.on('THEME_CHANGED', handler)
+    // Return cleanup function
+    return () => {
+      ipcRenderer.removeListener('THEME_CHANGED', handler)
+    }
+  },
+  // Request current theme from main process
+  requestTheme: () => {
+    ipcRenderer.send('REQUEST_THEME')
+  },
+  // Send theme change from renderer to main process
+  setTheme: (theme: string) => {
+    ipcRenderer.send('SET_THEME', theme)
+  }
 })

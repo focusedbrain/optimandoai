@@ -157,13 +157,15 @@ function createTray() {
 }
 
 app.whenReady().then(() => {
-  // Ensure the app starts on login (installed users)
+  // DISABLED: Auto-start is now handled by electron-vite-project only
+  // This legacy app should NOT auto-start to avoid conflicts with the new Analysis Dashboard
   try {
     if (process.platform === 'win32' || process.platform === 'darwin') {
-      app.setLoginItemSettings({ openAtLogin: true, args: ['--headless'] })
+      // Explicitly disable auto-start for this legacy app
+      app.setLoginItemSettings({ openAtLogin: false })
     }
     if (process.platform === 'win32') {
-      app.setAppUserModelId('com.opengiraffe.desktop')
+      app.setAppUserModelId('com.opengiraffe.legacy')  // Use different app ID to avoid conflicts
     }
   } catch {}
 

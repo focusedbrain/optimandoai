@@ -26,9 +26,9 @@ var HANDSHAKE_MESSAGE_TEMPLATE = 'Dear [Recipient Name],\n\nI am writing to requ
     if (!t) {
       try { t = localStorage.getItem('optimando-ui-theme') } catch {}
     }
-    t = t || 'default'
-    document.body.className = (t === 'professional') ? 'theme-professional' : (t === 'dark' ? 'theme-dark' : 'theme-default')
-  } catch { document.body.className = 'theme-default' }
+    t = t || 'standard'
+    document.body.className = (t === 'standard') ? 'theme-standard' : (t === 'pro' ? 'theme-pro' : (t === 'dark' ? 'theme-dark' : 'theme-standard'))
+  } catch { document.body.className = 'theme-standard' }
 })()
 
 const msgs = document.getElementById('msgs')
@@ -717,11 +717,11 @@ function showTriggerPromptUI(mode, rect, displayId, imageUrl, videoUrl, createTr
     let btnTheme = 'default'
     try {
       const t = document.body.className
-      if (t.includes('professional')) btnTheme = 'professional'
+      if (t.includes('standard')) btnTheme = 'standard'
       else if (t.includes('dark')) btnTheme = 'dark'
     } catch {}
-    const saveBtnColor = btnTheme === 'professional' ? '#3b82f6' : '#10b981'
-    const saveBtnHoverColor = btnTheme === 'professional' ? '#2563eb' : '#059669'
+    const saveBtnColor = btnTheme === 'standard' ? '#9333ea' : '#10b981'
+    const saveBtnHoverColor = btnTheme === 'standard' ? '#7c3aed' : '#059669'
     
     const save = document.createElement('button')
     save.textContent = '💾 Save'

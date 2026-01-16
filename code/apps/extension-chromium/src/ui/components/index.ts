@@ -13,6 +13,8 @@ export { P2PChatPlaceholder } from './P2PChatPlaceholder'
 export { P2PStreamPlaceholder } from './P2PStreamPlaceholder'
 export { GroupChatPlaceholder } from './GroupChatPlaceholder'
 export { AdminPoliciesPlaceholder } from './AdminPoliciesPlaceholder'
+export { WRGuardSectionView } from './WRGuardSectionView'
+export { BeapSectionView } from './BeapSectionView'
 
 
 

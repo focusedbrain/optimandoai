@@ -17,8 +17,8 @@
         --bubble-assist-bg:rgba(255,255,255,0.10);
         --bubble-assist-border:rgba(255,255,255,0.20);
       }
-      .theme-default{
-        /* Purple gradient like extension default - stronger gradient */
+      .theme-pro{
+        /* Purple gradient like extension pro - stronger gradient */
         --bg-grad: linear-gradient(135deg, #c084fc 0%, #a855f7 50%, #9333ea 100%);
         --bg:#1e1b4b; /* fallback under gradient */
         --text:#ffffff;
@@ -31,18 +31,18 @@
         --bubble-assist-bg: rgba(118,75,162,0.20);
         --bubble-assist-border: rgba(255,255,255,0.22);
       }
-      .theme-professional{
-        --bg:#f8fafc;
+      .theme-standard{
+        --bg:#faf5ff;
         --text:#0f172a;
         --surface:#ffffff;
-        --border:#e2e8f0;
+        --border:rgba(147, 51, 234, 0.15);
         --muted:#475569;
-        --btn-surface:#e2e8f0;
+        --btn-surface:rgba(147, 51, 234, 0.08);
         --bubble-user-bg:#e6f7ee;
         --bubble-user-border:#a7f3d0;
-        --bubble-assist-bg:#f1f5f9;
-        --bubble-assist-border:#e2e8f0;
-        --bg-grad: linear-gradient(135deg, #ffffff 0%, #f1f5f9 100%);
+        --bubble-assist-bg:#f3e8ff;
+        --bubble-assist-border:rgba(147, 51, 234, 0.2);
+        --bg-grad: linear-gradient(135deg, #faf5ff 0%, #f3e8ff 50%, #e9d5ff 100%);
       }
       .theme-dark{
         --bg:#0b1220;
@@ -61,8 +61,8 @@
       html, body { height: 100%; margin: 0; font-family: -apple-system, Segoe UI, Roboto, sans-serif; background: var(--bg); color: var(--text); }
       /* Remove default user agent titlebar tint (Windows) by ensuring no page-level accent conflicts */
       body { accent-color: initial; }
-      body.theme-default { background: var(--bg-grad); }
-      body.theme-professional { background: var(--bg-grad); }
+      body.theme-pro { background: var(--bg-grad); }
+      body.theme-standard { background: var(--bg-grad); }
       body.theme-dark { background: var(--bg-grad); }
       .wrap { display: flex; flex-direction: column; height: 100%; }
       /* remove in-page header to maximize space */
@@ -124,18 +124,18 @@
       .send-dropdown-item .check { width:16px; color:#22c55e; font-weight:700; }
       .send-dropdown-item .name { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
       .send-dropdown-item .size { font-size:10px; opacity:0.5; background:rgba(255,255,255,0.1); padding:2px 6px; border-radius:4px; }
-      body.theme-professional .send-main:disabled { background:linear-gradient(135deg, #e2e8f0 0%, #cbd5e1 100%); border-color:#94a3b8; color:#64748b; }
-      body.theme-professional .send-dropdown { background:#ffffff; border-color:#e2e8f0; }
-      body.theme-professional .send-dropdown-item:hover { background:#f1f5f9; }
-      body.theme-professional .send-dropdown-item.active { background:rgba(34,197,94,0.12); }
-      body.theme-professional .send-dropdown-item { color:#0f172a; }
-      body.theme-professional .send-dropdown-item .size { background:#e2e8f0; }
+      body.theme-standard .send-main:disabled { background:linear-gradient(135deg, rgba(147, 51, 234, 0.1) 0%, rgba(147, 51, 234, 0.05) 100%); border-color:rgba(147, 51, 234, 0.2); color:#64748b; }
+      body.theme-standard .send-dropdown { background:#ffffff; border-color:rgba(147, 51, 234, 0.15); }
+      body.theme-standard .send-dropdown-item:hover { background:rgba(147, 51, 234, 0.05); }
+      body.theme-standard .send-dropdown-item.active { background:rgba(34,197,94,0.12); }
+      body.theme-standard .send-dropdown-item { color:#0f172a; }
+      body.theme-standard .send-dropdown-item .size { background:rgba(147, 51, 234, 0.1); }
       
       /* Mode selector styling - Pill style */
       .mode-select { font-size:12px; font-weight:500; background:rgba(55,65,81,0.9); border:none; color:#ffffff; border-radius:14px; padding:8px 24px 8px 12px; cursor:pointer; outline:none; appearance:none; -webkit-appearance:none; background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='8' viewBox='0 0 12 12'%3E%3Cpath fill='rgba(255,255,255,0.7)' d='M3 4.5L6 7.5L9 4.5'/%3E%3C/svg%3E"); background-repeat:no-repeat; background-position:right 10px center; transition: all 0.15s ease; }
       .mode-select:hover { background:rgba(55,65,81,1); }
-      body.theme-professional .mode-select { background:rgba(55,65,81,0.9); color:#ffffff; }
-      body.theme-professional .mode-select:hover { background:rgba(55,65,81,1); }
+      body.theme-standard .mode-select { background:rgba(147, 51, 234, 0.1); color:#0f172a; }
+      body.theme-standard .mode-select:hover { background:rgba(147, 51, 234, 0.15); }
       body.theme-dark .mode-select { background:rgba(55,65,81,0.9); }
       
       /* Chat view styles */
@@ -178,14 +178,14 @@
       .mg-label { font-size:13px; font-weight:600; opacity:0.85; min-width:60px; color:var(--text); }
       .mg-input { flex:1; background:var(--surface); border:1px solid var(--border); color:var(--text); border-radius:6px; padding:10px 12px; font-size:14px; outline:none; }
       .mg-input::placeholder { color:var(--muted); opacity:0.7; }
-      body.theme-professional .mg-input::placeholder { color:#64748b; opacity:0.8; }
+      body.theme-standard .mg-input::placeholder { color:#64748b; opacity:0.8; }
       body.theme-dark .mg-input::placeholder { color:rgba(255,255,255,0.5); }
-      body.theme-default .mg-input::placeholder { color:rgba(255,255,255,0.6); }
+      body.theme-pro .mg-input::placeholder { color:rgba(255,255,255,0.6); }
       .mg-body { flex:1; min-height:150px; background:var(--surface); border:1px solid var(--border); color:var(--text); border-radius:8px; padding:12px 14px; font-size:14px; line-height:1.6; resize:none; font-family:-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; outline:none; }
       .mg-body::placeholder { color:var(--muted); opacity:0.7; }
-      body.theme-professional .mg-body::placeholder { color:#64748b; opacity:0.8; }
+      body.theme-standard .mg-body::placeholder { color:#64748b; opacity:0.8; }
       body.theme-dark .mg-body::placeholder { color:rgba(255,255,255,0.5); }
-      body.theme-default .mg-body::placeholder { color:rgba(255,255,255,0.6); }
+      body.theme-pro .mg-body::placeholder { color:rgba(255,255,255,0.6); }
       .mg-attach-row { display:flex; align-items:center; justify-content:space-between; margin-top:4px; }
       .mg-attach-label { font-size:12px; font-weight:600; opacity:0.75; display:flex; align-items:center; gap:6px; }
       .mg-attach-note { font-size:10px; opacity:0.6; font-weight:400; }

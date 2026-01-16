@@ -16,17 +16,8 @@ const gotTheLock = app.requestSingleInstanceLock()
 if (!gotTheLock) {
   console.log('[MAIN] Another instance is already running. Exiting.')
   app.quit()
-} else {
-  app.on('second-instance', (_event, _commandLine, _workingDirectory) => {
-    // Someone tried to run a second instance, focus the existing window
-    console.log('[MAIN] Second instance detected, focusing existing window')
-    const windows = BrowserWindow.getAllWindows()
-    if (windows.length > 0) {
-      const mainWindow = windows[0]
-      if (mainWindow.isMinimized()) mainWindow.restore()
-      mainWindow.focus()
-    }
-  })
+  // CRITICAL: Exit the process immediately to prevent any further code execution
+  process.exit(0)
 }
 
 // ============================================================================
@@ -98,16 +89,16 @@ async function killProcessOnPort(port: number): Promise<void> {
 }
 
 /**
- * Kill any stale OpenGiraffe/electron processes that might be holding ports
+ * Kill any stale WR Code/electron processes that might be holding ports
  */
 async function killStaleProcesses(): Promise<void> {
   if (process.platform !== 'win32') return
   
   try {
-    // Kill any OpenGiraffe processes (renamed electron) except current process
+    // Kill any WR Code processes (renamed electron) except current process
     const currentPid = process.pid
-    execSync(`wmic process where "name='OpenGiraffe.exe' and processid!=${currentPid}" delete`, { stdio: 'ignore' })
-    console.log('[PORT-CLEANUP] Killed stale OpenGiraffe processes')
+    execSync(`wmic process where "name='wrcode.exe' and processid!=${currentPid}" delete`, { stdio: 'ignore' })
+    console.log('[PORT-CLEANUP] Killed stale WR Code processes')
   } catch {
     // No processes found or wmic not available
   }
@@ -200,6 +191,10 @@ let activeStop: null | (() => Promise<string>) = null
 // Track connected WS clients (extension bridge)
 var wsClients: any[] = (globalThis as any).__og_ws_clients__ || [];
 (globalThis as any).__og_ws_clients__ = wsClients;
+
+// Current extension theme (synced from extension via WebSocket)
+// Values: 'pro' (purple), 'dark', 'standard' (white - default)
+let currentExtensionTheme: 'pro' | 'dark' | 'standard' = 'standard';
 
 // Flag to track when app is actually quitting (from tray menu "Quit")
 let isAppQuitting = false
@@ -297,17 +292,26 @@ function handleDeepLink(raw: string) {
 
 // Check if app was started with --hidden flag (auto-start on login)
 const startHidden = process.argv.includes('--hidden')
+console.log('[MAIN] Startup args:', process.argv.join(' '))
+console.log('[MAIN] Start hidden mode:', startHidden)
 
 async function createWindow() {
   win = new BrowserWindow({
-    icon: path.join(process.env.VITE_PUBLIC, 'electron-vite.svg'),
+    title: 'WR Code™ Analysis Dashboard',
+    icon: path.join(process.env.VITE_PUBLIC, 'wrcode-logo.svg'),
     webPreferences: {
       preload: path.join(__dirname, 'preload.mjs'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      webSecurity: true,
     },
     show: !startHidden, // Start hidden if launched with --hidden flag
-    width: 800,
-    height: 600,
+    width: 1200,
+    height: 800,
   })
+  
+  // Remove the default application menu (File, Edit, View, Window, Help)
+  Menu.setApplicationMenu(null)
   
   // If started hidden, minimize to tray
   if (startHidden) {
@@ -329,9 +333,20 @@ async function createWindow() {
   })
 
   if (VITE_DEV_SERVER_URL) {
+    console.log('[MAIN] Loading dev server URL:', VITE_DEV_SERVER_URL)
     win.loadURL(VITE_DEV_SERVER_URL)
   } else {
-    win.loadFile(path.join(RENDERER_DIST, 'index.html'))
+    const indexPath = path.join(RENDERER_DIST, 'index.html')
+    console.log('[MAIN] Loading production file:', indexPath)
+    console.log('[MAIN] RENDERER_DIST:', RENDERER_DIST)
+    console.log('[MAIN] __dirname:', __dirname)
+    console.log('[MAIN] APP_ROOT:', process.env.APP_ROOT)
+    win.loadFile(indexPath)
+  }
+
+  // Open DevTools in development for debugging
+  if (VITE_DEV_SERVER_URL) {
+    win.webContents.openDevTools()
   }
 
   if (pendingLaunchMode) {
@@ -389,6 +404,34 @@ async function createWindow() {
         try { wsClients.forEach(c => { try { c.send(JSON.stringify({ type: 'TRIGGERS_UPDATED' })) } catch { } }) } catch { }
       } catch (err) {
         console.log('[MAIN] Error updating after trigger save:', err)
+      }
+    })
+    // Handle theme request from renderer
+    ipcMain.on('REQUEST_THEME', () => {
+      console.log('[MAIN] Theme requested by renderer, current theme:', currentExtensionTheme)
+      if (win) {
+        // Ensure we send the correct theme name (already mapped in currentExtensionTheme)
+        win.webContents.send('THEME_CHANGED', { theme: currentExtensionTheme })
+      }
+    })
+    // Handle theme change from renderer (user changed theme in dashboard)
+    ipcMain.on('SET_THEME', (_event, theme: string) => {
+      // Map old theme names for backward compatibility
+      let mappedTheme = theme
+      if (mappedTheme === 'default') mappedTheme = 'pro'
+      if (mappedTheme === 'professional') mappedTheme = 'standard'
+      
+      if (['pro', 'dark', 'standard'].includes(mappedTheme)) {
+        console.log('[MAIN] Theme changed from renderer:', mappedTheme)
+        currentExtensionTheme = mappedTheme as 'pro' | 'dark' | 'standard'
+        // Notify extension via WebSocket if connected
+        wsClients.forEach((socket: any) => {
+          try {
+            socket.send(JSON.stringify({ type: 'THEME_SYNC', theme: currentExtensionTheme }))
+          } catch (e) {
+            console.error('[MAIN] Error sending theme to extension:', e)
+          }
+        })
       }
     })
     ipcMain.on('overlay-cmd', async (_e, msg: any) => {
@@ -935,13 +978,26 @@ function createTray() {
   try {
     tray = new Tray(path.join(process.env.VITE_PUBLIC, 'electron-vite.svg'))
     updateTrayMenu()
-    tray.setToolTip('OpenGiraffe Orchestrator')
-    tray.on('click', () => { if (!win) return; if (win.isVisible()) win.focus(); else win.show() })
+    tray.setToolTip('WR Code Orchestrator')
+    tray.on('click', async () => {
+      if (!win || win.isDestroyed()) {
+        // Recreate window if it was closed
+        await createWindow()
+      }
+      if (win) {
+        if (win.isVisible()) {
+          win.focus()
+        } else {
+          win.show()
+          win.focus()
+        }
+      }
+    })
     // Startup toast
     try {
-      new Notification({ title: 'OpenGiraffe Orchestrator', body: 'Running in background. Use Alt+Shift+S or chat icons to capture.' }).show()
-    } catch { }
-  } catch { }
+      new Notification({ title: 'WR Code Orchestrator', body: 'Running in background. Use Alt+Shift+S or chat icons to capture.' }).show()
+    } catch {}
+  } catch {}
 }
 
 function updateTrayMenu() {
@@ -984,7 +1040,13 @@ function updateTrayMenu() {
     const loginSettings = app.getLoginItemSettings()
     
     const menu = Menu.buildFromTemplate([
-      { label: 'Show', click: () => { if (!win) return; win.show(); win.focus() } },
+      { label: 'Show Dashboard', click: async () => { 
+        if (!win || win.isDestroyed()) {
+          await createWindow()
+        }
+        win?.show()
+        win?.focus()
+      } },
       { type: 'separator' },
       { label: 'Screenshot (Alt+Shift+S)', click: () => win?.webContents.send('hotkey', 'screenshot') },
       { label: 'Stream (Alt+Shift+V)', click: () => win?.webContents.send('hotkey', 'stream') },
@@ -999,12 +1061,25 @@ function updateTrayMenu() {
         label: '🚀 Start on Login', 
         type: 'checkbox' as const,
         checked: loginSettings.openAtLogin,
+        enabled: !process.env.VITE_DEV_SERVER_URL, // Disable in dev mode
         click: (menuItem) => {
-          app.setLoginItemSettings({ 
-            openAtLogin: menuItem.checked, 
-            args: ['--hidden'] 
-          })
-          console.log('[MAIN] Auto-start on login:', menuItem.checked ? 'enabled' : 'disabled')
+          // Only allow changing autostart in production to prevent wrong executable registration
+          if (process.env.VITE_DEV_SERVER_URL) {
+            console.log('[MAIN] Cannot change autostart in dev mode')
+            return
+          }
+          try {
+            app.setLoginItemSettings({ 
+              openAtLogin: menuItem.checked, 
+              args: ['--hidden'],
+              name: 'WR Code' // Explicit name for Windows registry
+            })
+            const updatedSettings = app.getLoginItemSettings()
+            console.log('[MAIN] Auto-start on login:', menuItem.checked ? 'enabled' : 'disabled')
+            console.log('[MAIN] Autostart enabled:', updatedSettings.openAtLogin)
+          } catch (err) {
+            console.error('[MAIN] Failed to update autostart setting:', err)
+          }
         }
       },
       { type: 'separator' },
@@ -1019,23 +1094,20 @@ function updateTrayMenu() {
 // Quit when all windows are closed, except on macOS. There, it's common
 // for applications and their menu bar to stay active until the user quits
 // explicitly with Cmd + Q.
-// Single instance + protocol
-// Disabled in development to avoid conflicts with Vite hot-reload
-const isDev = process.env.NODE_ENV !== 'production'
-const gotLock = isDev ? true : app.requestSingleInstanceLock()
-if (!gotLock) {
-  console.log('[MAIN] Another instance is already running, quitting...')
-  app.quit()
-} else {
-  app.on('second-instance', (_e, argv) => {
-    if (win) {
-      if (win.isMinimized()) win.restore()
-      win.focus()
-    }
-    const arg = argv.find(a => a.startsWith('opengiraffe://'))
-    if (arg) handleDeepLink(arg)
-  })
-}
+// NOTE: Single-instance lock is handled at the top of this file
+// Handle second instance: focus window and handle deep-links
+app.on('second-instance', (_e, argv) => {
+  console.log('[MAIN] Second instance detected, focusing existing window')
+  // Focus the existing window
+  if (win && !win.isDestroyed()) {
+    if (win.isMinimized()) win.restore()
+    win.show()
+    win.focus()
+  }
+  // Handle opengiraffe:// deep-links
+  const arg = argv.find(a => a.startsWith('opengiraffe://'))
+  if (arg) handleDeepLink(arg)
+})
 
 app.setAsDefaultProtocolClient('opengiraffe')
 
@@ -1139,14 +1211,27 @@ app.whenReady().then(async () => {
     await setupFileLogging()
     try { process.env.WS_NO_BUFFER_UTIL = '1'; process.env.WS_NO_UTF_8_VALIDATE = '1' } catch { }
     // Auto-start on login (Windows/macOS). Pass --hidden so it starts in background.
+    // IMPORTANT: Only enable autostart in production builds to avoid registering dev electron
+    const isProduction = !process.env.VITE_DEV_SERVER_URL
     try {
-      if (process.platform === 'win32' || process.platform === 'darwin') {
-        app.setLoginItemSettings({ openAtLogin: true, args: ['--hidden'] })
-      }
       if (process.platform === 'win32') {
-        app.setAppUserModelId('com.opengiraffe.desktop')
+        app.setAppUserModelId('com.wrcode.desktop')
       }
-    } catch {}
+      if (isProduction && (process.platform === 'win32' || process.platform === 'darwin')) {
+        // Only register autostart for production builds (not dev mode)
+        app.setLoginItemSettings({ 
+          openAtLogin: true, 
+          args: ['--hidden'],
+          name: 'WR Code' // Explicit name for Windows registry
+        })
+        const loginSettings = app.getLoginItemSettings()
+        console.log('[MAIN] Production build - autostart registered:', loginSettings.openAtLogin)
+      } else if (!isProduction) {
+        console.log('[MAIN] Dev mode - skipping autostart registration to avoid wrong executable')
+      }
+    } catch (err) {
+      console.error('[MAIN] Failed to register autostart:', err)
+    }
   createWindow()
   createTray()
   console.log('[MAIN] Window and tray created')
@@ -1401,6 +1486,67 @@ app.whenReady().then(async () => {
               }
               return // Don't process further handlers for ping
             }
+            // ===== THEME SYNC HANDLER =====
+            if (msg.type === 'THEME_SYNC') {
+              // Sync theme from extension to Electron dashboard
+              // Map old theme names to new ones for backward compatibility
+              let mappedTheme = msg.theme
+              if (mappedTheme === 'default') mappedTheme = 'pro'
+              if (mappedTheme === 'professional') mappedTheme = 'standard'
+              
+              const newTheme = mappedTheme as 'pro' | 'dark' | 'standard'
+              if (newTheme && ['pro', 'dark', 'standard'].includes(newTheme)) {
+                console.log('[MAIN] ===== THEME_SYNC received =====')
+                console.log('[MAIN] Theme changed from', currentExtensionTheme, 'to', newTheme)
+                currentExtensionTheme = newTheme
+                // Forward theme to renderer
+                if (win) {
+                  win.webContents.send('THEME_CHANGED', { theme: currentExtensionTheme })
+                  console.log('[MAIN] ✅ Theme forwarded to renderer:', currentExtensionTheme)
+                }
+                socket.send(JSON.stringify({ type: 'THEME_SYNCED', theme: currentExtensionTheme }))
+              }
+              return
+            }
+            
+            if (msg.type === 'OPEN_ANALYSIS_DASHBOARD') {
+              // Open and focus the main window with Analysis Dashboard
+              console.log('[MAIN] ===== RECEIVED OPEN_ANALYSIS_DASHBOARD =====')
+              // Update theme if provided in message
+              // Map old theme names to new ones for backward compatibility
+              if (msg.theme) {
+                let mappedTheme = msg.theme
+                if (mappedTheme === 'default') mappedTheme = 'pro'
+                if (mappedTheme === 'professional') mappedTheme = 'standard'
+                if (['pro', 'dark', 'standard'].includes(mappedTheme)) {
+                  currentExtensionTheme = mappedTheme as 'pro' | 'dark' | 'standard'
+                  console.log('[MAIN] Theme from message:', currentExtensionTheme)
+                }
+              }
+              try {
+                // Recreate window if it was closed or destroyed
+                if (!win || win.isDestroyed()) {
+                  console.log('[MAIN] Window not available, creating new window...')
+                  await createWindow()
+                }
+                if (win && !win.isDestroyed()) {
+                  if (win.isMinimized()) win.restore()
+                  win.show()
+                  win.focus()
+                  // Signal the renderer to switch to Analysis Dashboard view with theme
+                  const phase = msg.phase || 'live'
+                  win.webContents.send('OPEN_ANALYSIS_DASHBOARD', { phase, theme: currentExtensionTheme })
+                  console.log('[MAIN] ✅ Analysis Dashboard window focused, IPC sent with phase:', phase, 'theme:', currentExtensionTheme)
+                  socket.send(JSON.stringify({ type: 'ANALYSIS_DASHBOARD_OPENED' }))
+                } else {
+                  console.log('[MAIN] ⚠️ Failed to create main window')
+                  socket.send(JSON.stringify({ type: 'ANALYSIS_DASHBOARD_ERROR', error: 'Failed to create main window' }))
+                }
+              } catch (err: any) {
+                console.error('[MAIN] ❌ Error opening Analysis Dashboard:', err)
+              }
+            }
+            
             if (msg.type === 'START_SELECTION') {
               // Open full-featured overlay with all controls
               console.log('[MAIN] ===== RECEIVED START_SELECTION, LAUNCHING FULL OVERLAY =====')
@@ -4488,6 +4634,551 @@ app.whenReady().then(async () => {
       } catch (error: any) {
         console.error('[HTTP-EMAIL] Error getting presets:', error)
         res.status(500).json({ ok: false, error: error.message })
+      }
+    })
+    
+    // =================================================================
+    // PDF Parser API Endpoints
+    // =================================================================
+    
+    // Safety limits for PDF parsing
+    const PDF_PARSER_LIMITS = {
+      MAX_PAGES: 300,
+      MAX_EXTRACTED_CHARS: 5 * 1024 * 1024, // 5MB of text
+      MAX_INPUT_SIZE_MB: 100
+    }
+    
+    // POST /api/parser/pdf/extract - Extract text from PDF (capsule-bound only)
+    httpApp.post('/api/parser/pdf/extract', async (req, res) => {
+      try {
+        const { attachmentId, base64 } = req.body
+        
+        if (!attachmentId || typeof attachmentId !== 'string') {
+          res.status(400).json({ success: false, error: 'Missing or invalid attachmentId' })
+          return
+        }
+        
+        if (!base64 || typeof base64 !== 'string') {
+          res.status(400).json({ success: false, error: 'Missing or invalid base64 PDF data' })
+          return
+        }
+        
+        // Check input size
+        const inputSizeMB = (base64.length * 0.75) / (1024 * 1024)
+        if (inputSizeMB > PDF_PARSER_LIMITS.MAX_INPUT_SIZE_MB) {
+          res.status(400).json({ 
+            success: false, 
+            error: `PDF too large: ${inputSizeMB.toFixed(1)}MB exceeds ${PDF_PARSER_LIMITS.MAX_INPUT_SIZE_MB}MB limit` 
+          })
+          return
+        }
+        
+        // Decode base64 to Uint8Array
+        const binaryString = Buffer.from(base64, 'base64')
+        const pdfData = new Uint8Array(binaryString)
+        
+        // Import PDF.js - bundled by vite (not externalized)
+        const pdfjsLib = await import('pdfjs-dist')
+        
+        // Set worker source to bundled worker file (copied by vite plugin)
+        // Worker is at dist-electron/pdf.worker.mjs, same directory as main.js
+        const { pathToFileURL } = await import('url')
+        const path = await import('path')
+        const workerPath = path.join(__dirname, 'pdf.worker.mjs')
+        pdfjsLib.GlobalWorkerOptions.workerSrc = pathToFileURL(workerPath).href
+        
+        // Load PDF document
+        const loadingTask = pdfjsLib.getDocument({ data: pdfData })
+        const pdfDoc = await loadingTask.promise
+        
+        const pageCount = pdfDoc.numPages
+        
+        // Check page limit
+        const pagesToProcess = Math.min(pageCount, PDF_PARSER_LIMITS.MAX_PAGES)
+        let truncatedPages = false
+        if (pageCount > PDF_PARSER_LIMITS.MAX_PAGES) {
+          truncatedPages = true
+        }
+        
+        // Extract text from each page
+        const textParts: string[] = []
+        let totalChars = 0
+        let truncatedChars = false
+        
+        for (let pageNum = 1; pageNum <= pagesToProcess; pageNum++) {
+          const page = await pdfDoc.getPage(pageNum)
+          const textContent = await page.getTextContent()
+          
+          // Concatenate text items deterministically
+          let pageText = ''
+          for (const item of textContent.items) {
+            if ('str' in item && typeof item.str === 'string') {
+              pageText += item.str
+              // Add space if item has EOL flag or width suggests word break
+              if ('hasEOL' in item && item.hasEOL) {
+                pageText += '\n'
+              }
+            }
+          }
+          
+          // Normalize line endings
+          pageText = pageText.replace(/\r\n/g, '\n').replace(/\r/g, '\n')
+          
+          // Check character limit
+          if (totalChars + pageText.length > PDF_PARSER_LIMITS.MAX_EXTRACTED_CHARS) {
+            const remaining = PDF_PARSER_LIMITS.MAX_EXTRACTED_CHARS - totalChars
+            if (remaining > 0) {
+              textParts.push(pageText.substring(0, remaining))
+            }
+            truncatedChars = true
+            break
+          }
+          
+          textParts.push(pageText)
+          totalChars += pageText.length
+        }
+        
+        // Build final text
+        let extractedText = textParts.join('\n\n')
+        
+        // Add truncation warnings if needed
+        const warnings: string[] = []
+        if (truncatedPages) {
+          warnings.push(`[TRUNCATED: Only first ${PDF_PARSER_LIMITS.MAX_PAGES} of ${pageCount} pages processed]`)
+        }
+        if (truncatedChars) {
+          warnings.push(`[TRUNCATED: Text exceeded ${PDF_PARSER_LIMITS.MAX_EXTRACTED_CHARS} character limit]`)
+        }
+        
+        if (warnings.length > 0) {
+          extractedText = warnings.join('\n') + '\n\n' + extractedText
+        }
+        
+        // Get PDF.js version for provenance
+        const pdfjsVersion = pdfjsLib.version || 'unknown'
+        
+        // DO NOT log extracted text (security requirement)
+        console.log(`[PDF-PARSER] Extracted ${totalChars} chars from ${pagesToProcess} pages (attachmentId: ${attachmentId})`)
+        
+        res.json({
+          success: true,
+          pageCount,
+          pagesProcessed: pagesToProcess,
+          extractedText,
+          truncated: truncatedPages || truncatedChars,
+          parser: {
+            engine: 'pdfjs',
+            version: pdfjsVersion
+          }
+        })
+        
+      } catch (error: any) {
+        console.error('[PDF-PARSER] Error extracting PDF text:', error.message)
+        res.status(500).json({ 
+          success: false, 
+          error: error.message || 'Failed to extract PDF text'
+        })
+      }
+    })
+    
+    // =================================================================
+    // PDF Rasterization Endpoint
+    // =================================================================
+    
+    // Safety limits for PDF rasterization
+    const PDF_RASTER_LIMITS = {
+      MAX_PAGES: 300,
+      MAX_DPI: 300,
+      DEFAULT_DPI: 144,
+      MIN_DPI: 72,
+      MAX_TOTAL_PIXELS: 200 * 1024 * 1024 // 200 megapixels total across all pages
+    }
+    
+    // POST /api/parser/pdf/rasterize - Rasterize PDF pages to PNG artefacts
+    httpApp.post('/api/parser/pdf/rasterize', async (req, res) => {
+      try {
+        const { attachmentId, base64, dpi: requestedDpi } = req.body
+        
+        if (!attachmentId || typeof attachmentId !== 'string') {
+          res.status(400).json({ success: false, error: 'Missing or invalid attachmentId' })
+          return
+        }
+        
+        if (!base64 || typeof base64 !== 'string') {
+          res.status(400).json({ success: false, error: 'Missing or invalid base64 PDF data' })
+          return
+        }
+        
+        // Validate and clamp DPI
+        let dpi = PDF_RASTER_LIMITS.DEFAULT_DPI
+        if (typeof requestedDpi === 'number') {
+          dpi = Math.max(PDF_RASTER_LIMITS.MIN_DPI, Math.min(PDF_RASTER_LIMITS.MAX_DPI, requestedDpi))
+        }
+        
+        // Check input size
+        const inputSizeMB = (base64.length * 0.75) / (1024 * 1024)
+        if (inputSizeMB > PDF_PARSER_LIMITS.MAX_INPUT_SIZE_MB) {
+          res.status(400).json({ 
+            success: false, 
+            error: `PDF too large: ${inputSizeMB.toFixed(1)}MB exceeds ${PDF_PARSER_LIMITS.MAX_INPUT_SIZE_MB}MB limit` 
+          })
+          return
+        }
+        
+        // Decode base64 to Uint8Array
+        const binaryString = Buffer.from(base64, 'base64')
+        const pdfData = new Uint8Array(binaryString)
+        
+        // Import required modules
+        const pdfjsLib = await import('pdfjs-dist')
+        const { pathToFileURL } = await import('url')
+        const pathModule = await import('path')
+        const fsModule = await import('fs')
+        const cryptoModule = await import('crypto')
+        const { homedir } = await import('os')
+        
+        // Set worker source to bundled worker
+        const workerPath = pathModule.join(__dirname, 'pdf.worker.mjs')
+        pdfjsLib.GlobalWorkerOptions.workerSrc = pathToFileURL(workerPath).href
+        
+        // Load canvas module (node-canvas with Path2D support)
+        let canvasModule: any
+        try {
+          canvasModule = await import('canvas')
+        } catch (canvasErr) {
+          console.error('[PDF-RASTER] canvas module not available:', (canvasErr as Error).message)
+          res.status(500).json({ 
+            success: false, 
+            error: 'Canvas module not available for rasterization. Install canvas package.' 
+          })
+          return
+        }
+        
+        // Load PDF document
+        const loadingTask = pdfjsLib.getDocument({ 
+          data: pdfData,
+          verbosity: 0 // Suppress warnings
+        })
+        const pdfDoc = await loadingTask.promise
+        
+        const pageCount = pdfDoc.numPages
+        
+        // Check page limit
+        if (pageCount > PDF_RASTER_LIMITS.MAX_PAGES) {
+          res.status(400).json({
+            success: false,
+            error: `PDF has ${pageCount} pages, exceeds limit of ${PDF_RASTER_LIMITS.MAX_PAGES}`,
+            code: 'MAX_PAGES_EXCEEDED'
+          })
+          return
+        }
+        
+        // Create artefact storage directory
+        const artefactDir = pathModule.join(homedir(), '.opengiraffe', 'electron-data', 'raster-artefacts')
+        if (!fsModule.existsSync(artefactDir)) {
+          fsModule.mkdirSync(artefactDir, { recursive: true })
+        }
+        
+        // Track total pixels for limit enforcement
+        let totalPixels = 0
+        const pages: Array<{
+          page: number
+          width: number
+          height: number
+          bytes: number  // PNG file size in bytes
+          sha256: string
+          artefactRef: string
+          base64: string  // Base64-encoded PNG data
+          mime: string    // MIME type (image/png)
+        }> = []
+        
+        // Get PDF.js version for provenance
+        const pdfjsVersion = pdfjsLib.version || 'unknown'
+        
+        // Scale factor for DPI (72 DPI is the PDF default)
+        const scale = dpi / 72
+        
+        for (let pageNum = 1; pageNum <= pageCount; pageNum++) {
+          const page = await pdfDoc.getPage(pageNum)
+          
+          // Calculate dimensions at requested DPI
+          const viewport = page.getViewport({ scale })
+          const width = Math.floor(viewport.width)
+          const height = Math.floor(viewport.height)
+          
+          // Check pixel limit
+          const pagePixels = width * height
+          if (totalPixels + pagePixels > PDF_RASTER_LIMITS.MAX_TOTAL_PIXELS) {
+            console.log(`[PDF-RASTER] Stopping at page ${pageNum}: pixel limit reached (${totalPixels} + ${pagePixels} > ${PDF_RASTER_LIMITS.MAX_TOTAL_PIXELS})`)
+            res.status(400).json({
+              success: false,
+              error: `Total pixels would exceed limit at page ${pageNum}`,
+              code: 'MAX_TOTAL_PIXELS_EXCEEDED',
+              processedPages: pages.length
+            })
+            return
+          }
+          totalPixels += pagePixels
+          
+          // Create canvas for this page
+          const canvas = canvasModule.createCanvas(width, height)
+          const context = canvas.getContext('2d')
+          
+          // Fill with white background
+          context.fillStyle = 'white'
+          context.fillRect(0, 0, width, height)
+          
+          // Render PDF page to canvas
+          const renderContext = {
+            canvasContext: context,
+            viewport: viewport
+          }
+          
+          await page.render(renderContext).promise
+          
+          // Convert to WEBP buffer (quality 0.85 for good balance of size/quality)
+          const webpBuffer = canvas.toBuffer('image/webp', { quality: 0.85 })
+          
+          // Calculate SHA-256 hash over raw WEBP bytes
+          const sha256 = cryptoModule.createHash('sha256').update(webpBuffer).digest('hex')
+          
+          // Generate artefact reference
+          const artefactRef = `raster_${attachmentId}_p${pageNum}_${sha256.substring(0, 8)}.webp`
+          const artefactPath = pathModule.join(artefactDir, artefactRef)
+          
+          // Write WEBP to artefact store
+          fsModule.writeFileSync(artefactPath, webpBuffer)
+          
+          // Convert WEBP buffer to base64 for in-memory transfer
+          const webpBase64 = webpBuffer.toString('base64')
+          
+          pages.push({
+            page: pageNum,
+            width,
+            height,
+            bytes: webpBuffer.length,
+            sha256,
+            artefactRef,
+            base64: webpBase64,
+            mime: 'image/webp'
+          })
+          
+          // DO NOT log image content (security requirement)
+        }
+        
+        // DO NOT log image bytes (security requirement)
+        console.log(`[PDF-RASTER] Rasterized ${pages.length} pages at ${dpi}dpi (attachmentId: ${attachmentId}, totalPixels: ${totalPixels})`)
+        
+        res.json({
+          success: true,
+          pageCount,
+          pagesRasterized: pages.length,
+          pages,
+          raster: {
+            engine: 'pdfjs',
+            version: pdfjsVersion,
+            dpi
+          }
+        })
+        
+      } catch (error: any) {
+        console.error('[PDF-RASTER] Error rasterizing PDF:', error.message)
+        res.status(500).json({ 
+          success: false, 
+          error: error.message || 'Failed to rasterize PDF'
+        })
+      }
+    })
+    
+    // =================================================================
+    // Post-Quantum KEM Endpoints (ML-KEM-768)
+    // =================================================================
+    // Per canon A.3.054.10: "uses post-quantum encryption as the default for qBEAP"
+    // Per canon A.3.13: ".qBEAP MUST be encrypted using post-quantum-ready end-to-end cryptography"
+    
+    // GET /api/crypto/pq/status - Check if PQ crypto is available
+    httpApp.get('/api/crypto/pq/status', async (_req, res) => {
+      try {
+        // Dynamic import of @noble/post-quantum/ml-kem
+        const pq = await import('@noble/post-quantum/ml-kem')
+        const mlKem768Available = typeof pq.ml_kem768?.encapsulate === 'function'
+        
+        res.json({
+          success: true,
+          pq: {
+            available: mlKem768Available,
+            kem: 'ML-KEM-768',
+            library: '@noble/post-quantum',
+            version: '0.2.1'
+          }
+        })
+      } catch (error: any) {
+        console.error('[PQ-KEM] Error checking PQ status:', error.message)
+        res.json({
+          success: true,
+          pq: {
+            available: false,
+            kem: 'ML-KEM-768',
+            error: error.message || 'PQ library not available'
+          }
+        })
+      }
+    })
+    
+    // POST /api/crypto/pq/mlkem768/keypair - Generate a new ML-KEM-768 keypair
+    httpApp.post('/api/crypto/pq/mlkem768/keypair', async (_req, res) => {
+      try {
+        const pq = await import('@noble/post-quantum/ml-kem')
+        
+        // Generate keypair
+        const keypair = pq.ml_kem768.keygen()
+        
+        // Encode to base64
+        const publicKeyB64 = Buffer.from(keypair.publicKey).toString('base64')
+        const secretKeyB64 = Buffer.from(keypair.secretKey).toString('base64')
+        
+        // TODO: In production, store secretKey in vault with a keyId
+        // For MVP, return it (caller should store securely)
+        const keyId = `pq_mlkem768_${Date.now()}_${Math.random().toString(36).substring(2, 10)}`
+        
+        console.log(`[PQ-KEM] Generated ML-KEM-768 keypair: ${keyId}`)
+        
+        res.json({
+          success: true,
+          kem: 'ML-KEM-768',
+          keyId,
+          publicKeyB64,
+          // WARNING: secretKeyB64 should be stored in vault in production
+          // Returning here for MVP only
+          secretKeyB64
+        })
+      } catch (error: any) {
+        console.error('[PQ-KEM] Error generating keypair:', error.message)
+        res.status(500).json({
+          success: false,
+          error: error.message || 'Failed to generate ML-KEM-768 keypair'
+        })
+      }
+    })
+    
+    // POST /api/crypto/pq/mlkem768/encapsulate - Encapsulate a shared secret
+    // Sender-side operation: creates ciphertext + shared secret using recipient's public key
+    httpApp.post('/api/crypto/pq/mlkem768/encapsulate', async (req, res) => {
+      try {
+        const { peerPublicKeyB64 } = req.body
+        
+        if (!peerPublicKeyB64 || typeof peerPublicKeyB64 !== 'string') {
+          res.status(400).json({
+            success: false,
+            error: 'peerPublicKeyB64 is required (base64-encoded ML-KEM-768 public key)'
+          })
+          return
+        }
+        
+        const pq = await import('@noble/post-quantum/ml-kem')
+        
+        // Decode peer's public key
+        const peerPublicKey = new Uint8Array(Buffer.from(peerPublicKeyB64, 'base64'))
+        
+        // Validate key size (ML-KEM-768 public key is 1184 bytes)
+        if (peerPublicKey.length !== 1184) {
+          res.status(400).json({
+            success: false,
+            error: `Invalid ML-KEM-768 public key size: expected 1184 bytes, got ${peerPublicKey.length}`
+          })
+          return
+        }
+        
+        // Encapsulate: generates ciphertext and shared secret
+        const { cipherText, sharedSecret } = pq.ml_kem768.encapsulate(peerPublicKey)
+        
+        // Encode results to base64
+        const ciphertextB64 = Buffer.from(cipherText).toString('base64')
+        const sharedSecretB64 = Buffer.from(sharedSecret).toString('base64')
+        
+        // DO NOT log shared secret (security requirement)
+        console.log(`[PQ-KEM] ML-KEM-768 encapsulation successful (ciphertext: ${cipherText.length} bytes)`)
+        
+        res.json({
+          success: true,
+          kem: 'ML-KEM-768',
+          ciphertextB64,
+          sharedSecretB64
+        })
+      } catch (error: any) {
+        console.error('[PQ-KEM] Error during encapsulation:', error.message)
+        res.status(500).json({
+          success: false,
+          error: error.message || 'Failed to encapsulate with ML-KEM-768'
+        })
+      }
+    })
+    
+    // POST /api/crypto/pq/mlkem768/decapsulate - Decapsulate a shared secret
+    // Recipient-side operation: recovers shared secret using local secret key
+    httpApp.post('/api/crypto/pq/mlkem768/decapsulate', async (req, res) => {
+      try {
+        const { ciphertextB64, secretKeyB64 } = req.body
+        
+        if (!ciphertextB64 || typeof ciphertextB64 !== 'string') {
+          res.status(400).json({
+            success: false,
+            error: 'ciphertextB64 is required (base64-encoded ML-KEM-768 ciphertext)'
+          })
+          return
+        }
+        
+        if (!secretKeyB64 || typeof secretKeyB64 !== 'string') {
+          res.status(400).json({
+            success: false,
+            error: 'secretKeyB64 is required (base64-encoded ML-KEM-768 secret key)'
+          })
+          return
+        }
+        
+        const pq = await import('@noble/post-quantum/ml-kem')
+        
+        // Decode inputs
+        const ciphertext = new Uint8Array(Buffer.from(ciphertextB64, 'base64'))
+        const secretKey = new Uint8Array(Buffer.from(secretKeyB64, 'base64'))
+        
+        // Validate sizes
+        if (ciphertext.length !== 1088) {
+          res.status(400).json({
+            success: false,
+            error: `Invalid ML-KEM-768 ciphertext size: expected 1088 bytes, got ${ciphertext.length}`
+          })
+          return
+        }
+        
+        if (secretKey.length !== 2400) {
+          res.status(400).json({
+            success: false,
+            error: `Invalid ML-KEM-768 secret key size: expected 2400 bytes, got ${secretKey.length}`
+          })
+          return
+        }
+        
+        // Decapsulate: recover shared secret
+        const sharedSecret = pq.ml_kem768.decapsulate(ciphertext, secretKey)
+        
+        // Encode result to base64
+        const sharedSecretB64 = Buffer.from(sharedSecret).toString('base64')
+        
+        // DO NOT log shared secret (security requirement)
+        console.log(`[PQ-KEM] ML-KEM-768 decapsulation successful`)
+        
+        res.json({
+          success: true,
+          kem: 'ML-KEM-768',
+          sharedSecretB64
+        })
+      } catch (error: any) {
+        console.error('[PQ-KEM] Error during decapsulation:', error.message)
+        res.status(500).json({
+          success: false,
+          error: error.message || 'Failed to decapsulate with ML-KEM-768'
+        })
       }
     })
     

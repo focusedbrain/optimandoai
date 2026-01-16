@@ -7,7 +7,6 @@
 import { 
   AdminPolicyPackageSchema, 
   type AdminPolicyPackage, 
-  type PolicySyncStatus,
   type PolicyApplicationResult,
   type PolicyNode,
 } from './types'
@@ -287,5 +286,6 @@ export function getSyncStatusSummary(): {
     errorNodes: registeredNodes.filter(n => n.syncStatus.status === 'error').length,
   }
 }
+
 
 

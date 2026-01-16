@@ -1,344 +1,154 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import './App.css'
-import LETmeGIRAFFETHATFORYOUIcons from './components/LETmeGIRAFFETHATFORYOUIcons'
-import GlassViewSidebar from './components/GlassViewSidebar'
+import AnalysisCanvas from './components/AnalysisCanvas'
+import { type AnalysisOpenPayload, sanitizeAnalysisOpenPayload } from './components/analysis'
 
-type ThemePreference = 'dark' | 'professional' | 'auto'
-
-function resolveTheme(pref: ThemePreference): 'dark' | 'professional' {
-  if (pref !== 'auto') return pref
-  const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches
-  return prefersDark ? 'dark' : 'professional'
+// Type declaration for the Analysis Dashboard preload API
+declare global {
+  interface Window {
+    analysisDashboard?: {
+      onOpen: (callback: (rawPayload: unknown) => void) => () => void
+      onThemeChange: (callback: (theme: string) => void) => () => void
+      requestTheme: () => void
+      setTheme: (theme: string) => void
+    }
+  }
 }
 
-function ThemeSwitcher() {
-  const [pref, setPref] = useState<ThemePreference>(() => (localStorage.getItem('ui-theme') as ThemePreference) || 'auto')
-  const actual = useMemo(() => resolveTheme(pref), [pref])
+// Extension theme types: 'pro' (purple), 'dark', 'standard' (light/white - default)
+type ExtensionTheme = 'pro' | 'dark' | 'standard'
 
-  useEffect(() => {
-    const root = document.documentElement
-    root.setAttribute('data-ui-theme', actual)
-    localStorage.setItem('ui-theme', pref)
-  }, [pref, actual])
+// Map extension theme to CSS data-ui-theme attribute
+function mapThemeToCss(theme: ExtensionTheme): string {
+  // 'pro' is purple theme, 'dark' stays dark, 'standard' is light (default)
+  return theme
+}
 
-  useEffect(() => {
-    if (pref !== 'auto') return
-    const mql = window.matchMedia('(prefers-color-scheme: dark)')
-    const handler = () => setPref('auto')
-    mql.addEventListener('change', handler)
-    return () => mql.removeEventListener('change', handler)
-  }, [pref])
-
+// WR Code Logo Component - semi-transparent
+function WRCodeLogo({ size = 24 }: { size?: number }) {
   return (
-    <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-      <span style={{ fontSize: 12 }}>Theme</span>
+    <img 
+      src="/wrcode-logo.svg" 
+      alt="WR Code Logo"
+      width={size}
+      height={size * 1.25}
+    />
+  )
+}
+
+// Helper to normalize theme string to ExtensionTheme
+function normalizeTheme(theme: string): ExtensionTheme {
+  let mapped = theme.toLowerCase()
+  if (mapped === 'default') return 'pro'
+  if (mapped === 'professional') return 'standard'
+  return (['pro', 'dark', 'standard'].includes(mapped) ? mapped : 'standard') as ExtensionTheme
+}
+
+// Theme selector component - allows manual theme changes
+function ThemeSelector({ value, onChange }: { value: ExtensionTheme, onChange: (v: ExtensionTheme) => void }) {
+  // Ensure value is valid (value is already ExtensionTheme, but ensure it's one of the valid ones)
+  const safeValue = (['standard', 'pro', 'dark'].includes(value) ? value : 'standard') as ExtensionTheme
+  
+  return (
+    <div className="theme-switcher">
+      <span className="theme-switcher__label">Theme</span>
       <select
-        value={pref}
-        onChange={(e) => setPref(e.target.value as ThemePreference)}
-        style={{ fontSize: 12, padding: '4px 8px' }}
+        key={safeValue} // Force re-render when value changes
+        value={safeValue}
+        onChange={(e) => {
+          const newTheme = e.target.value as ExtensionTheme
+          console.log('[THEME_SELECTOR] Theme changed to:', newTheme)
+          onChange(newTheme)
+        }}
+        className="theme-switcher__select"
         aria-label="Theme selection"
       >
+        <option value="standard">Standard</option>
+        <option value="pro">Pro</option>
         <option value="dark">Dark</option>
-        <option value="professional">Professional</option>
-        <option value="auto">Auto</option>
       </select>
-    </label>
+    </div>
   )
 }
 
 function App() {
-  const [showSettings, setShowSettings] = useState(false)
-  const [showPlans, setShowPlans] = useState(false)
-  const [showGlassView, setShowGlassView] = useState(false)
-  const [captures, setCaptures] = useState<any[]>([])
-  const [triggerPrompt, setTriggerPrompt] = useState<{ mode: 'screenshot'|'stream', rect: any, displayId: number } | null>(null)
-  const [triggerName, setTriggerName] = useState('')
+  // Extension theme state - synced from extension via main process (default: standard)
+  const [extensionTheme, setExtensionTheme] = useState<ExtensionTheme>('standard')
+  const [deepLinkPayload, setDeepLinkPayload] = useState<AnalysisOpenPayload | null>(null)
 
+  // Apply theme to document
   useEffect(() => {
-    // @ts-ignore
-    window.lmgtfy?.onCapture((payload: any) => setCaptures((c) => [...c, payload]))
-    // @ts-ignore
-    window.lmgtfy?.onHotkey((k: string) => {
-      if (k === 'screenshot') {
-        // @ts-ignore
-        window.lmgtfy?.selectScreenshot()
-      } else if (k === 'stream') {
-        // @ts-ignore
-        window.lmgtfy?.selectStream()
-      } else if (k === 'stop') {
-        // @ts-ignore
-        window.lmgtfy?.stopStream()
+    const root = document.documentElement
+    const cssTheme = mapThemeToCss(extensionTheme)
+    root.setAttribute('data-ui-theme', cssTheme)
+    console.log('[APP] Theme applied:', extensionTheme, '-> CSS:', cssTheme)
+  }, [extensionTheme])
+
+  // Listen for theme changes from extension via main process
+  useEffect(() => {
+    const cleanup = window.analysisDashboard?.onThemeChange((theme: string) => {
+      console.log('[APP] Theme changed from extension:', theme)
+      // Map old theme names for backward compatibility
+      let mappedTheme = theme
+      if (mappedTheme === 'default') mappedTheme = 'pro'
+      if (mappedTheme === 'professional') mappedTheme = 'standard'
+      if (['pro', 'dark', 'standard'].includes(mappedTheme)) {
+        setExtensionTheme(mappedTheme as ExtensionTheme)
       }
     })
-
-    const ipc: any = (window as any).ipcRenderer
-    if (ipc?.on) {
-      console.log('[APP] Setting up SHOW_TRIGGER_PROMPT listener')
-      const handleTriggerSaveRequest = (_e: any, data: any) => {
-        console.log('[APP] SHOW_TRIGGER_PROMPT received:', data)
-        setTriggerPrompt(data)
-        setTriggerName('')
-      }
-      ipc.on('SHOW_TRIGGER_PROMPT', handleTriggerSaveRequest)
-      return () => {
-        ipc.off?.('SHOW_TRIGGER_PROMPT', handleTriggerSaveRequest)
-      }
-    } else {
-      console.log('[APP] ipcRenderer not available')
-    }
+    // Request current theme on mount
+    window.analysisDashboard?.requestTheme()
+    return () => { cleanup?.() }
   }, [])
 
-  const handleSaveTrigger = async () => {
-    if (!triggerPrompt || !triggerName.trim()) return
-    try {
-      // @ts-ignore
-      await window.LETmeGIRAFFETHATFORYOU?.savePreset({
-        id: undefined,
-        name: triggerName.trim(),
-        displayId: triggerPrompt.displayId,
-        x: triggerPrompt.rect.x,
-        y: triggerPrompt.rect.y,
-        w: triggerPrompt.rect.w,
-        h: triggerPrompt.rect.h,
-        mode: triggerPrompt.mode,
-        headless: triggerPrompt.mode === 'screenshot'
-      })
-      const ipc: any = (window as any).ipcRenderer
-      ipc?.send?.('TRIGGER_SAVED')
-    } catch (err) {
-      console.log('Error saving trigger:', err)
+  // Handle Analysis Dashboard open request from main process
+  const handleOpenAnalysisDashboard = useCallback((rawPayload: unknown) => {
+    const payload = sanitizeAnalysisOpenPayload(rawPayload)
+    console.log('[APP] OPEN_ANALYSIS_DASHBOARD received, sanitized:', payload)
+    // Extract theme from payload if provided
+    if (payload && typeof payload === 'object' && 'theme' in payload) {
+      const theme = (payload as any).theme
+      if (typeof theme === 'string') {
+        const normalized = normalizeTheme(theme)
+        setExtensionTheme(normalized)
+      }
     }
-    setTriggerPrompt(null)
-    setTriggerName('')
-  }
+    setDeepLinkPayload(payload)
+  }, [])
 
-  const handleCancelTrigger = () => {
-    setTriggerPrompt(null)
-    setTriggerName('')
-  }
+  // Listen for OPEN_ANALYSIS_DASHBOARD from main process
+  useEffect(() => {
+    const cleanup = window.analysisDashboard?.onOpen(handleOpenAnalysisDashboard)
+    return () => { cleanup?.() }
+  }, [handleOpenAnalysisDashboard])
+
+  // Handle theme change from selector - update immediately and sync to main process
+  const handleThemeChange = useCallback((newTheme: ExtensionTheme) => {
+    setExtensionTheme(newTheme)
+    // Sync to main process for persistence and extension sync
+    window.analysisDashboard?.setTheme(newTheme)
+  }, [])
+
   return (
     <div className="app-root">
-      <div className="topbar">
-        <div className="brand">OpenGiraffe</div>
-        <div style={{ flex: 1 }} />
-        <LETmeGIRAFFETHATFORYOUIcons onCapture={(p) => console.log('capture', p)} />
-        <button 
-          className="btn" 
-          onClick={() => setShowGlassView(!showGlassView)} 
-          style={{ 
-            marginLeft: 8, 
-            backgroundColor: showGlassView ? '#4ec9b0' : undefined,
-            color: showGlassView ? '#1e1e1e' : undefined
-          }}
-          title="Toggle GlassView Mini-App"
-        >
-          🔍 GlassView
-        </button>
-        <button className="btn" onClick={() => setShowPlans(true)} style={{ marginLeft: 8 }}>Plans</button>
-        <button className="btn" onClick={() => setShowSettings(true)} style={{ marginLeft: 8 }}>Settings</button>
-      </div>
-      <div className="layout">
-        <aside className="sidebar">
-          <div className="section-title">Navigation</div>
-          <button className="btn">Action</button>
-          <div style={{ marginTop: 16 }}>
-            <div className="section-title">Mini-Apps</div>
-            <button 
-              className="btn" 
-              onClick={() => setShowGlassView(!showGlassView)}
-              style={{ 
-                width: '100%',
-                backgroundColor: showGlassView ? '#4ec9b0' : undefined,
-                color: showGlassView ? '#1e1e1e' : undefined
-              }}
-            >
-              🔍 GlassView
-            </button>
-          </div>
-        </aside>
-        <main className="content" style={{ flex: 1 }}>
-          <h1>Main Content</h1>
-          <p>This area remains unaffected by the theme background.</p>
-          <div style={{ marginTop: 12 }}>
-            <button className="btn" onClick={() => {
-              // @ts-ignore
-              window.lmgtfy?.selectScreenshot()
-            }}>📸 Screenshot</button>
-            <button className="btn" onClick={() => {
-              // @ts-ignore
-              window.lmgtfy?.selectStream()
-            }} style={{ marginLeft: 8 }}>🎥 Stream</button>
-            <button className="btn" onClick={() => {
-              // @ts-ignore
-              window.lmgtfy?.stopStream()
-            }} style={{ marginLeft: 8 }}>■ Stop</button>
-          </div>
-          <pre style={{ marginTop: 12, background: 'rgba(0,0,0,0.2)', padding: 8, borderRadius: 6 }}>
-            {JSON.stringify(captures, null, 2)}
-          </pre>
-        </main>
-        {/* GlassView Sidebar */}
-        {showGlassView && (
-          <div style={{ width: 380, flexShrink: 0 }}>
-            <GlassViewSidebar 
-              visible={showGlassView} 
-              onClose={() => setShowGlassView(false)} 
-              width={380}
-            />
-          </div>
-        )}
-      </div>
-      {showSettings && (
-        <div className="modal-overlay" role="dialog" aria-modal="true" aria-label="Settings">
-          <div className="modal">
-            <div className="modal-header">
-              <div className="modal-title">Settings</div>
-              <button className="btn" onClick={() => setShowSettings(false)} aria-label="Close">×</button>
-            </div>
-            <div className="modal-body">
-              <ThemeSwitcher />
-            </div>
-          </div>
+      {/* Minimal Header Bar */}
+      <header className="app-header">
+        <div className="app-header__brand">
+          <WRCodeLogo size={28} />
+          <span className="app-header__title">WR Code<sup className="app-header__tm">™</sup></span>
+          <span className="app-header__subtitle">Analysis Dashboard</span>
         </div>
-      )}
-      {showPlans && (
-        <div className="modal-overlay" role="dialog" aria-modal="true" aria-label="Subscription Plans">
-          <div className="modal">
-            <div className="modal-header">
-              <div className="modal-title">Subscription Plans</div>
-              <button className="btn" onClick={() => setShowPlans(false)} aria-label="Close">×</button>
-            </div>
-            <div className="modal-body">
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
-                <div className="card">
-                  <div className="section-title">Free (Local)</div>
-                  <div style={{ fontSize: 28, fontWeight: 700 }}>$0</div>
-                  <ul style={{ marginTop: 8 }}>
-                    <li>Unlimited WR Codes</li>
-                    <li>Unlimited local context (offline, private)</li>
-                    <li>WR Code account required</li>
-                    <li>Runs with local LLMs</li>
-                    <li style={{ color: '#22c55e' }}>✓ Pay-as-you-go (Cloud)</li>
-                  </ul>
-                </div>
-                <div className="card">
-                  <div className="section-title">Pro (Private)</div>
-                  <div style={{ fontSize: 28, fontWeight: 700 }}>$19.95<span style={{ fontSize: 12 }}>/year</span></div>
-                  <ul style={{ marginTop: 8 }}>
-                    <li>Unlimited WR Codes</li>
-                    <li>WR Code generation (non-commercial use)</li>
-                    <li>1 GB hosted context</li>
-                    <li>Hosted verification</li>
-                    <li>Basic analytics</li>
-                    <li style={{ color: '#22c55e' }}>✓ BYOK or Pay-as-you-go</li>
-                  </ul>
-                </div>
-                <div className="card">
-                  <div className="section-title">Publisher</div>
-                  <div style={{ fontSize: 28, fontWeight: 700 }}>$19<span style={{ fontSize: 12 }}>/month</span></div>
-                  <ul style={{ marginTop: 8 }}>
-                    <li>Unlimited WR Codes</li>
-                    <li>WR Code generation (commercial use)</li>
-                    <li>5 GB hosted context</li>
-                    <li>Publisher branding</li>
-                    <li>Custom domain</li>
-                    <li>Advanced analytics</li>
-                    <li>Priority queue</li>
-                    <li style={{ color: '#22c55e' }}>✓ BYOK or Pay-as-you-go</li>
-                  </ul>
-                </div>
-                <div className="card">
-                  <div className="section-title">Business/Enterprise</div>
-                  <div style={{ fontSize: 28, fontWeight: 700 }}>$99<span style={{ fontSize: 12 }}>/month</span></div>
-                  <ul style={{ marginTop: 8 }}>
-                    <li>Unlimited WR Codes</li>
-                    <li>WR Code generation (enterprise use)</li>
-                    <li>25 GB hosted context</li>
-                    <li>Multiple domains</li>
-                    <li>Team features & roles</li>
-                    <li>SSO/SAML, DPA</li>
-                    <li>SLA + dedicated support</li>
-                    <li style={{ color: '#22c55e' }}>✓ BYOK or Pay-as-you-go</li>
-                  </ul>
-                </div>
-              </div>
-              <div style={{ marginTop: 12, padding: 10, borderRadius: 8, background: 'rgba(34,197,94,0.12)', border: '1px solid rgba(34,197,94,0.45)' }}>
-                <div style={{ fontSize: 12 }}>
-                  🔑 BYOK Feature: Available for all subscription plans. Use your own API keys from OpenAI, Claude, Gemini, Grok, and more!
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-      {triggerPrompt && (
-        <div className="modal-overlay" role="dialog" aria-modal="true" aria-label="Save Tagged Trigger">
-          <div className="modal" style={{ maxWidth: 500 }}>
-            <div className="modal-header">
-              <div className="modal-title">Save Tagged Trigger</div>
-              <button className="btn" onClick={handleCancelTrigger} aria-label="Close">×</button>
-            </div>
-            <div className="modal-body">
-              <div style={{ marginBottom: 12 }}>
-                <div style={{ marginBottom: 8, color: '#e5e7eb', fontSize: 14 }}>
-                  {triggerPrompt.mode === 'screenshot' ? '📸 Screenshot' : '🎥 Stream'} trigger will be saved for quick access.
-                </div>
-                <label style={{ display: 'block', marginBottom: 6, color: '#e5e7eb', fontSize: 13 }}>
-                  Tagged Trigger name:
-                </label>
-                <input
-                  type="text"
-                  placeholder="Trigger name"
-                  value={triggerName}
-                  onChange={(e) => setTriggerName(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' && triggerName.trim()) {
-                      handleSaveTrigger()
-                    } else if (e.key === 'Escape') {
-                      handleCancelTrigger()
-                    }
-                  }}
-                  autoFocus
-                  style={{
-                    width: '100%',
-                    padding: '8px 12px',
-                    fontSize: 14,
-                    border: '1px solid rgba(255,255,255,0.2)',
-                    borderRadius: 6,
-                    background: 'rgba(11,18,32,0.8)',
-                    color: '#e5e7eb'
-                  }}
-                />
-              </div>
-              <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-                <button
-                  className="btn"
-                  onClick={handleCancelTrigger}
-                  style={{
-                    background: 'rgba(255,255,255,0.12)',
-                    color: '#e5e7eb'
-                  }}
-                >
-                  Cancel
-                </button>
-                <button
-                  className="btn"
-                  onClick={handleSaveTrigger}
-                  disabled={!triggerName.trim()}
-                  style={{
-                    background: '#2563eb',
-                    color: 'white',
-                    opacity: triggerName.trim() ? 1 : 0.5,
-                    cursor: triggerName.trim() ? 'pointer' : 'not-allowed'
-                  }}
-                >
-                  Save
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+        <div className="app-header__spacer" />
+        <ThemeSelector value={extensionTheme} onChange={handleThemeChange} />
+      </header>
+
+      {/* Full-width Analysis Canvas */}
+      <main className="app-main">
+        <AnalysisCanvas 
+          deepLinkPayload={deepLinkPayload ?? undefined}
+          onDeepLinkConsumed={() => setDeepLinkPayload(null)}
+        />
+      </main>
     </div>
   )
 }

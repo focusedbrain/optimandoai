@@ -5,11 +5,13 @@
  * composer, and "Run" button with model indicator.
  */
 
-import React, { useState, useRef, useEffect } from 'react'
+import React, { useState, useRef, useEffect, useCallback } from 'react'
 import { useUIStore } from '../../stores/useUIStore'
 import { getPrimaryButtonLabel, shouldShowModelInButton } from '../../shared/ui/capabilities'
 import ComposerToolbelt from './ComposerToolbelt'
 import AIAssistPopover from './AIAssistPopover'
+import { importFromFile } from '../../ingress'
+import { logImportEvent } from '../../audit'
 
 interface ChatMessage {
   role: 'user' | 'assistant'
@@ -19,7 +21,7 @@ interface ChatMessage {
 
 interface CommandChatViewProps {
   /** Theme variant */
-  theme?: 'default' | 'dark' | 'professional'
+  theme?: 'pro' | 'dark' | 'standard'
   /** Initial messages */
   messages?: ChatMessage[]
   /** Callback when message is sent */
@@ -33,7 +35,7 @@ interface CommandChatViewProps {
 }
 
 export const CommandChatView: React.FC<CommandChatViewProps> = ({
-  theme = 'default',
+  theme = 'pro',
   messages: initialMessages = [],
   onSend,
   modelName = 'Local',
@@ -44,8 +46,11 @@ export const CommandChatView: React.FC<CommandChatViewProps> = ({
   const [messages, setMessages] = useState<ChatMessage[]>(initialMessages)
   const [inputText, setInputText] = useState('')
   const [showAIAssist, setShowAIAssist] = useState(false)
+  const [toastMessage, setToastMessage] = useState<string | null>(null)
+  const [isUploading, setIsUploading] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const beapFileInputRef = useRef<HTMLInputElement>(null)
 
   // Scroll to bottom when messages change
   useEffect(() => {
@@ -99,17 +104,61 @@ export const CommandChatView: React.FC<CommandChatViewProps> = ({
     setComposerMode('text')
   }
 
+  // BEAP Upload Handlers
+  const handleBeapUploadClick = useCallback(() => {
+    beapFileInputRef.current?.click()
+  }, [])
+
+  const handleBeapFileChange = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+
+    setIsUploading(true)
+    try {
+      // Import using the ingress pipeline (source=download is set internally)
+      const result = await importFromFile(file)
+      
+      if (result.success && result.messageId) {
+        // Log audit event
+        await logImportEvent(result.messageId, 'download', {})
+        
+        // Show success toast
+        setToastMessage('BEAP™ Message imported to Inbox (pending verification).')
+        setTimeout(() => setToastMessage(null), 4000)
+      } else {
+        // Show error toast
+        setToastMessage(`Import failed: ${result.error || 'Unknown error'}`)
+        setTimeout(() => setToastMessage(null), 4000)
+      }
+    } catch (error) {
+      console.error('[WR Chat] BEAP import failed:', error)
+      setToastMessage('Import failed. Please try again.')
+      setTimeout(() => setToastMessage(null), 4000)
+    } finally {
+      setIsUploading(false)
+      // Reset file input
+      if (beapFileInputRef.current) {
+        beapFileInputRef.current.value = ''
+      }
+    }
+  }, [])
+
   const buttonLabel = getPrimaryButtonLabel(mode)
   const showModelInButton = shouldShowModelInButton(mode)
 
+  // Map old theme names for backward compatibility
+  const effectiveTheme = theme === 'standard' ? 'standard' : theme === 'dark' ? 'dark' : 'pro'
+
   // Theme styles
   const getStyles = () => {
+    
     const base = {
       container: {
         display: 'flex',
         flexDirection: 'column' as const,
         height: '100%',
-        overflow: 'hidden'
+        overflow: 'hidden',
+        position: 'relative' as const
       },
       header: {
         padding: '8px 12px',
@@ -195,21 +244,21 @@ export const CommandChatView: React.FC<CommandChatViewProps> = ({
       }
     }
 
-    switch (theme) {
-      case 'professional':
+    switch (effectiveTheme) {
+      case 'standard':
         return {
           ...base,
-          header: { ...base.header, background: '#f8fafc', borderBottom: '1px solid #e2e8f0', color: '#0f172a' },
+          header: { ...base.header, background: '#ffffff', borderBottom: '1px solid #e1e8ed', color: '#0f172a' },
           headerBadge: { ...base.headerBadge, background: 'rgba(59,130,246,0.1)', color: '#2563eb' },
-          messages: { ...base.messages, background: '#ffffff' },
+          messages: { ...base.messages, background: '#f8f9fb' },
           bubble: (isUser: boolean) => ({
             ...base.bubble(isUser),
-            background: isUser ? 'rgba(34,197,94,0.1)' : '#f1f5f9',
-            border: isUser ? '1px solid rgba(34,197,94,0.3)' : '1px solid #e2e8f0',
+            background: isUser ? 'rgba(34,197,94,0.1)' : '#ffffff',
+            border: isUser ? '1px solid rgba(34,197,94,0.3)' : '1px solid #e1e8ed',
             color: '#0f172a'
           }),
-          composer: { ...base.composer, background: '#f8fafc', borderTop: '1px solid #e2e8f0' },
-          textarea: { ...base.textarea, background: '#ffffff', border: '1px solid #e2e8f0', color: '#0f172a' },
+          composer: { ...base.composer, background: '#ffffff', borderTop: '1px solid #e1e8ed' },
+          textarea: { ...base.textarea, background: '#ffffff', border: '1px solid #e1e8ed', color: '#0f172a' },
           sendButton: { ...base.sendButton, background: 'linear-gradient(135deg, #22c55e 0%, #16a34a 100%)', color: '#052e16' }
         }
       case 'dark':
@@ -228,7 +277,7 @@ export const CommandChatView: React.FC<CommandChatViewProps> = ({
           textarea: { ...base.textarea, background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)', color: '#e5e7eb' },
           sendButton: { ...base.sendButton, background: 'linear-gradient(135deg, #22c55e 0%, #16a34a 100%)', color: '#052e16' }
         }
-      default: // purple
+      default: // 'pro' (purple)
         return {
           ...base,
           header: { ...base.header, background: 'rgba(0,0,0,0.15)', borderBottom: '1px solid rgba(255,255,255,0.15)', color: 'white' },
@@ -275,17 +324,50 @@ export const CommandChatView: React.FC<CommandChatViewProps> = ({
       {/* Composer */}
       <div style={styles.composer}>
         <ComposerToolbelt 
-          theme={theme} 
+          theme={effectiveTheme === 'standard' ? 'professional' : effectiveTheme === 'pro' ? 'default' : effectiveTheme} 
           onAIAssistClick={handleAIAssistClick}
         />
         
         <div style={styles.composerRow}>
+          {/* Hidden file input for BEAP upload */}
+          <input
+            ref={beapFileInputRef}
+            type="file"
+            accept=".beap,.json,.zip"
+            style={{ display: 'none' }}
+            onChange={handleBeapFileChange}
+          />
+          
+          {/* Upload BEAP Button */}
+          <button
+            onClick={handleBeapUploadClick}
+            disabled={isUploading}
+            title="Upload BEAP™ Message"
+            style={{
+              width: '44px',
+              height: '44px',
+              borderRadius: '8px',
+              border: effectiveTheme === 'standard' ? '1px solid #e1e8ed' : '1px solid rgba(255,255,255,0.2)',
+              background: effectiveTheme === 'standard' ? '#ffffff' : 'rgba(255,255,255,0.08)',
+              color: effectiveTheme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.7)',
+              cursor: isUploading ? 'wait' : 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              fontSize: '18px',
+              transition: 'all 0.2s ease',
+              flexShrink: 0
+            }}
+          >
+            {isUploading ? '⏳' : '📎'}
+          </button>
+          
           <textarea
             ref={textareaRef}
             value={inputText}
             onChange={(e) => setInputText(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="Type a command..."
+            placeholder="Start a conversation… or Command the Orchestrator… or Upload a BEAP™ Message"
             style={styles.textarea}
             disabled={isLoading}
           />
@@ -311,16 +393,57 @@ export const CommandChatView: React.FC<CommandChatViewProps> = ({
               onClose={() => setShowAIAssist(false)}
               inputText={inputText}
               onApply={handleAIApply}
-              theme={theme}
+              theme={effectiveTheme === 'standard' ? 'professional' : effectiveTheme === 'pro' ? 'default' : effectiveTheme}
             />
           </div>
         </div>
       </div>
+      
+      {/* Toast Notification */}
+      {toastMessage && (
+        <div style={{
+          position: 'absolute',
+          bottom: '80px',
+          left: '50%',
+          transform: 'translateX(-50%)',
+          padding: '10px 16px',
+          borderRadius: '8px',
+          background: effectiveTheme === 'standard' 
+            ? 'rgba(15,23,42,0.95)' 
+            : 'rgba(0,0,0,0.85)',
+          color: 'white',
+          fontSize: '12px',
+          fontWeight: 500,
+          boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
+          zIndex: 100,
+          display: 'flex',
+          alignItems: 'center',
+          gap: '8px',
+          maxWidth: '90%'
+        }}>
+          <span>📥</span>
+          <span>{toastMessage}</span>
+          <button
+            onClick={() => setToastMessage(null)}
+            style={{
+              background: 'none',
+              border: 'none',
+              color: 'rgba(255,255,255,0.6)',
+              cursor: 'pointer',
+              fontSize: '14px',
+              padding: '0 4px'
+            }}
+          >
+            ✕
+          </button>
+        </div>
+      )}
     </div>
   )
 }
 
 export default CommandChatView
+
 
 
 

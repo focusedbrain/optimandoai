@@ -4,8 +4,8 @@ This repository contains the official Canonical Specification, normative documen
 Optimando.ai is the publication identity and operating brand of
 O.S. CyberEarth UG (haftungsbeschränkt).
 
-📘 Paper v195: The Official Canon
-The foundation of this repository is the cornerstone scientific and normative work: "WR Code™ – Browser-Based Multi-Agent Orchestration for Contextual Workflow Automation" (v195).
+📘 Paper v199: The Official Canon
+The foundation of this repository is the cornerstone scientific and normative work: "WR Code™ – Browser-Based Multi-Agent Orchestration for Contextual Workflow Automation" (v199).
 
 Starting with v191, this document serves as the sole authoritative source (The Canon) for the following protocols:
 
@@ -26,7 +26,7 @@ Suspension of Prior Versions: Paper v191 supersedes all previous drafts (v1–v1
 
 📜 Licensing (Proprietary Dual-Structure)
 1. Canoncial Specification License: CSL-1.2
-The documentation and protocol definitions (Paper v195) are licensed under the WR Code™ Canonical Specification License (CSL-1.2).
+The documentation and protocol definitions (Paper v199) are licensed under the WR Code™ Canonical Specification License (CSL-1.2).
 
 Read-Only/No-Derivatives: This specification is "open to be read, but closed to be redefined."
 
@@ -57,6 +57,6 @@ Audit Trail: This ensures that the establishment of the WR Code™ Canon and its
 
 
 🔗 Citation & Contact
-Schreyer, O. (2025). WR Code™ – Browser-Based Multi-Agent Orchestration for Contextual Workflow Automation (v195). Optimando.ai.
+Schreyer, O. (2025). WR Code™ – Browser-Based Multi-Agent Orchestration for Contextual Workflow Automation (v199). Optimando.ai.
 
 For enterprise deployments, SaaS integration, or commercial licensing inquiries: 📩 license@optimando.ai | 🌐 optimando.ai

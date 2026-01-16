@@ -1,0 +1,729 @@
+<!doctype html>
+<html lang="en-US">
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<link rel="profile" href="https://gmpg.org/xfn/11">
+	<title>Optimando AI &#8211; AI Workflow Automation</title>
+<meta name='robots' content='max-image-preview:large' />
+<link rel="alternate" type="application/rss+xml" title="Optimando AI - AI Workflow Automation &raquo; Feed" href="https://optimando.ai/feed/" />
+<link rel="alternate" type="application/rss+xml" title="Optimando AI - AI Workflow Automation &raquo; Comments Feed" href="https://optimando.ai/comments/feed/" />
+<link rel="alternate" title="oEmbed (JSON)" type="application/json+oembed" href="https://optimando.ai/wp-json/oembed/1.0/embed?url=https%3A%2F%2Foptimando.ai%2F" />
+<link rel="alternate" title="oEmbed (XML)" type="text/xml+oembed" href="https://optimando.ai/wp-json/oembed/1.0/embed?url=https%3A%2F%2Foptimando.ai%2F&#038;format=xml" />
+<style id='wp-img-auto-sizes-contain-inline-css'>
+img:is([sizes=auto i],[sizes^="auto," i]){contain-intrinsic-size:3000px 1500px}
+/*# sourceURL=wp-img-auto-sizes-contain-inline-css */
+</style>
+<link rel='stylesheet' id='font-awesome-5-all-css' href='https://optimando.ai/wp-content/plugins/elementor/assets/lib/font-awesome/css/all.min.css?ver=3.34.1' media='all' />
+<link rel='stylesheet' id='font-awesome-4-shim-css' href='https://optimando.ai/wp-content/plugins/elementor/assets/lib/font-awesome/css/v4-shims.min.css?ver=3.34.1' media='all' />
+<link rel='stylesheet' id='jkit-elements-main-css' href='https://optimando.ai/wp-content/plugins/jeg-elementor-kit/assets/css/elements/main.css?ver=3.0.2' media='all' />
+<style id='wp-emoji-styles-inline-css'>
+
+	img.wp-smiley, img.emoji {
+		display: inline !important;
+		border: none !important;
+		box-shadow: none !important;
+		height: 1em !important;
+		width: 1em !important;
+		margin: 0 0.07em !important;
+		vertical-align: -0.1em !important;
+		background: none !important;
+		padding: 0 !important;
+	}
+/*# sourceURL=wp-emoji-styles-inline-css */
+</style>
+<style id='global-styles-inline-css'>
+:root{--wp--preset--aspect-ratio--square: 1;--wp--preset--aspect-ratio--4-3: 4/3;--wp--preset--aspect-ratio--3-4: 3/4;--wp--preset--aspect-ratio--3-2: 3/2;--wp--preset--aspect-ratio--2-3: 2/3;--wp--preset--aspect-ratio--16-9: 16/9;--wp--preset--aspect-ratio--9-16: 9/16;--wp--preset--color--black: #000000;--wp--preset--color--cyan-bluish-gray: #abb8c3;--wp--preset--color--white: #ffffff;--wp--preset--color--pale-pink: #f78da7;--wp--preset--color--vivid-red: #cf2e2e;--wp--preset--color--luminous-vivid-orange: #ff6900;--wp--preset--color--luminous-vivid-amber: #fcb900;--wp--preset--color--light-green-cyan: #7bdcb5;--wp--preset--color--vivid-green-cyan: #00d084;--wp--preset--color--pale-cyan-blue: #8ed1fc;--wp--preset--color--vivid-cyan-blue: #0693e3;--wp--preset--color--vivid-purple: #9b51e0;--wp--preset--gradient--vivid-cyan-blue-to-vivid-purple: linear-gradient(135deg,rgb(6,147,227) 0%,rgb(155,81,224) 100%);--wp--preset--gradient--light-green-cyan-to-vivid-green-cyan: linear-gradient(135deg,rgb(122,220,180) 0%,rgb(0,208,130) 100%);--wp--preset--gradient--luminous-vivid-amber-to-luminous-vivid-orange: linear-gradient(135deg,rgb(252,185,0) 0%,rgb(255,105,0) 100%);--wp--preset--gradient--luminous-vivid-orange-to-vivid-red: linear-gradient(135deg,rgb(255,105,0) 0%,rgb(207,46,46) 100%);--wp--preset--gradient--very-light-gray-to-cyan-bluish-gray: linear-gradient(135deg,rgb(238,238,238) 0%,rgb(169,184,195) 100%);--wp--preset--gradient--cool-to-warm-spectrum: linear-gradient(135deg,rgb(74,234,220) 0%,rgb(151,120,209) 20%,rgb(207,42,186) 40%,rgb(238,44,130) 60%,rgb(251,105,98) 80%,rgb(254,248,76) 100%);--wp--preset--gradient--blush-light-purple: linear-gradient(135deg,rgb(255,206,236) 0%,rgb(152,150,240) 100%);--wp--preset--gradient--blush-bordeaux: linear-gradient(135deg,rgb(254,205,165) 0%,rgb(254,45,45) 50%,rgb(107,0,62) 100%);--wp--preset--gradient--luminous-dusk: linear-gradient(135deg,rgb(255,203,112) 0%,rgb(199,81,192) 50%,rgb(65,88,208) 100%);--wp--preset--gradient--pale-ocean: linear-gradient(135deg,rgb(255,245,203) 0%,rgb(182,227,212) 50%,rgb(51,167,181) 100%);--wp--preset--gradient--electric-grass: linear-gradient(135deg,rgb(202,248,128) 0%,rgb(113,206,126) 100%);--wp--preset--gradient--midnight: linear-gradient(135deg,rgb(2,3,129) 0%,rgb(40,116,252) 100%);--wp--preset--font-size--small: 13px;--wp--preset--font-size--medium: 20px;--wp--preset--font-size--large: 36px;--wp--preset--font-size--x-large: 42px;--wp--preset--spacing--20: 0.44rem;--wp--preset--spacing--30: 0.67rem;--wp--preset--spacing--40: 1rem;--wp--preset--spacing--50: 1.5rem;--wp--preset--spacing--60: 2.25rem;--wp--preset--spacing--70: 3.38rem;--wp--preset--spacing--80: 5.06rem;--wp--preset--shadow--natural: 6px 6px 9px rgba(0, 0, 0, 0.2);--wp--preset--shadow--deep: 12px 12px 50px rgba(0, 0, 0, 0.4);--wp--preset--shadow--sharp: 6px 6px 0px rgba(0, 0, 0, 0.2);--wp--preset--shadow--outlined: 6px 6px 0px -3px rgb(255, 255, 255), 6px 6px rgb(0, 0, 0);--wp--preset--shadow--crisp: 6px 6px 0px rgb(0, 0, 0);}:root { --wp--style--global--content-size: 800px;--wp--style--global--wide-size: 1200px; }:where(body) { margin: 0; }.wp-site-blocks > .alignleft { float: left; margin-right: 2em; }.wp-site-blocks > .alignright { float: right; margin-left: 2em; }.wp-site-blocks > .aligncenter { justify-content: center; margin-left: auto; margin-right: auto; }:where(.wp-site-blocks) > * { margin-block-start: 24px; margin-block-end: 0; }:where(.wp-site-blocks) > :first-child { margin-block-start: 0; }:where(.wp-site-blocks) > :last-child { margin-block-end: 0; }:root { --wp--style--block-gap: 24px; }:root :where(.is-layout-flow) > :first-child{margin-block-start: 0;}:root :where(.is-layout-flow) > :last-child{margin-block-end: 0;}:root :where(.is-layout-flow) > *{margin-block-start: 24px;margin-block-end: 0;}:root :where(.is-layout-constrained) > :first-child{margin-block-start: 0;}:root :where(.is-layout-constrained) > :last-child{margin-block-end: 0;}:root :where(.is-layout-constrained) > *{margin-block-start: 24px;margin-block-end: 0;}:root :where(.is-layout-flex){gap: 24px;}:root :where(.is-layout-grid){gap: 24px;}.is-layout-flow > .alignleft{float: left;margin-inline-start: 0;margin-inline-end: 2em;}.is-layout-flow > .alignright{float: right;margin-inline-start: 2em;margin-inline-end: 0;}.is-layout-flow > .aligncenter{margin-left: auto !important;margin-right: auto !important;}.is-layout-constrained > .alignleft{float: left;margin-inline-start: 0;margin-inline-end: 2em;}.is-layout-constrained > .alignright{float: right;margin-inline-start: 2em;margin-inline-end: 0;}.is-layout-constrained > .aligncenter{margin-left: auto !important;margin-right: auto !important;}.is-layout-constrained > :where(:not(.alignleft):not(.alignright):not(.alignfull)){max-width: var(--wp--style--global--content-size);margin-left: auto !important;margin-right: auto !important;}.is-layout-constrained > .alignwide{max-width: var(--wp--style--global--wide-size);}body .is-layout-flex{display: flex;}.is-layout-flex{flex-wrap: wrap;align-items: center;}.is-layout-flex > :is(*, div){margin: 0;}body .is-layout-grid{display: grid;}.is-layout-grid > :is(*, div){margin: 0;}body{padding-top: 0px;padding-right: 0px;padding-bottom: 0px;padding-left: 0px;}a:where(:not(.wp-element-button)){text-decoration: underline;}:root :where(.wp-element-button, .wp-block-button__link){background-color: #32373c;border-width: 0;color: #fff;font-family: inherit;font-size: inherit;font-style: inherit;font-weight: inherit;letter-spacing: inherit;line-height: inherit;padding-top: calc(0.667em + 2px);padding-right: calc(1.333em + 2px);padding-bottom: calc(0.667em + 2px);padding-left: calc(1.333em + 2px);text-decoration: none;text-transform: inherit;}.has-black-color{color: var(--wp--preset--color--black) !important;}.has-cyan-bluish-gray-color{color: var(--wp--preset--color--cyan-bluish-gray) !important;}.has-white-color{color: var(--wp--preset--color--white) !important;}.has-pale-pink-color{color: var(--wp--preset--color--pale-pink) !important;}.has-vivid-red-color{color: var(--wp--preset--color--vivid-red) !important;}.has-luminous-vivid-orange-color{color: var(--wp--preset--color--luminous-vivid-orange) !important;}.has-luminous-vivid-amber-color{color: var(--wp--preset--color--luminous-vivid-amber) !important;}.has-light-green-cyan-color{color: var(--wp--preset--color--light-green-cyan) !important;}.has-vivid-green-cyan-color{color: var(--wp--preset--color--vivid-green-cyan) !important;}.has-pale-cyan-blue-color{color: var(--wp--preset--color--pale-cyan-blue) !important;}.has-vivid-cyan-blue-color{color: var(--wp--preset--color--vivid-cyan-blue) !important;}.has-vivid-purple-color{color: var(--wp--preset--color--vivid-purple) !important;}.has-black-background-color{background-color: var(--wp--preset--color--black) !important;}.has-cyan-bluish-gray-background-color{background-color: var(--wp--preset--color--cyan-bluish-gray) !important;}.has-white-background-color{background-color: var(--wp--preset--color--white) !important;}.has-pale-pink-background-color{background-color: var(--wp--preset--color--pale-pink) !important;}.has-vivid-red-background-color{background-color: var(--wp--preset--color--vivid-red) !important;}.has-luminous-vivid-orange-background-color{background-color: var(--wp--preset--color--luminous-vivid-orange) !important;}.has-luminous-vivid-amber-background-color{background-color: var(--wp--preset--color--luminous-vivid-amber) !important;}.has-light-green-cyan-background-color{background-color: var(--wp--preset--color--light-green-cyan) !important;}.has-vivid-green-cyan-background-color{background-color: var(--wp--preset--color--vivid-green-cyan) !important;}.has-pale-cyan-blue-background-color{background-color: var(--wp--preset--color--pale-cyan-blue) !important;}.has-vivid-cyan-blue-background-color{background-color: var(--wp--preset--color--vivid-cyan-blue) !important;}.has-vivid-purple-background-color{background-color: var(--wp--preset--color--vivid-purple) !important;}.has-black-border-color{border-color: var(--wp--preset--color--black) !important;}.has-cyan-bluish-gray-border-color{border-color: var(--wp--preset--color--cyan-bluish-gray) !important;}.has-white-border-color{border-color: var(--wp--preset--color--white) !important;}.has-pale-pink-border-color{border-color: var(--wp--preset--color--pale-pink) !important;}.has-vivid-red-border-color{border-color: var(--wp--preset--color--vivid-red) !important;}.has-luminous-vivid-orange-border-color{border-color: var(--wp--preset--color--luminous-vivid-orange) !important;}.has-luminous-vivid-amber-border-color{border-color: var(--wp--preset--color--luminous-vivid-amber) !important;}.has-light-green-cyan-border-color{border-color: var(--wp--preset--color--light-green-cyan) !important;}.has-vivid-green-cyan-border-color{border-color: var(--wp--preset--color--vivid-green-cyan) !important;}.has-pale-cyan-blue-border-color{border-color: var(--wp--preset--color--pale-cyan-blue) !important;}.has-vivid-cyan-blue-border-color{border-color: var(--wp--preset--color--vivid-cyan-blue) !important;}.has-vivid-purple-border-color{border-color: var(--wp--preset--color--vivid-purple) !important;}.has-vivid-cyan-blue-to-vivid-purple-gradient-background{background: var(--wp--preset--gradient--vivid-cyan-blue-to-vivid-purple) !important;}.has-light-green-cyan-to-vivid-green-cyan-gradient-background{background: var(--wp--preset--gradient--light-green-cyan-to-vivid-green-cyan) !important;}.has-luminous-vivid-amber-to-luminous-vivid-orange-gradient-background{background: var(--wp--preset--gradient--luminous-vivid-amber-to-luminous-vivid-orange) !important;}.has-luminous-vivid-orange-to-vivid-red-gradient-background{background: var(--wp--preset--gradient--luminous-vivid-orange-to-vivid-red) !important;}.has-very-light-gray-to-cyan-bluish-gray-gradient-background{background: var(--wp--preset--gradient--very-light-gray-to-cyan-bluish-gray) !important;}.has-cool-to-warm-spectrum-gradient-background{background: var(--wp--preset--gradient--cool-to-warm-spectrum) !important;}.has-blush-light-purple-gradient-background{background: var(--wp--preset--gradient--blush-light-purple) !important;}.has-blush-bordeaux-gradient-background{background: var(--wp--preset--gradient--blush-bordeaux) !important;}.has-luminous-dusk-gradient-background{background: var(--wp--preset--gradient--luminous-dusk) !important;}.has-pale-ocean-gradient-background{background: var(--wp--preset--gradient--pale-ocean) !important;}.has-electric-grass-gradient-background{background: var(--wp--preset--gradient--electric-grass) !important;}.has-midnight-gradient-background{background: var(--wp--preset--gradient--midnight) !important;}.has-small-font-size{font-size: var(--wp--preset--font-size--small) !important;}.has-medium-font-size{font-size: var(--wp--preset--font-size--medium) !important;}.has-large-font-size{font-size: var(--wp--preset--font-size--large) !important;}.has-x-large-font-size{font-size: var(--wp--preset--font-size--x-large) !important;}
+:root :where(.wp-block-pullquote){font-size: 1.5em;line-height: 1.6;}
+/*# sourceURL=global-styles-inline-css */
+</style>
+<link rel='stylesheet' id='elementor-frontend-css' href='https://optimando.ai/wp-content/plugins/elementor/assets/css/frontend.min.css?ver=3.34.1' media='all' />
+<link rel='stylesheet' id='elementor-post-6-css' href='https://optimando.ai/wp-content/uploads/elementor/css/post-6.css?ver=1768393324' media='all' />
+<link rel='stylesheet' id='widget-heading-css' href='https://optimando.ai/wp-content/plugins/elementor/assets/css/widget-heading.min.css?ver=3.34.1' media='all' />
+<link rel='stylesheet' id='e-animation-pulse-css' href='https://optimando.ai/wp-content/plugins/elementor/assets/lib/animations/styles/e-animation-pulse.min.css?ver=3.34.1' media='all' />
+<link rel='stylesheet' id='e-animation-zoomIn-css' href='https://optimando.ai/wp-content/plugins/elementor/assets/lib/animations/styles/zoomIn.min.css?ver=3.34.1' media='all' />
+<link rel='stylesheet' id='swiper-css' href='https://optimando.ai/wp-content/plugins/elementor/assets/lib/swiper/v8/css/swiper.min.css?ver=8.4.5' media='all' />
+<link rel='stylesheet' id='e-swiper-css' href='https://optimando.ai/wp-content/plugins/elementor/assets/css/conditionals/e-swiper.min.css?ver=3.34.1' media='all' />
+<link rel='stylesheet' id='widget-image-carousel-css' href='https://optimando.ai/wp-content/plugins/elementor/assets/css/widget-image-carousel.min.css?ver=3.34.1' media='all' />
+<link rel='stylesheet' id='e-animation-float-css' href='https://optimando.ai/wp-content/plugins/elementor/assets/lib/animations/styles/e-animation-float.min.css?ver=3.34.1' media='all' />
+<link rel='stylesheet' id='widget-image-css' href='https://optimando.ai/wp-content/plugins/elementor/assets/css/widget-image.min.css?ver=3.34.1' media='all' />
+<link rel='stylesheet' id='e-animation-slideInRight-css' href='https://optimando.ai/wp-content/plugins/elementor/assets/lib/animations/styles/slideInRight.min.css?ver=3.34.1' media='all' />
+<link rel='stylesheet' id='e-animation-slideInDown-css' href='https://optimando.ai/wp-content/plugins/elementor/assets/lib/animations/styles/slideInDown.min.css?ver=3.34.1' media='all' />
+<link rel='stylesheet' id='elementor-post-42-css' href='https://optimando.ai/wp-content/uploads/elementor/css/post-42.css?ver=1768398996' media='all' />
+<link rel='stylesheet' id='cute-alert-css' href='https://optimando.ai/wp-content/plugins/metform/public/assets/lib/cute-alert/style.css?ver=4.1.2' media='all' />
+<link rel='stylesheet' id='text-editor-style-css' href='https://optimando.ai/wp-content/plugins/metform/public/assets/css/text-editor.css?ver=4.1.2' media='all' />
+<link rel='stylesheet' id='hello-elementor-css' href='https://optimando.ai/wp-content/themes/hello-elementor/assets/css/reset.css?ver=3.4.5' media='all' />
+<link rel='stylesheet' id='hello-elementor-theme-style-css' href='https://optimando.ai/wp-content/themes/hello-elementor/assets/css/theme.css?ver=3.4.5' media='all' />
+<link rel='stylesheet' id='hello-elementor-header-footer-css' href='https://optimando.ai/wp-content/themes/hello-elementor/assets/css/header-footer.css?ver=3.4.5' media='all' />
+<link rel='stylesheet' id='e-animation-slideInLeft-css' href='https://optimando.ai/wp-content/plugins/elementor/assets/lib/animations/styles/slideInLeft.min.css?ver=3.34.1' media='all' />
+<link rel='stylesheet' id='widget-icon-list-css' href='https://optimando.ai/wp-content/plugins/elementor/assets/css/widget-icon-list.min.css?ver=3.34.1' media='all' />
+<link rel='stylesheet' id='widget-social-icons-css' href='https://optimando.ai/wp-content/plugins/elementor/assets/css/widget-social-icons.min.css?ver=3.34.1' media='all' />
+<link rel='stylesheet' id='e-apple-webkit-css' href='https://optimando.ai/wp-content/plugins/elementor/assets/css/conditionals/apple-webkit.min.css?ver=3.34.1' media='all' />
+<link rel='stylesheet' id='elementor-post-52-css' href='https://optimando.ai/wp-content/uploads/elementor/css/post-52.css?ver=1768393324' media='all' />
+<link rel='stylesheet' id='elementor-post-725-css' href='https://optimando.ai/wp-content/uploads/elementor/css/post-725.css?ver=1768393324' media='all' />
+<link rel='stylesheet' id='ekit-widget-styles-css' href='https://optimando.ai/wp-content/plugins/elementskit-lite/widgets/init/assets/css/widget-styles.css?ver=3.7.8' media='all' />
+<link rel='stylesheet' id='ekit-responsive-css' href='https://optimando.ai/wp-content/plugins/elementskit-lite/widgets/init/assets/css/responsive.css?ver=3.7.8' media='all' />
+<link rel='stylesheet' id='elementor-icons-jkiticon-css' href='https://optimando.ai/wp-content/plugins/jeg-elementor-kit/assets/fonts/jkiticon/jkiticon.css?ver=3.0.2' media='all' />
+<script src="https://optimando.ai/wp-content/plugins/elementor/assets/lib/font-awesome/js/v4-shims.min.js?ver=3.34.1" id="font-awesome-4-shim-js"></script>
+<script src="https://optimando.ai/wp-includes/js/jquery/jquery.min.js?ver=3.7.1" id="jquery-core-js"></script>
+<script src="https://optimando.ai/wp-includes/js/jquery/jquery-migrate.min.js?ver=3.4.1" id="jquery-migrate-js"></script>
+<link rel="https://api.w.org/" href="https://optimando.ai/wp-json/" /><link rel="alternate" title="JSON" type="application/json" href="https://optimando.ai/wp-json/wp/v2/pages/42" /><link rel="EditURI" type="application/rsd+xml" title="RSD" href="https://optimando.ai/xmlrpc.php?rsd" />
+<meta name="generator" content="WordPress 6.9" />
+<link rel="canonical" href="https://optimando.ai/" />
+<link rel='shortlink' href='https://optimando.ai/' />
+<meta name="generator" content="Elementor 3.34.1; features: e_font_icon_svg, additional_custom_breakpoints; settings: css_print_method-external, google_font-disabled, font_display-swap">
+			<style>
+				.e-con.e-parent:nth-of-type(n+4):not(.e-lazyloaded):not(.e-no-lazyload),
+				.e-con.e-parent:nth-of-type(n+4):not(.e-lazyloaded):not(.e-no-lazyload) * {
+					background-image: none !important;
+				}
+				@media screen and (max-height: 1024px) {
+					.e-con.e-parent:nth-of-type(n+3):not(.e-lazyloaded):not(.e-no-lazyload),
+					.e-con.e-parent:nth-of-type(n+3):not(.e-lazyloaded):not(.e-no-lazyload) * {
+						background-image: none !important;
+					}
+				}
+				@media screen and (max-height: 640px) {
+					.e-con.e-parent:nth-of-type(n+2):not(.e-lazyloaded):not(.e-no-lazyload),
+					.e-con.e-parent:nth-of-type(n+2):not(.e-lazyloaded):not(.e-no-lazyload) * {
+						background-image: none !important;
+					}
+				}
+			</style>
+			</head>
+<body class="home wp-singular page-template-default page page-id-42 wp-custom-logo wp-embed-responsive wp-theme-hello-elementor wp-child-theme-hello-child jkit-color-scheme hello-elementor-default elementor-default elementor-kit-6 elementor-page elementor-page-42">
+
+
+<a class="skip-link screen-reader-text" href="#content">Skip to content</a>
+
+		<header data-elementor-type="header" data-elementor-id="52" class="elementor elementor-52 elementor-location-header" data-elementor-post-type="elementor_library">
+					<div class="elementor-section elementor-top-section elementor-element elementor-element-94c28d6 elementor-section-full_width elementor-section-height-default elementor-section-height-default" data-id="94c28d6" data-element_type="section" data-settings="{&quot;background_background&quot;:&quot;classic&quot;}">
+						<div class="elementor-container elementor-column-gap-no">
+					<div class="elementor-column elementor-col-100 elementor-top-column elementor-element elementor-element-1b04540a" data-id="1b04540a" data-element_type="column">
+			<div class="elementor-widget-wrap elementor-element-populated">
+						<section class="elementor-section elementor-inner-section elementor-element elementor-element-53c41947 elementor-section-full_width elementor-section-height-default elementor-section-height-default" data-id="53c41947" data-element_type="section">
+						<div class="elementor-container elementor-column-gap-default">
+					<div class="elementor-column elementor-col-33 elementor-inner-column elementor-element elementor-element-dc4a533" data-id="dc4a533" data-element_type="column">
+			<div class="elementor-widget-wrap elementor-element-populated">
+						<div class="elementor-element elementor-element-a9ead83 elementor-widget elementor-widget-theme-site-logo elementor-widget-image" data-id="a9ead83" data-element_type="widget" data-widget_type="theme-site-logo.default">
+				<div class="elementor-widget-container">
+											<a href="https://optimando.ai">
+			<img fetchpriority="high" width="300" height="237" src="https://optimando.ai/wp-content/uploads/2025/06/cropped-logo-1-300x237.png" class="attachment-medium size-medium wp-image-117" alt="Optimando AI - Workflow Automation" decoding="async" srcset="https://optimando.ai/wp-content/uploads/2025/06/cropped-logo-1-300x237.png 300w, https://optimando.ai/wp-content/uploads/2025/06/cropped-logo-1-768x607.png 768w, https://optimando.ai/wp-content/uploads/2025/06/cropped-logo-1.png 906w" sizes="(max-width: 300px) 100vw, 300px" />				</a>
+											</div>
+				</div>
+					</div>
+		</div>
+				<div class="elementor-column elementor-col-33 elementor-inner-column elementor-element elementor-element-66280ff2" data-id="66280ff2" data-element_type="column">
+			<div class="elementor-widget-wrap elementor-element-populated">
+						<div class="elementor-element elementor-element-b6b2cc9 elementor-align-right elementor-widget elementor-widget-button" data-id="b6b2cc9" data-element_type="widget" data-widget_type="button.default">
+				<div class="elementor-widget-container">
+									<div class="elementor-button-wrapper">
+					<a class="elementor-button elementor-button-link elementor-size-xs elementor-animation-float" href="https://optimando.ai/explore-opengiraffe/">
+						<span class="elementor-button-content-wrapper">
+						<span class="elementor-button-icon">
+				<svg aria-hidden="true" class="e-font-icon-svg e-fas-sitemap" viewBox="0 0 640 512" xmlns="http://www.w3.org/2000/svg"><path d="M128 352H32c-17.67 0-32 14.33-32 32v96c0 17.67 14.33 32 32 32h96c17.67 0 32-14.33 32-32v-96c0-17.67-14.33-32-32-32zm-24-80h192v48h48v-48h192v48h48v-57.59c0-21.17-17.23-38.41-38.41-38.41H344v-64h40c17.67 0 32-14.33 32-32V32c0-17.67-14.33-32-32-32H256c-17.67 0-32 14.33-32 32v96c0 17.67 14.33 32 32 32h40v64H94.41C73.23 224 56 241.23 56 262.41V320h48v-48zm264 80h-96c-17.67 0-32 14.33-32 32v96c0 17.67 14.33 32 32 32h96c17.67 0 32-14.33 32-32v-96c0-17.67-14.33-32-32-32zm240 0h-96c-17.67 0-32 14.33-32 32v96c0 17.67 14.33 32 32 32h96c17.67 0 32-14.33 32-32v-96c0-17.67-14.33-32-32-32z"></path></svg>			</span>
+									<span class="elementor-button-text">Explore OpenGiraffe</span>
+					</span>
+					</a>
+				</div>
+								</div>
+				</div>
+					</div>
+		</div>
+				<div class="elementor-column elementor-col-33 elementor-inner-column elementor-element elementor-element-15f94fa4 elementor-hidden-tablet elementor-hidden-mobile" data-id="15f94fa4" data-element_type="column">
+			<div class="elementor-widget-wrap elementor-element-populated">
+						<div class="elementor-element elementor-element-71c450c elementor-align-right elementor-widget__width-initial elementor-widget elementor-widget-button" data-id="71c450c" data-element_type="widget" data-widget_type="button.default">
+				<div class="elementor-widget-container">
+									<div class="elementor-button-wrapper">
+					<a class="elementor-button elementor-button-link elementor-size-xs elementor-animation-float" href="https://optimando.ai/ai-automation-inquiry/">
+						<span class="elementor-button-content-wrapper">
+						<span class="elementor-button-icon">
+				<svg aria-hidden="true" class="e-font-icon-svg e-fas-phone" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg"><path d="M493.4 24.6l-104-24c-11.3-2.6-22.9 3.3-27.5 13.9l-48 112c-4.2 9.8-1.4 21.3 6.9 28l60.6 49.6c-36 76.7-98.9 140.5-177.2 177.2l-49.6-60.6c-6.8-8.3-18.2-11.1-28-6.9l-112 48C3.9 366.5-2 378.1.6 389.4l24 104C27.1 504.2 36.7 512 48 512c256.1 0 464-207.5 464-464 0-11.2-7.7-20.9-18.6-23.4z"></path></svg>			</span>
+									<span class="elementor-button-text">Contact</span>
+					</span>
+					</a>
+				</div>
+								</div>
+				</div>
+					</div>
+		</div>
+					</div>
+		</section>
+					</div>
+		</div>
+					</div>
+		</div>
+				</header>
+		
+<main id="content" class="site-main post-42 page type-page status-publish hentry">
+
+	
+	<div class="page-content">
+				<div data-elementor-type="wp-page" data-elementor-id="42" class="elementor elementor-42" data-elementor-post-type="page">
+						<section class="elementor-section elementor-top-section elementor-element elementor-element-d607904 elementor-section-full_width animated-slow elementor-section-height-default elementor-section-height-default elementor-invisible" data-id="d607904" data-element_type="section" data-settings="{&quot;background_background&quot;:&quot;classic&quot;,&quot;animation&quot;:&quot;pulse&quot;}">
+							<div class="elementor-background-overlay"></div>
+							<div class="elementor-container elementor-column-gap-no">
+					<div class="elementor-column elementor-col-100 elementor-top-column elementor-element elementor-element-4cca8e60" data-id="4cca8e60" data-element_type="column" data-settings="{&quot;background_background&quot;:&quot;classic&quot;}">
+			<div class="elementor-widget-wrap elementor-element-populated">
+						<div class="elementor-element elementor-element-5049946 elementor-widget elementor-widget-html" data-id="5049946" data-element_type="widget" data-widget_type="html.default">
+				<div class="elementor-widget-container">
+					<h1 style="color: white; text-align: center; font-size: 64px; line-height: 1.2;">
+  We Integrate <span style="color:#00bfff;">
+      AI Automation</span><br>
+  Into Your Business.
+</h1>
+
+				</div>
+				</div>
+				<div class="elementor-element elementor-element-5b1dc18 elementor-widget elementor-widget-heading" data-id="5b1dc18" data-element_type="widget" data-widget_type="heading.default">
+				<div class="elementor-widget-container">
+					<h5 class="elementor-heading-title elementor-size-default">We help organizations transition to WR Code<strong data-start="612" data-end="624">™</strong> — a unified, auditable automation standard designed for long-term reliability and operational excellence.</h5>				</div>
+				</div>
+				<div class="elementor-element elementor-element-7b6f28c elementor-widget elementor-widget-html" data-id="7b6f28c" data-element_type="widget" data-widget_type="html.default">
+				<div class="elementor-widget-container">
+					<div style="text-align: center; margin-top: 10px;">
+  <a href="https://optimando.ai/ai-automation-inquiry/" style="
+    display: inline-block;
+    background-color: #00bfff;
+    color: black;
+    padding: 16px 32px;
+    font-size: 18px;
+    font-weight: 600;
+    border-radius: 8px;
+    text-decoration: none;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+    transition: background-color 0.3s ease;">
+    Get Started
+  </a>
+</div>
+				</div>
+				</div>
+					</div>
+		</div>
+					</div>
+		</section>
+		<div class="elementor-element elementor-element-bfb7e24 e-con-full e-flex e-con e-parent" data-id="bfb7e24" data-element_type="container" data-settings="{&quot;background_background&quot;:&quot;classic&quot;}">
+				<div class="elementor-element elementor-element-eb6d13a elementor-widget elementor-widget-html" data-id="eb6d13a" data-element_type="widget" data-widget_type="html.default">
+				<div class="elementor-widget-container">
+					<div style="display: flex; flex-direction: column; align-items: center; text-align: center; margin: 30px 0; gap: 20px;">
+
+  <div style="display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 10px;">
+    <h2 style="color: white; font-size: 28px; margin: 0;">
+      How Optimando pioneers the next era of intelligent automation:
+    </h2>
+    <a href="https://zenodo.org/records/17656336" style="
+      display: inline-block;
+      background-color: #00bfff;
+      color: white;
+      padding: 10px 20px;
+      font-size: 14px;
+      font-weight: 600;
+      border-radius: 6px;
+      text-decoration: none;
+      box-shadow: 0 3px 10px rgba(0, 0, 0, 0.2);
+      transition: background-color 0.3s ease;
+    ">
+     OpenGiraffe Research Paper
+    </a>
+  </div>
+
+  <p style="color: #ccc; max-width: 800px; font-size: 16px; line-height: 1.6; margin: 0;">
+  A conceptual vision for intelligent automation: OpenGiraffe™, a local, browser-based orchestration tool that leverages real-time user intent detection to coordinate AI agents — hands-free, adaptive, source-available, and fully customizable. Innovation timestamped on Bitcoin July 25 10.5281/zenodo.15786912
+</p>
+
+
+  </p>
+
+</div>
+				</div>
+				</div>
+				</div>
+				<section class="elementor-section elementor-top-section elementor-element elementor-element-51514acf elementor-section-full_width elementor-section-height-default elementor-section-height-default elementor-invisible" data-id="51514acf" data-element_type="section" data-settings="{&quot;background_background&quot;:&quot;classic&quot;,&quot;animation&quot;:&quot;pulse&quot;}">
+							<div class="elementor-background-overlay"></div>
+							<div class="elementor-container elementor-column-gap-no">
+					<div class="elementor-column elementor-col-100 elementor-top-column elementor-element elementor-element-49359b05" data-id="49359b05" data-element_type="column" data-settings="{&quot;background_background&quot;:&quot;classic&quot;}">
+			<div class="elementor-widget-wrap elementor-element-populated">
+					<div class="elementor-background-overlay"></div>
+						<div class="elementor-element elementor-element-171ef39f animated-slow elementor-pagination-position-outside elementor-invisible elementor-widget elementor-widget-image-carousel" data-id="171ef39f" data-element_type="widget" data-settings="{&quot;slides_to_show&quot;:&quot;5&quot;,&quot;slides_to_scroll&quot;:&quot;1&quot;,&quot;navigation&quot;:&quot;dots&quot;,&quot;image_spacing_custom&quot;:{&quot;unit&quot;:&quot;px&quot;,&quot;size&quot;:30,&quot;sizes&quot;:[]},&quot;_animation&quot;:&quot;zoomIn&quot;,&quot;slides_to_show_tablet&quot;:&quot;5&quot;,&quot;slides_to_show_mobile&quot;:&quot;2&quot;,&quot;image_spacing_custom_tablet&quot;:{&quot;unit&quot;:&quot;px&quot;,&quot;size&quot;:10,&quot;sizes&quot;:[]},&quot;autoplay&quot;:&quot;yes&quot;,&quot;pause_on_hover&quot;:&quot;yes&quot;,&quot;pause_on_interaction&quot;:&quot;yes&quot;,&quot;autoplay_speed&quot;:5000,&quot;infinite&quot;:&quot;yes&quot;,&quot;speed&quot;:500,&quot;image_spacing_custom_mobile&quot;:{&quot;unit&quot;:&quot;px&quot;,&quot;size&quot;:&quot;&quot;,&quot;sizes&quot;:[]}}" data-widget_type="image-carousel.default">
+				<div class="elementor-widget-container">
+							<div class="elementor-image-carousel-wrapper swiper" role="region" aria-roledescription="carousel" aria-label="Image Carousel" dir="ltr">
+			<div class="elementor-image-carousel swiper-wrapper swiper-image-stretch" aria-live="off">
+								<div class="swiper-slide" role="group" aria-roledescription="slide" aria-label="1 of 12"><figure class="swiper-slide-inner"><img decoding="async" class="swiper-slide-image" src="https://optimando.ai/wp-content/uploads/2025/07/Design-ohne-Titel.jpg" alt="OpenGiraffe a timestamped innovation" /></figure></div><div class="swiper-slide" role="group" aria-roledescription="slide" aria-label="2 of 12"><figure class="swiper-slide-inner"><img decoding="async" class="swiper-slide-image" src="https://optimando.ai/wp-content/uploads/2025/07/ar_helper_tabs_final_410x410.webp" alt="OpenGiraffe - Realtime Support" /></figure></div><div class="swiper-slide" role="group" aria-roledescription="slide" aria-label="3 of 12"><figure class="swiper-slide-inner"><img decoding="async" class="swiper-slide-image" src="https://optimando.ai/wp-content/uploads/2025/07/converted_image.webp" alt="OpenGiraffe Real-Time User Intent support" /></figure></div><div class="swiper-slide" role="group" aria-roledescription="slide" aria-label="4 of 12"><figure class="swiper-slide-inner"><img decoding="async" class="swiper-slide-image" src="https://optimando.ai/wp-content/uploads/2025/07/ChatGPT-Image-2.-Juli-2025-19_54_37.png" alt="OpenGiraffe user intent prediction and real-time support" /></figure></div><div class="swiper-slide" role="group" aria-roledescription="slide" aria-label="5 of 12"><figure class="swiper-slide-inner"><img decoding="async" class="swiper-slide-image" src="https://optimando.ai/wp-content/uploads/2025/07/team_with_ar_monitors_410x410.webp" alt="OpenGiraffe - Backend Operator" /></figure></div><div class="swiper-slide" role="group" aria-roledescription="slide" aria-label="6 of 12"><figure class="swiper-slide-inner"><img decoding="async" class="swiper-slide-image" src="https://optimando.ai/wp-content/uploads/2025/07/Open-Researchdesk.png" alt="OpenGiraffe Speech to Automation" /></figure></div><div class="swiper-slide" role="group" aria-roledescription="slide" aria-label="7 of 12"><figure class="swiper-slide-inner"><img decoding="async" class="swiper-slide-image" src="https://optimando.ai/wp-content/uploads/2025/07/ChatGPT-Image-18.-Juni-2025-12_54_27.png" alt="OpenGiraffe Teamstorming" /></figure></div><div class="swiper-slide" role="group" aria-roledescription="slide" aria-label="8 of 12"><figure class="swiper-slide-inner"><img decoding="async" class="swiper-slide-image" src="https://optimando.ai/wp-content/uploads/2025/07/qrgiraffe_display_grid_410x410-1.webp" alt="QRGiraffe - Text to AI Agents" /></figure></div><div class="swiper-slide" role="group" aria-roledescription="slide" aria-label="9 of 12"><figure class="swiper-slide-inner"><img decoding="async" class="swiper-slide-image" src="https://optimando.ai/wp-content/uploads/2025/07/ChatGPT-Image-19.-Juni-2025-12_01_57.png" alt="OpenGiraffe Autocomplete Form Drafting" /></figure></div><div class="swiper-slide" role="group" aria-roledescription="slide" aria-label="10 of 12"><figure class="swiper-slide-inner"><img decoding="async" class="swiper-slide-image" src="https://optimando.ai/wp-content/uploads/2025/07/wrlogo2.png" alt="WRCode" /></figure></div><div class="swiper-slide" role="group" aria-roledescription="slide" aria-label="11 of 12"><figure class="swiper-slide-inner"><img decoding="async" class="swiper-slide-image" src="https://optimando.ai/wp-content/uploads/2025/07/OpenGiraffe_logo.webp" alt="OpenGiraffe Framework" /></figure></div><div class="swiper-slide" role="group" aria-roledescription="slide" aria-label="12 of 12"><figure class="swiper-slide-inner"><img decoding="async" class="swiper-slide-image" src="https://optimando.ai/wp-content/uploads/2025/08/orchestrator_ui_square.webp" alt="OpenGiraffe UI single screen" /></figure></div>			</div>
+							
+									<div class="swiper-pagination"></div>
+									</div>
+						</div>
+				</div>
+				<section class="elementor-section elementor-inner-section elementor-element elementor-element-2955b5e3 elementor-section-boxed elementor-section-height-default elementor-section-height-default" data-id="2955b5e3" data-element_type="section">
+							<div class="elementor-background-overlay"></div>
+							<div class="elementor-container elementor-column-gap-no">
+					<div class="elementor-column elementor-col-33 elementor-inner-column elementor-element elementor-element-38cbefce elementor-invisible" data-id="38cbefce" data-element_type="column" data-settings="{&quot;background_background&quot;:&quot;classic&quot;,&quot;animation&quot;:&quot;slideInRight&quot;}">
+			<div class="elementor-widget-wrap elementor-element-populated">
+						<div class="elementor-element elementor-element-6853fd34 elementor-widget elementor-widget-image" data-id="6853fd34" data-element_type="widget" data-widget_type="image.default">
+				<div class="elementor-widget-container">
+															<img decoding="async" width="1024" height="1024" src="https://optimando.ai/wp-content/uploads/2025/07/office_scene_with_streamdeck.webp" class="elementor-animation-float attachment-full size-full wp-image-491" alt="OpenGiraffe - Research Office" srcset="https://optimando.ai/wp-content/uploads/2025/07/office_scene_with_streamdeck.webp 1024w, https://optimando.ai/wp-content/uploads/2025/07/office_scene_with_streamdeck-300x300.webp 300w, https://optimando.ai/wp-content/uploads/2025/07/office_scene_with_streamdeck-150x150.webp 150w, https://optimando.ai/wp-content/uploads/2025/07/office_scene_with_streamdeck-768x768.webp 768w" sizes="(max-width: 1024px) 100vw, 1024px" />															</div>
+				</div>
+				<div class="elementor-element elementor-element-7e4f738 elementor-invisible elementor-widget elementor-widget-heading" data-id="7e4f738" data-element_type="widget" data-settings="{&quot;_animation&quot;:&quot;pulse&quot;}" data-widget_type="heading.default">
+				<div class="elementor-widget-container">
+					<h5 class="elementor-heading-title elementor-size-default">Real intelligence means automatically finding the right questions—before offering context-aware, strategically optimized answers. Unlike most systems, OpenGiraffe<strong data-start="612" data-end="624">™</strong> is designed for multi-screen workstations, where separate, visualized automation outputs are surfaced simultaneously—enabling unparalleled situational awareness.<br><br>Unlocking better decision-making, greater efficiency, and higher productivity across high-performance enterprise and research environments.</h5>				</div>
+				</div>
+					</div>
+		</div>
+				<div class="elementor-column elementor-col-33 elementor-inner-column elementor-element elementor-element-689d6ea6 elementor-invisible" data-id="689d6ea6" data-element_type="column" data-settings="{&quot;background_background&quot;:&quot;classic&quot;,&quot;animation&quot;:&quot;slideInRight&quot;}">
+			<div class="elementor-widget-wrap elementor-element-populated">
+						<div class="elementor-element elementor-element-529f9ba elementor-widget elementor-widget-image" data-id="529f9ba" data-element_type="widget" data-widget_type="image.default">
+				<div class="elementor-widget-container">
+															<img decoding="async" width="150" height="150" src="https://optimando.ai/wp-content/uploads/2025/07/ChatGPT-Image-6.-Juli-2025-08_07_59-150x150.png" class="attachment-thumbnail size-thumbnail wp-image-829" alt="OpenGiraffe Logo" />															</div>
+				</div>
+				<div class="elementor-element elementor-element-253bd975 elementor-invisible elementor-widget elementor-widget-heading" data-id="253bd975" data-element_type="widget" data-settings="{&quot;_animation&quot;:&quot;pulse&quot;}" data-widget_type="heading.default">
+				<div class="elementor-widget-container">
+					<h3 class="elementor-heading-title elementor-size-default">Intent Analysis &amp; Real-Time Support</h3>				</div>
+				</div>
+				<div class="elementor-element elementor-element-44c7e375 elementor-invisible elementor-widget elementor-widget-text-editor" data-id="44c7e375" data-element_type="widget" data-settings="{&quot;_animation&quot;:&quot;zoomIn&quot;}" data-widget_type="text-editor.default">
+				<div class="elementor-widget-container">
+									<h2 data-start="194" data-end="268">A Distinctively Novel Architecture for Real-Time Intelligent Automation</h2><p data-start="270" data-end="593">The <strong data-start="274" data-end="293">Giraffe Papers™</strong> introduce an architectural framework whose novelty lies in its integrated design—not in isolated components, but in how they interoperate to create a fully verifiable, context-aware, multi-agent automation layer. This unified composition marks a clear departure from conventional automation systems.</p><p data-start="270" data-end="593">WR Code<strong data-start="612" data-end="624">™ &#8211; Make Everything Smart.</strong></p><p data-start="595" data-end="890">At the center is <strong data-start="612" data-end="624">WR Code™</strong>: a verifiable open standard that gives every object—digital, physical, or hybrid—its own context, memory, and AI agents. A simple scan becomes an entry point into a trusted automation chain where logic, user input, and transformations are cryptographically tracked.</p><hr data-start="892" data-end="895" /><h2 data-start="897" data-end="950">The Key Pillars of the System — and Their Benefits</h2><h3 data-start="952" data-end="993">1. <strong data-start="959" data-end="993">WR Code™: Context With a Voice</strong></h3><p data-start="995" data-end="1129"><strong data-start="995" data-end="1010">What it is:</strong><br data-start="1010" data-end="1013" />A machine-readable standard that embeds identity, context, and behavioral logic directly into any registered object.</p><p data-start="1131" data-end="1326"><strong data-start="1131" data-end="1143">Benefit:</strong><br data-start="1143" data-end="1146" />Documents, services, interfaces, and physical items become interactive collaborators that can respond, guide, and adapt—turning static environments into active intelligence layers.</p><hr data-start="1328" data-end="1331" /><h3 data-start="1333" data-end="1368">2. Multi-AI Agent Orchestration</h3><p data-start="1370" data-end="1492"><strong data-start="1370" data-end="1385">What it is:</strong><br data-start="1385" data-end="1388" />Automatic creation and coordination of multiple specialized AI agents that reason together in real time.</p><p data-start="1494" data-end="1624"><strong data-start="1494" data-end="1506">Benefit:</strong><br data-start="1506" data-end="1509" />Complex tasks are handled with higher accuracy, more context, and deeper insight than any single model can provide.</p><hr data-start="1626" data-end="1629" /><h3 data-start="1631" data-end="1665">3. Runtime Workflow Generation</h3><p data-start="1667" data-end="1811"><strong data-start="1667" data-end="1682">What it is:</strong><br data-start="1682" data-end="1685" />Workflows are not pre-coded—they are generated on demand based on <strong data-start="1751" data-end="1763">WR Code™</strong> context, user intent, and real-time conditions.</p><p data-start="1813" data-end="1946"><strong data-start="1813" data-end="1825">Benefit:</strong><br data-start="1825" data-end="1828" />Automation becomes adaptive, flexible, and instantly applicable without engineering bottlenecks or rigid rule systems.</p><hr data-start="1948" data-end="1951" /><h3 data-start="1953" data-end="1996">4. Cryptographically Anchored Templates</h3><p data-start="1998" data-end="2129"><strong data-start="1998" data-end="2013">What it is:</strong><br data-start="2013" data-end="2016" />All workflow templates, Mini-Apps™, transformations, and user inputs are tamper-evident and verifiably authentic.</p><p data-start="2131" data-end="2283"><strong data-start="2131" data-end="2143">Benefit:</strong><br data-start="2143" data-end="2146" />Teams and enterprises gain trust, auditability, and full accountability in every automation step—crucial for compliance-heavy industries.</p><hr data-start="2285" data-end="2288" /><h3 data-start="2290" data-end="2343">5. Context Embedding Into Secure Vector Databases</h3><p data-start="2345" data-end="2501"><strong data-start="2345" data-end="2360">What it is:</strong><br data-start="2360" data-end="2363" />Long-term memory and reasoning context are stored in secure, private vector databases bound to <strong data-start="2458" data-end="2470">WR Code™</strong> instances and user identities.</p><p data-start="2503" data-end="2627"><strong data-start="2503" data-end="2515">Benefit:</strong><br data-start="2515" data-end="2518" />Systems gain persistent intelligence—they learn from interactions while preserving privacy and local control.</p><hr data-start="2629" data-end="2632" /><h3 data-start="2634" data-end="2680">6. Mini-Apps™: On-Demand Micro-Automations</h3><p data-start="2682" data-end="2822"><strong data-start="2682" data-end="2700">What they are:</strong><br data-start="2700" data-end="2703" />Tiny, real-time tools generated from natural language or intent detection, assembled from a secure UI and code library.</p><p data-start="2824" data-end="2956"><strong data-start="2824" data-end="2836">Benefit:</strong><br data-start="2836" data-end="2839" />Users get instant, context-specific capabilities without coding—streamlined task support embedded directly in the UI.</p><hr data-start="2958" data-end="2961" /><h3 data-start="2963" data-end="3028">7. Augmented Overlay™: Adaptive Intelligence on Any Interface</h3><p data-start="3030" data-end="3144"><strong data-start="3030" data-end="3045">What it is:</strong><br data-start="3045" data-end="3048" />A dynamic layer that renders intelligent UI components on top of any application—desktop or web.</p><p data-start="3146" data-end="3299"><strong data-start="3146" data-end="3158">Benefit:</strong><br data-start="3158" data-end="3161" />Support appears precisely where the user needs it, without modifying the underlying software, enabling intelligence across legacy systems.</p><hr data-start="3301" data-end="3304" /><h3 data-start="3306" data-end="3351">8. Secure Email Automation (<strong data-start="3338" data-end="3350">WRGuard™</strong>)</h3><p data-start="3353" data-end="3648"><strong data-start="3353" data-end="3368">What it is:</strong><br data-start="3368" data-end="3371" />A verifiable, <strong data-start="3385" data-end="3397">WR Code™</strong>–powered email automation layer based on <strong data-start="3438" data-end="3489">BEAP™ (Bidirectional Email Automation Protocol)</strong> that cryptographically anchors templates, attachments, and user actions—transforming email from a passive messaging medium into a trusted automation endpoint.</p><p data-start="3650" data-end="4146"><strong data-start="3650" data-end="3662">Benefit:</strong><br data-start="3662" data-end="3665" />Email evolves into a secure, tamper-proof automation hub where workflows, confirmations, and approvals are fully verifiable.<br data-start="3789" data-end="3792" />This is where <strong data-start="3806" data-end="3818">WR Code™</strong> and <strong data-start="3823" data-end="3832">BEAP™</strong> reveal their full potential: emails initiate authenticated workflows, validate each processing step, and ensure that sender, content, and intent are all cryptographically provable.<br data-start="4013" data-end="4016" />The result is a new level of trust and automation depth for the most widely used communication channel in enterprise environments.</p><hr data-start="4148" data-end="4151" /><h3 data-start="4153" data-end="4194">9. Transparent Open-Source Foundation</h3><p data-start="4196" data-end="4284"><strong data-start="4196" data-end="4211">What it is:</strong><br data-start="4211" data-end="4214" />All mechanisms are openly inspectable, standards-based, and auditable.</p><p data-start="4286" data-end="4445"><strong data-start="4286" data-end="4298">Benefit:</strong><br data-start="4298" data-end="4301" />Enterprises gain full visibility, long-term independence from proprietary systems, and the ability to verify every part of the automation chain.</p><hr data-start="4447" data-end="4450" /><h2 data-start="4452" data-end="4487">Why This Matters for Enterprises</h2><p data-start="4489" data-end="4558">Together, these pillars create a real-time automation fabric that is:</p><ul data-start="4560" data-end="4726"><li data-start="4560" data-end="4577"><p data-start="4562" data-end="4577">context-aware</p></li><li data-start="4578" data-end="4605"><p data-start="4580" data-end="4605">multi-agent intelligent</p></li><li data-start="4606" data-end="4633"><p data-start="4608" data-end="4633">verifiably tamper-proof</p></li><li data-start="4634" data-end="4671"><p data-start="4636" data-end="4671">adaptable across all applications</p></li><li data-start="4672" data-end="4694"><p data-start="4674" data-end="4694">privacy-preserving</p></li><li data-start="4695" data-end="4726"><p data-start="4697" data-end="4726">transparent and open-source</p></li></ul><p data-start="4728" data-end="4878">Organizations can automate complex workflows, enhance team intelligence, and build trustworthy automation systems that scale with clarity and control.</p><hr data-start="4880" data-end="4883" /><h3 data-start="4885" data-end="4937">10. <strong data-start="4893" data-end="4937">PoAE™ — Proof of Authoritative Execution</strong></h3><p data-start="4939" data-end="5168">A verifiable execution assurance layer that cryptographically proves who initiated an action, what was executed, and under which validated conditions—ensuring that automated and human-triggered operations are provably legitimate.</p><p data-start="5170" data-end="5649"><strong data-start="5170" data-end="5182">Benefit:</strong><br data-start="5182" data-end="5185" /><strong data-start="5185" data-end="5194">PoAE™</strong> establishes a trusted execution record for workflows, approvals, and critical actions. Each step is cryptographically bound to its origin, intent, and execution context, making manipulation, replay, or unauthorized execution detectable and verifiable.<br data-start="5446" data-end="5449" />This enables auditable, policy-bound automation where execution is not merely logged, but provably authorized—providing a foundation for trust, compliance, and accountability across automated systems.</p><hr data-start="5651" data-end="5654" /><h2 data-start="5656" data-end="5680">Established Prior Art</h2><p data-start="5682" data-end="5915">This integrated architecture is fully published, timestamped, and established as prior art.<br data-start="5773" data-end="5776" />The novelty lies in the architecture as a whole — in how all components interoperate — not in claiming originality for isolated techniques.</p><hr data-start="5917" data-end="5920" /><p data-start="5922" data-end="6030"><strong data-start="5922" data-end="5948">Make Everything Smart.</strong><br data-start="5948" data-end="5951" />This claim is publicly used as part of the <strong data-start="5994" data-end="6021">OpenGiraffe™ / WR Code™</strong> project.</p>								</div>
+				</div>
+				<div class="elementor-element elementor-element-7c4d5279 elementor-align-center elementor-widget elementor-widget-button" data-id="7c4d5279" data-element_type="widget" data-widget_type="button.default">
+				<div class="elementor-widget-container">
+									<div class="elementor-button-wrapper">
+					<a class="elementor-button elementor-button-link elementor-size-sm elementor-animation-float" href="https://optimando.ai/the-opengiraffe-one-pager/">
+						<span class="elementor-button-content-wrapper">
+									<span class="elementor-button-text">OpenGiraffe One Pager</span>
+					</span>
+					</a>
+				</div>
+								</div>
+				</div>
+					</div>
+		</div>
+				<div class="elementor-column elementor-col-33 elementor-inner-column elementor-element elementor-element-73a0365a elementor-invisible" data-id="73a0365a" data-element_type="column" data-settings="{&quot;background_background&quot;:&quot;classic&quot;,&quot;animation&quot;:&quot;pulse&quot;}">
+			<div class="elementor-widget-wrap elementor-element-populated">
+						<div class="elementor-element elementor-element-6c7ea582 elementor-widget elementor-widget-image" data-id="6c7ea582" data-element_type="widget" data-widget_type="image.default">
+				<div class="elementor-widget-container">
+															<img loading="lazy" decoding="async" width="1024" height="1024" src="https://optimando.ai/wp-content/uploads/2025/07/timessquare_qrgiraffe.webp" class="elementor-animation-float attachment-full size-full wp-image-495" alt="QRGiraffe and anonymous geofencing" srcset="https://optimando.ai/wp-content/uploads/2025/07/timessquare_qrgiraffe.webp 1024w, https://optimando.ai/wp-content/uploads/2025/07/timessquare_qrgiraffe-300x300.webp 300w, https://optimando.ai/wp-content/uploads/2025/07/timessquare_qrgiraffe-150x150.webp 150w, https://optimando.ai/wp-content/uploads/2025/07/timessquare_qrgiraffe-768x768.webp 768w" sizes="(max-width: 1024px) 100vw, 1024px" />															</div>
+				</div>
+				<div class="elementor-element elementor-element-3f102a4 elementor-invisible elementor-widget elementor-widget-heading" data-id="3f102a4" data-element_type="widget" data-settings="{&quot;_animation&quot;:&quot;pulse&quot;}" data-widget_type="heading.default">
+				<div class="elementor-widget-container">
+					<h5 class="elementor-heading-title elementor-size-default">OpenGiraffe<strong data-start="612" data-end="624">™</strong> delivers context-aware automation for high-risk individuals and enterprise environments—ensuring privacy, control, and flexibility without compromise. Secure QR-triggered workflows (QRGiraffe<strong data-start="612" data-end="624">™</strong>), anonymous geofencing, speech interaction, and zero-knowledge proofs (ZKPs) enable verifiable real-world automation—whether running within internal networks or connected to the cloud. 
+<br><br>
+Designed for those who need absolute control over their digital and physical worlds.
+</h5>				</div>
+				</div>
+					</div>
+		</div>
+					</div>
+		</section>
+					</div>
+		</div>
+					</div>
+		</section>
+				<section class="elementor-section elementor-top-section elementor-element elementor-element-638c00b7 elementor-section-full_width elementor-section-height-default elementor-section-height-default elementor-invisible" data-id="638c00b7" data-element_type="section" data-settings="{&quot;background_background&quot;:&quot;classic&quot;,&quot;animation&quot;:&quot;pulse&quot;}">
+							<div class="elementor-background-overlay"></div>
+							<div class="elementor-container elementor-column-gap-no">
+					<div class="elementor-column elementor-col-100 elementor-top-column elementor-element elementor-element-743f123" data-id="743f123" data-element_type="column">
+			<div class="elementor-widget-wrap elementor-element-populated">
+						<div class="elementor-element elementor-element-64a7c387 elementor-widget elementor-widget-heading" data-id="64a7c387" data-element_type="widget" data-widget_type="heading.default">
+				<div class="elementor-widget-container">
+					<h2 class="elementor-heading-title elementor-size-default">WHAT WE DO</h2>				</div>
+				</div>
+				<div class="elementor-element elementor-element-a43491c elementor-widget elementor-widget-html" data-id="a43491c" data-element_type="widget" data-widget_type="html.default">
+				<div class="elementor-widget-container">
+					<div style="color: white; font-size: 34px; line-height: 1.2; text-align: center; padding: 80px">
+  <p>
+    <strong style="color: #00bfff;">Optimando.ai</strong> is dedicated to shaping the next generation of enterprise automation.
+    Our mission is to establish <strong style="color: #00bfff;">WR Code™</strong> as a new open, verifiable standard that brings 
+    intelligence, transparency, and trust to complex business workflows.
+  </p>
+
+  <p>
+    WR Code introduces a unified automation model where documents, services, interfaces, and even physical objects gain 
+    machine-readable context, persistent memory, and their own AI agents. 
+    Each interaction triggers tamper-proof, cryptographically anchored workflows that operate with full transparency — 
+    locally, securely, and in coordination with multi-agent reasoning.
+  </p>
+
+  <p>
+    Through this architecture, Optimando.ai enables organizations to modernize operations with a foundation that is 
+    context-aware, privacy-preserving, and open-source by design. 
+    From intelligent assistants to adaptive UI layers and secure email automation, WR Code unlocks a verifiable, 
+    real-time automation fabric that elevates efficiency, collaboration, and decision intelligence across the enterprise.
+  </p>
+</div>
+				</div>
+				</div>
+					</div>
+		</div>
+					</div>
+		</section>
+				<section class="elementor-section elementor-top-section elementor-element elementor-element-32fd601b elementor-section-boxed elementor-section-height-default elementor-section-height-default" data-id="32fd601b" data-element_type="section" data-settings="{&quot;background_background&quot;:&quot;classic&quot;}">
+						<div class="elementor-container elementor-column-gap-default">
+					<div class="elementor-column elementor-col-100 elementor-top-column elementor-element elementor-element-4e78e0ea" data-id="4e78e0ea" data-element_type="column" data-settings="{&quot;background_background&quot;:&quot;classic&quot;}">
+			<div class="elementor-widget-wrap">
+							</div>
+		</div>
+					</div>
+		</section>
+				<section class="elementor-section elementor-top-section elementor-element elementor-element-199ac702 elementor-section-full_width elementor-section-height-default elementor-section-height-default" data-id="199ac702" data-element_type="section" data-settings="{&quot;background_background&quot;:&quot;classic&quot;}">
+						<div class="elementor-container elementor-column-gap-no">
+					<div class="elementor-column elementor-col-100 elementor-top-column elementor-element elementor-element-2b86b316" data-id="2b86b316" data-element_type="column">
+			<div class="elementor-widget-wrap elementor-element-populated">
+						<div class="elementor-element elementor-element-224d6e05 elementor-widget elementor-widget-heading" data-id="224d6e05" data-element_type="widget" data-widget_type="heading.default">
+				<div class="elementor-widget-container">
+					<h2 class="elementor-heading-title elementor-size-default">Our Services</h2>				</div>
+				</div>
+				<section class="elementor-section elementor-inner-section elementor-element elementor-element-2244e110 elementor-section-full_width elementor-section-height-default elementor-section-height-default" data-id="2244e110" data-element_type="section">
+						<div class="elementor-container elementor-column-gap-no">
+					<div class="elementor-column elementor-col-33 elementor-inner-column elementor-element elementor-element-4c5e4652 elementor-hidden-tablet" data-id="4c5e4652" data-element_type="column">
+			<div class="elementor-widget-wrap elementor-element-populated">
+						<div class="elementor-element elementor-element-6a41eac3 elementor-invisible elementor-widget elementor-widget-image" data-id="6a41eac3" data-element_type="widget" data-settings="{&quot;_animation&quot;:&quot;pulse&quot;}" data-widget_type="image.default">
+				<div class="elementor-widget-container">
+															<img loading="lazy" decoding="async" width="1024" height="1024" src="https://optimando.ai/wp-content/uploads/2025/07/IT_Professional_Optimando_Helmet.webp" class="elementor-animation-float attachment-full size-full wp-image-508" alt="OpenGiraffe Geoautomation and Real-time Intent Support" srcset="https://optimando.ai/wp-content/uploads/2025/07/IT_Professional_Optimando_Helmet.webp 1024w, https://optimando.ai/wp-content/uploads/2025/07/IT_Professional_Optimando_Helmet-300x300.webp 300w, https://optimando.ai/wp-content/uploads/2025/07/IT_Professional_Optimando_Helmet-150x150.webp 150w, https://optimando.ai/wp-content/uploads/2025/07/IT_Professional_Optimando_Helmet-768x768.webp 768w" sizes="(max-width: 1024px) 100vw, 1024px" />															</div>
+				</div>
+					</div>
+		</div>
+				<div class="elementor-column elementor-col-33 elementor-inner-column elementor-element elementor-element-2acf18ab" data-id="2acf18ab" data-element_type="column">
+			<div class="elementor-widget-wrap elementor-element-populated">
+						<section class="elementor-section elementor-inner-section elementor-element elementor-element-68373495 elementor-section-full_width elementor-section-height-default elementor-section-height-default" data-id="68373495" data-element_type="section">
+						<div class="elementor-container elementor-column-gap-no">
+					<div class="elementor-column elementor-col-50 elementor-inner-column elementor-element elementor-element-68c6c51 animated-slow elementor-invisible" data-id="68c6c51" data-element_type="column" data-settings="{&quot;background_background&quot;:&quot;classic&quot;,&quot;animation&quot;:&quot;pulse&quot;}">
+			<div class="elementor-widget-wrap elementor-element-populated">
+						<div class="elementor-element elementor-element-5491949d elementor-widget elementor-widget-image" data-id="5491949d" data-element_type="widget" data-widget_type="image.default">
+				<div class="elementor-widget-container">
+															<img loading="lazy" decoding="async" width="56" height="60" src="https://optimando.ai/wp-content/uploads/2025/07/resized_icon_1_56x60.png" class="elementor-animation-float attachment-full size-full wp-image-553" alt="" />															</div>
+				</div>
+				<div class="elementor-element elementor-element-78f29352 elementor-invisible elementor-widget elementor-widget-heading" data-id="78f29352" data-element_type="widget" data-settings="{&quot;_animation&quot;:&quot;slideInDown&quot;}" data-widget_type="heading.default">
+				<div class="elementor-widget-container">
+					<h4 class="elementor-heading-title elementor-size-default">Consultancy</h4>				</div>
+				</div>
+				<div class="elementor-element elementor-element-55f6144 elementor-invisible elementor-widget elementor-widget-text-editor" data-id="55f6144" data-element_type="widget" data-settings="{&quot;_animation&quot;:&quot;zoomIn&quot;}" data-widget_type="text-editor.default">
+				<div class="elementor-widget-container">
+									<p>We help you pinpoint where AI and automation deliver real value.</p>								</div>
+				</div>
+				<div class="elementor-element elementor-element-43e774f1 elementor-align-center elementor-invisible elementor-widget elementor-widget-button" data-id="43e774f1" data-element_type="widget" data-settings="{&quot;_animation&quot;:&quot;pulse&quot;}" data-widget_type="button.default">
+				<div class="elementor-widget-container">
+									<div class="elementor-button-wrapper">
+					<a class="elementor-button elementor-button-link elementor-size-sm elementor-animation-float" href="https://optimando.ai/ai-automation-inquiry/">
+						<span class="elementor-button-content-wrapper">
+						<span class="elementor-button-icon">
+				<i aria-hidden="true" class="jki jki-right-arrow-12"></i>			</span>
+								</span>
+					</a>
+				</div>
+								</div>
+				</div>
+					</div>
+		</div>
+				<div class="elementor-column elementor-col-50 elementor-inner-column elementor-element elementor-element-4716b17f animated-slow elementor-invisible" data-id="4716b17f" data-element_type="column" data-settings="{&quot;background_background&quot;:&quot;classic&quot;,&quot;animation&quot;:&quot;pulse&quot;}">
+			<div class="elementor-widget-wrap elementor-element-populated">
+						<div class="elementor-element elementor-element-68641691 elementor-widget elementor-widget-image" data-id="68641691" data-element_type="widget" data-widget_type="image.default">
+				<div class="elementor-widget-container">
+															<img loading="lazy" decoding="async" width="56" height="60" src="https://optimando.ai/wp-content/uploads/2025/07/resized_icon_2_56x60.png" class="elementor-animation-float attachment-full size-full wp-image-554" alt="" />															</div>
+				</div>
+				<div class="elementor-element elementor-element-7ce6e7a5 elementor-invisible elementor-widget elementor-widget-heading" data-id="7ce6e7a5" data-element_type="widget" data-settings="{&quot;_animation&quot;:&quot;slideInDown&quot;}" data-widget_type="heading.default">
+				<div class="elementor-widget-container">
+					<h4 class="elementor-heading-title elementor-size-default">Visualization</h4>				</div>
+				</div>
+				<div class="elementor-element elementor-element-3a6562c0 elementor-invisible elementor-widget elementor-widget-text-editor" data-id="3a6562c0" data-element_type="widget" data-settings="{&quot;_animation&quot;:&quot;zoomIn&quot;}" data-widget_type="text-editor.default">
+				<div class="elementor-widget-container">
+									<p data-start="443" data-end="537">We help optimize your processes—clear, efficient, actionable.</p>								</div>
+				</div>
+				<div class="elementor-element elementor-element-45bdfaf2 elementor-align-center elementor-invisible elementor-widget elementor-widget-button" data-id="45bdfaf2" data-element_type="widget" data-settings="{&quot;_animation&quot;:&quot;pulse&quot;}" data-widget_type="button.default">
+				<div class="elementor-widget-container">
+									<div class="elementor-button-wrapper">
+					<a class="elementor-button elementor-button-link elementor-size-sm elementor-animation-float" href="https://optimando.ai/ai-automation-inquiry/">
+						<span class="elementor-button-content-wrapper">
+						<span class="elementor-button-icon">
+				<i aria-hidden="true" class="jki jki-right-arrow-12"></i>			</span>
+								</span>
+					</a>
+				</div>
+								</div>
+				</div>
+					</div>
+		</div>
+					</div>
+		</section>
+				<section class="elementor-section elementor-inner-section elementor-element elementor-element-2fd7549c elementor-section-full_width elementor-section-height-default elementor-section-height-default" data-id="2fd7549c" data-element_type="section">
+						<div class="elementor-container elementor-column-gap-no">
+					<div class="elementor-column elementor-col-50 elementor-inner-column elementor-element elementor-element-3a9892a0 animated-slow elementor-invisible" data-id="3a9892a0" data-element_type="column" data-settings="{&quot;background_background&quot;:&quot;classic&quot;,&quot;animation&quot;:&quot;pulse&quot;}">
+			<div class="elementor-widget-wrap elementor-element-populated">
+						<div class="elementor-element elementor-element-24c3340a elementor-widget elementor-widget-image" data-id="24c3340a" data-element_type="widget" data-widget_type="image.default">
+				<div class="elementor-widget-container">
+															<img loading="lazy" decoding="async" width="56" height="60" src="https://optimando.ai/wp-content/uploads/2025/07/resized_icon_3_56x60.png" class="elementor-animation-float attachment-full size-full wp-image-555" alt="" />															</div>
+				</div>
+				<div class="elementor-element elementor-element-65b4af22 elementor-invisible elementor-widget elementor-widget-heading" data-id="65b4af22" data-element_type="widget" data-settings="{&quot;_animation&quot;:&quot;slideInDown&quot;}" data-widget_type="heading.default">
+				<div class="elementor-widget-container">
+					<h4 class="elementor-heading-title elementor-size-default">Creativity</h4>				</div>
+				</div>
+				<div class="elementor-element elementor-element-3fffe9fb elementor-invisible elementor-widget elementor-widget-text-editor" data-id="3fffe9fb" data-element_type="widget" data-settings="{&quot;_animation&quot;:&quot;zoomIn&quot;}" data-widget_type="text-editor.default">
+				<div class="elementor-widget-container">
+									<p data-start="568" data-end="649"><em data-start="580" data-end="649">We craft tailor-made automation ideas that fit your business needs.</em></p>								</div>
+				</div>
+				<div class="elementor-element elementor-element-46eb6db3 elementor-align-center elementor-invisible elementor-widget elementor-widget-button" data-id="46eb6db3" data-element_type="widget" data-settings="{&quot;_animation&quot;:&quot;pulse&quot;}" data-widget_type="button.default">
+				<div class="elementor-widget-container">
+									<div class="elementor-button-wrapper">
+					<a class="elementor-button elementor-button-link elementor-size-sm elementor-animation-float" href="https://optimando.ai/ai-automation-inquiry/">
+						<span class="elementor-button-content-wrapper">
+						<span class="elementor-button-icon">
+				<i aria-hidden="true" class="jki jki-right-arrow-12"></i>			</span>
+								</span>
+					</a>
+				</div>
+								</div>
+				</div>
+					</div>
+		</div>
+				<div class="elementor-column elementor-col-50 elementor-inner-column elementor-element elementor-element-dfbe298 animated-slow elementor-invisible" data-id="dfbe298" data-element_type="column" data-settings="{&quot;background_background&quot;:&quot;classic&quot;,&quot;animation&quot;:&quot;pulse&quot;}">
+			<div class="elementor-widget-wrap elementor-element-populated">
+						<div class="elementor-element elementor-element-2e7f8576 elementor-widget elementor-widget-image" data-id="2e7f8576" data-element_type="widget" data-widget_type="image.default">
+				<div class="elementor-widget-container">
+															<img loading="lazy" decoding="async" width="56" height="60" src="https://optimando.ai/wp-content/uploads/2025/07/final_icon_resized_56x60.png" class="elementor-animation-float attachment-full size-full wp-image-549" alt="" />															</div>
+				</div>
+				<div class="elementor-element elementor-element-445553de elementor-invisible elementor-widget elementor-widget-heading" data-id="445553de" data-element_type="widget" data-settings="{&quot;_animation&quot;:&quot;slideInDown&quot;}" data-widget_type="heading.default">
+				<div class="elementor-widget-container">
+					<h4 class="elementor-heading-title elementor-size-default">Flexible</h4>				</div>
+				</div>
+				<div class="elementor-element elementor-element-66376877 elementor-invisible elementor-widget elementor-widget-text-editor" data-id="66376877" data-element_type="widget" data-settings="{&quot;_animation&quot;:&quot;zoomIn&quot;}" data-widget_type="text-editor.default">
+				<div class="elementor-widget-container">
+									<p data-start="678" data-end="760"><em data-start="690" data-end="760">Our solutions grow with you—modular, scalable, and always adaptable.</em></p>								</div>
+				</div>
+				<div class="elementor-element elementor-element-6534bb34 elementor-align-center elementor-invisible elementor-widget elementor-widget-button" data-id="6534bb34" data-element_type="widget" data-settings="{&quot;_animation&quot;:&quot;pulse&quot;}" data-widget_type="button.default">
+				<div class="elementor-widget-container">
+									<div class="elementor-button-wrapper">
+					<a class="elementor-button elementor-button-link elementor-size-sm elementor-animation-float" href="https://optimando.ai/ai-automation-inquiry/">
+						<span class="elementor-button-content-wrapper">
+						<span class="elementor-button-icon">
+				<i aria-hidden="true" class="jki jki-right-arrow-12"></i>			</span>
+								</span>
+					</a>
+				</div>
+								</div>
+				</div>
+					</div>
+		</div>
+					</div>
+		</section>
+					</div>
+		</div>
+				<div class="elementor-column elementor-col-33 elementor-inner-column elementor-element elementor-element-7334954 elementor-hidden-tablet" data-id="7334954" data-element_type="column">
+			<div class="elementor-widget-wrap elementor-element-populated">
+						<div class="elementor-element elementor-element-5b9e47ff elementor-invisible elementor-widget elementor-widget-image" data-id="5b9e47ff" data-element_type="widget" data-settings="{&quot;_animation&quot;:&quot;pulse&quot;}" data-widget_type="image.default">
+				<div class="elementor-widget-container">
+															<img loading="lazy" decoding="async" width="1024" height="1024" src="https://optimando.ai/wp-content/uploads/2025/07/We_Integrate_AI_Workflows_Purple_Regenerated.webp" class="elementor-animation-float attachment-full size-full wp-image-519" alt="Optimando AI workflow integration" srcset="https://optimando.ai/wp-content/uploads/2025/07/We_Integrate_AI_Workflows_Purple_Regenerated.webp 1024w, https://optimando.ai/wp-content/uploads/2025/07/We_Integrate_AI_Workflows_Purple_Regenerated-300x300.webp 300w, https://optimando.ai/wp-content/uploads/2025/07/We_Integrate_AI_Workflows_Purple_Regenerated-150x150.webp 150w, https://optimando.ai/wp-content/uploads/2025/07/We_Integrate_AI_Workflows_Purple_Regenerated-768x768.webp 768w" sizes="(max-width: 1024px) 100vw, 1024px" />															</div>
+				</div>
+					</div>
+		</div>
+					</div>
+		</section>
+					</div>
+		</div>
+					</div>
+		</section>
+				<section class="elementor-section elementor-top-section elementor-element elementor-element-5e324c67 elementor-section-full_width animated-slow elementor-section-height-default elementor-section-height-default elementor-invisible" data-id="5e324c67" data-element_type="section" data-settings="{&quot;background_background&quot;:&quot;classic&quot;,&quot;animation&quot;:&quot;pulse&quot;}">
+							<div class="elementor-background-overlay"></div>
+							<div class="elementor-container elementor-column-gap-no">
+					<div class="elementor-column elementor-col-100 elementor-top-column elementor-element elementor-element-2da0d86" data-id="2da0d86" data-element_type="column">
+			<div class="elementor-widget-wrap elementor-element-populated">
+						<div class="elementor-element elementor-element-72ae30d1 elementor-widget elementor-widget-heading" data-id="72ae30d1" data-element_type="widget" data-widget_type="heading.default">
+				<div class="elementor-widget-container">
+					<h2 class="elementor-heading-title elementor-size-default">Ready to automate? Let’s talk.</h2>				</div>
+				</div>
+					</div>
+		</div>
+					</div>
+		</section>
+				</div>
+		
+		
+			</div>
+
+	
+</main>
+
+			<footer data-elementor-type="footer" data-elementor-id="725" class="elementor elementor-725 elementor-location-footer" data-elementor-post-type="elementor_library">
+					<section class="elementor-section elementor-top-section elementor-element elementor-element-5be2fa77 elementor-section-full_width elementor-section-height-default elementor-section-height-default" data-id="5be2fa77" data-element_type="section" data-settings="{&quot;background_background&quot;:&quot;classic&quot;}">
+						<div class="elementor-container elementor-column-gap-no">
+					<div class="elementor-column elementor-col-100 elementor-top-column elementor-element elementor-element-77c274d6" data-id="77c274d6" data-element_type="column">
+			<div class="elementor-widget-wrap elementor-element-populated">
+						<section class="elementor-section elementor-inner-section elementor-element elementor-element-7899f6a elementor-section-boxed elementor-section-height-default elementor-section-height-default" data-id="7899f6a" data-element_type="section">
+						<div class="elementor-container elementor-column-gap-no">
+					<div class="elementor-column elementor-col-25 elementor-inner-column elementor-element elementor-element-791ed347 elementor-invisible" data-id="791ed347" data-element_type="column" data-settings="{&quot;background_background&quot;:&quot;classic&quot;,&quot;animation&quot;:&quot;slideInRight&quot;,&quot;animation_mobile&quot;:&quot;pulse&quot;}">
+			<div class="elementor-widget-wrap elementor-element-populated">
+						<div class="elementor-element elementor-element-5860595a elementor-widget elementor-widget-image" data-id="5860595a" data-element_type="widget" data-widget_type="image.default">
+				<div class="elementor-widget-container">
+																<a href="https://optimando.ai">
+							<img width="300" height="237" src="https://optimando.ai/wp-content/uploads/2025/06/cropped-cropped-logo-1-300x237.png" class="attachment-medium size-medium wp-image-561" alt="Optimando AI - Workflow Automation" decoding="async" srcset="https://optimando.ai/wp-content/uploads/2025/06/cropped-cropped-logo-1-300x237.png 300w, https://optimando.ai/wp-content/uploads/2025/06/cropped-cropped-logo-1-768x607.png 768w, https://optimando.ai/wp-content/uploads/2025/06/cropped-cropped-logo-1.png 906w" sizes="(max-width: 300px) 100vw, 300px" />								</a>
+															</div>
+				</div>
+					</div>
+		</div>
+				<div class="elementor-column elementor-col-25 elementor-inner-column elementor-element elementor-element-6a48479f elementor-invisible" data-id="6a48479f" data-element_type="column" data-settings="{&quot;animation&quot;:&quot;slideInLeft&quot;}">
+			<div class="elementor-widget-wrap">
+							</div>
+		</div>
+				<div class="elementor-column elementor-col-25 elementor-inner-column elementor-element elementor-element-59480b8 elementor-hidden-tablet elementor-invisible" data-id="59480b8" data-element_type="column" data-settings="{&quot;animation&quot;:&quot;pulse&quot;,&quot;animation_mobile&quot;:&quot;slideInDown&quot;}">
+			<div class="elementor-widget-wrap elementor-element-populated">
+						<div class="elementor-element elementor-element-1d8a8c0d elementor-widget elementor-widget-heading" data-id="1d8a8c0d" data-element_type="widget" data-widget_type="heading.default">
+				<div class="elementor-widget-container">
+					<h6 class="elementor-heading-title elementor-size-default">Legal Info</h6>				</div>
+				</div>
+				<div class="elementor-element elementor-element-5c391ffe elementor-icon-list--layout-traditional elementor-list-item-link-full_width elementor-widget elementor-widget-icon-list" data-id="5c391ffe" data-element_type="widget" data-widget_type="icon-list.default">
+				<div class="elementor-widget-container">
+							<ul class="elementor-icon-list-items">
+							<li class="elementor-icon-list-item">
+											<a href="https://optimando.ai/terms-of-service/">
+
+											<span class="elementor-icon-list-text">Terms of Service</span>
+											</a>
+									</li>
+								<li class="elementor-icon-list-item">
+											<a href="https://optimando.ai/privacy-policy">
+
+											<span class="elementor-icon-list-text">Privacy Policy</span>
+											</a>
+									</li>
+								<li class="elementor-icon-list-item">
+											<a href="https://optimando.ai/elementor-769/">
+
+											<span class="elementor-icon-list-text">Imprint &amp; Contact</span>
+											</a>
+									</li>
+						</ul>
+						</div>
+				</div>
+				<div class="elementor-element elementor-element-20164ef9 e-grid-align-left e-grid-align-mobile-center e-grid-align-tablet-left elementor-shape-rounded elementor-grid-0 elementor-widget elementor-widget-social-icons" data-id="20164ef9" data-element_type="widget" data-widget_type="social-icons.default">
+				<div class="elementor-widget-container">
+							<div class="elementor-social-icons-wrapper elementor-grid" role="list">
+							<span class="elementor-grid-item" role="listitem">
+					<a class="elementor-icon elementor-social-icon elementor-social-icon-facebook-f elementor-animation-float elementor-repeater-item-d17618f" href="https://www.facebook.com/profile.php?id=100083626267401" target="_blank">
+						<span class="elementor-screen-only">Facebook-f</span>
+						<svg aria-hidden="true" class="e-font-icon-svg e-fab-facebook-f" viewBox="0 0 320 512" xmlns="http://www.w3.org/2000/svg"><path d="M279.14 288l14.22-92.66h-88.91v-60.13c0-25.35 12.42-50.06 52.24-50.06h40.42V6.26S260.43 0 225.36 0c-73.22 0-121.08 44.38-121.08 124.72v70.62H22.89V288h81.39v224h100.17V288z"></path></svg>					</a>
+				</span>
+							<span class="elementor-grid-item" role="listitem">
+					<a class="elementor-icon elementor-social-icon elementor-social-icon-twitter elementor-animation-float elementor-repeater-item-0b037e6" href="https://x.com/optimandoai" target="_blank">
+						<span class="elementor-screen-only">Twitter</span>
+						<svg aria-hidden="true" class="e-font-icon-svg e-fab-twitter" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg"><path d="M459.37 151.716c.325 4.548.325 9.097.325 13.645 0 138.72-105.583 298.558-298.558 298.558-59.452 0-114.68-17.219-161.137-47.106 8.447.974 16.568 1.299 25.34 1.299 49.055 0 94.213-16.568 130.274-44.832-46.132-.975-84.792-31.188-98.112-72.772 6.498.974 12.995 1.624 19.818 1.624 9.421 0 18.843-1.3 27.614-3.573-48.081-9.747-84.143-51.98-84.143-102.985v-1.299c13.969 7.797 30.214 12.67 47.431 13.319-28.264-18.843-46.781-51.005-46.781-87.391 0-19.492 5.197-37.36 14.294-52.954 51.655 63.675 129.3 105.258 216.365 109.807-1.624-7.797-2.599-15.918-2.599-24.04 0-57.828 46.782-104.934 104.934-104.934 30.213 0 57.502 12.67 76.67 33.137 23.715-4.548 46.456-13.32 66.599-25.34-7.798 24.366-24.366 44.833-46.132 57.827 21.117-2.273 41.584-8.122 60.426-16.243-14.292 20.791-32.161 39.308-52.628 54.253z"></path></svg>					</a>
+				</span>
+							<span class="elementor-grid-item" role="listitem">
+					<a class="elementor-icon elementor-social-icon elementor-social-icon-linkedin-in elementor-animation-float elementor-repeater-item-16251e3" href="https://www.linkedin.com/in/oscar-schreyer-92aa57265/" target="_blank">
+						<span class="elementor-screen-only">Linkedin-in</span>
+						<svg aria-hidden="true" class="e-font-icon-svg e-fab-linkedin-in" viewBox="0 0 448 512" xmlns="http://www.w3.org/2000/svg"><path d="M100.28 448H7.4V148.9h92.88zM53.79 108.1C24.09 108.1 0 83.5 0 53.8a53.79 53.79 0 0 1 107.58 0c0 29.7-24.1 54.3-53.79 54.3zM447.9 448h-92.68V302.4c0-34.7-.7-79.2-48.29-79.2-48.29 0-55.69 37.7-55.69 76.7V448h-92.78V148.9h89.08v40.8h1.3c12.4-23.5 42.69-48.3 87.88-48.3 94 0 111.28 61.9 111.28 142.3V448z"></path></svg>					</a>
+				</span>
+							<span class="elementor-grid-item" role="listitem">
+					<a class="elementor-icon elementor-social-icon elementor-social-icon-xing elementor-animation-float elementor-repeater-item-f28c3f7" href="https://www.xing.com/profile/Oscar_Schreyer2/web_profiles" target="_blank">
+						<span class="elementor-screen-only">Xing</span>
+						<svg aria-hidden="true" class="e-font-icon-svg e-fab-xing" viewBox="0 0 384 512" xmlns="http://www.w3.org/2000/svg"><path d="M162.7 210c-1.8 3.3-25.2 44.4-70.1 123.5-4.9 8.3-10.8 12.5-17.7 12.5H9.8c-7.7 0-12.1-7.5-8.5-14.4l69-121.3c.2 0 .2-.1 0-.3l-43.9-75.6c-4.3-7.8.3-14.1 8.5-14.1H100c7.3 0 13.3 4.1 18 12.2l44.7 77.5zM382.6 46.1l-144 253v.3L330.2 466c3.9 7.1.2 14.1-8.5 14.1h-65.2c-7.6 0-13.6-4-18-12.2l-92.4-168.5c3.3-5.8 51.5-90.8 144.8-255.2 4.6-8.1 10.4-12.2 17.5-12.2h65.7c8 0 12.3 6.7 8.5 14.1z"></path></svg>					</a>
+				</span>
+					</div>
+						</div>
+				</div>
+					</div>
+		</div>
+				<div class="elementor-column elementor-col-25 elementor-inner-column elementor-element elementor-element-34ace54b elementor-invisible" data-id="34ace54b" data-element_type="column" data-settings="{&quot;animation&quot;:&quot;pulse&quot;,&quot;animation_mobile&quot;:&quot;slideInDown&quot;}">
+			<div class="elementor-widget-wrap elementor-element-populated">
+						<div class="elementor-element elementor-element-362c5ccb elementor-widget elementor-widget-heading" data-id="362c5ccb" data-element_type="widget" data-widget_type="heading.default">
+				<div class="elementor-widget-container">
+					<h4 class="elementor-heading-title elementor-size-default">Inventions Timestamped on Bitcoin
+</h4>				</div>
+				</div>
+				<div class="elementor-element elementor-element-47aff256 elementor-widget elementor-widget-image" data-id="47aff256" data-element_type="widget" data-widget_type="image.default">
+				<div class="elementor-widget-container">
+															<img width="251" height="251" src="https://optimando.ai/wp-content/uploads/2025/07/Design-ohne-Titel-11.png" class="attachment-medium size-medium wp-image-614" alt="Timestamped on Bitcoin" decoding="async" srcset="https://optimando.ai/wp-content/uploads/2025/07/Design-ohne-Titel-11.png 251w, https://optimando.ai/wp-content/uploads/2025/07/Design-ohne-Titel-11-150x150.png 150w, https://optimando.ai/wp-content/uploads/2025/07/elementor/thumbs/Design-ohne-Titel-11-150x150.png 400w" sizes="(max-width: 251px) 100vw, 251px" />															</div>
+				</div>
+					</div>
+		</div>
+					</div>
+		</section>
+					</div>
+		</div>
+					</div>
+		</section>
+				</footer>
+		
+<script type="speculationrules">
+{"prefetch":[{"source":"document","where":{"and":[{"href_matches":"/*"},{"not":{"href_matches":["/wp-*.php","/wp-admin/*","/wp-content/uploads/*","/wp-content/*","/wp-content/plugins/*","/wp-content/themes/hello-child/*","/wp-content/themes/hello-elementor/*","/*\\?(.+)"]}},{"not":{"selector_matches":"a[rel~=\"nofollow\"]"}},{"not":{"selector_matches":".no-prefetch, .no-prefetch a"}}]},"eagerness":"conservative"}]}
+</script>
+			<script>
+				const lazyloadRunObserver = () => {
+					const lazyloadBackgrounds = document.querySelectorAll( `.e-con.e-parent:not(.e-lazyloaded)` );
+					const lazyloadBackgroundObserver = new IntersectionObserver( ( entries ) => {
+						entries.forEach( ( entry ) => {
+							if ( entry.isIntersecting ) {
+								let lazyloadBackground = entry.target;
+								if( lazyloadBackground ) {
+									lazyloadBackground.classList.add( 'e-lazyloaded' );
+								}
+								lazyloadBackgroundObserver.unobserve( entry.target );
+							}
+						});
+					}, { rootMargin: '200px 0px 200px 0px' } );
+					lazyloadBackgrounds.forEach( ( lazyloadBackground ) => {
+						lazyloadBackgroundObserver.observe( lazyloadBackground );
+					} );
+				};
+				const events = [
+					'DOMContentLoaded',
+					'elementor/lazyload/observe',
+				];
+				events.forEach( ( event ) => {
+					document.addEventListener( event, lazyloadRunObserver );
+				} );
+			</script>
+			<link rel='stylesheet' id='jeg-dynamic-style-css' href='https://optimando.ai/wp-content/plugins/jeg-elementor-kit/lib/jeg-framework/assets/css/jeg-dynamic-styles.css?ver=1.3.0' media='all' />
+<link rel='stylesheet' id='elementor-icons-ekiticons-css' href='https://optimando.ai/wp-content/plugins/elementskit-lite/modules/elementskit-icon-pack/assets/css/ekiticons.css?ver=3.7.8' media='all' />
+<script src="https://optimando.ai/wp-content/plugins/elementor/assets/js/webpack.runtime.min.js?ver=3.34.1" id="elementor-webpack-runtime-js"></script>
+<script src="https://optimando.ai/wp-content/plugins/elementor/assets/js/frontend-modules.min.js?ver=3.34.1" id="elementor-frontend-modules-js"></script>
+<script src="https://optimando.ai/wp-includes/js/jquery/ui/core.min.js?ver=1.13.3" id="jquery-ui-core-js"></script>
+<script id="elementor-frontend-js-before">
+var elementorFrontendConfig = {"environmentMode":{"edit":false,"wpPreview":false,"isScriptDebug":false},"i18n":{"shareOnFacebook":"Share on Facebook","shareOnTwitter":"Share on Twitter","pinIt":"Pin it","download":"Download","downloadImage":"Download image","fullscreen":"Fullscreen","zoom":"Zoom","share":"Share","playVideo":"Play Video","previous":"Previous","next":"Next","close":"Close","a11yCarouselPrevSlideMessage":"Previous slide","a11yCarouselNextSlideMessage":"Next slide","a11yCarouselFirstSlideMessage":"This is the first slide","a11yCarouselLastSlideMessage":"This is the last slide","a11yCarouselPaginationBulletMessage":"Go to slide"},"is_rtl":false,"breakpoints":{"xs":0,"sm":480,"md":768,"lg":1025,"xl":1440,"xxl":1600},"responsive":{"breakpoints":{"mobile":{"label":"Mobile Portrait","value":767,"default_value":767,"direction":"max","is_enabled":true},"mobile_extra":{"label":"Mobile Landscape","value":880,"default_value":880,"direction":"max","is_enabled":false},"tablet":{"label":"Tablet Portrait","value":1024,"default_value":1024,"direction":"max","is_enabled":true},"tablet_extra":{"label":"Tablet Landscape","value":1200,"default_value":1200,"direction":"max","is_enabled":false},"laptop":{"label":"Laptop","value":1366,"default_value":1366,"direction":"max","is_enabled":false},"widescreen":{"label":"Widescreen","value":2400,"default_value":2400,"direction":"min","is_enabled":false}},"hasCustomBreakpoints":false},"version":"3.34.1","is_static":false,"experimentalFeatures":{"e_font_icon_svg":true,"additional_custom_breakpoints":true,"container":true,"theme_builder_v2":true,"hello-theme-header-footer":true,"nested-elements":true,"home_screen":true,"global_classes_should_enforce_capabilities":true,"e_variables":true,"cloud-library":true,"e_opt_in_v4_page":true,"e_interactions":true,"import-export-customization":true,"e_pro_variables":true},"urls":{"assets":"https:\/\/optimando.ai\/wp-content\/plugins\/elementor\/assets\/","ajaxurl":"https:\/\/optimando.ai\/wp-admin\/admin-ajax.php","uploadUrl":"https:\/\/optimando.ai\/wp-content\/uploads"},"nonces":{"floatingButtonsClickTracking":"550df46463"},"swiperClass":"swiper","settings":{"page":[],"editorPreferences":[]},"kit":{"active_breakpoints":["viewport_mobile","viewport_tablet"],"global_image_lightbox":"yes","lightbox_enable_counter":"yes","lightbox_enable_fullscreen":"yes","lightbox_enable_zoom":"yes","lightbox_enable_share":"yes","lightbox_title_src":"title","lightbox_description_src":"description","hello_header_logo_type":"logo"},"post":{"id":42,"title":"Optimando%20AI%20%E2%80%93%20AI%20Workflow%20Automation","excerpt":"","featuredImage":false}};
+//# sourceURL=elementor-frontend-js-before
+</script>
+<script src="https://optimando.ai/wp-content/plugins/elementor/assets/js/frontend.min.js?ver=3.34.1" id="elementor-frontend-js"></script>
+<script id="elementor-frontend-js-after">
+var jkit_ajax_url = "https://optimando.ai/?jkit-ajax-request=jkit_elements", jkit_nonce = "c516240933";
+//# sourceURL=elementor-frontend-js-after
+</script>
+<script src="https://optimando.ai/wp-content/plugins/elementor/assets/lib/swiper/v8/swiper.min.js?ver=8.4.5" id="swiper-js"></script>
+<script src="https://optimando.ai/wp-content/plugins/metform/public/assets/lib/cute-alert/cute-alert.js?ver=4.1.2" id="cute-alert-js"></script>
+<script src="https://optimando.ai/wp-content/themes/hello-elementor/assets/js/hello-frontend.js?ver=3.4.5" id="hello-theme-frontend-js"></script>
+<script src="https://optimando.ai/wp-content/plugins/elementskit-lite/libs/framework/assets/js/frontend-script.js?ver=3.7.8" id="elementskit-framework-js-frontend-js"></script>
+<script id="elementskit-framework-js-frontend-js-after">
+		var elementskit = {
+			resturl: 'https://optimando.ai/wp-json/elementskit/v1/',
+		}
+
+		
+//# sourceURL=elementskit-framework-js-frontend-js-after
+</script>
+<script src="https://optimando.ai/wp-content/plugins/elementskit-lite/widgets/init/assets/js/widget-scripts.js?ver=3.7.8" id="ekit-widget-scripts-js"></script>
+<script src="https://optimando.ai/wp-content/plugins/jeg-elementor-kit/assets/js/elements/sticky-element.js?ver=3.0.2" id="jkit-sticky-element-js"></script>
+<script src="https://optimando.ai/wp-content/plugins/elementor-pro/assets/js/webpack-pro.runtime.min.js?ver=3.34.0" id="elementor-pro-webpack-runtime-js"></script>
+<script src="https://optimando.ai/wp-includes/js/dist/hooks.min.js?ver=dd5603f07f9220ed27f1" id="wp-hooks-js"></script>
+<script src="https://optimando.ai/wp-includes/js/dist/i18n.min.js?ver=c26c3dc7bed366793375" id="wp-i18n-js"></script>
+<script id="wp-i18n-js-after">
+wp.i18n.setLocaleData( { 'text direction\u0004ltr': [ 'ltr' ] } );
+//# sourceURL=wp-i18n-js-after
+</script>
+<script id="elementor-pro-frontend-js-before">
+var ElementorProFrontendConfig = {"ajaxurl":"https:\/\/optimando.ai\/wp-admin\/admin-ajax.php","nonce":"aa87423b2c","urls":{"assets":"https:\/\/optimando.ai\/wp-content\/plugins\/elementor-pro\/assets\/","rest":"https:\/\/optimando.ai\/wp-json\/"},"settings":{"lazy_load_background_images":true},"popup":{"hasPopUps":false},"shareButtonsNetworks":{"facebook":{"title":"Facebook","has_counter":true},"twitter":{"title":"Twitter"},"linkedin":{"title":"LinkedIn","has_counter":true},"pinterest":{"title":"Pinterest","has_counter":true},"reddit":{"title":"Reddit","has_counter":true},"vk":{"title":"VK","has_counter":true},"odnoklassniki":{"title":"OK","has_counter":true},"tumblr":{"title":"Tumblr"},"digg":{"title":"Digg"},"skype":{"title":"Skype"},"stumbleupon":{"title":"StumbleUpon","has_counter":true},"mix":{"title":"Mix"},"telegram":{"title":"Telegram"},"pocket":{"title":"Pocket","has_counter":true},"xing":{"title":"XING","has_counter":true},"whatsapp":{"title":"WhatsApp"},"email":{"title":"Email"},"print":{"title":"Print"},"x-twitter":{"title":"X"},"threads":{"title":"Threads"}},"facebook_sdk":{"lang":"en_US","app_id":""},"lottie":{"defaultAnimationUrl":"https:\/\/optimando.ai\/wp-content\/plugins\/elementor-pro\/modules\/lottie\/assets\/animations\/default.json"}};
+//# sourceURL=elementor-pro-frontend-js-before
+</script>
+<script src="https://optimando.ai/wp-content/plugins/elementor-pro/assets/js/frontend.min.js?ver=3.34.0" id="elementor-pro-frontend-js"></script>
+<script src="https://optimando.ai/wp-content/plugins/elementor-pro/assets/js/elements-handlers.min.js?ver=3.34.0" id="pro-elements-handlers-js"></script>
+<script src="https://optimando.ai/wp-content/plugins/elementskit-lite/widgets/init/assets/js/animate-circle.min.js?ver=3.7.8" id="animate-circle-js"></script>
+<script id="elementskit-elementor-js-extra">
+var ekit_config = {"ajaxurl":"https://optimando.ai/wp-admin/admin-ajax.php","nonce":"8e970caf30"};
+//# sourceURL=elementskit-elementor-js-extra
+</script>
+<script src="https://optimando.ai/wp-content/plugins/elementskit-lite/widgets/init/assets/js/elementor.js?ver=3.7.8" id="elementskit-elementor-js"></script>
+<script id="wp-emoji-settings" type="application/json">
+{"baseUrl":"https://s.w.org/images/core/emoji/17.0.2/72x72/","ext":".png","svgUrl":"https://s.w.org/images/core/emoji/17.0.2/svg/","svgExt":".svg","source":{"concatemoji":"https://optimando.ai/wp-includes/js/wp-emoji-release.min.js?ver=6.9"}}
+</script>
+<script type="module">
+/*! This file is auto-generated */
+const a=JSON.parse(document.getElementById("wp-emoji-settings").textContent),o=(window._wpemojiSettings=a,"wpEmojiSettingsSupports"),s=["flag","emoji"];function i(e){try{var t={supportTests:e,timestamp:(new Date).valueOf()};sessionStorage.setItem(o,JSON.stringify(t))}catch(e){}}function c(e,t,n){e.clearRect(0,0,e.canvas.width,e.canvas.height),e.fillText(t,0,0);t=new Uint32Array(e.getImageData(0,0,e.canvas.width,e.canvas.height).data);e.clearRect(0,0,e.canvas.width,e.canvas.height),e.fillText(n,0,0);const a=new Uint32Array(e.getImageData(0,0,e.canvas.width,e.canvas.height).data);return t.every((e,t)=>e===a[t])}function p(e,t){e.clearRect(0,0,e.canvas.width,e.canvas.height),e.fillText(t,0,0);var n=e.getImageData(16,16,1,1);for(let e=0;e<n.data.length;e++)if(0!==n.data[e])return!1;return!0}function u(e,t,n,a){switch(t){case"flag":return n(e,"\ud83c\udff3\ufe0f\u200d\u26a7\ufe0f","\ud83c\udff3\ufe0f\u200b\u26a7\ufe0f")?!1:!n(e,"\ud83c\udde8\ud83c\uddf6","\ud83c\udde8\u200b\ud83c\uddf6")&&!n(e,"\ud83c\udff4\udb40\udc67\udb40\udc62\udb40\udc65\udb40\udc6e\udb40\udc67\udb40\udc7f","\ud83c\udff4\u200b\udb40\udc67\u200b\udb40\udc62\u200b\udb40\udc65\u200b\udb40\udc6e\u200b\udb40\udc67\u200b\udb40\udc7f");case"emoji":return!a(e,"\ud83e\u1fac8")}return!1}function f(e,t,n,a){let r;const o=(r="undefined"!=typeof WorkerGlobalScope&&self instanceof WorkerGlobalScope?new OffscreenCanvas(300,150):document.createElement("canvas")).getContext("2d",{willReadFrequently:!0}),s=(o.textBaseline="top",o.font="600 32px Arial",{});return e.forEach(e=>{s[e]=t(o,e,n,a)}),s}function r(e){var t=document.createElement("script");t.src=e,t.defer=!0,document.head.appendChild(t)}a.supports={everything:!0,everythingExceptFlag:!0},new Promise(t=>{let n=function(){try{var e=JSON.parse(sessionStorage.getItem(o));if("object"==typeof e&&"number"==typeof e.timestamp&&(new Date).valueOf()<e.timestamp+604800&&"object"==typeof e.supportTests)return e.supportTests}catch(e){}return null}();if(!n){if("undefined"!=typeof Worker&&"undefined"!=typeof OffscreenCanvas&&"undefined"!=typeof URL&&URL.createObjectURL&&"undefined"!=typeof Blob)try{var e="postMessage("+f.toString()+"("+[JSON.stringify(s),u.toString(),c.toString(),p.toString()].join(",")+"));",a=new Blob([e],{type:"text/javascript"});const r=new Worker(URL.createObjectURL(a),{name:"wpTestEmojiSupports"});return void(r.onmessage=e=>{i(n=e.data),r.terminate(),t(n)})}catch(e){}i(n=f(s,u,c,p))}t(n)}).then(e=>{for(const n in e)a.supports[n]=e[n],a.supports.everything=a.supports.everything&&a.supports[n],"flag"!==n&&(a.supports.everythingExceptFlag=a.supports.everythingExceptFlag&&a.supports[n]);var t;a.supports.everythingExceptFlag=a.supports.everythingExceptFlag&&!a.supports.flag,a.supports.everything||((t=a.source||{}).concatemoji?r(t.concatemoji):t.wpemoji&&t.twemoji&&(r(t.twemoji),r(t.wpemoji)))});
+//# sourceURL=https://optimando.ai/wp-includes/js/wp-emoji-loader.min.js
+</script>
+
+</body>
+</html>

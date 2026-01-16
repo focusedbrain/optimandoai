@@ -1366,18 +1366,18 @@ function showTriggerPromptInChat(mode: string, rect: any, displayId: number, ima
     
 
     // Detect theme for styling
-    let theme: 'default'|'dark'|'professional' = 'default'
+    let theme: 'pro'|'dark'|'standard' = 'standard'
     try { 
       const t = localStorage.getItem('optimando-ui-theme')
       console.log('[CONTENT] Modal theme detection - localStorage value:', t)
-      if (t === 'professional' || t === 'dark') theme = t as any 
+      if (t === 'standard' || t === 'dark' || t === 'pro') theme = t as any 
     } catch (e) {
       console.log('[CONTENT] Modal theme detection - error:', e)
     }
     
     console.log('[CONTENT] Modal theme selected:', theme)
-    const saveBtnColor = theme === 'professional' ? '#3b82f6' : '#10b981'
-    const saveBtnHoverColor = theme === 'professional' ? '#2563eb' : '#059669'
+    const saveBtnColor = theme === 'standard' ? '#8b5cf6' : '#10b981'
+    const saveBtnHoverColor = theme === 'standard' ? '#7c3aed' : '#059669'
     console.log('[CONTENT] Save button colors:', { saveBtnColor, saveBtnHoverColor })
 
     // Remove existing prompt if any
@@ -2287,7 +2287,7 @@ function initializeExtension() {
 
   const themeFromUrl = urlParams.get('optimando_theme')
 
-  if (themeFromUrl && (themeFromUrl === 'dark' || themeFromUrl === 'professional')) {
+  if (themeFromUrl && (themeFromUrl === 'dark' || themeFromUrl === 'standard' || themeFromUrl === 'pro')) {
 
     console.log('🔧 DEBUG: Setting theme from URL:', themeFromUrl)
 
@@ -7656,23 +7656,23 @@ function initializeExtension() {
 
       /* Theme-specific CSS classes to prevent caching conflicts */
 
-      .theme-default .title-text { color: white !important; }
+      .theme-pro .title-text { color: white !important; }
 
-      .theme-default .section-title { color: white !important; }
+      .theme-pro .section-title { color: white !important; }
 
-      .theme-default .dropdown-title { color: white !important; }
+      .theme-pro .dropdown-title { color: white !important; }
 
-      .theme-default .menu-link { color: white !important; }
+      .theme-pro .menu-link { color: white !important; }
 
       
 
-      .theme-professional .title-text { color: #0f172a !important; }
+      .theme-standard .title-text { color: #0f172a !important; }
 
-      .theme-professional .section-title { color: #0f172a !important; }
+      .theme-standard .section-title { color: #0f172a !important; border-bottom: 1px solid rgba(139, 92, 246, 0.15) !important; padding-bottom: 8px !important; }
 
-      .theme-professional .dropdown-title { color: #0f172a !important; }
+      .theme-standard .dropdown-title { color: #0f172a !important; }
 
-      .theme-professional .menu-link { color: #0f172a !important; font-weight: 700 !important; }
+      .theme-standard .menu-link { color: #0f172a !important; font-weight: 700 !important; }
 
       
 
@@ -7688,15 +7688,15 @@ function initializeExtension() {
 
       /* WR Scan Text and Session ID Text */
 
-      .theme-default .wr-scan-text { color: rgba(255,255,255,0.8) !important; }
+      .theme-pro .wr-scan-text { color: rgba(255,255,255,0.8) !important; }
 
-      .theme-default .session-id-text { color: white !important; }
+      .theme-pro .session-id-text { color: white !important; }
 
       
 
-      .theme-professional .wr-scan-text { color: #64748b !important; }
+      .theme-standard .wr-scan-text { color: #64748b !important; }
 
-      .theme-professional .session-id-text { color: #1e293b !important; }
+      .theme-standard .session-id-text { color: #1e293b !important; }
 
       
 
@@ -8173,21 +8173,21 @@ function initializeExtension() {
 
         /* Topbar tabs - ensure visibility across themes */
 
-        .theme-default #topbar-tabs .topbar-tab { color: white !important; }
+        .theme-pro #topbar-tabs .topbar-tab { color: white !important; }
 
         .theme-dark #topbar-tabs .topbar-tab { background: rgba(255,255,255,0.1) !important; border: 1px solid rgba(255,255,255,0.2) !important; color: #ffffff !important; }
 
-        .theme-professional #topbar-tabs .topbar-tab { background: rgba(2,6,23,0.03) !important; border: 1px solid #e2e8f0 !important; color: #0f172a !important; }
+        .theme-standard #topbar-tabs .topbar-tab { background: #ffffff !important; border: 1px solid rgba(139, 92, 246, 0.15) !important; color: #0f172a !important; }
 
 
 
         /* Orchestration quick actions */
 
-        .theme-default .quick-action { background: rgba(255,255,255,0.18) !important; border: 1px solid rgba(255,255,255,0.3) !important; color: #ffffff !important; }
+        .theme-pro .quick-action { background: rgba(255,255,255,0.18) !important; border: 1px solid rgba(255,255,255,0.3) !important; color: #ffffff !important; }
 
         .theme-dark .quick-action { background: rgba(255,255,255,0.18) !important; border: 1px solid rgba(255,255,255,0.3) !important; color: #ffffff !important; }
 
-        .theme-professional .quick-action { background: #f8fafc !important; border: 1px solid #cbd5e1 !important; color: #0f172a !important; box-shadow: 0 1px 2px rgba(0,0,0,0.05) !important; }
+        .theme-standard .quick-action { background: #ffffff !important; border: 1px solid rgba(139, 92, 246, 0.2) !important; color: #0f172a !important; box-shadow: 0 1px 2px rgba(0,0,0,0.05) !important; }
 
       `
 
@@ -8237,11 +8237,11 @@ function initializeExtension() {
 
         #command-chat-docked .send-btn { font-weight: 800; height: 36px; border-radius: 6px; cursor: pointer; padding: 0 12px; }
 
-        .theme-default #command-chat-docked .send-btn { background: linear-gradient(135deg,#c084fc 0%,#a855f7 50%,#9333ea 100%); border: 1px solid rgba(255,255,255,0.30); color: #ffffff; }
+        .theme-pro #command-chat-docked .send-btn { background: linear-gradient(135deg,#c084fc 0%,#a855f7 50%,#9333ea 100%); border: 1px solid rgba(255,255,255,0.30); color: #ffffff; }
 
         .theme-dark #command-chat-docked .send-btn { background: linear-gradient(135deg,#334155,#1e293b); border: 1px solid rgba(255,255,255,0.20); color: #e5e7eb; }
 
-        .theme-professional #command-chat-docked .send-btn { background: linear-gradient(135deg,#ffffff,#f1f5f9); border: 1px solid #cbd5e1; color: #0f172a; }
+        .theme-standard #command-chat-docked .send-btn { background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%); border: 1px solid rgba(139, 92, 246, 0.3); color: #ffffff; }
 
       `
 
@@ -8287,19 +8287,19 @@ function initializeExtension() {
 
 
 
-        /* Default (purple) */
+        /* Pro (purple) */
 
-        .theme-default .chat-docked { background: rgba(255,255,255,0.10); border-color: rgba(255,255,255,0.20); color: white; }
+        .theme-pro .chat-docked { background: rgba(255,255,255,0.10); border-color: rgba(255,255,255,0.20); color: white; }
 
-        .theme-default .chat-docked .chat-hdr { background: linear-gradient(135deg,#c084fc 0%,#a855f7 50%,#9333ea 100%); border-bottom-color: rgba(255,255,255,0.20); color: white; }
+        .theme-pro .chat-docked .chat-hdr { background: linear-gradient(135deg,#c084fc 0%,#a855f7 50%,#9333ea 100%); border-bottom-color: rgba(255,255,255,0.20); color: white; }
 
-        .theme-default .chat-docked .chat-msgs { background: rgba(255,255,255,0.06); border-bottom: 1px solid rgba(255,255,255,0.20); }
+        .theme-pro .chat-docked .chat-msgs { background: rgba(255,255,255,0.06); border-bottom: 1px solid rgba(255,255,255,0.20); }
 
-        .theme-default .chat-docked .chat-ta { background: rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.20); color: white; }
+        .theme-pro .chat-docked .chat-ta { background: rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.20); color: white; }
 
-        .theme-default .chat-docked .chat-btn { background: rgba(255,255,255,0.15); border:1px solid rgba(255,255,255,0.20); color: white; }
+        .theme-pro .chat-docked .chat-btn { background: rgba(255,255,255,0.15); border:1px solid rgba(255,255,255,0.20); color: white; }
 
-        .theme-default .chat-docked .chat-send { background:#22c55e; border:1px solid #16a34a; color:#0b1e12; }
+        .theme-pro .chat-docked .chat-send { background:#22c55e; border:1px solid #16a34a; color:#0b1e12; }
 
 
 
@@ -8319,19 +8319,19 @@ function initializeExtension() {
 
 
 
-        /* Professional (light) */
+        /* Standard (light with purple accents) */
 
-        .theme-professional .chat-docked { background:#ffffff; border-color:#e2e8f0; color:#0f172a; }
+        .theme-standard .chat-docked { background:#ffffff; border-color: rgba(139, 92, 246, 0.15); color:#0f172a; }
 
-        .theme-professional .chat-docked .chat-hdr { background: linear-gradient(135deg,#ffffff,#f1f5f9); border-bottom-color:#e2e8f0; color:#0f172a; }
+        .theme-standard .chat-docked .chat-hdr { background:#ffffff; border-bottom: 1px solid rgba(139, 92, 246, 0.15); color:#0f172a; }
 
-        .theme-professional .chat-docked .chat-msgs { background:#f8fafc; border-bottom: 1px solid #e2e8f0; }
+        .theme-standard .chat-docked .chat-msgs { background:#f8fafc; border-bottom: 1px solid rgba(139, 92, 246, 0.1); }
 
-        .theme-professional .chat-docked .chat-ta { background:#ffffff; border:1px solid #e2e8f0; color:#0f172a; }
+        .theme-standard .chat-docked .chat-ta { background:#ffffff; border:1px solid rgba(139, 92, 246, 0.2); color:#0f172a; }
 
-        .theme-professional .chat-docked .chat-btn { background:#e2e8f0; border:1px solid #cbd5e1; color:#0f172a; }
+        .theme-standard .chat-docked .chat-btn { background:#ffffff; border:1px solid rgba(139, 92, 246, 0.2); color:#0f172a; }
 
-        .theme-professional .chat-docked .chat-send { background:#22c55e; border:1px solid #16a34a; color:#0b1e12; }
+        .theme-standard .chat-docked .chat-send { background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%); border:1px solid rgba(139, 92, 246, 0.3); color:#ffffff; }
 
       `
 
@@ -8347,7 +8347,9 @@ function initializeExtension() {
 
     const gradients = {
 
-      professional: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)',
+      standard: '#ffffff',  // Clean white background for Standard theme
+
+      pro: 'linear-gradient(135deg, rgba(102, 126, 234, 0.95) 0%, rgba(118, 75, 162, 0.95) 100%)',
 
       dark: 'linear-gradient(135deg, #0f172a 0%, #1e293b 100%)'
 
@@ -8355,7 +8357,9 @@ function initializeExtension() {
 
     const textColors = {
 
-      professional: '#1e293b',
+      standard: '#0f172a',
+
+      pro: '#ffffff',
 
       dark: '#f1f5f9'
 
@@ -8363,7 +8367,9 @@ function initializeExtension() {
 
     const titleColors = {
 
-      professional: '#0f172a',
+      standard: '#0f172a',
+
+      pro: '#ffffff',
 
       dark: '#f1f5f9'
 
@@ -8411,9 +8417,9 @@ function initializeExtension() {
 
       
 
-      // Professional theme typography improvements
+      // Standard theme typography improvements
 
-      if (theme === 'professional') {
+      if (theme === 'standard') {
 
         leftSidebar.style.fontFamily = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif'
 
@@ -8429,9 +8435,9 @@ function initializeExtension() {
 
       if (addAgentBtn) {
 
-        if (theme === 'professional') {
+        if (theme === 'standard') {
 
-          addAgentBtn.style.background = 'linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%)'
+          addAgentBtn.style.background = '#ffffff'
 
           addAgentBtn.style.border = '1px solid #cbd5e1'
 
@@ -8471,7 +8477,7 @@ function initializeExtension() {
 
       // Professional theme typography improvements
 
-      if (theme === 'professional') {
+      if (theme === 'standard') {
 
         rightSidebar.style.fontFamily = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif'
 
@@ -8487,7 +8493,7 @@ function initializeExtension() {
 
       if (qrText) {
 
-        qrText.style.color = theme === 'professional' ? '#475569' : '#cbd5e1'
+        qrText.style.color = theme === 'standard' ? '#64748b' : '#cbd5e1'
 
       }
 
@@ -8509,7 +8515,7 @@ function initializeExtension() {
 
       cards.forEach(card => {
 
-        if (theme === 'professional') {
+        if (theme === 'standard') {
 
           card.style.background = 'rgba(255, 255, 255, 0.95)'
 
@@ -8535,7 +8541,7 @@ function initializeExtension() {
 
         if (!btn) return
 
-        if (theme === 'professional') {
+        if (theme === 'standard') {
 
           btn.style.background = 'linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%)'
 
@@ -8589,7 +8595,7 @@ function initializeExtension() {
 
       if (addAgentBtnRight) {
 
-        if (theme === 'professional') {
+        if (theme === 'standard') {
 
           addAgentBtnRight.style.background = 'linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%)'
 
@@ -8643,7 +8649,7 @@ function initializeExtension() {
 
         
 
-        if (theme === 'professional') {
+        if (theme === 'standard') {
 
           title.style.setProperty('color', '#0f172a', 'important')  // Dark navy for light background
 
@@ -8673,7 +8679,7 @@ function initializeExtension() {
 
         
 
-        if (theme === 'professional') {
+        if (theme === 'standard') {
 
           title.style.setProperty('color', '#0f172a', 'important')  // Dark navy for light background
 
@@ -8703,7 +8709,7 @@ function initializeExtension() {
 
         
 
-        if (theme === 'professional') {
+        if (theme === 'standard') {
 
           title.style.setProperty('color', '#0f172a', 'important')  // Dark navy for light background
 
@@ -8731,7 +8737,7 @@ function initializeExtension() {
 
         bottomSidebar.style.borderBottom = '1px solid #374151';  // Anthracite color for dark theme
 
-      } else if (theme === 'professional') {
+      } else if (theme === 'standard') {
 
         // Professional theme top bar - Fortune 500 enterprise design
 
@@ -8757,13 +8763,13 @@ function initializeExtension() {
 
       // Fix header titles readability for professional and dark themes only
 
-      if (theme === 'professional' || theme === 'dark') {
+      if (theme === 'standard' || theme === 'dark') {
 
         const headerTitles = bottomSidebar.querySelectorAll('h1, h2, h3, .header-title, .session-id')
 
         headerTitles.forEach(title => {
 
-          title.style.color = theme === 'professional' ? '#1e293b' : titleFg
+          title.style.color = theme === 'standard' ? '#1e293b' : titleFg
 
           title.style.fontWeight = '600'
 
@@ -8773,7 +8779,7 @@ function initializeExtension() {
 
         if (sessionId) {
 
-          sessionId.style.color = theme === 'professional' ? '#1e293b' : titleFg
+          sessionId.style.color = theme === 'standard' ? '#1e293b' : titleFg
 
           sessionId.style.fontWeight = '600'
 
@@ -8803,7 +8809,7 @@ function initializeExtension() {
 
               
 
-              if (theme === 'professional') {
+              if (theme === 'standard') {
 
                 element.style.setProperty('color', '#0f172a', 'important')  // Dark navy for light background
 
@@ -8837,7 +8843,7 @@ function initializeExtension() {
 
     if (leftSidebar) {
 
-      leftSidebar.className = 'theme-default'
+      leftSidebar.className = 'theme-pro'
 
       leftSidebar.style.background = ORIGINAL_BG
 
@@ -8859,7 +8865,7 @@ function initializeExtension() {
 
     if (rightSidebar) {
 
-      rightSidebar.className = 'theme-default'
+      rightSidebar.className = 'theme-pro'
 
       rightSidebar.style.background = ORIGINAL_BG
 
@@ -8917,7 +8923,7 @@ function initializeExtension() {
 
     if (bottomSidebar) { 
 
-      bottomSidebar.className = 'theme-default'
+      bottomSidebar.className = 'theme-pro'
 
       bottomSidebar.style.background = ORIGINAL_BG; 
 
@@ -9027,7 +9033,7 @@ function initializeExtension() {
 
     const savedTheme = localStorage.getItem('optimando-ui-theme')
 
-    if (savedTheme === 'dark' || savedTheme === 'professional') {
+    if (savedTheme === 'dark' || savedTheme === 'standard') {
 
         try { chrome.storage?.local?.set({ 'optimando-ui-theme': savedTheme }) } catch {}
 
@@ -9035,7 +9041,12 @@ function initializeExtension() {
 
       } else {
 
-        try { chrome.storage?.local?.set({ 'optimando-ui-theme': 'default' }) } catch {}
+        // Default to Standard theme
+        try { 
+          localStorage.setItem('optimando-ui-theme', 'standard')
+          chrome.storage?.local?.set({ 'optimando-ui-theme': 'standard' }) 
+        } catch {}
+        applyTheme('standard')
 
     }
 
@@ -9073,7 +9084,7 @@ function initializeExtension() {
 
           try { resetToDefaultTheme() } catch {}
 
-        } else if (newTheme === 'dark' || newTheme === 'professional') {
+        } else if (newTheme === 'dark' || newTheme === 'standard') {
 
           try { applyTheme(newTheme) } catch {}
 
@@ -9877,11 +9888,11 @@ function initializeExtension() {
 
       } catch {}
 
-      const t = (localStorage.getItem('optimando-ui-theme') || 'default') as 'default'|'dark'|'professional'
+      const t = (localStorage.getItem('optimando-ui-theme') || 'standard') as 'pro'|'dark'|'standard'
 
       if (t === 'dark') return 'linear-gradient(135deg, #0f172a 0%, #1e293b 100%)'
 
-      if (t === 'professional') return 'linear-gradient(135deg, #0ea5e9 0%, #6366f1 100%)'
+      if (t === 'standard') return 'linear-gradient(135deg, #0ea5e9 0%, #6366f1 100%)'
 
       return 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)'
 
@@ -10151,11 +10162,11 @@ function initializeExtension() {
 
       try {
 
-        const t = (localStorage.getItem('optimando-ui-theme') || 'default') as 'default'|'dark'|'professional'
+        const t = (localStorage.getItem('optimando-ui-theme') || 'standard') as 'pro'|'dark'|'standard'
 
         if (t === 'dark') return 'linear-gradient(135deg, #0f172a 0%, #1e293b 100%)'
 
-        if (t === 'professional') return 'linear-gradient(135deg, #0ea5e9 0%, #6366f1 100%)'
+        if (t === 'standard') return 'linear-gradient(135deg, #0ea5e9 0%, #6366f1 100%)'
 
         return 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)'
 
@@ -11266,11 +11277,11 @@ function initializeExtension() {
 
       } catch {}
 
-      const t = (localStorage.getItem('optimando-ui-theme') || 'default') as 'default'|'dark'|'professional'
+      const t = (localStorage.getItem('optimando-ui-theme') || 'standard') as 'pro'|'dark'|'standard'
 
       if (t === 'dark') return 'linear-gradient(135deg, #0f172a 0%, #1e293b 100%)'
 
-      if (t === 'professional') return 'linear-gradient(135deg, #0ea5e9 0%, #6366f1 100%)'
+      if (t === 'standard') return 'linear-gradient(135deg, #0ea5e9 0%, #6366f1 100%)'
 
       return 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)'
 
@@ -30504,9 +30515,15 @@ ${pageText}
           buttonRow.style.cssText = 'display:flex; gap:8px; justify-content:flex-end;'
 
           // Detect theme for Save button color
-          let btnTheme: 'default'|'dark'|'professional' = 'default'
-          try { const t = localStorage.getItem('optimando-ui-theme'); if (t === 'professional' || t === 'dark') btnTheme = t as any } catch {}
-          const saveBtnColor = btnTheme === 'professional' ? '#3b82f6' : '#10b981'
+          let btnTheme: 'pro'|'dark'|'standard' = 'standard'
+          try { 
+            const t = localStorage.getItem('optimando-ui-theme')
+            if (t === 'standard' || t === 'dark' || t === 'pro') {
+              // Map old 'default' to 'pro' for backward compatibility
+              btnTheme = (t === 'default' ? 'pro' : t) as any
+            }
+          } catch {}
+          const saveBtnColor = btnTheme === 'standard' ? '#3b82f6' : '#10b981'
 
           const save = document.createElement('button'); save.textContent='💾 Save'; save.style.cssText=`background:${saveBtnColor};border:0;color:white;padding:8px 16px;border-radius:6px;cursor:pointer;font-size:13px; font-weight:500;`
 
@@ -31546,11 +31563,9 @@ ${pageText}
 
                 <select id="optimando-theme-select" style="width: 100%; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 6px 8px; border-radius: 4px; font-size: 11px; pointer-events: auto; cursor: pointer; appearance: auto;">
 
-                  <option value="default" selected>Default (Original)</option>
-
+                  <option value="standard" selected>Standard</option>
+                  <option value="pro">Pro</option>
                   <option value="dark">Dark</option>
-
-                  <option value="professional">Professional</option>
 
                 </select>
 
@@ -31780,13 +31795,13 @@ ${pageText}
 
         console.log('🎨 Saved theme from localStorage:', savedTheme)
 
-        if (savedTheme === 'dark' || savedTheme === 'professional') {
+        if (savedTheme === 'dark' || savedTheme === 'standard') {
 
           themeSelect.value = savedTheme
 
         } else {
 
-          themeSelect.value = 'default'
+          themeSelect.value = 'standard'
 
         }
 
@@ -31824,7 +31839,7 @@ ${pageText}
 
         // apply only to extension UIs
 
-        if (theme === 'default') {
+        if (theme === 'pro') {
 
           try { 
 
@@ -34222,7 +34237,7 @@ ${pageText}
 
         
 
-        const currentTheme = localStorage.getItem('optimando-ui-theme') || 'default'
+        const currentTheme = localStorage.getItem('optimando-ui-theme') || 'standard'
 
         console.log('🔧 DEBUG: Using session key for ALL master tabs:', activeSessionKey)
 
@@ -37230,7 +37245,7 @@ ${pageText}
 
         slotBg = 'rgba(255,255,255,0.06)'
 
-      } else if (theme === 'professional') {
+      } else if (theme === 'standard') {
 
         headerColor = 'linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%)' // professional light gradient
 
@@ -37270,15 +37285,15 @@ ${pageText}
 
             <div style="display: flex; align-items: center; flex-shrink: 0; gap: 4px;">
 
-              <button class="edit-slot" data-slot-id="${slotNum}" title="Setup Agent Box" onclick="if(window.openGridSlotEditor) window.openGridSlotEditor('${slotNum}'); else console.log('❌ openGridSlotEditor not found');" style="background: ${theme === 'professional' ? 'rgba(0,0,0,0.1)' : 'rgba(255,255,255,0.2)'}; border: none; color: ${textColor}; width: 20px; height: 20px; border-radius: 50%; cursor: pointer; font-size: 11px; display: flex; align-items: center; justify-content: center; transition: all 0.2s ease;">✏️</button>
+              <button class="edit-slot" data-slot-id="${slotNum}" title="Setup Agent Box" onclick="if(window.openGridSlotEditor) window.openGridSlotEditor('${slotNum}'); else console.log('❌ openGridSlotEditor not found');" style="background: ${theme === 'standard' ? 'rgba(0,0,0,0.1)' : 'rgba(255,255,255,0.2)'}; border: none; color: ${textColor}; width: 20px; height: 20px; border-radius: 50%; cursor: pointer; font-size: 11px; display: flex; align-items: center; justify-content: center; transition: all 0.2s ease;">✏️</button>
 
-              <button class="close-slot" style="background: ${theme === 'professional' ? 'rgba(0,0,0,0.1)' : 'rgba(255,255,255,0.2)'}; border: none; color: ${textColor}; width: 18px; height: 18px; border-radius: 50%; cursor: pointer; font-size: 10px; font-weight: bold; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">×</button>
+              <button class="close-slot" style="background: ${theme === 'standard' ? 'rgba(0,0,0,0.1)' : 'rgba(255,255,255,0.2)'}; border: none; color: ${textColor}; width: 18px; height: 18px; border-radius: 50%; cursor: pointer; font-size: 10px; font-weight: bold; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">×</button>
 
             </div>
 
           </div>
 
-          <div style="flex: 1; display: flex; align-items: center; justify-content: center; font-size: 14px; color: ${theme === 'dark' ? '#e5e7eb' : (theme === 'professional' ? '#1e293b' : '#333')}; text-align: center; padding: 16px; background: ${slotBg} !important; min-height: 0;">
+          <div style="flex: 1; display: flex; align-items: center; justify-content: center; font-size: 14px; color: ${theme === 'dark' ? '#e5e7eb' : (theme === 'standard' ? '#1e293b' : '#333')}; text-align: center; padding: 16px; background: ${slotBg} !important; min-height: 0;">
 
           </div>
 
@@ -37338,7 +37353,7 @@ ${pageText}
 
       console.log('🎨 Applied dark theme - bodyBg:', bodyBg)
 
-    } else if (theme === 'professional') {
+    } else if (theme === 'standard') {
 
       bodyBg = 'linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%)'
 
@@ -42751,7 +42766,7 @@ ${pageText}
 
           const t = localStorage.getItem('optimando-ui-theme')
 
-          if (t === 'professional' || t === 'dark') theme = t
+          if (t === 'standard' || t === 'dark') theme = t
 
         } catch {}
 
@@ -42985,102 +43000,108 @@ ${pageText}
 
       // Theme-aware styles
 
-      let theme: 'default'|'dark'|'professional' = 'default'
+      let theme: 'pro'|'dark'|'standard' = 'standard'
 
-      try { const t = localStorage.getItem('optimando-ui-theme'); if (t === 'professional' || t === 'dark') theme = t as any } catch {}
+      try { 
+        const t = localStorage.getItem('optimando-ui-theme')
+        if (t === 'standard' || t === 'dark' || t === 'pro' || t === 'default') {
+          // Map old 'default' to 'pro' for backward compatibility
+          theme = (t === 'default' ? 'pro' : t) as any
+        }
+      } catch {}
 
-      const bg = theme === 'professional' ? '#ffffff' : 'rgba(255,255,255,0.10)'
+      const bg = theme === 'standard' ? '#ffffff' : 'rgba(255,255,255,0.10)'
 
-      const br = theme === 'professional' ? '#e2e8f0' : 'rgba(255,255,255,0.20)'
+      const br = theme === 'standard' ? '#e2e8f0' : 'rgba(255,255,255,0.20)'
 
-      const fg = theme === 'professional' ? '#0f172a' : 'white'
+      const fg = theme === 'standard' ? '#0f172a' : 'white'
 
-      const hdr = theme === 'professional' ? 'linear-gradient(135deg,#ffffff,#f1f5f9)' : (theme==='dark' ? 'linear-gradient(135deg,#0f172a,#1e293b)' : 'linear-gradient(135deg,#667eea,#764ba2)')
+      const hdr = theme === 'standard' ? 'linear-gradient(135deg,#ffffff,#f1f5f9)' : (theme==='dark' ? 'linear-gradient(135deg,#0f172a,#1e293b)' : 'linear-gradient(135deg,#667eea,#764ba2)')
 
       container.style.cssText = `background:${bg}; color:${fg}; border:1px solid ${br}; border-radius:8px; padding:0; margin: 0 0 12px 0; overflow:hidden; position:relative;`
 
       container.innerHTML = `
 
         <div id="ccd-header" style="display:flex; align-items:center; justify-content:space-between; padding:6px 8px; background:${hdr}; border-bottom:1px solid ${br};">
-          <div style="display:flex; align-items:center; gap:8px; color:${theme==='professional'?'#0f172a':'white'}; flex:1; min-width:0;">
-            <select id="ccd-mode-select" style="font-size:11px; font-weight:600; height:28px; flex-shrink:0; background:${theme==='professional'?'rgba(15,23,42,0.08)':'rgba(255,255,255,0.15)'}; border:1px solid ${br}; color:${theme==='professional'?'#0f172a':'inherit'}; border-radius:6px; padding:0 22px 0 8px; cursor:pointer; outline:none; appearance:none; -webkit-appearance:none; background-image:url(&quot;data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 12 12'%3E%3Cpath fill='${theme==='professional'?'%230f172a':'%23ffffff'}' d='M3 4.5L6 7.5L9 4.5'/%3E%3C/svg%3E&quot;); background-repeat:no-repeat; background-position:right 6px center;">
+          <div style="display:flex; align-items:center; gap:8px; color:${theme==='standard'?'#0f172a':'white'}; flex:1; min-width:0;">
+            <select id="ccd-mode-select" style="font-size:11px; font-weight:600; height:28px; flex-shrink:0; background:${theme==='standard'?'rgba(15,23,42,0.08)':'rgba(255,255,255,0.15)'}; border:1px solid ${br}; color:${theme==='standard'?'#0f172a':'inherit'}; border-radius:6px; padding:0 22px 0 8px; cursor:pointer; outline:none; appearance:none; -webkit-appearance:none; background-image:url(&quot;data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 12 12'%3E%3Cpath fill='${theme==='standard'?'%230f172a':'%23ffffff'}' d='M3 4.5L6 7.5L9 4.5'/%3E%3C/svg%3E&quot;); background-repeat:no-repeat; background-position:right 6px center;">
               <option value="command-chat" style="background:#1e293b; color:white;">💬 WR Chat</option>
               <option value="augmented-overlay" style="background:#1e293b; color:white;">🎯 Augmented Overlay</option>
               <option value="mailguard" style="background:#1e293b; color:white;">🛡️ WR MailGuard</option>
             </select>
             <div id="ccd-chat-controls" style="display:flex; gap:6px; align-items:center;">
-              <button id="ccd-bucket" title="Context Bucket: Embed context directly into the session" style="height:28px; min-width:28px; background:${theme==='professional'?'#e2e8f0':'rgba(255,255,255,0.08)'}; border:1px solid ${br}; color:#ef4444; border-radius:6px; padding:0 8px; font-size:13px; cursor:pointer; display:flex;align-items:center;justify-content:center;">🪣</button>
-              <button id="ccd-lm-one" title="LmGTFY - Capture a screen area as screenshot or stream and send it to your pre-defined automation tasks." style="height:28px; min-width:28px; background:${theme==='professional'?'#e2e8f0':'rgba(255,255,255,0.15)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; padding:0 8px; font-size:13px; cursor:pointer; display:flex;align-items:center;justify-content:center;">✎</button>
+              <button id="ccd-bucket" title="Context Bucket: Embed context directly into the session" style="height:28px; min-width:28px; background:${theme==='standard'?'#e2e8f0':'rgba(255,255,255,0.08)'}; border:1px solid ${br}; color:#ef4444; border-radius:6px; padding:0 8px; font-size:13px; cursor:pointer; display:flex;align-items:center;justify-content:center;">🪣</button>
+              <button id="ccd-lm-one" title="LmGTFY - Capture a screen area as screenshot or stream and send it to your pre-defined automation tasks." style="height:28px; min-width:28px; background:${theme==='standard'?'#e2e8f0':'rgba(255,255,255,0.15)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; padding:0 8px; font-size:13px; cursor:pointer; display:flex;align-items:center;justify-content:center;">✎</button>
             </div>
           </div>
           <div style="display:flex; gap:6px; align-items:center; flex-shrink:0;">
-            <button id="ccd-undock" title="Undock from sidepanel" style="background:${theme==='professional'?'#e2e8f0':'rgba(255,255,255,0.15)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; padding:4px 6px; font-size:10px; cursor:pointer;">↗</button>
+            <button id="ccd-undock" title="Undock from sidepanel" style="background:${theme==='standard'?'#e2e8f0':'rgba(255,255,255,0.15)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; padding:4px 6px; font-size:10px; cursor:pointer;">↗</button>
           </div>
         </div>
 
         <!-- Command Chat View -->
         <div id="ccd-chat-view">
-          <div id="ccd-messages" style="height:160px; overflow:auto; display:flex; flex-direction:column; gap:6px; background:${theme==='professional'?'#f8fafc':'rgba(255,255,255,0.06)'}; border-left:0; border-right:0; border-top:0; padding:8px;"></div>
-          <div id="ccd-resize-handle" style="height:5px; background:${theme==='professional'?'#e2e8f0':'rgba(255,255,255,0.15)'}; cursor:ns-resize; border-top:1px solid ${br}; border-bottom:1px solid ${br};"></div>
+          <div id="ccd-messages" style="height:160px; overflow:auto; display:flex; flex-direction:column; gap:6px; background:${theme==='standard'?'#f8fafc':'rgba(255,255,255,0.06)'}; border-left:0; border-right:0; border-top:0; padding:8px;"></div>
+          <div id="ccd-resize-handle" style="height:5px; background:${theme==='standard'?'#e2e8f0':'rgba(255,255,255,0.15)'}; cursor:ns-resize; border-top:1px solid ${br}; border-bottom:1px solid ${br};"></div>
           <div id="ccd-compose" style="display:grid; grid-template-columns:1fr 36px 68px; gap:6px; align-items:center; padding:8px;">
-            <textarea id="ccd-input" placeholder="Type..." style="box-sizing:border-box; height:36px; resize:vertical; background:${theme==='professional'?'#ffffff':'rgba(255,255,255,0.08)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; padding:8px; font-size:12px;"></textarea>
+            <textarea id="ccd-input" placeholder="Type..." style="box-sizing:border-box; height:36px; resize:vertical; background:${theme==='standard'?'#ffffff':'rgba(255,255,255,0.08)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; padding:8px; font-size:12px;"></textarea>
             <input id="ccd-file" type="file" multiple style="display:none" />
-            <button id="ccd-attach" title="Attach" style="height:36px; background:${theme==='professional'?'#e2e8f0':'rgba(255,255,255,0.15)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; cursor:pointer;">📎</button>
+            <button id="ccd-attach" title="Attach" style="height:36px; background:${theme==='standard'?'#e2e8f0':'rgba(255,255,255,0.15)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; cursor:pointer;">📎</button>
             <button id="ccd-send" class="send-btn">Send</button>
           </div>
         </div>
 
         <!-- Augmented Overlay View -->
         <div id="ccd-overlay-view" style="display:none;">
-          <div id="ccd-overlay-messages" style="height:160px; overflow:auto; display:flex; flex-direction:column; gap:6px; background:${theme==='professional'?'#f8fafc':'rgba(255,255,255,0.06)'}; border-left:0; border-right:0; border-top:0; padding:8px;">
-            <div id="ccd-overlay-hint" style="padding:12px 14px; font-size:12px; opacity:0.8; font-style:italic; background:${theme==='professional'?'rgba(59,130,246,0.08)':'rgba(59,130,246,0.15)'}; border-radius:6px; display:flex; align-items:flex-start; gap:8px; line-height:1.5;">
+          <div id="ccd-overlay-messages" style="height:160px; overflow:auto; display:flex; flex-direction:column; gap:6px; background:${theme==='standard'?'#f8fafc':'rgba(255,255,255,0.06)'}; border-left:0; border-right:0; border-top:0; padding:8px;">
+            <div id="ccd-overlay-hint" style="padding:12px 14px; font-size:12px; opacity:0.8; font-style:italic; background:${theme==='standard'?'rgba(59,130,246,0.08)':'rgba(59,130,246,0.15)'}; border-radius:6px; display:flex; align-items:flex-start; gap:8px; line-height:1.5;">
               <span style="font-size:16px;">🎯</span>
               <span>Point with the cursor or select elements in order to ask questions or trigger automations directly in the UI.</span>
             </div>
           </div>
-          <div id="ccd-overlay-resize-handle" style="height:5px; background:${theme==='professional'?'#e2e8f0':'rgba(255,255,255,0.15)'}; cursor:ns-resize; border-top:1px solid ${br}; border-bottom:1px solid ${br};"></div>
+          <div id="ccd-overlay-resize-handle" style="height:5px; background:${theme==='standard'?'#e2e8f0':'rgba(255,255,255,0.15)'}; cursor:ns-resize; border-top:1px solid ${br}; border-bottom:1px solid ${br};"></div>
           <div id="ccd-overlay-compose" style="display:grid; grid-template-columns:1fr 36px 68px; gap:6px; align-items:center; padding:8px;">
-            <textarea id="ccd-overlay-input" placeholder="Ask about the selected element..." style="box-sizing:border-box; height:36px; resize:vertical; background:${theme==='professional'?'#ffffff':'rgba(255,255,255,0.08)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; padding:8px; font-size:12px;"></textarea>
+            <textarea id="ccd-overlay-input" placeholder="Ask about the selected element..." style="box-sizing:border-box; height:36px; resize:vertical; background:${theme==='standard'?'#ffffff':'rgba(255,255,255,0.08)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; padding:8px; font-size:12px;"></textarea>
             <input id="ccd-overlay-file" type="file" multiple style="display:none" />
-            <button id="ccd-overlay-attach" title="Attach" style="height:36px; background:${theme==='professional'?'#e2e8f0':'rgba(255,255,255,0.15)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; cursor:pointer;">📎</button>
+            <button id="ccd-overlay-attach" title="Attach" style="height:36px; background:${theme==='standard'?'#e2e8f0':'rgba(255,255,255,0.15)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; cursor:pointer;">📎</button>
             <button id="ccd-overlay-send" class="send-btn">Send</button>
           </div>
         </div>
 
         <!-- MailGuard View -->
-        <div id="ccd-mailguard-view" style="display:none; flex-direction:column; background:${theme==='professional'?'#f8fafc':'rgba(255,255,255,0.04)'};">
+        <div id="ccd-mailguard-view" style="display:none; flex-direction:column; background:${theme==='standard'?'#f8fafc':'rgba(255,255,255,0.04)'};">
           <style>
             #ccd-mg-to::placeholder, #ccd-mg-subject::placeholder, #ccd-mg-body::placeholder {
-              color: ${theme==='professional'?'#64748b':'rgba(255,255,255,0.5)'};
+              color: ${theme==='standard'?'#64748b':'rgba(255,255,255,0.5)'};
               opacity: 1;
             }
           </style>
-          <div id="ccd-mailguard-hint" style="padding:12px 14px; font-size:12px; opacity:0.7; font-style:italic; border-bottom:1px solid ${br}; background:${theme==='professional'?'rgba(168,85,247,0.08)':'rgba(168,85,247,0.15)'}; display:flex; align-items:center; gap:8px;">
+          <div id="ccd-mailguard-hint" style="padding:12px 14px; font-size:12px; opacity:0.7; font-style:italic; border-bottom:1px solid ${br}; background:${theme==='standard'?'rgba(168,85,247,0.08)':'rgba(168,85,247,0.15)'}; display:flex; align-items:center; gap:8px;">
             <span style="font-size:16px;">✉️</span>
             Compose verified WRGuard-stamped emails with built-in automation.
           </div>
           <div style="padding:12px; display:flex; flex-direction:column; gap:10px;">
             <div style="display:flex; align-items:center; gap:10px;">
               <label style="font-size:12px; font-weight:600; opacity:0.7; min-width:50px;">To:</label>
-              <input type="email" id="ccd-mg-to" placeholder="recipient@example.com" style="flex:1; background:${theme==='professional'?'#ffffff':'rgba(255,255,255,0.08)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; padding:8px 10px; font-size:13px; outline:none;" />
+              <input type="email" id="ccd-mg-to" placeholder="recipient@example.com" style="flex:1; background:${theme==='standard'?'#ffffff':'rgba(255,255,255,0.08)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; padding:8px 10px; font-size:13px; outline:none;" />
             </div>
             <div style="display:flex; align-items:center; gap:10px;">
               <label style="font-size:12px; font-weight:600; opacity:0.7; min-width:50px;">Subject:</label>
-              <input type="text" id="ccd-mg-subject" placeholder="Email subject" style="flex:1; background:${theme==='professional'?'#ffffff':'rgba(255,255,255,0.08)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; padding:8px 10px; font-size:13px; outline:none;" />
+              <input type="text" id="ccd-mg-subject" placeholder="Email subject" style="flex:1; background:${theme==='standard'?'#ffffff':'rgba(255,255,255,0.08)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; padding:8px 10px; font-size:13px; outline:none;" />
             </div>
-            <textarea id="ccd-mg-body" placeholder="Compose your email message here..." style="background:${theme==='professional'?'#ffffff':'rgba(255,255,255,0.06)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; padding:10px 12px; font-size:13px; min-height:120px; height:120px; resize:none; font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; line-height:1.5; outline:none;"></textarea>
-            <div id="ccd-mg-resize" style="height:12px; background:${theme==='professional'?'linear-gradient(180deg, #e2e8f0 0%, #cbd5e1 100%)':'linear-gradient(180deg, rgba(255,255,255,0.2) 0%, rgba(255,255,255,0.1) 100%)'}; cursor:ns-resize; border-radius:6px; margin:8px 0; display:flex; align-items:center; justify-content:center; border:1px solid ${theme==='professional'?'rgba(15,23,42,0.1)':'rgba(255,255,255,0.15)'};" title="Drag to resize editor height"><div style="width:40px; height:4px; background:${theme==='professional'?'#94a3b8':'rgba(255,255,255,0.4)'}; border-radius:2px;"></div></div>
+            <textarea id="ccd-mg-body" placeholder="Compose your email message here..." style="background:${theme==='standard'?'#ffffff':'rgba(255,255,255,0.06)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; padding:10px 12px; font-size:13px; min-height:120px; height:120px; resize:none; font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; line-height:1.5; outline:none;"></textarea>
+            <div id="ccd-mg-resize" style="height:12px; background:${theme==='standard'?'linear-gradient(180deg, #e2e8f0 0%, #cbd5e1 100%)':'linear-gradient(180deg, rgba(255,255,255,0.2) 0%, rgba(255,255,255,0.1) 100%)'}; cursor:ns-resize; border-radius:6px; margin:8px 0; display:flex; align-items:center; justify-content:center; border:1px solid ${theme==='standard'?'rgba(15,23,42,0.1)':'rgba(255,255,255,0.15)'};" title="Drag to resize editor height"><div style="width:40px; height:4px; background:${theme==='standard'?'#94a3b8':'rgba(255,255,255,0.4)'}; border-radius:2px;"></div></div>
             <div style="display:flex; align-items:center; justify-content:space-between;">
               <span style="font-size:11px; font-weight:600; opacity:0.7; display:flex; align-items:center; gap:4px;">
                 <span>📎</span> Attachments <span style="font-size:10px; opacity:0.6; font-weight:400;">(WR Stamped PDFs)</span>
               </span>
               <input id="ccd-mg-file" type="file" accept=".pdf" multiple style="display:none" />
-              <button id="ccd-mg-add-pdf" style="background:${theme==='professional'?'#e2e8f0':'rgba(255,255,255,0.12)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; padding:6px 10px; font-size:11px; cursor:pointer;">+ Add PDF</button>
+              <button id="ccd-mg-add-pdf" style="background:${theme==='standard'?'#e2e8f0':'rgba(255,255,255,0.12)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; padding:6px 10px; font-size:11px; cursor:pointer;">+ Add PDF</button>
             </div>
             <div id="ccd-mg-attachments" style="min-height:20px;"></div>
           </div>
-          <div style="padding:10px 12px; border-top:1px solid ${br}; display:flex; justify-content:space-between; align-items:center; background:${theme==='professional'?'#f1f5f9':'rgba(0,0,0,0.15)'};">
-            <button id="ccd-mg-discard" style="background:transparent; border:none; color:${theme==='professional'?'#64748b':'rgba(255,255,255,0.6)'}; padding:6px 10px; font-size:12px; cursor:pointer; text-decoration:underline;">Discard</button>
+          <div style="padding:10px 12px; border-top:1px solid ${br}; display:flex; justify-content:space-between; align-items:center; background:${theme==='standard'?'#f1f5f9':'rgba(0,0,0,0.15)'};">
+            <button id="ccd-mg-discard" style="background:transparent; border:none; color:${theme==='standard'?'#64748b':'rgba(255,255,255,0.6)'}; padding:6px 10px; font-size:12px; cursor:pointer; text-decoration:underline;">Discard</button>
             <button id="ccd-mg-send" style="background:#a855f7; border:none; color:white; border-radius:6px; padding:10px 20px; font-size:13px; font-weight:600; cursor:pointer; display:flex; align-items:center; gap:6px;">Send <span style="font-size:14px;">→</span></button>
           </div>
         </div>
@@ -43123,7 +43144,7 @@ ${pageText}
 
         const bub = document.createElement('div'); bub.style.maxWidth='78%'; bub.style.padding='8px 10px'; bub.style.borderRadius='10px'; bub.style.fontSize='12px'; bub.style.lineHeight='1.45';
 
-        if (role==='user'){ bub.style.background = 'rgba(34,197,94,0.12)'; bub.style.border='1px solid rgba(34,197,94,0.45)'} else { bub.style.background = theme==='professional'?'#f1f5f9':'rgba(255,255,255,0.10)'; bub.style.border = theme==='professional'?'1px solid #e2e8f0':'1px solid rgba(255,255,255,0.20)'}
+        if (role==='user'){ bub.style.background = 'rgba(34,197,94,0.12)'; bub.style.border='1px solid rgba(34,197,94,0.45)'} else { bub.style.background = theme==='standard'?'#f1f5f9':'rgba(255,255,255,0.10)'; bub.style.border = theme==='standard'?'1px solid #e2e8f0':'1px solid rgba(255,255,255,0.20)'}
 
         bub.textContent = text; row.appendChild(bub); msgs.appendChild(row); msgs.scrollTop = msgs.scrollHeight
 
@@ -43197,11 +43218,11 @@ ${pageText}
           return
         }
         attachContainer.innerHTML = ccdMgAttachments.map((att, idx) => `
-          <div style="display:inline-flex; align-items:center; gap:6px; padding:4px 8px; margin:2px; background:${theme==='professional'?'rgba(34,197,94,0.1)':'rgba(34,197,94,0.15)'}; border:1px solid rgba(34,197,94,0.3); border-radius:4px; font-size:11px;">
+          <div style="display:inline-flex; align-items:center; gap:6px; padding:4px 8px; margin:2px; background:${theme==='standard'?'rgba(34,197,94,0.1)':'rgba(34,197,94,0.15)'}; border:1px solid rgba(34,197,94,0.3); border-radius:4px; font-size:11px;">
             <span>📄</span>
             <span style="max-width:100px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${att.name}</span>
             <span style="opacity:0.5; font-size:10px;">(${Math.round(att.size/1024)} KB)</span>
-            <button data-idx="${idx}" class="ccd-mg-remove" style="background:transparent; border:none; color:${theme==='professional'?'#64748b':'rgba(255,255,255,0.5)'}; cursor:pointer; font-size:12px; padding:0 2px;">×</button>
+            <button data-idx="${idx}" class="ccd-mg-remove" style="background:transparent; border:none; color:${theme==='standard'?'#64748b':'rgba(255,255,255,0.5)'}; cursor:pointer; font-size:12px; padding:0 2px;">×</button>
           </div>
         `).join('')
         attachContainer.querySelectorAll('.ccd-mg-remove').forEach(btn => {
@@ -43344,7 +43365,7 @@ ${pageText}
 
           const ddWrap = document.createElement('div'); ddWrap.style.position='relative'; ddWrap.style.display='inline-flex'
 
-          const tagBtn = document.createElement('button'); tagBtn.type='button'; tagBtn.title='Tags'; tagBtn.textContent='Tags'; tagBtn.style.cssText='display:inline-flex;align-items:center;gap:6px;background:'+ (theme==='professional'?'#e2e8f0':'rgba(255,255,255,0.08)') +'; border:1px solid '+br+'; color:'+fg+'; border-radius:6px; padding:2px 6px; font-size:12px; cursor:pointer'
+          const tagBtn = document.createElement('button'); tagBtn.type='button'; tagBtn.title='Tags'; tagBtn.textContent='Tags'; tagBtn.style.cssText='display:inline-flex;align-items:center;gap:6px;background:'+ (theme==='standard'?'#e2e8f0':'rgba(255,255,255,0.08)') +'; border:1px solid '+br+'; color:'+fg+'; border-radius:6px; padding:2px 6px; font-size:12px; cursor:pointer'
 
           const caret = document.createElement('span'); caret.textContent='▾'; caret.style.cssText='font-size:12px; opacity:.9'
 
@@ -43356,7 +43377,7 @@ ${pageText}
 
           menu.id = 'ccd-tags-menu'
 
-          menu.style.cssText = 'position:fixed; display:none; min-width:220px; width:320px; max-height:260px; overflow:auto; z-index:2147483647; background:'+ (theme==='professional'?'#ffffff':'#111827') +'; color:'+fg+'; border:1px solid '+br+'; border-radius:8px; box-shadow:0 10px 22px rgba(0,0,0,0.35)'
+          menu.style.cssText = 'position:fixed; display:none; min-width:220px; width:320px; max-height:260px; overflow:auto; z-index:2147483647; background:'+ (theme==='standard'?'#ffffff':'#111827') +'; color:'+fg+'; border:1px solid '+br+'; border-radius:8px; box-shadow:0 10px 22px rgba(0,0,0,0.35)'
 
           document.body.appendChild(menu)
 
@@ -43396,7 +43417,7 @@ ${pageText}
 
                 rowWrapper.style.cssText='display:flex;align-items:center;justify-content:space-between;padding:6px 8px;border-bottom:1px solid '+br+';'
 
-                rowWrapper.onmouseenter = ()=>{ rowWrapper.style.background = (theme==='professional'?'#f1f5f9':'rgba(255,255,255,0.06)') }
+                rowWrapper.onmouseenter = ()=>{ rowWrapper.style.background = (theme==='standard'?'#f1f5f9':'rgba(255,255,255,0.06)') }
 
                 rowWrapper.onmouseleave = ()=>{ rowWrapper.style.background = 'transparent' }
 
@@ -43602,19 +43623,19 @@ ${pageText}
 
     }
 
-    function setDockedChatTheme(theme: 'default'|'dark'|'professional') {
+    function setDockedChatTheme(theme: 'pro'|'dark'|'standard') {
 
       const container = document.getElementById('command-chat-docked') as HTMLElement | null
 
       if (!container) return
 
-      const bg = theme === 'professional' ? '#ffffff' : 'rgba(255,255,255,0.10)'
+      const bg = theme === 'standard' ? '#ffffff' : 'rgba(255,255,255,0.10)'
 
-      const br = theme === 'professional' ? '#e2e8f0' : 'rgba(255,255,255,0.20)'
+      const br = theme === 'standard' ? '#e2e8f0' : 'rgba(255,255,255,0.20)'
 
-      const fg = theme === 'professional' ? '#0f172a' : 'white'
+      const fg = theme === 'standard' ? '#0f172a' : 'white'
 
-      const hdr = theme === 'professional' ? 'linear-gradient(135deg,#ffffff,#f1f5f9)' : (theme==='dark' ? 'linear-gradient(135deg,#0f172a,#1e293b)' : 'linear-gradient(135deg,#667eea,#764ba2)')
+      const hdr = theme === 'standard' ? 'linear-gradient(135deg,#ffffff,#f1f5f9)' : (theme==='dark' ? 'linear-gradient(135deg,#0f172a,#1e293b)' : 'linear-gradient(135deg,#667eea,#764ba2)')
 
       container.style.background = bg
 
@@ -43630,19 +43651,19 @@ ${pageText}
 
         hdrEl.style.borderBottom = '1px solid ' + br
 
-        hdrEl.style.color = (theme==='professional'?'#0f172a':'white')
+        hdrEl.style.color = (theme==='standard'?'#0f172a':'white')
 
         // Also update the inner title div which has an inline color set at creation time
 
         const titleEl = hdrEl.firstElementChild as HTMLElement | null
 
-        if (titleEl) titleEl.style.color = (theme==='professional'?'#0f172a':'white')
+        if (titleEl) titleEl.style.color = (theme==='standard'?'#0f172a':'white')
 
         const undockBtn = hdrEl.querySelector('#ccd-undock') as HTMLButtonElement | null
 
         if (undockBtn) {
 
-          undockBtn.style.background = (theme==='professional'?'#e2e8f0':'rgba(255,255,255,0.15)')
+          undockBtn.style.background = (theme==='standard'?'#e2e8f0':'rgba(255,255,255,0.15)')
 
           undockBtn.style.border = '1px solid ' + br
 
@@ -43654,17 +43675,17 @@ ${pageText}
 
       const msgs = container.querySelector('#ccd-messages') as HTMLElement | null
 
-      if (msgs) { msgs.style.background = (theme==='professional'?'#f8fafc':'rgba(255,255,255,0.06)'); msgs.style.borderBottom = '1px solid ' + br }
+      if (msgs) { msgs.style.background = (theme==='standard'?'#f8fafc':'rgba(255,255,255,0.06)'); msgs.style.borderBottom = '1px solid ' + br }
 
       const ta = container.querySelector('#ccd-input') as HTMLTextAreaElement | null
 
-      if (ta) { ta.style.background = (theme==='professional'?'#ffffff':'rgba(255,255,255,0.08)'); ta.style.border = '1px solid ' + br; ta.style.color = fg }
+      if (ta) { ta.style.background = (theme==='standard'?'#ffffff':'rgba(255,255,255,0.08)'); ta.style.border = '1px solid ' + br; ta.style.color = fg }
 
       ;['ccd-attach','ccd-mic'].forEach(id => {
 
         const btn = container.querySelector('#'+id) as HTMLButtonElement | null
 
-        if (btn) { btn.style.background = (theme==='professional'?'#e2e8f0':'rgba(255,255,255,0.15)'); btn.style.border = '1px solid ' + br; btn.style.color = fg }
+        if (btn) { btn.style.background = (theme==='standard'?'#e2e8f0':'rgba(255,255,255,0.15)'); btn.style.border = '1px solid ' + br; btn.style.color = fg }
 
       })
 
@@ -43682,17 +43703,23 @@ ${pageText}
 
       const existing = document.getElementById('command-chat-float'); if (existing) existing.remove()
 
-      let theme: 'default'|'dark'|'professional' = 'default'
+      let theme: 'pro'|'dark'|'standard' = 'standard'
 
-      try { const t = localStorage.getItem('optimando-ui-theme'); if (t === 'professional' || t === 'dark') theme = t as any } catch {}
+      try { 
+        const t = localStorage.getItem('optimando-ui-theme')
+        if (t === 'standard' || t === 'dark' || t === 'pro' || t === 'default') {
+          // Map old 'default' to 'pro' for backward compatibility
+          theme = (t === 'default' ? 'pro' : t) as any
+        }
+      } catch {}
 
-      const bg = theme === 'professional' ? '#ffffff' : 'rgba(0,0,0,0.75)'
+      const bg = theme === 'standard' ? '#ffffff' : 'rgba(0,0,0,0.75)'
 
-      const br = theme === 'professional' ? '#e2e8f0' : 'rgba(255,255,255,0.20)'
+      const br = theme === 'standard' ? '#e2e8f0' : 'rgba(255,255,255,0.20)'
 
-      const fg = theme === 'professional' ? '#0f172a' : 'white'
+      const fg = theme === 'standard' ? '#0f172a' : 'white'
 
-      const hdr = theme === 'professional' ? 'linear-gradient(135deg,#ffffff,#f1f5f9)' : (theme==='dark' ? 'linear-gradient(135deg,#0f172a,#1e293b)' : 'linear-gradient(135deg,#667eea,#764ba2)')
+      const hdr = theme === 'standard' ? 'linear-gradient(135deg,#ffffff,#f1f5f9)' : (theme==='dark' ? 'linear-gradient(135deg,#0f172a,#1e293b)' : 'linear-gradient(135deg,#667eea,#764ba2)')
 
       const box = document.createElement('div')
 
@@ -43704,9 +43731,9 @@ ${pageText}
 
         <div id="ccf-header" style="display:flex; align-items:center; justify-content:space-between; padding:6px 8px; background:${hdr}; border-bottom:1px solid ${br};">
 
-          <div style="display:flex; align-items:center; gap:8px; color:${theme==='professional'?'#0f172a':'white'}">
+          <div style="display:flex; align-items:center; gap:8px; color:${theme==='standard'?'#0f172a':'white'}">
 
-            <select id="ccf-mode-select" style="font-size:11px; font-weight:600; background:${theme==='professional'?'rgba(15,23,42,0.08)':'rgba(255,255,255,0.15)'}; border:1px solid ${br}; color:${theme==='professional'?'#0f172a':'inherit'}; border-radius:5px; padding:4px 20px 4px 6px; cursor:pointer; outline:none; appearance:none; -webkit-appearance:none; background-image:url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 12 12'%3E%3Cpath fill='${theme==='professional'?'%230f172a':'%23ffffff'}' d='M3 4.5L6 7.5L9 4.5'/%3E%3C/svg%3E\"); background-repeat:no-repeat; background-position:right 5px center;">
+            <select id="ccf-mode-select" style="font-size:11px; font-weight:600; background:${theme==='standard'?'rgba(15,23,42,0.08)':'rgba(255,255,255,0.15)'}; border:1px solid ${br}; color:${theme==='standard'?'#0f172a':'inherit'}; border-radius:5px; padding:4px 20px 4px 6px; cursor:pointer; outline:none; appearance:none; -webkit-appearance:none; background-image:url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 12 12'%3E%3Cpath fill='${theme==='standard'?'%230f172a':'%23ffffff'}' d='M3 4.5L6 7.5L9 4.5'/%3E%3C/svg%3E\"); background-repeat:no-repeat; background-position:right 5px center;">
               <option value="command-chat" style="background:#1e293b; color:white;">💬 WR Chat</option>
               <option value="augmented-overlay" style="background:#1e293b; color:white;">🎯 Augmented Overlay</option>
               <option value="mailguard" style="background:#1e293b; color:white;">🛡️ WR MailGuard</option>
@@ -43714,7 +43741,7 @@ ${pageText}
 
             <div id="ccf-chat-controls" style="display:flex; gap:6px; align-items:center;">
 
-              <button id="ccf-lm-one" title="LmGTFY - Capture a screen area as screenshot or stream and send it to your pre-defined automation tasks." style="background:${theme==='professional'?'#e2e8f0':'rgba(255,255,255,0.15)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; padding:2px 6px; font-size:12px; cursor:pointer;">✎</button>
+              <button id="ccf-lm-one" title="LmGTFY - Capture a screen area as screenshot or stream and send it to your pre-defined automation tasks." style="background:${theme==='standard'?'#e2e8f0':'rgba(255,255,255,0.15)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; padding:2px 6px; font-size:12px; cursor:pointer;">✎</button>
 
             </div>
 
@@ -43722,7 +43749,7 @@ ${pageText}
 
           <div style="display:flex; gap:6px; align-items:center;">
 
-            <button id="ccf-close" title="Close" style="background:${theme==='professional'?'#e2e8f0':'rgba(255,255,255,0.15)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; padding:4px 6px; font-size:10px; cursor:pointer;">×</button>
+            <button id="ccf-close" title="Close" style="background:${theme==='standard'?'#e2e8f0':'rgba(255,255,255,0.15)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; padding:4px 6px; font-size:10px; cursor:pointer;">×</button>
 
           </div>
 
@@ -43730,54 +43757,54 @@ ${pageText}
 
         <!-- Command Chat View -->
         <div id="ccf-chat-view">
-          <div id="ccf-messages" style="height:160px; overflow:auto; display:flex; flex-direction:column; gap:6px; background:${theme==='professional'?'#f8fafc':'rgba(255,255,255,0.06)'}; border-left:0; border-right:0; border-top:0; border-bottom:1px solid ${br}; padding:8px;"></div>
+          <div id="ccf-messages" style="height:160px; overflow:auto; display:flex; flex-direction:column; gap:6px; background:${theme==='standard'?'#f8fafc':'rgba(255,255,255,0.06)'}; border-left:0; border-right:0; border-top:0; border-bottom:1px solid ${br}; padding:8px;"></div>
           <div id="ccf-compose" style="display:grid; grid-template-columns:1fr 68px; gap:6px; align-items:center; padding:8px;">
-            <textarea id="ccf-input" placeholder="Type..." style="box-sizing:border-box; height:36px; resize:vertical; background:${theme==='professional'?'#ffffff':'rgba(255,255,255,0.08)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; padding:8px; font-size:12px;"></textarea>
+            <textarea id="ccf-input" placeholder="Type..." style="box-sizing:border-box; height:36px; resize:vertical; background:${theme==='standard'?'#ffffff':'rgba(255,255,255,0.08)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; padding:8px; font-size:12px;"></textarea>
             <button id="ccf-send" class="send-btn">Send</button>
           </div>
         </div>
 
         <!-- Augmented Overlay View -->
         <div id="ccf-overlay-view" style="display:none;">
-          <div id="ccf-overlay-messages" style="height:160px; overflow:auto; display:flex; flex-direction:column; gap:6px; background:${theme==='professional'?'#f8fafc':'rgba(255,255,255,0.06)'}; border-left:0; border-right:0; border-top:0; border-bottom:1px solid ${br}; padding:8px;">
-            <div id="ccf-overlay-hint" style="padding:12px 14px; font-size:12px; opacity:0.8; font-style:italic; background:${theme==='professional'?'rgba(59,130,246,0.08)':'rgba(59,130,246,0.15)'}; border-radius:6px; display:flex; align-items:flex-start; gap:8px; line-height:1.5;">
+          <div id="ccf-overlay-messages" style="height:160px; overflow:auto; display:flex; flex-direction:column; gap:6px; background:${theme==='standard'?'#f8fafc':'rgba(255,255,255,0.06)'}; border-left:0; border-right:0; border-top:0; border-bottom:1px solid ${br}; padding:8px;">
+            <div id="ccf-overlay-hint" style="padding:12px 14px; font-size:12px; opacity:0.8; font-style:italic; background:${theme==='standard'?'rgba(59,130,246,0.08)':'rgba(59,130,246,0.15)'}; border-radius:6px; display:flex; align-items:flex-start; gap:8px; line-height:1.5;">
               <span style="font-size:16px;">🎯</span>
               <span>Point with the cursor or select elements in order to ask questions or trigger automations directly in the UI.</span>
             </div>
           </div>
           <div id="ccf-overlay-compose" style="display:grid; grid-template-columns:1fr 68px; gap:6px; align-items:center; padding:8px;">
-            <textarea id="ccf-overlay-input" placeholder="Ask about the selected element..." style="box-sizing:border-box; height:36px; resize:vertical; background:${theme==='professional'?'#ffffff':'rgba(255,255,255,0.08)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; padding:8px; font-size:12px;"></textarea>
+            <textarea id="ccf-overlay-input" placeholder="Ask about the selected element..." style="box-sizing:border-box; height:36px; resize:vertical; background:${theme==='standard'?'#ffffff':'rgba(255,255,255,0.08)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; padding:8px; font-size:12px;"></textarea>
             <button id="ccf-overlay-send" class="send-btn">Send</button>
           </div>
         </div>
 
         <!-- MailGuard View -->
-        <div id="ccf-mailguard-view" style="display:none; flex-direction:column; background:${theme==='professional'?'#f8fafc':'rgba(255,255,255,0.04)'};">
-          <div id="ccf-mailguard-hint" style="padding:12px 14px; font-size:12px; opacity:0.7; font-style:italic; border-bottom:1px solid ${br}; background:${theme==='professional'?'rgba(168,85,247,0.08)':'rgba(168,85,247,0.15)'}; display:flex; align-items:center; gap:8px;">
+        <div id="ccf-mailguard-view" style="display:none; flex-direction:column; background:${theme==='standard'?'#f8fafc':'rgba(255,255,255,0.04)'};">
+          <div id="ccf-mailguard-hint" style="padding:12px 14px; font-size:12px; opacity:0.7; font-style:italic; border-bottom:1px solid ${br}; background:${theme==='standard'?'rgba(168,85,247,0.08)':'rgba(168,85,247,0.15)'}; display:flex; align-items:center; gap:8px;">
             <span style="font-size:16px;">✉️</span>
             Compose verified WRGuard-stamped emails with built-in automation.
           </div>
           <div style="padding:12px; display:flex; flex-direction:column; gap:10px;">
             <div style="display:flex; align-items:center; gap:10px;">
               <label style="font-size:12px; font-weight:600; opacity:0.7; min-width:50px;">To:</label>
-              <input type="email" id="ccf-mg-to" placeholder="recipient@example.com" style="flex:1; background:${theme==='professional'?'#ffffff':'rgba(255,255,255,0.08)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; padding:8px 10px; font-size:13px; outline:none;" />
+              <input type="email" id="ccf-mg-to" placeholder="recipient@example.com" style="flex:1; background:${theme==='standard'?'#ffffff':'rgba(255,255,255,0.08)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; padding:8px 10px; font-size:13px; outline:none;" />
             </div>
             <div style="display:flex; align-items:center; gap:10px;">
               <label style="font-size:12px; font-weight:600; opacity:0.7; min-width:50px;">Subject:</label>
-              <input type="text" id="ccf-mg-subject" placeholder="Email subject" style="flex:1; background:${theme==='professional'?'#ffffff':'rgba(255,255,255,0.08)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; padding:8px 10px; font-size:13px; outline:none;" />
+              <input type="text" id="ccf-mg-subject" placeholder="Email subject" style="flex:1; background:${theme==='standard'?'#ffffff':'rgba(255,255,255,0.08)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; padding:8px 10px; font-size:13px; outline:none;" />
             </div>
-            <textarea id="ccf-mg-body" placeholder="Compose your email message here..." style="background:${theme==='professional'?'#ffffff':'rgba(255,255,255,0.06)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; padding:10px 12px; font-size:13px; min-height:120px; resize:vertical; font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; line-height:1.5; outline:none;"></textarea>
+            <textarea id="ccf-mg-body" placeholder="Compose your email message here..." style="background:${theme==='standard'?'#ffffff':'rgba(255,255,255,0.06)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; padding:10px 12px; font-size:13px; min-height:120px; resize:vertical; font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; line-height:1.5; outline:none;"></textarea>
             <div style="display:flex; align-items:center; justify-content:space-between;">
               <span style="font-size:11px; font-weight:600; opacity:0.7; display:flex; align-items:center; gap:4px;">
                 <span>📎</span> Attachments <span style="font-size:10px; opacity:0.6; font-weight:400;">(WR Stamped PDFs)</span>
               </span>
               <input id="ccf-mg-file" type="file" accept=".pdf" multiple style="display:none" />
-              <button id="ccf-mg-add-pdf" style="background:${theme==='professional'?'#e2e8f0':'rgba(255,255,255,0.12)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; padding:6px 10px; font-size:11px; cursor:pointer;">+ Add PDF</button>
+              <button id="ccf-mg-add-pdf" style="background:${theme==='standard'?'#e2e8f0':'rgba(255,255,255,0.12)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; padding:6px 10px; font-size:11px; cursor:pointer;">+ Add PDF</button>
             </div>
             <div id="ccf-mg-attachments" style="min-height:20px;"></div>
           </div>
-          <div style="padding:10px 12px; border-top:1px solid ${br}; display:flex; justify-content:space-between; align-items:center; background:${theme==='professional'?'#f1f5f9':'rgba(0,0,0,0.15)'};">
-            <button id="ccf-mg-discard" style="background:transparent; border:none; color:${theme==='professional'?'#64748b':'rgba(255,255,255,0.6)'}; padding:6px 10px; font-size:12px; cursor:pointer; text-decoration:underline;">Discard</button>
+          <div style="padding:10px 12px; border-top:1px solid ${br}; display:flex; justify-content:space-between; align-items:center; background:${theme==='standard'?'#f1f5f9':'rgba(0,0,0,0.15)'};">
+            <button id="ccf-mg-discard" style="background:transparent; border:none; color:${theme==='standard'?'#64748b':'rgba(255,255,255,0.6)'}; padding:6px 10px; font-size:12px; cursor:pointer; text-decoration:underline;">Discard</button>
             <button id="ccf-mg-send" style="background:#a855f7; border:none; color:white; border-radius:6px; padding:10px 20px; font-size:13px; font-weight:600; cursor:pointer; display:flex; align-items:center; gap:6px;">Send <span style="font-size:14px;">→</span></button>
           </div>
         </div>
@@ -43976,11 +44003,11 @@ ${pageText}
           return
         }
         container.innerHTML = mgAttachments.map((att, idx) => `
-          <div style="display:inline-flex; align-items:center; gap:6px; padding:4px 8px; margin:2px; background:${theme==='professional'?'rgba(34,197,94,0.1)':'rgba(34,197,94,0.15)'}; border:1px solid rgba(34,197,94,0.3); border-radius:4px; font-size:11px;">
+          <div style="display:inline-flex; align-items:center; gap:6px; padding:4px 8px; margin:2px; background:${theme==='standard'?'rgba(34,197,94,0.1)':'rgba(34,197,94,0.15)'}; border:1px solid rgba(34,197,94,0.3); border-radius:4px; font-size:11px;">
             <span>📄</span>
             <span style="max-width:100px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${att.name}</span>
             <span style="opacity:0.5; font-size:10px;">(${Math.round(att.size/1024)} KB)</span>
-            <button data-idx="${idx}" class="ccf-mg-remove" style="background:transparent; border:none; color:${theme==='professional'?'#64748b':'rgba(255,255,255,0.5)'}; cursor:pointer; font-size:12px; padding:0 2px;">×</button>
+            <button data-idx="${idx}" class="ccf-mg-remove" style="background:transparent; border:none; color:${theme==='standard'?'#64748b':'rgba(255,255,255,0.5)'}; cursor:pointer; font-size:12px; padding:0 2px;">×</button>
           </div>
         `).join('')
         container.querySelectorAll('.ccf-mg-remove').forEach(btn => {
@@ -44089,9 +44116,9 @@ ${pageText}
 
         // professional theme gets pill background + border for visibility
 
-        bucket.style.background = (theme==='professional'?'#e2e8f0':'transparent')
+        bucket.style.background = (theme==='standard'?'#e2e8f0':'transparent')
 
-        bucket.style.border = (theme==='professional'?'1px solid '+br:'0')
+        bucket.style.border = (theme==='standard'?'1px solid '+br:'0')
 
         bucket.style.color = '#ef4444'
 
@@ -44115,7 +44142,7 @@ ${pageText}
 
         ddBtn.textContent = '▾ Tags'
 
-        ddBtn.style.cssText = 'background:'+ (theme==='professional'?'#e2e8f0':'rgba(255,255,255,0.08)') +'; border:1px solid '+br+'; color:'+fg+'; border-radius:6px; padding:2px 8px; font-size:12px; cursor:pointer;'
+        ddBtn.style.cssText = 'background:'+ (theme==='standard'?'#e2e8f0':'rgba(255,255,255,0.08)') +'; border:1px solid '+br+'; color:'+fg+'; border-radius:6px; padding:2px 8px; font-size:12px; cursor:pointer;'
 
         
 
@@ -44123,7 +44150,7 @@ ${pageText}
 
         ddDropdown.id = 'ccf-tags-dropdown'
 
-        ddDropdown.style.cssText = 'display:none;position:absolute;top:100%;left:0;min-width:200px;max-height:300px;overflow-y:auto;background:'+ (theme==='professional'?'#ffffff':'rgba(17,24,39,0.95)') +';border:1px solid '+br+';border-radius:6px;margin-top:4px;box-shadow:0 4px 12px rgba(0,0,0,0.3);z-index:1000;'
+        ddDropdown.style.cssText = 'display:none;position:absolute;top:100%;left:0;min-width:200px;max-height:300px;overflow-y:auto;background:'+ (theme==='standard'?'#ffffff':'rgba(17,24,39,0.95)') +';border:1px solid '+br+';border-radius:6px;margin-top:4px;box-shadow:0 4px 12px rgba(0,0,0,0.3);z-index:1000;'
 
         
 
@@ -44510,7 +44537,9 @@ ${pageText}
 
     window.addEventListener('optimando-theme-changed', (e: any) => {
 
-      const t = (e?.detail?.theme || localStorage.getItem('optimando-ui-theme') || 'default') as 'default'|'dark'|'professional'
+      // Map old 'default' to 'pro' and use 'standard' as new default
+      const rawTheme = e?.detail?.theme || localStorage.getItem('optimando-ui-theme') || 'standard'
+      const t = (rawTheme === 'default' ? 'pro' : rawTheme) as 'pro'|'dark'|'standard'
 
       try { setDockedChatTheme(t) } catch {}
 
@@ -44522,7 +44551,7 @@ ${pageText}
 
         if (btn) {
 
-          if (t === 'professional') {
+          if (t === 'standard') {
 
             btn.style.background = 'linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%)'
 
@@ -44558,13 +44587,15 @@ ${pageText}
 
     try {
 
-      const currentTheme = (localStorage.getItem('optimando-ui-theme') || 'default') as 'default'|'dark'|'professional'
+      // Map old 'default' to 'pro' and use 'standard' as new default
+      const rawTheme = localStorage.getItem('optimando-ui-theme') || 'standard'
+      const currentTheme = (rawTheme === 'default' ? 'pro' : rawTheme) as 'pro'|'dark'|'standard'
 
       const btn = document.getElementById('wrvault-open-btn') as HTMLButtonElement | null
 
       if (btn) {
 
-        if (currentTheme === 'professional') {
+        if (currentTheme === 'standard') {
 
           btn.style.background = 'linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%)'
 
@@ -44662,7 +44693,7 @@ ${pageText}
 
           const t = localStorage.getItem('optimando-ui-theme')
 
-          if (t === 'professional' || t === 'dark') theme = t
+          if (t === 'standard' || t === 'dark') theme = t
 
         } catch {}
 

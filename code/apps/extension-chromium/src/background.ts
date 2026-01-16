@@ -1310,6 +1310,29 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       } catch { try { sendResponse({ success: false }) } catch { } }
       break
     }
+    case 'ELECTRON_OPEN_ANALYSIS_DASHBOARD': {
+      // Open the Electron Analysis Dashboard window
+      try {
+        if (WS_ENABLED && ws && ws.readyState === WebSocket.OPEN) {
+          const payload = { type: 'OPEN_ANALYSIS_DASHBOARD' }
+          try { ws.send(JSON.stringify(payload)) } catch {}
+          try { sendResponse({ success: true }) } catch {}
+        } else {
+          // Try to connect on-demand and retry
+          try {
+            const url = 'ws://localhost:51247/'
+            const temp = new WebSocket(url)
+            temp.addEventListener('open', () => {
+              try { ws = temp as any } catch {}
+              try { ws?.send(JSON.stringify({ type: 'OPEN_ANALYSIS_DASHBOARD' })) } catch {}
+              try { sendResponse({ success: true }) } catch {}
+            })
+            temp.addEventListener('error', () => { try { sendResponse({ success: false, error: 'WS not connected' }) } catch {} })
+          } catch { try { sendResponse({ success: false, error: 'WS not connected' }) } catch {} }
+        }
+      } catch { try { sendResponse({ success: false }) } catch {} }
+      break
+    }
     case 'ELECTRON_SAVE_TRIGGER': {
       try {
         if (WS_ENABLED && ws && ws.readyState === WebSocket.OPEN) {
@@ -2054,7 +2077,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     case 'OPEN_COMMAND_CENTER_POPUP': {
       const themeHint = typeof msg.theme === 'string' ? msg.theme : null
       const createPopup = (bounds: chrome.system.display.Bounds | null) => {
-        const url = chrome.runtime.getURL('popup.html' + (themeHint ? ('?t=' + encodeURIComponent(themeHint)) : ''))
+        // Use React-based popup-chat.html for full WRGuard and BEAP Messages functionality
+        const url = chrome.runtime.getURL('src/popup-chat.html' + (themeHint ? ('?t=' + encodeURIComponent(themeHint)) : ''))
         const opts: chrome.windows.CreateData = {
           url,
           type: 'popup',

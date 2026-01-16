@@ -1,6 +1,7 @@
 {
-  "appId": "com.opengiraffe.desktop",
-  "productName": "OpenGiraffe",
+  "appId": "com.wrcode.desktop",
+  "productName": "WR Code™",
+  "icon": "public/giraffe",
   "directories": {
     "output": "release/${version}",
     "buildResources": "build"
@@ -12,8 +13,13 @@
   ],
   "extraResources": [
     {
-      "from": "licenses",
+      "from": "../../THIRD_PARTY_LICENSES",
       "to": "licenses",
+      "filter": ["**/*"]
+    },
+    {
+      "from": "THIRD_PARTY_LICENSES",
+      "to": "licenses/electron-app",
       "filter": ["**/*"]
     }
   ],
@@ -51,7 +57,7 @@
     "allowToChangeInstallationDirectory": true,
     "createDesktopShortcut": true,
     "createStartMenuShortcut": true,
-    "shortcutName": "OpenGiraffe",
+    "shortcutName": "WR Code",
     "perMachine": false,
     "runAfterFinish": true,
     "include": "build/installer.nsh"
