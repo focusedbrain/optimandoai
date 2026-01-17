@@ -32525,7 +32525,7 @@ ${pageText}
             allowedBillingOptions: ['annual', 'lifetime'] as const,
             prices: { annual: 59.95, lifetime: 199 },
             priceLabels: { annual: '€59.95<span>/year</span>', lifetime: '€199<span> one-time</span>' },
-            ctaLabels: { annual: 'Choose Pro', lifetime: 'Get Early Access Lifetime' }
+            ctaLabels: { annual: 'Select Pro', lifetime: 'Select Lifetime' }
           },
           publisher: {
             id: 'publisher',
@@ -32533,7 +32533,7 @@ ${pageText}
             allowedBillingOptions: ['annual', 'lifetime'] as const, // NO monthly
             prices: { annual: 129.95, lifetime: 449 },
             priceLabels: { annual: '€129.95<span>/year</span>', lifetime: '€449<span> one-time</span>' },
-            ctaLabels: { annual: 'Choose Publisher', lifetime: 'Get Early Access Lifetime' }
+            ctaLabels: { annual: 'Select Publisher', lifetime: 'Select Lifetime' }
           },
           business: {
             id: 'business',
@@ -32629,7 +32629,7 @@ ${pageText}
           '</div>' +
           '<div style="padding:14px 18px;display:grid;gap:12px">' +
             '<div style="background:rgba(0,0,0,.18);border:1px solid rgba(255,255,255,.22);border-radius:8px;padding:10px;font-size:12px;line-height:1.5">' +
-              'All tiers support local LLM execution (no cost) and BYOK integration (OpenAI, Anthropic, Google, xAI). Optional cloud compute available via pay-as-you-go (25% platform fee).' +
+              'All tiers support local LLM execution (no cost) and BYOK integration (OpenAI, Anthropic, Google, xAI). Optional cloud compute available via pay-as-you-go (25% service fee).' +
             '</div>' +
             '<div id="agents-grid">' +
               // BASIC TIER
@@ -32637,13 +32637,13 @@ ${pageText}
                 '<h3>Basic</h3>' +
                 '<div class="price">€0</div>' +
                 '<div style="font-size:10px;opacity:0.7;margin:4px 0;text-transform:uppercase;letter-spacing:0.5px">Intended Use</div>' +
-                '<div style="font-size:11px;margin-bottom:8px">Personal automation and local-first workflows. Non-commercial use only.</div>' +
+                '<div style="font-size:11px;margin-bottom:8px">Single-user local deployments for non-commercial use.</div>' +
                 '<div style="font-size:10px;opacity:0.7;margin:4px 0;text-transform:uppercase;letter-spacing:0.5px">Included Capabilities</div>' +
                 '<ul style="font-size:11px">' +
-                  '<li>AI Orchestration™ engine (local-first execution)</li>' +
+                  '<li>Local orchestration runtime</li>' +
                   '<li>BYOK integration (all supported providers)</li>' +
                   '<li>Unlimited WR Codes™ (private, offline generation)</li>' +
-                  '<li>pBEAP™ encrypted messaging (standard encryption)</li>' +
+                  '<li>pBEAP™ secure messaging (baseline)</li>' +
                   '<li>WRGuard™ baseline integrity monitoring</li>' +
                   '<li>WRVault™ baseline credential storage</li>' +
                 '</ul>' +
@@ -32664,7 +32664,7 @@ ${pageText}
                 '</div>' +
                 '<div id="pro-private-note" class="wr-plan-note" style="display:none">Private use only · Non-commercial · No publishing rights</div>' +
                 '<div style="font-size:10px;opacity:0.7;margin:4px 0;text-transform:uppercase;letter-spacing:0.5px">Intended Use</div>' +
-                '<div style="font-size:11px;margin-bottom:8px">Private production workflows requiring cryptographic accountability. Individual practitioners, developers, and security-conscious professionals.</div>' +
+                '<div style="font-size:11px;margin-bottom:8px">Single-user private deployments with cryptographic proof requirements. Non-commercial use only.</div>' +
                 (isAffiliateAttributed ? '<div id="pro-private-founders" style="display:none;background:rgba(34,197,94,.15);border:1px solid rgba(34,197,94,.4);border-radius:6px;padding:10px;margin:8px 0">' + affiliateFoundersPackHtml + '</div>' : '') +
                 '<div style="font-size:10px;opacity:0.7;margin:4px 0;text-transform:uppercase;letter-spacing:0.5px">Included Capabilities</div>' +
                 '<ul style="font-size:11px">' +
@@ -32691,7 +32691,7 @@ ${pageText}
                   '<button id="publisher-lifetime" class="toggle-btn">Early Access Lifetime</button>' +
                 '</div>' +
                 '<div style="font-size:10px;opacity:0.7;margin:4px 0;text-transform:uppercase;letter-spacing:0.5px">Intended Use</div>' +
-                '<div style="font-size:11px;margin-bottom:8px">Commercial publishing and client-facing deliverables. Agencies, consultants, and small businesses requiring verifiable output.</div>' +
+                '<div style="font-size:11px;margin-bottom:8px">Single-user commercial deployments with third-party verification and publishing rights.</div>' +
                 (isAffiliateAttributed ? '<div id="publisher-founders" style="display:none;background:rgba(34,197,94,.15);border:1px solid rgba(34,197,94,.4);border-radius:6px;padding:10px;margin:8px 0">' + affiliateFoundersPackHtml + '</div>' : '') +
                 '<div style="font-size:10px;opacity:0.7;margin:4px 0;text-transform:uppercase;letter-spacing:0.5px">Included Capabilities</div>' +
                 '<ul style="font-size:11px">' +
@@ -32699,7 +32699,7 @@ ${pageText}
                   '<li>Commercial WR Code™ publishing rights</li>' +
                   '<li>Enterprise Handshakes (B2B trust establishment)</li>' +
                   '<li>Publisher branding and custom domain support</li>' +
-                  '<li>5GB Template Storage</li>' +
+                  '<li>Up to 5GB managed template storage</li>' +
                 '</ul>' +
                 '<div style="font-size:10px;opacity:0.7;margin:4px 0;text-transform:uppercase;letter-spacing:0.5px">Security & Verification</div>' +
                 '<ul style="font-size:11px">' +
@@ -32725,7 +32725,7 @@ ${pageText}
                   '<li>Multi-user access with role-based permissions</li>' +
                   '<li>Multiple domain support + SSO/SAML</li>' +
                   '<li>Data Processing Agreement (DPA) available</li>' +
-                  '<li>Dedicated support + SLA</li>' +
+                  '<li>Contractual support + SLA availability</li>' +
                 '</ul>' +
                 '<div style="font-size:10px;opacity:0.7;margin:4px 0;text-transform:uppercase;letter-spacing:0.5px">Security & Verification</div>' +
                 '<ul style="font-size:11px">' +
@@ -32811,7 +32811,7 @@ ${pageText}
       if (proPrivatePrice && proPrivateAnnual && proPrivateLifetime && proPrivateNote && proPrivateCta) {
         const proCfg = {
           prices: { annual: '€59.95<span>/year</span>', lifetime: '€199<span> one-time</span>' },
-          ctas: { annual: 'Choose Pro', lifetime: 'Get Early Access Lifetime' }
+          ctas: { annual: 'Select Pro', lifetime: 'Select Lifetime' }
         }
         const setProAnnual = () => {
           console.log('[Plans] Pro: switching to Annual @ €59.95/year')
@@ -32850,7 +32850,7 @@ ${pageText}
       if (publisherPrice && publisherAnnual && publisherLifetime && publisherCta) {
         const pubCfg = {
           prices: { annual: '€129.95<span>/year</span>', lifetime: '€449<span> one-time</span>' },
-          ctas: { annual: 'Choose Publisher', lifetime: 'Get Early Access Lifetime' }
+          ctas: { annual: 'Select Publisher', lifetime: 'Select Lifetime' }
         }
         const setPublisherAnnual = () => {
           console.log('[Plans] Publisher: switching to Annual @ €129.95/year')
