@@ -31363,11 +31363,11 @@ ${pageText}
 
                 <button id="btn-payg" style="flex:1; background: rgba(255,255,255,0.15); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 8px 10px; border-radius: 6px; cursor: pointer; font-size: 11px;">Pay-as-you-go</button>
 
-                <button id="btn-subscription" style="flex:1; background: #4CAF50; border: none; color: white; padding: 8px 10px; border-radius: 6px; cursor: pointer; font-size: 11px; font-weight: 700;">Subscription (incl. BYOK)</button>
+                <button id="btn-subscription" style="flex:1; background: #4CAF50; border: none; color: white; padding: 8px 10px; border-radius: 6px; cursor: pointer; font-size: 11px; font-weight: 700;">Subscription</button>
 
               </div>
 
-              <div style="margin-top: 8px; font-size: 10px; opacity: 0.9;">Free usage available – Subscription unlocks BYOK and advanced features.</div>
+              <div style="margin-top: 8px; font-size: 10px; opacity: 0.9;">Using local LLMs is free. BYOK supported on all plans. Subscription unlocks professional-grade assurance & verification.</div>
 
             </div>
 
@@ -31391,9 +31391,9 @@ ${pageText}
 
               </div>
 
-              <div id="byok-requirement" style="display:none; font-size:10px; margin:6px 0; padding:6px; background: rgba(244,67,54,0.20); border:1px solid rgba(244,67,54,0.35); border-radius:6px;">
+              <div id="byok-requirement" style="display:none; font-size:10px; margin:6px 0; padding:6px; background: rgba(76,175,80,0.20); border:1px solid rgba(76,175,80,0.35); border-radius:6px;">
 
-                You need an active subscription to bring your own keys.
+                BYOK is supported on all plans. Enter your API keys above and click Save.
 
               </div>
 
@@ -32631,7 +32631,7 @@ ${pageText}
             // Informational box about local LLMs and optional balance top-up
             '<div style="background:rgba(0,0,0,.18);border:1px solid rgba(255,255,255,.22);border-radius:8px;padding:12px;display:flex;gap:12px;align-items:flex-start">' +
               '<div style="font-size:20px">💡</div>' +
-              '<div style="font-size:13px;line-height:1.6">Using local LLMs is free. Optional pay-as-you-go cloud usage (25% platform fee).</div>' +
+              '<div style="font-size:13px;line-height:1.6">Using local LLMs is free. BYOK is supported on all plans. Optional pay-as-you-go cloud usage (25% platform fee).</div>' +
             '</div>' +
             '<div id="agents-grid">' +
               // Basic - €0, no billing toggle
@@ -32639,13 +32639,15 @@ ${pageText}
                 '<h3>Basic</h3>' +
                 '<div class="price">€0</div>' +
                 '<ul>' +
-                  '<li>AI Orchestration (local-first)</li>' +
-                  '<li>Unlimited WR Codes (private/offline)</li>' +
-                  '<li>BEAP™ Secure Messages</li>' +
-                  '<li>WRGuard™ (baseline)</li>' +
-                  '<li>WRVault™ (baseline, incl. local password manager)</li>' +
-                  '<li>Runs with local LLMs</li>' +
-                  '<li style="color:#66FF66;list-style:\'✓ \';">Pay-as-you-go (25% platform fee for cloud AI usage)</li>' +
+                  '<li>AI Orchestration™ (local-first)</li>' +
+                  '<li>Local LLM execution (free)</li>' +
+                  '<li>BYOK support (OpenAI, Claude, Gemini, Grok, etc.)</li>' +
+                  '<li>Unlimited WR Codes™ (private / offline)</li>' +
+                  '<li>pBEAP™ Secure Messages (baseline)</li>' +
+                  '<li>WRGuard™ (baseline integrity)</li>' +
+                  '<li>WRVault™ (baseline, local password manager)</li>' +
+                  '<li>PoAE™ execution logs (local, non-cryptographic)</li>' +
+                  '<li style="color:#66FF66;list-style:\'✓ \';">Optional pay-as-you-go cloud usage (25% platform fee)</li>' +
                 '</ul>' +
                 '<button class="cta-btn" style="background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.3)">Choose Basic</button>' +
               '</div>' +
@@ -32661,12 +32663,15 @@ ${pageText}
                 // Affiliate Founders Pack - only rendered if isAffiliateAttributed is true
                 (isAffiliateAttributed ? '<div id="pro-private-founders" style="display:none;background:rgba(34,197,94,.15);border:1px solid rgba(34,197,94,.4);border-radius:6px;padding:10px;margin:8px 0">' + affiliateFoundersPackHtml + '</div>' : '') +
                 '<ul>' +
-                  '<li>AI Orchestration (advanced, local-first)</li>' +
-                  '<li>Unlimited WR Codes (private)</li>' +
-                  '<li>BEAP™ Secure Messages</li>' +
-                  '<li>WRGuard™ included</li>' +
-                  '<li>WRVault™ included (incl. local password manager)</li>' +
-                  '<li style="color:#66FF66;list-style:\'✓ \';">BYOK or optionally pay-as-you-go (25% platform fee for cloud AI usage)</li>' +
+                  '<li>AI Orchestration™ (advanced, local-first)</li>' +
+                  '<li>BYOK support (all providers)</li>' +
+                  '<li>Unlimited WR Codes™ (private)</li>' +
+                  '<li>qBEAP™ Secure Messages</li>' +
+                  '<li>WRGuard™ (advanced / strict mode)</li>' +
+                  '<li>Advanced WRVault™ (encrypted, scoped, policy-aware)</li>' +
+                  '<li>PoAE™ cryptographic execution proofs</li>' +
+                  '<li>Exportable execution attestations</li>' +
+                  '<li style="color:#66FF66;list-style:\'✓ \';">Optional pay-as-you-go cloud usage (25% platform fee)</li>' +
                 '</ul>' +
                 '<button id="pro-private-cta" class="cta-btn" style="background:#2563eb" data-plan="pro_private_annual">' + PLAN_CONFIG.pro.ctaLabels.annual + '</button>' +
               '</div>' +
@@ -32682,15 +32687,16 @@ ${pageText}
                 // Affiliate Founders Pack - only rendered if isAffiliateAttributed is true
                 (isAffiliateAttributed ? '<div id="publisher-founders" style="display:none;background:rgba(34,197,94,.15);border:1px solid rgba(34,197,94,.4);border-radius:6px;padding:10px;margin:8px 0">' + affiliateFoundersPackHtml + '</div>' : '') +
                 '<ul>' +
-                  '<li>AI Orchestration (publishing workflows)</li>' +
-                  '<li>Unlimited WR Codes (commercial publishing)</li>' +
-                  '<li>BEAP™ Secure Messages</li>' +
+                  '<li>AI Orchestration™ (publishing workflows)</li>' +
+                  '<li>BYOK support</li>' +
+                  '<li>Unlimited WR Codes™ (commercial publishing)</li>' +
+                  '<li>qBEAP™ Secure Messages</li>' +
                   '<li>Enterprise Handshakes</li>' +
-                  '<li>WRGuard™ / WRVault™ (publisher-grade, incl. local password manager)</li>' +
-                  '<li>5 GB hosted context</li>' +
+                  '<li>WRGuard™ / Advanced WRVault™ (publisher-grade)</li>' +
+                  '<li>PoAE™ cryptographic proofs + verification</li>' +
                   '<li>Publisher branding + custom domain</li>' +
                   '<li>Advanced analytics + priority queue</li>' +
-                  '<li style="color:#66FF66;list-style:\'✓ \';">BYOK or optionally pay-as-you-go (25% platform fee for cloud AI usage)</li>' +
+                  '<li style="color:#66FF66;list-style:\'✓ \';">Optional pay-as-you-go cloud usage (25% platform fee)</li>' +
                 '</ul>' +
                 '<button id="publisher-cta" class="cta-btn" style="background:#16a34a;font-weight:700" data-plan="publisher_annual">' + PLAN_CONFIG.publisher.ctaLabels.annual + '</button>' +
               '</div>' +
@@ -32703,21 +32709,22 @@ ${pageText}
                   '<button id="enterprise-monthly" class="toggle-btn">Monthly</button>' +
                 '</div>' +
                 '<ul>' +
-                  '<li>AI Orchestration (team & enterprise)</li>' +
-                  '<li>Unlimited WR Codes (enterprise)</li>' +
-                  '<li>BEAP™ Secure Messages</li>' +
+                  '<li>AI Orchestration™ (team & enterprise)</li>' +
+                  '<li>BYOK support</li>' +
+                  '<li>Unlimited WR Codes™ (enterprise)</li>' +
+                  '<li>qBEAP™ Secure Messages</li>' +
                   '<li>Enterprise Handshakes</li>' +
-                  '<li>WRGuard™ / WRVault™ (enterprise controls, incl. local password manager)</li>' +
-                  '<li>25 GB hosted context</li>' +
+                  '<li>WRGuard™ / Advanced WRVault™ (enterprise controls)</li>' +
+                  '<li>PoAE™ cryptographic proofs + audit export</li>' +
                   '<li>Multiple domains + team roles</li>' +
                   '<li>SSO/SAML, DPA</li>' +
                   '<li>SLA + dedicated support</li>' +
-                  '<li style="color:#66FF66;list-style:\'✓ \';">BYOK or optionally pay-as-you-go (25% platform fee for cloud AI usage)</li>' +
+                  '<li style="color:#66FF66;list-style:\'✓ \';">Optional pay-as-you-go cloud usage (25% platform fee)</li>' +
                 '</ul>' +
                 '<button id="enterprise-cta" class="cta-btn" style="background:#0ea5e9" data-plan="enterprise_annual">' + PLAN_CONFIG.business.ctaLabels.annual + '</button>' +
               '</div>' +
             '</div>' +
-            '<div style="font-size:12px;opacity:.9">🔑 BYOK: Use your own API keys from OpenAI, Claude, Gemini, Grok, and more. Optional pay-as-you-go cloud usage (25% platform fee).</div>' +
+            '<div style="font-size:12px;opacity:.9">🔑 BYOK: Bring Your Own Keys (OpenAI, Claude, Gemini, Grok, etc.) is supported on all plans. Optional pay-as-you-go cloud usage (25% platform fee).</div>' +
           '</div>'
         )
 

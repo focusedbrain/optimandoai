@@ -1,0 +1,100 @@
+/*
+Theme Name: Blocksy Child
+Description: Child theme for Blocksy with light green container backgrounds
+Author: Your Name
+Template: blocksy
+Version: 1.0.0
+*/
+
+/* ============================================
+   Container Background Color Fix
+   Change all grey containers to light green
+   ============================================ */
+
+/* Base container styles - Light green background */
+.container,
+.ct-container,
+.ct-container-narrow,
+.ct-container-wide {
+    background-color: #e8f5e9 !important; /* Light green */
+}
+
+/* Content area containers */
+.entry-content,
+.site-content,
+.content-area,
+.main-content {
+    background-color: #e8f5e9 !important;
+}
+
+/* Post and page containers */
+article,
+.post,
+.page,
+.single-post,
+.page-content {
+    background-color: #e8f5e9 !important;
+}
+
+/* Widget containers */
+.widget,
+.sidebar .widget,
+.footer-widgets .widget,
+.widget-area .widget {
+    background-color: #e8f5e9 !important;
+}
+
+/* Section containers */
+section,
+.section,
+.content-section {
+    background-color: #e8f5e9 !important;
+}
+
+/* Nested containers - slightly darker green for depth */
+.container .container,
+.ct-container .ct-container,
+.entry-content .container,
+.site-content .container {
+    background-color: #c8e6c9 !important; /* Medium light green */
+}
+
+/* Override any grey color values */
+[class*="bg-gray"],
+[class*="bg-grey"],
+[class*="background-gray"],
+[class*="background-grey"] {
+    background-color: #e8f5e9 !important;
+}
+
+/* Specific Blocksy theme container classes */
+.ct-container,
+.ct-container-narrow,
+.ct-container-wide,
+.ct-section,
+.ct-section-inner {
+    background-color: #e8f5e9 !important;
+}
+
+/* Ensure text remains readable on light green background */
+.container,
+.ct-container,
+.entry-content {
+    color: #1b5e20; /* Dark green text for contrast */
+}
+
+/* Override any inline styles that might set grey backgrounds */
+body .container[style*="background"],
+body .ct-container[style*="background"],
+body .entry-content[style*="background"] {
+    background-color: #e8f5e9 !important;
+}
+
+/* Media queries to ensure it works on all screen sizes */
+@media (max-width: 768px) {
+    .container,
+    .ct-container,
+    .entry-content {
+        background-color: #e8f5e9 !important;
+    }
+}
