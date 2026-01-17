@@ -32525,7 +32525,7 @@ ${pageText}
             allowedBillingOptions: ['annual', 'lifetime'] as const,
             prices: { annual: 59.95, lifetime: 199 },
             priceLabels: { annual: '€59.95<span>/year</span>', lifetime: '€199<span> one-time</span>' },
-            ctaLabels: { annual: 'Select Pro', lifetime: 'Select Lifetime' }
+            ctaLabels: { annual: 'Select Pro', lifetime: 'Select Early Access Lifetime' }
           },
           publisher: {
             id: 'publisher',
@@ -32533,7 +32533,7 @@ ${pageText}
             allowedBillingOptions: ['annual', 'lifetime'] as const, // NO monthly
             prices: { annual: 129.95, lifetime: 449 },
             priceLabels: { annual: '€129.95<span>/year</span>', lifetime: '€449<span> one-time</span>' },
-            ctaLabels: { annual: 'Select Publisher', lifetime: 'Select Lifetime' }
+            ctaLabels: { annual: 'Select Publisher', lifetime: 'Select Early Access Lifetime' }
           },
           business: {
             id: 'business',
@@ -32811,7 +32811,7 @@ ${pageText}
       if (proPrivatePrice && proPrivateAnnual && proPrivateLifetime && proPrivateNote && proPrivateCta) {
         const proCfg = {
           prices: { annual: '€59.95<span>/year</span>', lifetime: '€199<span> one-time</span>' },
-          ctas: { annual: 'Select Pro', lifetime: 'Select Lifetime' }
+          ctas: { annual: 'Select Pro', lifetime: 'Select Early Access Lifetime' }
         }
         const setProAnnual = () => {
           console.log('[Plans] Pro: switching to Annual @ €59.95/year')
@@ -32850,7 +32850,7 @@ ${pageText}
       if (publisherPrice && publisherAnnual && publisherLifetime && publisherCta) {
         const pubCfg = {
           prices: { annual: '€129.95<span>/year</span>', lifetime: '€449<span> one-time</span>' },
-          ctas: { annual: 'Select Publisher', lifetime: 'Select Lifetime' }
+          ctas: { annual: 'Select Publisher', lifetime: 'Select Early Access Lifetime' }
         }
         const setPublisherAnnual = () => {
           console.log('[Plans] Publisher: switching to Annual @ €129.95/year')
