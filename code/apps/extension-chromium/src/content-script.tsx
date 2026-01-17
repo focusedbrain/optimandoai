@@ -32623,35 +32623,38 @@ ${pageText}
         ` : ''
 
         b.innerHTML = (
-          '<div style="padding:18px 22px;border-bottom:1px solid rgba(255,255,255,.25);display:flex;justify-content:space-between;align-items:center">' +
+          '<div style="padding:14px 18px;border-bottom:1px solid rgba(255,255,255,.25);display:flex;justify-content:space-between;align-items:center">' +
             '<div style="font-weight:800;font-size:16px">Plans & Licensing</div>' +
             '<button id="billing-close" style="background:rgba(255,255,255,.2);border:0;color:#fff;border-radius:6px;padding:8px 10px;cursor:pointer;font-size:14px">×</button>' +
           '</div>' +
-          '<div style="padding:18px 22px;display:grid;gap:16px;overflow-y:auto;max-height:calc(88vh - 70px)">' +
-            // Informational box about local LLMs and optional balance top-up
-            '<div style="background:rgba(0,0,0,.18);border:1px solid rgba(255,255,255,.22);border-radius:8px;padding:12px;display:flex;gap:12px;align-items:flex-start">' +
-              '<div style="font-size:20px">💡</div>' +
-              '<div style="font-size:13px;line-height:1.6">Using local LLMs is free. BYOK is supported on all plans. Optional pay-as-you-go cloud usage (25% platform fee).</div>' +
+          '<div style="padding:14px 18px;display:grid;gap:12px">' +
+            '<div style="background:rgba(0,0,0,.18);border:1px solid rgba(255,255,255,.22);border-radius:8px;padding:10px;font-size:12px;line-height:1.5">' +
+              'All tiers support local LLM execution (no cost) and BYOK integration (OpenAI, Anthropic, Google, xAI). Optional cloud compute available via pay-as-you-go (25% platform fee).' +
             '</div>' +
             '<div id="agents-grid">' +
-              // Basic - €0, no billing toggle
+              // BASIC TIER
               '<div class="wr-plan-card">' +
                 '<h3>Basic</h3>' +
                 '<div class="price">€0</div>' +
-                '<ul>' +
-                  '<li>AI Orchestration™ (local-first)</li>' +
-                  '<li>Local LLM execution (free)</li>' +
-                  '<li>BYOK support (OpenAI, Claude, Gemini, Grok, etc.)</li>' +
-                  '<li>Unlimited WR Codes™ (private / offline)</li>' +
-                  '<li>pBEAP™ Secure Messages (baseline)</li>' +
-                  '<li>WRGuard™ (baseline integrity)</li>' +
-                  '<li>WRVault™ (baseline, local password manager)</li>' +
-                  '<li>PoAE™ execution logs (local, non-cryptographic)</li>' +
-                  '<li style="color:#66FF66;list-style:\'✓ \';">Optional pay-as-you-go cloud usage (25% platform fee)</li>' +
+                '<div style="font-size:10px;opacity:0.7;margin:4px 0;text-transform:uppercase;letter-spacing:0.5px">Intended Use</div>' +
+                '<div style="font-size:11px;margin-bottom:8px">Personal automation and local-first workflows. Non-commercial use only.</div>' +
+                '<div style="font-size:10px;opacity:0.7;margin:4px 0;text-transform:uppercase;letter-spacing:0.5px">Included Capabilities</div>' +
+                '<ul style="font-size:11px">' +
+                  '<li>AI Orchestration™ engine (local-first execution)</li>' +
+                  '<li>BYOK integration (all supported providers)</li>' +
+                  '<li>Unlimited WR Codes™ (private, offline generation)</li>' +
+                  '<li>pBEAP™ encrypted messaging (standard encryption)</li>' +
+                  '<li>WRGuard™ baseline integrity monitoring</li>' +
+                  '<li>WRVault™ baseline credential storage</li>' +
                 '</ul>' +
-                '<button class="cta-btn" style="background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.3)">Choose Basic</button>' +
+                '<div style="font-size:10px;opacity:0.7;margin:4px 0;text-transform:uppercase;letter-spacing:0.5px">Security & Verification</div>' +
+                '<ul style="font-size:11px">' +
+                  '<li>PoAE™ baseline execution logs (local, non-cryptographic)</li>' +
+                  '<li>Local-only verification (no external attestation)</li>' +
+                '</ul>' +
+                '<button class="cta-btn" style="background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.3)">Select Basic</button>' +
               '</div>' +
-              // Pro (Private / Solo Dev) - Annual + Early Access Lifetime ONLY
+              // PRO (PRIVATE) TIER
               '<div class="wr-plan-card">' +
                 '<h3>Pro (Private)</h3>' +
                 '<div id="pro-private-price" class="price">' + PLAN_CONFIG.pro.priceLabels.annual + '</div>' +
@@ -32659,23 +32662,26 @@ ${pageText}
                   '<button id="pro-private-annual" class="toggle-btn active">Annual</button>' +
                   '<button id="pro-private-lifetime" class="toggle-btn">Early Access Lifetime</button>' +
                 '</div>' +
-                '<div id="pro-private-note" class="wr-plan-note" style="display:none">Private-only · non-commercial · no publishing</div>' +
-                // Affiliate Founders Pack - only rendered if isAffiliateAttributed is true
+                '<div id="pro-private-note" class="wr-plan-note" style="display:none">Private use only · Non-commercial · No publishing rights</div>' +
+                '<div style="font-size:10px;opacity:0.7;margin:4px 0;text-transform:uppercase;letter-spacing:0.5px">Intended Use</div>' +
+                '<div style="font-size:11px;margin-bottom:8px">Private production workflows requiring cryptographic accountability. Individual practitioners, developers, and security-conscious professionals.</div>' +
                 (isAffiliateAttributed ? '<div id="pro-private-founders" style="display:none;background:rgba(34,197,94,.15);border:1px solid rgba(34,197,94,.4);border-radius:6px;padding:10px;margin:8px 0">' + affiliateFoundersPackHtml + '</div>' : '') +
-                '<ul>' +
-                  '<li>AI Orchestration™ (advanced, local-first)</li>' +
-                  '<li>BYOK support (all providers)</li>' +
-                  '<li>Unlimited WR Codes™ (private)</li>' +
-                  '<li>qBEAP™ Secure Messages</li>' +
-                  '<li>WRGuard™ (advanced / strict mode)</li>' +
-                  '<li>Advanced WRVault™ (encrypted, scoped, policy-aware)</li>' +
-                  '<li>PoAE™ cryptographic execution proofs</li>' +
-                  '<li>Exportable execution attestations</li>' +
-                  '<li style="color:#66FF66;list-style:\'✓ \';">Optional pay-as-you-go cloud usage (25% platform fee)</li>' +
+                '<div style="font-size:10px;opacity:0.7;margin:4px 0;text-transform:uppercase;letter-spacing:0.5px">Included Capabilities</div>' +
+                '<ul style="font-size:11px">' +
+                  '<li>All Basic tier capabilities</li>' +
+                  '<li>qBEAP™ post-quantum-ready encrypted messaging</li>' +
+                  '<li>WRGuard™ advanced (strict mode, tamper detection)</li>' +
+                  '<li>WRVault™ advanced (encrypted, scoped, policy-aware)</li>' +
+                '</ul>' +
+                '<div style="font-size:10px;opacity:0.7;margin:4px 0;text-transform:uppercase;letter-spacing:0.5px">Security & Verification</div>' +
+                '<ul style="font-size:11px">' +
+                  '<li>PoAE™ advanced cryptographic proofs (signed attestations)</li>' +
+                  '<li>Exportable proof artifacts for personal records</li>' +
+                  '<li>Local verification of proof integrity</li>' +
                 '</ul>' +
                 '<button id="pro-private-cta" class="cta-btn" style="background:#2563eb" data-plan="pro_private_annual">' + PLAN_CONFIG.pro.ctaLabels.annual + '</button>' +
               '</div>' +
-              // Publisher / Small Business - Annual + Early Access Lifetime ONLY (NO monthly)
+              // PUBLISHER TIER
               '<div class="wr-plan-card featured" style="position:relative">' +
                 '<div style="position:absolute;top:-10px;right:12px;background:#22c55e;color:#0b1e12;border-radius:999px;padding:3px 10px;font-size:10px;font-weight:800">Small Business</div>' +
                 '<h3>Publisher</h3>' +
@@ -32684,47 +32690,53 @@ ${pageText}
                   '<button id="publisher-annual" class="toggle-btn active">Annual</button>' +
                   '<button id="publisher-lifetime" class="toggle-btn">Early Access Lifetime</button>' +
                 '</div>' +
-                // Affiliate Founders Pack - only rendered if isAffiliateAttributed is true
+                '<div style="font-size:10px;opacity:0.7;margin:4px 0;text-transform:uppercase;letter-spacing:0.5px">Intended Use</div>' +
+                '<div style="font-size:11px;margin-bottom:8px">Commercial publishing and client-facing deliverables. Agencies, consultants, and small businesses requiring verifiable output.</div>' +
                 (isAffiliateAttributed ? '<div id="publisher-founders" style="display:none;background:rgba(34,197,94,.15);border:1px solid rgba(34,197,94,.4);border-radius:6px;padding:10px;margin:8px 0">' + affiliateFoundersPackHtml + '</div>' : '') +
-                '<ul>' +
-                  '<li>AI Orchestration™ (publishing workflows)</li>' +
-                  '<li>BYOK support</li>' +
-                  '<li>Unlimited WR Codes™ (commercial publishing)</li>' +
-                  '<li>qBEAP™ Secure Messages</li>' +
-                  '<li>Enterprise Handshakes</li>' +
-                  '<li>WRGuard™ / Advanced WRVault™ (publisher-grade)</li>' +
-                  '<li>PoAE™ cryptographic proofs + verification</li>' +
-                  '<li>Publisher branding + custom domain</li>' +
-                  '<li>Advanced analytics + priority queue</li>' +
-                  '<li style="color:#66FF66;list-style:\'✓ \';">Optional pay-as-you-go cloud usage (25% platform fee)</li>' +
+                '<div style="font-size:10px;opacity:0.7;margin:4px 0;text-transform:uppercase;letter-spacing:0.5px">Included Capabilities</div>' +
+                '<ul style="font-size:11px">' +
+                  '<li>All Pro (Private) tier capabilities</li>' +
+                  '<li>Commercial WR Code™ publishing rights</li>' +
+                  '<li>Enterprise Handshakes (B2B trust establishment)</li>' +
+                  '<li>Publisher branding and custom domain support</li>' +
+                  '<li>5GB Template Storage</li>' +
+                '</ul>' +
+                '<div style="font-size:10px;opacity:0.7;margin:4px 0;text-transform:uppercase;letter-spacing:0.5px">Security & Verification</div>' +
+                '<ul style="font-size:11px">' +
+                  '<li>PoAE™ advanced proofs with verification endpoint</li>' +
+                  '<li>Third-party verification capability (client-accessible)</li>' +
+                  '<li>Proof chain export for external review</li>' +
                 '</ul>' +
                 '<button id="publisher-cta" class="cta-btn" style="background:#16a34a;font-weight:700" data-plan="publisher_annual">' + PLAN_CONFIG.publisher.ctaLabels.annual + '</button>' +
               '</div>' +
-              // Business/Enterprise - Annual + Monthly ONLY (NO lifetime)
+              // BUSINESS/ENTERPRISE TIER
               '<div class="wr-plan-card featured">' +
-                '<h3>Business/Enterprise</h3>' +
+                '<h3>Business / Enterprise</h3>' +
                 '<div id="enterprise-price" class="price">' + PLAN_CONFIG.business.priceLabels.annual + '</div>' +
                 '<div class="toggle-row">' +
                   '<button id="enterprise-annual" class="toggle-btn active">Annual</button>' +
                   '<button id="enterprise-monthly" class="toggle-btn">Monthly</button>' +
                 '</div>' +
-                '<ul>' +
-                  '<li>AI Orchestration™ (team & enterprise)</li>' +
-                  '<li>BYOK support</li>' +
-                  '<li>Unlimited WR Codes™ (enterprise)</li>' +
-                  '<li>qBEAP™ Secure Messages</li>' +
-                  '<li>Enterprise Handshakes</li>' +
-                  '<li>WRGuard™ / Advanced WRVault™ (enterprise controls)</li>' +
-                  '<li>PoAE™ cryptographic proofs + audit export</li>' +
-                  '<li>Multiple domains + team roles</li>' +
-                  '<li>SSO/SAML, DPA</li>' +
-                  '<li>SLA + dedicated support</li>' +
-                  '<li style="color:#66FF66;list-style:\'✓ \';">Optional pay-as-you-go cloud usage (25% platform fee)</li>' +
+                '<div style="font-size:10px;opacity:0.7;margin:4px 0;text-transform:uppercase;letter-spacing:0.5px">Intended Use</div>' +
+                '<div style="font-size:11px;margin-bottom:8px">Multi-user organizational deployments requiring role-based access, centralized governance, and audit-ready documentation.</div>' +
+                '<div style="font-size:10px;opacity:0.7;margin:4px 0;text-transform:uppercase;letter-spacing:0.5px">Included Capabilities</div>' +
+                '<ul style="font-size:11px">' +
+                  '<li>All Publisher tier capabilities</li>' +
+                  '<li>Multi-user access with role-based permissions</li>' +
+                  '<li>Multiple domain support + SSO/SAML</li>' +
+                  '<li>Data Processing Agreement (DPA) available</li>' +
+                  '<li>Dedicated support + SLA</li>' +
+                '</ul>' +
+                '<div style="font-size:10px;opacity:0.7;margin:4px 0;text-transform:uppercase;letter-spacing:0.5px">Security & Verification</div>' +
+                '<ul style="font-size:11px">' +
+                  '<li>PoAE™ advanced proofs with full audit export</li>' +
+                  '<li>Per-user attribution in proof chain</li>' +
+                  '<li>Centralized proof archive with retention controls</li>' +
+                  '<li>Third-party verification with organizational context</li>' +
                 '</ul>' +
                 '<button id="enterprise-cta" class="cta-btn" style="background:#0ea5e9" data-plan="enterprise_annual">' + PLAN_CONFIG.business.ctaLabels.annual + '</button>' +
               '</div>' +
             '</div>' +
-            '<div style="font-size:12px;opacity:.9">🔑 BYOK: Bring Your Own Keys (OpenAI, Claude, Gemini, Grok, etc.) is supported on all plans. Optional pay-as-you-go cloud usage (25% platform fee).</div>' +
           '</div>'
         )
 
