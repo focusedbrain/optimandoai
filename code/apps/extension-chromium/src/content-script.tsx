@@ -32515,6 +32515,75 @@ ${pageText}
 
       } else {
 
+        // ============================================================
+        // SINGLE SOURCE OF TRUTH: Plan pricing configuration
+        // ============================================================
+        const PLAN_CONFIG = {
+          pro: {
+            id: 'pro',
+            name: 'Pro (Private)',
+            allowedBillingOptions: ['annual', 'lifetime'] as const,
+            prices: { annual: 59.95, lifetime: 199 },
+            priceLabels: { annual: '€59.95<span>/year</span>', lifetime: '€199<span> one-time</span>' },
+            ctaLabels: { annual: 'Choose Pro', lifetime: 'Get Early Access Lifetime' }
+          },
+          publisher: {
+            id: 'publisher',
+            name: 'Publisher',
+            allowedBillingOptions: ['annual', 'lifetime'] as const, // NO monthly
+            prices: { annual: 129.95, lifetime: 449 },
+            priceLabels: { annual: '€129.95<span>/year</span>', lifetime: '€449<span> one-time</span>' },
+            ctaLabels: { annual: 'Choose Publisher', lifetime: 'Get Early Access Lifetime' }
+          },
+          business: {
+            id: 'business',
+            name: 'Business/Enterprise',
+            allowedBillingOptions: ['annual', 'monthly'] as const, // NO lifetime
+            prices: { annual: 599, monthly: 59 },
+            priceLabels: { annual: '€599<span>/year</span>', monthly: '€59<span>/month</span>' },
+            ctaLabels: { annual: 'Contact Sales', monthly: 'Contact Sales' }
+          }
+        }
+
+        // DEV ASSERTION: Verify plan constraints
+        console.log('[Plans] Config loaded:', {
+          pro: PLAN_CONFIG.pro.allowedBillingOptions,
+          publisher: PLAN_CONFIG.publisher.allowedBillingOptions,
+          business: PLAN_CONFIG.business.allowedBillingOptions
+        })
+        if (PLAN_CONFIG.business.allowedBillingOptions.includes('lifetime' as any)) {
+          console.error('[Plans] ERROR: Business plan must NOT include lifetime!')
+        }
+        if (PLAN_CONFIG.publisher.allowedBillingOptions.includes('monthly' as any)) {
+          console.error('[Plans] ERROR: Publisher plan must NOT include monthly!')
+        }
+
+        // ============================================================
+        // AFFILIATE ATTRIBUTION FLAG
+        // Controls whether the "Affiliate Founders Pack" perks box can be shown.
+        // Default: false (perks box is NEVER shown for non-affiliate users)
+        // Only set to true if user came via affiliate link (future integration)
+        // ============================================================
+        const isAffiliateAttributed = (() => {
+          try {
+            // Check URL query param: ?aff=1
+            const urlParams = new URLSearchParams(window.location.search)
+            if (urlParams.get('aff') === '1') {
+              console.log('[Plans] Affiliate attribution detected via query param')
+              return true
+            }
+            // Check localStorage: og_aff=1
+            if (localStorage.getItem('og_aff') === '1') {
+              console.log('[Plans] Affiliate attribution detected via localStorage')
+              return true
+            }
+          } catch (e) {
+            // Ignore errors (e.g., localStorage access denied)
+          }
+          return false
+        })()
+        console.log('[Plans] isAffiliateAttributed:', isAffiliateAttributed)
+
         // Inject responsive styles for the plans grid
         const styleId = 'wr-plans-responsive-styles'
         if (!document.getElementById(styleId)) {
@@ -32541,22 +32610,34 @@ ${pageText}
           document.head.appendChild(styleEl)
         }
 
+        // Affiliate Founders Pack HTML - ONLY shown if isAffiliateAttributed === true
+        // By default this is NOT rendered at all for normal users
+        const affiliateFoundersPackHtml = isAffiliateAttributed ? `
+          <div style="font-weight:700;font-size:11px;color:#22c55e;margin-bottom:6px">Affiliate Founders Pack</div>
+          <ul style="margin:0 0 0 16px;padding:0;font-size:10px;line-height:1.5">
+            <li>Exclusive templates (Founders Pack)</li>
+            <li>Founding User badge</li>
+            <li>Early access to Labs features</li>
+            <li>Founder UI accent / marker (subtle)</li>
+          </ul>
+        ` : ''
+
         b.innerHTML = (
           '<div style="padding:18px 22px;border-bottom:1px solid rgba(255,255,255,.25);display:flex;justify-content:space-between;align-items:center">' +
-            '<div style="font-weight:800;font-size:16px">Subscription Plans</div>' +
+            '<div style="font-weight:800;font-size:16px">Plans & Licensing</div>' +
             '<button id="billing-close" style="background:rgba(255,255,255,.2);border:0;color:#fff;border-radius:6px;padding:8px 10px;cursor:pointer;font-size:14px">×</button>' +
           '</div>' +
           '<div style="padding:18px 22px;display:grid;gap:16px;overflow-y:auto;max-height:calc(88vh - 70px)">' +
             // Informational box about local LLMs and optional balance top-up
             '<div style="background:rgba(0,0,0,.18);border:1px solid rgba(255,255,255,.22);border-radius:8px;padding:12px;display:flex;gap:12px;align-items:flex-start">' +
               '<div style="font-size:20px">💡</div>' +
-              '<div style="font-size:13px;line-height:1.6">Using local LLMs is free. You can optionally load balance to use powerful cloud AI on demand.</div>' +
+              '<div style="font-size:13px;line-height:1.6">Using local LLMs is free. Optional pay-as-you-go cloud usage (25% platform fee).</div>' +
             '</div>' +
             '<div id="agents-grid">' +
-              // Basic
+              // Basic - €0, no billing toggle
               '<div class="wr-plan-card">' +
                 '<h3>Basic</h3>' +
-                '<div class="price">$0</div>' +
+                '<div class="price">€0</div>' +
                 '<ul>' +
                   '<li>AI Orchestration (local-first)</li>' +
                   '<li>Unlimited WR Codes (private/offline)</li>' +
@@ -32564,38 +32645,42 @@ ${pageText}
                   '<li>WRGuard™ (baseline)</li>' +
                   '<li>WRVault™ (baseline, incl. local password manager)</li>' +
                   '<li>Runs with local LLMs</li>' +
-                  '<li style="color:#66FF66;list-style:\'✓ \';">Cloud pay-as-you-go optional</li>' +
+                  '<li style="color:#66FF66;list-style:\'✓ \';">Pay-as-you-go (25% platform fee for cloud AI usage)</li>' +
                 '</ul>' +
                 '<button class="cta-btn" style="background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.3)">Choose Basic</button>' +
               '</div>' +
-              // Pro (Private)
+              // Pro (Private / Solo Dev) - Annual + Early Access Lifetime ONLY
               '<div class="wr-plan-card">' +
                 '<h3>Pro (Private)</h3>' +
-                '<div id="pro-private-price" class="price">$29.95<span>/year</span></div>' +
+                '<div id="pro-private-price" class="price">' + PLAN_CONFIG.pro.priceLabels.annual + '</div>' +
                 '<div class="toggle-row">' +
                   '<button id="pro-private-annual" class="toggle-btn active">Annual</button>' +
-                  '<button id="pro-private-lifetime" class="toggle-btn">Lifetime</button>' +
+                  '<button id="pro-private-lifetime" class="toggle-btn">Early Access Lifetime</button>' +
                 '</div>' +
                 '<div id="pro-private-note" class="wr-plan-note" style="display:none">Private-only · non-commercial · no publishing</div>' +
+                // Affiliate Founders Pack - only rendered if isAffiliateAttributed is true
+                (isAffiliateAttributed ? '<div id="pro-private-founders" style="display:none;background:rgba(34,197,94,.15);border:1px solid rgba(34,197,94,.4);border-radius:6px;padding:10px;margin:8px 0">' + affiliateFoundersPackHtml + '</div>' : '') +
                 '<ul>' +
                   '<li>AI Orchestration (advanced, local-first)</li>' +
                   '<li>Unlimited WR Codes (private)</li>' +
                   '<li>BEAP™ Secure Messages</li>' +
                   '<li>WRGuard™ included</li>' +
                   '<li>WRVault™ included (incl. local password manager)</li>' +
-                  '<li style="color:#66FF66;list-style:\'✓ \';">BYOK or pay-as-you-go</li>' +
+                  '<li style="color:#66FF66;list-style:\'✓ \';">BYOK or optionally pay-as-you-go (25% platform fee for cloud AI usage)</li>' +
                 '</ul>' +
-                '<button id="pro-private-cta" class="cta-btn" style="background:#2563eb" data-plan="pro_private_annual">Choose Private</button>' +
+                '<button id="pro-private-cta" class="cta-btn" style="background:#2563eb" data-plan="pro_private_annual">' + PLAN_CONFIG.pro.ctaLabels.annual + '</button>' +
               '</div>' +
-              // Publisher
+              // Publisher / Small Business - Annual + Early Access Lifetime ONLY (NO monthly)
               '<div class="wr-plan-card featured" style="position:relative">' +
-                '<div style="position:absolute;top:-10px;right:12px;background:#22c55e;color:#0b1e12;border-radius:999px;padding:3px 10px;font-size:10px;font-weight:800">Solo Pro</div>' +
+                '<div style="position:absolute;top:-10px;right:12px;background:#22c55e;color:#0b1e12;border-radius:999px;padding:3px 10px;font-size:10px;font-weight:800">Small Business</div>' +
                 '<h3>Publisher</h3>' +
-                '<div id="publisher-price" class="price">$9.95<span>/month</span></div>' +
+                '<div id="publisher-price" class="price">' + PLAN_CONFIG.publisher.priceLabels.annual + '</div>' +
                 '<div class="toggle-row">' +
                   '<button id="publisher-annual" class="toggle-btn active">Annual</button>' +
-                  '<button id="publisher-monthly" class="toggle-btn">Monthly</button>' +
+                  '<button id="publisher-lifetime" class="toggle-btn">Early Access Lifetime</button>' +
                 '</div>' +
+                // Affiliate Founders Pack - only rendered if isAffiliateAttributed is true
+                (isAffiliateAttributed ? '<div id="publisher-founders" style="display:none;background:rgba(34,197,94,.15);border:1px solid rgba(34,197,94,.4);border-radius:6px;padding:10px;margin:8px 0">' + affiliateFoundersPackHtml + '</div>' : '') +
                 '<ul>' +
                   '<li>AI Orchestration (publishing workflows)</li>' +
                   '<li>Unlimited WR Codes (commercial publishing)</li>' +
@@ -32605,14 +32690,14 @@ ${pageText}
                   '<li>5 GB hosted context</li>' +
                   '<li>Publisher branding + custom domain</li>' +
                   '<li>Advanced analytics + priority queue</li>' +
-                  '<li style="color:#66FF66;list-style:\'✓ \';">BYOK or pay-as-you-go</li>' +
+                  '<li style="color:#66FF66;list-style:\'✓ \';">BYOK or optionally pay-as-you-go (25% platform fee for cloud AI usage)</li>' +
                 '</ul>' +
-                '<button class="cta-btn" style="background:#16a34a;font-weight:700">Choose Publisher</button>' +
+                '<button id="publisher-cta" class="cta-btn" style="background:#16a34a;font-weight:700" data-plan="publisher_annual">' + PLAN_CONFIG.publisher.ctaLabels.annual + '</button>' +
               '</div>' +
-              // Business/Enterprise
+              // Business/Enterprise - Annual + Monthly ONLY (NO lifetime)
               '<div class="wr-plan-card featured">' +
                 '<h3>Business/Enterprise</h3>' +
-                '<div id="enterprise-price" class="price">$59<span>/month</span></div>' +
+                '<div id="enterprise-price" class="price">' + PLAN_CONFIG.business.priceLabels.annual + '</div>' +
                 '<div class="toggle-row">' +
                   '<button id="enterprise-annual" class="toggle-btn active">Annual</button>' +
                   '<button id="enterprise-monthly" class="toggle-btn">Monthly</button>' +
@@ -32627,12 +32712,12 @@ ${pageText}
                   '<li>Multiple domains + team roles</li>' +
                   '<li>SSO/SAML, DPA</li>' +
                   '<li>SLA + dedicated support</li>' +
-                  '<li style="color:#66FF66;list-style:\'✓ \';">BYOK or pay-as-you-go</li>' +
+                  '<li style="color:#66FF66;list-style:\'✓ \';">BYOK or optionally pay-as-you-go (25% platform fee for cloud AI usage)</li>' +
                 '</ul>' +
-                '<button class="cta-btn" style="background:#0ea5e9">Contact Sales</button>' +
+                '<button id="enterprise-cta" class="cta-btn" style="background:#0ea5e9" data-plan="enterprise_annual">' + PLAN_CONFIG.business.ctaLabels.annual + '</button>' +
               '</div>' +
             '</div>' +
-            '<div style="font-size:12px;opacity:.9">🔑 BYOK Feature: Use your own API keys from OpenAI, Claude, Gemini, Grok, and more.</div>' +
+            '<div style="font-size:12px;opacity:.9">🔑 BYOK: Use your own API keys from OpenAI, Claude, Gemini, Grok, and more. Optional pay-as-you-go cloud usage (25% platform fee).</div>' +
           '</div>'
         )
 
@@ -32678,7 +32763,7 @@ ${pageText}
 
           if (isNaN(value) || value < 10) {
 
-            alert('Minimum top-up is $10')
+            alert('Minimum top-up is €10')
 
             if (customInput) customInput.focus()
 
@@ -32686,36 +32771,49 @@ ${pageText}
 
           }
 
-          alert(`✅ Top-up initialized: $${value.toFixed(2)}`)
+          alert(`✅ Top-up initialized: €${value.toFixed(2)}`)
 
         })
 
       }
 
+      // ============================================================
+      // PLAN TOGGLE LOGIC - Uses PLAN_CONFIG as single source of truth
+      // ============================================================
 
-
-      // Wire Pro (Private) Annual/Lifetime toggle
+      // Pro (Private): Annual + Early Access Lifetime toggle
       const proPrivatePrice = b.querySelector('#pro-private-price') as HTMLElement | null
       const proPrivateAnnual = b.querySelector('#pro-private-annual') as HTMLButtonElement | null
       const proPrivateLifetime = b.querySelector('#pro-private-lifetime') as HTMLButtonElement | null
       const proPrivateNote = b.querySelector('#pro-private-note') as HTMLElement | null
+      const proPrivateFounders = b.querySelector('#pro-private-founders') as HTMLElement | null // May be null if not affiliate
       const proPrivateCta = b.querySelector('#pro-private-cta') as HTMLButtonElement | null
 
       if (proPrivatePrice && proPrivateAnnual && proPrivateLifetime && proPrivateNote && proPrivateCta) {
+        const proCfg = {
+          prices: { annual: '€59.95<span>/year</span>', lifetime: '€199<span> one-time</span>' },
+          ctas: { annual: 'Choose Pro', lifetime: 'Get Early Access Lifetime' }
+        }
         const setProAnnual = () => {
-          proPrivatePrice.innerHTML = '$29.95<span>/year</span>'
+          console.log('[Plans] Pro: switching to Annual @ €59.95/year')
+          proPrivatePrice.innerHTML = proCfg.prices.annual
           proPrivateAnnual.classList.add('active')
           proPrivateLifetime.classList.remove('active')
           proPrivateNote.style.display = 'none'
-          proPrivateCta.textContent = 'Choose Private'
+          // Founders Pack only shown for affiliate users
+          if (proPrivateFounders) proPrivateFounders.style.display = 'none'
+          proPrivateCta.textContent = proCfg.ctas.annual
           proPrivateCta.setAttribute('data-plan', 'pro_private_annual')
         }
         const setProLifetime = () => {
-          proPrivatePrice.innerHTML = '€99,95<span> one-time</span>'
+          console.log('[Plans] Pro: switching to Lifetime @ €199 one-time')
+          proPrivatePrice.innerHTML = proCfg.prices.lifetime
           proPrivateLifetime.classList.add('active')
           proPrivateAnnual.classList.remove('active')
           proPrivateNote.style.display = 'block'
-          proPrivateCta.textContent = 'Get Lifetime'
+          // Founders Pack only shown for affiliate users (element only exists if isAffiliateAttributed)
+          if (proPrivateFounders) proPrivateFounders.style.display = 'block'
+          proPrivateCta.textContent = proCfg.ctas.lifetime
           proPrivateCta.setAttribute('data-plan', 'pro_private_lifetime')
         }
         proPrivateAnnual.addEventListener('click', setProAnnual)
@@ -32723,49 +32821,71 @@ ${pageText}
         setProAnnual()
       }
 
-      // Wire Publisher pricing toggle if present
-      const priceEl = b.querySelector('#publisher-price') as HTMLElement | null
-      const annualBtn = b.querySelector('#publisher-annual') as HTMLButtonElement | null
-      const monthlyBtn = b.querySelector('#publisher-monthly') as HTMLButtonElement | null
+      // Publisher: Annual + Early Access Lifetime toggle (NO monthly)
+      const publisherPrice = b.querySelector('#publisher-price') as HTMLElement | null
+      const publisherAnnual = b.querySelector('#publisher-annual') as HTMLButtonElement | null
+      const publisherLifetime = b.querySelector('#publisher-lifetime') as HTMLButtonElement | null
+      const publisherFounders = b.querySelector('#publisher-founders') as HTMLElement | null // May be null if not affiliate
+      const publisherCta = b.querySelector('#publisher-cta') as HTMLButtonElement | null
 
-      if (priceEl && annualBtn && monthlyBtn) {
-        const setAnnual = () => {
-          priceEl.innerHTML = '$9.95<span>/month</span>'
-          annualBtn.classList.add('active')
-          monthlyBtn.classList.remove('active')
+      if (publisherPrice && publisherAnnual && publisherLifetime && publisherCta) {
+        const pubCfg = {
+          prices: { annual: '€129.95<span>/year</span>', lifetime: '€449<span> one-time</span>' },
+          ctas: { annual: 'Choose Publisher', lifetime: 'Get Early Access Lifetime' }
         }
-        const setMonthly = () => {
-          priceEl.innerHTML = '$19.95<span>/month</span>'
-          monthlyBtn.classList.add('active')
-          annualBtn.classList.remove('active')
+        const setPublisherAnnual = () => {
+          console.log('[Plans] Publisher: switching to Annual @ €129.95/year')
+          publisherPrice.innerHTML = pubCfg.prices.annual
+          publisherAnnual.classList.add('active')
+          publisherLifetime.classList.remove('active')
+          // Founders Pack only shown for affiliate users
+          if (publisherFounders) publisherFounders.style.display = 'none'
+          publisherCta.textContent = pubCfg.ctas.annual
+          publisherCta.setAttribute('data-plan', 'publisher_annual')
         }
-        annualBtn.addEventListener('click', setAnnual)
-        monthlyBtn.addEventListener('click', setMonthly)
-        setAnnual()
+        const setPublisherLifetime = () => {
+          console.log('[Plans] Publisher: switching to Lifetime @ €449 one-time')
+          publisherPrice.innerHTML = pubCfg.prices.lifetime
+          publisherLifetime.classList.add('active')
+          publisherAnnual.classList.remove('active')
+          // Founders Pack only shown for affiliate users (element only exists if isAffiliateAttributed)
+          if (publisherFounders) publisherFounders.style.display = 'block'
+          publisherCta.textContent = pubCfg.ctas.lifetime
+          publisherCta.setAttribute('data-plan', 'publisher_lifetime')
+        }
+        publisherAnnual.addEventListener('click', setPublisherAnnual)
+        publisherLifetime.addEventListener('click', setPublisherLifetime)
+        setPublisherAnnual()
       }
 
-      // Wire Enterprise pricing toggle if present
+      // Business/Enterprise: Annual + Monthly toggle (NO lifetime)
       const entPrice = b.querySelector('#enterprise-price') as HTMLElement | null
       const entAnnual = b.querySelector('#enterprise-annual') as HTMLButtonElement | null
       const entMonthly = b.querySelector('#enterprise-monthly') as HTMLButtonElement | null
+      const entCta = b.querySelector('#enterprise-cta') as HTMLButtonElement | null
 
-      if (entPrice && entAnnual && entMonthly) {
+      if (entPrice && entAnnual && entMonthly && entCta) {
+        const entCfg = {
+          prices: { annual: '€599<span>/year</span>', monthly: '€59<span>/month</span>' },
+          ctas: { annual: 'Contact Sales', monthly: 'Contact Sales' }
+        }
         const setEntAnnual = () => {
-          entPrice.innerHTML = '$59<span>/month</span>'
+          console.log('[Plans] Business: switching to Annual @ €599/year')
+          entPrice.innerHTML = entCfg.prices.annual
           entAnnual.classList.add('active')
           entMonthly.classList.remove('active')
+          entCta.setAttribute('data-plan', 'enterprise_annual')
         }
         const setEntMonthly = () => {
-          entPrice.innerHTML = '$99<span>/month</span>'
+          console.log('[Plans] Business: switching to Monthly @ €59/month')
+          entPrice.innerHTML = entCfg.prices.monthly
           entMonthly.classList.add('active')
           entAnnual.classList.remove('active')
+          entCta.setAttribute('data-plan', 'enterprise_monthly')
         }
         entAnnual.addEventListener('click', setEntAnnual)
-
         entMonthly.addEventListener('click', setEntMonthly)
-
         setEntAnnual()
-
       }
 
     }
