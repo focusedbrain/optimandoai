@@ -32485,7 +32485,7 @@ ${pageText}
 
       const b = document.createElement('div')
 
-      b.style.cssText = 'background:'+getModalThemeGradient()+';color:#fff;border-radius:12px;max-width:820px;width:92vw;max-height:80vh;overflow:auto;box-shadow:0 20px 40px rgba(0,0,0,.35)'
+      b.style.cssText = 'background:'+getModalThemeGradient()+';color:#fff;border-radius:12px;max-width:1150px;width:90vw;max-height:88vh;overflow:auto;box-shadow:0 20px 40px rgba(0,0,0,.35)'
 
       if (kind === 'payg') {
 
@@ -32561,174 +32561,125 @@ ${pageText}
 
       } else {
 
+        // Inject responsive styles for the plans grid
+        const styleId = 'wr-plans-responsive-styles'
+        if (!document.getElementById(styleId)) {
+          const styleEl = document.createElement('style')
+          styleEl.id = styleId
+          styleEl.textContent = `
+            #agents-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
+            @media (max-width: 1199px) { #agents-grid { grid-template-columns: repeat(2, 1fr); } }
+            @media (max-width: 767px) { #agents-grid { grid-template-columns: 1fr; } }
+            .wr-plan-card { background: rgba(0,0,0,.12); padding: 16px; border-radius: 10px; border: 1px solid rgba(255,255,255,.18); display: flex; flex-direction: column; height: 100%; }
+            .wr-plan-card.featured { background: rgba(255,255,255,.10); border: 1px solid rgba(255,255,255,.22); }
+            .wr-plan-card h3 { font-weight: 800; font-size: 14px; margin: 0 0 8px 0; }
+            .wr-plan-card .price { font-size: 22px; font-weight: 800; margin-bottom: 8px; }
+            .wr-plan-card .price span { font-size: 12px; opacity: .85; }
+            .wr-plan-card ul { margin: 0 0 12px 18px; padding: 0; font-size: 12px; line-height: 1.7; flex: 1; }
+            .wr-plan-card ul li { margin-bottom: 2px; }
+            .wr-plan-card .toggle-row { display: flex; gap: 6px; margin-bottom: 10px; }
+            .wr-plan-card .toggle-btn { flex: 1; border-radius: 6px; padding: 5px 8px; font-size: 11px; cursor: pointer; font-weight: 600; }
+            .wr-plan-card .toggle-btn.active { background: #22c55e; color: #0b1e12; border: 0; }
+            .wr-plan-card .toggle-btn:not(.active) { background: rgba(255,255,255,.15); border: 1px solid rgba(255,255,255,.3); color: #fff; }
+            .wr-plan-card .cta-btn { width: 100%; border: 0; color: white; border-radius: 6px; padding: 8px 12px; font-size: 12px; cursor: pointer; margin-top: auto; font-weight: 600; }
+            .wr-plan-note { font-size: 10px; opacity: .8; margin-top: 6px; line-height: 1.4; }
+          `
+          document.head.appendChild(styleEl)
+        }
+
         b.innerHTML = (
-
-          '<div style="padding:16px 18px;border-bottom:1px solid rgba(255,255,255,.25);display:flex;justify-content:space-between;align-items:center">' +
-
-            '<div style="font-weight:800">Subscription Plans</div>' +
-
-            '<button id="billing-close" style="background:rgba(255,255,255,.2);border:0;color:#fff;border-radius:6px;padding:6px 8px;cursor:pointer">×</button>' +
-
+          '<div style="padding:18px 22px;border-bottom:1px solid rgba(255,255,255,.25);display:flex;justify-content:space-between;align-items:center">' +
+            '<div style="font-weight:800;font-size:16px">Subscription Plans</div>' +
+            '<button id="billing-close" style="background:rgba(255,255,255,.2);border:0;color:#fff;border-radius:6px;padding:8px 10px;cursor:pointer;font-size:14px">×</button>' +
           '</div>' +
-
-          '<div style="padding:16px 18px;display:grid;gap:12px">' +
-
+          '<div style="padding:18px 22px;display:grid;gap:16px;overflow-y:auto;max-height:calc(88vh - 70px)">' +
             // Informational box about local LLMs and optional balance top-up
-
-            '<div style="background:rgba(0,0,0,.18);border:1px solid rgba(255,255,255,.22);border-radius:8px;padding:10px;display:flex;gap:10px;align-items:flex-start">' +
-
-              '<div style="font-size:18px">💡</div>' +
-
-              '<div style="font-size:12px;line-height:1.55">Using local LLMs is free. You can optionally load balance to use powerful cloud AI on demand.</div>' +
-
+            '<div style="background:rgba(0,0,0,.18);border:1px solid rgba(255,255,255,.22);border-radius:8px;padding:12px;display:flex;gap:12px;align-items:flex-start">' +
+              '<div style="font-size:20px">💡</div>' +
+              '<div style="font-size:13px;line-height:1.6">Using local LLMs is free. You can optionally load balance to use powerful cloud AI on demand.</div>' +
             '</div>' +
-
-            '<div id="agents-grid" style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px">' +
-
+            '<div id="agents-grid">' +
               // Basic
-
-              '<div style="background:rgba(0,0,0,.12);padding:12px;border-radius:8px;border:1px solid rgba(255,255,255,.18);display:flex;flex-direction:column;height:100%">' +
-
-                '<div style="font-weight:800;font-size:12px;margin-bottom:6px">Basic</div>' +
-
-                '<div style="font-size:20px;font-weight:800;margin-bottom:6px">$0</div>' +
-
-                '<ul style="margin:0 0 8px 16px;padding:0;font-size:11px;line-height:1.6;flex:1">' +
-
-                  '<li>Unlimited WR Codes</li>' +
-
-                  '<li>Unlimited local context (offline, private)</li>' +
-
-                  '<li>WR Code account required</li>' +
-
+              '<div class="wr-plan-card">' +
+                '<h3>Basic</h3>' +
+                '<div class="price">$0</div>' +
+                '<ul>' +
+                  '<li>AI Orchestration (local-first)</li>' +
+                  '<li>Unlimited WR Codes (private/offline)</li>' +
+                  '<li>BEAP™ Secure Messages</li>' +
+                  '<li>WRGuard™ (baseline)</li>' +
+                  '<li>WRVault™ (baseline, incl. local password manager)</li>' +
                   '<li>Runs with local LLMs</li>' +
-
-                  '<li style="color:#66FF66;list-style:\'✓ \';">Pay-as-you-go (Cloud)</li>' +
-
+                  '<li style="color:#66FF66;list-style:\'✓ \';">Cloud pay-as-you-go optional</li>' +
                 '</ul>' +
-
-                '<button style="width:100%;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.3);color:white;border-radius:6px;padding:6px 10px;font-size:11px;cursor:pointer;margin-top:auto">Choose Basic</button>' +
-
+                '<button class="cta-btn" style="background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.3)">Choose Basic</button>' +
               '</div>' +
-
-              // Private
-
-              '<div style="background:rgba(0,0,0,.12);padding:12px;border-radius:8px;border:1px solid rgba(255,255,255,.18);display:flex;flex-direction:column;height:100%">' +
-
-                '<div style="font-weight:800;font-size:12px;margin-bottom:6px">Pro (Private)</div>' +
-
-                '<div style="font-size:20px;font-weight:800;margin-bottom:6px">$29.95<span style="font-size:11px;opacity:.85">/year</span></div>' +
-
-                '<ul style="margin:0 0 8px 16px;padding:0;font-size:11px;line-height:1.6;flex:1">' +
-
-                  '<li>Unlimited WR Codes</li>' +
-
-                  '<li>WR Code generation (non-commercial use)</li>' +
-
-                  '<li>1 GB hosted context</li>' +
-
-                  '<li>Hosted verification</li>' +
-
-                  '<li>Basic analytics</li>' +
-
-                  '<li style="color:#66FF66;list-style:\'✓ \';">BYOK or Pay-as-you-go</li>' +
-
+              // Pro (Private)
+              '<div class="wr-plan-card">' +
+                '<h3>Pro (Private)</h3>' +
+                '<div id="pro-private-price" class="price">$29.95<span>/year</span></div>' +
+                '<div class="toggle-row">' +
+                  '<button id="pro-private-annual" class="toggle-btn active">Annual</button>' +
+                  '<button id="pro-private-lifetime" class="toggle-btn">Lifetime</button>' +
+                '</div>' +
+                '<div id="pro-private-note" class="wr-plan-note" style="display:none">Private-only · non-commercial · no publishing</div>' +
+                '<ul>' +
+                  '<li>AI Orchestration (advanced, local-first)</li>' +
+                  '<li>Unlimited WR Codes (private)</li>' +
+                  '<li>BEAP™ Secure Messages</li>' +
+                  '<li>WRGuard™ included</li>' +
+                  '<li>WRVault™ included (incl. local password manager)</li>' +
+                  '<li style="color:#66FF66;list-style:\'✓ \';">BYOK or pay-as-you-go</li>' +
                 '</ul>' +
-
-                '<button style="width:100%;background:#2563eb;border:0;color:white;border-radius:6px;padding:6px 10px;font-size:11px;cursor:pointer;margin-top:auto">Choose Private</button>' +
-
+                '<button id="pro-private-cta" class="cta-btn" style="background:#2563eb" data-plan="pro_private_annual">Choose Private</button>' +
               '</div>' +
-
               // Publisher
-
-              '<div style="background:rgba(255,255,255,.10);padding:12px;border-radius:8px;border:1px solid rgba(255,255,255,.22);position:relative;display:flex;flex-direction:column;height:100%">' +
-
-                '<div style="position:absolute;top:-10px;right:10px;background:#22c55e;color:#0b1e12;border-radius:999px;padding:2px 8px;font-size:10px;font-weight:800">Solo Pro</div>' +
-
-                '<div style="font-weight:800;font-size:12px;margin-bottom:6px">Publisher</div>' +
-
-                '<div id="publisher-price" style="font-size:20px;font-weight:800;margin-bottom:6px">$9.95<span style="font-size:11px;opacity:.85">/month</span></div>' +
-
-                '<div style="display:flex;gap:6px;margin-bottom:8px">' +
-
-                  '<button id="publisher-annual" style="flex:1;background:#22c55e;border:0;color:#0b1e12;border-radius:6px;padding:4px 6px;font-size:10px;font-weight:700;cursor:pointer">Annual</button>' +
-
-                  '<button id="publisher-monthly" style="flex:1;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.3);color:#fff;border-radius:6px;padding:4px 6px;font-size:10px;cursor:pointer">Monthly</button>' +
-
+              '<div class="wr-plan-card featured" style="position:relative">' +
+                '<div style="position:absolute;top:-10px;right:12px;background:#22c55e;color:#0b1e12;border-radius:999px;padding:3px 10px;font-size:10px;font-weight:800">Solo Pro</div>' +
+                '<h3>Publisher</h3>' +
+                '<div id="publisher-price" class="price">$9.95<span>/month</span></div>' +
+                '<div class="toggle-row">' +
+                  '<button id="publisher-annual" class="toggle-btn active">Annual</button>' +
+                  '<button id="publisher-monthly" class="toggle-btn">Monthly</button>' +
                 '</div>' +
-
-                '<ul style="margin:0 0 8px 16px;padding:0;font-size:11px;line-height:1.6;flex:1">' +
-
-                  '<li>Unlimited WR Codes</li>' +
-
-                  '<li>WR Code generation (commercial use)</li>' +
-
+                '<ul>' +
+                  '<li>AI Orchestration (publishing workflows)</li>' +
+                  '<li>Unlimited WR Codes (commercial publishing)</li>' +
+                  '<li>BEAP™ Secure Messages</li>' +
+                  '<li>Enterprise Handshakes</li>' +
+                  '<li>WRGuard™ / WRVault™ (publisher-grade, incl. local password manager)</li>' +
                   '<li>5 GB hosted context</li>' +
-
-                  '<li>Publisher branding</li>' +
-
-                  '<li>Custom domain</li>' +
-
-                  '<li>Advanced analytics</li>' +
-
-                  '<li>Priority queue</li>' +
-
-                  '<li style="color:#66FF66;list-style:\'✓ \';">BYOK or Pay-as-you-go</li>' +
-
+                  '<li>Publisher branding + custom domain</li>' +
+                  '<li>Advanced analytics + priority queue</li>' +
+                  '<li style="color:#66FF66;list-style:\'✓ \';">BYOK or pay-as-you-go</li>' +
                 '</ul>' +
-
-                '<button style="width:100%;background:#16a34a;border:0;color:white;border-radius:6px;padding:6px 10px;font-size:11px;cursor:pointer;font-weight:700;margin-top:auto">Choose Publisher</button>' +
-
+                '<button class="cta-btn" style="background:#16a34a;font-weight:700">Choose Publisher</button>' +
               '</div>' +
-
               // Business/Enterprise
-
-              '<div style="background:rgba(255,255,255,.10);padding:12px;border-radius:8px;border:1px solid rgba(255,255,255,.22);display:flex;flex-direction:column;height:100%">' +
-
-                '<div style="font-weight:800;font-size:12px;margin-bottom:6px">Business/Enterprise</div>' +
-
-                '<div id="enterprise-price" style="font-size:20px;font-weight:800;margin-bottom:6px">$59<span style="font-size:11px;opacity:.85">/month</span></div>' +
-
-                '<div style="display:flex;gap:6px;margin-bottom:8px">' +
-
-                  '<button id="enterprise-annual" style="flex:1;background:#22c55e;border:0;color:#0b1e12;border-radius:6px;padding:4px 6px;font-size:10px;font-weight:700;cursor:pointer">Annual</button>' +
-
-                  '<button id="enterprise-monthly" style="flex:1;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.3);color:#fff;border-radius:6px;padding:4px 6px;font-size:10px;cursor:pointer">Monthly</button>' +
-
+              '<div class="wr-plan-card featured">' +
+                '<h3>Business/Enterprise</h3>' +
+                '<div id="enterprise-price" class="price">$59<span>/month</span></div>' +
+                '<div class="toggle-row">' +
+                  '<button id="enterprise-annual" class="toggle-btn active">Annual</button>' +
+                  '<button id="enterprise-monthly" class="toggle-btn">Monthly</button>' +
                 '</div>' +
-
-                '<ul style="margin:0 0 8px 16px;padding:0;font-size:11px;line-height:1.6;flex:1">' +
-
-                  '<li>&gt;5 employees</li>' +
-
-                  '<li>Unlimited WR Codes</li>' +
-
-                  '<li>WR Code generation (enterprise use)</li>' +
-
+                '<ul>' +
+                  '<li>AI Orchestration (team & enterprise)</li>' +
+                  '<li>Unlimited WR Codes (enterprise)</li>' +
+                  '<li>BEAP™ Secure Messages</li>' +
+                  '<li>Enterprise Handshakes</li>' +
+                  '<li>WRGuard™ / WRVault™ (enterprise controls, incl. local password manager)</li>' +
                   '<li>25 GB hosted context</li>' +
-
-                  '<li>Multiple domains</li>' +
-
-                  '<li>Team features & roles</li>' +
-
+                  '<li>Multiple domains + team roles</li>' +
                   '<li>SSO/SAML, DPA</li>' +
-
                   '<li>SLA + dedicated support</li>' +
-
-                  '<li style="color:#66FF66;list-style:\'✓ \';">BYOK or Pay-as-you-go</li>' +
-
+                  '<li style="color:#66FF66;list-style:\'✓ \';">BYOK or pay-as-you-go</li>' +
                 '</ul>' +
-
-                '<button style="width:100%;background:#0ea5e9;border:0;color:white;border-radius:6px;padding:6px 10px;font-size:11px;cursor:pointer;margin-top:auto">Contact Sales</button>' +
-
+                '<button class="cta-btn" style="background:#0ea5e9">Contact Sales</button>' +
               '</div>' +
-
             '</div>' +
-
-            '<div style="font-size:11px;opacity:.9">🔑 BYOK Feature: Use your own API keys from OpenAI, Claude, Gemini, Grok, and more.</div>' +
-
+            '<div style="font-size:12px;opacity:.9">🔑 BYOK Feature: Use your own API keys from OpenAI, Claude, Gemini, Grok, and more.</div>' +
           '</div>'
-
         )
 
       }
@@ -32789,106 +32740,72 @@ ${pageText}
 
 
 
+      // Wire Pro (Private) Annual/Lifetime toggle
+      const proPrivatePrice = b.querySelector('#pro-private-price') as HTMLElement | null
+      const proPrivateAnnual = b.querySelector('#pro-private-annual') as HTMLButtonElement | null
+      const proPrivateLifetime = b.querySelector('#pro-private-lifetime') as HTMLButtonElement | null
+      const proPrivateNote = b.querySelector('#pro-private-note') as HTMLElement | null
+      const proPrivateCta = b.querySelector('#pro-private-cta') as HTMLButtonElement | null
+
+      if (proPrivatePrice && proPrivateAnnual && proPrivateLifetime && proPrivateNote && proPrivateCta) {
+        const setProAnnual = () => {
+          proPrivatePrice.innerHTML = '$29.95<span>/year</span>'
+          proPrivateAnnual.classList.add('active')
+          proPrivateLifetime.classList.remove('active')
+          proPrivateNote.style.display = 'none'
+          proPrivateCta.textContent = 'Choose Private'
+          proPrivateCta.setAttribute('data-plan', 'pro_private_annual')
+        }
+        const setProLifetime = () => {
+          proPrivatePrice.innerHTML = '€99,95<span> one-time</span>'
+          proPrivateLifetime.classList.add('active')
+          proPrivateAnnual.classList.remove('active')
+          proPrivateNote.style.display = 'block'
+          proPrivateCta.textContent = 'Get Lifetime'
+          proPrivateCta.setAttribute('data-plan', 'pro_private_lifetime')
+        }
+        proPrivateAnnual.addEventListener('click', setProAnnual)
+        proPrivateLifetime.addEventListener('click', setProLifetime)
+        setProAnnual()
+      }
+
       // Wire Publisher pricing toggle if present
-
       const priceEl = b.querySelector('#publisher-price') as HTMLElement | null
-
       const annualBtn = b.querySelector('#publisher-annual') as HTMLButtonElement | null
-
       const monthlyBtn = b.querySelector('#publisher-monthly') as HTMLButtonElement | null
 
       if (priceEl && annualBtn && monthlyBtn) {
-
         const setAnnual = () => {
-
-          priceEl.innerHTML = '$9.95<span style="font-size:11px;opacity:.85">/month</span>'
-
-          annualBtn.style.background = '#22c55e'
-
-          annualBtn.style.color = '#0b1e12'
-
-          annualBtn.style.border = '0'
-
-          monthlyBtn.style.background = 'rgba(255,255,255,.15)'
-
-          monthlyBtn.style.color = '#fff'
-
-          monthlyBtn.style.border = '1px solid rgba(255,255,255,.3)'
-
+          priceEl.innerHTML = '$9.95<span>/month</span>'
+          annualBtn.classList.add('active')
+          monthlyBtn.classList.remove('active')
         }
-
         const setMonthly = () => {
-
-          priceEl.innerHTML = '$19.95<span style="font-size:11px;opacity:.85">/month</span>'
-
-          monthlyBtn.style.background = '#2563eb'
-
-          monthlyBtn.style.color = '#fff'
-
-          monthlyBtn.style.border = '0'
-
-          annualBtn.style.background = 'rgba(255,255,255,.15)'
-
-          annualBtn.style.color = '#fff'
-
-          annualBtn.style.border = '1px solid rgba(255,255,255,.3)'
-
+          priceEl.innerHTML = '$19.95<span>/month</span>'
+          monthlyBtn.classList.add('active')
+          annualBtn.classList.remove('active')
         }
-
         annualBtn.addEventListener('click', setAnnual)
-
         monthlyBtn.addEventListener('click', setMonthly)
-
         setAnnual()
-
       }
 
       // Wire Enterprise pricing toggle if present
-
       const entPrice = b.querySelector('#enterprise-price') as HTMLElement | null
-
       const entAnnual = b.querySelector('#enterprise-annual') as HTMLButtonElement | null
-
       const entMonthly = b.querySelector('#enterprise-monthly') as HTMLButtonElement | null
 
       if (entPrice && entAnnual && entMonthly) {
-
         const setEntAnnual = () => {
-
-          entPrice.innerHTML = '$59<span style="font-size:11px;opacity:.85">/month</span>'
-
-          entAnnual.style.background = '#22c55e'
-
-          entAnnual.style.color = '#0b1e12'
-
-          entAnnual.style.border = '0'
-
-          entMonthly.style.background = 'rgba(255,255,255,.15)'
-
-          entMonthly.style.color = '#fff'
-
-          entMonthly.style.border = '1px solid rgba(255,255,255,.3)'
-
+          entPrice.innerHTML = '$59<span>/month</span>'
+          entAnnual.classList.add('active')
+          entMonthly.classList.remove('active')
         }
-
         const setEntMonthly = () => {
-
-          entPrice.innerHTML = '$99<span style="font-size:11px;opacity:.85">/month</span>'
-
-          entMonthly.style.background = '#0ea5e9'
-
-          entMonthly.style.color = '#fff'
-
-          entMonthly.style.border = '0'
-
-          entAnnual.style.background = 'rgba(255,255,255,.15)'
-
-          entAnnual.style.color = '#fff'
-
-          entAnnual.style.border = '1px solid rgba(255,255,255,.3)'
-
+          entPrice.innerHTML = '$99<span>/month</span>'
+          entMonthly.classList.add('active')
+          entAnnual.classList.remove('active')
         }
-
         entAnnual.addEventListener('click', setEntAnnual)
 
         entMonthly.addEventListener('click', setEntMonthly)

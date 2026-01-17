@@ -99,6 +99,8 @@ function SidepanelOrchestrator() {
   const [viewMode, setViewMode] = useState<'app' | 'admin'>('app') // App or Admin view
   const [isAdminDisabled, setIsAdminDisabled] = useState(false) // Disable admin on display grids and Edge startpage
   const [showThirdPartyLicenses, setShowThirdPartyLicenses] = useState(false) // Third party licenses modal
+  const [showElectronDialog, setShowElectronDialog] = useState(false) // Dialog when Electron app is not running
+  const [isLaunchingElectron, setIsLaunchingElectron] = useState(false) // Loading state for launching Electron
   
   /**
    * BASELINE LOCATION COMMENTS (Step 1/10 Refactoring)
@@ -1625,6 +1627,75 @@ function SidepanelOrchestrator() {
   const getStatusColor = () => {
     if (isLoading) return '#FFA500'
     return connectionStatus.isConnected ? '#00FF00' : '#FF0000'
+  }
+
+  // Check connection status and show dialog if Electron is not running
+  useEffect(() => {
+    if (!isLoading && !connectionStatus.isConnected) {
+      // Delay showing dialog slightly to avoid flashing during initial load
+      const timer = setTimeout(() => {
+        if (!connectionStatus.isConnected) {
+          setShowElectronDialog(true)
+        }
+      }, 1500)
+      return () => clearTimeout(timer)
+    } else if (connectionStatus.isConnected) {
+      setShowElectronDialog(false)
+    }
+  }, [isLoading, connectionStatus.isConnected])
+
+  // Function to launch Electron app
+  // State for showing manual launch instructions
+  const [showManualLaunchInstructions, setShowManualLaunchInstructions] = useState(false)
+  
+  const launchElectronApp = async () => {
+    setIsLaunchingElectron(true)
+    setShowManualLaunchInstructions(false)
+    try {
+      // Send message to background to launch Electron
+      const response = await chrome.runtime.sendMessage({ type: 'LAUNCH_ELECTRON_APP' })
+      
+      if (response?.success) {
+        // Wait a bit and recheck status
+        setShowElectronDialog(false)
+        setTimeout(() => {
+          chrome.runtime.sendMessage({ type: 'GET_STATUS' })
+        }, 2000)
+      } else {
+        // Show manual instructions if automatic launch failed
+        if (response?.showManualInstructions) {
+          setShowManualLaunchInstructions(true)
+        }
+        setNotification({ 
+          message: response?.error || 'Please start WR Code manually from the Start Menu.', 
+          type: 'error' 
+        })
+        setTimeout(() => setNotification(null), 8000)
+      }
+    } catch (err) {
+      console.error('[Sidepanel] Failed to launch Electron:', err)
+      setShowManualLaunchInstructions(true)
+      setNotification({ 
+        message: 'Please start the WR Code Analysis Dashboard manually.', 
+        type: 'error' 
+      })
+      setTimeout(() => setNotification(null), 8000)
+    } finally {
+      setIsLaunchingElectron(false)
+    }
+  }
+  
+  // Retry connection check (for after user manually starts the app)
+  const retryConnection = async () => {
+    setIsLaunchingElectron(true)
+    try {
+      chrome.runtime.sendMessage({ type: 'GET_STATUS' })
+      // Wait a moment and check again
+      await new Promise(r => setTimeout(r, 2000))
+      chrome.runtime.sendMessage({ type: 'GET_STATUS' })
+    } finally {
+      setIsLaunchingElectron(false)
+    }
   }
 
   // Helper functions for new features
@@ -3241,6 +3312,164 @@ function SidepanelOrchestrator() {
     )
   }
 
+  // Electron App Not Running Dialog Component
+  const ElectronNotRunningDialog = () => {
+    if (!showElectronDialog) return null
+    
+    return (
+      <div style={{
+        position: 'fixed',
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        background: 'rgba(0,0,0,0.85)',
+        zIndex: 10000,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: '20px'
+      }}>
+        <div style={{
+          background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+          borderRadius: '16px',
+          padding: '24px',
+          maxWidth: '380px',
+          width: '100%',
+          boxShadow: '0 20px 40px rgba(0,0,0,0.4)',
+          color: 'white',
+          textAlign: 'center'
+        }}>
+          <div style={{ fontSize: '48px', marginBottom: '16px' }}>🖥️</div>
+          <h2 style={{ margin: '0 0 12px 0', fontSize: '18px', fontWeight: 700 }}>
+            WR Code Analysis Dashboard
+          </h2>
+          
+          {!showManualLaunchInstructions ? (
+            <>
+              <p style={{ 
+                margin: '0 0 20px 0', 
+                fontSize: '13px', 
+                opacity: 0.9,
+                lineHeight: 1.5 
+              }}>
+                The desktop application is not running. Start it to enable full functionality including LLM processing, secure storage, and advanced features.
+              </p>
+              
+              <button
+                onClick={launchElectronApp}
+                disabled={isLaunchingElectron}
+                style={{
+                  width: '100%',
+                  padding: '12px 20px',
+                  background: isLaunchingElectron ? 'rgba(255,255,255,0.3)' : '#22c55e',
+                  border: 'none',
+                  borderRadius: '8px',
+                  color: isLaunchingElectron ? 'white' : '#0b1e12',
+                  fontSize: '14px',
+                  fontWeight: 700,
+                  cursor: isLaunchingElectron ? 'wait' : 'pointer',
+                  marginBottom: '12px',
+                  transition: 'all 0.2s'
+                }}
+              >
+                {isLaunchingElectron ? '⏳ Starting...' : '🚀 Start Dashboard'}
+              </button>
+            </>
+          ) : (
+            <>
+              <div style={{
+                background: 'rgba(0,0,0,0.2)',
+                borderRadius: '8px',
+                padding: '16px',
+                marginBottom: '16px',
+                textAlign: 'left'
+              }}>
+                <p style={{ margin: '0 0 12px 0', fontSize: '13px', fontWeight: 600 }}>
+                  Please start the app manually:
+                </p>
+                <ol style={{ margin: '0', paddingLeft: '20px', fontSize: '12px', lineHeight: 1.6 }}>
+                  <li>Open the <strong>Start Menu</strong></li>
+                  <li>Search for <strong>"WR Code"</strong></li>
+                  <li>Click to launch the application</li>
+                  <li>Wait for the tray icon (🧠) to appear</li>
+                  <li>Click <strong>Retry Connection</strong> below</li>
+                </ol>
+              </div>
+              
+              <button
+                onClick={retryConnection}
+                disabled={isLaunchingElectron}
+                style={{
+                  width: '100%',
+                  padding: '12px 20px',
+                  background: isLaunchingElectron ? 'rgba(255,255,255,0.3)' : '#22c55e',
+                  border: 'none',
+                  borderRadius: '8px',
+                  color: isLaunchingElectron ? 'white' : '#0b1e12',
+                  fontSize: '14px',
+                  fontWeight: 700,
+                  cursor: isLaunchingElectron ? 'wait' : 'pointer',
+                  marginBottom: '12px',
+                  transition: 'all 0.2s'
+                }}
+              >
+                {isLaunchingElectron ? '⏳ Checking...' : '🔄 Retry Connection'}
+              </button>
+              
+              <button
+                onClick={() => {
+                  setShowManualLaunchInstructions(false)
+                }}
+                style={{
+                  width: '100%',
+                  padding: '8px 16px',
+                  background: 'transparent',
+                  border: '1px solid rgba(255,255,255,0.3)',
+                  borderRadius: '6px',
+                  color: 'rgba(255,255,255,0.8)',
+                  fontSize: '11px',
+                  cursor: 'pointer',
+                  marginBottom: '12px'
+                }}
+              >
+                ← Try Auto-Start Again
+              </button>
+            </>
+          )}
+          
+          <button
+            onClick={() => setShowElectronDialog(false)}
+            style={{
+              width: '100%',
+              padding: '10px 20px',
+              background: 'rgba(255,255,255,0.15)',
+              border: '1px solid rgba(255,255,255,0.3)',
+              borderRadius: '8px',
+              color: 'white',
+              fontSize: '12px',
+              cursor: 'pointer',
+              marginBottom: '16px'
+            }}
+          >
+            Continue without Dashboard
+          </button>
+          
+          <div style={{ 
+            fontSize: '11px', 
+            opacity: 0.7,
+            lineHeight: 1.4,
+            borderTop: '1px solid rgba(255,255,255,0.2)',
+            paddingTop: '12px'
+          }}>
+            <strong>Tip:</strong> The dashboard normally starts automatically with Windows. 
+            Check the system tray (🧠) if it's running in the background.
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   // Minimal UI for display grids and Edge startpage
   if (showMinimalUI) {
     return (
@@ -3257,6 +3486,9 @@ function SidepanelOrchestrator() {
         flexDirection: 'column',
         overflowX: 'hidden'
       }}>
+        {/* Electron Not Running Dialog */}
+        <ElectronNotRunningDialog />
+        
         {/* Top Bar: 2 Small Icons + Toggle */}
         <div style={{ 
           padding: '8px 12px',
@@ -5253,6 +5485,9 @@ function SidepanelOrchestrator() {
         flexDirection: 'column',
         overflowX: 'hidden'
       }}>
+        {/* Electron Not Running Dialog */}
+        <ElectronNotRunningDialog />
+        
         {/* Top Bar: Icons + Toggle */}
         <div style={{ 
           padding: '8px 12px',
@@ -6492,6 +6727,9 @@ height: '28px',
       flexDirection: 'column',
       overflowX: 'hidden'
     }}>
+      {/* Electron Not Running Dialog */}
+      <ElectronNotRunningDialog />
+      
       {/* Session Controls at the very top - Two Rows */}
       <div style={{ 
         padding: '12px 16px',
