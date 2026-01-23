@@ -1,0 +1,129 @@
+# OGPL-1.2 — OpenGiraffe™ Protected License
+Version 1.2 — 2026-01-23
+A Source-Available License for Secure Local Automation Systems
+
+© 2025 O.S. CyberEarth UG (haftungsbeschränkt). All rights reserved.
+
+Optimando.ai is the publication identity and operating brand of
+O.S. CyberEarth UG (haftungsbeschränkt).
+
+1. Acceptance
+By downloading, installing, or using the Software, you accept all terms of this License. If you do not agree, do not use the Software.
+
+2. Definitions
+
+“Software” means the WRDesk™ Orchestrator, including its automation kernel OpenGiraffe™,
+local agent runtime, Augmented Overlay system, WRCode™ (Workflow-Ready Code)
+integration layer, WR MailGuard™ mail and automation protection layer,
+Proof of Authorized Execution (PoAE™) mechanisms,
+the Bidirectional Email Automation Protocol (BEAP™),
+all associated execution, authorization, security, and orchestration logic,
+user interface components, and all files included in this distribution.
+
+“Template” means a text-based instruction set interpreted by the Software, including Mini-Apps, workflows, overlay definitions, agent goals, and automation logic. Templates contain no executable code and include no protected components.
+
+“Publisher” means O.S. CyberEarth UG (haftungsbeschränkt).
+
+“User” means any individual or entity using the Software.
+
+“Modification” means any change to the Software.
+
+“Derived Work” means any altered, modified, or re-implemented version of internal components of the Software.
+
+“Commercial Use” means any activity involving payment, revenue generation, invoicing, or integration into paid services or products.
+
+3. License Grant
+The Publisher grants you a non-exclusive, non-transferable, non-sublicensable license to:
+- View the Software’s source code
+- Install and run the Software locally
+- Create and use Templates (Mini-Apps, workflows, overlay text, WR MailGuard™ logic)
+- Use the Software for personal, business, and cross-organizational workflows—including WRCode-based communication between different entities
+- Local modifications are permitted solely for internal evaluation, testing, and research purposes. Such modified versions are considered non-canonical, unverified, and are explicitly excluded from enterprise-grade operation, security guarantees, integrity assurances, PoAE™ enforcement, and production use.
+
+All rights not expressly granted are reserved.
+
+4. Restrictions
+Without explicit written permission from the Publisher, you may NOT:
+- Redistribute the Software — No copying, publishing, uploading, packaging, mirroring, or distributing any part of it.
+- Distribute Modified versions — Modifications may only be used internally and may not be published or shared.
+- Create or publish competing platforms or runtimes, including: WRDesk™ orchestration engines, automation/workflow runtimes, Augmented Overlay runtimes, WRCode™ Workflow-Ready Code runtimes, BEAP™ and PoAE™ runtimes,  WR MailGuard™ protection flows, or agent execution layers.
+- Provide the Software as a hosted or managed service — No SaaS, remote execution, cloud orchestration, or agent-as-a-service.
+- Remove or obscure WRCode™ branding.
+- Use the Software to train AI/ML models.
+- Circumvent or tamper with protection mechanisms.
+
+5. Template Rights (Mini-Apps)
+You MAY create, publish, share, and sell Templates. Templates may express Mini-Apps, WRCode™ workflows, augmented overlay logic, agent instructions, website integrations, and more.
+
+Templates may integrate with your own products or services.
+
+Templates do NOT distribute the Software, because they contain no executable logic.
+
+WRCode™ Templates must NOT:
+- include Software code
+- embed internal runtime behavior
+- distribute protected components
+- replicate or replace the Software
+- act as a separate execution engine
+
+WRCode™ Templates must remain pure text definitions interpreted by the Software.
+
+6. No Distribution of Core Components
+You may not distribute:
+- the Software
+- Modified versions
+- internal libraries
+- orchestration logic
+- Augmented Overlay runtime
+- WRGuard™ runtime or protection flows
+- local agent runtime
+- automation kernel
+- WRDesk™ Workflow-Ready Desk modules
+- or any identifiable runtime component
+
+Only Templates may be distributed.
+
+7. Intellectual Property
+
+The Software and its architecture—including, without limitation,
+the WRDesk™ Orchestrator, Augmented Overlay system,
+WRCode™ Workflow-Ready Code integration, WRGuard™ security and enforcement components,
+Proof of Authorized Execution (PoAE™), the Bidirectional Email Automation Protocol (BEAP™),
+zero-trust local execution models, policy-bound execution and egress control,
+dynamic template and capsule interpretation, automation engines,
+and all associated UI, agent, and processing systems—
+are exclusive intellectual property of the Publisher.
+
+No ownership rights are transferred.
+
+8. Termination
+This License terminates automatically if you:
+- redistribute the Software
+- publish a fork
+- build or attempt to build a competing runtime or automation platform
+- provide the Software as a service
+- embed protected components into Templates
+- remove branding
+- train AI/ML models using the Software
+- bypass protection mechanisms
+- violate any clause in this License
+
+Upon termination, you must delete all copies of the Software.
+
+9. Warranty Disclaimer
+THE SOFTWARE IS PROVIDED “AS IS,” WITHOUT ANY WARRANTY OF ANY KIND.
+
+10. Limitation of Liability
+THE PUBLISHER IS NOT LIABLE FOR ANY DAMAGES ARISING FROM THE USE OR INABILITY TO USE THE SOFTWARE.
+
+11. Governing Law
+This License is governed by German law.
+
+12. Commercial Licensing
+For redistribution rights, enterprise usage, or commercial integration, contact:
+O.S. CyberEarth UG (haftungsbeschränkt)
+license@optimando.ai
+
+END OF LICENSE
+OGPL-1.2 — OpenGiraffe™ Protected License
+© 2026 O.S. CyberEarth UG (haftungsbeschränkt). All rights reserved.
