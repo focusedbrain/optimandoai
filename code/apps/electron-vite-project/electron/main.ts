@@ -1,6 +1,8 @@
 import { app, BrowserWindow, globalShortcut, Tray, Menu, Notification, screen, dialog, shell, ipcMain } from 'electron'
 import { loginWithKeycloak } from '../src/auth/login'
 import { saveRefreshToken } from '../src/auth/tokenStore'
+import { ensureSession, getAccessToken } from '../src/auth/session'
+import { logoutLocalOnly } from '../src/auth/logout'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 import os from 'node:os'
@@ -2064,6 +2066,47 @@ app.whenReady().then(async () => {
                 try { socket.send(JSON.stringify({ type: 'DB_SET_ALL_RESULT', ok: false, message: String(err?.message || err) })) } catch {}
               }
             }
+            
+            // ===== AUTH HANDLERS =====
+            if (msg.type === 'AUTH_LOGIN') {
+              console.log('[MAIN] ===== AUTH_LOGIN received =====')
+              try {
+                const tokens = await loginWithKeycloak()
+                if (tokens.refresh_token) {
+                  await saveRefreshToken(tokens.refresh_token)
+                }
+                console.log('[MAIN] AUTH_LOGIN successful')
+                try { socket.send(JSON.stringify({ type: 'AUTH_LOGIN_SUCCESS', id: msg.id })) } catch {}
+              } catch (err: any) {
+                console.error('[MAIN] AUTH_LOGIN failed:', err?.message || err)
+                try { socket.send(JSON.stringify({ type: 'AUTH_LOGIN_ERROR', id: msg.id, error: err?.message || String(err) })) } catch {}
+              }
+            }
+            
+            if (msg.type === 'AUTH_STATUS') {
+              console.log('[MAIN] ===== AUTH_STATUS received =====')
+              try {
+                const session = await ensureSession()
+                const loggedIn = session.accessToken !== null
+                console.log('[MAIN] AUTH_STATUS:', loggedIn ? 'logged in' : 'not logged in')
+                try { socket.send(JSON.stringify({ type: 'AUTH_STATUS_RESULT', id: msg.id, loggedIn })) } catch {}
+              } catch (err: any) {
+                console.error('[MAIN] AUTH_STATUS error:', err?.message || err)
+                try { socket.send(JSON.stringify({ type: 'AUTH_STATUS_RESULT', id: msg.id, loggedIn: false })) } catch {}
+              }
+            }
+            
+            if (msg.type === 'AUTH_LOGOUT') {
+              console.log('[MAIN] ===== AUTH_LOGOUT received =====')
+              try {
+                await logoutLocalOnly()
+                console.log('[MAIN] AUTH_LOGOUT successful')
+                try { socket.send(JSON.stringify({ type: 'AUTH_LOGOUT_SUCCESS', id: msg.id })) } catch {}
+              } catch (err: any) {
+                console.error('[MAIN] AUTH_LOGOUT error:', err?.message || err)
+                try { socket.send(JSON.stringify({ type: 'AUTH_LOGOUT_ERROR', id: msg.id, error: err?.message || String(err) })) } catch {}
+              }
+            }
           } catch {}
         })
       })
@@ -2308,6 +2351,51 @@ app.whenReady().then(async () => {
           message: error.message || 'Sync failed',
           details: { error: error.toString() }
         })
+      }
+    })
+
+    // ===== AUTH ENDPOINTS =====
+    
+    // POST /api/auth/login - Trigger Keycloak SSO login
+    httpApp.post('/api/auth/login', async (_req, res) => {
+      try {
+        console.log('[HTTP] POST /api/auth/login - Starting SSO login')
+        const tokens = await loginWithKeycloak()
+        if (tokens.refresh_token) {
+          await saveRefreshToken(tokens.refresh_token)
+        }
+        console.log('[HTTP] SSO login successful')
+        res.json({ ok: true })
+      } catch (error: any) {
+        console.error('[HTTP] SSO login failed:', error?.message || error)
+        res.status(401).json({ ok: false, error: error?.message || 'Login failed' })
+      }
+    })
+
+    // GET /api/auth/status - Check if user is logged in
+    httpApp.get('/api/auth/status', async (_req, res) => {
+      try {
+        console.log('[HTTP] GET /api/auth/status')
+        const session = await ensureSession()
+        const loggedIn = session.accessToken !== null
+        console.log('[HTTP] Auth status:', loggedIn ? 'logged in' : 'not logged in')
+        res.json({ ok: true, loggedIn })
+      } catch (error: any) {
+        console.error('[HTTP] Auth status error:', error?.message || error)
+        res.json({ ok: true, loggedIn: false })
+      }
+    })
+
+    // POST /api/auth/logout - Logout user
+    httpApp.post('/api/auth/logout', async (_req, res) => {
+      try {
+        console.log('[HTTP] POST /api/auth/logout')
+        await logoutLocalOnly()
+        console.log('[HTTP] Logout successful')
+        res.json({ ok: true })
+      } catch (error: any) {
+        console.error('[HTTP] Logout error:', error?.message || error)
+        res.status(500).json({ ok: false, error: error?.message || 'Logout failed' })
       }
     })
 

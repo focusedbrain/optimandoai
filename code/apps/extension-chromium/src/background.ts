@@ -1326,6 +1326,82 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true; // Keep channel open for async response
   }
 
+  // ===== AUTH HANDLERS =====
+  
+  // Handle SSO login request
+  if (msg && msg.type === 'AUTH_LOGIN') {
+    console.log('[BG] AUTH_LOGIN request received');
+    (async () => {
+      try {
+        const response = await fetch(`${ELECTRON_BASE_URL}/api/auth/login`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          signal: AbortSignal.timeout(180000), // 3 min timeout for login flow
+        });
+        const data = await response.json();
+        console.log('[BG] AUTH_LOGIN response:', data);
+        if (data.ok) {
+          // Store auth state
+          await chrome.storage.local.set({ authLoggedIn: true });
+        }
+        sendResponse({ ok: data.ok, error: data.error });
+      } catch (e: any) {
+        console.error('[BG] AUTH_LOGIN error:', e.message);
+        sendResponse({ ok: false, error: e.message });
+      }
+    })();
+    return true; // Keep channel open for async response
+  }
+
+  // Handle auth status check
+  if (msg && msg.type === 'AUTH_STATUS') {
+    console.log('[BG] AUTH_STATUS request received');
+    (async () => {
+      try {
+        const response = await fetch(`${ELECTRON_BASE_URL}/api/auth/status`, {
+          method: 'GET',
+          signal: AbortSignal.timeout(5000),
+        });
+        const data = await response.json();
+        console.log('[BG] AUTH_STATUS response:', data);
+        // Update stored state
+        await chrome.storage.local.set({ authLoggedIn: data.loggedIn });
+        sendResponse({ loggedIn: data.loggedIn });
+      } catch (e: any) {
+        console.log('[BG] AUTH_STATUS error (Electron may not be running):', e.message);
+        // Check stored state as fallback
+        const stored = await chrome.storage.local.get('authLoggedIn');
+        sendResponse({ loggedIn: stored.authLoggedIn || false });
+      }
+    })();
+    return true; // Keep channel open for async response
+  }
+
+  // Handle logout request
+  if (msg && msg.type === 'AUTH_LOGOUT') {
+    console.log('[BG] AUTH_LOGOUT request received');
+    (async () => {
+      try {
+        const response = await fetch(`${ELECTRON_BASE_URL}/api/auth/logout`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          signal: AbortSignal.timeout(10000),
+        });
+        const data = await response.json();
+        console.log('[BG] AUTH_LOGOUT response:', data);
+        // Clear stored state
+        await chrome.storage.local.set({ authLoggedIn: false });
+        sendResponse({ ok: data.ok, error: data.error });
+      } catch (e: any) {
+        console.error('[BG] AUTH_LOGOUT error:', e.message);
+        // Clear stored state anyway
+        await chrome.storage.local.set({ authLoggedIn: false });
+        sendResponse({ ok: false, error: e.message });
+      }
+    })();
+    return true; // Keep channel open for async response
+  }
+
   // Check if this is a vault RPC message (has type: 'VAULT_RPC')
   if (msg && msg.type === 'VAULT_RPC') {
     console.log('[BG] Received VAULT_RPC:', msg.method)

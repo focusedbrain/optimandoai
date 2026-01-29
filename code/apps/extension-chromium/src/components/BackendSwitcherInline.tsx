@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 
 interface BackendSwitcherInlineProps {
   theme?: 'pro' | 'dark' | 'standard';
@@ -12,9 +12,61 @@ const TEXT_SCALES: Record<TextSize, number> = {
   large: 1.3
 };
 
+// Key icon SVG component
+const KeyIcon = ({ color }: { color: string }) => (
+  <svg 
+    width="12" 
+    height="12" 
+    viewBox="0 0 24 24" 
+    fill="none" 
+    stroke={color} 
+    strokeWidth="2" 
+    strokeLinecap="round" 
+    strokeLinejoin="round"
+    style={{ marginRight: '4px', verticalAlign: 'middle' }}
+  >
+    <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4" />
+  </svg>
+);
+
 export function BackendSwitcherInline({ theme = 'standard' }: BackendSwitcherInlineProps) {
   const [isCollapsed, setIsCollapsed] = useState(true);
   const [textSize, setTextSize] = useState<TextSize>('small');
+  const [isLoggingIn, setIsLoggingIn] = useState(false);
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
+
+  // Check auth status on mount
+  useEffect(() => {
+    chrome.runtime.sendMessage({ type: 'AUTH_STATUS' }, (response) => {
+      if (response?.loggedIn) {
+        setIsLoggedIn(true);
+      }
+    });
+  }, []);
+
+  // Handle Sign In click
+  const handleSignIn = async () => {
+    if (isLoggingIn) return;
+    setIsLoggingIn(true);
+    try {
+      chrome.runtime.sendMessage({ type: 'AUTH_LOGIN' }, (response) => {
+        setIsLoggingIn(false);
+        if (response?.ok) {
+          setIsLoggedIn(true);
+        } else {
+          console.error('[AUTH] Login failed:', response?.error);
+        }
+      });
+    } catch (err) {
+      setIsLoggingIn(false);
+      console.error('[AUTH] Login error:', err);
+    }
+  };
+
+  // Handle Create Account click
+  const handleCreateAccount = () => {
+    window.open('https://wrdesk.com', '_blank');
+  };
 
   // Helper to scale font sizes
   const scaledSize = (baseSize: number) => `${Math.round(baseSize * TEXT_SCALES[textSize])}px`;
@@ -69,54 +121,77 @@ export function BackendSwitcherInline({ theme = 'standard' }: BackendSwitcherInl
           }}
         >
           <div style={{ display: 'flex', gap: '6px' }}>
-            <button
-              style={{
-                padding: '4px 10px',
-                background: 'transparent',
-                border: effectiveTheme === 'standard' ? '1px solid rgba(15,23,42,0.2)' : '1px solid rgba(255,255,255,0.25)',
-                borderRadius: '4px',
-                color: textColor,
+            {!isLoggedIn ? (
+              <>
+                <button
+                  onClick={handleSignIn}
+                  disabled={isLoggingIn}
+                  style={{
+                    padding: '4px 10px',
+                    background: 'transparent',
+                    border: effectiveTheme === 'standard' ? '1px solid rgba(15,23,42,0.2)' : '1px solid rgba(255,255,255,0.25)',
+                    borderRadius: '4px',
+                    color: textColor,
+                    fontSize: '11px',
+                    fontWeight: '400',
+                    cursor: isLoggingIn ? 'wait' : 'pointer',
+                    transition: 'all 0.2s ease',
+                    opacity: isLoggingIn ? 0.5 : 0.8,
+                    display: 'flex',
+                    alignItems: 'center'
+                  }}
+                  onMouseEnter={(e) => {
+                    if (!isLoggingIn) {
+                      e.currentTarget.style.background = effectiveTheme === 'standard' ? 'rgba(15,23,42,0.05)' : 'rgba(255,255,255,0.08)';
+                      e.currentTarget.style.opacity = '1';
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = 'transparent';
+                    e.currentTarget.style.opacity = isLoggingIn ? '0.5' : '0.8';
+                  }}
+                >
+                  <KeyIcon color={textColor} />
+                  {isLoggingIn ? 'Signing in...' : 'Sign In with wrdesk.com'}
+                </button>
+                <button
+                  onClick={handleCreateAccount}
+                  style={{
+                    padding: '4px 10px',
+                    background: 'transparent',
+                    border: effectiveTheme === 'standard' ? '1px solid rgba(15,23,42,0.2)' : '1px solid rgba(255,255,255,0.25)',
+                    borderRadius: '4px',
+                    color: textColor,
+                    fontSize: '11px',
+                    fontWeight: '400',
+                    cursor: 'pointer',
+                    transition: 'all 0.2s ease',
+                    opacity: 0.8
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.background = effectiveTheme === 'standard' ? 'rgba(15,23,42,0.05)' : 'rgba(255,255,255,0.08)';
+                    e.currentTarget.style.opacity = '1';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = 'transparent';
+                    e.currentTarget.style.opacity = '0.8';
+                  }}
+                >
+                  Create account
+                </button>
+              </>
+            ) : (
+              <span style={{
                 fontSize: '11px',
-                fontWeight: '400',
-                cursor: 'pointer',
-                transition: 'all 0.2s ease',
-                opacity: 0.8
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.background = effectiveTheme === 'standard' ? 'rgba(15,23,42,0.05)' : 'rgba(255,255,255,0.08)';
-                e.currentTarget.style.opacity = '1';
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.background = 'transparent';
-                e.currentTarget.style.opacity = '0.8';
-              }}
-            >
-              Log in
-            </button>
-            <button
-              style={{
-                padding: '4px 10px',
-                background: 'transparent',
-                border: effectiveTheme === 'standard' ? '1px solid rgba(15,23,42,0.2)' : '1px solid rgba(255,255,255,0.25)',
-                borderRadius: '4px',
                 color: textColor,
-                fontSize: '11px',
-                fontWeight: '400',
-                cursor: 'pointer',
-                transition: 'all 0.2s ease',
-                opacity: 0.8
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.background = effectiveTheme === 'standard' ? 'rgba(15,23,42,0.05)' : 'rgba(255,255,255,0.08)';
-                e.currentTarget.style.opacity = '1';
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.background = 'transparent';
-                e.currentTarget.style.opacity = '0.8';
-              }}
-            >
-              Create account
-            </button>
+                opacity: 0.7,
+                display: 'flex',
+                alignItems: 'center',
+                gap: '4px'
+              }}>
+                ✓ Signed in
+              </span>
+            )}
           </div>
           <div 
             onClick={() => setIsCollapsed(!isCollapsed)}
