@@ -8,7 +8,7 @@
  * 2. Messenger (Web) paste/import
  * 3. Download file import (USB/wallet)
  * 
- * Identity handling: LOCAL-ONLY (no wrcode.org dependency)
+ * Identity handling: LOCAL-ONLY (no wrdesk.com dependency)
  * 
  * @version 1.0.0
  */

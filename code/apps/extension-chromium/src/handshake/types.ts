@@ -11,8 +11,8 @@
 /**
  * Handshake lifecycle status:
  * - PENDING: Handshake request sent, awaiting accept
- * - LOCAL: Established locally (not verified via wrcode.org)
- * - VERIFIED_WR: Verified via wrcode.org
+ * - LOCAL: Established locally (not verified via wrdesk.com)
+ * - VERIFIED_WR: Verified via wrdesk.com
  */
 export type HandshakeStatus = 'PENDING' | 'LOCAL' | 'VERIFIED_WR'
 
@@ -42,7 +42,7 @@ export interface Handshake {
   /** Verification status */
   status: HandshakeStatus
   
-  /** Timestamp when verified via wrcode.org (null if LOCAL) */
+  /** Timestamp when verified via wrdesk.com (null if LOCAL) */
   verified_at: number | null
   
   /** Automation control: Deny / Review / Allow */

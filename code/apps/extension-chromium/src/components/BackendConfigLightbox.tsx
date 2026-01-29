@@ -761,7 +761,7 @@ export function BackendConfigLightbox({ isOpen, onClose, theme = 'default' }: Ba
                       🔗 DBeaver Connection Info
                     </div>
                     <div style={{ marginBottom: '6px', opacity: 0.8 }}>
-                      <strong>Connection:</strong> Local PostgreSQL (WR Code)
+                      <strong>Connection:</strong> Local PostgreSQL (WR Desk)
                     </div>
                     <div style={{ marginBottom: '6px', opacity: 0.8 }}>
                       <strong>Username:</strong> {config.postgres.config.user}
@@ -799,7 +799,7 @@ export function BackendConfigLightbox({ isOpen, onClose, theme = 'default' }: Ba
                           });
                           if (result.success && result.data?.ok) {
                             setNotification({
-                              message: 'DBeaver launched! Look for "Local PostgreSQL (WR Code)" connection.',
+                              message: 'DBeaver launched! Look for "Local PostgreSQL (WR Desk)" connection.',
                               type: 'success'
                             });
                             setTimeout(() => setNotification(null), 10000);

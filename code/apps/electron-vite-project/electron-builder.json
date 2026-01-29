@@ -1,6 +1,6 @@
 {
   "appId": "com.wrcode.desktop",
-  "productName": "WR Code™",
+  "productName": "WR Desk™",
   "icon": "public/giraffe",
   "directories": {
     "output": "release/${version}",
@@ -57,7 +57,7 @@
     "allowToChangeInstallationDirectory": true,
     "createDesktopShortcut": true,
     "createStartMenuShortcut": true,
-    "shortcutName": "WR Code",
+    "shortcutName": "WR Desk",
     "perMachine": false,
     "runAfterFinish": true,
     "include": "build/installer.nsh"

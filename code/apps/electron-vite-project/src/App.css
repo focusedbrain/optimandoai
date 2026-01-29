@@ -1,5 +1,5 @@
 /* ============================================================================
-   WR Code™ Analysis Dashboard - Production Theme
+   WR Desk™ Analysis Dashboard - Production Theme
    ============================================================================ */
 
 /* --- Theme Tokens --- */
@@ -42,7 +42,7 @@
   --giraffe-orange: #F5A623;
   --giraffe-brown: #8B4513;
   
-  /* Purple Accent for WR Code */
+  /* Purple Accent for WR Desk */
   --purple-accent: #9333ea;
   --purple-accent-hover: #7c3aed;
   --purple-accent-muted: rgba(147, 51, 234, 0.2);
@@ -191,17 +191,21 @@ body {
   display: flex;
   align-items: center;
   gap: 16px;
-  padding: 12px 20px;
+  padding: 4px 20px;
   background: var(--header-bg);
   border-bottom: 1px solid var(--header-border);
   flex-shrink: 0;
-  min-height: 56px;
+  min-height: 40px;
 }
 
 .app-header__brand {
   display: flex;
   align-items: center;
   gap: 10px;
+}
+
+.app-header__brand img {
+  margin: -20px 0;
 }
 
 .app-header__title {

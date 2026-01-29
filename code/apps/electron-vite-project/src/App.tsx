@@ -24,14 +24,17 @@ function mapThemeToCss(theme: ExtensionTheme): string {
   return theme
 }
 
-// WR Code Logo Component - semi-transparent
-function WRCodeLogo({ size = 24 }: { size?: number }) {
+// WR Desk Logo Component - using original PNG logo
+function WRCodeLogo({ size = 220 }: { size?: number }) {
   return (
     <img 
-      src="/wrcode-logo.svg" 
-      alt="WR Code Logo"
-      width={size}
-      height={size * 1.25}
+      src="/wrdesk-logo.png" 
+      alt="WR Desk Logo"
+      style={{
+        width: size,
+        height: 'auto',
+        objectFit: 'contain'
+      }}
     />
   )
 }
@@ -134,8 +137,7 @@ function App() {
       {/* Minimal Header Bar */}
       <header className="app-header">
         <div className="app-header__brand">
-          <WRCodeLogo size={28} />
-          <span className="app-header__title">WR Code<sup className="app-header__tm">™</sup></span>
+          <WRCodeLogo size={110} />
           <span className="app-header__subtitle">Analysis Dashboard</span>
         </div>
         <div className="app-header__spacer" />

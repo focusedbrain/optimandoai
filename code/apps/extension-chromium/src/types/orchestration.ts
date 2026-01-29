@@ -64,7 +64,7 @@ export interface DisplaySlot {
 
 export interface RuntimeInjection {
   templateId: string
-  source: 'wrcode.org' | 'local' | 'user'
+  source: 'wrdesk.com' | 'local' | 'user'
   downloadUrl?: string
   qrCode?: string
   validationHash: string

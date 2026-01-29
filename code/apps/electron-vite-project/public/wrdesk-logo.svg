@@ -15,9 +15,9 @@
   <text x="60" y="70" text-anchor="middle" font-family="Arial Black, Impact, sans-serif" 
         font-size="34" font-weight="900" fill="#1a1a1a">WR</text>
   
-  <!-- CODE text - bold black -->
+  <!-- DESK text - bold black -->
   <text x="60" y="98" text-anchor="middle" font-family="Arial Black, Impact, sans-serif" 
-        font-size="24" font-weight="900" fill="#1a1a1a">CODE</text>
+        font-size="24" font-weight="900" fill="#1a1a1a">DESK</text>
 
   <!-- Lock circle at bottom -->
   <circle cx="60" cy="122" r="16" fill="#1a1a1a"/>

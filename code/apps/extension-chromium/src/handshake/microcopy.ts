@@ -11,7 +11,7 @@
 
 export const BADGE_TEXT = {
   LOCAL: 'Local (unregistered)',
-  VERIFIED: 'Verified via wrcode.org',
+  VERIFIED: 'Verified via wrdesk.com',
 } as const
 
 // =============================================================================
@@ -39,7 +39,7 @@ export const TOOLTIPS = {
   FINGERPRINT_TITLE: 'Fingerprint',
   COPY_FINGERPRINT: 'Copy Fingerprint',
   COMPARE_FINGERPRINTS: 'Compare Fingerprints',
-  VERIFY_VIA_WRCODE: 'Verify via wrcode.org',
+  VERIFY_VIA_WRCODE: 'Verify via wrdesk.com',
 } as const
 
 // =============================================================================
@@ -57,7 +57,7 @@ export const POLICY_NOTES = {
 
 export const ACTION_LABELS = {
   COPY_FINGERPRINT: 'Copy Fingerprint',
-  VERIFY_WRCODE: 'Verify via wrcode.org',
+  VERIFY_WRCODE: 'Verify via wrdesk.com',
   ACCEPT_HANDSHAKE: 'Accept Handshake',
   REJECT_HANDSHAKE: 'Reject',
   COMPARE: 'Compare',

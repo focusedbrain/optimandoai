@@ -1,4 +1,6 @@
-import { app, BrowserWindow, globalShortcut, Tray, Menu, Notification, screen, dialog, shell } from 'electron'
+import { app, BrowserWindow, globalShortcut, Tray, Menu, Notification, screen, dialog, shell, ipcMain } from 'electron'
+import { loginWithKeycloak } from '../src/auth/login'
+import { saveRefreshToken } from '../src/auth/tokenStore'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 import os from 'node:os'
@@ -6,6 +8,29 @@ import { execSync } from 'node:child_process'
 import { WebSocketServer } from 'ws'
 import express from 'express'
 import * as net from 'net'
+
+// ============================================================================
+// AUTH TEST FUNCTION - Manual trigger only via IPC
+// ============================================================================
+
+/**
+ * Test Keycloak login flow - DO NOT call automatically on startup
+ * Trigger via IPC 'auth:test-login'
+ */
+async function testLoginOnce(): Promise<void> {
+  console.log('[AUTH] Starting Keycloak login test...')
+  try {
+    const tokens = await loginWithKeycloak()
+    if (tokens.refresh_token) {
+      await saveRefreshToken(tokens.refresh_token)
+      console.log('[AUTH] Refresh token saved to credential store')
+    }
+    console.log('[AUTH] Login OK - tokens received (access_token, id_token, expires_in:', tokens.expires_in, ')')
+  } catch (err) {
+    console.error('[AUTH] Login failed:', err instanceof Error ? err.message : String(err))
+    throw err
+  }
+}
 
 // ============================================================================
 // SINGLE INSTANCE LOCK - Prevent multiple instances from running
@@ -88,7 +113,7 @@ async function killProcessOnPort(port: number): Promise<void> {
 }
 
 /**
- * Kill any stale WR Code/electron processes that might be holding ports
+ * Kill any stale WR Desk/electron processes that might be holding ports
  */
 async function killStaleProcesses(): Promise<void> {
   if (process.platform !== 'win32') return
@@ -97,7 +122,7 @@ async function killStaleProcesses(): Promise<void> {
     // Kill any WR Code processes (renamed electron) except current process
     const currentPid = process.pid
     execSync(`wmic process where "name='wrcode.exe' and processid!=${currentPid}" delete`, { stdio: 'ignore' })
-    console.log('[PORT-CLEANUP] Killed stale WR Code processes')
+    console.log('[PORT-CLEANUP] Killed stale WR Desk processes')
   } catch {
     // No processes found or wmic not available
   }
@@ -306,13 +331,16 @@ console.log('[MAIN] Startup args:', process.argv.join(' '))
 console.log('[MAIN] Start hidden mode:', startHidden)
 
 async function createWindow() {
+  // Security: renderer isolation; tokens must never be exposed to renderer
   win = new BrowserWindow({
-    title: 'WR Code™ Analysis Dashboard',
-    icon: path.join(process.env.VITE_PUBLIC, 'wrcode-logo.svg'),
+    title: 'WR Desk™ Analysis Dashboard',
+    icon: path.join(process.env.VITE_PUBLIC, 'wrdesk-logo.svg'),
     webPreferences: {
       preload: path.join(__dirname, 'preload.mjs'),
       contextIsolation: true,
       nodeIntegration: false,
+      // TODO: Enable sandbox: true once preload compatibility is verified
+      // sandbox: true,
       webSecurity: true,
     },
     show: !startHidden, // Start hidden if launched with --hidden flag
@@ -807,12 +835,13 @@ async function createWindow() {
       }
       
       // Show credentials input dialog
+      // TODO: Security - refactor to use contextIsolation: true and IPC for credential input
       const credWindow = new BrowserWindow({
         width: 500,
         height: 400,
         webPreferences: {
           nodeIntegration: true,
-          contextIsolation: false
+          contextIsolation: false,
         },
         title: 'Gmail API Credentials',
         modal: true,
@@ -985,7 +1014,7 @@ function createTray() {
   try {
     tray = new Tray(path.join(process.env.VITE_PUBLIC, 'electron-vite.svg'))
     updateTrayMenu()
-    tray.setToolTip('WR Code Orchestrator')
+    tray.setToolTip('WR Desk Orchestrator')
     tray.on('click', async () => {
       if (!win || win.isDestroyed()) {
         // Recreate window if it was closed
@@ -1002,7 +1031,7 @@ function createTray() {
     })
     // Startup toast
     try {
-      new Notification({ title: 'WR Code Orchestrator', body: 'Running in background. Use Alt+Shift+S or chat icons to capture.' }).show()
+      new Notification({ title: 'WR Desk Orchestrator', body: 'Running in background. Use Alt+Shift+S or chat icons to capture.' }).show()
     } catch {}
   } catch {}
 }
@@ -1079,7 +1108,7 @@ function updateTrayMenu() {
             app.setLoginItemSettings({ 
               openAtLogin: menuItem.checked, 
               args: ['--hidden'],
-              name: 'WR Code' // Explicit name for Windows registry
+              name: 'WR Desk' // Explicit name for Windows registry
             })
             const updatedSettings = app.getLoginItemSettings()
             console.log('[MAIN] Auto-start on login:', menuItem.checked ? 'enabled' : 'disabled')
@@ -1222,6 +1251,14 @@ app.whenReady().then(async () => {
   try {
     // Setup console logging to file for debugging
     await setupFileLogging()
+
+    // ========== AUTH TEST IPC ==========
+    // Manual trigger for Keycloak login test (no auto-start)
+    ipcMain.handle('auth:test-login', async () => {
+      await testLoginOnce()
+      return { success: true }
+    })
+    console.log('[MAIN] Auth test IPC handler registered (auth:test-login)')
     try { process.env.WS_NO_BUFFER_UTIL = '1'; process.env.WS_NO_UTF_8_VALIDATE = '1' } catch {}
     // Auto-start on login (Windows/macOS). Pass --hidden so it starts in background.
     // IMPORTANT: Only enable autostart in production builds to avoid registering dev electron
@@ -1241,7 +1278,7 @@ app.whenReady().then(async () => {
           app.setLoginItemSettings({ 
             openAtLogin: true, 
             args: ['--hidden'],
-            name: 'WR Code' // Explicit name for Windows registry
+            name: 'WR Desk' // Explicit name for Windows registry
           })
           const loginSettings = app.getLoginItemSettings()
           console.log('[MAIN] Production build - autostart registered:', loginSettings.openAtLogin)
@@ -1250,7 +1287,7 @@ app.whenReady().then(async () => {
           app.setLoginItemSettings({ 
             openAtLogin: true, 
             args: ['--hidden'],
-            name: 'WR Code'
+            name: 'WR Desk'
           })
           console.log('[MAIN] Production build - autostart already configured, ensuring args are correct')
         }
@@ -2090,6 +2127,68 @@ app.whenReady().then(async () => {
       }
     })
 
+    // =================================================================
+    // Dashboard Window Control
+    // =================================================================
+    
+    // POST /api/dashboard/open - Open and focus the Analysis Dashboard window
+    httpApp.post('/api/dashboard/open', async (_req, res) => {
+      try {
+        console.log('[HTTP-DASHBOARD] POST /api/dashboard/open - Opening dashboard window')
+        
+        if (win && !win.isDestroyed()) {
+          // Window exists - show and focus it
+          if (win.isMinimized()) {
+            win.restore()
+          }
+          win.show()
+          win.focus()
+          console.log('[HTTP-DASHBOARD] Dashboard window shown and focused')
+          res.json({ ok: true, action: 'focused' })
+        } else {
+          // Window doesn't exist - create it
+          console.log('[HTTP-DASHBOARD] Creating new dashboard window')
+          await createWindow()
+          if (win) {
+            win.show()
+            win.focus()
+          }
+          res.json({ ok: true, action: 'created' })
+        }
+      } catch (error: any) {
+        console.error('[HTTP-DASHBOARD] Error opening dashboard:', error)
+        res.status(500).json({
+          ok: false,
+          error: error.message || 'Failed to open dashboard'
+        })
+      }
+    })
+    
+    // GET /api/dashboard/status - Get dashboard window status
+    httpApp.get('/api/dashboard/status', async (_req, res) => {
+      try {
+        const windowExists = win && !win.isDestroyed()
+        const isVisible = windowExists && win!.isVisible()
+        const isFocused = windowExists && win!.isFocused()
+        
+        res.json({
+          ok: true,
+          window: {
+            exists: windowExists,
+            visible: isVisible,
+            focused: isFocused,
+            minimized: windowExists && win!.isMinimized()
+          }
+        })
+      } catch (error: any) {
+        console.error('[HTTP-DASHBOARD] Error getting status:', error)
+        res.status(500).json({
+          ok: false,
+          error: error.message || 'Failed to get dashboard status'
+        })
+      }
+    })
+
     // POST /api/db/test-connection - Test PostgreSQL connection
     httpApp.post('/api/db/test-connection', async (req, res) => {
       try {
@@ -2640,7 +2739,7 @@ app.whenReady().then(async () => {
               }
               
               const connectionId = 'postgres-local-wr-code';
-              const connectionName = 'Local PostgreSQL (WR Code)';
+              const connectionName = 'Local PostgreSQL (WR Desk)';
               // Include credentials in JDBC URL for automatic authentication
               const jdbcUrl = `jdbc:postgresql://${postgresConfig.host}:${postgresConfig.port}/${postgresConfig.database}?user=${encodeURIComponent(postgresConfig.user)}&password=${encodeURIComponent(postgresConfig.password)}`;
               
@@ -2707,11 +2806,11 @@ app.whenReady().then(async () => {
         res.json({
           ok: true,
           message: postgresConfig 
-            ? 'DBeaver launched and configured! The connection "Local PostgreSQL (WR Code)" is ready. Username is pre-filled. You may need to enter the password on first connect.'
+            ? 'DBeaver launched and configured! The connection "Local PostgreSQL (WR Desk)" is ready. Username is pre-filled. You may need to enter the password on first connect.'
             : 'DBeaver launched successfully',
           path: launchPath,
           configured: !!postgresConfig,
-          connectionName: postgresConfig ? 'Local PostgreSQL (WR Code)' : undefined,
+          connectionName: postgresConfig ? 'Local PostgreSQL (WR Desk)' : undefined,
           username: postgresConfig?.user
         });
       } catch (error: any) {
@@ -2880,7 +2979,7 @@ app.whenReady().then(async () => {
         
         // Create connection ID
         const connectionId = 'postgres-local-wr-code';
-        const connectionName = 'Local PostgreSQL (WR Code)';
+        const connectionName = 'Local PostgreSQL (WR Desk)';
         
         // Build JDBC URL
         const jdbcUrl = `jdbc:postgresql://${postgresConfig.host}:${postgresConfig.port}/${postgresConfig.database}`;

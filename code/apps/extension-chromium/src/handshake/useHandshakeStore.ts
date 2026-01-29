@@ -13,7 +13,7 @@
  * Lifecycle:
  * - PENDING: Request sent, awaiting accept (no peer key yet)
  * - LOCAL: Established locally (has peer key)
- * - VERIFIED_WR: Verified via wrcode.org (has peer key)
+ * - VERIFIED_WR: Verified via wrdesk.com (has peer key)
  * 
  * @version 2.0.0
  */

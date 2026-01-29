@@ -186,37 +186,20 @@ export function BackendSwitcherInline({ theme = 'standard' }: BackendSwitcherInl
 
             {/* Hero Section with Logo */}
             <div style={{ textAlign: 'center', marginBottom: '4px' }}>
-              {/* Logo Box */}
+              {/* Original WR Desk Logo */}
               <div style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                width: '56px',
-                height: '56px',
-                background: effectiveTheme === 'standard' ? 'rgba(15,23,42,0.04)' : 'rgba(255,255,255,0.08)',
-                border: `1px solid ${effectiveTheme === 'standard' ? 'rgba(15,23,42,0.12)' : 'rgba(255,255,255,0.15)'}`,
-                borderRadius: '12px',
+                display: 'inline-block',
                 marginBottom: '12px'
               }}>
-                <svg width="36" height="40" viewBox="0 0 36 40" fill="none" xmlns="http://www.w3.org/2000/svg">
-                  {/* Shield shape */}
-                  <path 
-                    d="M18 2L4 8V18C4 27.5 10 34.5 18 38C26 34.5 32 27.5 32 18V8L18 2Z" 
-                    stroke={textColor}
-                    strokeWidth="2"
-                    fill="none"
-                  />
-                  {/* WR text */}
-                  <text x="18" y="18" textAnchor="middle" fontSize="10" fontWeight="700" fill={textColor} fontFamily="system-ui, sans-serif">WR</text>
-                  {/* CODE text */}
-                  <text x="18" y="27" textAnchor="middle" fontSize="7" fontWeight="600" fill={textColor} fontFamily="system-ui, sans-serif">CODE</text>
-                  {/* Lock icon */}
-                  <circle cx="18" cy="33" r="3" stroke={textColor} strokeWidth="1" fill="none"/>
-                  <rect x="16" y="31" width="4" height="3" fill={textColor} rx="0.5"/>
-                  {/* Checkmark */}
-                  <circle cx="26" cy="8" r="4" fill={effectiveTheme === 'standard' ? '#22c55e' : '#4ade80'}/>
-                  <path d="M24 8L25.5 9.5L28 7" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-                </svg>
+                <img 
+                  src={chrome.runtime.getURL('wrdesk-logo.png')}
+                  alt="WR Desk Logo"
+                  style={{
+                    width: '256px',
+                    height: 'auto',
+                    maxWidth: '100%'
+                  }}
+                />
               </div>
               
               {/* Main Title */}
@@ -228,7 +211,7 @@ export function BackendSwitcherInline({ theme = 'standard' }: BackendSwitcherInl
                 lineHeight: '1.3',
                 letterSpacing: '-0.02em'
               }}>
-                Workflow-Ready Code
+                Workflow-Ready Desk
               </h1>
               
               {/* Subtitle */}
@@ -249,7 +232,7 @@ export function BackendSwitcherInline({ theme = 'standard' }: BackendSwitcherInl
                 margin: '0 0 6px 0',
                 lineHeight: '1.5'
               }}>
-                WR Code enables automation across heterogeneous channels without relying on transport-layer trust.
+                WR Desk enables automation across heterogeneous channels without relying on transport-layer trust.
               </p>
               <p style={{
                 fontSize: scaledSize(11),
@@ -607,7 +590,7 @@ export function BackendSwitcherInline({ theme = 'standard' }: BackendSwitcherInl
                 margin: 0,
                 lineHeight: '1.65'
               }}>
-                As automation becomes pervasive, security can no longer be retrofitted; it must be embedded at the level where workflows, documents, and actions are defined. While WR Code and BEAP are designed to meet enterprise-grade requirements, the same architecture enables equivalent security guarantees for individual users, independent of automation or business workflows.
+                As automation becomes pervasive, security can no longer be retrofitted; it must be embedded at the level where workflows, documents, and actions are defined. While WR Desk and BEAP are designed to meet enterprise-grade requirements, the same architecture enables equivalent security guarantees for individual users, independent of automation or business workflows.
               </p>
             </div>
           </div>

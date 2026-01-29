@@ -1659,12 +1659,10 @@ function SidepanelOrchestrator() {
           chrome.runtime.sendMessage({ type: 'GET_STATUS' })
         }, 2000)
       } else {
-        // Show manual instructions if automatic launch failed
-        if (response?.showManualInstructions) {
-          setShowManualLaunchInstructions(true)
-        }
+        // Always show manual instructions when automatic launch fails
+        setShowManualLaunchInstructions(true)
         setNotification({ 
-          message: response?.error || 'Please start WR Code manually from the Start Menu.', 
+          message: response?.error || 'Please start WR Desk manually from the Start Menu.', 
           type: 'error' 
         })
         setTimeout(() => setNotification(null), 8000)
@@ -1673,7 +1671,7 @@ function SidepanelOrchestrator() {
       console.error('[Sidepanel] Failed to launch Electron:', err)
       setShowManualLaunchInstructions(true)
       setNotification({ 
-        message: 'Please start the WR Code Analysis Dashboard manually.', 
+        message: 'Please start the WR Desk Dashboard manually.', 
         type: 'error' 
       })
       setTimeout(() => setNotification(null), 8000)
@@ -1726,9 +1724,38 @@ function SidepanelOrchestrator() {
   }
 
   const openReasoningLightbox = () => {
-    // Changed: Open Electron Analysis Dashboard instead of lightbox
+    // Open Electron Analysis Dashboard
     console.log('📊 Opening Electron Analysis Dashboard...')
-    chrome.runtime?.sendMessage({ type: 'ELECTRON_OPEN_ANALYSIS_DASHBOARD' })
+    // Note: showNotification is defined later in this component, but we use setNotification directly here
+    // to avoid hoisting issues with const declarations
+    setNotification({ message: 'Opening Analysis Dashboard...', type: 'info' })
+    setTimeout(() => setNotification(null), 3000)
+    
+    chrome.runtime?.sendMessage({ type: 'ELECTRON_OPEN_ANALYSIS_DASHBOARD' }, (response) => {
+      if (chrome.runtime.lastError) {
+        console.error('❌ Error:', chrome.runtime.lastError.message)
+        setNotification({ message: 'Failed to open Dashboard. Is the extension loaded?', type: 'error' })
+        setTimeout(() => setNotification(null), 3000)
+        return
+      }
+      
+      if (response?.success) {
+        console.log('✅ Analysis Dashboard opened successfully')
+        setNotification({ message: 'Analysis Dashboard opened', type: 'success' })
+        setTimeout(() => setNotification(null), 3000)
+      } else if (response?.error) {
+        console.warn('⚠️ Dashboard response:', response.error)
+        // Show a more helpful message
+        let msg = response.error
+        if (response.error.includes('not running') || response.error.includes('Start Menu')) {
+          msg = 'Please start WR Code from the Start Menu'
+        } else if (response.error.includes('starting')) {
+          msg = 'Dashboard is starting, please wait...'
+        }
+        setNotification({ message: msg, type: 'error' })
+        setTimeout(() => setNotification(null), 3000)
+      }
+    })
   }
 
   const openAgentsLightbox = () => {
@@ -3319,7 +3346,7 @@ function SidepanelOrchestrator() {
         }}>
           <div style={{ fontSize: '48px', marginBottom: '16px' }}>🖥️</div>
           <h2 style={{ margin: '0 0 12px 0', fontSize: '18px', fontWeight: 700 }}>
-            WR Code Analysis Dashboard
+            WR Desk Analysis Dashboard
           </h2>
           
           {!showManualLaunchInstructions ? (
@@ -3367,7 +3394,7 @@ function SidepanelOrchestrator() {
                 </p>
                 <ol style={{ margin: '0', paddingLeft: '20px', fontSize: '12px', lineHeight: 1.6 }}>
                   <li>Open the <strong>Start Menu</strong></li>
-                  <li>Search for <strong>"WR Code"</strong></li>
+                  <li>Search for <strong>"WR Desk"</strong></li>
                   <li>Click to launch the application</li>
                   <li>Wait for the tray icon (🧠) to appear</li>
                   <li>Click <strong>Retry Connection</strong> below</li>

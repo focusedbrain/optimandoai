@@ -229,6 +229,12 @@ async function isElectronReady(): Promise<{ running: boolean; ready: boolean; oa
 /**
  * Try to launch Electron app via protocol handler
  * Returns true if Electron becomes available, false otherwise
+ * 
+ * This function delegates to launchElectronAppDirect which has improved reliability
+ * with multiple fallback methods including:
+ * 1. Content script protocol trigger
+ * 2. Data URL redirect
+ * 3. Direct protocol tab creation
  */
 async function ensureElectronRunning(): Promise<boolean> {
   // First check if already running
@@ -237,88 +243,8 @@ async function ensureElectronRunning(): Promise<boolean> {
     return true;
   }
   
-  // Prevent concurrent launch attempts
-  if (electronLaunchInProgress) {
-    console.log('[BG] ⏳ Electron launch already in progress, waiting...');
-    // Wait for the other launch attempt to complete
-    for (let i = 0; i < 30; i++) {
-      await new Promise(r => setTimeout(r, 500));
-      if (!electronLaunchInProgress) break;
-      if (await isElectronRunning()) return true;
-    }
-    return isElectronRunning();
-  }
-  
-  electronLaunchInProgress = true;
-  console.log('[BG] 🚀 Electron app not running, attempting to launch...');
-  
-  try {
-    // Use protocol handler to launch Electron app
-    // The wrcode:// protocol is registered by the Electron app (opengiraffe:// for backward compatibility)
-    // In service worker context, we use chrome.tabs API to trigger the protocol
-    try {
-      // Create a temporary tab to trigger the protocol, then close it
-      // Try new protocol first, fallback to old one
-      let tab
-      try {
-        tab = await chrome.tabs.create({ 
-          url: 'wrcode://start',
-          active: false 
-        });
-      } catch {
-        // Fallback to old protocol
-        tab = await chrome.tabs.create({ 
-          url: 'opengiraffe://start',
-          active: false 
-        });
-      }
-      // Close the tab after a short delay (protocol handler should have launched by then)
-      setTimeout(() => {
-        if (tab.id) {
-          chrome.tabs.remove(tab.id).catch(() => {});
-        }
-      }, 500);
-    } catch (tabErr) {
-      console.log('[BG] Could not create tab for protocol launch:', tabErr);
-      // Fallback: try to message content scripts to trigger protocol
-      try {
-        const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
-        if (tabs[0]?.id) {
-          chrome.tabs.sendMessage(tabs[0].id, { 
-            type: 'LAUNCH_ELECTRON_PROTOCOL',
-            url: 'wrcode://start' // Try new protocol first
-          }).catch(() => {
-            // Fallback to old protocol
-            chrome.tabs.sendMessage(tabs[0].id!, { 
-              type: 'LAUNCH_ELECTRON_PROTOCOL',
-              url: 'opengiraffe://start'
-            }).catch(() => {});
-          });
-        }
-      } catch {}
-    }
-    
-    // Wait for Electron to become available (up to 15 seconds)
-    console.log('[BG] ⏳ Waiting for Electron to start...');
-    for (let i = 0; i < 30; i++) {
-      await new Promise(r => setTimeout(r, 500));
-      if (await isElectronRunning()) {
-        console.log('[BG] ✅ Electron app is now running');
-        electronLaunchAttempted = true;
-        electronLaunchInProgress = false;
-        return true;
-      }
-    }
-    
-    console.log('[BG] ❌ Electron app did not start within timeout');
-    electronLaunchAttempted = true;
-    electronLaunchInProgress = false;
-    return false;
-  } catch (err) {
-    console.error('[BG] ❌ Failed to launch Electron:', err);
-    electronLaunchInProgress = false;
-    return false;
-  }
+  // Use the improved launchElectronAppDirect which handles concurrency and fallbacks
+  return launchElectronAppDirect();
 }
 
 /**
@@ -1041,6 +967,7 @@ chrome.tabs.onActivated.addListener((activeInfo) => {
 
 /**
  * Check if Electron app is running and launch it if needed
+ * Uses a Windows-compatible notification approach (buttons don't work on Windows)
  */
 async function checkAndLaunchElectronApp(sendResponse: (response: any) => void): Promise<void> {
   try {
@@ -1056,81 +983,36 @@ async function checkAndLaunchElectronApp(sendResponse: (response: any) => void):
           try { ws.send(JSON.stringify({ type: 'OPEN_ANALYSIS_DASHBOARD' })) } catch {}
           try { sendResponse({ success: true }) } catch {}
         } else {
-          // WebSocket still not connected, but app is running - try direct HTTP
-          try { sendResponse({ success: false, error: 'App is running but WebSocket connection failed. Please try again.' }) } catch {}
+          // WebSocket still not connected, but app is running - try direct HTTP to open window
+          console.log('[BG] WebSocket not ready, trying direct HTTP to open dashboard...')
+          try {
+            const response = await fetch(`${ELECTRON_BASE_URL}/api/dashboard/open`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              signal: AbortSignal.timeout(5000)
+            })
+            if (response.ok) {
+              try { sendResponse({ success: true }) } catch {}
+            } else {
+              try { sendResponse({ success: false, error: 'App is running but could not open dashboard. Please try again.' }) } catch {}
+            }
+          } catch {
+            try { sendResponse({ success: false, error: 'App is running but connection failed. Please try again.' }) } catch {}
+          }
         }
       }, 1000)
       return
     }
     
-    // App is not running - show notification and try to launch
-    console.log('[BG] Electron app is not running, showing notification...')
+    // App is not running - try to launch automatically first (user already clicked the brain icon)
+    console.log('[BG] Electron app is not running, attempting to launch...')
     
-    // Show notification to user
-    chrome.notifications.create({
-      type: 'basic',
-      iconUrl: chrome.runtime.getURL('icon-128.png'),
-      title: 'WR Code Analysis Dashboard',
-      message: 'The Analysis Dashboard is not running. Would you like to start it?',
-      buttons: [
-        { title: 'Start Dashboard' },
-        { title: 'Cancel' }
-      ],
-      requireInteraction: true
-    }, (notificationId) => {
-      if (chrome.runtime.lastError) {
-        console.error('[BG] Failed to create notification:', chrome.runtime.lastError)
-        // Fallback: try to launch anyway
-        launchElectronApp(sendResponse)
-        return
-      }
-      
-      // Handle button clicks
-      const buttonHandler = (clickedNotificationId: string, buttonIndex: number) => {
-        if (clickedNotificationId === notificationId) {
-          chrome.notifications.clear(notificationId)
-          chrome.notifications.onButtonClicked.removeListener(buttonHandler)
-          chrome.notifications.onClicked.removeListener(clickHandler)
-          if (buttonIndex === 0) {
-            // User clicked "Start Dashboard"
-            launchElectronApp(sendResponse)
-          } else {
-            // User clicked "Cancel"
-            try { sendResponse({ success: false, error: 'User cancelled' }) } catch {}
-          }
-        }
-      }
-      
-      const clickHandler = (clickedNotificationId: string) => {
-        if (clickedNotificationId === notificationId) {
-          chrome.notifications.clear(notificationId)
-          chrome.notifications.onButtonClicked.removeListener(buttonHandler)
-          chrome.notifications.onClicked.removeListener(clickHandler)
-          launchElectronApp(sendResponse)
-        }
-      }
-      
-      chrome.notifications.onButtonClicked.addListener(buttonHandler)
-      chrome.notifications.onClicked.addListener(clickHandler)
-    })
-  } catch (err) {
-    console.error('[BG] Error checking Electron app:', err)
-    try { sendResponse({ success: false, error: 'Failed to check app status' }) } catch {}
-  }
-}
-
-/**
- * Launch the Electron app using protocol handler
- */
-async function launchElectronApp(sendResponse: (response: any) => void): Promise<void> {
-  try {
-    console.log('[BG] Attempting to launch Electron app via protocol handler...')
-    
-    // Use the existing ensureElectronRunning function which uses wrcode://start protocol (opengiraffe://start for backward compatibility)
-    const launched = await ensureElectronRunning()
+    // Try to launch directly since user explicitly clicked the brain icon
+    const launched = await launchElectronAppDirect()
     
     if (launched) {
-      // Wait a bit for WebSocket to connect, then send the open command
+      // Successfully launched - wait for it to be ready and open dashboard
+      console.log('[BG] ✅ Electron app launched successfully')
       setTimeout(async () => {
         connectToWebSocketServer()
         setTimeout(() => {
@@ -1138,21 +1020,242 @@ async function launchElectronApp(sendResponse: (response: any) => void): Promise
             try { ws.send(JSON.stringify({ type: 'OPEN_ANALYSIS_DASHBOARD' })) } catch {}
             try { sendResponse({ success: true }) } catch {}
           } else {
-            // App started but WebSocket not ready yet - user can try again
-            try { sendResponse({ success: false, error: 'Dashboard is starting. Please wait a moment and try again.' }) } catch {}
+            // App started but WebSocket not ready yet
+            try { sendResponse({ success: true, message: 'Dashboard is starting...' }) } catch {}
           }
         }, 2000)
       }, 1000)
     } else {
-      // Failed to launch - show instructions
+      // Failed to launch - show clickable notification (Windows compatible, no buttons)
+      console.log('[BG] ⚠️ Auto-launch failed, showing notification to guide user...')
+      
+      // Create a unique notification ID to track this notification
+      const notificationId = 'wrcode-launch-' + Date.now()
+      
+      // Show a clickable notification (click anywhere to launch)
+      chrome.notifications.create(notificationId, {
+        type: 'basic',
+        iconUrl: chrome.runtime.getURL('icon-128.png'),
+        title: 'WR Desk Analysis Dashboard',
+        message: 'Click here to start the Analysis Dashboard, or start it from the Start Menu.',
+        priority: 2,
+        requireInteraction: true
+      }, (createdNotificationId) => {
+        if (chrome.runtime.lastError) {
+          console.error('[BG] Failed to create notification:', chrome.runtime.lastError)
+          try { sendResponse({ success: false, error: 'Please start the WR Desk Analysis Dashboard from the Start Menu.' }) } catch {}
+          return
+        }
+        
+        // Handle notification click (the entire notification is clickable)
+        const clickHandler = (clickedNotificationId: string) => {
+          if (clickedNotificationId === createdNotificationId) {
+            chrome.notifications.clear(createdNotificationId)
+            chrome.notifications.onClicked.removeListener(clickHandler)
+            // Try to launch again via protocol
+            launchElectronApp(sendResponse)
+          }
+        }
+        
+        chrome.notifications.onClicked.addListener(clickHandler)
+        
+        // Auto-clear after 30 seconds if not clicked
+        setTimeout(() => {
+          chrome.notifications.clear(createdNotificationId)
+          chrome.notifications.onClicked.removeListener(clickHandler)
+        }, 30000)
+      })
+      
+      try { sendResponse({ success: false, error: 'Dashboard is not running. Please click the notification or start from Start Menu.' }) } catch {}
+    }
+  } catch (err) {
+    console.error('[BG] Error checking Electron app:', err)
+    try { sendResponse({ success: false, error: 'Failed to check app status' }) } catch {}
+  }
+}
+
+/**
+ * Direct launch attempt using protocol handler with improved reliability
+ * Returns true if the app becomes available, false otherwise
+ */
+async function launchElectronAppDirect(): Promise<boolean> {
+  console.log('[BG] 🚀 Attempting direct Electron app launch...')
+  
+  // Check if already running
+  if (await isElectronRunning()) {
+    console.log('[BG] ✅ App already running')
+    return true
+  }
+  
+  // Prevent concurrent launch attempts
+  if (electronLaunchInProgress) {
+    console.log('[BG] ⏳ Launch already in progress, waiting...')
+    for (let i = 0; i < 30; i++) {
+      await new Promise(r => setTimeout(r, 500))
+      if (!electronLaunchInProgress) break
+      if (await isElectronRunning()) return true
+    }
+    return isElectronRunning()
+  }
+  
+  electronLaunchInProgress = true
+  
+  try {
+    // Method 1: Try protocol handler via window.open in current tab's context
+    // This is more reliable than creating a new tab
+    console.log('[BG] Method 1: Trying protocol via content script...')
+    try {
+      const tabs = await chrome.tabs.query({ active: true, currentWindow: true })
+      if (tabs[0]?.id) {
+        // Send message to content script to trigger protocol
+        await chrome.tabs.sendMessage(tabs[0].id, { 
+          type: 'TRIGGER_PROTOCOL_LAUNCH',
+          protocol: 'wrcode://start'
+        }).catch(() => {})
+      }
+    } catch {}
+    
+    // Wait a bit and check if it worked
+    await new Promise(r => setTimeout(r, 2000))
+    if (await isElectronRunning()) {
+      console.log('[BG] ✅ Method 1 succeeded - app is running')
+      electronLaunchInProgress = false
+      return true
+    }
+    
+    // Method 2: Try creating a data URL that redirects to protocol
+    // This sometimes works better than direct protocol tab creation
+    console.log('[BG] Method 2: Trying protocol via redirect page...')
+    try {
+      const redirectHtml = `
+        <!DOCTYPE html>
+        <html>
+        <head><title>Starting WR Desk...</title></head>
+        <body>
+          <script>
+            window.location.href = 'wrcode://start';
+            setTimeout(function() { window.close(); }, 1000);
+          </script>
+          <p>Starting WR Desk Dashboard...</p>
+        </body>
+        </html>
+      `
+      const dataUrl = 'data:text/html;base64,' + btoa(redirectHtml)
+      const tab = await chrome.tabs.create({ url: dataUrl, active: false })
+      
+      // Wait and then close the tab
+      await new Promise(r => setTimeout(r, 2000))
+      if (tab.id) {
+        try { await chrome.tabs.remove(tab.id) } catch {}
+      }
+    } catch (e) {
+      console.log('[BG] Method 2 failed:', e)
+    }
+    
+    // Check if it worked
+    await new Promise(r => setTimeout(r, 2000))
+    if (await isElectronRunning()) {
+      console.log('[BG] ✅ Method 2 succeeded - app is running')
+      electronLaunchInProgress = false
+      return true
+    }
+    
+    // Method 3: Try direct protocol tab (original method, as fallback)
+    console.log('[BG] Method 3: Trying direct protocol tab...')
+    try {
+      // Try wrcode:// protocol first
+      const tab = await chrome.tabs.create({ 
+        url: 'wrcode://start',
+        active: false 
+      })
+      await new Promise(r => setTimeout(r, 1000))
+      if (tab.id) {
+        try { await chrome.tabs.remove(tab.id) } catch {}
+      }
+    } catch {
+      // Try old opengiraffe:// protocol as fallback
+      try {
+        const tab = await chrome.tabs.create({ 
+          url: 'opengiraffe://start',
+          active: false 
+        })
+        await new Promise(r => setTimeout(r, 1000))
+        if (tab.id) {
+          try { await chrome.tabs.remove(tab.id) } catch {}
+        }
+      } catch {}
+    }
+    
+    // Wait for app to become available (up to 10 seconds)
+    console.log('[BG] ⏳ Waiting for Electron to start...')
+    for (let i = 0; i < 20; i++) {
+      await new Promise(r => setTimeout(r, 500))
+      if (await isElectronRunning()) {
+        console.log('[BG] ✅ App started successfully')
+        electronLaunchInProgress = false
+        return true
+      }
+    }
+    
+    console.log('[BG] ❌ All launch methods failed')
+    electronLaunchInProgress = false
+    return false
+  } catch (err) {
+    console.error('[BG] ❌ Error during launch:', err)
+    electronLaunchInProgress = false
+    return false
+  }
+}
+
+/**
+ * Launch the Electron app using protocol handler
+ * Shows notifications on success/failure
+ */
+async function launchElectronApp(sendResponse: (response: any) => void): Promise<void> {
+  try {
+    console.log('[BG] Attempting to launch Electron app via protocol handler...')
+    
+    const launched = await launchElectronAppDirect()
+    
+    if (launched) {
+      // Wait a bit for WebSocket to connect, then send the open command
+      setTimeout(async () => {
+        connectToWebSocketServer()
+        setTimeout(async () => {
+          if (ws && ws.readyState === WebSocket.OPEN) {
+            try { ws.send(JSON.stringify({ type: 'OPEN_ANALYSIS_DASHBOARD' })) } catch {}
+            try { sendResponse({ success: true }) } catch {}
+          } else {
+            // App started but WebSocket not ready - try HTTP fallback
+            console.log('[BG] WebSocket not ready, trying HTTP to open dashboard...')
+            try {
+              const response = await fetch(`${ELECTRON_BASE_URL}/api/dashboard/open`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                signal: AbortSignal.timeout(5000)
+              })
+              if (response.ok) {
+                try { sendResponse({ success: true }) } catch {}
+              } else {
+                try { sendResponse({ success: true, message: 'Dashboard started. Please wait a moment...' }) } catch {}
+              }
+            } catch {
+              try { sendResponse({ success: true, message: 'Dashboard is starting...' }) } catch {}
+            }
+          }
+        }, 2000)
+      }, 1000)
+    } else {
+      // Failed to launch - show helpful notification
       chrome.notifications.create({
         type: 'basic',
         iconUrl: chrome.runtime.getURL('icon-128.png'),
-        title: 'WR Code Analysis Dashboard',
-        message: 'Could not start automatically. Please start the WR Code Analysis Dashboard manually from the Start Menu or desktop shortcut.',
+        title: 'WR Desk Analysis Dashboard',
+        message: 'Could not start automatically. Please start WR Code from the Start Menu or desktop shortcut.',
+        priority: 2,
         requireInteraction: false
       })
-      try { sendResponse({ success: false, error: 'Please start the Analysis Dashboard manually' }) } catch {}
+      try { sendResponse({ success: false, error: 'Please start the Analysis Dashboard from the Start Menu' }) } catch {}
     }
   } catch (err) {
     console.error('[BG] Error launching Electron app:', err)
@@ -1588,7 +1691,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       break;
 
     case 'LAUNCH_ELECTRON_APP': {
-      // Launch Electron app - try multiple approaches
+      // Launch Electron app - try multiple approaches with improved feedback
       console.log('[BG] 🚀 LAUNCH_ELECTRON_APP request received');
       (async () => {
         try {
@@ -1600,36 +1703,12 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             return;
           }
           
-          // Try protocol handler approach
-          console.log('[BG] 🚀 Trying to launch via protocol handler...');
-          let protocolWorked = false;
+          // Try the improved multi-method launcher
+          console.log('[BG] 🚀 Trying to launch via launchElectronAppDirect...');
+          const launched = await launchElectronAppDirect();
           
-          try {
-            // Create tab to trigger protocol - this opens the registered app
-            const tab = await chrome.tabs.create({ 
-              url: 'wrcode://start',
-              active: false 
-            });
-            
-            // Close tab after short delay
-            setTimeout(() => {
-              if (tab.id) chrome.tabs.remove(tab.id).catch(() => {});
-            }, 1000);
-            
-            // Wait up to 8 seconds for app to start
-            for (let i = 0; i < 16; i++) {
-              await new Promise(r => setTimeout(r, 500));
-              if (await isElectronRunning()) {
-                protocolWorked = true;
-                break;
-              }
-            }
-          } catch (tabErr) {
-            console.log('[BG] Protocol tab creation failed:', tabErr);
-          }
-          
-          if (protocolWorked) {
-            console.log('[BG] ✅ Electron started via protocol');
+          if (launched) {
+            console.log('[BG] ✅ Electron started successfully');
             setTimeout(() => {
               connectToWebSocketServer();
               setTimeout(() => {
@@ -1644,28 +1723,31 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             return;
           }
           
-          // Protocol didn't work - provide manual instructions
-          console.log('[BG] ❌ Protocol handler did not start the app');
+          // All launch methods failed - show manual instructions immediately
+          console.log('[BG] ❌ All launch methods failed - showing manual instructions');
           
-          // Show a notification with instructions
-          chrome.notifications.create({
+          // Show a clickable notification with clear instructions
+          chrome.notifications.create('wrdesk-launch-help', {
             type: 'basic',
             iconUrl: chrome.runtime.getURL('icon-128.png'),
-            title: 'Start WR Code Dashboard',
-            message: 'Please start "WR Code" from the Start Menu, or run the app from your installation folder.',
+            title: 'WR Desk Dashboard',
+            message: 'Please start "WR Desk" from the Start Menu or desktop shortcut, then click Retry Connection.',
+            priority: 2,
             requireInteraction: true
           });
           
+          // Always show manual instructions when launch fails
           sendResponse({ 
             success: false, 
-            error: 'Automatic launch failed. Please start "WR Code" manually from the Start Menu or desktop shortcut, then try again.',
+            error: 'Please start "WR Desk" from the Start Menu or desktop shortcut.',
             showManualInstructions: true
           });
         } catch (err) {
           console.error('[BG] Failed to launch Electron:', err);
           sendResponse({ 
             success: false, 
-            error: 'Failed to launch. Please start the WR Code Analysis Dashboard manually from the Start Menu.' 
+            error: 'Please start the WR Desk Dashboard manually from the Start Menu.',
+            showManualInstructions: true
           });
         }
       })();

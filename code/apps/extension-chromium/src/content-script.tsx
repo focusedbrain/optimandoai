@@ -1330,6 +1330,36 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   }
 
+  // Handle TRIGGER_PROTOCOL_LAUNCH - Launch Electron app via protocol handler
+  // This is more reliable than creating a tab from background script
+  else if (message.type === 'TRIGGER_PROTOCOL_LAUNCH' || message.type === 'LAUNCH_ELECTRON_PROTOCOL') {
+    try {
+      const protocol = message.protocol || message.url || 'wrcode://start'
+      console.log('🚀 [CONTENT] Triggering protocol launch:', protocol)
+      
+      // Create an invisible anchor and click it to trigger protocol handler
+      const link = document.createElement('a')
+      link.href = protocol
+      link.style.display = 'none'
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+      
+      console.log('✅ [CONTENT] Protocol launch triggered')
+      sendResponse({ success: true })
+    } catch (e) {
+      console.error('❌ [CONTENT] Error triggering protocol launch:', e)
+      // Fallback: use window.location
+      try {
+        const protocol = message.protocol || message.url || 'wrcode://start'
+        window.location.href = protocol
+        sendResponse({ success: true })
+      } catch (e2) {
+        sendResponse({ success: false, error: String(e2) })
+      }
+    }
+  }
+
   return true // Keep message channel open for async response
 
 })
@@ -7531,7 +7561,7 @@ function initializeExtension() {
 
   // ALL UI NOW IN NATIVE SIDE PANEL - Content script only handles data
 
-  console.log('🎉 WR Code Extension with Hybrid UI')
+  console.log('🎉 WR Desk Extension with Hybrid UI')
 
   console.log('📌 Native Side Panel + Content Script Lightboxes')
 
@@ -25581,7 +25611,7 @@ function initializeExtension() {
 
             <h3 style="margin: 0 0 15px 0; font-size: 16px; color: #FFD700;">Trusted URLs</h3>
 
-            <p style="margin: 0 0 20px 0; font-size: 12px; opacity: 0.8;">Add URLs that you trust and want to enable WR Code features on. Use HTTPS URLs for security.</p>
+            <p style="margin: 0 0 20px 0; font-size: 12px; opacity: 0.8;">Add URLs that you trust and want to enable WR Desk features on. Use HTTPS URLs for security.</p>
 
             
 
@@ -25611,7 +25641,7 @@ function initializeExtension() {
 
             <div style="font-size: 12px; opacity: 0.8; line-height: 1.6;">
 
-              <p style="margin: 0 0 10px 0;">• Only URLs in this whitelist will have WR Code features enabled</p>
+              <p style="margin: 0 0 10px 0;">• Only URLs in this whitelist will have WR Desk features enabled</p>
 
               <p style="margin: 0 0 10px 0;">• Wildcard patterns are supported (e.g., https://*.example.com)</p>
 
@@ -26007,7 +26037,7 @@ function initializeExtension() {
 
             <div style="background: rgba(255,255,255,0.1); padding: 20px; border-radius: 8px; margin-bottom: 20px;">
 
-              <h3 style="margin: 0 0 15px 0; font-size: 16px; color: #66FF66;">Publisher Context from wrcode.org</h3>
+              <h3 style="margin: 0 0 15px 0; font-size: 16px; color: #66FF66;">Publisher Context from wrdesk.com</h3>
 
               <div style="display: flex; gap: 10px; margin-bottom: 15px;">
 
@@ -26029,7 +26059,7 @@ function initializeExtension() {
 
                   cursor: pointer; font-size: 12px; font-weight: bold;
 
-                ">Load from wrcode.org</button>
+                ">Load from wrdesk.com</button>
 
               </div>
 
@@ -26045,7 +26075,7 @@ function initializeExtension() {
 
                 font-family: 'Consolas', monospace; line-height: 1.5;
 
-              " placeholder="Publisher context will be loaded from wrcode.org or injected via template..."></textarea>
+              " placeholder="Publisher context will be loaded from wrdesk.com or injected via template..."></textarea>
 
             </div>
 
@@ -26799,7 +26829,7 @@ ${pageText}
 
       const textarea = document.getElementById('publisher-context-text') as HTMLTextAreaElement
 
-      if (textarea) textarea.value = 'Loading context from wrcode.org...\n[This would connect to wrcode.org API]'
+      if (textarea) textarea.value = 'Loading context from wrdesk.com...\n[This would connect to wrdesk.com API]'
 
     })
 
@@ -32642,7 +32672,7 @@ ${pageText}
                 '<ul style="font-size:11px">' +
                   '<li>Local orchestration runtime</li>' +
                   '<li>BYOK integration (all supported providers)</li>' +
-                  '<li>Unlimited WR Codes™ (private, offline generation)</li>' +
+                  '<li>Unlimited WR Desk™ (private, offline generation)</li>' +
                   '<li>pBEAP™ secure messaging (baseline)</li>' +
                   '<li>WRGuard™ baseline integrity monitoring</li>' +
                   '<li>WRVault™ baseline credential storage</li>' +
@@ -32696,7 +32726,7 @@ ${pageText}
                 '<div style="font-size:10px;opacity:0.7;margin:4px 0;text-transform:uppercase;letter-spacing:0.5px">Included Capabilities</div>' +
                 '<ul style="font-size:11px">' +
                   '<li>All Pro (Private) tier capabilities</li>' +
-                  '<li>Commercial WR Code™ publishing rights</li>' +
+                  '<li>Commercial WR Desk™ publishing rights</li>' +
                   '<li>Enterprise Handshakes (B2B trust establishment)</li>' +
                   '<li>Publisher branding and custom domain support</li>' +
                   '<li>Up to 5GB managed template storage</li>' +
@@ -40990,7 +41020,7 @@ ${pageText}
             text-align: left;
           " onmouseover="this.style.background='rgba(255,255,255,0.25)'; this.style.borderColor='rgba(255,255,255,0.5)'" onmouseout="this.style.background='rgba(255,255,255,0.15)'; this.style.borderColor='rgba(255,255,255,0.3)'">
             <div style="font-size: 16px; margin-bottom: 3px;">📝 Markdown</div>
-            <div style="font-size: 11px; opacity: 0.8;">Documentation format, best for wrcode.org</div>
+            <div style="font-size: 11px; opacity: 0.8;">Documentation format, best for wrdesk.com</div>
           </button>
         </div>
         
@@ -41433,7 +41463,7 @@ ${pageText}
     }
     
     // Build YAML
-    addLine('# WRCode Session Export')
+    addLine('# WR Desk Session Export')
     addLine('# Generated by OpenGiraffe Extension')
     addLine('')
     
@@ -41450,7 +41480,7 @@ ${pageText}
   function convertToMarkdown(data: any): string {
     const md: string[] = []
     
-    md.push('# WRCode Session Export')
+    md.push('# WR Desk Session Export')
     md.push('')
     md.push(`**Session Name:** ${data.sessionName}`)
     md.push(`**Export Date:** ${data.exportDate}`)

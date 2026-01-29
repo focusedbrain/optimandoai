@@ -35,7 +35,7 @@
   - Human-readable format
   - Sections for Agent Boxes, Agents, UI State
   - Includes full JSON data at the end
-  - Perfect for wrcode.org publishing
+  - Perfect for wrdesk.com publishing
 
 ### 4. Helper Functions
 - `sanitizeFilename()`: Cleans session names for safe filenames
