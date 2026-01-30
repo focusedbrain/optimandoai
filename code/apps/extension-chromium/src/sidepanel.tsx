@@ -3699,7 +3699,7 @@ function SidepanelOrchestrator() {
             e.currentTarget.style.textDecoration = 'none';
           }}
         >
-          Create Account
+          Create free account
         </button>
         
         {/* Signing in status message */}
