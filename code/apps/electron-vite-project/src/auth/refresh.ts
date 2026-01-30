@@ -1,6 +1,5 @@
 import { oidc } from './oidcConfig';
-
-const tokenEndpoint = `${oidc.issuer}/protocol/openid-connect/token`;
+import { fetchDiscovery, getCachedDiscovery } from './discovery';
 
 export interface RefreshTokenResponse {
   access_token: string;
@@ -12,8 +11,26 @@ export interface RefreshTokenResponse {
 
 /**
  * Refresh tokens using Keycloak token endpoint
+ * 
+ * Uses OIDC discovery to get the token endpoint.
+ * Falls back to cached discovery if available.
  */
 export async function refreshWithKeycloak(refreshToken: string): Promise<RefreshTokenResponse> {
+  // Try to get token endpoint from cache first (fast path)
+  let tokenEndpoint: string;
+  const cached = getCachedDiscovery();
+  
+  if (cached) {
+    tokenEndpoint = cached.token_endpoint;
+  } else {
+    // Fetch discovery if not cached
+    const discoveryResult = await fetchDiscovery();
+    if (!discoveryResult.ok) {
+      throw new Error(`OIDC discovery failed: ${discoveryResult.message}`);
+    }
+    tokenEndpoint = discoveryResult.discovery.token_endpoint;
+  }
+
   const body = new URLSearchParams({
     grant_type: 'refresh_token',
     client_id: oidc.clientId,

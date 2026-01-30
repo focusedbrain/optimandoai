@@ -1,6 +1,6 @@
 import { createRemoteJWKSet, jwtVerify } from 'jose';
 import { oidc } from './oidcConfig';
-import { getOidcDiscovery } from './discovery';
+import { fetchDiscovery, getCachedDiscovery } from './discovery';
 
 export interface IdTokenClaims {
   sub: string;
@@ -10,6 +10,15 @@ export interface IdTokenClaims {
 
 // Cache the JWKS to avoid fetching on every verification
 let jwksCache: ReturnType<typeof createRemoteJWKSet> | null = null;
+let cachedJwksUri: string | null = null;
+
+/**
+ * Clear JWKS cache (useful when discovery changes or for testing)
+ */
+export function clearJwksCache(): void {
+  jwksCache = null;
+  cachedJwksUri = null;
+}
 
 /**
  * Verify ID token signature and claims
@@ -23,10 +32,24 @@ export async function verifyIdToken(
   idToken: string,
   expectedNonce: string
 ): Promise<IdTokenClaims> {
-  // Get JWKS URI from discovery (or use cache)
-  if (!jwksCache) {
-    const discovery = await getOidcDiscovery();
-    jwksCache = createRemoteJWKSet(new URL(discovery.jwks_uri));
+  // Get JWKS URI from discovery (prefer cache for performance)
+  let jwksUri: string;
+  const cached = getCachedDiscovery();
+  
+  if (cached) {
+    jwksUri = cached.jwks_uri;
+  } else {
+    const discoveryResult = await fetchDiscovery();
+    if (!discoveryResult.ok) {
+      throw new Error(`OIDC discovery failed: ${discoveryResult.message}`);
+    }
+    jwksUri = discoveryResult.discovery.jwks_uri;
+  }
+
+  // Recreate JWKS if URI changed or not cached
+  if (!jwksCache || cachedJwksUri !== jwksUri) {
+    jwksCache = createRemoteJWKSet(new URL(jwksUri));
+    cachedJwksUri = jwksUri;
   }
 
   // Verify JWT signature and standard claims

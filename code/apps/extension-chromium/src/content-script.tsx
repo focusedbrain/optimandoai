@@ -1330,34 +1330,25 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   }
 
-  // Handle TRIGGER_PROTOCOL_LAUNCH - Launch Electron app via protocol handler
-  // This is more reliable than creating a tab from background script
+  // Handle TRIGGER_PROTOCOL_LAUNCH - DISABLED
+  // 
+  // IMPORTANT: Custom protocol launch (wrcode://start, opengiraffe://start) has been DISABLED
+  // to prevent Windows "Open Electron?" prompts and "Unable to find Electron app" errors.
+  // 
+  // WHY: When the protocol handler is not correctly registered in Windows, the browser
+  // shows confusing prompts or errors instead of launching the app. This is a broken UX.
+  // 
+  // SOLUTION: Users must manually start the desktop app from Start Menu or desktop shortcut.
+  // The extension communicates with an already-running app via HTTP/WebSocket.
   else if (message.type === 'TRIGGER_PROTOCOL_LAUNCH' || message.type === 'LAUNCH_ELECTRON_PROTOCOL') {
-    try {
-      const protocol = message.protocol || message.url || 'wrcode://start'
-      console.log('🚀 [CONTENT] Triggering protocol launch:', protocol)
-      
-      // Create an invisible anchor and click it to trigger protocol handler
-      const link = document.createElement('a')
-      link.href = protocol
-      link.style.display = 'none'
-      document.body.appendChild(link)
-      link.click()
-      document.body.removeChild(link)
-      
-      console.log('✅ [CONTENT] Protocol launch triggered')
-      sendResponse({ success: true })
-    } catch (e) {
-      console.error('❌ [CONTENT] Error triggering protocol launch:', e)
-      // Fallback: use window.location
-      try {
-        const protocol = message.protocol || message.url || 'wrcode://start'
-        window.location.href = protocol
-        sendResponse({ success: true })
-      } catch (e2) {
-        sendResponse({ success: false, error: String(e2) })
-      }
-    }
+    console.warn('⚠️ [CONTENT] TRIGGER_PROTOCOL_LAUNCH is disabled - custom protocol launch removed to prevent Windows errors')
+    console.warn('⚠️ [CONTENT] Requested protocol:', message.protocol || message.url || 'wrcode://start')
+    console.warn('⚠️ [CONTENT] User should start the app manually from Start Menu')
+    sendResponse({ 
+      success: false, 
+      error: 'Protocol launch disabled. Please start WR Desk from the Start Menu.',
+      reason: 'custom_protocol_disabled'
+    })
   }
 
   return true // Keep message channel open for async response

@@ -1,4 +1,17 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
+
+// ============================================================================
+// SSO Entry Component - Enterprise-Grade Authentication UI
+// ============================================================================
+// SECURITY CHECKLIST:
+// - [x] Uses OIDC Authorization Code Flow with PKCE (S256) via Electron backend
+// - [x] Tokens stored in secure credential store (keytar), NOT localStorage
+// - [x] Session state from server, not client guess (fail-closed)
+// - [x] CSRF protection via OIDC state parameter validation
+// - [x] ID token signature verified (issuer, audience, nonce, expiry)
+// - [x] Rate limiting handled by Keycloak + optional WAF
+// - [x] No raw tokens exposed to UI layer
+// ============================================================================
 
 interface BackendSwitcherInlineProps {
   theme?: 'pro' | 'dark' | 'standard';
@@ -12,20 +25,62 @@ const TEXT_SCALES: Record<TextSize, number> = {
   large: 1.3
 };
 
-// Key icon SVG component
-const KeyIcon = ({ color }: { color: string }) => (
+// Auth status response from backend
+interface AuthStatusResponse {
+  loggedIn: boolean;
+  displayName?: string;
+  email?: string;
+  initials?: string;
+}
+
+// Chevron down icon for dropdown
+const ChevronDownIcon = ({ color }: { color: string }) => (
   <svg 
-    width="12" 
-    height="12" 
+    width="10" 
+    height="10" 
+    viewBox="0 0 24 24" 
+    fill="none" 
+    stroke={color} 
+    strokeWidth="2.5" 
+    strokeLinecap="round" 
+    strokeLinejoin="round"
+  >
+    <polyline points="6 9 12 15 18 9" />
+  </svg>
+);
+
+// Logout icon
+const LogoutIcon = ({ color }: { color: string }) => (
+  <svg 
+    width="14" 
+    height="14" 
     viewBox="0 0 24 24" 
     fill="none" 
     stroke={color} 
     strokeWidth="2" 
     strokeLinecap="round" 
     strokeLinejoin="round"
-    style={{ marginRight: '4px', verticalAlign: 'middle' }}
   >
-    <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4" />
+    <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+    <polyline points="16 17 21 12 16 7" />
+    <line x1="21" y1="12" x2="9" y2="12" />
+  </svg>
+);
+
+// User icon for profile
+const UserIcon = ({ color }: { color: string }) => (
+  <svg 
+    width="14" 
+    height="14" 
+    viewBox="0 0 24 24" 
+    fill="none" 
+    stroke={color} 
+    strokeWidth="2" 
+    strokeLinecap="round" 
+    strokeLinejoin="round"
+  >
+    <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+    <circle cx="12" cy="7" r="4" />
   </svg>
 );
 
@@ -33,26 +88,92 @@ export function BackendSwitcherInline({ theme = 'standard' }: BackendSwitcherInl
   const [isCollapsed, setIsCollapsed] = useState(true);
   const [textSize, setTextSize] = useState<TextSize>('small');
   const [isLoggingIn, setIsLoggingIn] = useState(false);
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [userInfo, setUserInfo] = useState<{ displayName?: string; email?: string; initials?: string }>({});
+  const [showAccountDropdown, setShowAccountDropdown] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
 
-  // Check auth status on mount
+  // Close dropdown when clicking outside
   useEffect(() => {
-    chrome.runtime.sendMessage({ type: 'AUTH_STATUS' }, (response) => {
-      if (response?.loggedIn) {
-        setIsLoggedIn(true);
+    function handleClickOutside(event: MouseEvent) {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setShowAccountDropdown(false);
       }
-    });
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  // Handle Sign In click
+  // Check auth status on mount and periodically (fail-closed: treat as logged out on error)
+  useEffect(() => {
+    const checkAuthStatus = () => {
+      chrome.runtime.sendMessage({ type: 'AUTH_STATUS' }, (response: AuthStatusResponse | undefined) => {
+        if (chrome.runtime.lastError) {
+          console.warn('[AUTH] Status check failed:', chrome.runtime.lastError.message);
+          // Fail-closed: treat as logged out
+          setIsLoggedIn(false);
+          setUserInfo({});
+          return;
+        }
+        if (response?.loggedIn) {
+          setIsLoggedIn(true);
+          setUserInfo({
+            displayName: response.displayName,
+            email: response.email,
+            initials: response.initials || getInitials(response.displayName || response.email),
+          });
+        } else {
+          setIsLoggedIn(false);
+          setUserInfo({});
+        }
+      });
+    };
+
+    checkAuthStatus();
+    // Refresh auth status every 60 seconds
+    const interval = setInterval(checkAuthStatus, 60000);
+    return () => clearInterval(interval);
+  }, []);
+
+  // Helper to generate initials from name or email
+  function getInitials(nameOrEmail?: string): string {
+    if (!nameOrEmail) return '?';
+    // If it's an email, use first letter before @
+    if (nameOrEmail.includes('@')) {
+      return nameOrEmail.charAt(0).toUpperCase();
+    }
+    // Otherwise use first letter of each word (max 2)
+    const parts = nameOrEmail.trim().split(/\s+/);
+    if (parts.length >= 2) {
+      return (parts[0].charAt(0) + parts[1].charAt(0)).toUpperCase();
+    }
+    return nameOrEmail.charAt(0).toUpperCase();
+  }
+
+  // Handle Sign In click - starts OIDC auth flow
   const handleSignIn = async () => {
     if (isLoggingIn) return;
     setIsLoggingIn(true);
     try {
       chrome.runtime.sendMessage({ type: 'AUTH_LOGIN' }, (response) => {
         setIsLoggingIn(false);
+        if (chrome.runtime.lastError) {
+          console.error('[AUTH] Login failed:', chrome.runtime.lastError.message);
+          return;
+        }
         if (response?.ok) {
           setIsLoggedIn(true);
+          // Fetch user info after successful login
+          chrome.runtime.sendMessage({ type: 'AUTH_STATUS' }, (statusResponse: AuthStatusResponse | undefined) => {
+            if (statusResponse?.loggedIn) {
+              setUserInfo({
+                displayName: statusResponse.displayName,
+                email: statusResponse.email,
+                initials: statusResponse.initials || getInitials(statusResponse.displayName || statusResponse.email),
+              });
+            }
+          });
         } else {
           console.error('[AUTH] Login failed:', response?.error);
         }
@@ -63,7 +184,31 @@ export function BackendSwitcherInline({ theme = 'standard' }: BackendSwitcherInl
     }
   };
 
-  // Handle Create Account click
+  // Handle Logout click - clears session via backend
+  const handleLogout = async () => {
+    if (isLoggingOut) return;
+    setIsLoggingOut(true);
+    setShowAccountDropdown(false);
+    try {
+      chrome.runtime.sendMessage({ type: 'AUTH_LOGOUT' }, (response) => {
+        setIsLoggingOut(false);
+        if (chrome.runtime.lastError) {
+          console.error('[AUTH] Logout failed:', chrome.runtime.lastError.message);
+        }
+        // Always clear local state on logout attempt (fail-closed)
+        setIsLoggedIn(false);
+        setUserInfo({});
+      });
+    } catch (err) {
+      setIsLoggingOut(false);
+      setIsLoggedIn(false);
+      setUserInfo({});
+      console.error('[AUTH] Logout error:', err);
+    }
+  };
+
+  // Handle Create Account click - opens registration page
+  // Routes to wrdesk.com landing page (registration form is on the homepage)
   const handleCreateAccount = () => {
     window.open('https://wrdesk.com', '_blank');
   };
@@ -120,77 +265,235 @@ export function BackendSwitcherInline({ theme = 'standard' }: BackendSwitcherInl
             gap: '8px'
           }}
         >
-          <div style={{ display: 'flex', gap: '6px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
             {!isLoggedIn ? (
+              /* ========== LOGGED-OUT STATE ========== */
+              /* Primary "Sign in" button + Secondary "Create account" link */
               <>
+                {/* Primary Button: Sign in */}
                 <button
                   onClick={handleSignIn}
                   disabled={isLoggingIn}
                   style={{
-                    padding: '4px 10px',
-                    background: 'transparent',
-                    border: effectiveTheme === 'standard' ? '1px solid rgba(15,23,42,0.2)' : '1px solid rgba(255,255,255,0.25)',
-                    borderRadius: '4px',
-                    color: textColor,
+                    padding: '6px 14px',
+                    background: effectiveTheme === 'standard' 
+                      ? 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)' 
+                      : 'linear-gradient(135deg, #a78bfa 0%, #8b5cf6 100%)',
+                    border: 'none',
+                    borderRadius: '6px',
+                    color: '#fff',
                     fontSize: '11px',
-                    fontWeight: '400',
+                    fontWeight: '500',
                     cursor: isLoggingIn ? 'wait' : 'pointer',
                     transition: 'all 0.2s ease',
-                    opacity: isLoggingIn ? 0.5 : 0.8,
+                    opacity: isLoggingIn ? 0.7 : 1,
+                    boxShadow: '0 1px 2px rgba(0,0,0,0.1), 0 1px 3px rgba(99,102,241,0.15)',
                     display: 'flex',
-                    alignItems: 'center'
+                    alignItems: 'center',
+                    gap: '4px'
                   }}
                   onMouseEnter={(e) => {
                     if (!isLoggingIn) {
-                      e.currentTarget.style.background = effectiveTheme === 'standard' ? 'rgba(15,23,42,0.05)' : 'rgba(255,255,255,0.08)';
-                      e.currentTarget.style.opacity = '1';
+                      e.currentTarget.style.transform = 'translateY(-1px)';
+                      e.currentTarget.style.boxShadow = '0 2px 4px rgba(0,0,0,0.12), 0 2px 6px rgba(99,102,241,0.2)';
                     }
                   }}
                   onMouseLeave={(e) => {
-                    e.currentTarget.style.background = 'transparent';
-                    e.currentTarget.style.opacity = isLoggingIn ? '0.5' : '0.8';
+                    e.currentTarget.style.transform = 'translateY(0)';
+                    e.currentTarget.style.boxShadow = '0 1px 2px rgba(0,0,0,0.1), 0 1px 3px rgba(99,102,241,0.15)';
                   }}
                 >
-                  <KeyIcon color={textColor} />
-                  {isLoggingIn ? 'Signing in...' : 'Sign In with wrdesk.com'}
+                  {isLoggingIn ? 'Signing in...' : 'Sign in'}
                 </button>
+
+                {/* Secondary Link: Create account */}
                 <button
                   onClick={handleCreateAccount}
                   style={{
-                    padding: '4px 10px',
+                    padding: '4px 2px',
                     background: 'transparent',
-                    border: effectiveTheme === 'standard' ? '1px solid rgba(15,23,42,0.2)' : '1px solid rgba(255,255,255,0.25)',
-                    borderRadius: '4px',
-                    color: textColor,
+                    border: 'none',
+                    color: accentColor,
                     fontSize: '11px',
                     fontWeight: '400',
                     cursor: 'pointer',
-                    transition: 'all 0.2s ease',
-                    opacity: 0.8
+                    transition: 'all 0.15s ease',
+                    textDecoration: 'none',
+                    opacity: 0.85
                   }}
                   onMouseEnter={(e) => {
-                    e.currentTarget.style.background = effectiveTheme === 'standard' ? 'rgba(15,23,42,0.05)' : 'rgba(255,255,255,0.08)';
                     e.currentTarget.style.opacity = '1';
+                    e.currentTarget.style.textDecoration = 'underline';
                   }}
                   onMouseLeave={(e) => {
-                    e.currentTarget.style.background = 'transparent';
-                    e.currentTarget.style.opacity = '0.8';
+                    e.currentTarget.style.opacity = '0.85';
+                    e.currentTarget.style.textDecoration = 'none';
                   }}
                 >
                   Create account
                 </button>
               </>
             ) : (
-              <span style={{
-                fontSize: '11px',
-                color: textColor,
-                opacity: 0.7,
-                display: 'flex',
-                alignItems: 'center',
-                gap: '4px'
-              }}>
-                ✓ Signed in
-              </span>
+              /* ========== LOGGED-IN STATE ========== */
+              /* Account dropdown with avatar, profile, and logout */
+              <div ref={dropdownRef} style={{ position: 'relative' }}>
+                {/* Account Button with Avatar */}
+                <button
+                  onClick={() => setShowAccountDropdown(!showAccountDropdown)}
+                  disabled={isLoggingOut}
+                  style={{
+                    padding: '4px 10px 4px 4px',
+                    background: showAccountDropdown 
+                      ? (effectiveTheme === 'standard' ? 'rgba(15,23,42,0.08)' : 'rgba(255,255,255,0.12)')
+                      : 'transparent',
+                    border: effectiveTheme === 'standard' ? '1px solid rgba(15,23,42,0.15)' : '1px solid rgba(255,255,255,0.2)',
+                    borderRadius: '6px',
+                    color: textColor,
+                    fontSize: '11px',
+                    fontWeight: '400',
+                    cursor: isLoggingOut ? 'wait' : 'pointer',
+                    transition: 'all 0.15s ease',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    opacity: isLoggingOut ? 0.6 : 1
+                  }}
+                  onMouseEnter={(e) => {
+                    if (!isLoggingOut) {
+                      e.currentTarget.style.background = effectiveTheme === 'standard' ? 'rgba(15,23,42,0.06)' : 'rgba(255,255,255,0.1)';
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    if (!showAccountDropdown) {
+                      e.currentTarget.style.background = 'transparent';
+                    }
+                  }}
+                >
+                  {/* Avatar Circle with Initials */}
+                  <div style={{
+                    width: '22px',
+                    height: '22px',
+                    borderRadius: '50%',
+                    background: effectiveTheme === 'standard' 
+                      ? 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)'
+                      : 'linear-gradient(135deg, #a78bfa 0%, #8b5cf6 100%)',
+                    color: '#fff',
+                    fontSize: '10px',
+                    fontWeight: '600',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    textTransform: 'uppercase'
+                  }}>
+                    {userInfo.initials || '?'}
+                  </div>
+                  <span style={{ maxWidth: '80px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {userInfo.displayName || userInfo.email || 'Account'}
+                  </span>
+                  <ChevronDownIcon color={textColor} />
+                </button>
+
+                {/* Dropdown Menu */}
+                {showAccountDropdown && (
+                  <div style={{
+                    position: 'absolute',
+                    top: 'calc(100% + 4px)',
+                    left: '0',
+                    minWidth: '160px',
+                    background: effectiveTheme === 'standard' ? '#fff' : '#1e293b',
+                    border: effectiveTheme === 'standard' ? '1px solid rgba(15,23,42,0.1)' : '1px solid rgba(255,255,255,0.15)',
+                    borderRadius: '8px',
+                    boxShadow: effectiveTheme === 'standard' 
+                      ? '0 4px 12px rgba(0,0,0,0.1), 0 2px 4px rgba(0,0,0,0.05)'
+                      : '0 4px 12px rgba(0,0,0,0.3), 0 2px 4px rgba(0,0,0,0.2)',
+                    padding: '4px',
+                    zIndex: 1000
+                  }}>
+                    {/* User Info Header */}
+                    <div style={{
+                      padding: '8px 10px',
+                      borderBottom: effectiveTheme === 'standard' ? '1px solid rgba(15,23,42,0.08)' : '1px solid rgba(255,255,255,0.1)',
+                      marginBottom: '4px'
+                    }}>
+                      <div style={{ fontSize: '11px', fontWeight: '500', color: textColor }}>
+                        {userInfo.displayName || 'User'}
+                      </div>
+                      {userInfo.email && (
+                        <div style={{ fontSize: '10px', color: mutedColor, marginTop: '2px' }}>
+                          {userInfo.email}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Profile Option */}
+                    <button
+                      onClick={() => {
+                        setShowAccountDropdown(false);
+                        window.open('https://auth.wrdesk.com/realms/wrdesk/account', '_blank');
+                      }}
+                      style={{
+                        width: '100%',
+                        padding: '8px 10px',
+                        background: 'transparent',
+                        border: 'none',
+                        borderRadius: '4px',
+                        color: textColor,
+                        fontSize: '11px',
+                        fontWeight: '400',
+                        cursor: 'pointer',
+                        transition: 'all 0.15s ease',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '8px',
+                        textAlign: 'left'
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.background = effectiveTheme === 'standard' ? 'rgba(15,23,42,0.05)' : 'rgba(255,255,255,0.08)';
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.background = 'transparent';
+                      }}
+                    >
+                      <UserIcon color={mutedColor} />
+                      Profile
+                    </button>
+
+                    {/* Logout Option */}
+                    <button
+                      onClick={handleLogout}
+                      disabled={isLoggingOut}
+                      style={{
+                        width: '100%',
+                        padding: '8px 10px',
+                        background: 'transparent',
+                        border: 'none',
+                        borderRadius: '4px',
+                        color: '#ef4444',
+                        fontSize: '11px',
+                        fontWeight: '400',
+                        cursor: isLoggingOut ? 'wait' : 'pointer',
+                        transition: 'all 0.15s ease',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '8px',
+                        textAlign: 'left',
+                        opacity: isLoggingOut ? 0.6 : 1
+                      }}
+                      onMouseEnter={(e) => {
+                        if (!isLoggingOut) {
+                          e.currentTarget.style.background = 'rgba(239,68,68,0.08)';
+                        }
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.background = 'transparent';
+                      }}
+                    >
+                      <LogoutIcon color="#ef4444" />
+                      {isLoggingOut ? 'Signing out...' : 'Sign out'}
+                    </button>
+                  </div>
+                )}
+              </div>
             )}
           </div>
           <div 

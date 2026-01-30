@@ -1,7 +1,7 @@
 import { app, BrowserWindow, globalShortcut, Tray, Menu, Notification, screen, dialog, shell, ipcMain } from 'electron'
 import { loginWithKeycloak } from '../src/auth/login'
 import { saveRefreshToken } from '../src/auth/tokenStore'
-import { ensureSession, getAccessToken } from '../src/auth/session'
+import { ensureSession } from '../src/auth/session'
 import { logoutLocalOnly } from '../src/auth/logout'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
@@ -2089,7 +2089,18 @@ app.whenReady().then(async () => {
                 const session = await ensureSession()
                 const loggedIn = session.accessToken !== null
                 console.log('[MAIN] AUTH_STATUS:', loggedIn ? 'logged in' : 'not logged in')
-                try { socket.send(JSON.stringify({ type: 'AUTH_STATUS_RESULT', id: msg.id, loggedIn })) } catch {}
+                // Include user info in response for UI display
+                const response: Record<string, unknown> = { 
+                  type: 'AUTH_STATUS_RESULT', 
+                  id: msg.id, 
+                  loggedIn 
+                }
+                if (loggedIn && session.userInfo) {
+                  response.displayName = session.userInfo.displayName
+                  response.email = session.userInfo.email
+                  response.initials = session.userInfo.initials
+                }
+                try { socket.send(JSON.stringify(response)) } catch {}
               } catch (err: any) {
                 console.error('[MAIN] AUTH_STATUS error:', err?.message || err)
                 try { socket.send(JSON.stringify({ type: 'AUTH_STATUS_RESULT', id: msg.id, loggedIn: false })) } catch {}
@@ -2373,13 +2384,21 @@ app.whenReady().then(async () => {
     })
 
     // GET /api/auth/status - Check if user is logged in
+    // Returns: { ok, loggedIn, displayName?, email?, initials? }
     httpApp.get('/api/auth/status', async (_req, res) => {
       try {
         console.log('[HTTP] GET /api/auth/status')
         const session = await ensureSession()
         const loggedIn = session.accessToken !== null
         console.log('[HTTP] Auth status:', loggedIn ? 'logged in' : 'not logged in')
-        res.json({ ok: true, loggedIn })
+        // Include user info for UI display
+        const response: Record<string, unknown> = { ok: true, loggedIn }
+        if (loggedIn && session.userInfo) {
+          response.displayName = session.userInfo.displayName
+          response.email = session.userInfo.email
+          response.initials = session.userInfo.initials
+        }
+        res.json(response)
       } catch (error: any) {
         console.error('[HTTP] Auth status error:', error?.message || error)
         res.json({ ok: true, loggedIn: false })

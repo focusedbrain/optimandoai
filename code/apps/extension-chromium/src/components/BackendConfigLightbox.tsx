@@ -202,30 +202,26 @@ export function BackendConfigLightbox({ isOpen, onClose, theme = 'default' }: Ba
     }
   };
 
-  // Launch desktop app via protocol handler
+  // Wait for desktop app to be started manually
+  // 
+  // IMPORTANT: Custom protocol launch (opengiraffe://start, wrcode://start) has been DISABLED
+  // to prevent Windows "Open Electron?" prompts and errors when the protocol handler
+  // is not correctly registered. Users must start the app manually.
   const launchDesktopApp = async () => {
     setIsLaunchingApp(true);
     
-    // Try to launch via protocol handler using an iframe (works better than window.open in extensions)
-    try {
-      const iframe = document.createElement('iframe');
-      iframe.style.display = 'none';
-      iframe.src = 'opengiraffe://start';
-      document.body.appendChild(iframe);
-      // Remove iframe after a short delay
-      setTimeout(() => {
-        try { document.body.removeChild(iframe); } catch {}
-      }, 1000);
-      console.log('[BackendConfigLightbox] Launched via protocol handler');
-    } catch (e) {
-      console.log('[BackendConfigLightbox] Protocol handler failed:', e);
-    }
+    // NOTE: Protocol handler launch removed - it caused Windows "Open Electron?" prompts
+    // Instead, we ask the user to start the app manually and poll to detect when it's running
+    console.log('[BackendConfigLightbox] Waiting for user to start app manually (protocol launch disabled)');
     
     // Poll for app to come online
     let attempts = 0;
-    const maxAttempts = 25; // 25 seconds - give more time for app to start
+    const maxAttempts = 25; // 25 seconds - give time for app to start
     
-    setNotification({ message: 'Launching OpenGiraffe...', type: 'success' });
+    setNotification({ 
+      message: 'Please start WR Desk from the Start Menu. Waiting for app...', 
+      type: 'success' 
+    });
     
     const pollInterval = setInterval(async () => {
       attempts++;
@@ -240,7 +236,7 @@ export function BackendConfigLightbox({ isOpen, onClose, theme = 'default' }: Ba
         clearInterval(pollInterval);
         setIsLaunchingApp(false);
         setNotification({ 
-          message: 'Could not detect app. Please launch OpenGiraffe manually from Start Menu.', 
+          message: 'Could not detect app. Please launch WR Desk from Start Menu or desktop shortcut.', 
           type: 'error' 
         });
         setTimeout(() => setNotification(null), 8000);

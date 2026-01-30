@@ -227,23 +227,22 @@ async function isElectronReady(): Promise<{ running: boolean; ready: boolean; oa
 }
 
 /**
- * Try to launch Electron app via protocol handler
- * Returns true if Electron becomes available, false otherwise
+ * Check if Electron app is running and return status
  * 
- * This function delegates to launchElectronAppDirect which has improved reliability
- * with multiple fallback methods including:
- * 1. Content script protocol trigger
- * 2. Data URL redirect
- * 3. Direct protocol tab creation
+ * NOTE: This function NO LONGER attempts to launch via custom protocol (wrcode://, opengiraffe://).
+ * The custom protocol launch was removed because it caused Windows "Open Electron?" prompts
+ * and errors when the protocol handler was not correctly registered.
+ * 
+ * Instead, users must manually start the desktop app from Start Menu or desktop shortcut.
  */
 async function ensureElectronRunning(): Promise<boolean> {
-  // First check if already running
+  // Check if already running
   if (await isElectronRunning()) {
     console.log('[BG] ✅ Electron app is already running');
     return true;
   }
   
-  // Use the improved launchElectronAppDirect which handles concurrency and fallbacks
+  // Check if app becomes available (in case user is starting it now)
   return launchElectronAppDirect();
 }
 
@@ -1047,13 +1046,20 @@ async function checkAndLaunchElectronApp(sendResponse: (response: any) => void):
           return
         }
         
-        // Handle notification click (the entire notification is clickable)
-        const clickHandler = (clickedNotificationId: string) => {
+        // Handle notification click - check if user has started the app manually
+        const clickHandler = async (clickedNotificationId: string) => {
           if (clickedNotificationId === createdNotificationId) {
             chrome.notifications.clear(createdNotificationId)
             chrome.notifications.onClicked.removeListener(clickHandler)
-            // Try to launch again via protocol
-            launchElectronApp(sendResponse)
+            // Check if user started the app manually (no custom protocol launch)
+            const running = await isElectronRunning()
+            if (running) {
+              console.log('[BG] ✅ App is now running after user action')
+              try { sendResponse({ success: true }) } catch {}
+            } else {
+              console.log('[BG] App still not running - user may need to start from Start Menu')
+              try { sendResponse({ success: false, error: 'Please start WR Desk from the Start Menu.' }) } catch {}
+            }
           }
         }
         
@@ -1075,21 +1081,31 @@ async function checkAndLaunchElectronApp(sendResponse: (response: any) => void):
 }
 
 /**
- * Direct launch attempt using protocol handler with improved reliability
- * Returns true if the app becomes available, false otherwise
+ * Check if Electron app can be reached (is already running)
+ * 
+ * IMPORTANT: This function NO LONGER attempts to launch the app via custom protocol (wrcode://, opengiraffe://)
+ * 
+ * WHY: Launching via custom protocol (wrcode://start) caused Windows "Open Electron?" prompts
+ * and "Unable to find Electron app / Cannot find module 'C:\Windows\System32\wrcode\start'" errors
+ * when the protocol handler was not correctly registered. This is a broken UX.
+ * 
+ * SOLUTION: The extension should only communicate with an ALREADY RUNNING Electron app via HTTP/WebSocket.
+ * Users must manually start the desktop app from Start Menu or desktop shortcut.
+ * 
+ * @returns true if app is already running, false otherwise (does NOT attempt auto-launch)
  */
 async function launchElectronAppDirect(): Promise<boolean> {
-  console.log('[BG] 🚀 Attempting direct Electron app launch...')
+  console.log('[BG] 🔍 Checking if Electron app is running (no protocol launch)...')
   
   // Check if already running
   if (await isElectronRunning()) {
-    console.log('[BG] ✅ App already running')
+    console.log('[BG] ✅ App is already running')
     return true
   }
   
-  // Prevent concurrent launch attempts
+  // Prevent concurrent check attempts
   if (electronLaunchInProgress) {
-    console.log('[BG] ⏳ Launch already in progress, waiting...')
+    console.log('[BG] ⏳ Check already in progress, waiting...')
     for (let i = 0; i < 30; i++) {
       await new Promise(r => setTimeout(r, 500))
       if (!electronLaunchInProgress) break
@@ -1101,119 +1117,47 @@ async function launchElectronAppDirect(): Promise<boolean> {
   electronLaunchInProgress = true
   
   try {
-    // Method 1: Try protocol handler via window.open in current tab's context
-    // This is more reliable than creating a new tab
-    console.log('[BG] Method 1: Trying protocol via content script...')
-    try {
-      const tabs = await chrome.tabs.query({ active: true, currentWindow: true })
-      if (tabs[0]?.id) {
-        // Send message to content script to trigger protocol
-        await chrome.tabs.sendMessage(tabs[0].id, { 
-          type: 'TRIGGER_PROTOCOL_LAUNCH',
-          protocol: 'wrcode://start'
-        }).catch(() => {})
-      }
-    } catch {}
+    // ============================================================================
+    // REMOVED: Custom protocol launch attempts (wrcode://start, opengiraffe://start)
+    // 
+    // These caused Windows "Open Electron?" prompts and errors when the protocol
+    // handler was not correctly registered. The extension should NOT attempt
+    // to auto-launch the desktop app via custom protocol.
+    // 
+    // Instead, we simply wait and check if the app becomes available (in case
+    // the user is starting it manually right now).
+    // ============================================================================
     
-    // Wait a bit and check if it worked
-    await new Promise(r => setTimeout(r, 2000))
-    if (await isElectronRunning()) {
-      console.log('[BG] ✅ Method 1 succeeded - app is running')
-      electronLaunchInProgress = false
-      return true
-    }
-    
-    // Method 2: Try creating a data URL that redirects to protocol
-    // This sometimes works better than direct protocol tab creation
-    console.log('[BG] Method 2: Trying protocol via redirect page...')
-    try {
-      const redirectHtml = `
-        <!DOCTYPE html>
-        <html>
-        <head><title>Starting WR Desk...</title></head>
-        <body>
-          <script>
-            window.location.href = 'wrcode://start';
-            setTimeout(function() { window.close(); }, 1000);
-          </script>
-          <p>Starting WR Desk Dashboard...</p>
-        </body>
-        </html>
-      `
-      const dataUrl = 'data:text/html;base64,' + btoa(redirectHtml)
-      const tab = await chrome.tabs.create({ url: dataUrl, active: false })
-      
-      // Wait and then close the tab
-      await new Promise(r => setTimeout(r, 2000))
-      if (tab.id) {
-        try { await chrome.tabs.remove(tab.id) } catch {}
-      }
-    } catch (e) {
-      console.log('[BG] Method 2 failed:', e)
-    }
-    
-    // Check if it worked
-    await new Promise(r => setTimeout(r, 2000))
-    if (await isElectronRunning()) {
-      console.log('[BG] ✅ Method 2 succeeded - app is running')
-      electronLaunchInProgress = false
-      return true
-    }
-    
-    // Method 3: Try direct protocol tab (original method, as fallback)
-    console.log('[BG] Method 3: Trying direct protocol tab...')
-    try {
-      // Try wrcode:// protocol first
-      const tab = await chrome.tabs.create({ 
-        url: 'wrcode://start',
-        active: false 
-      })
-      await new Promise(r => setTimeout(r, 1000))
-      if (tab.id) {
-        try { await chrome.tabs.remove(tab.id) } catch {}
-      }
-    } catch {
-      // Try old opengiraffe:// protocol as fallback
-      try {
-        const tab = await chrome.tabs.create({ 
-          url: 'opengiraffe://start',
-          active: false 
-        })
-        await new Promise(r => setTimeout(r, 1000))
-        if (tab.id) {
-          try { await chrome.tabs.remove(tab.id) } catch {}
-        }
-      } catch {}
-    }
-    
-    // Wait for app to become available (up to 10 seconds)
-    console.log('[BG] ⏳ Waiting for Electron to start...')
-    for (let i = 0; i < 20; i++) {
+    // Wait briefly and check if app is starting
+    console.log('[BG] ⏳ Waiting briefly to see if app is starting...')
+    for (let i = 0; i < 4; i++) {
       await new Promise(r => setTimeout(r, 500))
       if (await isElectronRunning()) {
-        console.log('[BG] ✅ App started successfully')
+        console.log('[BG] ✅ App detected - it was starting up')
         electronLaunchInProgress = false
         return true
       }
     }
     
-    console.log('[BG] ❌ All launch methods failed')
+    console.log('[BG] ❌ App is not running - user must start manually')
     electronLaunchInProgress = false
     return false
   } catch (err) {
-    console.error('[BG] ❌ Error during launch:', err)
+    console.error('[BG] ❌ Error checking app status:', err)
     electronLaunchInProgress = false
     return false
   }
 }
 
 /**
- * Launch the Electron app using protocol handler
- * Shows notifications on success/failure
+ * Check if the Electron app is running and respond with status
+ * 
+ * NOTE: This function NO LONGER attempts to launch via custom protocol (wrcode://).
+ * If the app is not running, it shows a notification to guide the user.
  */
 async function launchElectronApp(sendResponse: (response: any) => void): Promise<void> {
   try {
-    console.log('[BG] Attempting to launch Electron app via protocol handler...')
+    console.log('[BG] Checking if Electron app is running...')
     
     const launched = await launchElectronAppDirect()
     
@@ -1354,6 +1298,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
 
   // Handle auth status check
+  // Returns: { loggedIn, displayName?, email?, initials? }
   if (msg && msg.type === 'AUTH_STATUS') {
     console.log('[BG] AUTH_STATUS request received');
     (async () => {
@@ -1364,23 +1309,50 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         });
         const data = await response.json();
         console.log('[BG] AUTH_STATUS response:', data);
-        // Update stored state
-        await chrome.storage.local.set({ authLoggedIn: data.loggedIn });
-        sendResponse({ loggedIn: data.loggedIn });
+        // Update stored state (including user info for cached display)
+        await chrome.storage.local.set({ 
+          authLoggedIn: data.loggedIn,
+          authDisplayName: data.displayName || null,
+          authEmail: data.email || null,
+          authInitials: data.initials || null
+        });
+        // Pass through all user info
+        sendResponse({ 
+          loggedIn: data.loggedIn,
+          displayName: data.displayName,
+          email: data.email,
+          initials: data.initials
+        });
       } catch (e: any) {
         console.log('[BG] AUTH_STATUS error (Electron may not be running):', e.message);
-        // Check stored state as fallback
-        const stored = await chrome.storage.local.get('authLoggedIn');
-        sendResponse({ loggedIn: stored.authLoggedIn || false });
+        // Check stored state as fallback (fail-closed: no user info if offline)
+        const stored = await chrome.storage.local.get(['authLoggedIn', 'authDisplayName', 'authEmail', 'authInitials']);
+        sendResponse({ 
+          loggedIn: stored.authLoggedIn || false,
+          displayName: stored.authDisplayName,
+          email: stored.authEmail,
+          initials: stored.authInitials
+        });
       }
     })();
     return true; // Keep channel open for async response
   }
 
   // Handle logout request
+  // Clears session on backend and all cached auth state
   if (msg && msg.type === 'AUTH_LOGOUT') {
     console.log('[BG] AUTH_LOGOUT request received');
     (async () => {
+      // Clear all auth state immediately (fail-closed)
+      const clearAuthState = async () => {
+        await chrome.storage.local.set({ 
+          authLoggedIn: false,
+          authDisplayName: null,
+          authEmail: null,
+          authInitials: null
+        });
+      };
+      
       try {
         const response = await fetch(`${ELECTRON_BASE_URL}/api/auth/logout`, {
           method: 'POST',
@@ -1390,12 +1362,12 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         const data = await response.json();
         console.log('[BG] AUTH_LOGOUT response:', data);
         // Clear stored state
-        await chrome.storage.local.set({ authLoggedIn: false });
+        await clearAuthState();
         sendResponse({ ok: data.ok, error: data.error });
       } catch (e: any) {
         console.error('[BG] AUTH_LOGOUT error:', e.message);
-        // Clear stored state anyway
-        await chrome.storage.local.set({ authLoggedIn: false });
+        // Clear stored state anyway (fail-closed)
+        await clearAuthState();
         sendResponse({ ok: false, error: e.message });
       }
     })();

@@ -3,9 +3,7 @@ import { oidc } from './oidcConfig';
 import { randomString, sha256base64url } from './pkce';
 import { startLoopbackServer } from './loopback';
 import { verifyIdToken } from './jwtVerify';
-
-const authorizationEndpoint = `${oidc.issuer}/protocol/openid-connect/auth`;
-const tokenEndpoint = `${oidc.issuer}/protocol/openid-connect/token`;
+import { fetchDiscovery } from './discovery';
 
 export interface OidcTokens {
   access_token: string;
@@ -30,8 +28,18 @@ const OIDC_USER_ERRORS: Record<string, string> = {
 
 /**
  * Perform Keycloak OIDC login via system browser with PKCE
+ * 
+ * Uses OIDC discovery to get authorization and token endpoints.
+ * Implements Authorization Code Flow with PKCE (S256).
  */
 export async function loginWithKeycloak(): Promise<OidcTokens> {
+  // Fetch OIDC discovery (cached after first call)
+  const discoveryResult = await fetchDiscovery();
+  if (!discoveryResult.ok) {
+    throw new Error(`OIDC discovery failed: ${discoveryResult.message}`);
+  }
+  const { authorization_endpoint, token_endpoint } = discoveryResult.discovery;
+
   // Generate PKCE verifier and challenge (S256)
   const codeVerifier = randomString(32);
   const codeChallenge = sha256base64url(codeVerifier);
@@ -52,8 +60,8 @@ export async function loginWithKeycloak(): Promise<OidcTokens> {
   });
 
   try {
-    // Build authorization URL
-    const authUrl = new URL(authorizationEndpoint);
+    // Build authorization URL using discovered endpoint
+    const authUrl = new URL(authorization_endpoint);
     authUrl.searchParams.set('response_type', 'code');
     authUrl.searchParams.set('client_id', oidc.clientId);
     authUrl.searchParams.set('redirect_uri', loopback.redirectUri);
@@ -88,7 +96,7 @@ export async function loginWithKeycloak(): Promise<OidcTokens> {
       throw new Error('No authorization code received');
     }
 
-    // Exchange code for tokens
+    // Exchange code for tokens using discovered endpoint
     const body = new URLSearchParams({
       grant_type: 'authorization_code',
       client_id: oidc.clientId,
@@ -97,7 +105,7 @@ export async function loginWithKeycloak(): Promise<OidcTokens> {
       code_verifier: codeVerifier,
     });
 
-    const response = await fetch(tokenEndpoint, {
+    const response = await fetch(token_endpoint, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: body.toString(),

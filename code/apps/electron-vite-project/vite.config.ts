@@ -34,8 +34,13 @@ export default defineConfig({
           build: {
             rollupOptions: {
               // pdfjs-dist is NOT externalized - it will be bundled
-              // canvas (node-canvas) is externalized (native module)
-              external: ['bufferutil', 'utf-8-validate', 'fluent-ffmpeg', 'ffmpeg-static', 'pg', 'libsodium-wrappers', '@journeyapps/sqlcipher', 'tesseract.js', 'canvas']
+              // canvas (node-canvas), keytar are externalized (native modules)
+              // electron is externalized to use runtime import
+              external: ['electron', 'bufferutil', 'utf-8-validate', 'fluent-ffmpeg', 'ffmpeg-static', 'pg', 'libsodium-wrappers', '@journeyapps/sqlcipher', 'tesseract.js', 'canvas', 'keytar', 'open', 'jose'],
+              output: {
+                // Use 'auto' interop for CommonJS modules like electron
+                interop: 'auto'
+              }
             }
           },
           plugins: [copyPdfWorkerPlugin()]
