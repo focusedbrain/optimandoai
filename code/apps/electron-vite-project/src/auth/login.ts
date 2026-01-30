@@ -83,7 +83,8 @@ export async function loginWithKeycloak(): Promise<OidcTokens> {
     // Handle OIDC errors explicitly
     if (result.error) {
       const friendlyMessage = OIDC_USER_ERRORS[result.error] ?? result.error;
-      throw new Error(`Authorization failed: ${friendlyMessage}`);
+      const description = result.error_description ? ` - ${result.error_description}` : '';
+      throw new Error(`Authorization failed: ${friendlyMessage}${description}`);
     }
 
     // Validate state

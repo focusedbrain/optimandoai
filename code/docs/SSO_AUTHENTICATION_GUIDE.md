@@ -45,6 +45,51 @@ export const oidc = {
 } as const;
 ```
 
+### Keycloak Client Configuration
+
+Configure the `wrdesk-orchestrator` client in Keycloak with these settings:
+
+**Client Settings:**
+- Client ID: `wrdesk-orchestrator`
+- Client Type: Public (no client secret)
+- Standard flow: ON
+- Implicit flow: OFF
+- Direct access grants: OFF
+- Service accounts: OFF
+
+**Valid Redirect URIs (REQUIRED):**
+
+The Electron app uses fixed ports (62151-62155) for the OAuth callback loopback server. Configure these exact URIs in Keycloak:
+
+```
+http://127.0.0.1:62151/*
+http://127.0.0.1:62152/*
+http://127.0.0.1:62153/*
+http://127.0.0.1:62154/*
+http://127.0.0.1:62155/*
+```
+
+**Why fixed ports?**
+- Some Keycloak versions don't properly support wildcard patterns like `http://127.0.0.1:*/*`
+- Using fixed ports ensures reliable redirect URI validation
+- The app tries ports 62151-62155 in order, falling back to next port if busy
+
+**Valid Post Logout Redirect URIs (optional):**
+
+```
+http://127.0.0.1:62151/*
+http://127.0.0.1:62152/*
+http://127.0.0.1:62153/*
+http://127.0.0.1:62154/*
+http://127.0.0.1:62155/*
+```
+
+**Web Origins:**
+```
++
+```
+(The `+` means allow all valid redirect URI origins - simplifies CORS configuration)
+
 ## UI Components
 
 ### Logged-Out State
@@ -151,6 +196,24 @@ Errors should result in fail-closed behavior (treated as logged out).
 
 ## Troubleshooting
 
+### "Invalid parameter: redirect_uri" Error
+
+This error from Keycloak means the redirect URI isn't configured correctly:
+
+1. **Check Keycloak Configuration**: Ensure all 5 redirect URIs are configured:
+   - `http://127.0.0.1:62151/*`
+   - `http://127.0.0.1:62152/*`
+   - `http://127.0.0.1:62153/*`
+   - `http://127.0.0.1:62154/*`
+   - `http://127.0.0.1:62155/*`
+
+2. **Don't use wildcards for ports**: Patterns like `http://127.0.0.1:*/*` may not work reliably in some Keycloak versions.
+
+3. **Check console logs**: The Electron app logs the port it's using:
+   ```
+   [AUTH] Loopback server started on port 62151
+   ```
+
 ### "Electron may not be running" Error
 
 The extension requires the Electron backend to be running. Start it with:
@@ -171,6 +234,15 @@ If session expires unexpectedly:
 1. Check Keycloak realm settings for token lifetimes
 2. Verify refresh token hasn't been revoked
 3. Check network connectivity to auth.wrdesk.com
+
+### Port Already in Use
+
+If the preferred ports (62151-62155) are all busy, check what's using them:
+```bash
+netstat -ano | findstr "62151"
+```
+
+The app will fall back to a random port as last resort, but this may cause Keycloak validation to fail.
 
 ## Files Changed
 
