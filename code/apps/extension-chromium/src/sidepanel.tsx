@@ -3651,7 +3651,7 @@ function SidepanelOrchestrator() {
           disabled={isLoggingIn}
           style={{
             padding: '10px 24px',
-            background: '#2872fa',
+            background: '#1559ed',
             border: 'none',
             borderRadius: '4px',
             color: '#fff',
@@ -3664,11 +3664,11 @@ function SidepanelOrchestrator() {
           }}
           onMouseEnter={(e) => {
             if (!isLoggingIn) {
-              e.currentTarget.style.background = '#1a5fd4';
+              e.currentTarget.style.background = '#0d47c2';
             }
           }}
           onMouseLeave={(e) => {
-            e.currentTarget.style.background = '#2872fa';
+            e.currentTarget.style.background = '#1559ed';
           }}
         >
           {isLoggingIn ? 'Signing in...' : 'Sign in with wrdesk.com'}
