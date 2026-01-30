@@ -157,8 +157,9 @@ async function requestLogin(): Promise<{ ok: boolean; error?: string; tier?: str
 
 /**
  * Get current auth status including tier
+ * Exported for external use (e.g., IPC handlers, HTTP API)
  */
-function getAuthStatus(): { loggedIn: boolean; tier: string | null } {
+export function getAuthStatus(): { loggedIn: boolean; tier: string | null } {
   return {
     loggedIn: hasValidSession,
     tier: hasValidSession ? currentTier : null
@@ -2264,16 +2265,19 @@ app.whenReady().then(async () => {
             
             // ===== AUTH HANDLERS =====
             if (msg.type === 'AUTH_LOGIN') {
-              console.log('[MAIN] ===== AUTH_LOGIN received =====')
+              console.log('[MAIN] ===== AUTH_LOGIN received (WebSocket) =====')
               try {
-                const tokens = await loginWithKeycloak()
-                if (tokens.refresh_token) {
-                  await saveRefreshToken(tokens.refresh_token)
+                // Use requestLogin() to handle full flow including dashboard opening
+                const result = await requestLogin()
+                if (result.ok) {
+                  console.log('[MAIN] AUTH_LOGIN successful - tier:', result.tier)
+                  try { socket.send(JSON.stringify({ type: 'AUTH_LOGIN_SUCCESS', id: msg.id, tier: result.tier })) } catch {}
+                } else {
+                  console.error('[MAIN] AUTH_LOGIN failed:', result.error)
+                  try { socket.send(JSON.stringify({ type: 'AUTH_LOGIN_ERROR', id: msg.id, error: result.error })) } catch {}
                 }
-                console.log('[MAIN] AUTH_LOGIN successful')
-                try { socket.send(JSON.stringify({ type: 'AUTH_LOGIN_SUCCESS', id: msg.id })) } catch {}
               } catch (err: any) {
-                console.error('[MAIN] AUTH_LOGIN failed:', err?.message || err)
+                console.error('[MAIN] AUTH_LOGIN error:', err?.message || err)
                 try { socket.send(JSON.stringify({ type: 'AUTH_LOGIN_ERROR', id: msg.id, error: err?.message || String(err) })) } catch {}
               }
             }
@@ -2287,8 +2291,8 @@ app.whenReady().then(async () => {
                 // Update hasValidSession flag
                 hasValidSession = loggedIn
                 
-                console.log('[AUTH] AUTH_STATUS:', loggedIn ? 'logged in' : 'not logged in', 'role:', currentUserRole)
-                // Include user info and role in response for UI display
+                console.log('[AUTH] AUTH_STATUS:', loggedIn ? 'logged in' : 'not logged in', 'tier:', currentTier)
+                // Include user info and tier in response for UI display
                 const response: Record<string, unknown> = { 
                   type: 'AUTH_STATUS_RESULT', 
                   id: msg.id, 
@@ -2564,8 +2568,8 @@ app.whenReady().then(async () => {
         console.log('[HTTP] POST /api/auth/login - Starting SSO login via requestLogin()')
         const result = await requestLogin()
         if (result.ok) {
-          console.log('[HTTP] SSO login successful - role:', result.role)
-          res.json({ ok: true, role: result.role })
+          console.log('[HTTP] SSO login successful - tier:', result.tier)
+          res.json({ ok: true, tier: result.tier })
         } else {
           console.error('[HTTP] SSO login failed:', result.error)
           res.status(401).json({ ok: false, error: result.error })
@@ -2577,7 +2581,7 @@ app.whenReady().then(async () => {
     })
 
     // GET /api/auth/status - Check if user is logged in
-    // Returns: { ok, loggedIn, role?, displayName?, email?, initials? }
+    // Returns: { ok, loggedIn, tier?, displayName?, email?, initials? }
     httpApp.get('/api/auth/status', async (_req, res) => {
       try {
         console.log('[HTTP] GET /api/auth/status')
@@ -2587,7 +2591,8 @@ app.whenReady().then(async () => {
         // Update hasValidSession flag based on current session state
         hasValidSession = loggedIn
         
-        console.log('[HTTP] Auth status:', loggedIn ? 'logged in' : 'not logged in', 'tier:', currentTier)
+        // [CHECKPOINT B] Log HTTP status response (no secrets)
+        console.log('[HTTP][B] Auth status response: loggedIn=' + loggedIn + ', tier=' + currentTier + ', hasUserInfo=' + !!session.userInfo)
         // Include user info and tier for UI display
         const response: Record<string, unknown> = { ok: true, loggedIn }
         if (loggedIn) {
@@ -4978,48 +4983,81 @@ app.whenReady().then(async () => {
       }
     })
     
-    // Simple function to start HTTP server with error handling
+    // ==========================================================================
+    // HTTP API SERVER - FIXED PORT (NO FALLBACK)
+    // ==========================================================================
+    // CRITICAL: Chrome extension hardcodes port 51248. If we bind to any other
+    // port, the extension cannot reach us. Therefore:
+    // - We MUST use port 51248 exactly
+    // - If port 51248 is unavailable, we MUST fail loudly and exit
+    // - NO silent fallback to alternative ports
+    // ==========================================================================
+    
     let httpServerStarted = false
     
-    const startHttpServer = (port: number, attempt = 1): void => {
+    const startHttpServer = (port: number): void => {
       if (httpServerStarted) {
-        console.log('[MAIN] HTTP server already started, skipping duplicate start')
+        console.log('[BOOT] HTTP server already started, skipping duplicate start')
         return
       }
       
-      console.log(`[MAIN] Starting HTTP API server on port ${port} (attempt ${attempt})...`)
+      console.log(`[BOOT] Starting HTTP API server on FIXED port ${port}...`)
+      console.log(`[BOOT] Extension expects: http://127.0.0.1:${port}`)
       
       const server = httpApp.listen(port, '127.0.0.1', () => {
         httpServerStarted = true
-        console.log(`[MAIN] ✅ HTTP API server listening on http://127.0.0.1:${port}`)
+        // ==========================================================================
+        // AUTHORITATIVE BOOT LOG - Extension connectivity depends on this port
+        // ==========================================================================
+        console.log(`[BOOT] ✅ HTTP API listening on http://127.0.0.1:${port}`)
+        console.log(`[BOOT] Extension can now connect to Electron`)
         
         // Set longer server-level timeout (10 minutes) to support OAuth flows
-        // This is the maximum time the server will wait for a request to complete
-        // Individual routes can have shorter timeouts as needed
         server.timeout = 10 * 60 * 1000 // 10 minutes
         server.keepAliveTimeout = 10 * 60 * 1000 // 10 minutes
-        console.log('[MAIN] HTTP server timeout set to 10 minutes for OAuth support')
+        console.log('[BOOT] HTTP server timeout set to 10 minutes for OAuth support')
       })
       
       server.once('error', (err: any) => {
         if (httpServerStarted) return // Ignore errors if already started successfully
         
         if (err.code === 'EADDRINUSE') {
-          console.error(`[MAIN] Port ${port} is already in use`)
+          // ==========================================================================
+          // FATAL: Port conflict - extension will NOT be able to reach Electron
+          // ==========================================================================
+          console.error(`[BOOT] ❌ FATAL: Port ${port} is already in use`)
+          console.error(`[BOOT] ❌ Another process is blocking the required port`)
+          console.error(`[BOOT] ❌ The Chrome extension expects Electron on port ${port}`)
+          console.error(`[BOOT] ❌ Electron CANNOT use a different port - extension would fail`)
+          console.error(`[BOOT]`)
+          console.error(`[BOOT] To fix this issue:`)
+          console.error(`[BOOT]   1. Check what process is using port ${port}:`)
+          console.error(`[BOOT]      Windows: netstat -ano | findstr :${port}`)
+          console.error(`[BOOT]      macOS/Linux: lsof -i :${port}`)
+          console.error(`[BOOT]   2. Stop that process or close the previous WRDesk instance`)
+          console.error(`[BOOT]   3. Restart WRDesk Orchestrator`)
+          console.error(`[BOOT]`)
+          console.error(`[BOOT] Exiting to prevent silent extension connectivity failure...`)
           
-          if (attempt < 3) {
-            console.log(`[MAIN] Trying alternative port ${port + 1}... (attempt ${attempt + 1})`)
-            setTimeout(() => startHttpServer(port + 1, attempt + 1), 1000)
-          } else {
-            console.error(`[MAIN] ❌ Failed to start HTTP server after ${attempt} attempts`)
-          }
+          // Show dialog to user before exiting
+          dialog.showErrorBox(
+            'WRDesk Orchestrator - Port Conflict',
+            `Port ${port} is already in use by another process.\n\n` +
+            `The Chrome extension requires Electron to be available on this exact port.\n\n` +
+            `Please close any previous WRDesk instance or other application using port ${port}, then restart WRDesk Orchestrator.`
+          )
+          
+          // Exit the app - do NOT silently fall back to another port
+          app.exit(1)
         } else {
-          console.error('[MAIN] HTTP server error:', err.message)
+          console.error('[BOOT] ❌ HTTP server error:', err.message)
+          console.error('[BOOT] Exiting due to server startup failure...')
+          app.exit(1)
         }
       })
     }
     
-    // Start the server
+    // Start the server on the FIXED port (no fallback)
     startHttpServer(HTTP_PORT)
 
     // Error handling is done via try-catch and httpApp.listen callback

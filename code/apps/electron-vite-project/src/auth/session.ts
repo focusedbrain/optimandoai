@@ -46,9 +46,21 @@ function decodeJwtPayload(token: string): Record<string, unknown> | null {
 
 /**
  * Extract roles from JWT payload (Keycloak format)
+ * 
+ * Keycloak includes roles in two locations:
+ * - realm_access.roles: Realm-level roles
+ * - resource_access.<client_id>.roles: Client-specific roles
+ * 
+ * SECURITY: Does NOT invent roles. If token lacks role claims, returns empty array.
+ * Caller should use mapRolesToTier() which will fail-closed to 'free' tier.
  */
 function extractRoles(payload: Record<string, unknown>): string[] {
   const roles: string[] = [];
+  
+  // Check for realm_access claim presence
+  const hasRealmAccess = 'realm_access' in payload;
+  // Check for resource_access claim presence
+  const hasResourceAccess = 'resource_access' in payload;
   
   // Extract realm roles: realm_access.roles
   const realmAccess = payload.realm_access as { roles?: string[] } | undefined;
@@ -64,6 +76,9 @@ function extractRoles(payload: Record<string, unknown>): string[] {
       roles.push(...clientRoles);
     }
   }
+  
+  // Diagnostic: Log roles presence check (no token content)
+  console.log('[SESSION] Roles extraction: hasRealmAccess=' + hasRealmAccess + ', hasResourceAccess=' + hasResourceAccess + ', totalRoles=' + roles.length);
   
   return roles;
 }
@@ -132,6 +147,8 @@ function extractUserInfo(payload: Record<string, unknown>): SessionUserInfo {
 export async function ensureSession(): Promise<{ accessToken: string | null; userInfo?: SessionUserInfo }> {
   // Return cached token if still valid (with 60s buffer)
   if (accessToken && expiresAt && expiresAt > Date.now() + EXPIRY_BUFFER_MS) {
+    // [CHECKPOINT F] Log unlock decision: cached valid
+    console.log('[SESSION][F] ensureSession: UNLOCKED (cached token valid, expiresAt=' + new Date(expiresAt).toISOString() + ')');
     return { accessToken, userInfo: cachedUserInfo || undefined };
   }
 
@@ -141,6 +158,8 @@ export async function ensureSession(): Promise<{ accessToken: string | null; use
     accessToken = null;
     expiresAt = null;
     cachedUserInfo = null;
+    // [CHECKPOINT F] Log unlock decision: no refresh token
+    console.log('[SESSION][F] ensureSession: LOCKED (reason=no_refresh_token)');
     return { accessToken: null };
   }
 
@@ -161,13 +180,17 @@ export async function ensureSession(): Promise<{ accessToken: string | null; use
       await saveRefreshToken(tokens.refresh_token);
     }
 
+    // [CHECKPOINT F] Log unlock decision: refresh succeeded
+    console.log('[SESSION][F] ensureSession: UNLOCKED (refresh succeeded, expiresAt=' + new Date(expiresAt!).toISOString() + ')');
     return { accessToken, userInfo: cachedUserInfo || undefined };
-  } catch {
+  } catch (err) {
     // Refresh failed - clear stored token
     await clearRefreshToken();
     accessToken = null;
     expiresAt = null;
     cachedUserInfo = null;
+    // [CHECKPOINT F] Log unlock decision: refresh failed
+    console.log('[SESSION][F] ensureSession: LOCKED (reason=refresh_failed)');
     return { accessToken: null };
   }
 }
@@ -188,6 +211,11 @@ export function updateSessionFromTokens(tokens: {
   const tokenToDecode = tokens.id_token || tokens.access_token;
   const payload = decodeJwtPayload(tokenToDecode);
   cachedUserInfo = payload ? extractUserInfo(payload) : null;
+
+  // [CHECKPOINT E] Log session persisted (no tokens)
+  const expiresAtISO = expiresAt ? new Date(expiresAt).toISOString() : 'null';
+  const roleCount = cachedUserInfo?.roles?.length ?? 0;
+  console.log('[SESSION][E] Session updated: expiresAt=' + expiresAtISO + ', roleCount=' + roleCount + ', hasUserInfo=' + !!cachedUserInfo);
 
   return cachedUserInfo || undefined;
 }

@@ -106,9 +106,105 @@ function startServerOnPort(port: number): Promise<LoopbackServer> {
       const error = url.searchParams.get('error');
       const error_description = url.searchParams.get('error_description');
 
-      // Respond with simple HTML
+      // Respond with enterprise-grade success page
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-      res.end('<html><body><h1>Authentication Complete</h1><p>You can close this window.</p></body></html>');
+      res.end(`<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sign-in Successful - WR Desk</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+      background: #f8fafc;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #1e293b;
+    }
+    .container {
+      text-align: center;
+      padding: 48px 32px;
+      max-width: 400px;
+    }
+    .icon {
+      width: 56px;
+      height: 56px;
+      margin: 0 auto 24px;
+      background: #f0fdf4;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .icon svg {
+      width: 28px;
+      height: 28px;
+      stroke: #22c55e;
+      stroke-width: 2.5;
+      fill: none;
+    }
+    h1 {
+      font-size: 20px;
+      font-weight: 600;
+      color: #0f172a;
+      margin-bottom: 12px;
+      letter-spacing: -0.01em;
+    }
+    .message {
+      font-size: 14px;
+      color: #64748b;
+      line-height: 1.6;
+      margin-bottom: 32px;
+    }
+    .primary-btn {
+      display: inline-block;
+      padding: 12px 24px;
+      background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
+      color: #fff;
+      font-size: 14px;
+      font-weight: 500;
+      text-decoration: none;
+      border-radius: 8px;
+      transition: transform 0.15s ease, box-shadow 0.15s ease;
+      box-shadow: 0 1px 3px rgba(99, 102, 241, 0.3);
+    }
+    .primary-btn:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 4px 12px rgba(99, 102, 241, 0.4);
+    }
+    .secondary-link {
+      display: block;
+      margin-top: 16px;
+      font-size: 13px;
+      color: #94a3b8;
+      text-decoration: none;
+      cursor: pointer;
+    }
+    .secondary-link:hover {
+      color: #64748b;
+      text-decoration: underline;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="icon">
+      <svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"></polyline></svg>
+    </div>
+    <h1>Sign-in successful</h1>
+    <p class="message">
+      Authentication is complete.<br>
+      You can now return to WR Desk.
+    </p>
+    <a href="javascript:window.close()" class="primary-btn">Return to WR Desk</a>
+    <a href="javascript:window.close()" class="secondary-link">Close this tab</a>
+  </div>
+</body>
+</html>`);
 
       // Resolve with result
       resolveCode({ code, state, error, error_description });

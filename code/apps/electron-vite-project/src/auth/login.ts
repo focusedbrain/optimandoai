@@ -17,7 +17,7 @@ export interface OidcTokens {
 // Timeout for waiting on user login (120 seconds)
 const LOGIN_TIMEOUT_MS = 120_000;
 
-// Known OIDC error codes
+// Known OIDC error codes (authorization endpoint)
 const OIDC_USER_ERRORS: Record<string, string> = {
   access_denied: 'User denied access or cancelled login',
   login_required: 'Login is required',
@@ -25,6 +25,62 @@ const OIDC_USER_ERRORS: Record<string, string> = {
   interaction_required: 'User interaction is required',
   invalid_request: 'Invalid authorization request',
 };
+
+// Known token exchange errors with user-friendly hints (no secrets exposed)
+const TOKEN_EXCHANGE_ERRORS: Record<string, string> = {
+  invalid_grant: 'Authorization code expired or already used. Please try logging in again.',
+  redirect_uri_mismatch: 'Redirect URI mismatch. Keycloak client needs: http://127.0.0.1:62151/* through http://127.0.0.1:62155/*',
+  invalid_client: 'Client authentication failed. Check Keycloak client configuration.',
+  unauthorized_client: 'Client not authorized for this grant type. Enable "Standard flow" in Keycloak.',
+  invalid_request: 'Missing required parameter in token request.',
+  unsupported_grant_type: 'Grant type not supported. Enable "Authorization Code" flow in Keycloak.',
+};
+
+/**
+ * Parse Keycloak token error response and return user-friendly message
+ * Does NOT expose tokens, secrets, or full error details
+ */
+function parseTokenError(statusCode: number, responseText: string): string {
+  // Try to parse as JSON (Keycloak error format)
+  try {
+    const errorObj = JSON.parse(responseText);
+    const errorCode = errorObj.error as string | undefined;
+    const errorDesc = errorObj.error_description as string | undefined;
+    
+    // Check for known error codes
+    if (errorCode && TOKEN_EXCHANGE_ERRORS[errorCode]) {
+      console.log('[AUTH] Token exchange error: code=' + errorCode);
+      return TOKEN_EXCHANGE_ERRORS[errorCode];
+    }
+    
+    // Check for redirect_uri_mismatch in description (some Keycloak versions)
+    if (errorDesc?.toLowerCase().includes('redirect')) {
+      console.log('[AUTH] Token exchange error: redirect_uri issue detected');
+      return TOKEN_EXCHANGE_ERRORS['redirect_uri_mismatch'];
+    }
+    
+    // Generic error with code only (no description to avoid leaking info)
+    if (errorCode) {
+      console.log('[AUTH] Token exchange error: code=' + errorCode);
+      return `Token exchange failed: ${errorCode}. Check Keycloak client configuration.`;
+    }
+  } catch {
+    // Not JSON - check for common substrings in plain text
+    const lowerText = responseText.toLowerCase();
+    if (lowerText.includes('redirect')) {
+      console.log('[AUTH] Token exchange error: redirect_uri issue detected in response');
+      return TOKEN_EXCHANGE_ERRORS['redirect_uri_mismatch'];
+    }
+    if (lowerText.includes('invalid_grant') || lowerText.includes('expired')) {
+      console.log('[AUTH] Token exchange error: invalid_grant detected in response');
+      return TOKEN_EXCHANGE_ERRORS['invalid_grant'];
+    }
+  }
+  
+  // Fallback - generic message with status code only
+  console.log('[AUTH] Token exchange error: status=' + statusCode);
+  return `Token exchange failed (HTTP ${statusCode}). Check Keycloak client configuration.`;
+}
 
 /**
  * Perform Keycloak OIDC login via system browser with PKCE
@@ -71,6 +127,9 @@ export async function loginWithKeycloak(): Promise<OidcTokens> {
     authUrl.searchParams.set('state', state);
     authUrl.searchParams.set('nonce', nonce);
 
+    // [CHECKPOINT C] Log redirect origin only (no secrets)
+    console.log('[AUTH][C] Login start: redirectOrigin=' + authUrl.origin + ', loopbackPort=' + new URL(loopback.redirectUri).port);
+
     // Open system browser
     await open(authUrl.toString());
 
@@ -79,6 +138,10 @@ export async function loginWithKeycloak(): Promise<OidcTokens> {
 
     // Clear timeout on success
     if (timeoutId) clearTimeout(timeoutId);
+
+    // [CHECKPOINT D] Log callback received (no secrets)
+    const stateMatched = result.state === state;
+    console.log('[AUTH][D] Callback received: port=' + new URL(loopback.redirectUri).port + ', stateMatched=' + stateMatched + ', hasCode=' + !!result.code + ', hasError=' + !!result.error);
 
     // Handle OIDC errors explicitly
     if (result.error) {
@@ -114,7 +177,9 @@ export async function loginWithKeycloak(): Promise<OidcTokens> {
 
     if (!response.ok) {
       const errorText = await response.text();
-      throw new Error(`Token exchange failed: ${response.status} ${errorText}`);
+      // Parse error and provide user-friendly message (no secrets)
+      const userMessage = parseTokenError(response.status, errorText);
+      throw new Error(userMessage);
     }
 
     const tokens = await response.json();

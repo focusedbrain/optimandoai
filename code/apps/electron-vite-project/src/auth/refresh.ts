@@ -4,6 +4,7 @@ import { fetchDiscovery, getCachedDiscovery } from './discovery';
 export interface RefreshTokenResponse {
   access_token: string;
   refresh_token?: string;
+  id_token?: string;  // OIDC refresh may return updated id_token
   expires_in: number;
   token_type: string;
   scope?: string;

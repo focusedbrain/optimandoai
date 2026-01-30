@@ -1317,7 +1317,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   
   // Handle SSO login request
   // If Electron is available, triggers SSO via backend
-  // If Electron is not reachable, opens wrdesk.com for web-based login
+  // If Electron is not reachable, fail-closed with structured error (NO web fallback)
   if (msg && msg.type === 'AUTH_LOGIN') {
     console.log('[BG] AUTH_LOGIN request received');
     (async () => {
@@ -1328,14 +1328,23 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           signal: AbortSignal.timeout(3000),
         }).catch(() => null);
         
-        if (!healthCheck || !healthCheck.ok) {
-          // Electron not reachable - open wrdesk.com for login
-          console.log('[BG] AUTH_LOGIN: Electron not reachable, opening wrdesk.com');
-          await chrome.tabs.create({ url: 'https://wrdesk.com', active: true });
-          sendResponse({ ok: false, error: 'Electron not running - opened wrdesk.com for login', openedTab: true });
+        // [CHECKPOINT A] Log health check result and decision branch
+        const electronReachable = healthCheck && healthCheck.ok;
+        console.log('[BG][A] Health check: electronReachable=' + electronReachable + ', status=' + (healthCheck?.status ?? 'null'));
+        
+        if (!electronReachable) {
+          // FAIL-CLOSED: Electron not reachable - return structured error, do NOT open wrdesk.com
+          console.log('[AUTH] Electron not reachable -> fail-closed (no web fallback)');
+          sendResponse({ 
+            ok: false, 
+            electronNotRunning: true, 
+            error: 'Desktop app is not running. Please start it first.' 
+          });
           return;
         }
         
+        // [CHECKPOINT A] Electron available path
+        console.log('[BG][A] Decision: ELECTRON_SSO (Electron reachable, triggering SSO)');
         // Electron is available - trigger SSO login
         const response = await fetch(`${ELECTRON_BASE_URL}/api/auth/login`, {
           method: 'POST',
@@ -1354,9 +1363,12 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         sendResponse({ ok: data.ok, error: data.error, tier: data.tier });
       } catch (e: any) {
         console.error('[BG] AUTH_LOGIN error:', e.message);
-        // Fallback: open wrdesk.com
-        await chrome.tabs.create({ url: 'https://wrdesk.com', active: true });
-        sendResponse({ ok: false, error: e.message, openedTab: true });
+        // FAIL-CLOSED: Return error, do NOT open wrdesk.com
+        sendResponse({ 
+          ok: false, 
+          electronNotRunning: true, 
+          error: 'Desktop app is not running. Please start it first.' 
+        });
       }
     })();
     return true; // Keep channel open for async response
@@ -1373,7 +1385,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           signal: AbortSignal.timeout(5000),
         });
         const data = await response.json();
-        console.log('[BG] AUTH_STATUS response:', data);
+        // [CHECKPOINT B] Log status response (no secrets)
+        console.log('[BG][B] AUTH_STATUS response: loggedIn=' + data.loggedIn + ', tier=' + (data.tier ?? 'null') + ', hasDisplayName=' + !!data.displayName);
         // Update stored state (including user info, tier, and picture for cached display)
         await chrome.storage.local.set({ 
           authLoggedIn: data.loggedIn,

@@ -33,13 +33,30 @@ export default defineConfig({
         vite: {
           build: {
             rollupOptions: {
-              // pdfjs-dist is NOT externalized - it will be bundled
-              // canvas (node-canvas), keytar are externalized (native modules)
+              // Only NATIVE MODULES should be externalized
+              // All pure JS packages must be bundled to avoid runtime resolution
               // electron is externalized to use runtime import
-              external: ['electron', 'bufferutil', 'utf-8-validate', 'fluent-ffmpeg', 'ffmpeg-static', 'pg', 'libsodium-wrappers', '@journeyapps/sqlcipher', 'tesseract.js', 'canvas', 'keytar', 'open', 'jose'],
+              external: [
+                'electron',           // Runtime: Electron APIs
+                'bufferutil',         // Native: WebSocket optimization
+                'utf-8-validate',     // Native: WebSocket validation
+                'libsodium-wrappers', // Native: Crypto bindings
+                '@journeyapps/sqlcipher', // Native: SQLite encryption
+                'tesseract.js',       // Has worker files that need runtime resolution
+                'canvas',             // Native: node-canvas
+                'keytar',             // Native: OS keychain
+                'better-sqlite3',     // Native: SQLite bindings
+              ],
               output: {
                 // Use 'auto' interop for CommonJS modules like electron
-                interop: 'auto'
+                interop: 'auto',
+                // Inject __dirname and __filename shims for CommonJS packages bundled in ESM
+                intro: `
+import { fileURLToPath as ___fileURLToPath } from 'url';
+import { dirname as ___dirname } from 'path';
+const __filename = ___fileURLToPath(import.meta.url);
+const __dirname = ___dirname(__filename);
+`
               }
             }
           },

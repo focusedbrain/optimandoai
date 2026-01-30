@@ -156,6 +156,19 @@ export function BackendSwitcherInline({ theme = 'standard' }: BackendSwitcherInl
     return nameOrEmail.charAt(0).toUpperCase();
   }
 
+  // Helper to get abbreviated name (First Name + First Initial of Last Name)
+  // e.g., "Oscar Smith" -> "Oscar S." to reduce PII exposure
+  function getAbbreviatedName(displayName?: string): string {
+    if (!displayName) return '';
+    const parts = displayName.trim().split(/\s+/);
+    if (parts.length >= 2) {
+      const firstName = parts[0];
+      const lastInitial = parts[parts.length - 1].charAt(0).toUpperCase();
+      return `${firstName} ${lastInitial}.`;
+    }
+    return parts[0]; // Just first name if no last name
+  }
+
   // Handle Sign In click - starts OIDC auth flow
   const handleSignIn = async () => {
     if (isLoggingIn) return;
@@ -413,7 +426,7 @@ export function BackendSwitcherInline({ theme = 'standard' }: BackendSwitcherInl
                       </div>
                     )}
                     <span style={{ maxWidth: '80px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {userInfo.displayName || userInfo.email || 'Account'}
+                      {getAbbreviatedName(userInfo.displayName) || userInfo.email || 'Account'}
                     </span>
                     <ChevronDownIcon color={textColor} />
                   </button>
@@ -563,37 +576,6 @@ export function BackendSwitcherInline({ theme = 'standard' }: BackendSwitcherInl
                     </div>
                   )}
                 </div>
-
-                {/* Visible Logout Link (always visible next to avatar) */}
-                <button
-                  onClick={handleLogout}
-                  disabled={isLoggingOut}
-                  style={{
-                    padding: '4px 8px',
-                    background: 'transparent',
-                    border: 'none',
-                    color: '#ef4444',
-                    fontSize: '11px',
-                    fontWeight: '400',
-                    cursor: isLoggingOut ? 'wait' : 'pointer',
-                    transition: 'all 0.15s ease',
-                    opacity: isLoggingOut ? 0.6 : 0.85,
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '4px'
-                  }}
-                  onMouseEnter={(e) => {
-                    if (!isLoggingOut) {
-                      e.currentTarget.style.opacity = '1';
-                    }
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.opacity = isLoggingOut ? '0.6' : '0.85';
-                  }}
-                >
-                  <LogoutIcon color="#ef4444" />
-                  {isLoggingOut ? '...' : 'Logout'}
-                </button>
               </>
             )}
           </div>
