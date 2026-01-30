@@ -141,6 +141,100 @@ function SidepanelOrchestrator() {
   const [notification, setNotification] = useState<{message: string, type: 'success' | 'error' | 'info'} | null>(null)
   const [theme, setTheme] = useState<'pro' | 'dark' | 'standard'>('standard')
   
+  // ==========================================================================
+  // AUTH-GATED UI STATE (mirrors popup-chat.tsx)
+  // ==========================================================================
+  const [isLoggedIn, setIsLoggedIn] = useState<boolean | null>(null)  // null = loading
+  const [isLoggingIn, setIsLoggingIn] = useState(false)
+  const [isLoggingOut, setIsLoggingOut] = useState(false)
+  const [authUserInfo, setAuthUserInfo] = useState<{ displayName?: string; email?: string; initials?: string; picture?: string }>({})
+  
+  // Check auth status on mount and periodically
+  useEffect(() => {
+    const checkAuthStatus = () => {
+      chrome.runtime.sendMessage({ type: 'AUTH_STATUS' }, (response: { loggedIn?: boolean; displayName?: string; email?: string; initials?: string; picture?: string } | undefined) => {
+        if (chrome.runtime.lastError) {
+          console.warn('[AUTH] Sidepanel status check failed:', chrome.runtime.lastError.message);
+          setIsLoggedIn(false);
+          return;
+        }
+        if (response?.loggedIn) {
+          setIsLoggedIn(true);
+          setAuthUserInfo({
+            displayName: response.displayName,
+            email: response.email,
+            initials: response.initials,
+            picture: response.picture,
+          });
+        } else {
+          setIsLoggedIn(false);
+          setAuthUserInfo({});
+        }
+      });
+    };
+
+    checkAuthStatus();
+    // Refresh auth status every 30 seconds (same as popup-chat)
+    const interval = setInterval(checkAuthStatus, 30000);
+    return () => clearInterval(interval);
+  }, []);
+  
+  // Open wrdesk.com when logged out (once per sidepanel open, no tab spam)
+  const hasTriedOpeningWrdeskRef = useRef(false);
+  useEffect(() => {
+    // Only trigger when isLoggedIn is definitively false (not null/loading)
+    // And only once per sidepanel open (tracked by ref)
+    if (isLoggedIn === false && !hasTriedOpeningWrdeskRef.current) {
+      hasTriedOpeningWrdeskRef.current = true;
+      chrome.runtime.sendMessage({ type: 'OPEN_WRDESK_HOME_IF_NEEDED' }, (response) => {
+        if (chrome.runtime.lastError) {
+          console.warn('[AUTH] Sidepanel: Failed to open wrdesk.com:', chrome.runtime.lastError.message);
+        } else {
+          console.log('[AUTH] Sidepanel: Open wrdesk.com result:', response?.action);
+        }
+      });
+    }
+  }, [isLoggedIn]);
+  
+  // Handle Sign In click
+  const handleAuthSignIn = () => {
+    if (isLoggingIn) return;
+    setIsLoggingIn(true);
+    chrome.runtime.sendMessage({ type: 'AUTH_LOGIN' }, (response) => {
+      setIsLoggingIn(false);
+      if (response?.ok) {
+        setIsLoggedIn(true);
+        // Fetch updated user info
+        chrome.runtime.sendMessage({ type: 'AUTH_STATUS' }, (statusResponse: { loggedIn?: boolean; displayName?: string; email?: string; initials?: string; picture?: string } | undefined) => {
+          if (statusResponse?.loggedIn) {
+            setAuthUserInfo({
+              displayName: statusResponse.displayName,
+              email: statusResponse.email,
+              initials: statusResponse.initials,
+              picture: statusResponse.picture,
+            });
+          }
+        });
+      }
+    });
+  };
+  
+  // Handle Create Account click
+  const handleAuthCreateAccount = () => {
+    chrome.runtime.sendMessage({ type: 'OPEN_REGISTER_PAGE' });
+  };
+  
+  // Handle Logout click (used by BackendSwitcherInline, but we track state here too)
+  const handleAuthLogout = () => {
+    if (isLoggingOut) return;
+    setIsLoggingOut(true);
+    chrome.runtime.sendMessage({ type: 'AUTH_LOGOUT' }, () => {
+      setIsLoggingOut(false);
+      setIsLoggedIn(false);
+      setAuthUserInfo({});
+    });
+  };
+  
   // WR MailGuard state
   const [mailguardTo, setMailguardTo] = useState('')
   const [mailguardCapsulePolicy, setMailguardCapsulePolicy] = useState<CanonicalPolicy | null>(null)
@@ -3473,6 +3567,159 @@ function SidepanelOrchestrator() {
       </div>
     )
   }
+
+  // ==========================================================================
+  // AUTH-GATED UI: Show minimal login screen when not logged in
+  // ==========================================================================
+  
+  // Loading state - show simple loading indicator
+  if (isLoggedIn === null) {
+    return (
+      <div style={{
+        width: '100%',
+        minHeight: '100vh',
+        fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
+        background: themeColors.background,
+        color: themeColors.text,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center'
+      }}>
+        <div style={{
+          fontSize: '13px',
+          color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.7)',
+          textAlign: 'center'
+        }}>
+          Loading...
+        </div>
+      </div>
+    )
+  }
+  
+  // Logged-out state: Show ONLY logo + Sign In + Create Account
+  if (!isLoggedIn) {
+    const accentColor = theme === 'standard' ? '#6366f1' : '#a78bfa'
+    const mutedColor = theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.7)'
+    
+    return (
+      <div style={{
+        width: '100%',
+        minHeight: '100vh',
+        fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
+        background: themeColors.background,
+        color: themeColors.text,
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: '40px 24px',
+        gap: '24px',
+        boxSizing: 'border-box'
+      }}>
+        {/* WRDesk Logo */}
+        <div style={{ textAlign: 'center' }}>
+          <img 
+            src={chrome.runtime.getURL('wrdesk-logo.png')}
+            alt="WR Desk"
+            style={{
+              width: '180px',
+              height: 'auto',
+              marginBottom: '16px'
+            }}
+          />
+          <p style={{
+            fontSize: '13px',
+            color: mutedColor,
+            margin: '0 0 8px 0',
+            lineHeight: '1.5'
+          }}>
+            Workflow-Ready Desk
+          </p>
+          <p style={{
+            fontSize: '11px',
+            color: mutedColor,
+            margin: 0,
+            opacity: 0.8
+          }}>
+            Sign in to access your dashboard
+          </p>
+        </div>
+        
+        {/* Sign In Button */}
+        <button
+          onClick={handleAuthSignIn}
+          disabled={isLoggingIn}
+          style={{
+            padding: '12px 32px',
+            background: theme === 'standard' 
+              ? 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)' 
+              : 'linear-gradient(135deg, #a78bfa 0%, #8b5cf6 100%)',
+            border: 'none',
+            borderRadius: '8px',
+            color: '#fff',
+            fontSize: '14px',
+            fontWeight: '600',
+            cursor: isLoggingIn ? 'wait' : 'pointer',
+            transition: 'all 0.2s ease',
+            opacity: isLoggingIn ? 0.7 : 1,
+            boxShadow: '0 2px 8px rgba(99,102,241,0.3)',
+            minWidth: '160px'
+          }}
+          onMouseEnter={(e) => {
+            if (!isLoggingIn) {
+              e.currentTarget.style.transform = 'translateY(-2px)';
+              e.currentTarget.style.boxShadow = '0 4px 12px rgba(99,102,241,0.4)';
+            }
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.transform = 'translateY(0)';
+            e.currentTarget.style.boxShadow = '0 2px 8px rgba(99,102,241,0.3)';
+          }}
+        >
+          {isLoggingIn ? 'Signing in...' : 'Sign in with wrdesk.com'}
+        </button>
+        
+        {/* Create Account Link */}
+        <button
+          onClick={handleAuthCreateAccount}
+          style={{
+            padding: '8px 16px',
+            background: 'transparent',
+            border: 'none',
+            color: accentColor,
+            fontSize: '13px',
+            fontWeight: '500',
+            cursor: 'pointer',
+            transition: 'all 0.15s ease'
+          }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.textDecoration = 'underline';
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.textDecoration = 'none';
+          }}
+        >
+          Create Account
+        </button>
+        
+        {/* Signing in status message */}
+        {isLoggingIn && (
+          <p style={{
+            fontSize: '11px',
+            color: mutedColor,
+            margin: 0,
+            textAlign: 'center'
+          }}>
+            A browser window will open for secure sign-in...
+          </p>
+        )}
+      </div>
+    )
+  }
+
+  // ==========================================================================
+  // LOGGED-IN STATE: Show full dashboard UI below
+  // ==========================================================================
 
   // Minimal UI for display grids and Edge startpage
   if (showMinimalUI) {

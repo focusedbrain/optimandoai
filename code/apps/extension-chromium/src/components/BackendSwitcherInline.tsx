@@ -31,6 +31,8 @@ interface AuthStatusResponse {
   displayName?: string;
   email?: string;
   initials?: string;
+  picture?: string;
+  tier?: string;
 }
 
 // Chevron down icon for dropdown
@@ -90,8 +92,9 @@ export function BackendSwitcherInline({ theme = 'standard' }: BackendSwitcherInl
   const [isLoggingIn, setIsLoggingIn] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
-  const [userInfo, setUserInfo] = useState<{ displayName?: string; email?: string; initials?: string }>({});
+  const [userInfo, setUserInfo] = useState<{ displayName?: string; email?: string; initials?: string; picture?: string }>({});
   const [showAccountDropdown, setShowAccountDropdown] = useState(false);
+  const [pictureError, setPictureError] = useState(false);  // Track if picture failed to load
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   // Close dropdown when clicking outside
@@ -118,10 +121,12 @@ export function BackendSwitcherInline({ theme = 'standard' }: BackendSwitcherInl
         }
         if (response?.loggedIn) {
           setIsLoggedIn(true);
+          setPictureError(false);  // Reset picture error on new status
           setUserInfo({
             displayName: response.displayName,
             email: response.email,
             initials: response.initials || getInitials(response.displayName || response.email),
+            picture: response.picture,
           });
         } else {
           setIsLoggedIn(false);
@@ -164,6 +169,7 @@ export function BackendSwitcherInline({ theme = 'standard' }: BackendSwitcherInl
         }
         if (response?.ok) {
           setIsLoggedIn(true);
+          setPictureError(false);
           // Fetch user info after successful login
           chrome.runtime.sendMessage({ type: 'AUTH_STATUS' }, (statusResponse: AuthStatusResponse | undefined) => {
             if (statusResponse?.loggedIn) {
@@ -171,6 +177,7 @@ export function BackendSwitcherInline({ theme = 'standard' }: BackendSwitcherInl
                 displayName: statusResponse.displayName,
                 email: statusResponse.email,
                 initials: statusResponse.initials || getInitials(statusResponse.displayName || statusResponse.email),
+                picture: statusResponse.picture,
               });
             }
           });
@@ -207,10 +214,10 @@ export function BackendSwitcherInline({ theme = 'standard' }: BackendSwitcherInl
     }
   };
 
-  // Handle Create Account click - opens registration page
-  // Routes to wrdesk.com landing page (registration form is on the homepage)
+  // Handle Create Account click - opens registration page and highlights form
+  // Uses background script to open tab and inject highlight script
   const handleCreateAccount = () => {
-    window.open('https://wrdesk.com', '_blank');
+    chrome.runtime.sendMessage({ type: 'OPEN_REGISTER_PAGE' });
   };
 
   // Helper to scale font sizes
@@ -335,165 +342,259 @@ export function BackendSwitcherInline({ theme = 'standard' }: BackendSwitcherInl
               </>
             ) : (
               /* ========== LOGGED-IN STATE ========== */
-              /* Account dropdown with avatar, profile, and logout */
-              <div ref={dropdownRef} style={{ position: 'relative' }}>
-                {/* Account Button with Avatar */}
+              /* Avatar/initials + visible Logout link + dropdown for more options */
+              <>
+                <div ref={dropdownRef} style={{ position: 'relative' }}>
+                  {/* Account Button with Avatar/Picture */}
+                  <button
+                    onClick={() => setShowAccountDropdown(!showAccountDropdown)}
+                    disabled={isLoggingOut}
+                    style={{
+                      padding: '4px 10px 4px 4px',
+                      background: showAccountDropdown 
+                        ? (effectiveTheme === 'standard' ? 'rgba(15,23,42,0.08)' : 'rgba(255,255,255,0.12)')
+                        : 'transparent',
+                      border: effectiveTheme === 'standard' ? '1px solid rgba(15,23,42,0.15)' : '1px solid rgba(255,255,255,0.2)',
+                      borderRadius: '6px',
+                      color: textColor,
+                      fontSize: '11px',
+                      fontWeight: '400',
+                      cursor: isLoggingOut ? 'wait' : 'pointer',
+                      transition: 'all 0.15s ease',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      opacity: isLoggingOut ? 0.6 : 1
+                    }}
+                    onMouseEnter={(e) => {
+                      if (!isLoggingOut) {
+                        e.currentTarget.style.background = effectiveTheme === 'standard' ? 'rgba(15,23,42,0.06)' : 'rgba(255,255,255,0.1)';
+                      }
+                    }}
+                    onMouseLeave={(e) => {
+                      if (!showAccountDropdown) {
+                        e.currentTarget.style.background = 'transparent';
+                      }
+                    }}
+                  >
+                    {/* Avatar: Show picture if available, otherwise show initials */}
+                    {userInfo.picture && !pictureError ? (
+                      <img
+                        src={userInfo.picture}
+                        alt=""
+                        onError={() => setPictureError(true)}
+                        style={{
+                          width: '22px',
+                          height: '22px',
+                          borderRadius: '50%',
+                          objectFit: 'cover',
+                          border: effectiveTheme === 'standard' 
+                            ? '1px solid rgba(15,23,42,0.1)'
+                            : '1px solid rgba(255,255,255,0.2)'
+                        }}
+                      />
+                    ) : (
+                      <div style={{
+                        width: '22px',
+                        height: '22px',
+                        borderRadius: '50%',
+                        background: effectiveTheme === 'standard' 
+                          ? 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)'
+                          : 'linear-gradient(135deg, #a78bfa 0%, #8b5cf6 100%)',
+                        color: '#fff',
+                        fontSize: '10px',
+                        fontWeight: '600',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        textTransform: 'uppercase'
+                      }}>
+                        {userInfo.initials || '?'}
+                      </div>
+                    )}
+                    <span style={{ maxWidth: '80px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {userInfo.displayName || userInfo.email || 'Account'}
+                    </span>
+                    <ChevronDownIcon color={textColor} />
+                  </button>
+
+                  {/* Dropdown Menu */}
+                  {showAccountDropdown && (
+                    <div style={{
+                      position: 'absolute',
+                      top: 'calc(100% + 4px)',
+                      left: '0',
+                      minWidth: '170px',
+                      background: effectiveTheme === 'standard' ? '#fff' : '#1e293b',
+                      border: effectiveTheme === 'standard' ? '1px solid rgba(15,23,42,0.1)' : '1px solid rgba(255,255,255,0.15)',
+                      borderRadius: '8px',
+                      boxShadow: effectiveTheme === 'standard' 
+                        ? '0 4px 12px rgba(0,0,0,0.1), 0 2px 4px rgba(0,0,0,0.05)'
+                        : '0 4px 12px rgba(0,0,0,0.3), 0 2px 4px rgba(0,0,0,0.2)',
+                      padding: '4px',
+                      zIndex: 1000
+                    }}>
+                      {/* User Info Header */}
+                      <div style={{
+                        padding: '8px 10px',
+                        borderBottom: effectiveTheme === 'standard' ? '1px solid rgba(15,23,42,0.08)' : '1px solid rgba(255,255,255,0.1)',
+                        marginBottom: '4px'
+                      }}>
+                        <div style={{ fontSize: '11px', fontWeight: '500', color: textColor }}>
+                          {userInfo.displayName || 'User'}
+                        </div>
+                        {userInfo.email && (
+                          <div style={{ fontSize: '10px', color: mutedColor, marginTop: '2px' }}>
+                            {userInfo.email}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Profile / Account Settings Option */}
+                      <button
+                        onClick={() => {
+                          setShowAccountDropdown(false);
+                          window.open('https://auth.wrdesk.com/realms/wrdesk/account', '_blank');
+                        }}
+                        style={{
+                          width: '100%',
+                          padding: '8px 10px',
+                          background: 'transparent',
+                          border: 'none',
+                          borderRadius: '4px',
+                          color: textColor,
+                          fontSize: '11px',
+                          fontWeight: '400',
+                          cursor: 'pointer',
+                          transition: 'all 0.15s ease',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '8px',
+                          textAlign: 'left'
+                        }}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.background = effectiveTheme === 'standard' ? 'rgba(15,23,42,0.05)' : 'rgba(255,255,255,0.08)';
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.background = 'transparent';
+                        }}
+                      >
+                        <UserIcon color={mutedColor} />
+                        Profile
+                      </button>
+
+                      {/* Upload Profile Image Option (MVP: opens account page) */}
+                      <button
+                        onClick={() => {
+                          setShowAccountDropdown(false);
+                          window.open('https://auth.wrdesk.com/realms/wrdesk/account/#/personal-info', '_blank');
+                        }}
+                        style={{
+                          width: '100%',
+                          padding: '8px 10px',
+                          background: 'transparent',
+                          border: 'none',
+                          borderRadius: '4px',
+                          color: textColor,
+                          fontSize: '11px',
+                          fontWeight: '400',
+                          cursor: 'pointer',
+                          transition: 'all 0.15s ease',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '8px',
+                          textAlign: 'left'
+                        }}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.background = effectiveTheme === 'standard' ? 'rgba(15,23,42,0.05)' : 'rgba(255,255,255,0.08)';
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.background = 'transparent';
+                        }}
+                      >
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={mutedColor} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+                          <circle cx="8.5" cy="8.5" r="1.5" />
+                          <polyline points="21 15 16 10 5 21" />
+                        </svg>
+                        Upload image
+                      </button>
+
+                      {/* Divider */}
+                      <div style={{
+                        height: '1px',
+                        background: effectiveTheme === 'standard' ? 'rgba(15,23,42,0.08)' : 'rgba(255,255,255,0.1)',
+                        margin: '4px 0'
+                      }} />
+
+                      {/* Logout Option */}
+                      <button
+                        onClick={handleLogout}
+                        disabled={isLoggingOut}
+                        style={{
+                          width: '100%',
+                          padding: '8px 10px',
+                          background: 'transparent',
+                          border: 'none',
+                          borderRadius: '4px',
+                          color: '#ef4444',
+                          fontSize: '11px',
+                          fontWeight: '400',
+                          cursor: isLoggingOut ? 'wait' : 'pointer',
+                          transition: 'all 0.15s ease',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '8px',
+                          textAlign: 'left',
+                          opacity: isLoggingOut ? 0.6 : 1
+                        }}
+                        onMouseEnter={(e) => {
+                          if (!isLoggingOut) {
+                            e.currentTarget.style.background = 'rgba(239,68,68,0.08)';
+                          }
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.background = 'transparent';
+                        }}
+                      >
+                        <LogoutIcon color="#ef4444" />
+                        {isLoggingOut ? 'Signing out...' : 'Sign out'}
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+                {/* Visible Logout Link (always visible next to avatar) */}
                 <button
-                  onClick={() => setShowAccountDropdown(!showAccountDropdown)}
+                  onClick={handleLogout}
                   disabled={isLoggingOut}
                   style={{
-                    padding: '4px 10px 4px 4px',
-                    background: showAccountDropdown 
-                      ? (effectiveTheme === 'standard' ? 'rgba(15,23,42,0.08)' : 'rgba(255,255,255,0.12)')
-                      : 'transparent',
-                    border: effectiveTheme === 'standard' ? '1px solid rgba(15,23,42,0.15)' : '1px solid rgba(255,255,255,0.2)',
-                    borderRadius: '6px',
-                    color: textColor,
+                    padding: '4px 8px',
+                    background: 'transparent',
+                    border: 'none',
+                    color: '#ef4444',
                     fontSize: '11px',
                     fontWeight: '400',
                     cursor: isLoggingOut ? 'wait' : 'pointer',
                     transition: 'all 0.15s ease',
+                    opacity: isLoggingOut ? 0.6 : 0.85,
                     display: 'flex',
                     alignItems: 'center',
-                    gap: '6px',
-                    opacity: isLoggingOut ? 0.6 : 1
+                    gap: '4px'
                   }}
                   onMouseEnter={(e) => {
                     if (!isLoggingOut) {
-                      e.currentTarget.style.background = effectiveTheme === 'standard' ? 'rgba(15,23,42,0.06)' : 'rgba(255,255,255,0.1)';
+                      e.currentTarget.style.opacity = '1';
                     }
                   }}
                   onMouseLeave={(e) => {
-                    if (!showAccountDropdown) {
-                      e.currentTarget.style.background = 'transparent';
-                    }
+                    e.currentTarget.style.opacity = isLoggingOut ? '0.6' : '0.85';
                   }}
                 >
-                  {/* Avatar Circle with Initials */}
-                  <div style={{
-                    width: '22px',
-                    height: '22px',
-                    borderRadius: '50%',
-                    background: effectiveTheme === 'standard' 
-                      ? 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)'
-                      : 'linear-gradient(135deg, #a78bfa 0%, #8b5cf6 100%)',
-                    color: '#fff',
-                    fontSize: '10px',
-                    fontWeight: '600',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    textTransform: 'uppercase'
-                  }}>
-                    {userInfo.initials || '?'}
-                  </div>
-                  <span style={{ maxWidth: '80px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {userInfo.displayName || userInfo.email || 'Account'}
-                  </span>
-                  <ChevronDownIcon color={textColor} />
+                  <LogoutIcon color="#ef4444" />
+                  {isLoggingOut ? '...' : 'Logout'}
                 </button>
-
-                {/* Dropdown Menu */}
-                {showAccountDropdown && (
-                  <div style={{
-                    position: 'absolute',
-                    top: 'calc(100% + 4px)',
-                    left: '0',
-                    minWidth: '160px',
-                    background: effectiveTheme === 'standard' ? '#fff' : '#1e293b',
-                    border: effectiveTheme === 'standard' ? '1px solid rgba(15,23,42,0.1)' : '1px solid rgba(255,255,255,0.15)',
-                    borderRadius: '8px',
-                    boxShadow: effectiveTheme === 'standard' 
-                      ? '0 4px 12px rgba(0,0,0,0.1), 0 2px 4px rgba(0,0,0,0.05)'
-                      : '0 4px 12px rgba(0,0,0,0.3), 0 2px 4px rgba(0,0,0,0.2)',
-                    padding: '4px',
-                    zIndex: 1000
-                  }}>
-                    {/* User Info Header */}
-                    <div style={{
-                      padding: '8px 10px',
-                      borderBottom: effectiveTheme === 'standard' ? '1px solid rgba(15,23,42,0.08)' : '1px solid rgba(255,255,255,0.1)',
-                      marginBottom: '4px'
-                    }}>
-                      <div style={{ fontSize: '11px', fontWeight: '500', color: textColor }}>
-                        {userInfo.displayName || 'User'}
-                      </div>
-                      {userInfo.email && (
-                        <div style={{ fontSize: '10px', color: mutedColor, marginTop: '2px' }}>
-                          {userInfo.email}
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Profile Option */}
-                    <button
-                      onClick={() => {
-                        setShowAccountDropdown(false);
-                        window.open('https://auth.wrdesk.com/realms/wrdesk/account', '_blank');
-                      }}
-                      style={{
-                        width: '100%',
-                        padding: '8px 10px',
-                        background: 'transparent',
-                        border: 'none',
-                        borderRadius: '4px',
-                        color: textColor,
-                        fontSize: '11px',
-                        fontWeight: '400',
-                        cursor: 'pointer',
-                        transition: 'all 0.15s ease',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '8px',
-                        textAlign: 'left'
-                      }}
-                      onMouseEnter={(e) => {
-                        e.currentTarget.style.background = effectiveTheme === 'standard' ? 'rgba(15,23,42,0.05)' : 'rgba(255,255,255,0.08)';
-                      }}
-                      onMouseLeave={(e) => {
-                        e.currentTarget.style.background = 'transparent';
-                      }}
-                    >
-                      <UserIcon color={mutedColor} />
-                      Profile
-                    </button>
-
-                    {/* Logout Option */}
-                    <button
-                      onClick={handleLogout}
-                      disabled={isLoggingOut}
-                      style={{
-                        width: '100%',
-                        padding: '8px 10px',
-                        background: 'transparent',
-                        border: 'none',
-                        borderRadius: '4px',
-                        color: '#ef4444',
-                        fontSize: '11px',
-                        fontWeight: '400',
-                        cursor: isLoggingOut ? 'wait' : 'pointer',
-                        transition: 'all 0.15s ease',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '8px',
-                        textAlign: 'left',
-                        opacity: isLoggingOut ? 0.6 : 1
-                      }}
-                      onMouseEnter={(e) => {
-                        if (!isLoggingOut) {
-                          e.currentTarget.style.background = 'rgba(239,68,68,0.08)';
-                        }
-                      }}
-                      onMouseLeave={(e) => {
-                        e.currentTarget.style.background = 'transparent';
-                      }}
-                    >
-                      <LogoutIcon color="#ef4444" />
-                      {isLoggingOut ? 'Signing out...' : 'Sign out'}
-                    </button>
-                  </div>
-                )}
-              </div>
+              </>
             )}
           </div>
           <div 

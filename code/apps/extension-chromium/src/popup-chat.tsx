@@ -4,6 +4,10 @@
  * React entry for the Command Chat popup window.
  * Uses shared components from the UI library.
  * 
+ * AUTH-GATED UI:
+ * - When NOT logged in: shows ONLY WRDesk logo + Sign In + Create Account
+ * - When logged in: shows full dashboard UI
+ * 
  * MIRRORS the docked sidepanel structure exactly:
  * - dockedWorkspace: 'wr-chat' | 'augmented-overlay' | 'beap-messages' | 'wrguard'
  * - dockedSubmode: WR Chat submodes
@@ -83,9 +87,118 @@ const getInitialTheme = (): Theme => {
 // Main App Component
 // =============================================================================
 
+// =============================================================================
+// Auth Status Response Type
+// =============================================================================
+interface AuthStatusResponse {
+  loggedIn: boolean;
+  displayName?: string;
+  email?: string;
+  initials?: string;
+  picture?: string;
+  tier?: string;
+}
+
 function PopupChatApp() {
   const [theme] = useState<Theme>(getInitialTheme)
   const { role, setRole } = useUIStore()
+  
+  // ==========================================================================
+  // AUTH-GATED UI STATE
+  // ==========================================================================
+  const [isLoggedIn, setIsLoggedIn] = useState<boolean | null>(null)  // null = loading
+  const [isLoggingIn, setIsLoggingIn] = useState(false)
+  const [isLoggingOut, setIsLoggingOut] = useState(false)
+  const [userInfo, setUserInfo] = useState<{ displayName?: string; email?: string; initials?: string; picture?: string }>({})
+  const [pictureError, setPictureError] = useState(false)
+  
+  // Check auth status on mount
+  useEffect(() => {
+    const checkAuthStatus = () => {
+      chrome.runtime.sendMessage({ type: 'AUTH_STATUS' }, (response: AuthStatusResponse | undefined) => {
+        if (chrome.runtime.lastError) {
+          console.warn('[AUTH] Status check failed:', chrome.runtime.lastError.message);
+          setIsLoggedIn(false);
+          return;
+        }
+        if (response?.loggedIn) {
+          setIsLoggedIn(true);
+          setPictureError(false);
+          setUserInfo({
+            displayName: response.displayName,
+            email: response.email,
+            initials: response.initials,
+            picture: response.picture,
+          });
+        } else {
+          setIsLoggedIn(false);
+          setUserInfo({});
+        }
+      });
+    };
+
+    checkAuthStatus();
+    // Refresh auth status every 30 seconds
+    const interval = setInterval(checkAuthStatus, 30000);
+    return () => clearInterval(interval);
+  }, []);
+  
+  // Open wrdesk.com when logged out (once per popup open, no tab spam)
+  const hasTriedOpeningWrdeskRef = React.useRef(false);
+  useEffect(() => {
+    // Only trigger when isLoggedIn is definitively false (not null/loading)
+    // And only once per popup open (tracked by ref)
+    if (isLoggedIn === false && !hasTriedOpeningWrdeskRef.current) {
+      hasTriedOpeningWrdeskRef.current = true;
+      chrome.runtime.sendMessage({ type: 'OPEN_WRDESK_HOME_IF_NEEDED' }, (response) => {
+        if (chrome.runtime.lastError) {
+          console.warn('[AUTH] Failed to open wrdesk.com:', chrome.runtime.lastError.message);
+        } else {
+          console.log('[AUTH] Open wrdesk.com result:', response?.action);
+        }
+      });
+    }
+  }, [isLoggedIn]);
+  
+  // Handle Sign In click
+  const handleSignIn = () => {
+    if (isLoggingIn) return;
+    setIsLoggingIn(true);
+    chrome.runtime.sendMessage({ type: 'AUTH_LOGIN' }, (response) => {
+      setIsLoggingIn(false);
+      if (response?.ok) {
+        setIsLoggedIn(true);
+        setPictureError(false);
+        // Fetch updated user info
+        chrome.runtime.sendMessage({ type: 'AUTH_STATUS' }, (statusResponse: AuthStatusResponse | undefined) => {
+          if (statusResponse?.loggedIn) {
+            setUserInfo({
+              displayName: statusResponse.displayName,
+              email: statusResponse.email,
+              initials: statusResponse.initials,
+              picture: statusResponse.picture,
+            });
+          }
+        });
+      }
+    });
+  };
+  
+  // Handle Create Account click - opens wrdesk.com/register and highlights form
+  const handleCreateAccount = () => {
+    chrome.runtime.sendMessage({ type: 'OPEN_REGISTER_PAGE' });
+  };
+  
+  // Handle Logout click
+  const handleLogout = () => {
+    if (isLoggingOut) return;
+    setIsLoggingOut(true);
+    chrome.runtime.sendMessage({ type: 'AUTH_LOGOUT' }, () => {
+      setIsLoggingOut(false);
+      setIsLoggedIn(false);
+      setUserInfo({});
+    });
+  };
   
   // MIRRORS docked sidepanel state exactly
   const [dockedWorkspace, setDockedWorkspace] = useState<DockedWorkspace>('wr-chat')
@@ -1620,6 +1733,153 @@ function PopupChatApp() {
     ? { background: 'rgba(30, 41, 59, 0.9)', color: '#f1f5f9', arrowColor: '%23f1f5f9' }
     : { background: 'rgba(55, 65, 81, 0.85)', color: '#ffffff', arrowColor: '%23ffffff' }
 
+  // ==========================================================================
+  // AUTH-GATED UI: Show minimal login screen when not logged in
+  // ==========================================================================
+  
+  // Loading state
+  if (isLoggedIn === null) {
+    return (
+      <div style={{
+        ...containerStyles,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        minHeight: '300px'
+      }}>
+        <div style={{
+          fontSize: '13px',
+          color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.7)',
+          textAlign: 'center'
+        }}>
+          Loading...
+        </div>
+      </div>
+    )
+  }
+  
+  // Logged-out state: Show ONLY logo + Sign In + Create Account
+  if (!isLoggedIn) {
+    const accentColor = theme === 'standard' ? '#6366f1' : '#a78bfa'
+    const textColor = theme === 'standard' ? '#0f172a' : '#ffffff'
+    const mutedColor = theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.7)'
+    
+    return (
+      <div style={{
+        ...containerStyles,
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        minHeight: '400px',
+        padding: '40px 24px',
+        gap: '24px'
+      }}>
+        {/* WRDesk Logo */}
+        <div style={{ textAlign: 'center' }}>
+          <img 
+            src={chrome.runtime.getURL('wrdesk-logo.png')}
+            alt="WR Desk"
+            style={{
+              width: '180px',
+              height: 'auto',
+              marginBottom: '16px'
+            }}
+          />
+          <p style={{
+            fontSize: '13px',
+            color: mutedColor,
+            margin: '0 0 8px 0',
+            lineHeight: '1.5'
+          }}>
+            Workflow-Ready Desk
+          </p>
+          <p style={{
+            fontSize: '11px',
+            color: mutedColor,
+            margin: 0,
+            opacity: 0.8
+          }}>
+            Sign in to access your dashboard
+          </p>
+        </div>
+        
+        {/* Sign In Button */}
+        <button
+          onClick={handleSignIn}
+          disabled={isLoggingIn}
+          style={{
+            padding: '12px 32px',
+            background: theme === 'standard' 
+              ? 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)' 
+              : 'linear-gradient(135deg, #a78bfa 0%, #8b5cf6 100%)',
+            border: 'none',
+            borderRadius: '8px',
+            color: '#fff',
+            fontSize: '14px',
+            fontWeight: '600',
+            cursor: isLoggingIn ? 'wait' : 'pointer',
+            transition: 'all 0.2s ease',
+            opacity: isLoggingIn ? 0.7 : 1,
+            boxShadow: '0 2px 8px rgba(99,102,241,0.3)',
+            minWidth: '160px'
+          }}
+          onMouseEnter={(e) => {
+            if (!isLoggingIn) {
+              e.currentTarget.style.transform = 'translateY(-2px)';
+              e.currentTarget.style.boxShadow = '0 4px 12px rgba(99,102,241,0.4)';
+            }
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.transform = 'translateY(0)';
+            e.currentTarget.style.boxShadow = '0 2px 8px rgba(99,102,241,0.3)';
+          }}
+        >
+          {isLoggingIn ? 'Signing in...' : 'Sign In'}
+        </button>
+        
+        {/* Create Account Link */}
+        <button
+          onClick={handleCreateAccount}
+          style={{
+            padding: '8px 16px',
+            background: 'transparent',
+            border: 'none',
+            color: accentColor,
+            fontSize: '13px',
+            fontWeight: '500',
+            cursor: 'pointer',
+            transition: 'all 0.15s ease'
+          }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.textDecoration = 'underline';
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.textDecoration = 'none';
+          }}
+        >
+          Create Account
+        </button>
+        
+        {/* Signing in status message */}
+        {isLoggingIn && (
+          <p style={{
+            fontSize: '11px',
+            color: mutedColor,
+            margin: 0,
+            textAlign: 'center'
+          }}>
+            A browser window will open for secure sign-in...
+          </p>
+        )}
+      </div>
+    )
+  }
+
+  // ==========================================================================
+  // LOGGED-IN STATE: Show full dashboard UI
+  // ==========================================================================
+  
   return (
     <div style={containerStyles}>
       {/* Toast Notification */}
@@ -1745,16 +2005,82 @@ function PopupChatApp() {
           )}
         </div>
         
-        {/* Role Badge */}
-        <div style={{
-          fontSize: '10px',
-          fontWeight: 500,
-          padding: '4px 8px',
-          borderRadius: '10px',
-          background: theme === 'standard' ? 'rgba(139,92,246,0.1)' : 'rgba(139,92,246,0.2)',
-          color: theme === 'standard' ? '#7c3aed' : '#c4b5fd'
-        }}>
-          {role === 'admin' ? '👤 Admin' : '👤 User'}
+        {/* User Avatar + Logout */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          {/* Avatar: Show picture if available, otherwise show initials */}
+          {userInfo.picture && !pictureError ? (
+            <img
+              src={userInfo.picture}
+              alt=""
+              onError={() => setPictureError(true)}
+              style={{
+                width: '24px',
+                height: '24px',
+                borderRadius: '50%',
+                objectFit: 'cover',
+                border: theme === 'standard' 
+                  ? '1px solid rgba(15,23,42,0.1)'
+                  : '1px solid rgba(255,255,255,0.2)'
+              }}
+              title={userInfo.displayName || userInfo.email || 'User'}
+            />
+          ) : (
+            <div 
+              style={{
+                width: '24px',
+                height: '24px',
+                borderRadius: '50%',
+                background: theme === 'standard' 
+                  ? 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)'
+                  : 'linear-gradient(135deg, #a78bfa 0%, #8b5cf6 100%)',
+                color: '#fff',
+                fontSize: '10px',
+                fontWeight: '600',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                textTransform: 'uppercase'
+              }}
+              title={userInfo.displayName || userInfo.email || 'User'}
+            >
+              {userInfo.initials || '?'}
+            </div>
+          )}
+          
+          {/* Logout Link */}
+          <button
+            onClick={handleLogout}
+            disabled={isLoggingOut}
+            style={{
+              padding: '4px 8px',
+              background: 'transparent',
+              border: 'none',
+              color: '#ef4444',
+              fontSize: '10px',
+              fontWeight: '500',
+              cursor: isLoggingOut ? 'wait' : 'pointer',
+              transition: 'all 0.15s ease',
+              opacity: isLoggingOut ? 0.6 : 0.85,
+              display: 'flex',
+              alignItems: 'center',
+              gap: '4px'
+            }}
+            onMouseEnter={(e) => {
+              if (!isLoggingOut) {
+                e.currentTarget.style.opacity = '1';
+              }
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.opacity = isLoggingOut ? '0.6' : '0.85';
+            }}
+          >
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+              <polyline points="16 17 21 12 16 7" />
+              <line x1="21" y1="12" x2="9" y2="12" />
+            </svg>
+            {isLoggingOut ? '...' : 'Logout'}
+          </button>
         </div>
       </header>
 

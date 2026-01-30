@@ -1,8 +1,19 @@
 import { app, BrowserWindow, globalShortcut, Tray, Menu, Notification, screen, dialog, shell, ipcMain } from 'electron'
 import { loginWithKeycloak } from '../src/auth/login'
 import { saveRefreshToken } from '../src/auth/tokenStore'
-import { ensureSession } from '../src/auth/session'
+import { ensureSession, updateSessionFromTokens } from '../src/auth/session'
 import { logoutLocalOnly } from '../src/auth/logout'
+import { 
+  mapRolesToTier, 
+  DEFAULT_TIER,
+  type Tier
+} from '../src/auth/capabilities'
+
+// ============================================================================
+// AUTH-GATED STARTUP - Track session validity for headless mode
+// ============================================================================
+let hasValidSession = false  // Set after startup session check
+let currentTier: Tier = 'free'  // MVP: default to 'free' tier
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 import os from 'node:os'
@@ -31,6 +42,126 @@ async function testLoginOnce(): Promise<void> {
   } catch (err) {
     console.error('[AUTH] Login failed:', err instanceof Error ? err.message : String(err))
     throw err
+  }
+}
+
+// ============================================================================
+// AUTH-GATED WINDOW MANAGEMENT
+// ============================================================================
+
+/**
+ * Check if a valid auth session exists at startup
+ * Called once during app initialization
+ */
+async function checkStartupSession(): Promise<boolean> {
+  console.log('[AUTH] Checking for valid session at startup...')
+  try {
+    const session = await ensureSession()
+    if (session.accessToken) {
+      console.log('[AUTH] Session valid - user:', session.userInfo?.displayName || session.userInfo?.email || 'unknown')
+      hasValidSession = true
+      
+      // Map Keycloak roles to tier
+      const roles = session.userInfo?.roles || []
+      currentTier = mapRolesToTier(roles)
+      console.log('[AUTH] Tier set:', currentTier, 'roles:', roles.join(', ') || '(none)')
+      
+      return true
+    } else {
+      console.log('[AUTH] No valid session found')
+      hasValidSession = false
+      currentTier = DEFAULT_TIER
+      return false
+    }
+  } catch (err) {
+    console.error('[AUTH] Session check failed:', err instanceof Error ? err.message : String(err))
+    hasValidSession = false
+    currentTier = DEFAULT_TIER
+    return false
+  }
+}
+
+/**
+ * Open the dashboard window - called when:
+ * 1) User already has a valid session at startup
+ * 2) Login flow completes successfully
+ * 3) Explicit user action (tray click, deep link)
+ */
+async function openDashboardWindow(): Promise<void> {
+  console.log('[AUTH] Opening dashboard window...')
+  
+  if (win && !win.isDestroyed()) {
+    // Window exists - show and focus
+    console.log('[AUTH] Dashboard window exists - showing and focusing')
+    if (win.isMinimized()) {
+      win.restore()
+    }
+    win.show()
+    win.focus()
+  } else {
+    // Create new window
+    console.log('[AUTH] Creating new dashboard window')
+    await createWindow()
+    if (win) {
+      win.show()
+      win.focus()
+    }
+  }
+  console.log('[AUTH] Dashboard window opened')
+}
+
+/**
+ * Request login flow - triggered from extension via IPC/HTTP
+ * On success: opens dashboard window and sets tier
+ */
+async function requestLogin(): Promise<{ ok: boolean; error?: string; tier?: string }> {
+  console.log('[AUTH] Login requested - starting Keycloak SSO flow...')
+  try {
+    const tokens = await loginWithKeycloak()
+    
+    // Save refresh token to OS credential store
+    if (tokens.refresh_token) {
+      await saveRefreshToken(tokens.refresh_token)
+      console.log('[AUTH] Refresh token saved to credential store')
+    }
+    
+    // Update session with new tokens (this extracts user info including roles)
+    const userInfo = updateSessionFromTokens(tokens)
+    
+    // Mark session as valid
+    hasValidSession = true
+    
+    // Map Keycloak roles to tier
+    const roles = userInfo?.roles || []
+    currentTier = mapRolesToTier(roles)
+    
+    console.log('[AUTH] Login successful - tier:', currentTier, 'roles:', roles.join(', ') || '(none)')
+    
+    // Update tray menu to reflect logged-in state
+    updateTrayMenu()
+    
+    // Open dashboard window after successful login
+    await openDashboardWindow()
+    
+    return { 
+      ok: true, 
+      tier: currentTier
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    console.error('[AUTH] Login failed:', message)
+    currentTier = DEFAULT_TIER
+    return { ok: false, error: message }
+  }
+}
+
+/**
+ * Get current auth status including tier
+ */
+function getAuthStatus(): { loggedIn: boolean; tier: string | null } {
+  return {
+    loggedIn: hasValidSession,
+    tier: hasValidSession ? currentTier : null
   }
 }
 
@@ -334,6 +465,7 @@ console.log('[MAIN] Start hidden mode:', startHidden)
 
 async function createWindow() {
   // Security: renderer isolation; tokens must never be exposed to renderer
+  // Always create hidden - visibility is controlled by openDashboardWindow()
   win = new BrowserWindow({
     title: 'WR Desk™ Analysis Dashboard',
     icon: path.join(process.env.VITE_PUBLIC, 'wrdesk-logo.svg'),
@@ -345,7 +477,7 @@ async function createWindow() {
       // sandbox: true,
       webSecurity: true,
     },
-    show: !startHidden, // Start hidden if launched with --hidden flag
+    show: false,  // Always start hidden - visibility controlled by openDashboardWindow()
     width: 1200,
     height: 800,
   })
@@ -353,10 +485,7 @@ async function createWindow() {
   // Remove the default application menu (File, Edit, View, Window, Help)
   Menu.setApplicationMenu(null)
   
-  // If started hidden, minimize to tray
-  if (startHidden) {
-    console.log('[MAIN] Started in hidden mode (auto-start), running in system tray')
-  }
+  console.log('[MAIN] Window created (hidden by default)')
   
   // When user clicks X, hide to tray instead of quitting
   win.on('close', (event) => {
@@ -1018,17 +1147,17 @@ function createTray() {
     updateTrayMenu()
     tray.setToolTip('WR Desk Orchestrator')
     tray.on('click', async () => {
-      if (!win || win.isDestroyed()) {
-        // Recreate window if it was closed
-        await createWindow()
-      }
-      if (win) {
-        if (win.isVisible()) {
-          win.focus()
-        } else {
-          win.show()
-          win.focus()
+      console.log('[TRAY] Tray icon clicked')
+      if (hasValidSession) {
+        console.log('[TRAY] Session valid - opening dashboard')
+        await openDashboardWindow()
+      } else {
+        console.log('[TRAY] No session - triggering login flow')
+        const result = await requestLogin()
+        if (!result.ok) {
+          console.log('[TRAY] Login cancelled or failed:', result.error)
         }
+        // requestLogin() already opens dashboard on success
       }
     })
     // Startup toast
@@ -1078,12 +1207,18 @@ function updateTrayMenu() {
     const loginSettings = app.getLoginItemSettings()
     
     const menu = Menu.buildFromTemplate([
-      { label: 'Show Dashboard', click: async () => { 
-        if (!win || win.isDestroyed()) {
-          await createWindow()
+      { label: hasValidSession ? 'Show Dashboard' : 'Sign In...', click: async () => { 
+        if (hasValidSession) {
+          console.log('[TRAY] Show Dashboard clicked - session valid')
+          await openDashboardWindow()
+        } else {
+          console.log('[TRAY] Sign In clicked - triggering login flow')
+          const result = await requestLogin()
+          if (!result.ok) {
+            console.log('[TRAY] Login cancelled or failed:', result.error)
+          }
+          // requestLogin() already opens dashboard on success
         }
-        win?.show()
-        win?.focus()
       } },
       { type: 'separator' },
       { label: 'Screenshot (Alt+Shift+S)', click: () => win?.webContents.send('hotkey', 'screenshot') },
@@ -1261,6 +1396,38 @@ app.whenReady().then(async () => {
       return { success: true }
     })
     console.log('[MAIN] Auth test IPC handler registered (auth:test-login)')
+    
+    // ========== AUTH-GATED IPC HANDLERS ==========
+    // Request login - triggers SSO flow, opens dashboard on success
+    ipcMain.handle('auth:request-login', async () => {
+      console.log('[IPC] auth:request-login called')
+      return await requestLogin()
+    })
+    console.log('[MAIN] IPC handler registered: auth:request-login')
+    
+    // Open dashboard window explicitly
+    ipcMain.handle('dashboard:open', async () => {
+      console.log('[IPC] dashboard:open called')
+      await openDashboardWindow()
+      return { ok: true }
+    })
+    console.log('[MAIN] IPC handler registered: dashboard:open')
+    
+    // Get current auth status with tier and user info
+    ipcMain.handle('auth:status', async () => {
+      console.log('[IPC] auth:status called')
+      const session = await ensureSession()
+      const loggedIn = session.accessToken !== null
+      return {
+        loggedIn,
+        tier: loggedIn ? currentTier : null,
+        displayName: session.userInfo?.displayName,
+        email: session.userInfo?.email,
+        initials: session.userInfo?.initials,
+        picture: session.userInfo?.picture
+      }
+    })
+    console.log('[MAIN] IPC handler registered: auth:status')
     try { process.env.WS_NO_BUFFER_UTIL = '1'; process.env.WS_NO_UTF_8_VALIDATE = '1' } catch {}
     // Auto-start on login (Windows/macOS). Pass --hidden so it starts in background.
     // IMPORTANT: Only enable autostart in production builds to avoid registering dev electron
@@ -1299,9 +1466,37 @@ app.whenReady().then(async () => {
     } catch (err) {
       console.error('[MAIN] Failed to register autostart:', err)
     }
-  createWindow()
+    
+  // ========== AUTH-GATED STARTUP ==========
+  // Check for valid session before deciding to show window
+  // RULE: No window at startup unless valid session exists (regardless of launch mode)
+  console.log('[AUTH] ===== AUTH-GATED STARTUP =====')
+  const sessionValid = await checkStartupSession()
+  
+  // Create tray first (always needed for headless/background mode)
   createTray()
-  console.log('[MAIN] Window and tray created')
+  console.log('[MAIN] Tray created')
+  
+  // Decide whether to show window based on session ONLY
+  // No window is created without a valid session, even on manual launch
+  if (!sessionValid) {
+    // No valid session = headless mode (tray only)
+    // User must login via extension, then dashboard opens automatically
+    console.log('[AUTH] No valid session - running in tray only, waiting for login via extension')
+    // Don't create window at all
+  } else if (startHidden) {
+    // Auto-start + valid session = create window but keep hidden
+    console.log('[AUTH] Session valid at startup (hidden mode) - creating window hidden')
+    await createWindow()
+    // Window stays hidden, user can open via tray
+  } else {
+    // Manual launch + valid session = show dashboard
+    console.log('[AUTH] Session valid - opening dashboard')
+    await createWindow()
+    await openDashboardWindow()
+  }
+  
+  console.log('[MAIN] Startup complete - hasValidSession:', hasValidSession)
   
   // Load Gmail API credentials if saved
   try {
@@ -2084,37 +2279,51 @@ app.whenReady().then(async () => {
             }
             
             if (msg.type === 'AUTH_STATUS') {
-              console.log('[MAIN] ===== AUTH_STATUS received =====')
+              console.log('[AUTH] ===== AUTH_STATUS (WebSocket) =====')
               try {
                 const session = await ensureSession()
                 const loggedIn = session.accessToken !== null
-                console.log('[MAIN] AUTH_STATUS:', loggedIn ? 'logged in' : 'not logged in')
-                // Include user info in response for UI display
+                
+                // Update hasValidSession flag
+                hasValidSession = loggedIn
+                
+                console.log('[AUTH] AUTH_STATUS:', loggedIn ? 'logged in' : 'not logged in', 'role:', currentUserRole)
+                // Include user info and role in response for UI display
                 const response: Record<string, unknown> = { 
                   type: 'AUTH_STATUS_RESULT', 
                   id: msg.id, 
                   loggedIn 
                 }
-                if (loggedIn && session.userInfo) {
-                  response.displayName = session.userInfo.displayName
-                  response.email = session.userInfo.email
-                  response.initials = session.userInfo.initials
+                if (loggedIn) {
+                  response.tier = currentTier
+                  if (session.userInfo) {
+                    response.displayName = session.userInfo.displayName
+                    response.email = session.userInfo.email
+                    response.initials = session.userInfo.initials
+                    response.picture = session.userInfo.picture
+                  }
                 }
                 try { socket.send(JSON.stringify(response)) } catch {}
               } catch (err: any) {
-                console.error('[MAIN] AUTH_STATUS error:', err?.message || err)
+                console.error('[AUTH] AUTH_STATUS error:', err?.message || err)
                 try { socket.send(JSON.stringify({ type: 'AUTH_STATUS_RESULT', id: msg.id, loggedIn: false })) } catch {}
               }
             }
             
             if (msg.type === 'AUTH_LOGOUT') {
-              console.log('[MAIN] ===== AUTH_LOGOUT received =====')
+              console.log('[AUTH] ===== AUTH_LOGOUT (WebSocket) =====')
               try {
                 await logoutLocalOnly()
-                console.log('[MAIN] AUTH_LOGOUT successful')
+                
+                // Reset session state and tier
+                hasValidSession = false
+                currentTier = DEFAULT_TIER
+                updateTrayMenu()  // Update menu to show "Sign In..."
+                
+                console.log('[AUTH] AUTH_LOGOUT successful - session cleared')
                 try { socket.send(JSON.stringify({ type: 'AUTH_LOGOUT_SUCCESS', id: msg.id })) } catch {}
               } catch (err: any) {
-                console.error('[MAIN] AUTH_LOGOUT error:', err?.message || err)
+                console.error('[AUTH] AUTH_LOGOUT error:', err?.message || err)
                 try { socket.send(JSON.stringify({ type: 'AUTH_LOGOUT_ERROR', id: msg.id, error: err?.message || String(err) })) } catch {}
               }
             }
@@ -2188,29 +2397,11 @@ app.whenReady().then(async () => {
     // POST /api/dashboard/open - Open and focus the Analysis Dashboard window
     httpApp.post('/api/dashboard/open', async (_req, res) => {
       try {
-        console.log('[HTTP-DASHBOARD] POST /api/dashboard/open - Opening dashboard window')
-        
-        if (win && !win.isDestroyed()) {
-          // Window exists - show and focus it
-          if (win.isMinimized()) {
-            win.restore()
-          }
-          win.show()
-          win.focus()
-          console.log('[HTTP-DASHBOARD] Dashboard window shown and focused')
-          res.json({ ok: true, action: 'focused' })
-        } else {
-          // Window doesn't exist - create it
-          console.log('[HTTP-DASHBOARD] Creating new dashboard window')
-          await createWindow()
-          if (win) {
-            win.show()
-            win.focus()
-          }
-          res.json({ ok: true, action: 'created' })
-        }
+        console.log('[AUTH] POST /api/dashboard/open - Opening dashboard via openDashboardWindow()')
+        await openDashboardWindow()
+        res.json({ ok: true })
       } catch (error: any) {
-        console.error('[HTTP-DASHBOARD] Error opening dashboard:', error)
+        console.error('[AUTH] Error opening dashboard:', error)
         res.status(500).json({
           ok: false,
           error: error.message || 'Failed to open dashboard'
@@ -2367,16 +2558,18 @@ app.whenReady().then(async () => {
 
     // ===== AUTH ENDPOINTS =====
     
-    // POST /api/auth/login - Trigger Keycloak SSO login
+    // POST /api/auth/login - Trigger Keycloak SSO login (opens dashboard on success)
     httpApp.post('/api/auth/login', async (_req, res) => {
       try {
-        console.log('[HTTP] POST /api/auth/login - Starting SSO login')
-        const tokens = await loginWithKeycloak()
-        if (tokens.refresh_token) {
-          await saveRefreshToken(tokens.refresh_token)
+        console.log('[HTTP] POST /api/auth/login - Starting SSO login via requestLogin()')
+        const result = await requestLogin()
+        if (result.ok) {
+          console.log('[HTTP] SSO login successful - role:', result.role)
+          res.json({ ok: true, role: result.role })
+        } else {
+          console.error('[HTTP] SSO login failed:', result.error)
+          res.status(401).json({ ok: false, error: result.error })
         }
-        console.log('[HTTP] SSO login successful')
-        res.json({ ok: true })
       } catch (error: any) {
         console.error('[HTTP] SSO login failed:', error?.message || error)
         res.status(401).json({ ok: false, error: error?.message || 'Login failed' })
@@ -2384,19 +2577,27 @@ app.whenReady().then(async () => {
     })
 
     // GET /api/auth/status - Check if user is logged in
-    // Returns: { ok, loggedIn, displayName?, email?, initials? }
+    // Returns: { ok, loggedIn, role?, displayName?, email?, initials? }
     httpApp.get('/api/auth/status', async (_req, res) => {
       try {
         console.log('[HTTP] GET /api/auth/status')
         const session = await ensureSession()
         const loggedIn = session.accessToken !== null
-        console.log('[HTTP] Auth status:', loggedIn ? 'logged in' : 'not logged in')
-        // Include user info for UI display
+        
+        // Update hasValidSession flag based on current session state
+        hasValidSession = loggedIn
+        
+        console.log('[HTTP] Auth status:', loggedIn ? 'logged in' : 'not logged in', 'tier:', currentTier)
+        // Include user info and tier for UI display
         const response: Record<string, unknown> = { ok: true, loggedIn }
-        if (loggedIn && session.userInfo) {
-          response.displayName = session.userInfo.displayName
-          response.email = session.userInfo.email
-          response.initials = session.userInfo.initials
+        if (loggedIn) {
+          response.tier = currentTier
+          if (session.userInfo) {
+            response.displayName = session.userInfo.displayName
+            response.email = session.userInfo.email
+            response.initials = session.userInfo.initials
+            response.picture = session.userInfo.picture
+          }
         }
         res.json(response)
       } catch (error: any) {
@@ -2408,12 +2609,18 @@ app.whenReady().then(async () => {
     // POST /api/auth/logout - Logout user
     httpApp.post('/api/auth/logout', async (_req, res) => {
       try {
-        console.log('[HTTP] POST /api/auth/logout')
+        console.log('[AUTH] POST /api/auth/logout - Logging out user')
         await logoutLocalOnly()
-        console.log('[HTTP] Logout successful')
+        
+        // Reset session state and tier
+        hasValidSession = false
+        currentTier = DEFAULT_TIER
+        updateTrayMenu()  // Update menu to show "Sign In..."
+        console.log('[AUTH] Logout successful - session cleared')
+        
         res.json({ ok: true })
       } catch (error: any) {
-        console.error('[HTTP] Logout error:', error?.message || error)
+        console.error('[AUTH] Logout error:', error?.message || error)
         res.status(500).json({ ok: false, error: error?.message || 'Logout failed' })
       }
     })

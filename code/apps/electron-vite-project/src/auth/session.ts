@@ -16,7 +16,9 @@ export interface SessionUserInfo {
   displayName?: string;
   email?: string;
   initials?: string;
+  picture?: string;  // Avatar URL from Keycloak profile (if available)
   sub?: string;
+  roles?: string[];  // Keycloak roles (realm + client roles)
 }
 
 // Module-level variables (RAM only, not persisted)
@@ -43,6 +45,30 @@ function decodeJwtPayload(token: string): Record<string, unknown> | null {
 }
 
 /**
+ * Extract roles from JWT payload (Keycloak format)
+ */
+function extractRoles(payload: Record<string, unknown>): string[] {
+  const roles: string[] = [];
+  
+  // Extract realm roles: realm_access.roles
+  const realmAccess = payload.realm_access as { roles?: string[] } | undefined;
+  if (realmAccess?.roles && Array.isArray(realmAccess.roles)) {
+    roles.push(...realmAccess.roles);
+  }
+  
+  // Extract client roles: resource_access.wrdesk-orchestrator.roles
+  const resourceAccess = payload.resource_access as Record<string, { roles?: string[] }> | undefined;
+  if (resourceAccess) {
+    const clientRoles = resourceAccess['wrdesk-orchestrator']?.roles;
+    if (clientRoles && Array.isArray(clientRoles)) {
+      roles.push(...clientRoles);
+    }
+  }
+  
+  return roles;
+}
+
+/**
  * Extract user info from JWT claims
  */
 function extractUserInfo(payload: Record<string, unknown>): SessionUserInfo {
@@ -52,6 +78,7 @@ function extractUserInfo(payload: Record<string, unknown>): SessionUserInfo {
   const givenName = payload.given_name as string | undefined;
   const familyName = payload.family_name as string | undefined;
   const sub = payload.sub as string | undefined;
+  const picture = payload.picture as string | undefined;
 
   // Determine display name (prefer full name, then username, then email)
   let displayName = name;
@@ -77,11 +104,16 @@ function extractUserInfo(payload: Record<string, unknown>): SessionUserInfo {
     initials = email.charAt(0).toUpperCase();
   }
 
+  // Extract Keycloak roles
+  const roles = extractRoles(payload);
+
   return {
     displayName,
     email,
     initials,
+    picture,
     sub,
+    roles,
   };
 }
 

@@ -906,7 +906,7 @@ const tabDisplayGridsActive = new Map<number, boolean>();
 
 // Remove sidepanel disabling - we'll show minimal UI instead
 
-// Handle extension icon click: open the side panel
+// Handle extension icon click: open the side panel + open wrdesk.com if not logged in
 chrome.action.onClicked.addListener(async (tab) => {
   try {
     // Check if display grids are active for this tab
@@ -920,10 +920,53 @@ chrome.action.onClicked.addListener(async (tab) => {
       await chrome.sidePanel.open({ tabId: tab.id })
       console.log('✅ Side panel opened')
     }
+    
+    // Check if user is logged in - if not, open wrdesk.com immediately
+    try {
+      const response = await fetch(`${ELECTRON_BASE_URL}/api/auth/status`, {
+        method: 'GET',
+        signal: AbortSignal.timeout(3000),
+      });
+      const data = await response.json();
+      if (!data.loggedIn) {
+        // Not logged in - open wrdesk.com
+        await openWrdeskHomeIfNeeded();
+      }
+    } catch {
+      // Electron not reachable - user is not logged in, open wrdesk.com
+      await openWrdeskHomeIfNeeded();
+    }
   } catch (e) {
     console.error('Failed to open side panel:', e)
   }
 });
+
+// Helper to open wrdesk.com without tab spam
+async function openWrdeskHomeIfNeeded(): Promise<void> {
+  try {
+    // Debounce: check if we opened recently
+    const { wrdeskHomeOpenedAt } = await chrome.storage.session.get('wrdeskHomeOpenedAt');
+    const now = Date.now();
+    if (wrdeskHomeOpenedAt && (now - wrdeskHomeOpenedAt) < 5000) {
+      console.log('[BG] openWrdeskHomeIfNeeded: debounced (opened recently)');
+      return;
+    }
+    
+    // Check if wrdesk.com is already open in any tab
+    const existingTabs = await chrome.tabs.query({ url: 'https://wrdesk.com/*' });
+    if (existingTabs.length > 0) {
+      console.log('[BG] openWrdeskHomeIfNeeded: tab already exists, skipping');
+      return;
+    }
+    
+    // Create new tab
+    console.log('[BG] openWrdeskHomeIfNeeded: creating new tab');
+    await chrome.tabs.create({ url: 'https://wrdesk.com', active: true });
+    await chrome.storage.session.set({ wrdeskHomeOpenedAt: now });
+  } catch (e: any) {
+    console.error('[BG] openWrdeskHomeIfNeeded error:', e.message);
+  }
+}
 
 // Handle keyboard command Alt+O to toggle overlay per domain
 chrome.commands?.onCommand.addListener((command) => {
@@ -1273,10 +1316,27 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   // ===== AUTH HANDLERS =====
   
   // Handle SSO login request
+  // If Electron is available, triggers SSO via backend
+  // If Electron is not reachable, opens wrdesk.com for web-based login
   if (msg && msg.type === 'AUTH_LOGIN') {
     console.log('[BG] AUTH_LOGIN request received');
     (async () => {
       try {
+        // First check if Electron is reachable
+        const healthCheck = await fetch(`${ELECTRON_BASE_URL}/api/orchestrator/status`, {
+          method: 'GET',
+          signal: AbortSignal.timeout(3000),
+        }).catch(() => null);
+        
+        if (!healthCheck || !healthCheck.ok) {
+          // Electron not reachable - open wrdesk.com for login
+          console.log('[BG] AUTH_LOGIN: Electron not reachable, opening wrdesk.com');
+          await chrome.tabs.create({ url: 'https://wrdesk.com', active: true });
+          sendResponse({ ok: false, error: 'Electron not running - opened wrdesk.com for login', openedTab: true });
+          return;
+        }
+        
+        // Electron is available - trigger SSO login
         const response = await fetch(`${ELECTRON_BASE_URL}/api/auth/login`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -1285,20 +1345,25 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         const data = await response.json();
         console.log('[BG] AUTH_LOGIN response:', data);
         if (data.ok) {
-          // Store auth state
-          await chrome.storage.local.set({ authLoggedIn: true });
+          // Store auth state including tier
+          await chrome.storage.local.set({ 
+            authLoggedIn: true,
+            authTier: data.tier || 'free'
+          });
         }
-        sendResponse({ ok: data.ok, error: data.error });
+        sendResponse({ ok: data.ok, error: data.error, tier: data.tier });
       } catch (e: any) {
         console.error('[BG] AUTH_LOGIN error:', e.message);
-        sendResponse({ ok: false, error: e.message });
+        // Fallback: open wrdesk.com
+        await chrome.tabs.create({ url: 'https://wrdesk.com', active: true });
+        sendResponse({ ok: false, error: e.message, openedTab: true });
       }
     })();
     return true; // Keep channel open for async response
   }
 
   // Handle auth status check
-  // Returns: { loggedIn, displayName?, email?, initials? }
+  // Returns: { loggedIn, role?, displayName?, email?, initials? }
   if (msg && msg.type === 'AUTH_STATUS') {
     console.log('[BG] AUTH_STATUS request received');
     (async () => {
@@ -1309,29 +1374,40 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         });
         const data = await response.json();
         console.log('[BG] AUTH_STATUS response:', data);
-        // Update stored state (including user info for cached display)
+        // Update stored state (including user info, tier, and picture for cached display)
         await chrome.storage.local.set({ 
           authLoggedIn: data.loggedIn,
+          authTier: data.tier || null,
           authDisplayName: data.displayName || null,
           authEmail: data.email || null,
-          authInitials: data.initials || null
+          authInitials: data.initials || null,
+          authPicture: data.picture || null
         });
-        // Pass through all user info
+        // Pass through all user info, tier, and picture
         sendResponse({ 
           loggedIn: data.loggedIn,
+          tier: data.tier,
           displayName: data.displayName,
           email: data.email,
-          initials: data.initials
+          initials: data.initials,
+          picture: data.picture
         });
       } catch (e: any) {
-        console.log('[BG] AUTH_STATUS error (Electron may not be running):', e.message);
-        // Check stored state as fallback (fail-closed: no user info if offline)
-        const stored = await chrome.storage.local.get(['authLoggedIn', 'authDisplayName', 'authEmail', 'authInitials']);
+        console.log('[BG] AUTH_STATUS error (Electron not reachable):', e.message);
+        // FAIL-CLOSED: If we can't reach Electron, treat user as logged out.
+        // We cannot validate the session without Electron, so we don't trust cached state.
+        // Clear cached login state to prevent stale data issues.
+        await chrome.storage.local.set({ 
+          authLoggedIn: false,
+          authTier: null
+        });
         sendResponse({ 
-          loggedIn: stored.authLoggedIn || false,
-          displayName: stored.authDisplayName,
-          email: stored.authEmail,
-          initials: stored.authInitials
+          loggedIn: false,
+          tier: null,
+          displayName: null,
+          email: null,
+          initials: null,
+          picture: null
         });
       }
     })();
@@ -1347,9 +1423,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       const clearAuthState = async () => {
         await chrome.storage.local.set({ 
           authLoggedIn: false,
+          authTier: null,
           authDisplayName: null,
           authEmail: null,
-          authInitials: null
+          authInitials: null,
+          authPicture: null
         });
       };
       
@@ -1372,6 +1450,77 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       }
     })();
     return true; // Keep channel open for async response
+  }
+
+  // Handle "Open WRDesk Home" - opens wrdesk.com if not already open (NO tab spam)
+  // Used when extension popup/sidepanel is opened in logged-out state
+  if (msg && msg.type === 'OPEN_WRDESK_HOME_IF_NEEDED') {
+    console.log('[BG] OPEN_WRDESK_HOME_IF_NEEDED request received');
+    (async () => {
+      try {
+        // Check if we've already opened wrdesk.com recently (debounce within 5 seconds)
+        const storage = await chrome.storage.session.get(['wrdeskHomeOpenedAt']);
+        const lastOpened = storage.wrdeskHomeOpenedAt as number | undefined;
+        const now = Date.now();
+        
+        if (lastOpened && (now - lastOpened) < 5000) {
+          console.log('[BG] OPEN_WRDESK_HOME_IF_NEEDED: debounced (opened recently)');
+          sendResponse({ ok: true, action: 'debounced' });
+          return;
+        }
+        
+        // Query all tabs for existing wrdesk.com tab
+        const existingTabs = await chrome.tabs.query({ url: 'https://wrdesk.com/*' });
+        
+        if (existingTabs.length > 0) {
+          console.log('[BG] OPEN_WRDESK_HOME_IF_NEEDED: tab already exists, skipping');
+          sendResponse({ ok: true, action: 'already_open', tabId: existingTabs[0].id });
+          return;
+        }
+        
+        // No existing tab - create one without stealing focus
+        console.log('[BG] OPEN_WRDESK_HOME_IF_NEEDED: creating new tab');
+        const newTab = await chrome.tabs.create({ 
+          url: 'https://wrdesk.com',
+          active: false  // Do NOT steal focus
+        });
+        
+        // Mark that we opened wrdesk.com (for debouncing)
+        await chrome.storage.session.set({ wrdeskHomeOpenedAt: now });
+        
+        sendResponse({ ok: true, action: 'created', tabId: newTab.id });
+      } catch (e: any) {
+        console.error('[BG] OPEN_WRDESK_HOME_IF_NEEDED error:', e.message);
+        sendResponse({ ok: false, error: e.message });
+      }
+    })();
+    return true; // Keep channel open for async response
+  }
+
+  // Handle "Create Account" - opens wrdesk.com
+  if (msg && msg.type === 'OPEN_REGISTER_PAGE') {
+    console.log('[BG] OPEN_REGISTER_PAGE request received');
+    (async () => {
+      try {
+        // Check if wrdesk.com is already open
+        const existingTabs = await chrome.tabs.query({ url: 'https://wrdesk.com/*' });
+        if (existingTabs.length > 0 && existingTabs[0].id) {
+          // Activate existing tab
+          await chrome.tabs.update(existingTabs[0].id, { active: true });
+          console.log('[BG] OPEN_REGISTER_PAGE: activated existing wrdesk.com tab');
+        } else {
+          // Open new tab
+          await chrome.tabs.create({ url: 'https://wrdesk.com', active: true });
+          console.log('[BG] OPEN_REGISTER_PAGE: opened new wrdesk.com tab');
+        }
+        sendResponse({ ok: true });
+      } catch (e: any) {
+        console.error('[BG] OPEN_REGISTER_PAGE error:', e.message);
+        chrome.tabs.create({ url: 'https://wrdesk.com', active: true });
+        sendResponse({ ok: false, error: e.message });
+      }
+    })();
+    return true;
   }
 
   // Check if this is a vault RPC message (has type: 'VAULT_RPC')
