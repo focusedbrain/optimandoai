@@ -3645,33 +3645,30 @@ function SidepanelOrchestrator() {
           </p>
         </div>
         
-        {/* Sign In Button - matches wrdesk.com brand blue */}
+        {/* Sign In Button - matches wrdesk.com Sign In button */}
         <button
           onClick={handleAuthSignIn}
           disabled={isLoggingIn}
           style={{
-            padding: '12px 32px',
-            background: '#3858e9',
+            padding: '10px 24px',
+            background: '#2271b1',
             border: 'none',
-            borderRadius: '8px',
+            borderRadius: '4px',
             color: '#fff',
             fontSize: '14px',
-            fontWeight: '600',
+            fontWeight: '500',
             cursor: isLoggingIn ? 'wait' : 'pointer',
-            transition: 'all 0.2s ease',
+            transition: 'all 0.15s ease',
             opacity: isLoggingIn ? 0.7 : 1,
-            boxShadow: '0 2px 8px rgba(56, 88, 233, 0.3)',
-            minWidth: '160px'
+            minWidth: '180px'
           }}
           onMouseEnter={(e) => {
             if (!isLoggingIn) {
-              e.currentTarget.style.transform = 'translateY(-2px)';
-              e.currentTarget.style.boxShadow = '0 4px 12px rgba(56, 88, 233, 0.4)';
+              e.currentTarget.style.background = '#135e96';
             }
           }}
           onMouseLeave={(e) => {
-            e.currentTarget.style.transform = 'translateY(0)';
-            e.currentTarget.style.boxShadow = '0 2px 8px rgba(56, 88, 233, 0.3)';
+            e.currentTarget.style.background = '#2271b1';
           }}
         >
           {isLoggingIn ? 'Signing in...' : 'Sign in with wrdesk.com'}
