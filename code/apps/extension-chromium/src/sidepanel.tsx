@@ -3645,15 +3645,13 @@ function SidepanelOrchestrator() {
           </p>
         </div>
         
-        {/* Sign In Button */}
+        {/* Sign In Button - matches wrdesk.com brand color #0693e3 */}
         <button
           onClick={handleAuthSignIn}
           disabled={isLoggingIn}
           style={{
             padding: '12px 32px',
-            background: theme === 'standard' 
-              ? 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)' 
-              : 'linear-gradient(135deg, #a78bfa 0%, #8b5cf6 100%)',
+            background: '#0693e3',
             border: 'none',
             borderRadius: '8px',
             color: '#fff',
@@ -3662,18 +3660,18 @@ function SidepanelOrchestrator() {
             cursor: isLoggingIn ? 'wait' : 'pointer',
             transition: 'all 0.2s ease',
             opacity: isLoggingIn ? 0.7 : 1,
-            boxShadow: '0 2px 8px rgba(99,102,241,0.3)',
+            boxShadow: '0 2px 8px rgba(6, 147, 227, 0.3)',
             minWidth: '160px'
           }}
           onMouseEnter={(e) => {
             if (!isLoggingIn) {
               e.currentTarget.style.transform = 'translateY(-2px)';
-              e.currentTarget.style.boxShadow = '0 4px 12px rgba(99,102,241,0.4)';
+              e.currentTarget.style.boxShadow = '0 4px 12px rgba(6, 147, 227, 0.4)';
             }
           }}
           onMouseLeave={(e) => {
             e.currentTarget.style.transform = 'translateY(0)';
-            e.currentTarget.style.boxShadow = '0 2px 8px rgba(99,102,241,0.3)';
+            e.currentTarget.style.boxShadow = '0 2px 8px rgba(6, 147, 227, 0.3)';
           }}
         >
           {isLoggingIn ? 'Signing in...' : 'Sign in with wrdesk.com'}
