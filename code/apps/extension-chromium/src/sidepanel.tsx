@@ -3660,11 +3660,7 @@ function SidepanelOrchestrator() {
             cursor: isLoggingIn ? 'wait' : 'pointer',
             transition: 'all 0.15s ease',
             opacity: isLoggingIn ? 0.7 : 1,
-            minWidth: '180px',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            gap: '8px'
+            minWidth: '180px'
           }}
           onMouseEnter={(e) => {
             if (!isLoggingIn) {
@@ -3675,16 +3671,6 @@ function SidepanelOrchestrator() {
             e.currentTarget.style.background = '#1559ed';
           }}
         >
-          {/* Key Icon - exact pixel-perfect match to wrdesk.com */}
-          <svg 
-            width="14" 
-            height="14" 
-            viewBox="0 0 20 20" 
-            fill="currentColor"
-            style={{ flexShrink: 0 }}
-          >
-            <path fillRule="evenodd" d="M8 4a4 4 0 1 0 1.77 7.59l5.12 5.12a1 1 0 0 0 1.41 0l1.41-1.41a1 1 0 0 0 0-1.42l-5.12-5.12A4 4 0 0 0 8 4zm0 2a2 2 0 1 0 0 4 2 2 0 0 0 0-4z"/>
-          </svg>
           {isLoggingIn ? 'Signing in...' : 'Sign in with wrdesk.com'}
         </button>
         
