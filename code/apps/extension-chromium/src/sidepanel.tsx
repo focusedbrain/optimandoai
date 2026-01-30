@@ -3675,15 +3675,15 @@ function SidepanelOrchestrator() {
             e.currentTarget.style.background = '#1559ed';
           }}
         >
-          {/* Key Icon SVG - classic key matching wrdesk.com */}
+          {/* Key Icon - diagonal key matching wrdesk.com exactly */}
           <svg 
-            width="16" 
-            height="16" 
-            viewBox="0 0 24 24" 
+            width="18" 
+            height="18" 
+            viewBox="0 0 512 512" 
             fill="currentColor"
             style={{ flexShrink: 0 }}
           >
-            <path d="M7 14a2 2 0 1 0 0-4 2 2 0 0 0 0 4Zm0 3a5 5 0 0 1-4.9-4H1v-2h1.1A5 5 0 0 1 7 7a5 5 0 0 1 4.9 4H23v2h-2v3h-2v-3h-2v3h-2v-3h-3.1A5 5 0 0 1 7 17Z"/>
+            <path d="M336 0c-97.2 0-176 78.8-176 176c0 18.7 2.9 36.8 8.3 53.7L7 391c-4.5 4.5-7 10.6-7 17v80c0 13.3 10.7 24 24 24h80c13.3 0 24-10.7 24-24v-40h40c13.3 0 24-10.7 24-24v-40h40c6.4 0 12.5-2.5 17-7l35.3-35.3c16.9 5.4 35 8.3 53.7 8.3c97.2 0 176-78.8 176-176S433.2 0 336 0zm40 176a40 40 0 1 0 0-80 40 40 0 1 0 0 80z"/>
           </svg>
           {isLoggingIn ? 'Signing in...' : 'Sign in with wrdesk.com'}
         </button>
