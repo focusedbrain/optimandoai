@@ -12,7 +12,7 @@ import { useWRGuardStore } from '../useWRGuardStore'
 import type { PolicyPosture } from '../types'
 
 interface PoliciesOverviewSectionProps {
-  theme: 'default' | 'dark' | 'professional'
+  theme: 'default' | 'dark' | 'professional' | 'standard' | 'pro'
   onOpenAdvancedSettings?: () => void
 }
 
@@ -20,11 +20,11 @@ export const PoliciesOverviewSection: React.FC<PoliciesOverviewSectionProps> = (
   theme,
   onOpenAdvancedSettings
 }) => {
-  const isProfessional = theme === 'professional'
-  const textColor = isProfessional ? '#0f172a' : 'white'
-  const mutedColor = isProfessional ? '#64748b' : 'rgba(255,255,255,0.7)'
-  const borderColor = isProfessional ? 'rgba(15,23,42,0.1)' : 'rgba(255,255,255,0.1)'
-  const cardBg = isProfessional ? '#ffffff' : 'rgba(255,255,255,0.05)'
+  const isLightTheme = theme === 'professional' || theme === 'standard'
+  const textColor = isLightTheme ? '#0f172a' : 'white'
+  const mutedColor = isLightTheme ? '#64748b' : 'rgba(255,255,255,0.7)'
+  const borderColor = isLightTheme ? 'rgba(15,23,42,0.1)' : 'rgba(255,255,255,0.1)'
+  const cardBg = isLightTheme ? '#ffffff' : 'rgba(255,255,255,0.05)'
   
   const { policyOverview } = useWRGuardStore()
   
@@ -134,7 +134,7 @@ export const PoliciesOverviewSection: React.FC<PoliciesOverviewSectionProps> = (
           fontSize: '10px',
           padding: '4px 10px',
           borderRadius: '12px',
-          background: isProfessional ? 'rgba(15,23,42,0.05)' : 'rgba(255,255,255,0.08)',
+          background: isLightTheme ? 'rgba(15,23,42,0.05)' : 'rgba(255,255,255,0.08)',
           color: mutedColor
         }}>
           Last updated: {new Date(policyOverview.lastUpdated).toLocaleString()}
@@ -143,8 +143,8 @@ export const PoliciesOverviewSection: React.FC<PoliciesOverviewSectionProps> = (
       
       {/* Read-Only Notice */}
       <div style={{
-        background: isProfessional ? 'rgba(59,130,246,0.05)' : 'rgba(59,130,246,0.1)',
-        border: `1px solid ${isProfessional ? 'rgba(59,130,246,0.15)' : 'rgba(59,130,246,0.25)'}`,
+        background: isLightTheme ? 'rgba(59,130,246,0.05)' : 'rgba(59,130,246,0.1)',
+        border: `1px solid ${isLightTheme ? 'rgba(59,130,246,0.15)' : 'rgba(59,130,246,0.25)'}`,
         borderRadius: '8px',
         padding: '12px 14px',
         marginBottom: '20px',
@@ -214,7 +214,7 @@ export const PoliciesOverviewSection: React.FC<PoliciesOverviewSectionProps> = (
               fontSize: '10px',
               padding: '4px 10px',
               borderRadius: '6px',
-              background: isProfessional ? 'rgba(15,23,42,0.05)' : 'rgba(255,255,255,0.08)',
+              background: isLightTheme ? 'rgba(15,23,42,0.05)' : 'rgba(255,255,255,0.08)',
               color: textColor,
               display: 'flex',
               alignItems: 'center',
@@ -234,7 +234,7 @@ export const PoliciesOverviewSection: React.FC<PoliciesOverviewSectionProps> = (
               fontSize: '10px',
               padding: '4px 10px',
               borderRadius: '6px',
-              background: isProfessional ? 'rgba(15,23,42,0.05)' : 'rgba(255,255,255,0.08)',
+              background: isLightTheme ? 'rgba(15,23,42,0.05)' : 'rgba(255,255,255,0.08)',
               color: textColor,
               display: 'flex',
               alignItems: 'center',

@@ -11,7 +11,7 @@ import React from 'react'
 import { useWRGuardStore } from '../useWRGuardStore'
 
 interface RuntimeControlsSectionProps {
-  theme: 'default' | 'dark' | 'professional'
+  theme: 'default' | 'dark' | 'professional' | 'standard' | 'pro'
   onOpenAdvancedSettings?: () => void
 }
 
@@ -19,11 +19,11 @@ export const RuntimeControlsSection: React.FC<RuntimeControlsSectionProps> = ({
   theme,
   onOpenAdvancedSettings
 }) => {
-  const isProfessional = theme === 'professional'
-  const textColor = isProfessional ? '#0f172a' : 'white'
-  const mutedColor = isProfessional ? '#64748b' : 'rgba(255,255,255,0.7)'
-  const borderColor = isProfessional ? 'rgba(15,23,42,0.1)' : 'rgba(255,255,255,0.1)'
-  const cardBg = isProfessional ? '#ffffff' : 'rgba(255,255,255,0.05)'
+  const isLightTheme = theme === 'professional' || theme === 'standard'
+  const textColor = isLightTheme ? '#0f172a' : 'white'
+  const mutedColor = isLightTheme ? '#64748b' : 'rgba(255,255,255,0.7)'
+  const borderColor = isLightTheme ? 'rgba(15,23,42,0.1)' : 'rgba(255,255,255,0.1)'
+  const cardBg = isLightTheme ? '#ffffff' : 'rgba(255,255,255,0.05)'
   
   const { policyOverview, protectedSites, providers } = useWRGuardStore()
   
@@ -255,7 +255,7 @@ export const RuntimeControlsSection: React.FC<RuntimeControlsSectionProps> = ({
       <div style={{
         marginTop: '24px',
         padding: '14px 16px',
-        background: isProfessional ? '#f8fafc' : 'rgba(255,255,255,0.03)',
+        background: isLightTheme ? '#f8fafc' : 'rgba(255,255,255,0.03)',
         borderRadius: '10px',
         border: `1px solid ${borderColor}`
       }}>
