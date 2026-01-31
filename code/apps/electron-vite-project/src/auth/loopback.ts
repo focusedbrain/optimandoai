@@ -113,7 +113,7 @@ function startServerOnPort(port: number): Promise<LoopbackServer> {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Sign-in Successful - WR Desk</title>
+  <title>Authentication Complete - WR Desk</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
@@ -125,27 +125,38 @@ function startServerOnPort(port: number): Promise<LoopbackServer> {
       justify-content: center;
       color: #1e293b;
     }
-    .container {
+    .card {
       text-align: center;
-      padding: 48px 32px;
-      max-width: 400px;
+      padding: 48px 40px;
+      max-width: 460px;
+      background: #fff;
+      border-radius: 12px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.08), 0 4px 16px rgba(0,0,0,0.04);
     }
-    .icon {
-      width: 56px;
-      height: 56px;
-      margin: 0 auto 24px;
-      background: #f0fdf4;
-      border-radius: 50%;
-      display: flex;
+    .logo {
+      margin-bottom: 32px;
+    }
+    .logo img {
+      width: 120px;
+      height: auto;
+    }
+    .status {
+      display: inline-flex;
       align-items: center;
-      justify-content: center;
+      gap: 8px;
+      margin-bottom: 16px;
     }
-    .icon svg {
-      width: 28px;
-      height: 28px;
+    .status svg {
+      width: 20px;
+      height: 20px;
       stroke: #22c55e;
       stroke-width: 2.5;
       fill: none;
+    }
+    .status span {
+      font-size: 14px;
+      font-weight: 500;
+      color: #166534;
     }
     h1 {
       font-size: 20px;
@@ -157,51 +168,111 @@ function startServerOnPort(port: number): Promise<LoopbackServer> {
     .message {
       font-size: 14px;
       color: #64748b;
-      line-height: 1.6;
-      margin-bottom: 32px;
+      line-height: 1.7;
     }
-    .primary-btn {
-      display: inline-block;
-      padding: 12px 24px;
-      background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
-      color: #fff;
-      font-size: 14px;
-      font-weight: 500;
-      text-decoration: none;
-      border-radius: 8px;
-      transition: transform 0.15s ease, box-shadow 0.15s ease;
-      box-shadow: 0 1px 3px rgba(99, 102, 241, 0.3);
+    .accordion-section {
+      margin-top: 28px;
+      padding-top: 24px;
+      border-top: 1px solid #e2e8f0;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
     }
-    .primary-btn:hover {
-      transform: translateY(-1px);
-      box-shadow: 0 4px 12px rgba(99, 102, 241, 0.4);
+    .accordion {
+      text-align: left;
     }
-    .secondary-link {
-      display: block;
-      margin-top: 16px;
+    .accordion-toggle {
+      background: none;
+      border: none;
       font-size: 13px;
       color: #94a3b8;
-      text-decoration: none;
       cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      width: 100%;
+      padding: 8px 0;
     }
-    .secondary-link:hover {
+    .accordion-toggle:hover {
       color: #64748b;
-      text-decoration: underline;
+    }
+    .accordion-toggle svg {
+      width: 14px;
+      height: 14px;
+      stroke: currentColor;
+      stroke-width: 2;
+      fill: none;
+      transition: transform 0.2s ease;
+      flex-shrink: 0;
+    }
+    .accordion-content {
+      display: none;
+      margin-top: 8px;
+      font-size: 13px;
+      color: #64748b;
+      line-height: 1.6;
+      background: #f8fafc;
+      padding: 14px 16px;
+      border-radius: 8px;
+    }
+    .accordion-content.open {
+      display: block;
+    }
+    .accordion-content ol {
+      margin: 8px 0 0 20px;
+    }
+    .accordion-content li {
+      margin-bottom: 6px;
+    }
+    .accordion-content p {
+      margin: 0;
     }
   </style>
+  <script>
+    function toggleAccordion(id, btn) {
+      var el = document.getElementById(id);
+      var isOpen = el.classList.toggle('open');
+      btn.querySelector('svg').style.transform = isOpen ? 'rotate(180deg)' : '';
+    }
+  </script>
 </head>
 <body>
-  <div class="container">
-    <div class="icon">
-      <svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"></polyline></svg>
+  <div class="card">
+    <div class="logo">
+      <img src="https://wrdesk.com/wp-content/uploads/2024/10/wrdesk-logo-256.png" alt="WR Desk" onerror="this.style.display='none'"/>
     </div>
-    <h1>Sign-in successful</h1>
+    <div class="status">
+      <svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"></polyline></svg>
+      <span>Authentication successful</span>
+    </div>
+    <h1>You're signed in to WR Desk</h1>
     <p class="message">
-      Authentication is complete.<br>
-      You can now return to WR Desk.
+      Your session is now active. You can continue browsing and access the AI Orchestrator from the WR Desk extension in your browser toolbar.
     </p>
-    <a href="javascript:window.close()" class="primary-btn">Return to WR Desk</a>
-    <a href="javascript:window.close()" class="secondary-link">Close this tab</a>
+    <div class="accordion-section">
+      <div class="accordion">
+        <button class="accordion-toggle" onclick="toggleAccordion('help-extension', this)">
+          <span>If you don't see the extension</span>
+          <svg viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"></polyline></svg>
+        </button>
+        <div id="help-extension" class="accordion-content">
+          <ol>
+            <li>Click the puzzle icon in your browser toolbar</li>
+            <li>Find "WR Desk" in the extensions list</li>
+            <li>Click the pin icon to keep it visible</li>
+          </ol>
+        </div>
+      </div>
+      <div class="accordion">
+        <button class="accordion-toggle" onclick="toggleAccordion('help-sso', this)">
+          <span>About sign-out and SSO</span>
+          <svg viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"></polyline></svg>
+        </button>
+        <div id="help-sso" class="accordion-content">
+          <p>WR Desk uses Single Sign-On (SSO) for a unified authentication experience. When you sign out from wrdesk.com, all linked WR Desk sessions—including the browser extension and desktop orchestrator—will also be signed out.</p>
+        </div>
+      </div>
+    </div>
   </div>
 </body>
 </html>`);

@@ -2324,6 +2324,12 @@ app.whenReady().then(async () => {
                 currentTier = DEFAULT_TIER
                 updateTrayMenu()  // Update menu to show "Sign In..."
                 
+                // Close dashboard window to return to headless state
+                if (win && !win.isDestroyed()) {
+                  console.log('[AUTH] Closing dashboard window on logout')
+                  win.close()
+                }
+                
                 console.log('[AUTH] AUTH_LOGOUT successful - session cleared')
                 try { socket.send(JSON.stringify({ type: 'AUTH_LOGOUT_SUCCESS', id: msg.id })) } catch {}
               } catch (err: any) {
@@ -2621,6 +2627,13 @@ app.whenReady().then(async () => {
         hasValidSession = false
         currentTier = DEFAULT_TIER
         updateTrayMenu()  // Update menu to show "Sign In..."
+        
+        // Close dashboard window to return to headless state
+        if (win && !win.isDestroyed()) {
+          console.log('[AUTH] Closing dashboard window on logout')
+          win.close()
+        }
+        
         console.log('[AUTH] Logout successful - session cleared')
         
         res.json({ ok: true })

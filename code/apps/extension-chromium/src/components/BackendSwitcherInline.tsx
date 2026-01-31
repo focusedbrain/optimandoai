@@ -95,6 +95,7 @@ export function BackendSwitcherInline({ theme = 'standard' }: BackendSwitcherInl
   const [userInfo, setUserInfo] = useState<{ displayName?: string; email?: string; initials?: string; picture?: string }>({});
   const [showAccountDropdown, setShowAccountDropdown] = useState(false);
   const [pictureError, setPictureError] = useState(false);  // Track if picture failed to load
+  const [logoutTransition, setLogoutTransition] = useState(false);  // Brief transition after logout
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   // Close dropdown when clicking outside
@@ -206,23 +207,28 @@ export function BackendSwitcherInline({ theme = 'standard' }: BackendSwitcherInl
 
   // Handle Logout click - clears session via backend
   const handleLogout = async () => {
-    if (isLoggingOut) return;
+    if (isLoggingOut || logoutTransition) return;
     setIsLoggingOut(true);
     setShowAccountDropdown(false);
+    // Immediately clear UI state (optimistic update) - no flash of login UI
+    setIsLoggedIn(false);
+    setUserInfo({});
     try {
       chrome.runtime.sendMessage({ type: 'AUTH_LOGOUT' }, (response) => {
-        setIsLoggingOut(false);
         if (chrome.runtime.lastError) {
           console.error('[AUTH] Logout failed:', chrome.runtime.lastError.message);
         }
-        // Always clear local state on logout attempt (fail-closed)
-        setIsLoggedIn(false);
-        setUserInfo({});
+        // Keep transition state to prevent UI flash while dashboard closes
+        // Dashboard window needs time to close, so we show "Signed out" state briefly
+        setIsLoggingOut(false);
+        setLogoutTransition(true);
+        setTimeout(() => {
+          setLogoutTransition(false);
+        }, 2500);  // Wait for dashboard to close before showing login UI
       });
     } catch (err) {
       setIsLoggingOut(false);
-      setIsLoggedIn(false);
-      setUserInfo({});
+      setLogoutTransition(false);
       console.error('[AUTH] Logout error:', err);
     }
   };
@@ -286,73 +292,25 @@ export function BackendSwitcherInline({ theme = 'standard' }: BackendSwitcherInl
           }}
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-            {!isLoggedIn ? (
+            {(isLoggingOut || logoutTransition) ? (
+              /* ========== LOGGING OUT / TRANSITION STATE ========== */
+              /* Show status during logout to prevent old UI flash */
+              <span style={{ 
+                fontSize: '11px', 
+                color: mutedColor,
+                fontStyle: 'italic'
+              }}>
+                {isLoggingOut ? 'Signing out...' : 'Signed out'}
+              </span>
+            ) : !isLoggedIn ? (
               /* ========== LOGGED-OUT STATE ========== */
-              /* Primary "Sign in" button + Secondary "Create account" link */
-              <>
-                {/* Primary Button: Sign in */}
-                <button
-                  onClick={handleSignIn}
-                  disabled={isLoggingIn}
-                  style={{
-                    padding: '6px 14px',
-                    background: effectiveTheme === 'standard' 
-                      ? 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)' 
-                      : 'linear-gradient(135deg, #a78bfa 0%, #8b5cf6 100%)',
-                    border: 'none',
-                    borderRadius: '6px',
-                    color: '#fff',
-                    fontSize: '11px',
-                    fontWeight: '500',
-                    cursor: isLoggingIn ? 'wait' : 'pointer',
-                    transition: 'all 0.2s ease',
-                    opacity: isLoggingIn ? 0.7 : 1,
-                    boxShadow: '0 1px 2px rgba(0,0,0,0.1), 0 1px 3px rgba(99,102,241,0.15)',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '4px'
-                  }}
-                  onMouseEnter={(e) => {
-                    if (!isLoggingIn) {
-                      e.currentTarget.style.transform = 'translateY(-1px)';
-                      e.currentTarget.style.boxShadow = '0 2px 4px rgba(0,0,0,0.12), 0 2px 6px rgba(99,102,241,0.2)';
-                    }
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.transform = 'translateY(0)';
-                    e.currentTarget.style.boxShadow = '0 1px 2px rgba(0,0,0,0.1), 0 1px 3px rgba(99,102,241,0.15)';
-                  }}
-                >
-                  {isLoggingIn ? 'Signing in...' : 'Sign in'}
-                </button>
-
-                {/* Secondary Link: Create account */}
-                <button
-                  onClick={handleCreateAccount}
-                  style={{
-                    padding: '4px 2px',
-                    background: 'transparent',
-                    border: 'none',
-                    color: accentColor,
-                    fontSize: '11px',
-                    fontWeight: '400',
-                    cursor: 'pointer',
-                    transition: 'all 0.15s ease',
-                    textDecoration: 'none',
-                    opacity: 0.85
-                  }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.opacity = '1';
-                    e.currentTarget.style.textDecoration = 'underline';
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.opacity = '0.85';
-                    e.currentTarget.style.textDecoration = 'none';
-                  }}
-                >
-                  Create account
-                </button>
-              </>
+              /* SSO is required - prompt user to sign in via SSO */
+              <span style={{ 
+                fontSize: '11px', 
+                color: mutedColor
+              }}>
+                {isLoggingIn ? 'Signing in...' : 'Not signed in'}
+              </span>
             ) : (
               /* ========== LOGGED-IN STATE ========== */
               /* Avatar/initials + visible Logout link + dropdown for more options */
@@ -494,43 +452,6 @@ export function BackendSwitcherInline({ theme = 'standard' }: BackendSwitcherInl
                       >
                         <UserIcon color={mutedColor} />
                         Profile
-                      </button>
-
-                      {/* Upload Profile Image Option (MVP: opens account page) */}
-                      <button
-                        onClick={() => {
-                          setShowAccountDropdown(false);
-                          window.open('https://auth.wrdesk.com/realms/wrdesk/account/#/personal-info', '_blank');
-                        }}
-                        style={{
-                          width: '100%',
-                          padding: '8px 10px',
-                          background: 'transparent',
-                          border: 'none',
-                          borderRadius: '4px',
-                          color: textColor,
-                          fontSize: '11px',
-                          fontWeight: '400',
-                          cursor: 'pointer',
-                          transition: 'all 0.15s ease',
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '8px',
-                          textAlign: 'left'
-                        }}
-                        onMouseEnter={(e) => {
-                          e.currentTarget.style.background = effectiveTheme === 'standard' ? 'rgba(15,23,42,0.05)' : 'rgba(255,255,255,0.08)';
-                        }}
-                        onMouseLeave={(e) => {
-                          e.currentTarget.style.background = 'transparent';
-                        }}
-                      >
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={mutedColor} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                          <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
-                          <circle cx="8.5" cy="8.5" r="1.5" />
-                          <polyline points="21 15 16 10 5 21" />
-                        </svg>
-                        Upload image
                       </button>
 
                       {/* Divider */}

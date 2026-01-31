@@ -25,10 +25,11 @@ function mapThemeToCss(theme: ExtensionTheme): string {
 }
 
 // WR Desk Logo Component - using original PNG logo
+// Use relative path for Electron file:// protocol compatibility
 function WRCodeLogo({ size = 220 }: { size?: number }) {
   return (
     <img 
-      src="/wrdesk-logo.png" 
+      src="./wrdesk-logo.png" 
       alt="WR Desk Logo"
       style={{
         width: size,
