@@ -711,6 +711,23 @@ function connectToWebSocketServer(forceReconnect = false): Promise<boolean> {
                 console.error('[BG] Error creating popup:', err)
                 chrome.windows.create(opts)
               }
+            } else if (data.type === 'CLOSE_COMMAND_CENTER_POPUP') {
+              // Close popup on logout from Electron dashboard
+              console.log('[BG] 📨 CLOSE_COMMAND_CENTER_POPUP from Electron - closing popup window')
+              try {
+                chrome.windows.getAll({ populate: false, windowTypes: ['popup'] }, (wins) => {
+                  wins.forEach(w => {
+                    if (w.type === 'popup' && typeof w.id === 'number') {
+                      try {
+                        chrome.windows.remove(w.id)
+                        console.log('[BG] ✅ Closed popup window:', w.id)
+                      } catch {}
+                    }
+                  })
+                })
+              } catch (err) {
+                console.error('[BG] Error closing popup:', err)
+              }
             } else if (data.type === 'MAILGUARD_EXTRACT_EMAIL') {
               console.log('[BG] 🛡️ MailGuard extract email request:', data.rowId)
               // Query both Gmail and Outlook tabs

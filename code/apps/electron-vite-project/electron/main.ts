@@ -39,6 +39,15 @@ function logoutFast(): void {
     console.log(`[AUTH][t+${Date.now() - t0}ms] Dashboard window closed`)
   }
   
+  // 5. Close BEAP Inbox popup via WebSocket message to extension
+  const closePopupMsg = JSON.stringify({ type: 'CLOSE_COMMAND_CENTER_POPUP' })
+  wsClients.forEach((socket: any) => {
+    try {
+      socket.send(closePopupMsg)
+      console.log(`[AUTH][t+${Date.now() - t0}ms] Sent CLOSE_COMMAND_CENTER_POPUP to extension`)
+    } catch {}
+  })
+  
   console.log(`[AUTH][t+${Date.now() - t0}ms] logoutFast() complete - UI is now locked`)
 }
 
