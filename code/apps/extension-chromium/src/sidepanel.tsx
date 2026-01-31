@@ -7133,7 +7133,14 @@ height: '28px',
       </div>
 
       {/* WR Login / Backend Switcher Section */}
-      <BackendSwitcherInline theme={theme} />
+      <BackendSwitcherInline 
+        theme={theme} 
+        onLogout={() => {
+          // INSTANT: Update sidepanel auth state immediately when user clicks logout
+          setIsLoggedIn(false);
+          setAuthUserInfo({});
+        }}
+      />
 
       {/* Docked Command Chat - Admin View */}
       {isCommandChatPinned && (

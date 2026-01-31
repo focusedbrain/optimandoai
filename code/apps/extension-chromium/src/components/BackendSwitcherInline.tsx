@@ -15,6 +15,7 @@ import { useState, useEffect, useRef } from 'react';
 
 interface BackendSwitcherInlineProps {
   theme?: 'pro' | 'dark' | 'standard';
+  onLogout?: () => void;  // Called immediately when user clicks logout (for parent state sync)
 }
 
 type TextSize = 'small' | 'normal' | 'large';
@@ -86,7 +87,7 @@ const UserIcon = ({ color }: { color: string }) => (
   </svg>
 );
 
-export function BackendSwitcherInline({ theme = 'standard' }: BackendSwitcherInlineProps) {
+export function BackendSwitcherInline({ theme = 'standard', onLogout }: BackendSwitcherInlineProps) {
   const [isCollapsed, setIsCollapsed] = useState(true);
   const [textSize, setTextSize] = useState<TextSize>('small');
   const [isLoggingIn, setIsLoggingIn] = useState(false);
@@ -95,7 +96,6 @@ export function BackendSwitcherInline({ theme = 'standard' }: BackendSwitcherInl
   const [userInfo, setUserInfo] = useState<{ displayName?: string; email?: string; initials?: string; picture?: string }>({});
   const [showAccountDropdown, setShowAccountDropdown] = useState(false);
   const [pictureError, setPictureError] = useState(false);  // Track if picture failed to load
-  const [logoutTransition, setLogoutTransition] = useState(false);  // Brief transition after logout
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   // Close dropdown when clicking outside
@@ -205,31 +205,30 @@ export function BackendSwitcherInline({ theme = 'standard' }: BackendSwitcherInl
     }
   };
 
-  // Handle Logout click - clears session via backend
+  // Handle Logout click - INSTANT UI update, backend cleanup in background
   const handleLogout = async () => {
-    if (isLoggingOut || logoutTransition) return;
-    setIsLoggingOut(true);
+    if (isLoggingOut) return;
+    
+    // INSTANT: Update UI to logged-out state immediately (no delay)
     setShowAccountDropdown(false);
-    // Immediately clear UI state (optimistic update) - no flash of login UI
     setIsLoggedIn(false);
     setUserInfo({});
+    
+    // INSTANT: Notify parent to update its state immediately
+    if (onLogout) {
+      onLogout();
+    }
+    
+    // Background: Send logout to backend (fire-and-forget, no UI blocking)
     try {
       chrome.runtime.sendMessage({ type: 'AUTH_LOGOUT' }, (response) => {
         if (chrome.runtime.lastError) {
-          console.error('[AUTH] Logout failed:', chrome.runtime.lastError.message);
+          console.error('[AUTH] Logout backend error (non-blocking):', chrome.runtime.lastError.message);
         }
-        // Keep transition state to prevent UI flash while dashboard closes
-        // Dashboard window needs time to close, so we show "Signed out" state briefly
-        setIsLoggingOut(false);
-        setLogoutTransition(true);
-        setTimeout(() => {
-          setLogoutTransition(false);
-        }, 2500);  // Wait for dashboard to close before showing login UI
+        // No UI updates here - UI already shows logged-out state
       });
     } catch (err) {
-      setIsLoggingOut(false);
-      setLogoutTransition(false);
-      console.error('[AUTH] Logout error:', err);
+      console.error('[AUTH] Logout error (non-blocking):', err);
     }
   };
 
@@ -292,17 +291,7 @@ export function BackendSwitcherInline({ theme = 'standard' }: BackendSwitcherInl
           }}
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-            {(isLoggingOut || logoutTransition) ? (
-              /* ========== LOGGING OUT / TRANSITION STATE ========== */
-              /* Show status during logout to prevent old UI flash */
-              <span style={{ 
-                fontSize: '11px', 
-                color: mutedColor,
-                fontStyle: 'italic'
-              }}>
-                {isLoggingOut ? 'Signing out...' : 'Signed out'}
-              </span>
-            ) : !isLoggedIn ? (
+            {!isLoggedIn ? (
               /* ========== LOGGED-OUT STATE ========== */
               /* SSO is required - prompt user to sign in via SSO */
               <span style={{ 

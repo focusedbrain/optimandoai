@@ -1,13 +1,66 @@
 import { app, BrowserWindow, globalShortcut, Tray, Menu, Notification, screen, dialog, shell, ipcMain } from 'electron'
 import { loginWithKeycloak } from '../src/auth/login'
-import { saveRefreshToken } from '../src/auth/tokenStore'
-import { ensureSession, updateSessionFromTokens } from '../src/auth/session'
-import { logoutLocalOnly } from '../src/auth/logout'
+import { saveRefreshToken, clearRefreshToken } from '../src/auth/tokenStore'
+import { ensureSession, updateSessionFromTokens, clearSession } from '../src/auth/session'
 import { 
   mapRolesToTier, 
   DEFAULT_TIER,
   type Tier
 } from '../src/auth/capabilities'
+
+// ============================================================================
+// INSTANT LOGOUT - Split into fast sync (UI lock) + slow async (cleanup)
+// ============================================================================
+
+/**
+ * Fast synchronous logout - locks UI instantly
+ * Called BEFORE any await to ensure immediate UI update
+ */
+function logoutFast(): void {
+  const t0 = Date.now()
+  console.log(`[AUTH][t0] logoutFast() - Locking UI immediately`)
+  
+  // 1. Set auth state to locked (blocks all privileged actions)
+  hasValidSession = false
+  currentTier = DEFAULT_TIER
+  console.log(`[AUTH][t+${Date.now() - t0}ms] hasValidSession = false`)
+  
+  // 2. Clear in-memory tokens (sync, fast)
+  clearSession()
+  console.log(`[AUTH][t+${Date.now() - t0}ms] In-memory session cleared`)
+  
+  // 3. Update tray menu to show locked state
+  updateTrayMenu()
+  console.log(`[AUTH][t+${Date.now() - t0}ms] Tray menu updated`)
+  
+  // 4. Close dashboard window immediately
+  if (win && !win.isDestroyed()) {
+    win.close()
+    console.log(`[AUTH][t+${Date.now() - t0}ms] Dashboard window closed`)
+  }
+  
+  console.log(`[AUTH][t+${Date.now() - t0}ms] logoutFast() complete - UI is now locked`)
+}
+
+/**
+ * Slow async cleanup - runs AFTER UI is already locked
+ * Does not block UI update
+ */
+async function logoutCleanupAsync(): Promise<void> {
+  const t0 = Date.now()
+  console.log(`[AUTH][cleanup t0] Starting async cleanup (UI already locked)`)
+  
+  try {
+    // Clear refresh token from secure storage (slow - keytar access)
+    await clearRefreshToken()
+    console.log(`[AUTH][cleanup t+${Date.now() - t0}ms] Refresh token cleared from secure storage`)
+  } catch (err: any) {
+    // Log but don't fail - UI is already locked
+    console.error(`[AUTH][cleanup] Error clearing refresh token:`, err?.message || err)
+  }
+  
+  console.log(`[AUTH][cleanup t+${Date.now() - t0}ms] Async cleanup complete`)
+}
 
 // ============================================================================
 // AUTH-GATED STARTUP - Track session validity for headless mode
@@ -2317,21 +2370,17 @@ app.whenReady().then(async () => {
             if (msg.type === 'AUTH_LOGOUT') {
               console.log('[AUTH] ===== AUTH_LOGOUT (WebSocket) =====')
               try {
-                await logoutLocalOnly()
+                // INSTANT LOGOUT: Lock UI immediately (sync, no await)
+                logoutFast()
                 
-                // Reset session state and tier
-                hasValidSession = false
-                currentTier = DEFAULT_TIER
-                updateTrayMenu()  // Update menu to show "Sign In..."
-                
-                // Close dashboard window to return to headless state
-                if (win && !win.isDestroyed()) {
-                  console.log('[AUTH] Closing dashboard window on logout')
-                  win.close()
-                }
-                
-                console.log('[AUTH] AUTH_LOGOUT successful - session cleared')
+                // Send success IMMEDIATELY - UI is now locked
+                console.log('[AUTH] AUTH_LOGOUT successful - UI locked instantly')
                 try { socket.send(JSON.stringify({ type: 'AUTH_LOGOUT_SUCCESS', id: msg.id })) } catch {}
+                
+                // Async cleanup (does not block UI)
+                logoutCleanupAsync().catch(err => {
+                  console.error('[AUTH] Async cleanup error (non-blocking):', err?.message || err)
+                })
               } catch (err: any) {
                 console.error('[AUTH] AUTH_LOGOUT error:', err?.message || err)
                 try { socket.send(JSON.stringify({ type: 'AUTH_LOGOUT_ERROR', id: msg.id, error: err?.message || String(err) })) } catch {}
@@ -2617,26 +2666,22 @@ app.whenReady().then(async () => {
       }
     })
 
-    // POST /api/auth/logout - Logout user
+    // POST /api/auth/logout - Logout user (instant UI lock)
     httpApp.post('/api/auth/logout', async (_req, res) => {
       try {
         console.log('[AUTH] POST /api/auth/logout - Logging out user')
-        await logoutLocalOnly()
         
-        // Reset session state and tier
-        hasValidSession = false
-        currentTier = DEFAULT_TIER
-        updateTrayMenu()  // Update menu to show "Sign In..."
+        // INSTANT LOGOUT: Lock UI immediately (sync, no await)
+        logoutFast()
         
-        // Close dashboard window to return to headless state
-        if (win && !win.isDestroyed()) {
-          console.log('[AUTH] Closing dashboard window on logout')
-          win.close()
-        }
-        
-        console.log('[AUTH] Logout successful - session cleared')
-        
+        // Send response IMMEDIATELY - UI is now locked
+        console.log('[AUTH] Logout successful - UI locked instantly')
         res.json({ ok: true })
+        
+        // Async cleanup (does not block response)
+        logoutCleanupAsync().catch(err => {
+          console.error('[AUTH] Async cleanup error (non-blocking):', err?.message || err)
+        })
       } catch (error: any) {
         console.error('[AUTH] Logout error:', error?.message || error)
         res.status(500).json({ ok: false, error: error?.message || 'Logout failed' })
