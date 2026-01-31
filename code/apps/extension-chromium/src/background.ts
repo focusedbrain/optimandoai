@@ -635,10 +635,11 @@ function connectToWebSocketServer(forceReconnect = false): Promise<boolean> {
               })
             } else if (data.type === 'OPEN_COMMAND_CENTER_POPUP') {
               // Open popup from Electron dashboard request
-              console.log('[BG] 📨 OPEN_COMMAND_CENTER_POPUP from Electron, launchMode:', data.launchMode, 'bounds:', data.bounds)
+              console.log('[BG] 📨 OPEN_COMMAND_CENTER_POPUP from Electron, launchMode:', data.launchMode, 'bounds:', data.bounds, 'windowState:', data.windowState)
               const themeHint = typeof data.theme === 'string' ? data.theme : null
               const launchModeHint = typeof data.launchMode === 'string' ? data.launchMode : null
               const dashboardBounds = data.bounds && typeof data.bounds === 'object' ? data.bounds : null
+              const dashboardWindowState = typeof data.windowState === 'string' ? data.windowState : 'normal'
               
               let url = chrome.runtime.getURL('src/popup-chat.html')
               const params: string[] = []
@@ -646,7 +647,11 @@ function connectToWebSocketServer(forceReconnect = false): Promise<boolean> {
               if (launchModeHint) params.push('launchMode=' + encodeURIComponent(launchModeHint))
               if (params.length) url += '?' + params.join('&')
               
+              // Check if dashboard is maximized or fullscreen - we'll maximize after creation
+              const shouldMaximize = (dashboardWindowState === 'maximized' || dashboardWindowState === 'fullscreen')
+              
               // Use dashboard bounds if provided, otherwise use defaults
+              // Note: Chrome popup windows don't support state in create options, so always use 'normal'
               const opts: chrome.windows.CreateData = {
                 url,
                 type: 'popup',
@@ -654,8 +659,7 @@ function connectToWebSocketServer(forceReconnect = false): Promise<boolean> {
                 height: dashboardBounds?.height || 720,
                 left: dashboardBounds?.x ?? 100,
                 top: dashboardBounds?.y ?? 100,
-                focused: true,
-                state: 'normal'
+                focused: true
               }
               
               // Prevent duplicates: if a popup already exists, update its bounds and focus
@@ -663,35 +667,42 @@ function connectToWebSocketServer(forceReconnect = false): Promise<boolean> {
                 chrome.windows.getAll({ populate: false, windowTypes: ['popup', 'normal'] }, (wins) => {
                   const existing = wins && wins.find(w => (w.type === 'popup' && typeof w.id === 'number'))
                   if (existing && existing.id) {
-                    // Update existing popup: restore from minimized, set bounds, and focus
-                    chrome.windows.update(existing.id, { 
-                      focused: true,
-                      state: 'normal',
-                      left: opts.left,
-                      top: opts.top,
-                      width: opts.width,
-                      height: opts.height
-                    })
+                    // Update existing popup: set state to match dashboard, set bounds, and focus
+                    if (shouldMaximize) {
+                      chrome.windows.update(existing.id, { focused: true, state: 'maximized' })
+                    } else {
+                      chrome.windows.update(existing.id, { 
+                        focused: true,
+                        state: 'normal',
+                        left: opts.left,
+                        top: opts.top,
+                        width: opts.width,
+                        height: opts.height
+                      })
+                    }
                   } else {
-                    // Create new popup, then immediately ensure it's focused and visible on top
+                    // Create new popup with normal state first
                     chrome.windows.create(opts, (newWindow) => {
                       if (newWindow?.id) {
                         const winId = newWindow.id
-                        // Explicitly update to ensure it's focused, visible, and on top
-                        // Use drawAttention to force visibility on Windows
-                        const forceVisible = () => {
-                          try {
-                            chrome.windows.update(winId, { 
-                              focused: true, 
-                              state: 'normal',
-                              drawAttention: true
-                            })
-                          } catch {}
+                        // If dashboard was maximized/fullscreen, maximize the popup after creation
+                        if (shouldMaximize) {
+                          setTimeout(() => {
+                            try {
+                              chrome.windows.update(winId, { focused: true, state: 'maximized', drawAttention: true })
+                            } catch {}
+                          }, 50)
+                        } else {
+                          // Ensure it's focused and visible on top
+                          const forceVisible = () => {
+                            try {
+                              chrome.windows.update(winId, { focused: true, state: 'normal', drawAttention: true })
+                            } catch {}
+                          }
+                          forceVisible()
+                          setTimeout(forceVisible, 50)
+                          setTimeout(forceVisible, 150)
                         }
-                        // Multiple attempts to ensure visibility
-                        forceVisible()
-                        setTimeout(forceVisible, 50)
-                        setTimeout(forceVisible, 150)
                       }
                     })
                   }
