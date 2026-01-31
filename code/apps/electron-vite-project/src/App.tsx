@@ -11,6 +11,7 @@ declare global {
       onThemeChange: (callback: (theme: string) => void) => () => void
       requestTheme: () => void
       setTheme: (theme: string) => void
+      openBeapInbox: () => void
     }
   }
 }
@@ -46,6 +47,24 @@ function normalizeTheme(theme: string): ExtensionTheme {
   if (mapped === 'default') return 'pro'
   if (mapped === 'professional') return 'standard'
   return (['pro', 'dark', 'standard'].includes(mapped) ? mapped : 'standard') as ExtensionTheme
+}
+
+// BEAP Inbox button component - opens the WRChat popup with BEAP Messages preselected
+function BeapInboxButton() {
+  const handleClick = useCallback(() => {
+    console.log('[BEAP_INBOX] Opening BEAP Inbox popup')
+    window.analysisDashboard?.openBeapInbox()
+  }, [])
+
+  return (
+    <button
+      className="beap-inbox-btn"
+      onClick={handleClick}
+      title="Open BEAP Inbox"
+    >
+      <span className="beap-inbox-btn__label">BEAP™ Inbox</span>
+    </button>
+  )
 }
 
 // Theme selector component - allows manual theme changes
@@ -142,6 +161,7 @@ function App() {
           <span className="app-header__subtitle">Analysis Dashboard</span>
         </div>
         <div className="app-header__spacer" />
+        <BeapInboxButton />
         <ThemeSelector value={extensionTheme} onChange={handleThemeChange} />
       </header>
 

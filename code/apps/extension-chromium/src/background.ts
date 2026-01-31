@@ -633,6 +633,73 @@ function connectToWebSocketServer(forceReconnect = false): Promise<boolean> {
                   }
                 })
               })
+            } else if (data.type === 'OPEN_COMMAND_CENTER_POPUP') {
+              // Open popup from Electron dashboard request
+              console.log('[BG] 📨 OPEN_COMMAND_CENTER_POPUP from Electron, launchMode:', data.launchMode, 'bounds:', data.bounds)
+              const themeHint = typeof data.theme === 'string' ? data.theme : null
+              const launchModeHint = typeof data.launchMode === 'string' ? data.launchMode : null
+              const dashboardBounds = data.bounds && typeof data.bounds === 'object' ? data.bounds : null
+              
+              let url = chrome.runtime.getURL('src/popup-chat.html')
+              const params: string[] = []
+              if (themeHint) params.push('t=' + encodeURIComponent(themeHint))
+              if (launchModeHint) params.push('launchMode=' + encodeURIComponent(launchModeHint))
+              if (params.length) url += '?' + params.join('&')
+              
+              // Use dashboard bounds if provided, otherwise use defaults
+              const opts: chrome.windows.CreateData = {
+                url,
+                type: 'popup',
+                width: dashboardBounds?.width || 520,
+                height: dashboardBounds?.height || 720,
+                left: dashboardBounds?.x ?? 100,
+                top: dashboardBounds?.y ?? 100,
+                focused: true,
+                state: 'normal'
+              }
+              
+              // Prevent duplicates: if a popup already exists, update its bounds and focus
+              try {
+                chrome.windows.getAll({ populate: false, windowTypes: ['popup', 'normal'] }, (wins) => {
+                  const existing = wins && wins.find(w => (w.type === 'popup' && typeof w.id === 'number'))
+                  if (existing && existing.id) {
+                    // Update existing popup: restore from minimized, set bounds, and focus
+                    chrome.windows.update(existing.id, { 
+                      focused: true,
+                      state: 'normal',
+                      left: opts.left,
+                      top: opts.top,
+                      width: opts.width,
+                      height: opts.height
+                    })
+                  } else {
+                    // Create new popup, then immediately ensure it's focused and visible on top
+                    chrome.windows.create(opts, (newWindow) => {
+                      if (newWindow?.id) {
+                        const winId = newWindow.id
+                        // Explicitly update to ensure it's focused, visible, and on top
+                        // Use drawAttention to force visibility on Windows
+                        const forceVisible = () => {
+                          try {
+                            chrome.windows.update(winId, { 
+                              focused: true, 
+                              state: 'normal',
+                              drawAttention: true
+                            })
+                          } catch {}
+                        }
+                        // Multiple attempts to ensure visibility
+                        forceVisible()
+                        setTimeout(forceVisible, 50)
+                        setTimeout(forceVisible, 150)
+                      }
+                    })
+                  }
+                })
+              } catch (err) {
+                console.error('[BG] Error creating popup:', err)
+                chrome.windows.create(opts)
+              }
             } else if (data.type === 'MAILGUARD_EXTRACT_EMAIL') {
               console.log('[BG] 🛡️ MailGuard extract email request:', data.rowId)
               // Query both Gmail and Outlook tabs

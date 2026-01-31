@@ -108,7 +108,6 @@ function PopupChatApp() {
   // ==========================================================================
   const [isLoggedIn, setIsLoggedIn] = useState<boolean | null>(null)  // null = loading
   const [isLoggingIn, setIsLoggingIn] = useState(false)
-  const [isLoggingOut, setIsLoggingOut] = useState(false)
   const [userInfo, setUserInfo] = useState<{ displayName?: string; email?: string; initials?: string; picture?: string }>({})
   const [pictureError, setPictureError] = useState(false)
   
@@ -189,21 +188,21 @@ function PopupChatApp() {
     chrome.runtime.sendMessage({ type: 'OPEN_REGISTER_PAGE' });
   };
   
-  // Handle Logout click
-  const handleLogout = () => {
-    if (isLoggingOut) return;
-    setIsLoggingOut(true);
-    chrome.runtime.sendMessage({ type: 'AUTH_LOGOUT' }, () => {
-      setIsLoggingOut(false);
-      setIsLoggedIn(false);
-      setUserInfo({});
-    });
-  };
-  
   // MIRRORS docked sidepanel state exactly
   const [dockedWorkspace, setDockedWorkspace] = useState<DockedWorkspace>('wr-chat')
   const [dockedSubmode, setDockedSubmode] = useState<DockedSubmode>('command')
   const [beapSubmode, setBeapSubmode] = useState<BeapSubmode>('inbox')
+  
+  // Handle launchMode query parameter from Electron dashboard
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const launchMode = params.get('launchMode')
+    if (launchMode === 'dashboard-beap') {
+      // Preselect BEAP Messages with Inbox when opened from dashboard
+      setDockedWorkspace('beap-messages')
+      setBeapSubmode('inbox')
+    }
+  }, []) // Only run on mount
   
   // Helper to get combined mode for conditional rendering - SAME as docked
   const dockedPanelMode = dockedWorkspace === 'wr-chat' ? dockedSubmode : dockedWorkspace
@@ -671,12 +670,48 @@ function PopupChatApp() {
         {/* INBOX VIEW - Placeholder (same as docked) */}
         {/* ========================================== */}
         {beapSubmode === 'inbox' && (
-          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '40px 20px', textAlign: 'center' }}>
-            <span style={{ fontSize: '48px', marginBottom: '16px' }}>📥</span>
-            <div style={{ fontSize: '18px', fontWeight: '600', color: textColor, marginBottom: '8px' }}>BEAP Inbox</div>
-            <div style={{ fontSize: '13px', color: mutedColor, maxWidth: '280px' }}>
-              Received BEAP™ packages will appear here. All packages are verified before display.
+          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', position: 'relative' }}>
+            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '40px 20px', textAlign: 'center' }}>
+              <span style={{ fontSize: '48px', marginBottom: '16px' }}>📥</span>
+              <div style={{ fontSize: '18px', fontWeight: '600', color: textColor, marginBottom: '8px' }}>BEAP Inbox</div>
+              <div style={{ fontSize: '13px', color: mutedColor, maxWidth: '280px' }}>
+                Received BEAP™ packages will appear here. All packages are verified before display.
+              </div>
             </div>
+            {/* FAB - New Draft Button */}
+            <button
+              onClick={() => setBeapSubmode('draft')}
+              title="New Draft"
+              style={{
+                position: 'absolute',
+                bottom: '20px',
+                right: '20px',
+                width: '48px',
+                height: '48px',
+                borderRadius: '50%',
+                border: 'none',
+                background: theme === 'pro' ? 'rgba(255,255,255,0.9)' : theme === 'dark' ? '#3b82f6' : '#9333ea',
+                color: theme === 'pro' ? '#9333ea' : 'white',
+                fontSize: '24px',
+                fontWeight: '300',
+                cursor: 'pointer',
+                boxShadow: '0 4px 12px rgba(0,0,0,0.2)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                transition: 'transform 0.15s, box-shadow 0.15s'
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.transform = 'scale(1.08)'
+                e.currentTarget.style.boxShadow = '0 6px 16px rgba(0,0,0,0.25)'
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.transform = 'scale(1)'
+                e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,0.2)'
+              }}
+            >
+              +
+            </button>
           </div>
         )}
         
@@ -2005,7 +2040,7 @@ function PopupChatApp() {
           )}
         </div>
         
-        {/* User Avatar + Logout */}
+        {/* User Avatar */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           {/* Avatar: Show picture if available, otherwise show initials */}
           {userInfo.picture && !pictureError ? (
@@ -2046,41 +2081,6 @@ function PopupChatApp() {
               {userInfo.initials || '?'}
             </div>
           )}
-          
-          {/* Logout Link */}
-          <button
-            onClick={handleLogout}
-            disabled={isLoggingOut}
-            style={{
-              padding: '4px 8px',
-              background: 'transparent',
-              border: 'none',
-              color: '#ef4444',
-              fontSize: '10px',
-              fontWeight: '500',
-              cursor: isLoggingOut ? 'wait' : 'pointer',
-              transition: 'all 0.15s ease',
-              opacity: isLoggingOut ? 0.6 : 0.85,
-              display: 'flex',
-              alignItems: 'center',
-              gap: '4px'
-            }}
-            onMouseEnter={(e) => {
-              if (!isLoggingOut) {
-                e.currentTarget.style.opacity = '1';
-              }
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.opacity = isLoggingOut ? '0.6' : '0.85';
-            }}
-          >
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
-              <polyline points="16 17 21 12 16 7" />
-              <line x1="21" y1="12" x2="9" y2="12" />
-            </svg>
-            {isLoggingOut ? '...' : 'Logout'}
-          </button>
         </div>
       </header>
 

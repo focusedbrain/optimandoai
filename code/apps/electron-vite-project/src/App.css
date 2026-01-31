@@ -241,6 +241,63 @@ body {
   flex: 1;
 }
 
+/* --- BEAP Inbox Button (Enterprise/Subtle) --- */
+.beap-inbox-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  background: transparent;
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+  margin-right: 12px;
+}
+
+.beap-inbox-btn:hover {
+  background: var(--bg-surface);
+  border-color: var(--purple-accent);
+  color: var(--text-primary);
+}
+
+.beap-inbox-btn:active {
+  background: var(--bg-elevated);
+}
+
+.beap-inbox-btn__label {
+  letter-spacing: 0.01em;
+}
+
+/* Pro theme: BEAP button with subtle translucent styling */
+[data-ui-theme="pro"] .beap-inbox-btn {
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  color: rgba(255, 255, 255, 0.8);
+}
+
+[data-ui-theme="pro"] .beap-inbox-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.5);
+  color: white;
+}
+
+/* Dark theme: BEAP button styling */
+[data-ui-theme="dark"] .beap-inbox-btn {
+  background: transparent;
+  border-color: var(--border-dark);
+  color: var(--text-secondary-dark);
+}
+
+[data-ui-theme="dark"] .beap-inbox-btn:hover {
+  background: var(--bg-elevated-dark);
+  border-color: var(--accent-dark);
+  color: var(--text-primary-dark);
+}
+
 /* --- Theme Switcher --- */
 .theme-switcher {
   display: flex;

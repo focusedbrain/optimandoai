@@ -654,6 +654,49 @@ async function createWindow() {
         })
       }
     })
+    // Handle BEAP Inbox button from dashboard - open popup in Chrome extension
+    ipcMain.on('OPEN_BEAP_INBOX', () => {
+      console.log('[MAIN] 📨 BEAP Inbox requested from dashboard')
+      
+      // Get dashboard window bounds to sync with popup
+      let bounds = { x: 100, y: 100, width: 520, height: 720 }
+      if (win) {
+        const dashBounds = win.getBounds()
+        bounds = {
+          x: dashBounds.x,
+          y: dashBounds.y,
+          width: dashBounds.width,
+          height: dashBounds.height
+        }
+        console.log('[MAIN] 📐 Dashboard bounds:', bounds)
+        
+        // Blur the dashboard window so Chrome popup can appear on top
+        try {
+          win.blur()
+        } catch {}
+      }
+      
+      // Send message to Chrome extension via WebSocket to open the popup
+      const message = JSON.stringify({
+        type: 'OPEN_COMMAND_CENTER_POPUP',
+        theme: currentExtensionTheme,
+        launchMode: 'dashboard-beap',
+        bounds: bounds
+      })
+      let sent = false
+      wsClients.forEach((socket: any) => {
+        try {
+          socket.send(message)
+          sent = true
+          console.log('[MAIN] 📨 Sent OPEN_COMMAND_CENTER_POPUP to extension with bounds')
+        } catch (e) {
+          console.error('[MAIN] Error sending to extension:', e)
+        }
+      })
+      if (!sent) {
+        console.log('[MAIN] ⚠️ No WebSocket clients connected - popup may not open')
+      }
+    })
     ipcMain.on('overlay-cmd', async (_e, msg: any) => {
       try {
         console.log('[MAIN] Overlay command received:', msg?.action)
