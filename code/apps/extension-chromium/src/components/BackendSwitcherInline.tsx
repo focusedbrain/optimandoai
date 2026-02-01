@@ -294,12 +294,61 @@ export function BackendSwitcherInline({ theme = 'standard', onLogout }: BackendS
             {!isLoggedIn ? (
               /* ========== LOGGED-OUT STATE ========== */
               /* SSO is required - prompt user to sign in via SSO */
-              <span style={{ 
-                fontSize: '11px', 
-                color: mutedColor
-              }}>
-                {isLoggingIn ? 'Signing in...' : 'Not signed in'}
-              </span>
+              <>
+                <button
+                  onClick={handleSignIn}
+                  disabled={isLoggingIn}
+                  style={{
+                    padding: '6px 14px',
+                    background: effectiveTheme === 'standard' 
+                      ? 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)'
+                      : 'linear-gradient(135deg, #a78bfa 0%, #8b5cf6 100%)',
+                    border: 'none',
+                    borderRadius: '6px',
+                    color: '#fff',
+                    fontSize: '11px',
+                    fontWeight: '500',
+                    cursor: isLoggingIn ? 'wait' : 'pointer',
+                    transition: 'all 0.15s ease',
+                    opacity: isLoggingIn ? 0.7 : 1,
+                    boxShadow: '0 1px 3px rgba(0,0,0,0.1)'
+                  }}
+                  onMouseEnter={(e) => {
+                    if (!isLoggingIn) {
+                      e.currentTarget.style.opacity = '0.9';
+                      e.currentTarget.style.transform = 'translateY(-1px)';
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.opacity = isLoggingIn ? '0.7' : '1';
+                    e.currentTarget.style.transform = 'translateY(0)';
+                  }}
+                >
+                  {isLoggingIn ? 'Signing in...' : 'Sign In'}
+                </button>
+                <button
+                  onClick={handleCreateAccount}
+                  style={{
+                    padding: '6px 12px',
+                    background: 'transparent',
+                    border: effectiveTheme === 'standard' ? '1px solid rgba(15,23,42,0.2)' : '1px solid rgba(255,255,255,0.25)',
+                    borderRadius: '6px',
+                    color: textColor,
+                    fontSize: '11px',
+                    fontWeight: '400',
+                    cursor: 'pointer',
+                    transition: 'all 0.15s ease'
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.background = effectiveTheme === 'standard' ? 'rgba(15,23,42,0.05)' : 'rgba(255,255,255,0.08)';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = 'transparent';
+                  }}
+                >
+                  Create Account
+                </button>
+              </>
             ) : (
               /* ========== LOGGED-IN STATE ========== */
               /* Avatar/initials + visible Logout link + dropdown for more options */

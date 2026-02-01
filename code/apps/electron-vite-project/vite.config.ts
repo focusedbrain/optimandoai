@@ -46,6 +46,7 @@ export default defineConfig({
                 'canvas',             // Native: node-canvas
                 'keytar',             // Native: OS keychain
                 'better-sqlite3',     // Native: SQLite bindings
+                'pg',                 // CommonJS: PostgreSQL client (circular import issues with ESM)
               ],
               output: {
                 // Use 'auto' interop for CommonJS modules like electron
