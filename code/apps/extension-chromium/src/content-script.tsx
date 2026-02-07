@@ -32454,6 +32454,11 @@ ${pageText}
 
     function openBillingModal(kind: 'payg' | 'subscription') {
 
+      // Fetch current tier from background (cached auth status) to adjust Basic plan button
+      const renderModal = (currentUserTier: string | null) => {
+
+      const isFreeTier = currentUserTier === 'free' || currentUserTier === null
+
       const m = document.createElement('div')
 
       m.style.cssText = 'position:fixed;inset:0;background:'+getModalThemeGradient()+';z-index:2147483650;display:flex;align-items:center;justify-content:center;'
@@ -32673,7 +32678,9 @@ ${pageText}
                   '<li>PoAE™ baseline execution logs (local, non-cryptographic)</li>' +
                   '<li>Local-only verification (no external attestation)</li>' +
                 '</ul>' +
-                '<button class="cta-btn" style="background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.3)">Select Basic</button>' +
+                (isFreeTier
+                  ? '<button class="cta-btn" style="background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.15);opacity:0.6;cursor:default" disabled>Basic Plan Selected</button>'
+                  : '<button class="cta-btn" style="background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.3)">Select Basic</button>') +
               '</div>' +
               // PRO (PRIVATE) TIER
               '<div class="wr-plan-card">' +
@@ -32926,6 +32933,25 @@ ${pageText}
         entAnnual.addEventListener('click', setEntAnnual)
         entMonthly.addEventListener('click', setEntMonthly)
         setEntAnnual()
+      }
+
+      } // end renderModal
+
+      // Query auth status from background to determine user tier, then render
+      try {
+        chrome.runtime.sendMessage({ type: 'AUTH_STATUS' }, (response: any) => {
+          if (chrome.runtime.lastError) {
+            console.warn('[Plans] AUTH_STATUS check failed:', chrome.runtime.lastError.message)
+            renderModal(null)
+            return
+          }
+          const tier = response?.tier || null
+          console.log('[Plans] User tier for billing modal:', tier)
+          renderModal(tier)
+        })
+      } catch (e) {
+        console.warn('[Plans] AUTH_STATUS exception:', e)
+        renderModal(null)
       }
 
     }
