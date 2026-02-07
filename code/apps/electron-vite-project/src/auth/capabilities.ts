@@ -9,10 +9,13 @@
 /**
  * Available subscription tiers (aligned with pricing)
  * - 'free': Baseline tier, always active after login if no other tier detected
- * - 'pro': Paid tier
+ * - 'pro': Pro (Private) annual subscription
+ * - 'pro_lifetime': Pro (Private) lifetime license
+ * - 'publisher': Publisher annual subscription
+ * - 'publisher_lifetime': Publisher lifetime license
  * - 'enterprise': Full enterprise tier
  */
-export type Tier = 'free' | 'pro' | 'enterprise';
+export type Tier = 'free' | 'pro' | 'pro_lifetime' | 'publisher' | 'publisher_lifetime' | 'enterprise';
 
 /**
  * Default tier for new logins (fail-closed)
@@ -30,12 +33,11 @@ export function hasRolesInToken(roles: string[] | undefined | null): boolean {
 
 /**
  * Map Keycloak roles to tier
- * Only maps roles that EXACTLY match tier names.
+ * Maps roles that match tier names (including lifetime sub-roles).
  * If no tier role is found, returns DEFAULT_TIER (fail-closed).
  * 
  * SECURITY: Never invents roles client-side.
- * If Keycloak roles include 'pro' or 'enterprise', use that tier.
- * Otherwise, default to 'free'.
+ * Priority order: enterprise > publisher_lifetime > publisher > pro_lifetime > pro > free
  * 
  * @param keycloakRoles - Combined realm + client roles from token
  * @returns Tier based on role presence
@@ -55,7 +57,22 @@ export function mapRolesToTier(keycloakRoles: string[]): Tier {
     return 'enterprise';
   }
   
-  // Pro is next
+  // Publisher lifetime takes priority over publisher annual
+  if (normalizedRoles.includes('publisher_lifetime')) {
+    return 'publisher_lifetime';
+  }
+  
+  // Publisher annual
+  if (normalizedRoles.includes('publisher')) {
+    return 'publisher';
+  }
+  
+  // Pro lifetime takes priority over pro annual
+  if (normalizedRoles.includes('pro_lifetime')) {
+    return 'pro_lifetime';
+  }
+  
+  // Pro annual
   if (normalizedRoles.includes('pro')) {
     return 'pro';
   }

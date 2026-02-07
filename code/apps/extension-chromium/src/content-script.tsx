@@ -32458,6 +32458,9 @@ ${pageText}
       const renderModal = (currentUserTier: string | null) => {
 
       const isFreeTier = currentUserTier === 'free' || currentUserTier === null
+      const isProTier = currentUserTier === 'pro' || currentUserTier === 'pro_lifetime'
+      const isPublisherTier = currentUserTier === 'publisher' || currentUserTier === 'publisher_lifetime'
+      const isEnterpriseTier = currentUserTier === 'enterprise'
 
       const m = document.createElement('div')
 
@@ -32549,16 +32552,16 @@ ${pageText}
             id: 'pro',
             name: 'Pro (Private)',
             allowedBillingOptions: ['annual', 'lifetime'] as const,
-            prices: { annual: 59.95, lifetime: 199 },
-            priceLabels: { annual: '€59.95<span>/year</span>', lifetime: '€199<span> one-time</span>' },
+            prices: { annual: 59, lifetime: 199 },
+            priceLabels: { annual: '€59<span>/year</span>', lifetime: '€199<span> one-time</span>' },
             ctaLabels: { annual: 'Select Pro', lifetime: 'Select Early Access Lifetime' }
           },
           publisher: {
             id: 'publisher',
             name: 'Publisher',
             allowedBillingOptions: ['annual', 'lifetime'] as const, // NO monthly
-            prices: { annual: 129.95, lifetime: 449 },
-            priceLabels: { annual: '€129.95<span>/year</span>', lifetime: '€449<span> one-time</span>' },
+            prices: { annual: 129, lifetime: 449 },
+            priceLabels: { annual: '€129<span>/year</span>', lifetime: '€449<span> one-time</span>' },
             ctaLabels: { annual: 'Select Publisher', lifetime: 'Select Early Access Lifetime' }
           },
           business: {
@@ -32679,7 +32682,7 @@ ${pageText}
                   '<li>Local-only verification (no external attestation)</li>' +
                 '</ul>' +
                 (isFreeTier
-                  ? '<button class="cta-btn" style="background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.15);opacity:0.6;cursor:default" disabled>Basic Plan Selected</button>'
+                  ? '<button class="cta-btn" style="background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.15);opacity:0.6;cursor:default" disabled>Active Plan</button>'
                   : '<button class="cta-btn" style="background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.3)">Select Basic</button>') +
               '</div>' +
               // PRO (PRIVATE) TIER
@@ -32707,7 +32710,9 @@ ${pageText}
                   '<li>Exportable proof artifacts for personal records</li>' +
                   '<li>Local verification of proof integrity</li>' +
                 '</ul>' +
-                '<button id="pro-private-cta" class="cta-btn" style="background:#2563eb" data-plan="pro_private_annual">' + PLAN_CONFIG.pro.ctaLabels.annual + '</button>' +
+                (isProTier
+                  ? '<div id="pro-private-cta" class="cta-btn" style="background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.15);opacity:0.6;cursor:default;text-align:center">Active Plan</div>'
+                  : '<a id="pro-private-cta" class="cta-btn" style="background:#2563eb;text-align:center;text-decoration:none;display:block" href="https://wrdesk.com/buy/?plan=pro_annual" target="_blank" rel="noopener">' + PLAN_CONFIG.pro.ctaLabels.annual + '</a>') +
               '</div>' +
               // PUBLISHER TIER
               '<div class="wr-plan-card featured" style="position:relative">' +
@@ -32735,7 +32740,9 @@ ${pageText}
                   '<li>Third-party verification capability (client-accessible)</li>' +
                   '<li>Proof chain export for external review</li>' +
                 '</ul>' +
-                '<button id="publisher-cta" class="cta-btn" style="background:#16a34a;font-weight:700" data-plan="publisher_annual">' + PLAN_CONFIG.publisher.ctaLabels.annual + '</button>' +
+                (isPublisherTier
+                  ? '<div id="publisher-cta" class="cta-btn" style="background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.15);opacity:0.6;cursor:default;text-align:center">Active Plan</div>'
+                  : '<a id="publisher-cta" class="cta-btn" style="background:#16a34a;font-weight:700;text-align:center;text-decoration:none;display:block" href="https://wrdesk.com/buy/?plan=publisher_annual" target="_blank" rel="noopener">' + PLAN_CONFIG.publisher.ctaLabels.annual + '</a>') +
               '</div>' +
               // BUSINESS/ENTERPRISE TIER
               '<div class="wr-plan-card featured">' +
@@ -32762,7 +32769,9 @@ ${pageText}
                   '<li>Centralized proof archive with retention controls</li>' +
                   '<li>Third-party verification with organizational context</li>' +
                 '</ul>' +
-                '<button id="enterprise-cta" class="cta-btn" style="background:#0ea5e9" data-plan="enterprise_annual">' + PLAN_CONFIG.business.ctaLabels.annual + '</button>' +
+                (isEnterpriseTier
+                  ? '<div id="enterprise-cta" class="cta-btn" style="background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.15);opacity:0.6;cursor:default;text-align:center">Active Plan</div>'
+                  : '<a id="enterprise-cta" class="cta-btn" style="background:#0ea5e9;text-align:center;text-decoration:none;display:block" href="https://wrdesk.com/?page_id=864" target="_blank" rel="noopener">' + PLAN_CONFIG.business.ctaLabels.annual + '</a>') +
               '</div>' +
             '</div>' +
           '</div>'
@@ -32838,19 +32847,22 @@ ${pageText}
 
       if (proPrivatePrice && proPrivateAnnual && proPrivateLifetime && proPrivateNote && proPrivateCta) {
         const proCfg = {
-          prices: { annual: '€59.95<span>/year</span>', lifetime: '€199<span> one-time</span>' },
-          ctas: { annual: 'Select Pro', lifetime: 'Select Early Access Lifetime' }
+          prices: { annual: '€59<span>/year</span>', lifetime: '€199<span> one-time</span>' },
+          ctas: { annual: 'Select Pro', lifetime: 'Select Early Access Lifetime' },
+          urls: { annual: 'https://wrdesk.com/buy/?plan=pro_annual', lifetime: 'https://wrdesk.com/buy/?plan=pro_lifetime' }
         }
         const setProAnnual = () => {
-          console.log('[Plans] Pro: switching to Annual @ €59.95/year')
+          console.log('[Plans] Pro: switching to Annual @ €59/year')
           proPrivatePrice.innerHTML = proCfg.prices.annual
           proPrivateAnnual.classList.add('active')
           proPrivateLifetime.classList.remove('active')
           proPrivateNote.style.display = 'none'
           // Founders Pack only shown for affiliate users
           if (proPrivateFounders) proPrivateFounders.style.display = 'none'
-          proPrivateCta.textContent = proCfg.ctas.annual
-          proPrivateCta.setAttribute('data-plan', 'pro_private_annual')
+          if (!isProTier) {
+            proPrivateCta.textContent = proCfg.ctas.annual
+            proPrivateCta.setAttribute('href', proCfg.urls.annual)
+          }
         }
         const setProLifetime = () => {
           console.log('[Plans] Pro: switching to Lifetime @ €199 one-time')
@@ -32860,8 +32872,10 @@ ${pageText}
           proPrivateNote.style.display = 'block'
           // Founders Pack only shown for affiliate users (element only exists if isAffiliateAttributed)
           if (proPrivateFounders) proPrivateFounders.style.display = 'block'
-          proPrivateCta.textContent = proCfg.ctas.lifetime
-          proPrivateCta.setAttribute('data-plan', 'pro_private_lifetime')
+          if (!isProTier) {
+            proPrivateCta.textContent = proCfg.ctas.lifetime
+            proPrivateCta.setAttribute('href', proCfg.urls.lifetime)
+          }
         }
         proPrivateAnnual.addEventListener('click', setProAnnual)
         proPrivateLifetime.addEventListener('click', setProLifetime)
@@ -32877,18 +32891,21 @@ ${pageText}
 
       if (publisherPrice && publisherAnnual && publisherLifetime && publisherCta) {
         const pubCfg = {
-          prices: { annual: '€129.95<span>/year</span>', lifetime: '€449<span> one-time</span>' },
-          ctas: { annual: 'Select Publisher', lifetime: 'Select Early Access Lifetime' }
+          prices: { annual: '€129<span>/year</span>', lifetime: '€449<span> one-time</span>' },
+          ctas: { annual: 'Select Publisher', lifetime: 'Select Early Access Lifetime' },
+          urls: { annual: 'https://wrdesk.com/buy/?plan=publisher_annual', lifetime: 'https://wrdesk.com/buy/?plan=publisher_lifetime' }
         }
         const setPublisherAnnual = () => {
-          console.log('[Plans] Publisher: switching to Annual @ €129.95/year')
+          console.log('[Plans] Publisher: switching to Annual @ €129/year')
           publisherPrice.innerHTML = pubCfg.prices.annual
           publisherAnnual.classList.add('active')
           publisherLifetime.classList.remove('active')
           // Founders Pack only shown for affiliate users
           if (publisherFounders) publisherFounders.style.display = 'none'
-          publisherCta.textContent = pubCfg.ctas.annual
-          publisherCta.setAttribute('data-plan', 'publisher_annual')
+          if (!isPublisherTier) {
+            publisherCta.textContent = pubCfg.ctas.annual
+            publisherCta.setAttribute('href', pubCfg.urls.annual)
+          }
         }
         const setPublisherLifetime = () => {
           console.log('[Plans] Publisher: switching to Lifetime @ €449 one-time')
@@ -32897,8 +32914,10 @@ ${pageText}
           publisherAnnual.classList.remove('active')
           // Founders Pack only shown for affiliate users (element only exists if isAffiliateAttributed)
           if (publisherFounders) publisherFounders.style.display = 'block'
-          publisherCta.textContent = pubCfg.ctas.lifetime
-          publisherCta.setAttribute('data-plan', 'publisher_lifetime')
+          if (!isPublisherTier) {
+            publisherCta.textContent = pubCfg.ctas.lifetime
+            publisherCta.setAttribute('href', pubCfg.urls.lifetime)
+          }
         }
         publisherAnnual.addEventListener('click', setPublisherAnnual)
         publisherLifetime.addEventListener('click', setPublisherLifetime)
