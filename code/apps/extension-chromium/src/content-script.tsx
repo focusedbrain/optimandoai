@@ -32458,7 +32458,7 @@ ${pageText}
       const renderModal = (currentUserTier: string | null) => {
 
       const isFreeTier = currentUserTier === 'free' || currentUserTier === null
-      const isProTier = currentUserTier === 'pro' || currentUserTier === 'pro_lifetime'
+      const isPrivateTier = currentUserTier === 'private' || currentUserTier === 'private_lifetime'
       const isPublisherTier = currentUserTier === 'publisher' || currentUserTier === 'publisher_lifetime'
       const isEnterpriseTier = currentUserTier === 'enterprise'
 
@@ -32548,8 +32548,8 @@ ${pageText}
         // SINGLE SOURCE OF TRUTH: Plan pricing configuration
         // ============================================================
         const PLAN_CONFIG = {
-          pro: {
-            id: 'pro',
+          private: {
+            id: 'private',
             name: 'Pro (Private)',
             allowedBillingOptions: ['annual', 'lifetime'] as const,
             prices: { annual: 59, lifetime: 199 },
@@ -32564,8 +32564,8 @@ ${pageText}
             priceLabels: { annual: '€129<span>/year</span>', lifetime: '€449<span> one-time</span>' },
             ctaLabels: { annual: 'Select Publisher', lifetime: 'Select Early Access Lifetime' }
           },
-          business: {
-            id: 'business',
+          enterprise: {
+            id: 'enterprise',
             name: 'Business/Enterprise',
             allowedBillingOptions: ['annual', 'monthly'] as const, // NO lifetime
             prices: { annual: 599, monthly: 59 },
@@ -32576,12 +32576,12 @@ ${pageText}
 
         // DEV ASSERTION: Verify plan constraints
         console.log('[Plans] Config loaded:', {
-          pro: PLAN_CONFIG.pro.allowedBillingOptions,
+          private: PLAN_CONFIG.private.allowedBillingOptions,
           publisher: PLAN_CONFIG.publisher.allowedBillingOptions,
-          business: PLAN_CONFIG.business.allowedBillingOptions
+          enterprise: PLAN_CONFIG.enterprise.allowedBillingOptions
         })
-        if (PLAN_CONFIG.business.allowedBillingOptions.includes('lifetime' as any)) {
-          console.error('[Plans] ERROR: Business plan must NOT include lifetime!')
+        if (PLAN_CONFIG.enterprise.allowedBillingOptions.includes('lifetime' as any)) {
+          console.error('[Plans] ERROR: Enterprise plan must NOT include lifetime!')
         }
         if (PLAN_CONFIG.publisher.allowedBillingOptions.includes('monthly' as any)) {
           console.error('[Plans] ERROR: Publisher plan must NOT include monthly!')
@@ -32688,7 +32688,7 @@ ${pageText}
               // PRO (PRIVATE) TIER
               '<div class="wr-plan-card">' +
                 '<h3>Pro (Private)</h3>' +
-                '<div id="pro-private-price" class="price">' + PLAN_CONFIG.pro.priceLabels.annual + '</div>' +
+                '<div id="pro-private-price" class="price">' + PLAN_CONFIG.private.priceLabels.annual + '</div>' +
                 '<div class="toggle-row">' +
                   '<button id="pro-private-annual" class="toggle-btn active">Annual</button>' +
                   '<button id="pro-private-lifetime" class="toggle-btn">Early Access Lifetime</button>' +
@@ -32710,9 +32710,9 @@ ${pageText}
                   '<li>Exportable proof artifacts for personal records</li>' +
                   '<li>Local verification of proof integrity</li>' +
                 '</ul>' +
-                (isProTier
+                (isPrivateTier
                   ? '<div id="pro-private-cta" class="cta-btn" style="background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.15);opacity:0.6;cursor:default;text-align:center">Active Plan</div>'
-                  : '<a id="pro-private-cta" class="cta-btn" style="background:#2563eb;text-align:center;text-decoration:none;display:block" href="https://wrdesk.com/buy/?plan=pro_annual" target="_blank" rel="noopener">' + PLAN_CONFIG.pro.ctaLabels.annual + '</a>') +
+                  : '<a id="pro-private-cta" class="cta-btn" style="background:#2563eb;text-align:center;text-decoration:none;display:block" href="https://wrdesk.com/buy/?plan=private_annual" target="_blank" rel="noopener">' + PLAN_CONFIG.private.ctaLabels.annual + '</a>') +
               '</div>' +
               // PUBLISHER TIER
               '<div class="wr-plan-card featured" style="position:relative">' +
@@ -32747,7 +32747,7 @@ ${pageText}
               // BUSINESS/ENTERPRISE TIER
               '<div class="wr-plan-card featured">' +
                 '<h3>Business / Enterprise</h3>' +
-                '<div id="enterprise-price" class="price">' + PLAN_CONFIG.business.priceLabels.annual + '</div>' +
+                '<div id="enterprise-price" class="price">' + PLAN_CONFIG.enterprise.priceLabels.annual + '</div>' +
                 '<div class="toggle-row">' +
                   '<button id="enterprise-annual" class="toggle-btn active">Annual</button>' +
                   '<button id="enterprise-monthly" class="toggle-btn">Monthly</button>' +
@@ -32771,7 +32771,7 @@ ${pageText}
                 '</ul>' +
                 (isEnterpriseTier
                   ? '<div id="enterprise-cta" class="cta-btn" style="background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.15);opacity:0.6;cursor:default;text-align:center">Active Plan</div>'
-                  : '<a id="enterprise-cta" class="cta-btn" style="background:#0ea5e9;text-align:center;text-decoration:none;display:block" href="https://wrdesk.com/?page_id=864" target="_blank" rel="noopener">' + PLAN_CONFIG.business.ctaLabels.annual + '</a>') +
+                  : '<a id="enterprise-cta" class="cta-btn" style="background:#0ea5e9;text-align:center;text-decoration:none;display:block" href="https://wrdesk.com/?page_id=864" target="_blank" rel="noopener">' + PLAN_CONFIG.enterprise.ctaLabels.annual + '</a>') +
               '</div>' +
             '</div>' +
           '</div>'
@@ -32849,30 +32849,30 @@ ${pageText}
         const proCfg = {
           prices: { annual: '€59<span>/year</span>', lifetime: '€199<span> one-time</span>' },
           ctas: { annual: 'Select Pro', lifetime: 'Select Early Access Lifetime' },
-          urls: { annual: 'https://wrdesk.com/buy/?plan=pro_annual', lifetime: 'https://wrdesk.com/buy/?plan=pro_lifetime' }
+          urls: { annual: 'https://wrdesk.com/buy/?plan=private_annual', lifetime: 'https://wrdesk.com/buy/?plan=private_lifetime' }
         }
         const setProAnnual = () => {
-          console.log('[Plans] Pro: switching to Annual @ €59/year')
+          console.log('[Plans] Private: switching to Annual @ €59/year')
           proPrivatePrice.innerHTML = proCfg.prices.annual
           proPrivateAnnual.classList.add('active')
           proPrivateLifetime.classList.remove('active')
           proPrivateNote.style.display = 'none'
           // Founders Pack only shown for affiliate users
           if (proPrivateFounders) proPrivateFounders.style.display = 'none'
-          if (!isProTier) {
+          if (!isPrivateTier) {
             proPrivateCta.textContent = proCfg.ctas.annual
             proPrivateCta.setAttribute('href', proCfg.urls.annual)
           }
         }
         const setProLifetime = () => {
-          console.log('[Plans] Pro: switching to Lifetime @ €199 one-time')
+          console.log('[Plans] Private: switching to Lifetime @ €199 one-time')
           proPrivatePrice.innerHTML = proCfg.prices.lifetime
           proPrivateLifetime.classList.add('active')
           proPrivateAnnual.classList.remove('active')
           proPrivateNote.style.display = 'block'
           // Founders Pack only shown for affiliate users (element only exists if isAffiliateAttributed)
           if (proPrivateFounders) proPrivateFounders.style.display = 'block'
-          if (!isProTier) {
+          if (!isPrivateTier) {
             proPrivateCta.textContent = proCfg.ctas.lifetime
             proPrivateCta.setAttribute('href', proCfg.urls.lifetime)
           }
@@ -32936,14 +32936,14 @@ ${pageText}
           ctas: { annual: 'Contact Sales', monthly: 'Contact Sales' }
         }
         const setEntAnnual = () => {
-          console.log('[Plans] Business: switching to Annual @ €599/year')
+          console.log('[Plans] Enterprise: switching to Annual @ €599/year')
           entPrice.innerHTML = entCfg.prices.annual
           entAnnual.classList.add('active')
           entMonthly.classList.remove('active')
           entCta.setAttribute('data-plan', 'enterprise_annual')
         }
         const setEntMonthly = () => {
-          console.log('[Plans] Business: switching to Monthly @ €59/month')
+          console.log('[Plans] Enterprise: switching to Monthly @ €59/month')
           entPrice.innerHTML = entCfg.prices.monthly
           entMonthly.classList.add('active')
           entAnnual.classList.remove('active')

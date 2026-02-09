@@ -4,18 +4,20 @@
 // Tiers represent subscription levels. No feature flags or capabilities.
 // UI gating is based on `isLoggedIn` (session valid) and `tier`.
 // FAIL-CLOSED: Missing roles → 'free' tier (never invent roles client-side)
+//
+// Role names match Keycloak & WordPress: free, private, publisher, enterprise
 // ============================================================================
 
 /**
- * Available subscription tiers (aligned with pricing)
+ * Available subscription tiers (aligned with pricing & Keycloak roles)
  * - 'free': Baseline tier, always active after login if no other tier detected
- * - 'pro': Pro (Private) annual subscription
- * - 'pro_lifetime': Pro (Private) lifetime license
+ * - 'private': Private annual subscription
+ * - 'private_lifetime': Private lifetime license
  * - 'publisher': Publisher annual subscription
  * - 'publisher_lifetime': Publisher lifetime license
  * - 'enterprise': Full enterprise tier
  */
-export type Tier = 'free' | 'pro' | 'pro_lifetime' | 'publisher' | 'publisher_lifetime' | 'enterprise';
+export type Tier = 'free' | 'private' | 'private_lifetime' | 'publisher' | 'publisher_lifetime' | 'enterprise';
 
 /**
  * Default tier for new logins (fail-closed)
@@ -37,7 +39,7 @@ export function hasRolesInToken(roles: string[] | undefined | null): boolean {
  * If no tier role is found, returns DEFAULT_TIER (fail-closed).
  * 
  * SECURITY: Never invents roles client-side.
- * Priority order: enterprise > publisher_lifetime > publisher > pro_lifetime > pro > free
+ * Priority order: enterprise > publisher_lifetime > publisher > private_lifetime > private > free
  * 
  * @param keycloakRoles - Combined realm + client roles from token
  * @returns Tier based on role presence
@@ -67,14 +69,14 @@ export function mapRolesToTier(keycloakRoles: string[]): Tier {
     return 'publisher';
   }
   
-  // Pro lifetime takes priority over pro annual
-  if (normalizedRoles.includes('pro_lifetime')) {
-    return 'pro_lifetime';
+  // Private lifetime takes priority over private annual
+  if (normalizedRoles.includes('private_lifetime')) {
+    return 'private_lifetime';
   }
   
-  // Pro annual
-  if (normalizedRoles.includes('pro')) {
-    return 'pro';
+  // Private annual
+  if (normalizedRoles.includes('private')) {
+    return 'private';
   }
   
   // No tier role found - default to free (not an error, just no premium role)
