@@ -50,10 +50,15 @@ function createElementForBlock(block: AtomicBlock, runtime: any, emitEvent: (ev:
       el.style.color = '#333'
       
       // CRITICAL FIX #3: Add data-state-key for reactive updates if text was bound to state
-      if (blockStateKey) {
-        el.setAttribute('data-state-key', blockStateKey)
+      const effectiveStateKey = block.ui.props?.stateKey || blockStateKey
+      if (effectiveStateKey) {
+        const currentValue = runtime.get(effectiveStateKey)
+        if (currentValue !== undefined) {
+          el.textContent = String(currentValue)
+        }
+        el.setAttribute('data-state-key', effectiveStateKey)
         // Subscribe to state changes for reactive updates
-        runtime.subscribe(blockStateKey, (newValue: any) => {
+        runtime.subscribe(effectiveStateKey, (newValue: any) => {
           el.textContent = String(newValue)
         })
       }

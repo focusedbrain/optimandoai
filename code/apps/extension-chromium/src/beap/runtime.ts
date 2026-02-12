@@ -9,6 +9,9 @@ function interpolateStateBindings(block: AtomicBlock, state: Record<string, any>
     const value: any = (block.ui as any)[prop]
     if (typeof value === 'string' && value.startsWith('{{state.') && value.endsWith('}}')) {
       const stateKey = value.slice(8, -2) // extract key from {{state.key}}
+      const resolvedKey = namespace ? `${namespace}.${stateKey}` : stateKey
+      if (!block.ui.props) block.ui.props = {}
+      block.ui.props.stateKey = resolvedKey
       if (state[stateKey] !== undefined) {
         (block.ui as any)[prop] = state[stateKey]
       }

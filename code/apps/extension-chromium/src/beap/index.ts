@@ -135,6 +135,10 @@ CRITICAL RULES:
     if (/label|heading|title/.test(fullText)) {
       features.push('label')
     }
+    if (/display|show|number|\bcount\b/.test(fullText)) {
+      features.push('display')
+      features.push('number')
+    }
     
     // Detect actions
     if (/save|store|persist/.test(fullText)) {
@@ -148,6 +152,13 @@ CRITICAL RULES:
     if (/form|submit/.test(fullText)) {
       intent = 'form_creation'
       features.push('submit_action')
+    }
+    if (/\bcounter\b|\bcount\b/.test(fullText)) {
+      intent = 'counter'
+      features.push('counter')
+    }
+    if (/increment|increase|add\s*1/.test(fullText)) {
+      features.push('increment')
     }
     
     // Only add single_functionality if explicitly stated with words like "only", "just", "single"
@@ -358,6 +369,8 @@ export async function createMiniAppFromQuery(title: string, description: string,
     if (scored.length === 0) {
       throw new Error("No matching components found for the query")
     }
+
+    console.log("All Scored (print full scored variable): ", scored) // todo: Added for testing. Remove later.
     
     // STEP 7.5: Tier-aware selection with multi-component support for Tier-2
     // RULE: Prefer higher tiers (T1 > T2 > T3) when scores are competitive
