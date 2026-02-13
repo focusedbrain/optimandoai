@@ -10,7 +10,7 @@
     "**/node_modules/canvas/**/*",
     "**/*.node"
   ],
-  "productName": "WR Code",
+  "productName": "WR Desk",
   "directories": {
     "output": "release/${version}"
   },

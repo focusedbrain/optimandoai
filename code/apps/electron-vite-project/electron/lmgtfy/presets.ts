@@ -21,18 +21,25 @@ export interface PresetsFile {
   autoSend: boolean
 }
 
-const rootDir = path.join(app.getPath('home'), '.opengiraffe', 'lmgtfy')
-const filePath = path.join(rootDir, 'regions.json')
+// Lazy getters to avoid calling app.getPath() before app is ready
+function getRootDir() {
+  return path.join(app.getPath('home'), '.opengiraffe', 'lmgtfy')
+}
+
+function getFilePath() {
+  return path.join(getRootDir(), 'regions.json')
+}
 
 function ensureDir() {
-  fs.mkdirSync(rootDir, { recursive: true })
+  fs.mkdirSync(getRootDir(), { recursive: true })
 }
 
 export function loadPresets(): PresetsFile {
   try {
     ensureDir()
-    if (!fs.existsSync(filePath)) return { regions: [], autoSend: false }
-    const raw = fs.readFileSync(filePath, 'utf8')
+    const fp = getFilePath()
+    if (!fs.existsSync(fp)) return { regions: [], autoSend: false }
+    const raw = fs.readFileSync(fp, 'utf8')
     const data = JSON.parse(raw)
     return { regions: data.regions ?? [], autoSend: !!data.autoSend }
   } catch {
@@ -42,7 +49,7 @@ export function loadPresets(): PresetsFile {
 
 export function savePresets(data: PresetsFile) {
   ensureDir()
-  fs.writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf8')
+  fs.writeFileSync(getFilePath(), JSON.stringify(data, null, 2), 'utf8')
 }
 
 export function upsertRegion(preset: Omit<RegionPreset, 'id' | 'createdAt' | 'updatedAt'> & { id?: string }): RegionPreset {

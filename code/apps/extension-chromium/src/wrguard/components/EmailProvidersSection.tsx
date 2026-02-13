@@ -21,7 +21,7 @@ export interface EmailAccount {
 }
 
 export interface EmailProvidersSectionProps {
-  theme: 'default' | 'dark' | 'professional'
+  theme: 'default' | 'dark' | 'professional' | 'standard' | 'pro'
   // Shared email account state from sidepanel
   emailAccounts: EmailAccount[]
   isLoadingEmailAccounts: boolean
@@ -40,10 +40,10 @@ export const EmailProvidersSection: React.FC<EmailProvidersSectionProps> = ({
   onDisconnectEmail,
   onSelectEmailAccount
 }) => {
-  const isProfessional = theme === 'professional'
-  const textColor = isProfessional ? '#0f172a' : 'white'
-  const mutedColor = isProfessional ? '#64748b' : 'rgba(255,255,255,0.7)'
-  const borderColor = isProfessional ? 'rgba(15,23,42,0.1)' : 'rgba(255,255,255,0.1)'
+  const isLightTheme = theme === 'professional' || theme === 'standard'
+  const textColor = isLightTheme ? '#0f172a' : 'white'
+  const mutedColor = isLightTheme ? '#64748b' : 'rgba(255,255,255,0.7)'
+  const borderColor = isLightTheme ? 'rgba(15,23,42,0.1)' : 'rgba(255,255,255,0.1)'
   
   // =========================================================================
   // Render - Mirrors BEAP Messages Connect Email section exactly
@@ -53,7 +53,7 @@ export const EmailProvidersSection: React.FC<EmailProvidersSectionProps> = ({
     <div style={{ 
       padding: '16px 18px', 
       borderBottom: `1px solid ${borderColor}`,
-      background: isProfessional ? 'rgba(59,130,246,0.05)' : 'rgba(59,130,246,0.1)'
+        background: isLightTheme ? 'rgba(59,130,246,0.05)' : 'rgba(59,130,246,0.1)'
     }}>
       {/* Header with Connect Email button */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
@@ -94,14 +94,14 @@ export const EmailProvidersSection: React.FC<EmailProvidersSectionProps> = ({
         /* Empty State */
         <div style={{ 
           padding: '20px', 
-          background: isProfessional ? 'white' : 'rgba(255,255,255,0.05)',
+          background: isLightTheme ? 'white' : 'rgba(255,255,255,0.05)',
           borderRadius: '8px',
-          border: isProfessional ? '1px dashed rgba(15,23,42,0.2)' : '1px dashed rgba(255,255,255,0.2)',
+          border: isLightTheme ? '1px dashed rgba(15,23,42,0.2)' : '1px dashed rgba(255,255,255,0.2)',
           textAlign: 'center'
         }}>
           <div style={{ fontSize: '24px', marginBottom: '8px' }}>📧</div>
           <div style={{ fontSize: '13px', color: mutedColor, marginBottom: '4px' }}>No email accounts connected</div>
-          <div style={{ fontSize: '11px', color: isProfessional ? '#94a3b8' : 'rgba(255,255,255,0.5)' }}>
+          <div style={{ fontSize: '11px', color: isLightTheme ? '#94a3b8' : 'rgba(255,255,255,0.5)' }}>
             Connect your email account to use WRGuard email features
           </div>
         </div>
@@ -116,11 +116,11 @@ export const EmailProvidersSection: React.FC<EmailProvidersSectionProps> = ({
                 alignItems: 'center', 
                 justifyContent: 'space-between',
                 padding: '10px 12px',
-                background: isProfessional ? 'white' : 'rgba(255,255,255,0.08)',
+                background: isLightTheme ? 'white' : 'rgba(255,255,255,0.08)',
                 borderRadius: '8px',
                 border: account.status === 'active' 
-                  ? (isProfessional ? '1px solid rgba(34,197,94,0.3)' : '1px solid rgba(34,197,94,0.4)')
-                  : (isProfessional ? '1px solid rgba(239,68,68,0.3)' : '1px solid rgba(239,68,68,0.4)')
+                  ? (isLightTheme ? '1px solid rgba(34,197,94,0.3)' : '1px solid rgba(34,197,94,0.4)')
+                  : (isLightTheme ? '1px solid rgba(239,68,68,0.3)' : '1px solid rgba(239,68,68,0.4)')
               }}
             >
               <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
@@ -156,7 +156,7 @@ export const EmailProvidersSection: React.FC<EmailProvidersSectionProps> = ({
                 style={{
                   background: 'transparent',
                   border: 'none',
-                  color: isProfessional ? '#94a3b8' : 'rgba(255,255,255,0.5)',
+                  color: isLightTheme ? '#94a3b8' : 'rgba(255,255,255,0.5)',
                   cursor: 'pointer',
                   padding: '4px',
                   fontSize: '14px'
@@ -188,8 +188,8 @@ export const EmailProvidersSection: React.FC<EmailProvidersSectionProps> = ({
             onChange={(e) => onSelectEmailAccount(e.target.value)} 
             style={{ 
               width: '100%', 
-              background: isProfessional ? 'white' : 'rgba(255,255,255,0.1)', 
-              border: isProfessional ? '1px solid rgba(15,23,42,0.2)' : '1px solid rgba(255,255,255,0.2)', 
+              background: isLightTheme ? 'white' : 'rgba(255,255,255,0.1)', 
+              border: isLightTheme ? '1px solid rgba(15,23,42,0.2)' : '1px solid rgba(255,255,255,0.2)', 
               color: textColor, 
               borderRadius: '6px', 
               padding: '8px 12px', 

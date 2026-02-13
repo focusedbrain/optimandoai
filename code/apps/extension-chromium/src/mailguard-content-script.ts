@@ -1,19 +1,36 @@
 /**
  * WR MailGuard - Content Script for Email Protection
  * 
- * This content script:
- * 1. Detects when user is on Gmail or Outlook
- * 2. Shows activation banner
- * 3. Communicates with Electron via the background script to:
- *    - Activate/deactivate the Electron overlay
- *    - Send email row positions for hover detection
- *    - Extract and sanitize email content when requested
+ * =============================================================================
+ * WRGuard™ INBOX PROTECTION — Content Script
+ * =============================================================================
+ * 
+ * This content script enforces email inbox blocking on protected domains.
+ * 
+ * BLOCKING MECHANISM:
+ * 1. Blocked domains are defined in wrguard/types.ts (WRGUARD_BLOCKED_EMAIL_DOMAINS)
+ * 2. Click blocking starts IMMEDIATELY on script load (capture phase)
+ * 3. WRGuard overlay displays explaining the security restriction
+ * 4. Block remains effective even if overlay fails to render
+ * 
+ * IMPORTANT SECURITY NOTES:
+ * - Block is PRIMARY; overlay is INFORMATIONAL only
+ * - No email content is ever rendered or opened on blocked pages
+ * - Navigation UI (sidebar, search, settings) remains accessible
+ * - Only email-open actions (click on email row) are blocked
  * 
  * Supported email providers:
  * - Gmail (mail.google.com)
  * - Outlook.com (outlook.live.com)
  * - Microsoft 365 (outlook.office.com, outlook.office365.com)
+ * 
+ * To add new blocked domains:
+ * 1. Add to WRGUARD_BLOCKED_EMAIL_DOMAINS in wrguard/types.ts
+ * 2. Add matching pattern to manifest.config.ts content_scripts
  */
+
+// Import blocked domains from single source of truth
+import { WRGUARD_BLOCKED_EMAIL_DOMAINS, isBlockedEmailDomain } from './wrguard/types'
 
 // =============================================================================
 // Types
@@ -78,8 +95,8 @@ let overlayHiddenForLightbox = false
 // Track if the Electron overlay is ready (set to true when MAILGUARD_ACTIVATED received)
 let overlayReady = false
 
-// Supported email sites for immediate blocking check
-const IMMEDIATE_BLOCK_SITES = ['mail.google.com', 'outlook.live.com', 'outlook.office.com', 'outlook.office365.com']
+// Use centralized blocked domains from wrguard/types.ts (single source of truth)
+// DO NOT add domains here - add to WRGUARD_BLOCKED_EMAIL_DOMAINS in wrguard/types.ts
 
 /**
  * Check if an element is part of an email row/item that should be blocked
@@ -117,17 +134,47 @@ function blockEmailClick(e: Event): void {
 
 // Immediately block email clicks until overlay is ready
 // This runs as soon as the content script loads
+// Block is PRIMARY - happens before any overlay or connection
 ;(function blockEmailClicksImmediately() {
   const hostname = window.location.hostname
-  const isEmailSite = IMMEDIATE_BLOCK_SITES.some(site => hostname.includes(site))
   
-  if (!isEmailSite) return
+  // Use centralized blocked domains check
+  if (!isBlockedEmailDomain(hostname)) return
   
   console.log('[MailGuard] Installing immediate click blocker on email site')
   
   // Capture phase listeners to block clicks before they reach email elements
   document.addEventListener('click', blockEmailClick, true)
   document.addEventListener('mousedown', blockEmailClick, true)
+  
+  // Also block keyboard navigation to emails (Enter key on focused email row)
+  document.addEventListener('keydown', (e: KeyboardEvent) => {
+    if (overlayReady) return // Overlay handles this
+    if (e.key === 'Enter') {
+      const target = e.target as HTMLElement
+      if (isEmailElement(target)) {
+        e.preventDefault()
+        e.stopPropagation()
+        e.stopImmediatePropagation()
+        console.log('[MailGuard] Blocked keyboard navigation to email')
+      }
+    }
+  }, true)
+  
+  // Show WRGuard protection overlay when DOM is ready
+  // Overlay is informational - block remains effective regardless
+  // Use setTimeout to ensure overlay function is defined (ES module execution order)
+  const showOverlayWhenReady = () => {
+    if (document.body) {
+      // Defer to ensure all module code has executed
+      setTimeout(() => showWRGuardProtectionOverlay(), 0)
+    } else {
+      document.addEventListener('DOMContentLoaded', () => {
+        setTimeout(() => showWRGuardProtectionOverlay(), 0)
+      })
+    }
+  }
+  showOverlayWhenReady()
 })()
 
 // =============================================================================
@@ -180,9 +227,9 @@ function sendLightboxOverlayState(hidden: boolean): void {
 // Observe DOM for lightbox elements
 ;(function setupLightboxObserver() {
   const hostname = window.location.hostname
-  const isEmailSite = IMMEDIATE_BLOCK_SITES.some(site => hostname.includes(site))
   
-  if (!isEmailSite) return
+  // Use centralized blocked domains check
+  if (!isBlockedEmailDomain(hostname)) return
   
   // Initial check
   if (isAnyLightboxOpen()) {
@@ -838,28 +885,21 @@ function startRowPositionUpdates(): void {
   }
 }
 
-// List of supported email sites where MailGuard can be active
-const SUPPORTED_EMAIL_SITES = [
-  'mail.google.com',
-  'outlook.live.com',
-  'outlook.office.com',
-  'outlook.office365.com'
-]
+// Use centralized blocked domains from wrguard/types.ts
+// DO NOT duplicate domain list here - use WRGUARD_BLOCKED_EMAIL_DOMAINS
 
 type EmailProvider = 'gmail' | 'outlook' | 'unknown'
 
 function getCurrentEmailProvider(): EmailProvider {
   const hostname = window.location.hostname
+  // Provider detection based on blocked domain patterns
   if (hostname.includes('mail.google.com')) return 'gmail'
-  if (hostname.includes('outlook.live.com') || 
-      hostname.includes('outlook.office.com') || 
-      hostname.includes('outlook.office365.com')) return 'outlook'
+  if (hostname.includes('outlook')) return 'outlook' // Matches all outlook.* domains
   return 'unknown'
 }
 
 function isOnSupportedEmailSite(): boolean {
-  const hostname = window.location.hostname
-  return SUPPORTED_EMAIL_SITES.some(site => hostname.includes(site))
+  return isBlockedEmailDomain(window.location.hostname)
 }
 
 // Site-specific selectors for email rows
@@ -1421,6 +1461,457 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
 })
 
 // =============================================================================
+// WRGuard™ Protection Overlay — Informational overlay for blocked pages
+// =============================================================================
+
+// =============================================================================
+// WRGuard™ Overlay Configuration URLs (single source of truth)
+// =============================================================================
+const WRDESK_LEARN_URL = 'https://help.wrdesk.com/how-wrdesk-works'
+const WRDESK_API_CONNECT_URL = 'https://help.wrdesk.com/connect-apis'
+
+let wrguardOverlayElement: HTMLElement | null = null
+
+/**
+ * Show the WRGuard™ protection overlay on blocked inbox pages.
+ * This overlay is INFORMATIONAL - the block happens independently in blockEmailClick().
+ * Uses Shadow DOM for style isolation.
+ */
+function showWRGuardProtectionOverlay(): void {
+  console.log('[MailGuard] showWRGuardProtectionOverlay called')
+  
+  // Don't show if already visible
+  if (wrguardOverlayElement) {
+    console.log('[MailGuard] Overlay already visible, skipping')
+    return
+  }
+  
+  // Don't show if user has manually dismissed (session storage)
+  try {
+    if (sessionStorage.getItem('wrguard-overlay-dismissed') === 'true') {
+      console.log('[MailGuard] Overlay was dismissed by user, skipping')
+      return
+    }
+  } catch { /* ignore storage errors */ }
+  
+  console.log('[MailGuard] Creating overlay element...')
+  const container = document.createElement('div')
+  container.id = 'wrguard-protection-overlay'
+  container.setAttribute('data-wrguard', 'true')
+  
+  const shadow = container.attachShadow({ mode: 'closed' })
+  
+  // Determine current theme for proper styling
+  // Themes: 'standard' (light), 'dark', 'pro' (professional)
+  let overlayTheme = 'standard'
+  try {
+    const stored = localStorage.getItem('optimando-ui-theme')
+    if (stored === 'dark' || stored === 'pro') overlayTheme = stored
+  } catch { /* ignore */ }
+  
+  // Theme-aware CSS variables - Enterprise grey tones with minimal purple accent
+  const themeStyles = overlayTheme === 'dark' ? `
+    --wr-bg-overlay: #18181b;
+    --wr-bg-section: rgba(255, 255, 255, 0.04);
+    --wr-bg-beap: rgba(255, 255, 255, 0.06);
+    --wr-bg-actions: #0f0f10;
+    --wr-bg-footer: #0a0a0b;
+    --wr-backdrop: rgba(0, 0, 0, 0.8);
+    --wr-text: #fafafa;
+    --wr-text-secondary: #a1a1aa;
+    --wr-text-muted: #71717a;
+    --wr-border: rgba(255, 255, 255, 0.1);
+    --wr-border-section: rgba(255, 255, 255, 0.06);
+  ` : overlayTheme === 'pro' ? `
+    --wr-bg-overlay: #1c1c21;
+    --wr-bg-section: rgba(147, 51, 234, 0.04);
+    --wr-bg-beap: rgba(147, 51, 234, 0.06);
+    --wr-bg-actions: #141417;
+    --wr-bg-footer: #0e0e10;
+    --wr-backdrop: rgba(0, 0, 0, 0.8);
+    --wr-text: #fafafa;
+    --wr-text-secondary: #a1a1aa;
+    --wr-text-muted: #71717a;
+    --wr-border: rgba(147, 51, 234, 0.15);
+    --wr-border-section: rgba(147, 51, 234, 0.08);
+  ` : `
+    --wr-bg-overlay: #ffffff;
+    --wr-bg-section: #f8f9fa;
+    --wr-bg-beap: #f1f3f4;
+    --wr-bg-actions: #f8f9fa;
+    --wr-bg-footer: #f1f3f4;
+    --wr-backdrop: rgba(0, 0, 0, 0.5);
+    --wr-text: #1f2937;
+    --wr-text-secondary: #4b5563;
+    --wr-text-muted: #6b7280;
+    --wr-border: #e5e7eb;
+    --wr-border-section: #e5e7eb;
+  `
+  
+  // All styles and content are contained in shadow DOM - no external dependencies
+  shadow.innerHTML = `
+    <style>
+      * { box-sizing: border-box; margin: 0; padding: 0; }
+      
+      :host {
+        --wr-accent: #7c3aed;
+        ${themeStyles}
+      }
+      
+      .wrguard-overlay {
+        position: fixed;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        z-index: 2147483646;
+        width: 920px;
+        max-width: calc(100vw - 48px);
+        max-height: calc(100vh - 40px);
+        background: var(--wr-bg-overlay);
+        border: 1px solid var(--wr-border);
+        border-radius: 16px;
+        box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+        color: var(--wr-text);
+        overflow: hidden;
+        animation: fadeIn 0.2s ease-out;
+      }
+      
+      .backdrop {
+        position: fixed;
+        inset: 0;
+        background: var(--wr-backdrop);
+        backdrop-filter: blur(4px);
+        z-index: 2147483645;
+      }
+      
+      @keyframes fadeIn {
+        from { opacity: 0; transform: translate(-50%, -48%); }
+        to { opacity: 1; transform: translate(-50%, -50%); }
+      }
+      
+      .header {
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        padding: 24px 32px;
+        border-bottom: 1px solid var(--wr-border);
+      }
+      
+      .header-icon {
+        width: 48px;
+        height: 48px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: var(--wr-accent);
+        border-radius: 12px;
+        font-size: 24px;
+      }
+      
+      .header-text {
+        flex: 1;
+      }
+      
+      .header-brand {
+        font-size: 11px;
+        font-weight: 600;
+        letter-spacing: 1.5px;
+        text-transform: uppercase;
+        color: var(--wr-text-muted);
+        margin-bottom: 4px;
+      }
+      
+      .header-title {
+        font-size: 20px;
+        font-weight: 600;
+        color: var(--wr-text);
+        letter-spacing: -0.3px;
+      }
+      
+      .close-btn {
+        background: transparent;
+        border: none;
+        color: var(--wr-text-muted);
+        font-size: 24px;
+        cursor: pointer;
+        padding: 8px;
+        border-radius: 8px;
+        transition: all 0.15s;
+        line-height: 1;
+      }
+      
+      .close-btn:hover {
+        background: var(--wr-bg-section);
+        color: var(--wr-text);
+      }
+      
+      .body {
+        padding: 28px 32px;
+        overflow-y: auto;
+        max-height: calc(100vh - 220px);
+      }
+      
+      .intro {
+        font-size: 15px;
+        line-height: 1.7;
+        color: var(--wr-text-secondary);
+        margin-bottom: 24px;
+      }
+      
+      .intro strong {
+        color: var(--wr-text);
+        font-weight: 600;
+      }
+      
+      .section {
+        margin-bottom: 16px;
+        padding: 20px 24px;
+        background: var(--wr-bg-section);
+        border: 1px solid var(--wr-border-section);
+        border-radius: 12px;
+      }
+      
+      .section:last-of-type {
+        margin-bottom: 0;
+      }
+      
+      .section-title {
+        font-size: 13px;
+        font-weight: 600;
+        color: var(--wr-text);
+        margin-bottom: 10px;
+        letter-spacing: 0.1px;
+      }
+      
+      .section-content {
+        font-size: 14px;
+        line-height: 1.7;
+        color: var(--wr-text-secondary);
+      }
+      
+      .section-content strong {
+        color: var(--wr-text);
+        font-weight: 600;
+      }
+      
+      .beap-box {
+        background: var(--wr-bg-beap);
+        border: 1px solid var(--wr-border-section);
+        border-radius: 8px;
+        padding: 14px 16px;
+        margin-top: 12px;
+      }
+      
+      .beap-label {
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 1.2px;
+        text-transform: uppercase;
+        color: var(--wr-text-muted);
+        margin-bottom: 6px;
+      }
+      
+      .beap-text {
+        font-size: 13px;
+        line-height: 1.6;
+        color: var(--wr-text-secondary);
+      }
+      
+      .facts {
+        display: grid;
+        gap: 8px;
+        margin-top: 20px;
+      }
+      
+      .fact {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 12px 16px;
+        background: var(--wr-bg-section);
+        border: 1px solid var(--wr-border-section);
+        border-radius: 8px;
+        font-size: 13px;
+        color: var(--wr-text-secondary);
+      }
+      
+      .fact-dot {
+        width: 6px;
+        height: 6px;
+        background: var(--wr-text-muted);
+        border-radius: 50%;
+        flex-shrink: 0;
+      }
+      
+      .actions {
+        display: flex;
+        gap: 12px;
+        padding: 20px 32px 24px;
+        border-top: 1px solid var(--wr-border);
+        background: var(--wr-bg-actions);
+      }
+      
+      .btn {
+        padding: 12px 24px;
+        border-radius: 10px;
+        font-size: 14px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.15s;
+        text-align: center;
+        text-decoration: none;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        white-space: nowrap;
+      }
+      
+      .btn-primary {
+        flex: 1;
+        background: var(--wr-accent);
+        border: none;
+        color: #fff;
+      }
+      
+      .btn-primary:hover {
+        opacity: 0.9;
+        transform: translateY(-1px);
+      }
+      
+      .btn-secondary {
+        flex: 1;
+        background: transparent;
+        border: 1px solid var(--wr-border);
+        color: var(--wr-text-secondary);
+      }
+      
+      .btn-secondary:hover {
+        background: var(--wr-bg-section);
+        border-color: var(--wr-text-muted);
+        color: var(--wr-text);
+      }
+      
+      .btn-tertiary {
+        background: transparent;
+        border: none;
+        color: var(--wr-text-muted);
+        padding: 12px 16px;
+      }
+      
+      .btn-tertiary:hover {
+        color: var(--wr-text);
+        background: var(--wr-bg-section);
+      }
+      
+      .footer {
+        padding: 14px 32px;
+        background: var(--wr-bg-footer);
+        border-top: 1px solid var(--wr-border);
+      }
+      
+      .footer-note {
+        font-size: 12px;
+        color: var(--wr-text-muted);
+        text-align: center;
+        line-height: 1.5;
+      }
+    </style>
+    
+    <div class="backdrop" id="backdrop"></div>
+    <div class="wrguard-overlay">
+      <div class="header">
+        <div class="header-icon">🛡️</div>
+        <div class="header-text">
+          <div class="header-brand">WRDesk Orchestrator</div>
+          <div class="header-title">Protected Inbox Environment</div>
+        </div>
+        <button class="close-btn" id="close-overlay" title="Dismiss">×</button>
+      </div>
+      
+      <div class="body">
+        <div class="intro">
+          <strong>WRGuard™</strong> protects communication and automation in controlled execution environments. Direct email rendering and execution of external content are intentionally disabled to enforce a trusted session boundary.
+        </div>
+        
+        <div class="section">
+          <div class="section-title">Why this matters</div>
+          <div class="section-content">
+            Anything executed on a workstation can be malicious — scripts, links, embedded content. 
+            <strong>BEAP™</strong> avoids this risk entirely via a deterministic protocol approach.
+          </div>
+          <div class="beap-box">
+            <div class="beap-label">BEAP™ Protocol</div>
+            <div class="beap-text">Bidirectional Email Automation Protocol — secure communication and automation without executing original code or binaries.</div>
+          </div>
+        </div>
+        
+        <div class="section">
+          <div class="section-title">Next steps</div>
+          <div class="section-content">
+            <strong>Enterprise APIs:</strong> Connect Gmail, Outlook, WhatsApp Business, or other supported providers to receive validated capsules in the WRDesk Inbox.<br><br>
+            <strong>Links &amp; private content:</strong> Use your tablet or smartphone (WRDesk Sub-Orchestrator) to open external links and view original documents outside the protected session.
+          </div>
+        </div>
+        
+        <div class="facts">
+          <div class="fact">
+            <span class="fact-dot"></span>
+            <span>No emails are rendered directly in this WRGuard™ protected session</span>
+          </div>
+          <div class="fact">
+            <span class="fact-dot"></span>
+            <span>External links are redirected to out-of-band devices</span>
+          </div>
+          <div class="fact">
+            <span class="fact-dot"></span>
+            <span>Emails and other messages are transformed into safe BEAP™ packages</span>
+          </div>
+        </div>
+      </div>
+      
+      <div class="actions">
+        <a class="btn btn-primary" href="${WRDESK_API_CONNECT_URL}" target="_blank" rel="noopener noreferrer">Connect APIs</a>
+      </div>
+      
+      <div class="footer">
+        <div class="footer-note">This is an intentional security boundary enforced by WRGuard™.</div>
+      </div>
+    </div>
+  `
+  
+  // Event handlers
+  const closeBtn = shadow.getElementById('close-overlay')
+  const backdrop = shadow.getElementById('backdrop')
+  
+  const dismissOverlay = () => {
+    container.remove()
+    wrguardOverlayElement = null
+    try {
+      sessionStorage.setItem('wrguard-overlay-dismissed', 'true')
+    } catch { /* ignore storage errors */ }
+  }
+  
+  closeBtn?.addEventListener('click', dismissOverlay)
+  backdrop?.addEventListener('click', dismissOverlay)
+  
+  document.body.appendChild(container)
+  wrguardOverlayElement = container
+  console.log('[MailGuard] Overlay appended to body successfully')
+}
+
+/**
+ * Remove the WRGuard overlay if present
+ */
+function hideWRGuardProtectionOverlay(): void {
+  if (wrguardOverlayElement) {
+    wrguardOverlayElement.remove()
+    wrguardOverlayElement = null
+  }
+}
+
+// =============================================================================
 // Initialization
 // =============================================================================
 
@@ -1494,3 +1985,41 @@ async function waitForEmailUIReady(provider: EmailProvider): Promise<void> {
 // Start initialization
 console.log('[MailGuard] Content script loaded on:', window.location.hostname)
 init().catch(err => console.error('[MailGuard] Init error:', err))
+
+// =============================================================================
+// VERIFICATION CHECKLIST — WRGuard™ Inbox Protection
+// =============================================================================
+//
+// This checklist verifies that the blocking mechanism works correctly:
+//
+// ✅ GMAIL INBOX (mail.google.com):
+//    - [ ] Clicking a message row does NOT open the email content
+//    - [ ] WRGuard overlay appears with protection explanation
+//    - [ ] Sidebar navigation (Inbox, Sent, etc.) remains clickable
+//    - [ ] Compose button works normally
+//    - [ ] Search functionality works normally
+//
+// ✅ OUTLOOK INBOX (outlook.live.com, outlook.office.com, outlook.office365.com):
+//    - [ ] Clicking a message row does NOT open the email content
+//    - [ ] WRGuard overlay appears with protection explanation
+//    - [ ] Folder navigation remains clickable
+//    - [ ] New message button works normally
+//    - [ ] Search functionality works normally
+//
+// ✅ CUSTOM BLOCKED DOMAIN (added to WRGUARD_BLOCKED_EMAIL_DOMAINS):
+//    - [ ] Domain added to wrguard/types.ts WRGUARD_BLOCKED_EMAIL_DOMAINS
+//    - [ ] Pattern added to manifest.config.ts content_scripts matches
+//    - [ ] WRGuard overlay appears on the page
+//    - [ ] Email-like interactions are blocked
+//
+// ✅ NON-BLOCKED SITES:
+//    - [ ] No WRGuard overlay appears
+//    - [ ] No click blocking behavior
+//    - [ ] Page functions normally
+//
+// ✅ BLOCK INDEPENDENCE:
+//    - [ ] Block works WITHOUT Electron app running
+//    - [ ] Block works if overlay fails to render
+//    - [ ] Block works immediately on page load (before DOM ready)
+//
+// =============================================================================

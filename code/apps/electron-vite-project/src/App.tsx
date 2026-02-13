@@ -11,6 +11,7 @@ declare global {
       onThemeChange: (callback: (theme: string) => void) => () => void
       requestTheme: () => void
       setTheme: (theme: string) => void
+      openBeapInbox: () => void
     }
   }
 }
@@ -24,14 +25,18 @@ function mapThemeToCss(theme: ExtensionTheme): string {
   return theme
 }
 
-// WR Code Logo Component - semi-transparent
-function WRCodeLogo({ size = 24 }: { size?: number }) {
+// WR Desk Logo Component - using original PNG logo
+// Use relative path for Electron file:// protocol compatibility
+function WRCodeLogo({ size = 220 }: { size?: number }) {
   return (
     <img 
-      src="/wrcode-logo.svg" 
-      alt="WR Code Logo"
-      width={size}
-      height={size * 1.25}
+      src="./wrdesk-logo.png" 
+      alt="WR Desk Logo"
+      style={{
+        width: size,
+        height: 'auto',
+        objectFit: 'contain'
+      }}
     />
   )
 }
@@ -42,6 +47,24 @@ function normalizeTheme(theme: string): ExtensionTheme {
   if (mapped === 'default') return 'pro'
   if (mapped === 'professional') return 'standard'
   return (['pro', 'dark', 'standard'].includes(mapped) ? mapped : 'standard') as ExtensionTheme
+}
+
+// BEAP Inbox button component - opens the WRChat popup with BEAP Messages preselected
+function BeapInboxButton() {
+  const handleClick = useCallback(() => {
+    console.log('[BEAP_INBOX] Opening BEAP Inbox popup')
+    window.analysisDashboard?.openBeapInbox()
+  }, [])
+
+  return (
+    <button
+      className="beap-inbox-btn"
+      onClick={handleClick}
+      title="Open BEAP Inbox"
+    >
+      <span className="beap-inbox-btn__label">BEAP™ Inbox</span>
+    </button>
+  )
 }
 
 // Theme selector component - allows manual theme changes
@@ -134,11 +157,11 @@ function App() {
       {/* Minimal Header Bar */}
       <header className="app-header">
         <div className="app-header__brand">
-          <WRCodeLogo size={28} />
-          <span className="app-header__title">WR Code<sup className="app-header__tm">™</sup></span>
+          <WRCodeLogo size={110} />
           <span className="app-header__subtitle">Analysis Dashboard</span>
         </div>
         <div className="app-header__spacer" />
+        <BeapInboxButton />
         <ThemeSelector value={extensionTheme} onChange={handleThemeChange} />
       </header>
 

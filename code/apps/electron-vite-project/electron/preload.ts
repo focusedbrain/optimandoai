@@ -84,5 +84,9 @@ contextBridge.exposeInMainWorld('analysisDashboard', {
   // Send theme change from renderer to main process
   setTheme: (theme: string) => {
     ipcRenderer.send('SET_THEME', theme)
+  },
+  // Open BEAP Inbox popup (triggers Chrome extension popup via WebSocket)
+  openBeapInbox: () => {
+    ipcRenderer.send('OPEN_BEAP_INBOX')
   }
 })

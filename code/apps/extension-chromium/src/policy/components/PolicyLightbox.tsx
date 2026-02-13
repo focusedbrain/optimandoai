@@ -739,7 +739,7 @@ export function PolicyLightbox({ isOpen, onClose, theme = 'default' }: PolicyLig
                                       {hs.status === 'LOCAL' && (
                                         <button
                                           onClick={() => {
-                                            // Update handshake to mark as verified (placeholder - wrcode.org not yet available)
+                                            // Update handshake to mark as verified (placeholder - wrdesk.com not yet available)
                                             const updated = { ...hs, status: 'VERIFIED_WR' as HandshakeStatus, verified_at: Date.now(), updated_at: Date.now() }
                                             setHandshakes(handshakes.map(h => h.id === hs.id ? updated : h))
                                             showNotification('Verification initiated', 'info')

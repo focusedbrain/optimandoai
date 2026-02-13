@@ -454,7 +454,7 @@ export function BackendSwitcher({ theme = 'default' }: BackendSwitcherProps) {
                         🔗 DBeaver Connection Info
                       </div>
                       <div style={{ marginBottom: '4px', opacity: 0.8 }}>
-                        <strong>Connection:</strong> Local PostgreSQL (WR Code)
+                        <strong>Connection:</strong> Local PostgreSQL (WR Desk)
                       </div>
                       <div style={{ marginBottom: '4px', opacity: 0.8 }}>
                         <strong>Username:</strong> {config.postgres.config.user}
@@ -497,7 +497,7 @@ export function BackendSwitcher({ theme = 'default' }: BackendSwitcherProps) {
                           const result = await response.json();
                           if (result.ok) {
                             setNotification({
-                              message: 'DBeaver launched! Look for "Local PostgreSQL (WR Code)" connection. Double-click to connect and enter password if prompted.',
+                              message: 'DBeaver launched! Look for "Local PostgreSQL (WR Desk)" connection. Double-click to connect and enter password if prompted.',
                               type: 'success'
                             });
                             setTimeout(() => setNotification(null), 10000);

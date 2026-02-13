@@ -1330,6 +1330,27 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   }
 
+  // Handle TRIGGER_PROTOCOL_LAUNCH - DISABLED
+  // 
+  // IMPORTANT: Custom protocol launch (wrcode://start, opengiraffe://start) has been DISABLED
+  // to prevent Windows "Open Electron?" prompts and "Unable to find Electron app" errors.
+  // 
+  // WHY: When the protocol handler is not correctly registered in Windows, the browser
+  // shows confusing prompts or errors instead of launching the app. This is a broken UX.
+  // 
+  // SOLUTION: Users must manually start the desktop app from Start Menu or desktop shortcut.
+  // The extension communicates with an already-running app via HTTP/WebSocket.
+  else if (message.type === 'TRIGGER_PROTOCOL_LAUNCH' || message.type === 'LAUNCH_ELECTRON_PROTOCOL') {
+    console.warn('⚠️ [CONTENT] TRIGGER_PROTOCOL_LAUNCH is disabled - custom protocol launch removed to prevent Windows errors')
+    console.warn('⚠️ [CONTENT] Requested protocol:', message.protocol || message.url || 'wrcode://start')
+    console.warn('⚠️ [CONTENT] User should start the app manually from Start Menu')
+    sendResponse({ 
+      success: false, 
+      error: 'Protocol launch disabled. Please start WR Desk from the Start Menu.',
+      reason: 'custom_protocol_disabled'
+    })
+  }
+
   return true // Keep message channel open for async response
 
 })
@@ -7532,7 +7553,7 @@ function initializeExtension() {
 
   // ALL UI NOW IN NATIVE SIDE PANEL - Content script only handles data
 
-  console.log('🎉 WR Code Extension with Hybrid UI')
+  console.log('🎉 WR Desk Extension with Hybrid UI')
 
   console.log('📌 Native Side Panel + Content Script Lightboxes')
 
@@ -25582,7 +25603,7 @@ function initializeExtension() {
 
             <h3 style="margin: 0 0 15px 0; font-size: 16px; color: #FFD700;">Trusted URLs</h3>
 
-            <p style="margin: 0 0 20px 0; font-size: 12px; opacity: 0.8;">Add URLs that you trust and want to enable WR Code features on. Use HTTPS URLs for security.</p>
+            <p style="margin: 0 0 20px 0; font-size: 12px; opacity: 0.8;">Add URLs that you trust and want to enable WR Desk features on. Use HTTPS URLs for security.</p>
 
             
 
@@ -25612,7 +25633,7 @@ function initializeExtension() {
 
             <div style="font-size: 12px; opacity: 0.8; line-height: 1.6;">
 
-              <p style="margin: 0 0 10px 0;">• Only URLs in this whitelist will have WR Code features enabled</p>
+              <p style="margin: 0 0 10px 0;">• Only URLs in this whitelist will have WR Desk features enabled</p>
 
               <p style="margin: 0 0 10px 0;">• Wildcard patterns are supported (e.g., https://*.example.com)</p>
 
@@ -26008,7 +26029,7 @@ function initializeExtension() {
 
             <div style="background: rgba(255,255,255,0.1); padding: 20px; border-radius: 8px; margin-bottom: 20px;">
 
-              <h3 style="margin: 0 0 15px 0; font-size: 16px; color: #66FF66;">Publisher Context from wrcode.org</h3>
+              <h3 style="margin: 0 0 15px 0; font-size: 16px; color: #66FF66;">Publisher Context from wrdesk.com</h3>
 
               <div style="display: flex; gap: 10px; margin-bottom: 15px;">
 
@@ -26030,7 +26051,7 @@ function initializeExtension() {
 
                   cursor: pointer; font-size: 12px; font-weight: bold;
 
-                ">Load from wrcode.org</button>
+                ">Load from wrdesk.com</button>
 
               </div>
 
@@ -26046,7 +26067,7 @@ function initializeExtension() {
 
                 font-family: 'Consolas', monospace; line-height: 1.5;
 
-              " placeholder="Publisher context will be loaded from wrcode.org or injected via template..."></textarea>
+              " placeholder="Publisher context will be loaded from wrdesk.com or injected via template..."></textarea>
 
             </div>
 
@@ -26800,7 +26821,7 @@ ${pageText}
 
       const textarea = document.getElementById('publisher-context-text') as HTMLTextAreaElement
 
-      if (textarea) textarea.value = 'Loading context from wrcode.org...\n[This would connect to wrcode.org API]'
+      if (textarea) textarea.value = 'Loading context from wrdesk.com...\n[This would connect to wrdesk.com API]'
 
     })
 
@@ -31409,11 +31430,11 @@ ${pageText}
 
                 <button id="btn-payg" style="flex:1; background: rgba(255,255,255,0.15); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 8px 10px; border-radius: 6px; cursor: pointer; font-size: 11px;">Pay-as-you-go</button>
 
-                <button id="btn-subscription" style="flex:1; background: #4CAF50; border: none; color: white; padding: 8px 10px; border-radius: 6px; cursor: pointer; font-size: 11px; font-weight: 700;">Subscription (incl. BYOK)</button>
+                <button id="btn-subscription" style="flex:1; background: #4CAF50; border: none; color: white; padding: 8px 10px; border-radius: 6px; cursor: pointer; font-size: 11px; font-weight: 700;">Subscription</button>
 
               </div>
 
-              <div style="margin-top: 8px; font-size: 10px; opacity: 0.9;">Free usage available – Subscription unlocks BYOK and advanced features.</div>
+              <div style="margin-top: 8px; font-size: 10px; opacity: 0.9;">Using local LLMs is free. BYOK supported on all plans. Subscription unlocks professional-grade assurance & verification.</div>
 
             </div>
 
@@ -31437,9 +31458,9 @@ ${pageText}
 
               </div>
 
-              <div id="byok-requirement" style="display:none; font-size:10px; margin:6px 0; padding:6px; background: rgba(244,67,54,0.20); border:1px solid rgba(244,67,54,0.35); border-radius:6px;">
+              <div id="byok-requirement" style="display:none; font-size:10px; margin:6px 0; padding:6px; background: rgba(76,175,80,0.20); border:1px solid rgba(76,175,80,0.35); border-radius:6px;">
 
-                You need an active subscription to bring your own keys.
+                BYOK is supported on all plans. Enter your API keys above and click Save.
 
               </div>
 
@@ -32479,6 +32500,14 @@ ${pageText}
 
     function openBillingModal(kind: 'payg' | 'subscription') {
 
+      // Fetch current tier from background (cached auth status) to adjust Basic plan button
+      const renderModal = (currentUserTier: string | null) => {
+
+      const isFreeTier = currentUserTier === 'free' || currentUserTier === null
+      const isPrivateTier = currentUserTier === 'private' || currentUserTier === 'private_lifetime'
+      const isPublisherTier = currentUserTier === 'publisher' || currentUserTier === 'publisher_lifetime'
+      const isEnterpriseTier = currentUserTier === 'enterprise'
+
       const m = document.createElement('div')
 
       m.style.cssText = 'position:fixed;inset:0;background:'+getModalThemeGradient()+';z-index:2147483650;display:flex;align-items:center;justify-content:center;'
@@ -32561,6 +32590,75 @@ ${pageText}
 
       } else {
 
+        // ============================================================
+        // SINGLE SOURCE OF TRUTH: Plan pricing configuration
+        // ============================================================
+        const PLAN_CONFIG = {
+          private: {
+            id: 'private',
+            name: 'Pro (Private)',
+            allowedBillingOptions: ['annual', 'lifetime'] as const,
+            prices: { annual: 59, lifetime: 199 },
+            priceLabels: { annual: '€59<span>/year</span>', lifetime: '€199<span> one-time</span>' },
+            ctaLabels: { annual: 'Select Pro', lifetime: 'Select Early Access Lifetime' }
+          },
+          publisher: {
+            id: 'publisher',
+            name: 'Publisher',
+            allowedBillingOptions: ['annual', 'lifetime'] as const, // NO monthly
+            prices: { annual: 129, lifetime: 449 },
+            priceLabels: { annual: '€129<span>/year</span>', lifetime: '€449<span> one-time</span>' },
+            ctaLabels: { annual: 'Select Publisher', lifetime: 'Select Early Access Lifetime' }
+          },
+          enterprise: {
+            id: 'enterprise',
+            name: 'Business/Enterprise',
+            allowedBillingOptions: ['annual', 'monthly'] as const, // NO lifetime
+            prices: { annual: 599, monthly: 59 },
+            priceLabels: { annual: '€599<span>/year</span>', monthly: '€59<span>/month</span>' },
+            ctaLabels: { annual: 'Contact Sales', monthly: 'Contact Sales' }
+          }
+        }
+
+        // DEV ASSERTION: Verify plan constraints
+        console.log('[Plans] Config loaded:', {
+          private: PLAN_CONFIG.private.allowedBillingOptions,
+          publisher: PLAN_CONFIG.publisher.allowedBillingOptions,
+          enterprise: PLAN_CONFIG.enterprise.allowedBillingOptions
+        })
+        if (PLAN_CONFIG.enterprise.allowedBillingOptions.includes('lifetime' as any)) {
+          console.error('[Plans] ERROR: Enterprise plan must NOT include lifetime!')
+        }
+        if (PLAN_CONFIG.publisher.allowedBillingOptions.includes('monthly' as any)) {
+          console.error('[Plans] ERROR: Publisher plan must NOT include monthly!')
+        }
+
+        // ============================================================
+        // AFFILIATE ATTRIBUTION FLAG
+        // Controls whether the "Affiliate Founders Pack" perks box can be shown.
+        // Default: false (perks box is NEVER shown for non-affiliate users)
+        // Only set to true if user came via affiliate link (future integration)
+        // ============================================================
+        const isAffiliateAttributed = (() => {
+          try {
+            // Check URL query param: ?aff=1
+            const urlParams = new URLSearchParams(window.location.search)
+            if (urlParams.get('aff') === '1') {
+              console.log('[Plans] Affiliate attribution detected via query param')
+              return true
+            }
+            // Check localStorage: og_aff=1
+            if (localStorage.getItem('og_aff') === '1') {
+              console.log('[Plans] Affiliate attribution detected via localStorage')
+              return true
+            }
+          } catch (e) {
+            // Ignore errors (e.g., localStorage access denied)
+          }
+          return false
+        })()
+        console.log('[Plans] isAffiliateAttributed:', isAffiliateAttributed)
+
         // Inject responsive styles for the plans grid
         const styleId = 'wr-plans-responsive-styles'
         if (!document.getElementById(styleId)) {
@@ -32587,98 +32685,141 @@ ${pageText}
           document.head.appendChild(styleEl)
         }
 
+        // Affiliate Founders Pack HTML - ONLY shown if isAffiliateAttributed === true
+        // By default this is NOT rendered at all for normal users
+        const affiliateFoundersPackHtml = isAffiliateAttributed ? `
+          <div style="font-weight:700;font-size:11px;color:#22c55e;margin-bottom:6px">Affiliate Founders Pack</div>
+          <ul style="margin:0 0 0 16px;padding:0;font-size:10px;line-height:1.5">
+            <li>Exclusive templates (Founders Pack)</li>
+            <li>Founding User badge</li>
+            <li>Early access to Labs features</li>
+            <li>Founder UI accent / marker (subtle)</li>
+          </ul>
+        ` : ''
+
         b.innerHTML = (
-          '<div style="padding:18px 22px;border-bottom:1px solid rgba(255,255,255,.25);display:flex;justify-content:space-between;align-items:center">' +
-            '<div style="font-weight:800;font-size:16px">Subscription Plans</div>' +
+          '<div style="padding:14px 18px;border-bottom:1px solid rgba(255,255,255,.25);display:flex;justify-content:space-between;align-items:center">' +
+            '<div style="font-weight:800;font-size:16px">Plans & Licensing</div>' +
             '<button id="billing-close" style="background:rgba(255,255,255,.2);border:0;color:#fff;border-radius:6px;padding:8px 10px;cursor:pointer;font-size:14px">×</button>' +
           '</div>' +
-          '<div style="padding:18px 22px;display:grid;gap:16px;overflow-y:auto;max-height:calc(88vh - 70px)">' +
-            // Informational box about local LLMs and optional balance top-up
-            '<div style="background:rgba(0,0,0,.18);border:1px solid rgba(255,255,255,.22);border-radius:8px;padding:12px;display:flex;gap:12px;align-items:flex-start">' +
-              '<div style="font-size:20px">💡</div>' +
-              '<div style="font-size:13px;line-height:1.6">Using local LLMs is free. You can optionally load balance to use powerful cloud AI on demand.</div>' +
+          '<div style="padding:14px 18px;display:grid;gap:12px">' +
+            '<div style="background:rgba(0,0,0,.18);border:1px solid rgba(255,255,255,.22);border-radius:8px;padding:10px;font-size:12px;line-height:1.5">' +
+              'All tiers support local LLM execution (no cost) and BYOK integration (OpenAI, Anthropic, Google, xAI). Optional cloud compute available via pay-as-you-go (25% service fee).' +
             '</div>' +
             '<div id="agents-grid">' +
-              // Basic
+              // BASIC TIER
               '<div class="wr-plan-card">' +
                 '<h3>Basic</h3>' +
-                '<div class="price">$0</div>' +
-                '<ul>' +
-                  '<li>AI Orchestration (local-first)</li>' +
-                  '<li>Unlimited WR Codes (private/offline)</li>' +
-                  '<li>BEAP™ Secure Messages</li>' +
-                  '<li>WRGuard™ (baseline)</li>' +
-                  '<li>WRVault™ (baseline, incl. local password manager)</li>' +
-                  '<li>Runs with local LLMs</li>' +
-                  '<li style="color:#66FF66;list-style:\'✓ \';">Cloud pay-as-you-go optional</li>' +
+                '<div class="price">€0</div>' +
+                '<div style="font-size:10px;opacity:0.7;margin:4px 0;text-transform:uppercase;letter-spacing:0.5px">Intended Use</div>' +
+                '<div style="font-size:11px;margin-bottom:8px">Single-user local deployments for non-commercial use.</div>' +
+                '<div style="font-size:10px;opacity:0.7;margin:4px 0;text-transform:uppercase;letter-spacing:0.5px">Included Capabilities</div>' +
+                '<ul style="font-size:11px">' +
+                  '<li>Local orchestration runtime</li>' +
+                  '<li>BYOK integration (all supported providers)</li>' +
+                  '<li>Unlimited WR Desk™ (private, offline generation)</li>' +
+                  '<li>pBEAP™ secure messaging (baseline)</li>' +
+                  '<li>WRGuard™ baseline integrity monitoring</li>' +
+                  '<li>WRVault™ baseline credential storage</li>' +
                 '</ul>' +
-                '<button class="cta-btn" style="background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.3)">Choose Basic</button>' +
+                '<div style="font-size:10px;opacity:0.7;margin:4px 0;text-transform:uppercase;letter-spacing:0.5px">Security & Verification</div>' +
+                '<ul style="font-size:11px">' +
+                  '<li>PoAE™ baseline execution logs (local, non-cryptographic)</li>' +
+                  '<li>Local-only verification (no external attestation)</li>' +
+                '</ul>' +
+                (isFreeTier
+                  ? '<button class="cta-btn" style="background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.15);opacity:0.6;cursor:default" disabled>Active Plan</button>'
+                  : '<button class="cta-btn" style="background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.3)">Select Basic</button>') +
               '</div>' +
-              // Pro (Private)
+              // PRO (PRIVATE) TIER
               '<div class="wr-plan-card">' +
                 '<h3>Pro (Private)</h3>' +
-                '<div id="pro-private-price" class="price">$29.95<span>/year</span></div>' +
+                '<div id="pro-private-price" class="price">' + PLAN_CONFIG.private.priceLabels.annual + '</div>' +
                 '<div class="toggle-row">' +
                   '<button id="pro-private-annual" class="toggle-btn active">Annual</button>' +
-                  '<button id="pro-private-lifetime" class="toggle-btn">Lifetime</button>' +
+                  '<button id="pro-private-lifetime" class="toggle-btn">Early Access Lifetime</button>' +
                 '</div>' +
-                '<div id="pro-private-note" class="wr-plan-note" style="display:none">Private-only · non-commercial · no publishing</div>' +
-                '<ul>' +
-                  '<li>AI Orchestration (advanced, local-first)</li>' +
-                  '<li>Unlimited WR Codes (private)</li>' +
-                  '<li>BEAP™ Secure Messages</li>' +
-                  '<li>WRGuard™ included</li>' +
-                  '<li>WRVault™ included (incl. local password manager)</li>' +
-                  '<li style="color:#66FF66;list-style:\'✓ \';">BYOK or pay-as-you-go</li>' +
+                '<div id="pro-private-note" class="wr-plan-note" style="display:none">Private use only · Non-commercial · No publishing rights</div>' +
+                '<div style="font-size:10px;opacity:0.7;margin:4px 0;text-transform:uppercase;letter-spacing:0.5px">Intended Use</div>' +
+                '<div style="font-size:11px;margin-bottom:8px">Single-user private deployments with cryptographic proof requirements. Non-commercial use only.</div>' +
+                (isAffiliateAttributed ? '<div id="pro-private-founders" style="display:none;background:rgba(34,197,94,.15);border:1px solid rgba(34,197,94,.4);border-radius:6px;padding:10px;margin:8px 0">' + affiliateFoundersPackHtml + '</div>' : '') +
+                '<div style="font-size:10px;opacity:0.7;margin:4px 0;text-transform:uppercase;letter-spacing:0.5px">Included Capabilities</div>' +
+                '<ul style="font-size:11px">' +
+                  '<li>All Basic tier capabilities</li>' +
+                  '<li>qBEAP™ post-quantum-ready encrypted messaging</li>' +
+                  '<li>WRGuard™ advanced (strict mode, tamper detection)</li>' +
+                  '<li>WRVault™ advanced (encrypted, scoped, policy-aware)</li>' +
                 '</ul>' +
-                '<button id="pro-private-cta" class="cta-btn" style="background:#2563eb" data-plan="pro_private_annual">Choose Private</button>' +
+                '<div style="font-size:10px;opacity:0.7;margin:4px 0;text-transform:uppercase;letter-spacing:0.5px">Security & Verification</div>' +
+                '<ul style="font-size:11px">' +
+                  '<li>PoAE™ advanced cryptographic proofs (signed attestations)</li>' +
+                  '<li>Exportable proof artifacts for personal records</li>' +
+                  '<li>Local verification of proof integrity</li>' +
+                '</ul>' +
+                (isPrivateTier
+                  ? '<div id="pro-private-cta" class="cta-btn" style="background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.15);opacity:0.6;cursor:default;text-align:center">Active Plan</div>'
+                  : '<a id="pro-private-cta" class="cta-btn" style="background:#2563eb;text-align:center;text-decoration:none;display:block" href="https://wrdesk.com/buy/?plan=private_annual" target="_blank" rel="noopener">' + PLAN_CONFIG.private.ctaLabels.annual + '</a>') +
               '</div>' +
-              // Publisher
+              // PUBLISHER TIER
               '<div class="wr-plan-card featured" style="position:relative">' +
-                '<div style="position:absolute;top:-10px;right:12px;background:#22c55e;color:#0b1e12;border-radius:999px;padding:3px 10px;font-size:10px;font-weight:800">Solo Pro</div>' +
+                '<div style="position:absolute;top:-10px;right:12px;background:#22c55e;color:#0b1e12;border-radius:999px;padding:3px 10px;font-size:10px;font-weight:800">Small Business</div>' +
                 '<h3>Publisher</h3>' +
-                '<div id="publisher-price" class="price">$9.95<span>/month</span></div>' +
+                '<div id="publisher-price" class="price">' + PLAN_CONFIG.publisher.priceLabels.annual + '</div>' +
                 '<div class="toggle-row">' +
                   '<button id="publisher-annual" class="toggle-btn active">Annual</button>' +
-                  '<button id="publisher-monthly" class="toggle-btn">Monthly</button>' +
+                  '<button id="publisher-lifetime" class="toggle-btn">Early Access Lifetime</button>' +
                 '</div>' +
-                '<ul>' +
-                  '<li>AI Orchestration (publishing workflows)</li>' +
-                  '<li>Unlimited WR Codes (commercial publishing)</li>' +
-                  '<li>BEAP™ Secure Messages</li>' +
-                  '<li>Enterprise Handshakes</li>' +
-                  '<li>WRGuard™ / WRVault™ (publisher-grade, incl. local password manager)</li>' +
-                  '<li>5 GB hosted context</li>' +
-                  '<li>Publisher branding + custom domain</li>' +
-                  '<li>Advanced analytics + priority queue</li>' +
-                  '<li style="color:#66FF66;list-style:\'✓ \';">BYOK or pay-as-you-go</li>' +
+                '<div style="font-size:10px;opacity:0.7;margin:4px 0;text-transform:uppercase;letter-spacing:0.5px">Intended Use</div>' +
+                '<div style="font-size:11px;margin-bottom:8px">Single-user commercial deployments with third-party verification and publishing rights.</div>' +
+                (isAffiliateAttributed ? '<div id="publisher-founders" style="display:none;background:rgba(34,197,94,.15);border:1px solid rgba(34,197,94,.4);border-radius:6px;padding:10px;margin:8px 0">' + affiliateFoundersPackHtml + '</div>' : '') +
+                '<div style="font-size:10px;opacity:0.7;margin:4px 0;text-transform:uppercase;letter-spacing:0.5px">Included Capabilities</div>' +
+                '<ul style="font-size:11px">' +
+                  '<li>All Pro (Private) tier capabilities</li>' +
+                  '<li>Commercial WR Desk™ publishing rights</li>' +
+                  '<li>Enterprise Handshakes (B2B trust establishment)</li>' +
+                  '<li>Publisher branding and custom domain support</li>' +
+                  '<li>Up to 5GB managed template storage</li>' +
                 '</ul>' +
-                '<button class="cta-btn" style="background:#16a34a;font-weight:700">Choose Publisher</button>' +
+                '<div style="font-size:10px;opacity:0.7;margin:4px 0;text-transform:uppercase;letter-spacing:0.5px">Security & Verification</div>' +
+                '<ul style="font-size:11px">' +
+                  '<li>PoAE™ advanced proofs with verification endpoint</li>' +
+                  '<li>Third-party verification capability (client-accessible)</li>' +
+                  '<li>Proof chain export for external review</li>' +
+                '</ul>' +
+                (isPublisherTier
+                  ? '<div id="publisher-cta" class="cta-btn" style="background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.15);opacity:0.6;cursor:default;text-align:center">Active Plan</div>'
+                  : '<a id="publisher-cta" class="cta-btn" style="background:#16a34a;font-weight:700;text-align:center;text-decoration:none;display:block" href="https://wrdesk.com/buy/?plan=publisher_annual" target="_blank" rel="noopener">' + PLAN_CONFIG.publisher.ctaLabels.annual + '</a>') +
               '</div>' +
-              // Business/Enterprise
+              // BUSINESS/ENTERPRISE TIER
               '<div class="wr-plan-card featured">' +
-                '<h3>Business/Enterprise</h3>' +
-                '<div id="enterprise-price" class="price">$59<span>/month</span></div>' +
+                '<h3>Business / Enterprise</h3>' +
+                '<div id="enterprise-price" class="price">' + PLAN_CONFIG.enterprise.priceLabels.annual + '</div>' +
                 '<div class="toggle-row">' +
                   '<button id="enterprise-annual" class="toggle-btn active">Annual</button>' +
                   '<button id="enterprise-monthly" class="toggle-btn">Monthly</button>' +
                 '</div>' +
-                '<ul>' +
-                  '<li>AI Orchestration (team & enterprise)</li>' +
-                  '<li>Unlimited WR Codes (enterprise)</li>' +
-                  '<li>BEAP™ Secure Messages</li>' +
-                  '<li>Enterprise Handshakes</li>' +
-                  '<li>WRGuard™ / WRVault™ (enterprise controls, incl. local password manager)</li>' +
-                  '<li>25 GB hosted context</li>' +
-                  '<li>Multiple domains + team roles</li>' +
-                  '<li>SSO/SAML, DPA</li>' +
-                  '<li>SLA + dedicated support</li>' +
-                  '<li style="color:#66FF66;list-style:\'✓ \';">BYOK or pay-as-you-go</li>' +
+                '<div style="font-size:10px;opacity:0.7;margin:4px 0;text-transform:uppercase;letter-spacing:0.5px">Intended Use</div>' +
+                '<div style="font-size:11px;margin-bottom:8px">Multi-user organizational deployments requiring role-based access, centralized governance, and audit-ready documentation.</div>' +
+                '<div style="font-size:10px;opacity:0.7;margin:4px 0;text-transform:uppercase;letter-spacing:0.5px">Included Capabilities</div>' +
+                '<ul style="font-size:11px">' +
+                  '<li>All Publisher tier capabilities</li>' +
+                  '<li>Multi-user access with role-based permissions</li>' +
+                  '<li>Multiple domain support + SSO/SAML</li>' +
+                  '<li>Data Processing Agreement (DPA) available</li>' +
+                  '<li>Contractual support + SLA availability</li>' +
                 '</ul>' +
-                '<button class="cta-btn" style="background:#0ea5e9">Contact Sales</button>' +
+                '<div style="font-size:10px;opacity:0.7;margin:4px 0;text-transform:uppercase;letter-spacing:0.5px">Security & Verification</div>' +
+                '<ul style="font-size:11px">' +
+                  '<li>PoAE™ advanced proofs with full audit export</li>' +
+                  '<li>Per-user attribution in proof chain</li>' +
+                  '<li>Centralized proof archive with retention controls</li>' +
+                  '<li>Third-party verification with organizational context</li>' +
+                '</ul>' +
+                (isEnterpriseTier
+                  ? '<div id="enterprise-cta" class="cta-btn" style="background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.15);opacity:0.6;cursor:default;text-align:center">Active Plan</div>'
+                  : '<a id="enterprise-cta" class="cta-btn" style="background:#0ea5e9;text-align:center;text-decoration:none;display:block" href="https://wrdesk.com/?page_id=864" target="_blank" rel="noopener">' + PLAN_CONFIG.enterprise.ctaLabels.annual + '</a>') +
               '</div>' +
             '</div>' +
-            '<div style="font-size:12px;opacity:.9">🔑 BYOK Feature: Use your own API keys from OpenAI, Claude, Gemini, Grok, and more.</div>' +
           '</div>'
         )
 
@@ -32724,7 +32865,7 @@ ${pageText}
 
           if (isNaN(value) || value < 10) {
 
-            alert('Minimum top-up is $10')
+            alert('Minimum top-up is €10')
 
             if (customInput) customInput.focus()
 
@@ -32732,86 +32873,150 @@ ${pageText}
 
           }
 
-          alert(`✅ Top-up initialized: $${value.toFixed(2)}`)
+          alert(`✅ Top-up initialized: €${value.toFixed(2)}`)
 
         })
 
       }
 
+      // ============================================================
+      // PLAN TOGGLE LOGIC - Uses PLAN_CONFIG as single source of truth
+      // ============================================================
 
-
-      // Wire Pro (Private) Annual/Lifetime toggle
+      // Pro (Private): Annual + Early Access Lifetime toggle
       const proPrivatePrice = b.querySelector('#pro-private-price') as HTMLElement | null
       const proPrivateAnnual = b.querySelector('#pro-private-annual') as HTMLButtonElement | null
       const proPrivateLifetime = b.querySelector('#pro-private-lifetime') as HTMLButtonElement | null
       const proPrivateNote = b.querySelector('#pro-private-note') as HTMLElement | null
+      const proPrivateFounders = b.querySelector('#pro-private-founders') as HTMLElement | null // May be null if not affiliate
       const proPrivateCta = b.querySelector('#pro-private-cta') as HTMLButtonElement | null
 
       if (proPrivatePrice && proPrivateAnnual && proPrivateLifetime && proPrivateNote && proPrivateCta) {
+        const proCfg = {
+          prices: { annual: '€59<span>/year</span>', lifetime: '€199<span> one-time</span>' },
+          ctas: { annual: 'Select Pro', lifetime: 'Select Early Access Lifetime' },
+          urls: { annual: 'https://wrdesk.com/buy/?plan=private_annual', lifetime: 'https://wrdesk.com/buy/?plan=private_lifetime' }
+        }
         const setProAnnual = () => {
-          proPrivatePrice.innerHTML = '$29.95<span>/year</span>'
+          console.log('[Plans] Private: switching to Annual @ €59/year')
+          proPrivatePrice.innerHTML = proCfg.prices.annual
           proPrivateAnnual.classList.add('active')
           proPrivateLifetime.classList.remove('active')
           proPrivateNote.style.display = 'none'
-          proPrivateCta.textContent = 'Choose Private'
-          proPrivateCta.setAttribute('data-plan', 'pro_private_annual')
+          // Founders Pack only shown for affiliate users
+          if (proPrivateFounders) proPrivateFounders.style.display = 'none'
+          if (!isPrivateTier) {
+            proPrivateCta.textContent = proCfg.ctas.annual
+            proPrivateCta.setAttribute('href', proCfg.urls.annual)
+          }
         }
         const setProLifetime = () => {
-          proPrivatePrice.innerHTML = '€99,95<span> one-time</span>'
+          console.log('[Plans] Private: switching to Lifetime @ €199 one-time')
+          proPrivatePrice.innerHTML = proCfg.prices.lifetime
           proPrivateLifetime.classList.add('active')
           proPrivateAnnual.classList.remove('active')
           proPrivateNote.style.display = 'block'
-          proPrivateCta.textContent = 'Get Lifetime'
-          proPrivateCta.setAttribute('data-plan', 'pro_private_lifetime')
+          // Founders Pack only shown for affiliate users (element only exists if isAffiliateAttributed)
+          if (proPrivateFounders) proPrivateFounders.style.display = 'block'
+          if (!isPrivateTier) {
+            proPrivateCta.textContent = proCfg.ctas.lifetime
+            proPrivateCta.setAttribute('href', proCfg.urls.lifetime)
+          }
         }
         proPrivateAnnual.addEventListener('click', setProAnnual)
         proPrivateLifetime.addEventListener('click', setProLifetime)
         setProAnnual()
       }
 
-      // Wire Publisher pricing toggle if present
-      const priceEl = b.querySelector('#publisher-price') as HTMLElement | null
-      const annualBtn = b.querySelector('#publisher-annual') as HTMLButtonElement | null
-      const monthlyBtn = b.querySelector('#publisher-monthly') as HTMLButtonElement | null
+      // Publisher: Annual + Early Access Lifetime toggle (NO monthly)
+      const publisherPrice = b.querySelector('#publisher-price') as HTMLElement | null
+      const publisherAnnual = b.querySelector('#publisher-annual') as HTMLButtonElement | null
+      const publisherLifetime = b.querySelector('#publisher-lifetime') as HTMLButtonElement | null
+      const publisherFounders = b.querySelector('#publisher-founders') as HTMLElement | null // May be null if not affiliate
+      const publisherCta = b.querySelector('#publisher-cta') as HTMLButtonElement | null
 
-      if (priceEl && annualBtn && monthlyBtn) {
-        const setAnnual = () => {
-          priceEl.innerHTML = '$9.95<span>/month</span>'
-          annualBtn.classList.add('active')
-          monthlyBtn.classList.remove('active')
+      if (publisherPrice && publisherAnnual && publisherLifetime && publisherCta) {
+        const pubCfg = {
+          prices: { annual: '€129<span>/year</span>', lifetime: '€449<span> one-time</span>' },
+          ctas: { annual: 'Select Publisher', lifetime: 'Select Early Access Lifetime' },
+          urls: { annual: 'https://wrdesk.com/buy/?plan=publisher_annual', lifetime: 'https://wrdesk.com/buy/?plan=publisher_lifetime' }
         }
-        const setMonthly = () => {
-          priceEl.innerHTML = '$19.95<span>/month</span>'
-          monthlyBtn.classList.add('active')
-          annualBtn.classList.remove('active')
+        const setPublisherAnnual = () => {
+          console.log('[Plans] Publisher: switching to Annual @ €129/year')
+          publisherPrice.innerHTML = pubCfg.prices.annual
+          publisherAnnual.classList.add('active')
+          publisherLifetime.classList.remove('active')
+          // Founders Pack only shown for affiliate users
+          if (publisherFounders) publisherFounders.style.display = 'none'
+          if (!isPublisherTier) {
+            publisherCta.textContent = pubCfg.ctas.annual
+            publisherCta.setAttribute('href', pubCfg.urls.annual)
+          }
         }
-        annualBtn.addEventListener('click', setAnnual)
-        monthlyBtn.addEventListener('click', setMonthly)
-        setAnnual()
+        const setPublisherLifetime = () => {
+          console.log('[Plans] Publisher: switching to Lifetime @ €449 one-time')
+          publisherPrice.innerHTML = pubCfg.prices.lifetime
+          publisherLifetime.classList.add('active')
+          publisherAnnual.classList.remove('active')
+          // Founders Pack only shown for affiliate users (element only exists if isAffiliateAttributed)
+          if (publisherFounders) publisherFounders.style.display = 'block'
+          if (!isPublisherTier) {
+            publisherCta.textContent = pubCfg.ctas.lifetime
+            publisherCta.setAttribute('href', pubCfg.urls.lifetime)
+          }
+        }
+        publisherAnnual.addEventListener('click', setPublisherAnnual)
+        publisherLifetime.addEventListener('click', setPublisherLifetime)
+        setPublisherAnnual()
       }
 
-      // Wire Enterprise pricing toggle if present
+      // Business/Enterprise: Annual + Monthly toggle (NO lifetime)
       const entPrice = b.querySelector('#enterprise-price') as HTMLElement | null
       const entAnnual = b.querySelector('#enterprise-annual') as HTMLButtonElement | null
       const entMonthly = b.querySelector('#enterprise-monthly') as HTMLButtonElement | null
+      const entCta = b.querySelector('#enterprise-cta') as HTMLButtonElement | null
 
-      if (entPrice && entAnnual && entMonthly) {
+      if (entPrice && entAnnual && entMonthly && entCta) {
+        const entCfg = {
+          prices: { annual: '€599<span>/year</span>', monthly: '€59<span>/month</span>' },
+          ctas: { annual: 'Contact Sales', monthly: 'Contact Sales' }
+        }
         const setEntAnnual = () => {
-          entPrice.innerHTML = '$59<span>/month</span>'
+          console.log('[Plans] Enterprise: switching to Annual @ €599/year')
+          entPrice.innerHTML = entCfg.prices.annual
           entAnnual.classList.add('active')
           entMonthly.classList.remove('active')
+          entCta.setAttribute('data-plan', 'enterprise_annual')
         }
         const setEntMonthly = () => {
-          entPrice.innerHTML = '$99<span>/month</span>'
+          console.log('[Plans] Enterprise: switching to Monthly @ €59/month')
+          entPrice.innerHTML = entCfg.prices.monthly
           entMonthly.classList.add('active')
           entAnnual.classList.remove('active')
+          entCta.setAttribute('data-plan', 'enterprise_monthly')
         }
         entAnnual.addEventListener('click', setEntAnnual)
-
         entMonthly.addEventListener('click', setEntMonthly)
-
         setEntAnnual()
+      }
 
+      } // end renderModal
+
+      // Query auth status from background to determine user tier, then render
+      try {
+        chrome.runtime.sendMessage({ type: 'AUTH_STATUS' }, (response: any) => {
+          if (chrome.runtime.lastError) {
+            console.warn('[Plans] AUTH_STATUS check failed:', chrome.runtime.lastError.message)
+            renderModal(null)
+            return
+          }
+          const tier = response?.tier || null
+          console.log('[Plans] User tier for billing modal:', tier)
+          renderModal(tier)
+        })
+      } catch (e) {
+        console.warn('[Plans] AUTH_STATUS exception:', e)
+        renderModal(null)
       }
 
     }
@@ -40897,7 +41102,7 @@ ${pageText}
             text-align: left;
           " onmouseover="this.style.background='rgba(255,255,255,0.25)'; this.style.borderColor='rgba(255,255,255,0.5)'" onmouseout="this.style.background='rgba(255,255,255,0.15)'; this.style.borderColor='rgba(255,255,255,0.3)'">
             <div style="font-size: 16px; margin-bottom: 3px;">📝 Markdown</div>
-            <div style="font-size: 11px; opacity: 0.8;">Documentation format, best for wrcode.org</div>
+            <div style="font-size: 11px; opacity: 0.8;">Documentation format, best for wrdesk.com</div>
           </button>
         </div>
         
@@ -41340,7 +41545,7 @@ ${pageText}
     }
     
     // Build YAML
-    addLine('# WRCode Session Export')
+    addLine('# WR Desk Session Export')
     addLine('# Generated by OpenGiraffe Extension')
     addLine('')
     
@@ -41357,7 +41562,7 @@ ${pageText}
   function convertToMarkdown(data: any): string {
     const md: string[] = []
     
-    md.push('# WRCode Session Export')
+    md.push('# WR Desk Session Export')
     md.push('')
     md.push(`**Session Name:** ${data.sessionName}`)
     md.push(`**Export Date:** ${data.exportDate}`)

@@ -1,4 +1,81 @@
-import { app, BrowserWindow, globalShortcut, Tray, Menu, Notification, screen, dialog, shell } from 'electron'
+import { app, BrowserWindow, globalShortcut, Tray, Menu, Notification, screen, dialog, shell, ipcMain } from 'electron'
+import { loginWithKeycloak } from '../src/auth/login'
+import { saveRefreshToken, clearRefreshToken } from '../src/auth/tokenStore'
+import { ensureSession, updateSessionFromTokens, clearSession } from '../src/auth/session'
+import { 
+  mapRolesToTier, 
+  DEFAULT_TIER,
+  type Tier
+} from '../src/auth/capabilities'
+
+// ============================================================================
+// INSTANT LOGOUT - Split into fast sync (UI lock) + slow async (cleanup)
+// ============================================================================
+
+/**
+ * Fast synchronous logout - locks UI instantly
+ * Called BEFORE any await to ensure immediate UI update
+ */
+function logoutFast(): void {
+  const t0 = Date.now()
+  console.log(`[AUTH][t0] logoutFast() - Locking UI immediately`)
+  
+  // 1. Set auth state to locked (blocks all privileged actions)
+  hasValidSession = false
+  currentTier = DEFAULT_TIER
+  console.log(`[AUTH][t+${Date.now() - t0}ms] hasValidSession = false`)
+  
+  // 2. Clear in-memory tokens (sync, fast)
+  clearSession()
+  console.log(`[AUTH][t+${Date.now() - t0}ms] In-memory session cleared`)
+  
+  // 3. Update tray menu to show locked state
+  updateTrayMenu()
+  console.log(`[AUTH][t+${Date.now() - t0}ms] Tray menu updated`)
+  
+  // 4. Close dashboard window immediately
+  if (win && !win.isDestroyed()) {
+    win.close()
+    console.log(`[AUTH][t+${Date.now() - t0}ms] Dashboard window closed`)
+  }
+  
+  // 5. Close BEAP Inbox popup via WebSocket message to extension
+  const closePopupMsg = JSON.stringify({ type: 'CLOSE_COMMAND_CENTER_POPUP' })
+  wsClients.forEach((socket: any) => {
+    try {
+      socket.send(closePopupMsg)
+      console.log(`[AUTH][t+${Date.now() - t0}ms] Sent CLOSE_COMMAND_CENTER_POPUP to extension`)
+    } catch {}
+  })
+  
+  console.log(`[AUTH][t+${Date.now() - t0}ms] logoutFast() complete - UI is now locked`)
+}
+
+/**
+ * Slow async cleanup - runs AFTER UI is already locked
+ * Does not block UI update
+ */
+async function logoutCleanupAsync(): Promise<void> {
+  const t0 = Date.now()
+  console.log(`[AUTH][cleanup t0] Starting async cleanup (UI already locked)`)
+  
+  try {
+    // Clear refresh token from secure storage (slow - keytar access)
+    await clearRefreshToken()
+    console.log(`[AUTH][cleanup t+${Date.now() - t0}ms] Refresh token cleared from secure storage`)
+  } catch (err: any) {
+    // Log but don't fail - UI is already locked
+    console.error(`[AUTH][cleanup] Error clearing refresh token:`, err?.message || err)
+  }
+  
+  console.log(`[AUTH][cleanup t+${Date.now() - t0}ms] Async cleanup complete`)
+}
+
+// ============================================================================
+// AUTH-GATED STARTUP - Track session validity for headless mode
+// ============================================================================
+let hasValidSession = false  // Set after startup session check
+let currentTier: Tier = 'free'  // MVP: default to 'free' tier
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 import os from 'node:os'
@@ -7,6 +84,150 @@ import { WebSocketServer } from 'ws'
 import express from 'express'
 import * as net from 'net'
 import { loadAllMiniApps, loadTier1MiniApps, loadTier2MiniApps, loadTier3MiniApps } from './main/miniapps/loader'
+
+// ============================================================================
+// AUTH TEST FUNCTION - Manual trigger only via IPC
+// ============================================================================
+
+/**
+ * Test Keycloak login flow - DO NOT call automatically on startup
+ * Trigger via IPC 'auth:test-login'
+ */
+async function testLoginOnce(): Promise<void> {
+  console.log('[AUTH] Starting Keycloak login test...')
+  try {
+    const tokens = await loginWithKeycloak()
+    if (tokens.refresh_token) {
+      await saveRefreshToken(tokens.refresh_token)
+      console.log('[AUTH] Refresh token saved to credential store')
+    }
+    console.log('[AUTH] Login OK - tokens received (access_token, id_token, expires_in:', tokens.expires_in, ')')
+  } catch (err) {
+    console.error('[AUTH] Login failed:', err instanceof Error ? err.message : String(err))
+    throw err
+  }
+}
+
+// ============================================================================
+// AUTH-GATED WINDOW MANAGEMENT
+// ============================================================================
+
+/**
+ * Check if a valid auth session exists at startup
+ * Called once during app initialization
+ */
+async function checkStartupSession(): Promise<boolean> {
+  console.log('[AUTH] Checking for valid session at startup...')
+  try {
+    const session = await ensureSession()
+    if (session.accessToken) {
+      console.log('[AUTH] Session valid - user:', session.userInfo?.displayName || session.userInfo?.email || 'unknown')
+      hasValidSession = true
+      
+      // Map Keycloak roles to tier
+      const roles = session.userInfo?.roles || []
+      currentTier = mapRolesToTier(roles)
+      console.log('[AUTH] Tier set:', currentTier, 'roles:', roles.join(', ') || '(none)')
+      
+      return true
+    } else {
+      console.log('[AUTH] No valid session found')
+      hasValidSession = false
+      currentTier = DEFAULT_TIER
+      return false
+    }
+  } catch (err) {
+    console.error('[AUTH] Session check failed:', err instanceof Error ? err.message : String(err))
+    hasValidSession = false
+    currentTier = DEFAULT_TIER
+    return false
+  }
+}
+
+/**
+ * Open the dashboard window - called when:
+ * 1) User already has a valid session at startup
+ * 2) Login flow completes successfully
+ * 3) Explicit user action (tray click, deep link)
+ */
+async function openDashboardWindow(): Promise<void> {
+  console.log('[AUTH] Opening dashboard window...')
+  
+  if (win && !win.isDestroyed()) {
+    // Window exists - show and focus
+    console.log('[AUTH] Dashboard window exists - showing and focusing')
+    if (win.isMinimized()) {
+      win.restore()
+    }
+    win.show()
+    win.focus()
+  } else {
+    // Create new window
+    console.log('[AUTH] Creating new dashboard window')
+    await createWindow()
+    if (win) {
+      win.show()
+      win.focus()
+    }
+  }
+  console.log('[AUTH] Dashboard window opened')
+}
+
+/**
+ * Request login flow - triggered from extension via IPC/HTTP
+ * On success: opens dashboard window and sets tier
+ */
+async function requestLogin(): Promise<{ ok: boolean; error?: string; tier?: string }> {
+  console.log('[AUTH] Login requested - starting Keycloak SSO flow...')
+  try {
+    const tokens = await loginWithKeycloak()
+    
+    // Save refresh token to OS credential store
+    if (tokens.refresh_token) {
+      await saveRefreshToken(tokens.refresh_token)
+      console.log('[AUTH] Refresh token saved to credential store')
+    }
+    
+    // Update session with new tokens (this extracts user info including roles)
+    const userInfo = updateSessionFromTokens(tokens)
+    
+    // Mark session as valid
+    hasValidSession = true
+    
+    // Map Keycloak roles to tier
+    const roles = userInfo?.roles || []
+    currentTier = mapRolesToTier(roles)
+    
+    console.log('[AUTH] Login successful - tier:', currentTier, 'roles:', roles.join(', ') || '(none)')
+    
+    // Update tray menu to reflect logged-in state
+    updateTrayMenu()
+    
+    // Open dashboard window after successful login
+    await openDashboardWindow()
+    
+    return { 
+      ok: true, 
+      tier: currentTier
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    console.error('[AUTH] Login failed:', message)
+    currentTier = DEFAULT_TIER
+    return { ok: false, error: message }
+  }
+}
+
+/**
+ * Get current auth status including tier
+ * Exported for external use (e.g., IPC handlers, HTTP API)
+ */
+export function getAuthStatus(): { loggedIn: boolean; tier: string | null } {
+  return {
+    loggedIn: hasValidSession,
+    tier: hasValidSession ? currentTier : null
+  }
+}
 
 // ============================================================================
 // SINGLE INSTANCE LOCK - Prevent multiple instances from running
@@ -89,7 +310,7 @@ async function killProcessOnPort(port: number): Promise<void> {
 }
 
 /**
- * Kill any stale WR Code/electron processes that might be holding ports
+ * Kill any stale WR Desk/electron processes that might be holding ports
  */
 async function killStaleProcesses(): Promise<void> {
   if (process.platform !== 'win32') return
@@ -98,7 +319,7 @@ async function killStaleProcesses(): Promise<void> {
     // Kill any WR Code processes (renamed electron) except current process
     const currentPid = process.pid
     execSync(`wmic process where "name='wrcode.exe' and processid!=${currentPid}" delete`, { stdio: 'ignore' })
-    console.log('[PORT-CLEANUP] Killed stale WR Code processes')
+    console.log('[PORT-CLEANUP] Killed stale WR Desk processes')
   } catch {
     // No processes found or wmic not available
   }
@@ -308,16 +529,20 @@ console.log('[MAIN] Startup args:', process.argv.join(' '))
 console.log('[MAIN] Start hidden mode:', startHidden)
 
 async function createWindow() {
+  // Security: renderer isolation; tokens must never be exposed to renderer
+  // Always create hidden - visibility is controlled by openDashboardWindow()
   win = new BrowserWindow({
-    title: 'WR Code™ Analysis Dashboard',
-    icon: path.join(process.env.VITE_PUBLIC, 'wrcode-logo.svg'),
+    title: 'WR Desk™ Analysis Dashboard',
+    icon: path.join(process.env.VITE_PUBLIC, 'wrdesk-logo.svg'),
     webPreferences: {
       preload: path.join(__dirname, 'preload.mjs'),
       contextIsolation: true,
       nodeIntegration: false,
+      // TODO: Enable sandbox: true once preload compatibility is verified
+      // sandbox: true,
       webSecurity: true,
     },
-    show: !startHidden, // Start hidden if launched with --hidden flag
+    show: false,  // Always start hidden - visibility controlled by openDashboardWindow()
     width: 1200,
     height: 800,
   })
@@ -325,10 +550,7 @@ async function createWindow() {
   // Remove the default application menu (File, Edit, View, Window, Help)
   Menu.setApplicationMenu(null)
   
-  // If started hidden, minimize to tray
-  if (startHidden) {
-    console.log('[MAIN] Started in hidden mode (auto-start), running in system tray')
-  }
+  console.log('[MAIN] Window created (hidden by default)')
   
   // When user clicks X, hide to tray instead of quitting
   win.on('close', (event) => {
@@ -444,6 +666,57 @@ async function createWindow() {
             console.error('[MAIN] Error sending theme to extension:', e)
           }
         })
+      }
+    })
+    // Handle BEAP Inbox button from dashboard - open popup in Chrome extension
+    ipcMain.on('OPEN_BEAP_INBOX', () => {
+      console.log('[MAIN] 📨 BEAP Inbox requested from dashboard')
+      
+      // Get dashboard window bounds and state to sync with popup
+      let bounds = { x: 100, y: 100, width: 520, height: 720 }
+      let windowState: 'normal' | 'maximized' | 'fullscreen' = 'normal'
+      if (win) {
+        const dashBounds = win.getBounds()
+        bounds = {
+          x: dashBounds.x,
+          y: dashBounds.y,
+          width: dashBounds.width,
+          height: dashBounds.height
+        }
+        // Detect if dashboard is maximized or fullscreen
+        if (win.isFullScreen()) {
+          windowState = 'fullscreen'
+        } else if (win.isMaximized()) {
+          windowState = 'maximized'
+        }
+        console.log('[MAIN] 📐 Dashboard bounds:', bounds, 'state:', windowState)
+        
+        // Blur the dashboard window so Chrome popup can appear on top
+        try {
+          win.blur()
+        } catch {}
+      }
+      
+      // Send message to Chrome extension via WebSocket to open the popup
+      const message = JSON.stringify({
+        type: 'OPEN_COMMAND_CENTER_POPUP',
+        theme: currentExtensionTheme,
+        launchMode: 'dashboard-beap',
+        bounds: bounds,
+        windowState: windowState
+      })
+      let sent = false
+      wsClients.forEach((socket: any) => {
+        try {
+          socket.send(message)
+          sent = true
+          console.log('[MAIN] 📨 Sent OPEN_COMMAND_CENTER_POPUP to extension with bounds')
+        } catch (e) {
+          console.error('[MAIN] Error sending to extension:', e)
+        }
+      })
+      if (!sent) {
+        console.log('[MAIN] ⚠️ No WebSocket clients connected - popup may not open')
       }
     })
     ipcMain.on('overlay-cmd', async (_e, msg: any) => {
@@ -812,12 +1085,13 @@ async function createWindow() {
       }
       
       // Show credentials input dialog
+      // TODO: Security - refactor to use contextIsolation: true and IPC for credential input
       const credWindow = new BrowserWindow({
         width: 500,
         height: 400,
         webPreferences: {
           nodeIntegration: true,
-          contextIsolation: false
+          contextIsolation: false,
         },
         title: 'Gmail API Credentials',
         modal: true,
@@ -990,24 +1264,24 @@ function createTray() {
   try {
     tray = new Tray(path.join(process.env.VITE_PUBLIC, 'electron-vite.svg'))
     updateTrayMenu()
-    tray.setToolTip('WR Code Orchestrator')
+    tray.setToolTip('WR Desk Orchestrator')
     tray.on('click', async () => {
-      if (!win || win.isDestroyed()) {
-        // Recreate window if it was closed
-        await createWindow()
-      }
-      if (win) {
-        if (win.isVisible()) {
-          win.focus()
-        } else {
-          win.show()
-          win.focus()
+      console.log('[TRAY] Tray icon clicked')
+      if (hasValidSession) {
+        console.log('[TRAY] Session valid - opening dashboard')
+        await openDashboardWindow()
+      } else {
+        console.log('[TRAY] No session - triggering login flow')
+        const result = await requestLogin()
+        if (!result.ok) {
+          console.log('[TRAY] Login cancelled or failed:', result.error)
         }
+        // requestLogin() already opens dashboard on success
       }
     })
     // Startup toast
     try {
-      new Notification({ title: 'WR Code Orchestrator', body: 'Running in background. Use Alt+Shift+S or chat icons to capture.' }).show()
+      new Notification({ title: 'WR Desk Orchestrator', body: 'Running in background. Use Alt+Shift+S or chat icons to capture.' }).show()
     } catch {}
   } catch {}
 }
@@ -1052,12 +1326,18 @@ function updateTrayMenu() {
     const loginSettings = app.getLoginItemSettings()
     
     const menu = Menu.buildFromTemplate([
-      { label: 'Show Dashboard', click: async () => { 
-        if (!win || win.isDestroyed()) {
-          await createWindow()
+      { label: hasValidSession ? 'Show Dashboard' : 'Sign In...', click: async () => { 
+        if (hasValidSession) {
+          console.log('[TRAY] Show Dashboard clicked - session valid')
+          await openDashboardWindow()
+        } else {
+          console.log('[TRAY] Sign In clicked - triggering login flow')
+          const result = await requestLogin()
+          if (!result.ok) {
+            console.log('[TRAY] Login cancelled or failed:', result.error)
+          }
+          // requestLogin() already opens dashboard on success
         }
-        win?.show()
-        win?.focus()
       } },
       { type: 'separator' },
       { label: 'Screenshot (Alt+Shift+S)', click: () => win?.webContents.send('hotkey', 'screenshot') },
@@ -1084,7 +1364,7 @@ function updateTrayMenu() {
             app.setLoginItemSettings({ 
               openAtLogin: menuItem.checked, 
               args: ['--hidden'],
-              name: 'WR Code' // Explicit name for Windows registry
+              name: 'WR Desk' // Explicit name for Windows registry
             })
             const updatedSettings = app.getLoginItemSettings()
             console.log('[MAIN] Auto-start on login:', menuItem.checked ? 'enabled' : 'disabled')
@@ -1227,7 +1507,47 @@ app.whenReady().then(async () => {
   try {
     // Setup console logging to file for debugging
     await setupFileLogging()
-    try { process.env.WS_NO_BUFFER_UTIL = '1'; process.env.WS_NO_UTF_8_VALIDATE = '1' } catch { }
+
+    // ========== AUTH TEST IPC ==========
+    // Manual trigger for Keycloak login test (no auto-start)
+    ipcMain.handle('auth:test-login', async () => {
+      await testLoginOnce()
+      return { success: true }
+    })
+    console.log('[MAIN] Auth test IPC handler registered (auth:test-login)')
+    
+    // ========== AUTH-GATED IPC HANDLERS ==========
+    // Request login - triggers SSO flow, opens dashboard on success
+    ipcMain.handle('auth:request-login', async () => {
+      console.log('[IPC] auth:request-login called')
+      return await requestLogin()
+    })
+    console.log('[MAIN] IPC handler registered: auth:request-login')
+    
+    // Open dashboard window explicitly
+    ipcMain.handle('dashboard:open', async () => {
+      console.log('[IPC] dashboard:open called')
+      await openDashboardWindow()
+      return { ok: true }
+    })
+    console.log('[MAIN] IPC handler registered: dashboard:open')
+    
+    // Get current auth status with tier and user info
+    ipcMain.handle('auth:status', async () => {
+      console.log('[IPC] auth:status called')
+      const session = await ensureSession()
+      const loggedIn = session.accessToken !== null
+      return {
+        loggedIn,
+        tier: loggedIn ? currentTier : null,
+        displayName: session.userInfo?.displayName,
+        email: session.userInfo?.email,
+        initials: session.userInfo?.initials,
+        picture: session.userInfo?.picture
+      }
+    })
+    console.log('[MAIN] IPC handler registered: auth:status')
+    try { process.env.WS_NO_BUFFER_UTIL = '1'; process.env.WS_NO_UTF_8_VALIDATE = '1' } catch {}
     // Auto-start on login (Windows/macOS). Pass --hidden so it starts in background.
     // IMPORTANT: Only enable autostart in production builds to avoid registering dev electron
     const isProduction = !process.env.VITE_DEV_SERVER_URL
@@ -1246,7 +1566,7 @@ app.whenReady().then(async () => {
           app.setLoginItemSettings({ 
             openAtLogin: true, 
             args: ['--hidden'],
-            name: 'WR Code' // Explicit name for Windows registry
+            name: 'WR Desk' // Explicit name for Windows registry
           })
           const loginSettings = app.getLoginItemSettings()
           console.log('[MAIN] Production build - autostart registered:', loginSettings.openAtLogin)
@@ -1255,7 +1575,7 @@ app.whenReady().then(async () => {
           app.setLoginItemSettings({ 
             openAtLogin: true, 
             args: ['--hidden'],
-            name: 'WR Code'
+            name: 'WR Desk'
           })
           console.log('[MAIN] Production build - autostart already configured, ensuring args are correct')
         }
@@ -1265,9 +1585,37 @@ app.whenReady().then(async () => {
     } catch (err) {
       console.error('[MAIN] Failed to register autostart:', err)
     }
-  createWindow()
+    
+  // ========== AUTH-GATED STARTUP ==========
+  // Check for valid session before deciding to show window
+  // RULE: No window at startup unless valid session exists (regardless of launch mode)
+  console.log('[AUTH] ===== AUTH-GATED STARTUP =====')
+  const sessionValid = await checkStartupSession()
+  
+  // Create tray first (always needed for headless/background mode)
   createTray()
-  console.log('[MAIN] Window and tray created')
+  console.log('[MAIN] Tray created')
+  
+  // Decide whether to show window based on session ONLY
+  // No window is created without a valid session, even on manual launch
+  if (!sessionValid) {
+    // No valid session = headless mode (tray only)
+    // User must login via extension, then dashboard opens automatically
+    console.log('[AUTH] No valid session - running in tray only, waiting for login via extension')
+    // Don't create window at all
+  } else if (startHidden) {
+    // Auto-start + valid session = create window but keep hidden
+    console.log('[AUTH] Session valid at startup (hidden mode) - creating window hidden')
+    await createWindow()
+    // Window stays hidden, user can open via tray
+  } else {
+    // Manual launch + valid session = show dashboard
+    console.log('[AUTH] Session valid - opening dashboard')
+    await createWindow()
+    await openDashboardWindow()
+  }
+  
+  console.log('[MAIN] Startup complete - hasValidSession:', hasValidSession)
   
   // Load Gmail API credentials if saved
   try {
@@ -2265,7 +2613,78 @@ app.whenReady().then(async () => {
                 try { socket.send(JSON.stringify({ type: 'DB_SET_ALL_RESULT', ok: false, message: String(err?.message || err) })) } catch { }
               }
             }
-          } catch { }
+            
+            // ===== AUTH HANDLERS =====
+            if (msg.type === 'AUTH_LOGIN') {
+              console.log('[MAIN] ===== AUTH_LOGIN received (WebSocket) =====')
+              try {
+                // Use requestLogin() to handle full flow including dashboard opening
+                const result = await requestLogin()
+                if (result.ok) {
+                  console.log('[MAIN] AUTH_LOGIN successful - tier:', result.tier)
+                  try { socket.send(JSON.stringify({ type: 'AUTH_LOGIN_SUCCESS', id: msg.id, tier: result.tier })) } catch {}
+                } else {
+                  console.error('[MAIN] AUTH_LOGIN failed:', result.error)
+                  try { socket.send(JSON.stringify({ type: 'AUTH_LOGIN_ERROR', id: msg.id, error: result.error })) } catch {}
+                }
+              } catch (err: any) {
+                console.error('[MAIN] AUTH_LOGIN error:', err?.message || err)
+                try { socket.send(JSON.stringify({ type: 'AUTH_LOGIN_ERROR', id: msg.id, error: err?.message || String(err) })) } catch {}
+              }
+            }
+            
+            if (msg.type === 'AUTH_STATUS') {
+              console.log('[AUTH] ===== AUTH_STATUS (WebSocket) =====')
+              try {
+                const session = await ensureSession()
+                const loggedIn = session.accessToken !== null
+                
+                // Update hasValidSession flag
+                hasValidSession = loggedIn
+                
+                console.log('[AUTH] AUTH_STATUS:', loggedIn ? 'logged in' : 'not logged in', 'tier:', currentTier)
+                // Include user info and tier in response for UI display
+                const response: Record<string, unknown> = { 
+                  type: 'AUTH_STATUS_RESULT', 
+                  id: msg.id, 
+                  loggedIn 
+                }
+                if (loggedIn) {
+                  response.tier = currentTier
+                  if (session.userInfo) {
+                    response.displayName = session.userInfo.displayName
+                    response.email = session.userInfo.email
+                    response.initials = session.userInfo.initials
+                    response.picture = session.userInfo.picture
+                  }
+                }
+                try { socket.send(JSON.stringify(response)) } catch {}
+              } catch (err: any) {
+                console.error('[AUTH] AUTH_STATUS error:', err?.message || err)
+                try { socket.send(JSON.stringify({ type: 'AUTH_STATUS_RESULT', id: msg.id, loggedIn: false })) } catch {}
+              }
+            }
+            
+            if (msg.type === 'AUTH_LOGOUT') {
+              console.log('[AUTH] ===== AUTH_LOGOUT (WebSocket) =====')
+              try {
+                // INSTANT LOGOUT: Lock UI immediately (sync, no await)
+                logoutFast()
+                
+                // Send success IMMEDIATELY - UI is now locked
+                console.log('[AUTH] AUTH_LOGOUT successful - UI locked instantly')
+                try { socket.send(JSON.stringify({ type: 'AUTH_LOGOUT_SUCCESS', id: msg.id })) } catch {}
+                
+                // Async cleanup (does not block UI)
+                logoutCleanupAsync().catch(err => {
+                  console.error('[AUTH] Async cleanup error (non-blocking):', err?.message || err)
+                })
+              } catch (err: any) {
+                console.error('[AUTH] AUTH_LOGOUT error:', err?.message || err)
+                try { socket.send(JSON.stringify({ type: 'AUTH_LOGOUT_ERROR', id: msg.id, error: err?.message || String(err) })) } catch {}
+              }
+            }
+          } catch {}
         })
       })
     }
@@ -2366,6 +2785,47 @@ app.whenReady().then(async () => {
       } catch (error: any) {
         console.error('[HTTP-MINIAPPS] Error loading all tiers:', error)
         res.status(500).json({ ok: false, error: error.message || 'Failed to load mini-apps' })
+    // =================================================================
+    // Dashboard Window Control
+    // =================================================================
+    
+    // POST /api/dashboard/open - Open and focus the Analysis Dashboard window
+    httpApp.post('/api/dashboard/open', async (_req, res) => {
+      try {
+        console.log('[AUTH] POST /api/dashboard/open - Opening dashboard via openDashboardWindow()')
+        await openDashboardWindow()
+        res.json({ ok: true })
+      } catch (error: any) {
+        console.error('[AUTH] Error opening dashboard:', error)
+        res.status(500).json({
+          ok: false,
+          error: error.message || 'Failed to open dashboard'
+        })
+      }
+    })
+    
+    // GET /api/dashboard/status - Get dashboard window status
+    httpApp.get('/api/dashboard/status', async (_req, res) => {
+      try {
+        const windowExists = win && !win.isDestroyed()
+        const isVisible = windowExists && win!.isVisible()
+        const isFocused = windowExists && win!.isFocused()
+        
+        res.json({
+          ok: true,
+          window: {
+            exists: windowExists,
+            visible: isVisible,
+            focused: isFocused,
+            minimized: windowExists && win!.isMinimized()
+          }
+        })
+      } catch (error: any) {
+        console.error('[HTTP-DASHBOARD] Error getting status:', error)
+        res.status(500).json({
+          ok: false,
+          error: error.message || 'Failed to get dashboard status'
+        })
       }
     })
 
@@ -2488,6 +2948,79 @@ app.whenReady().then(async () => {
           message: error.message || 'Sync failed',
           details: { error: error.toString() }
         })
+      }
+    })
+
+    // ===== AUTH ENDPOINTS =====
+    
+    // POST /api/auth/login - Trigger Keycloak SSO login (opens dashboard on success)
+    httpApp.post('/api/auth/login', async (_req, res) => {
+      try {
+        console.log('[HTTP] POST /api/auth/login - Starting SSO login via requestLogin()')
+        const result = await requestLogin()
+        if (result.ok) {
+          console.log('[HTTP] SSO login successful - tier:', result.tier)
+          res.json({ ok: true, tier: result.tier })
+        } else {
+          console.error('[HTTP] SSO login failed:', result.error)
+          res.status(401).json({ ok: false, error: result.error })
+        }
+      } catch (error: any) {
+        console.error('[HTTP] SSO login failed:', error?.message || error)
+        res.status(401).json({ ok: false, error: error?.message || 'Login failed' })
+      }
+    })
+
+    // GET /api/auth/status - Check if user is logged in
+    // Returns: { ok, loggedIn, tier?, displayName?, email?, initials? }
+    httpApp.get('/api/auth/status', async (_req, res) => {
+      try {
+        console.log('[HTTP] GET /api/auth/status')
+        const session = await ensureSession()
+        const loggedIn = session.accessToken !== null
+        
+        // Update hasValidSession flag based on current session state
+        hasValidSession = loggedIn
+        
+        // [CHECKPOINT B] Log HTTP status response (no secrets)
+        console.log('[HTTP][B] Auth status response: loggedIn=' + loggedIn + ', tier=' + currentTier + ', hasUserInfo=' + !!session.userInfo)
+        // Include user info and tier for UI display
+        const response: Record<string, unknown> = { ok: true, loggedIn }
+        if (loggedIn) {
+          response.tier = currentTier
+          if (session.userInfo) {
+            response.displayName = session.userInfo.displayName
+            response.email = session.userInfo.email
+            response.initials = session.userInfo.initials
+            response.picture = session.userInfo.picture
+          }
+        }
+        res.json(response)
+      } catch (error: any) {
+        console.error('[HTTP] Auth status error:', error?.message || error)
+        res.json({ ok: true, loggedIn: false })
+      }
+    })
+
+    // POST /api/auth/logout - Logout user (instant UI lock)
+    httpApp.post('/api/auth/logout', async (_req, res) => {
+      try {
+        console.log('[AUTH] POST /api/auth/logout - Logging out user')
+        
+        // INSTANT LOGOUT: Lock UI immediately (sync, no await)
+        logoutFast()
+        
+        // Send response IMMEDIATELY - UI is now locked
+        console.log('[AUTH] Logout successful - UI locked instantly')
+        res.json({ ok: true })
+        
+        // Async cleanup (does not block response)
+        logoutCleanupAsync().catch(err => {
+          console.error('[AUTH] Async cleanup error (non-blocking):', err?.message || err)
+        })
+      } catch (error: any) {
+        console.error('[AUTH] Logout error:', error?.message || error)
+        res.status(500).json({ ok: false, error: error?.message || 'Logout failed' })
       }
     })
 
@@ -2919,7 +3452,7 @@ app.whenReady().then(async () => {
               }
 
               const connectionId = 'postgres-local-wr-code';
-              const connectionName = 'Local PostgreSQL (WR Code)';
+              const connectionName = 'Local PostgreSQL (WR Desk)';
               // Include credentials in JDBC URL for automatic authentication
               const jdbcUrl = `jdbc:postgresql://${postgresConfig.host}:${postgresConfig.port}/${postgresConfig.database}?user=${encodeURIComponent(postgresConfig.user)}&password=${encodeURIComponent(postgresConfig.password)}`;
 
@@ -2985,12 +3518,12 @@ app.whenReady().then(async () => {
 
         res.json({
           ok: true,
-          message: postgresConfig
-            ? 'DBeaver launched and configured! The connection "Local PostgreSQL (WR Code)" is ready. Username is pre-filled. You may need to enter the password on first connect.'
+          message: postgresConfig 
+            ? 'DBeaver launched and configured! The connection "Local PostgreSQL (WR Desk)" is ready. Username is pre-filled. You may need to enter the password on first connect.'
             : 'DBeaver launched successfully',
           path: launchPath,
           configured: !!postgresConfig,
-          connectionName: postgresConfig ? 'Local PostgreSQL (WR Code)' : undefined,
+          connectionName: postgresConfig ? 'Local PostgreSQL (WR Desk)' : undefined,
           username: postgresConfig?.user
         });
       } catch (error: any) {
@@ -3159,8 +3692,8 @@ app.whenReady().then(async () => {
 
         // Create connection ID
         const connectionId = 'postgres-local-wr-code';
-        const connectionName = 'Local PostgreSQL (WR Code)';
-
+        const connectionName = 'Local PostgreSQL (WR Desk)';
+        
         // Build JDBC URL
         const jdbcUrl = `jdbc:postgresql://${postgresConfig.host}:${postgresConfig.port}/${postgresConfig.database}`;
 
@@ -5215,45 +5748,82 @@ app.whenReady().then(async () => {
       }
     })
     
-    // Simple function to start HTTP server with error handling
+    // ==========================================================================
+    // HTTP API SERVER - FIXED PORT (NO FALLBACK)
+    // ==========================================================================
+    // CRITICAL: Chrome extension hardcodes port 51248. If we bind to any other
+    // port, the extension cannot reach us. Therefore:
+    // - We MUST use port 51248 exactly
+    // - If port 51248 is unavailable, we MUST fail loudly and exit
+    // - NO silent fallback to alternative ports
+    // ==========================================================================
+    
     let httpServerStarted = false
     
-    const startHttpServer = (port: number, attempt = 1): void => {
+    const startHttpServer = (port: number): void => {
       if (httpServerStarted) {
-        console.log('[MAIN] HTTP server already started, skipping duplicate start')
+        console.log('[BOOT] HTTP server already started, skipping duplicate start')
         return
       }
       
-      console.log(`[MAIN] Starting HTTP API server on port ${port} (attempt ${attempt})...`)
+      console.log(`[BOOT] Starting HTTP API server on FIXED port ${port}...`)
+      console.log(`[BOOT] Extension expects: http://127.0.0.1:${port}`)
       
       const server = httpApp.listen(port, '127.0.0.1', () => {
         httpServerStarted = true
-        console.log(`[MAIN] ✅ HTTP API server listening on http://127.0.0.1:${port}`)
+        // ==========================================================================
+        // AUTHORITATIVE BOOT LOG - Extension connectivity depends on this port
+        // ==========================================================================
+        console.log(`[BOOT] ✅ HTTP API listening on http://127.0.0.1:${port}`)
+        console.log(`[BOOT] Extension can now connect to Electron`)
         
         // Set longer server-level timeout (10 minutes) to support OAuth flows
-        // This is the maximum time the server will wait for a request to complete
-        // Individual routes can have shorter timeouts as needed
         server.timeout = 10 * 60 * 1000 // 10 minutes
         server.keepAliveTimeout = 10 * 60 * 1000 // 10 minutes
-        console.log('[MAIN] HTTP server timeout set to 10 minutes for OAuth support')
+        console.log('[BOOT] HTTP server timeout set to 10 minutes for OAuth support')
       })
       
       server.once('error', (err: any) => {
         if (httpServerStarted) return // Ignore errors if already started successfully
         
         if (err.code === 'EADDRINUSE') {
-          console.error(`[MAIN] Port ${port} is already in use`)
+          // ==========================================================================
+          // FATAL: Port conflict - extension will NOT be able to reach Electron
+          // ==========================================================================
+          console.error(`[BOOT] ❌ FATAL: Port ${port} is already in use`)
+          console.error(`[BOOT] ❌ Another process is blocking the required port`)
+          console.error(`[BOOT] ❌ The Chrome extension expects Electron on port ${port}`)
+          console.error(`[BOOT] ❌ Electron CANNOT use a different port - extension would fail`)
+          console.error(`[BOOT]`)
+          console.error(`[BOOT] To fix this issue:`)
+          console.error(`[BOOT]   1. Check what process is using port ${port}:`)
+          console.error(`[BOOT]      Windows: netstat -ano | findstr :${port}`)
+          console.error(`[BOOT]      macOS/Linux: lsof -i :${port}`)
+          console.error(`[BOOT]   2. Stop that process or close the previous WRDesk instance`)
+          console.error(`[BOOT]   3. Restart WRDesk Orchestrator`)
+          console.error(`[BOOT]`)
+          console.error(`[BOOT] Exiting to prevent silent extension connectivity failure...`)
           
-          if (attempt < 3) {
-            console.log(`[MAIN] Trying alternative port ${port + 1}... (attempt ${attempt + 1})`)
-            setTimeout(() => startHttpServer(port + 1, attempt + 1), 1000)
-          } else {
-            console.error(`[MAIN] ❌ Failed to start HTTP server after ${attempt} attempts`)
-          }
+          // Show dialog to user before exiting
+          dialog.showErrorBox(
+            'WRDesk Orchestrator - Port Conflict',
+            `Port ${port} is already in use by another process.\n\n` +
+            `The Chrome extension requires Electron to be available on this exact port.\n\n` +
+            `Please close any previous WRDesk instance or other application using port ${port}, then restart WRDesk Orchestrator.`
+          )
+          
+          // Exit the app - do NOT silently fall back to another port
+          app.exit(1)
         } else {
-          console.error('[MAIN] HTTP server error:', err.message)
+          console.error('[BOOT] ❌ HTTP server error:', err.message)
+          console.error('[BOOT] Exiting due to server startup failure...')
+          app.exit(1)
         }
       })
+    }
+    
+    // Start the server on the FIXED port (no fallback)
+    startHttpServer(HTTP_PORT)
 
       // POST /api/vault/delete - Delete vault (must be unlocked)
       httpApp.post('/api/vault/delete', async (req, res) => {

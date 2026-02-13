@@ -144,6 +144,100 @@ function SidepanelOrchestrator() {
   const [theme, setTheme] = useState<'pro' | 'dark' | 'standard'>('standard')
   const [activeMiniApp, setActiveMiniApp] = useState<'glassview' | null>(null)
   
+  // ==========================================================================
+  // AUTH-GATED UI STATE (mirrors popup-chat.tsx)
+  // ==========================================================================
+  const [isLoggedIn, setIsLoggedIn] = useState<boolean | null>(null)  // null = loading
+  const [isLoggingIn, setIsLoggingIn] = useState(false)
+  const [isLoggingOut, setIsLoggingOut] = useState(false)
+  const [authUserInfo, setAuthUserInfo] = useState<{ displayName?: string; email?: string; initials?: string; picture?: string }>({})
+  
+  // Check auth status on mount and periodically
+  useEffect(() => {
+    const checkAuthStatus = () => {
+      chrome.runtime.sendMessage({ type: 'AUTH_STATUS' }, (response: { loggedIn?: boolean; displayName?: string; email?: string; initials?: string; picture?: string } | undefined) => {
+        if (chrome.runtime.lastError) {
+          console.warn('[AUTH] Sidepanel status check failed:', chrome.runtime.lastError.message);
+          setIsLoggedIn(false);
+          return;
+        }
+        if (response?.loggedIn) {
+          setIsLoggedIn(true);
+          setAuthUserInfo({
+            displayName: response.displayName,
+            email: response.email,
+            initials: response.initials,
+            picture: response.picture,
+          });
+        } else {
+          setIsLoggedIn(false);
+          setAuthUserInfo({});
+        }
+      });
+    };
+
+    checkAuthStatus();
+    // Refresh auth status every 30 seconds (same as popup-chat)
+    const interval = setInterval(checkAuthStatus, 30000);
+    return () => clearInterval(interval);
+  }, []);
+  
+  // Open wrdesk.com when logged out (once per sidepanel open, no tab spam)
+  const hasTriedOpeningWrdeskRef = useRef(false);
+  useEffect(() => {
+    // Only trigger when isLoggedIn is definitively false (not null/loading)
+    // And only once per sidepanel open (tracked by ref)
+    if (isLoggedIn === false && !hasTriedOpeningWrdeskRef.current) {
+      hasTriedOpeningWrdeskRef.current = true;
+      chrome.runtime.sendMessage({ type: 'OPEN_WRDESK_HOME_IF_NEEDED' }, (response) => {
+        if (chrome.runtime.lastError) {
+          console.warn('[AUTH] Sidepanel: Failed to open wrdesk.com:', chrome.runtime.lastError.message);
+        } else {
+          console.log('[AUTH] Sidepanel: Open wrdesk.com result:', response?.action);
+        }
+      });
+    }
+  }, [isLoggedIn]);
+  
+  // Handle Sign In click
+  const handleAuthSignIn = () => {
+    if (isLoggingIn) return;
+    setIsLoggingIn(true);
+    chrome.runtime.sendMessage({ type: 'AUTH_LOGIN' }, (response) => {
+      setIsLoggingIn(false);
+      if (response?.ok) {
+        setIsLoggedIn(true);
+        // Fetch updated user info
+        chrome.runtime.sendMessage({ type: 'AUTH_STATUS' }, (statusResponse: { loggedIn?: boolean; displayName?: string; email?: string; initials?: string; picture?: string } | undefined) => {
+          if (statusResponse?.loggedIn) {
+            setAuthUserInfo({
+              displayName: statusResponse.displayName,
+              email: statusResponse.email,
+              initials: statusResponse.initials,
+              picture: statusResponse.picture,
+            });
+          }
+        });
+      }
+    });
+  };
+  
+  // Handle Create Account click
+  const handleAuthCreateAccount = () => {
+    chrome.runtime.sendMessage({ type: 'OPEN_REGISTER_PAGE' });
+  };
+  
+  // Handle Logout click (used by BackendSwitcherInline, but we track state here too)
+  const handleAuthLogout = () => {
+    if (isLoggingOut) return;
+    setIsLoggingOut(true);
+    chrome.runtime.sendMessage({ type: 'AUTH_LOGOUT' }, () => {
+      setIsLoggingOut(false);
+      setIsLoggedIn(false);
+      setAuthUserInfo({});
+    });
+  };
+  
   // WR MailGuard state
   const [mailguardTo, setMailguardTo] = useState('')
   const [mailguardCapsulePolicy, setMailguardCapsulePolicy] = useState<CanonicalPolicy | null>(null)
@@ -1662,12 +1756,10 @@ function SidepanelOrchestrator() {
           chrome.runtime.sendMessage({ type: 'GET_STATUS' })
         }, 2000)
       } else {
-        // Show manual instructions if automatic launch failed
-        if (response?.showManualInstructions) {
-          setShowManualLaunchInstructions(true)
-        }
+        // Always show manual instructions when automatic launch fails
+        setShowManualLaunchInstructions(true)
         setNotification({ 
-          message: response?.error || 'Please start WR Code manually from the Start Menu.', 
+          message: response?.error || 'Please start WR Desk manually from the Start Menu.', 
           type: 'error' 
         })
         setTimeout(() => setNotification(null), 8000)
@@ -1676,7 +1768,7 @@ function SidepanelOrchestrator() {
       console.error('[Sidepanel] Failed to launch Electron:', err)
       setShowManualLaunchInstructions(true)
       setNotification({ 
-        message: 'Please start the WR Code Analysis Dashboard manually.', 
+        message: 'Please start the WR Desk Dashboard manually.', 
         type: 'error' 
       })
       setTimeout(() => setNotification(null), 8000)
@@ -1729,9 +1821,38 @@ function SidepanelOrchestrator() {
   }
 
   const openReasoningLightbox = () => {
-    // Changed: Open Electron Analysis Dashboard instead of lightbox
+    // Open Electron Analysis Dashboard
     console.log('📊 Opening Electron Analysis Dashboard...')
-    chrome.runtime?.sendMessage({ type: 'ELECTRON_OPEN_ANALYSIS_DASHBOARD' })
+    // Note: showNotification is defined later in this component, but we use setNotification directly here
+    // to avoid hoisting issues with const declarations
+    setNotification({ message: 'Opening Analysis Dashboard...', type: 'info' })
+    setTimeout(() => setNotification(null), 3000)
+    
+    chrome.runtime?.sendMessage({ type: 'ELECTRON_OPEN_ANALYSIS_DASHBOARD' }, (response) => {
+      if (chrome.runtime.lastError) {
+        console.error('❌ Error:', chrome.runtime.lastError.message)
+        setNotification({ message: 'Failed to open Dashboard. Is the extension loaded?', type: 'error' })
+        setTimeout(() => setNotification(null), 3000)
+        return
+      }
+      
+      if (response?.success) {
+        console.log('✅ Analysis Dashboard opened successfully')
+        setNotification({ message: 'Analysis Dashboard opened', type: 'success' })
+        setTimeout(() => setNotification(null), 3000)
+      } else if (response?.error) {
+        console.warn('⚠️ Dashboard response:', response.error)
+        // Show a more helpful message
+        let msg = response.error
+        if (response.error.includes('not running') || response.error.includes('Start Menu')) {
+          msg = 'Please start WR Code from the Start Menu'
+        } else if (response.error.includes('starting')) {
+          msg = 'Dashboard is starting, please wait...'
+        }
+        setNotification({ message: msg, type: 'error' })
+        setTimeout(() => setNotification(null), 3000)
+      }
+    })
   }
 
   const openAgentsLightbox = () => {
@@ -3342,7 +3463,7 @@ function SidepanelOrchestrator() {
         }}>
           <div style={{ fontSize: '48px', marginBottom: '16px' }}>🖥️</div>
           <h2 style={{ margin: '0 0 12px 0', fontSize: '18px', fontWeight: 700 }}>
-            WR Code Analysis Dashboard
+            WR Desk Analysis Dashboard
           </h2>
           
           {!showManualLaunchInstructions ? (
@@ -3390,7 +3511,7 @@ function SidepanelOrchestrator() {
                 </p>
                 <ol style={{ margin: '0', paddingLeft: '20px', fontSize: '12px', lineHeight: 1.6 }}>
                   <li>Open the <strong>Start Menu</strong></li>
-                  <li>Search for <strong>"WR Code"</strong></li>
+                  <li>Search for <strong>"WR Desk"</strong></li>
                   <li>Click to launch the application</li>
                   <li>Wait for the tray icon (🧠) to appear</li>
                   <li>Click <strong>Retry Connection</strong> below</li>
@@ -3469,6 +3590,168 @@ function SidepanelOrchestrator() {
       </div>
     )
   }
+
+  // ==========================================================================
+  // AUTH-GATED UI: Show minimal login screen when not logged in
+  // ==========================================================================
+  
+  // Loading state - show simple loading indicator
+  if (isLoggedIn === null) {
+    return (
+      <div style={{
+        width: '100%',
+        minHeight: '100vh',
+        fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
+        background: themeColors.background,
+        color: themeColors.text,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center'
+      }}>
+        <div style={{
+          fontSize: '13px',
+          color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.7)',
+          textAlign: 'center'
+        }}>
+          Loading...
+        </div>
+      </div>
+    )
+  }
+  
+  // Logged-out state: Show ONLY logo + Sign In + Create Account
+  if (!isLoggedIn) {
+    const accentColor = theme === 'standard' ? '#6366f1' : '#a78bfa'
+    const mutedColor = theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.7)'
+    
+    return (
+      <div style={{
+        width: '100%',
+        minHeight: '100vh',
+        fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
+        background: themeColors.background,
+        color: themeColors.text,
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: '40px 24px',
+        gap: '24px',
+        boxSizing: 'border-box'
+      }}>
+        {/* WRDesk Logo */}
+        <div style={{ textAlign: 'center' }}>
+          <img 
+            src={chrome.runtime.getURL('wrdesk-logo.png')}
+            alt="WR Desk"
+            style={{
+              width: '180px',
+              height: 'auto',
+              marginBottom: '16px'
+            }}
+          />
+          <p style={{
+            fontSize: '13px',
+            color: mutedColor,
+            margin: '0 0 8px 0',
+            lineHeight: '1.5'
+          }}>
+            Workflow-Ready Desk
+          </p>
+          <p style={{
+            fontSize: '11px',
+            color: mutedColor,
+            margin: 0,
+            opacity: 0.8
+          }}>
+            Sign in to access your dashboard
+          </p>
+        </div>
+        
+        {/* Sign In Button - matches wrdesk.com Sign In button with exact key icon */}
+        <button
+          onClick={handleAuthSignIn}
+          disabled={isLoggingIn}
+          style={{
+            padding: '10px 24px',
+            background: '#1559ed',
+            border: 'none',
+            borderRadius: '4px',
+            color: '#fff',
+            fontSize: '14px',
+            fontWeight: '500',
+            cursor: isLoggingIn ? 'wait' : 'pointer',
+            transition: 'all 0.15s ease',
+            opacity: isLoggingIn ? 0.7 : 1,
+            minWidth: '180px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: '8px'
+          }}
+          onMouseEnter={(e) => {
+            if (!isLoggingIn) {
+              e.currentTarget.style.background = '#0d47c2';
+            }
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.background = '#1559ed';
+          }}
+        >
+          {/* Key Icon - exact SVG from wrdesk.com */}
+          <svg 
+            width="15" 
+            height="15" 
+            viewBox="0 0 512 512" 
+            fill="currentColor"
+            style={{ flexShrink: 0 }}
+          >
+            <path d="M512 176.001C512 273.203 433.202 352 336 352c-11.22 0-22.19-1.062-32.827-3.069l-24.012 27.014A23.999 23.999 0 0 1 261.223 384H224v40c0 13.255-10.745 24-24 24h-40v40c0 13.255-10.745 24-24 24H24c-13.255 0-24-10.745-24-24v-78.059c0-6.365 2.529-12.47 7.029-16.971l161.802-161.802C163.108 213.814 160 195.271 160 176 160 78.798 238.797.001 335.999 0 433.488-.001 512 78.511 512 176.001zM336 128c0 26.51 21.49 48 48 48s48-21.49 48-48-21.49-48-48-48-48 21.49-48 48z"/>
+          </svg>
+          {isLoggingIn ? 'Signing in...' : 'Sign in with wrdesk.com'}
+        </button>
+        
+        {/* Create Account Link */}
+        <button
+          onClick={handleAuthCreateAccount}
+          style={{
+            padding: '8px 16px',
+            background: 'transparent',
+            border: 'none',
+            color: accentColor,
+            fontSize: '13px',
+            fontWeight: '500',
+            cursor: 'pointer',
+            transition: 'all 0.15s ease'
+          }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.textDecoration = 'underline';
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.textDecoration = 'none';
+          }}
+        >
+          Create free account
+        </button>
+        
+        {/* Signing in status message */}
+        {isLoggingIn && (
+          <p style={{
+            fontSize: '11px',
+            color: mutedColor,
+            margin: 0,
+            textAlign: 'center'
+          }}>
+            A browser window will open for secure sign-in...
+          </p>
+        )}
+      </div>
+    )
+  }
+
+  // ==========================================================================
+  // LOGGED-IN STATE: Show full dashboard UI below
+  // ==========================================================================
 
   // Minimal UI for display grids and Edge startpage
   if (showMinimalUI) {
@@ -6873,7 +7156,14 @@ height: '28px',
       </div>
 
       {/* WR Login / Backend Switcher Section */}
-      <BackendSwitcherInline theme={theme} />
+      <BackendSwitcherInline 
+        theme={theme} 
+        onLogout={() => {
+          // INSTANT: Update sidepanel auth state immediately when user clicks logout
+          setIsLoggedIn(false);
+          setAuthUserInfo({});
+        }}
+      />
 
       {/* Docked Command Chat - Admin View */}
       {isCommandChatPinned && (

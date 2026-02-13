@@ -11,15 +11,15 @@ import React, { useState } from 'react'
 import { useWRGuardStore } from '../useWRGuardStore'
 
 interface ProtectedSitesSectionProps {
-  theme: 'default' | 'dark' | 'professional'
+  theme: 'default' | 'dark' | 'professional' | 'standard' | 'pro'
 }
 
 export const ProtectedSitesSection: React.FC<ProtectedSitesSectionProps> = ({ theme }) => {
-  const isProfessional = theme === 'professional'
-  const textColor = isProfessional ? '#0f172a' : 'white'
-  const mutedColor = isProfessional ? '#64748b' : 'rgba(255,255,255,0.7)'
-  const borderColor = isProfessional ? 'rgba(15,23,42,0.1)' : 'rgba(255,255,255,0.1)'
-  const cardBg = isProfessional ? '#ffffff' : 'rgba(255,255,255,0.05)'
+  const isLightTheme = theme === 'professional' || theme === 'standard'
+  const textColor = isLightTheme ? '#0f172a' : 'white'
+  const mutedColor = isLightTheme ? '#64748b' : 'rgba(255,255,255,0.7)'
+  const borderColor = isLightTheme ? 'rgba(15,23,42,0.1)' : 'rgba(255,255,255,0.1)'
+  const cardBg = isLightTheme ? '#ffffff' : 'rgba(255,255,255,0.05)'
   const successColor = '#22c55e'
   const accentColor = '#8b5cf6'
   
@@ -175,7 +175,7 @@ export const ProtectedSitesSection: React.FC<ProtectedSitesSectionProps> = ({ th
                   width: '100%',
                   padding: '8px 10px',
                   fontSize: '12px',
-                  background: isProfessional ? '#ffffff' : 'rgba(255,255,255,0.08)',
+                  background: isLightTheme ? '#ffffff' : 'rgba(255,255,255,0.08)',
                   border: `1px solid ${borderColor}`,
                   borderRadius: '6px',
                   color: textColor,
@@ -197,7 +197,7 @@ export const ProtectedSitesSection: React.FC<ProtectedSitesSectionProps> = ({ th
                   width: '100%',
                   padding: '8px 10px',
                   fontSize: '12px',
-                  background: isProfessional ? '#ffffff' : 'rgba(255,255,255,0.08)',
+                  background: isLightTheme ? '#ffffff' : 'rgba(255,255,255,0.08)',
                   border: `1px solid ${borderColor}`,
                   borderRadius: '6px',
                   color: textColor,
@@ -255,7 +255,7 @@ export const ProtectedSitesSection: React.FC<ProtectedSitesSectionProps> = ({ th
           gridTemplateColumns: '40px 1fr 120px 80px 100px',
           gap: '12px',
           padding: '10px 14px',
-          background: isProfessional ? '#f8fafc' : 'rgba(255,255,255,0.03)',
+          background: isLightTheme ? '#f8fafc' : 'rgba(255,255,255,0.03)',
           borderBottom: `1px solid ${borderColor}`,
           fontSize: '10px',
           fontWeight: 600,
@@ -292,7 +292,7 @@ export const ProtectedSitesSection: React.FC<ProtectedSitesSectionProps> = ({ th
                   width: '32px',
                   height: '18px',
                   borderRadius: '9px',
-                  background: site.enabled ? successColor : (isProfessional ? '#e2e8f0' : 'rgba(255,255,255,0.2)'),
+                  background: site.enabled ? successColor : (isLightTheme ? '#e2e8f0' : 'rgba(255,255,255,0.2)'),
                   position: 'relative',
                   cursor: 'pointer',
                   transition: 'background 0.2s'
@@ -395,7 +395,7 @@ export const ProtectedSitesSection: React.FC<ProtectedSitesSectionProps> = ({ th
       <div style={{
         marginTop: '16px',
         padding: '12px 14px',
-        background: isProfessional ? '#f8fafc' : 'rgba(255,255,255,0.03)',
+        background: isLightTheme ? '#f8fafc' : 'rgba(255,255,255,0.03)',
         borderRadius: '8px',
         fontSize: '11px',
         color: mutedColor,

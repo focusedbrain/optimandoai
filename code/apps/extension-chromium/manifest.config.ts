@@ -1,7 +1,7 @@
 import { defineManifest } from '@crxjs/vite-plugin'
 
 export default defineManifest({
-  name: 'WR Code',
+  name: 'WR Desk',
   description: 'Multi-AI-Agenten Workflow Orchestrator mit echten Sidebars',
   version: '0.0.2',
   manifest_version: 3,
@@ -47,7 +47,7 @@ export default defineManifest({
     service_worker: 'src/background.ts'
   },
   action: {
-    default_title: 'WR Code - Toggle Sidebars'
+    default_title: 'WR Desk - Toggle Sidebars'
   },
   commands: {
     'toggle-overlay': {
