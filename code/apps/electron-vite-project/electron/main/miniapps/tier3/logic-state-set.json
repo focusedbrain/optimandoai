@@ -1,5 +1,6 @@
 {
   "id": "logic-state-set-v1",
+  "tier": 3,
   "type": "atomic",
   "group": "logic.state",
   "security": "medium",

@@ -1,5 +1,6 @@
 {
   "id": "ui-textarea-v1",
+  "tier": 3,
   "type": "atomic",
   "group": "ui.input",
   "security": "low",

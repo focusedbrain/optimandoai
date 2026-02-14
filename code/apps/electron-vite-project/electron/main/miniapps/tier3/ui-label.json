@@ -1,5 +1,6 @@
 {
   "id": "ui-label-v1",
+  "tier": 3,
   "type": "atomic",
   "group": "ui.text",
   "security": "low",
