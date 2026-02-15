@@ -32552,16 +32552,16 @@ ${pageText}
             id: 'private',
             name: 'Pro (Private)',
             allowedBillingOptions: ['annual', 'lifetime'] as const,
-            prices: { annual: 59, lifetime: 199 },
-            priceLabels: { annual: '€59<span>/year</span>', lifetime: '€199<span> one-time</span>' },
+            prices: { annual: 79, lifetime: 249 },
+            priceLabels: { annual: '€79<span>/year</span>', lifetime: '€249<span> one-time</span>' },
             ctaLabels: { annual: 'Select Pro', lifetime: 'Select Early Access Lifetime' }
           },
           publisher: {
             id: 'publisher',
             name: 'Publisher',
             allowedBillingOptions: ['annual', 'lifetime'] as const, // NO monthly
-            prices: { annual: 129, lifetime: 449 },
-            priceLabels: { annual: '€129<span>/year</span>', lifetime: '€449<span> one-time</span>' },
+            prices: { annual: 129, lifetime: 399 },
+            priceLabels: { annual: '€129<span>/year</span>', lifetime: '€399<span> one-time</span>' },
             ctaLabels: { annual: 'Select Publisher', lifetime: 'Select Early Access Lifetime' }
           },
           enterprise: {
@@ -32671,10 +32671,10 @@ ${pageText}
                 '<ul style="font-size:11px">' +
                   '<li>Local orchestration runtime</li>' +
                   '<li>BYOK integration (all supported providers)</li>' +
-                  '<li>Unlimited WR Desk™ (private, offline generation)</li>' +
+                  '<li>Unlimited WR Desk™ Automation Sessions</li>' +
+                  '<li>Unlimited BEAP™ Messaging</li>' +
                   '<li>pBEAP™ secure messaging (baseline)</li>' +
                   '<li>WRGuard™ baseline integrity monitoring</li>' +
-                  '<li>WRVault™ baseline credential storage</li>' +
                 '</ul>' +
                 '<div style="font-size:10px;opacity:0.7;margin:4px 0;text-transform:uppercase;letter-spacing:0.5px">Security & Verification</div>' +
                 '<ul style="font-size:11px">' +
@@ -32695,14 +32695,18 @@ ${pageText}
                 '</div>' +
                 '<div id="pro-private-note" class="wr-plan-note" style="display:none">Private use only · Non-commercial · No publishing rights</div>' +
                 '<div style="font-size:10px;opacity:0.7;margin:4px 0;text-transform:uppercase;letter-spacing:0.5px">Intended Use</div>' +
-                '<div style="font-size:11px;margin-bottom:8px">Single-user private deployments with cryptographic proof requirements. Non-commercial use only.</div>' +
+                '<div style="font-size:11px;margin-bottom:8px">Single-user private deployments for individuals and independent professionals. Non-commercial publishing rights.</div>' +
                 (isAffiliateAttributed ? '<div id="pro-private-founders" style="display:none;background:rgba(34,197,94,.15);border:1px solid rgba(34,197,94,.4);border-radius:6px;padding:10px;margin:8px 0">' + affiliateFoundersPackHtml + '</div>' : '') +
                 '<div style="font-size:10px;opacity:0.7;margin:4px 0;text-transform:uppercase;letter-spacing:0.5px">Included Capabilities</div>' +
                 '<ul style="font-size:11px">' +
                   '<li>All Basic tier capabilities</li>' +
+                  '<li>WRVault™ Local Data Vault + Password Manager (encrypted, scoped, policy-aware)</li>' +
                   '<li>qBEAP™ post-quantum-ready encrypted messaging</li>' +
-                  '<li>WRGuard™ advanced (strict mode, tamper detection)</li>' +
-                  '<li>WRVault™ advanced (encrypted, scoped, policy-aware)</li>' +
+                  '<li>Off-band VM Ingestor (external VM ingestion node; requires root VM access)</li>' +
+                  '<li>Hardware attestation features</li>' +
+                  '<li>Passkey-based protection features</li>' +
+                  '<li>WRGuard™ advanced strict mode (tamper detection)</li>' +
+                  '<li>Basic support</li>' +
                 '</ul>' +
                 '<div style="font-size:10px;opacity:0.7;margin:4px 0;text-transform:uppercase;letter-spacing:0.5px">Security & Verification</div>' +
                 '<ul style="font-size:11px">' +
@@ -32724,15 +32728,17 @@ ${pageText}
                   '<button id="publisher-lifetime" class="toggle-btn">Early Access Lifetime</button>' +
                 '</div>' +
                 '<div style="font-size:10px;opacity:0.7;margin:4px 0;text-transform:uppercase;letter-spacing:0.5px">Intended Use</div>' +
-                '<div style="font-size:11px;margin-bottom:8px">Single-user commercial deployments with third-party verification and publishing rights.</div>' +
+                '<div style="font-size:11px;margin-bottom:8px">Single-user commercial deployments with publishing and third-party verification rights.</div>' +
                 (isAffiliateAttributed ? '<div id="publisher-founders" style="display:none;background:rgba(34,197,94,.15);border:1px solid rgba(34,197,94,.4);border-radius:6px;padding:10px;margin:8px 0">' + affiliateFoundersPackHtml + '</div>' : '') +
                 '<div style="font-size:10px;opacity:0.7;margin:4px 0;text-transform:uppercase;letter-spacing:0.5px">Included Capabilities</div>' +
                 '<ul style="font-size:11px">' +
                   '<li>All Pro (Private) tier capabilities</li>' +
                   '<li>Commercial WR Desk™ publishing rights</li>' +
-                  '<li>Enterprise Handshakes (B2B trust establishment)</li>' +
+                  '<li>Enterprise Handshakes with cryptographically bound context</li>' +
+                  '<li>DNS-verified domain ownership for identity anchoring</li>' +
                   '<li>Publisher branding and custom domain support</li>' +
                   '<li>Up to 5GB managed template storage</li>' +
+                  '<li>Basic support</li>' +
                 '</ul>' +
                 '<div style="font-size:10px;opacity:0.7;margin:4px 0;text-transform:uppercase;letter-spacing:0.5px">Security & Verification</div>' +
                 '<ul style="font-size:11px">' +
@@ -32753,13 +32759,13 @@ ${pageText}
                   '<button id="enterprise-monthly" class="toggle-btn">Monthly</button>' +
                 '</div>' +
                 '<div style="font-size:10px;opacity:0.7;margin:4px 0;text-transform:uppercase;letter-spacing:0.5px">Intended Use</div>' +
-                '<div style="font-size:11px;margin-bottom:8px">Multi-user organizational deployments requiring role-based access, centralized governance, and audit-ready documentation.</div>' +
+                '<div style="font-size:11px;margin-bottom:8px">Multi-user organizational deployments requiring governance, role-based access, and audit-ready documentation.</div>' +
                 '<div style="font-size:10px;opacity:0.7;margin:4px 0;text-transform:uppercase;letter-spacing:0.5px">Included Capabilities</div>' +
                 '<ul style="font-size:11px">' +
                   '<li>All Publisher tier capabilities</li>' +
                   '<li>Multi-user access with role-based permissions</li>' +
                   '<li>Multiple domain support + SSO/SAML</li>' +
-                  '<li>Data Processing Agreement (DPA) available</li>' +
+                  '<li>Data Processing Agreement (DPA) availability</li>' +
                   '<li>Contractual support + SLA availability</li>' +
                 '</ul>' +
                 '<div style="font-size:10px;opacity:0.7;margin:4px 0;text-transform:uppercase;letter-spacing:0.5px">Security & Verification</div>' +
@@ -32847,12 +32853,12 @@ ${pageText}
 
       if (proPrivatePrice && proPrivateAnnual && proPrivateLifetime && proPrivateNote && proPrivateCta) {
         const proCfg = {
-          prices: { annual: '€59<span>/year</span>', lifetime: '€199<span> one-time</span>' },
+          prices: { annual: '€79<span>/year</span>', lifetime: '€249<span> one-time</span>' },
           ctas: { annual: 'Select Pro', lifetime: 'Select Early Access Lifetime' },
           urls: { annual: 'https://wrdesk.com/buy/?plan=private_annual', lifetime: 'https://wrdesk.com/buy/?plan=private_lifetime' }
         }
         const setProAnnual = () => {
-          console.log('[Plans] Private: switching to Annual @ €59/year')
+          console.log('[Plans] Private: switching to Annual @ €79/year')
           proPrivatePrice.innerHTML = proCfg.prices.annual
           proPrivateAnnual.classList.add('active')
           proPrivateLifetime.classList.remove('active')
@@ -32865,7 +32871,7 @@ ${pageText}
           }
         }
         const setProLifetime = () => {
-          console.log('[Plans] Private: switching to Lifetime @ €199 one-time')
+          console.log('[Plans] Private: switching to Lifetime @ €249 one-time')
           proPrivatePrice.innerHTML = proCfg.prices.lifetime
           proPrivateLifetime.classList.add('active')
           proPrivateAnnual.classList.remove('active')
@@ -32891,7 +32897,7 @@ ${pageText}
 
       if (publisherPrice && publisherAnnual && publisherLifetime && publisherCta) {
         const pubCfg = {
-          prices: { annual: '€129<span>/year</span>', lifetime: '€449<span> one-time</span>' },
+          prices: { annual: '€129<span>/year</span>', lifetime: '€399<span> one-time</span>' },
           ctas: { annual: 'Select Publisher', lifetime: 'Select Early Access Lifetime' },
           urls: { annual: 'https://wrdesk.com/buy/?plan=publisher_annual', lifetime: 'https://wrdesk.com/buy/?plan=publisher_lifetime' }
         }
@@ -32908,7 +32914,7 @@ ${pageText}
           }
         }
         const setPublisherLifetime = () => {
-          console.log('[Plans] Publisher: switching to Lifetime @ €449 one-time')
+          console.log('[Plans] Publisher: switching to Lifetime @ €399 one-time')
           publisherPrice.innerHTML = pubCfg.prices.lifetime
           publisherLifetime.classList.add('active')
           publisherAnnual.classList.remove('active')

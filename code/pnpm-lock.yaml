@@ -94,9 +94,6 @@ importers:
       imap:
         specifier: ^0.8.19
         version: 0.8.19
-      is-wsl:
-        specifier: ^2.2.0
-        version: 2.2.0
       jose:
         specifier: ^5.2.0
         version: 5.10.0

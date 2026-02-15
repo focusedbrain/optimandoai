@@ -1411,8 +1411,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   // ===== AUTH HANDLERS =====
   
   // Handle SSO login request
-  // If Electron is available, triggers SSO via backend
-  // If Electron is not reachable, fail-closed with structured error (NO web fallback)
+  // New approach: Extension gets auth URL from Electron and opens it in a Chrome tab directly.
+  // This avoids all Windows "App auswählen" / Smart App Control issues.
   if (msg && msg.type === 'AUTH_LOGIN') {
     console.log('[BG] AUTH_LOGIN request received');
     (async () => {
@@ -1423,47 +1423,60 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           signal: AbortSignal.timeout(3000),
         }).catch(() => null);
         
-        // [CHECKPOINT A] Log health check result and decision branch
         const electronReachable = healthCheck && healthCheck.ok;
-        console.log('[BG][A] Health check: electronReachable=' + electronReachable + ', status=' + (healthCheck?.status ?? 'null'));
+        console.log('[BG][A] Health check: electronReachable=' + electronReachable);
         
         if (!electronReachable) {
-          // FAIL-CLOSED: Electron not reachable - return structured error, do NOT open wrdesk.com
-          console.log('[AUTH] Electron not reachable -> fail-closed (no web fallback)');
-          sendResponse({ 
-            ok: false, 
-            electronNotRunning: true, 
-            error: 'Desktop app is not running. Please start it first.' 
-          });
+          console.log('[AUTH] Electron not reachable');
+          sendResponse({ ok: false, electronNotRunning: true, error: 'Desktop app is not running.' });
           return;
         }
         
-        // [CHECKPOINT A] Electron available path
-        console.log('[BG][A] Decision: ELECTRON_SSO (Electron reachable, triggering SSO)');
-        // Electron is available - trigger SSO login
-        const response = await fetch(`${ELECTRON_BASE_URL}/api/auth/login`, {
+        // Step 1: Get auth URL from Electron (Electron starts loopback server but does NOT open browser)
+        console.log('[BG] Requesting auth URL from Electron...');
+        const urlResponse = await fetch(`${ELECTRON_BASE_URL}/api/auth/login-url`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          signal: AbortSignal.timeout(180000), // 3 min timeout for login flow
+          signal: AbortSignal.timeout(10000),
         });
-        const data = await response.json();
-        console.log('[BG] AUTH_LOGIN response:', data);
-        if (data.ok) {
+        const urlData = await urlResponse.json();
+        
+        if (!urlData.ok || !urlData.authUrl) {
+          console.error('[BG] Failed to get auth URL:', urlData.error);
+          sendResponse({ ok: false, error: urlData.error || 'Failed to prepare SSO' });
+          return;
+        }
+        
+        // Step 2: Open the auth URL in a Chrome tab (this is 100% reliable - we ARE Chrome!)
+        console.log('[BG] Opening auth URL in Chrome tab...');
+        const authTab = await chrome.tabs.create({ url: urlData.authUrl, active: true });
+        console.log('[BG] Auth tab created: id=' + authTab.id);
+        
+        // Step 3: Wait for Electron to receive the callback (long-poll)
+        console.log('[BG] Waiting for SSO callback via Electron...');
+        const waitResponse = await fetch(`${ELECTRON_BASE_URL}/api/auth/login-wait`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          signal: AbortSignal.timeout(180000), // 3 min timeout
+        });
+        const waitData = await waitResponse.json();
+        console.log('[BG] AUTH_LOGIN response:', waitData);
+        
+        if (waitData.ok) {
           // Store auth state including tier
           await chrome.storage.local.set({ 
             authLoggedIn: true,
-            authTier: data.tier || 'free'
+            authTier: waitData.tier || 'free'
           });
+          // Close the Keycloak auth tab if still open
+          try {
+            if (authTab.id) await chrome.tabs.remove(authTab.id);
+          } catch (_) { /* tab may already be closed */ }
         }
-        sendResponse({ ok: data.ok, error: data.error, tier: data.tier });
+        sendResponse({ ok: waitData.ok, error: waitData.error, tier: waitData.tier });
       } catch (e: any) {
         console.error('[BG] AUTH_LOGIN error:', e.message);
-        // FAIL-CLOSED: Return error, do NOT open wrdesk.com
-        sendResponse({ 
-          ok: false, 
-          electronNotRunning: true, 
-          error: 'Desktop app is not running. Please start it first.' 
-        });
+        sendResponse({ ok: false, error: e.message || 'Login failed' });
       }
     })();
     return true; // Keep channel open for async response

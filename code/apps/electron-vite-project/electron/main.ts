@@ -1,5 +1,5 @@
 import { app, BrowserWindow, globalShortcut, Tray, Menu, Notification, screen, dialog, shell, ipcMain } from 'electron'
-import { loginWithKeycloak } from '../src/auth/login'
+import { loginWithKeycloak, prepareLoginUrl, setUrlOpener } from '../src/auth/login'
 import { saveRefreshToken, clearRefreshToken } from '../src/auth/tokenStore'
 import { ensureSession, updateSessionFromTokens, clearSession } from '../src/auth/session'
 import { 
@@ -462,7 +462,9 @@ process.on('SIGINT', () => {
 })
 
 // Handle uncaught exceptions to prevent crashes
-process.on('uncaughtException', (err) => {
+process.on('uncaughtException', (err: any) => {
+  // Silently ignore EPIPE errors (broken stdout/stderr pipe from background terminal)
+  if (err?.code === 'EPIPE') return
   console.error('[MAIN] Uncaught exception:', err)
   // Don't exit - try to keep running
 })
@@ -1444,25 +1446,23 @@ async function setupFileLogging() {
     fs.default.appendFileSync(logPath, `\n===== Electron Console Log Started: ${new Date().toISOString()} =====\n`)
     
     // Redirect console.log and console.error to both console and file
+    // Note: We wrap originalLog/originalError in try-catch to prevent EPIPE crashes
+    // when stdout/stderr pipes are broken (e.g. when launched from a background terminal)
     const originalLog = console.log
     const originalError = console.error
     console.log = (...args: any[]) => {
-      originalLog(...args)
+      try { originalLog(...args) } catch (_) { /* ignore EPIPE */ }
       try {
         const logLine = `[${new Date().toISOString()}] ${args.map((a: any) => typeof a === 'object' ? JSON.stringify(a, null, 2) : String(a)).join(' ')}\n`
         fs.default.appendFileSync(logPath, logLine)
-      } catch (e) {
-        originalError('[LOG ERROR]', e)
-      }
+      } catch (_) { /* ignore log write errors */ }
     }
     console.error = (...args: any[]) => {
-      originalError(...args)
+      try { originalError(...args) } catch (_) { /* ignore EPIPE */ }
       try {
         const logLine = `[${new Date().toISOString()}] ERROR: ${args.map((a: any) => typeof a === 'object' ? JSON.stringify(a, null, 2) : String(a)).join(' ')}\n`
         fs.default.appendFileSync(logPath, logLine)
-      } catch (e) {
-        originalError('[LOG ERROR]', e)
-      }
+      } catch (_) { /* ignore log write errors */ }
     }
     logFileSetup = true
     console.log('[MAIN] Console logging to file:', logPath)
@@ -1481,7 +1481,9 @@ app.commandLine.appendSwitch('disable-gpu-compositing')
 app.commandLine.appendSwitch('no-sandbox')
 
 // Add crash handlers
-process.on('uncaughtException', (error) => {
+process.on('uncaughtException', (error: any) => {
+  // Silently ignore EPIPE errors (broken stdout/stderr pipe from background terminal)
+  if (error?.code === 'EPIPE') return
   console.error('[MAIN] Uncaught exception:', error)
 })
 
@@ -1500,6 +1502,10 @@ console.log('[MAIN] About to call app.whenReady()')
 app.whenReady().then(async () => {
   console.log('[MAIN] ===== APP READY =====')
   try {
+    // Register Electron's shell.openExternal as the URL opener for SSO login
+    // This is more reliable than the 'open' npm package in Electron context
+    setUrlOpener((url: string) => shell.openExternal(url))
+
     // Setup console logging to file for debugging
     await setupFileLogging()
 
@@ -2677,7 +2683,67 @@ app.whenReady().then(async () => {
 
     // ===== AUTH ENDPOINTS =====
     
-    // POST /api/auth/login - Trigger Keycloak SSO login (opens dashboard on success)
+    // POST /api/auth/login-url - Get auth URL for extension to open in Chrome tab
+    // Returns: { ok, authUrl } - extension opens this URL itself, then polls /api/auth/login-wait
+    let _pendingLogin: Awaited<ReturnType<typeof prepareLoginUrl>> | null = null
+    httpApp.post('/api/auth/login-url', async (_req, res) => {
+      try {
+        console.log('[HTTP] POST /api/auth/login-url - Preparing SSO URL for extension')
+        // Cancel any previous pending login
+        if (_pendingLogin) {
+          console.log('[HTTP] Cancelling previous pending login')
+          _pendingLogin.cancel()
+          _pendingLogin = null
+        }
+        const prepared = await prepareLoginUrl()
+        _pendingLogin = prepared
+        console.log('[HTTP] Auth URL prepared, returning to extension')
+        res.json({ ok: true, authUrl: prepared.authUrl })
+      } catch (error: any) {
+        console.error('[HTTP] Failed to prepare login URL:', error?.message || error)
+        res.status(500).json({ ok: false, error: error?.message || 'Failed to prepare login' })
+      }
+    })
+
+    // POST /api/auth/login-wait - Wait for SSO callback (called after extension opens auth URL)
+    // Long-polls until user completes login or timeout
+    httpApp.post('/api/auth/login-wait', async (_req, res) => {
+      try {
+        console.log('[HTTP] POST /api/auth/login-wait - Waiting for SSO callback...')
+        if (!_pendingLogin) {
+          res.status(400).json({ ok: false, error: 'No pending login. Call /api/auth/login-url first.' })
+          return
+        }
+        const tokens = await _pendingLogin.waitForCallback()
+        _pendingLogin = null
+        
+        // Process tokens (same as requestLogin)
+        console.log('[HTTP] SSO callback received, processing tokens...')
+        const { saveRefreshToken: saveRT } = await import('../src/auth/tokenStore')
+        const { updateSessionFromTokens: updateSess } = await import('../src/auth/session')
+        const { mapRolesToTier: mapTier } = await import('../src/auth/capabilities')
+        
+        if (tokens.refresh_token) {
+          await saveRT(tokens.refresh_token)
+        }
+        const session = updateSess(tokens)
+        hasValidSession = true
+        const tier = mapTier(session?.roles ?? [])
+        
+        // Open dashboard on success
+        await openDashboardWindow()
+        updateTrayMenu()
+        
+        console.log('[HTTP] SSO login successful via extension - tier:', tier)
+        res.json({ ok: true, tier })
+      } catch (error: any) {
+        _pendingLogin = null
+        console.error('[HTTP] SSO login-wait failed:', error?.message || error)
+        res.status(401).json({ ok: false, error: error?.message || 'Login failed' })
+      }
+    })
+    
+    // POST /api/auth/login - Trigger Keycloak SSO login (legacy - opens browser from Electron)
     httpApp.post('/api/auth/login', async (_req, res) => {
       try {
         console.log('[HTTP] POST /api/auth/login - Starting SSO login via requestLogin()')
