@@ -280,8 +280,12 @@ function startServerOnPort(port: number): Promise<LoopbackServer> {
       // Resolve with result
       resolveCode({ code, state, error, error_description });
 
-      // Close server after first request
-      server.close();
+      // Close server after a delay to ensure the response is fully sent to the browser.
+      // Without this delay, server.close() can terminate the socket before the browser
+      // receives the full HTML response, causing ERR_CONNECTION_REFUSED.
+      setTimeout(() => {
+        try { server.close(); } catch (_) { /* ignore */ }
+      }, 3000);
     });
 
     server.on('error', reject);

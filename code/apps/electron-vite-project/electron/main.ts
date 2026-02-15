@@ -3,6 +3,7 @@ import { loginWithKeycloak, prepareLoginUrl, setUrlOpener } from '../src/auth/lo
 import { saveRefreshToken, clearRefreshToken } from '../src/auth/tokenStore'
 import { ensureSession, updateSessionFromTokens, clearSession } from '../src/auth/session'
 import { 
+  resolveTier,
   mapRolesToTier, 
   DEFAULT_TIER,
   type Tier
@@ -123,10 +124,11 @@ async function checkStartupSession(): Promise<boolean> {
       console.log('[AUTH] Session valid - user:', session.userInfo?.displayName || session.userInfo?.email || 'unknown')
       hasValidSession = true
       
-      // Map Keycloak roles to tier
+      // Resolve tier from wrdesk_plan claim (primary) or roles (fallback)
       const roles = session.userInfo?.roles || []
-      currentTier = mapRolesToTier(roles)
-      console.log('[AUTH] Tier set:', currentTier, 'roles:', roles.join(', ') || '(none)')
+      const plan = session.userInfo?.wrdesk_plan
+      currentTier = resolveTier(plan, roles)
+      console.log('[AUTH] Tier set:', currentTier, 'wrdesk_plan:', plan || '(none)', 'roles:', roles.join(', ') || '(none)')
       
       return true
     } else {
@@ -193,11 +195,12 @@ async function requestLogin(): Promise<{ ok: boolean; error?: string; tier?: str
     // Mark session as valid
     hasValidSession = true
     
-    // Map Keycloak roles to tier
+    // Resolve tier from wrdesk_plan claim (primary) or roles (fallback)
     const roles = userInfo?.roles || []
-    currentTier = mapRolesToTier(roles)
+    const plan = userInfo?.wrdesk_plan
+    currentTier = resolveTier(plan, roles)
     
-    console.log('[AUTH] Login successful - tier:', currentTier, 'roles:', roles.join(', ') || '(none)')
+    console.log('[AUTH] Login successful - tier:', currentTier, 'wrdesk_plan:', plan || '(none)', 'roles:', roles.join(', ') || '(none)')
     
     // Update tray menu to reflect logged-in state
     updateTrayMenu()
@@ -2721,14 +2724,14 @@ app.whenReady().then(async () => {
         console.log('[HTTP] SSO callback received, processing tokens...')
         const { saveRefreshToken: saveRT } = await import('../src/auth/tokenStore')
         const { updateSessionFromTokens: updateSess } = await import('../src/auth/session')
-        const { mapRolesToTier: mapTier } = await import('../src/auth/capabilities')
+        const { resolveTier: resolve } = await import('../src/auth/capabilities')
         
         if (tokens.refresh_token) {
           await saveRT(tokens.refresh_token)
         }
         const session = updateSess(tokens)
         hasValidSession = true
-        const tier = mapTier(session?.roles ?? [])
+        const tier = resolve(session?.wrdesk_plan, session?.roles ?? [])
         
         // Open dashboard on success
         await openDashboardWindow()

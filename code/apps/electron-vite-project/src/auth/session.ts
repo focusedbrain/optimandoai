@@ -19,6 +19,7 @@ export interface SessionUserInfo {
   picture?: string;  // Avatar URL from Keycloak profile (if available)
   sub?: string;
   roles?: string[];  // Keycloak roles (realm + client roles)
+  wrdesk_plan?: string;  // wrdesk_plan claim from Keycloak (e.g. 'pro', 'publisher', 'enterprise')
 }
 
 // Module-level variables (RAM only, not persisted)
@@ -122,6 +123,12 @@ function extractUserInfo(payload: Record<string, unknown>): SessionUserInfo {
   // Extract Keycloak roles
   const roles = extractRoles(payload);
 
+  // Extract wrdesk_plan claim (custom Keycloak user attribute)
+  const wrdesk_plan = typeof payload.wrdesk_plan === 'string' ? payload.wrdesk_plan : undefined;
+  if (wrdesk_plan) {
+    console.log('[SESSION] wrdesk_plan claim found: ' + wrdesk_plan);
+  }
+
   return {
     displayName,
     email,
@@ -129,6 +136,7 @@ function extractUserInfo(payload: Record<string, unknown>): SessionUserInfo {
     picture,
     sub,
     roles,
+    wrdesk_plan,
   };
 }
 
