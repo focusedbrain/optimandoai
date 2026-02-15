@@ -84,8 +84,9 @@
             try { t = localStorage.getItem('optimando-ui-theme'); } catch {}
           }
           t = t || 'standard';
-          // Map 'professional' to 'pro' for consistency
-          if (t === 'professional') t = 'pro';
+          // Map theme aliases for consistency
+          if (t === 'professional') t = 'standard';
+          if (t === 'default') t = 'pro';
           document.body.className = 'theme-' + t;
           // Store for React to read
           window.__INITIAL_THEME__ = t;

@@ -21,7 +21,7 @@ interface ChatMessage {
 
 interface CommandChatViewProps {
   /** Theme variant */
-  theme?: 'pro' | 'dark' | 'standard'
+  theme?: 'pro' | 'dark' | 'standard' | 'default' | 'professional'
   /** Initial messages */
   messages?: ChatMessage[]
   /** Callback when message is sent */
@@ -146,8 +146,8 @@ export const CommandChatView: React.FC<CommandChatViewProps> = ({
   const buttonLabel = getPrimaryButtonLabel(mode)
   const showModelInButton = shouldShowModelInButton(mode)
 
-  // Map old theme names for backward compatibility
-  const effectiveTheme = theme === 'standard' ? 'standard' : theme === 'dark' ? 'dark' : 'pro'
+  // Map theme names for backward compatibility ('professional' and 'standard' both map to light theme)
+  const effectiveTheme = (theme === 'standard' || theme === 'professional') ? 'standard' : theme === 'dark' ? 'dark' : 'pro'
 
   // Theme styles
   const getStyles = () => {
