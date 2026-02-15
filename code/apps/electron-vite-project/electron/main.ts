@@ -1427,8 +1427,9 @@ app.on('will-quit', async () => {
 app.on('activate', () => {
   // On OS X it's common to re-create a window in the app when the
   // dock icon is clicked and there are no other windows open.
-  if (BrowserWindow.getAllWindows().length === 0) {
-    createWindow()
+  // Only open dashboard if user has a valid session
+  if (BrowserWindow.getAllWindows().length === 0 && hasValidSession) {
+    openDashboardWindow()
   }
 })
 
@@ -1600,23 +1601,18 @@ app.whenReady().then(async () => {
   createTray()
   console.log('[MAIN] Tray created')
   
-  // Decide whether to show window based on session ONLY
-  // No window is created without a valid session, even on manual launch
+  // ALWAYS start headless (tray only) - Electron is a background service.
+  // The Analysis Dashboard opens only when:
+  //   1) User actively logs in (SSO via extension)
+  //   2) User clicks tray icon (while session is valid)
+  //   3) Deep link / explicit API call
+  // It does NOT auto-show on startup even if a valid session exists.
   if (!sessionValid) {
-    // No valid session = headless mode (tray only)
-    // User must login via extension, then dashboard opens automatically
     console.log('[AUTH] No valid session - running in tray only, waiting for login via extension')
-    // Don't create window at all
-  } else if (startHidden) {
-    // Auto-start + valid session = create window but keep hidden
-    console.log('[AUTH] Session valid at startup (hidden mode) - creating window hidden')
-    await createWindow()
-    // Window stays hidden, user can open via tray
   } else {
-    // Manual launch + valid session = show dashboard
-    console.log('[AUTH] Session valid - opening dashboard')
-    await createWindow()
-    await openDashboardWindow()
+    console.log('[AUTH] Valid session found - running in tray only (headless service mode)')
+    // Session is valid but we don't create or show the window.
+    // User can open the dashboard via tray icon or extension.
   }
   
   console.log('[MAIN] Startup complete - hasValidSession:', hasValidSession)
